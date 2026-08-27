@@ -48,9 +48,16 @@ NEXT_PUBLIC_SITE_URL=https://crm.example.com
 If the machine isn't directly reachable, put a tunnel in front of it:
 
 ```bash
-cloudflared tunnel --url http://localhost:3000   # free, no account needed
+cloudflared tunnel --protocol http2 --url http://localhost:3000
 ngrok http 3000
 ```
+
+`--protocol http2` is worth defaulting to. cloudflared prefers QUIC over
+UDP/7844, which many consumer and mobile networks drop; the symptom is a
+tunnel that registers one connection, flaps with *"control stream
+encountered a failure"*, and then stops resolving in DNS entirely once
+Cloudflare deregisters the hostname. HTTP/2 rides ordinary TCP/443.
+`cloudflared`'s startup precheck reports which transport it recommends.
 
 `NEXT_PUBLIC_*` variables are inlined at build time, so **change this
 before `npm run build`** — editing it afterwards has no effect until you

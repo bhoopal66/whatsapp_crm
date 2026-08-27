@@ -24,6 +24,11 @@
 # For an unattended deployment, use a NAMED tunnel or your own domain
 # instead — then the hostname is stable and this script is unnecessary.
 #
+# Related: run cloudflared with `--protocol http2`. Its QUIC default is
+# dropped by many networks, which makes the tunnel flap and eventually
+# lose its DNS record — a failure that looks like this script's job but
+# isn't.
+#
 # Usage:  sudo bash scripts/sync-tunnel-url.sh
 set -euo pipefail
 
