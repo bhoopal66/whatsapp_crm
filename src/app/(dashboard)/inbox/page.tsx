@@ -16,6 +16,7 @@ import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -32,8 +33,26 @@ export default function InboxPage() {
   );
 }
 
-function InboxPageInner() {
+/**
+ * Shared by /inbox and /team-inbox.
+ *
+ * `teamView` is the only difference between them. A team leader can
+ * see their whole team's conversations (migration 044), which would
+ * make their personal inbox indistinguishable from the team one — so
+ * /inbox narrows back to "mine" for them, and /team-inbox shows
+ * everything RLS allows. Admins are left alone: their inbox has always
+ * been the account-wide triage view and still is.
+ */
+export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}) {
   const t = useTranslations("Inbox.page");
+  const { user, accountRole } = useAuth();
+
+  // Narrow the personal inbox to this user's own threads when they can
+  // see more than their own — which today means a team leader. `null`
+  // means "no extra filter", leaving RLS to decide, which is what both
+  // the team view and an admin's inbox want.
+  const personalOnlyUserId =
+    !teamView && accountRole === "team_leader" ? (user?.id ?? null) : null;
   const router = useRouter();
   const searchParams = useSearchParams();
   /**
@@ -590,6 +609,7 @@ function InboxPageInner() {
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            restrictToUserId={personalOnlyUserId}
           />
         </div>
 

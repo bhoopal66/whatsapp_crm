@@ -202,15 +202,27 @@ export function ContactForm({
       // normalizes equal). Surface it as the friendly duplicate notice
       // and, for new contacts, point the user at the existing record.
       if (isUniqueViolation(err)) {
-        toast.error(t('toastConflict'));
         if (!isEdit && accountId) {
           const existing = await findExistingContact(
             supabase,
             accountId,
             phone.trim(),
           );
-          if (existing) setDupMatch({ contact: existing, exact: true });
+          if (existing) {
+            setDupMatch({ contact: existing, exact: true });
+            toast.error(t('toastConflict'));
+            return;
+          }
+          // The index says this number is taken, but the lookup found
+          // nothing — because contacts are only visible to whoever
+          // created them or handles their chat (migration 043). So it
+          // exists and belongs to a colleague. Saying "duplicate" and
+          // then showing no duplicate is a dead end; name the reason
+          // and the way out instead.
+          toast.error(t('toastConflictHidden'));
+          return;
         }
+        toast.error(t('toastConflict'));
         return;
       }
       const message = err instanceof Error ? err.message : t('toastError');

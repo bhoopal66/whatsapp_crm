@@ -22,15 +22,13 @@ import {
   ChevronDown,
   UserPlus,
   Check,
-  Clock,
   ArrowLeft,
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
 } from "lucide-react";
-import { format, isToday, isYesterday, differenceInHours } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 import { useTranslations } from "next-intl";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +52,7 @@ import { AiThreadBanner } from "./ai-thread-banner";
 import { buildReplyPreview } from "./reply-quote";
 import { renderTemplateBody } from "@/lib/whatsapp/template-body";
 import { toast } from "sonner";
+import { canAssignToOthers } from "@/lib/auth/conversation-visibility";
 
 interface ReplyDraft {
   id: string;
@@ -165,15 +164,16 @@ export function MessageThread({
   onToggleContactPanel,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
-  const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
 
-  const { user } = useAuth();
+  const { user, profileLoading, accountRole } = useAuth();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  /** Users this person leads — empty unless they lead a team. */
+  const [leadableUserIds, setLeadableUserIds] = useState<Set<string>>(new Set());
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   // Purely visual spin state for the manual-refresh button. The actual
   // refetch is fire-and-forget through `onRefresh` (which bumps the
@@ -231,32 +231,46 @@ export function MessageThread({
     };
   }, []);
 
-  // 24-hour session timer
-  const sessionInfo = useMemo(() => {
-    if (!messages.length) return { expired: false, remaining: "" };
-
-    // Find last customer message
-    const lastCustomerMsg = [...messages]
-      .reverse()
-      .find((m) => m.sender_type === "customer");
-
-    if (!lastCustomerMsg) return { expired: true, remaining: "No customer messages" };
-
-    const hoursSince = differenceInHours(new Date(), new Date(lastCustomerMsg.created_at));
-    const expired = hoursSince >= 24;
-
-    if (expired) {
-      return { expired: true, remaining: tTimer("expired") };
+  // Who this user leads. Only a team leader needs it: admins can
+  // already assign to anyone, and everyone else can only self-assign,
+  // so neither pays for the query.
+  useEffect(() => {
+    if (accountRole !== "team_leader" || !user?.id) {
+      setLeadableUserIds(new Set());
+      return;
     }
+    let cancelled = false;
+    const supabase = createClient();
+    (async () => {
+      const { data, error } = await supabase
+        .from("teams")
+        .select("team_members(user_id)")
+        .eq("leader_user_id", user.id);
+      if (cancelled || error || !data) return;
+      const ids = new Set<string>();
+      for (const team of data as { team_members: { user_id: string }[] | null }[]) {
+        for (const m of team.team_members ?? []) ids.add(m.user_id);
+      }
+      setLeadableUserIds(ids);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountRole, user?.id]);
 
-    const hoursLeft = 24 - hoursSince;
-    const remaining =
-      hoursLeft >= 1
-        ? tTimer("xhRemaining", { hours: Math.floor(hoursLeft) })
-        : tTimer("xmRemaining", { minutes: Math.floor(hoursLeft * 60) });
-
-    return { expired, remaining };
-  }, [messages, tTimer]);
+  // There is no 24-hour session window any more.
+  //
+  // That rule was Meta's: a business could only send free-form text
+  // within 24h of the customer's last message, and had to re-open the
+  // conversation with a pre-approved template otherwise. This app now
+  // talks to WhatsApp through Whapi, which drives a normal WhatsApp Web
+  // account — no window, no template registry, no approval step. The
+  // timer that used to live here therefore measured nothing, and its
+  // `expired` flag disabled the composer on precisely the threads that
+  // needed it most: a brand-new conversation has no customer message
+  // yet, so it counted as expired and there was no way to send the
+  // first one. Templates are still available from the composer toolbar
+  // as saved canned replies.
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -885,6 +899,23 @@ export function MessageThread({
     (s) => s.value === conversation.status
   );
   const assignedAgentId = conversation.assigned_agent_id ?? null;
+
+  // Handing a conversation to someone ELSE is an admin power — it
+  // decides who can see the chat at all now that visibility follows
+  // ownership (migration 042). A non-admin gets only themselves in the
+  // list, which keeps the "take this one" path working (and matches
+  // what the database will actually accept: the assignment trigger
+  // rejects anything else).
+  const canAssignOthers = canAssignToOthers(profileLoading ? null : accountRole);
+  // A team leader assigns within their own team. The database has the
+  // final say (the assignment trigger, migration 044) — this only
+  // decides who is worth offering, so the dropdown never lists someone
+  // the save would bounce.
+  const assignableProfiles = canAssignOthers
+    ? profiles
+    : profiles.filter(
+        (p) => p.user_id === user?.id || leadableUserIds.has(p.user_id),
+      );
   const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
   const assignLabel = assignedAgentId
     ? (currentAssignee?.full_name ?? t("assigned"))
@@ -923,18 +954,6 @@ export function MessageThread({
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
             <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
           </div>
-          {/* Session timer badge — hidden on the narrowest phones so
-              the name + back arrow keep their room. */}
-          <Badge
-            variant="outline"
-            className={cn(
-              "ml-1 hidden gap-1 border-border text-[10px] sm:inline-flex sm:ml-2",
-              sessionInfo.expired ? "text-red-400" : "text-primary"
-            )}
-          >
-            <Clock className="h-3 w-3" />
-            {sessionInfo.remaining}
-          </Badge>
         </div>
 
         <div className="flex items-center gap-2">
@@ -1028,12 +1047,12 @@ export function MessageThread({
               align="end"
               className="border-border bg-popover"
             >
-              {profiles.length === 0 ? (
+              {assignableProfiles.length === 0 ? (
                 <DropdownMenuItem disabled className="text-sm text-muted-foreground">
                   {t("noTeammates")}
                 </DropdownMenuItem>
               ) : (
-                profiles.map((p) => {
+                assignableProfiles.map((p) => {
                   const isSelected = p.user_id === assignedAgentId;
                   const presence = getPresence(p.user_id);
                   return (
@@ -1175,7 +1194,6 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={sessionInfo.expired}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onSendInteractive={handleSendInteractive}

@@ -57,6 +57,7 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { useAuth } from '@/hooks/use-auth';
 
 const PAGE_SIZE = 25;
 
@@ -64,8 +65,23 @@ interface ContactWithTags extends Contact {
   tags?: Tag[];
 }
 
-export default function ContactsPage() {
+/**
+ * Shared by /contacts and /team-contacts.
+ *
+ * A team leader can see their team's contacts (migration 044), which
+ * would make their personal list identical to the team one — so
+ * /contacts narrows them to the contacts they created, and
+ * /team-contacts shows everything RLS allows. Admins are unchanged:
+ * both views are account-wide for them.
+ */
+export function ContactsPageInner({ teamView = false }: { teamView?: boolean } = {}) {
   const t = useTranslations('Contacts.page');
+  const { user, accountRole } = useAuth();
+
+  // `null` = no extra narrowing, leaving RLS to decide — what the team
+  // view wants, and what an admin's contact list has always done.
+  const personalOnlyUserId =
+    !teamView && accountRole === 'team_leader' ? (user?.id ?? null) : null;
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
@@ -143,6 +159,9 @@ export default function ContactsPage() {
         p_search: term || null,
         p_limit: PAGE_SIZE,
         p_offset: from,
+        // Same narrowing as the plain path below — applied here too so
+        // the list doesn't change shape the moment a tag is picked.
+        p_owner_id: personalOnlyUserId,
       });
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
       if (error) {
@@ -159,6 +178,10 @@ export default function ContactsPage() {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      if (personalOnlyUserId) {
+        query = query.eq('user_id', personalOnlyUserId);
+      }
 
       if (term) {
         const like = `%${term}%`;
@@ -829,4 +852,10 @@ export default function ContactsPage() {
       </Dialog>
     </div>
   );
+}
+
+
+/** Route entry for /contacts — the personal view. */
+export default function ContactsPage() {
+  return <ContactsPageInner />;
 }
