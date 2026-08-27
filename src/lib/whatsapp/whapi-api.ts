@@ -1176,13 +1176,20 @@ export async function registerWebhook(
     )
   }
 
-  const ourOrigin = safeOrigin(webhookUrl)
   const alreadyRegistered = existing.some((hook) => hook.url === webhookUrl)
 
-  // Drop any previous entry of ours (same origin, possibly a stale
-  // tunnel URL or an old secret) and append the current one.
+  // Drop any previous entry of ours and append the current one, so a
+  // re-register replaces rather than accumulates.
+  //
+  // "Ours" is matched on the PATH, not just the origin. Matching origin
+  // alone looks sufficient until the deployment moves — and behind a
+  // Cloudflare quick tunnel the hostname changes on every restart, so
+  // each re-register would leave the previous host behind and the
+  // channel would slowly fill with dead URLs that Whapi keeps retrying.
+  // The path is what identifies a wacrm webhook; a channel is
+  // single-tenant here, so there is no second wacrm to confuse it with.
   const merged: WhapiWebhookConfig[] = existing
-    .filter((hook) => safeOrigin(hook.url) !== ourOrigin)
+    .filter((hook) => !isOurWebhook(hook.url, webhookUrl))
     .concat([
       {
         url: webhookUrl,
@@ -1205,13 +1212,22 @@ export async function registerWebhook(
   return { success: true, alreadyRegistered }
 }
 
-/** Origin of a URL, or the raw string when it doesn't parse. */
-function safeOrigin(url: string | undefined): string {
-  if (!url) return ''
+/**
+ * Is this existing webhook entry one that a wacrm deployment wrote?
+ *
+ * True when it shares our origin (the same deployment re-registering)
+ * or our path (the same deployment reachable at a new hostname). A
+ * hook we can't parse is left alone — better a stale entry than
+ * deleting a third party's callback.
+ */
+function isOurWebhook(existingUrl: string | undefined, ourUrl: string): boolean {
+  if (!existingUrl) return false
   try {
-    return new URL(url).origin
+    const existing = new URL(existingUrl)
+    const ours = new URL(ourUrl)
+    return existing.origin === ours.origin || existing.pathname === ours.pathname
   } catch {
-    return url
+    return false
   }
 }
 

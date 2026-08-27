@@ -447,7 +447,7 @@ describe('registerWebhook', () => {
     expect(patch.body.media.auto_download).toContain('image')
   })
 
-  it('replaces our own stale URL rather than accumulating tunnel URLs', async () => {
+  it('replaces our own entry on a re-register rather than duplicating it', async () => {
     fetchMock
       .mockResolvedValueOnce({
         ok: true,
@@ -462,6 +462,36 @@ describe('registerWebhook', () => {
 
     const urls = lastCall().body.webhooks.map((w: { url: string }) => w.url)
     expect(urls).toEqual(['https://crm.test/api/whatsapp/webhook?secret=NEW'])
+  })
+
+  it('drops our entry from a PREVIOUS hostname, so tunnel URLs do not pile up', async () => {
+    // A Cloudflare quick tunnel gets a new hostname every restart.
+    // Matching on origin alone would leave every dead host behind, and
+    // Whapi would keep retrying all of them.
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          webhooks: [
+            { url: 'https://old-tunnel.trycloudflare.com/api/whatsapp/webhook?secret=OLD' },
+            { url: 'https://analytics.example/hook' },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+
+    await registerWebhook({
+      token: 't',
+      webhookUrl: 'https://new-tunnel.trycloudflare.com/api/whatsapp/webhook?secret=NEW',
+    })
+
+    const urls = lastCall().body.webhooks.map((w: { url: string }) => w.url)
+    expect(urls).toEqual([
+      // A third party's hook on an unrelated path is preserved.
+      'https://analytics.example/hook',
+      'https://new-tunnel.trycloudflare.com/api/whatsapp/webhook?secret=NEW',
+    ])
   })
 
   it('refuses a plaintext callback URL up front', async () => {
