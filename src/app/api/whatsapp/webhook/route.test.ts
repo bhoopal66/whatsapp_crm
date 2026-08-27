@@ -32,6 +32,13 @@ const h = vi.hoisted(() => ({
     automationCompleted: 0,
     /** whatsapp_config.mirror_inbound_media for the matched row (#466). */
     mirrorInboundMedia: true as boolean | undefined,
+    /** whatsapp_config.phone_number_id — the Whapi channel id. */
+    channelId: 'CHANNEL-1' as string,
+    /** whatsapp_config.waba_id — the connected phone number. Equal to
+        `channelId` when the save path took its phone fallback. */
+    wabaId: '15551230000' as string,
+    /** Writes the channel-id adoption made to whatsapp_config. */
+    configUpdates: [] as Record<string, unknown>[],
     /** Objects the inbound-media mirror pushed into chat-media. */
     storageUploads: [] as {
       bucket: string
@@ -70,7 +77,8 @@ vi.mock('@supabase/supabase-js', () => ({
                   {
                     account_id: 'acc-1',
                     user_id: 'user-1',
-                    phone_number_id: 'CHANNEL-1',
+                    phone_number_id: h.state.channelId,
+                    waba_id: h.state.wabaId,
                     access_token: 'enc:plain-token',
                     verify_token: `enc:${WEBHOOK_SECRET}`,
                     mirror_inbound_media: h.state.mirrorInboundMedia,
@@ -78,6 +86,14 @@ vi.mock('@supabase/supabase-js', () => ({
                 ],
                 error: null,
               }),
+            // `adoptChannelId` writes the real channel id back once an
+            // authenticated callback reveals it.
+            update: (row: Record<string, unknown>) => ({
+              eq: () => {
+                h.state.configUpdates.push(row)
+                return Promise.resolve({ error: null })
+              },
+            }),
           }
         case 'conversations':
           // findOrCreateConversation: select().eq().eq().order().limit()
@@ -299,6 +315,9 @@ beforeEach(() => {
   h.state.storageUploads = []
   h.state.storageUploadError = null
   h.state.messageStatusUpdates = []
+  h.state.channelId = 'CHANNEL-1'
+  h.state.wabaId = '15551230000'
+  h.state.configUpdates = []
   mockGetMediaUrl.mockResolvedValue({
     url: 'https://lookaside.fbsbx.com/whatsapp/abc',
     mimeType: 'image/jpeg',
@@ -369,6 +388,55 @@ describe('inbound webhook: caller authentication', () => {
     // Still acked — retrying would not help — but nothing is written.
     expect(res.init.status).toBe(200)
     expect(h.state.upsertCalls).toHaveLength(0)
+  })
+
+  it('adopts the real channel id when the row still holds the phone fallback', async () => {
+    // `/health` does not expose the channel id, so the save path falls
+    // back to the connected phone number. A phone can never equal a
+    // Whapi channel id, so the strict guard above used to drop EVERY
+    // inbound callback — outbound looked healthy while nothing a
+    // customer sent ever arrived. Learn the id instead of dropping.
+    h.state.channelId = '15551230000'
+    h.state.wabaId = '15551230000'
+
+    const req = {
+      url: `https://crm.test/api/whatsapp/webhook?secret=${WEBHOOK_SECRET}`,
+      json: async () => ({
+        messages: [TEXT_MESSAGE],
+        event: { type: 'messages', event: 'post' },
+        channel_id: 'NIGHTW-JJC9J',
+      }),
+      headers: { get: () => null },
+    } as unknown as Request
+
+    const res = (await POST(req)) as unknown as { init: { status: number } }
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect(res.init.status).toBe(200)
+    // The message is delivered, not dropped...
+    expect(h.state.upsertCalls).toHaveLength(1)
+    // ...and the id is persisted so the guard bites from now on.
+    expect(h.state.configUpdates).toHaveLength(1)
+    expect(h.state.configUpdates[0].phone_number_id).toBe('NIGHTW-JJC9J')
+  })
+
+  it('does not re-adopt once a real channel id is stored', async () => {
+    // Guard stays strict after the first callback taught it the id.
+    const req = {
+      url: `https://crm.test/api/whatsapp/webhook?secret=${WEBHOOK_SECRET}`,
+      json: async () => ({
+        messages: [TEXT_MESSAGE],
+        event: { type: 'messages', event: 'post' },
+        channel_id: 'CHANNEL-1',
+      }),
+      headers: { get: () => null },
+    } as unknown as Request
+
+    await POST(req)
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect(h.state.upsertCalls).toHaveLength(1)
+    expect(h.state.configUpdates).toHaveLength(0)
   })
 })
 

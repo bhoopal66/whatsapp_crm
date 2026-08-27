@@ -20,6 +20,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { serverSupabaseUrl } from '@/lib/supabase/urls'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media downloads and mirror
@@ -32,7 +33,7 @@ let _adminClient: any = null
 function supabaseAdmin() {
   if (!_adminClient) {
     _adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serverSupabaseUrl(),
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
   }
@@ -174,6 +175,53 @@ async function findConfigByWebhookSecret(secret: string): Promise<any | null> {
 }
 
 /**
+ * Is this row still carrying the phone-number placeholder rather than a
+ * real Whapi channel id?
+ *
+ * The save path writes `phone_number_id = <operator input> ?? channel.phone`
+ * and `waba_id = channel.phone`. The two are equal exactly when the
+ * fallback was taken, which is the only case where the channel-id guard
+ * has nothing real to compare against.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isPhoneFallbackChannelId(config: any): boolean {
+  return (
+    !!config.waba_id &&
+    config.phone_number_id === config.waba_id
+  )
+}
+
+/**
+ * Record the channel id learned from an authenticated callback.
+ *
+ * Best-effort: a failure here costs us the stricter guard on later
+ * messages, but must never stop THIS message from being delivered —
+ * dropping customer mail to preserve a defence-in-depth check would be
+ * the worse trade. A UNIQUE violation means another account already
+ * claimed this channel, which is logged loudly and left alone.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function adoptChannelId(config: any, channelId: string): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .from('whatsapp_config')
+    .update({ phone_number_id: channelId, updated_at: new Date().toISOString() })
+    .eq('account_id', config.account_id)
+
+  if (error) {
+    console.error(
+      `[whapi-webhook] could not adopt channel id "${channelId}":`,
+      error,
+    )
+    return
+  }
+
+  config.phone_number_id = channelId
+  console.log(
+    `[whapi-webhook] learned channel id "${channelId}" for account ${config.account_id} (was the phone-number placeholder).`,
+  )
+}
+
+/**
  * Turn one authenticated Whapi callback into CRM state.
  *
  * The heavy lifting — contact dedup, conversation resolution, Flows,
@@ -192,15 +240,24 @@ async function processWhapiWebhook(
   // disagrees means the operator pointed a *second* channel at a URL
   // minted for the first — messages would land in the wrong account, so
   // refuse rather than mis-file them.
-  if (
-    event.channelId &&
-    config.phone_number_id &&
-    event.channelId !== config.phone_number_id
-  ) {
-    console.error(
-      `[whapi-webhook] channel mismatch: callback says "${event.channelId}" but this secret belongs to "${config.phone_number_id}". Dropping.`,
-    )
-    return
+  //
+  // ...unless we never learned the real channel id in the first place.
+  // `/health` does not expose it, so the save path falls back to the
+  // connected phone number to satisfy the UNIQUE constraint. A phone
+  // number can never equal a Whapi channel id (`NIGHTW-JJC9J`), so with
+  // the fallback in place this guard rejected EVERY inbound callback —
+  // outbound sending looked perfectly healthy while nothing a customer
+  // wrote ever arrived. Adopt the id the authenticated callback carries
+  // instead, which makes the guard meaningful from the next message on.
+  if (event.channelId && config.phone_number_id) {
+    if (isPhoneFallbackChannelId(config)) {
+      await adoptChannelId(config, event.channelId)
+    } else if (event.channelId !== config.phone_number_id) {
+      console.error(
+        `[whapi-webhook] channel mismatch: callback says "${event.channelId}" but this secret belongs to "${config.phone_number_id}". Dropping.`,
+      )
+      return
+    }
   }
 
   for (const status of event.statuses) {

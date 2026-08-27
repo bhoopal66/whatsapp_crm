@@ -12,6 +12,14 @@ import {
   type TemplateSendValues,
 } from '@/components/inbox/template-picker';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -39,6 +47,8 @@ import {
   X,
   DollarSign,
   LayoutTemplate,
+  MessageSquarePlus,
+  Send,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -68,6 +78,18 @@ export function ContactDetailView({
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+
+  // Send a plain message — the other way to open a thread with this
+  // contact. Templates exist because Meta only allowed a
+  // business-initiated conversation to start with a pre-approved one;
+  // the Whapi transport has no such rule and no template registry, so
+  // on a WhatsApp-Web channel an ordinary text is the *normal* way to
+  // say hello and templates are just saved canned replies. The send
+  // route already accepts `contact_id` with any message type and
+  // find-or-creates the conversation, so this needs no new endpoint.
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -324,6 +346,43 @@ export function ContactDetailView({
     setSavingCustom(false);
   }
 
+  async function handleSendMessage() {
+    const text = messageText.trim();
+    if (!contactId || !text || sendingMessage) return;
+
+    setSendingMessage(true);
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Same find-or-create path the template send uses — omitting
+          // conversation_id lets the route open the thread if this is
+          // the first contact we've ever had with this number.
+          contact_id: contactId,
+          message_type: 'text',
+          content_text: text,
+        }),
+      });
+
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const reason = payload?.error || `HTTP ${res.status}`;
+        toast.error(t('toastMessageFailed', { reason }));
+        return;
+      }
+
+      toast.success(t('toastMessageSent'));
+      setMessageText('');
+      setMessageDialogOpen(false);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'network error';
+      toast.error(t('toastMessageFailed', { reason }));
+    } finally {
+      setSendingMessage(false);
+    }
+  }
+
   async function handleSendTemplate(
     template: MessageTemplate,
     values: TemplateSendValues,
@@ -432,12 +491,29 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap gap-2">
+                {/* Primary action: just write to them. Templates are the
+                    secondary path now — see the note on
+                    `messageDialogOpen` above. */}
                 <Button
                   size="sm"
+                  onClick={() => setMessageDialogOpen(true)}
+                  disabled={sendingMessage}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {sendingMessage ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <MessageSquarePlus className="size-4" />
+                  )}
+                  {t('sendMessageBtn')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => setTemplatePickerOpen(true)}
                   disabled={sendingTemplate}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                  className="border-border"
                 >
                   {sendingTemplate ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -749,6 +825,55 @@ export function ContactDetailView({
         )}
       </SheetContent>
     </Sheet>
+    <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
+      <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-popover-foreground">
+            {t('messageDialog.title')}
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            {t('messageDialog.desc', { phone: contact?.phone ?? '' })}
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={messageText}
+          onChange={(e) => setMessageText(e.target.value)}
+          placeholder={t('messageDialog.placeholder')}
+          rows={5}
+          autoFocus
+          // Enter sends, Shift+Enter makes a newline — the same reflex
+          // the inbox composer trains.
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void handleSendMessage();
+            }
+          }}
+          className="bg-background border-border resize-none"
+        />
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => setMessageDialogOpen(false)}
+            disabled={sendingMessage}
+          >
+            {t('messageDialog.cancel')}
+          </Button>
+          <Button
+            onClick={() => void handleSendMessage()}
+            disabled={!messageText.trim() || sendingMessage}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            {sendingMessage ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Send className="size-4" />
+            )}
+            {t('messageDialog.send')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <TemplatePicker
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}

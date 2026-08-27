@@ -162,6 +162,56 @@ describe("mirrorInboundMedia", () => {
     );
   });
 
+  it("returns a browser-reachable URL, not the server's internal origin", async () => {
+    // The mirror runs on the server, where `getPublicUrl` composes links
+    // from SUPABASE_INTERNAL_URL. Persisting that verbatim gave every
+    // inbound photo and voice note a `http://localhost:8000/...` src: a
+    // broken image and a player that never starts, even though the
+    // bytes uploaded perfectly.
+    const prevInternal = process.env.SUPABASE_INTERNAL_URL;
+    const prevPublic = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    process.env.SUPABASE_INTERNAL_URL = "http://localhost:8000";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://tunnel.test/supabase";
+
+    try {
+      const internalStorage = {
+        from(bucket: string) {
+          return {
+            async upload() {
+              return { error: null };
+            },
+            getPublicUrl(path: string) {
+              return {
+                data: {
+                  publicUrl: `http://localhost:8000/storage/v1/object/public/${bucket}/${path}`,
+                },
+              };
+            },
+          };
+        },
+      };
+
+      const url = await mirrorInboundMedia({
+        ...BASE,
+        storage: internalStorage as unknown as Parameters<
+          typeof mirrorInboundMedia
+        >[0]["storage"],
+        mimeType: "image/jpeg",
+        fileSize: 1024,
+        messageTimestamp: "1754899200",
+        download: fakeDownload(1024),
+      });
+
+      expect(url).toBe(
+        `https://tunnel.test/supabase/storage/v1/object/public/${MIRROR_BUCKET}/account-${ACCOUNT}/inbound/${MEDIA_ID}-image-1754899200.jpg`,
+      );
+      expect(url).not.toContain("localhost");
+    } finally {
+      process.env.SUPABASE_INTERNAL_URL = prevInternal;
+      process.env.NEXT_PUBLIC_SUPABASE_URL = prevPublic;
+    }
+  });
+
   it("writes the same path on a redelivery, so a retry can't orphan a copy", async () => {
     const { storage, uploads } = fakeStorage();
     const args = {

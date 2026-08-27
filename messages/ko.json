@@ -11,8 +11,7 @@
     "passwordPlaceholder": "비밀번호를 입력하세요",
     "signingIn": "로그인 중...",
     "signIn": "로그인",
-    "noAccount": "계정이 없으신가요?",
-    "createAccount": "계정 만들기"
+    "noAccountAskAdmin": "계정이 필요하신가요? 관리자에게 생성을 요청하세요."
   },
   "Sidebar": {
     "title": "WhatsApp용 CRM 템플릿",
@@ -38,7 +37,10 @@
     "defaultAvatar": "아바타",
     "menuProfile": "프로필",
     "menuSettings": "설정",
-    "menuSignOut": "로그아웃"
+    "menuSignOut": "로그아웃",
+    "roleTeamLeader": "팀 리더",
+    "teamInbox": "팀 받은편지함",
+    "teamContacts": "팀 연락처"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -175,18 +177,10 @@
       "today": "오늘",
       "yesterday": "어제"
     },
-    "sessionTimer": {
-      "expired": "만료됨",
-      "xhRemaining": "{hours}시간 남음",
-      "xmRemaining": "{minutes}분 남음",
-      "noCustomerMessages": "고객 메시지 없음"
-    },
     "composer": {
       "draftHint": "✨를 눌러 AI로 답장 초안을 작성하세요 — 보내기 전에 수정할 수 있습니다",
-      "sessionExpiredHint": "24시간 세션이 만료되었습니다. 다시 연결하려면 템플릿을 사용하세요.",
       "templates": "템플릿",
       "readOnlyPlaceholder": "읽기 전용 — 뷰어는 열람만 가능하고 답장할 수 없습니다",
-      "sessionExpiredPlaceholder": "세션 만료 - 템플릿을 사용하세요",
       "typeMessagePlaceholder": "메시지를 입력하세요... (줄바꿈은 Shift+Enter)",
       "readOnlyTitle": "읽기 전용 — 현재 역할로는 메시지를 보낼 수 없습니다",
       "recording": "녹음 중… {current} / {max}",
@@ -374,7 +368,8 @@
       "dupSimilar": "매우 유사한 번호를 가진 연락처가 이미 있습니다.",
       "loadingTags": "태그를 불러오는 중...",
       "noTagsAvailable": "사용 가능한 태그가 없습니다. 설정에서 태그를 만드세요.",
-      "phoneRequired": "전화번호는 필수입니다"
+      "phoneRequired": "전화번호는 필수입니다",
+      "toastConflictHidden": "다른 팀원이 이미 이 번호의 연락처를 가지고 있습니다. 관리자에게 해당 대화를 배정해 달라고 요청하세요."
     },
     "detailView": {
       "tabs": {
@@ -436,7 +431,17 @@
       "toastCustomFieldsSaved": "커스텀 필드가 저장되었습니다",
       "toastCustomFieldsFailed": "커스텀 필드를 저장하지 못했습니다",
       "toastTemplateSent": "\"{name}\" 템플릿을 보냈습니다",
-      "toastTemplateFailed": "템플릿을 보내지 못했습니다: {reason}"
+      "toastTemplateFailed": "템플릿을 보내지 못했습니다: {reason}",
+      "sendMessageBtn": "메시지 보내기",
+      "toastMessageSent": "메시지를 보냈습니다",
+      "toastMessageFailed": "메시지 전송 실패: {reason}",
+      "messageDialog": {
+        "title": "메시지 보내기",
+        "desc": "WhatsApp으로 {phone}에 전송됩니다. 대화가 없으면 새로 시작됩니다.",
+        "placeholder": "메시지를 입력하세요…",
+        "send": "보내기",
+        "cancel": "취소"
+      }
     },
     "importModal": {
       "title": "연락처 가져오기",
@@ -1285,7 +1290,8 @@
       "removeDialogDesc": "<bold>{name}</bold>을(를) 이 계정에서 제거하시겠습니까? 이 계정에서 로그아웃되며 다음 로그인 시 새로운 개인 계정이 발급됩니다. 로그인 정보 자체는 삭제되지 않습니다.",
       "cancel": "취소",
       "removing": "제거 중...",
-      "removeBtn": "멤버 제거"
+      "removeBtn": "멤버 제거",
+      "createMember": "사용자 생성"
     },
     "invite": {
       "inviteCreated": "초대가 생성되었습니다",
@@ -1454,7 +1460,9 @@
       "viewer": "뷰어",
       "viewerHint": "앱 전체를 읽기 전용으로 열람",
       "owner": "소유자",
-      "ownerHint": "계정과 결제에 대한 전체 권한"
+      "ownerHint": "계정과 결제에 대한 전체 권한",
+      "team_leader": "팀 리더",
+      "team_leaderHint": "팀의 대화를 보고 배정합니다. 설정은 불가"
     },
     "whatsapp": {
       "title": "WhatsApp 연결",
@@ -1729,6 +1737,49 @@
       "reindex": "재색인",
       "reindexTooltip": "모든 문서를 다시 임베딩합니다 (예: 임베딩 키 추가 후)",
       "loading": "불러오는 중…"
+    },
+    "createMember": {
+      "dialogTitle": "사용자 생성",
+      "dialogDesc": "바로 로그인할 수 있는 계정을 만듭니다. 이메일은 발송되지 않으니 비밀번호를 직접 전달하세요.",
+      "emailLabel": "이메일",
+      "emailPlaceholder": "name@company.com",
+      "nameLabel": "이름",
+      "namePlaceholder": "선택 사항",
+      "passwordLabel": "비밀번호",
+      "passwordHint": "정확히 복사할 수 있도록 그대로 표시됩니다. 8자 이상이어야 합니다.",
+      "regenerate": "새 비밀번호 생성",
+      "roleLabel": "역할",
+      "submit": "사용자 생성",
+      "cancel": "취소",
+      "created": "{email} 계정을 만들었습니다",
+      "failed": "사용자를 생성하지 못했습니다"
+    },
+    "teams": {
+      "title": "팀",
+      "description": "상담원을 팀으로 묶고 각 팀의 리더를 지정합니다.",
+      "newTeam": "새 팀",
+      "newTeamDesc": "팀 이름을 정하세요. 리더와 구성원은 다음에 선택할 수 있습니다.",
+      "namePlaceholder": "예: 영업",
+      "create": "만들기",
+      "cancel": "취소",
+      "created": "{name} 팀을 만들었습니다",
+      "createFailed": "팀을 만들지 못했습니다",
+      "saveFailed": "변경 사항을 저장하지 못했습니다",
+      "deleteFailed": "팀을 삭제하지 못했습니다",
+      "deleted": "{name} 팀을 삭제했습니다",
+      "emptyTitle": "아직 팀이 없습니다",
+      "emptyBody": "팀을 만들고 리더를 지정하면 리더가 팀의 대화를 보고 배정할 수 있습니다.",
+      "leaderLabel": "팀 리더",
+      "noLeader": "리더 없음",
+      "leaderHint": "리더는 팀의 대화와 연락처를 보고 팀 내에서 업무를 배정할 수 있습니다.",
+      "membersLabel": "구성원",
+      "memberCount": "{count}명",
+      "ledBy": "리더: {name}",
+      "unknownMember": "알 수 없음",
+      "inTeam": "{name} 소속",
+      "deleteTeam": "팀 삭제",
+      "deleteTitle": "{name} 팀을 삭제할까요?",
+      "deleteBody": "팀과 구성원 정보가 삭제됩니다. 대화나 연락처는 삭제되지 않으며, 리더가 팀 업무를 더 이상 보지 못하게 될 뿐입니다."
     }
   }
 }

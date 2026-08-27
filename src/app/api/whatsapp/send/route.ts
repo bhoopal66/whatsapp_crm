@@ -126,12 +126,23 @@ export async function POST(request: Request) {
         )
       }
 
-      const resolved = await findOrCreateConversation(
-        supabase,
-        accountId,
-        userId,
-        contact_id
-      )
+      let resolved: string | null
+      try {
+        resolved = await findOrCreateConversation(
+          supabase,
+          accountId,
+          userId,
+          contact_id
+        )
+      } catch (err) {
+        // Map SendMessageError here rather than letting it reach the
+        // outer catch, which collapses everything unknown to a generic
+        // 500 and would throw away the "ask an admin" wording.
+        if (err instanceof SendMessageError) {
+          return NextResponse.json({ error: err.message }, { status: err.status })
+        }
+        throw err
+      }
       if (!resolved) {
         return NextResponse.json(
           { error: 'Failed to open a conversation for this contact' },
@@ -224,6 +235,20 @@ async function findOrCreateConversation(
     .single()
 
   if (error) {
+    // 23505 = unique_violation on (account_id, contact_id). Since
+    // migration 042 a conversation is only visible to its owner, its
+    // assignee and admins — so the SELECT above can come back empty
+    // for a thread that genuinely exists and belongs to a colleague.
+    // The insert then collides with the index. Say what actually
+    // happened instead of reporting a generic failure: the caller has
+    // done nothing wrong and needs an admin to hand them the chat.
+    if (error.code === '23505') {
+      throw new SendMessageError(
+        'conversation_not_yours',
+        'This contact already has a conversation owned by someone else. Ask an admin to assign it to you.',
+        409,
+      )
+    }
     console.error('Error creating conversation for contact send:', error.message)
     return null
   }

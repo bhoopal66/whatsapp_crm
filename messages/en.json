@@ -11,8 +11,7 @@
     "passwordPlaceholder": "Enter your password",
     "signingIn": "Signing in...",
     "signIn": "Sign in",
-    "noAccount": "Don't have an account?",
-    "createAccount": "Create account"
+    "noAccountAskAdmin": "Need an account? Ask your administrator to create one for you."
   },
   "Sidebar": {
     "title": "CRM Template for WhatsApp",
@@ -38,7 +37,10 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
-    "menuSignOut": "Sign out"
+    "menuSignOut": "Sign out",
+    "roleTeamLeader": "Team leader",
+    "teamInbox": "Team inbox",
+    "teamContacts": "Team contacts"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -175,18 +177,10 @@
       "today": "Today",
       "yesterday": "Yesterday"
     },
-    "sessionTimer": {
-      "expired": "Expired",
-      "xhRemaining": "{hours}h remaining",
-      "xmRemaining": "{minutes}m remaining",
-      "noCustomerMessages": "No customer messages"
-    },
     "composer": {
       "draftHint": "Tap the ✨ to draft a reply with AI — you can edit it before sending",
-      "sessionExpiredHint": "24-hour session expired. Use a template to re-engage.",
       "templates": "Templates",
       "readOnlyPlaceholder": "Read-only — viewers can browse but not reply",
-      "sessionExpiredPlaceholder": "Session expired - use a template",
       "typeMessagePlaceholder": "Type a message... (Shift+Enter for new line)",
       "readOnlyTitle": "Read-only — your role can't send messages",
       "recording": "Recording… {current} / {max}",
@@ -374,7 +368,8 @@
       "dupSimilar": "A contact with a very similar number already exists.",
       "loadingTags": "Loading tags...",
       "noTagsAvailable": "No tags available. Create tags in Settings.",
-      "phoneRequired": "Phone number is required"
+      "phoneRequired": "Phone number is required",
+      "toastConflictHidden": "Another team member already has a contact with this number. Ask an admin to assign that chat to you."
     },
     "detailView": {
       "tabs": {
@@ -436,7 +431,17 @@
       "toastCustomFieldsSaved": "Custom fields saved",
       "toastCustomFieldsFailed": "Failed to save custom fields",
       "toastTemplateSent": "Template \"{name}\" sent",
-      "toastTemplateFailed": "Failed to send template: {reason}"
+      "toastTemplateFailed": "Failed to send template: {reason}",
+      "sendMessageBtn": "Send message",
+      "toastMessageSent": "Message sent",
+      "toastMessageFailed": "Failed to send message: {reason}",
+      "messageDialog": {
+        "title": "Send a message",
+        "desc": "Sent to {phone} on WhatsApp. This opens a conversation if there isn’t one yet.",
+        "placeholder": "Write your message…",
+        "send": "Send",
+        "cancel": "Cancel"
+      }
     },
     "importModal": {
       "title": "Import Contacts",
@@ -1285,7 +1290,8 @@
       "removeDialogDesc": "Remove <bold>{name}</bold> from the account? They'll be signed out of this account and given a fresh personal account on their next sign-in. Their login isn't deleted.",
       "cancel": "Cancel",
       "removing": "Removing...",
-      "removeBtn": "Remove member"
+      "removeBtn": "Remove member",
+      "createMember": "Create user"
     },
     "invite": {
       "inviteCreated": "Invite created",
@@ -1454,7 +1460,9 @@
       "viewer": "Viewer",
       "viewerHint": "Read-only across the app",
       "owner": "Owner",
-      "ownerHint": "Full control over account and billing"
+      "ownerHint": "Full control over account and billing",
+      "team_leader": "Team leader",
+      "team_leaderHint": "Sees and assigns their team's chats; no settings"
     },
     "whatsapp": {
       "title": "WhatsApp connection",
@@ -1729,6 +1737,49 @@
       "reindex": "Reindex",
       "reindexTooltip": "Re-embed all documents (e.g. after adding an embeddings key)",
       "loading": "Loading…"
+    },
+    "createMember": {
+      "dialogTitle": "Create a user",
+      "dialogDesc": "Creates a login that can sign in immediately. Share the password with them directly — no email is sent.",
+      "emailLabel": "Email",
+      "emailPlaceholder": "name@company.com",
+      "nameLabel": "Full name",
+      "namePlaceholder": "Optional",
+      "passwordLabel": "Password",
+      "passwordHint": "Shown in plain text so you can copy it accurately. At least 8 characters.",
+      "regenerate": "Generate a new password",
+      "roleLabel": "Role",
+      "submit": "Create user",
+      "cancel": "Cancel",
+      "created": "Created {email}",
+      "failed": "Could not create the user"
+    },
+    "teams": {
+      "title": "Teams",
+      "description": "Group agents into teams and appoint a leader for each.",
+      "newTeam": "New team",
+      "newTeamDesc": "Name the team. You can pick its leader and members next.",
+      "namePlaceholder": "e.g. Sales",
+      "create": "Create",
+      "cancel": "Cancel",
+      "created": "Created {name}",
+      "createFailed": "Could not create the team",
+      "saveFailed": "Could not save the change",
+      "deleteFailed": "Could not delete the team",
+      "deleted": "Deleted {name}",
+      "emptyTitle": "No teams yet",
+      "emptyBody": "Create a team, appoint a leader, and they can see and assign their team’s chats.",
+      "leaderLabel": "Team leader",
+      "noLeader": "No leader",
+      "leaderHint": "The leader sees their team’s chats and contacts, and can assign work within the team.",
+      "membersLabel": "Members",
+      "memberCount": "{count} {count, plural, =1 {member} other {members}}",
+      "ledBy": "Led by {name}",
+      "unknownMember": "Unknown",
+      "inTeam": "in {name}",
+      "deleteTeam": "Delete team",
+      "deleteTitle": "Delete {name}?",
+      "deleteBody": "The team and its membership are removed. No chats or contacts are deleted — the leader simply stops seeing their team’s work."
     }
   }
 }

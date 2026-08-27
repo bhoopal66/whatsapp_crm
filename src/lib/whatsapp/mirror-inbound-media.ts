@@ -1,6 +1,7 @@
 import { downloadMedia } from "./whapi-api";
 import { extensionForMime } from "@/lib/media/filename";
 import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
+import { toPublicSupabaseUrl } from "@/lib/supabase/urls";
 
 /**
  * Copies inbound WhatsApp media into the `chat-media` bucket so it
@@ -232,7 +233,11 @@ export async function mirrorInboundMedia(
     const {
       data: { publicUrl },
     } = storage.from(MIRROR_BUCKET).getPublicUrl(path);
-    return publicUrl || null;
+    // This runs on the server, so `getPublicUrl` composed the link from
+    // the INTERNAL Supabase origin. The URL is about to be persisted on
+    // the message and handed to an <img>/<audio> tag in someone's
+    // browser, so it has to carry the public one. See lib/supabase/urls.
+    return publicUrl ? toPublicSupabaseUrl(publicUrl) : null;
   } catch (error) {
     console.warn(
       `[mirror-media] could not mirror ${mediaId}:`,

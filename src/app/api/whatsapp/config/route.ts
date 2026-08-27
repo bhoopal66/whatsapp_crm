@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
   WhapiError,
@@ -14,6 +15,7 @@ import {
   redactWebhookUrl,
 } from '@/lib/whatsapp/whapi-webhook-auth'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { serverSupabaseUrl } from '@/lib/supabase/urls'
 
 /**
  * WhatsApp connection settings, backed by Whapi.Cloud.
@@ -69,7 +71,7 @@ let _adminClient: any = null
 function supabaseAdmin() {
   if (!_adminClient) {
     _adminClient = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serverSupabaseUrl(),
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
   }
@@ -141,6 +143,17 @@ function explainWhapiError(err: unknown): string {
  */
 export async function GET() {
   try {
+    // Admin+. This is the WhatsApp channel: reading it exposes the
+    // connected number and channel state, and writing it re-points
+    // where the business's messages come from and where inbound
+    // callbacks are delivered. Settings -> WhatsApp is an admin-only
+    // section, and the API behind it has to agree.
+    try {
+      await requireRole('admin')
+    } catch (err) {
+      return toErrorResponse(err)
+    }
+
     const supabase = await createClient()
 
     const {
@@ -279,6 +292,17 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
+    // Admin+. This is the WhatsApp channel: reading it exposes the
+    // connected number and channel state, and writing it re-points
+    // where the business's messages come from and where inbound
+    // callbacks are delivered. Settings -> WhatsApp is an admin-only
+    // section, and the API behind it has to agree.
+    try {
+      await requireRole('admin')
+    } catch (err) {
+      return toErrorResponse(err)
+    }
+
     const supabase = await createClient()
 
     const {
@@ -514,6 +538,17 @@ export async function POST(request: Request) {
  */
 export async function DELETE() {
   try {
+    // Admin+. This is the WhatsApp channel: reading it exposes the
+    // connected number and channel state, and writing it re-points
+    // where the business's messages come from and where inbound
+    // callbacks are delivered. Settings -> WhatsApp is an admin-only
+    // section, and the API behind it has to agree.
+    try {
+      await requireRole('admin')
+    } catch (err) {
+      return toErrorResponse(err)
+    }
+
     const supabase = await createClient()
 
     const {
