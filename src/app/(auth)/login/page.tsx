@@ -149,18 +149,13 @@ function LoginPageInner() {
             </Button>
           </form>
 
+          {/* No "create account" link: this CRM has no self-service
+              signup. An admin provisions every login from
+              Settings -> Members, which is also where their role is
+              set. Someone with no account has nobody to sign up as,
+              so pointing them at a form would be a dead end. */}
           <p className="mt-6 text-center text-sm text-muted-foreground">
-            {t('noAccount')}{" "}
-            <Link
-              href={
-                inviteToken
-                  ? `/signup?invite=${encodeURIComponent(inviteToken)}`
-                  : "/signup"
-              }
-              className="text-primary hover:text-primary/80"
-            >
-              {t('createAccount')}
-            </Link>
+            {t('noAccountAskAdmin')}
           </p>
         </CardContent>
       </Card>

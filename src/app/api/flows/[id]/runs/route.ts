@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 
 /**
  * GET /api/flows/[id]/runs
@@ -22,13 +23,16 @@ export async function GET(
 ) {
   const { id } = await context.params
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Flows are admin+ (the screen and the rest of /api/flows are), and
+  // a run timeline replays what the bot said to named customers — so
+  // read-only is not a reason to leave it open to agents and viewers.
+  try {
+    await requireRole('admin')
+  } catch (err) {
+    return toErrorResponse(err)
   }
+
+  const supabase = await createClient()
 
   // Confirm flow exists + caller owns it (RLS does this) before doing
   // the run query — gives us a clean 404 instead of empty array.

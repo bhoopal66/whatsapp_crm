@@ -21,11 +21,13 @@ describe("roleRank", () => {
   });
 
   it("matches the SQL helper's numeric mapping", () => {
-    // Keep these in lockstep with `is_account_member`'s CASE expression
-    // in supabase/migrations/017_account_sharing.sql — any change here
-    // means the SQL helper needs the same change.
-    expect(roleRank("owner")).toBe(4);
-    expect(roleRank("admin")).toBe(3);
+    // Keep these in lockstep with `is_account_member`'s CASE
+    // expression — most recently rewritten in migration 044, which
+    // inserted `team_leader` between agent and admin and pushed the
+    // two ranks above it up by one.
+    expect(roleRank("owner")).toBe(5);
+    expect(roleRank("admin")).toBe(4);
+    expect(roleRank("team_leader")).toBe(3);
     expect(roleRank("agent")).toBe(2);
     expect(roleRank("viewer")).toBe(1);
   });

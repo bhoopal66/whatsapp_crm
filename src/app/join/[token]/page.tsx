@@ -250,7 +250,9 @@ export default function JoinPage() {
               "sign in" links stay as secondary options. Other
               failure reasons (not_found / used / expired) are
               terminal for this token, so no retry — just the
-              signup/sign-in escape hatches. */}
+              sign-in escape hatch. There is no "create an account"
+              option any more: signup is admin-only, so someone
+              without a login has to be provisioned by an admin. */}
           {peek.reason === 'server_error' ? (
             <>
               <Button
@@ -259,22 +261,9 @@ export default function JoinPage() {
               >
                 Try again
               </Button>
-              <Link href="/signup">
-                <Button
-                  variant="outline"
-                  className="w-full border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  Create a new account instead
-                </Button>
-              </Link>
             </>
           ) : (
             <>
-              <Link href="/signup">
-                <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
-                  Create a new account instead
-                </Button>
-              </Link>
               <Link href="/login">
                 <Button
                   variant="outline"
@@ -407,16 +396,17 @@ export default function JoinPage() {
     );
   }
 
-  // ----- Not authed: prompt to sign up or sign in -----
+  // ----- Not authed: sign in to accept -----
+  //
+  // An invite can only be accepted by someone who already has a
+  // login, because this CRM has no self-service signup — an admin
+  // creates each account from Settings -> Members. So the invite
+  // path is now specifically "an existing user joins this account",
+  // and the only action is to sign in.
   return (
     <Card className="w-full max-w-md border-border bg-card">
       {inviteHeader}
       <CardContent className="flex flex-col gap-2">
-        <Link href={`/signup?invite=${encodeURIComponent(token!)}`}>
-          <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
-            Create account &amp; join
-          </Button>
-        </Link>
         <Link href={`/login?invite=${encodeURIComponent(token!)}`}>
           <Button
             variant="outline"

@@ -5,6 +5,8 @@ import { UserPlus, Briefcase, Radio, Zap } from 'lucide-react'
 import type { ComponentType } from 'react'
 
 import { useTranslations } from 'next-intl'
+import { useAuth } from '@/hooks/use-auth'
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles'
 
 // Quick-action shortcuts. Each navigates to the page that owns the
 // relevant "create" flow. We deliberately don't try to auto-open any
@@ -15,21 +17,33 @@ interface Action {
   href: string
   icon: ComponentType<{ className?: string }>
   tint: string
+  /** Minimum role that may use this shortcut. Omitted = everyone.
+   *  Pipelines, broadcasts and automations are admin+ screens, so a
+   *  tile an agent cannot open would just bounce them back here. */
+  minRole?: AccountRole
 }
 
 const ACTIONS: Action[] = [
   { labelKey: 'newContact', href: '/contacts', icon: UserPlus, tint: 'text-primary' },
-  { labelKey: 'newDeal', href: '/pipelines', icon: Briefcase, tint: 'text-blue-400' },
-  { labelKey: 'newBroadcast', href: '/broadcasts/new', icon: Radio, tint: 'text-amber-400' },
-  { labelKey: 'newAutomation', href: '/automations/new', icon: Zap, tint: 'text-primary' },
+  { labelKey: 'newDeal', href: '/pipelines', icon: Briefcase, tint: 'text-blue-400', minRole: 'admin' },
+  { labelKey: 'newBroadcast', href: '/broadcasts/new', icon: Radio, tint: 'text-amber-400', minRole: 'admin' },
+  { labelKey: 'newAutomation', href: '/automations/new', icon: Zap, tint: 'text-primary', minRole: 'admin' },
 ]
 
 export function QuickActions() {
   const t = useTranslations('Dashboard.quickActions')
-  
+  const { profileLoading, accountRole } = useAuth()
+
+  // Fails closed while the role loads, same as the sidebar.
+  const actions = ACTIONS.filter(
+    (a) =>
+      !a.minRole ||
+      (!profileLoading && !!accountRole && hasMinRole(accountRole, a.minRole)),
+  )
+
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {ACTIONS.map((a) => {
+      {actions.map((a) => {
         const Icon = a.icon
         return (
           <Link

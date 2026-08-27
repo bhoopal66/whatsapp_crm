@@ -4,10 +4,12 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
 import {
   RAIL_GROUPS,
   SECTION_META,
   SETTINGS_SECTIONS,
+  canOpenSection,
   type SettingsSection,
 } from './settings-sections';
 
@@ -32,6 +34,10 @@ export function SettingsRail({
   hints?: Partial<Record<SettingsSection, ReactNode>>;
 }) {
   const t = useTranslations('Settings');
+  // null while the profile loads — canOpenSection treats that as "no",
+  // so gated sections never flash into the rail.
+  const { profileLoading, accountRole } = useAuth();
+  const role = profileLoading ? null : accountRole;
   const activeRef = useRef<HTMLButtonElement>(null);
 
   // When horizontal (mobile), keep the active chip in view. On desktop
@@ -57,8 +63,11 @@ export function SettingsRail({
     >
       {RAIL_GROUPS.map(({ label, group }) => {
         const items = SETTINGS_SECTIONS.filter(
-          (s) => SECTION_META[s].group === group,
+          (s) => SECTION_META[s].group === group && canOpenSection(s, role),
         );
+        // A group whose every section is gated away would otherwise
+        // render as a bare heading over nothing.
+        if (items.length === 0) return null;
         return (
           <div
             key={group}

@@ -17,8 +17,11 @@ import { QuickRepliesManager } from '@/components/settings/quick-replies-manager
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
+import { TeamsTab } from '@/components/settings/teams-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import {
+  DEFAULT_SECTION,
+  canOpenSection,
   resolveSection,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
@@ -42,7 +45,7 @@ export default function SettingsPage() {
 function SettingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, profileLoading, accountRole } = useAuth();
   const { mode } = useTheme();
   const t = useTranslations('Settings');
 
@@ -50,7 +53,15 @@ function SettingsPageInner() {
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  const requested = resolveSection(searchParams.get('tab'));
+
+  // `?tab=` is user-supplied, so resolving it is not the same as being
+  // allowed to see it. Anyone below the section's minimum role lands
+  // on Overview instead — which every member can see — rather than
+  // rendering a panel the rail deliberately hides. Also covers the
+  // admin who gets demoted with a workspace tab still open.
+  const role = profileLoading ? null : accountRole;
+  const section = canOpenSection(requested, role) ? requested : DEFAULT_SECTION;
 
   const go = (next: SettingsSection) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -80,6 +91,7 @@ function SettingsPageInner() {
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,
+    teams: <TeamsTab />,
     api: <ApiKeysSettings />,
   };
 

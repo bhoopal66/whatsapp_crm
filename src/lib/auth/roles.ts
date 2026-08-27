@@ -15,12 +15,18 @@
 // changes a one-file diff.
 // ============================================================
 
-export type AccountRole = "owner" | "admin" | "agent" | "viewer";
+export type AccountRole =
+  | "owner"
+  | "admin"
+  | "team_leader"
+  | "agent"
+  | "viewer";
 
 /** Ordered list of every valid role, lowest privilege first. */
 export const ACCOUNT_ROLES: readonly AccountRole[] = [
   "viewer",
   "agent",
+  "team_leader",
   "admin",
   "owner",
 ] as const;
@@ -32,8 +38,14 @@ export const ACCOUNT_ROLES: readonly AccountRole[] = [
 export function roleRank(role: AccountRole): number {
   switch (role) {
     case "owner":
-      return 4;
+      return 5;
     case "admin":
+      return 4;
+    // Between agent and admin: runs a team's work, configures nothing
+    // account-wide. Inserting a rung shifts the numbers above it; only
+    // the relative order is meaningful, and `is_account_member`
+    // compares the same ladder against itself on both sides.
+    case "team_leader":
       return 3;
     case "agent":
       return 2;
@@ -106,4 +118,22 @@ export function canDeleteAccount(role: AccountRole): boolean {
 /** Owner only: hand the account to another member. */
 export function canTransferOwnership(role: AccountRole): boolean {
   return role === "owner";
+}
+
+/**
+ * Team leader and up: sees the Team Inbox / Team Contacts views and
+ * may move work between the people they lead.
+ *
+ * Admins pass this too — they outrank a leader and already see the
+ * whole account — so the nav entries appear for them as well. Which
+ * rows those views actually return is the database's decision
+ * (`leads_teammate`, migration 044), not this predicate's.
+ */
+export function canLeadTeam(role: AccountRole): boolean {
+  return hasMinRole(role, "team_leader");
+}
+
+/** Admin and up: create teams, staff them, appoint their leaders. */
+export function canManageTeams(role: AccountRole): boolean {
+  return hasMinRole(role, "admin");
 }

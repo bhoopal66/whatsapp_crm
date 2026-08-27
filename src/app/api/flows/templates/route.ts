@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { listFlowTemplates } from '@/lib/flows/templates'
 
 /**
@@ -10,15 +10,16 @@ import { listFlowTemplates } from '@/lib/flows/templates'
  * without bundling the full template payloads client-side. Bodies
  * are fetched only on actual clone via POST /api/flows.
  *
- * Available to any signed-in user. Flows is in soft-GA.
+ * Admin+, matching the rest of /api/flows. The payload is the static
+ * built-in gallery and carries no account data, so this is about
+ * consistency rather than secrecy: its only caller is the New-flow
+ * dialog, which now lives behind an admin-only screen.
  */
 export async function GET() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    await requireRole('admin')
+  } catch (err) {
+    return toErrorResponse(err)
   }
   // Shallow shape so the client gallery doesn't have to know about
   // the full node tree.

@@ -39,9 +39,22 @@ const KIND_THEME: Record<ActivityKind, KindTheme> = {
 }
 
 import { useTranslations } from 'next-intl'
+import { useAuth } from '@/hooks/use-auth'
+import { hasMinRole } from '@/lib/auth/roles'
 
 export function ActivityFeed({ items, loading }: ActivityFeedProps) {
   const t = useTranslations('Dashboard.activityFeed')
+
+  const { profileLoading, accountRole } = useAuth()
+
+  // Activity can reference deals, broadcasts and automations —
+  // all admin-only screens now. Keep the line, drop the link for
+  // anyone who would only be bounced back to this page.
+  const canOpen = (href: string) => {
+    const adminOnly = ['/pipelines', '/broadcasts', '/automations', '/flows', '/agents']
+    if (!adminOnly.some((p) => href.startsWith(p))) return true
+    return !profileLoading && !!accountRole && hasMinRole(accountRole, 'admin')
+  }
   // Start at 5 — a quick scan of the most recent events without
   // dominating vertical real estate. User expands explicitly via the
   // footer control when they want deeper history.
@@ -112,7 +125,7 @@ export function ActivityFeed({ items, loading }: ActivityFeedProps) {
               )
               return (
                 <li key={it.id} className={cn(stripe, 'transition-colors hover:bg-muted/40')}>
-                  {it.href ? (
+                  {it.href && canOpen(it.href) ? (
                     <Link href={it.href} className="block">
                       {row}
                     </Link>

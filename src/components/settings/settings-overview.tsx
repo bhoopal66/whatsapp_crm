@@ -13,7 +13,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
-import { SECTION_META, type SettingsSection } from './settings-sections';
+import {
+  SECTION_META,
+  canOpenSection,
+  type SettingsSection,
+} from './settings-sections';
 import { SettingsChip, StatusDot } from './settings-chip';
 import { ROLE_META } from './role-meta';
 
@@ -36,7 +40,7 @@ export function SettingsOverview({
 }: {
   onSelect: (section: SettingsSection) => void;
 }) {
-  const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers } =
+  const { user, profile, accountId, accountRole, defaultCurrency, canManageMembers, profileLoading } =
     useAuth();
   const { mode, theme } = useTheme();
   const t = useTranslations('Settings.overview');
@@ -64,7 +68,11 @@ export function SettingsOverview({
       setCountsLoading(true);
       const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
         await Promise.allSettled([
-          fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
+          // Admin-only endpoint now, and the tile it feeds is filtered
+          // out below for everyone else — so don't bother asking.
+          canManageMembers
+            ? fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json())
+            : Promise.resolve({ members: [] }),
           canManageMembers
             ? fetch('/api/account/invitations', { cache: 'no-store' }).then((r) =>
                 r.json(),
@@ -117,8 +125,15 @@ export function SettingsOverview({
       setCountsLoading(false);
     })();
 
-    // WhatsApp connection status — slower, independent.
+    // WhatsApp connection status — slower, independent. Skipped for
+    // non-admins: the tile is filtered out of `visibleTiles` below and
+    // /api/whatsapp/config now answers them with a 403, so the request
+    // would be a guaranteed-useless round trip.
     (async () => {
+      if (!canOpenSection('whatsapp', profileLoading ? null : accountRole)) {
+        setWhatsappLoading(false);
+        return;
+      }
       setWhatsappLoading(true);
       const [row, health] = await Promise.allSettled([
         supabase
@@ -219,6 +234,14 @@ export function SettingsOverview({
     },
   ];
 
+  // The Overview is the landing every member sees, and its tiles are a
+  // second way into each section — so they need the same gate as the
+  // rail, or a viewer would be looking at a grid of doors that bounce
+  // them straight back here.
+  const visibleTiles = tiles.filter(({ section }) =>
+    canOpenSection(section, profileLoading ? null : accountRole),
+  );
+
   return (
     <section className="animate-in fade-in-50 duration-200">
       {/* Identity */}
@@ -251,7 +274,7 @@ export function SettingsOverview({
 
       {/* Status tiles */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {tiles.map(({ section, loading, subtitle }) => {
+        {visibleTiles.map(({ section, loading, subtitle }) => {
           const meta = SECTION_META[section];
           const Icon = meta.icon;
           return (

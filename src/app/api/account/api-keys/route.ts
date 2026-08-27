@@ -20,7 +20,6 @@
 import { NextResponse } from 'next/server';
 
 import {
-  getCurrentAccount,
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account';
@@ -44,9 +43,13 @@ const SAFE_COLUMNS =
 
 export async function GET() {
   try {
-    // Any member can view the roster (RLS allows it); we just need a
-    // resolved account context.
-    const ctx = await getCurrentAccount();
+    // Admin+, matching Settings -> API keys, which is now an admin-only
+    // section. The roster carries no secret (`key_hash` never leaves
+    // the server and only a prefix is exposed), but it still tells a
+    // reader exactly which integrations hold account-wide authority,
+    // what each may do, and when it was last used — a map worth having
+    // before attacking any of them.
+    const ctx = await requireRole('admin');
 
     const { data, error } = await ctx.supabase
       .from('api_keys')

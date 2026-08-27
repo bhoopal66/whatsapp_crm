@@ -72,6 +72,7 @@ import {
   PRESENCE_DOT_CLASS,
   PresenceDot,
 } from '@/components/presence/presence-dot';
+import { CreateMemberDialog } from './create-member-dialog';
 import { InviteMemberDialog } from './invite-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
@@ -135,6 +136,7 @@ export function MembersTab() {
   const [loading, setLoading] = useState(true);
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
@@ -287,10 +289,19 @@ export function MembersTab() {
         description={t('description')}
         action={
           <RequireRole min="admin">
-            <Button onClick={() => setInviteOpen(true)}>
-              <Plus className="size-4" />
-              {t('inviteMember')}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {/* Primary: self-service signup is gone, so creating the
+                  login here is the only way a new person gets in. The
+                  invite link remains for someone who ALREADY has a
+                  login on another account. */}
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" />
+                {t('createMember')}
+              </Button>
+              <Button variant="outline" onClick={() => setInviteOpen(true)}>
+                {t('inviteMember')}
+              </Button>
+            </div>
           </RequireRole>
         }
       />
@@ -559,6 +570,12 @@ export function MembersTab() {
           )}
         </div>
       </RequireRole>
+
+      <CreateMemberDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={loadEverything}
+      />
 
       <InviteMemberDialog
         open={inviteOpen}

@@ -29,6 +29,14 @@ async function requireUser(): Promise<
 }
 
 export async function GET() {
+  // Admin+ to READ as well as write: this is an admin-only screen, and
+  // the payload describes how the account's messaging behaves.
+  try {
+    await requireRole('admin')
+  } catch (err) {
+    return toErrorResponse(err)
+  }
+
   const guard = await requireUser()
   if (!guard.ok) {
     return NextResponse.json(guard.body, { status: guard.status })
@@ -50,7 +58,7 @@ export async function POST(request: Request) {
   // `agent`, but this route inserts via the service-role client which
   // bypasses RLS, so the role must be enforced here.
   try {
-    await requireRole('agent')
+    await requireRole('admin')
   } catch (err) {
     return toErrorResponse(err)
   }

@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
+  MessagesSquare,
   Radio,
   Settings,
   Shield,
@@ -26,7 +27,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import type { AccountRole } from "@/lib/auth/roles";
+import { hasMinRole, type AccountRole } from "@/lib/auth/roles";
 
 // Per-role chip metadata used in the sidebar's account strip + the
 // Members tab roster. Keeping this near both consumers in a single
@@ -49,6 +50,14 @@ const ROLE_CHIP: Record<
     // Primary-tinted: significant but not as scarce as owner.
     className:
       "border-primary/40 bg-primary/10 text-primary",
+  },
+  team_leader: {
+    icon: UsersRound,
+    labelKey: "roleTeamLeader",
+    // Sky: clearly a step up from an agent's neutral slate, clearly
+    // not the amber reserved for the owner.
+    className:
+      "border-sky-500/40 bg-sky-500/10 text-sky-300",
   },
   agent: {
     icon: UserCog,
@@ -87,6 +96,13 @@ interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  /**
+   * Minimum role that may see this destination. Omitted means everyone
+   * in the account. This hides the row; the route itself is guarded
+   * server-side by its own layout (components/auth/admin-only-layout),
+   * because a hidden link is not access control.
+   */
+  minRole?: AccountRole;
 }
 
 const navItems: NavItem[] = [
@@ -94,11 +110,17 @@ const navItems: NavItem[] = [
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
   { href: "/contacts", labelKey: "contacts", icon: Users },
-  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
-  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
-  { href: "/automations", labelKey: "automations", icon: Zap },
-  { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
-  { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  // Team leader's wider view of the same two screens. Admins see them
+  // too (they outrank a leader); what each gets back is RLS's call.
+  { href: "/team-inbox", labelKey: "teamInbox", icon: MessagesSquare, minRole: "team_leader" },
+  { href: "/team-contacts", labelKey: "teamContacts", icon: UsersRound, minRole: "team_leader" },
+  // Workspace configuration: these shape how the whole account
+  // operates, so they are admin+ only.
+  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch, minRole: "admin" },
+  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio, minRole: "admin" },
+  { href: "/automations", labelKey: "automations", icon: Zap, minRole: "admin" },
+  { href: "/flows", labelKey: "flows", icon: Workflow, beta: true, minRole: "admin" },
+  { href: "/agents", labelKey: "aiAgents", icon: Bot, minRole: "admin" },
 ];
 
 const bottomNavItems = [
@@ -118,6 +140,18 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
+  // Filter the nav to what this role may actually open. Fails CLOSED
+  // while the profile is still loading: showing an admin-only row for
+  // a moment and yanking it away both leaks the surface and reflows
+  // the sidebar. The routes are independently guarded server-side, so
+  // this is presentation, not the security boundary.
+  const visibleNavItems = navItems.filter(
+    (item) =>
+      !item.minRole ||
+      (!profileLoading && !!accountRole && hasMinRole(accountRole, item.minRole)),
+  );
+
+
   const unreadNotifications = useUnreadNotifications();
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
@@ -208,7 +242,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));
