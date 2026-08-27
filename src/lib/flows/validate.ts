@@ -15,7 +15,7 @@
  *   3. Meta API limits — button title ≤20 chars, ≤3 buttons per
  *      send_buttons, ≤10 list rows total, ≤24 chars per list row
  *      title. Mirrors the runtime checks inside
- *      `src/lib/whatsapp/meta-api.ts` so save-time and send-time
+ *      `src/lib/whatsapp/whapi-api.ts` so save-time and send-time
  *      can never disagree.
  *
  * Issues carry enough field info that the builder can highlight the
@@ -23,7 +23,7 @@
  * `node_key`; trigger-scoped use `scope: 'trigger'`.
  */
 
-import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/meta-api";
+import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/whapi-api";
 
 export interface ValidationIssue {
   severity: "error" | "warning";

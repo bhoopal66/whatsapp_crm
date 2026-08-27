@@ -1,9 +1,9 @@
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/whapi-api'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
-} from '@/lib/flows/meta-send'
+} from '@/lib/flows/whapi-send'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   sanitizePhoneForMeta,
@@ -18,7 +18,7 @@ import {
 import { supabaseAdmin } from './admin-client'
 
 // ------------------------------------------------------------
-// Automation-side Meta sender.
+// Automation-side Whapi sender.
 //
 // Mirrors the logic in src/app/api/whatsapp/send/route.ts but uses
 // the service-role client (engine has no cookies) and accepts the
@@ -144,12 +144,12 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error('WhatsApp not configured for this account')
   }
 
-  const accessToken = decrypt(config.access_token)
+  const channelToken = decrypt(config.access_token)
 
-  // Local template row — read for the body we persist below, not for
-  // the Meta payload (the wire shape is deliberately unchanged here).
-  // A missing row is fine: the send still goes out, we just can't
-  // reconstruct the text the customer saw.
+  // Local template row. Under Whapi this is not merely a bookkeeping
+  // lookup as it was with Meta — the row IS the message. There is no
+  // server-side template registry to name, so a missing row means
+  // there is nothing to send.
   const templateRow =
     input.kind === 'template'
       ? (
@@ -164,28 +164,30 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'template') {
+      if (!templateRow) {
+        throw new Error(
+          `No local template named "${input.templateName}" for this account`,
+        )
+      }
       const r = await sendTemplateMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+        token: channelToken,
         to: phone,
-        templateName: input.templateName,
-        language: input.language,
-        params: input.params,
+        template: templateRow,
+        bodyParams: input.params,
       })
       return r.messageId
     }
     const r = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+      token: channelToken,
       to: phone,
       text: input.text,
     })
     return r.messageId
   }
 
-  // Same phone-variant retry as /api/whatsapp/send — Meta sandbox and
-  // numbers registered with/without a trunk 0 both require this to
-  // reliably land a message.
+  // Same phone-variant retry as /api/whatsapp/send — numbers registered
+  // with and without a trunk 0 both require this to reliably land a
+  // message.
   const variants = phoneVariants(sanitized)
   let workingPhone = sanitized
   let waMessageId = ''

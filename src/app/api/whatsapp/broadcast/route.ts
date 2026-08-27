@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
-import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import { sendTemplateMessage } from '@/lib/whatsapp/whapi-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
-import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
 import {
   sanitizePhoneForMeta,
@@ -50,12 +49,15 @@ interface NewRecipient {
   /** Body variable values, one per {{N}}. Legacy field. */
   params?: string[]
   /**
-   * Structured per-send values (header text variable, media URL
-   * override, URL/COPY_CODE button values). When set, takes
-   * precedence over `params` for the body too — see
-   * sendTemplateMessage for the merge rules.
+   * Structured per-send overrides.
+   *
+   * Under Meta this carried header-variable values, a media override,
+   * and URL / COPY_CODE button values, because each had to be encoded
+   * into the template's component array. Whapi renders the template
+   * locally, so body values come from `params` and the only thing left
+   * that genuinely varies per recipient is the header media.
    */
-  messageParams?: SendTimeParams
+  messageParams?: { headerMediaUrl?: string }
 }
 
 export async function POST(request: Request) {
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
     // viewers are read-only.
     //
     // This endpoint writes NOTHING to the database: it reads the config
-    // and template, then calls Meta directly. So unlike the rest of the
+    // and template, then calls Whapi directly. So unlike the rest of the
     // app there was no RLS policy backstopping a missing role check —
     // resolving `account_id` straight off the profile (which only needs
     // 'viewer') was the ONLY gate, and it let a viewer blast a template
@@ -136,13 +138,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const accessToken = decrypt(config.access_token)
+    const channelToken = decrypt(config.access_token)
 
-    // Load the template row once so sendTemplateMessage can build
-    // header + button components on each iteration. Loading inside
-    // the loop would N+1 against Supabase for every recipient.
-    // Guard against a malformed local row crashing every send in
-    // the loop with the same opaque TypeError — fail loudly once.
+    // Load the template row once — it is the message body Whapi will
+    // send, rendered per recipient. Loading inside the loop would N+1
+    // against Supabase for every recipient. A malformed or missing row
+    // fails loudly once rather than as N identical opaque errors.
     const resolvedTemplate = await resolveTemplateRow(
       supabase,
       accountId,
@@ -153,9 +154,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Template row is malformed locally — run "Sync from Meta" in Settings to repair it before broadcasting.',
+            'Template row is malformed locally — open Settings → Templates and re-save it before broadcasting.',
         },
         { status: 500 },
+      )
+    }
+    if (!resolvedTemplate.row) {
+      return NextResponse.json(
+        { error: `No template named "${template_name}" exists on this account.` },
+        { status: 404 },
       )
     }
     const templateRow = resolvedTemplate.row
@@ -186,14 +193,12 @@ export async function POST(request: Request) {
       for (const variant of variants) {
         try {
           const result = await sendTemplateMessage({
-            phoneNumberId: config.phone_number_id,
-            accessToken,
+            token: channelToken,
             to: variant,
-            templateName: template_name,
-            language: resolvedTemplate.language,
-            template: templateRow ?? undefined,
-            messageParams: recipient.messageParams,
-            params: recipient.params ?? [],
+            template: templateRow,
+            bodyParams: recipient.params ?? [],
+            // Per-send media override, when the caller supplied one.
+            headerMediaUrl: recipient.messageParams?.headerMediaUrl,
           })
           sentMessageId = result.messageId
           lastError = null

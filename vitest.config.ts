@@ -14,7 +14,6 @@ export default defineConfig({
     env: {
       ENCRYPTION_KEY:
         "0000000000000000000000000000000000000000000000000000000000000000",
-      META_APP_SECRET: "test-meta-app-secret",
     },
     clearMocks: true,
   },

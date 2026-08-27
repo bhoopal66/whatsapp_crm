@@ -1,25 +1,29 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { decrypt } from '@/lib/whatsapp/encryption'
+import { getMediaUrl } from '@/lib/whatsapp/whapi-api'
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { reopenClosedConversation } from '@/lib/conversations/reopen'
-import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
+import {
+  extractWebhookSecret,
+  secretsMatch,
+} from '@/lib/whatsapp/whapi-webhook-auth'
+import {
+  normalizeWhapiWebhook,
+  type NormalizedInboundMessage,
+  type NormalizedStatus,
+  type RawWhapiWebhookPayload,
+} from '@/lib/whatsapp/whapi-webhook'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
-import {
-  handleTemplateWebhookChange,
-  isTemplateWebhookField,
-} from '@/lib/whatsapp/template-webhook'
 
 // The `after()` callback in POST runs within this route's max duration.
-// Inbound processing can fan out to per-media Meta verification calls, so
-// give it headroom beyond the platform default (Vercel clamps this to the
-// plan's ceiling). Tune as needed.
+// Inbound processing can fan out to per-media downloads and mirror
+// uploads, so give it headroom beyond the platform default.
 export const maxDuration = 60
 
 // Lazy-initialized to avoid build-time crash when env vars are missing
@@ -35,290 +39,191 @@ function supabaseAdmin() {
   return _adminClient
 }
 
-interface WhatsAppMessage {
-  id: string
-  from: string
-  timestamp: string
-  type: string
-  text?: { body: string }
-  image?: { id: string; mime_type: string; caption?: string }
-  video?: { id: string; mime_type: string; caption?: string }
-  document?: { id: string; mime_type: string; filename?: string; caption?: string }
-  audio?: { id: string; mime_type: string }
-  sticker?: { id: string; mime_type: string }
-  location?: { latitude: number; longitude: number; name?: string; address?: string }
-  reaction?: { message_id: string; emoji: string }
-  /**
-   * Set when the customer taps a button or list row on an interactive
-   * message we sent. `button_reply.id` / `list_reply.id` is whatever id
-   * we put on the button/row when sending — the Flows engine uses this
-   * to advance the per-contact run.
-   */
-  interactive?: {
-    type: 'button_reply' | 'list_reply'
-    button_reply?: { id: string; title: string }
-    list_reply?: { id: string; title: string; description?: string }
-  }
-  /**
-   * Set when the customer taps a QUICK_REPLY button on a *template*
-   * message — a broadcast, or any template send. Meta uses a different
-   * envelope from `interactive` above: `type: 'button'`, the label in
-   * `button.text`, and the payload configured on the template's button
-   * in `button.payload` (Meta's own template editor doesn't ask for a
-   * payload and mirrors the label into it).
-   */
-  button?: { text?: string; payload?: string }
-  /** Present when the customer swipe-replies to one of our messages. */
-  context?: { id: string }
-}
-
-interface WhatsAppWebhookEntry {
-  id: string
-  changes: Array<{
-    value: {
-      messaging_product: string
-      metadata: {
-        display_phone_number: string
-        phone_number_id: string
-      }
-      contacts?: Array<{
-        profile: { name: string }
-        wa_id: string
-      }>
-      messages?: WhatsAppMessage[]
-      statuses?: Array<{
-        id: string
-        status: string
-        timestamp: string
-        recipient_id: string
-      }>
-    }
-    field: string
-  }>
-}
-
-// GET - Webhook verification
+/**
+ * GET /api/whatsapp/webhook
+ *
+ * Meta required this route to answer a `hub.challenge` handshake before
+ * it would deliver anything. Whapi has no such handshake — a channel is
+ * pointed at a URL via `PATCH /settings` and delivery begins.
+ *
+ * The endpoint is kept as a reachability probe: an operator (or the
+ * "Test connection" button) can confirm the deployment is publicly
+ * resolvable and that a given secret is recognised, which is by far the
+ * most common thing to get wrong when standing this up behind a tunnel.
+ *
+ * It reveals nothing without a valid secret.
+ */
 export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const mode = searchParams.get('hub.mode')
-    const challenge = searchParams.get('hub.challenge')
-    const verifyToken = searchParams.get('hub.verify_token')
+  const secret = extractWebhookSecret(request)
 
-    if (mode !== 'subscribe' || !challenge || !verifyToken) {
-      return NextResponse.json(
-        { error: 'Missing verification parameters' },
-        { status: 400 }
-      )
-    }
-
-    // Fetch all whatsapp configs to check verify tokens
-    const { data: configs, error: configError } = await supabaseAdmin()
-      .from('whatsapp_config')
-      .select('id, verify_token')
-
-    if (configError || !configs) {
-      console.error('Error fetching configs for verification:', configError)
-      return NextResponse.json(
-        { error: 'Verification failed' },
-        { status: 403 }
-      )
-    }
-
-    // Check if any config's verify_token matches. Also collect the
-    // matching row so we can opportunistically upgrade its token to
-    // GCM if it was still in the legacy CBC format.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let matchedConfig: any = null
-    for (const config of configs) {
-      if (!config.verify_token) continue
-      try {
-        if (decrypt(config.verify_token) === verifyToken) {
-          matchedConfig = config
-          break
-        }
-      } catch {
-        // Malformed / wrong-key token row — skip it and keep checking.
-      }
-    }
-
-    if (matchedConfig) {
-      // Fire-and-forget GCM upgrade. Safe to run on every subscribe
-      // since it's a no-op once the column is already GCM.
-      if (isLegacyFormat(matchedConfig.verify_token)) {
-        void supabaseAdmin()
-          .from('whatsapp_config')
-          .update({ verify_token: encrypt(verifyToken) })
-          .eq('id', matchedConfig.id)
-          .then(({ error }: { error: unknown }) => {
-            if (error) {
-              console.warn(
-                '[webhook] verify_token GCM upgrade failed:',
-                (error as { message?: string })?.message ?? error,
-              )
-            }
-          })
-      }
-      // Return challenge as plain text
-      return new Response(challenge, {
-        status: 200,
-        headers: { 'Content-Type': 'text/plain' },
-      })
-    }
-
+  if (!secret) {
     return NextResponse.json(
-      { error: 'Verification token mismatch' },
-      { status: 403 }
-    )
-  } catch (error) {
-    console.error('Error in webhook GET verification:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+      {
+        ok: true,
+        provider: 'whapi',
+        message:
+          'wacrm Whapi webhook endpoint is reachable. Append ?secret=<your webhook secret> to verify a channel.',
+      },
+      { status: 200 },
     )
   }
+
+  const config = await findConfigByWebhookSecret(secret)
+  if (!config) {
+    return NextResponse.json(
+      { ok: false, error: 'Unrecognised webhook secret.' },
+      { status: 403 },
+    )
+  }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      provider: 'whapi',
+      channel_id: config.phone_number_id,
+      message: 'Secret recognised. This channel is wired to deliver here.',
+    },
+    { status: 200 },
+  )
 }
 
-// POST - Receive messages
+/**
+ * POST /api/whatsapp/webhook
+ *
+ * Whapi's callback. Delivered as `POST` with the full event in the body
+ * (the channel is registered in `mode: 'body'`), and retried on a
+ * non-200 for as long as `callback_persist` allows.
+ */
 export async function POST(request: Request) {
-  // Read raw body first so we can HMAC-verify the exact bytes Meta
-  // signed. request.json() would re-encode and break the signature.
-  const rawBody = await request.text()
-  const signature = request.headers.get('x-hub-signature-256')
+  const secret = extractWebhookSecret(request)
 
-  if (!verifyMetaWebhookSignature(rawBody, signature)) {
-    // 401 (not 200) — we want Meta's delivery dashboard to show failures
-    // loudly if a misconfiguration causes signatures to stop matching,
-    // rather than silently eating events.
-    console.warn('[webhook] rejected request with invalid signature')
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  // Resolve the config from the SECRET, not from the payload's
+  // `channel_id`. The body is attacker-controlled; the secret is the
+  // only authenticated fact in the request, so it drives tenancy.
+  const config = secret ? await findConfigByWebhookSecret(secret) : null
+
+  if (!config) {
+    // 401 rather than a silent 200: Whapi's delivery log should show
+    // failures loudly if a rotation or a stale tunnel URL breaks the
+    // wiring, instead of us quietly eating every event.
+    console.warn('[whapi-webhook] rejected callback with missing/unknown secret')
+    return NextResponse.json({ error: 'Invalid webhook secret' }, { status: 401 })
   }
 
-  let body: { entry?: WhatsAppWebhookEntry[] }
+  let payload: RawWhapiWebhookPayload
   try {
-    body = JSON.parse(rawBody)
+    payload = (await request.json()) as RawWhapiWebhookPayload
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Process AFTER the response so we ack Meta within their ~20s timeout
-  // (a slow ack triggers Meta retries + duplicate inserts), while still
-  // guaranteeing the work runs to completion.
+  // Process AFTER the response so Whapi gets a prompt ack (a slow ack
+  // triggers redelivery and duplicate work), while still guaranteeing
+  // the work runs to completion.
   //
-  // This MUST use `after()` rather than a detached `processWebhook(body)`
-  // promise: on serverless platforms (we run on Vercel) the function can
-  // be frozen or terminated the moment the response is sent, so a floating
-  // promise's DB writes are not guaranteed to finish. That dropped a
-  // non-deterministic *subset* of inbound messages — contacts/conversations
-  // were created but the message insert never landed, leaving conversations
-  // that show in the inbox with an empty thread, and no logs to explain it
-  // (see issue #301). `after()` hands the callback to the runtime, which
-  // keeps the function alive until it resolves (within the route's
-  // maxDuration).
+  // This MUST use `after()` rather than a detached promise: on
+  // serverless platforms the function can be frozen the moment the
+  // response is sent, which non-deterministically dropped a subset of
+  // inbound messages (issue #301). `after()` hands the callback to the
+  // runtime, which keeps the function alive until it resolves.
   after(async () => {
     try {
-      await processWebhook(body)
+      await processWhapiWebhook(payload, config)
     } catch (error) {
-      console.error('Error processing webhook:', error)
+      console.error('[whapi-webhook] processing failed:', error)
     }
   })
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
 }
 
-async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
-  if (!body.entry) return
+/**
+ * Find the `whatsapp_config` row whose webhook secret matches.
+ *
+ * Secrets are stored encrypted, so this cannot be a WHERE clause — every
+ * row is decrypted and compared in constant time. Installs have one
+ * config row per account and a handful of accounts at most; if that ever
+ * stops being true, store a SHA-256 of the secret in an indexed column
+ * and look it up directly.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function findConfigByWebhookSecret(secret: string): Promise<any | null> {
+  const { data: configs, error } = await supabaseAdmin()
+    .from('whatsapp_config')
+    .select('*')
 
-  for (const entry of body.entry) {
-    for (const change of entry.changes) {
-      // Template-lifecycle events (status / quality / components
-      // updates from Meta) come in on a different change.field and
-      // have a different value shape — route them through the
-      // dedicated handler. Skip the messaging branches below so we
-      // don't try to read message-shaped fields off a template event.
-      if (isTemplateWebhookField(change.field)) {
-        await handleTemplateWebhookChange(
-          { field: change.field, value: change.value as unknown },
-          supabaseAdmin(),
-        )
-        continue
-      }
+  if (error || !configs) {
+    console.error('[whapi-webhook] could not load configs:', error)
+    return null
+  }
 
-      const value = change.value
-
-      // Handle status updates
-      if (value.statuses) {
-        for (const status of value.statuses) {
-          await handleStatusUpdate(status)
-        }
-      }
-
-      // Handle incoming messages
-      if (!value.messages || !value.contacts) continue
-
-      const phoneNumberId = value.metadata.phone_number_id
-
-      // Find user's config by phone_number_id. `.single()` returns
-      // PGRST116 for both 0 rows AND ≥2 rows — distinguish them so
-      // operators see the real cause in logs. ≥2 rows shouldn't happen
-      // post-migration 013 (UNIQUE constraint), but a row created
-      // before the constraint, or a race, would still surface here.
-      const { data: configRows, error: configError } = await supabaseAdmin()
-        .from('whatsapp_config')
-        .select('*')
-        .eq('phone_number_id', phoneNumberId)
-
-      if (configError) {
-        console.error(
-          'Error fetching whatsapp_config for phone_number_id:',
-          phoneNumberId,
-          configError
-        )
-        continue
-      }
-
-      if (!configRows || configRows.length === 0) {
-        console.error('No config found for phone_number_id:', phoneNumberId)
-        continue
-      }
-
-      if (configRows.length > 1) {
-        console.error(
-          `Multiple configs (${configRows.length}) found for phone_number_id:`,
-          phoneNumberId,
-          '— inbound message dropped. Resolve duplicates so each number maps to a single account.',
-          'Account owners:',
-          configRows.map((r: { account_id: string; user_id: string }) => `${r.account_id} (admin ${r.user_id})`)
-        )
-        continue
-      }
-
-      const config = configRows[0]
-
-      const decryptedAccessToken = decrypt(config.access_token)
-
-      for (let i = 0; i < value.messages.length; i++) {
-        const message = value.messages[i]
-        const contact = value.contacts[i] || value.contacts[0]
-
-        await processMessage(
-          message,
-          contact,
-          // Tenancy — drives every contact / conversation lookup
-          // and the engines' active-row dispatch.
-          config.account_id,
-          // Audit / sender-of-record — used as the user_id on row
-          // inserts that need it for NOT NULL FK compliance. Always
-          // the admin who saved the WhatsApp config.
-          config.user_id,
-          decryptedAccessToken,
-          // Default ON: the column is NOT NULL DEFAULT TRUE, but a row
-          // read before migration 039 lands would have it undefined,
-          // and losing attachments is the failure mode worth avoiding.
-          config.mirror_inbound_media !== false
-        )
-      }
+  for (const config of configs) {
+    if (!config.verify_token) continue
+    let stored: string
+    try {
+      stored = decrypt(config.verify_token)
+    } catch {
+      // Row encrypted under a rotated ENCRYPTION_KEY — skip it rather
+      // than failing the whole lookup for every other tenant.
+      continue
     }
+    if (secretsMatch(secret, stored)) return config
+  }
+
+  return null
+}
+
+/**
+ * Turn one authenticated Whapi callback into CRM state.
+ *
+ * The heavy lifting — contact dedup, conversation resolution, Flows,
+ * automations, AI auto-reply, public webhook fan-out — is all
+ * provider-agnostic and lives below. This function's only job is to
+ * normalise the payload and dispatch.
+ */
+async function processWhapiWebhook(
+  payload: RawWhapiWebhookPayload,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+) {
+  const event = normalizeWhapiWebhook(payload)
+
+  // The secret already proved which account this is. A channel_id that
+  // disagrees means the operator pointed a *second* channel at a URL
+  // minted for the first — messages would land in the wrong account, so
+  // refuse rather than mis-file them.
+  if (
+    event.channelId &&
+    config.phone_number_id &&
+    event.channelId !== config.phone_number_id
+  ) {
+    console.error(
+      `[whapi-webhook] channel mismatch: callback says "${event.channelId}" but this secret belongs to "${config.phone_number_id}". Dropping.`,
+    )
+    return
+  }
+
+  for (const status of event.statuses) {
+    await handleStatusUpdate(status)
+  }
+
+  if (event.messages.length === 0) return
+
+  const channelToken = decrypt(config.access_token)
+
+  for (const message of event.messages) {
+    await processMessage(
+      message,
+      // Tenancy — drives every contact / conversation lookup and the
+      // engines' active-row dispatch.
+      config.account_id,
+      // Audit / sender-of-record for inserts needing a NOT NULL
+      // user_id FK. Always the admin who saved the channel.
+      config.user_id,
+      channelToken,
+      // Per-account opt-out for the inbound-media mirror (migration 039).
+      config.mirror_inbound_media !== false,
+    )
   }
 }
 
@@ -327,10 +232,9 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
 // this ladder.
 //
 // `failed` is NOT on this ladder. It's a terminal side branch that is
-// only valid from the early states (pending / sent) — once Meta has
-// delivered or the user has read or replied, a later "failed" status
-// event is a bug in Meta's pipeline or a spoof attempt and must be
-// ignored.
+// only valid from the early states (pending / sent) — once the message
+// has been delivered or read, a later "failed" status event is a bug in
+// the gateway's pipeline or a spoof attempt and must be ignored.
 const RECIPIENT_STATUS_LADDER = [
   'pending',
   'sent',
@@ -364,21 +268,17 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   return ii > ci
 }
 
-async function handleStatusUpdate(status: {
-  id: string
-  status: string
-  timestamp: string
-  recipient_id: string
-}) {
-  // 1) Mirror onto messages (legacy behavior) — Meta's status values
-  //    already match the CHECK constraint on messages.status. No
-  //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
-  //    repeat across numbers), so this updates 0..N rows and must not
-  //    assume a single row.
+async function handleStatusUpdate(status: NormalizedStatus) {
+  // 1) Mirror onto messages. The normaliser has already mapped Whapi's
+  //    vocabulary onto the values the CHECK constraint on
+  //    messages.status accepts (and dropped the ones with no CRM
+  //    meaning), so this writes straight through. No `.select()`:
+  //    message_id is NOT unique (migration 009 — ids repeat across
+  //    numbers), so this updates 0..N rows and must not assume one.
   const { error: msgErr } = await supabaseAdmin()
     .from('messages')
     .update({ status: status.status })
-    .eq('message_id', status.id)
+    .eq('message_id', status.messageId)
 
   if (msgErr) {
     console.error('Error updating message status:', msgErr)
@@ -397,7 +297,7 @@ async function handleStatusUpdate(status: {
   const { data: recipient, error: recFetchErr } = await supabaseAdmin()
     .from('broadcast_recipients')
     .select('id, status')
-    .eq('whatsapp_message_id', status.id)
+    .eq('whatsapp_message_id', status.messageId)
     .maybeSingle()
 
   if (recFetchErr) {
@@ -430,7 +330,7 @@ async function handleStatusUpdate(status: {
   const { data: msgRow } = await supabaseAdmin()
     .from('messages')
     .select('conversation_id, conversations(account_id)')
-    .eq('message_id', status.id)
+    .eq('message_id', status.messageId)
     .limit(1)
     .maybeSingle()
 
@@ -443,7 +343,7 @@ async function handleStatusUpdate(status: {
         accountId,
         'message.status_updated',
         {
-          whatsapp_message_id: status.id,
+          whatsapp_message_id: status.messageId,
           conversation_id: msgRow.conversation_id,
           status: status.status,
         }
@@ -492,22 +392,23 @@ async function flagBroadcastReplyIfAny(accountId: string, contactId: string) {
 }
 
 /**
- * Resolve a Meta-side message_id into the matching internal UUID, scoped
+ * Resolve a WhatsApp message id into the matching internal UUID, scoped
  * to one conversation. Returns null when we never received the parent
- * (e.g. a swipe-reply to a message older than this CRM install).
+ * (e.g. a swipe-reply to a message older than this CRM install, or one
+ * sent from the operator's phone before the channel was connected).
  */
-async function lookupInternalIdByMetaId(
-  metaId: string,
+async function lookupInternalIdByWhatsAppId(
+  whatsappMessageId: string,
   conversationId: string
 ): Promise<string | null> {
   const { data, error } = await supabaseAdmin()
     .from('messages')
     .select('id')
-    .eq('message_id', metaId)
+    .eq('message_id', whatsappMessageId)
     .eq('conversation_id', conversationId)
     .maybeSingle()
   if (error) {
-    console.error('[webhook] lookupInternalIdByMetaId failed:', error.message)
+    console.error('[whapi-webhook] lookupInternalIdByWhatsAppId failed:', error.message)
     return null
   }
   return data?.id ?? null
@@ -522,26 +423,26 @@ async function lookupInternalIdByMetaId(
  * skipped so the webhook still acks 200 to Meta.
  */
 async function handleReaction(
-  message: WhatsAppMessage,
+  message: NormalizedInboundMessage,
   conversationId: string,
   contactId: string
 ) {
   const reaction = message.reaction
-  if (!reaction?.message_id) return
+  if (!reaction?.targetMessageId) return
 
-  const targetInternalId = await lookupInternalIdByMetaId(
-    reaction.message_id,
+  const targetInternalId = await lookupInternalIdByWhatsAppId(
+    reaction.targetMessageId,
     conversationId
   )
   if (!targetInternalId) {
     console.warn(
-      '[webhook] reaction target message not found; skipping',
-      reaction.message_id
+      '[whapi-webhook] reaction target message not found; skipping',
+      reaction.targetMessageId
     )
     return
   }
 
-  // Empty emoji = removal (per Meta's Cloud API spec).
+  // Empty emoji = the customer removed their reaction.
   if (!reaction.emoji) {
     const { error: delError } = await supabaseAdmin()
       .from('message_reactions')
@@ -550,7 +451,7 @@ async function handleReaction(
       .eq('actor_type', 'customer')
       .eq('actor_id', contactId)
     if (delError) {
-      console.error('[webhook] reaction delete failed:', delError.message)
+      console.error('[whapi-webhook] reaction delete failed:', delError.message)
     }
     return
   }
@@ -568,28 +469,32 @@ async function handleReaction(
       { onConflict: 'message_id,actor_type,actor_id' }
     )
   if (upsertError) {
-    console.error('[webhook] reaction upsert failed:', upsertError.message)
+    console.error('[whapi-webhook] reaction upsert failed:', upsertError.message)
   }
 }
 
 async function processMessage(
-  message: WhatsAppMessage,
-  contact: { profile: { name: string }; wa_id: string },
+  message: NormalizedInboundMessage,
   // Tenancy. Resolved from the matched whatsapp_config row; every
   // contact / conversation / message row created downstream is
   // stamped with this so any member of the account can see it.
   accountId: string,
   // Sender-of-record for inserts that need a NOT NULL user_id FK
   // (contacts, conversations). Always the admin who saved the
-  // WhatsApp config; the choice is arbitrary post-017 but stable.
+  // WhatsApp channel; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string,
+  // The Whapi channel token — needed to pull media bytes for mirroring.
+  channelToken: string,
   // Per-account opt-out for the inbound-media mirror (migration 039).
   // See parseMessageContent for what it turns off.
   mirrorMedia: boolean
 ) {
   const senderPhone = normalizePhone(message.from)
-  const contactName = contact.profile.name
+  // Whapi carries the sender's WhatsApp display name on the message
+  // itself (`from_name`), so there's no separate contacts array to zip
+  // against as there was with Meta. Fall back to the number when the
+  // sender has no public display name.
+  const contactName = message.fromName || senderPhone
 
   // Find or create contact
   const contactOutcome = await findOrCreateContact(
@@ -633,22 +538,22 @@ async function processMessage(
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
     await parseMessageContent(
       message,
-      accessToken,
+      channelToken,
       mirrorMedia ? { accountId } : null
     )
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
   let replyToInternalId: string | null = null
-  if (message.context?.id) {
-    replyToInternalId = await lookupInternalIdByMetaId(
-      message.context.id,
+  if (message.contextMessageId) {
+    replyToInternalId = await lookupInternalIdByWhatsAppId(
+      message.contextMessageId,
       conversation.id
     )
     if (!replyToInternalId) {
       console.warn(
-        '[webhook] reply context parent not found:',
-        message.context.id
+        '[whapi-webhook] reply context parent not found:',
+        message.contextMessageId
       )
     }
   }
@@ -662,8 +567,9 @@ async function processMessage(
   // The messages.content_type CHECK constraint (widened in migration 010
   // to add 'interactive' for button/list taps) allows:
   //   text, image, document, audio, video, location, template, interactive
-  // Map incoming WhatsApp types that aren't in that list to the closest
-  // allowed value so the INSERT doesn't fail with a constraint error.
+  // The normaliser already narrowed Whapi's much larger type vocabulary
+  // down to this set plus `sticker` and `contacts`, which have no column
+  // value of their own and map to the closest allowed one.
   const ALLOWED_CONTENT_TYPES = new Set([
     'text', 'image', 'document', 'audio', 'video',
     'location', 'template', 'interactive',
@@ -671,10 +577,8 @@ async function processMessage(
   const contentType = ALLOWED_CONTENT_TYPES.has(message.type)
     ? message.type
     : message.type === 'sticker'
-      ? 'image'         // stickers are images
-      : message.type === 'button'
-        ? 'interactive' // template quick-reply tap (issue #478)
-        : 'text'        // reaction, unknown → text fallback
+      ? 'image'   // stickers are WebP images
+      : 'text'    // shared contact cards, anything unforeseen
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
@@ -803,7 +707,7 @@ async function processMessage(
           }
         : {
             kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
+            text: contentText ?? message.text ?? '',
             meta_message_id: message.id,
           },
     isFirstInboundMessage,
@@ -815,7 +719,7 @@ async function processMessage(
   // message all exist before any step — including send_message — runs.
   // Fire-and-forget: a slow or failing automation must not block the
   // webhook's 200 OK response to Meta.
-  const inboundText = contentText ?? message.text?.body ?? ''
+  const inboundText = contentText ?? message.text ?? ''
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
@@ -895,10 +799,34 @@ async function processMessage(
     text: contentText,
   })
 }
-
+/**
+ * Turn a normalised inbound message into the columns the `messages`
+ * row needs: display text, a durable media URL, the MIME type, and the
+ * tapped-option id for interactive replies.
+ *
+ * ─── Where inbound media comes from under Whapi ───────────────────
+ *
+ * `registerWebhook` turns Whapi's auto-download on, so an attachment
+ * arrives with a `link` already pointing at Whapi's file store. That
+ * link is NOT durable — Whapi retains inbound files for roughly 30
+ * days, exactly the same expiry problem Meta's media ids had (issue
+ * #466), and an attachment that silently becomes "Photo unavailable" a
+ * month later is a bad outcome for a CRM whose whole job is history.
+ *
+ * So the link is a starting point, not a destination: `mirrorInboundMedia`
+ * copies the bytes into the account's `chat-media` bucket and we persist
+ * that permanent URL instead. When auto-download hasn't populated a link
+ * (a channel configured before this CRM registered its webhook), we fall
+ * back to resolving the media id through `GET /media/{id}`.
+ *
+ * The mirror is strictly best-effort — it swallows its own failures and
+ * returns null. A webhook that threw would have Whapi redeliver and
+ * re-run everything downstream, which is far worse than an attachment
+ * that expires.
+ */
 async function parseMessageContent(
-  message: WhatsAppMessage,
-  accessToken: string,
+  message: NormalizedInboundMessage,
+  channelToken: string,
   // Tenancy + opt-out for the media mirror. Null disables mirroring
   // entirely, which is what the account-level toggle does.
   mirror: { accountId: string } | null
@@ -915,57 +843,7 @@ async function parseMessageContent(
    */
   interactiveReplyId: string | null
 }> {
-  // getMediaUrl signature is (mediaId, accessToken) — earlier code had
-  // the args swapped, so every verification hit an invalid Meta URL and
-  // fell through to the catch block, leaving mediaUrl as null. That's
-  // why images showed up as empty bubbles in the inbox.
-  //
-  // Beyond verifying, this is where inbound media gets COPIED into the
-  // `chat-media` bucket (issue #466). Meta deletes media ~30 days after
-  // receipt, so the `/api/whatsapp/media/<id>` proxy URL we used to
-  // store is a pointer with an expiry date on it — every inbound
-  // attachment silently became "Photo unavailable" a month later.
-  // Mirroring stores a durable public URL instead.
-  //
-  // The mirror is strictly best-effort. `mirrorInboundMedia` swallows
-  // its own failures and returns null, and we fall back to the proxy
-  // URL — a webhook that throws would have Meta retry the delivery and
-  // re-run everything downstream, which is a far worse outcome than an
-  // attachment that expires.
-  const verifyAndBuildUrl = async (
-    mediaId: string,
-    fileName?: string | null
-  ): Promise<string | null> => {
-    try {
-      const info = await getMediaUrl({ mediaId, accessToken })
-
-      if (mirror) {
-        const mirrored = await mirrorInboundMedia({
-          storage: supabaseAdmin().storage,
-          accountId: mirror.accountId,
-          mediaId,
-          downloadUrl: info.url,
-          accessToken,
-          mimeType: info.mimeType,
-          fileSize: info.fileSize,
-          fileName,
-          messageTimestamp: message.timestamp,
-        })
-        if (mirrored) return mirrored
-      }
-
-      return `/api/whatsapp/media/${mediaId}`
-    } catch (error) {
-      console.error(
-        `Failed to verify media ${mediaId} with Meta:`,
-        error instanceof Error ? error.message : error
-      )
-      return null
-    }
-  }
-
-  // Default shape — each case overrides only the fields it cares about.
-  // Keeps the new `interactiveReplyId` field DRY across every return site.
+  // Default shape — each branch overrides only what it cares about.
   const empty = {
     contentText: null,
     mediaUrl: null,
@@ -973,133 +851,133 @@ async function parseMessageContent(
     interactiveReplyId: null,
   }
 
+  // ---- Non-media types resolve without any network call ----------
+
   switch (message.type) {
     case 'text':
-      return { ...empty, contentText: message.text?.body || null }
+      return { ...empty, contentText: message.text }
 
-    case 'image':
-      if (message.image?.id) {
-        return {
-          ...empty,
-          contentText: message.image.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.image.id),
-          mediaType: message.image.mime_type,
-        }
-      }
-      return empty
+    case 'location': {
+      const loc = message.location
+      if (!loc) return empty
+      const locationText = [
+        loc.name,
+        loc.address,
+        `${loc.latitude},${loc.longitude}`,
+      ]
+        .filter(Boolean)
+        .join(' - ')
+      return { ...empty, contentText: locationText }
+    }
 
-    case 'video':
-      if (message.video?.id) {
-        return {
-          ...empty,
-          contentText: message.video.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.video.id),
-          mediaType: message.video.mime_type,
-        }
-      }
-      return empty
-
-    case 'document':
-      if (message.document?.id) {
-        return {
-          ...empty,
-          contentText:
-            message.document.caption || message.document.filename || null,
-          // The sender's own filename becomes the mirrored object's
-          // name, so saving the attachment yields `invoice.pdf` even
-          // when a caption displaced the filename in content_text.
-          mediaUrl: await verifyAndBuildUrl(
-            message.document.id,
-            message.document.filename
-          ),
-          mediaType: message.document.mime_type,
-        }
-      }
-      return empty
-
-    case 'audio':
-      if (message.audio?.id) {
-        return {
-          ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.audio.id),
-          mediaType: message.audio.mime_type,
-        }
-      }
-      return empty
-
-    case 'sticker':
-      // Stickers are images under the hood. Treat them as such so the
-      // MessageBubble renders the <img>. The caller maps the DB
-      // content_type to 'image' for the CHECK constraint.
-      if (message.sticker?.id) {
-        return {
-          ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.sticker.id),
-          mediaType: message.sticker.mime_type,
-        }
-      }
-      return empty
-
-    case 'location':
-      if (message.location) {
-        const loc = message.location
-        const locationText = [loc.name, loc.address, `${loc.latitude},${loc.longitude}`]
-          .filter(Boolean)
-          .join(' - ')
-        return { ...empty, contentText: locationText }
-      }
-      return empty
+    case 'contacts':
+      return { ...empty, contentText: message.text }
 
     case 'reaction':
-      return { ...empty, contentText: message.reaction?.emoji || null }
+      // Never reached in practice — processMessage short-circuits
+      // reactions before calling here — but kept total so a future
+      // caller can't fall through to the media path with no payload.
+      return { ...empty, contentText: message.reaction?.emoji ?? null }
 
-    case 'interactive': {
-      // The customer tapped a reply button or a list row on a message
-      // we previously sent. Meta delivers `interactive.button_reply` for
-      // 3-button messages and `interactive.list_reply` for list messages.
-      // Use the human-readable title as contentText so the inbox bubble
-      // renders the tap legibly ("Existing customer"), and stash the
-      // stable id separately so the Flows engine can route on it.
-      const reply =
-        message.interactive?.button_reply ?? message.interactive?.list_reply
-      if (reply?.id) {
-        return {
-          ...empty,
-          contentText: reply.title || reply.id,
-          interactiveReplyId: reply.id,
-        }
-      }
-      return { ...empty, contentText: '[Interactive reply]' }
-    }
-
-    case 'button': {
-      // Quick-reply tap on a TEMPLATE message. Meta delivers these under
-      // their own `button` envelope rather than `interactive` above, so
-      // without this case they fell through to `default` and landed in
-      // the inbox as "[Unsupported message type: button]" with a null
-      // interactiveReplyId — which also meant the Flows engine and the
-      // `interactive_reply` automation trigger never saw the tap, so
-      // nothing chained off a broadcast reply (issue #478).
-      //
-      // `payload` is the stable value (the analogue of
-      // `button_reply.id`); `text` is the visible label. Prefer the
-      // payload for routing and the label for display, each falling
-      // back to the other since a template may carry only one.
-      const payload = message.button?.payload || null
-      const label = message.button?.text || null
+    case 'interactive':
+      // The customer tapped a reply button or a list row on a message we
+      // sent. Use the human-readable title as contentText so the inbox
+      // bubble reads legibly ("Existing customer"), and keep the stable
+      // id separately so Flows and the `interactive_reply` automation
+      // trigger can route on it.
       return {
         ...empty,
-        contentText: label || payload,
-        interactiveReplyId: payload || label,
-      }
-    }
-
-    default:
-      return {
-        ...empty,
-        contentText: `[Unsupported message type: ${message.type}]`,
+        contentText:
+          message.interactiveReplyTitle ??
+          message.interactiveReplyId ??
+          '[Interactive reply]',
+        interactiveReplyId: message.interactiveReplyId,
       }
   }
+
+  // ---- Media types: image / video / audio / document / sticker ----
+
+  const media = message.media
+  if (!media) {
+    return { ...empty, contentText: message.text }
+  }
+
+  const mediaUrl = await resolveInboundMediaUrl(message, channelToken, mirror)
+
+  return {
+    ...empty,
+    // A document with no caption still deserves a legible bubble, so
+    // fall back to its filename.
+    contentText: message.text ?? (message.type === 'document' ? media.filename : null),
+    mediaUrl,
+    mediaType: media.mimeType,
+  }
+}
+
+/**
+ * Produce the durable URL stored on `messages.media_url`, preferring a
+ * copy in our own bucket and degrading gracefully at every step.
+ *
+ * Returns null only when the bytes are genuinely unreachable — the
+ * message still persists, just without an attachment, which is what the
+ * inbox renders as a missing-media bubble.
+ */
+async function resolveInboundMediaUrl(
+  message: NormalizedInboundMessage,
+  channelToken: string,
+  mirror: { accountId: string } | null
+): Promise<string | null> {
+  const media = message.media
+  if (!media) return null
+
+  let downloadUrl = media.link
+  let mimeType = media.mimeType
+  let fileSize = media.fileSize
+
+  // No auto-downloaded link — ask Whapi to resolve the media id.
+  if (!downloadUrl) {
+    if (!media.id) return null
+    try {
+      const info = await getMediaUrl({ token: channelToken, mediaId: media.id })
+      downloadUrl = info.url
+      mimeType = mimeType ?? info.mimeType
+      fileSize = fileSize ?? info.fileSize
+    } catch (error) {
+      console.error(
+        `[whapi-webhook] could not resolve media ${media.id}:`,
+        error instanceof Error ? error.message : error
+      )
+      return null
+    }
+  }
+
+  if (mirror) {
+    try {
+      const mirrored = await mirrorInboundMedia({
+        storage: supabaseAdmin().storage,
+        accountId: mirror.accountId,
+        mediaId: media.id ?? message.id,
+        downloadUrl,
+        accessToken: channelToken,
+        mimeType: mimeType ?? undefined,
+        fileSize,
+        fileName: media.filename,
+        messageTimestamp: message.timestamp,
+      })
+      if (mirrored) return mirrored
+    } catch (error) {
+      // mirrorInboundMedia already swallows its own failures; this is
+      // belt-and-braces so an unexpected throw can't lose the message.
+      console.error(
+        '[whapi-webhook] media mirror threw unexpectedly:',
+        error instanceof Error ? error.message : error
+      )
+    }
+  }
+
+  // Mirroring off or failed: fall back to Whapi's own link. It works
+  // today and expires in ~30 days, which beats an empty bubble now.
+  return downloadUrl
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

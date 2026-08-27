@@ -28,6 +28,16 @@ const CONTACT = {
   phone: '+15551234567',
 }
 
+const TEMPLATE_ROW = {
+  id: 'tpl-1',
+  user_id: 'user-1',
+  name: 'order_update',
+  category: 'Utility',
+  language: 'en_US',
+  body_text: 'Hi {{1}}, your order {{2}} is on its way.',
+  created_at: '2026-01-01T00:00:00Z',
+}
+
 // Chainable Supabase mock. A fresh builder per `.from()` call tracks whether
 // `.insert()` ran so the terminal resolves to the inserted row for creates
 // and the canned select row otherwise.
@@ -61,7 +71,11 @@ function makeSupabaseMock() {
             error: null,
           }
         case 'message_templates':
-          return { data: null, error: null }
+          // resolveTemplateRow awaits the builder directly (select+eq,
+          // no .single()), so this comes back through `then` as a list.
+          // Under Whapi the row IS the message, so the send path 404s
+          // without one.
+          return { data: [TEMPLATE_ROW], error: null }
         default:
           return { data: null, error: null }
       }
@@ -154,7 +168,7 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 const { sendTemplateMessage } = vi.hoisted(() => ({
   sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid-1' })),
 }))
-vi.mock('@/lib/whatsapp/meta-api', () => ({
+vi.mock('@/lib/whatsapp/whapi-api', () => ({
   sendTemplateMessage,
   sendTextMessage: vi.fn(),
   sendMediaMessage: vi.fn(),
@@ -217,9 +231,11 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
       string,
       unknown
     >
-    // Meta wants the bare E.164 digits — sanitizePhoneForMeta strips the '+'.
+    // Whapi wants bare digits — a leading '+' fails its `to` pattern.
     expect(args.to).toBe('15551234567')
-    expect(args.templateName).toBe('order_update')
+    // The resolved local row is the message under Whapi; there is no
+    // remote template name to address.
+    expect((args.template as { name: string }).name).toBe('order_update')
 
     // The outbound message was persisted under the new conversation.
     expect(messageInserts).toHaveLength(1)

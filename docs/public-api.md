@@ -161,7 +161,7 @@ Response (201):
 ```
 
 Domain error codes beyond the table above: `whatsapp_not_configured`
-(400), `meta_error` (502 — the request reached Meta and it rejected the
+(400), `whatsapp_error` (502 — the request reached the WhatsApp gateway and it rejected the
 send), `template_malformed` (500).
 
 ### `GET /api/v1/contacts`
@@ -261,7 +261,7 @@ Invalid phone numbers are dropped and counted as `rejected`. Response
 
 Broadcast status + counts. Scope: `broadcasts:send`. `status` moves
 `sending` → `sent`; `delivered_count` / `read_count` keep climbing as
-Meta delivery webhooks arrive. `404` for another account's broadcast.
+delivery webhooks arrive. `404` for another account's broadcast.
 
 ## Pagination
 

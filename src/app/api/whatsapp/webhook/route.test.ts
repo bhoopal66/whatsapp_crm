@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+/**
+ * Shared secret the fixture channel is registered with.
+ *
+ * Hoisted, because the `whatsapp_config` mock factory below is lifted
+ * above ordinary module-scope consts and would hit the temporal dead
+ * zone otherwise.
+ */
+const { WEBHOOK_SECRET } = vi.hoisted(() => ({
+  WEBHOOK_SECRET: 'a'.repeat(64),
+}))
+
 // Shared, hoisted state the module mocks close over. Reset per test.
 const h = vi.hoisted(() => ({
   runAutomationsForTrigger: vi.fn(),
@@ -11,7 +22,7 @@ const h = vi.hoisted(() => ({
     // returns the row; a replayed delivery conflicts and returns [].
     messageUpsertResult: [{ id: 'msg-1' }] as { id: string }[],
     priorCustomerMsgCount: 0,
-    /** Row `lookupInternalIdByMetaId` resolves for a `context.id`. */
+    /** Row `lookupInternalIdByWhatsAppId` resolves for a quoted id. */
     replyContextParent: null as { id: string } | null,
     conversation: { id: 'conv-1', unread_count: 0, account_id: 'acc-1' },
     upsertCalls: [] as { row: Record<string, unknown>; options: unknown }[],
@@ -29,6 +40,8 @@ const h = vi.hoisted(() => ({
     }[],
     /** Error the next storage upload resolves with, if any. */
     storageUploadError: null as { message: string } | null,
+    /** `messages.status` writes made by the delivery-status handler. */
+    messageStatusUpdates: [] as { messageId: string; status: string }[],
   },
 }))
 
@@ -46,21 +59,25 @@ vi.mock('@supabase/supabase-js', () => ({
     from(table: string) {
       switch (table) {
         case 'whatsapp_config':
+          // The Whapi route resolves tenancy from the webhook SECRET,
+          // not from a payload field, so it loads every row and
+          // compares decrypted verify_tokens — hence `select('*')`
+          // awaited directly rather than a filtered `.eq()`.
           return {
-            select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: [
-                    {
-                      account_id: 'acc-1',
-                      user_id: 'user-1',
-                      access_token: 'enc',
-                      mirror_inbound_media: h.state.mirrorInboundMedia,
-                    },
-                  ],
-                  error: null,
-                }),
-            }),
+            select: () =>
+              Promise.resolve({
+                data: [
+                  {
+                    account_id: 'acc-1',
+                    user_id: 'user-1',
+                    phone_number_id: 'CHANNEL-1',
+                    access_token: 'enc:plain-token',
+                    verify_token: `enc:${WEBHOOK_SECRET}`,
+                    mirror_inbound_media: h.state.mirrorInboundMedia,
+                  },
+                ],
+                error: null,
+              }),
           }
         case 'conversations':
           // findOrCreateConversation: select().eq().eq().order().limit()
@@ -79,22 +96,19 @@ vi.mock('@supabase/supabase-js', () => ({
               }),
             }),
           }
-        case 'broadcast_recipients':
-          // flagBroadcastReplyIfAny: select().eq().eq().in().order().limit()
-          return {
-            select: () => ({
-              eq: () => ({
-                eq: () => ({
-                  in: () => ({
-                    order: () => ({
-                      limit: () =>
-                        Promise.resolve({ data: [], error: null }),
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          }
+        case 'broadcast_recipients': {
+          // Two chains land here:
+          //   flagBroadcastReplyIfAny: select().eq().eq().in().order().limit()
+          //   handleStatusUpdate:      select().eq().maybeSingle()
+          // A permissive self-returning builder answers both without
+          // encoding either chain's exact shape.
+          const br: Record<string, unknown> = {}
+          const self = () => br
+          for (const m of ['select', 'eq', 'in', 'order', 'update']) br[m] = self
+          br.limit = () => Promise.resolve({ data: [], error: null })
+          br.maybeSingle = () => Promise.resolve({ data: null, error: null })
+          return br
+        }
         case 'messages':
           return {
             // Two different chains land here, told apart by the count
@@ -112,18 +126,32 @@ vi.mock('@supabase/supabase-js', () => ({
                         }),
                     }),
                   }
-                : // lookupInternalIdByMetaId: select('id').eq().eq().maybeSingle()
-                  {
-                    eq: () => ({
-                      eq: () => ({
-                        maybeSingle: () =>
-                          Promise.resolve({
-                            data: h.state.replyContextParent,
-                            error: null,
-                          }),
-                      }),
-                    }),
-                  },
+                : // Two non-head chains land here, both ending in
+                  // maybeSingle():
+                  //   lookupInternalIdByWhatsAppId: .eq().eq()
+                  //   handleStatusUpdate's owner lookup: .eq().limit()
+                  (() => {
+                    const m: Record<string, unknown> = {}
+                    const self = () => m
+                    m.eq = self
+                    m.limit = self
+                    m.maybeSingle = () =>
+                      Promise.resolve({
+                        data: h.state.replyContextParent,
+                        error: null,
+                      })
+                    return m
+                  })(),
+            // handleStatusUpdate: update({status}).eq('message_id', id)
+            update: (row: { status?: string }) => ({
+              eq: (_column: string, messageId: string) => {
+                h.state.messageStatusUpdates.push({
+                  messageId,
+                  status: String(row.status),
+                })
+                return Promise.resolve({ error: null })
+              },
+            }),
             // Idempotent insert: upsert(...).select('id')
             upsert: (row: Record<string, unknown>, options: unknown) => {
               h.state.upsertCalls.push({ row, options })
@@ -165,12 +193,16 @@ vi.mock('@supabase/supabase-js', () => ({
   }),
 }))
 
+// A reversible stand-in: the route compares the presented secret
+// against `decrypt(verify_token)`, so a mock that returns one constant
+// for every column would make the secret check vacuous.
 vi.mock('@/lib/whatsapp/encryption', () => ({
-  decrypt: () => 'plain-token',
-  encrypt: (v: string) => v,
+  decrypt: (v: string) => String(v).replace(/^enc:/, ''),
+  encrypt: (v: string) => `enc:${v}`,
   isLegacyFormat: () => false,
 }))
-vi.mock('@/lib/whatsapp/meta-api', () => ({
+vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getMediaUrl: vi.fn(),
   downloadMedia: vi.fn(),
 }))
@@ -181,13 +213,6 @@ vi.mock('@/lib/contacts/dedupe', () => ({
     phone: '15551230000',
   })),
   isUniqueViolation: () => false,
-}))
-vi.mock('@/lib/whatsapp/webhook-signature', () => ({
-  verifyMetaWebhookSignature: () => true,
-}))
-vi.mock('@/lib/whatsapp/template-webhook', () => ({
-  isTemplateWebhookField: () => false,
-  handleTemplateWebhookChange: vi.fn(),
 }))
 vi.mock('@/lib/automations/engine', () => ({
   runAutomationsForTrigger: h.runAutomationsForTrigger,
@@ -203,39 +228,52 @@ vi.mock('@/lib/webhooks/deliver', () => ({
 }))
 
 import { POST } from './route'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/whapi-api'
 
 const mockGetMediaUrl = vi.mocked(getMediaUrl)
 const mockDownloadMedia = vi.mocked(downloadMedia)
 
 const TEXT_MESSAGE = {
-  id: 'wamid.TEST1',
+  id: 'p.w30M7fgwWD4XwHu-gBgTwl0rVw',
+  from_me: false,
   from: '15551230000',
-  timestamp: '1700000000',
+  from_name: 'Ada',
+  chat_id: '15551230000@s.whatsapp.net',
+  timestamp: 1700000000,
   type: 'text',
   text: { body: 'hello' },
 }
 
-function inboundRequest(message: Record<string, unknown> = TEXT_MESSAGE) {
+function inboundRequest(
+  message: Record<string, unknown> = TEXT_MESSAGE,
+  opts: { secret?: string | null } = {},
+) {
+  const secret = opts.secret === undefined ? WEBHOOK_SECRET : opts.secret
   const body = {
-    entry: [
-      {
-        changes: [
-          {
-            field: 'messages',
-            value: {
-              metadata: { phone_number_id: 'pn-1' },
-              contacts: [{ wa_id: '15551230000', profile: { name: 'Ada' } }],
-              messages: [message],
-            },
-          },
-        ],
-      },
-    ],
+    messages: [message],
+    event: { type: 'messages', event: 'post' },
+    channel_id: 'CHANNEL-1',
   }
+  const url = secret
+    ? `https://crm.test/api/whatsapp/webhook?secret=${secret}`
+    : 'https://crm.test/api/whatsapp/webhook'
   return {
-    text: async () => JSON.stringify(body),
-    headers: { get: () => 'sha256=stub' },
+    url,
+    json: async () => body,
+    headers: { get: () => null },
+  } as unknown as Request
+}
+
+/** Post a statuses callback rather than a messages one. */
+function statusRequest(status: Record<string, unknown>) {
+  return {
+    url: `https://crm.test/api/whatsapp/webhook?secret=${WEBHOOK_SECRET}`,
+    json: async () => ({
+      statuses: [status],
+      event: { type: 'statuses', event: 'post' },
+      channel_id: 'CHANNEL-1',
+    }),
+    headers: { get: () => null },
   } as unknown as Request
 }
 
@@ -260,6 +298,7 @@ beforeEach(() => {
   h.state.mirrorInboundMedia = true
   h.state.storageUploads = []
   h.state.storageUploadError = null
+  h.state.messageStatusUpdates = []
   mockGetMediaUrl.mockResolvedValue({
     url: 'https://lookaside.fbsbx.com/whatsapp/abc',
     mimeType: 'image/jpeg',
@@ -280,6 +319,85 @@ beforeEach(() => {
         resolve()
       }, 0)
     })
+  })
+})
+
+describe('inbound webhook: caller authentication', () => {
+  // Meta signed each POST with an HMAC of the body. Whapi signs nothing
+  // and cannot attach a custom header, so the shared secret rides in the
+  // callback URL and is the only authenticated fact in the request.
+
+  it('rejects a callback with no secret, loudly rather than silently', async () => {
+    const res = (await POST(inboundRequest(TEXT_MESSAGE, { secret: null }))) as unknown as {
+      init: { status: number }
+    }
+
+    // 401 (not a quiet 200) so a broken rotation shows up in Whapi's
+    // delivery log instead of events being eaten.
+    expect(res.init.status).toBe(401)
+    expect(h.state.afterCallbacks).toHaveLength(0)
+    expect(h.state.upsertCalls).toHaveLength(0)
+  })
+
+  it('rejects an unrecognised secret', async () => {
+    const res = (await POST(
+      inboundRequest(TEXT_MESSAGE, { secret: 'b'.repeat(64) }),
+    )) as unknown as { init: { status: number } }
+
+    expect(res.init.status).toBe(401)
+    expect(h.state.upsertCalls).toHaveLength(0)
+  })
+
+  it('drops a payload whose channel_id disagrees with the secret’s channel', async () => {
+    // Tenancy comes from the secret; `channel_id` is attacker-controlled
+    // data. A mismatch means a second channel was pointed at a URL
+    // minted for the first, so the messages would be filed to the wrong
+    // account.
+    const req = {
+      url: `https://crm.test/api/whatsapp/webhook?secret=${WEBHOOK_SECRET}`,
+      json: async () => ({
+        messages: [TEXT_MESSAGE],
+        event: { type: 'messages', event: 'post' },
+        channel_id: 'SOMEONE-ELSE',
+      }),
+      headers: { get: () => null },
+    } as unknown as Request
+
+    const res = (await POST(req)) as unknown as { init: { status: number } }
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    // Still acked — retrying would not help — but nothing is written.
+    expect(res.init.status).toBe(200)
+    expect(h.state.upsertCalls).toHaveLength(0)
+  })
+})
+
+describe('inbound webhook: delivery statuses', () => {
+  it('maps a Whapi status onto the messages row', async () => {
+    await POST(statusRequest({
+      id: 'YhNqCveDWW90-wO4Twl0rVw',
+      code: 3,
+      status: 'delivered',
+      recipient_id: '15551230000@s.whatsapp.net',
+      timestamp: '1700000100',
+    }))
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect(h.state.messageStatusUpdates).toContainEqual({
+      messageId: 'YhNqCveDWW90-wO4Twl0rVw',
+      status: 'delivered',
+    })
+  })
+
+  it('ignores a `deleted` status, which is not a delivery state', async () => {
+    await POST(statusRequest({
+      id: 'YhNqCveDWW90-wO4Twl0rVw',
+      status: 'deleted',
+      timestamp: '1700000100',
+    }))
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect(h.state.messageStatusUpdates).toHaveLength(0)
   })
 })
 
@@ -328,22 +446,37 @@ describe('inbound webhook: atomic unread bump (#369)', () => {
   })
 })
 
-describe('inbound webhook: template quick-reply buttons (#478)', () => {
-  // A customer tapping a QUICK_REPLY button on a broadcast template.
-  // `context.id` points at the template message we sent — which the
-  // broadcast path never wrote to `messages`, so the parent lookup
+describe('inbound webhook: quick-reply button taps', () => {
+  // A customer tapping a quick-reply button on a message we sent.
+  //
+  // Meta split this across two envelopes — `interactive.button_reply`
+  // for interactive messages and a separate `button` shape for
+  // template ones (issue #478). Whapi reports both as `type: 'reply'`,
+  // so the CRM sees one shape and the class of bug that issue was
+  // about cannot recur.
+  //
+  // `context.quoted_id` points at the message we sent, which a
+  // broadcast never wrote to `messages` — so the parent lookup
   // legitimately misses and the reply is stored unquoted.
-  const templateButtonTap = {
-    id: 'wamid.BTN1',
+  const buttonTap = {
+    id: 'g0jEG0ZsSobn4yNG-gDYOS60TLw',
+    from_me: false,
     from: '15551230000',
-    timestamp: '1700000000',
-    type: 'button',
-    button: { text: 'Yes, interested', payload: 'YES_INTERESTED' },
-    context: { id: 'wamid.BROADCAST1' },
+    from_name: 'Ada',
+    chat_id: '15551230000@s.whatsapp.net',
+    timestamp: 1700000000,
+    type: 'reply',
+    reply: {
+      type: 'buttons_reply',
+      // WhatsApp echoes the id back with its internal marker prefixed;
+      // the normaliser strips it so flows match what they authored.
+      buttons_reply: { id: 'ButtonsV3:YES_INTERESTED', title: 'Yes, interested' },
+    },
+    context: { quoted_id: 'yqKj.Z7XWg0g1lA-wD8Sij1GoQ' },
   }
 
   it('stores the tap as an interactive reply, not an unsupported message', async () => {
-    await runWebhook(templateButtonTap)
+    await runWebhook(buttonTap)
 
     expect(h.state.upsertCalls).toHaveLength(1)
     expect(h.state.upsertCalls[0].row).toMatchObject({
@@ -355,7 +488,7 @@ describe('inbound webhook: template quick-reply buttons (#478)', () => {
   })
 
   it('routes the tap to flows and fires the interactive_reply trigger', async () => {
-    await runWebhook(templateButtonTap)
+    await runWebhook(buttonTap)
 
     expect(h.dispatchInboundToFlows).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -363,7 +496,7 @@ describe('inbound webhook: template quick-reply buttons (#478)', () => {
           kind: 'interactive_reply',
           reply_id: 'YES_INTERESTED',
           reply_title: 'Yes, interested',
-          meta_message_id: 'wamid.BTN1',
+          meta_message_id: 'g0jEG0ZsSobn4yNG-gDYOS60TLw',
         },
       }),
     )
@@ -376,31 +509,52 @@ describe('inbound webhook: template quick-reply buttons (#478)', () => {
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
   })
 
-  it('falls back to the label when the template button carries no payload', async () => {
+  it('handles a list-row selection the same way', async () => {
     await runWebhook({
-      ...templateButtonTap,
-      button: { text: 'Track my order' },
+      ...buttonTap,
+      reply: {
+        type: 'list_reply',
+        list_reply: { id: 'track_order', title: 'Track my order' },
+      },
     })
 
     expect(h.state.upsertCalls[0].row).toMatchObject({
       content_type: 'interactive',
       content_text: 'Track my order',
-      interactive_reply_id: 'Track my order',
+      interactive_reply_id: 'track_order',
     })
   })
 })
 
 describe('inbound webhook: inbound media is mirrored (#466)', () => {
+  // Whapi's auto-download (which `registerWebhook` turns on) puts a
+  // ready-to-fetch `link` on the attachment, so the common path never
+  // calls `getMediaUrl` at all — a round-trip Meta always required.
+  // The link still expires in ~30 days, which is why the mirror exists.
+  const WHAPI_IMAGE_LINK = 'https://s3.whapi.test/in-files/img-abc.jpg'
+
   const IMAGE_MESSAGE = {
     id: 'wamid.IMG1',
+    from_me: false,
     from: '15551230000',
-    timestamp: '1700000000',
+    from_name: 'Ada',
+    chat_id: '15551230000@s.whatsapp.net',
+    timestamp: 1700000000,
     type: 'image',
-    image: { id: '1234567890123456', mime_type: 'image/jpeg', caption: 'hi' },
+    image: {
+      id: '1234567890123456',
+      mime_type: 'image/jpeg',
+      file_size: 2048,
+      link: WHAPI_IMAGE_LINK,
+      caption: 'hi',
+    },
   }
 
-  it('stores a durable bucket URL instead of the expiring proxy path', async () => {
+  it('stores a durable bucket URL instead of the expiring gateway link', async () => {
     await runWebhook(IMAGE_MESSAGE)
+
+    // The webhook already carried the link, so no id-resolution call.
+    expect(mockGetMediaUrl).not.toHaveBeenCalled()
 
     expect(h.state.storageUploads).toHaveLength(1)
     expect(h.state.storageUploads[0].bucket).toBe('chat-media')
@@ -410,12 +564,11 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
     expect(h.state.upsertCalls[0].row).toMatchObject({
       media_url:
         'https://cdn.test/chat-media/account-acc-1/inbound/1234567890123456-image-1700000000.jpg',
-      // Meta's MIME type used to be discarded outright (`void mediaType`).
       media_type: 'image/jpeg',
     })
   })
 
-  it('falls back to the proxy URL when the upload is refused', async () => {
+  it('falls back to the gateway link when the upload is refused', async () => {
     h.state.storageUploadError = { message: 'mime type not supported' }
 
     await runWebhook(IMAGE_MESSAGE)
@@ -424,54 +577,70 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
     // the mirror failing must never cost us the message.
     expect(h.state.upsertCalls).toHaveLength(1)
     expect(h.state.upsertCalls[0].row).toMatchObject({
-      media_url: '/api/whatsapp/media/1234567890123456',
+      media_url: WHAPI_IMAGE_LINK,
       media_type: 'image/jpeg',
     })
   })
 
-  it('falls back to the proxy URL when the download from Meta throws', async () => {
-    mockDownloadMedia.mockRejectedValueOnce(new Error('Media download failed: 404'))
+  it('falls back to the gateway link when the download throws', async () => {
+    mockDownloadMedia.mockRejectedValueOnce(
+      new Error('Media download failed: 404'),
+    )
 
     await runWebhook(IMAGE_MESSAGE)
 
     expect(h.state.upsertCalls[0].row).toMatchObject({
-      media_url: '/api/whatsapp/media/1234567890123456',
+      media_url: WHAPI_IMAGE_LINK,
     })
   })
 
-  it('skips media larger than the bucket accepts, without downloading it', async () => {
+  it('resolves the media id when auto-download left no link', async () => {
     mockGetMediaUrl.mockResolvedValue({
-      url: 'https://lookaside.fbsbx.com/whatsapp/big',
-      mimeType: 'application/pdf',
-      fileSize: 40 * 1024 * 1024,
+      url: 'https://s3.whapi.test/in-files/resolved.jpg',
+      mimeType: 'image/jpeg',
+      fileSize: 2048,
     })
+
+    const { link, ...withoutLink } = IMAGE_MESSAGE.image
+    void link
+    await runWebhook({ ...IMAGE_MESSAGE, image: withoutLink })
+
+    expect(mockGetMediaUrl).toHaveBeenCalledWith({
+      token: 'plain-token',
+      mediaId: '1234567890123456',
+    })
+    expect(h.state.storageUploads).toHaveLength(1)
+  })
+
+  it('skips media larger than the bucket accepts, without downloading it', async () => {
+    const bigLink = 'https://s3.whapi.test/in-files/huge.pdf'
 
     await runWebhook({
       id: 'wamid.DOC1',
+      from_me: false,
       from: '15551230000',
-      timestamp: '1700000000',
+      from_name: 'Ada',
+      chat_id: '15551230000@s.whatsapp.net',
+      timestamp: 1700000000,
       type: 'document',
       document: {
         id: '999',
         mime_type: 'application/pdf',
-        filename: 'huge.pdf',
+        file_size: 40 * 1024 * 1024,
+        file_name: 'huge.pdf',
+        link: bigLink,
       },
     })
 
     expect(mockDownloadMedia).not.toHaveBeenCalled()
     expect(h.state.storageUploads).toHaveLength(0)
     expect(h.state.upsertCalls[0].row).toMatchObject({
-      media_url: '/api/whatsapp/media/999',
+      media_url: bigLink,
       media_type: 'application/pdf',
     })
   })
 
   it("names the object after a document's own filename", async () => {
-    mockGetMediaUrl.mockResolvedValue({
-      url: 'https://lookaside.fbsbx.com/whatsapp/doc',
-      mimeType: 'application/pdf',
-      fileSize: 4096,
-    })
     mockDownloadMedia.mockResolvedValue({
       buffer: Buffer.alloc(4096),
       contentType: 'application/pdf',
@@ -479,13 +648,18 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
 
     await runWebhook({
       id: 'wamid.DOC2',
+      from_me: false,
       from: '15551230000',
-      timestamp: '1700000000',
+      from_name: 'Ada',
+      chat_id: '15551230000@s.whatsapp.net',
+      timestamp: 1700000000,
       type: 'document',
       document: {
         id: '1234567890123456',
         mime_type: 'application/pdf',
-        filename: 'invoice.pdf',
+        file_size: 4096,
+        file_name: 'invoice.pdf',
+        link: 'https://s3.whapi.test/in-files/invoice.pdf',
         caption: 'have a look',
       },
     })
@@ -503,9 +677,9 @@ describe('inbound webhook: inbound media is mirrored (#466)', () => {
     expect(mockDownloadMedia).not.toHaveBeenCalled()
     expect(h.state.storageUploads).toHaveLength(0)
     expect(h.state.upsertCalls[0].row).toMatchObject({
-      media_url: '/api/whatsapp/media/1234567890123456',
+      media_url: WHAPI_IMAGE_LINK,
       // Still recorded — the MIME type costs nothing and makes the
-      // download name right even for proxied media.
+      // download name right even for un-mirrored media.
       media_type: 'image/jpeg',
     })
   })

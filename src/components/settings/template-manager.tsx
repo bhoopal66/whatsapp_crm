@@ -6,7 +6,6 @@ import {
   Plus,
   Trash2,
   Loader2,
-  RefreshCw,
   AlertCircle,
   X,
   Pencil,
@@ -133,7 +132,6 @@ export function TemplateManager() {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [form, setForm] = useState<TemplateFormData>(emptyForm);
   // Non-null when the dialog is editing an existing row — switches the
   // submit handler from POST /submit to PATCH /[id] and changes the
@@ -282,13 +280,7 @@ export function TemplateManager() {
       // immediately should not show a stale list.
       if (user) await fetchTemplates(user.id);
       toast.success(
-        data.dry_run
-          ? isEdit
-            ? t('toastSaveEditDry')
-            : t('toastSaveNewDry')
-          : isEdit
-            ? t('toastSubmitEditSuccess')
-            : t('toastSubmitNewSuccess'),
+        isEdit ? t('toastSubmitEditSuccess') : t('toastSubmitNewSuccess'),
       );
       setDialogOpen(false);
       setForm(emptyForm);
@@ -301,47 +293,6 @@ export function TemplateManager() {
     }
   }
 
-  async function handleSyncFromMeta() {
-    if (!user) return;
-    setSyncing(true);
-    try {
-      const res = await fetch('/api/whatsapp/templates/sync', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || `Sync failed (HTTP ${res.status})`);
-      }
-      toast.success(
-        t('toastSyncCount', { total: data.total }) +
-          (data.inserted || data.updated
-            ? t('toastSyncDetails', { inserted: data.inserted, updated: data.updated })
-            : ''),
-      );
-      if (Array.isArray(data.errors) && data.errors.length > 0) {
-        const preview = data.errors.slice(0, 3).map(
-          (e: { name: string; language: string; message: string }) =>
-            `${e.name} (${e.language})`,
-        );
-        const suffix =
-          data.errors.length > 3 ? `, +${data.errors.length - 3} more` : '';
-        toast.error(t('toastSyncFailed', { preview: preview.join(', ') + suffix }));
-      }
-      if (data.truncated) {
-        // Use error (not warning) so the message survives long
-        // enough to read — sonner's `warning` auto-dismisses on
-        // the same short timer as `success`.
-        toast.error(
-          t('toastSyncTruncated'),
-          { duration: 10000 },
-        );
-      }
-      await fetchTemplates(user.id);
-    } catch (err) {
-      console.error('Template sync error:', err);
-      toast.error(err instanceof Error ? err.message : t('toastSyncError'));
-    } finally {
-      setSyncing(false);
-    }
-  }
 
   async function confirmDelete() {
     const target = templateToDelete;
@@ -487,21 +438,10 @@ export function TemplateManager() {
         title={t('title')}
         description={t('description')}
         action={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={handleSyncFromMeta}
-              disabled={syncing}
-              title={t('syncTitle')}
-            >
-              <RefreshCw className={`size-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? t('syncing') : t('syncFromMeta')}
-            </Button>
-            <Button onClick={openCreate}>
-              <Plus className="size-4" />
-              {t('newTemplate')}
-            </Button>
-          </div>
+          <Button onClick={openCreate}>
+            <Plus className="size-4" />
+            {t('newTemplate')}
+          </Button>
         }
       />
 

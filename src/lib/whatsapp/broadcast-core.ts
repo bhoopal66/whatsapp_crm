@@ -18,7 +18,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { sendTemplateMessage } from '@/lib/whatsapp/meta-api';
+import { sendTemplateMessage } from '@/lib/whatsapp/whapi-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   sanitizePhoneForMeta,
@@ -66,9 +66,16 @@ export interface BroadcastPlan {
   broadcastId: string;
   templateName: string;
   templateLanguage: string;
-  phoneNumberId: string;
-  accessToken: string;
-  templateRow: MessageTemplate | null;
+  /** Whapi channel id — carried for logging and resume bookkeeping. */
+  channelId: string;
+  /** Decrypted Whapi channel token. */
+  channelToken: string;
+  /**
+   * The local template row. Under Whapi this is the message itself, not
+   * a lookup key for a remote registry, so it is required — planners
+   * reject a missing row before they build a plan.
+   */
+  templateRow: MessageTemplate;
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
@@ -122,10 +129,12 @@ export async function createBroadcast(
       400
     );
   }
-  const accessToken = decrypt(config.access_token);
+  const channelToken = decrypt(config.access_token);
 
-  // Template row (once) for header/button components; guard a
-  // malformed local row rather than N identical opaque failures.
+  // Template row (once). Under Whapi the row IS the broadcast message —
+  // it is rendered locally and sent as an ordinary WhatsApp message —
+  // so both a malformed row and a missing one are hard failures, caught
+  // here rather than as N identical opaque per-recipient errors.
   const resolvedTemplate = await resolveTemplateRow(
     db,
     accountId,
@@ -135,8 +144,15 @@ export async function createBroadcast(
   if (resolvedTemplate.malformed) {
     throw new BroadcastError(
       'template_malformed',
-      'Template row is malformed locally — run "Sync from Meta" in Settings to repair it before broadcasting.',
+      'Template row is malformed locally — open Settings → Templates and re-save it before broadcasting.',
       500
+    );
+  }
+  if (!resolvedTemplate.row) {
+    throw new BroadcastError(
+      'template_not_found',
+      `No template named "${templateName}" exists on this account.`,
+      404
     );
   }
   const templateRow = resolvedTemplate.row;
@@ -234,8 +250,8 @@ export async function createBroadcast(
     broadcastId,
     templateName,
     templateLanguage: resolvedTemplate.language,
-    phoneNumberId: config.phone_number_id,
-    accessToken,
+    channelId: config.phone_number_id,
+    channelToken,
     templateRow,
     planned,
     rejected,
@@ -267,13 +283,10 @@ export async function deliverBroadcast(
     for (const variant of variants) {
       try {
         const result = await sendTemplateMessage({
-          phoneNumberId: plan.phoneNumberId,
-          accessToken: plan.accessToken,
+          token: plan.channelToken,
           to: variant,
-          templateName: plan.templateName,
-          language: plan.templateLanguage,
-          template: plan.templateRow ?? undefined,
-          params: recipient.params,
+          template: plan.templateRow,
+          bodyParams: recipient.params,
         });
         sentMessageId = result.messageId;
         lastError = null;

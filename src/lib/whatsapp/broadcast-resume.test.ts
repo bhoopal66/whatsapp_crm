@@ -154,7 +154,10 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
             return resolve({ data: fx.recipients ?? [], error: null });
           }
           if (table === 'message_templates') {
-            return resolve({ data: fx.templates ?? [], error: null });
+            // Whapi renders templates locally, so a plan is impossible
+            // without a row — default the fixture to a usable one and
+            // let individual tests override it.
+            return resolve({ data: fx.templates ?? [TEMPLATE_ROW], error: null });
           }
           return resolve({ data: [], error: null });
         },
@@ -171,6 +174,14 @@ const BROADCAST = {
 };
 
 const CONFIG = { phone_number_id: 'pn-1', access_token: 'tok' };
+
+const TEMPLATE_ROW = {
+  id: 'tpl-1',
+  user_id: 'u-1',
+  name: 'order_update',
+  language: 'en_US',
+  body_text: 'Your order {{1}} ships on {{2}}',
+};
 
 function recipient(
   id: string,
@@ -220,7 +231,7 @@ describe('planBroadcastResume', () => {
         params: ['B456', 'Monday'],
       },
     ]);
-    expect(plan.accessToken).toBe('decrypted:tok');
+    expect(plan.channelToken).toBe('decrypted:tok');
     expect(remaining).toBe(0);
     expect(unsendable).toBe(0);
   });
@@ -353,7 +364,7 @@ describe('planBroadcastResume', () => {
             id: 'tpl-1',
             user_id: 'u-1',
             name: 'order_update',
-            // Synced from Meta as bare 'en' — the resolver bridges it.
+            // Stored as bare 'en' — the resolver bridges en / en_US.
             language: 'en',
             body_text: 'Your order {{1}} ships on {{2}}',
           },
@@ -363,6 +374,6 @@ describe('planBroadcastResume', () => {
       'bc-1',
       'pending',
     );
-    expect(plan.templateRow?.language).toBe('en');
+    expect(plan.templateRow.language).toBe('en');
   });
 });

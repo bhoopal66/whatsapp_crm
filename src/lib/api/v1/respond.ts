@@ -99,7 +99,7 @@ export function okList<T>(items: T[], nextCursor: string | null): NextResponse {
 /**
  * Failure envelope from an explicit (code, message, status). Use for
  * domain errors whose codes live outside `ApiErrorCode` (e.g. the
- * send pipeline's `meta_error` / `whatsapp_not_configured`) — the
+ * send pipeline's `whatsapp_error` / `whatsapp_not_configured`) — the
  * wire `code` is a free string, so any machine-meaningful value is
  * fine. `headers` is rarely needed; omit unless you have a
  * `Retry-After`-style set.

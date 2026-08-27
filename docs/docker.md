@@ -38,7 +38,7 @@ is included.
   `docker-compose.yml`. If you change any of them, rebuild:
   `docker compose --env-file .env.local up --build -d`.
 - Everything else (`SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`,
-  `META_APP_SECRET`, …) is read at **runtime** from `.env.local` via
+  `ENCRYPTION_KEY`, …) is read at **runtime** from `.env.local` via
   `env_file` and is never baked into the image — safe to change with
   just a container restart.
 
@@ -59,12 +59,12 @@ docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 wacrm
   container — apply them with the Supabase CLI as described in the
   README.
 - Received attachments are copied into the `chat-media` Supabase
-  Storage bucket, because Meta deletes media roughly 30 days after it
+  Storage bucket, because Whapi deletes media roughly 30 days after it
   arrives and the copy is the only thing that outlives that. It grows
   with inbound volume, so it's worth watching your project's storage
   quota. Turn it off per account under Settings → WhatsApp →
   Attachment Storage; attachments received while it's off become
-  unviewable once Meta drops them. Files over 16 MB (the bucket's
+  unviewable once the gateway drops them. Files over 16 MB (the bucket's
   limit) are never copied.
 - Nothing inside the container is scheduled. If you use automation
   Wait steps or flows, point an external scheduler at

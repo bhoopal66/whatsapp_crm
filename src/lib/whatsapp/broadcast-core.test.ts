@@ -74,10 +74,25 @@ function makeDb(rpcResult: { data: unknown; error: unknown }) {
         };
       }
       if (table === 'message_templates') {
+        // Under Whapi the template row IS the broadcast message, so a
+        // plan can't be built without one.
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: () => chain,
           maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          then: (resolve: (r: { data: unknown[]; error: null }) => unknown) =>
+            resolve({
+              data: [
+                {
+                  id: 'tpl-1',
+                  user_id: 'u-1',
+                  name: 'welcome',
+                  language: 'en_US',
+                  body_text: 'Hello {{1}}',
+                },
+              ],
+              error: null,
+            }),
         };
         return chain;
       }

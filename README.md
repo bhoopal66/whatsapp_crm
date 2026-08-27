@@ -23,13 +23,14 @@ clone or fork it to run your own CRM.
 
 ## What you get out of the box
 
-- **Shared inbox** on the official WhatsApp Business API — multiple
-  agents working one number, per-conversation assignment, status, and
-  notes.
+- **Shared inbox** on your own WhatsApp number via a
+  [Whapi.Cloud](https://whapi.cloud) channel — multiple agents working
+  one number, per-conversation assignment, status, and notes.
 - **Contacts + tags + custom fields**, CSV import, deduplication.
 - **Sales pipelines** (Kanban) with deals linked to conversations.
-- **Broadcasts** with Meta-approved templates, delivery + read
-  tracking, per-recipient variable substitution.
+- **Broadcasts** with reusable message templates, delivery + read
+  tracking, per-recipient variable substitution. No approval queue —
+  a template you save is usable on the next send.
 - **No-code automations** — triggers on inbound messages, new
   contacts, keywords, or schedule; conditional branches, waits,
   tags, webhooks. Visual builder.
@@ -83,12 +84,18 @@ in an afternoon and make yours.
 git clone https://github.com/<your-username>/wacrm.git
 cd wacrm
 npm install
-cp .env.local.example .env.local   # fill in Supabase + Meta creds
+cp .env.local.example .env.local   # fill in Supabase creds
 npm run dev
 ```
 
 Open <http://localhost:3000>. You'll be redirected to `/login` (or
 `/dashboard` if already signed in).
+
+To connect a WhatsApp number, see
+[docs/whapi.md](./docs/whapi.md) — create a Whapi.Cloud channel, scan a
+QR code, paste the channel token in Settings. Note that inbound messages
+need a **public HTTPS URL** (`NEXT_PUBLIC_SITE_URL`); a Cloudflare
+tunnel is enough for local work.
 
 Prefer containers? See [docs/docker.md](./docs/docker.md) for the
 Dockerfile + Docker Compose setup.
@@ -129,7 +136,7 @@ Kubernetes cluster.
 1. **Fork** this repo on GitHub.
 2. In **hPanel → Websites → Create**, pick **Node.js** and connect
    your fork.
-3. Paste your Supabase + Meta env vars into hPanel.
+3. Paste your Supabase env vars into hPanel.
 4. Push to `main`. Hostinger builds and serves it. Done.
 
 Full walkthrough with screenshots:
@@ -159,7 +166,9 @@ Key pages:
 
 - **App** — Next.js 16 (App Router), React 19, TypeScript, Tailwind v4.
 - **Data** — Supabase (Postgres + Auth + Storage + RLS).
-- **WhatsApp** — Meta Cloud API (official WhatsApp Business API).
+- **WhatsApp** — [Whapi.Cloud](https://whapi.cloud) gateway. Pair a
+  number by QR, paste the channel token in Settings, done. No Meta app
+  review, no Business Manager, no template approval.
 
 ## Contributing
 

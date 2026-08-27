@@ -10,18 +10,18 @@
 //   - quick replies (store an interactive snippet).
 //
 // The field names (`id`/`title`/`description` on buttons/rows) match
-// `meta-api.ts`'s `InteractiveButton` / `InteractiveListRow` /
+// `whapi-api.ts`'s `InteractiveButton` / `InteractiveListRow` /
 // `InteractiveListSection` on purpose, so a payload maps straight onto
-// the Meta send args with no translation.
+// the Whapi send args with no translation.
 //
 // `validateInteractivePayload` mirrors the throws already inside the
-// meta-api senders, but returns a result object so callers (API routes,
+// whapi-api senders, but returns a result object so callers (API routes,
 // activation checks) can surface a clean error to the user *before* the
-// network call rather than turning a bad payload into a 400 from Meta
+// network call rather than turning a bad payload into a 400 from Whapi
 // mid-conversation.
 // ============================================================
 
-import { INTERACTIVE_LIMITS } from './meta-api'
+import { INTERACTIVE_LIMITS } from './whapi-api'
 
 export interface InteractiveButton {
   /** Stable id echoed back in the webhook when tapped. */

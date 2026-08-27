@@ -123,7 +123,7 @@ export async function resolveTemplateRow(
       );
     }
     // No language asked for: prefer the historical default, then the
-    // bare form Meta's sync produces, then whatever exists.
+    // bare form, then whatever exists.
     return (
       rows.find((r) => r.language === 'en_US') ??
       rows.find((r) => r.language === 'en') ??
@@ -134,8 +134,8 @@ export async function resolveTemplateRow(
   const chosen = pick();
   if (!chosen) {
     // Rows exist but none in the requested language — the caller pinned
-    // a translation this account hasn't synced. Send it anyway; Meta is
-    // the authority on which translations are approved.
+    // a translation this account doesn't have. Report no row; under
+    // Whapi the local row is the message, so there is nothing to send.
     return { row: null, malformed: false, language: fallbackLanguage };
   }
 

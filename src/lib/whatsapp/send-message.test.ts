@@ -151,8 +151,8 @@ describe('sendMessageToConversation — param validation (pre-DB)', () => {
 
 describe('SendMessageError', () => {
   it('carries a machine code and an HTTP status', () => {
-    const e = new SendMessageError('meta_error', 'boom', 502);
-    expect(e.code).toBe('meta_error');
+    const e = new SendMessageError('whatsapp_error', 'boom', 502);
+    expect(e.code).toBe('whatsapp_error');
     expect(e.status).toBe(502);
     expect(e).toBeInstanceOf(Error);
   });
@@ -166,7 +166,7 @@ const sendTemplateMessage = vi.fn(async () => ({ messageId: 'wamid.1' }));
 
 // Stub only the senders — the module also exports INTERACTIVE_LIMITS,
 // which `interactive.ts` needs for the payload validation covered above.
-vi.mock('@/lib/whatsapp/meta-api', async (importOriginal) => ({
+vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   sendTextMessage: vi.fn(async () => ({ messageId: 'wamid.text' })),
   sendTemplateMessage: (...args: unknown[]) =>
@@ -315,7 +315,7 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
     expect(captured.message?.content_text).toBe('rendered by the composer');
   });
 
-  it("sends the local row's language when the caller names none", async () => {
+  it('hands the resolved local row to the sender, with its body params', async () => {
     sendTemplateMessage.mockClear();
     const captured: CapturedWrites = {};
     await sendMessageToConversation(sendPathDb([TEMPLATE_ROW], captured), 'acct-1', {
@@ -324,25 +324,40 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
       templateName: 'order_update',
       templateParams: ['A123', 'Friday'],
     });
-    // Previously pinned to 'en_US', which matched no row and made Meta
-    // reject the send as a missing translation.
-    expect(
-      (sendTemplateMessage.mock.calls[0] as unknown as [{ language: string }])[0]
-        .language
-    ).toBe('en');
+
+    // Under Meta this asserted the LANGUAGE CODE on the wire, because
+    // the template lived on Meta's side and the code selected which
+    // approved translation to render. Whapi has no template registry:
+    // the row itself is the message, so what matters is that the
+    // resolver's chosen row — and the values to substitute into it —
+    // reach the sender.
+    const args = (
+      sendTemplateMessage.mock.calls[0] as unknown as [
+        { template: { language: string }; bodyParams: string[] },
+      ]
+    )[0];
+    expect(args.template.language).toBe('en');
+    expect(args.bodyParams).toEqual(['A123', 'Friday']);
   });
 
-  it('leaves content_text null when the account has no local template row', async () => {
+  it('refuses the send when the account has no local template row', async () => {
+    sendTemplateMessage.mockClear();
     const captured: CapturedWrites = {};
-    await sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
-      conversationId: 'cv-1',
-      messageType: 'template',
-      templateName: 'never_synced',
-      templateParams: ['A123'],
-    });
-    // Nothing to render from — the bubble falls back to the template
-    // name rather than inventing a body.
-    expect(captured.message?.content_text).toBeNull();
-    expect(captured.conversation?.last_message_text).toBe('[template]');
+
+    // Meta could still deliver a template we had no local copy of — the
+    // row was only needed to render the text we persisted. Whapi cannot:
+    // with nothing to render there is no message, so this is now a hard
+    // failure instead of a send with a null content_text.
+    await expect(
+      sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'never_saved',
+        templateParams: ['A123'],
+      }),
+    ).rejects.toMatchObject({ code: 'template_not_found' });
+
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+    expect(captured.message).toBeUndefined();
   });
 });

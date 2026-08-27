@@ -227,8 +227,15 @@ export async function planBroadcastResume(
   if (resolvedTemplate.malformed) {
     throw new BroadcastError(
       'template_malformed',
-      'Template row is malformed locally — run "Sync from Meta" in Settings to repair it before resuming.',
+      'Template row is malformed locally — open Settings → Templates and re-save it before resuming.',
       500
+    );
+  }
+  if (!resolvedTemplate.row) {
+    throw new BroadcastError(
+      'template_not_found',
+      `No template named "${broadcast.template_name}" exists on this account.`,
+      404
     );
   }
 
@@ -236,8 +243,8 @@ export async function planBroadcastResume(
     broadcastId,
     templateName: broadcast.template_name,
     templateLanguage: resolvedTemplate.language,
-    phoneNumberId: config.phone_number_id,
-    accessToken: decrypt(config.access_token),
+    channelId: config.phone_number_id,
+    channelToken: decrypt(config.access_token),
     templateRow: resolvedTemplate.row,
     planned: slice.map((row) => ({
       recipientRowId: row.id,

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
+import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/whapi-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 
 export async function GET(
@@ -62,15 +62,16 @@ export async function GET(
       )
     }
 
-    const accessToken = decrypt(config.access_token)
+    const token = decrypt(config.access_token)
 
-    // Get the download URL from Meta
-    const mediaInfo = await getMediaUrl({ mediaId, accessToken })
+    // Resolve the Whapi media id to a download URL
+    const mediaInfo = await getMediaUrl({ mediaId, token })
 
-    // Download the binary data
+    // Download the binary data. Whapi-hosted media needs the channel
+    // token presented as a Bearer header, so it is passed through.
     const { buffer, contentType } = await downloadMedia({
       downloadUrl: mediaInfo.url,
-      accessToken,
+      token,
     })
 
     return new Response(new Uint8Array(buffer), {
