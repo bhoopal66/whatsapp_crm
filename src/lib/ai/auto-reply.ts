@@ -7,7 +7,7 @@ import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
-import { engineSendText } from '@/lib/flows/whapi-send'
+import { engineSendText } from '@/lib/flows/channel-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 interface DispatchArgs {
@@ -186,6 +186,10 @@ export async function dispatchInboundToAiReply(
       contactId,
       text,
       aiGenerated: true,
+      // Routed independently of the deterministic flow runner
+      // (migration 046) — an admin can put the AI bot on one number and
+      // flows on the other.
+      surface: 'ai_reply',
     })
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)

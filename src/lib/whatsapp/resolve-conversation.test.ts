@@ -48,6 +48,10 @@ function makeDb(script: Script): SupabaseClient {
     eq: () => builder,
     order: () => builder,
     limit: () => {
+      // whatsapp_config chains .limit(1).maybeSingle() — an account can
+      // hold two channels since migration 046, so the precheck takes
+      // one rather than asserting there is exactly one.
+      if (table === 'whatsapp_config') return builder;
       // Only the conversation lookup terminates on `.limit(1)`.
       if (table === 'conversations' && mode === 'select') {
         const row = script.existingConversationByCall

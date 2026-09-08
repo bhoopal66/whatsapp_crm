@@ -64,6 +64,34 @@ const SECURITY_HEADERS = [
 ] as const;
 
 const nextConfig: NextConfig = {
+  /**
+   * Client-side route cache.
+   *
+   * The role-gated screens (/team-inbox, /team-contacts, /agents,
+   * /flows, /automations, /broadcasts, /pipelines) read cookies in
+   * their layout guard, which makes them dynamic routes. Next gives
+   * dynamic segments a client cache TTL of 0 by default, so every
+   * visit — including flipping back to a tab opened seconds ago —
+   * refetched the RSC payload. On this deployment that payload comes
+   * back through Cloudflare and the tunnel, ~0.7s against ~0.02s from
+   * the origin itself, and it is the delay the user sees before the
+   * screen even starts rendering.
+   *
+   * Caching it for a couple of minutes makes a return visit instant.
+   * Nothing user-visible goes stale: these pages are client
+   * components that fetch their own data on mount, so the cached part
+   * is the empty shell, not the contents. The role guard does get
+   * cached with it, so a demotion takes up to `dynamic` seconds to
+   * close the screen — the data inside it is RLS-gated regardless,
+   * which is what actually keeps a demoted user out.
+   */
+  experimental: {
+    staleTimes: {
+      dynamic: 120,
+      static: 300,
+    },
+  },
+
   // Emit a self-contained server bundle (.next/standalone) so the
   // Docker image can run without node_modules or the Next CLI.
   // Harmless outside Docker: `next start` keeps working as before.

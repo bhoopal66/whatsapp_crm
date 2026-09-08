@@ -139,6 +139,12 @@ export function WhatsAppConfig() {
           .from('whatsapp_config')
           .select('*')
           .eq('account_id', acctId)
+          // This panel owns the WHAPI channel specifically. Since
+          // migration 046 an account can also hold a Meta row, and
+          // without this filter maybeSingle() matches two rows, errors,
+          // and the panel reports "Not connected" for a perfectly
+          // healthy channel.
+          .eq('provider', 'whapi')
           .maybeSingle();
 
         if (error) console.error('Failed to load config row:', error);
@@ -211,7 +217,10 @@ export function WhatsAppConfig() {
       const { error } = await supabase
         .from('whatsapp_config')
         .update({ mirror_inbound_media: next })
-        .eq('account_id', accountId);
+        .eq('account_id', accountId)
+        // Whapi row only — this toggle belongs to this panel. Without
+        // it the write also flips the Meta channel's setting.
+        .eq('provider', 'whapi');
       if (error) throw new Error(error.message);
       setConfig({ ...config, mirror_inbound_media: next });
     } catch (error) {

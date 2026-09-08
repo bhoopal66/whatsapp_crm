@@ -16,7 +16,7 @@
  *   - Pure decision logic (which button matched, where to advance to,
  *     when to fallback) — here.
  *   - DB shape (table reads/writes) — here.
- *   - WhatsApp sends — `whapi-send.ts` (engineSendInteractive*).
+ *   - WhatsApp sends — `channel-send.ts` (engineSendInteractive*).
  *   - Policy resolution (reprompt vs handoff vs end) — `fallback.ts`.
  *   - Type definitions — `types.ts`.
  *
@@ -38,7 +38,7 @@ import {
   engineSendInteractiveList,
   engineSendMedia,
   engineSendText,
-} from "./whapi-send";
+} from "./channel-send";
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";

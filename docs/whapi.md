@@ -26,6 +26,13 @@ guarantees, and blasting unsolicited messages is what gets a number
 banned. Meta's approval friction buys deliverability assurances; this
 setup trades those for being able to start in five minutes.
 
+> **You can have both.** wacrm supports connecting a Meta Cloud API
+> number *alongside* a Whapi channel, and choosing per task which one
+> sends — typically campaigns and automations on the Cloud API number,
+> conversations on Whapi. It has to be a second phone number, because
+> registering a number on the Cloud API removes it from the WhatsApp
+> app. See [meta-cloud-api.md](meta-cloud-api.md).
+
 ## Setup
 
 ### 1. Create a channel

@@ -212,11 +212,23 @@ function sendPathDb(
     id: 'cv-1',
     contact: { id: 'ct-1', phone: '+15551234567' },
   };
-  const config = {
-    id: 'cfg-1',
-    phone_number_id: 'pn-1',
-    access_token: 'token',
-  };
+  // Channel rows as `channels.ts` reads them (migration 046). The
+  // encryption mock above is identity, so `access_token` is plaintext.
+  const channelRows = [
+    {
+      id: 'cfg-1',
+      account_id: 'acct-1',
+      provider: 'whapi',
+      label: 'Support',
+      phone_number_id: 'pn-1',
+      waba_id: null,
+      access_token: 'token',
+      app_secret: null,
+      is_primary: true,
+      mirror_inbound_media: true,
+      status: 'connected',
+    },
+  ];
 
   return {
     from(table: string) {
@@ -231,12 +243,22 @@ function sendPathDb(
           if (table === 'conversations') captured.conversation = row;
           return builder;
         },
+        // `channels.ts` terminates its whatsapp_config read on .order();
+        // every other table keeps chaining.
+        order: () => {
+          if (table === 'whatsapp_config') {
+            return Promise.resolve({ data: channelRows, error: null });
+          }
+          return builder;
+        },
+        limit: () => builder,
+        // whatsapp_routes: no explicit route, so the primary is used.
+        // messages: no inbound history on this thread.
         maybeSingle: async () => ({ data: null, error: null }),
         single: async () => {
           if (table === 'conversations') {
             return { data: conversation, error: null };
           }
-          if (table === 'whatsapp_config') return { data: config, error: null };
           if (table === 'messages') {
             return { data: { id: 'msg-1' }, error: null };
           }

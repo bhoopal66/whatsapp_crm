@@ -9,6 +9,63 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [Unreleased]
+
+Adds an optional **second WhatsApp number** on Meta's Cloud API,
+alongside the existing Whapi channel, with an admin selector for which
+number sends what.
+
+> **Migration required:** apply
+> `supabase/migrations/046_multi_channel_whatsapp.sql` (lets
+> `whatsapp_config` hold one row per provider per account, records which
+> number carried each message, and adds the `whatsapp_routes` table
+> behind the selector). Existing installs keep working unchanged: the
+> single connected channel becomes the account default and every task
+> inherits it.
+
+### Added
+
+- **Meta WhatsApp Cloud API as a second number.** Connect a Cloud API
+  number in Settings → WhatsApp and keep your Whapi channel for
+  conversations. It must be a *different* phone number — registering a
+  number on the Cloud API removes it from the WhatsApp app, so no number
+  can be on both. See `docs/meta-cloud-api.md`.
+- **Per-task number selection.** An admin can point each of inbox
+  replies, broadcasts, automations, flows, AI auto-reply and the public
+  API at either number, or leave it on the account default. The usual
+  split is campaigns and automations on the Cloud API number (the
+  sanctioned path for business-initiated messaging) and everything
+  conversational on Whapi.
+- **Meta inbound webhook** at `/api/whatsapp/meta/webhook`, authenticated
+  by `X-Hub-Signature-256` over the raw body. Verification fails closed:
+  with no app secret configured, callbacks are rejected rather than
+  trusted. Both numbers deliver into the same inbox, and a contact stays
+  a single conversation regardless of which number they used.
+- **Template review lifecycle is live again** when a Meta number is
+  connected. Saving a template in Settings → Templates also submits it
+  to your WhatsApp Business Account for review, and approvals,
+  rejections and quality ratings arrive on the template webhook. The
+  submission is best-effort: if Meta rejects the payload the template is
+  still saved and still sendable over Whapi, with the reason recorded.
+  One template row serves both numbers — Whapi renders it locally and
+  needs no approval.
+- New optional environment variables `META_APP_SECRET`,
+  `META_VERIFY_TOKEN`, `META_API_VERSION` and `META_TIMEOUT_MS`, for a
+  single-app self-host that would rather configure Meta's app-level
+  secrets once than per account. See `.env.local.example`.
+
+### Changed
+
+- **Replies follow the customer's number.** An agent replying in the
+  inbox now answers on whichever number the customer last wrote to,
+  rather than a single configured channel. On Meta this is also what
+  keeps the reply inside the 24-hour service window the customer opened.
+- **Clearer send failures.** Gateway rejections are translated before
+  they reach you — most usefully Meta's closed 24-hour window, which
+  previously surfaced as a bare numeric code.
+- Disconnecting one number no longer disturbs the other; any task routed
+  to the removed number falls back to the account default.
+
 ## [0.8.1] — 2026-07-10
 
 Fixes inbound chats fragmenting into multiple threads for the same

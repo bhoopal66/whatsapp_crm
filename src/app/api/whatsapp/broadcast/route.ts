@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
-import { sendTemplateMessage } from '@/lib/whatsapp/whapi-api'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { sendTemplate, describeSendFailure } from '@/lib/whatsapp/provider'
+import { resolveChannelForSurface, ChannelError } from '@/lib/whatsapp/channels'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
 import {
   sanitizePhoneForMeta,
@@ -122,23 +122,18 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (configError || !config) {
-      return NextResponse.json(
-        {
-          error:
-            'WhatsApp not configured. Please set up your WhatsApp integration first.',
-        },
-        { status: 400 }
-      )
+    // Which number this campaign sends from (migration 046). Obeys the
+    // admin's `broadcast` route, which is how marketing is pointed at
+    // the Cloud API number.
+    let channel
+    try {
+      channel = await resolveChannelForSurface(supabase, accountId, 'broadcast')
+    } catch (err) {
+      if (err instanceof ChannelError) {
+        return NextResponse.json({ error: err.message }, { status: err.status })
+      }
+      throw err
     }
-
-    const channelToken = decrypt(config.access_token)
 
     // Load the template row once — it is the message body Whapi will
     // send, rendered per recipient. Loading inside the loop would N+1
@@ -192,8 +187,8 @@ export async function POST(request: Request) {
 
       for (const variant of variants) {
         try {
-          const result = await sendTemplateMessage({
-            token: channelToken,
+          const result = await sendTemplate({
+            channel,
             to: variant,
             template: templateRow,
             bodyParams: recipient.params ?? [],
@@ -204,8 +199,10 @@ export async function POST(request: Request) {
           lastError = null
           break
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error'
+          // Provider-aware, so a Meta rejection is stored against the
+          // recipient as "the 24-hour window is closed" rather than a
+          // bare numeric code.
+          const errorMessage = describeSendFailure(error)
           if (!isRecipientNotAllowedError(errorMessage)) {
             lastError = errorMessage
             break

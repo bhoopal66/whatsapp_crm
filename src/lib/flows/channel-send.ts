@@ -1,14 +1,17 @@
 import {
   sendInteractiveButtons,
   sendInteractiveList,
-  sendMediaMessage,
-  sendTextMessage,
+  sendMedia,
+  sendText,
   type InteractiveButton,
   type InteractiveListSection,
-  type MediaKind,
-} from '@/lib/whatsapp/whapi-api'
+  type ProviderMediaKind as MediaKind,
+} from '@/lib/whatsapp/provider'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  resolveChannelForSurface,
+  type RoutingSurface,
+} from '@/lib/whatsapp/channels'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -20,7 +23,7 @@ import { supabaseAdmin } from './admin-client'
 // ------------------------------------------------------------
 // Flows-side Whapi sender (interactive variants).
 //
-// Mirrors src/lib/automations/whapi-send.ts (engineSendText /
+// Mirrors src/lib/automations/channel-send.ts (engineSendText /
 // engineSendTemplate) but emits interactive button + list messages.
 // Kept separate from the automations file so the two engines don't
 // fight over each other's shape — once both stabilize, the
@@ -37,6 +40,13 @@ interface SendTextEngineArgs {
    *  lookups so a flow authored by user A still sends through the
    *  WhatsApp number user B saved on the same account. */
   accountId: string
+  /**
+   * Which routing surface this send belongs to (migration 046).
+   * `engineSendText` is shared: the flow runner leaves it at 'flow',
+   * while AI auto-reply passes 'ai_reply' so an admin can put the bot
+   * on a different number from the deterministic flows.
+   */
+  surface?: RoutingSurface
   /** Original author of the flow — used for INSERT audit columns
    *  and for resolving the agent's identity in logs. Not consulted
    *  for tenancy. */
@@ -82,20 +92,18 @@ export async function engineSendText(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const channelToken = decrypt(config.access_token)
+  // Which number flow nodes send from (migration 046). Obeys the
+  // admin's `flow` route — a flow is bot-driven, so the route wins over
+  // whichever channel the customer happens to be on.
+  const channel = await resolveChannelForSurface(
+    db,
+    args.accountId,
+    args.surface ?? 'flow',
+  )
 
   const attempt = async (phone: string): Promise<string> => {
-    const r = await sendTextMessage({
-      token: channelToken,
+    const r = await sendText({
+      channel,
       to: phone,
       text: args.text,
     })
@@ -132,9 +140,11 @@ export async function engineSendText(
     message_id: waMessageId,
     status: 'sent',
     ai_generated: args.aiGenerated ?? false,
+    // Which number carried it (migration 046).
+    provider: channel.provider,
   })
   if (msgErr) {
-    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+    throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
   }
 
   await db
@@ -191,20 +201,14 @@ export async function engineSendMedia(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const channelToken = decrypt(config.access_token)
+  // Which number flow nodes send from (migration 046). Obeys the
+  // admin's `flow` route — a flow is bot-driven, so the route wins over
+  // whichever channel the customer happens to be on.
+  const channel = await resolveChannelForSurface(db, args.accountId, 'flow')
 
   const attempt = async (phone: string): Promise<string> => {
-    const r = await sendMediaMessage({
-      token: channelToken,
+    const r = await sendMedia({
+      channel,
       to: phone,
       kind: args.kind,
       link: args.link,
@@ -248,9 +252,11 @@ export async function engineSendMedia(
     content_text: args.caption ?? null,
     message_id: waMessageId,
     status: 'sent',
+    // Which number carried it (migration 046).
+    provider: channel.provider,
   })
   if (msgErr) {
-    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+    throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
   }
 
   await db
@@ -325,7 +331,7 @@ async function sendInteractiveViaWhapi(
   const db = supabaseAdmin()
 
   // Scope the contact + whatsapp_config lookups by account_id —
-  // same defense-in-depth rationale as automations/whapi-send.ts.
+  // same defense-in-depth rationale as automations/channel-send.ts.
   // Migration 017 moved both tables to account-scoped tenancy.
   const { data: contact, error: contactErr } = await db
     .from('contacts')
@@ -342,21 +348,15 @@ async function sendInteractiveViaWhapi(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const channelToken = decrypt(config.access_token)
+  // Which number flow nodes send from (migration 046). Obeys the
+  // admin's `flow` route — a flow is bot-driven, so the route wins over
+  // whichever channel the customer happens to be on.
+  const channel = await resolveChannelForSurface(db, input.accountId, 'flow')
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'buttons') {
       const r = await sendInteractiveButtons({
-      token: channelToken,
+        channel,
         to: phone,
         bodyText: input.bodyText,
         buttons: input.buttons,
@@ -366,7 +366,7 @@ async function sendInteractiveViaWhapi(
       return r.messageId
     }
     const r = await sendInteractiveList({
-      token: channelToken,
+      channel,
       to: phone,
       bodyText: input.bodyText,
       buttonLabel: input.buttonLabel,
@@ -377,7 +377,7 @@ async function sendInteractiveViaWhapi(
     return r.messageId
   }
 
-  // Same phone-variant retry as automations/whapi-send.ts. Numbers
+  // Same phone-variant retry as automations/channel-send.ts. Numbers
   // registered with/without a trunk 0 + Meta's sandbox quirks all
   // need this to reliably land a message.
   const variants = phoneVariants(sanitized)
@@ -439,9 +439,11 @@ async function sendInteractiveViaWhapi(
     interactive_payload: interactivePayload,
     message_id: waMessageId,
     status: 'sent',
+    // Which number carried it (migration 046).
+    provider: channel.provider,
   })
   if (msgErr) {
-    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+    throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
   }
 
   await db

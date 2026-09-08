@@ -18,6 +18,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import { useTranslations } from 'next-intl';
 import { Loader2, RefreshCw, UserPlus } from 'lucide-react';
 
@@ -110,6 +111,9 @@ export function CreateMemberDialog({
         return;
       }
 
+      // The inbox's assignee picker caches the member list; a login
+      // created here has to show up there without a reload.
+      invalidateCached(MEMBERS_CACHE_KEY);
       onCreated(payload.member as AccountMember);
       // Deliberately not echoing the password into the toast — it is
       // still on screen behind the closing dialog, and toasts linger.

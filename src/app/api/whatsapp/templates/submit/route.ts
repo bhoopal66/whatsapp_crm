@@ -1,15 +1,18 @@
-import { NextResponse } from 'next/server'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   ForbiddenError,
   UnauthorizedError,
   requireRole,
   toErrorResponse,
-} from '@/lib/auth/account'
+} from '@/lib/auth/account';
 import {
   validateTemplatePayload,
   type TemplatePayload,
-} from '@/lib/whatsapp/template-validators'
+} from '@/lib/whatsapp/template-validators';
+import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components';
+import { submitMessageTemplate, MetaError } from '@/lib/whatsapp/meta-api';
+import { loadChannels } from '@/lib/whatsapp/channels';
 
 /**
  * POST /api/whatsapp/templates/submit — save a message template.
@@ -27,6 +30,21 @@ import {
  * window — a template here is simply a reusable message definition that
  * the CRM renders locally and sends as a normal message (see
  * `sendTemplateMessage` in `whapi-api.ts`).
+ *
+ * ─── …and what came back with the Meta number (migration 046) ─────
+ *
+ * An account can now also connect a Meta Cloud API number, which CAN
+ * only send templates that its WABA has approved. So the local save is
+ * still the primary job — it is all a Whapi-only install needs, and it
+ * must succeed on its own — but when a Meta channel is connected the
+ * row is ALSO submitted for review, and the verdict arrives later on
+ * the `message_template_status_update` webhook.
+ *
+ * The submission is best-effort: if Meta rejects the payload the row is
+ * still saved and still sendable over Whapi, with the reason stored in
+ * `submission_error`. Failing the whole save would throw away the
+ * user's work over a constraint that only applies to one of their two
+ * numbers.
  *
  * So this endpoint is now a plain validated upsert, and a saved
  * template is usable immediately. `status` is written as `APPROVED`
@@ -47,7 +65,7 @@ import {
 function buildUpsertRow(
   accountId: string,
   userId: string,
-  payload: TemplatePayload,
+  payload: TemplatePayload
 ) {
   return {
     // Account tenancy — required NOT NULL on message_templates as of
@@ -77,12 +95,12 @@ function buildUpsertRow(
     submission_error: null,
     rejection_reason: null,
     last_submitted_at: new Date().toISOString(),
-  }
+  };
 }
 
 async function upsertTemplateRow(
   supabase: SupabaseClient,
-  row: ReturnType<typeof buildUpsertRow>,
+  row: ReturnType<typeof buildUpsertRow>
 ) {
   // TODO(account-sharing): conflict target is still scoped to user_id.
   // Once a follow-up migration drops the legacy unique index on
@@ -93,7 +111,7 @@ async function upsertTemplateRow(
     .from('message_templates')
     .upsert(row, { onConflict: 'user_id,name,language' })
     .select()
-    .single()
+    .single();
 }
 
 export async function POST(request: Request) {
@@ -103,22 +121,25 @@ export async function POST(request: Request) {
     // both require 'admin'. Resolving account_id off the profile only
     // proves membership, so the explicit role check stays even though
     // this route no longer has an external side effect to guard.
-    const { supabase, accountId, userId } = await requireRole('admin')
+    const { supabase, accountId, userId } = await requireRole('admin');
 
-    let payload: TemplatePayload
+    let payload: TemplatePayload;
     try {
-      payload = (await request.json()) as TemplatePayload
+      payload = (await request.json()) as TemplatePayload;
     } catch {
-      return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Invalid JSON body.' },
+        { status: 400 }
+      );
     }
 
     try {
-      validateTemplatePayload(payload)
+      validateTemplatePayload(payload);
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : 'Validation failed.' },
-        { status: 400 },
-      )
+        { status: 400 }
+      );
     }
 
     // A media header is sent to Whapi as a plain URL at send time, so a
@@ -134,37 +155,109 @@ export async function POST(request: Request) {
         {
           error: `A ${payload.header_type} header needs a media URL. Upload the file or paste a public link.`,
         },
-        { status: 400 },
-      )
+        { status: 400 }
+      );
     }
 
     const { data: row, error: upsertErr } = await upsertTemplateRow(
       supabase,
-      buildUpsertRow(accountId, userId, payload),
-    )
+      buildUpsertRow(accountId, userId, payload)
+    );
 
     if (upsertErr) {
       return NextResponse.json(
         { error: `Failed to save template: ${upsertErr.message}` },
-        { status: 500 },
-      )
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ success: true, template: row })
+    // ── Submit to Meta, when a Meta number is connected ───────────
+    //
+    // Whapi renders a template locally and needs no approval, so the
+    // local save above is the whole job for a Whapi-only install and
+    // must succeed on its own. But a Meta number can only send an
+    // APPROVED template from its WABA's registry, so with one
+    // connected the row is also pushed to Meta for review.
+    //
+    // Best-effort by design: a submission failure leaves the row saved
+    // and usable over Whapi, and reports why rather than discarding
+    // the user's work. The verdict arrives later on the
+    // `message_template_status_update` webhook.
+    let metaSubmission: {
+      submitted: boolean;
+      status?: string;
+      error?: string;
+    } = { submitted: false };
+
+    try {
+      const channels = await loadChannels(supabase, accountId);
+      const meta = channels.find((c) => c.provider === 'meta' && c.wabaId);
+
+      if (meta?.wabaId) {
+        try {
+          const result = await submitMessageTemplate({
+            wabaId: meta.wabaId,
+            accessToken: meta.accessToken,
+            payload: buildMetaTemplatePayload(payload),
+          });
+          await supabase
+            .from('message_templates')
+            .update({
+              meta_template_id: result.id,
+              status: result.status,
+              submission_error: null,
+              last_submitted_at: new Date().toISOString(),
+            })
+            .eq('id', (row as { id: string }).id)
+            .eq('account_id', accountId);
+
+          metaSubmission = { submitted: true, status: result.status };
+        } catch (err) {
+          const message =
+            err instanceof MetaError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : 'Unknown error submitting to Meta.';
+          await supabase
+            .from('message_templates')
+            .update({
+              submission_error: message,
+              last_submitted_at: new Date().toISOString(),
+            })
+            .eq('id', (row as { id: string }).id)
+            .eq('account_id', accountId);
+
+          metaSubmission = { submitted: false, error: message };
+        }
+      }
+    } catch (err) {
+      // Channel lookup failed entirely — the local save still stands.
+      console.warn(
+        '[templates/submit] could not check for a Meta channel:',
+        err instanceof Error ? err.message : err
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      template: row,
+      meta: metaSubmission,
+    });
   } catch (error) {
     // Auth failures map to 401/403 before the generic 500 branch —
     // reporting "you aren't an admin" as a template save failure would
     // send the user chasing the wrong problem.
     if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
-      return toErrorResponse(error)
+      return toErrorResponse(error);
     }
-    console.error('Error saving template:', error)
+    console.error('Error saving template:', error);
     return NextResponse.json(
       {
         error:
           error instanceof Error ? error.message : 'Failed to save template.',
       },
-      { status: 500 },
-    )
+      { status: 500 }
+    );
   }
 }

@@ -19,7 +19,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { BroadcastError, type BroadcastPlan } from '@/lib/whatsapp/broadcast-core';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import {
+  resolveChannelForSurface,
+  ChannelError,
+  type WhatsAppChannel,
+} from '@/lib/whatsapp/channels';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 
@@ -205,17 +209,18 @@ export async function planBroadcastResume(
     );
   }
 
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
-    throw new BroadcastError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // Resolve the channel the same way `createBroadcast` did. A resume
+  // deliberately RE-resolves rather than reusing whatever the original
+  // run used: if an admin has since re-routed broadcasts to the other
+  // number, the retry should honour that.
+  let channel: WhatsAppChannel;
+  try {
+    channel = await resolveChannelForSurface(db, accountId, 'broadcast');
+  } catch (err) {
+    if (err instanceof ChannelError) {
+      throw new BroadcastError(err.code, err.message, err.status);
+    }
+    throw err;
   }
 
   const resolvedTemplate = await resolveTemplateRow(
@@ -243,8 +248,8 @@ export async function planBroadcastResume(
     broadcastId,
     templateName: broadcast.template_name,
     templateLanguage: resolvedTemplate.language,
-    channelId: config.phone_number_id,
-    channelToken: decrypt(config.access_token),
+    channelId: channel.phoneNumberId,
+    channel,
     templateRow: resolvedTemplate.row,
     planned: slice.map((row) => ({
       recipientRowId: row.id,

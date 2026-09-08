@@ -59,6 +59,11 @@ export async function resolveConversationByPhone(
     .from('whatsapp_config')
     .select('id')
     .eq('account_id', accountId)
+    // Any connected channel satisfies this precheck, and an account may
+    // now have two — so take one rather than asserting there is exactly
+    // one. Without the limit, maybeSingle() errors and a perfectly
+    // configured account reports "WhatsApp not configured".
+    .limit(1)
     .maybeSingle();
   if (!config) {
     throw new SendMessageError(

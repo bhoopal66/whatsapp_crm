@@ -120,6 +120,11 @@ export async function POST(request: Request) {
         templateParams,
         templateMessageParams,
         interactivePayload,
+        // The public API is its own routing surface (migration 046), so
+        // an admin can point external automations at one number without
+        // moving the dashboard composer. Like the composer, a reply into
+        // an existing thread still follows the channel the customer used.
+        surface: 'api',
         replyToMessageId:
           typeof body.reply_to_message_id === 'string'
             ? body.reply_to_message_id

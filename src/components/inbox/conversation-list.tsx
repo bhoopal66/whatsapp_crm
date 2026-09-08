@@ -3,6 +3,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  REFERENCE_CACHE_TTL_MS,
+  TAGS_CACHE_KEY,
+  cachedQuery,
+} from "@/lib/client-cache";
+import {
   CONVERSATION_SELECT,
   matchesContactFilters,
   normalizeConversations,
@@ -149,12 +154,20 @@ export function ConversationList({
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
+  //
+  // Cached across mounts: the account's tags are the same on every
+  // screen and change rarely, but this component remounts on every
+  // visit to the inbox, and each of those was a fresh round trip to
+  // the origin. Tag writes call `invalidateCached("tags")`.
   useEffect(() => {
-    const supabase = createClient();
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("tags").select("*").order("name");
-      if (!cancelled && data) setTags(data as Tag[]);
+      const data = await cachedQuery(TAGS_CACHE_KEY, REFERENCE_CACHE_TTL_MS, async () => {
+        const supabase = createClient();
+        const { data } = await supabase.from("tags").select("*").order("name");
+        return (data as Tag[] | null) ?? [];
+      }).catch(() => [] as Tag[]);
+      if (!cancelled) setTags(data);
     })();
     return () => {
       cancelled = true;

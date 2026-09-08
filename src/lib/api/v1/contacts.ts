@@ -78,6 +78,11 @@ export async function resolveAuditUserId(
     .from('whatsapp_config')
     .select('user_id')
     .eq('account_id', accountId)
+    // Any channel's owner works as the audit user; prefer the primary
+    // so the choice is stable. Two rows would otherwise make
+    // maybeSingle() error and drop us to the fallback below.
+    .order('is_primary', { ascending: false })
+    .limit(1)
     .maybeSingle();
   const configOwner = config?.user_id as string | undefined;
   if (configOwner) return configOwner;

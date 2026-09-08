@@ -1,6 +1,9 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  RAIL_GROUPS,
   SECTION_META,
   SETTINGS_SECTIONS,
   canOpenSection,
@@ -75,5 +78,46 @@ describe('canOpenSection', () => {
       (s) => SECTION_META[s].group === 'workspace',
     );
     expect([...gated].sort()).toEqual([...workspace].sort());
+  });
+});
+
+// ------------------------------------------------------------
+// Rail labels
+//
+// The rail renders every section through `t('sections.<id>')` and
+// every named group through `t('groups.<group>')`. next-intl does not
+// throw on a missing key — it reports MISSING_MESSAGE to onError and
+// renders the keypath — so a section added here without a catalogue
+// entry ships as a chip literally labelled "Settings.sections.teams".
+// Nothing fails; it just looks broken. `messages.test.ts` cannot catch
+// it either: it checks the translations cover en.json, and a key absent
+// from BOTH is at parity.
+// ------------------------------------------------------------
+
+const LOCALES = readdirSync(join(process.cwd(), 'messages'))
+  .filter((f) => f.endsWith('.json'))
+  .map((f) => f.replace(/\.json$/, ''));
+
+function settingsCatalogue(locale: string): Record<string, Record<string, string>> {
+  const raw = readFileSync(join(process.cwd(), 'messages', `${locale}.json`), 'utf8');
+  return JSON.parse(raw).Settings;
+}
+
+describe('rail labels', () => {
+  it.each(LOCALES)('%s.json labels every section', (locale) => {
+    const sections = settingsCatalogue(locale).sections ?? {};
+    for (const section of SETTINGS_SECTIONS) {
+      expect(sections[section], `missing Settings.sections.${section}`).toBeTruthy();
+    }
+  });
+
+  it.each(LOCALES)('%s.json labels every named rail group', (locale) => {
+    const groups = settingsCatalogue(locale).groups ?? {};
+    for (const { label, group } of RAIL_GROUPS) {
+      // A null label means the group renders no heading (the Overview
+      // row) — nothing to translate.
+      if (!label) continue;
+      expect(groups[group], `missing Settings.groups.${group}`).toBeTruthy();
+    }
   });
 });

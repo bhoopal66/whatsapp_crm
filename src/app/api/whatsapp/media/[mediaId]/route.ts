@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/whapi-api'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/provider'
+import { loadChannels, primaryChannel } from '@/lib/whatsapp/channels'
 
 export async function GET(
   request: Request,
@@ -48,36 +48,52 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (configError || !config) {
+    const channels = await loadChannels(supabase, accountId)
+    if (channels.length === 0) {
       return NextResponse.json(
         { error: 'WhatsApp not configured' },
         { status: 400 }
       )
     }
 
-    const token = decrypt(config.access_token)
+    // A media id is opaque and belongs to whichever gateway issued it,
+    // and nothing in the URL says which. With at most two connected
+    // channels, trying each (primary first) is simpler and more robust
+    // than threading a provider through every caller — and in the
+    // common single-channel case it is exactly one attempt.
+    const ordered = [
+      primaryChannel(channels)!,
+      ...channels.filter((c) => c.id !== primaryChannel(channels)!.id),
+    ]
 
-    // Resolve the Whapi media id to a download URL
-    const mediaInfo = await getMediaUrl({ mediaId, token })
+    let resolved: { buffer: Buffer; contentType: string; mimeType: string } | null =
+      null
+    let lastError: unknown = null
 
-    // Download the binary data. Whapi-hosted media needs the channel
-    // token presented as a Bearer header, so it is passed through.
-    const { buffer, contentType } = await downloadMedia({
-      downloadUrl: mediaInfo.url,
-      token,
-    })
+    for (const channel of ordered) {
+      try {
+        const mediaInfo = await getMediaUrl({ channel, mediaId })
+        // Gateway-hosted media needs the channel's own token presented
+        // as a Bearer header, so the download goes back through the
+        // same channel that resolved the id.
+        const { buffer, contentType } = await downloadMedia({
+          channel,
+          downloadUrl: mediaInfo.url,
+        })
+        resolved = { buffer, contentType, mimeType: mediaInfo.mimeType }
+        break
+      } catch (err) {
+        lastError = err
+      }
+    }
+
+    if (!resolved) throw lastError ?? new Error('Media could not be resolved')
+    const { buffer, contentType, mimeType } = resolved
 
     return new Response(new Uint8Array(buffer), {
       status: 200,
       headers: {
-        'Content-Type': contentType || mediaInfo.mimeType || 'application/octet-stream',
+        'Content-Type': contentType || mimeType || 'application/octet-stream',
         'Cache-Control': 'public, max-age=86400',
       },
     })

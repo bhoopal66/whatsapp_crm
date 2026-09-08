@@ -18,8 +18,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { sendTemplateMessage } from '@/lib/whatsapp/whapi-api';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import { sendTemplate, describeSendFailure } from '@/lib/whatsapp/provider';
+import {
+  resolveChannelForSurface,
+  ChannelError,
+  type WhatsAppChannel,
+} from '@/lib/whatsapp/channels';
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -69,7 +73,13 @@ export interface BroadcastPlan {
   /** Whapi channel id — carried for logging and resume bookkeeping. */
   channelId: string;
   /** Decrypted Whapi channel token. */
-  channelToken: string;
+  /**
+   * The number this broadcast sends from. Resolved once at plan time
+   * from the `broadcast` route (migration 046), so every recipient in
+   * one campaign goes out on the same channel even if an admin changes
+   * the routing mid-delivery.
+   */
+  channel: WhatsAppChannel;
   /**
    * The local template row. Under Whapi this is the message itself, not
    * a lookup key for a remote registry, so it is required — planners
@@ -115,21 +125,23 @@ export async function createBroadcast(
     );
   }
 
-  // Config (fail fast + provides the audit trail owner already resolved
-  // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
-    throw new BroadcastError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // Which number this campaign sends from. Fails fast, before any
+  // recipient rows exist, so a misconfigured account does not leave a
+  // half-planned broadcast behind.
+  //
+  // This obeys the admin's `broadcast` route rather than following any
+  // conversation: a campaign is business-initiated, and routing
+  // marketing to the Cloud API number is the entire reason the selector
+  // exists. On Meta the template must also be APPROVED — see sendTemplate.
+  let channel: WhatsAppChannel;
+  try {
+    channel = await resolveChannelForSurface(db, accountId, 'broadcast');
+  } catch (err) {
+    if (err instanceof ChannelError) {
+      throw new BroadcastError(err.code, err.message, err.status);
+    }
+    throw err;
   }
-  const channelToken = decrypt(config.access_token);
 
   // Template row (once). Under Whapi the row IS the broadcast message —
   // it is rendered locally and sent as an ordinary WhatsApp message —
@@ -250,8 +262,8 @@ export async function createBroadcast(
     broadcastId,
     templateName,
     templateLanguage: resolvedTemplate.language,
-    channelId: config.phone_number_id,
-    channelToken,
+    channelId: channel.phoneNumberId,
+    channel,
     templateRow,
     planned,
     rejected,
@@ -282,8 +294,8 @@ export async function deliverBroadcast(
 
     for (const variant of variants) {
       try {
-        const result = await sendTemplateMessage({
-          token: plan.channelToken,
+        const result = await sendTemplate({
+          channel: plan.channel,
           to: variant,
           template: plan.templateRow,
           bodyParams: recipient.params,
@@ -292,7 +304,10 @@ export async function deliverBroadcast(
         lastError = null;
         break;
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
+        // Provider-aware: names Meta's closed 24-hour window and
+        // unapproved-template rejections, which are otherwise stored
+        // against the recipient row as bare numeric codes.
+        const message = describeSendFailure(error);
         lastError = message;
         // Only a "recipient not allowed" error is worth another variant.
         if (!isRecipientNotAllowedError(message)) break;

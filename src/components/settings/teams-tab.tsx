@@ -16,6 +16,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import {
+  TEAM_ROSTER_CACHE_PREFIX,
+  invalidateCached,
+} from '@/lib/client-cache';
 import { useTranslations } from 'next-intl';
 import { Loader2, Plus, Trash2, UsersRound } from 'lucide-react';
 
@@ -106,6 +110,11 @@ export function TeamsTab() {
       if (!res.ok) {
         setTeams(previous);
         toast.error(payload?.error || t('saveFailed'));
+      } else {
+        // Team membership decides which chats a leader may assign, and
+        // the inbox caches that roster per leader — drop it so the
+        // change is visible there without a reload.
+        invalidateCached(TEAM_ROSTER_CACHE_PREFIX);
       }
     } catch {
       setTeams(previous);
@@ -147,6 +156,7 @@ export function TeamsTab() {
     }
     setTeams((prev) => prev.filter((x) => x.id !== team.id));
     setDeleting(null);
+    invalidateCached(TEAM_ROSTER_CACHE_PREFIX);
     toast.success(t('deleted', { name: team.name }));
   }
 

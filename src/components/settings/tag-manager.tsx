@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Plus, Tag as TagIcon, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { TAGS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -109,6 +110,10 @@ export function TagManager() {
 
       if (error) throw error;
 
+      // The inbox filter and the contact pickers read the tag list from
+      // the client cache; without this the tag just created stays
+      // invisible to them for the rest of the TTL.
+      invalidateCached(TAGS_CACHE_KEY);
       toast.success(t('tagCreated'));
       setNewTagName('');
       setSelectedColor(PRESET_COLORS[3].value);
@@ -138,6 +143,7 @@ export function TagManager() {
 
       if (error) throw error;
 
+      invalidateCached(TAGS_CACHE_KEY);
       toast.success(t('tagDeleted'));
       setTags((prev) => prev.filter((t) => t.id !== tagToDelete.id));
       setDeleteDialogOpen(false);

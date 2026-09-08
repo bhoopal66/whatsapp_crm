@@ -1,10 +1,10 @@
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/whapi-api'
+import { sendText, sendTemplate } from '@/lib/whatsapp/provider'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
-} from '@/lib/flows/whapi-send'
-import { decrypt } from '@/lib/whatsapp/encryption'
+} from '@/lib/flows/channel-send'
+import { resolveChannelForSurface } from '@/lib/whatsapp/channels'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -53,13 +53,13 @@ interface SendTemplateArgs {
 }
 
 export async function engineSendText(args: SendTextArgs): Promise<{ whatsapp_message_id: string }> {
-  return sendViaMeta({ ...args, kind: 'text' })
+  return sendViaChannel({ ...args, kind: 'text' })
 }
 
 export async function engineSendTemplate(
   args: SendTemplateArgs,
 ): Promise<{ whatsapp_message_id: string }> {
-  return sendViaMeta({ ...args, kind: 'template' })
+  return sendViaChannel({ ...args, kind: 'template' })
 }
 
 interface SendInteractiveArgs {
@@ -109,7 +109,7 @@ type SendInput =
   | (SendTextArgs & { kind: 'text' })
   | (SendTemplateArgs & { kind: 'template' })
 
-async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: string }> {
+async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: string }> {
   const db = supabaseAdmin()
 
   // Scope the contact + config lookups by account_id, not user_id.
@@ -135,21 +135,17 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const channelToken = decrypt(config.access_token)
+  // Which number automations send from (migration 046). This obeys the
+  // admin's `automation` route rather than following the conversation:
+  // routing automations to the marketing number has to hold even when
+  // the trigger was an inbound message on the other one.
+  const channel = await resolveChannelForSurface(db, input.accountId, 'automation')
 
   // Local template row. Under Whapi this is not merely a bookkeeping
-  // lookup as it was with Meta — the row IS the message. There is no
-  // server-side template registry to name, so a missing row means
-  // there is nothing to send.
+  // lookup when the send goes over Whapi — there the row IS the
+  // message, rendered locally, so a missing row means there is nothing
+  // to send. On a Meta channel the row instead names an already
+  // approved template in the WABA registry.
   const templateRow =
     input.kind === 'template'
       ? (
@@ -169,16 +165,16 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
           `No local template named "${input.templateName}" for this account`,
         )
       }
-      const r = await sendTemplateMessage({
-        token: channelToken,
+      const r = await sendTemplate({
+        channel,
         to: phone,
         template: templateRow,
         bodyParams: input.params,
       })
       return r.messageId
     }
-    const r = await sendTextMessage({
-      token: channelToken,
+    const r = await sendText({
+      channel,
       to: phone,
       text: input.text,
     })
@@ -211,7 +207,7 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
   }
 
   // Persist the sent message so it appears in the inbox with a real
-  // Meta message id. sender_type='bot' distinguishes automation sends
+  // gateway message id. sender_type='bot' distinguishes automation sends
   // from manual agent sends.
   const content_type = input.kind === 'template' ? 'template' : 'text'
   // Templates persist the substituted body, same as the manual and
@@ -231,11 +227,13 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     template_name,
     message_id: waMessageId,
     status: 'sent',
+    // Which number carried it (migration 046).
+    provider: channel.provider,
   })
   if (msgErr) {
-    // Meta already has the message; record the DB error but don't pretend
-    // the send failed. The engine wraps this in a log line.
-    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+    // The gateway already has the message; record the DB error but
+    // don't pretend the send failed. The engine wraps this in a log line.
+    throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
   }
 
   await db

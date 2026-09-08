@@ -150,6 +150,14 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
           error: null,
         }),
         then: (resolve: (r: { data: unknown[]; error: null }) => unknown) => {
+          if (table === 'whatsapp_config') {
+            // A LIST since migration 046: an account can connect both a
+            // Whapi channel and a Meta number, and channels.ts picks.
+            return resolve({
+              data: fx.config === undefined || fx.config === null ? [] : [fx.config],
+              error: null,
+            });
+          }
           if (table === 'broadcast_recipients') {
             return resolve({ data: fx.recipients ?? [], error: null });
           }
@@ -173,7 +181,22 @@ const BROADCAST = {
   template_language: 'en_US',
 };
 
-const CONFIG = { phone_number_id: 'pn-1', access_token: 'tok' };
+// A channel row as `channels.ts` reads it (migration 046). The
+// encryption mock above prefixes 'decrypted:', so the resolved channel
+// carries 'decrypted:tok'.
+const CONFIG = {
+  id: 'cfg-1',
+  account_id: 'acct-1',
+  provider: 'whapi',
+  label: 'Support',
+  phone_number_id: 'pn-1',
+  waba_id: null,
+  access_token: 'tok',
+  app_secret: null,
+  is_primary: true,
+  mirror_inbound_media: true,
+  status: 'connected',
+};
 
 const TEMPLATE_ROW = {
   id: 'tpl-1',
@@ -231,7 +254,7 @@ describe('planBroadcastResume', () => {
         params: ['B456', 'Monday'],
       },
     ]);
-    expect(plan.channelToken).toBe('decrypted:tok');
+    expect(plan.channel.accessToken).toBe('decrypted:tok');
     expect(remaining).toBe(0);
     expect(unsendable).toBe(0);
   });

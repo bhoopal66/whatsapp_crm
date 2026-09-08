@@ -61,13 +61,26 @@ function makeSupabaseMock() {
           // its contact); otherwise fall back to the canned existing row.
           return { data: createdConversation ?? existingConversation, error: null }
         case 'whatsapp_config':
+          // A LIST since migration 046 — an account can hold both a
+          // Whapi channel and a Meta number, and `channels.ts` reads
+          // them all and picks. Here there is only the Whapi one, so
+          // every surface resolves to it exactly as before.
           return {
-            data: {
-              id: 'cfg-1',
-              account_id: 'acct-1',
-              phone_number_id: 'PNID-1',
-              access_token: 'enc-token',
-            },
+            data: [
+              {
+                id: 'cfg-1',
+                account_id: 'acct-1',
+                provider: 'whapi',
+                label: 'Support',
+                phone_number_id: 'PNID-1',
+                waba_id: null,
+                access_token: 'enc-token',
+                app_secret: null,
+                is_primary: true,
+                mirror_inbound_media: true,
+                status: 'connected',
+              },
+            ],
             error: null,
           }
         case 'message_templates':

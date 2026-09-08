@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  MEMBERS_CACHE_KEY,
+  REFERENCE_CACHE_TTL_MS,
+  cachedQuery,
+  teamRosterCacheKey,
+} from "@/lib/client-cache";
 import { useAuth } from "@/hooks/use-auth";
 import { usePresence } from "@/hooks/use-presence";
 import { PresenceDot } from "@/components/presence/presence-dot";
@@ -211,21 +217,32 @@ export function MessageThread({
   // Profiles are bounded by RLS to rows the current user is allowed to
   // see — today that's just the current user, but the dropdown keeps the
   // shape ready for shared-team workspaces without a refactor.
+  //
+  // Cached across mounts — this component remounts every time the user
+  // opens the inbox or switches conversation, and the member list is
+  // the same answer each time. Through the tunnel that repeat was a
+  // few hundred milliseconds of the delay before the thread was usable.
   useEffect(() => {
     let cancelled = false;
-    const supabase = createClient();
-    supabase
-      .from("profiles")
-      .select("*")
-      .order("full_name")
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error("Failed to fetch profiles:", error);
-          return;
-        }
-        setProfiles((data as Profile[]) ?? []);
-      });
+    (async () => {
+      const data = await cachedQuery(
+        MEMBERS_CACHE_KEY,
+        REFERENCE_CACHE_TTL_MS,
+        async () => {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .order("full_name");
+          if (error) {
+            console.error("Failed to fetch profiles:", error);
+            return [] as Profile[];
+          }
+          return (data as Profile[] | null) ?? [];
+        },
+      ).catch(() => [] as Profile[]);
+      if (!cancelled) setProfiles(data);
+    })();
     return () => {
       cancelled = true;
     };
@@ -240,17 +257,30 @@ export function MessageThread({
       return;
     }
     let cancelled = false;
-    const supabase = createClient();
+    const leaderId = user.id;
     (async () => {
-      const { data, error } = await supabase
-        .from("teams")
-        .select("team_members(user_id)")
-        .eq("leader_user_id", user.id);
-      if (cancelled || error || !data) return;
-      const ids = new Set<string>();
-      for (const team of data as { team_members: { user_id: string }[] | null }[]) {
-        for (const m of team.team_members ?? []) ids.add(m.user_id);
-      }
+      // Cached per leader: team membership changes rarely, and this
+      // effect otherwise re-ran on every remount of the thread.
+      const ids = await cachedQuery(
+        teamRosterCacheKey(leaderId),
+        REFERENCE_CACHE_TTL_MS,
+        async () => {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from("teams")
+            .select("team_members(user_id)")
+            .eq("leader_user_id", leaderId);
+          if (error || !data) return null;
+          const found = new Set<string>();
+          for (const team of data as {
+            team_members: { user_id: string }[] | null;
+          }[]) {
+            for (const m of team.team_members ?? []) found.add(m.user_id);
+          }
+          return found;
+        },
+      ).catch(() => null);
+      if (cancelled || !ids) return;
       setLeadableUserIds(ids);
     })();
     return () => {

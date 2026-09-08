@@ -61,14 +61,44 @@ function makeDb(rpcResult: { data: unknown; error: unknown }) {
   const database = {
     from(table: string) {
       if (table === 'whatsapp_config') {
+        // `channels.ts` reads every channel on the account and picks
+        // (migration 046), terminating on .order() rather than
+        // .single(). One Whapi channel here, so the `broadcast` surface
+        // resolves to it exactly as before.
         return {
           select: () => ({
             eq: () => ({
-              single: () =>
+              order: () =>
                 Promise.resolve({
-                  data: { phone_number_id: 'pn-1', access_token: 'enc' },
+                  data: [
+                    {
+                      id: 'cfg-1',
+                      account_id: 'acct-1',
+                      provider: 'whapi',
+                      label: 'Support',
+                      phone_number_id: 'pn-1',
+                      waba_id: null,
+                      access_token: 'enc',
+                      app_secret: null,
+                      is_primary: true,
+                      mirror_inbound_media: true,
+                      status: 'connected',
+                    },
+                  ],
                   error: null,
                 }),
+            }),
+          }),
+        };
+      }
+      if (table === 'whatsapp_routes') {
+        // No explicit route -> the primary channel is used.
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              }),
             }),
           }),
         };

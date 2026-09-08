@@ -22,98 +22,28 @@ import { chatIdToPhone } from './whapi-api'
 // Normalised shapes
 // ============================================================
 
-/**
- * CRM-side content types. Deliberately the set allowed by the
- * `messages.content_type` CHECK constraint plus `reaction`, which the
- * route handles separately and never persists as a message row.
- */
-export type NormalizedMessageType =
-  | 'text'
-  | 'image'
-  | 'video'
-  | 'audio'
-  | 'document'
-  | 'sticker'
-  | 'location'
-  | 'interactive'
-  | 'contacts'
-  | 'reaction'
-  | 'unsupported'
+import type {
+  NormalizedInboundMessage,
+  NormalizedMedia,
+  NormalizedMessageType,
+  NormalizedStatus,
+  NormalizedStatusValue,
+  NormalizedWebhook,
+} from './inbound'
 
-export interface NormalizedMedia {
-  /** Whapi media id — the fallback handle when `link` is absent. */
-  id: string | null
-  mimeType: string | null
-  /**
-   * Direct download URL. Present when the channel has auto-download
-   * enabled (which `registerWebhook` turns on). Null otherwise, in
-   * which case the caller must resolve `id` via `getMediaUrl`.
-   */
-  link: string | null
-  filename: string | null
-  fileSize: number | null
+// Re-exported so the many existing `from '@/lib/whatsapp/whapi-webhook'`
+// import sites keep resolving after the types moved to `inbound.ts`.
+export type {
+  NormalizedInboundMessage,
+  NormalizedMedia,
+  NormalizedMessageType,
+  NormalizedStatus,
+  NormalizedStatusValue,
+  NormalizedWebhook,
 }
 
-export interface NormalizedInboundMessage {
-  /** WhatsApp message id — the idempotency key for replayed deliveries. */
-  id: string
-  /** Sender, digits only (no `+`). */
-  from: string
-  /** Full chat id, e.g. `919984351847@s.whatsapp.net`. */
-  chatId: string
-  /** Sender's WhatsApp display name, when the payload carries one. */
-  fromName: string | null
-  /** Unix seconds as a string — matches what the persistence layer expects. */
-  timestamp: string
-  type: NormalizedMessageType
-  /** Body text, or a media caption. Null when the message carries none. */
-  text: string | null
-  media: NormalizedMedia | null
-  location: {
-    latitude: number
-    longitude: number
-    name?: string
-    address?: string
-  } | null
-  /** Set only for `type === 'reaction'`. */
-  reaction: { targetMessageId: string; emoji: string } | null
-  /** Button/list tap: the id we set when sending. Drives Flow advancement. */
-  interactiveReplyId: string | null
-  /** Button/list tap: the visible label the customer saw. */
-  interactiveReplyTitle: string | null
-  /** Message this one quotes (swipe-reply), if any. */
-  contextMessageId: string | null
-  /** True for messages sent BY the connected number (from the phone, another tool, or us). */
-  fromMe: boolean
-  /** True when the chat is a group — the CRM's 1:1 inbox skips these. */
-  isGroup: boolean
-}
-
-/** Status values the `messages.status` CHECK constraint accepts. */
-export type NormalizedStatusValue =
-  | 'pending'
-  | 'sent'
-  | 'delivered'
-  | 'read'
-  | 'failed'
-
-export interface NormalizedStatus {
-  messageId: string
-  status: NormalizedStatusValue
-  /** Recipient, digits only. */
-  recipientPhone: string
-  /** Unix seconds as a string. */
-  timestamp: string
-}
-
-export interface NormalizedWhapiWebhook {
-  /** Whapi channel that produced the event — the tenancy routing key. */
-  channelId: string | null
-  eventType: string | null
-  eventMethod: string | null
-  messages: NormalizedInboundMessage[]
-  statuses: NormalizedStatus[]
-}
+/** @deprecated Use `NormalizedWebhook` — the shape is not Whapi-specific. */
+export type NormalizedWhapiWebhook = NormalizedWebhook
 
 // ============================================================
 // Raw Whapi shapes (only the fields we read)

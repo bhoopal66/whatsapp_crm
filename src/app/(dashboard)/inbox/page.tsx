@@ -1,9 +1,10 @@
 "use client";
 
 import { Suspense, useState, useCallback, useEffect, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
+import { cachedQuery } from "@/lib/client-cache";
 import {
   CONVERSATION_SELECT,
   normalizeConversation,
@@ -45,7 +46,7 @@ export default function InboxPage() {
  */
 export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}) {
   const t = useTranslations("Inbox.page");
-  const { user, accountRole } = useAuth();
+  const { user, accountId, accountRole } = useAuth();
 
   // Narrow the personal inbox to this user's own threads when they can
   // see more than their own — which today means a team leader. `null`
@@ -54,6 +55,13 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
   const personalOnlyUserId =
     !teamView && accountRole === "team_leader" ? (user?.id ?? null) : null;
   const router = useRouter();
+  // Which of the two inbox routes we are mounted on. Selecting a thread
+  // writes `?c=<id>` back to the URL, and that write has to stay on the
+  // CURRENT route: hardcoding "/inbox" navigated a team leader off
+  // /team-inbox the moment they opened one of their team's chats, and
+  // the personal inbox then filtered that very conversation out of the
+  // list — so the thread they clicked never opened.
+  const basePath = usePathname();
   const searchParams = useSearchParams();
   /**
    * `?c=<id>` deep-link support. Used when landing here from the
@@ -191,45 +199,54 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     }
   }, []);
 
-  // Check WhatsApp connection status on mount
+  // Check WhatsApp connection status on mount.
+  //
+  // whatsapp_config is one row per account, so this has to be keyed by
+  // account_id rather than the current user — a teammate who didn't
+  // personally save the config would otherwise see "not connected" in
+  // a shared inbox the admin had already set up.
+  //
+  // `accountId` comes from the AuthProvider, which has already read the
+  // profile row. This effect used to re-read it (getSession → profiles
+  // → whatsapp_config), a three-deep chain of round trips before the
+  // banner could resolve; through the tunnel that is most of a second
+  // spent re-asking a question the app had already answered. The status
+  // itself changes only when someone reconnects the channel, so it is
+  // cached briefly and shared across screens.
+  //
+  // Staying `null` (rather than false) until the account is known keeps
+  // the "not connected" banner from flashing during load; an account
+  // that never resolves is reported by <AccountAccessAlert /> instead.
   useEffect(() => {
-    const checkConnection = async () => {
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const user = session?.user;
-
-      if (!user) return;
-
-      // whatsapp_config is one-row-per-account post-multi-user, so
-      // the previous `.eq('user_id', user.id)` would miss the row
-      // for any teammate who didn't personally save the config —
-      // the "WhatsApp not connected" banner would show in the
-      // shared inbox even though the admin had it configured.
-      // Resolve account_id via the profile and query by that.
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("account_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      const accountId = profile?.account_id as string | undefined;
-      if (!accountId) {
-        setWhatsappConnected(false);
-        return;
-      }
-
-      const { data } = await supabase
-        .from("whatsapp_config")
-        .select("status")
-        .eq("account_id", accountId)
-        .maybeSingle();
-
-      setWhatsappConnected(data?.status === "connected");
+    if (!accountId) return;
+    let cancelled = false;
+    (async () => {
+      const status = await cachedQuery(
+        `whatsapp-status:${accountId}`,
+        60_000,
+        async () => {
+          const supabase = createClient();
+          const { data } = await supabase
+            .from("whatsapp_config")
+            .select("status")
+            .eq("account_id", accountId)
+            // "Can this account send at all?" — so ANY connected
+            // channel counts. Since migration 046 an account can hold
+            // both a Whapi and a Meta row; keyed on account_id alone
+            // maybeSingle() matches two, errors, and the banner claims
+            // WhatsApp is disconnected while both numbers are live.
+            .eq("status", "connected")
+            .limit(1)
+            .maybeSingle();
+          return (data?.status as string | undefined) ?? null;
+        },
+      ).catch(() => null);
+      if (!cancelled) setWhatsappConnected(status === "connected");
+    })();
+    return () => {
+      cancelled = true;
     };
-
-    checkConnection();
-  }, []);
+  }, [accountId]);
 
   // Handle realtime message events
   const handleMessageEvent = useCallback(
@@ -419,6 +436,40 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     setResyncToken((n) => n + 1);
   }, []);
 
+  /**
+   * Open a conversation the list doesn't contain.
+   *
+   * The personal inbox narrows a team leader to their own threads, but
+   * a `?c=` link can legitimately point outside that set — a
+   * notification about a chat their team handles, or a bookmark made
+   * from /team-inbox. Without this the centre panel just stayed empty:
+   * the link looked broken even though the reader is allowed to see
+   * the thread. Read the row directly and let RLS answer — if it says
+   * no, `data` comes back null and nothing opens, which is correct.
+   */
+  const openConversationById = useCallback(async (convId: string) => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("conversations")
+      .select(CONVERSATION_SELECT)
+      .eq("id", convId)
+      .maybeSingle();
+    if (error) {
+      console.error("Failed to open deep-linked conversation:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
+      return;
+    }
+    if (!data) return;
+    const conv = normalizeConversation(data);
+    setActiveConversation(conv);
+    setActiveContact(conv.contact ?? null);
+    setMessages([]);
+  }, []);
+
   const handleConversationsLoaded = useCallback(
     (loaded: Conversation[]) => {
       setConversations(loaded);
@@ -427,10 +478,13 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
       // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value
       // via the ref, so realtime refreshes of the list can't snap the
       // user back to the deep-linked thread after they've navigated.
+      // No `loaded.length` guard: ConversationList only calls this once
+      // its fetch has resolved, so an empty array means "this list has
+      // no conversations" — which is exactly when a leader's ?c= link
+      // into a team thread needs the fallback below.
       if (
         deepLinkConvId &&
-        autoSelectedForDeepLinkRef.current !== deepLinkConvId &&
-        loaded.length > 0
+        autoSelectedForDeepLinkRef.current !== deepLinkConvId
       ) {
         autoSelectedForDeepLinkRef.current = deepLinkConvId;
         // If the deep-linked conversation is already the active one
@@ -444,25 +498,25 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
         // full page reload rehydrated state from scratch.
         if (activeConversation?.id === deepLinkConvId) return;
         const match = loaded.find((c) => c.id === deepLinkConvId);
-        if (match) {
-          setActiveConversation(match);
-          setActiveContact(match.contact ?? null);
-          setMessages([]);
-          // Mirror the optimistic unread reset that handleSelectConversation
-          // does — the user just deep-linked into this conv, treat that the
-          // same as a click. Leaves activeConversation.unread_count alone so
-          // the MessageThread reset effect still fires the server UPDATE.
-          if (match.unread_count > 0) {
-            setConversations((prev) =>
-              prev.map((c) =>
-                c.id === match.id ? { ...c, unread_count: 0 } : c,
-              ),
-            );
-          }
+        if (!match) {
+          void openConversationById(deepLinkConvId);
+          return;
+        }
+        setActiveConversation(match);
+        setActiveContact(match.contact ?? null);
+        setMessages([]);
+        // Mirror the optimistic unread reset that handleSelectConversation
+        // does — the user just deep-linked into this conv, treat that the
+        // same as a click. Leaves activeConversation.unread_count alone so
+        // the MessageThread reset effect still fires the server UPDATE.
+        if (match.unread_count > 0) {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === match.id ? { ...c, unread_count: 0 } : c)),
+          );
         }
       }
     },
-    [deepLinkConvId, activeConversation?.id]
+    [deepLinkConvId, activeConversation?.id, openConversationById]
   );
 
   const handleSelectConversation = useCallback(
@@ -502,9 +556,9 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
       // Reflect the selection in the URL so a refresh lands the user
       // back in the same thread, and so copy-paste links work. Use
       // replace() to avoid polluting browser history with every click.
-      router.replace(`/inbox?c=${conv.id}`, { scroll: false });
+      router.replace(`${basePath}?c=${conv.id}`, { scroll: false });
     },
-    [activeConversation?.id, router]
+    [activeConversation?.id, basePath, router]
   );
 
   // Mobile "back" — deselect the conversation so the list pane comes
@@ -515,10 +569,10 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     setActiveContact(null);
     setMessages([]);
     // Clearing the ref lets the deep-link auto-selector fire again if
-    // the user later visits /inbox?c=<same-id> — desirable UX.
+    // the user later visits ?c=<same-id> again — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
-    router.replace("/inbox", { scroll: false });
-  }, [router]);
+    router.replace(basePath, { scroll: false });
+  }, [basePath, router]);
 
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {

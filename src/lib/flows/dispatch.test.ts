@@ -83,7 +83,7 @@ vi.mock("./admin-client", () => {
 
 const engineSendText = vi.fn(async () => ({ whatsapp_message_id: "wamid.1" }));
 
-vi.mock("./whapi-send", () => ({
+vi.mock("./channel-send", () => ({
   engineSendText: (...a: unknown[]) =>
     (engineSendText as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendMedia: vi.fn(async () => ({ whatsapp_message_id: "wamid.2" })),

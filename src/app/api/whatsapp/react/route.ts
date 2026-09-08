@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { sendReactionMessage } from '@/lib/whatsapp/whapi-api';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import { sendReaction, describeSendFailure } from '@/lib/whatsapp/provider';
+import { resolveReplyChannel, ChannelError } from '@/lib/whatsapp/channels';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -88,35 +88,36 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('access_token')
-      .eq('account_id', accountId)
-      .single();
-
-    if (configError || !config) {
-      return NextResponse.json(
-        { error: 'WhatsApp not configured.' },
-        { status: 400 },
+    // React on whichever number this conversation is happening on
+    // (migration 046) — a reaction has to reach the same chat, so it
+    // follows the customer exactly as a reply does.
+    let channel;
+    try {
+      channel = await resolveReplyChannel(
+        supabase,
+        accountId,
+        targetMessage.conversation_id,
       );
+    } catch (err) {
+      if (err instanceof ChannelError) {
+        return NextResponse.json({ error: err.message }, { status: err.status });
+      }
+      throw err;
     }
 
-    const token = decrypt(config.access_token);
-
     try {
-      // Whapi addresses a reaction by the target message id alone — the
-      // id already identifies the chat, so unlike Meta there is no
-      // recipient to sanitise and pass.
-      await sendReactionMessage({
-        token,
+      // Whapi addresses a reaction by the target message id alone (the
+      // id identifies the chat); Meta needs the recipient too. The
+      // provider layer absorbs the difference — `to` is ignored on Whapi.
+      await sendReaction({
+        channel,
+        to: contact.phone,
         targetMessageId: targetMessage.message_id,
         emoji,
       });
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Unknown Whapi API error';
-      console.error('[whatsapp/react] Whapi send failed:', message);
+      const message = describeSendFailure(err);
+      console.error('[whatsapp/react] send failed:', message);
       return NextResponse.json(
         { error: `WhatsApp API error: ${message}` },
         { status: 502 },

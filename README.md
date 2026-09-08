@@ -97,6 +97,11 @@ QR code, paste the channel token in Settings. Note that inbound messages
 need a **public HTTPS URL** (`NEXT_PUBLIC_SITE_URL`); a Cloudflare
 tunnel is enough for local work.
 
+You can also connect a **Meta WhatsApp Cloud API** number alongside it
+and route each kind of message to one or the other — campaigns and
+automations on the official Business Platform, conversations on Whapi.
+See [docs/meta-cloud-api.md](./docs/meta-cloud-api.md).
+
 Prefer containers? See [docs/docker.md](./docs/docker.md) for the
 Dockerfile + Docker Compose setup.
 

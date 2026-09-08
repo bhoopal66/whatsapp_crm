@@ -181,6 +181,10 @@ export async function GET() {
       .from('whatsapp_config')
       .select('phone_number_id, waba_id, access_token, status, registered_at')
       .eq('account_id', accountId)
+      // Scoped to the Whapi row: since migration 046 an account can
+      // also hold a Meta channel, so account_id alone selects two rows
+      // and maybeSingle() would error.
+      .eq('provider', 'whapi')
       .maybeSingle()
 
     if (configError) {
@@ -410,6 +414,7 @@ export async function POST(request: Request) {
       .from('whatsapp_config')
       .select('id, verify_token')
       .eq('account_id', accountId)
+      .eq('provider', 'whapi')
       .maybeSingle()
 
     let webhookSecret: string | null = null
@@ -479,6 +484,9 @@ export async function POST(request: Request) {
         .from('whatsapp_config')
         .update(baseRow)
         .eq('account_id', accountId)
+        // Without the provider filter this would overwrite the Meta
+        // channel's credentials with the Whapi ones.
+        .eq('provider', 'whapi')
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
@@ -491,9 +499,28 @@ export async function POST(request: Request) {
       // `account_id` is the tenancy key (NOT NULL post-017, UNIQUE so
       // duplicates trip the constraint up front); `user_id` is the
       // audit column identifying which member saved the config.
+      // `is_primary` defaults to TRUE, but migration 046 enforces at
+      // most one primary per account with a partial unique index — so a
+      // straight insert would fail when a Meta number is already
+      // connected and holds the flag. First channel in wins it.
+      const { count: siblingCount } = await supabase
+        .from('whatsapp_config')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', accountId)
+
       const { error: insertError } = await supabase
         .from('whatsapp_config')
-        .insert({ account_id: accountId, user_id: user.id, ...baseRow })
+        .insert({
+          account_id: accountId,
+          user_id: user.id,
+          provider: 'whapi',
+          // Operator-facing name for the routing selector. Set only on
+          // first connect so a label an admin edited is never clobbered
+          // by a token re-save.
+          label: 'WhatsApp (Whapi)',
+          is_primary: (siblingCount ?? 0) === 0,
+          ...baseRow,
+        })
 
       if (insertError) {
         console.error('Error inserting whatsapp_config:', insertError)
@@ -571,7 +598,10 @@ export async function DELETE() {
     const { error: deleteError } = await supabase
       .from('whatsapp_config')
       .delete()
+      // Disconnects the Whapi channel only — the Meta number, and any
+      // routes pointing at it, are left alone.
       .eq('account_id', accountId)
+      .eq('provider', 'whapi')
 
     if (deleteError) {
       console.error('Error deleting whatsapp_config:', deleteError)

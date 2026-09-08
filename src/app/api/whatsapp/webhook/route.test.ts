@@ -67,25 +67,33 @@ vi.mock('@supabase/supabase-js', () => ({
       switch (table) {
         case 'whatsapp_config':
           // The Whapi route resolves tenancy from the webhook SECRET,
-          // not from a payload field, so it loads every row and
-          // compares decrypted verify_tokens — hence `select('*')`
-          // awaited directly rather than a filtered `.eq()`.
+          // not from a payload field, so it loads the Whapi rows and
+          // compares decrypted verify_tokens. Since migration 046 that
+          // read is `.select('*').eq('provider', 'whapi')` — a Meta
+          // row's verify_token is a different credential entirely.
           return {
-            select: () =>
-              Promise.resolve({
-                data: [
-                  {
-                    account_id: 'acc-1',
-                    user_id: 'user-1',
-                    phone_number_id: h.state.channelId,
-                    waba_id: h.state.wabaId,
-                    access_token: 'enc:plain-token',
-                    verify_token: `enc:${WEBHOOK_SECRET}`,
-                    mirror_inbound_media: h.state.mirrorInboundMedia,
-                  },
-                ],
-                error: null,
-              }),
+            select: () => ({
+              eq: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      id: 'cfg-1',
+                      account_id: 'acc-1',
+                      user_id: 'user-1',
+                      provider: 'whapi',
+                      label: 'Support',
+                      phone_number_id: h.state.channelId,
+                      waba_id: h.state.wabaId,
+                      access_token: 'enc:plain-token',
+                      verify_token: `enc:${WEBHOOK_SECRET}`,
+                      is_primary: true,
+                      mirror_inbound_media: h.state.mirrorInboundMedia,
+                      status: 'connected',
+                    },
+                  ],
+                  error: null,
+                }),
+            }),
             // `adoptChannelId` writes the real channel id back once an
             // authenticated callback reveals it.
             update: (row: Record<string, unknown>) => ({

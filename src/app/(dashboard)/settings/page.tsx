@@ -12,6 +12,8 @@ import { ProfileForm } from '@/components/settings/profile-form';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
+import { MetaChannelConfig } from '@/components/settings/meta-channel-config';
+import { WhatsAppRouting } from '@/components/settings/whatsapp-routing';
 import { TemplateManager } from '@/components/settings/template-manager';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
@@ -85,7 +87,17 @@ function SettingsPageInner() {
     profile: <ProfileForm />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
-    whatsapp: <WhatsAppConfig />,
+    whatsapp: (
+      // Three stacked panels since migration 046: the Whapi channel,
+      // the Meta Cloud API number, and the selector that decides which
+      // of them carries each kind of message. Ordered the way an
+      // operator sets them up.
+      <div className="space-y-6">
+        <WhatsAppConfig />
+        <MetaChannelConfig />
+        <WhatsAppRouting />
+      </div>
+    ),
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,

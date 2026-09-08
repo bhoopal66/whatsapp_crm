@@ -22,19 +22,25 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
-  sendTextMessage,
-  sendTemplateMessage,
-  sendMediaMessage,
+  sendText,
+  sendTemplate,
+  sendMedia,
   sendInteractiveButtons,
   sendInteractiveList,
-  type MediaKind,
-} from '@/lib/whatsapp/whapi-api';
+  describeSendFailure,
+  type ProviderMediaKind,
+} from '@/lib/whatsapp/provider';
+import {
+  resolveSendChannel,
+  ChannelError,
+  describeChannel,
+  type RoutingSurface,
+} from '@/lib/whatsapp/channels';
 import {
   validateInteractivePayload,
   interactivePayloadPreviewText,
   type InteractiveMessagePayload,
 } from '@/lib/whatsapp/interactive';
-import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   sanitizePhoneForMeta,
@@ -87,6 +93,12 @@ export interface SendMessageParams {
   templateMessageParams?: unknown;
   /** Structured payload for `messageType === 'interactive'`. */
   interactivePayload?: InteractiveMessagePayload | null;
+  /**
+   * Which routing surface this send belongs to (migration 046).
+   * Decides which connected number carries it — see
+   * `resolveSendChannel`. Defaults to the dashboard composer.
+   */
+  surface?: RoutingSurface;
   replyToMessageId?: string | null;
 }
 
@@ -202,6 +214,7 @@ export async function sendMessageToConversation(
     templateMessageParams,
     interactivePayload,
     replyToMessageId,
+    surface = 'inbox',
   } = params;
 
   if (!conversationId) {
@@ -252,37 +265,21 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-
-  if (configError || !config) {
-    throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
-  }
-
-  const channelToken = decrypt(config.access_token);
-
-  // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
-  if (isLegacyFormat(config.access_token)) {
-    void db
-      .from('whatsapp_config')
-      .update({ access_token: encrypt(channelToken) })
-      .eq('id', config.id)
-      .then(({ error }: { error: { message: string } | null }) => {
-        if (error) {
-          console.warn(
-            '[send-message] access_token GCM upgrade failed:',
-            error.message
-          );
-        }
-      });
+  // Which connected number carries this send (migration 046). An
+  // account may now have both a Whapi channel and a Meta Cloud API
+  // number; for a thread reply this follows whichever the customer
+  // last wrote to, and for a bot surface it obeys the admin's route.
+  //
+  // Credentials come back decrypted, so nothing below touches
+  // `whatsapp_config` or `encryption` directly.
+  let channel;
+  try {
+    channel = await resolveSendChannel(db, accountId, surface, conversationId);
+  } catch (err) {
+    if (err instanceof ChannelError) {
+      throw new SendMessageError(err.code, err.message, err.status);
+    }
+    throw err;
   }
 
   // Resolve the reply target to its WhatsApp message id. The parent must
@@ -348,26 +345,27 @@ export async function sendMessageToConversation(
 
   const attempt = async (phone: string): Promise<string> => {
     if (messageType === 'template') {
-      // Whapi has no server-side template registry — a template is a
-      // local row that gets rendered and sent as an ordinary message.
-      // `resolveTemplateRow` above still uses the requested language to
-      // pick the right localized row; there is just nowhere to send a
-      // language code to afterwards. The row's presence is guaranteed
+      // The local row drives BOTH providers, but they consume it very
+      // differently: Whapi renders it and posts an ordinary message,
+      // while Meta addresses an already-approved template in the WABA
+      // registry by (name, language). `resolveTemplateRow` above picks
+      // the right localized row either way; its presence is guaranteed
       // by the guard above.
-      const result = await sendTemplateMessage({
-        token: channelToken,
+      const result = await sendTemplate({
+        channel,
         to: phone,
         template: templateRow!,
         bodyParams: templateBodyParams(templateParams, templateMessageParams),
+        messageParams: templateMessageParams,
         quotedMessageId,
       });
       return result.messageId;
     }
     if (isMediaKind) {
-      const result = await sendMediaMessage({
-        token: channelToken,
+      const result = await sendMedia({
+        channel,
         to: phone,
-        kind: messageType as MediaKind,
+        kind: messageType as ProviderMediaKind,
         link: mediaUrl!,
         caption: contentText || undefined,
         filename: filename || undefined,
@@ -379,7 +377,7 @@ export async function sendMessageToConversation(
       const p = interactivePayload!;
       if (p.kind === 'buttons') {
         const result = await sendInteractiveButtons({
-          token: channelToken,
+          channel,
           to: phone,
           bodyText: p.body,
           headerText: p.header || undefined,
@@ -390,7 +388,7 @@ export async function sendMessageToConversation(
         return result.messageId;
       }
       const result = await sendInteractiveList({
-        token: channelToken,
+        channel,
         to: phone,
         bodyText: p.body,
         buttonLabel: p.button_label,
@@ -401,8 +399,8 @@ export async function sendMessageToConversation(
       });
       return result.messageId;
     }
-    const result = await sendTextMessage({
-      token: channelToken,
+    const result = await sendText({
+      channel,
       to: phone,
       text: contentText!,
       quotedMessageId,
@@ -439,9 +437,15 @@ export async function sendMessageToConversation(
 
     if (lastError) throw lastError;
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Unknown WhatsApp API error';
-    console.error('[send-message] send failed for all variants:', message);
+    // `describeSendFailure` names the provider-specific failures that
+    // are otherwise opaque numeric codes — above all Meta's closed
+    // 24-hour service window, which is the single most common reason a
+    // send to the marketing number is refused.
+    const message = describeSendFailure(err);
+    console.error(
+      `[send-message] send failed for all variants on ${describeChannel(channel)}:`,
+      message
+    );
     throw new SendMessageError(
       'whatsapp_error',
       `WhatsApp API error: ${message}`,
@@ -494,6 +498,10 @@ export async function sendMessageToConversation(
       message_id: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,
+      // Which number carried it (migration 046). Read back by
+      // `resolveReplyChannel` so the thread keeps answering on the
+      // channel the conversation is actually happening on.
+      provider: channel.provider,
     })
     .select()
     .single();

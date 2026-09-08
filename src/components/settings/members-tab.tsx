@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import {
   AlertTriangle,
   Loader2,
@@ -243,6 +244,7 @@ export function MembersTab() {
         toast.error(payload.error || 'Failed to remove member');
         return;
       }
+      invalidateCached(MEMBERS_CACHE_KEY);
       toast.success(t('removedToast', { name: removingMember.full_name || t('unnamed') }));
       setMembers((prev) =>
         prev.filter((m) => m.user_id !== removingMember.user_id),
