@@ -51,7 +51,12 @@ import {
 } from "@/lib/flows/validate";
 import { useTranslations } from "next-intl";
 import { unlinkNodeReferences } from "@/lib/flows/edges";
-import type { FlowNodeRow, FlowRow } from "@/lib/flows/types";
+import type {
+  FlowFallbackPolicy,
+  FlowNodeRow,
+  FlowRow,
+} from "@/lib/flows/types";
+import { resolveFallbackPolicy } from "@/lib/flows/fallback";
 import { NODE_META, slugify, type BuilderNode, type NodeType } from "./shared";
 
 // ============================================================
@@ -64,6 +69,8 @@ export interface BuilderState {
   trigger_type: "keyword" | "first_inbound_message" | "manual";
   trigger_config: Record<string, unknown>;
   entry_node_id: string | null;
+  /** What the runner does with an off-script reply (see fallback.ts). */
+  fallback_policy: FlowFallbackPolicy;
   status: FlowRow["status"];
   nodes: BuilderNode[];
 }
@@ -81,9 +88,7 @@ export interface FlowEditorContextValue {
    * setters below would force them to fan out the update.
    */
   setState: (
-    updaterOrValue:
-      | BuilderState
-      | ((prev: BuilderState) => BuilderState),
+    updaterOrValue: BuilderState | ((prev: BuilderState) => BuilderState),
   ) => void;
   dirty: boolean;
   saving: boolean;
@@ -152,9 +157,7 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         sections: [
           {
             title: "",
-            rows: [
-              { reply_id: "row_1", title: "Option 1", next_node_key: "" },
-            ],
+            rows: [{ reply_id: "row_1", title: "Option 1", next_node_key: "" }],
           },
         ],
       };
@@ -215,9 +218,7 @@ const FlowEditorCtx = createContext<FlowEditorContextValue | null>(null);
 export function useFlowEditor(): FlowEditorContextValue {
   const ctx = useContext(FlowEditorCtx);
   if (!ctx) {
-    throw new Error(
-      "useFlowEditor must be called inside <FlowEditorProvider>",
-    );
+    throw new Error("useFlowEditor must be called inside <FlowEditorProvider>");
   }
   return ctx;
 }
@@ -246,6 +247,7 @@ export function FlowEditorProvider({
     trigger_type: initialFlow.trigger_type,
     trigger_config: initialFlow.trigger_config as Record<string, unknown>,
     entry_node_id: initialFlow.entry_node_id,
+    fallback_policy: resolveFallbackPolicy(initialFlow.fallback_policy),
     status: initialFlow.status,
     nodes: initialNodes.map((n) => ({
       node_key: n.node_key,
@@ -341,6 +343,7 @@ export function FlowEditorProvider({
           trigger_type: state.trigger_type,
           trigger_config: state.trigger_config,
           entry_node_id: state.entry_node_id,
+          fallback_policy: state.fallback_policy,
           nodes: state.nodes,
         }),
       });
@@ -388,7 +391,7 @@ export function FlowEditorProvider({
             ? t("statusActivated")
             : next === "archived"
               ? t("statusArchived")
-              : t("statusDraft")
+              : t("statusDraft"),
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Status update failed";
@@ -492,7 +495,7 @@ export function FlowEditorProvider({
           // the entry automatically. Saves a click.
           entry_node_id:
             s.entry_node_id ??
-            (type === "start" ? node_key : s.entry_node_id ?? null),
+            (type === "start" ? node_key : (s.entry_node_id ?? null)),
         };
       });
       return createdKey;
@@ -563,5 +566,7 @@ export function FlowEditorProvider({
     ],
   );
 
-  return <FlowEditorCtx.Provider value={value}>{children}</FlowEditorCtx.Provider>;
+  return (
+    <FlowEditorCtx.Provider value={value}>{children}</FlowEditorCtx.Provider>
+  );
 }

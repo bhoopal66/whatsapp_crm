@@ -1,7 +1,7 @@
 -- ============================================================
 -- 028_webhook_endpoints.sql — Outbound event webhooks (public API)
 --
--- Lets an account register HTTPS endpoints that wacrm POSTs to when
+-- Lets an account register HTTPS endpoints that Taamul Connect POSTs to when
 -- something happens (an inbound message arrives, a delivery status
 -- changes, a conversation is created). This is the "react to inbound"
 -- half of the public API (#245): instead of polling

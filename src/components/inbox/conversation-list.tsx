@@ -1,44 +1,95 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import {
+  MEMBERS_CACHE_KEY,
   REFERENCE_CACHE_TTL_MS,
   TAGS_CACHE_KEY,
   cachedQuery,
-} from "@/lib/client-cache";
+} from '@/lib/client-cache';
 import {
   CONVERSATION_SELECT,
+  UNASSIGNED,
+  matchesAssignee,
   matchesContactFilters,
   normalizeConversations,
-} from "@/lib/inbox/conversations";
-import { cn } from "@/lib/utils";
-import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { useTranslations } from "next-intl";
-import { Input } from "@/components/ui/input";
+  type AssigneeFilter,
+} from '@/lib/inbox/conversations';
+import {
+  CAMPAIGN_INBOX_FILTER,
+  INBOX_FILTER,
+  inCampaignInbox,
+} from '@/lib/inbox/campaign-inbox';
+import { resolveListHandler } from '@/lib/inbox/handler';
+import {
+  CONVERSATION_PAGE_SIZE,
+  assigneeGroup,
+  combineOrGroups,
+  conversationKeysetGroup,
+  hasMessages,
+  nextConversationCursor,
+  restrictToUserGroup,
+  sortByRecency,
+  type ConversationCursor,
+} from '@/lib/inbox/pagination';
+import { formatListTimestamp } from '@/lib/inbox/list-time';
+import { cn } from '@/lib/utils';
+import type { Conversation, ConversationStatus, Profile, Tag } from '@/types';
+import { Search, ChevronDown, X, UserRound, Radio, Phone } from 'lucide-react';
+import { startOfDay } from 'date-fns';
+import { useLocale, useTranslations } from 'next-intl';
+import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
+} from '@/components/ui/dropdown-menu';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { ContactAvatar } from './contact-avatar';
+
+/**
+ * How a batch of rows handed to `onConversationsLoaded` relates to the
+ * list the parent holds:
+ *  - `replace` — the first page (mount, filter change, full resync).
+ *  - `append`  — the next page, from scrolling to the bottom.
+ *  - `delta`   — rows whose `updated_at` moved past the resync
+ *    watermark; merge, don't replace.
+ * `cursor` is where the next page starts, `null` when there is none.
+ */
+export type ConversationListLoad =
+  | { mode: 'replace'; cursor: ConversationCursor | null }
+  | { mode: 'append'; cursor: ConversationCursor | null }
+  | { mode: 'delta' };
 
 interface ConversationListProps {
   activeConversationId: string | null;
   onSelect: (conversation: Conversation) => void;
   conversations: Conversation[];
-  onConversationsLoaded: (conversations: Conversation[]) => void;
+  onConversationsLoaded: (
+    conversations: Conversation[],
+    load: ConversationListLoad
+  ) => void;
   /**
-   * Increment to force the fetch effect below to refire. The parent
-   * bumps this on realtime reconnect / tab visibility → visible so the
-   * list catches up on any events sent while the WS was disconnected
-   * or the tab was throttled. Optional so existing callers keep working.
+   * Increment to force the first page to be refetched from scratch —
+   * the manual refresh, or a resync with nothing to anchor a delta on.
+   * Optional so existing callers keep working.
    */
   resyncToken?: number;
+  /**
+   * Bump `token` to re-read just the conversations whose `updated_at`
+   * is past `since` (a server-clock watermark) and merge them in — the
+   * cheap catch-up after a WS reconnect or a long-hidden tab.
+   */
+  deltaSync?: { token: number; since: string | null };
+  /**
+   * Hold the fetch until the caller knows what to ask for — the parent
+   * passes `!profileLoading`, because `restrictToUserId` is derived
+   * from the role and is null until the profile lands.
+   */
+  enabled?: boolean;
   /**
    * When set, show only conversations this user owns or is assigned.
    *
@@ -48,17 +99,156 @@ interface ConversationListProps {
    * `null`/undefined means "whatever RLS returns".
    */
   restrictToUserId?: string | null;
+  /**
+   * With `restrictToUserId`: the numbers that user works (migration
+   * 060), whose chats also belong in their personal inbox.
+   */
+  restrictToChannelIds?: readonly string[];
+  /**
+   * Show who holds each thread, and offer the by-agent filter.
+   *
+   * On for a viewer whose list mixes other people's chats — an admin
+   * on either inbox, a team leader on /team-inbox. Off for everyone
+   * else, where every row is already theirs and the name would just
+   * repeat down the page. See `viewsOthersConversations`.
+   */
+  showAssignee?: boolean;
+  /**
+   * Number id → display name, when the account has more than one
+   * WhatsApp number (migration 060). Each row then says which number
+   * the customer is writing to. Null hides the label.
+   */
+  numberNames?: ReadonlyMap<string, string> | null;
+  /**
+   * The Campaign inbox: only the campaign chats (migration 048) the bot
+   * is answering, where the Inbox lists every other chat — each chat is
+   * in exactly one of the two (migration 067, `inCampaignInbox`). Adds a
+   * per-campaign filter and shows, on each row, which campaign it came
+   * from.
+   */
+  campaignOnly?: boolean;
+  /**
+   * Whether the AI auto-reply is live on the account. Off, the bot is
+   * answering nothing: the Campaign inbox is empty and the Inbox lists
+   * every chat.
+   */
+  aiLive?: boolean;
 }
 
-const STATUS_COLORS: Record<ConversationStatus, string> = {
-  open: "bg-primary",
-  pending: "bg-amber-500",
-  closed: "bg-muted-foreground",
-};
+/** Just enough of a broadcast to label and filter by. */
+interface CampaignOption {
+  id: string;
+  name: string;
+}
 
+type InboxFilter = ConversationStatus | 'all' | 'unread';
 
+/**
+ * Past this many changed rows a delta resync stops being cheaper than
+ * reloading the first page, so it does that instead.
+ */
+const DELTA_LIMIT = 200;
 
-type InboxFilter = ConversationStatus | "all" | "unread";
+/** Everything the server-side query depends on. */
+interface ListQueryParams {
+  restrictToUserId: string | null;
+  restrictToChannelIds: readonly string[];
+  campaignOnly: boolean;
+  aiLive: boolean;
+  status: InboxFilter;
+  assignee: AssigneeFilter;
+  campaignId: string | null;
+}
+
+/**
+ * Build the conversations query for a page (`cursor` null → first
+ * page) or for a delta resync (`since`).
+ *
+ * The status / unread / by-agent / by-campaign filters are pushed into
+ * the query so a page holds 50 rows that *match* — filtering 50 loaded
+ * rows client-side would show a handful of unread threads while
+ * hundreds sat unloaded. The list still re-applies every filter
+ * client-side (realtime can add or patch rows that no longer match).
+ *
+ * A delta deliberately skips those facet filters and keeps only the
+ * visibility narrowing: a thread that moved from open to closed must
+ * come back so its held copy is corrected, not left showing as open.
+ */
+function conversationsQuery(
+  p: ListQueryParams,
+  opts: { cursor?: ConversationCursor | null; since?: string }
+) {
+  const supabase = createClient();
+  let query = supabase.from('conversations').select(CONVERSATION_SELECT);
+  const groups: (string | null)[] = [];
+
+  if (p.restrictToUserId) {
+    // "I created it OR it was handed to me OR it is on my number", the
+    // same grants the database's own visibility rule makes.
+    groups.push(
+      restrictToUserGroup(p.restrictToUserId, p.restrictToChannelIds)
+    );
+  }
+  if (p.campaignOnly) {
+    query = query.not('campaign_broadcast_id', 'is', null);
+    // With the AI off the bot is answering nothing, so the Campaign
+    // inbox is empty: ask for no rows rather than special-case the
+    // page, load-more and delta paths.
+    if (!p.aiLive) query = query.is('id', null);
+  }
+
+  if (opts.since) {
+    query = query.gt('updated_at', opts.since);
+  } else {
+    // A chat is listed once it holds a message (`hasMessages`). Not on a
+    // delta: a held row that just got its first message must come back.
+    query = query.not('last_message_at', 'is', null);
+    if (p.status === 'unread') query = query.gt('unread_count', 0);
+    else if (p.status !== 'all') query = query.eq('status', p.status);
+    if (p.assignee === UNASSIGNED) {
+      query = query.is('assigned_agent_id', null);
+    } else {
+      groups.push(assigneeGroup(p.assignee));
+    }
+    if (p.campaignId) query = query.eq('campaign_broadcast_id', p.campaignId);
+    // Which of the two lists (lib/inbox/campaign-inbox.ts): the chats
+    // the bot is answering, or every other one. Not on a delta: a chat
+    // that moved between them while we weren't listening has to come
+    // back so the held copy can be dropped or added.
+    groups.push(
+      p.campaignOnly ? CAMPAIGN_INBOX_FILTER : p.aiLive ? INBOX_FILTER : null
+    );
+    if (opts.cursor) groups.push(conversationKeysetGroup(opts.cursor));
+  }
+
+  // One `or=` holding every group (see combineOrGroups).
+  const or = combineOrGroups(groups);
+  if (or) query = query.or(or);
+
+  if (opts.since) {
+    return query.order('updated_at', { ascending: false }).limit(DELTA_LIMIT);
+  }
+  return query
+    .order('last_message_at', { ascending: false, nullsFirst: true })
+    .order('id', { ascending: false })
+    .limit(CONVERSATION_PAGE_SIZE);
+}
+
+function logFetchError(
+  label: string,
+  error: { message: string; details: string; hint: string; code: string }
+) {
+  // Supabase errors have non-enumerable properties — log fields explicitly
+  console.error(label, {
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+    code: error.code,
+  });
+}
+
+/** Stable default, so an omitted prop does not refire the fetch. */
+const NO_CHANNELS: readonly string[] = [];
 
 export function ConversationList({
   activeConversationId,
@@ -66,20 +256,44 @@ export function ConversationList({
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
+  deltaSync,
+  enabled = true,
   restrictToUserId = null,
+  restrictToChannelIds = NO_CHANNELS,
+  showAssignee = false,
+  numberNames = null,
+  campaignOnly = false,
+  aiLive = false,
 }: ConversationListProps) {
-  const t = useTranslations("Inbox.conversationList");
-  
-  const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
-    { label: t("filterAll"), value: "all" },
-    { label: t("filterUnread"), value: "unread" },
-    { label: t("filterOpen"), value: "open" },
-    { label: t("filterPending"), value: "pending" },
-    { label: t("filterClosed"), value: "closed" },
-  ], [t]);
+  const t = useTranslations('Inbox.conversationList');
+  const locale = useLocale();
 
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<InboxFilter>("all");
+  // The rows' timestamps ("14:05", "Yesterday", "Monday") only depend
+  // on which day it is, so this ticks over at midnight and nowhere
+  // else: an inbox left open overnight still reads right, and no row
+  // re-renders in between.
+  const [today, setToday] = useState(() => startOfDay(new Date()).getTime());
+  useEffect(() => {
+    const id = setInterval(() => {
+      const day = startOfDay(new Date()).getTime();
+      setToday((prev) => (prev === day ? prev : day));
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(
+    () => [
+      { label: t('filterAll'), value: 'all' },
+      { label: t('filterUnread'), value: 'unread' },
+      { label: t('filterOpen'), value: 'open' },
+      { label: t('filterPending'), value: 'pending' },
+      { label: t('filterClosed'), value: 'closed' },
+    ],
+    [t]
+  );
+
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<InboxFilter>('all');
   const [loading, setLoading] = useState(true);
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
@@ -87,6 +301,20 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // Who the list is narrowed to (a user id, UNASSIGNED, or null).
+  // Only meaningful when `showAssignee` — read through `assigneeFilter`
+  // below so a filter can never survive, invisible, into a view that
+  // has no control to clear it with.
+  const [selectedAssignee, setSelectedAssignee] =
+    useState<AssigneeFilter>(null);
+  const [members, setMembers] = useState<Profile[]>([]);
+  const assigneeFilter: AssigneeFilter = showAssignee ? selectedAssignee : null;
+  // Campaign inbox only: the account's broadcasts, for row labels and
+  // the by-campaign filter. Null filter = every campaign.
+  const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
+    null
+  );
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -105,52 +333,164 @@ export function ConversationList({
     onConversationsLoadedRef.current = onConversationsLoaded;
   });
 
+  // What the server-side query asks. Memoised so the fetch effect
+  // refires only when one of these actually changes.
+  const listParams = useMemo<ListQueryParams>(
+    () => ({
+      restrictToUserId,
+      restrictToChannelIds,
+      campaignOnly,
+      aiLive,
+      status: filter,
+      assignee: assigneeFilter,
+      campaignId: campaignOnly ? selectedCampaignId : null,
+    }),
+    [
+      restrictToUserId,
+      restrictToChannelIds,
+      campaignOnly,
+      aiLive,
+      filter,
+      assigneeFilter,
+      selectedCampaignId,
+    ]
+  );
+  // Read by loadMore / the delta resync, which must not refire when the
+  // params change — the first-page effect below owns that.
+  const listParamsRef = useRef(listParams);
   useEffect(() => {
-    const supabase = createClient();
+    listParamsRef.current = listParams;
+  });
+
+  // Keyset pagination state. `generationRef` ticks on every first-page
+  // load so an in-flight loadMore / delta for the previous filters
+  // can't append rows that no longer belong.
+  const generationRef = useRef(0);
+  const cursorRef = useRef<ConversationCursor | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  // Bumped on each successful page so the bottom sentinel re-observes
+  // (an IntersectionObserver only reports *changes*; a sentinel still
+  // on screen after a short page needs a fresh observer to fire again).
+  const [pageCount, setPageCount] = useState(0);
+  // Forces a first-page reload when a delta turns out too big.
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
+    const generation = ++generationRef.current;
 
     (async () => {
-      let query = supabase
-        .from("conversations")
-        .select(CONVERSATION_SELECT)
-        .order("last_message_at", { ascending: false });
+      const { data, error } = await conversationsQuery(listParams, {});
 
-      if (restrictToUserId) {
-        // PostgREST `or` takes a comma-separated filter list; this is
-        // "I created it OR it was handed to me", the same pair the
-        // database's own visibility rule uses.
-        query = query.or(
-          `user_id.eq.${restrictToUserId},assigned_agent_id.eq.${restrictToUserId}`,
-        );
-      }
-
-      const { data, error } = await query;
-
-      if (cancelled) return;
+      if (cancelled || generation !== generationRef.current) return;
 
       if (error) {
-        // Supabase errors have non-enumerable properties — log fields explicitly
-        console.error("Failed to fetch conversations:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
+        logFetchError('Failed to fetch conversations:', error);
         setLoading(false);
         return;
       }
 
-      onConversationsLoadedRef.current(normalizeConversations(data ?? []));
+      const rows = normalizeConversations(data ?? []);
+      const cursor = nextConversationCursor(rows);
+      cursorRef.current = cursor;
+      setHasMore(cursor !== null);
+      setPageCount((n) => n + 1);
+      onConversationsLoadedRef.current(rows, { mode: 'replace', cursor });
       setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-    // `resyncToken` is included so the parent can force a refetch when
-    // the realtime channel reconnects or the tab regains focus — catches
-    // up on any events sent while the WS was disconnected or throttled.
-  }, [resyncToken, restrictToUserId]);
+    // `resyncToken` is included so the parent can force a full refetch
+    // (manual refresh, or a resync with no watermark to delta from).
+  }, [enabled, resyncToken, reloadNonce, listParams]);
+
+  const loadMore = useCallback(async () => {
+    const cursor = cursorRef.current;
+    if (!cursor || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const generation = generationRef.current;
+    try {
+      const { data, error } = await conversationsQuery(listParamsRef.current, {
+        cursor,
+      });
+      if (generation !== generationRef.current) return;
+      if (error) {
+        logFetchError('Failed to fetch more conversations:', error);
+        return;
+      }
+      const rows = normalizeConversations(data ?? []);
+      const next = nextConversationCursor(rows);
+      cursorRef.current = next;
+      setHasMore(next !== null);
+      setPageCount((n) => n + 1);
+      onConversationsLoadedRef.current(rows, { mode: 'append', cursor: next });
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, []);
+
+  // Delta resync: only the rows changed since the watermark. Keyed on
+  // the token alone (the ref remembers which one was handled) so a
+  // re-render never re-sends it.
+  const deltaToken = deltaSync?.token ?? 0;
+  const deltaSince = deltaSync?.since ?? null;
+  const handledDeltaTokenRef = useRef(deltaToken);
+  useEffect(() => {
+    if (deltaToken === handledDeltaTokenRef.current) return;
+    handledDeltaTokenRef.current = deltaToken;
+    if (!enabled || !deltaSince) return;
+    const generation = generationRef.current;
+
+    (async () => {
+      const { data, error } = await conversationsQuery(listParamsRef.current, {
+        since: deltaSince,
+      });
+      if (generation !== generationRef.current) return;
+      if (error) {
+        logFetchError('Failed to resync conversations:', error);
+        return;
+      }
+      const rows = normalizeConversations(data ?? []);
+      if (rows.length >= DELTA_LIMIT) {
+        // Too much changed to merge piecemeal — start over.
+        setReloadNonce((n) => n + 1);
+        return;
+      }
+      onConversationsLoadedRef.current(rows, { mode: 'delta' });
+    })();
+  }, [deltaToken, deltaSince, enabled]);
+
+  // Campaign names for the row label and the filter. Not cached: a
+  // campaign is usually created minutes before someone comes here to
+  // watch its replies, and the list is small.
+  useEffect(() => {
+    if (!campaignOnly) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('broadcasts')
+        .select('id, name')
+        .order('created_at', { ascending: false });
+      if (!cancelled) setCampaigns((data as CampaignOption[] | null) ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [campaignOnly]);
+
+  const campaignsById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of campaigns) m.set(c.id, c.name);
+    return m;
+  }, [campaigns]);
 
   // Tag definitions for the filter picker — loaded once so labels/colours
   // stay stable regardless of which conversations happen to be loaded.
@@ -162,17 +502,72 @@ export function ConversationList({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const data = await cachedQuery(TAGS_CACHE_KEY, REFERENCE_CACHE_TTL_MS, async () => {
-        const supabase = createClient();
-        const { data } = await supabase.from("tags").select("*").order("name");
-        return (data as Tag[] | null) ?? [];
-      }).catch(() => [] as Tag[]);
+      const data = await cachedQuery(
+        TAGS_CACHE_KEY,
+        REFERENCE_CACHE_TTL_MS,
+        async () => {
+          const supabase = createClient();
+          const { data } = await supabase
+            .from('tags')
+            .select('*')
+            .order('name');
+          return (data as Tag[] | null) ?? [];
+        }
+      ).catch(() => [] as Tag[]);
       if (!cancelled) setTags(data);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Account members, for the assignee labels and the by-agent filter.
+  // Shares MEMBERS_CACHE_KEY with the thread's assign dropdown, so on a
+  // normal inbox visit this costs nothing — the thread has usually
+  // already asked. Only fetched for a viewer who can see other
+  // people's chats; nobody else renders either affordance.
+  useEffect(() => {
+    if (!showAssignee) return;
+    let cancelled = false;
+    (async () => {
+      const data = await cachedQuery(
+        MEMBERS_CACHE_KEY,
+        REFERENCE_CACHE_TTL_MS,
+        async () => {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('full_name');
+          if (error) {
+            console.error('Failed to fetch profiles:', error);
+            return [] as Profile[];
+          }
+          return (data as Profile[] | null) ?? [];
+        }
+      ).catch(() => [] as Profile[]);
+      if (!cancelled) setMembers(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showAssignee]);
+
+  // Keyed by `user_id`, not `id` — `conversations.assigned_agent_id`
+  // references auth.users, the same column the assign dropdown matches on.
+  const membersByUserId = useMemo(() => {
+    const m = new Map<string, Profile>();
+    for (const p of members) m.set(p.user_id, p);
+    return m;
+  }, [members]);
+
+  const memberName = useCallback(
+    (userId: string) => {
+      const p = membersByUserId.get(userId);
+      return p?.full_name?.trim() || p?.email || t('unknown');
+    },
+    [membersByUserId, t]
+  );
 
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
@@ -193,12 +588,26 @@ export function ConversationList({
   }, [tags]);
 
   const filtered = useMemo(() => {
-    let result = conversations;
+    let result = conversations.filter(hasMessages);
 
-    if (filter === "unread") {
+    if (filter === 'unread') {
       result = result.filter((c) => c.unread_count > 0);
-    } else if (filter !== "all") {
+    } else if (filter !== 'all') {
       result = result.filter((c) => c.status === filter);
+    }
+
+    if (assigneeFilter !== null) {
+      result = result.filter((c) => matchesAssignee(c, assigneeFilter));
+    }
+
+    // Which of the two lists a chat is in. The fetch asked for the
+    // right ones, but realtime adds and patches rows — the bot answers,
+    // a person steps in — so keep the list honest.
+    result = result.filter((c) => inCampaignInbox(c, aiLive) === campaignOnly);
+    if (campaignOnly && selectedCampaignId !== null) {
+      result = result.filter(
+        (c) => c.campaign_broadcast_id === selectedCampaignId
+      );
     }
 
     // Contact-based filters (tags via OR logic, exact company match).
@@ -214,15 +623,25 @@ export function ConversationList({
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((c) => {
-        const name = c.contact?.name?.toLowerCase() ?? "";
-        const phone = c.contact?.phone?.toLowerCase() ?? "";
-        const lastMsg = c.last_message_text?.toLowerCase() ?? "";
+        const name = c.contact?.name?.toLowerCase() ?? '';
+        const phone = c.contact?.phone?.toLowerCase() ?? '';
+        const lastMsg = c.last_message_text?.toLowerCase() ?? '';
         return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
       });
     }
 
-    return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+    return sortByRecency(result);
+  }, [
+    conversations,
+    filter,
+    search,
+    selectedTagIds,
+    selectedCompany,
+    assigneeFilter,
+    campaignOnly,
+    aiLive,
+    selectedCampaignId,
+  ]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -230,12 +649,31 @@ export function ConversationList({
     );
   }, []);
 
-  const clearContactFilters = useCallback(() => {
+  const clearAllFilters = useCallback(() => {
     setSelectedTagIds([]);
     setSelectedCompany(null);
+    setSelectedAssignee(null);
+    setSelectedCampaignId(null);
   }, []);
 
-  const hasContactFilters = selectedTagIds.length > 0 || selectedCompany !== null;
+  const hasContactFilters =
+    selectedTagIds.length > 0 ||
+    selectedCompany !== null ||
+    assigneeFilter !== null ||
+    selectedCampaignId !== null;
+
+  const campaignLabel =
+    selectedCampaignId === null
+      ? t('campaign')
+      : (campaignsById.get(selectedCampaignId) ?? t('campaign'));
+
+  /** Label for the by-agent trigger and its active-filter chip. */
+  const assigneeLabel =
+    assigneeFilter === null
+      ? t('agent')
+      : assigneeFilter === UNASSIGNED
+        ? t('unassigned')
+        : memberName(assigneeFilter);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,147 +682,289 @@ export function ConversationList({
     []
   );
 
-  const handleSelect = useCallback(
-    (conv: Conversation) => {
-      onSelect(conv);
-    },
-    [onSelect]
-  );
+  // Stable for the memoised rows: the parent's handler changes identity
+  // on every selection, which would otherwise re-render every row.
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  });
+  const handleSelect = useCallback((conv: Conversation) => {
+    onSelectRef.current(conv);
+  }, []);
 
-  const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
+  // Infinite scroll: load the next page as the bottom sentinel nears
+  // the viewport. Re-created after every page (see `pageCount`) so a
+  // sentinel still visible — a short list, or client-side filters that
+  // hide most of a page — keeps pulling until the list fills or ends.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadMore();
+      },
+      // Rooted on the ScrollArea viewport: a margin on the default
+      // (document) root can't reach past the scroller's clipping, so
+      // the prefetch distance would silently be zero.
+      {
+        root: el.closest('[data-slot="scroll-area-viewport"]'),
+        rootMargin: '400px 0px',
+      }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, pageCount, loading, loadMore]);
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
-    // the single pane showing; fixed 320px on desktop where it shares the
+    // the single pane showing; fixed width on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
+    <div className="border-wa-divider bg-wa-panel flex h-full w-full flex-col border-r lg:w-80 2xl:w-96">
       {/* Search + Filter */}
-      <div className="space-y-2 border-b border-border p-3">
+      <div className="space-y-2 px-3 pt-3 pb-2">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="text-wa-icon pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
           <Input
             value={search}
             onChange={handleSearchChange}
-            placeholder={t("searchPlaceholder")}
-            className="border-border bg-muted pl-9 text-sm text-foreground placeholder-muted-foreground focus:border-primary/50"
+            placeholder={t('searchPlaceholder')}
+            className="bg-wa-search text-wa-text placeholder:text-wa-text-secondary focus-visible:ring-wa-teal/40 h-9 rounded-lg border-0 pl-11 text-sm shadow-none focus-visible:ring-2"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center justify-center h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-muted">
-                {activeFilter?.label ?? t("filterAll")}
-                <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              {FILTER_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
+        {/* Status as WhatsApp's filter chips — one tap, and "Unread" is
+            always in sight rather than behind a dropdown. Scrolls
+            sideways when a locale's labels outgrow the column. */}
+        <div
+          role="radiogroup"
+          aria-label={t('filterAll')}
+          className="-mx-3 flex [scrollbar-width:none] gap-1 overflow-x-auto px-3 [&::-webkit-scrollbar]:hidden"
+        >
+          {FILTER_OPTIONS.map((opt) => {
+            const active = filter === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setFilter(opt.value)}
+                className={cn(
+                  'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+                  active
+                    ? 'bg-wa-chip-active text-wa-teal font-medium'
+                    : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {(campaignOnly && campaigns.length > 0) ||
+        showAssignee ||
+        tags.length > 0 ||
+        companies.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {campaignOnly && campaigns.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
                   className={cn(
-                    "text-sm",
-                    filter === opt.value
-                      ? "text-primary"
-                      : "text-popover-foreground"
+                    FACET_TRIGGER,
+                    'max-w-48',
+                    selectedCampaignId !== null
+                      ? FACET_TRIGGER_ACTIVE
+                      : FACET_TRIGGER_IDLE
                   )}
                 >
-                  {opt.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {tags.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                  selectedTagIds.length > 0
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {t("tags")}
-                {selectedTagIds.length > 0 && (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                    {selectedTagIds.length}
-                  </span>
-                )}
-                <ChevronDown className="h-3 w-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-64 w-56 border-border bg-popover"
-              >
-                {tags.map((t) => (
-                  <DropdownMenuCheckboxItem
-                    key={t.id}
-                    checked={selectedTagIds.includes(t.id)}
-                    onCheckedChange={() => toggleTag(t.id)}
-                    className="text-sm text-popover-foreground"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: t.color }}
-                      />
-                      <span className="truncate">{t.name}</span>
-                    </span>
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {companies.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  "inline-flex max-w-40 items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                  selectedCompany
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="truncate">{selectedCompany ?? t("company")}</span>
-                <ChevronDown className="h-3 w-3 shrink-0" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-64 w-56 border-border bg-popover"
-              >
-                <DropdownMenuItem
-                  onClick={() => setSelectedCompany(null)}
-                  className={cn(
-                    "text-sm",
-                    selectedCompany === null
-                      ? "text-primary"
-                      : "text-popover-foreground"
-                  )}
+                  <Radio className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{campaignLabel}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="border-border bg-popover max-h-64 w-64 overflow-y-auto"
                 >
-                  {t("allCompanies")}
-                </DropdownMenuItem>
-                {companies.map((co) => (
                   <DropdownMenuItem
-                    key={co}
-                    onClick={() => setSelectedCompany(co)}
+                    onClick={() => setSelectedCampaignId(null)}
                     className={cn(
-                      "text-sm",
-                      selectedCompany === co
-                        ? "text-primary"
-                        : "text-popover-foreground"
+                      'text-sm',
+                      selectedCampaignId === null
+                        ? 'text-primary'
+                        : 'text-popover-foreground'
                     )}
                   >
-                    <span className="truncate">{co}</span>
+                    {t('allCampaigns')}
                   </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+                  {campaigns.map((c) => (
+                    <DropdownMenuItem
+                      key={c.id}
+                      onClick={() => setSelectedCampaignId(c.id)}
+                      className={cn(
+                        'text-sm',
+                        selectedCampaignId === c.id
+                          ? 'text-primary'
+                          : 'text-popover-foreground'
+                      )}
+                    >
+                      <span className="truncate">{c.name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {showAssignee && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    FACET_TRIGGER,
+                    'max-w-40',
+                    assigneeFilter !== null
+                      ? FACET_TRIGGER_ACTIVE
+                      : FACET_TRIGGER_IDLE
+                  )}
+                >
+                  <UserRound className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{assigneeLabel}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="border-border bg-popover max-h-64 w-56 overflow-y-auto"
+                >
+                  <DropdownMenuItem
+                    onClick={() => setSelectedAssignee(null)}
+                    className={cn(
+                      'text-sm',
+                      assigneeFilter === null
+                        ? 'text-primary'
+                        : 'text-popover-foreground'
+                    )}
+                  >
+                    {t('allAgents')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setSelectedAssignee(UNASSIGNED)}
+                    className={cn(
+                      'text-sm',
+                      assigneeFilter === UNASSIGNED
+                        ? 'text-primary'
+                        : 'text-popover-foreground'
+                    )}
+                  >
+                    {t('unassigned')}
+                  </DropdownMenuItem>
+                  {members.map((m) => (
+                    <DropdownMenuItem
+                      key={m.user_id}
+                      onClick={() => setSelectedAssignee(m.user_id)}
+                      className={cn(
+                        'text-sm',
+                        assigneeFilter === m.user_id
+                          ? 'text-primary'
+                          : 'text-popover-foreground'
+                      )}
+                    >
+                      <span className="truncate">{memberName(m.user_id)}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {tags.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    FACET_TRIGGER,
+                    selectedTagIds.length > 0
+                      ? FACET_TRIGGER_ACTIVE
+                      : FACET_TRIGGER_IDLE
+                  )}
+                >
+                  {t('tags')}
+                  {selectedTagIds.length > 0 && (
+                    <span className="bg-wa-green text-wa-green-fg flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
+                      {selectedTagIds.length}
+                    </span>
+                  )}
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="border-border bg-popover max-h-64 w-56"
+                >
+                  {tags.map((t) => (
+                    <DropdownMenuCheckboxItem
+                      key={t.id}
+                      checked={selectedTagIds.includes(t.id)}
+                      onCheckedChange={() => toggleTag(t.id)}
+                      className="text-popover-foreground text-sm"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: t.color }}
+                        />
+                        <span className="truncate">{t.name}</span>
+                      </span>
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {companies.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    FACET_TRIGGER,
+                    'max-w-40',
+                    selectedCompany ? FACET_TRIGGER_ACTIVE : FACET_TRIGGER_IDLE
+                  )}
+                >
+                  <span className="truncate">
+                    {selectedCompany ?? t('company')}
+                  </span>
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="border-border bg-popover max-h-64 w-56"
+                >
+                  <DropdownMenuItem
+                    onClick={() => setSelectedCompany(null)}
+                    className={cn(
+                      'text-sm',
+                      selectedCompany === null
+                        ? 'text-primary'
+                        : 'text-popover-foreground'
+                    )}
+                  >
+                    {t('allCompanies')}
+                  </DropdownMenuItem>
+                  {companies.map((co) => (
+                    <DropdownMenuItem
+                      key={co}
+                      onClick={() => setSelectedCompany(co)}
+                      className={cn(
+                        'text-sm',
+                        selectedCompany === co
+                          ? 'text-primary'
+                          : 'text-popover-foreground'
+                      )}
+                    >
+                      <span className="truncate">{co}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        ) : null}
 
         {hasContactFilters && (
           <div className="flex flex-wrap items-center gap-1">
@@ -394,31 +974,55 @@ export function ConversationList({
                 <button
                   key={id}
                   onClick={() => toggleTag(id)}
-                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+                  className={ACTIVE_FILTER_CHIP}
                 >
                   <span
                     className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: tag?.color ?? "var(--muted-foreground)" }}
+                    style={{
+                      backgroundColor: tag?.color ?? 'var(--wa-text-secondary)',
+                    }}
                   />
-                  <span className="max-w-24 truncate">{tag?.name ?? t("tags")}</span>
+                  <span className="max-w-24 truncate">
+                    {tag?.name ?? t('tags')}
+                  </span>
                   <X className="h-3 w-3" />
                 </button>
               );
             })}
+            {selectedCampaignId !== null && (
+              <button
+                onClick={() => setSelectedCampaignId(null)}
+                className={ACTIVE_FILTER_CHIP}
+              >
+                <Radio className="h-3 w-3 shrink-0" />
+                <span className="max-w-32 truncate">{campaignLabel}</span>
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {assigneeFilter !== null && (
+              <button
+                onClick={() => setSelectedAssignee(null)}
+                className={ACTIVE_FILTER_CHIP}
+              >
+                <UserRound className="h-3 w-3 shrink-0" />
+                <span className="max-w-24 truncate">{assigneeLabel}</span>
+                <X className="h-3 w-3" />
+              </button>
+            )}
             {selectedCompany && (
               <button
                 onClick={() => setSelectedCompany(null)}
-                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+                className={ACTIVE_FILTER_CHIP}
               >
                 <span className="max-w-24 truncate">{selectedCompany}</span>
                 <X className="h-3 w-3" />
               </button>
             )}
             <button
-              onClick={clearContactFilters}
-              className="px-1 text-[11px] text-muted-foreground hover:text-foreground"
+              onClick={clearAllFilters}
+              className="text-wa-teal px-1 text-[11px] font-medium hover:underline"
             >
-              {t("clearAll")}
+              {t('clearAll')}
             </button>
           </div>
         )}
@@ -433,11 +1037,16 @@ export function ConversationList({
       <ScrollArea className="min-h-0 flex-1">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="px-4 py-12 text-center">
-            <p className="text-sm text-muted-foreground">{t("noConversations")}</p>
+            <p className="text-wa-text-secondary text-sm">
+              {/* An empty Campaign inbox says where the chats went. */}
+              {campaignOnly
+                ? t(aiLive ? 'campaignEmpty' : 'campaignBotOff')
+                : t('noConversations')}
+            </p>
           </div>
         ) : (
           <div className="flex flex-col">
@@ -448,8 +1057,38 @@ export function ConversationList({
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
                 t={t}
+                today={today}
+                locale={locale}
+                showAssignee={showAssignee}
+                memberName={memberName}
+                numberName={
+                  // The number the chat sends from: a person's pin
+                  // (migration 061), else the one it is on.
+                  numberNames && (conv.send_channel_id || conv.channel_id)
+                    ? (numberNames.get(
+                        (conv.send_channel_id || conv.channel_id) as string
+                      ) ?? null)
+                    : null
+                }
+                campaignName={
+                  campaignOnly && conv.campaign_broadcast_id
+                    ? (campaignsById.get(conv.campaign_broadcast_id) ?? null)
+                    : null
+                }
               />
             ))}
+          </div>
+        )}
+        {!loading && hasMore && (
+          <div
+            ref={sentinelRef}
+            className="flex items-center justify-center py-4"
+            role="status"
+            aria-busy={loadingMore}
+          >
+            {loadingMore && (
+              <div className="border-wa-green h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+            )}
           </div>
         )}
       </ScrollArea>
@@ -457,82 +1096,202 @@ export function ConversationList({
   );
 }
 
+/** The by-campaign / by-agent / tags / company dropdowns, as chips. */
+const FACET_TRIGGER =
+  'inline-flex h-7 items-center justify-center gap-1 rounded-full border px-2.5 text-xs transition-colors';
+const FACET_TRIGGER_IDLE =
+  'border-wa-divider text-wa-text-secondary hover:bg-wa-row-hover hover:text-wa-text';
+const FACET_TRIGGER_ACTIVE =
+  'border-transparent bg-wa-chip-active text-wa-teal font-medium';
+/** A removable "this filter is on" chip. */
+const ACTIVE_FILTER_CHIP =
+  'bg-wa-search text-wa-text hover:bg-wa-row-active inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]';
+
 interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
   t: ReturnType<typeof useTranslations>;
+  /** Local midnight of the current day; the row's timestamp counts from it. */
+  today: number;
+  /** The app's locale, for the weekday names in the timestamp. */
+  locale: string;
+  /** Render the "who holds this" line. */
+  showAssignee: boolean;
+  /** Resolves a user id to a display name against the members list. */
+  memberName: (userId: string) => string;
+  /** Campaign inbox: the campaign this thread came from, if known. */
+  campaignName?: string | null;
+  /** Which WhatsApp number the thread is on, when there are several. */
+  numberName?: string | null;
 }
 
-function ConversationItem({
+// Memoised: a realtime patch to one conversation re-renders that row,
+// not all of them. Every prop is stable across unrelated renders
+// (`onSelect` via a ref, `memberName` via useCallback, `today` changes
+// once a day).
+const ConversationItem = memo(function ConversationItem({
   conversation,
   isActive,
   onSelect,
   t,
+  today,
+  locale,
+  showAssignee,
+  memberName,
+  campaignName = null,
+  numberName = null,
 }: ConversationItemProps) {
   const contact = conversation.contact;
-  const displayName = contact?.name || contact?.phone || t("unknown");
-  const initials = displayName.charAt(0).toUpperCase();
+  // Who answers for this chat: the assignee, or the owner when nobody
+  // has taken it. The thread header runs the same rule with the
+  // messages in hand, so the two screens never disagree.
+  const handler = showAssignee ? resolveListHandler(conversation) : null;
+  const handlerName = handler ? memberName(handler.userId) : null;
+  const displayName = contact?.name || contact?.phone || t('unknown');
+  // WhatsApp's unread treatment, and the only thing on the row in its
+  // green: bold name and preview, a green time and a green count. A
+  // read chat is plain. (The status used to be a dot in the accent
+  // colour beside the count, so every open chat looked unread.)
+  const unread = conversation.unread_count > 0;
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
   }, [onSelect, conversation]);
 
-  const timeAgo = conversation.last_message_at
-    ? formatDistanceToNow(new Date(conversation.last_message_at), {
-        addSuffix: false,
-      })
-    : "";
+  const time = formatListTimestamp(
+    conversation.last_message_at,
+    new Date(today),
+    { locale, yesterday: t('yesterday') }
+  );
+
+  // Everything beyond name and preview shares one quiet line, so a row
+  // is never more than three lines tall.
+  const hasMeta = !!numberName || !!campaignName || showAssignee;
 
   return (
     <button
       onClick={handleClick}
+      aria-current={isActive ? 'true' : undefined}
       className={cn(
-        "flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/50",
-        isActive && "border-l-2 border-primary bg-muted/70"
+        'flex w-full items-center gap-3 pl-3 text-left transition-colors',
+        isActive ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover'
       )}
     >
-      {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-        {contact?.avatar_url ? (
-          <img
-            src={contact.avatar_url}
-            alt={displayName}
-            className="h-10 w-10 rounded-full object-cover"
-          />
-        ) : (
-          initials
-        )}
-      </div>
+      <ContactAvatar contact={contact} name={displayName} size={48} />
 
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
+      {/* The divider runs under the text only, starting past the
+          avatar, the way WhatsApp draws it. */}
+      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <span
+            className={cn(
+              'text-wa-text truncate text-[15px] leading-5',
+              unread ? 'font-semibold' : 'font-normal'
+            )}
+          >
             {displayName}
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
+          <span
+            className={cn(
+              'shrink-0 text-xs',
+              unread ? 'text-wa-green font-semibold' : 'text-wa-text-secondary'
+            )}
+          >
+            {time}
+          </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
-          <p className="truncate text-xs text-muted-foreground">
-            {conversation.last_message_text || t("noMessagesYet")}
+          <p
+            className={cn(
+              'truncate text-[13.5px] leading-5',
+              unread ? 'text-wa-text font-medium' : 'text-wa-text-secondary'
+            )}
+          >
+            {conversation.last_message_text || t('noMessagesYet')}
           </p>
           <div className="flex shrink-0 items-center gap-1.5">
-            {conversation.unread_count > 0 && (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                {conversation.unread_count}
+            {/* Open is the normal state and needs no mark; the other
+                two get a word, never a coloured dot that could pass
+                for an unread marker. */}
+            {conversation.status === 'pending' && (
+              <span className="bg-wa-search text-wa-text-secondary inline-flex items-center gap-1 rounded px-1.5 text-[10.5px] leading-4 font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                {t('filterPending')}
               </span>
             )}
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                STATUS_COLORS[conversation.status]
-              )}
-              title={conversation.status}
-            />
+            {conversation.status === 'closed' && (
+              <span className="bg-wa-search text-wa-text-secondary rounded px-1.5 text-[10.5px] leading-4 font-medium">
+                {t('filterClosed')}
+              </span>
+            )}
+            {unread && (
+              <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold">
+                {conversation.unread_count > 99
+                  ? '99+'
+                  : conversation.unread_count}
+              </span>
+            )}
           </div>
         </div>
+
+        {hasMeta && (
+          <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+            {numberName && (
+              <span className="inline-flex min-w-0 shrink items-center gap-1">
+                <Phone className="h-3 w-3 shrink-0" />
+                <span className="truncate">{numberName}</span>
+              </span>
+            )}
+
+            {/* Campaign inbox: which campaign the chat came from. No
+                bot state: every chat listed there is one the bot is
+                answering, and a hand-off moves it to the Inbox. */}
+            {campaignName && (
+              <span className="inline-flex min-w-0 shrink items-center gap-1">
+                <Radio className="h-3 w-3 shrink-0" />
+                <span className="truncate">{campaignName}</span>
+              </span>
+            )}
+
+            {/* Who answers for this thread. Only rendered for a viewer
+                whose list mixes owners — see `showAssignee`.
+                The name is whoever the row can actually name: the
+                assignee, or its owner when nobody pressed Assign. The
+                amber icon is the separate signal — it says the chat is
+                still nobody's formally, the one thing on this screen
+                that needs an action. A row with no name at all falls
+                back to the word itself. */}
+            {showAssignee && (
+              <span
+                className="inline-flex min-w-0 shrink items-center gap-1"
+                title={
+                  handler && handlerName
+                    ? handler.kind === 'assigned'
+                      ? t('assignedTo', { name: handlerName })
+                      : t('ownedBy', { name: handlerName })
+                    : t('unassigned')
+                }
+              >
+                <UserRound
+                  className={cn(
+                    'h-3 w-3 shrink-0',
+                    handler?.kind !== 'assigned' && 'text-amber-500'
+                  )}
+                />
+                <span
+                  className={cn(
+                    'truncate',
+                    handler?.kind !== 'assigned' && 'text-amber-600'
+                  )}
+                >
+                  {handlerName ?? t('unassigned')}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </button>
   );
-}
+});

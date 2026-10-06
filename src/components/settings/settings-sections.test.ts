@@ -17,6 +17,8 @@ import {
 
 const WORKSPACE: SettingsSection[] = [
   'whatsapp',
+  'numbers',
+  'costs',
   'templates',
   'quick-replies',
   'fields',
@@ -24,6 +26,7 @@ const WORKSPACE: SettingsSection[] = [
   'members',
   'teams',
   'api',
+  'ai-safety',
 ];
 
 const OPEN_TO_ALL: SettingsSection[] = ['overview', 'profile', 'security', 'appearance'];

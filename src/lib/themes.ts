@@ -25,7 +25,15 @@ export type ThemeId = (typeof THEME_IDS)[number];
 
 export const DEFAULT_THEME: ThemeId = "violet";
 
-export const STORAGE_KEY = "wacrm.theme";
+export const STORAGE_KEY = "taamul.theme";
+
+/**
+ * Pre-rebrand key. Read-only fallback: a returning browser still has
+ * its accent under the wacrm name, and without this the first load
+ * after the rename would silently snap everyone back to the default.
+ * Never written to — the first save migrates the value across.
+ */
+export const LEGACY_STORAGE_KEY = "wacrm.theme";
 
 /**
  * MODE — the light/dark dimension, orthogonal to the accent theme.
@@ -45,7 +53,10 @@ export type Mode = (typeof MODES)[number];
 
 export const DEFAULT_MODE: Mode = "dark";
 
-export const MODE_STORAGE_KEY = "wacrm.mode";
+export const MODE_STORAGE_KEY = "taamul.mode";
+
+/** Pre-rebrand mode key. Read-only fallback — see LEGACY_STORAGE_KEY. */
+export const LEGACY_MODE_STORAGE_KEY = "wacrm.mode";
 
 export function isMode(value: unknown): value is Mode {
   return (

@@ -2,7 +2,8 @@ import { hasMinRole, type AccountRole } from './roles';
 
 /**
  * Client-side mirror of the `can_view_conversation` SQL function
- * (migration 042).
+ * (migration 042, extended by 044; 072 removed the number-allocation
+ * grant that 060 had added).
  *
  * The database is the enforcement point: the inbox queries PostgREST
  * directly, so RLS is what actually decides which rows come back, and
@@ -14,12 +15,17 @@ import { hasMinRole, type AccountRole } from './roles';
  * chats" or "none of yours". Those need the same rule, and re-deriving
  * it inline at each call site is how the two drift apart.
  *
- * Keep in lockstep with migration 042.
+ * Allocation to a WhatsApp number (060, 071) grants no visibility: it
+ * only decides which numbers someone may send from. Keep in lockstep
+ * with migrations 042, 044 and 072.
  */
 export function canViewConversation(
   role: AccountRole | null,
   userId: string | null,
-  conversation: { ownerId: string | null; assignedId: string | null },
+  conversation: {
+    ownerId: string | null;
+    assignedId: string | null;
+  }
 ): boolean {
   // Unknown role or unknown user: fail closed. Both mean the profile
   // has not resolved yet, and flashing a chat into view only to remove
@@ -67,9 +73,35 @@ export function canAssignToOthers(role: AccountRole | null): boolean {
 export function canViewContact(
   role: AccountRole | null,
   userId: string | null,
-  contact: { creatorId: string | null; handlesChat?: boolean },
+  contact: { creatorId: string | null; handlesChat?: boolean }
 ): boolean {
   if (!role || !userId) return false;
   if (hasMinRole(role, 'admin')) return true;
   return contact.creatorId === userId || contact.handlesChat === true;
+}
+
+/**
+ * Does this viewer's inbox list mix chats that belong to different
+ * people?
+ *
+ * Same standing as {@link canViewConversation}: advisory, for the UI's
+ * own decisions. Here the decision is whether to show *who holds* each
+ * thread and offer the by-agent filter. For a plain agent every row in
+ * the list is already theirs, so the column would be a name repeated
+ * down the page; for anyone triaging other people's work it is the
+ * first thing they need to see.
+ *
+ * `teamView` is the /team-inbox vs /inbox distinction. A team leader
+ * sees their whole team through RLS (migration 044), but their
+ * personal inbox narrows back to their own threads — so only the team
+ * view mixes owners for them. Admins and owners triage the whole
+ * account on both routes.
+ */
+export function viewsOthersConversations(
+  role: AccountRole | null,
+  teamView: boolean
+): boolean {
+  if (!role) return false;
+  if (hasMinRole(role, 'admin')) return true;
+  return role === 'team_leader' && teamView;
 }

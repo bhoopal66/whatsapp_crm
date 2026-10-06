@@ -18,36 +18,38 @@ function makeSupabaseStub(
   const calls: {
     table: string;
     update?: Record<string, unknown>;
+    /** The first .eq() — the template-id match. */
     filter?: { column: string; value: unknown };
+    /** Every .eq(), in order. */
+    filters: { column: string; value: unknown }[];
   }[] = [];
 
   const stub = {
     from(table: string) {
-      const entry: (typeof calls)[number] = { table };
+      const entry: (typeof calls)[number] = { table, filters: [] };
       calls.push(entry);
       return {
         update(payload: Record<string, unknown>) {
           entry.update = payload;
-          return {
+          const chain = {
             eq(column: string, value: unknown) {
-              entry.filter = { column, value };
-              return {
-                select() {
-                  return Promise.resolve(selectResult);
-                },
-                then(
-                  onFulfilled: (
-                    v: { error: { message: string } | null },
-                  ) => unknown,
-                ) {
-                  // Allow `await supabase.update().eq()` (no .select()).
-                  return Promise.resolve({ error: selectResult.error }).then(
-                    onFulfilled,
-                  );
-                },
-              };
+              entry.filter ??= { column, value };
+              entry.filters.push({ column, value });
+              return chain;
+            },
+            select() {
+              return Promise.resolve(selectResult);
+            },
+            then(
+              onFulfilled: (v: { error: { message: string } | null }) => unknown,
+            ) {
+              // Allow `await supabase.update().eq()` (no .select()).
+              return Promise.resolve({ error: selectResult.error }).then(
+                onFulfilled,
+              );
             },
           };
+          return chain;
         },
       };
     },
@@ -93,6 +95,7 @@ describe('handleTemplateWebhookChange — status update', () => {
         },
       },
       stub,
+      'acct-1',
     );
     expect(supabaseCalls).toHaveLength(1);
     expect(supabaseCalls[0].table).toBe('message_templates');
@@ -119,6 +122,7 @@ describe('handleTemplateWebhookChange — status update', () => {
         },
       },
       stub,
+      'acct-1',
     );
     expect(calls[0].update?.status).toBe('REJECTED');
     expect(calls[0].update?.rejection_reason).toBe(
@@ -134,6 +138,7 @@ describe('handleTemplateWebhookChange — status update', () => {
         value: { event: 'REJECTED', message_template_id: '7' },
       },
       stub,
+      'acct-1',
     );
     expect(calls[0].update?.rejection_reason).toBe('Rejected by Meta');
   });
@@ -146,6 +151,7 @@ describe('handleTemplateWebhookChange — status update', () => {
         value: { event: 'PENDING_REVIEW', message_template_id: '1' },
       },
       stub,
+      'acct-1',
     );
     expect(calls[0].update?.status).toBe('PENDING');
   });
@@ -158,6 +164,7 @@ describe('handleTemplateWebhookChange — status update', () => {
         value: { event: 'APPROVED' },
       },
       stub,
+      'acct-1',
     );
     expect(calls).toHaveLength(0);
   });
@@ -175,6 +182,7 @@ describe('handleTemplateWebhookChange — status update', () => {
         },
       },
       stub,
+      'acct-1',
     );
     expect(warn).toHaveBeenCalled();
   });
@@ -193,6 +201,7 @@ describe('handleTemplateWebhookChange — quality update', () => {
         },
       },
       stub,
+      'acct-1',
     );
     expect(calls[0].update).toEqual({ quality_score: 'YELLOW' });
     expect(calls[0].filter).toEqual({
@@ -212,6 +221,7 @@ describe('handleTemplateWebhookChange — quality update', () => {
         },
       },
       stub,
+      'acct-1',
     );
     expect(calls[0].update).toEqual({ quality_score: null });
   });
@@ -230,6 +240,7 @@ describe('handleTemplateWebhookChange — components update', () => {
         },
       },
       stub,
+      'acct-1',
     );
     expect(calls).toHaveLength(0);
     expect(info).toHaveBeenCalled();
@@ -246,6 +257,49 @@ describe('handleTemplateWebhookChange — unknown field', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { field: 'message_template_future_field' as any, value: {} },
       stub,
+      'acct-1',
+    );
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe('handleTemplateWebhookChange — tenant scoping', () => {
+  it('scopes status and quality updates to the verified account', async () => {
+    const { stub, calls } = makeSupabaseStub();
+    await handleTemplateWebhookChange(
+      {
+        field: 'message_template_status_update',
+        value: { event: 'APPROVED', message_template_id: '1' },
+      },
+      stub,
+      'acct-1',
+    );
+    await handleTemplateWebhookChange(
+      {
+        field: 'message_template_quality_update',
+        value: { message_template_id: '1', new_quality_score: 'RED' },
+      },
+      stub,
+      'acct-1',
+    );
+    for (const call of calls) {
+      expect(call.filters).toContainEqual({
+        column: 'account_id',
+        value: 'acct-1',
+      });
+    }
+  });
+
+  it('refuses to write without an account', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { stub, calls } = makeSupabaseStub();
+    await handleTemplateWebhookChange(
+      {
+        field: 'message_template_status_update',
+        value: { event: 'APPROVED', message_template_id: '1' },
+      },
+      stub,
+      '',
     );
     expect(calls).toHaveLength(0);
   });

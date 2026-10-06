@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { MessageSquare, UsersRound } from "lucide-react";
+import { UsersRound } from "lucide-react";
 
 // `useSearchParams` opts the component out of static prerendering
 // unless it sits under a Suspense boundary. We split the form into
@@ -40,7 +40,11 @@ function LoginPageInner() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // `?deactivated=1` is where the dashboard sends a session it finds
+  // deactivated (migration 069); say why they landed here.
+  const [error, setError] = useState<string | null>(() =>
+    searchParams.get("deactivated") ? t("deactivated") : null,
+  );
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
 
@@ -55,7 +59,9 @@ function LoginPageInner() {
     });
 
     if (error) {
-      setError(error.message);
+      // A deactivated member's login is banned in Supabase Auth; GoTrue
+      // answers "User is banned", which reads like an accusation.
+      setError(error.code === "user_banned" ? t("deactivated") : error.message);
       setLoading(false);
       return;
     }
@@ -78,13 +84,25 @@ function LoginPageInner() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md border-border bg-card">
         <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            {inviteToken ? (
+          {/* CardHeader is a grid whose single column spans the full
+              width, so a fixed-size child lands at the start of it.
+              `items-center` on the header only centers the block axis
+              — `mx-auto` is what actually centers these horizontally. */}
+          {inviteToken ? (
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
               <UsersRound className="h-6 w-6 text-primary" />
-            ) : (
-              <MessageSquare className="h-6 w-6 text-primary" />
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-white p-1.5">
+              <img
+                src="/brand/taamul-mark.png"
+                alt="Taamul Connect"
+                width={36}
+                height={36}
+                className="h-9 w-9"
+              />
+            </div>
+          )}
           <CardTitle className="text-xl text-foreground">
             {inviteToken ? t('titleAccept') : t('titleWelcome')}
           </CardTitle>

@@ -1,5 +1,6 @@
-import type { AccountRole } from "@/lib/auth/roles";
-import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
+import type { SharedContact } from '@/lib/whatsapp/contact-card';
+import type { AccountRole } from '@/lib/auth/roles';
+import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 
 export type {
   InteractiveMessagePayload,
@@ -8,7 +9,7 @@ export type {
   InteractiveButton,
   InteractiveListRow,
   InteractiveListSection,
-} from "@/lib/whatsapp/interactive";
+} from '@/lib/whatsapp/interactive';
 
 export interface Profile {
   id: string;
@@ -24,6 +25,9 @@ export interface Profile {
    * break.
    */
   role: string;
+  /** Set while an admin has deactivated this member (migration 069).
+   *  Optional: absent on a database that predates it. */
+  deactivated_at?: string | null;
   /**
    * Opted-in beta feature keys for this account. The column survives
    * for future beta gates; no current feature reads it (Flows was
@@ -75,6 +79,9 @@ export interface AccountMember {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  /** Set while an admin has deactivated this member (migration 069):
+   *  they cannot sign in and RLS hands them nothing. */
+  deactivated_at: string | null;
 }
 
 /**
@@ -87,7 +94,7 @@ export interface AccountInvitation {
   id: string;
   account_id: string;
   /** Roles offered via invite — owner is never offered. */
-  role: Exclude<AccountRole, "owner">;
+  role: Exclude<AccountRole, 'owner'>;
   created_by_user_id: string | null;
   label: string | null;
   created_at: string;
@@ -108,6 +115,9 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  /** When the WhatsApp profile picture was last looked up (migration
+   *  070); NULL means never. Server-written; see `contact-avatars.ts`. */
+  avatar_checked_at?: string | null;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
@@ -157,6 +167,25 @@ export interface ContactNote {
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
 
+/**
+ * A note in a thread's timeline that is not a message (migration 061):
+ * never sent to the customer, never counted as a message. Today only
+ * "the sending number was switched".
+ */
+export interface ConversationEvent {
+  id: string;
+  conversation_id: string;
+  kind: 'channel_switched';
+  actor_user_id: string | null;
+  from_channel_id: string | null;
+  /** null = switched back to automatic. */
+  to_channel_id: string | null;
+  /** Number names as they were at the time of the switch. */
+  from_label: string | null;
+  to_label: string | null;
+  created_at: string;
+}
+
 export interface Conversation {
   id: string;
   user_id: string;
@@ -181,13 +210,47 @@ export interface Conversation {
   ai_autoreply_disabled?: boolean;
   ai_reply_count?: number;
   ai_handoff_summary?: string | null;
+  /**
+   * The most recent broadcast this customer replied to (migration 048).
+   * Stamped by the inbound pipeline; null for a thread that never came
+   * from a campaign. Drives the Campaign inbox under Broadcasts.
+   */
+  campaign_broadcast_id?: string | null;
+  campaign_replied_at?: string | null;
+  /**
+   * When a person first took part (migration 067): the chat was
+   * assigned to someone, or a person sent a message in it. Write-once,
+   * set by triggers. A campaign chat with this set has left the
+   * Campaign inbox for the Inbox — see `inCampaignInbox`.
+   */
+  human_engaged_at?: string | null;
+  /**
+   * The WhatsApp number this thread is on (migration 060): the one the
+   * customer last wrote to, or for an agent-initiated thread the one it
+   * was started from. Members allocated to that number can see it.
+   */
+  channel_id?: string | null;
+  /**
+   * The number a person pinned this chat to send from (migration 061).
+   * NULL = automatic: reply on the number the customer last wrote to.
+   */
+  send_channel_id?: string | null;
 }
 
 // ============================================================
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType =
+  | 'conversation_assigned'
+  // Channel health monitor (migration 065): a Whapi number dropped off
+  // WhatsApp / came back. Sent to owners and admins, no conversation.
+  | 'channel_disconnected'
+  | 'channel_reconnected'
+  // Team activity (migration 068): a person went past their daily
+  // new-chat limit, or a Whapi number reached its own. Sent to owners,
+  // admins and the person concerned, no conversation.
+  | 'team_activity_alert';
 
 export interface Notification {
   id: string;
@@ -215,8 +278,11 @@ export type ContentType =
   | 'location'
   | 'template'
   /** Customer tapped a reply button or list row on a message we sent. */
-  | 'interactive';
-export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  | 'interactive'
+  /** A contact card (or several) the customer shared. Migration 050. */
+  | 'contacts';
+export type MessageStatus =
+  'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {
   id: string;
@@ -252,12 +318,25 @@ export interface Message {
    */
   interactive_payload?: InteractiveMessagePayload;
   /**
+   * The card(s) on a `content_type === 'contacts'` message, as the
+   * inbound pipeline parsed them (migration 050). Null on every other
+   * row and on contact messages received before the migration, which
+   * only kept a "[contact] Name" text.
+   */
+  contact_cards?: SharedContact[] | null;
+  /**
    * True when the AI auto-reply bot generated + sent this message (as
    * opposed to a human agent or a deterministic Flow/automation send,
    * which all share `sender_type='bot'`/`'agent'`). Drives the "AI"
    * badge in the inbox. Migration 033.
    */
   ai_generated?: boolean;
+  /**
+   * Forwarded — by the customer from another chat, or by an agent into
+   * this one from another thread. Drives the "Forwarded" label.
+   * Migration 055.
+   */
+  is_forwarded?: boolean;
 }
 
 export type ReactionActor = 'customer' | 'agent';
@@ -391,8 +470,10 @@ export interface Deal {
   assignee?: Profile;
 }
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
-export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
+export type BroadcastStatus =
+  'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
+export type RecipientStatus =
+  'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
 
 export interface Broadcast {
   id: string;
@@ -402,8 +483,21 @@ export interface Broadcast {
   template_language: string;
   template_variables?: Record<string, unknown>;
   audience_filter?: Record<string, unknown>;
-  scheduled_at?: string;
+  scheduled_at?: string | null;
   status: BroadcastStatus;
+  /**
+   * Per-campaign do-not-send window (migration 053); the wizard and
+   * the broadcast cron both honour it. Null when none was set.
+   */
+  quiet_hours?: { start: string; end: string; tz: string } | null;
+  /** Media header URL chosen in the wizard (migration 053). */
+  header_media_url?: string | null;
+  /**
+   * Flow started for each recipient on their first reply to this
+   * campaign (migration 054). Null = replies are left to automations
+   * and the AI agent.
+   */
+  follow_up_flow_id?: string | null;
   total_recipients: number;
   sent_count: number;
   delivered_count: number;
@@ -574,10 +668,7 @@ export interface WaitStepConfig {
 }
 
 export type ConditionSubject =
-  | 'contact_field'
-  | 'tag_presence'
-  | 'message_content'
-  | 'time_of_day';
+  'contact_field' | 'tag_presence' | 'message_content' | 'time_of_day';
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;

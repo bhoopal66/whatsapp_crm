@@ -22,6 +22,7 @@ import { chatIdToPhone } from './whapi-api'
 // Normalised shapes
 // ============================================================
 
+import { parseVcard, contactCardsText, type SharedContact } from './contact-card'
 import type {
   NormalizedInboundMessage,
   NormalizedMedia,
@@ -111,8 +112,14 @@ interface RawWhapiMessage {
     list_reply?: { id?: string; title?: string; description?: string }
   }
 
-  /** Quoted (swipe-reply) parent. */
-  context?: { quoted_id?: string; quoted_author?: string }
+  /** Quoted (swipe-reply) parent, and the forward markers. */
+  context?: {
+    quoted_id?: string
+    quoted_author?: string
+    forwarded?: boolean
+    /** How many hops; WhatsApp's "forwarded many times" is >= 5. */
+    forwarding_score?: number
+  }
 }
 
 interface RawWhapiStatus {
@@ -209,9 +216,13 @@ export function normalizeWhapiMessage(
     media: null as NormalizedMedia | null,
     location: null as NormalizedInboundMessage['location'],
     reaction: null as NormalizedInboundMessage['reaction'],
+    contacts: null as NormalizedInboundMessage['contacts'],
     interactiveReplyId: null as string | null,
     interactiveReplyTitle: null as string | null,
     contextMessageId: raw.context?.quoted_id ?? null,
+    // Either marker is enough; a positive score implies a forward.
+    forwarded:
+      raw.context?.forwarded === true || (raw.context?.forwarding_score ?? 0) > 0,
     fromMe: raw.from_me === true,
     isGroup: isGroupChat(chatId),
   }
@@ -291,17 +302,25 @@ export function normalizeWhapiMessage(
       }
     }
 
-    // A shared contact card. Stored as text so the agent at least sees
-    // who was shared rather than an empty bubble.
+    // A shared contact card (or several). Whapi hands over the vCard
+    // text; the card's name/phones are what the inbox renders and what
+    // "Save to contacts" needs, so it is parsed here, once, for both
+    // providers' benefit (migration 050 stores the parsed cards).
     case 'contact':
     case 'contact_list': {
-      const names = raw.contact_list?.list?.map((c) => c.name).filter(Boolean) ?? []
-      const single = raw.contact?.name
-      const label = single ? [single] : names
+      const entries = raw.contact ? [raw.contact] : (raw.contact_list?.list ?? [])
+      const cards = entries
+        .map((c) => {
+          const parsed = c.vcard ? parseVcard(c.vcard) : null
+          if (parsed) return c.name && !parsed.name ? { ...parsed, name: c.name } : parsed
+          return c.name ? { name: c.name, phones: [], emails: [], org: null } : null
+        })
+        .filter((c): c is SharedContact => c !== null)
       return {
         ...base,
         type: 'contacts',
-        text: label.length ? `[contact] ${label.join(', ')}` : '[contact]',
+        text: contactCardsText(cards),
+        contacts: cards.length ? cards : null,
       }
     }
 

@@ -9,6 +9,10 @@ import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { embedTexts } from '@/lib/ai/embeddings'
 import { AiError, type AiProvider } from '@/lib/ai/types'
+import { parseEscalationKeywords } from '@/lib/ai/escalation'
+
+/** Longest handoff message accepted — it is one WhatsApp bubble. */
+const MAX_HANDOFF_MESSAGE_LENGTH = 1000
 
 function bad(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -30,7 +34,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -90,10 +94,48 @@ export async function POST(request: Request) {
         : null
     const isActive = body.is_active === true
     const autoReplyEnabled = body.auto_reply_enabled === true
+    const autoReplyCampaignOnly = body.auto_reply_campaign_only === true
 
     let maxPer = Number(body.auto_reply_max_per_conversation)
     if (!Number.isFinite(maxPer)) maxPer = 3
     maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
+
+    // Gates (migration 052). Each is optional in the payload; absent →
+    // left unchanged on update so a partial save can't wipe a list.
+    const gates: Record<string, unknown> = {}
+    if ('escalation_keywords' in body) {
+      const raw = body.escalation_keywords
+      if (raw !== null && typeof raw !== 'string' && !Array.isArray(raw)) {
+        return bad('escalation_keywords must be a string or an array of strings')
+      }
+      gates.escalation_keywords = raw === null ? [] : parseEscalationKeywords(raw)
+    }
+    if ('retrieval_min_score' in body) {
+      const raw = body.retrieval_min_score
+      if (raw === null || raw === '') {
+        gates.retrieval_min_score = null
+      } else {
+        const n = Number(raw)
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+          return bad('retrieval_min_score must be between 0 and 1, or null to turn the gate off')
+        }
+        gates.retrieval_min_score = Math.round(n * 100) / 100
+      }
+    }
+    if ('strict_grounding' in body) {
+      gates.strict_grounding = body.strict_grounding === true
+    }
+    if ('handoff_message' in body) {
+      const raw = body.handoff_message
+      if (raw !== null && typeof raw !== 'string') {
+        return bad('handoff_message must be a string or null')
+      }
+      const trimmed = typeof raw === 'string' ? raw.trim() : ''
+      if (trimmed.length > MAX_HANDOFF_MESSAGE_LENGTH) {
+        return bad(`handoff_message must be at most ${MAX_HANDOFF_MESSAGE_LENGTH} characters`)
+      }
+      gates.handoff_message = trimmed || null
+    }
 
     // Handoff routing target for auto-reply. A non-empty string must be a
     // member of this account (else the conversation would be assigned to a
@@ -164,9 +206,14 @@ export async function POST(request: Request) {
           systemPrompt,
           isActive,
           autoReplyEnabled,
+          autoReplyCampaignOnly,
           autoReplyMaxPerConversation: maxPer,
           handoffAgentId: null,
           embeddingsApiKey: null,
+          escalationKeywords: [],
+          retrievalMinScore: null,
+          strictGrounding: false,
+          handoffMessage: null,
         })
       } catch (err) {
         if (err instanceof AiError) {
@@ -204,7 +251,9 @@ export async function POST(request: Request) {
       system_prompt: systemPrompt,
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,
+      auto_reply_campaign_only: autoReplyCampaignOnly,
       auto_reply_max_per_conversation: maxPer,
+      ...gates,
     }
     // Only touch the handoff target when the form actually sent the field,
     // so a partial save (e.g. flipping a toggle) doesn't wipe it.

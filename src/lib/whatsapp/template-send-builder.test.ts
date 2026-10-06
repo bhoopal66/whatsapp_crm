@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSendComponents } from './template-send-builder';
+import { buildSendComponents, headerMediaProblem } from './template-send-builder';
 import type { MessageTemplate } from '@/types';
 
 function row(overrides: Partial<MessageTemplate> = {}): MessageTemplate {
@@ -273,5 +273,65 @@ describe('buildSendComponents — end-to-end mix', () => {
     // QUICK_REPLY at index 0 doesn't need send-time params, so only the
     // URL button at index 1 emits a component.
     expect((components[2] as { index: string }).index).toBe('1');
+  });
+});
+
+describe('headerMediaProblem — the builder media rule, checked once at launch', () => {
+  it('names the template, language and header kind when no media exists', () => {
+    expect(
+      headerMediaProblem(
+        row({ name: 'pos_intro_offer_video', language: 'en', header_type: 'video' }),
+        null,
+      ),
+    ).toBe(
+      'Template pos_intro_offer_video (en) has a video header but no media. Add a header media URL to the template in Settings → Templates, then send again.',
+    );
+  });
+
+  it('is satisfied by the template\'s stored URL or by the campaign override', () => {
+    expect(
+      headerMediaProblem(
+        row({ header_type: 'image', header_media_url: 'https://x.com/a.jpg' }),
+      ),
+    ).toBeNull();
+    expect(
+      headerMediaProblem(
+        row({ header_type: 'document' }),
+        'https://x.com/brochure.pdf',
+      ),
+    ).toBeNull();
+  });
+
+  it('ignores templates without a media header', () => {
+    expect(headerMediaProblem(row())).toBeNull();
+    expect(
+      headerMediaProblem(row({ header_type: 'text', header_content: 'Hi {{1}}' })),
+    ).toBeNull();
+  });
+
+  it('treats an empty override as absent, as provider.sendTemplate does', () => {
+    expect(
+      headerMediaProblem(row({ header_type: 'video' }), ''),
+    ).toMatch(/has a video header but no media/);
+  });
+
+  it('agrees with buildSendComponents on every case', () => {
+    const cases: [ReturnType<typeof row>, string | undefined][] = [
+      [row({ header_type: 'video' }), undefined],
+      [row({ header_type: 'video' }), 'https://x.com/v.mp4'],
+      [row({ header_type: 'image', header_media_url: 'https://x.com/i.jpg' }), undefined],
+      [row({ header_type: 'document', header_handle: '4::aBc' }), undefined],
+      [row({ header_type: 'text', header_content: 'Static' }), undefined],
+      [row(), undefined],
+    ];
+    for (const [template, url] of cases) {
+      let builderThrew = false;
+      try {
+        buildSendComponents(template, { headerMediaUrl: url });
+      } catch {
+        builderThrew = true;
+      }
+      expect(headerMediaProblem(template, url) !== null).toBe(builderThrew);
+    }
   });
 });

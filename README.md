@@ -1,4 +1,4 @@
-# wacrm — CRM Template for WhatsApp
+# Taamul Connect — CRM Template for WhatsApp
 
 > Self-hostable CRM template for WhatsApp® — shared inbox, contacts,
 > sales pipelines, broadcasts, and no-code automations. Fork it, brand
@@ -29,8 +29,12 @@ clone or fork it to run your own CRM.
 - **Contacts + tags + custom fields**, CSV import, deduplication.
 - **Sales pipelines** (Kanban) with deals linked to conversations.
 - **Broadcasts** with reusable message templates, delivery + read
-  tracking, per-recipient variable substitution. No approval queue —
-  a template you save is usable on the next send.
+  tracking, per-recipient variable substitution, scheduled sends,
+  quiet hours, and a frequency cap. No approval queue — a template you
+  save is usable on the next send. A campaign can **continue as a
+  conversation**: replies start a Flow, the AI agent answers whatever
+  the Flow did not plan for, and a human is brought in only when
+  neither can help. See [docs/campaign-journeys.md](./docs/campaign-journeys.md).
 - **No-code automations** — triggers on inbound messages, new
   contacts, keywords, or schedule; conditional branches, waits,
   tags, webhooks. Visual builder.
@@ -40,7 +44,11 @@ clone or fork it to run your own CRM.
   auto-reply bot with a per-conversation cap and clean human handoff.
   Add a **knowledge base** (FAQs, policies, product docs) and it
   answers from your own content — hybrid retrieval (Postgres full-text,
-  or semantic pgvector when an embeddings key is set).
+  or semantic pgvector when an embeddings key is set). Three
+  **escalation gates** keep it honest: escalation keywords that bypass
+  the model, a retrieval threshold below which it hands off (and logs
+  the unanswered question), and strict grounding so it never states a
+  fact it cannot quote.
 - **Real-time dashboard** — response times, daily volume, pipeline
   value, cross-module activity feed.
 - **Team accounts** — invite teammates by link, role-based access
@@ -81,8 +89,8 @@ in an afternoon and make yours.
 
 ```bash
 # Fork on GitHub first: https://github.com/ArnasDon/wacrm → Fork
-git clone https://github.com/<your-username>/wacrm.git
-cd wacrm
+git clone https://github.com/<your-username>/taamul-connect.git
+cd taamul-connect
 npm install
 cp .env.local.example .env.local   # fill in Supabase creds
 npm run dev
@@ -118,7 +126,7 @@ Dockerfile + Docker Compose setup.
   </a>
 </p>
 
-**wacrm is built to run on [Hostinger](https://www.hostinger.com/web-apps-hosting?REFERRALCODE=WACRMHOST).**
+**Taamul Connect is built to run on [Hostinger](https://www.hostinger.com/web-apps-hosting?REFERRALCODE=WACRMHOST).**
 It's the path we test, document, and recommend — and the fastest way
 to get a production-grade CRM live without owning a VPS or a
 Kubernetes cluster.
@@ -147,7 +155,7 @@ Kubernetes cluster.
 Full walkthrough with screenshots:
 **[wacrm.tech/docs/deployment-hostinger](https://wacrm.tech/docs/deployment-hostinger)**.
 
-> _Note: wacrm is MIT-licensed and runs anywhere Node.js does
+> _Note: Taamul Connect is MIT-licensed and runs anywhere Node.js does
 > (Vercel, Railway, your own VPS). Hostinger is recommended, not
 > required._
 

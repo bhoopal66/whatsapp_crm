@@ -440,11 +440,15 @@ function AgentSelect({
       className={SELECT_CLASS}
     >
       <option value="">{t("agents.select")}</option>
-      {members.map((m) => (
-        <option key={m.user_id} value={m.user_id}>
-          {m.full_name || m.email || m.user_id}
-        </option>
-      ))}
+      {/* Deactivated members (migration 069) aren't offered, except
+          the one this step already names. */}
+      {members
+        .filter((m) => !m.deactivated_at || m.user_id === value)
+        .map((m) => (
+          <option key={m.user_id} value={m.user_id}>
+            {m.full_name || m.email || m.user_id}
+          </option>
+        ))}
       {value && !selected && (
         <option value={value}>{t("agents.unknown", { id: value })}</option>
       )}

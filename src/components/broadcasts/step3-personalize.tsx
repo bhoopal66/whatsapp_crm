@@ -1,8 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { uploadAccountMedia } from '@/lib/storage/upload-media';
+import {
+  headerMediaAccept,
+  isMediaHeaderKind,
+  toMb,
+  validateHeaderMediaFile,
+} from '@/lib/whatsapp/header-media';
 import { Contact, CustomField, MessageTemplate } from '@/types';
+import {
+  resolveVariable,
+  type CsvContactRow,
+  type VariableMapping,
+  type VariableType,
+} from '@/lib/broadcasts/variables';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,18 +26,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  FileSpreadsheet,
+  ImageIcon,
+  Loader2,
+  Upload,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-type VariableType = 'static' | 'field' | 'custom_field';
-
-interface VariableMapping {
-  type: VariableType;
-  value: string;
+interface Step3Audience {
+  type: 'all' | 'tags' | 'custom_field' | 'csv';
+  csvContacts?: CsvContactRow[];
+  csvColumns?: string[];
 }
 
 interface Step3Props {
   template: MessageTemplate;
+  /**
+   * Only the CSV parts are read: a `csv` audience adds "CSV column" as
+   * a variable source and drives the preview from the file's first
+   * row, so the admin sees exactly what row 1 will receive.
+   */
+  audience: Step3Audience;
   variables: Record<string, VariableMapping>;
   onUpdate: (variables: Record<string, VariableMapping>) => void;
   /** Media URL for an IMAGE/VIDEO/DOCUMENT header, when the template has one. */
@@ -31,13 +58,6 @@ interface Step3Props {
   onHeaderMediaUrlChange: (url: string) => void;
   onNext: () => void;
   onBack: () => void;
-}
-
-const MEDIA_HEADER_TYPES = ['image', 'video', 'document'] as const;
-type MediaHeaderType = (typeof MEDIA_HEADER_TYPES)[number];
-
-function isMediaHeaderType(value: unknown): value is MediaHeaderType {
-  return MEDIA_HEADER_TYPES.includes(value as MediaHeaderType);
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -69,6 +89,7 @@ const SAMPLE_CONTACT: Contact = {
 
 export function Step3Personalize({
   template,
+  audience,
   variables,
   onUpdate,
   headerMediaUrl,
@@ -84,6 +105,14 @@ export function Step3Personalize({
     Map<string, string>
   >(new Map());
   const [loadingPreview, setLoadingPreview] = useState(true);
+
+  const csvColumns = useMemo(
+    () => (audience.type === 'csv' ? (audience.csvColumns ?? []) : []),
+    [audience.type, audience.csvColumns]
+  );
+  const csvFirstRow =
+    audience.type === 'csv' ? (audience.csvContacts?.[0] ?? null) : null;
+  const csvAvailable = csvColumns.length > 0;
 
   // Load user's custom fields + a representative contact for the
   // live preview. Fall back to sample data if no contacts exist yet.
@@ -138,9 +167,50 @@ export function Step3Personalize({
   // send time — Meta requires the media component on every delivery and
   // rejects the broadcast without it. The field is hidden for text-only
   // headers.
-  const mediaHeaderType = isMediaHeaderType(template.header_type)
+  const mediaHeaderType = isMediaHeaderKind(template.header_type)
     ? template.header_type
     : null;
+
+  // Upload the header media here rather than making the admin host it
+  // somewhere: a template synced from Meta arrives with a video header
+  // and no URL (Meta only exposes the review sample as a handle), and
+  // without a URL the send is refused — see template-send-builder.
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+  const headerFileRef = useRef<HTMLInputElement>(null);
+  async function handleHeaderMediaFile(file: File) {
+    if (!mediaHeaderType) return;
+    const problem = validateHeaderMediaFile(mediaHeaderType, file);
+    if (problem?.kind === 'type') {
+      toast.error(
+        t('personalize.toastInvalidMedia', {
+          format: mediaHeaderType,
+          types: problem.allowed.join(', '),
+        })
+      );
+      return;
+    }
+    if (problem?.kind === 'size') {
+      toast.error(
+        t('personalize.toastMediaTooLarge', {
+          size: toMb(problem.bytes),
+          max: toMb(problem.maxBytes),
+        })
+      );
+      return;
+    }
+    setUploadingHeader(true);
+    try {
+      const { publicUrl } = await uploadAccountMedia('chat-media', file);
+      onHeaderMediaUrlChange(publicUrl);
+      toast.success(t('personalize.toastUploadSuccess'));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t('personalize.toastUploadFailed')
+      );
+    } finally {
+      setUploadingHeader(false);
+    }
+  }
 
   // Seed the field with the template's stored sample URL the first time
   // we land on a media-header template, so the common "reuse the
@@ -163,9 +233,12 @@ export function Step3Personalize({
 
   /**
    * A placeholder is "unmapped" if the user hasn't picked either a
-   * static value or a field/custom-field source. Blocks Next until
-   * every placeholder has something — otherwise the broadcast would
-   * ship with empty strings and confuse recipients.
+   * static value or a field/custom-field/CSV-column source. Blocks
+   * Next until every placeholder has something — otherwise the
+   * broadcast would ship with empty strings and confuse recipients. A
+   * CSV column counts only while it exists in the current upload:
+   * going back and choosing another audience, or another file, must
+   * not leave a dangling column name that resolves to '' for everyone.
    */
   const unmappedKeys = useMemo(() => {
     const missing: string[] = [];
@@ -174,95 +247,153 @@ export function Step3Personalize({
       const mapping = variables[key];
       if (!mapping || !mapping.value?.trim()) {
         missing.push(placeholder);
+      } else if (
+        mapping.type === 'csv_column' &&
+        !csvColumns.includes(mapping.value)
+      ) {
+        missing.push(placeholder);
       }
     }
     return missing;
-  }, [placeholders, variables]);
+  }, [placeholders, variables, csvColumns]);
 
-  function updateVariable(key: string, patch: Partial<VariableMapping>) {
-    const current = variables[key] ?? { type: 'static' as VariableType, value: '' };
+  function updateVariable(
+    key: string,
+    patch: { type?: VariableType; value?: string }
+  ) {
+    const current = variables[key] ?? { type: 'static', value: '' };
     onUpdate({
       ...variables,
-      [key]: { ...current, ...patch },
+      [key]: { ...current, ...patch } as VariableMapping,
     });
   }
 
   /**
-   * Substitute placeholders using the first real contact where
-   * possible. Placeholders keyed by "{{N}}" map to variable key "N".
+   * The recipient the preview is rendered for. A CSV audience previews
+   * the file's first row — that is the only thing that has the CSV
+   * columns — and otherwise the newest real contact, falling back to
+   * sample data on an empty CRM.
+   */
+  const previewSubject = useMemo(() => {
+    if (csvFirstRow) {
+      return {
+        contact: {
+          name: csvFirstRow.name ?? csvFirstRow.values?.name ?? '',
+          phone: csvFirstRow.phone,
+          email: csvFirstRow.values?.email ?? '',
+          company: csvFirstRow.company ?? csvFirstRow.values?.company ?? '',
+        },
+        customValues: new Map<string, string>(),
+        csvValues: csvFirstRow.values ?? {},
+      };
+    }
+    return {
+      contact: firstContact ?? SAMPLE_CONTACT,
+      customValues: firstContact
+        ? firstContactCustomValues
+        : new Map<string, string>(),
+      csvValues: undefined,
+    };
+  }, [csvFirstRow, firstContact, firstContactCustomValues]);
+
+  /**
+   * Substitute placeholders for the preview subject, with the same
+   * resolver the send path uses. Placeholders keyed by "{{N}}" map to
+   * variable key "N"; anything unresolved stays as the placeholder so
+   * the gap is visible.
    */
   const previewText = useMemo(() => {
-    const contact = firstContact ?? SAMPLE_CONTACT;
-    const customValues = firstContact
-      ? firstContactCustomValues
-      : new Map<string, string>();
-
     let text = template.body_text;
     for (const placeholder of placeholders) {
       const key = placeholder.replace(/^\{\{|\}\}$/g, '');
       const mapping = variables[key];
-      let replacement = placeholder;
-
-      if (mapping) {
-        if (mapping.type === 'static' && mapping.value) {
-          replacement = mapping.value;
-        } else if (mapping.type === 'field' && mapping.value) {
-          const fieldMap: Record<string, string | undefined> = {
-            name: contact.name,
-            phone: contact.phone,
-            email: contact.email,
-            company: contact.company,
-          };
-          replacement = fieldMap[mapping.value] ?? placeholder;
-        } else if (mapping.type === 'custom_field' && mapping.value) {
-          replacement = customValues.get(mapping.value) || placeholder;
-        }
-      }
-      text = text.replaceAll(placeholder, replacement);
+      const resolved = mapping?.value
+        ? resolveVariable(
+            mapping,
+            previewSubject.contact,
+            previewSubject.customValues,
+            previewSubject.csvValues
+          )
+        : undefined;
+      text = text.replaceAll(placeholder, resolved || placeholder);
     }
     return text;
-  }, [
-    template.body_text,
-    variables,
-    placeholders,
-    firstContact,
-    firstContactCustomValues,
-  ]);
+  }, [template.body_text, variables, placeholders, previewSubject]);
 
-  const previewLabel = firstContact
-    ? firstContact.name || firstContact.phone
-    : t('personalize.previewSample');
+  const previewLabel = csvFirstRow
+    ? t('personalize.previewCsvRow', {
+        who: previewSubject.contact.name || csvFirstRow.phone,
+      })
+    : firstContact
+      ? firstContact.name || firstContact.phone
+      : t('personalize.previewSample');
+
+  /** First-row value for a CSV column, shown next to each option. */
+  function csvExample(column: string): string {
+    return csvFirstRow?.values?.[column]?.trim() || '—';
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">{t('personalize.title')}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h2 className="text-foreground text-lg font-semibold">
+          {t('personalize.title')}
+        </h2>
+        <p className="text-muted-foreground mt-1 text-sm">
           {t('personalize.subtitle')}
         </p>
       </div>
 
       {mediaHeaderType && (
-        <div className="rounded-xl border border-border bg-card/50 p-4">
+        <div className="border-border bg-card/50 rounded-xl border p-4">
           <div className="mb-3 flex items-center gap-2">
-            <ImageIcon className="h-4 w-4 text-primary" />
-            <p className="text-sm font-medium text-foreground">{t('personalize.headerImage')}</p>
-            <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium uppercase text-primary">
+            <ImageIcon className="text-primary h-4 w-4" />
+            <p className="text-foreground text-sm font-medium">
+              {t('personalize.headerImage')}
+            </p>
+            <span className="bg-primary/10 text-primary inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium uppercase">
               {mediaHeaderType}
             </span>
           </div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          <label className="text-muted-foreground mb-1.5 block text-xs font-medium">
             {t('personalize.imageUrl')}
           </label>
-          <Input
-            type="url"
-            value={headerMediaUrl}
-            onChange={(e) => onHeaderMediaUrlChange(e.target.value)}
-            placeholder={t('personalize.imageUrlPlaceholder')}
-            className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-          />
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            {t('personalize.headerImageDesc')}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="url"
+              value={headerMediaUrl}
+              onChange={(e) => onHeaderMediaUrlChange(e.target.value)}
+              placeholder={t('personalize.imageUrlPlaceholder')}
+              className="border-border bg-muted text-foreground placeholder:text-muted-foreground min-w-0 flex-1"
+            />
+            <input
+              ref={headerFileRef}
+              type="file"
+              accept={headerMediaAccept(mediaHeaderType)}
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleHeaderMediaFile(f);
+                e.target.value = '';
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploadingHeader}
+              onClick={() => headerFileRef.current?.click()}
+            >
+              {uploadingHeader ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              {t(`personalize.uploadMedia.${mediaHeaderType}`)}
+            </Button>
+          </div>
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            {t(`personalize.headerMediaDesc.${mediaHeaderType}`)}
           </p>
           {mediaHeaderType === 'image' &&
             headerMediaError === null &&
@@ -271,7 +402,17 @@ export function Step3Personalize({
               <img
                 src={headerMediaUrl.trim()}
                 alt="Header preview"
-                className="mt-3 max-h-40 rounded-lg border border-border object-contain"
+                className="border-border mt-3 max-h-40 rounded-lg border object-contain"
+              />
+            )}
+          {mediaHeaderType === 'video' &&
+            headerMediaError === null &&
+            headerMediaUrl.trim() && (
+              <video
+                src={headerMediaUrl.trim()}
+                controls
+                preload="metadata"
+                className="border-border mt-3 max-h-48 rounded-lg border bg-black"
               />
             )}
           {headerMediaError && (
@@ -285,8 +426,8 @@ export function Step3Personalize({
       )}
 
       {placeholders.length === 0 && !mediaHeaderType ? (
-        <div className="rounded-xl border border-border bg-card/50 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
+        <div className="border-border bg-card/50 rounded-xl border p-6 text-center">
+          <p className="text-muted-foreground text-sm">
             {t('personalize.noPreview')}
           </p>
         </div>
@@ -299,17 +440,20 @@ export function Step3Personalize({
             return (
               <div
                 key={placeholder}
-                className="rounded-xl border border-border bg-card/50 p-4"
+                className="border-border bg-card/50 rounded-xl border p-4"
               >
                 <div className="mb-3 flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-medium text-primary">
+                  <p className="text-foreground text-sm font-medium">
+                    {t('personalize.variableLabel', { n: key })}
+                  </p>
+                  <span className="bg-primary/10 text-primary inline-flex items-center rounded-md px-2 py-0.5 font-mono text-xs font-medium">
                     {placeholder}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    <label className="text-muted-foreground mb-1.5 block text-xs font-medium">
                       {t('personalize.type')}
                     </label>
                     <Select
@@ -321,24 +465,84 @@ export function Step3Personalize({
                         })
                       }
                     >
-                      <SelectTrigger className="w-full border-border bg-muted text-foreground">
+                      <SelectTrigger className="border-border bg-muted text-foreground w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="border-border bg-popover">
-                        <SelectItem value="static">{t('personalize.typeStatic')}</SelectItem>
-                        <SelectItem value="field">{t('personalize.typeContact')}</SelectItem>
+                        <SelectItem value="static">
+                          {t('personalize.typeStatic')}
+                        </SelectItem>
+                        <SelectItem value="field">
+                          {t('personalize.typeContact')}
+                        </SelectItem>
                         <SelectItem value="custom_field">
                           {t('personalize.typeCustom')}
                         </SelectItem>
+                        {csvAvailable && (
+                          <SelectItem value="csv_column">
+                            {t('personalize.typeCsvColumn')}
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      {mapping.type === 'static' ? t('personalize.staticValue') : t('personalize.contactField')}
+                    <label className="text-muted-foreground mb-1.5 block text-xs font-medium">
+                      {mapping.type === 'static'
+                        ? t('personalize.staticValue')
+                        : mapping.type === 'csv_column'
+                          ? t('personalize.csvColumn')
+                          : t('personalize.contactField')}
                     </label>
-                    {mapping.type === 'static' ? (
+                    {mapping.type === 'csv_column' ? (
+                      <>
+                        <Select
+                          value={
+                            csvColumns.includes(mapping.value)
+                              ? mapping.value
+                              : undefined
+                          }
+                          onValueChange={(val) =>
+                            updateVariable(key, { value: val || '' })
+                          }
+                        >
+                          <SelectTrigger className="border-border bg-muted text-foreground w-full">
+                            <SelectValue
+                              placeholder={
+                                csvAvailable
+                                  ? t('personalize.selectCsvColumn')
+                                  : t('personalize.csvColumnUnavailable')
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent className="border-border bg-popover">
+                            {csvColumns.map((column) => (
+                              <SelectItem key={column} value={column}>
+                                <span className="flex items-center gap-2">
+                                  <FileSpreadsheet className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+                                  <span className="font-mono">{column}</span>
+                                  <span className="text-muted-foreground truncate text-xs">
+                                    {t('personalize.csvExample', {
+                                      value: csvExample(column),
+                                    })}
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {csvColumns.includes(mapping.value) && (
+                          <p className="text-muted-foreground mt-1.5 text-xs">
+                            {t('personalize.csvColumnHint', {
+                              placeholder,
+                              column: mapping.value,
+                              example: csvExample(mapping.value),
+                            })}
+                          </p>
+                        )}
+                      </>
+                    ) : mapping.type === 'static' ? (
                       <Input
                         value={mapping.value}
                         onChange={(e) =>
@@ -354,8 +558,10 @@ export function Step3Personalize({
                           updateVariable(key, { value: val || '' })
                         }
                       >
-                        <SelectTrigger className="w-full border-border bg-muted text-foreground">
-                          <SelectValue placeholder={t('personalize.selectContactField')} />
+                        <SelectTrigger className="border-border bg-muted text-foreground w-full">
+                          <SelectValue
+                            placeholder={t('personalize.selectContactField')}
+                          />
                         </SelectTrigger>
                         <SelectContent className="border-border bg-popover">
                           {contactFields.map((field) => (
@@ -372,7 +578,7 @@ export function Step3Personalize({
                           updateVariable(key, { value: val || '' })
                         }
                       >
-                        <SelectTrigger className="w-full border-border bg-muted text-foreground">
+                        <SelectTrigger className="border-border bg-muted text-foreground w-full">
                           <SelectValue
                             placeholder={
                               loadingFields
@@ -402,18 +608,22 @@ export function Step3Personalize({
 
       {/* Live Preview — rendered as a WhatsApp-style bubble so the user
           sees approximately what the recipient will see. */}
-      <div className="rounded-xl border border-border bg-card/50 p-4">
+      <div className="border-border bg-card/50 rounded-xl border p-4">
         <div className="mb-3 flex items-center gap-2">
-          <Eye className="h-4 w-4 text-primary" />
-          <p className="text-sm font-medium text-foreground">{t('personalize.preview')}</p>
-          <span className="text-xs text-muted-foreground">({previewLabel})</span>
+          <Eye className="text-primary h-4 w-4" />
+          <p className="text-foreground text-sm font-medium">
+            {t('personalize.preview')}
+          </p>
+          <span className="text-muted-foreground text-xs">
+            ({previewLabel})
+          </span>
           {loadingPreview && (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <Loader2 className="text-primary h-3.5 w-3.5 animate-spin" />
           )}
         </div>
         <div className="rounded-lg bg-[#0e1a12] p-3">
-          <div className="ml-auto max-w-[85%] rounded-lg bg-primary/30 px-3 py-2 shadow-sm">
-            <p className="whitespace-pre-wrap text-sm text-primary">
+          <div className="bg-primary/30 ml-auto max-w-[85%] rounded-lg px-3 py-2 shadow-sm">
+            <p className="text-primary text-sm whitespace-pre-wrap">
               {previewText}
             </p>
           </div>
@@ -430,7 +640,7 @@ export function Step3Personalize({
         </div>
       )}
 
-      <div className="flex items-center justify-between border-t border-border pt-4">
+      <div className="border-border flex items-center justify-between border-t pt-4">
         <Button
           variant="outline"
           onClick={onBack}

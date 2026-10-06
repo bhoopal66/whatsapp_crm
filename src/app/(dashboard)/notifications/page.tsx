@@ -5,21 +5,39 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import type { Notification } from "@/types";
-import { Bell, CheckCheck, Loader2, UserPlus } from "lucide-react";
+import {
+  Bell,
+  CheckCheck,
+  Loader2,
+  ShieldAlert,
+  UserPlus,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// Icon per notification type. Only one type exists today
-// (conversation_assigned) but this keeps future types a one-line add.
+// Icon per notification type — a one-line add per new type.
 const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   conversation_assigned: UserPlus,
+  channel_disconnected: WifiOff,
+  channel_reconnected: Wifi,
+  team_activity_alert: ShieldAlert,
 };
+
+// A channel alert's body is the fix (who re-pairs which phone, where),
+// so it is shown whole rather than cut to one line like an assignment.
+const FULL_BODY: ReadonlySet<Notification["type"]> = new Set([
+  "channel_disconnected",
+  "channel_reconnected",
+  "team_activity_alert",
+]);
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const { accountId } = useAuth();
+  const { accountId, canEditSettings } = useAuth();
   const [notifications, setNotifications] = useState<Notification[] | null>(
     null,
   );
@@ -116,9 +134,13 @@ export default function NotificationsPage() {
       if (!n.read_at) markRead(n.id);
       if (n.conversation_id) {
         router.push(`/inbox?c=${n.conversation_id}`);
+      } else if (n.type === "team_activity_alert" && canEditSettings) {
+        // Only admins can open Team activity; the person over the
+        // limit has the whole message here already.
+        router.push("/team-activity");
       }
     },
-    [markRead, router],
+    [markRead, router, canEditSettings],
   );
 
   const unreadIds = notifications?.filter((n) => !n.read_at).map((n) => n.id) ?? [];
@@ -167,7 +189,8 @@ export default function NotificationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Conversations other teammates assign to you show up here.
+            Conversations other teammates assign to you show up here, and
+            for admins, alerts when a WhatsApp number goes offline.
           </p>
         </div>
         <Button
@@ -247,7 +270,14 @@ export default function NotificationsPage() {
                       )}
                     </div>
                     {n.body && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      <p
+                        className={cn(
+                          "mt-0.5 text-xs text-muted-foreground",
+                          FULL_BODY.has(n.type)
+                            ? "whitespace-normal"
+                            : "truncate",
+                        )}
+                      >
                         {n.body}
                       </p>
                     )}

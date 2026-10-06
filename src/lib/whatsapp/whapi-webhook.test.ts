@@ -23,6 +23,50 @@ const BASE = {
   source: 'mobile',
 }
 
+describe('normalizeWhapiMessage — contact cards', () => {
+  const VCARD =
+    'BEGIN:VCARD\nVERSION:3.0\nN:Al Mansoori;Ahmed;;;\nFN:Ahmed Al Mansoori\nORG:Dargol Logistics FZE;\nTEL;type=CELL;waid=971501234567:+971 50 123 4567\nEND:VCARD'
+
+  it('parses a single shared contact into a card', () => {
+    const m = normalizeWhapiMessage({
+      ...BASE,
+      type: 'contact',
+      contact: { name: 'Ahmed Al Mansoori', vcard: VCARD },
+    })
+    expect(m).toMatchObject({
+      type: 'contacts',
+      text: 'Contact: Ahmed Al Mansoori',
+      contacts: [
+        {
+          name: 'Ahmed Al Mansoori',
+          phones: ['+971 50 123 4567'],
+          org: 'Dargol Logistics FZE',
+        },
+      ],
+    })
+  })
+
+  it('keeps every card of a contact list', () => {
+    const m = normalizeWhapiMessage({
+      ...BASE,
+      type: 'contact_list',
+      contact_list: {
+        list: [
+          { name: 'Ahmed', vcard: VCARD },
+          { name: 'Fatima', vcard: 'BEGIN:VCARD\nFN:Fatima\nTEL:+971500000001\nEND:VCARD' },
+        ],
+      },
+    })
+    expect(m?.contacts).toHaveLength(2)
+    expect(m?.text).toBe('Contact: Ahmed Al Mansoori, Fatima')
+  })
+
+  it('still yields a card when only a name is known', () => {
+    const m = normalizeWhapiMessage({ ...BASE, type: 'contact', contact: { name: 'Someone' } })
+    expect(m?.contacts).toEqual([{ name: 'Someone', phones: [], emails: [], org: null }])
+  })
+})
+
 describe('normalizeWhapiMessage — content types', () => {
   it('maps a plain text message', () => {
     const m = normalizeWhapiMessage({ ...BASE, type: 'text', text: { body: 'Hello world' } })
@@ -122,6 +166,29 @@ describe('normalizeWhapiMessage — content types', () => {
       context: { quoted_id: 'yqKj.Z7XWg0g1lA-wD8Sij1GoQ' },
     })
     expect(m?.contextMessageId).toBe('yqKj.Z7XWg0g1lA-wD8Sij1GoQ')
+  })
+
+  it('flags a forwarded message off `context.forwarded` or a forwarding score', () => {
+    const forwarded = normalizeWhapiMessage({
+      ...BASE,
+      type: 'text',
+      text: { body: 'pass it on' },
+      context: { forwarded: true },
+    })
+    const scored = normalizeWhapiMessage({
+      ...BASE,
+      type: 'text',
+      text: { body: 'pass it on' },
+      context: { forwarding_score: 5 },
+    })
+    const plain = normalizeWhapiMessage({
+      ...BASE,
+      type: 'text',
+      text: { body: 'my own words' },
+    })
+    expect(forwarded?.forwarded).toBe(true)
+    expect(scored?.forwarded).toBe(true)
+    expect(plain?.forwarded).toBe(false)
   })
 
   it('flags a group chat so the 1:1 inbox can skip it', () => {

@@ -11,6 +11,25 @@ interface Turn {
   content: string;
   /** assistant-only: the agent signalled a human handoff on this turn. */
   handoff?: boolean;
+  /** Which gate handed off (migration 052), when `handoff` is set. */
+  handoffReason?: string | null;
+  handoffDetail?: string | null;
+}
+
+/** Label for the handoff line under an assistant bubble. */
+function describeHandoff(reason?: string | null, detail?: string | null) {
+  switch (reason) {
+    case 'keyword':
+      return detail
+        ? `Would hand off to a human here — escalation keyword “${detail}”`
+        : 'Would hand off to a human here — escalation keyword';
+    case 'no_knowledge':
+      return detail
+        ? `Would hand off to a human here — no knowledge-base match (${detail})`
+        : 'Would hand off to a human here — no knowledge-base match';
+    default:
+      return 'Would hand off to a human here';
+  }
 }
 
 export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
@@ -61,6 +80,10 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
               ? data.reply
               : '',
           handoff: Boolean(data.handoff),
+          handoffReason:
+            typeof data.handoff_reason === 'string' ? data.handoff_reason : null,
+          handoffDetail:
+            typeof data.handoff_detail === 'string' ? data.handoff_detail : null,
         },
       ]);
     } catch {
@@ -108,8 +131,9 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
             <Bot className="mb-2 h-8 w-8 text-muted-foreground/60" />
             <p>Send a message to see how your agent would reply.</p>
             <p className="mt-1 text-xs">
-              It uses your knowledge base and behaves exactly like the
-              auto-reply bot — including handoff.
+              It uses your knowledge base and behaves like the auto-reply
+              bot, including handoff — except that TypeSafe checks (triage,
+              passage filter, guardrail) are not run here.
             </p>
             {onGoToSetup && (
               <Button
@@ -152,7 +176,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
                   )}
                 >
                   <UserCircle2 className="h-3.5 w-3.5" />
-                  Would hand off to a human here
+                  {describeHandoff(t.handoffReason, t.handoffDetail)}
                 </p>
               )}
             </div>

@@ -5,7 +5,8 @@
 //
 // Two stacked sections:
 //   1. Roster   — every member of the account. Admin+ can change a
-//                 teammate's role inline and remove them. Owner row
+//                 teammate's role inline, deactivate / reactivate
+//                 them (migration 069), and remove them. Owner row
 //                 is non-editable everywhere (transfer is its own
 //                 separate flow, deferred to a later PR).
 //   2. Pending  — outstanding invite links. Admin+ can revoke. The
@@ -31,6 +32,8 @@ import {
   MailX,
   Plus,
   Trash2,
+  UserCheck,
+  UserX,
   UsersRound,
 } from 'lucide-react';
 
@@ -85,6 +88,7 @@ interface Member {
   avatar_url: string | null;
   role: AccountRole;
   joined_at: string;
+  deactivated_at: string | null;
 }
 
 interface Invitation {
@@ -139,6 +143,9 @@ export function MembersTab() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
+  const [deactivatingMember, setDeactivatingMember] = useState<Member | null>(
+    null,
+  );
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null,
   );
@@ -231,6 +238,52 @@ export function MembersTab() {
     }
   }
 
+  // Deactivate (after the confirm dialog) or reactivate (directly — it
+  // only gives access back). Not optimistic: the server bans or unbans
+  // the login as part of the same call, and the row should not claim a
+  // state that failed to stick.
+  async function handleSetActive(member: Member, active: boolean) {
+    setPendingMemberAction(member.user_id);
+    try {
+      const res = await fetch(`/api/account/members/${member.user_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        toast.error(payload.error || 'Failed to update member');
+        return;
+      }
+      // Assignee pickers elsewhere hide deactivated members.
+      invalidateCached(MEMBERS_CACHE_KEY);
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.user_id === member.user_id
+            ? {
+                ...m,
+                deactivated_at: active
+                  ? null
+                  : (m.deactivated_at ?? new Date().toISOString()),
+              }
+            : m,
+        ),
+      );
+      const name = member.full_name || t('unnamed');
+      toast.success(
+        active
+          ? t('reactivatedToast', { name })
+          : t('deactivatedToast', { name }),
+      );
+      setDeactivatingMember(null);
+    } catch (err) {
+      console.error('[MembersTab] set active error:', err);
+      toast.error('Could not reach the server');
+    } finally {
+      setPendingMemberAction(null);
+    }
+  }
+
   async function handleRemove() {
     if (!removingMember) return;
     setPendingMemberAction(removingMember.user_id);
@@ -312,7 +365,13 @@ export function MembersTab() {
           full refresh as heartbeats and the local re-derive tick land. */}
       {members.length > 0 &&
         (() => {
-          const counts = summarize(members.map((m) => getPresence(m.user_id)));
+          // Presence counts only people who can sign in; a deactivated
+          // member would otherwise sit in "offline" forever.
+          const activeMembers = members.filter((m) => !m.deactivated_at);
+          const inactiveCount = members.length - activeMembers.length;
+          const counts = summarize(
+            activeMembers.map((m) => getPresence(m.user_id)),
+          );
           return (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
@@ -329,6 +388,8 @@ export function MembersTab() {
               </span>
               <span className="text-muted-foreground/70">
                 · {t('memberCount', { count: members.length })}
+                {inactiveCount > 0 &&
+                  ` · ${t('inactiveCount', { count: inactiveCount })}`}
               </span>
             </div>
           );
@@ -344,6 +405,7 @@ export function MembersTab() {
               const isSelf = member.user_id === user?.id;
               const isOwnerRow = member.role === 'owner';
               const isBusy = pendingMemberAction === member.user_id;
+              const isInactive = !!member.deactivated_at;
               const presence = getPresence(member.user_id);
               const presenceRow = getRow(member.user_id);
               const presenceText = presenceLabel(
@@ -362,7 +424,9 @@ export function MembersTab() {
                   // before.
                   className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-4"
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <div
+                    className={`flex min-w-0 flex-1 items-center gap-4 ${isInactive ? 'opacity-60' : ''}`}
+                  >
                     <Tooltip>
                       <TooltipTrigger
                         render={
@@ -403,6 +467,11 @@ export function MembersTab() {
                             {t('you')}
                           </Badge>
                         )}
+                        {isInactive && (
+                          <Badge className="border-red-500/40 bg-red-500/10 text-[10px] uppercase tracking-wide text-red-400">
+                            {t('inactive')}
+                          </Badge>
+                        )}
                       </div>
                       {member.email && (
                         <p className="truncate text-xs text-muted-foreground">
@@ -415,7 +484,11 @@ export function MembersTab() {
                   {/* Joined date stays desktop-only. The mobile row's
                       vertical density makes the joined date noise. */}
                   <div className="hidden sm:block text-right text-xs text-muted-foreground">
-                    {t('joined', { date: fmtDate(member.joined_at) })}
+                    {member.deactivated_at
+                      ? t('deactivatedOn', {
+                          date: fmtDate(member.deactivated_at),
+                        })
+                      : t('joined', { date: fmtDate(member.joined_at) })}
                   </div>
 
                   {/* Actions cluster. On mobile this is its own row
@@ -458,6 +531,42 @@ export function MembersTab() {
                         <RoleIcon className="size-3.5" />
                         {tRoles(member.role)}
                       </span>
+                    )}
+
+                    {/* Deactivate / reactivate. Same gate as Remove: the
+                        owner can't be deactivated (someone must be able
+                        to turn people back on) and neither can you. */}
+                    {canManageMembers && !isOwnerRow && !isSelf && (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              aria-label={
+                                isInactive ? t('reactivate') : t('deactivate')
+                              }
+                              onClick={() =>
+                                isInactive
+                                  ? handleSetActive(member, true)
+                                  : setDeactivatingMember(member)
+                              }
+                              disabled={isBusy}
+                            >
+                              {isBusy && !deactivatingMember ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : isInactive ? (
+                                <UserCheck className="size-4" />
+                              ) : (
+                                <UserX className="size-4" />
+                              )}
+                            </Button>
+                          }
+                        />
+                        <TooltipContent>
+                          {isInactive ? t('reactivate') : t('deactivate')}
+                        </TooltipContent>
+                      </Tooltip>
                     )}
 
                     {/* Remove. Admin+ only; never on the owner row;
@@ -584,6 +693,54 @@ export function MembersTab() {
         onOpenChange={setInviteOpen}
         onCreated={loadEverything}
       />
+
+      <Dialog
+        open={deactivatingMember !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeactivatingMember(null);
+        }}
+      >
+        <DialogContent className="bg-popover border-border sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-popover-foreground">
+              <UserX className="size-4 text-amber-400" />
+              {t('deactivateDialogTitle')}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {t.rich('deactivateDialogDesc', {
+                name: deactivatingMember?.full_name || t('unnamed'),
+                bold: (chunks: React.ReactNode) => <strong>{chunks}</strong>,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="bg-popover border-border">
+            <Button
+              variant="outline"
+              onClick={() => setDeactivatingMember(null)}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              onClick={() =>
+                deactivatingMember &&
+                handleSetActive(deactivatingMember, false)
+              }
+              disabled={!!pendingMemberAction}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {pendingMemberAction ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  {t('deactivating')}
+                </>
+              ) : (
+                t('deactivateBtn')
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={removingMember !== null}

@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
     flows: [] as unknown[],
     nodes: [] as unknown[],
     inserted: [] as { table: string; row: Record<string, unknown> }[],
+    updates: [] as { table: string; row: Record<string, unknown> }[],
     /** Set by the flow_runs INSERT; what its .maybeSingle() returns. */
     insertedRun: null as Record<string, unknown> | null,
     rpcCalls: [] as string[],
@@ -38,7 +39,10 @@ vi.mock("./admin-client", () => {
       filter: () => b,
       order: () => b,
       limit: () => b,
-      update: () => b,
+      update: (row: Record<string, unknown>) => {
+        h.state.updates.push({ table, row });
+        return b;
+      },
       insert: (row: Record<string, unknown>) => {
         h.state.inserted.push({ table, row });
         if (table === "flow_runs") {
@@ -55,7 +59,9 @@ vi.mock("./admin-client", () => {
       // loadFlow's flows lookup.
       maybeSingle: async () => ({
         data:
-          table === "flow_runs" ? h.state.insertedRun : (rows(table)[0] ?? null),
+          table === "flow_runs"
+            ? h.state.insertedRun
+            : (rows(table)[0] ?? null),
         error: null,
       }),
       single: async () => ({ data: rows(table)[0] ?? null, error: null }),
@@ -82,17 +88,31 @@ vi.mock("./admin-client", () => {
 });
 
 const engineSendText = vi.fn(async () => ({ whatsapp_message_id: "wamid.1" }));
+const engineSendInteractiveButtons = vi.fn(async () => ({
+  whatsapp_message_id: "wamid.3",
+}));
 
 vi.mock("./channel-send", () => ({
   engineSendText: (...a: unknown[]) =>
     (engineSendText as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendMedia: vi.fn(async () => ({ whatsapp_message_id: "wamid.2" })),
-  engineSendInteractiveButtons: vi.fn(async () => ({
-    whatsapp_message_id: "wamid.3",
-  })),
+  engineSendInteractiveButtons: (...a: unknown[]) =>
+    (engineSendInteractiveButtons as unknown as (...x: unknown[]) => unknown)(
+      ...a,
+    ),
   engineSendInteractiveList: vi.fn(async () => ({
     whatsapp_message_id: "wamid.4",
   })),
+}));
+
+// The AI agent, for the `ai` fallback (054). Outcome is set per test.
+type AiOutcome = "replied" | "handed_off" | "skipped";
+const aiReply = vi.fn<(args: unknown) => Promise<AiOutcome>>(
+  async () => "replied",
+);
+vi.mock("@/lib/ai/auto-reply", () => ({
+  dispatchInboundToAiReply: (...a: unknown[]) =>
+    (aiReply as unknown as (...x: unknown[]) => unknown)(...a),
 }));
 
 import { dispatchInboundToFlows, entryTriggerTexts } from "./engine";
@@ -155,9 +175,13 @@ beforeEach(() => {
   h.state.flows = [];
   h.state.nodes = NODES;
   h.state.inserted = [];
+  h.state.updates = [];
   h.state.insertedRun = null;
   h.state.rpcCalls = [];
   engineSendText.mockClear();
+  engineSendInteractiveButtons.mockClear();
+  aiReply.mockClear();
+  aiReply.mockResolvedValue("replied");
 });
 
 describe("entryTriggerTexts", () => {
@@ -315,5 +339,313 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
     expect(result.consumed).toBe(true);
     expect(result.flow_run_id).toBe("run-1");
     expect(startedRuns()).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// Campaign-started runs (migration 054).
+// ============================================================
+
+const MANUAL_FLOW = {
+  ...KEYWORD_FLOW,
+  id: "flow-campaign",
+  trigger_type: "manual",
+  trigger_config: {},
+};
+
+describe("dispatchInboundToFlows — campaign follow-up flow (054)", () => {
+  it("starts the campaign's flow on the first reply, seeded with the reply", async () => {
+    h.state.flows = [MANUAL_FLOW];
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      campaign: { broadcastId: "bc-1", followUpFlowId: "flow-campaign" },
+      message: {
+        kind: "interactive_reply",
+        reply_id: "pos",
+        reply_title: "POS Machine",
+        meta_message_id: "m1",
+      },
+      isFirstInboundMessage: false,
+    });
+
+    expect(result.consumed).toBe(true);
+    // The three-node fixture runs straight through to its end node.
+    expect(result.outcome).toBe("completed");
+    const [run] = startedRuns();
+    expect(run.row).toMatchObject({
+      flow_id: "flow-campaign",
+      broadcast_id: "bc-1",
+      vars: { campaign_reply: "POS Machine", campaign_reply_id: "pos" },
+    });
+    // A manual-trigger flow — which never starts from a tap on its own
+    // (see the entry-trigger suite) — really ran.
+    expect(engineSendText).toHaveBeenCalledTimes(1);
+  });
+
+  it("wins over a keyword flow the reply also matches", async () => {
+    h.state.flows = [MANUAL_FLOW, KEYWORD_FLOW];
+
+    await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      campaign: { broadcastId: "bc-1", followUpFlowId: "flow-campaign" },
+      message: { kind: "text", text: "order status", meta_message_id: "m1" },
+      isFirstInboundMessage: false,
+    });
+
+    expect(startedRuns()[0].row.flow_id).toBe("flow-campaign");
+  });
+
+  it("falls through to the entry triggers when the campaign's flow is not active", async () => {
+    h.state.flows = [{ ...MANUAL_FLOW, status: "archived" }, KEYWORD_FLOW];
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      campaign: { broadcastId: "bc-1", followUpFlowId: "flow-campaign" },
+      message: { kind: "text", text: "order status", meta_message_id: "m1" },
+      isFirstInboundMessage: false,
+    });
+
+    expect(result.consumed).toBe(true);
+    expect(startedRuns()[0].row.flow_id).toBe("flow-1");
+    expect(startedRuns()[0].row.broadcast_id).toBeUndefined();
+  });
+});
+
+// ============================================================
+// Off-script replies mid-run: the `ai` fallback and broken runs (054).
+// ============================================================
+
+const MENU_NODES = [
+  {
+    id: "n1",
+    flow_id: "flow-1",
+    node_key: "start",
+    node_type: "start",
+    config: { next_node_key: "menu" },
+  },
+  {
+    id: "n2",
+    flow_id: "flow-1",
+    node_key: "menu",
+    node_type: "send_buttons",
+    config: {
+      text: "Quote or comparison?",
+      buttons: [
+        { reply_id: "quote", title: "Get a quote", next_node_key: "done" },
+        { reply_id: "compare", title: "Compare", next_node_key: "done" },
+      ],
+    },
+  },
+  {
+    id: "n3",
+    flow_id: "flow-1",
+    node_key: "done",
+    node_type: "end",
+    config: {},
+  },
+];
+
+const ACTIVE_RUN = {
+  id: "run-1",
+  flow_id: "flow-1",
+  account_id: "acct-1",
+  user_id: "u-1",
+  contact_id: "ct-1",
+  conversation_id: "cv-1",
+  status: "active",
+  current_node_key: "menu",
+  vars: {},
+  reprompt_count: 0,
+};
+
+const AI_FLOW = {
+  ...KEYWORD_FLOW,
+  name: "POS onboarding",
+  fallback_policy: {
+    on_unknown_reply: "ai",
+    max_reprompts: 1,
+    on_exhaust: "handoff",
+  },
+};
+
+function dispatchOffScript() {
+  return dispatchInboundToFlows({
+    accountId: "acct-1",
+    userId: "u-1",
+    contactId: "ct-1",
+    conversationId: "cv-1",
+    inboundProvider: "whapi",
+    message: {
+      kind: "text",
+      text: "how much is the rental?",
+      meta_message_id: "m2",
+    },
+    isFirstInboundMessage: false,
+  });
+}
+
+/** flow_runs UPDATEs made during a dispatch. */
+function runUpdates() {
+  return h.state.updates
+    .filter((u) => u.table === "flow_runs")
+    .map((u) => u.row);
+}
+
+describe("dispatchInboundToFlows — `ai` fallback (054)", () => {
+  beforeEach(() => {
+    h.state.activeRuns = [ACTIVE_RUN];
+    h.state.flows = [AI_FLOW];
+    h.state.nodes = MENU_NODES;
+  });
+
+  it("hands an off-script question to the AI agent with the step's context, and keeps the run where it is", async () => {
+    const result = await dispatchOffScript();
+
+    expect(result).toMatchObject({ consumed: true, outcome: "fallback_fired" });
+    expect(aiReply).toHaveBeenCalledTimes(1);
+    expect(aiReply.mock.calls[0][0]).toMatchObject({
+      accountId: "acct-1",
+      conversationId: "cv-1",
+      contactId: "ct-1",
+      inboundProvider: "whapi",
+      flowContext: {
+        flowName: "POS onboarding",
+        promptText: "Quote or comparison?",
+        options: ["Get a quote", "Compare"],
+      },
+    });
+    // No reprompt, no counter bump, no status change — the buttons stay live.
+    expect(engineSendInteractiveButtons).not.toHaveBeenCalled();
+    expect(runUpdates()).toEqual([]);
+  });
+
+  it("ends the run as handed off when the agent hands off", async () => {
+    aiReply.mockResolvedValue("handed_off");
+
+    const result = await dispatchOffScript();
+
+    expect(result).toMatchObject({ consumed: true, outcome: "handed_off" });
+    expect(runUpdates()).toContainEqual(
+      expect.objectContaining({
+        status: "handed_off",
+        end_reason: "ai_handoff",
+      }),
+    );
+    expect(
+      h.state.updates
+        .filter((u) => u.table === "conversations")
+        .map((u) => u.row),
+    ).toContainEqual(expect.objectContaining({ status: "pending" }));
+  });
+
+  it("re-sends the options when the agent declines (off / capped / human-owned)", async () => {
+    aiReply.mockResolvedValue("skipped");
+
+    const result = await dispatchOffScript();
+
+    expect(result).toMatchObject({ consumed: true, outcome: "fallback_fired" });
+    expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
+    expect(runUpdates()).toContainEqual({ reprompt_count: 1 });
+  });
+
+  it("re-sends the options without asking when the inbound number is unknown", async () => {
+    await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: { kind: "text", text: "how much?", meta_message_id: "m2" },
+      isFirstInboundMessage: false,
+    });
+    expect(aiReply).not.toHaveBeenCalled();
+    expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not involve the agent under the reprompt policy", async () => {
+    h.state.flows = [KEYWORD_FLOW]; // default policy: reprompt
+    await dispatchOffScript();
+    expect(aiReply).not.toHaveBeenCalled();
+    expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("dispatchInboundToFlows — a broken run hands the message back (054)", () => {
+  it("returns consumed:false / failed when the node the run waits on is gone", async () => {
+    h.state.activeRuns = [{ ...ACTIVE_RUN, current_node_key: "deleted_node" }];
+    h.state.flows = [AI_FLOW];
+    h.state.nodes = MENU_NODES;
+
+    const result = await dispatchOffScript();
+
+    // Before 054 this was consumed:true / no_match — the customer's
+    // message vanished into a run that had just died.
+    expect(result).toEqual({
+      consumed: false,
+      flow_run_id: "run-1",
+      outcome: "failed",
+    });
+    expect(runUpdates()).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        end_reason: "current_node_not_found",
+      }),
+    );
+    expect(aiReply).not.toHaveBeenCalled();
+  });
+
+  it("returns consumed:false / failed when a send fails mid-advance", async () => {
+    h.state.activeRuns = [ACTIVE_RUN];
+    h.state.flows = [AI_FLOW];
+    h.state.nodes = [
+      ...MENU_NODES.slice(0, 2),
+      {
+        id: "n3",
+        flow_id: "flow-1",
+        node_key: "done",
+        node_type: "send_message",
+        config: { text: "Thanks", next_node_key: "end" },
+      },
+      {
+        id: "n4",
+        flow_id: "flow-1",
+        node_key: "end",
+        node_type: "end",
+        config: {},
+      },
+    ];
+    engineSendText.mockRejectedValueOnce(new Error("gateway down"));
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      inboundProvider: "whapi",
+      message: {
+        kind: "interactive_reply",
+        reply_id: "quote",
+        reply_title: "Get a quote",
+        meta_message_id: "m3",
+      },
+      isFirstInboundMessage: false,
+    });
+
+    expect(result).toMatchObject({ consumed: false, outcome: "failed" });
+    expect(runUpdates()).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        end_reason: "send_text_failed",
+      }),
+    );
   });
 });

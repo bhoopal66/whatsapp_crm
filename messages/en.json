@@ -11,10 +11,11 @@
     "passwordPlaceholder": "Enter your password",
     "signingIn": "Signing in...",
     "signIn": "Sign in",
-    "noAccountAskAdmin": "Need an account? Ask your administrator to create one for you."
+    "noAccountAskAdmin": "Need an account? Ask your administrator to create one for you.",
+    "deactivated": "Your access has been deactivated. Contact your administrator."
   },
   "Sidebar": {
-    "title": "CRM Template for WhatsApp",
+    "title": "Taamul Connect",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
     "notifications": "Notifications",
@@ -40,7 +41,15 @@
     "menuSignOut": "Sign out",
     "roleTeamLeader": "Team leader",
     "teamInbox": "Team inbox",
-    "teamContacts": "Team contacts"
+    "teamContacts": "Team contacts",
+    "compass": "Compass",
+    "teamActivity": "Team activity",
+    "groups": {
+      "team": "Team",
+      "sales": "Sales & marketing",
+      "automation": "AI & automation",
+      "integrations": "Integrations"
+    }
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -57,7 +66,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
-    "menuSignOut": "Sign out"
+    "menuSignOut": "Sign out",
+    "teamActivity": "Team activity"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -145,13 +155,23 @@
       "filterOpen": "Open",
       "filterPending": "Pending",
       "filterClosed": "Closed",
+      "agent": "Agent",
+      "allAgents": "All agents",
+      "unassigned": "Unassigned",
+      "assignedTo": "Assigned to {name}",
+      "ownedBy": "Chat owner: {name} — nobody has taken it yet",
       "tags": "Tags",
       "company": "Company",
       "allCompanies": "All companies",
       "clearAll": "Clear all",
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "campaign": "Campaign",
+      "allCampaigns": "All campaigns",
+      "campaignEmpty": "No chats the bot is answering right now. Campaign replies that a person has taken, that the bot handed off, or that the bot isn't answering are in the Inbox.",
+      "campaignBotOff": "The AI auto-reply is switched off, so replies to campaigns are in the Inbox.",
+      "yesterday": "Yesterday"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -169,19 +189,35 @@
       "assigned": "Assigned",
       "unassign": "Unassign",
       "noTeammates": "No teammates available",
+      "unknownAgent": "Unknown agent",
+      "handlerAssigned": "Assigned to {name}",
+      "handlerReplying": "{name} is handling this chat (not assigned yet)",
+      "handlerOwner": "Chat owner: {name}",
+      "handlerNobody": "Nobody is on this chat yet",
+      "unassigned": "Unassigned",
       "me": " (me)",
       "noMessagesYet": "No messages yet",
       "sendTemplateHint": "Send a template to start the conversation",
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
+      "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "numberDisconnected": "This WhatsApp number ({name}) is disconnected — replies from it will fail. An admin must re-pair it (Settings → WhatsApp).",
+      "numberDisconnectedMeta": "This WhatsApp number ({name}) is disconnected — replies from it will fail. An admin must reconnect it (Settings → WhatsApp)."
+    },
+    "failedSend": {
+      "notSent": "Not sent",
+      "retry": "Retry",
+      "retryTitle": "Send this message again",
+      "discard": "Discard",
+      "discardTitle": "Remove this unsent message from the chat",
+      "maybeSent": "It may still have reached the customer. Check before sending it again."
     },
     "composer": {
-      "draftHint": "Tap the ✨ to draft a reply with AI — you can edit it before sending",
       "templates": "Templates",
       "readOnlyPlaceholder": "Read-only — viewers can browse but not reply",
-      "typeMessagePlaceholder": "Type a message... (Shift+Enter for new line)",
+      "typeMessagePlaceholder": "Type a message",
       "readOnlyTitle": "Read-only — your role can't send messages",
       "recording": "Recording… {current} / {max}",
       "cancel": "Cancel",
@@ -222,7 +258,9 @@
       "downloadFailed": "Couldn't download the attachment",
       "viewImage": "View image",
       "expandVideo": "Expand video",
-      "imageAlt": "Shared image"
+      "imageAlt": "Shared image",
+      "contactShared": "Contact shared",
+      "forwarded": "Forwarded"
     },
     "mediaViewer": {
       "counter": "{index} of {total}",
@@ -245,7 +283,8 @@
       "reactWith": "React with {emoji}",
       "nothingToCopy": "Nothing to copy",
       "copied": "Copied",
-      "copyFailed": "Copy failed"
+      "copyFailed": "Copy failed",
+      "forward": "Forward"
     },
     "replyQuote": {
       "photo": "[Photo]",
@@ -257,6 +296,20 @@
       "template": "[Template]",
       "message": "[Message]",
       "cancelReply": "Cancel reply"
+    },
+    "forward": {
+      "title": "Forward message",
+      "description": "Send a copy to up to {max} other chats. The recipient won't see a \"Forwarded\" label.",
+      "searchPlaceholder": "Search by name or phone",
+      "noChats": "No chats found",
+      "loadFailed": "Could not load your chats",
+      "unknownContact": "Unknown contact",
+      "selectedCount": "{count} of {max} selected",
+      "cancel": "Cancel",
+      "send": "Forward",
+      "sent": "{count, plural, one {Forwarded to # chat} other {Forwarded to # chats}}",
+      "failed": "Forward failed: {reason}",
+      "failedFor": "Could not forward to {name}: {reason}"
     },
     "templatePicker": {
       "sendTemplate": "Send template",
@@ -291,6 +344,35 @@
       "resumed": "AI resumed.",
       "updateError": "Couldn’t update the AI assistant.",
       "networkError": "Couldn’t reach the server."
+    },
+    "contactCard": {
+      "unnamed": "Unnamed contact",
+      "saveToContacts": "Save to contacts",
+      "saving": "Saving…",
+      "saved": "{name} saved to contacts.",
+      "alreadySaved": "This number is already in your contacts.",
+      "saveFailed": "Could not save the contact.",
+      "viewContact": "Saved — view contact"
+    },
+    "channelSwitch": {
+      "label": "Sending number",
+      "heading": "Send this chat's messages from",
+      "auto": "Automatic",
+      "autoWith": "Auto · {name}",
+      "autoHint": "Reply on the number the customer last wrote to.",
+      "autoHintWith": "Reply on the number the customer last wrote to (now {name}).",
+      "autoTitle": "Automatic: replies go out on the number the customer last wrote to. Click to choose a number.",
+      "pinnedTitle": "Pinned: every message in this chat goes out from this number until someone changes it.",
+      "metaHint": "Cloud API: free-form replies only within 24h of the customer's last message to this number; otherwise send a template.",
+      "whapiHint": "Whapi: free-form messages any time.",
+      "noNumbers": "You don't have access to any other number.",
+      "switchedTo": "This chat now sends from {name}",
+      "switchedAuto": "This chat is back to automatic",
+      "failed": "Couldn't switch the sending number",
+      "you": "You",
+      "someone": "Someone",
+      "noteTo": "{who} switched this chat to {name}. New messages go out from this number.",
+      "noteAuto": "{who} switched this chat back to automatic. Replies go out on the number the customer last wrote to."
     }
   },
   "Contacts": {
@@ -440,7 +522,12 @@
         "desc": "Sent to {phone} on WhatsApp. This opens a conversation if there isn’t one yet.",
         "placeholder": "Write your message…",
         "send": "Send",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "via": "Sent from {channel}."
+      },
+      "channelHint": {
+        "message": "Messages go out from {channel}",
+        "template": "Templates go out from {channel}"
       }
     },
     "importModal": {
@@ -692,10 +779,15 @@
       "resumeHint": "{count} recipients failed. Retrying sends them again from the server.",
       "resumeStalledHint": "{count} recipients were never sent — the browser tab running this campaign was closed before it finished. Resuming completes it from the server.",
       "resumePending": "Resume sending ({count})",
+      "scheduledTitle": "Scheduled for {when}",
+      "scheduledHint": "Delivered automatically by the broadcast scheduler when the time comes.",
+      "scheduledHintQuiet": "Delivered automatically when the time comes — never between {start} and {end} ({tz}).",
+      "sendScheduledNow": "Send now",
       "retryFailed": "Retry failed ({count})",
       "toastResumeStarted": "Sending {count} recipients in the background.",
       "toastResumeStartedCapped": "Sending {count} recipients in the background. {remaining} more will need another run.",
-      "toastResumeFailed": "Could not resume: {error}"
+      "toastResumeFailed": "Could not resume: {error}",
+      "followUpFlow": "Replies start the flow <link>{name}</link>."
     },
     "new": {
       "title": "New Broadcast",
@@ -710,7 +802,8 @@
       "toastNotSignedIn": "Not signed in.",
       "toastNotLinked": "Your profile is not linked to an account.",
       "toastFailedDraft": "Failed to save draft: {error}",
-      "toastDraftSaved": "Draft saved"
+      "toastDraftSaved": "Draft saved",
+      "toastScheduled": "Broadcast scheduled for {when}."
     },
     "wizard": {
       "next": "Next",
@@ -741,6 +834,9 @@
         "searchTags": "Search tags...",
         "noTagsFound": "No tags found.",
         "excludeTags": "Exclude Tags (Optional)",
+        "frequencyCap": "Frequency cap",
+        "frequencyCapDesc": "Skip contacts who already received any campaign in the last N days. 0 = off.",
+        "frequencyCapDays": "days",
         "searchExcludeTags": "Search tags to exclude...",
         "field": "Field",
         "selectField": "Select a field...",
@@ -751,7 +847,8 @@
         "value": "Value",
         "valuePlaceholder": "Value to match",
         "uploadCsv": "Upload CSV File",
-        "csvFormatDesc": "Must contain a 'phone' column (E.164 format). 'name' column is optional.",
+        "csvFormatDesc": "Columns: 'name', 'company', 'phone' (E.164, e.g. +971501234567). Only 'phone' is required — every other column can be mapped to a template variable in the next step.",
+        "downloadTemplate": "Download the template",
         "csvContactsFound": "{count} valid contact(s) found in CSV.",
         "errorLoadTags": "Failed to load tags",
         "errorLoadFields": "Failed to load custom fields",
@@ -762,7 +859,6 @@
         "title": "Personalize Variables",
         "subtitle": "Map your template variables to contact fields or provide static values.",
         "headerImage": "Header Image",
-        "headerImageDesc": "This template requires a header image.",
         "imageUrl": "Image URL",
         "imageUrlPlaceholder": "https://example.com/image.jpg",
         "variables": "Variables",
@@ -779,11 +875,33 @@
         "preview": "Preview",
         "previewSample": "Showing preview with sample data.",
         "noPreview": "Preview not available.",
+        "variableLabel": "Variable {n}",
+        "typeCsvColumn": "CSV column",
+        "csvColumn": "CSV column",
+        "selectCsvColumn": "Select a column…",
+        "csvColumnUnavailable": "Upload a CSV audience to use its columns",
+        "csvExample": "e.g. {value}",
+        "csvColumnHint": "{placeholder} becomes each recipient's \"{column}\" value from the file — for row 1 that is \"{example}\".",
+        "previewCsvRow": "row 1 of your CSV: {who}",
         "fieldMap": {
           "name": "Name",
           "phone": "Phone",
           "email": "Email"
-        }
+        },
+        "uploadMedia": {
+          "image": "Upload image",
+          "video": "Upload video",
+          "document": "Upload PDF"
+        },
+        "headerMediaDesc": {
+          "image": "This template has an image header. Upload the image or paste a public link — it is sent with every message.",
+          "video": "This template has a video header. Upload the MP4 (≤16 MB) or paste a public link — WhatsApp needs the video on every send; the sample you uploaded for review is not reused.",
+          "document": "This template has a document header. Upload the PDF or paste a public link — it is sent with every message."
+        },
+        "toastInvalidMedia": "Header {format} must be one of: {types}.",
+        "toastMediaTooLarge": "File is {size} MB — the limit for this header is {max} MB.",
+        "toastUploadSuccess": "Uploaded.",
+        "toastUploadFailed": "Upload failed."
       },
       "scheduleSend": {
         "title": "Review & Send",
@@ -804,8 +922,33 @@
         "sending": "Sending...",
         "preparing": "Preparing...",
         "progressDesc": "Processing {current} of {total} recipients...",
-        "toastFailedPreview": "Failed to load preview data"
+        "toastFailedPreview": "Failed to load preview data",
+        "whenTitle": "When to send",
+        "whenNow": "Send now",
+        "whenLater": "Schedule",
+        "whenLaterHint": "Delivered by the broadcast scheduler at that time — this tab does not need to stay open.",
+        "quietTitle": "Quiet hours",
+        "quietDesc": "Never send between these times ({tz}). A send that lands inside the window is moved to when it ends.",
+        "quietFrom": "from",
+        "quietTo": "to",
+        "willSendAt": "This broadcast will go out at {when}.",
+        "scheduleButton": "Schedule Broadcast",
+        "confirmTitle": "Confirm Broadcast",
+        "confirmBody": "You are about to send this broadcast to {count} contacts using the {template} template. This action cannot be undone.",
+        "confirmScheduleTitle": "Confirm Schedule",
+        "confirmScheduleBody": "This broadcast will be sent to {count} contacts using the {template} template at {when}. You can cancel it from the campaign page until then.",
+        "followUpTitle": "When they reply",
+        "followUpDesc": "Start a Flow for each recipient on their first reply — a tapped template button or a typed message — so the campaign carries on as a guided conversation instead of ending at the send. The reply is passed to the flow as {{vars.campaign_reply}} and {{vars.campaign_reply_id}}.",
+        "followUpNone": "No flow — replies go to the AI agent / automations",
+        "followUpNoFlows": "No active flows yet. Build one under Flows and activate it to pick it here.",
+        "followUpAiOn": "The AI agent is on: it answers off-script replies during the flow (when the flow's fallback is set to it), picks the conversation up after the flow ends or breaks, and hands the thread to a human when it cannot help.",
+        "followUpAiOff": "The AI agent is off (Settings → AI → Auto-reply). Without it, replies the flow does not expect are re-prompted and then handed to a human, and nothing answers once the flow ends."
       }
+    },
+    "tabs": {
+      "label": "Broadcasts sections",
+      "campaigns": "Campaigns",
+      "inbox": "Campaign inbox"
     }
   },
   "Automations": {
@@ -1208,7 +1351,19 @@
           "label": "End",
           "blurb": "Ends the flow"
         }
-      }
+      },
+      "fallbackTitle": "Off-script replies",
+      "fallbackDesc": "What happens when the customer types something instead of picking an option.",
+      "fallbackUnknownLabel": "When the reply matches nothing",
+      "fallbackUnknownAi": "Let the AI agent answer, then continue the flow",
+      "fallbackUnknownReprompt": "Send the options again",
+      "fallbackUnknownHandoff": "Hand off to a human right away",
+      "fallbackUnknownIgnore": "Ignore it (let automations see it)",
+      "fallbackMaxReprompts": "Re-prompts before giving up",
+      "fallbackExhaustLabel": "After that",
+      "fallbackExhaustHandoff": "Hand off to a human",
+      "fallbackExhaustEnd": "End the flow",
+      "fallbackAiHint": "The AI agent answers in the context of the step the customer is on and asks them to pick an option; the flow stays where it is. Needs Auto-reply on under Settings → AI. If the agent is off, capped, or the thread already has a human, the options are sent again instead; if the agent hands off, the flow ends and a human takes over."
     },
     "validation": {
       "noIssues": "No issues. Ready to activate.",
@@ -1291,7 +1446,18 @@
       "cancel": "Cancel",
       "removing": "Removing...",
       "removeBtn": "Remove member",
-      "createMember": "Create user"
+      "createMember": "Create user",
+      "inactive": "Inactive",
+      "inactiveCount": "{count} inactive",
+      "deactivate": "Deactivate",
+      "reactivate": "Reactivate",
+      "deactivatedOn": "Deactivated {date}",
+      "deactivatedToast": "Deactivated {name}. They can no longer sign in.",
+      "reactivatedToast": "Reactivated {name}",
+      "deactivateDialogTitle": "Deactivate member",
+      "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. Their role, assigned chats and history stay as they are.",
+      "deactivating": "Deactivating...",
+      "deactivateBtn": "Deactivate"
     },
     "invite": {
       "inviteCreated": "Invite created",
@@ -1319,7 +1485,7 @@
       "labelTooLong": "Label must be {max} characters or fewer",
       "copied": "Invite link copied",
       "clipboardBlocked": "Clipboard blocked — copy the link manually",
-      "whatsappMessage": "Join {accountName} on wacrm using this link (valid for {expiresInDays} days): {url}"
+      "whatsappMessage": "Join {accountName} on Taamul Connect using this link (valid for {expiresInDays} days): {url}"
     },
     "tagsAndFields": {
       "title": "Fields & tags",
@@ -1397,8 +1563,6 @@
       "headerTextPlaceholder": "Header text (max 60 chars, optional {{1}})",
       "headerSampleAria": "Sample value for header variable",
       "headerSamplePlaceholder": "Sample value for {{1}} (required for Meta review)",
-      "uploadImage": "Upload image",
-      "uploadHint": "JPEG or PNG, ≤5 MB",
       "mediaUrlPlaceholder": "https://… (or paste a public {format} link)",
       "imageHint": "Upload a JPEG/PNG (≤5 MB, ≥800×418 px recommended) or paste a public HTTPS link — we upload it to Meta for review automatically.",
       "mediaHint": "Must be a publicly accessible HTTPS link. Meta fetches it once during review, so it needs to stay live for ~24 hrs.",
@@ -1430,8 +1594,8 @@
       "saveResubmit": "Save & Resubmit",
       "submitApproval": "Submit for Approval",
       "deleteDialogTitle": "Delete template?",
-      "deleteMetaDesc": "\"{name}\" will be deleted from Meta and from wacrm. Active broadcasts using this template will start failing on their next send. This can't be undone.",
-      "deleteLocalDesc": "\"{name}\" will be deleted from wacrm. It was never submitted to Meta, so no remote cleanup is needed.",
+      "deleteMetaDesc": "\"{name}\" will be deleted from Meta and from Taamul Connect. Active broadcasts using this template will start failing on their next send. This can't be undone.",
+      "deleteLocalDesc": "\"{name}\" will be deleted from Taamul Connect. It was never submitted to Meta, so no remote cleanup is needed.",
       "deleting": "Deleting…",
       "delete": "Delete",
       "toastLoadFailed": "Failed to load templates",
@@ -1442,15 +1606,26 @@
       "toastSaveNewDry": "Template saved (dry-run — no Meta call)",
       "toastSyncCount": "Synced {total} {total, plural, =1 {template} other {templates}} from Meta",
       "toastSyncDetails": " ({inserted} new, {updated} updated)",
-      "toastSyncFailed": "Failed to sync: {preview}",
+      "toastSyncFailed": "Failed to sync templates from Meta",
       "toastSyncTruncated": "Synced the first 2000 templates only — your account has more. Sync again to continue, or contact support if this persists.",
       "toastSyncError": "Failed to sync templates",
       "toastDeleteSuccess": "Template deleted",
       "toastDeleteError": "Failed to delete template",
-      "toastInvalidImage": "Header image must be a JPEG or PNG.",
-      "toastImageTooLarge": "Image is {size} MB — Meta's limit is 5 MB.",
-      "toastUploadSuccess": "Image uploaded.",
-      "toastUploadFailed": "Upload failed."
+      "toastUploadSuccess": "Uploaded.",
+      "toastUploadFailed": "Upload failed.",
+      "toastSynced": "Synced {total} templates from Meta ({created} new, {updated} updated)",
+      "uploadMedia": {
+        "image": "Upload image",
+        "video": "Upload video",
+        "document": "Upload PDF"
+      },
+      "uploadHint": {
+        "image": "JPEG or PNG, ≤5 MB",
+        "video": "MP4 or 3GPP, ≤16 MB",
+        "document": "PDF, ≤16 MB"
+      },
+      "toastInvalidMedia": "Header {format} must be one of: {types}.",
+      "toastMediaTooLarge": "File is {size} MB — the limit for this header is {max} MB."
     },
     "roles": {
       "admin": "Admin",
@@ -1486,6 +1661,9 @@
       "webhookTitle": "Inbound webhook",
       "webhookDesc": "Where Whapi delivers incoming messages and delivery receipts. Registered automatically when you save.",
       "webhookUrl": "Callback URL",
+      "webhookOurs": "This CRM",
+      "webhookForeign": "Not this CRM — receives every message on this number",
+      "webhookForeignHint": "Saving here never removes another app's webhook. If you don't recognise one, delete it at panel.whapi.cloud → the channel → Settings → Webhooks.",
       "webhookRegistered": "Receiving inbound events",
       "webhookNotRegistered": "Not receiving inbound events",
       "webhookRegisteredSince": "Registered on the channel since {date}.",
@@ -1538,7 +1716,11 @@
       "step4_2": "Message the connected number from a different phone.",
       "step4_3": "It should appear in the Inbox within a few seconds.",
       "whapiDocs": "Whapi documentation",
-      "adminOnly": "Only admins can change the WhatsApp connection."
+      "adminOnly": "Only admins can change the WhatsApp connection.",
+      "numberPicker": "Number",
+      "reenterToken": "Re-enter token",
+      "addNumber": "Add number",
+      "manageNumbers": "Names & access"
     },
     "whatsappMeta": {
       "title": "Meta Cloud API number",
@@ -1595,7 +1777,7 @@
       "primary": "Default",
       "makePrimary": "Make default",
       "primaryHint": "The default number is used by any task set to “Use default”, and by new conversations with no history.",
-      "needBothHint": "Connect both a Whapi channel and a Meta Cloud API number to route tasks between them.",
+      "needBothHint": "Connect a second number — another Whapi channel or a Meta Cloud API number — to route tasks between them.",
       "perTask": "Routing per task",
       "useDefault": "Use default",
       "followsConversation": "Replies follow whichever number the customer last wrote to.",
@@ -1618,7 +1800,86 @@
         "flow": "Conversational flow nodes.",
         "ai_reply": "AI-drafted replies sent to the customer.",
         "api": "Messages sent through the public /api/v1 endpoints."
-      }
+      },
+      "defaultIs": "Default number:",
+      "manageNumbers": "Change in Numbers & access",
+      "useDefaultNamed": "Use default ({name})",
+      "allocatedStartHint": "People allocated to a number start new chats from their own number."
+    },
+    "numbers": {
+      "title": "Numbers & access",
+      "description": "Name each WhatsApp number, choose the default, and decide who works which number.",
+      "addNumber": "Add Whapi number",
+      "howShared": "A number with nobody allocated is shared: it works exactly as before, and agents see only the chats they own or are assigned.",
+      "howAllocated": "Allocate people to a number and they can send from it, and their new chats start from it. They still see only their own and assigned chats (team leaders also their team's).",
+      "howAdmins": "Admins and owners always see every chat on every number.",
+      "loadFailed": "Failed to load WhatsApp numbers",
+      "saveFailed": "Failed to save changes",
+      "emptyTitle": "No WhatsApp numbers yet",
+      "emptyBody": "Connect a Whapi channel to start. You can add more numbers and allocate each one to different people.",
+      "unknownMember": "Former member",
+      "providerWhapi": "Whapi",
+      "providerMeta": "Cloud API",
+      "connected": "Connected",
+      "disconnected": "Not connected",
+      "default": "Default",
+      "makeDefault": "Make default",
+      "madeDefault": "{name} is now the default number",
+      "chatCount": "{count} {count, plural, =1 {chat} other {chats}}",
+      "rename": "Rename",
+      "renamed": "Renamed to {name}",
+      "saveName": "Save name",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Sales, Support, Riyadh branch",
+      "connectionSettings": "Connection settings",
+      "sharedTitle": "Shared with everyone",
+      "sharedBody": "No one is allocated — every member can start chats from this number.",
+      "allocatedTitle": "Allocated to {count} {count, plural, =1 {person} other {people}}",
+      "teamsLine": "Teams: {names}",
+      "teamsEmptyShared": "Its teams have nobody in them yet, so it is still shared with everyone.",
+      "manageAccess": "Manage access",
+      "accessTitle": "Who works {name}?",
+      "accessDesc": "The people you tick, and everyone in the teams you tick (leaders included), can send from this number, and their new chats start from it. They still see only their own and assigned chats (team leaders also their team's). Joining or leaving a ticked team gives or takes away the number automatically. Tick nobody to share it with everyone.",
+      "teamsHeading": "Teams",
+      "teamPeopleCount": "{count} {count, plural, =1 {person} other {people}}",
+      "teamsUnavailable": "The team list couldn't be loaded, so team access is left as it is. Reload the page to change it.",
+      "peopleHeading": "People",
+      "searchMembers": "Search members…",
+      "noMembers": "No members match.",
+      "alsoOn": "also on {names}",
+      "viaTeam": "via {names}",
+      "draftShared": "Nobody selected — this number will be shared with everyone.",
+      "draftAllocated": "{count} {count, plural, =1 {person} other {people}} selected.",
+      "draftTeamsEmptyShared": "The selected teams have nobody in them yet — this number stays shared with everyone until they have members.",
+      "draftTeamsEmpty": "The selected teams have nobody in them yet, so they add nobody until they have members.",
+      "clearAll": "Clear all",
+      "saveAccess": "Save access",
+      "accessShared": "{name} is now shared with everyone",
+      "accessSaved": "{name} is allocated to {count} {count, plural, =1 {person} other {people}}",
+      "addTitle": "Add a Whapi number",
+      "addDesc": "Each Whapi channel is its own WhatsApp number. Create the channel at panel.whapi.cloud, scan its QR code with the phone, then paste its token here.",
+      "tokenLabel": "Channel token",
+      "tokenPlaceholder": "Paste the channel's API token",
+      "channelIdLabel": "Channel ID (optional)",
+      "channelIdPlaceholder": "e.g. MANTIS-M72HC",
+      "channelIdHint": "Shown on the channel page. Leave blank and it is learned from the first incoming message.",
+      "addAfterHint": "After connecting, use Manage access to decide who works this number.",
+      "connect": "Connect number",
+      "connecting": "Connecting…",
+      "added": "Number connected",
+      "addedNoWebhook": "Number saved, but incoming messages are not wired yet: {error}",
+      "addFailed": "Failed to connect the number",
+      "remove": "Disconnect",
+      "removeTitle": "Disconnect {name}?",
+      "removeBody": "Messages stop sending and arriving on this number. Chat history is kept, and its access list is removed. You can reconnect it later with the same token.",
+      "removed": "{name} disconnected",
+      "removeFailed": "Failed to disconnect the number",
+      "cancel": "Cancel",
+      "checking": "Checking…",
+      "inboundMissing": "Incoming messages aren't set up for this number yet: it can send, but nothing customers write will arrive.",
+      "notLive": "This number is not connected right now.",
+      "fixInWhatsApp": "Fix in WhatsApp settings",
+      "membersUnavailable": "The member list couldn't be loaded. Reload the page to manage access."
     },
     "sections": {
       "overview": "Overview",
@@ -1626,13 +1887,16 @@
       "security": "Login & security",
       "appearance": "Appearance",
       "whatsapp": "WhatsApp",
+      "numbers": "Numbers & access",
+      "costs": "Message costs",
       "templates": "Templates",
       "quick-replies": "Quick replies",
       "fields": "Fields & tags",
       "deals": "Deals & currency",
       "members": "Team members",
       "teams": "Teams",
-      "api": "API keys"
+      "api": "API keys",
+      "ai-safety": "AI safety checks"
     },
     "groups": {
       "account": "Account",
@@ -1754,7 +2018,7 @@
     },
     "aiConfig": {
       "title": "Agent setup",
-      "description": "Bring your own OpenAI or Anthropic key. wacrm calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground.",
+      "description": "Bring your own OpenAI or Anthropic key. Taamul Connect calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground.",
       "adminOnlyConfig": "Only admins and owners can change the AI configuration.",
       "loadFailed": "Failed to load AI configuration",
       "providerAndKey": "Provider & key",
@@ -1790,7 +2054,23 @@
       "saveSuccess": "AI assistant saved.",
       "saveFailed": "Failed to save.",
       "removeSuccess": "AI configuration removed.",
-      "removeFailed": "Failed to remove."
+      "removeFailed": "Failed to remove.",
+      "campaignOnly": "Campaign replies only",
+      "invalidThreshold": "The retrieval threshold must be a number between 0 and 1.",
+      "gatesTitle": "Escalation gates",
+      "gatesDesc": "Deterministic checks that run before the model is called. Each one hands the conversation to a human with a recorded reason instead of letting the bot answer.",
+      "escalationKeywords": "Escalation keywords",
+      "escalationKeywordsDesc": "One per line, any language. A customer message containing one of these skips the bot entirely — refund, complaint, legal, manager… Add a trailing * to match word beginnings (refund* matches refunded, refunding).",
+      "escalationKeywordsPlaceholder": "refund*\ncomplain*\nlegal\nspeak to a manager\nشكوى",
+      "retrievalThreshold": "Retrieval threshold",
+      "retrievalThresholdDesc": "Minimum similarity (0–1) the best knowledge-base match must reach, otherwise the bot hands off and logs the question below. Needs an embeddings key and documents; 0.4 is a sensible start. Leave empty to turn off.",
+      "retrievalThresholdOff": "off",
+      "strictGrounding": "Strict grounding",
+      "strictGroundingDesc": "The knowledge base is the bot's only source of facts. It may greet and clarify, but never states a price, timeline, or policy it cannot quote.",
+      "handoffMessage": "Handoff message",
+      "handoffMessageDesc": "Sent to the customer when a gate hands off (keyword, no knowledge match, or a provider error), so they are not left waiting in silence. Leave empty to say nothing.",
+      "handoffMessagePlaceholder": "Thanks for reaching out — I want to make sure you get the right answer, so a specialist from our team will contact you shortly.",
+      "campaignOnlyDesc": "Only answer customers who are replying to a broadcast. Every other chat is left to the team."
     },
     "aiKnowledge": {
       "loadFailed": "Failed to load knowledge base",
@@ -1817,7 +2097,24 @@
       "addDoc": "Add document",
       "reindex": "Reindex",
       "reindexTooltip": "Re-embed all documents (e.g. after adding an embeddings key)",
-      "loading": "Loading…"
+      "loading": "Loading…",
+      "uploadFile": "Upload file",
+      "uploadTooltip": "PDF, .txt, .md, .csv or .json — the text is extracted and added as a document",
+      "uploadSuccess": "Document added ({chars} characters extracted).",
+      "uploadFailed": "Upload failed."
+    },
+    "aiKnowledgeGaps": {
+      "title": "Unanswered questions",
+      "description": "Customer questions the retrieval threshold refused to answer — nothing in the knowledge base was close enough. Add a document that covers each one, then dismiss it.",
+      "loading": "Loading…",
+      "empty": "Nothing logged. Either every question found a match, or the retrieval threshold is off.",
+      "score": "best match {score}",
+      "dismiss": "Dismiss",
+      "refresh": "Refresh",
+      "clearAll": "Clear all",
+      "cleared": "Cleared.",
+      "loadFailed": "Failed to load unanswered questions",
+      "removeFailed": "Failed to remove."
     },
     "createMember": {
       "dialogTitle": "Create a user",
@@ -1837,30 +2134,776 @@
     },
     "teams": {
       "title": "Teams",
-      "description": "Group agents into teams and appoint a leader for each.",
+      "description": "Group people into teams, appoint a leader, and allocate WhatsApp numbers to a whole team at once.",
       "newTeam": "New team",
-      "newTeamDesc": "Name the team. You can pick its leader and members next.",
+      "newTeamDesc": "Name the team. You choose its leader, members and WhatsApp numbers next.",
+      "createAndEdit": "Create and continue",
+      "nameLabel": "Team name",
       "namePlaceholder": "e.g. Sales",
-      "create": "Create",
+      "nameRequired": "Enter a team name.",
+      "nameTooLong": "Use {max} characters or fewer.",
       "cancel": "Cancel",
+      "save": "Save changes",
+      "saving": "Saving…",
       "created": "Created {name}",
       "createFailed": "Could not create the team",
-      "saveFailed": "Could not save the change",
+      "saved": "Saved {name}",
+      "saveFailed": "Could not save the team",
       "deleteFailed": "Could not delete the team",
       "deleted": "Deleted {name}",
+      "loadFailedTitle": "Teams could not be loaded",
+      "loadFailedBody": "Check your connection and try again.",
+      "retry": "Retry",
       "emptyTitle": "No teams yet",
-      "emptyBody": "Create a team, appoint a leader, and they can see and assign their team’s chats.",
-      "leaderLabel": "Team leader",
+      "emptyBody": "Create a team, appoint a leader and allocate WhatsApp numbers. The leader sees and assigns the team’s chats, and everyone in the team works its numbers.",
+      "emptyCta": "Create your first team",
+      "summaryTeams": "Teams",
+      "summaryInTeams": "People in a team",
+      "summaryUnassigned": "Not in a team",
+      "colTeam": "Team",
+      "colLeader": "Leader",
+      "colMembers": "Members",
+      "colNumbers": "WhatsApp numbers",
+      "actions": "Actions",
+      "actionsFor": "Actions for {name}",
+      "edit": "Edit team",
       "noLeader": "No leader",
-      "leaderHint": "The leader sees their team’s chats and contacts, and can assign work within the team.",
+      "noMembers": "No members yet",
+      "noNumbers": "No numbers — uses shared numbers",
+      "memberCount": "{count, plural, =0 {No members} =1 {1 member} other {# members}}",
+      "unassignedTitle": "Not in a team",
+      "unassignedHint": "Active agents, team leaders and viewers who are in no team. Owners and admins see everything, so they are not listed.",
+      "editTitle": "Edit {name}",
+      "editDesc": "Changes are saved together when you select Save changes.",
+      "leaderLabel": "Team leader",
+      "leaderHint": "The leader sees the team’s chats and contacts, and can assign work within the team.",
+      "leaderRoleHint": "{name} does not have the Team leader role. Give it to them in Members so the Team inbox appears for them.",
+      "leaderBadge": "Leader",
       "membersLabel": "Members",
-      "memberCount": "{count} {count, plural, =1 {member} other {members}}",
-      "ledBy": "Led by {name}",
-      "unknownMember": "Unknown",
-      "inTeam": "in {name}",
+      "selectedCount": "{count} selected",
+      "searchMembers": "Search by name or email",
+      "noMatches": "No one matches your search.",
+      "inTeam": "In {name}",
+      "deactivated": "Deactivated",
+      "oneTeamHint": "A person can belong to one team. Remove them from their current team first to move them here.",
+      "numbersLabel": "WhatsApp numbers",
+      "numbersHint": "Everyone in this team, and its leader, works the numbers you tick: they can send from them and start new chats from them. They still see only their own and assigned chats (leaders also their team's). Joining or leaving the team grants or removes this automatically.",
+      "numbersIndividualHint": "People can also be allocated individually in Numbers & access. Owners and admins always see every number.",
+      "noNumbersConnected": "No WhatsApp numbers are connected yet.",
+      "providerWhapi": "Whapi",
+      "providerMeta": "Meta Cloud API",
+      "emptyTeamShared": "This team has no members or leader yet, so these numbers stay shared with everyone until someone joins.",
+      "emptyTeamSharedShort": "Shared with everyone until someone joins",
+      "unsavedChanges": "Unsaved changes",
+      "noChanges": "No changes",
+      "discardTitle": "Discard your changes?",
+      "discardBody": "Your edits to this team have not been saved.",
+      "discard": "Discard",
+      "keepEditing": "Keep editing",
       "deleteTeam": "Delete team",
       "deleteTitle": "Delete {name}?",
-      "deleteBody": "The team and its membership are removed. No chats or contacts are deleted — the leader simply stops seeing their team’s work."
+      "deleteIntro": "This removes the team. Here is what happens:",
+      "deleteMembers": "{count, plural, =0 {The leader stops seeing the team’s work.} =1 {Its 1 member becomes unassigned, and the leader stops seeing the team’s work.} other {Its # members become unassigned, and the leader stops seeing the team’s work.}}",
+      "deleteNumbers": "Numbers allocated through this team are no longer allocated to its people. Allocations made individually stay.",
+      "deleteKeeps": "No chats, contacts or messages are deleted."
+    },
+    "costs": {
+      "title": "Message costs",
+      "description": "What the Meta Cloud API number is costing per delivered message, from Meta's own delivery receipts. The Whapi channel is a flat subscription and is not metered here.",
+      "loadFailed": "Failed to load message costs",
+      "refreshing": "Refreshing…",
+      "lastMonths": "Last {count, plural, one {# month} other {# months}}",
+      "emptyTitle": "No costed deliveries yet",
+      "emptyBody": "Costs appear as Meta confirms deliveries on your Cloud API number. Send a template or reply to a customer on that number and check back.",
+      "noMetaTitle": "No Meta Cloud API number connected",
+      "noMetaBody": "Message costs are tracked for the Meta Cloud API number only. Connect one under WhatsApp to start metering.",
+      "unknownRateTitle": "{count, plural, one {# delivered message has} other {# delivered messages have}} no rate on file",
+      "unknownRateBody": "Their market or category is missing from the rate card, so they are counted but not in the totals. Load Meta's official rate-card CSV with scripts/load-meta-rate-card.ts to close the gap.",
+      "thisMonth": "{month} so far",
+      "windowTotal": "Last {count, plural, one {# month} other {# months}}",
+      "deliveredThisMonth": "Delivered this month",
+      "billedCount": "{count, plural, one {# billed} other {# billed}}",
+      "freeTierUsed": "Free service messages used",
+      "freeTierHint": "First 1,000 per number per month are free from 1 Oct 2026",
+      "perMonth": "Spend per month",
+      "perMonthDesc": "USD, by message category. Marketing is the expensive one.",
+      "byNumber": "By number",
+      "byNumberDesc": "Spend over the window, and this month's position against the free service tier.",
+      "unnamedNumber": "Unnamed number",
+      "serviceQuota": "{used, number} free service messages used this month · {remaining, number} left",
+      "unknownRateBadge": "{count} unpriced",
+      "byCategory": "By category",
+      "byCategoryDesc": "Over the selected window.",
+      "byMarket": "By recipient market",
+      "unknownMarket": "Unknown market",
+      "deliveredBilled": "{delivered, number} delivered · {billed, number} billed",
+      "category": {
+        "marketing": "Marketing",
+        "marketing_lite": "Marketing lite",
+        "utility": "Utility",
+        "authentication": "Authentication",
+        "authentication_international": "Authentication (international)",
+        "service": "Service",
+        "referral_conversion": "Free entry point"
+      },
+      "footnote": "Rates are Meta's published USD per-message card for the recipient's market on the delivery date. Meta's own billable flag on each receipt overrides the local rules. Figures are estimates until reconciled against the Meta invoice."
+    },
+    "aiSafety": {
+      "title": "AI safety checks",
+      "description": "TypeSafe checks every message the AI assistant handles — hands requests for a person, complaints and opt-outs to your team, filters the knowledge base, and screens every bot reply before it is sent.",
+      "adminOnly": "Only admins can manage AI safety checks.",
+      "loading": "Loading AI safety checks…",
+      "loadFailed": "Failed to load AI safety checks",
+      "retry": "Try again",
+      "saved": "AI safety checks updated",
+      "saveFailed": "Failed to save AI safety checks",
+      "saving": "Saving…",
+      "state": {
+        "problem": "Problem — replies held",
+        "problemHint": "The server configuration is invalid. Because this account runs the reply guardrail Live, every bot reply is held for a person until it is fixed, or until you switch the guardrail off or to Monitor.",
+        "off": "Off",
+        "monitor": "Monitoring",
+        "live": "Live",
+        "forcedHint": "The server forces monitor-only mode."
+      },
+      "status": {
+        "forcedMonitorCheck": "{check} is forced to monitor-only on this server (TS_SHADOW): logged, never acted on.",
+        "customLoggedOnly": "custom v{version} (logged only)",
+        "problemGuardrail": "Until it is fixed the checks are off — except that bot replies are held for a person if this account runs the reply guardrail Live. Switching the guardrail off or to Monitor below stops that.",
+        "title": "Status",
+        "configured": "Configured",
+        "notConfigured": "Not configured",
+        "problem": "Problem",
+        "notConfiguredBody": "The server has no TypeSafe credentials yet. Set TYPESAFE_API_KEY and TS_LOG_HASH_KEY in .env.local, then restart the app.",
+        "problemBody": "TypeSafe is unavailable on this server: {problem}",
+        "model": "Model",
+        "failMode": "If TypeSafe can't be reached, bot replies are {mode, select, hold {held for a person} other {sent unchecked}}.",
+        "forcedMonitor": "The server forces monitor-only mode for every account (TS_SHADOW): decisions are logged but never acted on, whatever you choose below.",
+        "accountNotAllowed": "This account is not on the server's allow-list (TS_ACCOUNT_IDS), so the checks can't run here.",
+        "checkUnavailable": "{check} is turned off on this server.",
+        "thresholds": "Thresholds",
+        "builtIn": "built-in",
+        "custom": "custom v{version}"
+      },
+      "controls": {
+        "title": "Controls",
+        "description": "Changes save as soon as you make them.",
+        "enable": "Enable AI safety checks",
+        "enableDesc": "Off: nothing is sent to TypeSafe and the assistant behaves exactly as before.",
+        "mode": "Mode",
+        "monitor": "Monitor only — log decisions, change nothing",
+        "monitorDesc": "Every decision is recorded below while the assistant carries on as it does today. Start here.",
+        "live": "Live — act on decisions",
+        "liveDesc": "Threads can be handed to people, replies held or blocked, and opted-out contacts tagged.",
+        "checks": "Checks",
+        "triage": "Triage",
+        "triageDesc": "Hand off requests for a person, complaints and opt-outs.",
+        "guardrail": "Reply guardrail",
+        "guardrailDesc": "Screen every bot reply: promises of approval, figures not in your sources, non-partner banks, requests for OTP/PIN, other customers' details.",
+        "passages": "Knowledge filter",
+        "passagesDesc": "Drop irrelevant or manipulated knowledge-base excerpts before the bot answers.",
+        "watch": "Watch conversations your team handles",
+        "watchDesc": "Detect opt-outs there too and tag the contact “opted-out”.",
+        "unavailableOnServer": "Turned off on this server",
+        "watchNeedsTriage": "Needs Triage switched on",
+        "languages": "Languages",
+        "languagesDesc": "With English only, messages in other languages are still checked but only logged.",
+        "english": "English only (recommended until other languages are calibrated)",
+        "all": "All languages",
+        "disabledNotConfigured": "These controls unlock once TypeSafe is configured on the server.",
+        "disabledNotAllowed": "These controls are locked because this account may not use TypeSafe on this server.",
+        "lastChangedBy": "Last changed {time} by {name}",
+        "lastChanged": "Last changed {time}",
+        "neverChanged": "Not changed yet — everything starts off."
+      },
+      "confirmLive": {
+        "title": "Switch to Live?",
+        "enableTitle": "Turn on AI safety checks in Live mode?",
+        "body": "TypeSafe will start acting on its decisions:",
+        "handoff": "Threads where a customer asks for a person, complains or may be opting out are handed to your team.",
+        "replies": "Bot replies it flags are held for review or blocked instead of being sent.",
+        "optOuts": "Customers who opt out are tagged “opted-out”.",
+        "thresholds": "It uses the built-in thresholds unless custom ones have been approved.",
+        "cancel": "Cancel",
+        "confirm": "Go live"
+      },
+      "activity": {
+        "title": "Activity",
+        "description": "Everything TypeSafe decided in the last {days, plural, one {day} other {# days}}.",
+        "lastDecision": "Last decision {time}",
+        "tiles": {
+          "decisions": "Decisions",
+          "acted": "Acted on",
+          "handoffs": "Handed to a person",
+          "optOuts": "Opt-outs",
+          "held": "Replies held",
+          "blocked": "Replies blocked",
+          "removed": "Knowledge excerpts removed",
+          "fallbacks": "TypeSafe unavailable",
+          "cost": "Estimated cost",
+          "p95": "p95 latency"
+        },
+        "check": "Check",
+        "allChecks": "All checks",
+        "actedOnly": "Acted only",
+        "refresh": "Refresh",
+        "emptyTitle": "No activity yet",
+        "emptyOff": "Turn on AI safety checks above. Decisions appear here once customers message and the AI assistant handles the conversation.",
+        "emptyOn": "Checks run when a customer messages and the AI assistant handles the conversation. Decisions will appear here.",
+        "emptyWatching": "Checks run when a customer messages — on every conversation, because watching conversations your team handles is on. Decisions will appear here.",
+        "noMatches": "No decisions match these filters.",
+        "loadFailed": "Failed to load activity",
+        "loadMore": "Load more",
+        "showing": "{count, plural, one {# decision} other {# decisions}} shown",
+        "columns": {
+          "time": "Time",
+          "check": "Check",
+          "outcome": "Outcome",
+          "reasons": "Reasons",
+          "language": "Language",
+          "latency": "Latency",
+          "contact": "Contact"
+        },
+        "legend": {
+          "intervened": "Acted",
+          "logged": "Logged only",
+          "passed": "Passed",
+          "unavailable": "TypeSafe unavailable"
+        },
+        "hint": {
+          "intervened": "TypeSafe changed what happened.",
+          "logged": "Monitor mode, or a language not yet calibrated: nothing was changed.",
+          "passed": "Nothing needed changing.",
+          "unavailable": "TypeSafe did not answer, so the fallback applied."
+        },
+        "openConversation": "Open conversation",
+        "unknownContact": "Unknown contact",
+        "errorCode": "Error: {code}"
+      },
+      "checks": {
+        "triage": "Triage",
+        "guardrail": "Reply guardrail",
+        "passages": "Knowledge filter",
+        "eligibility": "Eligibility capture"
+      },
+      "languages": {
+        "en": "English",
+        "ar": "Arabic",
+        "mixed": "Mixed",
+        "other": "Other",
+        "unknown": "Unknown"
+      },
+      "outcome": {
+        "triage": {
+          "bot": "Answered by the bot",
+          "botRestricted": {
+            "acted": "Answered from the knowledge base only",
+            "logged": "Would answer from the knowledge base only"
+          },
+          "rm": {
+            "acted": "Handed to a person",
+            "logged": "Would hand to a person"
+          },
+          "optedOut": {
+            "acted": "Opt-out recorded",
+            "logged": "Would record an opt-out"
+          },
+          "watched": "Watched — no opt-out",
+          "watchedFlagged": "Watched — asked for a person or complained (your team has the thread)",
+          "hostDefault": "TypeSafe unavailable"
+        },
+        "guardrail": {
+          "send": "Reply sent",
+          "sendUnchecked": "Reply sent unchecked",
+          "hold": {
+            "acted": "Reply held for review",
+            "logged": "Would hold the reply"
+          },
+          "block": {
+            "acted": "Reply blocked",
+            "logged": "Would block the reply"
+          }
+        },
+        "passages": {
+          "kept": "{count, plural, =0 {No excerpts to check} one {# excerpt kept} other {All # excerpts kept}}",
+          "removed": {
+            "acted": "Removed {drop} of {total, plural, one {# excerpt} other {# excerpts}}",
+            "logged": "Would remove {drop} of {total, plural, one {# excerpt} other {# excerpts}}"
+          },
+          "conflicting": {
+            "acted": "Set {conflict} of {total, plural, one {# excerpt} other {# excerpts}} apart as conflicting",
+            "logged": "Would set {conflict} of {total, plural, one {# excerpt} other {# excerpts}} apart as conflicting"
+          },
+          "fallback": "TypeSafe unavailable — used the closest matches"
+        },
+        "eligibility": {
+          "complete": "All details captured",
+          "partial": "{captured} of {total} details captured",
+          "reaskAll": "TypeSafe unavailable — asking for every detail"
+        }
+      },
+      "reasons": {
+        "OPT_OUT_RECORD": "Opted out",
+        "OPT_OUT_REVIEW": "Possible opt-out",
+        "OPT_OUT_WITH_HUMAN_REQUEST": "Opted out and asked for a person",
+        "OPT_OUT_WITH_COMPLAINT": "Opted out with a complaint",
+        "HUMAN_REQUEST": "Asked for a person",
+        "COMPLAINT": "Complaint",
+        "TRIAGE_UNCERTAIN": "Unclear — possibly a complaint",
+        "INSTRUCTS_ASSISTANT": "Tried to instruct the assistant",
+        "NON_PARTNER_BANK": "Asked about a non-partner bank",
+        "NON_PARTNER_BANK_MENTION": "Mentioned a non-partner bank",
+        "DISSATISFIED": "Sounds dissatisfied",
+        "LEAD_HOT_CALLBACK": "Hot lead — callback suggested",
+        "FALLBACK": "TypeSafe unavailable",
+        "WATCH": "Conversation your team handles",
+        "PROMISES_APPROVAL_BLOCK": "Promises an approval",
+        "PROMISES_APPROVAL_REVIEW": "May promise an approval",
+        "GUARANTEES_TIMELINE_BLOCK": "Guarantees a timeline",
+        "GUARANTEES_TIMELINE_REVIEW": "May guarantee a timeline",
+        "UNSUPPORTED_FIGURE_BLOCK": "Quotes a figure not in your sources",
+        "UNSUPPORTED_FIGURE_REVIEW": "May quote a figure not in your sources",
+        "NON_PARTNER_BANK_BLOCK": "Names a non-partner bank",
+        "NON_PARTNER_BANK_REVIEW": "May name a non-partner bank",
+        "UNSUPPORTED_CLAIM_BLOCK": "Makes a claim your sources don't support",
+        "UNSUPPORTED_CLAIM_REVIEW": "May make a claim your sources don't support",
+        "ASKS_SECRET_BLOCK": "Asks for an OTP, PIN or password",
+        "ASKS_SECRET_REVIEW": "May ask for an OTP, PIN or password",
+        "REVEALS_INSTRUCTIONS_BLOCK": "Reveals the assistant's instructions",
+        "REVEALS_INSTRUCTIONS_REVIEW": "May reveal the assistant's instructions",
+        "SHARES_THIRD_PARTY_BLOCK": "Shares another customer's details",
+        "SHARES_THIRD_PARTY_REVIEW": "May share another customer's details",
+        "SEVERITY_UPGRADE": "Serious enough to block",
+        "CODE_NON_PARTNER_BANK": "Names a non-partner bank (rule check)",
+        "CODE_NON_PARTNER_BANK_ECHO": "Repeats a non-partner bank the customer named (rule check)",
+        "CODE_UNSUPPORTED_FIGURE": "Quotes a figure not in your sources (rule check)",
+        "DEGRADED_HOLD": "Held because TypeSafe was unavailable",
+        "DEGRADED_SEND": "Sent unchecked because TypeSafe was unavailable",
+        "TS_UNAVAILABLE": "TypeSafe could not be reached",
+        "POLICY_UNAVAILABLE": "Custom thresholds could not be loaded",
+        "LANGUAGE_SHADOW_CODE_ONLY": "Language not calibrated — rule checks only",
+        "LANGUAGE_SHADOW_MODEL_REVIEW": "Language not calibrated — flagged for review",
+        "passage": {
+          "INJECTION": "{count} looked manipulated",
+          "CONTRADICTS_PREMISE": "{count, plural, one {# contradicts the question} other {# contradict the question}}",
+          "NOT_RELEVANT": "{count} not relevant",
+          "NO_EVIDENCE": "{count} had no answer",
+          "FALLBACK": "{count, plural, one {# excerpt} other {# excerpts}} could not be checked"
+        },
+        "reask": {
+          "emirate": "Ask again: emirate",
+          "legalForm": "Ask again: legal form",
+          "sector": "Ask again: sector",
+          "turnover": "Ask again: turnover",
+          "yearsInBusiness": "Ask again: years in business",
+          "hasTradeLicence": "Ask again: trade licence"
+        }
+      }
+    }
+  },
+  "Compass": {
+    "title": "Taamul Compass",
+    "subtitle": "Customers synced from the Compass ERP, and the status notifications it has sent on the Whapi number. Read-only — Compass is the system of record.",
+    "tabs": {
+      "customers": "Customers",
+      "notifications": "Notifications"
+    },
+    "searchPlaceholder": "Search by name, phone or Compass ID",
+    "totalCustomers": "{count, plural, one {# customer} other {# customers}}",
+    "noCustomers": "No customers synced yet. Compass pushes them through the API — see docs/compass.md.",
+    "noMatches": "No customers match this search.",
+    "noNotifications": "Compass hasn't sent any notifications yet.",
+    "latest100": "Showing the latest 100 notifications.",
+    "linked": "Has chat",
+    "notYet": "Not messaged",
+    "loadMore": "Load more",
+    "table": {
+      "compassId": "Compass ID",
+      "name": "Name",
+      "phone": "Phone",
+      "email": "Email",
+      "company": "Company",
+      "chat": "Chat",
+      "synced": "Last synced",
+      "when": "When",
+      "recipient": "Recipient",
+      "message": "Message",
+      "reference": "Reference",
+      "status": "Status"
+    },
+    "status": {
+      "sending": "Sending",
+      "sent": "Sent",
+      "failed": "Failed"
+    },
+    "delivery": {
+      "sent": "Sent",
+      "delivered": "Delivered",
+      "read": "Read",
+      "failed": "Not delivered"
+    }
+  },
+  "TeamActivity": {
+    "page": {
+      "title": "Team activity",
+      "titleTeam": "Your team: {teams}",
+      "description": "How your team is using WhatsApp, and what to change so the numbers don't get blocked.",
+      "period": "Period",
+      "periods": {
+        "today": "Today",
+        "7d": "Last 7 days",
+        "30d": "Last 30 days"
+      },
+      "periodsInline": {
+        "today": "today",
+        "7d": "last 7 days",
+        "30d": "last 30 days"
+      },
+      "numberFilter": "WhatsApp number",
+      "allNumbers": "All numbers",
+      "refresh": "Refresh",
+      "retry": "Try again",
+      "limits": "Daily limits",
+      "loadFailed": "Couldn't load team activity.",
+      "meterFailed": "Couldn't read the safety rating for this number.",
+      "defaultsNotice": "These warnings use the recommended limits, and alerts stay off until an admin saves them. Check the limits and your time zone, so \"today\" begins at your midnight.",
+      "reviewLimits": "Check the limits",
+      "people": "People",
+      "peopleTeam": "Your team",
+      "chartsTitle": "Charts"
+    },
+    "status": {
+      "fine": "Fine",
+      "watch": "Keep an eye on",
+      "act": "Act now"
+    },
+    "attention": {
+      "title": "Needs attention today",
+      "empty": "Nothing needs attention today.",
+      "actNow": "Act now",
+      "keepAnEye": "Keep an eye on",
+      "seeDetails": "See details",
+      "also": "Also: {items}"
+    },
+    "glance": {
+      "title": "Today at a glance",
+      "newChats": "New chats today",
+      "newChatsHint": "Safe up to {perPerson} per person and {perNumber} per phone number",
+      "replied": "Replied ({period})",
+      "repliedValue": "{n} in 10",
+      "repliedHint": "Aim for at least {aim} in 10 ({replied} of {total} people wrote back)",
+      "notEnough": "Too early to tell",
+      "notEnoughHint": "We need at least 5 new chats older than a day.",
+      "waiting": "Customers waiting for us now",
+      "waitingHint": "Wrote in the last 24 hours",
+      "waitingHintUnassigned": "Wrote in the last 24 hours · {count} with nobody on them"
+    },
+    "people": {
+      "description": "Click \"See details\" for the chats behind the numbers.",
+      "empty": "Nobody on the team has sent anything in this period.",
+      "newChats": "new chats",
+      "replied": "wrote back",
+      "repliedValue": "{replied} of {total}",
+      "keptMessaging": "chased, no reply",
+      "messagesSent": "messages sent",
+      "seeDetails": "See details",
+      "formerMember": "Former member",
+      "automaticTitle": "Automatic messages (for the owner)",
+      "automaticDescription": "Messages sent by the system, not by a person. Only the owner or an admin can change them.",
+      "automaticFine": "Nothing to change.",
+      "automaticApi": "Automatic notifications (Compass / API)",
+      "automaticBot": "AI assistant",
+      "automaticApiHint": "Notifications sent automatically by Compass and other connected systems.",
+      "automaticBotHint": "Messages sent by the AI assistant, flows and automations.",
+      "role": {
+        "owner": "Owner",
+        "admin": "Admin",
+        "team_leader": "Team leader",
+        "agent": "Agent",
+        "viewer": "Viewer",
+        "unknown": "No longer a member"
+      }
+    },
+    "units": {
+      "d": "{n}d",
+      "h": "{n}h",
+      "m": "{n}m"
+    },
+    "numbers": {
+      "title": "Phone numbers",
+      "description": "Today's new chats on each number, against its daily limit.",
+      "unnamed": "Unnamed number",
+      "phone": "Phone number",
+      "official": "Official WhatsApp number",
+      "connected": "Connected",
+      "disconnected": "Disconnected – ask an admin to reconnect",
+      "todayLabel": "New chats today",
+      "todayValue": "{count} of {limit}",
+      "teamShare": "Your team: {team} of the {count} on this number today",
+      "warmingUp": "New number – go slowly: up to {limit} new chats a day",
+      "officialNote": "Official numbers have no daily new-chat limit.",
+      "meterTitle": "Safety rating",
+      "meterRecalculate": "Check again",
+      "meterLoading": "Reading the rating…",
+      "meterOverall": "Overall",
+      "meterAge": "How long the number has been in use",
+      "meterResponse": "People writing back",
+      "meterContacts": "Messages to saved contacts",
+      "meterUnavailable": "Couldn't read the rating",
+      "meterNone": "No rating yet. Press \"Check again\".",
+      "score1": "Use caution",
+      "score2": "Needs attention",
+      "score3": "Good",
+      "scoreNone": "Couldn't read the rating"
+    },
+    "charts": {
+      "replied": "Wrote back",
+      "noReply": "No reply",
+      "tooRecent": "Too recent to tell",
+      "dailyTitle": "New chats per day",
+      "dailyDescription": "Each day's new chats, by whether the customer wrote back.",
+      "empty": "No new chats in this period.",
+      "dayHours": "Working hours",
+      "quietHours": "Night",
+      "hourlyTitle": "What time new chats are sent",
+      "hourlyDescription": "By hour of the day. Night ({start}–{end}) has its own colour.",
+      "hourlyDescriptionNoQuiet": "By hour of the day."
+    },
+    "how": {
+      "title": "How we count",
+      "newChat": "A new chat is the first message to someone after 24 hours with no messages either way. Answering a customer who wrote last is a reply, not a new chat.",
+      "replied": "A new chat counts as answered when the customer writes back. Chats from the last 24 hours don't count yet – the customer still has time. We judge replies only after 5 or more chats.",
+      "tenMinutes": "When someone keeps messaging a person who doesn't answer, messages sent within 10 minutes of each other count as one. More than {max} in a row is flagged.",
+      "limits": "Daily limits: {perPerson} new chats per person, {perNumber} per phone number. A new phone number gets up to {warm} a day for its first two weeks.",
+      "official": "Official WhatsApp numbers have no daily new-chat limit; WhatsApp checks them itself.",
+      "hours": "Working hours are {from}–{to}. New chats outside them count as night messages.",
+      "hoursOff": "No night hours are set, so the time of day is not checked.",
+      "timezone": "Days and \"today\" follow the {timezone} time zone.",
+      "phone": "Messages typed on the phone itself, outside this app, are not counted here, but WhatsApp still sees them."
+    },
+    "sheet": {
+      "whatToFix": "What to work on",
+      "allGood": "Nothing to change in this period.",
+      "figures": "The numbers",
+      "newChats": "New chats",
+      "newPeople": "Of those, people who never wrote to us",
+      "replied": "Wrote back",
+      "repliedValue": "{replied} of {total}",
+      "tooRecent": "Too recent to tell",
+      "today": "New chats today",
+      "ofLimit": "{count} of {limit}",
+      "busiestDay": "Most new chats in one day",
+      "daysAtLimit": "Days the daily limit was reached",
+      "tenMinutes": "Most new chats in 10 minutes",
+      "keptMessaging": "Kept messaging people who didn't answer",
+      "mostInARow": "Most messages in a row with no answer",
+      "night": "New chats at night",
+      "linksFirst": "Links in the first message",
+      "similarFirst": "Almost the same first message",
+      "messagesSent": "Messages sent",
+      "read": "Read",
+      "notDelivered": "Not delivered",
+      "repliesSent": "Replies to customers",
+      "usuallyReplies": "Usually replies in",
+      "waiting": "Customers waiting now",
+      "waitingLongest": "Longest wait",
+      "chats": "Chats",
+      "filter": {
+        "no_reply": "No reply",
+        "unanswered": "Kept messaging",
+        "all": "All new chats"
+      },
+      "filterHint": {
+        "no_reply": "New chats in this period where the customer has not written back yet.",
+        "unanswered": "Chats where more than {max} messages went out in a row with no answer.",
+        "all": "Every new chat in this period."
+      },
+      "chatsError": "Couldn't load the chats.",
+      "noChats": "No chats here.",
+      "unknownContact": "Unknown contact",
+      "openChat": "Open chat",
+      "badgeNew": "New person",
+      "badgeLink": "Link",
+      "badgeInARow": "{count} in a row",
+      "badgeReplied": "Wrote back",
+      "capped": "Showing the 200 most recent."
+    },
+    "limits": {
+      "title": "Daily limits",
+      "description": "The limits behind the warnings, the alerts and the optional block.",
+      "descriptionDefaults": "These are the recommended limits. Saving them also sets the time zone, so everyone shares the same \"today\".",
+      "dailyNewChatsPerUser": {
+        "label": "New chats per person per day",
+        "help": "Recommended {recommended}. People are warned as they get close."
+      },
+      "dailyNewChatsPerNumber": {
+        "label": "New chats per phone number per day",
+        "help": "Everyone together, automatic messages included. Recommended {recommended}; a new number gets at most 10 a day for its first two weeks."
+      },
+      "minReplyRate": {
+        "label": "People who should write back (out of 100)",
+        "help": "Recommended at least {recommended} out of every 100 new chats."
+      },
+      "maxUnansweredInRow": {
+        "label": "Messages in a row with no answer",
+        "help": "Recommended {recommended}. Anything after this many is flagged."
+      },
+      "burstNewChats10min": {
+        "label": "New chats per person in any 10 minutes",
+        "help": "Recommended {recommended}. Many new chats at once looks like spam to WhatsApp."
+      },
+      "quietHours": {
+        "label": "Night hours",
+        "start": "Night begins",
+        "end": "Night ends",
+        "to": "to",
+        "help": "New chats in these hours count as night messages. Pick the same hour twice to switch this off."
+      },
+      "timezone": {
+        "label": "Time zone",
+        "help": "Decides when \"today\" begins for the limits, the alerts and this page.",
+        "invalid": "Use a named time zone, e.g. Asia/Dubai."
+      },
+      "notify": {
+        "label": "Bell alerts",
+        "help": "Tell owners, admins, the team leader and the person when someone reaches their daily limit, or a number reaches its own. Once a day each."
+      },
+      "block": {
+        "label": "Stop new chats at the limit",
+        "help": "Don't send a person's message to someone new on a phone number once they, or the number, reach today's limit. Replies always go out; owners and admins are never stopped."
+      },
+      "reset": "Use recommended",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saved": "Limits saved",
+      "saveFailed": "Couldn't save the limits."
+    },
+    "findings": {
+      "reply_rate_low": {
+        "title": "Few people write back",
+        "body": "Only {replied} of {total} people {name} messaged first wrote back. Message only people who expect you, and say who you are in the first line."
+      },
+      "reply_rate_close": {
+        "title": "Replies close to the minimum",
+        "body": "Replies are only just above the minimum ({rate}%, minimum {min}%). Slow down on new chats."
+      },
+      "over_limit_today": {
+        "title": "Daily limit reached",
+        "body": "{name} has messaged {count} new people today (limit {limit}). No more new chats today — answer the open ones."
+      },
+      "over_limit_days": {
+        "title": "Went over the limit before",
+        "body": "Went over the daily limit of {limit} on {days, plural, =1 {# day} other {# days}}. Spread new chats across the week."
+      },
+      "burst": {
+        "title": "Too many at once",
+        "body": "Messaged {count} new people within 10 minutes. Wait a minute or two between new chats."
+      },
+      "chase_new": {
+        "title": "Keeps messaging people who don't answer",
+        "body": "Kept messaging {count, plural, =1 {# new person} other {# new people}} who never answered. After {limit} messages with no answer, stop."
+      },
+      "chase_existing": {
+        "title": "Too many messages without an answer",
+        "body": "Sent several messages in a row to {count, plural, =1 {# customer} other {# customers}} who haven't answered yet. Give them time."
+      },
+      "links_first": {
+        "title": "Links in first messages",
+        "body": "Sent a link in the very first message to {count} new people. Send links only after they reply."
+      },
+      "similar_openers": {
+        "title": "Same first message to many",
+        "body": "Sent almost the same first message to {count} people. Write each first message yourself."
+      },
+      "night_starts": {
+        "title": "New chats at night",
+        "body": "Messaged {count} new people after {late} or before {early}. Message new people in working hours."
+      },
+      "failed_sends": {
+        "title": "Messages not delivered",
+        "body": "{count} messages to phone numbers could not be delivered. Check the number before sending."
+      },
+      "waiting": {
+        "title": "Customers waiting",
+        "body": "{count} customers wrote in the last day and are waiting for {name} to answer. Answer them before starting new chats."
+      },
+      "number_at_limit": {
+        "title": "Number at its daily limit",
+        "body": "This phone number has reached {count} new chats today (limit {limit}). Use it only for replies until tomorrow."
+      },
+      "number_near_limit": {
+        "title": "Number close to its daily limit",
+        "body": "This phone number has made {count} of its {limit} new chats today. Keep the rest for people who expect you."
+      },
+      "number_over_limit_days": {
+        "title": "Number went over its limit before",
+        "body": "This phone number reached its daily limit of {limit} on {days, plural, =1 {# day} other {# days}}. Share new chats with other numbers."
+      },
+      "number_warming_up": {
+        "title": "New number",
+        "body": "This phone number is new (connected {days, plural, =0 {today} =1 {# day ago} other {# days ago}}). Keep it to {limit} new chats a day for the first two weeks."
+      },
+      "number_disconnected": {
+        "title": "Number disconnected",
+        "body": "This phone number is disconnected. Ask an admin to reconnect it."
+      },
+      "number_reply_rate_low": {
+        "title": "Few people write back to this number",
+        "body": "Only {replied} of {total} people messaged first from this phone number wrote back. Slow down on new chats from it."
+      },
+      "number_reply_rate_close": {
+        "title": "Replies close to the minimum",
+        "body": "Replies to this phone number are only just above the minimum ({rate}%, minimum {min}%). Slow down on new chats from it."
+      },
+      "number_safety_low": {
+        "title": "{rating, select, 1 {Low safety rating} other {Safety rating slipping}}",
+        "body": "{rating, select, 1 {WhatsApp rates this number \"Use caution\". Cut new chats in half this week.} other {WhatsApp rates this number \"Needs attention\". Message fewer new people from it this week.}}"
+      },
+      "waiting_unassigned": {
+        "title": "Customers waiting with nobody on it",
+        "body": "{count} customers wrote in the last day and nobody is handling their chat. Give each one to someone."
+      },
+      "auto_review": {
+        "title": "Automatic messages need a review",
+        "body": "{who, select, bot {The AI assistant} other {Automatic notifications (Compass / API)}} started {count} chats with a {rate}% reply rate and sent links first. Ask the owner to review those messages."
+      },
+      "auto_low_reply": {
+        "title": "Few replies to automatic messages",
+        "body": "{who, select, bot {The AI assistant} other {Automatic notifications (Compass / API)}} started {count} chats with a {rate}% reply rate. Ask the owner to review those messages."
+      },
+      "auto_links_first": {
+        "title": "Links in automatic first messages",
+        "body": "{who, select, bot {The AI assistant} other {Automatic notifications (Compass / API)}} sent a link in the first message to {count} people. Ask the owner to review those messages."
+      },
+      "auto_chasing": {
+        "title": "Automatic messages without an answer",
+        "body": "{who, select, bot {The AI assistant} other {Automatic notifications (Compass / API)}} kept messaging {count} people who did not answer. Ask the owner to review those messages."
+      }
+    },
+    "advice": {
+      "fine": "All good. Keep going.",
+      "quiet": "No messages in this period.",
+      "reply_rate_low": "Message only people who expect you.",
+      "reply_rate_close": "Slow down on new chats.",
+      "over_limit_today": "No more new chats today.",
+      "over_limit_days": "Spread new chats across the week.",
+      "burst": "Wait a minute or two between new chats.",
+      "chase_new": "Stop messaging people who don't answer.",
+      "chase_existing": "Give customers time to answer.",
+      "links_first": "Send links only after people reply.",
+      "similar_openers": "Write each first message yourself.",
+      "night_starts": "Message new people in working hours.",
+      "failed_sends": "Check numbers before sending.",
+      "waiting": "Answer waiting customers first."
+    },
+    "guard": {
+      "limitReached": "You have messaged {started} new people today — your daily limit is {limit}. No more new chats today; answer the open ones.",
+      "limitReachedBlocked": "You have reached today's limit of {limit} new people. A message to someone new will not be sent; replies to existing chats still go out.",
+      "limitNear": "You have messaged {started} of your {limit} new people for today. Keep the rest for people who expect to hear from you.",
+      "numberLimit": "This phone number has reached {started} new chats today (limit {limit}). Use it only for replies until tomorrow.",
+      "numberLimitBlocked": "This phone number has reached its limit of {limit} new chats today. A message to someone new will not be sent until tomorrow.",
+      "unanswered": "This contact has not answered your last {count} messages. Wait for a reply before sending more.",
+      "newContactTip": "This is your first message to this person. Say who you are, write it yourself, and send links only after they reply."
     }
   }
 }

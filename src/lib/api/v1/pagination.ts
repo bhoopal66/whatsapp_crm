@@ -67,6 +67,15 @@ export function encodeCursor(row: { created_at: string; id: string }): string {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// The exact shape Postgres/PostgREST hands back for a timestamptz
+// (`2026-09-25T08:33:09.123456+00:00`, or with `Z`). `Date.parse` alone
+// is not enough: V8 skips parenthesised text, so
+// `"2020-01-01 (x),or(...)"` parses as a date while carrying filter
+// syntax into the `.or()` string. The original text is kept, not
+// re-formatted, so microsecond precision survives the round trip.
+const TIMESTAMP_RE =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+
 /** Decode a cursor string, or null if missing/malformed/untrusted. */
 export function decodeCursor(value: string | null): Cursor | null {
   if (!value) return null;
@@ -80,6 +89,7 @@ export function decodeCursor(value: string | null): Cursor | null {
     // ISO-8601 timestamp and a UUID. This is what keeps the raw
     // interpolation in `keysetFilter` safe.
     if (!UUID_RE.test(id)) return null;
+    if (!TIMESTAMP_RE.test(createdAt)) return null;
     const ts = Date.parse(createdAt);
     if (Number.isNaN(ts)) return null;
     return { createdAt, id };

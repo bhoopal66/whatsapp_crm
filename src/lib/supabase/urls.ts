@@ -71,7 +71,11 @@ export function serverSupabaseUrl(): string {
  * existing session.
  *
  * Changing this value logs everyone out once; it does not otherwise
- * affect the stored session.
+ * affect the stored session. That is why the wacrm → Taamul Connect
+ * rebrand deliberately left the name alone: it is an opaque cookie
+ * key no user ever sees, and renaming it would have signed out every
+ * active session for nothing. Rename it only if you are willing to
+ * pay that cost.
  */
 export const AUTH_COOKIE_NAME = 'sb-wacrm-auth-token'
 

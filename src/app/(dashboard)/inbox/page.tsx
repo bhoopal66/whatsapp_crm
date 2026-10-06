@@ -1,27 +1,69 @@
-"use client";
+'use client';
 
-import { Suspense, useState, useCallback, useEffect, useRef } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
-import { createClient } from "@/lib/supabase/client";
-import { cachedQuery } from "@/lib/client-cache";
+import {
+  Suspense,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { createClient } from '@/lib/supabase/client';
+import { cachedQuery } from '@/lib/client-cache';
 import {
   CONVERSATION_SELECT,
   normalizeConversation,
-} from "@/lib/inbox/conversations";
-import type { Conversation, Message, Contact, ConversationStatus } from "@/types";
-import { useRealtime } from "@/hooks/use-realtime";
-import { ConversationList } from "@/components/inbox/conversation-list";
-import { MessageThread } from "@/components/inbox/message-thread";
-import { ContactSidebar } from "@/components/inbox/contact-sidebar";
-import { toast } from "sonner";
-import { WifiOff } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useAuth } from "@/hooks/use-auth";
+} from '@/lib/inbox/conversations';
+import {
+  appendConversationPage,
+  deltaWatermark,
+  isWithinLoadedWindow,
+  mergeConversationDelta,
+  type ConversationCursor,
+} from '@/lib/inbox/pagination';
+import { applyAvatars, avatarRequestBatches } from '@/lib/inbox/avatars';
+import type { ConversationListLoad } from '@/components/inbox/conversation-list';
+import type {
+  Conversation,
+  Message,
+  Contact,
+  ConversationStatus,
+} from '@/types';
+import { useRealtime } from '@/hooks/use-realtime';
+import { ConversationList } from '@/components/inbox/conversation-list';
+import { MessageThread } from '@/components/inbox/message-thread';
+import { ContactSidebar } from '@/components/inbox/contact-sidebar';
+import { BroadcastsTabs } from '@/components/broadcasts/broadcasts-tabs';
+import { toast } from 'sonner';
+import { WifiOff } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
+import { viewsOthersConversations } from '@/lib/auth/conversation-visibility';
+import { channelDisplayName } from '@/lib/whatsapp/channel-management';
+import {
+  useAccountNumbers,
+  useMyNumberIds,
+} from '@/hooks/use-whatsapp-numbers';
+import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
-const CONTACT_PANEL_STORAGE_KEY = "wacrm:inbox:contact-panel-open";
+const CONTACT_PANEL_STORAGE_KEY = 'taamul:inbox:contact-panel-open';
+/** Pre-rebrand key, read-only so a returning browser keeps its choice. */
+const LEGACY_CONTACT_PANEL_STORAGE_KEY = 'wacrm:inbox:contact-panel-open';
+
+/**
+ * How long the tab must have been hidden before coming back resyncs.
+ * An alt-tab and back is not worth a round trip — realtime is still
+ * connected and nothing was missed; the resync is for the laptop that
+ * slept or the background tab the browser throttled.
+ */
+const RESYNC_AFTER_HIDDEN_MS = 30_000;
+
+/** Lets a page of conversations (and its realtime churn) settle first. */
+const AVATAR_REQUEST_DEBOUNCE_MS = 500;
 
 // `useSearchParams` (the `?c=<id>` deep link below) requires a Suspense
 // boundary or the production build bails to CSR and errors out. Thin
@@ -44,17 +86,50 @@ export default function InboxPage() {
  * everything RLS allows. Admins are left alone: their inbox has always
  * been the account-wide triage view and still is.
  */
-export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}) {
-  const t = useTranslations("Inbox.page");
-  const { user, accountId, accountRole } = useAuth();
+export function InboxPageInner({
+  teamView = false,
+  campaignView = false,
+}: { teamView?: boolean; campaignView?: boolean } = {}) {
+  const t = useTranslations('Inbox.page');
+  const { user, accountId, accountRole, profileLoading } = useAuth();
 
   // Narrow the personal inbox to this user's own threads when they can
   // see more than their own — which today means a team leader. `null`
   // means "no extra filter", leaving RLS to decide, which is what both
   // the team view and an admin's inbox want.
   const personalOnlyUserId =
-    !teamView && accountRole === "team_leader" ? (user?.id ?? null) : null;
-  const router = useRouter();
+    !teamView && accountRole === 'team_leader' ? (user?.id ?? null) : null;
+
+  // Whether this list mixes other people's chats. When it does, each row
+  // names whoever holds it and the list offers a by-agent filter —
+  // without that an admin's inbox is a wall of customer names with no
+  // way to tell, or ask, who is dealing with any of them.
+  //
+  // Several numbers on the account earn each row a label saying which
+  // number the customer is writing to. (Allocation to a number grants
+  // no visibility since migration 072, so it no longer mixes owners.)
+  //
+  // Not on the Campaign inbox: it holds only chats nobody has stepped
+  // into yet (migration 067), so every row would carry the amber
+  // "unassigned" mark and the by-agent filter would have nothing to
+  // split.
+  const myNumberIds = useMyNumberIds();
+  const accountNumbers = useAccountNumbers();
+  const showAssignee =
+    !campaignView && viewsOthersConversations(accountRole, teamView);
+  const numberNames = useMemo(() => {
+    if (!accountNumbers || accountNumbers.length < 2) return null;
+    return new Map(accountNumbers.map((n) => [n.id, channelDisplayName(n)]));
+  }, [accountNumbers]);
+  // The Campaign inbox under Broadcasts lists the campaign chats
+  // (migration 048) the bot is answering, with a per-campaign filter;
+  // this Inbox lists every other chat, so each chat is in exactly one
+  // (migration 067, `inCampaignInbox`). Mounted under the admin-only
+  // Broadcasts layout. Which list a chat belongs in starts with whether
+  // the AI auto-reply is on at all, so both wait for that answer — it
+  // is asked from the session, alongside the profile, not after it.
+  const campaignOnly = campaignView;
+  const aiLive = useAiAutoReplyLive();
   // Which of the two inbox routes we are mounted on. Selecting a thread
   // writes `?c=<id>` back to the URL, and that write has to stay on the
   // CURRENT route: hardcoding "/inbox" navigated a team leader off
@@ -68,7 +143,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
    * dashboard's recent-conversations list so the right thread opens
    * automatically instead of showing the empty center panel.
    */
-  const deepLinkConvId = searchParams.get("c");
+  const deepLinkConvId = searchParams.get('c');
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -80,12 +155,31 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
   );
   /**
    * Bumped whenever we want children (ConversationList, MessageThread)
-   * to refetch from the DB — used as a safety net against missed
-   * realtime events. Bumped on WS reconnect and on tab visibility →
-   * visible. The initial mount fetches don't depend on this; they fire
-   * once on conversationId-change as usual.
+   * to refetch from the DB from scratch — the manual refresh button, or
+   * a reconnect/return with nothing to anchor a delta on. The initial
+   * mount fetches don't depend on this; they fire once on
+   * conversationId-change as usual.
    */
   const [resyncToken, setResyncToken] = useState(0);
+  /**
+   * The cheaper safety net against missed realtime events: on WS
+   * reconnect, or on returning to a tab hidden long enough to matter,
+   * the list re-reads only the conversations whose `updated_at` moved
+   * past `since` and the thread re-reads its latest page, merging both
+   * into what is already on screen instead of reloading everything.
+   */
+  const [deltaSync, setDeltaSync] = useState<{
+    token: number;
+    since: string | null;
+  }>({ token: 0, since: null });
+
+  /**
+   * Keyset cursor of the list's last loaded page (`null` once every
+   * page is in). Realtime and delta merges read it to decide whether a
+   * conversation we don't hold belongs on screen now or will simply
+   * arrive with its page.
+   */
+  const listCursorRef = useRef<ConversationCursor | null>(null);
 
   /**
    * Whether the desktop contact sidebar (tags / deals / notes) is shown.
@@ -98,8 +192,10 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
   const [contactPanelOpen, setContactPanelOpen] = useState(true);
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
-      if (stored !== null) setContactPanelOpen(stored === "true");
+      const stored =
+        localStorage.getItem(CONTACT_PANEL_STORAGE_KEY) ??
+        localStorage.getItem(LEGACY_CONTACT_PANEL_STORAGE_KEY);
+      if (stored !== null) setContactPanelOpen(stored === 'true');
     } catch {
       // localStorage can throw in private-browsing / sandboxed contexts.
     }
@@ -141,10 +237,59 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
    * realtime channel). The ref is kept in sync via the effect below.
    */
   const knownConvIdsRef = useRef<Set<string>>(new Set());
+  // Same mirror, whole rows — the delta resync anchors its watermark on
+  // the newest `updated_at` we hold.
+  const conversationsRef = useRef<Conversation[]>([]);
   useEffect(() => {
     const next = new Set<string>();
     for (const c of conversations) next.add(c.id);
     knownConvIdsRef.current = next;
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // WhatsApp profile pictures (migration 070). Each loaded contact is
+  // asked about once per session; the server decides whether a lookup
+  // is due, so this is cheap to over-ask. Fire-and-forget: the list
+  // renders the initial meanwhile, and a failure only costs the photo.
+  const avatarRequestedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const batches = avatarRequestBatches(
+        conversationsRef.current.map((c) => c.contact?.id),
+        avatarRequestedRef.current
+      );
+      // Mark everything requested up front, then send the batches one
+      // after another: parallel batches would each probe and look up on
+      // the server at once.
+      for (const batch of batches) {
+        for (const id of batch) avatarRequestedRef.current.add(id);
+      }
+      void (async () => {
+        for (const batch of batches) {
+          try {
+            const res = await fetch('/api/whatsapp/contacts/avatars', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contactIds: batch }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const { avatars } = (await res.json()) as {
+              avatars?: Record<string, string | null>;
+            };
+            if (!avatars || Object.keys(avatars).length === 0) continue;
+            setConversations((prev) => applyAvatars(prev, avatars));
+            setActiveContact((prev) =>
+              prev && prev.id in avatars
+                ? { ...prev, avatar_url: avatars[prev.id] ?? undefined }
+                : prev
+            );
+          } catch (err) {
+            console.warn('[inbox] could not load profile pictures:', err);
+          }
+        }
+      })();
+    }, AVATAR_REQUEST_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [conversations]);
 
   // Pull the conversation row with its `contact` joined and merge it
@@ -161,14 +306,14 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     try {
       const supabase = createClient();
       const { data, error } = await supabase
-        .from("conversations")
+        .from('conversations')
         .select(CONVERSATION_SELECT)
-        .eq("id", convId)
+        .eq('id', convId)
         .maybeSingle();
       if (error) {
         // Supabase errors have non-enumerable properties — log fields
         // explicitly so the console message isn't just `{}`.
-        console.error("Failed to hydrate conversation:", {
+        console.error('Failed to hydrate conversation:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -189,7 +334,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
           return prev.map((c) =>
             c.id === fetched.id
               ? { ...c, contact: c.contact ?? fetched.contact }
-              : c,
+              : c
           );
         }
         return [fetched, ...prev];
@@ -227,21 +372,21 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
         async () => {
           const supabase = createClient();
           const { data } = await supabase
-            .from("whatsapp_config")
-            .select("status")
-            .eq("account_id", accountId)
+            .from('whatsapp_config')
+            .select('status')
+            .eq('account_id', accountId)
             // "Can this account send at all?" — so ANY connected
             // channel counts. Since migration 046 an account can hold
             // both a Whapi and a Meta row; keyed on account_id alone
             // maybeSingle() matches two, errors, and the banner claims
             // WhatsApp is disconnected while both numbers are live.
-            .eq("status", "connected")
+            .eq('status', 'connected')
             .limit(1)
             .maybeSingle();
           return (data?.status as string | undefined) ?? null;
-        },
+        }
       ).catch(() => null);
-      if (!cancelled) setWhatsappConnected(status === "connected");
+      if (!cancelled) setWhatsappConnected(status === 'connected');
     })();
     return () => {
       cancelled = true;
@@ -253,7 +398,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     (event: { eventType: string; new: Message; old: Partial<Message> }) => {
       const newMsg = event.new;
 
-      if (event.eventType === "INSERT") {
+      if (event.eventType === 'INSERT') {
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&
@@ -264,7 +409,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             // Replace optimistic message if it exists
             const withoutOptimistic = prev.filter(
-              (m) => !m.id.startsWith("temp-")
+              (m) => !m.id.startsWith('temp-')
             );
             return [...withoutOptimistic, newMsg];
           });
@@ -281,15 +426,15 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
               c.id === newMsg.conversation_id
                 ? {
                     ...c,
-                    last_message_text: newMsg.content_text ?? "",
+                    last_message_text: newMsg.content_text ?? '',
                     last_message_at: newMsg.created_at,
                     unread_count:
                       activeConversation?.id === newMsg.conversation_id
                         ? 0
                         : c.unread_count + 1,
                   }
-                : c,
-            ),
+                : c
+            )
           );
         } else {
           // First time we're seeing this conv: the conv-INSERT event
@@ -301,7 +446,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
         }
       }
 
-      if (event.eventType === "UPDATE") {
+      if (event.eventType === 'UPDATE') {
         // Update message status
         setMessages((prev) =>
           prev.map((m) => (m.id === newMsg.id ? { ...m, ...newMsg } : m))
@@ -320,7 +465,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     }) => {
       const conv = event.new;
 
-      if (event.eventType === "INSERT") {
+      if (event.eventType === 'INSERT') {
         // Prepend immediately for snappy UX so the new conv shows in the
         // list right away, then hydrate to fill in the `contact` join
         // (realtime payloads never include joins). Skip both if we
@@ -335,7 +480,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
         }
       }
 
-      if (event.eventType === "UPDATE") {
+      if (event.eventType === 'UPDATE') {
         if (knownConvIdsRef.current.has(conv.id)) {
           // If this UPDATE is for the conv the user is currently viewing,
           // suppress the incoming unread_count — the user is reading it
@@ -351,22 +496,28 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
                     ...conv,
                     unread_count: isActive ? 0 : conv.unread_count,
                   }
-                : c,
-            ),
+                : c
+            )
           );
-        } else {
+        } else if (
+          isWithinLoadedWindow(conv.last_message_at, listCursorRef.current)
+        ) {
           // UPDATE arrived before the INSERT (or after a missed INSERT)
           // — fetch the row so it surfaces with its contact joined. The
           // patch contained in `conv` will already be reflected in what
           // the hydrate fetch returns.
+          //
+          // Only for a row that sorts inside the pages already loaded:
+          // the list is paginated, so an UPDATE to an old conversation
+          // further down (a status flip, an unread reset) is simply one
+          // we haven't reached yet — hydrating it would pull it to the
+          // top out of order. It arrives with its page.
           hydrateConversation(conv.id);
         }
 
         // Update active conversation if it changed
         if (activeConversation && conv.id === activeConversation.id) {
-          setActiveConversation((prev) =>
-            prev ? { ...prev, ...conv } : prev
-          );
+          setActiveConversation((prev) => (prev ? { ...prev, ...conv } : prev));
         }
       }
     },
@@ -378,17 +529,33 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
   // WS was disconnected (laptop sleep, network blip, background-tab
   // throttle) are simply lost. We need a way to catch up.
   const { isConnected } = useRealtime({
-    channelName: "inbox-realtime",
+    channelName: 'inbox-realtime',
     onMessageEvent: handleMessageEvent,
     onConversationEvent: handleConversationEvent,
     enabled: true,
   });
 
   /**
-   * Bump `resyncToken` whenever the realtime channel transitions from
+   * Catch up after a window in which realtime events may have been
+   * lost. With a watermark (server-clock `updated_at`, taken when the
+   * window opened) it's a delta; without one — nothing loaded yet to
+   * anchor on — it falls back to the full reload.
+   */
+  const resyncSince = useCallback((since: string | null) => {
+    if (since) {
+      setDeltaSync((prev) => ({ token: prev.token + 1, since }));
+    } else {
+      setResyncToken((n) => n + 1);
+    }
+  }, []);
+
+  /**
+   * Resync whenever the realtime channel transitions from
    * disconnected → connected *after* the initial connect. The initial
    * connect is covered by the children's on-mount fetches; only later
-   * reconnects need a manual refetch to fill the gap.
+   * reconnects need a refetch to fill the gap. The watermark is taken
+   * at the connected → disconnected edge, so the delta asks exactly
+   * "what changed while we weren't listening".
    *
    * Tracked via a `was-connected` ref rather than a count so that React
    * strict-mode's dev-only effect double-fire doesn't read as a
@@ -396,35 +563,56 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
    */
   const wasConnectedRef = useRef(false);
   const initialConnectDoneRef = useRef(false);
+  const disconnectWatermarkRef = useRef<string | null>(null);
   useEffect(() => {
     if (isConnected && !wasConnectedRef.current) {
       // false → true transition
       if (initialConnectDoneRef.current) {
-        setResyncToken((n) => n + 1);
+        const since = disconnectWatermarkRef.current;
+        disconnectWatermarkRef.current = null;
+        resyncSince(since);
       } else {
         initialConnectDoneRef.current = true;
       }
+    } else if (!isConnected && wasConnectedRef.current) {
+      // true → false: remember where we stopped listening.
+      disconnectWatermarkRef.current = deltaWatermark(conversationsRef.current);
     }
     wasConnectedRef.current = isConnected;
-  }, [isConnected]);
+  }, [isConnected, resyncSince]);
 
   /**
-   * Refetch when the tab regains focus. Background tabs may have their
-   * WS throttled by the browser even without a full disconnect, so a
-   * visibilitychange → visible is a reliable signal that we may have
-   * missed events. Cheap to fire; the children dedupe on their own.
+   * Resync when the tab comes back after being hidden for a while.
+   * Background tabs may have their WS throttled by the browser even
+   * without a full disconnect, so a long absence is a reliable signal
+   * that we may have missed events.
+   *
+   * This used to fire a full reload of the list, the thread and its
+   * reactions on *every* visibilitychange — every alt-tab — which
+   * behind the tunnel was several seconds of round trips for nothing.
+   * Now a short absence does nothing (realtime is still connected), and
+   * a long one is a delta anchored on the watermark taken as the tab
+   * was hidden.
    */
   useEffect(() => {
+    let hiddenAt: number | null = null;
+    let hiddenWatermark: string | null = null;
     const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        setResyncToken((n) => n + 1);
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        hiddenWatermark = deltaWatermark(conversationsRef.current);
+        return;
       }
+      if (hiddenAt === null) return;
+      const away = Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (away > RESYNC_AFTER_HIDDEN_MS) resyncSince(hiddenWatermark);
     };
-    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [resyncSince]);
 
   /**
    * Manual refresh trigger for the thread-header refresh button.
@@ -450,12 +638,12 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
   const openConversationById = useCallback(async (convId: string) => {
     const supabase = createClient();
     const { data, error } = await supabase
-      .from("conversations")
+      .from('conversations')
       .select(CONVERSATION_SELECT)
-      .eq("id", convId)
+      .eq('id', convId)
       .maybeSingle();
     if (error) {
-      console.error("Failed to open deep-linked conversation:", {
+      console.error('Failed to open deep-linked conversation:', {
         message: error.message,
         details: error.details,
         hint: error.hint,
@@ -471,7 +659,24 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
   }, []);
 
   const handleConversationsLoaded = useCallback(
-    (loaded: Conversation[]) => {
+    (
+      loaded: Conversation[],
+      load: ConversationListLoad = { mode: 'replace', cursor: null }
+    ) => {
+      // A further page, or a delta resync: fold into what's there. The
+      // deep-link auto-select below belongs to the first page only.
+      if (load.mode === 'append') {
+        listCursorRef.current = load.cursor;
+        setConversations((prev) => appendConversationPage(prev, loaded));
+        return;
+      }
+      if (load.mode === 'delta') {
+        setConversations((prev) =>
+          mergeConversationDelta(prev, loaded, listCursorRef.current)
+        );
+        return;
+      }
+      listCursorRef.current = load.cursor;
       setConversations(loaded);
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
@@ -489,8 +694,8 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
         autoSelectedForDeepLinkRef.current = deepLinkConvId;
         // If the deep-linked conversation is already the active one
         // (e.g. because the user clicked it in the list and we
-        // router.replace()'d the URL, which made the ConversationList
-        // refetch and land us back here), do NOT re-apply it. Doing so
+        // replaced the URL, and the ConversationList then refetched and
+        // landed us back here), do NOT re-apply it. Doing so
         // would setMessages([]) on a thread whose messages have
         // already been loaded by MessageThread — and because
         // conversationId didn't change, MessageThread wouldn't
@@ -511,7 +716,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
         // the MessageThread reset effect still fires the server UPDATE.
         if (match.unread_count > 0) {
           setConversations((prev) =>
-            prev.map((c) => (c.id === match.id ? { ...c, unread_count: 0 } : c)),
+            prev.map((c) => (c.id === match.id ? { ...c, unread_count: 0 } : c))
           );
         }
       }
@@ -540,13 +745,11 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
       // even if the realtime UPDATE is dropped.
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === conv.id && c.unread_count > 0
-            ? { ...c, unread_count: 0 }
-            : c,
-        ),
+          c.id === conv.id && c.unread_count > 0 ? { ...c, unread_count: 0 } : c
+        )
       );
       // Record the selection on the deep-link ref BEFORE we change the
-      // URL. The router.replace below flips `deepLinkConvId`, which can
+      // URL. The URL write below flips `deepLinkConvId`, which can
       // in turn cause ConversationList to refetch and eventually call
       // handleConversationsLoaded again. Without this line, the ref
       // still points at the previous value, the auto-select block
@@ -554,11 +757,19 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
       // clobbers the messages MessageThread just fetched.
       autoSelectedForDeepLinkRef.current = conv.id;
       // Reflect the selection in the URL so a refresh lands the user
-      // back in the same thread, and so copy-paste links work. Use
-      // replace() to avoid polluting browser history with every click.
-      router.replace(`${basePath}?c=${conv.id}`, { scroll: false });
+      // back in the same thread, and so copy-paste links work. Replace,
+      // not push, to avoid polluting browser history with every click.
+      //
+      // The native History API rather than `router.replace`: the inbox
+      // is a client component that fetches its own data, so the URL
+      // change needs nothing from the server — but `router.replace`
+      // still made an RSC round trip on every click, ~600ms behind the
+      // tunnel. Next keeps `useSearchParams` in sync with
+      // `history.replaceState` (see settings/page.tsx), so `?c=` still
+      // reads back on reload and on back/forward.
+      window.history.replaceState(null, '', `${basePath}?c=${conv.id}`);
     },
-    [activeConversation?.id, basePath, router]
+    [activeConversation?.id, basePath]
   );
 
   // Mobile "back" — deselect the conversation so the list pane comes
@@ -571,13 +782,17 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits ?c=<same-id> again — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
-    router.replace(basePath, { scroll: false });
-  }, [basePath, router]);
+    window.history.replaceState(null, '', basePath);
+  }, [basePath]);
 
-
-  const handleMessagesLoaded = useCallback((loaded: Message[]) => {
-    setMessages(loaded);
-  }, []);
+  // Accepts an updater too: the thread prepends older pages and merges
+  // resyncs against the freshest state, not a render-time snapshot.
+  const handleMessagesLoaded = useCallback(
+    (loaded: Message[] | ((prev: Message[]) => Message[])) => {
+      setMessages(loaded);
+    },
+    []
+  );
 
   const handleNewMessage = useCallback((msg: Message) => {
     setMessages((prev) => {
@@ -636,25 +851,35 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
 
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
+      {campaignView && (
+        <div className="shrink-0 px-4 pt-2 sm:px-6">
+          <BroadcastsTabs />
+        </div>
+      )}
+
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
-        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
-          <WifiOff className="h-4 w-4 text-amber-400" />
-          <p className="text-xs text-amber-400">
-            {t("whatsappNotConnected")}
-          </p>
+        <div className="border-wa-divider bg-wa-panel-header text-wa-warning flex shrink-0 items-center justify-center gap-2 border-b px-4 py-2">
+          <WifiOff className="h-4 w-4" />
+          <p className="text-xs font-medium">{t('whatsappNotConnected')}</p>
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
-            thread can occupy the full width. Always visible on lg+. */}
+            thread can occupy the full width. Always visible on lg+.
+
+            `min-w-0` is load-bearing on mobile, where this panel is the
+            whole width: a row's preview is one unbroken (truncated) line,
+            and without it that line's full length sets the panel's
+            minimum width — the list spilled past the screen and the
+            times and unread counts were cut off at the right edge. */}
         <div
           className={cn(
-            "flex h-full flex-1 lg:flex-none",
-            hasActiveConv ? "hidden lg:flex" : "flex",
+            'flex h-full min-w-0 flex-1 lg:flex-none',
+            hasActiveConv ? 'hidden lg:flex' : 'flex'
           )}
         >
           <ConversationList
@@ -663,7 +888,29 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            deltaSync={deltaSync}
+            // Wait for the role before asking: `personalOnlyUserId` is
+            // null until the profile lands, so a team leader's list used
+            // to be fetched twice — once account-wide, then again
+            // narrowed. Same fix as the contacts page.
+            //
+            // The allocated numbers only matter when the list is being
+            // narrowed (a team leader's personal inbox); only then does
+            // it wait for them, so nobody else pays a second fetch when
+            // they arrive.
+            enabled={
+              !profileLoading &&
+              aiLive !== null &&
+              (!personalOnlyUserId || myNumberIds !== null)
+            }
             restrictToUserId={personalOnlyUserId}
+            restrictToChannelIds={
+              personalOnlyUserId ? (myNumberIds ?? undefined) : undefined
+            }
+            numberNames={numberNames}
+            showAssignee={showAssignee}
+            campaignOnly={campaignOnly}
+            aiLive={aiLive === true}
           />
         </div>
 
@@ -679,8 +926,8 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
             on the right. Issue #165. */}
         <div
           className={cn(
-            "flex h-full min-w-0 flex-1 lg:flex",
-            hasActiveConv ? "flex" : "hidden lg:flex",
+            'flex h-full min-w-0 flex-1 lg:flex',
+            hasActiveConv ? 'flex' : 'hidden lg:flex'
           )}
         >
           <MessageThread
@@ -694,6 +941,7 @@ export function InboxPageInner({ teamView = false }: { teamView?: boolean } = {}
             onAssignChange={handleAssignChange}
             onBack={handleCloseConversation}
             resyncToken={resyncToken}
+            deltaSyncToken={deltaSync.token}
             onRefresh={handleManualRefresh}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}

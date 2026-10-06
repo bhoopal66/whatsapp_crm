@@ -40,6 +40,7 @@
 import type { MessageTemplate } from '@/types'
 
 import { renderTemplateBody } from './template-body'
+import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
 
 // ============================================================
 // Transport
@@ -133,6 +134,10 @@ interface WhapiRequestArgs {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   query?: Record<string, string | number | boolean | undefined>
+  /** Overrides WHAPI_TIMEOUT_MS for this call. */
+  timeoutMs?: number
+  /** Another Whapi host for this call (the tools service); the gate by default. */
+  baseUrl?: string
 }
 
 /**
@@ -141,13 +146,13 @@ interface WhapiRequestArgs {
  * a thin, typed wrapper over it.
  */
 async function whapiRequest<T = unknown>(args: WhapiRequestArgs): Promise<T> {
-  const { token, path, method = 'GET', body, query } = args
+  const { token, path, method = 'GET', body, query, timeoutMs, baseUrl } = args
 
   if (!token) {
     throw new WhapiError('Missing Whapi channel token.', 401)
   }
 
-  const url = new URL(`${WHAPI_BASE_URL}${path}`)
+  const url = new URL(`${baseUrl ?? WHAPI_BASE_URL}${path}`)
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined) url.searchParams.set(key, String(value))
@@ -166,7 +171,7 @@ async function whapiRequest<T = unknown>(args: WhapiRequestArgs): Promise<T> {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(WHAPI_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs ?? WHAPI_TIMEOUT_MS),
     })
   } catch (err) {
     // Network-level failure (DNS, TLS, timeout). Surface as a 503-ish
@@ -319,6 +324,11 @@ export interface GetChannelInfoArgs {
    * deliberately-stopped channel isn't woken up by a status check.
    */
   wakeup?: boolean
+  /**
+   * A probe that runs while a user waits on a failed send (or once per
+   * channel in a cron tick) must not hang for the full 30s default.
+   */
+  timeoutMs?: number
 }
 
 /**
@@ -331,11 +341,12 @@ export interface GetChannelInfoArgs {
 export async function getChannelInfo(
   args: GetChannelInfoArgs,
 ): Promise<WhapiChannelInfo> {
-  const { token, wakeup = true } = args
+  const { token, wakeup = true, timeoutMs } = args
   const data = await whapiRequest<WhapiHealthResponse>({
     token,
     path: '/health',
     query: { wakeup },
+    timeoutMs,
   })
 
   const statusText = (data.status?.text || 'NOT_INIT') as WhapiChannelStatus
@@ -350,6 +361,99 @@ export async function getChannelInfo(
     version: data.version ?? null,
     uptime: typeof data.uptime === 'number' ? data.uptime : null,
   }
+}
+
+// ============================================================
+// Safety Meter (risk of blocking)
+// ============================================================
+
+/**
+ * Whapi's tools service, which hosts the Safety Meter. Not the gate:
+ * the meter is a separate product on its own host, authenticated with
+ * the same channel token.
+ */
+export const WHAPI_TOOLS_URL = (
+  process.env.WHAPI_TOOLS_URL || 'https://tools.whapi.cloud'
+).replace(/\/+$/, '')
+
+/** 1 = use caution, 2 = needs attention, 3 = good. Null when absent. */
+export type WhapiSafetyScore = 1 | 2 | 3 | null
+
+export interface WhapiRiskOfBlocking {
+  /** The overall rating. */
+  riskFactor: WhapiSafetyScore
+  /** The number's age on WhatsApp. */
+  lifeTime: WhapiSafetyScore
+  /** The response rate to the number's chats. */
+  riskFactorChats: WhapiSafetyScore
+  /** How much of its messaging goes to contacts in its address book. */
+  riskFactorContacts: WhapiSafetyScore
+  /** When Whapi last calculated it, as Whapi wrote it (M/D/YYYY). */
+  lastUpdate: string | null
+}
+
+interface WhapiRiskResponse {
+  lastUpdateDate?: unknown
+  lifeTime?: unknown
+  riskFactor?: unknown
+  riskFactorChats?: unknown
+  riskFactorContacts?: unknown
+}
+
+function safetyScore(v: unknown): WhapiSafetyScore {
+  const n = typeof v === 'string' ? Number(v) : v
+  return n === 1 || n === 2 || n === 3 ? n : null
+}
+
+/**
+ * The Safety Meter's figures, without the rest of the response — which
+ * echoes the channel TOKEN back in its `channel` field. Null when the
+ * body carries no rating at all (nothing calculated yet).
+ */
+export function parseRiskOfBlocking(body: unknown): WhapiRiskOfBlocking | null {
+  if (!body || typeof body !== 'object') return null
+  const b = body as WhapiRiskResponse
+  const out: WhapiRiskOfBlocking = {
+    riskFactor: safetyScore(b.riskFactor),
+    lifeTime: safetyScore(b.lifeTime),
+    riskFactorChats: safetyScore(b.riskFactorChats),
+    riskFactorContacts: safetyScore(b.riskFactorContacts),
+    lastUpdate:
+      typeof b.lastUpdateDate === 'string' && b.lastUpdateDate
+        ? b.lastUpdateDate
+        : null,
+  }
+  return out.riskFactor === null &&
+    out.lifeTime === null &&
+    out.riskFactorChats === null &&
+    out.riskFactorContacts === null
+    ? null
+    : out
+}
+
+export interface GetRiskOfBlockingArgs {
+  token: string
+  /**
+   * POST asks Whapi to calculate the figures afresh (at most once a day
+   * per number; later calls that day return the stored ones). GET only
+   * reads what was last calculated.
+   */
+  recalculate?: boolean
+  timeoutMs?: number
+}
+
+/** Read (or recalculate) a number's Safety Meter rating. */
+export async function getRiskOfBlocking(
+  args: GetRiskOfBlockingArgs,
+): Promise<WhapiRiskOfBlocking | null> {
+  const data = await whapiRequest<unknown>({
+    token: args.token,
+    baseUrl: WHAPI_TOOLS_URL,
+    path: '/services/riskOfBlocking',
+    method: args.recalculate ? 'POST' : 'GET',
+    timeoutMs: args.timeoutMs,
+  })
+  return parseRiskOfBlocking(data)
 }
 
 /**
@@ -527,25 +631,8 @@ export async function sendReactionMessage(
 // Interactive (reply buttons + selectable lists)
 // ============================================================
 
-/**
- * Limits enforced locally so a misconfigured Flow fails when it is
- * saved rather than mid-conversation with a live customer.
- *
- * These mirror WhatsApp's own client-side limits, which Whapi passes
- * through unchanged — they are a property of WhatsApp, not of the
- * gateway, so they survived the Meta → Whapi move intact.
- */
-export const INTERACTIVE_LIMITS = {
-  maxButtons: 3,
-  buttonTitleMaxLength: 20,
-  maxListSections: 10,
-  maxListRowsTotal: 10,
-  listRowTitleMaxLength: 24,
-  listRowDescriptionMaxLength: 72,
-  bodyMaxLength: 1024,
-  footerMaxLength: 60,
-  headerTextMaxLength: 60,
-} as const
+import { INTERACTIVE_LIMITS } from './interactive-limits'
+export { INTERACTIVE_LIMITS }
 
 function validateInteractiveBody(bodyText: string): void {
   if (!bodyText) throw new WhapiError('Interactive message requires bodyText.', 400)
@@ -992,21 +1079,64 @@ export interface DownloadMediaArgs {
 }
 
 /**
+ * True for a URL the channel token may be presented to: a `/media/…`
+ * path on the configured gateway origin (`WHAPI_BASE_URL`, which may be
+ * an on-prem http host) — Whapi's own media endpoint.
+ *
+ * Deliberately NOT the whole gateway: a message's `media_url` is
+ * sender-controlled and forwarding downloads it with this token, then
+ * re-hosts the bytes publicly. Trusting any gateway path would let an
+ * agent "forward" `…/settings` and read the channel's configuration
+ * (including our webhook secret) back out of the bucket. WHATWG URL
+ * parsing has already collapsed `..` / `%2e%2e` segments by now.
+ */
+export function isWhapiMediaHost(url: URL): boolean {
+  let base: URL
+  try {
+    base = new URL(WHAPI_BASE_URL)
+  } catch {
+    return false
+  }
+  if (url.origin !== base.origin) return false
+  const prefix = `${base.pathname.replace(/\/+$/, '')}/media/`
+  return url.pathname.startsWith(prefix) && !url.username && !url.password
+}
+
+/**
  * Fetch the bytes behind a media URL from `getMediaUrl`, or behind a
  * URL Whapi embedded directly in a webhook (auto-download mode).
  *
- * The Bearer header is sent unconditionally: Whapi-hosted media
- * requires it, and a public CDN URL simply ignores it.
+ * The Bearer header goes ONLY to Whapi's media endpoint
+ * (`isWhapiMediaHost`).
+ * It used to be sent unconditionally, but `downloadUrl` is not always
+ * gateway-issued — forwarding re-hosts a message's stored `media_url`,
+ * which a sender can set to any URL — and an unconditional header hands
+ * the channel token to whoever owns that host. Any other URL (e.g. the
+ * public object-storage links auto-download produces, which need no
+ * auth) is fetched without credentials and only after the SSRF guard,
+ * with every redirect hop re-checked.
  */
 export async function downloadMedia(
   args: DownloadMediaArgs,
 ): Promise<{ buffer: Buffer; contentType: string }> {
   const { downloadUrl, token } = args
 
-  const response = await fetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(WHAPI_TIMEOUT_MS),
-  })
+  let response: Response
+  try {
+    response = await fetchPublicUrl(
+      downloadUrl,
+      { signal: AbortSignal.timeout(WHAPI_TIMEOUT_MS) },
+      {
+        isTrusted: isWhapiMediaHost,
+        trustedHeaders: { Authorization: `Bearer ${token}` },
+      },
+    )
+  } catch (err) {
+    if (err instanceof UnsafeUrlError) {
+      throw new WhapiError(`Media download refused: ${err.message}`, 400)
+    }
+    throw err
+  }
   if (!response.ok) {
     throw new WhapiError(`Media download failed: ${response.status}`, response.status)
   }
@@ -1055,6 +1185,64 @@ export async function checkPhonesOnWhatsApp(
     result.set(contact.input, contact.status === 'valid')
   }
   return result
+}
+
+export interface GetContactProfileArgs {
+  token: string
+  /** The contact's phone, in any form `toWhapiRecipient` accepts. */
+  contactId: string
+  /** Overrides WHAPI_TIMEOUT_MS for this call. */
+  timeoutMs?: number
+}
+
+export interface WhapiContactPicture {
+  /** Small preview avatar. */
+  icon: string | null
+  /** Full-size avatar. */
+  iconFull: string | null
+}
+
+/**
+ * A contact's WhatsApp profile picture, or null when there is none to
+ * show.
+ *
+ * Sent as bare digits, the form the docs give for `ContactID` (a full
+ * `@s.whatsapp.net` chat id is also accepted, but nothing is gained).
+ *
+ * Both URLs point at WhatsApp's CDN (pps.whatsapp.net) and EXPIRE, so a
+ * caller must copy the bytes rather than store the link — see
+ * `contact-avatars.ts`.
+ *
+ * A contact whose privacy settings hide the picture comes back with no
+ * icon, or as a 404; both are "no picture", not a failure. Note that a
+ * wrong token is ALSO a 404 here (`isUnknownChannel`), which this
+ * cannot tell apart — callers should only ask through a number the
+ * health monitor reports connected.
+ */
+export async function getContactProfile(
+  args: GetContactProfileArgs,
+): Promise<WhapiContactPicture | null> {
+  const { token, contactId, timeoutMs } = args
+  const id = toWhapiRecipient(contactId)
+  if (!id) return null
+
+  let data: { icon?: string | null; icon_full?: string | null }
+  try {
+    data = await whapiRequest<{ icon?: string | null; icon_full?: string | null }>({
+      token,
+      path: `/contacts/${encodeURIComponent(id)}/profile`,
+      timeoutMs,
+    })
+  } catch (err) {
+    if (err instanceof WhapiError && err.status === 404) return null
+    throw err
+  }
+
+  const icon = typeof data?.icon === 'string' && data.icon ? data.icon : null
+  const iconFull =
+    typeof data?.icon_full === 'string' && data.icon_full ? data.icon_full : null
+  if (!icon && !iconFull) return null
+  return { icon, iconFull }
 }
 
 // ============================================================
@@ -1186,8 +1374,9 @@ export async function registerWebhook(
   // Cloudflare quick tunnel the hostname changes on every restart, so
   // each re-register would leave the previous host behind and the
   // channel would slowly fill with dead URLs that Whapi keeps retrying.
-  // The path is what identifies a wacrm webhook; a channel is
-  // single-tenant here, so there is no second wacrm to confuse it with.
+  // The path is what identifies a Taamul Connect webhook; a channel
+  // is single-tenant here, so there is no second install to confuse
+  // it with.
   const merged: WhapiWebhookConfig[] = existing
     .filter((hook) => !isOurWebhook(hook.url, webhookUrl))
     .concat([
@@ -1213,14 +1402,14 @@ export async function registerWebhook(
 }
 
 /**
- * Is this existing webhook entry one that a wacrm deployment wrote?
+ * Is this existing webhook entry one that a Taamul Connect deployment wrote?
  *
  * True when it shares our origin (the same deployment re-registering)
  * or our path (the same deployment reachable at a new hostname). A
  * hook we can't parse is left alone — better a stale entry than
  * deleting a third party's callback.
  */
-function isOurWebhook(existingUrl: string | undefined, ourUrl: string): boolean {
+export function isOurWebhook(existingUrl: string | undefined, ourUrl: string): boolean {
   if (!existingUrl) return false
   try {
     const existing = new URL(existingUrl)

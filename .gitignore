@@ -42,3 +42,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local data exports / bundles at the repo root — contact CSVs are PII
+# and must never be committed. Root-anchored on purpose: the sample
+# import template under public/templates/ is meant to ship.
+/*.csv
+/*.xlsx
+/*.zip
+/bot/
+
+# TypeSafe Phase 3 eval outputs (scripts/typesafe-eval)
+scripts/typesafe-eval/*.answers*.jsonl
+calibration/

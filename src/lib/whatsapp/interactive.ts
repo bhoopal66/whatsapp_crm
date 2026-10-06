@@ -21,7 +21,7 @@
 // mid-conversation.
 // ============================================================
 
-import { INTERACTIVE_LIMITS } from './whapi-api'
+import { INTERACTIVE_LIMITS } from './interactive-limits'
 
 export interface InteractiveButton {
   /** Stable id echoed back in the webhook when tapped. */

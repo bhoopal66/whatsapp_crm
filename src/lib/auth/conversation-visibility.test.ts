@@ -4,6 +4,7 @@ import {
   canAssignToOthers,
   canViewContact,
   canViewConversation,
+  viewsOthersConversations,
 } from './conversation-visibility';
 
 // This mirrors the `can_view_conversation` SQL function from migration
@@ -18,30 +19,44 @@ const ME = 'user-me';
 const COLLEAGUE = 'user-them';
 
 describe('canViewConversation', () => {
+  it('does not grant a colleague’s chat for allocation to its number (migration 072)', () => {
+    // Allocation decides where someone may send from, not what they
+    // see. The mirror no longer takes the flag; a stale caller passing
+    // it (built via a variable to dodge the excess-property check)
+    // must still get "no".
+    const stale = {
+      ownerId: COLLEAGUE,
+      assignedId: null,
+      onAllocatedNumber: true,
+    };
+    expect(canViewConversation('agent', ME, stale)).toBe(false);
+    expect(canViewConversation('team_leader', ME, stale)).toBe(false);
+  });
+
   it('shows admins and owners every conversation in the account', () => {
     for (const role of ['owner', 'admin'] as const) {
       expect(
-        canViewConversation(role, ME, { ownerId: COLLEAGUE, assignedId: null }),
+        canViewConversation(role, ME, { ownerId: COLLEAGUE, assignedId: null })
       ).toBe(true);
     }
   });
 
   it('shows a member the conversations they created', () => {
     expect(
-      canViewConversation('agent', ME, { ownerId: ME, assignedId: null }),
+      canViewConversation('agent', ME, { ownerId: ME, assignedId: null })
     ).toBe(true);
   });
 
   it('shows a member the conversations assigned to them', () => {
     // The admin triage path: a chat someone else started, handed over.
     expect(
-      canViewConversation('agent', ME, { ownerId: COLLEAGUE, assignedId: ME }),
+      canViewConversation('agent', ME, { ownerId: COLLEAGUE, assignedId: ME })
     ).toBe(true);
   });
 
   it('hides a colleague’s conversation from an agent', () => {
     expect(
-      canViewConversation('agent', ME, { ownerId: COLLEAGUE, assignedId: null }),
+      canViewConversation('agent', ME, { ownerId: COLLEAGUE, assignedId: null })
     ).toBe(false);
   });
 
@@ -50,16 +65,19 @@ describe('canViewConversation', () => {
     // but an explicit assignment to someone else does NOT revoke the
     // creator's access — they keep it. This documents that choice.
     expect(
-      canViewConversation('agent', ME, { ownerId: ME, assignedId: COLLEAGUE }),
+      canViewConversation('agent', ME, { ownerId: ME, assignedId: COLLEAGUE })
     ).toBe(true);
   });
 
   it('treats viewers exactly like agents for visibility', () => {
     expect(
-      canViewConversation('viewer', ME, { ownerId: ME, assignedId: null }),
+      canViewConversation('viewer', ME, { ownerId: ME, assignedId: null })
     ).toBe(true);
     expect(
-      canViewConversation('viewer', ME, { ownerId: COLLEAGUE, assignedId: null }),
+      canViewConversation('viewer', ME, {
+        ownerId: COLLEAGUE,
+        assignedId: null,
+      })
     ).toBe(false);
   });
 
@@ -67,10 +85,10 @@ describe('canViewConversation', () => {
     // Role still loading, or a profile that never resolved. Showing a
     // chat and then hiding it is worse than a brief empty list.
     expect(
-      canViewConversation(null, ME, { ownerId: ME, assignedId: null }),
+      canViewConversation(null, ME, { ownerId: ME, assignedId: null })
     ).toBe(false);
     expect(
-      canViewConversation('agent', null, { ownerId: ME, assignedId: null }),
+      canViewConversation('agent', null, { ownerId: ME, assignedId: null })
     ).toBe(false);
   });
 });
@@ -93,7 +111,7 @@ export { ACCOUNT };
 describe('canViewContact', () => {
   it('shows admins every contact', () => {
     expect(
-      canViewContact('admin', ME, { creatorId: COLLEAGUE, handlesChat: false }),
+      canViewContact('admin', ME, { creatorId: COLLEAGUE, handlesChat: false })
     ).toBe(true);
   });
 
@@ -101,7 +119,7 @@ describe('canViewContact', () => {
     // The "add a contact, then message them" path: visible before any
     // conversation exists.
     expect(
-      canViewContact('agent', ME, { creatorId: ME, handlesChat: false }),
+      canViewContact('agent', ME, { creatorId: ME, handlesChat: false })
     ).toBe(true);
   });
 
@@ -109,13 +127,13 @@ describe('canViewContact', () => {
     // This is what makes admin triage work in one step: assigning the
     // conversation hands over the customer record with it.
     expect(
-      canViewContact('agent', ME, { creatorId: COLLEAGUE, handlesChat: true }),
+      canViewContact('agent', ME, { creatorId: COLLEAGUE, handlesChat: true })
     ).toBe(true);
   });
 
   it('hides a colleague’s contact with no chat of ours', () => {
     expect(
-      canViewContact('agent', ME, { creatorId: COLLEAGUE, handlesChat: false }),
+      canViewContact('agent', ME, { creatorId: COLLEAGUE, handlesChat: false })
     ).toBe(false);
     // Absent flag must read as "no", not "unknown, allow".
     expect(canViewContact('agent', ME, { creatorId: COLLEAGUE })).toBe(false);
@@ -146,7 +164,8 @@ describe('team_leader in the role ladder', () => {
   });
 
   it('gets the team views but not the admin screens', async () => {
-    const { canLeadTeam, canManageTeams, canEditSettings } = await import('./roles');
+    const { canLeadTeam, canManageTeams, canEditSettings } =
+      await import('./roles');
     expect(canLeadTeam('team_leader')).toBe(true);
     expect(canLeadTeam('agent')).toBe(false);
     // Admins outrank leaders, so they see the team views too.
@@ -161,7 +180,43 @@ describe('team_leader in the role ladder', () => {
     // helper only knows about own/assigned, so a leader must NOT be
     // silently treated as an admin here.
     expect(
-      canViewConversation('team_leader', ME, { ownerId: COLLEAGUE, assignedId: null }),
+      canViewConversation('team_leader', ME, {
+        ownerId: COLLEAGUE,
+        assignedId: null,
+      })
     ).toBe(false);
+  });
+});
+
+describe('viewsOthersConversations', () => {
+  it('is off for an agent allocated to a number — no shared inbox since 072', () => {
+    const stale = viewsOthersConversations as (...a: unknown[]) => boolean;
+    expect(stale('agent', false, true)).toBe(false);
+    expect(stale('team_leader', false, true)).toBe(false);
+  });
+
+  it('is on for admins and owners on both inbox routes', () => {
+    for (const role of ['owner', 'admin'] as const) {
+      expect(viewsOthersConversations(role, false)).toBe(true);
+      expect(viewsOthersConversations(role, true)).toBe(true);
+    }
+  });
+
+  it('is on for a team leader only in the team view', () => {
+    // /inbox narrows a leader back to their own threads, so every row
+    // there is already theirs — naming the holder would be noise.
+    expect(viewsOthersConversations('team_leader', false)).toBe(false);
+    expect(viewsOthersConversations('team_leader', true)).toBe(true);
+  });
+
+  it('is off for members, who only ever see their own chats', () => {
+    for (const role of ['agent', 'viewer'] as const) {
+      expect(viewsOthersConversations(role, false)).toBe(false);
+      expect(viewsOthersConversations(role, true)).toBe(false);
+    }
+  });
+
+  it('fails closed while the profile is still resolving', () => {
+    expect(viewsOthersConversations(null, true)).toBe(false);
   });
 });

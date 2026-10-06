@@ -69,3 +69,44 @@ jobs:
       # just the absence of an error.
       - name: Verify the resulting schema
         run: supabase db query --local --file supabase/ci/verify-schema.sql
+
+      # Schema checks prove the objects exist; they cannot prove the
+      # money is right. The costing rules live inside
+      # `record_whatsapp_message_cost` (migration 051) — the rate card,
+      # the market map, the 2026-10-01 free tier, Meta's `billable`
+      # override — so `npm test` cannot reach them and a wrong number
+      # here is silent by nature: it under-reports spend and nothing
+      # errors. This drives the function with real receipt shapes and
+      # asserts the resulting ledger rows.
+      - name: Verify the message-cost ledger
+        run: supabase db query --local --file supabase/ci/verify-message-costs.sql
+
+      # The TypeSafe decision layer (063) keeps its safety rules in SQL:
+      # four-eyes policy activation, per-account isolation, an
+      # append-only decision log whose only permitted change is the
+      # retention purge. The vitest suite runs the checks against an
+      # in-memory store, so none of that is reachable from `npm test`.
+      - name: Verify the TypeSafe decision layer
+        run: supabase db query --local --file supabase/ci/verify-typesafe.sql
+
+      - name: Verify team activity
+        run: supabase db query --local --file supabase/ci/verify-team-activity.sql
+
+      # Team leaders (074) get Team activity scoped to their own team.
+      # The scope is a filter inside the SQL report, so only real
+      # Postgres can show a leader sees no one else's figures.
+      - name: Verify team activity for team leaders
+        run: supabase db query --local --file supabase/ci/verify-team-activity-leaders.sql
+
+      # Deactivation (069) is enforced in the RLS helpers and the
+      # profile guard, so a deactivated member's still-valid access
+      # token reads nothing. Only real Postgres can show that.
+      - name: Verify member deactivation
+        run: supabase db query --local --file supabase/ci/verify-member-deactivation.sql
+
+      # Team number allocation (071) derives whatsapp_channel_members
+      # rows from team membership in triggers, so a team change grants
+      # or revokes a number with no app code involved. Only real
+      # Postgres can show the derivation, the cascades and the grants.
+      - name: Verify team number allocation
+        run: supabase db query --local --file supabase/ci/verify-team-numbers.sql

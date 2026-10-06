@@ -114,15 +114,30 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     throw new UnauthorizedError();
   }
 
+  // `*` rather than a column list so this keeps working when
+  // `deactivated_at` (migration 069) is not there yet — an unapplied
+  // migration or PostgREST's stale schema cache right after one. Naming
+  // a missing column fails the whole select, and with it every API route.
   const { data, error } = await supabase
     .from("profiles")
-    .select("account_id, account_role")
+    .select("*")
     .eq("user_id", user.id)
-    .maybeSingle();
+    .maybeSingle<{
+      account_id: string | null;
+      account_role: string | null;
+      deactivated_at?: string | null;
+    }>();
 
   if (error) {
     console.error("[getCurrentAccount] profile fetch error:", error);
     throw new ForbiddenError("Could not load account context");
+  }
+  if (data?.deactivated_at) {
+    // Migration 069. RLS already refuses this caller everything; say
+    // why instead of letting the account lookup below fail obscurely.
+    // Their login is banned too, so this only answers a session that
+    // predates the deactivation.
+    throw new ForbiddenError("Your access to this account has been deactivated");
   }
   if (!data || !data.account_id || !data.account_role) {
     // Pre-migration profile, or a manual insert that skipped the

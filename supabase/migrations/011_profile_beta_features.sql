@@ -7,7 +7,7 @@
 -- can land in this column without another migration.
 --
 -- Why a per-account flag rather than a global env var:
---   - Self-hosted wacrm instances are multi-user (small teams, shared
+--   - Self-hosted Taamul Connect instances are multi-user (small teams, shared
 --     workspaces). A global flag would force every account on the
 --     instance to opt into a not-yet-stable feature simultaneously.
 --   - The owner wanted to dogfood the feature on their own account

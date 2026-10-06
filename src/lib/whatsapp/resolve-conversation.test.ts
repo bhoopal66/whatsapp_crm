@@ -24,9 +24,15 @@ interface Script {
   existingConversation?: { id: string } | null; // conversations select.limit(1)
   /** Per-call conversation lookup results — overrides existingConversation.
    *  Lets a test simulate "miss, then hit" for the unique-race path. */
-  existingConversationByCall?: (({ id: string } | null))[];
+  existingConversationByCall?: ({ id: string } | null)[];
   insertedConversationId?: string; // conversations insert -> single
   insertConversationError?: { code?: string } | null;
+  /** Records the table of every `.update()` call, for assertions. */
+  updatedTables?: string[];
+  /** Records every `.insert()` payload with its table, for assertions. */
+  inserted?: { table: string; row: Record<string, unknown> }[];
+  /** Records every `.like()` pattern (the contact lookup's suffix). */
+  likePatterns?: string[];
 }
 
 function makeDb(script: Script): SupabaseClient {
@@ -37,12 +43,14 @@ function makeDb(script: Script): SupabaseClient {
 
   const builder: Record<string, unknown> = {
     select: () => builder,
-    insert: () => {
+    insert: (row: Record<string, unknown>) => {
       mode = 'insert';
+      script.inserted?.push({ table, row });
       return builder;
     },
     update: () => {
       mode = 'update';
+      script.updatedTables?.push(table);
       return builder;
     },
     eq: () => builder,
@@ -62,7 +70,8 @@ function makeDb(script: Script): SupabaseClient {
       }
       return Promise.resolve({ data: [], error: null });
     },
-    like: () => {
+    like: (_column: string, pattern: string) => {
+      script.likePatterns?.push(pattern);
       const data = script.contactCandidatesByCall
         ? (script.contactCandidatesByCall[likeCalls] ?? [])
         : (script.contactCandidates ?? []);
@@ -153,6 +162,7 @@ describe('resolveConversationByPhone', () => {
       conversationId: 'cv1',
       contactId: 'c1',
       contactCreated: false,
+      conversationCreated: false,
     });
   });
 
@@ -174,6 +184,7 @@ describe('resolveConversationByPhone', () => {
       conversationId: 'cv2',
       contactId: 'c2',
       contactCreated: true,
+      conversationCreated: true,
     });
   });
 
@@ -209,6 +220,186 @@ describe('resolveConversationByPhone', () => {
       conversationId: 'cv-raced',
       contactId: 'c1',
       contactCreated: false,
+      conversationCreated: false,
     });
   });
+
+  it('renames an existing contact by default', async () => {
+    const updatedTables: string[] = [];
+    const db = makeDb({
+      config: { user_id: 'owner-1' },
+      contactCandidates: [{ id: 'c1', phone: '14155550123', name: 'Old' }],
+      existingConversation: { id: 'cv1' },
+      updatedTables,
+    });
+    await resolveConversationByPhone(db, 'acct', '+14155550123', 'New');
+    expect(updatedTables).toContain('contacts');
+  });
+
+  it('leaves an existing contact name alone when renameExisting is false', async () => {
+    // Compass notifications: the ERP's spelling must not overwrite a
+    // name an agent curated on a chat they already work.
+    const updatedTables: string[] = [];
+    const db = makeDb({
+      config: { user_id: 'owner-1' },
+      contactCandidates: [{ id: 'c1', phone: '14155550123', name: 'Curated' }],
+      existingConversation: { id: 'cv1' },
+      updatedTables,
+    });
+    const res = await resolveConversationByPhone(
+      db,
+      'acct',
+      '+14155550123',
+      'ERP NAME',
+      { renameExisting: false }
+    );
+    expect(updatedTables).toEqual([]);
+    expect(res.conversationCreated).toBe(false);
+  });
+});
+
+describe('resolveConversationByPhone — the contact rule for a new number', () => {
+  const noContactYet = (script: Partial<Script> = {}): Script => ({
+    config: { user_id: 'owner-1' },
+    contactCandidates: [],
+    insertedContactId: 'c-new',
+    existingConversation: null,
+    insertedConversationId: 'cv-new',
+    ...script,
+  });
+
+  it.each([
+    ['504555843', 'too_short'], // the live local UAE mobile
+    ['+971 50 123 456', 'invalid_uae'],
+    ['98765 43210', 'invalid_number'], // Indian mobile without +91
+  ])(
+    'refuses to create a contact for %s (%s) and creates nothing',
+    async (to) => {
+      const inserted: Script['inserted'] = [];
+      const db = makeDb(noContactYet({ inserted }));
+      const err = await resolveConversationByPhone(db, 'acct', to).catch(
+        (e: unknown) => e
+      );
+      expect(err).toBeInstanceOf(SendMessageError);
+      expect(err).toMatchObject({ code: 'bad_request', status: 400 });
+      expect((err as Error).message).toMatch(/^'to' "/);
+      expect((err as Error).message).toContain('+971 50 123 4567');
+      expect(inserted).toEqual([]);
+    }
+  );
+
+  it('still finds an existing contact saved in a shape the rule refuses', async () => {
+    // A legacy row typed as "504555843" keeps working for integrations
+    // that address it the same way; only creating one is refused.
+    const inserted: Script['inserted'] = [];
+    const db = makeDb({
+      config: { user_id: 'owner-1' },
+      contactCandidates: [{ id: 'c-legacy', phone: '504555843' }],
+      existingConversation: { id: 'cv-legacy' },
+      inserted,
+    });
+    const res = await resolveConversationByPhone(db, 'acct', '504555843');
+    expect(res).toMatchObject({
+      contactId: 'c-legacy',
+      conversationId: 'cv-legacy',
+      contactCreated: false,
+    });
+    expect(inserted).toEqual([]);
+  });
+
+  it('stores a new contact normalized, trunk 0 removed', async () => {
+    const inserted: Script['inserted'] = [];
+    const db = makeDb(noContactYet({ inserted }));
+    const res = await resolveConversationByPhone(
+      db,
+      'acct',
+      '+971 050 123 4567'
+    );
+    expect(res.contactCreated).toBe(true);
+    expect(inserted.find((i) => i.table === 'contacts')?.row).toMatchObject({
+      phone: '971501234567',
+      name: '971501234567',
+    });
+  });
+
+  it('keeps the given name and stores the normalized number', async () => {
+    const inserted: Script['inserted'] = [];
+    const db = makeDb(noContactYet({ inserted }));
+    await resolveConversationByPhone(db, 'acct', '+44 (0)7700 900123', 'Jo');
+    expect(inserted.find((i) => i.table === 'contacts')?.row).toMatchObject({
+      phone: '447700900123',
+      name: 'Jo',
+    });
+  });
+
+  it('re-resolves a lost insert race by the normalized number', async () => {
+    // "+961 03 123 456": the typed digits end 03123456, the stored
+    // number 9613123456 ends 13123456 — the re-lookup must use the
+    // number that was actually inserted.
+    const inserted: Script['inserted'] = [];
+    const likePatterns: string[] = [];
+    const db = makeDb({
+      config: { user_id: 'owner-1' },
+      contactCandidatesByCall: [[], [{ id: 'c-raced', phone: '9613123456' }]],
+      insertContactError: { code: '23505' },
+      existingConversation: { id: 'cv-raced' },
+      inserted,
+      likePatterns,
+    });
+    const res = await resolveConversationByPhone(db, 'acct', '+961 03 123 456');
+    expect(inserted[0]).toMatchObject({
+      table: 'contacts',
+      row: { phone: '9613123456' },
+    });
+    expect(likePatterns).toEqual(['%13123456', '%13123456']);
+    expect(res).toMatchObject({ contactId: 'c-raced', contactCreated: false });
+  });
+
+  it('never matches an unrelated contact that shares the typed tail', async () => {
+    // "+961 03 123 456" types …03123456; an older UAE contact
+    // 971503123456 ends the same. Looking up the typed digits picked
+    // it, and the Lebanese customer's message went to that person.
+    const inserted: Script['inserted'] = [];
+    const likePatterns: string[] = [];
+    const db = makeDb(
+      noContactYet({
+        contactCandidates: [{ id: 'c-uae', phone: '971503123456' }],
+        inserted,
+        likePatterns,
+      })
+    );
+    const res = await resolveConversationByPhone(db, 'acct', '+961 03 123 456');
+    expect(likePatterns).toEqual(['%13123456']);
+    expect(res).toMatchObject({ contactId: 'c-new', contactCreated: true });
+    expect(inserted.find((i) => i.table === 'contacts')?.row).toMatchObject({
+      phone: '9613123456',
+    });
+  });
+
+  it('finds the contact by the normalized number when the typed one has a trunk 0', async () => {
+    const db = makeDb({
+      config: { user_id: 'owner-1' },
+      contactCandidates: [
+        { id: 'c-uae', phone: '971503123456' },
+        { id: 'c-lb', phone: '9613123456' },
+      ],
+      existingConversation: { id: 'cv-lb' },
+    });
+    const res = await resolveConversationByPhone(db, 'acct', '+961 03 123 456');
+    expect(res).toMatchObject({ contactId: 'c-lb', contactCreated: false });
+  });
+
+  it.each([['919876543210.0'], ['+44 77OO 900123'], ['9.71505E+11']])(
+    'refuses %s before any lookup: its digits are not the number',
+    async (to) => {
+      const db = {
+        from() {
+          throw new Error('should not query');
+        },
+      } as unknown as SupabaseClient;
+      await expect(
+        resolveConversationByPhone(db, 'acct', to)
+      ).rejects.toMatchObject({ code: 'bad_request', status: 400 });
+    }
+  );
 });

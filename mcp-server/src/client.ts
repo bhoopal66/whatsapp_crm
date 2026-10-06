@@ -1,22 +1,22 @@
 // ============================================================
-// wacrm public API client.
+// Taamul Connect public API client.
 //
 // A thin wrapper over the `/api/v1` REST surface. It attaches the
 // bearer key, unwraps the `{ data }` / `{ error }` envelope, and
-// turns API failures into a typed WacrmApiError the tools can render
+// turns API failures into a typed TaamulApiError the tools can render
 // cleanly. Nothing here knows about MCP — it's just the CRM API.
 // ============================================================
 
 import type { Config } from './config.js';
 
-/** A structured error from the wacrm API envelope (`{ error: { code, message } }`). */
-export class WacrmApiError extends Error {
+/** A structured error from the Taamul Connect API envelope (`{ error: { code, message } }`). */
+export class TaamulApiError extends Error {
   readonly status: number;
   readonly code: string;
 
   constructor(status: number, code: string, message: string) {
     super(message);
-    this.name = 'WacrmApiError';
+    this.name = 'TaamulApiError';
     this.status = status;
     this.code = code;
   }
@@ -27,7 +27,7 @@ export interface Paginated<T> {
   next_cursor: string | null;
 }
 
-export class WacrmClient {
+export class TaamulClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
 
@@ -66,10 +66,10 @@ export class WacrmClient {
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       });
     } catch (err) {
-      throw new WacrmApiError(
+      throw new TaamulApiError(
         0,
         'network_error',
-        `Could not reach wacrm at ${this.baseUrl}: ${(err as Error).message}`,
+        `Could not reach Taamul Connect at ${this.baseUrl}: ${(err as Error).message}`,
       );
     }
 
@@ -82,7 +82,7 @@ export class WacrmClient {
       } catch {
         // Non-JSON body (e.g. an upstream proxy error page).
         if (!res.ok) {
-          throw new WacrmApiError(res.status, 'internal', text.slice(0, 500));
+          throw new TaamulApiError(res.status, 'internal', text.slice(0, 500));
         }
       }
     }
@@ -95,7 +95,7 @@ export class WacrmClient {
         const retryAfter = res.headers.get('Retry-After');
         if (retryAfter) message += ` (retry after ${retryAfter}s)`;
       }
-      throw new WacrmApiError(res.status, code, message);
+      throw new TaamulApiError(res.status, code, message);
     }
 
     const envelope = payload as { data: T; meta?: { next_cursor: string | null } };

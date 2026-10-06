@@ -142,29 +142,15 @@ export async function PUT(request: Request) {
           { status: 400 }
         );
       }
-      // Two statements, and the order matters: migration 046 enforces at
-      // most one primary per account with a partial unique index, so
-      // promoting before demoting trips the constraint.
-      const { error: demoteError } = await supabase
-        .from('whatsapp_config')
-        .update({ is_primary: false })
-        .eq('account_id', accountId)
-        .neq('id', body.primary_config_id);
-      if (demoteError) {
-        console.error('[whatsapp/routes] demote failed:', demoteError);
-        return NextResponse.json(
-          { error: 'Failed to update routing' },
-          { status: 500 }
-        );
-      }
-
-      const { error: promoteError } = await supabase
-        .from('whatsapp_config')
-        .update({ is_primary: true })
-        .eq('id', body.primary_config_id)
-        .eq('account_id', accountId);
-      if (promoteError) {
-        console.error('[whatsapp/routes] promote failed:', promoteError);
+      // One transaction (migration 062): demote then promote, so the
+      // one-primary index is never tripped and the account is never
+      // left without a default if the second write fails.
+      const { error: primaryError } = await supabase.rpc(
+        'set_primary_channel',
+        { p_config_id: body.primary_config_id }
+      );
+      if (primaryError) {
+        console.error('[whatsapp/routes] set primary failed:', primaryError);
         return NextResponse.json(
           { error: 'Failed to update routing' },
           { status: 500 }

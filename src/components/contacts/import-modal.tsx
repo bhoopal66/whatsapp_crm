@@ -13,6 +13,10 @@ import {
   type ParsedContactRow,
 } from '@/lib/contacts/parse-contact-csv';
 import {
+  partitionRowsByPhone,
+  summarizeRejectedPhones,
+} from '@/lib/contacts/phone-validation';
+import {
   assignImportedContactTags,
   resolveImportTagIds,
   type ContactTagAssignment,
@@ -222,8 +226,16 @@ export function ImportModal({
       let skipped = 0;
       let failed = 0;
 
+      // 0) Refuse numbers that can't be a WhatsApp address (no country
+      //    code, too short, scientific notation from a spreadsheet).
+      //    Stored as typed, every send to them reports 'sent' to nobody.
+      //    Valid rows come back normalized, so the de-dupe and existing
+      //    check below compare the digits that will be stored.
+      const { valid, rejected: badPhones } = partitionRowsByPhone(parsedRows);
+      failed += badPhones.length;
+
       // 1) De-dupe within the file by normalized phone (keep first).
-      const { unique, duplicates: inFileDupes } = dedupeByPhone(parsedRows);
+      const { unique, duplicates: inFileDupes } = dedupeByPhone(valid);
       skipped += inFileDupes;
 
       // 2) Skip numbers already in this account. One read of the
@@ -360,6 +372,9 @@ export function ImportModal({
       }
       if (failed > 0) {
         toast.error(t('toastFailed', { count: failed }));
+      }
+      if (badPhones.length > 0) {
+        toast.error(summarizeRejectedPhones(badPhones));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('toastError');

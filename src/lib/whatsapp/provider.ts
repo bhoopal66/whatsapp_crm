@@ -31,7 +31,11 @@
 
 import type { MessageTemplate } from '@/types';
 
-import type { WhatsAppChannel, WhatsAppProvider } from './channels';
+import {
+  describeChannel,
+  type WhatsAppChannel,
+  type WhatsAppProvider,
+} from './channels';
 import * as meta from './meta-api';
 import * as whapi from './whapi-api';
 
@@ -176,6 +180,21 @@ export async function sendTemplate(
   } = args;
 
   if (channel.provider === 'meta') {
+    // The per-send media override is a top-level arg here because it is
+    // the one structured value both providers honour; Meta wants it
+    // inside `messageParams`, so fold it in. Every caller (broadcast
+    // route, broadcast-core, send-message, automations) passes
+    // `headerMediaUrl` and nobody passes `messageParams`, so leaving it
+    // out silently dropped the URL the admin chose in the wizard and
+    // every recipient of a video/image template synced from Meta (no
+    // `header_media_url` on the row) failed with "requires a media link".
+    const metaParams: meta.SendTemplateMessageArgs['messageParams'] = {
+      ...((messageParams as meta.SendTemplateMessageArgs['messageParams']) ??
+        {}),
+    };
+    if (headerMediaUrl && !metaParams.headerMediaUrl) {
+      metaParams.headerMediaUrl = headerMediaUrl;
+    }
     const res = await meta.sendTemplateMessage({
       phoneNumberId: channel.phoneNumberId,
       accessToken: channel.accessToken,
@@ -184,7 +203,7 @@ export async function sendTemplate(
       language: template.language,
       params: bodyParams,
       template,
-      messageParams: (messageParams ?? undefined) as never,
+      messageParams: metaParams,
       contextMessageId: quotedMessageId ?? undefined,
     });
     return { messageId: res.messageId, provider: 'meta' };
@@ -405,9 +424,155 @@ export async function downloadMedia(args: {
   return whapi.downloadMedia({ downloadUrl, token: channel.accessToken });
 }
 
+/** A profile lookup runs per contact in the inbox; don't let one hang a batch. */
+const PROFILE_TIMEOUT_MS = 10_000;
+
+/**
+ * The URL of a contact's WhatsApp profile picture, or null when there
+ * is none to show (none set, or hidden by their privacy settings).
+ *
+ * Whapi only: the Cloud API has no profile-picture endpoint, so a Meta
+ * number always answers null. The URL is a WhatsApp CDN link that
+ * expires — copy the bytes (`contact-avatars.ts`), never store it.
+ *
+ * Throws the gateway's error on anything but "no picture", so the
+ * caller can tell a transient failure from a real absence.
+ */
+export async function getContactProfilePicture(
+  channel: WhatsAppChannel,
+  phone: string
+): Promise<string | null> {
+  if (channel.provider !== 'whapi') return null;
+  const profile = await whapi.getContactProfile({
+    token: channel.accessToken,
+    contactId: phone,
+    timeoutMs: PROFILE_TIMEOUT_MS,
+  });
+  return profile?.iconFull ?? profile?.icon ?? null;
+}
+
+// ============================================================
+// Channel health
+// ============================================================
+
+/** What a probe says about a number. Whapi's own words, never mapped. */
+export interface ChannelProbe {
+  /** `AUTH` means paired and able to send; see `describeChannelStatus`. */
+  status: string;
+  authorized: boolean;
+  /** Digits of the paired number; null while nothing is paired. */
+  phone: string | null;
+}
+
+/** Short enough that a probe after a failed send doesn't keep a user waiting. */
+const PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Ask the gateway whether a number is live, without changing anything.
+ *
+ * Whapi only: its linked-device session can be logged out on the phone
+ * while the token stays valid, so the token alone says nothing about
+ * whether a send will work. `wakeup: false` because a status check must
+ * never launch a channel an operator deliberately stopped. Meta has no
+ * session to lose — a Cloud API number is up as long as its token is —
+ * so there is nothing to probe and this returns null.
+ *
+ * Throws the gateway's error, so the caller can tell a refused token
+ * (401/403/404) from a gateway that is merely unreachable (503).
+ */
+export async function probeChannel(
+  channel: WhatsAppChannel
+): Promise<ChannelProbe | null> {
+  if (channel.provider !== 'whapi') return null;
+  const info = await whapi.getChannelInfo({
+    token: channel.accessToken,
+    wakeup: false,
+    timeoutMs: PROBE_TIMEOUT_MS,
+  });
+  return {
+    status: info.status,
+    authorized: info.authorized,
+    phone: info.phone,
+  };
+}
+
+/**
+ * Whapi's Safety Meter for a number: its own 1-3 rating of the risk of
+ * WhatsApp restricting it (overall, number age, response rate, address
+ * book coverage). Meta numbers have no such meter (their quality
+ * rating lives in the WhatsApp Manager) and get null. `recalculate`
+ * asks Whapi to compute it afresh, which it does at most once a day.
+ *
+ * Throws the gateway's error; the figures never include the token the
+ * meter echoes back.
+ */
+export async function getNumberSafetyRating(
+  channel: WhatsAppChannel,
+  opts: { recalculate?: boolean; timeoutMs?: number } = {}
+): Promise<whapi.WhapiRiskOfBlocking | null> {
+  if (channel.provider !== 'whapi') return null;
+  return whapi.getRiskOfBlocking({
+    token: channel.accessToken,
+    recalculate: opts.recalculate,
+    timeoutMs: opts.timeoutMs ?? 10_000,
+  });
+}
+
 // ============================================================
 // Failure interpretation
 // ============================================================
+
+/**
+ * True when a send failed because of the *number*, not the recipient:
+ * the next send from the same channel will fail the same way until
+ * someone fixes the channel (re-pairs the phone, replaces the token,
+ * renews the subscription).
+ *
+ * A fan-out loop uses this to stop instead of burning one gateway call
+ * — and one permanently "failed" recipient — per remaining row. Read
+ * off the raw error, never the `describeSendFailure` wording.
+ */
+export function isChannelLevelFailure(err: unknown): boolean {
+  if (err instanceof whapi.WhapiError) {
+    return err.isAuthError || err.isUnknownChannel || err.isBillingError;
+  }
+  if (err instanceof meta.MetaError) {
+    return err.isAuthError;
+  }
+  return false;
+}
+
+/**
+ * True only when a failed send certainly did not go out: the gateway
+ * answered with a 4xx refusal (a Whapi 401/403/404/402, a Meta error
+ * code), or the Whapi client refused it before making a request (a
+ * missing token or link is a WhapiError 401/400). Sending it again
+ * cannot reach the customer twice.
+ *
+ * Everything else leaves open whether the message was delivered, so it
+ * is false:
+ *
+ *   - the synthetic statuses the clients give a missing answer: Whapi's
+ *     503 for a network error or a timeout, Meta's 504 for a timeout.
+ *     The gateway may have sent the message before we stopped waiting,
+ *     which is likely for media, since it fetches the link first.
+ *   - Whapi's 502 for "accepted but returned no message id", where the
+ *     message certainly went out.
+ *   - a gateway 5xx, and 408, which is also a timeout.
+ *   - any other error: a SyntaxError from a 2xx body that is not JSON,
+ *     Meta's network errors (rethrown unwrapped), and the Meta client's
+ *     own checks, which throw a plain Error. Those last ones are safe in
+ *     fact, but nothing tells them apart from the others.
+ *
+ * A retry decision reads this. Read off the raw error, never the
+ * `describeSendFailure` wording.
+ */
+export function isDefiniteSendRefusal(err: unknown): boolean {
+  if (err instanceof whapi.WhapiError || err instanceof meta.MetaError) {
+    return err.status >= 400 && err.status < 500 && err.status !== 408;
+  }
+  return false;
+}
 
 /**
  * Turn a gateway failure into something an operator can act on.
@@ -446,7 +611,14 @@ export function describeSendFailure(error: unknown): string {
       return 'Whapi does not recognise this channel token. Check it in Settings → WhatsApp.';
     }
     if (error.isAuthError) {
-      return 'The Whapi channel token is invalid or revoked. Reconnect the channel in Settings → WhatsApp.';
+      // Not "the token is invalid": a phone logged out of WhatsApp makes
+      // the same valid token answer 401/403 on every send, and telling
+      // an admin to re-save it sends them to the wrong fix (see
+      // `explainSendFailure` for the probed, exact wording).
+      return (
+        `Whapi refused to send from this number (${whapiRefusal(error)}) — ` +
+        'usually the phone was logged out; an admin should check Settings → Numbers & access.'
+      );
     }
     if (error.isBillingError) {
       return 'The Whapi subscription has lapsed. Renew it to resume sending.';
@@ -455,4 +627,84 @@ export function describeSendFailure(error: unknown): string {
   }
 
   return error instanceof Error ? error.message : String(error);
+}
+
+/** `HTTP 401: <Whapi's own message>` — kept so the next incident is legible. */
+function whapiRefusal(error: whapi.WhapiError): string {
+  return error.message
+    ? `HTTP ${error.status}: ${error.message}`
+    : `HTTP ${error.status}`;
+}
+
+/** `+971…` from a Whapi row's display number, when it has one. */
+function whapiNumber(channel: WhatsAppChannel): string | null {
+  const digits = (channel.wabaId ?? '').replace(/\D/g, '');
+  return digits ? `+${digits}` : null;
+}
+
+/**
+ * `describeSendFailure`, made exact for the one case where the gateway's
+ * answer is ambiguous: a Whapi 401/403.
+ *
+ * The same refusal means three different things with three different
+ * fixes — the phone was logged out (re-scan the QR on the phone; the
+ * token is fine), the channel is still starting or syncing (wait), or
+ * the token really was revoked (paste the new one in Settings). One
+ * short `/health` probe tells them apart. It runs only after a send has
+ * already failed, never on the happy path, and a probe that errors
+ * falls back to the neutral wording rather than guessing.
+ */
+export async function explainSendFailure(
+  error: unknown,
+  channel: WhatsAppChannel
+): Promise<string> {
+  if (
+    channel.provider !== 'whapi' ||
+    !(error instanceof whapi.WhapiError) ||
+    !error.isAuthError
+  ) {
+    return describeSendFailure(error);
+  }
+
+  let probe: ChannelProbe | null;
+  try {
+    probe = await probeChannel(channel);
+  } catch (probeError) {
+    if (
+      probeError instanceof whapi.WhapiError &&
+      (probeError.isAuthError || probeError.isUnknownChannel)
+    ) {
+      return (
+        `Whapi no longer accepts the token for ${describeChannel(channel)} ` +
+        `(HTTP ${probeError.status}): it was revoked or the channel was deleted. ` +
+        'An admin must paste the current channel token in Settings → WhatsApp.'
+      );
+    }
+    return describeSendFailure(error);
+  }
+  if (!probe) return describeSendFailure(error);
+
+  if (probe.status === 'AUTH') {
+    return (
+      `Whapi refused the send (${whapiRefusal(error)}); the number reports ` +
+      'connected. Retry in a minute.'
+    );
+  }
+  if (probe.status === 'QR') {
+    const holder = whapiNumber(channel) ?? 'this number';
+    return (
+      `This number (${describeChannel(channel)}) is logged out of WhatsApp — ` +
+      `whoever holds ${holder} must re-pair it by scanning the QR at ` +
+      'panel.whapi.cloud (WhatsApp → Linked devices → Link a device). ' +
+      'Do not re-save the token in Settings.'
+    );
+  }
+  // LAUNCH/INIT are transitional (a channel starting or syncing after a
+  // re-pair also refuses sends), so each state gets its own wording
+  // rather than a blanket "logged out".
+  return (
+    `This number (${describeChannel(channel)}) is not connected to WhatsApp ` +
+    `(status ${probe.status}): ` +
+    whapi.describeChannelStatus(probe.status as whapi.WhapiChannelStatus)
+  );
 }

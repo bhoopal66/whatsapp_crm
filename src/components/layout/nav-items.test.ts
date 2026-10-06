@@ -1,0 +1,139 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+import { ACCOUNT_ROLES, type AccountRole } from '@/lib/auth/roles';
+import {
+  BOTTOM_NAV_ITEMS,
+  NAV_GROUPS,
+  isNavItemActive,
+  visibleNavGroups,
+  type NavGroup,
+} from './nav-items';
+
+/** Group id → hrefs, the shape a reader would check the sidebar by. */
+function layout(groups: NavGroup[]): Record<string, string[]> {
+  return Object.fromEntries(
+    groups.map((g) => [g.id, g.items.map((item) => item.href)])
+  );
+}
+
+const EVERYONE = ['/dashboard', '/notifications', '/inbox', '/contacts'];
+
+const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
+
+describe('visibleNavGroups', () => {
+  it.each([null, 'viewer', 'agent'] as const)(
+    'gives %s only the opening group, with no heading',
+    (role) => {
+      const groups = visibleNavGroups(role);
+      expect(layout(groups)).toEqual({ main: EVERYONE });
+      expect(groups.every((g) => g.labelKey === null)).toBe(true);
+    }
+  );
+
+  it('adds the team views and Team activity for a team leader', () => {
+    expect(layout(visibleNavGroups('team_leader'))).toEqual({
+      main: EVERYONE,
+      team: ['/team-inbox', '/team-contacts', '/team-activity'],
+    });
+  });
+
+  it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
+    expect(layout(visibleNavGroups(role))).toEqual({
+      main: EVERYONE,
+      team: ['/team-inbox', '/team-contacts', '/team-activity'],
+      sales: ['/pipelines', '/broadcasts'],
+      automation: ['/automations', '/flows', '/agents'],
+      integrations: ['/compass'],
+    });
+  });
+
+  it.each([null, ...ACCOUNT_ROLES])('never hands %s an empty group', (role) => {
+    for (const group of visibleNavGroups(role)) {
+      expect(group.items.length, group.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves only the opening group without a heading', () => {
+    expect(
+      NAV_GROUPS.filter((g) => g.labelKey === null).map((g) => g.id)
+    ).toEqual(['main']);
+    expect(NAV_GROUPS[0].id).toBe('main');
+  });
+});
+
+describe('nav model', () => {
+  it('lists every destination once', () => {
+    const hrefs = ALL_ITEMS.map((item) => item.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+
+  // The sidebar only hides rows; each route's own layout is the guard.
+  // If the two drift, a role is shown a link that bounces it, or the
+  // row is hidden from someone the route would let in.
+  it("gates each row exactly as its route's layout does", () => {
+    const appDir = join(process.cwd(), 'src', 'app', '(dashboard)');
+    for (const item of ALL_ITEMS) {
+      const file = join(appDir, item.href.slice(1), 'layout.tsx');
+      const source = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      const guard: AccountRole | undefined = source.includes(
+        'TeamLeaderOnlyLayout'
+      )
+        ? 'team_leader'
+        : source.includes('AdminOnlyLayout')
+          ? 'admin'
+          : undefined;
+      expect(item.minRole, item.href).toBe(guard);
+    }
+  });
+});
+
+describe('isNavItemActive', () => {
+  it('lights a row on its own page and its sub-pages', () => {
+    expect(isNavItemActive('/broadcasts', '/broadcasts')).toBe(true);
+    expect(isNavItemActive('/broadcasts', '/broadcasts/new')).toBe(true);
+    expect(isNavItemActive('/settings', '/settings')).toBe(true);
+  });
+
+  it('matches whole path segments only', () => {
+    expect(isNavItemActive('/inbox', '/team-inbox')).toBe(false);
+    expect(isNavItemActive('/contacts', '/team-contacts')).toBe(false);
+    expect(isNavItemActive('/flows', '/flowsheet')).toBe(false);
+  });
+
+  it('lights the dashboard only on itself', () => {
+    expect(isNavItemActive('/dashboard', '/dashboard')).toBe(true);
+    expect(isNavItemActive('/dashboard', '/dashboard/anything')).toBe(false);
+  });
+});
+
+const LOCALES = readdirSync(join(process.cwd(), 'messages'))
+  .filter((f) => f.endsWith('.json'))
+  .map((f) => f.replace(/\.json$/, ''));
+
+describe('sidebar labels', () => {
+  it.each(LOCALES)('%s.json labels every row and heading', (locale) => {
+    const raw = readFileSync(
+      join(process.cwd(), 'messages', `${locale}.json`),
+      'utf8'
+    );
+    const sidebar = JSON.parse(raw).Sidebar;
+    // next-intl reads a dotted key as a path into nested objects.
+    const lookup = (key: string): unknown =>
+      key
+        .split('.')
+        .reduce<unknown>(
+          (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+          sidebar
+        );
+    const keys = [
+      ...NAV_GROUPS.flatMap((g) => (g.labelKey ? [g.labelKey] : [])),
+      ...ALL_ITEMS.map((item) => item.labelKey),
+    ];
+    for (const key of keys) {
+      expect(lookup(key), `missing Sidebar.${key}`).toBeTruthy();
+      expect(typeof lookup(key), `Sidebar.${key}`).toBe('string');
+    }
+  });
+});

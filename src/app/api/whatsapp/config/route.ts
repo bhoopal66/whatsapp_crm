@@ -7,6 +7,7 @@ import {
   describeChannelStatus,
   getChannelInfo,
   getChannelSettings,
+  isOurWebhook,
   registerWebhook,
 } from '@/lib/whatsapp/whapi-api'
 import {
@@ -15,6 +16,7 @@ import {
   redactWebhookUrl,
 } from '@/lib/whatsapp/whapi-webhook-auth'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { nextHealth, syncPairedNumber } from '@/lib/whatsapp/channel-health'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
 
 /**
@@ -60,6 +62,59 @@ async function resolveAccountId(
     .maybeSingle()
   if (error || !data?.account_id) return null
   return data.account_id as string
+}
+
+/**
+ * The Whapi row a request is about.
+ *
+ * Since migration 060 an account can hold several Whapi numbers, so
+ * every handler takes an optional `config_id`. Without one it acts on
+ * the account's first Whapi row (primary first, then oldest) — the
+ * pre-060 behaviour, which is what an older client or a single-number
+ * install still gets.
+ */
+async function findWhapiRow<T>(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountId: string,
+  columns: string,
+  configId: string | null,
+): Promise<{ data: T | null; error: { message: string } | null }> {
+  let query = supabase
+    .from('whatsapp_config')
+    .select(columns)
+    .eq('account_id', accountId)
+    // Whapi rows only: an account can also hold a Meta row.
+    .eq('provider', 'whapi')
+  query = configId
+    ? query.eq('id', configId)
+    : query
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true })
+  const { data, error } = await query.limit(1).maybeSingle()
+  return { data: (data as T | null) ?? null, error }
+}
+
+/**
+ * If the account is left with channels but no primary — the primary
+ * was just disconnected — promote the oldest remaining one, so the
+ * fallback is a deliberate choice rather than whatever `primaryChannel`
+ * happens to see first.
+ */
+async function ensurePrimary(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  accountId: string,
+): Promise<void> {
+  const { data: rows } = await supabase
+    .from('whatsapp_config')
+    .select('id, is_primary, created_at')
+    .eq('account_id', accountId)
+    .order('created_at', { ascending: true })
+  if (!rows || rows.length === 0 || rows.some((r) => r.is_primary)) return
+  await supabase
+    .from('whatsapp_config')
+    .update({ is_primary: true })
+    .eq('id', rows[0].id)
+    .eq('account_id', accountId)
 }
 
 // Lazy-initialised service-role client. Needed to detect a channel id
@@ -141,7 +196,7 @@ function explainWhapiError(err: unknown): string {
  *   { connected: true,  channel: {...}, webhook: {...} }
  *   { connected: false, reason: 'no_config' | 'token_corrupted' | ... }
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     // Admin+. This is the WhatsApp channel: reading it exposes the
     // connected number and channel state, and writing it re-points
@@ -177,15 +232,21 @@ export async function GET() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, waba_id, access_token, status, registered_at')
-      .eq('account_id', accountId)
-      // Scoped to the Whapi row: since migration 046 an account can
-      // also hold a Meta channel, so account_id alone selects two rows
-      // and maybeSingle() would error.
-      .eq('provider', 'whapi')
-      .maybeSingle()
+    const configId = new URL(request.url).searchParams.get('config_id')
+    const { data: config, error: configError } = await findWhapiRow<{
+      id: string
+      phone_number_id: string
+      waba_id: string | null
+      label: string | null
+      access_token: string
+      status: string
+      registered_at: string | null
+    }>(
+      supabase,
+      accountId,
+      'id, phone_number_id, waba_id, label, access_token, status, registered_at',
+      configId,
+    )
 
     if (configError) {
       console.error('Error fetching whatsapp_config:', configError)
@@ -218,7 +279,7 @@ export async function GET() {
           reason: 'token_corrupted',
           needs_reset: true,
           message:
-            'The stored channel token cannot be decrypted with the current ENCRYPTION_KEY. This usually means the key changed, or differs between environments. Click "Reset" below, then re-save your token.',
+            'The stored channel token cannot be decrypted with the current ENCRYPTION_KEY. This usually means the key changed, or differs between environments. Paste the channel token again below and click Save — the number keeps its name, its people and its chats.',
         },
         { status: 200 }
       )
@@ -240,16 +301,38 @@ export async function GET() {
       )
     }
 
+    // The phone behind a channel can be re-paired to another handset;
+    // keep the stored display number (read by the inbox and alerts) in
+    // step with what Whapi reports. Best-effort, never throws.
+    await syncPairedNumber(
+      supabase,
+      { id: config.id, accountId, wabaId: config.waba_id, label: config.label },
+      channel.phone,
+    )
+
     // Report which callback URL the channel currently points at, so a
     // stale tunnel URL is visible rather than silently swallowing every
-    // inbound message.
-    let webhookUrls: string[] = []
+    // inbound message — and which entries are NOT this CRM's. Those are
+    // kept on purpose (registerWebhook never drops a third party's
+    // hook), but each one receives every message on the number, so an
+    // admin must be able to tell a forgotten debug bin from our own.
+    let webhookHooks: Array<{ url: string; ours: boolean }> = []
     try {
       const settings = await getChannelSettings({ token })
-      webhookUrls = (settings.webhooks ?? [])
+      let ourUrl: string | null = null
+      try {
+        ourUrl = `${resolveOrigin(request)}/api/whatsapp/webhook`
+      } catch {
+        // No resolvable origin: flag nothing rather than everything.
+      }
+      webhookHooks = (settings.webhooks ?? [])
         .map((hook) => hook.url)
         .filter((url): url is string => Boolean(url))
-        .map(redactWebhookUrl)
+        .map((url) => ({
+          // Classified on the raw URL; only the display copy is redacted.
+          url: redactWebhookUrl(url),
+          ours: ourUrl ? isOurWebhook(url, ourUrl) : true,
+        }))
     } catch {
       // Non-fatal — the channel probe above is what determines health.
     }
@@ -258,6 +341,7 @@ export async function GET() {
       connected: channel.authorized,
       reason: channel.authorized ? undefined : 'channel_not_authorized',
       message: describeChannelStatus(channel.status),
+      config_id: config.id,
       channel: {
         channel_id: config.phone_number_id,
         phone: channel.phone ?? config.waba_id,
@@ -268,7 +352,10 @@ export async function GET() {
       },
       webhook: {
         registered_at: config.registered_at,
-        urls: webhookUrls,
+        // `urls` is what the Settings screen reads today; `hooks` adds
+        // whether each one is ours.
+        urls: webhookHooks.map((hook) => hook.url),
+        hooks: webhookHooks,
       },
     })
   } catch (error) {
@@ -331,11 +418,26 @@ export async function POST(request: Request) {
       token: rawToken,
       channel_id: rawChannelId,
       rotate_secret: rotateSecret,
+      config_id: rawConfigId,
+      create: createNew,
+      label: rawLabel,
     } = body as {
       token?: string
       channel_id?: string
       rotate_secret?: boolean
+      /** Which Whapi number to re-save (migration 060). */
+      config_id?: string
+      /** Connect an ADDITIONAL Whapi number rather than re-save one. */
+      create?: boolean
+      /** Name for a newly connected number. Ignored on a re-save. */
+      label?: string
     }
+    const configId =
+      typeof rawConfigId === 'string' && rawConfigId.trim()
+        ? rawConfigId.trim()
+        : null
+    const label =
+      typeof rawLabel === 'string' ? rawLabel.trim().slice(0, 60) : ''
 
     const token = typeof rawToken === 'string' ? rawToken.trim() : ''
     if (!token) {
@@ -376,7 +478,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Reject if another account already claimed this channel. wacrm is
+    // Reject if another account already claimed this channel. Taamul Connect is
     // single-tenant-per-channel: two accounts sharing one channel would
     // make the inbound router ambiguous and silently drop messages
     // (issue #136). The UNIQUE constraint enforces it at the DB level;
@@ -406,16 +508,90 @@ export async function POST(request: Request) {
       )
     }
 
+    // Which row this save writes. `create` always adds a new number;
+    // otherwise it is the named row, or the account's first Whapi row
+    // for a client that predates migration 060.
+    let existing: {
+      id: string
+      verify_token: string | null
+      waba_id: string | null
+      status: string
+    } | null = null
+    if (!createNew) {
+      const found = await findWhapiRow<{
+        id: string
+        verify_token: string | null
+        waba_id: string | null
+        status: string
+      }>(
+        supabase,
+        accountId,
+        'id, verify_token, waba_id, status',
+        configId,
+      )
+      existing = found.data
+      if (configId && !existing) {
+        return NextResponse.json(
+          { error: 'That WhatsApp number is not connected on this account.' },
+          { status: 404 }
+        )
+      }
+    }
+
+    // The same channel twice on one account would give two rows the
+    // same phone_number_id — the UNIQUE constraint rejects it, and even
+    // if it didn't, inbound would match only one. Say which row has it.
+    const { data: duplicate } = await supabase
+      .from('whatsapp_config')
+      .select('id, label, waba_id')
+      .eq('account_id', accountId)
+      .eq('phone_number_id', channelId)
+      .maybeSingle()
+    if (duplicate && duplicate.id !== existing?.id) {
+      return NextResponse.json(
+        {
+          error: `This Whapi channel is already connected on this account as "${duplicate.label || duplicate.waba_id || channelId}". Open that number to update its token instead.`,
+        },
+        { status: 409 }
+      )
+    }
+
+    // The same PHONE twice is the same collision wearing a different
+    // channel id: the operator re-pasted a token under a mistyped id,
+    // or linked one phone to two Whapi channels. Either way the second
+    // row's webhook registration would replace the first's callback
+    // (registerWebhook matches ours by path), and the first number
+    // would silently stop receiving. The channel id is operator input;
+    // the phone comes from Whapi itself, so it is the reliable key.
+    // Checked across accounts too, on the service role, like `claimed`.
+    if (channel.phone) {
+      const { data: samePhone } = await supabaseAdmin()
+        .from('whatsapp_config')
+        .select('id, account_id, label')
+        .eq('provider', 'whapi')
+        .eq('waba_id', channel.phone)
+      const clash = (samePhone ?? []).find(
+        (r: { id: string }) => r.id !== existing?.id,
+      ) as { id: string; account_id: string; label: string | null } | undefined
+      if (clash) {
+        return NextResponse.json(
+          {
+            error:
+              clash.account_id === accountId
+                ? `The phone ${channel.phone} is already connected on this account as "${clash.label || channel.phone}". Each WhatsApp number can be connected once — open that number to update its token instead.`
+                : `The phone ${channel.phone} is already connected to another account on this instance. Each WhatsApp number can only be connected once.`,
+          },
+          { status: 409 }
+        )
+      }
+    }
+
     // Reuse the existing webhook secret when there is one, so a
     // re-save (e.g. after rotating the Whapi token) doesn't
     // invalidate a callback URL that is already working. Rotation is
-    // explicit via `rotate_secret`.
-    const { data: existing } = await supabase
-      .from('whatsapp_config')
-      .select('id, verify_token')
-      .eq('account_id', accountId)
-      .eq('provider', 'whapi')
-      .maybeSingle()
+    // explicit via `rotate_secret`. A new number always gets its own
+    // secret — it is what tells the webhook which number a callback
+    // is for.
 
     let webhookSecret: string | null = null
     if (!rotateSecret && existing?.verify_token) {
@@ -463,30 +639,54 @@ export async function POST(request: Request) {
       console.error('[whatsapp/config] webhook registration failed:', registrationError)
     }
 
+    // "Connected" means the channel is reachable and paired; inbound
+    // readiness is `registered_at`. A re-save derives it by the health
+    // monitor's rule (channel-health.ts): AUTH is up, QR and ERROR are
+    // down, and LAUNCH/INIT — a channel starting or syncing, which a
+    // save can easily catch — keep the number's current status. Writing
+    // 'disconnected' for those refused Compass sends until the next
+    // sweep, which then announced a "connected again" nobody needed. A
+    // new number has no status to keep.
+    const now = new Date().toISOString()
+    const status = existing
+      ? nextHealth(existing.status, { ok: true, status: channel.status }).status
+      : channel.authorized
+        ? 'connected'
+        : 'disconnected'
+
     const baseRow = {
       phone_number_id: channelId,
       // Display only — Whapi has no WABA. Holding the connected number
       // here keeps the Settings page useful when the channel is asleep.
-      waba_id: channel.phone,
+      // A logged-out (QR) channel reports no number, and a token re-save
+      // then must not erase the one we know: it names the number in
+      // alerts and keys the same-phone guard above. Once a phone is
+      // paired again, `syncPairedNumber` (health sweep, GET) catches up.
+      waba_id: channel.phone ?? existing?.waba_id ?? null,
       access_token: encryptedToken,
       verify_token: encryptedSecret,
-      // The channel is reachable and the token is good; that is what
-      // "connected" means here. Inbound readiness is `registered_at`.
-      status: channel.authorized ? 'connected' : 'disconnected',
-      connected_at: channel.authorized ? new Date().toISOString() : null,
+      status,
       registered_at: registeredAt,
       last_registration_error: registrationError,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     }
 
+    let savedId: string | null = existing?.id ?? null
     if (existing) {
       const { error: updateError } = await supabase
         .from('whatsapp_config')
-        .update(baseRow)
+        .update({
+          ...baseRow,
+          // Stamped on a real transition only: a re-save of a number
+          // that was already up does not make it "connected since now".
+          ...(status === 'connected' && existing.status !== 'connected'
+            ? { connected_at: now }
+            : {}),
+        })
         .eq('account_id', accountId)
-        // Without the provider filter this would overwrite the Meta
-        // channel's credentials with the Whapi ones.
-        .eq('provider', 'whapi')
+        // This row only: the account may hold other Whapi numbers and a
+        // Meta one, and none of them should get these credentials.
+        .eq('id', existing.id)
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
@@ -508,19 +708,39 @@ export async function POST(request: Request) {
         .select('id', { count: 'exact', head: true })
         .eq('account_id', accountId)
 
-      const { error: insertError } = await supabase
+      const newRow = {
+        account_id: accountId,
+        user_id: user.id,
+        provider: 'whapi',
+        // Operator-facing name for the routing selector and the
+        // Numbers screen. Set only on connect so a name an admin
+        // edited is never clobbered by a token re-save.
+        label: label || (channel.phone ? `WhatsApp ${channel.phone}` : 'WhatsApp (Whapi)'),
+        is_primary: (siblingCount ?? 0) === 0,
+        ...baseRow,
+        connected_at: status === 'connected' ? now : null,
+      }
+      let { data: inserted, error: insertError } = await supabase
         .from('whatsapp_config')
-        .insert({
-          account_id: accountId,
-          user_id: user.id,
-          provider: 'whapi',
-          // Operator-facing name for the routing selector. Set only on
-          // first connect so a label an admin edited is never clobbered
-          // by a token re-save.
-          label: 'WhatsApp (Whapi)',
-          is_primary: (siblingCount ?? 0) === 0,
-          ...baseRow,
-        })
+        .insert(newRow)
+        .select('id')
+        .single()
+      // Two first-connects at once both counted zero siblings and both
+      // claimed the default; the one-primary index (046) rejects the
+      // second. It is still a perfectly good number — save it as a
+      // non-default one rather than losing it after Whapi already
+      // points at its callback secret.
+      if (
+        insertError?.code === '23505' &&
+        insertError.message.includes('idx_whatsapp_config_one_primary')
+      ) {
+        ;({ data: inserted, error: insertError } = await supabase
+          .from('whatsapp_config')
+          .insert({ ...newRow, is_primary: false })
+          .select('id')
+          .single())
+      }
+      savedId = (inserted?.id as string | undefined) ?? null
 
       if (insertError) {
         console.error('Error inserting whatsapp_config:', insertError)
@@ -534,6 +754,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: !registrationError && channel.authorized,
       saved: true,
+      config_id: savedId,
       registered: registeredAt != null,
       registration_error: registrationError,
       // Redacted — the raw secret is never echoed back to the browser.
@@ -563,7 +784,7 @@ export async function POST(request: Request) {
  * may no longer hold a usable token to unregister it with, and any
  * callback that does arrive is rejected by the secret check anyway.
  */
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     // Admin+. This is the WhatsApp channel: reading it exposes the
     // connected number and channel state, and writing it re-points
@@ -595,13 +816,27 @@ export async function DELETE() {
       )
     }
 
+    // One number at a time (migration 060): the named row, or the
+    // first Whapi row for an older client. The Meta number, the other
+    // Whapi numbers, and routes pointing at them are left alone; routes
+    // and allocations for THIS number cascade, and its chat history
+    // stays (conversations/messages.channel_id go NULL).
+    const configId = new URL(request.url).searchParams.get('config_id')
+    const { data: target } = await findWhapiRow<{ id: string }>(
+      supabase,
+      accountId,
+      'id',
+      configId,
+    )
+    if (!target) {
+      return NextResponse.json({ success: true })
+    }
+
     const { error: deleteError } = await supabase
       .from('whatsapp_config')
       .delete()
-      // Disconnects the Whapi channel only — the Meta number, and any
-      // routes pointing at it, are left alone.
       .eq('account_id', accountId)
-      .eq('provider', 'whapi')
+      .eq('id', target.id)
 
     if (deleteError) {
       console.error('Error deleting whatsapp_config:', deleteError)
@@ -610,6 +845,8 @@ export async function DELETE() {
         { status: 500 }
       )
     }
+
+    await ensurePrimary(supabase, accountId)
 
     return NextResponse.json({ success: true })
   } catch (error) {

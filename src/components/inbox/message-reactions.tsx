@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { useMemo } from "react";
-import { cn } from "@/lib/utils";
-import type { MessageReaction } from "@/types";
+import { useMemo } from 'react';
+import { cn } from '@/lib/utils';
+import type { MessageReaction } from '@/types';
 
 interface MessageReactionsProps {
   reactions: MessageReaction[];
@@ -20,13 +20,13 @@ interface ReactionGroup {
 
 function groupReactions(
   reactions: MessageReaction[],
-  currentUserId: string | undefined,
+  currentUserId: string | undefined
 ): ReactionGroup[] {
   const map = new Map<string, ReactionGroup>();
   for (const r of reactions) {
     const existing = map.get(r.emoji);
     const isMine =
-      r.actor_type === "agent" &&
+      r.actor_type === 'agent' &&
       !!currentUserId &&
       r.actor_id === currentUserId;
     if (existing) {
@@ -46,13 +46,14 @@ export function MessageReactions({
 }: MessageReactionsProps) {
   const groups = useMemo(
     () => groupReactions(reactions, currentUserId),
-    [reactions, currentUserId],
+    [reactions, currentUserId]
   );
 
   if (groups.length === 0) return null;
 
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
+    // Tucked up against the bubble's bottom edge, as WhatsApp does.
+    <div className="relative -mt-1.5 flex flex-wrap gap-1 px-2">
       {groups.map((g) => (
         <button
           key={g.emoji}
@@ -60,10 +61,10 @@ export function MessageReactions({
           onClick={() => onToggle(g.emoji)}
           aria-pressed={g.byCurrentUser}
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] leading-none transition-colors",
+            'text-wa-text-secondary ring-wa-chat inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] leading-none shadow-[0_1px_2px_rgba(11,20,26,0.18)] ring-2 transition-colors',
             g.byCurrentUser
-              ? "border-primary/60 bg-primary/15 text-primary hover:bg-primary/25"
-              : "border-border bg-muted/80 text-foreground hover:bg-muted",
+              ? 'bg-wa-chip-active'
+              : 'bg-wa-bubble-in hover:bg-wa-row-hover'
           )}
         >
           <span className="text-sm leading-none">{g.emoji}</span>

@@ -1,4 +1,8 @@
-import { downloadMedia } from "./whapi-api";
+import {
+  downloadMedia as whapiDownloadMedia,
+  type DownloadMediaArgs,
+} from "./whapi-api";
+import { downloadMedia as metaDownloadMedia, isMetaMediaHost } from "./meta-api";
 import { extensionForMime } from "@/lib/media/filename";
 import { buildMediaPath, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 import { toPublicSupabaseUrl } from "@/lib/supabase/urls";
@@ -67,6 +71,31 @@ export interface MirrorInboundMediaArgs {
   messageTimestamp?: string | number | null;
   /** Injected in tests. */
   download?: typeof downloadMedia;
+}
+
+/**
+ * The default downloader. The inbound pipeline mirrors for BOTH gateways
+ * without saying which one issued the URL, and each gateway's client now
+ * presents its token only to its own media host — so route a Meta
+ * lookaside URL to the Meta client and everything else to Whapi's
+ * (which sends a token only to the Whapi media endpoint and fetches any
+ * other URL anonymously behind the SSRF guard).
+ */
+export async function downloadMedia(
+  args: DownloadMediaArgs,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  let isMeta = false;
+  try {
+    isMeta = isMetaMediaHost(new URL(args.downloadUrl));
+  } catch {
+    // Malformed — let the Whapi client reject it.
+  }
+  return isMeta
+    ? metaDownloadMedia({
+        downloadUrl: args.downloadUrl,
+        accessToken: args.token,
+      })
+    : whapiDownloadMedia(args);
 }
 
 /**

@@ -10,7 +10,12 @@ import { Step1ChooseTemplate } from '@/components/broadcasts/step1-choose-templa
 import { Step2SelectAudience } from '@/components/broadcasts/step2-select-audience';
 import { Step3Personalize } from '@/components/broadcasts/step3-personalize';
 import { Step4ScheduleSend } from '@/components/broadcasts/step4-schedule-send';
-import { useBroadcastSending } from '@/hooks/use-broadcast-sending';
+import {
+  useBroadcastSending,
+  type AudienceConfig,
+  type VariableMapping,
+} from '@/hooks/use-broadcast-sending';
+import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { Check } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -25,32 +30,26 @@ export default function NewBroadcastPage() {
   const router = useRouter();
   const t = useTranslations('Broadcasts.new');
   const { accountId } = useAuth();
-  const { createAndSendBroadcast, isProcessing, progress } = useBroadcastSending();
+  const { createAndSendBroadcast, isProcessing, progress } =
+    useBroadcastSending();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [template, setTemplate] = useState<MessageTemplate | null>(null);
-  const [audience, setAudience] = useState<{
-    type: 'all' | 'tags' | 'custom_field' | 'csv';
-    tagIds?: string[];
-    customField?: {
-      fieldId: string;
-      operator: 'is' | 'is_not' | 'contains';
-      value: string;
-    };
-    csvContacts?: { phone: string; name?: string }[];
-    excludeTagIds?: string[];
-  }>({ type: 'all' });
-  const [variables, setVariables] = useState<
-    Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
-  >({});
+  const [audience, setAudience] = useState<AudienceConfig>({ type: 'all' });
+  const [variables, setVariables] = useState<Record<string, VariableMapping>>(
+    {}
+  );
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
   const [name, setName] = useState('');
+  const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+  const [quietHours, setQuietHours] = useState<QuietHours | null>(null);
+  const [followUpFlowId, setFollowUpFlowId] = useState<string | null>(null);
 
   async function handleSend() {
     if (!template) return;
 
     try {
-      const broadcastId = await createAndSendBroadcast({
+      const { broadcastId, scheduledFor } = await createAndSendBroadcast({
         name,
         template,
         audience: {
@@ -58,11 +57,21 @@ export default function NewBroadcastPage() {
           tagIds: audience.tagIds,
           customField: audience.customField,
           csvContacts: audience.csvContacts,
+          csvColumns: audience.csvColumns,
           excludeTagIds: audience.excludeTagIds,
+          skipRecentDays: audience.skipRecentDays,
         },
         variables,
         headerMediaUrl,
+        scheduledAt,
+        quietHours,
+        followUpFlowId,
       });
+      if (scheduledFor) {
+        toast.success(
+          t('toastScheduled', { when: scheduledFor.toLocaleString() })
+        );
+      }
       router.push(`/broadcasts/${broadcastId}`);
     } catch (err) {
       // Previously swallowed with console.error — the wizard would
@@ -112,6 +121,7 @@ export default function NewBroadcastPage() {
         type: audience.type,
         tagIds: audience.tagIds,
       },
+      follow_up_flow_id: followUpFlowId,
       status: 'draft',
       total_recipients: 0,
       sent_count: 0,
@@ -133,10 +143,8 @@ export default function NewBroadcastPage() {
     <div className="mx-auto max-w-3xl space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('subtitle')}
-        </p>
+        <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
+        <p className="text-muted-foreground mt-1 text-sm">{t('subtitle')}</p>
       </div>
 
       {/* Step Indicator */}
@@ -153,15 +161,19 @@ export default function NewBroadcastPage() {
                     isCompleted
                       ? 'bg-primary text-primary-foreground'
                       : isActive
-                        ? 'border-2 border-primary bg-primary/10 text-primary'
-                        : 'border border-border bg-muted text-muted-foreground'
+                        ? 'border-primary bg-primary/10 text-primary border-2'
+                        : 'border-border bg-muted text-muted-foreground border'
                   }`}
                 >
                   {isCompleted ? <Check className="h-4 w-4" /> : index + 1}
                 </div>
                 <span
                   className={`hidden text-sm font-medium sm:block ${
-                    isActive ? 'text-foreground' : isCompleted ? 'text-primary' : 'text-muted-foreground'
+                    isActive
+                      ? 'text-foreground'
+                      : isCompleted
+                        ? 'text-primary'
+                        : 'text-muted-foreground'
                   }`}
                 >
                   {t(`steps.${step.label}`)}
@@ -207,6 +219,7 @@ export default function NewBroadcastPage() {
           {currentStep === 2 && template && (
             <Step3Personalize
               template={template}
+              audience={audience}
               variables={variables}
               onUpdate={setVariables}
               headerMediaUrl={headerMediaUrl}
@@ -221,6 +234,12 @@ export default function NewBroadcastPage() {
               onNameChange={setName}
               template={template}
               audience={audience}
+              scheduledAt={scheduledAt}
+              onScheduledAtChange={setScheduledAt}
+              quietHours={quietHours}
+              onQuietHoursChange={setQuietHours}
+              followUpFlowId={followUpFlowId}
+              onFollowUpFlowIdChange={setFollowUpFlowId}
               onSend={handleSend}
               onSaveDraft={handleSaveDraft}
               onBack={() => setCurrentStep(2)}

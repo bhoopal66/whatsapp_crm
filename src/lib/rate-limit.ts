@@ -173,6 +173,12 @@ export const RATE_LIMITS = {
    *  capping a stampede; excess inbounds simply don't get an auto-reply
    *  (they still land in the inbox for a human). */
   aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+  /** TypeSafe's opt-out watch (lib/ai/typesafe-watch.ts), per account:
+   *  one TypeSafe request per inbound the bot did not judge. A burst of
+   *  campaign replies beyond it is not triaged (and not logged), so it
+   *  cannot draw a TypeSafe 429 that would pause the checks the bot's
+   *  own replies depend on. 60/min covers organic traffic. */
+  typesafeWatchAccount: { limit: 60, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

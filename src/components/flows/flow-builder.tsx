@@ -17,7 +17,14 @@
  * are list-only and have no canvas analogue.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslations } from 'next-intl';
 import {
   CircleAlert,
@@ -165,6 +172,8 @@ export function FlowBuilder() {
 
       <EntryPicker state={state} setState={setState} t={t} />
 
+      <FallbackPanel state={state} setState={setState} t={t} />
+
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-foreground text-sm font-semibold">
@@ -175,7 +184,9 @@ export function FlowBuilder() {
 
         {state.nodes.length === 0 ? (
           <div className="border-border bg-card/50 text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
-            {t.rich('nodesEmpty', { strong: (chunks) => <strong>{chunks}</strong> })}
+            {t.rich('nodesEmpty', {
+              strong: (chunks) => <strong>{chunks}</strong>,
+            })}
           </div>
         ) : (
           state.nodes.map((node) => (
@@ -274,7 +285,9 @@ function TriggerPanel({
 }) {
   return (
     <section className="border-border bg-card rounded-lg border p-4">
-      <h2 className="text-foreground mb-3 text-sm font-semibold">{t('triggerTitle')}</h2>
+      <h2 className="text-foreground mb-3 text-sm font-semibold">
+        {t('triggerTitle')}
+      </h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <label className="text-muted-foreground mb-1 block text-xs">
@@ -301,9 +314,7 @@ function TriggerPanel({
               <SelectItem value="first_inbound_message">
                 {t('triggerFirstInboundTitle')}
               </SelectItem>
-              <SelectItem value="manual">
-                {t('triggerManualTitle')}
-              </SelectItem>
+              <SelectItem value="manual">{t('triggerManualTitle')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -341,6 +352,120 @@ function TriggerPanel({
 }
 
 // ============================================================
+// Fallback panel — what the runner does with an off-script reply
+// (`flows.fallback_policy`, resolved in lib/flows/fallback.ts).
+// ============================================================
+
+function FallbackPanel({
+  state,
+  setState,
+  t,
+}: {
+  state: BuilderState;
+  setState: React.Dispatch<React.SetStateAction<BuilderState>>;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const policy = state.fallback_policy;
+  const patch = (p: Partial<BuilderState['fallback_policy']>) =>
+    setState((s) => ({
+      ...s,
+      fallback_policy: { ...s.fallback_policy, ...p },
+    }));
+  const showRepromptKnobs =
+    policy.on_unknown_reply === 'reprompt' || policy.on_unknown_reply === 'ai';
+  return (
+    <section className="border-border bg-card rounded-lg border p-4">
+      <h2 className="text-foreground mb-1 text-sm font-semibold">
+        {t('fallbackTitle')}
+      </h2>
+      <p className="text-muted-foreground mb-3 text-xs">{t('fallbackDesc')}</p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="md:col-span-1">
+          <label className="text-muted-foreground mb-1 block text-xs">
+            {t('fallbackUnknownLabel')}
+          </label>
+          <Select
+            value={policy.on_unknown_reply}
+            onValueChange={(v) =>
+              patch({
+                on_unknown_reply:
+                  v as BuilderState['fallback_policy']['on_unknown_reply'],
+              })
+            }
+          >
+            <SelectTrigger className="bg-muted">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ai">{t('fallbackUnknownAi')}</SelectItem>
+              <SelectItem value="reprompt">
+                {t('fallbackUnknownReprompt')}
+              </SelectItem>
+              <SelectItem value="handoff">
+                {t('fallbackUnknownHandoff')}
+              </SelectItem>
+              <SelectItem value="ignore">
+                {t('fallbackUnknownIgnore')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {showRepromptKnobs && (
+          <>
+            <div>
+              <label className="text-muted-foreground mb-1 block text-xs">
+                {t('fallbackMaxReprompts')}
+              </label>
+              <Input
+                type="number"
+                min={0}
+                max={10}
+                value={policy.max_reprompts}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n) && n >= 0)
+                    patch({ max_reprompts: Math.floor(n) });
+                }}
+                className="bg-muted"
+              />
+            </div>
+            <div>
+              <label className="text-muted-foreground mb-1 block text-xs">
+                {t('fallbackExhaustLabel')}
+              </label>
+              <Select
+                value={policy.on_exhaust}
+                onValueChange={(v) =>
+                  patch({
+                    on_exhaust:
+                      v as BuilderState['fallback_policy']['on_exhaust'],
+                  })
+                }
+              >
+                <SelectTrigger className="bg-muted">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="handoff">
+                    {t('fallbackExhaustHandoff')}
+                  </SelectItem>
+                  <SelectItem value="end">{t('fallbackExhaustEnd')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
+      </div>
+      {policy.on_unknown_reply === 'ai' && (
+        <p className="text-muted-foreground mt-3 text-xs">
+          {t('fallbackAiHint')}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
 // Entry-node picker
 // ============================================================
 
@@ -357,7 +482,9 @@ function EntryPicker({
   return (
     <section className="border-border bg-card flex items-center gap-3 rounded-lg border p-3">
       <CornerDownRight className="text-primary h-4 w-4 shrink-0" />
-      <span className="text-muted-foreground text-xs">{t('entryNodeTitle')}</span>
+      <span className="text-muted-foreground text-xs">
+        {t('entryNodeTitle')}
+      </span>
       <NodeKeySelect
         value={state.entry_node_id}
         nodes={state.nodes}
@@ -579,7 +706,13 @@ function NodeConfigWithAdvanced({
 // Add-node menu
 // ============================================================
 
-function AddNodeButton({ onAdd, t }: { onAdd: (type: NodeType) => void; t: ReturnType<typeof useTranslations> }) {
+function AddNodeButton({
+  onAdd,
+  t,
+}: {
+  onAdd: (type: NodeType) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
   const types: NodeType[] = [
     'start',
     'send_buttons',

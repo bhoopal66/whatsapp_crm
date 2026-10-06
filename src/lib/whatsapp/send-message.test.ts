@@ -2,10 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  gatewayErrorFields,
+  isAcceptableMediaUrl,
   sendMessageToConversation,
   SendMessageError,
+  validateSendMessageParams,
   type SendMessageParams,
 } from './send-message';
+import { WhapiError } from './whapi-api';
 
 // A db that explodes if touched — these tests cover the param
 // validation that MUST short-circuit before any query runs.
@@ -156,6 +160,20 @@ describe('SendMessageError', () => {
     expect(e.status).toBe(502);
     expect(e).toBeInstanceOf(Error);
   });
+
+  it('is definite by default only for a 4xx, which comes before the gateway', () => {
+    expect(new SendMessageError('bad_request', 'nope', 400).definite).toBe(
+      true
+    );
+    expect(new SendMessageError('not_found', 'nope', 404).definite).toBe(true);
+    expect(new SendMessageError('boom', 'boom', 500).definite).toBe(false);
+    expect(new SendMessageError('whatsapp_error', 'boom', 502).definite).toBe(
+      false
+    );
+    expect(
+      new SendMessageError('whatsapp_error', 'refused', 502, true).definite
+    ).toBe(true);
+  });
 });
 
 // ============================================================
@@ -163,12 +181,16 @@ describe('SendMessageError', () => {
 // ============================================================
 
 const sendTemplateMessage = vi.fn(async () => ({ messageId: 'wamid.1' }));
+const sendTextMessage = vi.fn(async () => ({ messageId: 'wamid.text' }));
+const getChannelInfo = vi.fn();
 
 // Stub only the senders — the module also exports INTERACTIVE_LIMITS,
 // which `interactive.ts` needs for the payload validation covered above.
 vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  sendTextMessage: vi.fn(async () => ({ messageId: 'wamid.text' })),
+  sendTextMessage: (...args: unknown[]) =>
+    (sendTextMessage as unknown as (...a: unknown[]) => unknown)(...args),
+  getChannelInfo: (...args: unknown[]) => getChannelInfo(...args),
   sendTemplateMessage: (...args: unknown[]) =>
     (sendTemplateMessage as unknown as (...a: unknown[]) => unknown)(...args),
   sendMediaMessage: vi.fn(async () => ({ messageId: 'wamid.media' })),
@@ -240,9 +262,15 @@ function sendPathDb(
           return builder;
         },
         update: (row: Record<string, unknown>) => {
-          if (table === 'conversations') captured.conversation = row;
+          // The send core writes the conversation twice: the last-message
+          // summary, then (for a thread with no number yet) the number
+          // stamp. Merge so a test sees everything that was written.
+          if (table === 'conversations') {
+            captured.conversation = { ...captured.conversation, ...row };
+          }
           return builder;
         },
+        is: () => builder,
         // `channels.ts` terminates its whatsapp_config read on .order();
         // every other table keeps chaining.
         order: () => {
@@ -381,5 +409,406 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
 
     expect(sendTemplateMessage).not.toHaveBeenCalled();
     expect(captured.message).toBeUndefined();
+  });
+});
+
+describe('sendMessageToConversation — provider pin', () => {
+  // The fixture account has only a Whapi channel connected.
+  it('falls back to the connected number when the pin is a preference', async () => {
+    const captured: CapturedWrites = {};
+    await sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'hi',
+      provider: 'meta',
+    });
+    expect(captured.message?.provider).toBe('whapi');
+  });
+
+  it('refuses rather than falls back when the pin is required', async () => {
+    // Compass status notifications: never silently move to another number.
+    const captured: CapturedWrites = {};
+    await expect(
+      sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'text',
+        contentText: 'hi',
+        provider: 'meta',
+        requireProvider: true,
+      })
+    ).rejects.toMatchObject({ code: 'meta_not_connected', status: 409 });
+    expect(captured.message).toBeUndefined();
+  });
+
+  it('never writes conversation ownership', async () => {
+    const captured: CapturedWrites = {};
+    await sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'status update',
+      provider: 'whapi',
+      requireProvider: true,
+      pauseActiveFlows: false,
+    });
+    expect(captured.conversation).toBeDefined();
+    expect(captured.conversation).not.toHaveProperty('assigned_agent_id');
+    expect(captured.conversation).not.toHaveProperty('user_id');
+    expect(captured.message?.sender_id).toBeNull();
+  });
+});
+
+describe('sendMessageToConversation — gateway refusal wording', () => {
+  // A Whapi 401/403 on a send is ambiguous: a phone logged out of
+  // WhatsApp answers it with a perfectly valid token. The send path
+  // probes the number and says which it is (production, 29 Sep: every
+  // agent was told the token was revoked while the phone showed a QR).
+  async function failWith(probe: () => Promise<unknown>) {
+    sendTextMessage.mockImplementationOnce(async () => {
+      throw new WhapiError('Unauthorized', 401, 401, 'channel not authorized');
+    });
+    getChannelInfo.mockReset();
+    getChannelInfo.mockImplementationOnce(probe);
+    const captured: CapturedWrites = {};
+    const error = await sendMessageToConversation(
+      sendPathDb([], captured),
+      'acct-1',
+      { conversationId: 'cv-1', messageType: 'text', contentText: 'hi' }
+    ).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(captured.message).toBeUndefined();
+    return error as SendMessageError;
+  }
+
+  it('says the phone is logged out when the probe reports a QR', async () => {
+    const error = await failWith(async () => ({
+      status: 'QR',
+      authorized: false,
+      phone: null,
+    }));
+    // The contract callers map is unchanged: whatsapp_error / 502.
+    expect(error).toBeInstanceOf(SendMessageError);
+    expect(error.code).toBe('whatsapp_error');
+    expect(error.status).toBe(502);
+    // A refused 401 never went out, so the inbox may offer Retry.
+    expect(error.definite).toBe(true);
+    expect(error.message).toMatch(/logged out of WhatsApp/);
+    expect(error.message).toMatch(/Do not re-save the token/);
+    expect(getChannelInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ token: 'token', wakeup: false })
+    );
+  });
+
+  it('says the token was revoked only when the probe is refused too', async () => {
+    const error = await failWith(async () => {
+      throw new WhapiError('Invalid token', 401);
+    });
+    expect(error.code).toBe('whatsapp_error');
+    expect(error.message).toMatch(/no longer accepts the token/);
+  });
+
+  it('keeps the neutral wording when the probe itself fails', async () => {
+    const error = await failWith(async () => {
+      throw new WhapiError('Whapi request failed: timeout', 503);
+    });
+    expect(error.status).toBe(502);
+    expect(error.message).toContain('HTTP 401: Unauthorized');
+    expect(error.message).not.toMatch(/invalid or revoked/);
+  });
+
+  it("logs the gateway's raw status, code, message and details", async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await failWith(async () => {
+        throw new WhapiError('Whapi request failed: timeout', 503);
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining('[send-message] send failed'),
+        expect.any(String),
+        {
+          status: 401,
+          code: 401,
+          message: 'Unauthorized',
+          details: 'channel not authorized',
+        }
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe('sendMessageToConversation — whether a failure is definite', () => {
+  // The inbox offers Retry only for a definite failure. A retry after
+  // one that may have gone out reaches the customer twice.
+  async function failWith(thrown: unknown) {
+    sendTextMessage.mockImplementationOnce(async () => {
+      throw thrown;
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const captured: CapturedWrites = {};
+      const error = await sendMessageToConversation(
+        sendPathDb([], captured),
+        'acct-1',
+        { conversationId: 'cv-1', messageType: 'text', contentText: 'hi' }
+      ).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(captured.message).toBeUndefined();
+      expect(error).toBeInstanceOf(SendMessageError);
+      return error as SendMessageError;
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  it('is definite when the gateway refused with a 4xx', async () => {
+    const error = await failWith(new WhapiError('bad recipient', 400));
+    expect(error).toMatchObject({
+      code: 'whatsapp_error',
+      status: 502,
+      definite: true,
+    });
+  });
+
+  it.each([
+    ['a timeout', new WhapiError('Whapi request failed: timeout', 503)],
+    [
+      'an accepted send with no id back',
+      new WhapiError(
+        'Whapi accepted the text message but returned no message id.',
+        502
+      ),
+    ],
+    ['a gateway 5xx', new WhapiError('Internal error', 500)],
+    ['a 2xx body that is not JSON', new SyntaxError('Unexpected token <')],
+  ])('is not definite after %s: it may have gone out', async (_, thrown) => {
+    const error = await failWith(thrown);
+    expect(error).toMatchObject({
+      code: 'whatsapp_error',
+      status: 502,
+      definite: false,
+    });
+  });
+
+  it('is definite for a malformed template row, found before the gateway call', async () => {
+    sendTemplateMessage.mockClear();
+    const error = await sendMessageToConversation(
+      sendPathDb(
+        [{ id: 'tpl-bad', name: 'order_update', language: 'en' }],
+        {}
+      ),
+      'acct-1',
+      {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+      }
+    ).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({
+      code: 'template_malformed',
+      status: 500,
+      definite: true,
+    });
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+  });
+
+  it('is not definite when the sent message could not be saved', async () => {
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([], captured);
+    const db = {
+      from(table: string) {
+        const builder = inner.from(table) as unknown as Record<string, unknown>;
+        if (table === 'messages') {
+          builder.single = async () => ({
+            data: null,
+            error: { message: 'insert denied' },
+          });
+        }
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const error = await sendMessageToConversation(db, 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'text',
+        contentText: 'hi',
+      }).then(
+        () => null,
+        (e: unknown) => e
+      );
+      expect(error).toMatchObject({
+        code: 'db_error',
+        status: 500,
+        definite: false,
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
+  function withCheck(result: unknown) {
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([], captured);
+    const rpc = vi.fn(async () => result);
+    const db = {
+      from: (table: string) => inner.from(table),
+      rpc,
+    } as unknown as SupabaseClient;
+    return { db, rpc, captured };
+  }
+
+  it("refuses a person's new chat when the check says so, before the gateway", async () => {
+    sendTextMessage.mockClear();
+    const { db, rpc } = withCheck({
+      data: { blocked: true, reason: 'user', started: 20, limit: 20 },
+      error: null,
+    });
+    const error = await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Hello',
+      senderUserId: 'u-1',
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({
+      code: 'new_chat_limit',
+      status: 429,
+      definite: true,
+    });
+    expect((error as Error).message).toMatch(/started 20 new chats today/);
+    expect(rpc).toHaveBeenCalledWith('team_activity_start_check', {
+      p_conversation_id: 'cv-1',
+      p_channel_id: 'cfg-1',
+    });
+    expect(sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends when the check allows it', async () => {
+    sendTextMessage.mockClear();
+    const { db, captured } = withCheck({ data: { blocked: false }, error: null });
+    await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Hello',
+      senderUserId: 'u-1',
+    });
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(captured.message).toMatchObject({ sender_id: 'u-1' });
+  });
+
+  it('does not ask for a send no person made', async () => {
+    const { db, rpc } = withCheck({ data: { blocked: true }, error: null });
+    await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Your order shipped',
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('gatewayErrorFields', () => {
+  it('reads the shared fields off any error without knowing its class', () => {
+    expect(gatewayErrorFields(new WhapiError('nope', 403, 7, 'why'))).toEqual({
+      status: 403,
+      code: 7,
+      message: 'nope',
+      details: 'why',
+    });
+    expect(gatewayErrorFields(new Error('plain'))).toEqual({
+      status: null,
+      code: null,
+      message: 'plain',
+      details: null,
+    });
+    expect(gatewayErrorFields('text')).toMatchObject({ message: 'text' });
+    expect(gatewayErrorFields(null)).toMatchObject({ status: null });
+  });
+});
+
+describe('media_url validation', () => {
+  const STORAGE = 'http://localhost:8000';
+
+  it('accepts https URLs and our own public storage over http', () => {
+    expect(isAcceptableMediaUrl('https://cdn.example.com/a.jpg', STORAGE)).toBe(
+      true
+    );
+    expect(
+      isAcceptableMediaUrl(
+        `${STORAGE}/storage/v1/object/public/chat-media/account-1/a.jpg`,
+        STORAGE
+      )
+    ).toBe(true);
+  });
+
+  it('rejects other schemes, relative paths, and look-alike storage paths', () => {
+    for (const url of [
+      'http://attacker.example/a.jpg',
+      'http://169.254.169.254/latest/meta-data',
+      'file:///etc/passwd',
+      'ftp://example.com/a.jpg',
+      '/api/whatsapp/media/123',
+      'javascript:alert(1)',
+      'not a url',
+      'https://user:pass@example.com/a.jpg',
+      `${STORAGE}/auth/v1/admin/users`,
+      `${STORAGE}/storage/v1/object/public/../../../auth/v1/user`,
+      `https://example.com/${'a'.repeat(2100)}`,
+    ]) {
+      expect(isAcceptableMediaUrl(url, STORAGE), url).toBe(false);
+    }
+    expect(
+      isAcceptableMediaUrl(
+        `${STORAGE}/storage/v1/object/public/chat-media/a.jpg`,
+        undefined
+      )
+    ).toBe(false);
+  });
+
+  it('400s a send whose media_url is not https', () => {
+    expect(() =>
+      validateSendMessageParams({
+        messageType: 'image',
+        mediaUrl: 'http://attacker.example/a.jpg',
+      })
+    ).toThrow(/https/);
+    // Even on a non-media type — the send core persists media_url always.
+    expect(() =>
+      validateSendMessageParams({
+        messageType: 'text',
+        contentText: 'hi',
+        mediaUrl: 'file:///etc/passwd',
+      })
+    ).toThrow(SendMessageError);
+    expect(() =>
+      validateSendMessageParams({
+        messageType: 'image',
+        mediaUrl: 'https://cdn.example.com/a.jpg',
+      })
+    ).not.toThrow();
+  });
+
+  it('short-circuits sendMessageToConversation before any query', async () => {
+    await expectSendError(
+      {
+        conversationId: 'cv-1',
+        messageType: 'document',
+        mediaUrl: 'http://127.0.0.1:54321/rest/v1/',
+      },
+      400,
+      /https/
+    );
   });
 });

@@ -18,7 +18,11 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { BroadcastError, type BroadcastPlan } from '@/lib/whatsapp/broadcast-core';
+import {
+  BroadcastError,
+  assertHeaderMedia,
+  type BroadcastPlan,
+} from '@/lib/whatsapp/broadcast-core';
 import {
   resolveChannelForSurface,
   ChannelError,
@@ -150,7 +154,7 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select('id, template_name, template_language')
+    .select('id, template_name, template_language, header_media_url')
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
@@ -244,6 +248,19 @@ export async function planBroadcastResume(
     );
   }
 
+  const headerMediaUrl =
+    typeof broadcast.header_media_url === 'string' &&
+    broadcast.header_media_url.trim()
+      ? broadcast.header_media_url.trim()
+      : null;
+
+  // Once per pass rather than once per recipient: a scheduled campaign
+  // on a media template with no media fails here, with the reason,
+  // instead of stamping every row with the builder's error.
+  if (channel.provider === 'meta') {
+    assertHeaderMedia(resolvedTemplate.row, headerMediaUrl);
+  }
+
   const plan: BroadcastPlan = {
     broadcastId,
     templateName: broadcast.template_name,
@@ -251,6 +268,7 @@ export async function planBroadcastResume(
     channelId: channel.phoneNumberId,
     channel,
     templateRow: resolvedTemplate.row,
+    headerMediaUrl,
     planned: slice.map((row) => ({
       recipientRowId: row.id,
       phone: sanitizePhoneForMeta(contactPhone(row) ?? ''),

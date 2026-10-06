@@ -7,7 +7,6 @@ import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import {
   Card,
   CardContent,
@@ -70,7 +69,6 @@ export function WhatsAppRouting() {
   // Pending edits, keyed by surface. Empty until something changes, so
   // a save only sends what the admin actually touched.
   const [pending, setPending] = useState<Record<string, string | null>>({});
-  const [pendingPrimary, setPendingPrimary] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,7 +79,6 @@ export function WhatsAppRouting() {
       setChannels(data.channels ?? []);
       setRows(data.routes ?? []);
       setPending({});
-      setPendingPrimary(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('loadFailed'));
     } finally {
@@ -107,7 +104,6 @@ export function WhatsAppRouting() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           routes: pending,
-          ...(pendingPrimary ? { primary_config_id: pendingPrimary } : {}),
         }),
       });
       const data = await res.json();
@@ -121,7 +117,18 @@ export function WhatsAppRouting() {
     }
   };
 
-  const dirty = Object.keys(pending).length > 0 || pendingPrimary !== null;
+  const dirty = Object.keys(pending).length > 0;
+
+  const defaultChannel =
+    channels.find((c) => c.is_primary) ?? channels[0] ?? null;
+
+  /** Settings → Numbers & access, via the History API like the rail. */
+  const openNumbers = () => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', 'numbers');
+    params.delete('channel');
+    window.history.replaceState(null, '', `/settings?${params.toString()}`);
+  };
 
   if (loading) {
     return (
@@ -142,57 +149,26 @@ export function WhatsAppRouting() {
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {/* Connected numbers, and which one is the fallback. */}
-        <div className="space-y-2">
-          <Label>{t('connectedNumbers')}</Label>
-          {channels.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{t('noChannels')}</p>
-          ) : (
-            <ul className="space-y-2">
-              {channels.map((channel) => (
-                <li
-                  key={channel.id}
-                  className="border-border flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-foreground truncate text-sm font-medium">
-                        {channelName(channel)}
-                      </span>
-                      <Badge variant="secondary">
-                        {channel.provider === 'meta'
-                          ? t('providerMeta')
-                          : t('providerWhapi')}
-                      </Badge>
-                      {(pendingPrimary
-                        ? pendingPrimary === channel.id
-                        : channel.is_primary) && (
-                        <Badge className="gap-1">
-                          <Star className="h-3 w-3" />
-                          {t('primary')}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-muted-foreground truncate text-xs">
-                      {channel.waba_id || channel.phone_number_id}
-                    </p>
-                  </div>
-                  {!(pendingPrimary
-                    ? pendingPrimary === channel.id
-                    : channel.is_primary) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPendingPrimary(channel.id)}
-                    >
-                      {t('makePrimary')}
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-muted-foreground text-xs">{t('primaryHint')}</p>
+        {/* The fallback number. Chosen in Settings → Numbers & access,
+            which owns everything about the numbers themselves (names,
+            default, who works each one) — shown here read-only because
+            every "Use default" below resolves to it. One place to set
+            it means the two screens can never disagree. */}
+        <div className="border-border flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2">
+          <div className="min-w-0 text-sm">
+            <span className="text-muted-foreground">{t('defaultIs')} </span>
+            {defaultChannel ? (
+              <span className="text-foreground inline-flex items-center gap-1 font-medium">
+                <Star className="h-3 w-3" />
+                {channelName(defaultChannel)}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">{t('noChannels')}</span>
+            )}
+          </div>
+          <Button variant="outline" size="sm" onClick={openNumbers}>
+            {t('manageNumbers')}
+          </Button>
         </div>
 
         {channels.length < 2 && (
@@ -225,6 +201,9 @@ export function WhatsAppRouting() {
                     {row.follows_conversation
                       ? ` ${t('followsConversation')}`
                       : ''}
+                    {row.surface === 'inbox'
+                      ? ` ${t('allocatedStartHint')}`
+                      : ''}
                   </p>
                 </div>
                 <Select
@@ -237,11 +216,31 @@ export function WhatsAppRouting() {
                   }
                   disabled={channels.length === 0}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
+                  <SelectTrigger aria-label={t(`surface.${row.surface}`)}>
+                    {/* Base UI's SelectValue renders the raw value unless
+                        given children — which here is the `__inherit__`
+                        sentinel or a UUID. Name it instead. */}
+                    <SelectValue>
+                      {value === INHERIT
+                        ? defaultChannel
+                          ? t('useDefaultNamed', {
+                              name: channelName(defaultChannel),
+                            })
+                          : t('useDefault')
+                        : (() => {
+                            const picked = channels.find((c) => c.id === value);
+                            return picked ? channelName(picked) : t('unnamedChannel');
+                          })()}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={INHERIT}>{t('useDefault')}</SelectItem>
+                    <SelectItem value={INHERIT}>
+                      {defaultChannel
+                        ? t('useDefaultNamed', {
+                            name: channelName(defaultChannel),
+                          })
+                        : t('useDefault')}
+                    </SelectItem>
                     {channels.map((channel) => (
                       <SelectItem key={channel.id} value={channel.id}>
                         {channelName(channel)}
@@ -264,7 +263,6 @@ export function WhatsAppRouting() {
               variant="ghost"
               onClick={() => {
                 setPending({});
-                setPendingPrimary(null);
               }}
               disabled={saving}
             >

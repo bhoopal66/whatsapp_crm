@@ -17,6 +17,8 @@
 const META_API_VERSION = process.env.META_API_VERSION || 'v23.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
+import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
+
 /**
  * Per-request ceiling, mirroring `WHAPI_TIMEOUT_MS` in the Whapi client.
  * Graph is usually fast, but a hung socket must not pin a route — the
@@ -317,6 +319,49 @@ export async function getSubscribedApps(
   }
   const data = (await response.json()) as { data?: SubscribedApp[] }
   return data.data ?? []
+}
+
+export interface ListWabaPhoneNumbersArgs {
+  wabaId: string
+  accessToken: string
+}
+
+export interface WabaPhoneNumber {
+  id: string
+  display_phone_number?: string
+  verified_name?: string
+}
+
+/**
+ * Every phone number registered under a WABA, following Meta's cursor
+ * pagination. The connect route uses it to prove a (phone number id,
+ * WABA id) pair belongs together BEFORE subscribing the WABA to this
+ * app: a mistyped WABA id would otherwise be subscribed, nothing ever
+ * unsubscribes it, and its numbers' webhooks land here as dropped noise.
+ */
+export async function listWabaPhoneNumbers(
+  args: ListWabaPhoneNumbersArgs
+): Promise<WabaPhoneNumber[]> {
+  const { wabaId, accessToken } = args
+  let url: string | null =
+    `${META_API_BASE}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name&limit=100`
+  const out: WabaPhoneNumber[] = []
+  // Bounded so a pathological `next` loop can't spin forever.
+  for (let page = 0; url && page < 20; page++) {
+    const response = await metaFetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!response.ok) {
+      await throwMetaError(response, `Meta API error: ${response.status}`)
+    }
+    const data = (await response.json()) as {
+      data?: WabaPhoneNumber[]
+      paging?: { next?: string }
+    }
+    out.push(...(data.data ?? []))
+    url = data.paging?.next ?? null
+  }
+  return out
 }
 
 // ============================================================
@@ -684,6 +729,72 @@ export async function submitMessageTemplate(
     status: typeof data.status === 'string' ? data.status : 'PENDING',
     category: typeof data.category === 'string' ? data.category : undefined,
   }
+}
+
+export interface ListMessageTemplatesArgs {
+  wabaId: string
+  accessToken: string
+}
+
+/** One template as Meta's Business Management API describes it. */
+export interface MetaTemplateRecord {
+  id: string
+  name: string
+  language: string
+  status: string
+  category: string
+  components: MetaTemplateComponent[]
+  quality_score?: { score?: string } | null
+}
+
+export interface MetaTemplateComponent {
+  type: string
+  format?: string
+  text?: string
+  buttons?: {
+    type: string
+    text: string
+    url?: string
+    phone_number?: string
+    example?: string[]
+  }[]
+  example?: {
+    header_text?: string[]
+    header_handle?: string[]
+    body_text?: string[][]
+  }
+}
+
+/**
+ * Every template registered on the WABA, following Meta's cursor
+ * pagination to the end. This is the registry a template built in Meta
+ * Business Manager lives in; without reading it, the CRM only ever
+ * knew about templates it had submitted itself.
+ */
+export async function listMessageTemplates(
+  args: ListMessageTemplatesArgs
+): Promise<MetaTemplateRecord[]> {
+  const { wabaId, accessToken } = args
+  const fields = 'id,name,language,status,category,components,quality_score'
+  let url: string | null =
+    `${META_API_BASE}/${wabaId}/message_templates?fields=${fields}&limit=100`
+  const out: MetaTemplateRecord[] = []
+  // Bounded so a pathological `next` loop can't spin forever.
+  for (let page = 0; url && page < 50; page++) {
+    const response = await metaFetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!response.ok) {
+      await throwMetaError(response, `Meta API error: ${response.status}`)
+    }
+    const data = (await response.json()) as {
+      data?: MetaTemplateRecord[]
+      paging?: { next?: string }
+    }
+    out.push(...(data.data ?? []))
+    url = data.paging?.next ?? null
+  }
+  return out
 }
 
 export interface EditMessageTemplateArgs {
@@ -1121,7 +1232,7 @@ export async function getMediaUrl(
   args: GetMediaUrlArgs
 ): Promise<{ url: string; mimeType: string; fileSize: number | null }> {
   const { mediaId, accessToken } = args
-  const response = await metaFetch(`${META_API_BASE}/${mediaId}`, {
+  const response = await metaFetch(`${META_API_BASE}/${encodeURIComponent(mediaId)}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -1145,16 +1256,56 @@ export interface DownloadMediaArgs {
 }
 
 /**
+ * True for an https URL on Meta's media host (`lookaside.fbsbx.com`,
+ * which is what `getMediaUrl` returns) — the only place the access
+ * token may be presented by the download path.
+ *
+ * Deliberately NOT `graph.facebook.com`: a forwarded message's
+ * `media_url` is sender-controlled, and a token-bearing GET against the
+ * Graph API whose response is then re-hosted publicly would let an
+ * agent read WABA / phone-number data out through the bucket.
+ */
+export function isMetaMediaHost(url: URL): boolean {
+  if (url.protocol !== 'https:' || url.username || url.password) return false
+  const host = url.hostname.toLowerCase()
+  return host === 'fbsbx.com' || host.endsWith('.fbsbx.com')
+}
+
+/**
  * Fetch the binary bytes for a media URL obtained from getMediaUrl.
  * Step two of the media-proxy flow.
+ *
+ * `downloadUrl` is not always Meta-issued — forwarding re-hosts a
+ * message's stored `media_url`, which a sender controls — so the token
+ * goes only to a Meta host (`isMetaMediaHost`). Anything else is fetched
+ * without credentials, behind the SSRF guard, redirects re-checked.
  */
 export async function downloadMedia(
   args: DownloadMediaArgs
 ): Promise<{ buffer: Buffer; contentType: string }> {
   const { downloadUrl, accessToken } = args
-  const response = await metaFetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
+  let response: Response
+  try {
+    response = await fetchPublicUrl(
+      downloadUrl,
+      { signal: AbortSignal.timeout(META_TIMEOUT_MS) },
+      {
+        isTrusted: isMetaMediaHost,
+        trustedHeaders: { Authorization: `Bearer ${accessToken}` },
+      },
+    )
+  } catch (err) {
+    if (err instanceof UnsafeUrlError) {
+      throw new MetaError(`Media download refused: ${err.message}`, 400)
+    }
+    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new MetaError(
+        `Meta media download did not respond within ${META_TIMEOUT_MS}ms.`,
+        504,
+      )
+    }
+    throw err
+  }
   if (!response.ok) {
     throw new Error(`Media download failed: ${response.status}`)
   }

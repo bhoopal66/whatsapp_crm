@@ -6,7 +6,7 @@
 // whether the account is on OpenAI or Anthropic.
 // ============================================================
 
-export type AiProvider = 'openai' | 'anthropic'
+export type AiProvider = 'openai' | 'anthropic';
 
 /**
  * Account AI setup, decrypted and ready to use. Produced by
@@ -14,27 +14,53 @@ export type AiProvider = 'openai' | 'anthropic'
  * (stored AES-256-GCM-encrypted at rest).
  */
 export interface AiConfig {
-  provider: AiProvider
-  model: string
-  apiKey: string
-  systemPrompt: string | null
-  isActive: boolean
-  autoReplyEnabled: boolean
-  autoReplyMaxPerConversation: number
+  provider: AiProvider;
+  model: string;
+  apiKey: string;
+  systemPrompt: string | null;
+  isActive: boolean;
+  autoReplyEnabled: boolean;
+  /** Only answer conversations stamped by a campaign reply (migration 049). */
+  autoReplyCampaignOnly: boolean;
+  autoReplyMaxPerConversation: number;
   /** Where auto-reply hands a conversation off when the model bails: an
    *  agent's `auth.users.id`, or null to leave it unassigned (drop into
    *  the shared queue). */
-  handoffAgentId: string | null
+  handoffAgentId: string | null;
   /** Optional OpenAI-compatible key for embeddings. When set, the
    *  knowledge base is embedded and semantic retrieval turns on; when
    *  null, retrieval falls back to lexical full-text search. */
-  embeddingsApiKey: string | null
+  embeddingsApiKey: string | null;
+  /**
+   * Gate 1 (migration 052): words/phrases in the latest customer message
+   * that hand the thread to a human before the model is called. Stored
+   * lower-cased; see `lib/ai/escalation.ts` for the matching rules.
+   */
+  escalationKeywords: string[];
+  /**
+   * Gate 2: minimum cosine similarity (0–1) the best knowledge-base hit
+   * must reach for the bot to answer; below it the bot hands off and
+   * logs the question as a knowledge gap. Null = gate off.
+   */
+  retrievalMinScore: number | null;
+  /**
+   * Gate 3: when true the prompt makes the knowledge base the model's
+   * ONLY source of facts (it may still greet / clarify), instead of the
+   * default "prefer the excerpts".
+   */
+  strictGrounding: boolean;
+  /**
+   * Sent to the customer when a *gate* (keyword, no knowledge, provider
+   * error) hands off — the model never saw the message, so without this
+   * the customer hears nothing until an agent replies. Null = silent.
+   */
+  handoffMessage: string | null;
 }
 
 /** A single conversation turn in the shape both providers accept. */
 export interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 /**
@@ -43,25 +69,25 @@ export interface ChatMessage {
  * the provider didn't return usage. Logged to `ai_usage_log`.
  */
 export interface AiUsage {
-  promptTokens: number
-  completionTokens: number
-  totalTokens: number
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 /** Raw text + usage a provider adapter returns before handoff parsing. */
 export interface ProviderResult {
-  text: string
-  usage: AiUsage | null
+  text: string;
+  usage: AiUsage | null;
 }
 
 /** Outcome of a generation call. */
 export interface GenerateResult {
   /** The reply text, with any handoff sentinel stripped. */
-  text: string
+  text: string;
   /** True when the model asked to hand off to a human (auto-reply mode). */
-  handoff: boolean
+  handoff: boolean;
   /** Provider token usage for this call, or null when unavailable. */
-  usage: AiUsage | null
+  usage: AiUsage | null;
 }
 
 /**
@@ -70,12 +96,12 @@ export interface GenerateResult {
  * (invalid_key vs rate_limited vs timeout, etc.).
  */
 export class AiError extends Error {
-  readonly code: string
-  readonly status: number
+  readonly code: string;
+  readonly status: number;
   constructor(message: string, opts: { code?: string; status?: number } = {}) {
-    super(message)
-    this.name = 'AiError'
-    this.code = opts.code ?? 'ai_error'
-    this.status = opts.status ?? 502
+    super(message);
+    this.name = 'AiError';
+    this.code = opts.code ?? 'ai_error';
+    this.status = opts.status ?? 502;
   }
 }

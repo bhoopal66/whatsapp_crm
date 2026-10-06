@@ -69,6 +69,44 @@ type MetaSendParameter =
   | { type: 'coupon_code'; coupon_code: string }
   | { type: 'payload'; payload: string };
 
+/**
+ * The media header kind a send would have to carry but can't, or null.
+ * The one rule both the builder (per send) and `headerMediaProblem`
+ * (once, before a campaign starts) apply.
+ */
+function missingHeaderMedia(
+  template: MessageTemplate,
+  params: SendTimeParams,
+): string | null {
+  const headerType = template.header_type;
+  if (!headerType || headerType === 'text') return null;
+  const link = params.headerMediaUrl ?? template.header_media_url;
+  return link || params.headerMediaId ? null : headerType;
+}
+
+/**
+ * Why a Meta send of this template would fail for want of header media,
+ * or null when it would not.
+ *
+ * The builder throws this per recipient, at send time — so a campaign
+ * on a video template with no stored video used to fail 98 times with
+ * the same error instead of once at launch. Planners call this first.
+ * `headerMediaUrl` is the campaign's own override; an empty one counts
+ * as absent, exactly as `provider.sendTemplate` folds it.
+ *
+ * Meta only: Whapi renders a media-less media template as text.
+ */
+export function headerMediaProblem(
+  template: MessageTemplate,
+  headerMediaUrl?: string | null,
+): string | null {
+  const missing = missingHeaderMedia(template, {
+    headerMediaUrl: headerMediaUrl || undefined,
+  });
+  if (!missing) return null;
+  return `Template ${template.name} (${template.language}) has a ${missing} header but no media. Add a header media URL to the template in Settings → Templates, then send again.`;
+}
+
 function buildHeaderComponent(
   template: MessageTemplate,
   params: SendTimeParams,
@@ -105,7 +143,7 @@ function buildHeaderComponent(
   // an explicit `headerMediaId` (a real /media upload id) is honored.
   const link = params.headerMediaUrl ?? template.header_media_url;
   const id = params.headerMediaId;
-  if (!link && !id) {
+  if (missingHeaderMedia(template, params)) {
     throw new Error(
       `${headerType} header requires a media link or id at send time — set header_media_url on the template or pass headerMediaUrl/headerMediaId.`,
     );

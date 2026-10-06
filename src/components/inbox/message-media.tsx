@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Download,
   FileText,
@@ -8,13 +8,13 @@ import {
   Loader2,
   Maximize2,
   type LucideIcon,
-} from "lucide-react";
-import { toast } from "sonner";
-import { useTranslations } from "next-intl";
-import { cn } from "@/lib/utils";
-import type { Message } from "@/types";
-import { downloadMediaMessage } from "@/lib/media/download";
-import { useMediaBlobUrl } from "@/hooks/use-media-blob-url";
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { useTranslations } from 'next-intl';
+import { cn } from '@/lib/utils';
+import type { Message } from '@/types';
+import { downloadMediaMessage } from '@/lib/media/download';
+import { useMediaBlobUrl } from '@/hooks/use-media-blob-url';
 
 /**
  * The media renderers behind `<MessageBubble>`'s image / video / audio /
@@ -31,7 +31,7 @@ import { useMediaBlobUrl } from "@/hooks/use-media-blob-url";
 type Translator = ReturnType<typeof useTranslations>;
 
 /** Inline media size cap, shared so the four bubbles can't drift apart. */
-const MEDIA_BOX = "max-h-64 max-w-60";
+const MEDIA_BOX = 'max-h-64 max-w-60';
 
 export function MediaUnavailable({
   label,
@@ -41,9 +41,9 @@ export function MediaUnavailable({
   t: Translator;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-      <ImageOff className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span>{t("unavailable", { label })}</span>
+    <div className="bg-wa-quote text-wa-meta flex items-center gap-2 rounded-lg px-3 py-2 text-xs">
+      <ImageOff className="h-4 w-4 shrink-0" />
+      <span>{t('unavailable', { label })}</span>
     </div>
   );
 }
@@ -62,7 +62,7 @@ function useMediaDownload(message: Message, t: Translator) {
     try {
       await downloadMediaMessage(message);
     } catch {
-      toast.error(t("downloadFailed"));
+      toast.error(t('downloadFailed'));
     } finally {
       setDownloading(false);
     }
@@ -92,7 +92,7 @@ function MediaActionButton({
       // Own surface rather than inheriting the bubble's, so the same button
       // reads on the muted inbound fill, the primary outbound fill, and on
       // top of an arbitrary photo.
-      className="flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-background/85 text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-background disabled:opacity-60"
+      className="border-border/60 bg-background/85 text-foreground hover:bg-background flex h-7 w-7 items-center justify-center rounded-full border shadow-sm backdrop-blur-sm transition-colors disabled:opacity-60"
     >
       {busy ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -103,12 +103,59 @@ function MediaActionButton({
   );
 }
 
-function MediaPlaceholder({ children }: { children: React.ReactNode }) {
+function MediaPlaceholder({
+  children,
+  ref,
+}: {
+  children: React.ReactNode;
+  ref?: React.Ref<HTMLDivElement>;
+}) {
   return (
-    <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
+    <div
+      ref={ref}
+      className="bg-wa-quote flex h-40 w-60 max-w-full items-center justify-center rounded-lg"
+    >
       {children}
     </div>
   );
+}
+
+/**
+ * Latches true once the element comes within `rootMargin` of the thread's
+ * visible area, and stays true.
+ *
+ * Every image bubble used to fetch its bytes the moment it rendered — up
+ * to 5 MB each, through the tunnel, for a whole thread history the reader
+ * mostly never scrolls to. Now a bubble loads when it's about to be seen.
+ * The observer is rooted on the thread's scroller (marked
+ * `data-inbox-scroll-root`) because a margin on the document root can't
+ * reach past that scroller's clipping. Without IntersectionObserver
+ * (very old browsers) it loads straight away, as before.
+ */
+function useNearViewport(rootMargin = '600px 0px') {
+  const ref = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(
+    () => typeof IntersectionObserver === 'undefined'
+  );
+
+  useEffect(() => {
+    if (near) return;
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setNear(true);
+          observer.disconnect();
+        }
+      },
+      { root: el.closest('[data-inbox-scroll-root]'), rootMargin }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [near, rootMargin]);
+
+  return { ref, near };
 }
 
 export function MediaImageBubble({
@@ -121,23 +168,28 @@ export function MediaImageBubble({
   onOpen?: () => void;
   t: Translator;
 }) {
-  const { src, status } = useMediaBlobUrl(message.media_url);
+  // Nothing is fetched until the bubble nears the viewport; until then
+  // the hook sees no URL and the placeholder holds the space.
+  const { ref: nearRef, near } = useNearViewport();
+  const { src, status } = useMediaBlobUrl(near ? message.media_url : undefined);
   // The fetch can succeed and the bytes still not be a decodable image.
   const [broken, setBroken] = useState(false);
   const { downloading, download } = useMediaDownload(message, t);
 
-  if (status === "error" || broken) {
+  if (status === 'error' || broken) {
     return (
       <MediaPlaceholder>
-        <ImageOff className="h-8 w-8 text-muted-foreground" />
+        <ImageOff className="text-wa-meta h-8 w-8" />
       </MediaPlaceholder>
     );
   }
 
-  if (status !== "ready" || !src) {
+  if (status !== 'ready' || !src) {
     return (
-      <MediaPlaceholder>
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <MediaPlaceholder ref={nearRef}>
+        {near && (
+          <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
+        )}
       </MediaPlaceholder>
     );
   }
@@ -146,8 +198,12 @@ export function MediaImageBubble({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src}
-      alt={t("imageAlt")}
-      className={cn(MEDIA_BOX, "rounded-lg object-contain")}
+      alt={t('imageAlt')}
+      // Belt and braces for public bucket URLs, which skip the blob
+      // fetch: the browser still defers and decodes off the main thread.
+      loading="lazy"
+      decoding="async"
+      className={cn(MEDIA_BOX, 'rounded-lg object-contain')}
       onError={() => setBroken(true)}
     />
   );
@@ -158,8 +214,8 @@ export function MediaImageBubble({
         <button
           type="button"
           onClick={onOpen}
-          aria-label={t("viewImage")}
-          className="block cursor-zoom-in rounded-lg outline-none ring-offset-2 ring-offset-transparent focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t('viewImage')}
+          className="focus-visible:ring-ring block cursor-zoom-in rounded-lg ring-offset-2 ring-offset-transparent outline-none focus-visible:ring-2"
         >
           {image}
         </button>
@@ -168,10 +224,10 @@ export function MediaImageBubble({
       )}
       {/* Hover-only: on touch there is no hover, but tapping the image opens
           the viewer, which carries a full-size Download button. */}
-      <div className="absolute bottom-2 right-2 opacity-0 transition-opacity group-hover/media:opacity-100 group-focus-within/media:opacity-100">
+      <div className="absolute right-2 bottom-2 opacity-0 transition-opacity group-focus-within/media:opacity-100 group-hover/media:opacity-100">
         <MediaActionButton
           icon={Download}
-          label={t("download")}
+          label={t('download')}
           onClick={download}
           busy={downloading}
         />
@@ -199,22 +255,22 @@ export function MediaVideoBubble({
         src={message.media_url}
         controls
         preload="metadata"
-        className={cn(MEDIA_BOX, "rounded-lg")}
+        className={cn(MEDIA_BOX, 'rounded-lg')}
       />
       {/* Top-right, clear of the native controls — and always visible, since
           expanding is the only way to watch a clip capped at 15rem wide and
           a touch device gets no hover. */}
-      <div className="absolute right-2 top-2 flex gap-1">
+      <div className="absolute top-2 right-2 flex gap-1">
         {onOpen && (
           <MediaActionButton
             icon={Maximize2}
-            label={t("expandVideo")}
+            label={t('expandVideo')}
             onClick={onOpen}
           />
         )}
         <MediaActionButton
           icon={Download}
-          label={t("download")}
+          label={t('download')}
           onClick={download}
           busy={downloading}
         />
@@ -237,7 +293,7 @@ export function MediaAudioBubble({
       <audio src={message.media_url} controls className="max-w-60" />
       <MediaActionButton
         icon={Download}
-        label={t("download")}
+        label={t('download')}
         onClick={download}
         busy={downloading}
       />
@@ -260,14 +316,16 @@ export function MediaDocumentBubble({
         href={message.media_url}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
+        className="bg-wa-quote flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:opacity-90"
       >
-        <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{message.content_text || t("document")}</span>
+        <FileText className="text-wa-meta h-6 w-6 shrink-0" />
+        <span className="truncate">
+          {message.content_text || t('document')}
+        </span>
       </a>
       <MediaActionButton
         icon={Download}
-        label={t("download")}
+        label={t('download')}
         onClick={download}
         busy={downloading}
       />

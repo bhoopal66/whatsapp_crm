@@ -255,8 +255,29 @@ describe('planBroadcastResume', () => {
       },
     ]);
     expect(plan.channel.accessToken).toBe('decrypted:tok');
+    expect(plan.headerMediaUrl).toBeNull();
     expect(remaining).toBe(0);
     expect(unsendable).toBe(0);
+  });
+
+  it('carries the campaign header media URL into the plan (migration 053)', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb(
+        {
+          broadcast: {
+            ...BROADCAST,
+            header_media_url: ' https://cdn.example.com/promo.jpg ',
+          },
+          config: CONFIG,
+          recipients: [recipient('r1', '+15551234567')],
+        },
+        {},
+      ),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBe('https://cdn.example.com/promo.jpg');
   });
 
   it('scopes to failed rows when retrying, and to both for "all"', async () => {
@@ -398,5 +419,67 @@ describe('planBroadcastResume', () => {
       'pending',
     );
     expect(plan.templateRow.language).toBe('en');
+  });
+});
+
+describe('planBroadcastResume — header media (Meta)', () => {
+  const META_CONFIG = { ...CONFIG, provider: 'meta', waba_id: 'waba-1' };
+  const VIDEO_TEMPLATE = {
+    ...TEMPLATE_ROW,
+    language: 'en_US',
+    header_type: 'video',
+  };
+
+  it('refuses the pass once, with the reason, when the media is missing', async () => {
+    const err = await planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: META_CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+        templates: [VIDEO_TEMPLATE],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BroadcastError);
+    expect(err).toMatchObject({ code: 'template_media_missing', status: 400 });
+    expect((err as Error).message).toBe(
+      'Template order_update (en_US) has a video header but no media. Add a header media URL to the template in Settings → Templates, then send again.',
+    );
+  });
+
+  it("accepts the campaign's own header media URL", async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: {
+          ...BROADCAST,
+          header_media_url: 'https://cdn.example.com/v.mp4',
+        },
+        config: META_CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+        templates: [VIDEO_TEMPLATE],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.headerMediaUrl).toBe('https://cdn.example.com/v.mp4');
+  });
+
+  it('does not apply to a Whapi channel', async () => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: CONFIG,
+        recipients: [recipient('r1', '+15551234567')],
+        templates: [VIDEO_TEMPLATE],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+    expect(plan.planned).toHaveLength(1);
   });
 });

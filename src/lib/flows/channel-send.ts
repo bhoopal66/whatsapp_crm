@@ -9,7 +9,7 @@ import {
 } from '@/lib/whatsapp/provider'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
-  resolveChannelForSurface,
+  resolveBotChannel,
   type RoutingSurface,
 } from '@/lib/whatsapp/channels'
 import {
@@ -94,11 +94,14 @@ export async function engineSendText(
 
   // Which number flow nodes send from (migration 046). Obeys the
   // admin's `flow` route — a flow is bot-driven, so the route wins over
-  // whichever channel the customer happens to be on.
-  const channel = await resolveChannelForSurface(
+  // whichever channel the customer happens to be on — except between
+  // two numbers of the same provider, where it stays on the thread's
+  // (migration 060, see resolveBotChannel).
+  const channel = await resolveBotChannel(
     db,
     args.accountId,
     args.surface ?? 'flow',
+    args.conversationId,
   )
 
   const attempt = async (phone: string): Promise<string> => {
@@ -142,6 +145,7 @@ export async function engineSendText(
     ai_generated: args.aiGenerated ?? false,
     // Which number carried it (migration 046).
     provider: channel.provider,
+    channel_id: channel.id,
   })
   if (msgErr) {
     throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
@@ -201,10 +205,13 @@ export async function engineSendMedia(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  // Which number flow nodes send from (migration 046). Obeys the
-  // admin's `flow` route — a flow is bot-driven, so the route wins over
-  // whichever channel the customer happens to be on.
-  const channel = await resolveChannelForSurface(db, args.accountId, 'flow')
+  // Which number flow nodes send from — see engineSendText.
+  const channel = await resolveBotChannel(
+    db,
+    args.accountId,
+    'flow',
+    args.conversationId,
+  )
 
   const attempt = async (phone: string): Promise<string> => {
     const r = await sendMedia({
@@ -254,6 +261,7 @@ export async function engineSendMedia(
     status: 'sent',
     // Which number carried it (migration 046).
     provider: channel.provider,
+    channel_id: channel.id,
   })
   if (msgErr) {
     throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
@@ -348,10 +356,13 @@ async function sendInteractiveViaWhapi(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  // Which number flow nodes send from (migration 046). Obeys the
-  // admin's `flow` route — a flow is bot-driven, so the route wins over
-  // whichever channel the customer happens to be on.
-  const channel = await resolveChannelForSurface(db, input.accountId, 'flow')
+  // Which number flow nodes send from — see engineSendText.
+  const channel = await resolveBotChannel(
+    db,
+    input.accountId,
+    'flow',
+    input.conversationId,
+  )
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'buttons') {
@@ -441,6 +452,7 @@ async function sendInteractiveViaWhapi(
     status: 'sent',
     // Which number carried it (migration 046).
     provider: channel.provider,
+    channel_id: channel.id,
   })
   if (msgErr) {
     throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)

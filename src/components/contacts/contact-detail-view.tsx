@@ -1,9 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
+import { validatePhoneToSave } from '@/lib/contacts/phone-validation';
 import { useAuth } from '@/hooks/use-auth';
+import { useMyOutreach } from '@/hooks/use-my-outreach';
+import { limitNotices } from '@/lib/team-activity/thread-guard';
+import { OutreachBanner } from '@/components/inbox/outreach-banner';
+import {
+  predictNumber,
+  useAccountNumbers,
+  useMyNumberIds,
+  type AccountNumber,
+} from '@/hooks/use-whatsapp-numbers';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
@@ -59,6 +69,12 @@ interface ContactDetailViewProps {
   onUpdated: () => void;
 }
 
+/** Mirrors `describeChannel` server-side, minus the encryption import. */
+function channelName(c: AccountNumber): string {
+  const name = c.label || c.waba_id || c.phone_number_id;
+  return `${name} (${c.provider === 'meta' ? 'Cloud API' : 'Whapi'})`;
+}
+
 export function ContactDetailView({
   open,
   onOpenChange,
@@ -67,7 +83,7 @@ export function ContactDetailView({
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
   const supabase = createClient();
-  const { accountId, defaultCurrency } = useAuth();
+  const { accountId, defaultCurrency, user, accountRole } = useAuth();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +105,121 @@ export function ContactDetailView({
   // find-or-creates the conversation, so this needs no new endpoint.
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [messageText, setMessageText] = useState('');
+  // When the message dialog opened: whether the message would start a
+  // chat (nothing said for 24 hours) is judged against it.
+  const [messageDialogOpenedAt, setMessageDialogOpenedAt] = useState(0);
   const [sendingMessage, setSendingMessage] = useState(false);
+
+  // Which number each action goes out on. With both providers
+  // connected the two buttons split by nature: a free-form message on
+  // the Whapi number (no service window to fall outside of) and an
+  // approved template on the Meta number (the only thing that opens a
+  // business-initiated conversation there). The send route is told
+  // the provider explicitly; when that provider isn't connected it
+  // falls back to the account default, and this list is what lets the
+  // caption below the buttons say so instead of surprising the agent.
+  //
+  // With several Whapi numbers (migration 060) the server picks the
+  // thread's own number, then one the sender is allocated to — so the
+  // caption asks the same two questions.
+  const channels = useAccountNumbers(open);
+  const myNumberIds = useMyNumberIds();
+  // The thread's pin (migration 061) and its own number, in the order
+  // the server prefers them for a provider-pinned send.
+  const [thread, setThread] = useState<{
+    pin: string | null;
+    home: string | null;
+    /** The last message that reached WhatsApp; null: none. */
+    last: { at: string; byCustomer: boolean } | null;
+  }>({ pin: null, home: null, last: null });
+
+  useEffect(() => {
+    if (!contactId || !open) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('conversations')
+        .select('id, channel_id, send_channel_id')
+        .eq('contact_id', contactId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      // Whether a message from here would start a chat (Team activity,
+      // migration 068) turns on the last message that went out or came
+      // in, and on who sent it.
+      const { data: lastRow } = data?.id
+        ? await supabase
+            .from('messages')
+            .select('sender_type, created_at')
+            .eq('conversation_id', data.id as string)
+            .neq('status', 'failed')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : { data: null };
+      if (!cancelled) {
+        setThread({
+          pin: (data?.send_channel_id as string | null) ?? null,
+          home: (data?.channel_id as string | null) ?? null,
+          last: lastRow?.created_at
+            ? {
+                at: lastRow.created_at as string,
+                byCustomer: lastRow.sender_type === 'customer',
+              }
+            : null,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [contactId, open, supabase]);
+
+  const { messageChannel, templateChannel } = useMemo(() => {
+    const list = channels ?? [];
+    const fallback = list.find((c) => c.is_primary) ?? list[0] ?? null;
+    // Mirrors resolveSendChannel: a person's pin on the chat wins when
+    // it is the kind of number the button asks for, or when that kind
+    // is not connected at all; otherwise the kind wins, preferring the
+    // thread's own number, then one this user is allocated to.
+    const pinned = thread.pin ? list.find((c) => c.id === thread.pin) : undefined;
+    const pick = (provider: 'whapi' | 'meta') =>
+      (pinned &&
+      (pinned.provider === provider || !list.some((c) => c.provider === provider))
+        ? pinned
+        : predictNumber(list, provider, [thread.home, ...(myNumberIds ?? [])])) ??
+      fallback;
+    return {
+      messageChannel: pick('whapi'),
+      templateChannel: pick('meta'),
+    };
+  }, [channels, myNumberIds, thread]);
+
+  // Team activity (migration 068): a message from here usually starts
+  // a chat, so warn at the day's new-chat limit before it is typed.
+  const myOutreach = useMyOutreach(
+    messageDialogOpen && accountRole && accountRole !== 'viewer' ? user?.id : null,
+    messageDialogOpenedAt
+  );
+  const messageNotices = useMemo(() => {
+    // As in the inbox: nothing for 24 hours, and the customer did not
+    // write last (answering them is a reply, however late).
+    const lastAt = thread.last ? Date.parse(thread.last.at) : null;
+    const starting =
+      !thread.last?.byCustomer &&
+      (lastAt === null ||
+        !Number.isFinite(lastAt) ||
+        lastAt <= messageDialogOpenedAt - 24 * 3600_000);
+    return limitNotices({
+      starting,
+      day: myOutreach,
+      channelId: messageChannel?.id ?? null,
+      provider:
+        messageChannel?.provider === 'whapi' || messageChannel?.provider === 'meta'
+          ? messageChannel.provider
+          : null,
+    });
+  }, [thread.last, messageDialogOpenedAt, myOutreach, messageChannel]);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -224,13 +354,21 @@ export function ContactDetailView({
       toast.error(t('toastPhoneRequired'));
       return;
     }
+    // Same rule as the contact form: a changed number must carry its
+    // country code; unchanged digits are left alone (see
+    // validatePhoneToSave).
+    const checkedPhone = validatePhoneToSave(contact?.phone, editPhone);
+    if (!checkedPhone.ok) {
+      toast.error(checkedPhone.error);
+      return;
+    }
 
     setSavingDetails(true);
     const { error } = await supabase
       .from('contacts')
       .update({
         name: editName.trim() || null,
-        phone: editPhone.trim(),
+        phone: checkedPhone.phone,
         email: editEmail.trim() || null,
         company: editCompany.trim() || null,
         updated_at: new Date().toISOString(),
@@ -362,6 +500,9 @@ export function ContactDetailView({
           contact_id: contactId,
           message_type: 'text',
           content_text: text,
+          // A plain message belongs on the Whapi number — see the
+          // note on `channels` above.
+          provider: 'whapi',
         }),
       });
 
@@ -406,6 +547,9 @@ export function ContactDetailView({
             buttonParams: values.buttonParams,
           },
           template_params: values.body,
+          // An approved template belongs on the Meta number — see the
+          // note on `channels` above.
+          provider: 'meta',
         }),
       });
 
@@ -497,7 +641,10 @@ export function ContactDetailView({
                     `messageDialogOpen` above. */}
                 <Button
                   size="sm"
-                  onClick={() => setMessageDialogOpen(true)}
+                  onClick={() => {
+                    setMessageDialogOpenedAt(Date.now());
+                    setMessageDialogOpen(true);
+                  }}
                   disabled={sendingMessage}
                   className="bg-primary text-primary-foreground hover:bg-primary/90"
                 >
@@ -523,6 +670,19 @@ export function ContactDetailView({
                   {t('sendTemplateBtn')}
                 </Button>
               </div>
+              {channels && channels.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {messageChannel &&
+                    t('channelHint.message', {
+                      channel: channelName(messageChannel),
+                    })}
+                  {messageChannel && templateChannel && ' · '}
+                  {templateChannel &&
+                    t('channelHint.template', {
+                      channel: channelName(templateChannel),
+                    })}
+                </p>
+              )}
             </SheetHeader>
 
             {/* Tabs */}
@@ -833,8 +993,15 @@ export function ContactDetailView({
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {t('messageDialog.desc', { phone: contact?.phone ?? '' })}
+            {messageChannel &&
+              ` ${t('messageDialog.via', { channel: channelName(messageChannel) })}`}
           </DialogDescription>
         </DialogHeader>
+        {messageNotices.length > 0 && (
+          <div className="overflow-hidden rounded-lg">
+            <OutreachBanner notices={messageNotices} />
+          </div>
+        )}
         <Textarea
           value={messageText}
           onChange={(e) => setMessageText(e.target.value)}

@@ -18,7 +18,7 @@
 --     original key, which is returned exactly once at creation. Same
 --     pattern as `account_invitations.token_hash` (migration 017/019).
 --   - `key_prefix` is a short, non-secret display string
---     (`wacrm_live_a1b2c3d4`) so the dashboard can show "which key
+--     (`taamul_live_a1b2c3d4`) so the dashboard can show "which key
 --     is this" in a list without ever resurfacing the secret.
 --   - Authorization is by `scopes[]` (scopes-only model), resolved
 --     in the application layer (`src/lib/api-keys/scopes.ts`). The
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   account_id   uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   created_by   uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   name         text NOT NULL,
-  key_prefix   text NOT NULL,             -- display only, e.g. "wacrm_live_a1b2c3d4"
+  key_prefix   text NOT NULL,             -- display only, e.g. "taamul_live_a1b2c3d4"
   key_hash     text NOT NULL UNIQUE,      -- SHA-256 hex of the full plaintext key
   scopes       text[] NOT NULL DEFAULT '{}',
   last_used_at timestamptz,

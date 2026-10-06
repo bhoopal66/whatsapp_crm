@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
   account_id   uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   chunk_index  integer NOT NULL DEFAULT 0,
   content      text NOT NULL,
-  -- Language-neutral FTS config: wacrm is used in many languages
+  -- Language-neutral FTS config: Taamul Connect is used in many languages
   -- (its markets include BR / LATAM / IN), and this lexical path is the
   -- fallback for accounts without an embeddings key. `'simple'` tokenizes
   -- + lowercases without English-only stemming/stopwords, so it degrades

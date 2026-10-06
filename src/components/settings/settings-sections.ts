@@ -1,4 +1,5 @@
 import {
+  CircleDollarSign,
   Coins,
   Network,
   FileText,
@@ -7,6 +8,8 @@ import {
   Palette,
   PlugZap,
   Shield,
+  ShieldCheck,
+  Smartphone,
   Tags,
   User,
   UsersRound,
@@ -30,6 +33,8 @@ export const SETTINGS_SECTIONS = [
   'security',
   'appearance',
   'whatsapp',
+  'numbers',
+  'costs',
   'templates',
   'quick-replies',
   'fields',
@@ -37,6 +42,7 @@ export const SETTINGS_SECTIONS = [
   'members',
   'teams',
   'api',
+  'ai-safety',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -70,6 +76,10 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   security: { id: 'security', label: 'Login & security', icon: Shield, group: 'account' },
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace', minRole: 'admin' },
+  // Naming numbers and deciding who works each one (migration 060).
+  numbers: { id: 'numbers', label: 'Numbers & access', icon: Smartphone, group: 'workspace', minRole: 'admin' },
+  // Message spend is billing-class, like the ledger's SELECT policy.
+  costs: { id: 'costs', label: 'Message costs', icon: CircleDollarSign, group: 'workspace', minRole: 'admin' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace', minRole: 'admin' },
   'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace', minRole: 'admin' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace', minRole: 'admin' },
@@ -77,6 +87,9 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace', minRole: 'admin' },
   teams: { id: 'teams', label: 'Teams', icon: Network, group: 'workspace', minRole: 'admin' },
   api: { id: 'api', label: 'API keys', icon: KeyRound, group: 'workspace', minRole: 'admin' },
+  // The TypeSafe decision layer around the AI auto-reply bot. Admin-only
+  // like its API routes: it decides what the bot may say to customers.
+  'ai-safety': { id: 'ai-safety', label: 'AI safety checks', icon: ShieldCheck, group: 'workspace', minRole: 'admin' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

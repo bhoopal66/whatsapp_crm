@@ -1,11 +1,22 @@
 "use client"
 
+import dynamic from 'next/dynamic'
 import { Clock } from 'lucide-react'
 import { DOW_SHORT_MON_FIRST } from '@/lib/dashboard/date-utils'
 import type { ResponseTimeSummary } from '@/lib/dashboard/types'
-import { BarChart } from '@/components/tremor/bar-chart'
 import { EmptyState } from './empty-state'
 import { Skeleton } from './skeleton'
+
+// recharts is the heaviest dependency on the dashboard and only this
+// chart uses it — load it in its own chunk, client-only, behind a
+// skeleton sized like the chart so nothing shifts when it arrives.
+const BarChart = dynamic(
+  () => import('@/components/tremor/bar-chart').then((m) => m.BarChart),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-[260px] w-full" />,
+  },
+)
 
 interface ResponseTimeChartProps {
   data: ResponseTimeSummary | null

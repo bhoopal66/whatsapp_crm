@@ -13,6 +13,10 @@ import {
   type ExistingContact,
 } from '@/lib/contacts/dedupe';
 import {
+  validateContactPhone,
+  validatePhoneToSave,
+} from '@/lib/contacts/phone-validation';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -86,11 +90,15 @@ export function ContactForm({
   // Runs on blur so we don't query on every keystroke.
   async function checkDuplicate() {
     if (isEdit || !accountId) return;
-    const value = phone.trim();
-    if (!value) {
+    const typed = phone.trim();
+    if (!typed) {
       setDupMatch(null);
       return;
     }
+    // Look up the number that will be stored ("+971 050…" is saved as
+    // 97150…), so the exact/similar verdict matches what the save does.
+    const checked = validateContactPhone(typed);
+    const value = checked.ok ? checked.normalized : typed;
     setCheckingDup(true);
     try {
       const existing = await findExistingContact(supabase, accountId, value);
@@ -130,6 +138,21 @@ export function ContactForm({
       return;
     }
 
+    // A number without its country code (or cut short, or mangled by a
+    // spreadsheet) is accepted by the gateway as 'sent' and reaches
+    // nobody, so it is refused here. An edit that leaves the digits
+    // alone is not re-checked: rows from inbound messages carry the
+    // gateway's number, and a rename must not demand a phone fix.
+    const checkedPhone = validatePhoneToSave(
+      isEdit ? contact?.phone : null,
+      phone,
+    );
+    if (!checkedPhone.ok) {
+      toast.error(checkedPhone.error);
+      return;
+    }
+    const phoneToSave = checkedPhone.phone;
+
     // Hard-block an exact duplicate on create (the DB unique index is
     // the real backstop; this avoids a round-trip + a raw error toast).
     if (!isEdit && dupMatch?.exact) {
@@ -154,7 +177,7 @@ export function ContactForm({
           .from('contacts')
           .update({
             name: name.trim() || null,
-            phone: phone.trim(),
+            phone: phoneToSave,
             email: email.trim() || null,
             company: company.trim() || null,
             updated_at: new Date().toISOString(),
@@ -168,7 +191,7 @@ export function ContactForm({
             user_id: user.id,
             account_id: accountId,
             name: name.trim() || null,
-            phone: phone.trim(),
+            phone: phoneToSave,
             email: email.trim() || null,
             company: company.trim() || null,
           })
@@ -206,7 +229,7 @@ export function ContactForm({
           const existing = await findExistingContact(
             supabase,
             accountId,
-            phone.trim(),
+            phoneToSave,
           );
           if (existing) {
             setDupMatch({ contact: existing, exact: true });

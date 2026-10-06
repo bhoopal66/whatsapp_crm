@@ -1,3 +1,5 @@
+import type { WhatsAppProvider } from "@/lib/whatsapp/channels";
+
 /**
  * Type definitions for the Flows runtime.
  *
@@ -136,11 +138,7 @@ export interface CollectInputNodeConfig {
   next_node_key: string;
 }
 
-export type ConditionOperator =
-  | "equals"
-  | "contains"
-  | "present"
-  | "absent";
+export type ConditionOperator = "equals" | "contains" | "present" | "absent";
 
 export type ConditionSubject = "var" | "tag" | "contact_field";
 
@@ -235,7 +233,8 @@ export interface FlowRow {
   description: string | null;
   status: "draft" | "active" | "archived";
   trigger_type: "keyword" | "first_inbound_message" | "manual";
-  trigger_config: KeywordTriggerConfig | FirstInboundTriggerConfig | Record<string, unknown>;
+  trigger_config:
+    KeywordTriggerConfig | FirstInboundTriggerConfig | Record<string, unknown>;
   entry_node_id: string | null;
   fallback_policy: FlowFallbackPolicy;
   execution_count: number;
@@ -264,6 +263,9 @@ export interface FlowRunRow {
   user_id: string;
   contact_id: string | null;
   conversation_id: string | null;
+  /** The campaign whose first reply started this run (migration 054);
+   *  null for runs started by an inbound trigger. Audit only. */
+  broadcast_id?: string | null;
   status:
     | "active"
     | "completed"
@@ -286,8 +288,16 @@ export interface FlowRunRow {
 // ============================================================
 
 export interface FlowFallbackPolicy {
-  /** What to do when the customer reply doesn't match any option. */
-  on_unknown_reply: "reprompt" | "handoff" | "ignore";
+  /**
+   * What to do when the customer reply doesn't match any option.
+   *
+   * `ai` (migration 054) — let the AI agent answer the off-script
+   * message in the context of the current step and keep the run where
+   * it is, so the customer can ask a question mid-flow without losing
+   * their place. When the agent is off, capped, or hands off, the
+   * engine falls back to `reprompt` semantics with the counters below.
+   */
+  on_unknown_reply: "reprompt" | "handoff" | "ignore" | "ai";
   /** Max reprompts before applying `on_exhaust`. */
   max_reprompts: number;
   /** Stale-run sweep cutoff. */
@@ -339,6 +349,22 @@ export interface DispatchInboundInput {
   contactId: string;
   conversationId: string;
   message: ParsedInbound;
+  /**
+   * Set by the webhook when this inbound is the contact's FIRST reply
+   * to a campaign that names a follow-up flow (migration 054). With no
+   * active run for the contact, that flow is started ahead of the
+   * entry-trigger scan and the reply is seeded into its vars.
+   */
+  campaign?: { broadcastId: string; followUpFlowId: string } | null;
+  /**
+   * Which number the inbound arrived on. Needed only for the `ai`
+   * fallback (migration 054), which answers on the bot's own number and
+   * stands down when that is a different one; without it the fallback
+   * degrades to `reprompt`.
+   */
+  inboundProvider?: WhatsAppProvider;
+  /** The exact number the inbound arrived on (migration 060). */
+  inboundChannelId?: string | null;
 }
 
 export interface DispatchInboundResult {
@@ -358,6 +384,13 @@ export interface DispatchInboundResult {
     | "handed_off"
     | "fallback_fired"
     | "duplicate_inbound_ignored"
+    /**
+     * The run hit an unrecoverable error while handling this message
+     * (or while starting) and was ended as `failed`. Reported with
+     * `consumed: false` so the webhook lets the AI agent / automations
+     * answer the customer instead of leaving them in silence.
+     */
+    | "failed"
     | "no_match";
 }
 

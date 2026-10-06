@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Tests for the `contact_id` send path (issue #296): sending an approved
@@ -8,25 +8,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // ---------------------------------------------------------------------------
 
 // Records of what the route wrote, so we can assert the right rows landed.
-const conversationInserts: Array<Record<string, unknown>> = []
-const messageInserts: Array<Record<string, unknown>> = []
+const conversationInserts: Array<Record<string, unknown>> = [];
+const messageInserts: Array<Record<string, unknown>> = [];
 
 // Toggles for the per-test scenario.
-let existingConversation: Record<string, unknown> | null = null
-let contactRow: Record<string, unknown> | null = null
+let existingConversation: Record<string, unknown> | null = null;
+let contactRow: Record<string, unknown> | null = null;
 // The caller's role, as `requireRole` reads it off the profile. Sending
 // requires 'agent'; 'viewer' must be refused before anything reaches Meta.
-let callerRole: string = 'admin'
+let callerRole: string = 'admin';
 // A conversation created during the request becomes retrievable by id —
 // the shared send core re-loads the conversation (with its contact) from
 // just the id, so the mock must model insert-then-select-by-id.
-let createdConversation: Record<string, unknown> | null = null
+let createdConversation: Record<string, unknown> | null = null;
+// Set to make the `messages` insert fail after the gateway accepted.
+let messageInsertError: { message: string } | null = null;
 
 const CONTACT = {
   id: 'contact-1',
   account_id: 'acct-1',
   phone: '+15551234567',
-}
+};
 
 const TEMPLATE_ROW = {
   id: 'tpl-1',
@@ -36,14 +38,14 @@ const TEMPLATE_ROW = {
   language: 'en_US',
   body_text: 'Hi {{1}}, your order {{2}} is on its way.',
   created_at: '2026-01-01T00:00:00Z',
-}
+};
 
 // Chainable Supabase mock. A fresh builder per `.from()` call tracks whether
 // `.insert()` ran so the terminal resolves to the inserted row for creates
 // and the canned select row otherwise.
 function makeSupabaseMock() {
   function builder(table: string) {
-    let didInsert = false
+    let didInsert = false;
 
     const selectResult = () => {
       switch (table) {
@@ -51,15 +53,18 @@ function makeSupabaseMock() {
           return {
             data: { account_id: 'acct-1', account_role: callerRole },
             error: null,
-          }
+          };
         case 'accounts':
-          return { data: { id: 'acct-1', name: 'Acme' }, error: null }
+          return { data: { id: 'acct-1', name: 'Acme' }, error: null };
         case 'contacts':
-          return { data: contactRow, error: null }
+          return { data: contactRow, error: null };
         case 'conversations':
           // Once created this request, a by-id reload returns it (with
           // its contact); otherwise fall back to the canned existing row.
-          return { data: createdConversation ?? existingConversation, error: null }
+          return {
+            data: createdConversation ?? existingConversation,
+            error: null,
+          };
         case 'whatsapp_config':
           // A LIST since migration 046 — an account can hold both a
           // Whapi channel and a Meta number, and `channels.ts` reads
@@ -82,17 +87,17 @@ function makeSupabaseMock() {
               },
             ],
             error: null,
-          }
+          };
         case 'message_templates':
           // resolveTemplateRow awaits the builder directly (select+eq,
           // no .single()), so this comes back through `then` as a list.
           // Under Whapi the row IS the message, so the send path 404s
           // without one.
-          return { data: [TEMPLATE_ROW], error: null }
+          return { data: [TEMPLATE_ROW], error: null };
         default:
-          return { data: null, error: null }
+          return { data: null, error: null };
       }
-    }
+    };
 
     const insertResult = () => {
       switch (table) {
@@ -105,41 +110,52 @@ function makeSupabaseMock() {
               contact: CONTACT,
             },
             error: null,
-          }
+          };
         case 'messages':
-          return { data: { id: 'msg-1' }, error: null }
+          return messageInsertError
+            ? { data: null, error: messageInsertError }
+            : { data: { id: 'msg-1' }, error: null };
         default:
-          return { data: null, error: null }
+          return { data: null, error: null };
       }
-    }
+    };
 
     const terminal = () =>
-      Promise.resolve(didInsert ? insertResult() : selectResult())
+      Promise.resolve(didInsert ? insertResult() : selectResult());
 
-    const b: Record<string, unknown> = {}
-    const chain = () => b
-    for (const m of ['select', 'eq', 'in', 'order', 'limit', 'update', 'delete']) {
-      b[m] = vi.fn(chain)
+    const b: Record<string, unknown> = {};
+    const chain = () => b;
+    for (const m of [
+      'select',
+      'eq',
+      'in',
+      'order',
+      'limit',
+      'update',
+      'delete',
+      'is',
+    ]) {
+      b[m] = vi.fn(chain);
     }
     b.insert = vi.fn((payload: Record<string, unknown>) => {
-      didInsert = true
+      didInsert = true;
       if (table === 'conversations') {
-        conversationInserts.push(payload)
+        conversationInserts.push(payload);
         createdConversation = {
           id: 'conv-new',
           account_id: 'acct-1',
           contact_id: 'contact-1',
           contact: CONTACT,
-        }
+        };
       }
-      if (table === 'messages') messageInserts.push(payload)
-      return b
-    })
-    b.single = vi.fn(terminal)
-    b.maybeSingle = vi.fn(terminal)
+      if (table === 'messages') messageInserts.push(payload);
+      return b;
+    });
+    b.single = vi.fn(terminal);
+    b.maybeSingle = vi.fn(terminal);
     b.then = (resolve: (v: unknown) => unknown) =>
-      resolve(didInsert ? insertResult() : selectResult())
-    return b
+      resolve(didInsert ? insertResult() : selectResult());
+    return b;
   }
 
   return {
@@ -150,44 +166,51 @@ function makeSupabaseMock() {
       })),
     },
     from: vi.fn((table: string) => builder(table)),
-  }
+  };
 }
 
-let supabaseMock = makeSupabaseMock()
+let supabaseMock = makeSupabaseMock();
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(async () => supabaseMock),
-}))
+}));
 
 vi.mock('@/lib/flows/admin-client', () => ({
   supabaseAdmin: () => ({
     from: () => {
-      const b: Record<string, unknown> = {}
-      const chain = () => b
-      for (const m of ['update', 'eq', 'select']) b[m] = vi.fn(chain)
+      const b: Record<string, unknown> = {};
+      const chain = () => b;
+      for (const m of ['update', 'eq', 'select']) b[m] = vi.fn(chain);
       b.then = (resolve: (v: unknown) => unknown) =>
-        resolve({ data: null, error: null })
-      return b
+        resolve({ data: null, error: null });
+      return b;
     },
   }),
-}))
+}));
 
 vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: vi.fn(() => 'plaintext-token'),
   encrypt: vi.fn(() => 'enc-token'),
   isLegacyFormat: vi.fn(() => false),
-}))
+}));
 
 const { sendTemplateMessage } = vi.hoisted(() => ({
   sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid-1' })),
-}))
-vi.mock('@/lib/whatsapp/whapi-api', () => ({
+}));
+vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
+  // The real error class: a failed send is judged by `instanceof`.
+  ...(await importOriginal<Record<string, unknown>>()),
   sendTemplateMessage,
   sendTextMessage: vi.fn(),
   sendMediaMessage: vi.fn(),
-}))
+  // A refused 401/403 probes the number; never let that reach Whapi.
+  getChannelInfo: vi.fn(async () => {
+    throw new Error('no probe in tests');
+  }),
+}));
 
-import { POST } from './route'
+import { POST } from './route';
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
 function postContactTemplate(overrides: Record<string, unknown> = {}) {
   return POST(
@@ -203,62 +226,65 @@ function postContactTemplate(overrides: Record<string, unknown> = {}) {
         template_params: ['Acme', '#1234'],
         ...overrides,
       }),
-    }),
-  )
+    })
+  );
 }
 
 describe('POST /api/whatsapp/send — contact_id template path', () => {
   beforeEach(() => {
-    conversationInserts.length = 0
-    messageInserts.length = 0
-    existingConversation = null
-    createdConversation = null
-    contactRow = CONTACT
-    callerRole = 'admin'
-    supabaseMock = makeSupabaseMock()
-    sendTemplateMessage.mockClear()
-  })
+    conversationInserts.length = 0;
+    messageInserts.length = 0;
+    existingConversation = null;
+    createdConversation = null;
+    contactRow = CONTACT;
+    callerRole = 'admin';
+    supabaseMock = makeSupabaseMock();
+    sendTemplateMessage.mockClear();
+  });
 
   afterEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('creates a conversation for a contact with none, then sends the template', async () => {
-    const res = await postContactTemplate()
-    const json = await res.json()
+    const res = await postContactTemplate();
+    const json = await res.json();
 
-    expect(res.status).toBe(200)
-    expect(json.success).toBe(true)
-    expect(json.whatsapp_message_id).toBe('wamid-1')
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.whatsapp_message_id).toBe('wamid-1');
 
-    // A conversation was created for this contact.
-    expect(conversationInserts).toHaveLength(1)
+    // A conversation was created for this contact, assigned to the
+    // agent who opened it — an outbound chat is never Unassigned.
+    expect(conversationInserts).toHaveLength(1);
     expect(conversationInserts[0]).toMatchObject({
       account_id: 'acct-1',
       contact_id: 'contact-1',
-    })
+      user_id: 'user-1',
+      assigned_agent_id: 'user-1',
+    });
 
     // The template was sent to the contact's number.
-    expect(sendTemplateMessage).toHaveBeenCalledTimes(1)
+    expect(sendTemplateMessage).toHaveBeenCalledTimes(1);
     const args = (sendTemplateMessage.mock.calls[0] as unknown[])[0] as Record<
       string,
       unknown
-    >
+    >;
     // Whapi wants bare digits — a leading '+' fails its `to` pattern.
-    expect(args.to).toBe('15551234567')
+    expect(args.to).toBe('15551234567');
     // The resolved local row is the message under Whapi; there is no
     // remote template name to address.
-    expect((args.template as { name: string }).name).toBe('order_update')
+    expect((args.template as { name: string }).name).toBe('order_update');
 
     // The outbound message was persisted under the new conversation.
-    expect(messageInserts).toHaveLength(1)
+    expect(messageInserts).toHaveLength(1);
     expect(messageInserts[0]).toMatchObject({
       conversation_id: 'conv-new',
       content_type: 'template',
       template_name: 'order_update',
       sender_type: 'agent',
-    })
-  })
+    });
+  });
 
   it('reuses an existing conversation instead of creating a duplicate', async () => {
     existingConversation = {
@@ -266,25 +292,61 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
       account_id: 'acct-1',
       contact_id: 'contact-1',
       contact: CONTACT,
-    }
+    };
 
-    const res = await postContactTemplate()
-    expect(res.status).toBe(200)
+    const res = await postContactTemplate();
+    expect(res.status).toBe(200);
 
-    expect(conversationInserts).toHaveLength(0)
-    expect(messageInserts[0]).toMatchObject({ conversation_id: 'conv-existing' })
-  })
+    expect(conversationInserts).toHaveLength(0);
+    expect(messageInserts[0]).toMatchObject({
+      conversation_id: 'conv-existing',
+    });
+  });
+
+  it("leaves an existing conversation's assignee alone", async () => {
+    // Reassignment is the admin's / team leader's call. Writing to a
+    // contact whose thread already belongs to someone must not quietly
+    // take it back — the reuse path creates nothing, so there is no
+    // insert to carry an assignment.
+    existingConversation = {
+      id: 'conv-existing',
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      assigned_agent_id: 'someone-else',
+      contact: CONTACT,
+    };
+
+    const res = await postContactTemplate();
+
+    expect(res.status).toBe(200);
+    expect(conversationInserts).toHaveLength(0);
+  });
 
   it('404s when the contact is not in the caller account', async () => {
-    contactRow = null
+    contactRow = null;
 
-    const res = await postContactTemplate()
-    const json = await res.json()
+    const res = await postContactTemplate();
+    const json = await res.json();
 
-    expect(res.status).toBe(404)
-    expect(json.error).toMatch(/contact not found/i)
-    expect(sendTemplateMessage).not.toHaveBeenCalled()
-  })
+    expect(res.status).toBe(404);
+    expect(json.error).toMatch(/contact not found/i);
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+  });
+
+  it('400s on an unknown provider before touching the conversation', async () => {
+    const res = await postContactTemplate({ provider: 'twilio' });
+    expect(res.status).toBe(400);
+    expect(conversationInserts).toHaveLength(0);
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+  });
+
+  it('accepts a provider pin and falls back when that number is not connected', async () => {
+    // The Contact detail view pins templates to Meta; this account only
+    // has the Whapi channel, so the send still goes out on it.
+    const res = await postContactTemplate({ provider: 'meta' });
+    expect(res.status).toBe(200);
+    expect(sendTemplateMessage).toHaveBeenCalledTimes(1);
+  });
 
   it('400s when neither conversation_id nor contact_id is provided', async () => {
     const res = await POST(
@@ -292,32 +354,32 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message_type: 'template', template_name: 'x' }),
-      }),
-    )
-    expect(res.status).toBe(400)
-  })
-})
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+});
 
 describe('POST /api/whatsapp/send — role enforcement', () => {
   beforeEach(() => {
-    conversationInserts.length = 0
-    messageInserts.length = 0
+    conversationInserts.length = 0;
+    messageInserts.length = 0;
     existingConversation = {
       id: 'conv-existing',
       account_id: 'acct-1',
       contact_id: 'contact-1',
       contact: CONTACT,
-    }
-    createdConversation = null
-    contactRow = CONTACT
-    callerRole = 'admin'
-    supabaseMock = makeSupabaseMock()
-    sendTemplateMessage.mockClear()
-  })
+    };
+    createdConversation = null;
+    contactRow = CONTACT;
+    callerRole = 'admin';
+    supabaseMock = makeSupabaseMock();
+    sendTemplateMessage.mockClear();
+  });
 
   afterEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('refuses a viewer with 403 and never reaches Meta', async () => {
     // A viewer is read-only (`canSendMessages`). The route used to resolve
@@ -325,21 +387,111 @@ describe('POST /api/whatsapp/send — role enforcement', () => {
     // the message INSERT, but the send core calls Meta first, so the
     // customer still received a real WhatsApp message that RLS could not
     // un-send. The gate has to come before any outbound call.
-    callerRole = 'viewer'
+    callerRole = 'viewer';
 
-    const res = await postContactTemplate()
+    const res = await postContactTemplate();
 
-    expect(res.status).toBe(403)
-    expect(sendTemplateMessage).not.toHaveBeenCalled()
-    expect(messageInserts).toHaveLength(0)
-  })
+    expect(res.status).toBe(403);
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+    expect(messageInserts).toHaveLength(0);
+  });
 
   it('allows an agent through', async () => {
-    callerRole = 'agent'
+    callerRole = 'agent';
 
-    const res = await postContactTemplate()
+    const res = await postContactTemplate();
 
-    expect(res.status).toBe(200)
-    expect(sendTemplateMessage).toHaveBeenCalledTimes(1)
-  })
-})
+    expect(res.status).toBe(200);
+    expect(sendTemplateMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/whatsapp/send — failure answers', () => {
+  // The inbox offers Retry only when `retryable` is true. A send that
+  // may already have reached the customer must say false, or Retry
+  // delivers it twice.
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    conversationInserts.length = 0;
+    messageInserts.length = 0;
+    existingConversation = {
+      id: 'conv-existing',
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      contact: CONTACT,
+    };
+    createdConversation = null;
+    contactRow = CONTACT;
+    callerRole = 'agent';
+    messageInsertError = null;
+    supabaseMock = makeSupabaseMock();
+    sendTemplateMessage.mockClear();
+    log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    messageInsertError = null;
+    log.mockRestore();
+    vi.clearAllMocks();
+  });
+
+  it('marks a gateway refusal retryable: nothing went out', async () => {
+    sendTemplateMessage.mockRejectedValueOnce(
+      new WhapiError('Recipient not on WhatsApp', 400)
+    );
+
+    const res = await postContactTemplate();
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'WhatsApp API error: Recipient not on WhatsApp',
+      code: 'whatsapp_error',
+      retryable: true,
+    });
+  });
+
+  it.each([
+    ['a timeout', new WhapiError('Whapi request failed: timeout', 503)],
+    [
+      'an accepted send with no id back',
+      new WhapiError(
+        'Whapi accepted the template message but returned no message id.',
+        502
+      ),
+    ],
+  ])('marks %s not retryable: it may have gone out', async (_, thrown) => {
+    sendTemplateMessage.mockRejectedValueOnce(thrown);
+
+    const res = await postContactTemplate();
+    const json = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(json).toMatchObject({ code: 'whatsapp_error', retryable: false });
+    expect(json.error).toMatch(/^WhatsApp API error: /);
+  });
+
+  it('marks db_error not retryable: the message was sent', async () => {
+    messageInsertError = { message: 'permission denied' };
+
+    const res = await postContactTemplate();
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({
+      code: 'db_error',
+      retryable: false,
+    });
+    expect(sendTemplateMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a validation failure retryable, with its code', async () => {
+    const res = await postContactTemplate({ template_name: '' });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: 'bad_request',
+      retryable: true,
+    });
+    expect(sendTemplateMessage).not.toHaveBeenCalled();
+  });
+});

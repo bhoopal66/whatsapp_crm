@@ -3,7 +3,7 @@
 // POST /api/v1/webhooks — register an endpoint    (scope: webhooks:manage)
 //
 // POST returns the signing `secret` in plaintext exactly once — store
-// it to verify the `X-Wacrm-Signature` on deliveries. wacrm keeps only
+// it to verify the `X-Taamul-Signature` on deliveries. Taamul Connect keeps only
 // an encrypted copy and can never show it again.
 // ============================================================
 
@@ -17,6 +17,7 @@ import {
   generateWebhookSecret,
   normalizeWebhookUrl,
 } from '@/lib/webhooks/endpoints';
+import { isDeliverableUrl } from '@/lib/webhooks/ssrf';
 
 export async function GET(request: Request) {
   try {
@@ -61,6 +62,16 @@ export async function POST(request: Request) {
     const url = normalizeWebhookUrl(body.url);
     if (!url) {
       return fail('bad_request', "'url' must be a valid https:// URL", 400);
+    }
+    // Checked on save as well as on every delivery (deliver.ts): a URL
+    // that resolves to a private or internal address is refused up
+    // front, rather than accepted and then silently never delivered.
+    if (!(await isDeliverableUrl(url))) {
+      return fail(
+        'bad_request',
+        "'url' must resolve to a public internet address",
+        400
+      );
     }
 
     const events = normalizeEvents(body.events);

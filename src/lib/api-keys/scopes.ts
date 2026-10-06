@@ -21,6 +21,12 @@ export const API_SCOPES = [
   'conversations:read',
   'broadcasts:send',
   'webhooks:manage',
+  // Taamul Compass (the ERP) integration — docs/compass.md. Separate
+  // from `contacts:*` / `messages:send` so the key handed to Compass
+  // can do exactly its job and nothing else.
+  'compass_contacts:read',
+  'compass_contacts:write',
+  'compass_notifications:send',
 ] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];
@@ -34,6 +40,10 @@ export const SCOPE_DESCRIPTIONS: Record<ApiScope, string> = {
   'conversations:read': 'List and read conversations',
   'broadcasts:send': 'Launch broadcast campaigns',
   'webhooks:manage': 'Register and manage outbound event webhooks',
+  'compass_contacts:read': 'Taamul Compass: read synced customer records',
+  'compass_contacts:write': 'Taamul Compass: sync customer records',
+  'compass_notifications:send':
+    'Taamul Compass: send status notifications (Whapi channel only)',
 };
 
 /** Type-narrow an unknown value into a valid `ApiScope`. */

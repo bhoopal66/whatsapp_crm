@@ -21,6 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import { validateContactPhone } from '@/lib/contacts/phone-validation';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
@@ -30,6 +31,18 @@ export interface ResolvedConversation {
   contactId: string;
   /** True if this call created the contact (vs matched an existing one). */
   contactCreated: boolean;
+  /** True if this call created the conversation (no chat existed yet). */
+  conversationCreated: boolean;
+}
+
+export interface ResolveConversationOptions {
+  /**
+   * Overwrite an existing contact's name with `name` (default true, the
+   * public API's long-standing behaviour). The Compass notifications
+   * pass false: the ERP's spelling must not clobber a name an agent
+   * has curated on a contact they already work.
+   */
+  renameExisting?: boolean;
 }
 
 /**
@@ -37,12 +50,20 @@ export interface ResolvedConversation {
  * `accountId`. Throws `SendMessageError` (shared with the send core,
  * so the route maps one error family) on a bad phone, a missing
  * WhatsApp config, or a DB failure.
+ *
+ * An existing contact is found by the last-8 match below, whatever
+ * shape its number was saved in. A new one is held to the rule every
+ * other entry point uses (`validateContactPhone`): the E.164 check
+ * alone let "504555843" and "+9710501234567" become contacts here,
+ * each send was 'sent' to a JID that is nobody, and the customer's
+ * real inbound later attached itself to that row.
  */
 export async function resolveConversationByPhone(
   db: SupabaseClient,
   accountId: string,
   phone: string,
-  name?: string | null
+  name?: string | null,
+  { renameExisting = true }: ResolveConversationOptions = {}
 ): Promise<ResolvedConversation> {
   const sanitized = sanitizePhoneForMeta(phone);
   if (!isValidE164(sanitized)) {
@@ -51,6 +72,17 @@ export async function resolveConversationByPhone(
       "'to' must be a valid phone number in E.164 format (e.g. +14155550123)",
       400
     );
+  }
+  const checked = validateContactPhone(phone, "'to'");
+  // Spreadsheet notation, a ".0" float suffix or a letter in the
+  // number means its digits are not the number anyone meant, so they
+  // must not reach the last-8 match either: it could land on an
+  // unrelated contact who happens to share eight of them.
+  if (
+    !checked.ok &&
+    (checked.reason === 'scientific_notation' || checked.reason === 'malformed')
+  ) {
+    throw new SendMessageError('bad_request', checked.error, 400);
   }
 
   // Fail fast (and create nothing) when the account has no WhatsApp
@@ -93,23 +125,41 @@ export async function resolveConversationByPhone(
   let contactId: string;
   let contactCreated = false;
 
-  const existing = await findExistingContact(db, accountId, sanitized);
+  // Look up by the number the rule reads, not the typed digits: a
+  // trunk 0 inside the last eight ("+961 03 123 456" types 03123456,
+  // the number is 9613123456) otherwise misses the real contact and
+  // the last-8 match lands on an unrelated one that shares the typed
+  // tail (971503123456) — and the send goes to that person. A number
+  // the rule refuses keeps the raw digits, so a legacy "504555843"
+  // row is still found.
+  const existing = await findExistingContact(
+    db,
+    accountId,
+    checked.ok ? checked.normalized : sanitized
+  );
   if (existing) {
     contactId = existing.id;
-    if (name && name !== existing.name) {
+    if (renameExisting && name && name !== existing.name) {
       await db
         .from('contacts')
         .update({ name, updated_at: new Date().toISOString() })
         .eq('id', existing.id);
     }
   } else {
+    if (!checked.ok) {
+      throw new SendMessageError('bad_request', checked.error, 400);
+    }
+    // Stored normalized (digits, country code, no trunk 0), the form
+    // the inbound webhooks store, so the customer's reply finds this
+    // row by an exact match.
+    const normalized = checked.normalized;
     const { data: created, error: createErr } = await db
       .from('contacts')
       .insert({
         account_id: accountId,
         user_id: ownerUserId,
-        phone: sanitized,
-        name: name || sanitized,
+        phone: normalized,
+        name: name || normalized,
       })
       .select('id')
       .single();
@@ -118,7 +168,7 @@ export async function resolveConversationByPhone(
       // Lost a race against a concurrent inbound/API create — the
       // unique index (migration 022) rejected the duplicate. Re-resolve.
       if (isUniqueViolation(createErr)) {
-        const raced = await findExistingContact(db, accountId, sanitized);
+        const raced = await findExistingContact(db, accountId, normalized);
         if (raced) {
           contactId = raced.id;
         } else {
@@ -147,14 +197,10 @@ export async function resolveConversationByPhone(
   // `.maybeSingle()`, which errors on ≥2 rows: if duplicates predate the
   // unique index (migration 036), we resolve to the canonical survivor
   // instead of falling through and creating yet another (issue #363).
-  const conversationId = await findOrCreateConversationRow(
-    db,
-    accountId,
-    contactId,
-    ownerUserId
-  );
+  const { id: conversationId, created: conversationCreated } =
+    await findOrCreateConversationRow(db, accountId, contactId, ownerUserId);
 
-  return { conversationId, contactId, contactCreated };
+  return { conversationId, contactId, contactCreated, conversationCreated };
 }
 
 /**
@@ -168,7 +214,7 @@ async function findOrCreateConversationRow(
   accountId: string,
   contactId: string,
   ownerUserId: string
-): Promise<string> {
+): Promise<{ id: string; created: boolean }> {
   const { data: existing, error: findErr } = await db
     .from('conversations')
     .select('id')
@@ -179,11 +225,15 @@ async function findOrCreateConversationRow(
 
   if (findErr) {
     console.error('[resolve-conversation] conversation lookup error:', findErr);
-    throw new SendMessageError('db_error', 'Failed to resolve conversation', 500);
+    throw new SendMessageError(
+      'db_error',
+      'Failed to resolve conversation',
+      500
+    );
   }
 
   if (existing && existing.length > 0) {
-    return existing[0].id;
+    return { id: existing[0].id, created: false };
   }
 
   const { data: newConv, error: convErr } = await db
@@ -206,12 +256,16 @@ async function findOrCreateConversationRow(
         .order('created_at', { ascending: true })
         .limit(1);
       if (raced && raced.length > 0) {
-        return raced[0].id;
+        return { id: raced[0].id, created: false };
       }
     }
     console.error('[resolve-conversation] conversation create error:', convErr);
-    throw new SendMessageError('db_error', 'Failed to create conversation', 500);
+    throw new SendMessageError(
+      'db_error',
+      'Failed to create conversation',
+      500
+    );
   }
 
-  return newConv.id;
+  return { id: newConv.id, created: true };
 }

@@ -1,8 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  decideFallback,
-  resolveFallbackPolicy,
-} from "./fallback";
+import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { DEFAULT_FALLBACK_POLICY, type FlowFallbackPolicy } from "./types";
 
 describe("resolveFallbackPolicy", () => {
@@ -120,5 +117,51 @@ describe("decideFallback", () => {
     expect(decideFallback({ policy, reprompt_count: 1 })).toEqual({
       type: "handoff",
     });
+  });
+});
+
+describe("on_unknown_reply='ai' (migration 054)", () => {
+  const POLICY_AI: FlowFallbackPolicy = {
+    ...POLICY_REPROMPT_2_HANDOFF,
+    on_unknown_reply: "ai",
+  };
+
+  it("resolves from the DB and is not coerced back to the default", () => {
+    expect(
+      resolveFallbackPolicy({ on_unknown_reply: "ai" }).on_unknown_reply,
+    ).toBe("ai");
+  });
+
+  it("asks the AI agent first, whatever the reprompt count", () => {
+    expect(decideFallback({ policy: POLICY_AI, reprompt_count: 0 })).toEqual({
+      type: "ai",
+    });
+    expect(decideFallback({ policy: POLICY_AI, reprompt_count: 9 })).toEqual({
+      type: "ai",
+    });
+  });
+
+  it("degrades to reprompt semantics when the agent is unavailable", () => {
+    expect(
+      decideFallback({
+        policy: POLICY_AI,
+        reprompt_count: 1,
+        aiAvailable: false,
+      }),
+    ).toEqual({ type: "reprompt" });
+    expect(
+      decideFallback({
+        policy: POLICY_AI,
+        reprompt_count: 3,
+        aiAvailable: false,
+      }),
+    ).toEqual({ type: "handoff" });
+    expect(
+      decideFallback({
+        policy: { ...POLICY_AI, on_exhaust: "end" },
+        reprompt_count: 3,
+        aiAvailable: false,
+      }),
+    ).toEqual({ type: "end" });
   });
 });

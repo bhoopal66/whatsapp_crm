@@ -152,6 +152,8 @@ interface ProfileRow {
   beta_features: string[] | null;
   account_id: string | null;
   account_role: string | null;
+  /** Migration 069. Absent on a database that predates it. */
+  deactivated_at?: string | null;
 }
 
 /**
@@ -186,16 +188,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileLoading(true);
     setStatusDetail(null);
     lastFetchedUserIdRef.current = userId;
+    // Start the account read NOW, in parallel with the profile read
+    // below, rather than after it. These are two sequential round trips
+    // on the critical path of every full page load, and on a tunnelled
+    // self-host each one costs ~700ms — the profile has to land before
+    // any screen can decide what the user may do.
+    //
+    // No account id is needed to ask: `accounts_select` is
+    // `USING (is_account_member(id))` (migration 017), so this returns
+    // exactly the caller's own account. The result is still matched
+    // against `profile.account_id` below and falls back to the point
+    // lookup if it somehow disagrees, so the guarantee is unchanged.
+    // A rejection is caught at the point of use, not here.
+    const accountsPromise = supabase
+      .from("accounts")
+      .select("id, name, default_currency");
+
     try {
       let data: ProfileRow | null = null;
       for (let attempt = 1; ; attempt++) {
         const result = await supabase
           .from("profiles")
-          .select(
-            "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
-          )
+          // `*`, not a column list: `deactivated_at` (migration 069)
+          // may not exist yet, and naming a missing column fails the
+          // whole read — which locks every user out of the UI.
+          .select("*")
           .eq("user_id", userId)
-          .maybeSingle();
+          .maybeSingle<ProfileRow>();
 
         if (!result.error) {
           data = result.data;
@@ -222,6 +241,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (data?.deactivated_at) {
+        // An admin deactivated this member (migration 069). Their login
+        // is banned and RLS already returns them nothing, but a tab
+        // opened earlier still holds a session; end it rather than
+        // leave them on a dashboard that silently shows nothing. The
+        // default (global) sign-out also revokes their refresh tokens.
+        // If the global sign-out is refused, still clear the local
+        // session: the middleware bounces a signed-in visitor off
+        // /login, which would otherwise loop back here.
+        const { error: signOutError } = await supabase.auth
+          .signOut()
+          .catch((err: unknown) => ({ error: err }));
+        if (signOutError) await supabase.auth.signOut({ scope: "local" });
+        window.location.href = "/login?deactivated=1";
+        return;
+      }
+
       if (data) {
         // Load the account with a plain lookup by id instead of an
         // embedded FK join. The embed (`account:accounts!inner(...)`)
@@ -235,13 +271,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // account name lookup itself can't.
         let accountRow: AccountSummary | null = null;
         if (data.account_id) {
-          const { data: account, error: accountErr } = await supabase
-            .from("accounts")
-            // default_currency added in migration 021; narrowed to the
-            // USD fallback below for older schemas where it reads null.
-            .select("id, name, default_currency")
-            .eq("id", data.account_id)
-            .maybeSingle();
+          // The parallel read above has usually already landed. Take the
+          // row matching this profile's account_id; anything else (an
+          // error, or a set that somehow doesn't contain it) falls
+          // through to the original point lookup.
+          const parallel = await accountsPromise.then(
+            (r) =>
+              r.error
+                ? null
+                : (r.data ?? []).find((a) => a.id === data!.account_id) ?? null,
+            () => null,
+          );
+
+          const { data: account, error: accountErr } = parallel
+            ? { data: parallel, error: null }
+            : await supabase
+                .from("accounts")
+                // default_currency added in migration 021; narrowed to the
+                // USD fallback below for older schemas where it reads null.
+                .select("id, name, default_currency")
+                .eq("id", data.account_id)
+                .maybeSingle();
           if (accountErr) {
             console.error("[AuthProvider] fetchAccount error:", {
               message: accountErr.message,
@@ -425,25 +475,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? "ready"
           : "unlinked";
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        loading,
-        profileLoading,
-        signOut,
-        refreshProfile,
-        account,
-        defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
-        accountStatus,
-        accountStatusDetail: statusDetail,
-        ...derived,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  // One stable object per actual change. A fresh literal here re-rendered
+  // every `useAuth()` consumer (sidebar, header, every page) whenever the
+  // provider rendered for any reason, even with nothing changed.
+  const defaultCurrency = account?.default_currency ?? DEFAULT_CURRENCY;
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      profile,
+      loading,
+      profileLoading,
+      signOut,
+      refreshProfile,
+      account,
+      defaultCurrency,
+      accountStatus,
+      accountStatusDetail: statusDetail,
+      ...derived,
+    }),
+    [
+      user,
+      profile,
+      loading,
+      profileLoading,
+      signOut,
+      refreshProfile,
+      account,
+      defaultCurrency,
+      accountStatus,
+      statusDetail,
+      derived,
+    ],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 /**

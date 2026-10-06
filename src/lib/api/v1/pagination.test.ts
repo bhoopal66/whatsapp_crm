@@ -110,3 +110,25 @@ describe('buildPage', () => {
     expect(page.nextCursor).toBe(encodeCursor(rows[4]));
   });
 });
+
+describe('decodeCursor — strict timestamp', () => {
+  const enc = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
+  const id = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+
+  it('accepts the timestamp shapes Postgres returns', () => {
+    for (const ts of [
+      '2026-09-25T08:33:09.123456+00:00',
+      '2026-09-25T08:33:09Z',
+      '2026-09-25 08:33:09.1+05:30',
+    ]) {
+      expect(decodeCursor(enc(`${ts}|${id}`))).toEqual({ createdAt: ts, id });
+    }
+  });
+
+  it('rejects a date carrying filter syntax that Date.parse would accept', () => {
+    // V8 ignores the parenthesised text, so Date.parse says "valid".
+    const smuggled = '2020 (a,b.c.d)';
+    expect(Number.isNaN(Date.parse(smuggled))).toBe(false);
+    expect(decodeCursor(enc(`${smuggled}|${id}`))).toBeNull();
+  });
+});

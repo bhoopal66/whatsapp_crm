@@ -1,6 +1,6 @@
 # Public API (`/api/v1`)
 
-The public API lets you drive your wacrm instance from your own
+The public API lets you drive your Taamul Connect instance from your own
 scripts and automations — send messages, manage contacts, launch
 broadcasts — without going through the dashboard UI.
 
@@ -14,11 +14,15 @@ Every request authenticates with an **API key**, sent as a bearer
 token:
 
 ```
-Authorization: Bearer wacrm_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Authorization: Bearer taamul_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Keys are **account-scoped**: a key acts on exactly one account, the
 one it was created in. There is no cross-account access.
+
+Keys issued before the rename carry a `wacrm_live_` prefix. They
+remain valid — only the prefix on **newly created** keys changed, and
+the prefix is not a secret or a scope. Rotate at your convenience.
 
 ### Creating a key
 
@@ -27,7 +31,7 @@ In the dashboard: **Settings → API keys → New API key**. Only
 
 1. Give the key a name (after the integration that will use it).
 2. Grant the **scopes** it needs — nothing more (see below).
-3. Copy the key. **The full key is shown exactly once.** wacrm
+3. Copy the key. **The full key is shown exactly once.** Taamul Connect
    stores only a SHA-256 hash, so it can never be shown again. If you
    lose it, revoke it and create a new one.
 
@@ -50,6 +54,9 @@ it. Grant the minimum.
 | `conversations:read` | List and read conversations              |
 | `broadcasts:send`    | Launch broadcast campaigns               |
 | `webhooks:manage`    | Register and manage outbound webhooks    |
+| `compass_contacts:read` | Read customers synced from Taamul Compass |
+| `compass_contacts:write` | Sync customers from Taamul Compass      |
+| `compass_notifications:send` | Send Compass status notifications (Whapi only) |
 
 A key with **no scopes** still authenticates and can call
 `GET /api/v1/me` — useful for verifying a key works.
@@ -103,7 +110,7 @@ and to discover its scopes.
 
 ```bash
 curl https://your-crm.example.com/api/v1/me \
-  -H "Authorization: Bearer wacrm_live_xxx"
+  -H "Authorization: Bearer taamul_live_xxx"
 ```
 
 ```json
@@ -121,17 +128,36 @@ Send a WhatsApp message to a phone number. Scope: `messages:send`. You
 pass an **E.164 number**, not an internal id — the endpoint
 finds-or-creates the contact + conversation, then sends.
 
+`to` is the recipient's number in international format with the country
+code (`+971501234567`; spaces, dashes and brackets are fine, a leading
+`00` is not). An existing contact is matched by number, whatever format
+it was saved in; a trunk `0` typed after the country code is dropped
+before matching. A number with no contact yet creates one, and it must
+pass the same check as `phone` on `POST /api/v1/contacts`; otherwise the
+request fails with `400 bad_request`, nothing is created or sent, and
+the message names the problem (e.g. `'to' "504555843" is too short.
+Include the country code, e.g. +971 50 123 4567`). Spreadsheet notation
+(`9.71505E+11`), a `.0` decimal suffix and letters in the number (other
+than a `tel:` prefix — so `whatsapp:+971…` is refused) are refused even
+for an existing contact. The new contact's number is stored as digits
+only, with a trunk `0` after the country code removed
+(`+44 (0)7700 900123` → `447700900123`).
+
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/messages \
-  -H "Authorization: Bearer wacrm_live_xxx" \
+  -H "Authorization: Bearer taamul_live_xxx" \
   -H "Content-Type: application/json" \
   -d '{ "to": "+14155550123", "type": "text", "text": "Hi 👋" }'
 ```
 
 `type` is `text` (default), `template`, or a media kind (`image` /
 `video` / `document` / `audio`). Media needs `media_url` (and optional
-`filename`); `text` doubles as the caption. `template` needs a
-`template` object:
+`filename`); `text` doubles as the caption. `media_url` must be an
+absolute `https://` URL (at most 2048 characters, no embedded
+credentials) — anything else is a `400`. The one exception is an object
+in the install's own public Supabase Storage bucket, which a
+self-hosted dev install may serve over plain `http://`. `template`
+needs a `template` object:
 
 ```jsonc
 {
@@ -186,7 +212,23 @@ or phone) and `?tag=<tagId>`.
 
 ### `POST /api/v1/contacts`
 
-Create a contact. Scope: `contacts:write`. `phone` (E.164) is required;
+Create a contact. Scope: `contacts:write`. `phone` (international
+format with the country code, e.g. `+971501234567`) is required. It is
+refused with `400 bad_request` when it has no country code (a leading
+single `0`); fewer than 10 or more than 15 digits (UAE `800` toll-free
+numbers, which can be shorter, excepted); more than 64 characters;
+spreadsheet notation (`9.71505E+11`) or a `.0` decimal suffix;
+characters other than digits, spaces and `+ ( ) - . /` (a `tel:` prefix
+is fine, and invisible direction marks are ignored); a +971 number that
+is not a mobile (`+971 5x` and 7 more digits), a landline (`+971` and 8
+digits) or a 600/800 service number; or any other number that does not
+fit the numbering plan of the country code its first digits spell (so
+`98765 43210` is refused, not read as +98). The message says which. A
+leading `00` is read as `+`, and a trunk `0` right after the country
+code (`+971 050…`, `+44 (0)7700…`, `+966 05…`) is removed, except where
+numbers really start with 0 (`+39 06…`). A number saved without its country code would take the
+customer's inbound messages while replies went nowhere. The stored
+number is the digits only;
 `name`, `email`, `company`, and `tags` (an array of tag names, created
 if missing) are optional. **Find-or-create by phone:** an existing
 match returns `200` with the existing contact; a new contact returns
@@ -228,7 +270,7 @@ returns fast — poll `GET /api/v1/broadcasts/{id}` for progress.
 
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/broadcasts \
-  -H "Authorization: Bearer wacrm_live_xxx" \
+  -H "Authorization: Bearer taamul_live_xxx" \
   -H "Content-Type: application/json" \
   -d '{
         "name": "July promo",
@@ -237,13 +279,36 @@ curl -X POST https://your-crm.example.com/api/v1/broadcasts \
         "recipients": [
           { "to": "+14155550123", "params": ["Jane"] },
           { "to": "+14155550124" }
-        ]
+        ],
+        "flow_id": "3f2c…"
       }'
 ```
 
 Recipients are capped at **1000 per request** — split larger sends.
-Invalid phone numbers are dropped and counted as `rejected`. Response
-(202):
+Each recipient's `to` must pass the same rule as `phone` on `POST
+/api/v1/contacts`, even when a contact with that number already exists
+(unlike `POST /api/v1/messages`, which still reaches an existing contact
+saved in an older format). A number that fails it is dropped and
+counted as `rejected`, and no contact is created for it; accepted
+numbers are sent in normalized form (digits only, with the country
+code, a trunk `0` after it removed). If every recipient is rejected the
+call is `400 bad_request` and the message names the first problem.
+
+`flow_id` (optional) names an **active Flow** to start for each
+recipient on their first reply to this campaign, so the broadcast
+continues as a guided conversation — see
+[campaign-journeys.md](./campaign-journeys.md). The reply is seeded
+into the run's variables (`campaign_reply`, `campaign_reply_id`). A
+flow that does not belong to the account is `404 flow_not_found`; a
+draft or archived one is `400 flow_not_active`. Nothing is persisted
+in either case.
+
+A template with an image, video or document header and no stored media
+is `400 template_media_missing` when the account's broadcasts go to its
+Meta number (Meta rejects every such send). Nothing is persisted. Add the
+header media to the template in Settings → Templates.
+
+Response (202):
 
 ```json
 {
@@ -260,8 +325,27 @@ Invalid phone numbers are dropped and counted as `rejected`. Response
 ### `GET /api/v1/broadcasts/{id}`
 
 Broadcast status + counts. Scope: `broadcasts:send`. `status` moves
-`sending` → `sent`; `delivered_count` / `read_count` keep climbing as
-delivery webhooks arrive. `404` for another account's broadcast.
+`sending` → `sent`, or `failed` when every recipient failed;
+`delivered_count` / `read_count` keep climbing as delivery webhooks
+arrive. `status` can stay `sending` after a failure of the sending
+number itself (a revoked or expired access token, a logged-out number,
+a lapsed subscription): delivery stops at the first recipient that hit
+it, the rest stay pending, and the campaign is finished by resuming it
+from the dashboard once the number is fixed — the API has no resume.
+`failed` can follow `sent`: WhatsApp can accept a send and report it
+failed later, and a campaign in which every recipient failed that way
+moves to `failed`. `sent` and `failed` are final unless someone resumes
+or retries the campaign from the dashboard, which moves it back to
+`sending`. `404` for another account's broadcast.
+
+### Taamul Compass endpoints
+
+`/api/v1/compass/contacts` (customer sync into a dedicated
+`compass_contacts` table) and `/api/v1/compass/notifications` (status
+notifications — always on the Whapi number, into the customer's
+existing chat without changing who handles it, at most once per
+`idempotency_key`) are the ERP integration surface. Their full
+contract is [`compass.md`](compass.md).
 
 ## Pagination
 
@@ -283,7 +367,7 @@ last page.
 
 ## Webhooks
 
-Rather than polling, register an endpoint and wacrm will POST to it when
+Rather than polling, register an endpoint and Taamul Connect will POST to it when
 things happen in your account. **Migration required:** apply
 `supabase/migrations/028_webhook_endpoints.sql`.
 
@@ -299,7 +383,7 @@ things happen in your account. **Migration required:** apply
 
 All under scope `webhooks:manage`.
 
-- `POST /api/v1/webhooks` — register `{ "url": "https://…", "events": ["message.received"] }`. `url` must be `https://`. **The response includes `secret` exactly once** — store it to verify signatures; wacrm keeps only an encrypted copy.
+- `POST /api/v1/webhooks` — register `{ "url": "https://…", "events": ["message.received"] }`. `url` must be `https://` and must resolve to a public internet address. A URL that resolves to a private, loopback or link-local address is rejected with `400 bad_request` when you save it, not only skipped at delivery time. **The response includes `secret` exactly once** — store it to verify signatures; Taamul Connect keeps only an encrypted copy.
 - `GET /api/v1/webhooks` — list your endpoints (never returns the secret).
 - `GET /api/v1/webhooks/{id}` — read one.
 - `PATCH /api/v1/webhooks/{id}` — update `url`, `events`, or `is_active` (re-enabling clears the failure counter).
@@ -307,9 +391,9 @@ All under scope `webhooks:manage`.
 
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/webhooks \
-  -H "Authorization: Bearer wacrm_live_xxx" \
+  -H "Authorization: Bearer taamul_live_xxx" \
   -H "Content-Type: application/json" \
-  -d '{ "url": "https://example.com/hooks/wacrm", "events": ["message.received"] }'
+  -d '{ "url": "https://example.com/hooks/taamul", "events": ["message.received"] }'
 # → 201 { "data": { "id": "…", "url": "…", "events": [...], "secret": "whsec_…" } }
 ```
 
@@ -339,11 +423,18 @@ delivery uuid you can dedupe on, and `data` varies by `event`:
 { "whatsapp_message_id": "wamid.…", "conversation_id": "…", "status": "delivered" }
 ```
 
-Headers: `X-Wacrm-Event`, `X-Wacrm-Webhook-Id`, and `X-Wacrm-Signature`.
+Headers: `X-Taamul-Event`, `X-Taamul-Webhook-Id`, and `X-Taamul-Signature`.
+
+Every delivery **also** carries the pre-rebrand header names
+`X-Wacrm-Event`, `X-Wacrm-Webhook-Id` and `X-Wacrm-Signature`, with
+identical values. They are deprecated but still sent, so a receiver
+written before the rename keeps verifying without changes. Move to the
+`X-Taamul-*` names when convenient; the old ones will be dropped in a
+future release.
 
 ### Verifying the signature
 
-`X-Wacrm-Signature: t=<unix_seconds>,v1=<hex>` where `v1 =
+`X-Taamul-Signature: t=<unix_seconds>,v1=<hex>` where `v1 =
 HMAC-SHA256(secret, "${t}.${rawBody}")`. Recompute it over the **raw
 request body** and compare in constant time; reject if `t` is more than
 a few minutes old (replay protection).
@@ -359,7 +450,7 @@ const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
 
 Delivery is **best-effort**: a single attempt per event with a short
 timeout, and **redirects are not followed**. `message.status_updated`
-covers messages wacrm stores (inbox + API sends), not broadcast-only
+covers messages Taamul Connect stores (inbox + API sends), not broadcast-only
 sends, and — because providers re-send and re-order status callbacks —
 the same status may arrive more than once or out of order; **dedupe on
 `id` and don't assume ordering**. Each consecutive failure increments
@@ -371,8 +462,10 @@ reconcile with the read endpoints when it matters.
 
 **Target restrictions (SSRF).** The `url` must be `https://` and must
 resolve to a public address — requests to `localhost`, private/RFC1918
-ranges, link-local (incl. cloud metadata `169.254.169.254`), and similar
-internal targets are refused at delivery time.
+ranges, link-local (incl. cloud metadata `169.254.169.254`), CGNAT,
+multicast/reserved space, IPv6 loopback/ULA/link-local, and every
+IPv4-in-IPv6 spelling of those (`[::ffff:127.0.0.1]`, NAT64, 6to4) are
+refused at delivery time.
 
 ## Roadmap
 

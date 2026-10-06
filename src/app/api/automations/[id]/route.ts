@@ -28,8 +28,12 @@ export async function GET(
 
   // Admin+ to READ as well as write: this is an admin-only screen, and
   // the payload describes how the account's messaging behaves.
+  // The caller's CURRENT account. Scoping by creator alone let a
+  // member who was removed from the account (and so moved into a
+  // personal one) keep editing what they wrote here.
+  let ctx: Awaited<ReturnType<typeof requireRole>>
   try {
-    await requireRole('admin')
+    ctx = await requireRole('admin')
   } catch (err) {
     return toErrorResponse(err)
   }
@@ -42,7 +46,7 @@ export async function GET(
     .from('automations')
     .select('*')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('account_id', ctx.accountId)
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -61,8 +65,12 @@ export async function PATCH(
   // Editing an automation is a write — the RLS automations_update policy
   // requires `agent`, but this route mutates via the service-role client
   // which bypasses RLS, so enforce the role here.
+  // The caller's CURRENT account. Scoping by creator alone let a
+  // member who was removed from the account (and so moved into a
+  // personal one) keep editing what they wrote here.
+  let ctx: Awaited<ReturnType<typeof requireRole>>
   try {
-    await requireRole('admin')
+    ctx = await requireRole('admin')
   } catch (err) {
     return toErrorResponse(err)
   }
@@ -81,8 +89,11 @@ export async function PATCH(
     .from('automations')
     .select('id, user_id, is_active, trigger_type, trigger_config')
     .eq('id', id)
+    .eq('account_id', ctx.accountId)
     .maybeSingle()
-  if (!existing || existing.user_id !== user.id) {
+  // Any admin of the account may edit any of its automations — the
+  // list (GET /api/automations) already shows them all under RLS.
+  if (!existing) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -129,6 +140,7 @@ export async function PATCH(
       .from('automations')
       .update(update)
       .eq('id', id)
+      .eq('account_id', ctx.accountId)
     if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
   }
 
@@ -148,8 +160,12 @@ export async function DELETE(
 
   // Deleting an automation is a write — enforce `agent` (the service-role
   // client below bypasses the agent-gated automations_delete RLS).
+  // The caller's CURRENT account. Scoping by creator alone let a
+  // member who was removed from the account (and so moved into a
+  // personal one) keep editing what they wrote here.
+  let ctx: Awaited<ReturnType<typeof requireRole>>
   try {
-    await requireRole('admin')
+    ctx = await requireRole('admin')
   } catch (err) {
     return toErrorResponse(err)
   }
@@ -161,7 +177,7 @@ export async function DELETE(
     .from('automations')
     .delete()
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('account_id', ctx.accountId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

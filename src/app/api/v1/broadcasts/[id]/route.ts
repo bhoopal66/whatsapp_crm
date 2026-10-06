@@ -3,8 +3,14 @@
 // (scope: broadcasts:send).
 //
 // Poll this after POST /api/v1/broadcasts to watch the fan-out
-// progress. `status` moves 'sending' → 'sent'; the delivered/read
-// counts continue to climb as Meta delivery webhooks arrive.
+// progress. `status` moves 'sending' → 'sent', or 'failed' when every
+// recipient failed (which can follow 'sent': WhatsApp may accept a
+// send and fail it later); the delivered/read counts continue to
+// climb as delivery webhooks arrive. It can stay 'sending' when the
+// sending number itself fails (revoked token, logged out): delivery
+// stops, the rest stay pending, and only a Resume from the dashboard
+// finishes it. A dashboard Resume or Retry failed also moves a
+// 'sent'/'failed' campaign back to 'sending'.
 // Account-scoped: a foreign id → 404.
 // ============================================================
 

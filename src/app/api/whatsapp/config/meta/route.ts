@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
   MetaError,
+  listWabaPhoneNumbers,
   verifyPhoneNumber,
   subscribeWabaToApp,
 } from '@/lib/whatsapp/meta-api';
@@ -83,6 +84,11 @@ function explainMetaError(err: unknown): string {
     return err.message;
   }
   return err instanceof Error ? err.message : 'Unknown error contacting Meta.';
+}
+
+/** `…1234` — enough to recognise an id in an error without printing it. */
+function tail(id: string): string {
+  return `…${id.slice(-4)}`;
 }
 
 /** Current state of the account's Meta channel, with no secrets in it. */
@@ -206,15 +212,57 @@ export async function POST(request: Request) {
     }
 
     // Look the existing row up first: the settings panel shows a masked
-    // placeholder rather than the real token, so a re-save that only
-    // changes (say) the WABA id sends no token at all and must reuse
-    // the stored one instead of erroring.
+    // placeholder rather than the real token, so a re-save sends no
+    // token at all and must reuse the stored one instead of erroring.
     const { data: existing } = await supabase
       .from('whatsapp_config')
-      .select('id, access_token')
+      .select('id, access_token, phone_number_id, waba_id')
       .eq('account_id', accountId)
       .eq('provider', 'meta')
       .maybeSingle();
+
+    // One Meta number per account (migration 060's partial unique
+    // index). A save naming a DIFFERENT number used to UPDATE the
+    // existing row in place — silently re-pointing every route,
+    // conversation and approved template tied to the live number, and
+    // leaving that number's own inbound to be dropped as unknown. So it
+    // is refused, before any Graph call, as is clearing the WABA id.
+    // Filling in a WABA id the row never had is still a re-save; the
+    // WABA check below covers it.
+    //
+    // The SAME number under a different WABA is a correction, not a
+    // switch: a mistyped WABA id can be stored (a first save whose
+    // listing failed), and refusing it left only Disconnect, which drops
+    // the number's routes and unlinks its conversations. It goes on to
+    // the listing below and is saved only if Meta lists the number
+    // under the new WABA.
+    const replacedWabaId: string | null =
+      existing &&
+      existing.phone_number_id === phoneNumberId &&
+      existing.waba_id != null &&
+      wabaId &&
+      existing.waba_id !== wabaId
+        ? String(existing.waba_id)
+        : null;
+    if (
+      existing &&
+      (existing.phone_number_id !== phoneNumberId ||
+        (existing.waba_id != null && !wabaId))
+    ) {
+      const current =
+        `phone number id ${tail(existing.phone_number_id)}` +
+        (existing.waba_id ? ` on WABA ${tail(existing.waba_id)}` : '');
+      return NextResponse.json(
+        {
+          error:
+            `This account already has a Meta number connected (${current}). ` +
+            'Only one is supported — disconnect it first. Disconnecting also ' +
+            'removes the routes that point at it, so set them again after ' +
+            'connecting the new number.',
+        },
+        { status: 409 }
+      );
+    }
 
     if (!accessToken) {
       if (!existing?.access_token) {
@@ -274,18 +322,65 @@ export async function POST(request: Request) {
     // Best-effort: the credentials are still worth saving if it fails
     // (it needs whatsapp_business_management, which a messaging-only
     // token lacks), and the settings panel surfaces the gap.
+    //
+    // But only a WABA the number provably belongs to. Subscribing is
+    // app-wide and nothing here ever undoes it, so a mistyped WABA id
+    // would deliver every one of ITS numbers' callbacks to this app for
+    // good, to be dropped as unknown. A listing that says "not ours" is
+    // a hard 400; a listing that fails (permissions, Graph down) skips
+    // the subscription, like a failed subscribe.
     let subscribedAt: string | null = null;
     let subscribeError: string | null = null;
     if (wabaId) {
+      let listed: boolean | null = null;
       try {
-        await subscribeWabaToApp({ wabaId, accessToken });
-        subscribedAt = new Date().toISOString();
+        const numbers = await listWabaPhoneNumbers({ wabaId, accessToken });
+        listed = numbers.some((n) => String(n.id) === phoneNumberId);
       } catch (err) {
         subscribeError = explainMetaError(err);
         console.warn(
-          '[whatsapp/config/meta] WABA subscribe failed:',
+          '[whatsapp/config/meta] WABA phone-number check failed:',
           subscribeError
         );
+      }
+      if (listed === false) {
+        return NextResponse.json(
+          {
+            error:
+              `Phone number id ${phoneNumberId} is not one of the numbers in ` +
+              `WhatsApp Business Account ${wabaId}. Copy both ids from the same ` +
+              'number in WhatsApp → API Setup: the WABA id shown there is the ' +
+              'account that number belongs to.',
+          },
+          { status: 400 }
+        );
+      }
+      // A first save may go ahead unverified, like a failed subscribe.
+      // Replacing a stored WABA id may not: nothing would then show the
+      // new id is any better than the one it overwrites.
+      if (listed === null && replacedWabaId) {
+        return NextResponse.json(
+          {
+            error:
+              `Could not confirm that phone number id ${phoneNumberId} belongs ` +
+              `to WhatsApp Business Account ${wabaId}, so the connected ` +
+              `number's WABA id (${tail(replacedWabaId)}) was not changed. ` +
+              `Meta said: ${subscribeError}`,
+          },
+          { status: 409 }
+        );
+      }
+      if (listed) {
+        try {
+          await subscribeWabaToApp({ wabaId, accessToken });
+          subscribedAt = new Date().toISOString();
+        } catch (err) {
+          subscribeError = explainMetaError(err);
+          console.warn(
+            '[whatsapp/config/meta] WABA subscribe failed:',
+            subscribeError
+          );
+        }
       }
     }
 
@@ -408,6 +503,22 @@ export async function DELETE() {
         { error: 'Failed to disconnect' },
         { status: 500 }
       );
+    }
+
+    // If the Meta number was the default, hand the flag to the oldest
+    // remaining number, so every "Use default" still names a real one
+    // rather than whatever `primaryChannel` happens to see first.
+    const { data: remaining } = await supabase
+      .from('whatsapp_config')
+      .select('id, is_primary')
+      .eq('account_id', accountId)
+      .order('created_at', { ascending: true });
+    if (remaining && remaining.length > 0 && !remaining.some((r) => r.is_primary)) {
+      await supabase
+        .from('whatsapp_config')
+        .update({ is_primary: true })
+        .eq('id', remaining[0].id)
+        .eq('account_id', accountId);
     }
 
     return NextResponse.json({ success: true });

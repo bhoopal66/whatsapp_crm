@@ -7,6 +7,9 @@
 // they see their team's chats and contacts, and can move work between
 // the people they lead (migration 044).
 //
+// Each team also carries `channel_ids`: the WhatsApp numbers allocated
+// to it (migration 071), which its members and leader work.
+//
 // The whole roster is admin-only, matching Settings -> Teams. Names of
 // teams are not secret, but nothing below admin has a use for the list.
 // ============================================================
@@ -29,8 +32,11 @@ export async function GET() {
   try {
     const ctx = await requireRole('admin');
 
-    const [{ data: teams, error: teamsError }, { data: members, error: membersError }] =
-      await Promise.all([
+    const [
+      { data: teams, error: teamsError },
+      { data: members, error: membersError },
+      { data: channels, error: channelsError },
+    ] = await Promise.all([
         ctx.supabase
           .from('teams')
           .select('id, name, leader_user_id, created_at')
@@ -40,12 +46,18 @@ export async function GET() {
           .from('team_members')
           .select('team_id, user_id')
           .eq('account_id', ctx.accountId),
+        ctx.supabase
+          .from('whatsapp_channel_teams')
+          .select('team_id, config_id')
+          .eq('account_id', ctx.accountId),
       ]);
 
-    if (teamsError || membersError) {
+    // All or nothing, as on the numbers list: a missing allocation list
+    // would read as "no numbers", and saving it back would clear them.
+    if (teamsError || membersError || channelsError) {
       console.error(
         '[GET /api/account/teams] fetch error:',
-        teamsError ?? membersError,
+        teamsError ?? membersError ?? channelsError,
       );
       return NextResponse.json({ error: 'Failed to load teams' }, { status: 500 });
     }
@@ -59,10 +71,18 @@ export async function GET() {
       byTeam.set(m.team_id, list);
     }
 
+    const channelsByTeam = new Map<string, string[]>();
+    for (const c of (channels ?? []) as { team_id: string; config_id: string }[]) {
+      const list = channelsByTeam.get(c.team_id) ?? [];
+      list.push(c.config_id);
+      channelsByTeam.set(c.team_id, list);
+    }
+
     return NextResponse.json({
       teams: ((teams ?? []) as TeamRow[]).map((t) => ({
         ...t,
         member_ids: byTeam.get(t.id) ?? [],
+        channel_ids: channelsByTeam.get(t.id) ?? [],
       })),
     });
   } catch (err) {
@@ -105,7 +125,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to create the team' }, { status: 500 });
     }
 
-    return NextResponse.json({ team: { ...data, member_ids: [] } }, { status: 201 });
+    return NextResponse.json({ team: { ...data, member_ids: [], channel_ids: [] } }, { status: 201 });
   } catch (err) {
     return toErrorResponse(err);
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
@@ -58,10 +58,24 @@ import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  cachedQuery,
+  invalidateCached,
+  REFERENCE_CACHE_TTL_MS,
+  TAGS_CACHE_KEY,
+} from '@/lib/client-cache';
 
 const PAGE_SIZE = 25;
+/** Typing pause before the search box re-queries. Every keystroke used
+ *  to be a round trip (~700ms through the tunnel), racing each other. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 interface ContactWithTags extends Contact {
+  /** Tag ids as stored on the row. Kept raw so that loading the tag
+   *  DEFINITIONS (names/colours) does not have to re-run the contact
+   *  query — see the note on `fetchContacts` deps below. */
+  tagIds: string[];
+  /** Resolved definitions, derived from `tagIds` + `tagsMap`. */
   tags?: Tag[];
 }
 
@@ -76,7 +90,7 @@ interface ContactWithTags extends Contact {
  */
 export function ContactsPageInner({ teamView = false }: { teamView?: boolean } = {}) {
   const t = useTranslations('Contacts.page');
-  const { user, accountRole } = useAuth();
+  const { user, accountRole, profileLoading } = useAuth();
 
   // `null` = no extra narrowing, leaving RLS to decide — what the team
   // view wants, and what an admin's contact list has always done.
@@ -89,6 +103,9 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // What the query actually uses: `search` after the typing pause.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
@@ -120,7 +137,16 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   const fetchSeq = useRef(0);
 
   const fetchTags = useCallback(async () => {
-    const { data } = await supabase.from('tags').select('*');
+    // Shared with the inbox's tag filter (same key, same loader shape):
+    // the tag list changes rarely and every writer invalidates it.
+    const data = await cachedQuery(
+      TAGS_CACHE_KEY,
+      REFERENCE_CACHE_TTL_MS,
+      async () => {
+        const { data } = await supabase.from('tags').select('*').order('name');
+        return (data as Tag[] | null) ?? [];
+      }
+    ).catch(() => null);
     if (data) {
       const map: Record<string, Tag> = {};
       data.forEach((t) => (map[t.id] = t));
@@ -144,10 +170,14 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
 
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
-    const term = search.trim();
+    const term = debouncedSearch.trim();
 
     let contactRows: Contact[];
     let count: number;
+    // Tag ids per contact. The plain path embeds them in the same
+    // request; the RPC path returns bare contact rows, so it still asks
+    // contact_tags separately below.
+    let tagsByContact: Record<string, string[]> | null = null;
 
     if (selectedTagIds.length > 0) {
       // Tag filter active — resolve it server-side (join + distinct +
@@ -173,9 +203,11 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       contactRows = rows.map((r) => r.contact);
       count = rows.length > 0 ? Number(rows[0].total_count) : 0;
     } else {
+      // `count: 'exact'` stays: the subtitle and the pager show the
+      // precise total.
       let query = supabase
         .from('contacts')
-        .select('*', { count: 'exact' })
+        .select('*, contact_tags(tag_id)', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -195,7 +227,12 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         setLoading(false);
         return;
       }
-      contactRows = data ?? [];
+      type Row = Contact & { contact_tags?: { tag_id: string }[] | null };
+      tagsByContact = {};
+      contactRows = ((data ?? []) as Row[]).map(({ contact_tags, ...c }) => {
+        tagsByContact![c.id] = (contact_tags ?? []).map((ct) => ct.tag_id);
+        return c as Contact;
+      });
       count = exactCount ?? 0;
     }
 
@@ -207,30 +244,41 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       return;
     }
 
-    // Fetch tags for these contacts
-    const contactIds = contactRows.map((c) => c.id);
-    const { data: contactTags } = await supabase
-      .from('contact_tags')
-      .select('contact_id, tag_id')
-      .in('contact_id', contactIds);
-    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+    if (!tagsByContact) {
+      // RPC path: fetch tags for these contacts
+      const contactIds = contactRows.map((c) => c.id);
+      const { data: contactTags } = await supabase
+        .from('contact_tags')
+        .select('contact_id, tag_id')
+        .in('contact_id', contactIds);
+      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
 
-    const tagsByContact: Record<string, string[]> = {};
-    contactTags?.forEach((ct) => {
-      if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
-      tagsByContact[ct.contact_id].push(ct.tag_id);
-    });
+      const byContact: Record<string, string[]> = {};
+      contactTags?.forEach((ct) => {
+        if (!byContact[ct.contact_id]) byContact[ct.contact_id] = [];
+        byContact[ct.contact_id].push(ct.tag_id);
+      });
+      tagsByContact = byContact;
+    }
 
+    const resolvedTags = tagsByContact;
     const enriched: ContactWithTags[] = contactRows.map((c) => ({
       ...c,
-      tags: (tagsByContact[c.id] ?? [])
-        .map((tid) => tagsMap[tid])
-        .filter(Boolean),
+      tagIds: resolvedTags[c.id] ?? [],
     }));
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+    // `tagsMap` is deliberately NOT a dependency. It used to be, because
+    // this function resolved tag ids into Tag objects here — but
+    // `fetchTags` populates `tagsMap` on mount, which changed this
+    // callback's identity and re-ran the effect below, so every visit to
+    // /contacts fetched the contact page AND its contact_tags twice.
+    // Through the tunnel that is two extra round trips (~1.4s) for a
+    // result identical to the one already on screen. The ids are stored
+    // raw instead and resolved in `contactsWithTags` at render time,
+    // which is where a change to the tag definitions actually belongs.
+  }, [supabase, page, debouncedSearch, selectedTagIds, personalOnlyUserId, t]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -241,10 +289,31 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
     fetchTags();
   }, [fetchTags]);
 
+  // A pending search debounce must not fire into an unmounted page.
+  useEffect(
+    () => () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    },
+    []
+  );
+
+  // Wait for the role to resolve before asking.
+  //
+  // `personalOnlyUserId` is derived from `accountRole`, which is null
+  // until the profile lands. Fetching before then asked the wrong
+  // question for a team leader — the unnarrowed, account-wide list —
+  // and, because the value was missing from the deps above, the answer
+  // was never corrected: /contacts showed a team leader everything RLS
+  // allows, which is precisely what /team-contacts is for.
+  //
+  // Deferring one tick fixes that AND keeps it to a single request:
+  // including the id in the deps without this guard would simply fetch
+  // twice, and through the tunnel a wasted round trip is ~700ms.
   useEffect(() => {
+    if (profileLoading) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
-  }, [fetchContacts]);
+  }, [fetchContacts, profileLoading]);
 
   function openAddForm() {
     setEditContact(null);
@@ -266,6 +335,19 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
     setDetailContactId(contactId);
     setDetailOpen(true);
   }
+
+  // `?c=<id>` deep link — used by "view contact" on a saved contact card
+  // in the inbox. Read from the location rather than useSearchParams so
+  // this client page needs no Suspense boundary; it runs once on mount.
+  useEffect(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get('c');
+      if (id) openDetail(id);
+    } catch {
+      // No window (SSR) or malformed URL — nothing to open.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function confirmDelete(contact: Contact) {
     setDeleteTarget(contact);
@@ -343,10 +425,21 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
 
   // Tag filter helpers. Every change resets to page 0 — the result set
   // shrinks/grows so page N may no longer be valid (mirrors the search box).
+  // Resolve tag ids -> definitions for display. Re-runs when either the
+  // rows or the tag definitions change, and costs no network.
+  const contactsWithTags = useMemo(
+    () =>
+      contacts.map((c) => ({
+        ...c,
+        tags: c.tagIds.map((tid) => tagsMap[tid]).filter(Boolean),
+      })),
+    [contacts, tagsMap]
+  );
+
   const allTags = Object.values(tagsMap).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
-  const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0;
+  const hasActiveFilters = debouncedSearch.trim().length > 0 || selectedTagIds.length > 0;
 
   function toggleTagFilter(tagId: string) {
     setSelectedTagIds((prev) =>
@@ -413,10 +506,17 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
             <Input
               value={search}
               onChange={(e) => {
-                setSearch(e.target.value);
-                // Reset pagination when the query changes — the result
-                // set shrinks/grows, page N may no longer be valid.
-                setPage(0);
+                const value = e.target.value;
+                setSearch(value);
+                if (searchTimer.current) clearTimeout(searchTimer.current);
+                searchTimer.current = setTimeout(() => {
+                  setDebouncedSearch(value);
+                  // Reset pagination when the query changes — the result
+                  // set shrinks/grows, page N may no longer be valid.
+                  // Done with the debounced value so the page reset and
+                  // the new term land as one fetch, not two.
+                  setPage(0);
+                }, SEARCH_DEBOUNCE_MS);
               }}
               placeholder={t('searchPlaceholder')}
               className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
@@ -610,7 +710,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                 </TableCell>
               </TableRow>
             ) : (
-              contacts.map((contact) => (
+              contactsWithTags.map((contact) => (
                 <TableRow
                   key={contact.id}
                   className="border-border hover:bg-muted/50 cursor-pointer"
@@ -780,7 +880,13 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImported={fetchContacts}
+        onImported={() => {
+          fetchContacts();
+          // An import can create tags (a CSV "tags" column) — refresh the
+          // shared tag cache so they resolve here and in the inbox.
+          invalidateCached(TAGS_CACHE_KEY);
+          fetchTags();
+        }}
       />
 
       {/* Custom Fields Manager (admin+) */}

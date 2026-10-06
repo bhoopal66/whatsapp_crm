@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
   state: {
     /** Rows `whatsapp_config` returns for provider='meta' lookups. */
     metaConfigs: [] as Record<string, unknown>[],
+    /** Make one lookup answer a database error instead of rows. */
+    failLookup: null as null | 'waba' | 'phone',
   },
 }));
 
@@ -57,16 +59,35 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: () => {
+      // Honours eq/in, so a lookup by phone_number_id or waba_id only
+      // finds the rows that really match — the tenancy tests rely on it.
+      let rows = [...h.state.metaConfigs];
+      let byWaba = false;
+      const failure = { data: null, error: { message: 'connection lost' } };
       const b: Record<string, unknown> = {
         select: () => b,
-        eq: () => b,
-        maybeSingle: async () => ({
-          data: h.state.metaConfigs[0] ?? null,
-          error: null,
-        }),
-        // The verify-token / app-secret scans await the builder directly.
-        then: (resolve: (r: { data: unknown[]; error: null }) => unknown) =>
-          resolve({ data: h.state.metaConfigs, error: null }),
+        eq: (col: string, val: unknown) => {
+          rows = rows.filter((r) => r[col] === val);
+          return b;
+        },
+        in: (col: string, vals: unknown[]) => {
+          byWaba = true;
+          rows = rows.filter((r) => vals.includes(r[col]));
+          return b;
+        },
+        // The phone_number_id lookup.
+        maybeSingle: async () =>
+          h.state.failLookup === 'phone'
+            ? failure
+            : { data: rows[0] ?? null, error: null },
+        // The WABA lookup and the verify-token / app-secret scans await
+        // the builder directly; only the WABA lookup uses `in`.
+        then: (resolve: (r: unknown) => unknown) =>
+          resolve(
+            byWaba && h.state.failLookup === 'waba'
+              ? failure
+              : { data: rows, error: null }
+          ),
       };
       return b;
     },
@@ -147,9 +168,11 @@ async function runAfterCallbacks() {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   vi.clearAllMocks();
   h.afterCallbacks.length = 0;
   h.state.metaConfigs = [CONFIG];
+  h.state.failLookup = null;
   process.env.META_APP_SECRET = APP_SECRET;
   delete process.env.META_VERIFY_TOKEN;
 });
@@ -281,6 +304,55 @@ describe('POST — tenancy', () => {
     expect(h.processMessage).not.toHaveBeenCalled();
   });
 
+  it('summarises dropped callbacks per id instead of logging every POST', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Unique to this test: the tally is module state and outlives a test.
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'OTHER_WABA',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: '819779421230083' },
+                messages: messagePayload().entry[0].changes[0].value.messages,
+                statuses: [
+                  { id: 'wamid.S1', status: 'sent', recipient_id: '1' },
+                  { id: 'wamid.S2', status: 'read', recipient_id: '1' },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    // Signed with the app secret stored on the CONNECTED row, and no
+    // environment secret: the tally says this app delivered it.
+    delete process.env.META_APP_SECRET;
+    const { POST } = await import('./route');
+
+    const first = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ status: 'ignored' });
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(
+      'dropped 1 callback for unconnected phone_number_id "819779421230083"'
+    );
+    expect(lines[0]).toContain(
+      '1 message, 2 statuses (1/1 signed by this app)'
+    );
+
+    // Within the hour: still 200, but nothing more in the log.
+    const second = await POST(post(payload, 'sha256=deadbeef'));
+    expect(second.status).toBe(200);
+    expect(warn).toHaveBeenCalledTimes(1);
+    await runAfterCallbacks();
+    expect(h.processMessage).not.toHaveBeenCalled();
+  });
+
   it('ignores a payload carrying no phone_number_id', async () => {
     const payload = {
       object: 'whatsapp_business_account',
@@ -290,6 +362,86 @@ describe('POST — tenancy', () => {
     const res = await POST(post(payload, sign(JSON.stringify(payload))));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: 'ignored' });
+  });
+
+  it('ignores a non-string phone_number_id instead of throwing', async () => {
+    // Read before any signature check. A number used to reach the drop
+    // tally's slice() and throw: a 500 and a stack trace per POST.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const payload = {
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: { metadata: { phone_number_id: 12345 } },
+            },
+          ],
+        },
+      ],
+    };
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, null));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ignored' });
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+      '[meta-webhook] callback carried no phone_number_id; ignoring',
+    ]);
+  });
+
+  it.each([
+    ['null', 'null'],
+    ['an entry that is not an array', '{"entry":5}'],
+    ['a null entry', '{"entry":[null]}'],
+    ['a null change', '{"entry":[{"changes":[null]}]}'],
+    ['changes that are not an array', '{"entry":[{"changes":5}]}'],
+    [
+      'an object entry id',
+      '{"entry":[{"id":{"toString":null},"changes":[{"field":"message_template_status_update"}]}]}',
+    ],
+  ])('ignores a body with %s instead of throwing', async (_, body) => {
+    // Read before any signature check: each of these threw on the
+    // first property read — a 500 and a stack trace per forged POST.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { POST } = await import('./route');
+    const res = await POST(
+      new Request('https://crm.example.com/api/whatsapp/meta/webhook', {
+        method: 'POST',
+        body,
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ignored' });
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+      '[meta-webhook] callback is not a webhook payload; ignoring',
+    ]);
+    expect(error).not.toHaveBeenCalled();
+    await runAfterCallbacks();
+    expect(h.processMessage).not.toHaveBeenCalled();
+  });
+
+  it('answers 503, not "not connected", when the number lookup fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.state.failLookup = 'phone';
+    const payload = messagePayload();
+    const { POST } = await import('./route');
+
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    // A 200 here was never redelivered: the connected number's message
+    // was lost, and the tally named it an "unconnected" number.
+    expect(res.status).toBe(503);
+    expect(String(error.mock.calls[0][0])).toContain('config lookup failed');
+    expect(warn).not.toHaveBeenCalled();
+    expect(h.afterCallbacks).toHaveLength(0);
+
+    // Meta's retry, once the database answers again, goes through.
+    h.state.failLookup = null;
+    const retry = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(retry.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed JSON before doing anything else', async () => {
@@ -346,7 +498,7 @@ describe('POST — delivery statuses and template callbacks', () => {
       object: 'whatsapp_business_account',
       entry: [
         {
-          id: 'W1',
+          id: CONFIG.waba_id,
           changes: [
             {
               field: 'message_template_status_update',
@@ -365,20 +517,305 @@ describe('POST — delivery statuses and template callbacks', () => {
     await runAfterCallbacks();
 
     expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+    // Scoped to the account that owns the WABA.
+    expect(h.handleTemplateWebhookChange.mock.calls[0][2]).toBe('acc-1');
     expect(h.processMessage).not.toHaveBeenCalled();
   });
 
-  it('rejects an unsigned template callback', async () => {
+  function templatePayload(wabaId: string) {
+    return {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: wabaId,
+          changes: [
+            {
+              field: 'message_template_status_update',
+              value: { event: 'REJECTED', message_template_id: '777' },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("refuses a template callback signed with another tenant's secret", async () => {
+    // The victim's WABA is connected with the victim's secret; the
+    // attacker signs with their own (also stored) secret.
+    h.state.metaConfigs = [
+      { ...CONFIG, account_id: 'victim', app_secret: 'victim_secret' },
+      {
+        ...CONFIG,
+        id: 'cfg-attacker',
+        account_id: 'attacker',
+        waba_id: 'ATTACKER_WABA',
+        app_secret: 'attacker_secret',
+      },
+    ];
+    const payload = templatePayload(CONFIG.waba_id);
+    const { POST } = await import('./route');
+    const res = await POST(
+      post(payload, sign(JSON.stringify(payload), 'attacker_secret'))
+    );
+    expect(res.status).toBe(401);
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('applies an entry only to the account whose secret verified it', async () => {
+    h.state.metaConfigs = [
+      { ...CONFIG, account_id: 'victim', app_secret: 'victim_secret' },
+      {
+        ...CONFIG,
+        id: 'cfg-attacker',
+        account_id: 'attacker',
+        waba_id: 'ATTACKER_WABA',
+        app_secret: 'attacker_secret',
+      },
+    ];
+    // Attacker's own WABA entry plus a smuggled entry for the victim's.
     const payload = {
       object: 'whatsapp_business_account',
       entry: [
-        { changes: [{ field: 'message_template_status_update', value: {} }] },
+        ...templatePayload('ATTACKER_WABA').entry,
+        ...templatePayload(CONFIG.waba_id).entry,
+      ],
+    };
+    const { POST } = await import('./route');
+    const res = await POST(
+      post(payload, sign(JSON.stringify(payload), 'attacker_secret'))
+    );
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+    expect(h.handleTemplateWebhookChange.mock.calls[0][2]).toBe('attacker');
+  });
+
+  it('acknowledges but ignores a genuine callback for a WABA not connected here', async () => {
+    h.state.metaConfigs = [];
+    const payload = templatePayload('SOMEONE_ELSES_WABA');
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsigned template callback for a WABA connected here', async () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: CONFIG.waba_id,
+          changes: [{ field: 'message_template_status_update', value: {} }],
+        },
       ],
     };
     const { POST } = await import('./route');
     const res = await POST(post(payload, 'sha256=deadbeef'));
     expect(res.status).toBe(401);
     await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges an unknown WABA without META_APP_SECRET, checking no signature', async () => {
+    // Production keeps the app secret on the row and never sets the
+    // environment variable. This used to verify against it anyway and
+    // answer 401, which Meta retries until it disables the subscription.
+    delete process.env.META_APP_SECRET;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const payload = templatePayload('SOMEONE_ELSES_WABA');
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ignored' });
+    // No "[webhook] no Meta app secret available" — the verifier never ran.
+    expect(error).not.toHaveBeenCalled();
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges an unsigned callback for an unknown WABA, touching nothing', async () => {
+    const payload = templatePayload('SOMEONE_ELSES_WABA');
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, null));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'message_template_quality_update',
+      { message_template_id: '777', new_quality_score: 'YELLOW' },
+    ],
+    [
+      'message_template_components_update',
+      { message_template_id: '777', message_template_name: 'order_update' },
+    ],
+  ])(
+    'routes a %s-only callback to the template handler',
+    async (field, value) => {
+      // These carry no phone_number_id; they used to fall through to the
+      // message path and be dropped as "no phone_number_id".
+      const payload = {
+        object: 'whatsapp_business_account',
+        entry: [{ id: CONFIG.waba_id, changes: [{ field, value }] }],
+      };
+      const { POST } = await import('./route');
+      const res = await POST(post(payload, sign(JSON.stringify(payload))));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'received' });
+      await runAfterCallbacks();
+
+      expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+      const [change, , accountId] = h.handleTemplateWebhookChange.mock.calls[0];
+      expect(change).toMatchObject({ field, value });
+      expect(accountId).toBe('acc-1');
+      expect(h.processMessage).not.toHaveBeenCalled();
+    }
+  );
+
+  it('answers 503, not "ignored", when the WABA lookup fails', async () => {
+    // As in production: the secret lives on the row, not the env.
+    delete process.env.META_APP_SECRET;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.state.failLookup = 'waba';
+    const payload = templatePayload(CONFIG.waba_id);
+    const { POST } = await import('./route');
+
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    // "ignored" left the template PENDING until a manual sync.
+    expect(res.status).toBe(503);
+    expect(String(error.mock.calls[0][0])).toContain(
+      'template WABA lookup failed'
+    );
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('still ignores a WABA-level field that is not a template event', async () => {
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: CONFIG.waba_id,
+          changes: [{ field: 'account_update', value: { event: 'X' } }],
+        },
+      ],
+    };
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'ignored' });
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST — a batch mixing template changes and messages', () => {
+  const qualityChange = {
+    field: 'message_template_quality_update',
+    value: { message_template_id: '777', new_quality_score: 'YELLOW' },
+  };
+
+  function mixedPayload(templateWabaId: string) {
+    const messages = messagePayload();
+    return {
+      object: 'whatsapp_business_account',
+      entry: [
+        { ...messages.entry[0], id: CONFIG.waba_id },
+        { id: templateWabaId, changes: [qualityChange] },
+      ],
+    };
+  }
+
+  it('processes both halves of a signed mixed body', async () => {
+    const payload = mixedPayload(CONFIG.waba_id);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'received' });
+    await runAfterCallbacks();
+
+    // The template change used to return early and take the customer's
+    // message down with it, answered 200 and never redelivered.
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.processMessage.mock.calls[0][0]).toMatchObject({
+      id: 'wamid.ABC',
+    });
+    expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+    expect(h.handleTemplateWebhookChange.mock.calls[0][0]).toMatchObject(
+      qualityChange
+    );
+    expect(h.handleTemplateWebhookChange.mock.calls[0][2]).toBe('acc-1');
+  });
+
+  it('processes both kinds of change in one entry', async () => {
+    const messages = messagePayload();
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: CONFIG.waba_id,
+          changes: [...messages.entry[0].changes, qualityChange],
+        },
+      ],
+    };
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the messages when the template change is for a WABA not connected here', async () => {
+    const payload = mixedPayload('CREDIT_REVIEW_WABA');
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'received' });
+    await runAfterCallbacks();
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('answers 401 when one half fails verification, still running the half that passed', async () => {
+    // The template entry names another account's WABA, whose own secret
+    // did not sign this body. Meta retries the 401; the verified half
+    // is queued anyway, and replaying it is idempotent.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.state.metaConfigs = [
+      CONFIG,
+      {
+        ...CONFIG,
+        id: 'cfg-other',
+        account_id: 'acc-2',
+        phone_number_id: '555',
+        waba_id: 'OTHER_WABA',
+        app_secret: 'other_secret',
+      },
+    ];
+    const payload = mixedPayload('OTHER_WABA');
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(401);
+    await runAfterCallbacks();
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.processMessage.mock.calls[0][1]).toBe('acc-1');
+    expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 and runs neither half when a lookup fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.state.failLookup = 'waba';
+    const payload = mixedPayload(CONFIG.waba_id);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(503);
+    await runAfterCallbacks();
+    expect(h.processMessage).not.toHaveBeenCalled();
     expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
   });
 });

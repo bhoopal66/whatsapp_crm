@@ -36,6 +36,34 @@ import { useTranslations } from "next-intl";
 // agent+. The two CTAs gate on different `useCan` capabilities,
 // not on different copy.
 
+/**
+ * localStorage key holding the pipeline selected on the last visit.
+ * Its deals are requested in parallel with the pipeline list instead
+ * of after it (one round trip saved, ~700ms through the tunnel); if
+ * the guess no longer matches what gets selected it is just dropped.
+ */
+const INITIAL_PIPELINE_KEY = "pipelines:initial-id";
+
+function readInitialPipelineGuess(): string | null {
+  try {
+    return window.localStorage.getItem(INITIAL_PIPELINE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeInitialPipelineGuess(id: string) {
+  try {
+    window.localStorage.setItem(INITIAL_PIPELINE_KEY, id);
+  } catch {
+    // Storage blocked (private mode etc.) — the guess is an optimisation.
+  }
+}
+
+type PipelineWithStages = Pipeline & {
+  pipeline_stages?: PipelineStage[] | null;
+};
+
 // Spec-defined seed — name and color per the product spec.
 const SPEC_DEFAULT_STAGES = [
   { name: "New Lead", color: "#3b82f6", position: 0 }, // blue
@@ -73,16 +101,42 @@ export default function PipelinesPage() {
   // Guard against double-seeding (React StrictMode double-effect in dev).
   const seedAttempted = useRef(false);
 
-  const loadPipelines = useCallback(async () => {
+  // Read by the seed through a ref so the initial-load effect does not
+  // depend on it: `accountId` resolves after mount on a full page load,
+  // and depending on it re-ran the whole load (pipelines, stages and
+  // deals fetched twice).
+  const accountIdRef = useRef(accountId);
+  useEffect(() => {
+    accountIdRef.current = accountId;
+  }, [accountId]);
+
+  // Stages arrive embedded with the pipeline list, so switching the
+  // selection only needs the deals.
+  const stagesByPipeline = useRef(new Map<string, PipelineStage[]>());
+  // Deals requested speculatively alongside the pipeline list.
+  const prefetchedDeals = useRef<{ id: string; promise: Promise<Deal[]> } | null>(
+    null,
+  );
+
+  const loadPipelines = useCallback(async (): Promise<Pipeline[]> => {
     const { data, error } = await supabase
       .from("pipelines")
-      .select("*")
-      .order("created_at");
+      .select("*, pipeline_stages(*)")
+      .order("created_at")
+      .order("position", { referencedTable: "pipeline_stages" });
     if (error) {
       console.error("Failed to load pipelines:", error.message);
       return [];
     }
-    return data ?? [];
+    const map = new Map<string, PipelineStage[]>();
+    const list = ((data ?? []) as PipelineWithStages[]).map(
+      ({ pipeline_stages, ...p }) => {
+        map.set(p.id, pipeline_stages ?? []);
+        return p as Pipeline;
+      },
+    );
+    stagesByPipeline.current = map;
+    return list;
   }, [supabase]);
 
   const loadStages = useCallback(
@@ -116,6 +170,7 @@ export default function PipelinesPage() {
     const user = session?.user;
     if (!user) return null;
     // pipelines.account_id is NOT NULL post-017 with no DB default.
+    const accountId = accountIdRef.current;
     if (!accountId) return null;
 
     const { data: pipeline, error } = await supabase
@@ -138,13 +193,15 @@ export default function PipelinesPage() {
     await supabase.from("pipeline_stages").insert(stagesPayload);
 
     return pipeline as Pipeline;
-  }, [supabase, accountId]);
+  }, [supabase]);
 
   // Initial load + seed-if-empty
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      const guess = readInitialPipelineGuess();
+      if (guess) prefetchedDeals.current = { id: guess, promise: loadDeals(guess) };
       let list = await loadPipelines();
 
       if (list.length === 0 && !seedAttempted.current) {
@@ -156,9 +213,12 @@ export default function PipelinesPage() {
       if (cancelled) return;
       setPipelines(list);
       if (list.length > 0) {
-        setSelectedPipelineId((prev) =>
-          prev && list.some((p) => p.id === prev) ? prev : list[0].id,
-        );
+        setSelectedPipelineId((prev) => {
+          const next =
+            prev && list.some((p) => p.id === prev) ? prev : list[0].id;
+          writeInitialPipelineGuess(next);
+          return next;
+        });
       } else {
         setSelectedPipelineId("");
       }
@@ -167,7 +227,7 @@ export default function PipelinesPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadPipelines, seedDefaultPipeline]);
+  }, [loadPipelines, loadDeals, seedDefaultPipeline]);
 
   // Load stages + deals whenever selected pipeline changes.
   // Clearing on no-selection is a legitimate sync with URL/prop
@@ -182,10 +242,15 @@ export default function PipelinesPage() {
       return;
     }
     let cancelled = false;
+    const prefetched = prefetchedDeals.current;
+    prefetchedDeals.current = null; // one use only; later loads are fresh
+    const cachedStages = stagesByPipeline.current.get(selectedPipelineId);
     (async () => {
       const [s, d] = await Promise.all([
-        loadStages(selectedPipelineId),
-        loadDeals(selectedPipelineId),
+        cachedStages ?? loadStages(selectedPipelineId),
+        prefetched?.id === selectedPipelineId
+          ? prefetched.promise
+          : loadDeals(selectedPipelineId),
       ]);
       if (cancelled) return;
       setStages(s);
@@ -206,7 +271,11 @@ export default function PipelinesPage() {
 
   const refreshStages = useCallback(async () => {
     if (!selectedPipelineId) return;
-    setStages(await loadStages(selectedPipelineId));
+    const fresh = await loadStages(selectedPipelineId);
+    // Keep the embedded copy in step, or switching away and back would
+    // show the stages as they were before the edit.
+    stagesByPipeline.current.set(selectedPipelineId, fresh);
+    setStages(fresh);
   }, [loadStages, selectedPipelineId]);
 
   const refreshDeals = useCallback(async () => {

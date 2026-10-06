@@ -12,8 +12,10 @@ export async function POST(
   // Duplicating creates a new automation row — a write. Enforce `agent`
   // (the service-role client below bypasses the agent-gated
   // automations_insert RLS).
+  // The caller's CURRENT account — see automations/[id]/route.ts.
+  let ctx: Awaited<ReturnType<typeof requireRole>>
   try {
-    await requireRole('admin')
+    ctx = await requireRole('admin')
   } catch (err) {
     return toErrorResponse(err)
   }
@@ -29,7 +31,7 @@ export async function POST(
     .from('automations')
     .select('*')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('account_id', ctx.accountId)
     .maybeSingle()
   if (origErr) return NextResponse.json({ error: origErr.message }, { status: 500 })
   if (!original) return NextResponse.json({ error: 'Not found' }, { status: 404 })

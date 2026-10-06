@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
     upsertCalls: [] as { table: string; payload: unknown }[],
     logInserts: [] as Record<string, unknown>[],
     logUpdates: [] as Record<string, unknown>[],
+    // conversations lookup: rows keyed by id, each with its owner.
+    conversations: [] as { id: string; account_id: string; contact_id: string }[],
   },
 }));
 
@@ -58,6 +60,15 @@ vi.mock("./admin-client", () => {
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
     if (table === "automation_steps") return { data: state.steps, error: null };
+    if (table === "conversations" && type === "select") {
+      // Honour every eq() filter, like PostgREST would.
+      const row = state.conversations.find((c) =>
+        ops.filters.every(
+          ([, k, v]) => (c as Record<string, unknown>)[k] === v
+        )
+      );
+      return { data: row ? { id: row.id } : null, error: null };
+    }
     return { data: null, error: null };
   }
 
@@ -104,7 +115,11 @@ vi.mock("./meta-send", () => ({
   engineSendInteractive: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
 }));
 
-import { runAutomationsForTrigger, triggerMatches } from "./engine";
+import {
+  resolveConversationId,
+  runAutomationsForTrigger,
+  triggerMatches,
+} from "./engine";
 import type { Automation, KeywordMatchTriggerConfig } from "@/types";
 
 const ACCOUNT = "acct-1";
@@ -119,6 +134,43 @@ beforeEach(() => {
   h.state.upsertCalls = [];
   h.state.logInserts = [];
   h.state.logUpdates = [];
+  h.state.conversations = [];
+});
+
+describe("resolveConversationId — context.conversation_id is not trusted", () => {
+  const automation = { account_id: ACCOUNT } as Automation;
+  const base = { automation, contactId: "c1", triggerEvent: "new_message_received" };
+
+  it("uses the context id when it belongs to this account and contact", async () => {
+    h.state.conversations = [
+      { id: "conv-own", account_id: ACCOUNT, contact_id: "c1" },
+    ];
+    await expect(
+      resolveConversationId({ ...base, context: { conversation_id: "conv-own" } })
+    ).resolves.toBe("conv-own");
+  });
+
+  it("ignores another tenant's conversation id and falls back to the contact's own", async () => {
+    h.state.conversations = [
+      { id: "conv-victim", account_id: "acct-other", contact_id: "victim" },
+      { id: "conv-own", account_id: ACCOUNT, contact_id: "c1" },
+    ];
+    await expect(
+      resolveConversationId({ ...base, context: { conversation_id: "conv-victim" } })
+    ).resolves.toBe("conv-own");
+  });
+
+  it("ignores a same-account conversation that belongs to a different contact", async () => {
+    h.state.conversations = [
+      { id: "conv-other-contact", account_id: ACCOUNT, contact_id: "c2" },
+    ];
+    await expect(
+      resolveConversationId({
+        ...base,
+        context: { conversation_id: "conv-other-contact" },
+      })
+    ).rejects.toThrow(/no existing conversation/);
+  });
 });
 
 describe("runAutomationsForTrigger — tenant isolation", () => {

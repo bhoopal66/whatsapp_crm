@@ -110,14 +110,24 @@ async function deliverOne(
     return;
   }
 
+  const signature = buildSignatureHeader(payload, secret, tsSeconds);
+
   try {
     const res = await fetch(row.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Taamul-Event': event,
+        'X-Taamul-Webhook-Id': row.id,
+        'X-Taamul-Signature': signature,
+        // Legacy header names, kept because receivers registered
+        // before the wacrm → Taamul Connect rename verify against
+        // them. Same value, same secret — dropping them silently
+        // breaks every endpoint whose handler still reads the old
+        // name. Remove once integrators have migrated.
         'X-Wacrm-Event': event,
         'X-Wacrm-Webhook-Id': row.id,
-        'X-Wacrm-Signature': buildSignatureHeader(payload, secret, tsSeconds),
+        'X-Wacrm-Signature': signature,
       },
       body: payload,
       // Do NOT follow redirects — a public URL could 3xx-bounce to an

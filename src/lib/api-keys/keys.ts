@@ -12,17 +12,33 @@
 //   only slow the per-request auth lookup. A fast hash with a UNIQUE
 //   index is the correct, indexable choice for opaque secrets.
 //
-// Why the `wacrm_live_` prefix
+// Why the `taamul_live_` prefix
 //   - Self-identifying: a leaked string is instantly recognisable as
-//     a wacrm key (handy for secret-scanners like GitGuardian).
-//   - Forward-compatible: leaves room for a `wacrm_test_` variant if
+//     a Taamul Connect key (handy for secret-scanners like
+//     GitGuardian).
+//   - Forward-compatible: leaves room for a `taamul_test_` variant if
 //     a sandbox mode is ever added, without reshaping the format.
+//
+// Why legacy prefixes are still accepted
+//   The product was renamed from wacrm to Taamul Connect. Keys are
+//   opaque secrets held by third-party integrations, and the prefix
+//   is part of the plaintext the holder stores — so changing it
+//   would 401 every key ever issued. New keys mint under the current
+//   prefix; previously issued `wacrm_live_` keys keep authenticating
+//   until an admin rotates them. Only `looksLikeApiKey` is widened —
+//   the hash lookup is unchanged, so this grants no new access.
 // ============================================================
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-/** Secret prefix on every key. Part of the plaintext, not a secret. */
-export const API_KEY_PREFIX = 'wacrm_live_';
+/** Secret prefix on every new key. Part of the plaintext, not a secret. */
+export const API_KEY_PREFIX = 'taamul_live_';
+
+/**
+ * Prefixes retired by a rebrand but still honoured at auth time.
+ * Never used to mint a key — only to recognise one already issued.
+ */
+export const LEGACY_API_KEY_PREFIXES = ['wacrm_live_'] as const;
 
 /**
  * Length of the non-secret display prefix stored in `key_prefix` and
@@ -71,10 +87,13 @@ export function hashApiKey(plaintext: string): string {
  * Structural check that a string looks like one of our keys before
  * we bother hashing + hitting the DB. Cheap reject for obviously
  * malformed `Authorization` headers (e.g. a stale invite token).
+ *
+ * Accepts the current prefix and every legacy one, so keys issued
+ * before the rebrand still reach the hash lookup.
  */
 export function looksLikeApiKey(value: string): boolean {
-  return (
-    value.startsWith(API_KEY_PREFIX) && value.length > API_KEY_PREFIX.length
+  return [API_KEY_PREFIX, ...LEGACY_API_KEY_PREFIXES].some(
+    (prefix) => value.startsWith(prefix) && value.length > prefix.length
   );
 }
 

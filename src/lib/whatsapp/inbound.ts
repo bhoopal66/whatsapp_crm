@@ -1,3 +1,4 @@
+import type { SharedContact } from './contact-card';
 // ============================================================
 // The neutral inbound shape.
 //
@@ -70,12 +71,16 @@ export interface NormalizedInboundMessage {
   } | null;
   /** Set only for `type === 'reaction'`. */
   reaction: { targetMessageId: string; emoji: string } | null;
+  /** Set only for `type === 'contacts'`: the card(s) the customer shared. */
+  contacts: SharedContact[] | null;
   /** Button/list tap: the id we set when sending. Drives Flow advancement. */
   interactiveReplyId: string | null;
   /** Button/list tap: the visible label the customer saw. */
   interactiveReplyTitle: string | null;
   /** Message this one quotes (swipe-reply), if any. */
   contextMessageId: string | null;
+  /** The sender forwarded this from another chat (migration 055). */
+  forwarded: boolean;
   /** True for messages sent BY the connected number (from the phone, another tool, or us). */
   fromMe: boolean;
   /** True when the chat is a group — the CRM's 1:1 inbox skips these. */
@@ -93,6 +98,13 @@ export interface NormalizedStatus {
   recipientPhone: string;
   /** Unix seconds as a string. */
   timestamp: string;
+  /**
+   * Why the gateway failed the message, when it said. Meta attaches an
+   * `errors[]` to a `failed` receipt; without it a failed broadcast
+   * recipient is a bare "failed" nobody can act on. Only the Meta
+   * normaliser fills it — Whapi's receipts carry no comparable detail.
+   */
+  error?: { code?: number; title?: string; details?: string };
 }
 
 export interface NormalizedWebhook {

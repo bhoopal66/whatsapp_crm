@@ -4,7 +4,10 @@ import {
   WhapiError,
   chatIdToPhone,
   getChannelInfo,
+  getContactProfile,
   getMediaUrl,
+  getRiskOfBlocking,
+  parseRiskOfBlocking,
   phoneToChatId,
   registerWebhook,
   sendInteractiveButtons,
@@ -421,6 +424,59 @@ describe('getMediaUrl', () => {
   })
 })
 
+describe('getContactProfile', () => {
+  it('asks for the profile by bare digits and returns both icon sizes', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        name: 'Ali',
+        icon: 'https://pps.whatsapp.net/small.jpg',
+        icon_full: 'https://pps.whatsapp.net/full.jpg',
+      }),
+    })
+    await expect(
+      getContactProfile({ token: 'tok', contactId: '+971 50 123 4567' }),
+    ).resolves.toEqual({
+      icon: 'https://pps.whatsapp.net/small.jpg',
+      iconFull: 'https://pps.whatsapp.net/full.jpg',
+    })
+    const call = lastCall()
+    expect(call.url).toBe('https://gate.whapi.cloud/contacts/971501234567/profile')
+    expect(call.method).toBe('GET')
+    expect(call.headers.Authorization).toBe('Bearer tok')
+  })
+
+  it('reads a hidden picture (no icon in the body) as no picture', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ name: 'Ali', about: 'Busy' }),
+    })
+    await expect(getContactProfile({ token: 't', contactId: '15551234567' })).resolves.toBeNull()
+  })
+
+  it('reads a 404 as no picture rather than an error', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: { code: 404, message: 'Not found' } }),
+    })
+    await expect(getContactProfile({ token: 't', contactId: '15551234567' })).resolves.toBeNull()
+  })
+
+  it('still throws anything else, so the caller can retry later', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { code: 503, message: 'Unavailable' } }),
+    })
+    await expect(
+      getContactProfile({ token: 't', contactId: '15551234567' }),
+    ).rejects.toMatchObject({ name: 'WhapiError', status: 503 })
+  })
+})
+
 describe('registerWebhook', () => {
   it('merges with a third party’s hook instead of clobbering it', async () => {
     fetchMock
@@ -530,5 +586,63 @@ describe('unknown-channel classification', () => {
 
     expect(new WhapiError('x', 404).isUnknownChannel).toBe(true)
     expect(new WhapiError('x', 401).isUnknownChannel).toBe(false)
+  })
+})
+
+describe('Safety Meter (riskOfBlocking)', () => {
+  const body = {
+    channel: 'SECRET-CHANNEL-TOKEN',
+    lastUpdateDate: '9/30/2026',
+    lifeTime: 1,
+    riskFactor: 2,
+    riskFactorChats: 3,
+    riskFactorContacts: 2,
+  }
+
+  it('reads the stored rating with GET on the tools host', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => body })
+    const rating = await getRiskOfBlocking({ token: 'tok' })
+    const call = lastCall()
+    expect(call.url).toBe('https://tools.whapi.cloud/services/riskOfBlocking')
+    expect(call.method).toBe('GET')
+    expect(call.headers.Authorization).toBe('Bearer tok')
+    expect(rating).toEqual({
+      riskFactor: 2,
+      lifeTime: 1,
+      riskFactorChats: 3,
+      riskFactorContacts: 2,
+      lastUpdate: '9/30/2026',
+    })
+  })
+
+  it('recalculates with POST', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => body })
+    await getRiskOfBlocking({ token: 'tok', recalculate: true })
+    expect(lastCall().method).toBe('POST')
+  })
+
+  it('never passes the echoed token on', () => {
+    expect(JSON.stringify(parseRiskOfBlocking(body))).not.toContain('SECRET')
+  })
+
+  it('drops values outside 1-3 and answers null when nothing is rated', () => {
+    expect(parseRiskOfBlocking({ riskFactor: 7, lifeTime: '3' })).toEqual({
+      riskFactor: null,
+      lifeTime: 3,
+      riskFactorChats: null,
+      riskFactorContacts: null,
+      lastUpdate: null,
+    })
+    expect(parseRiskOfBlocking({ channel: 'x' })).toBeNull()
+    expect(parseRiskOfBlocking('nope')).toBeNull()
+  })
+
+  it('maps a refused token to a WhapiError', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: 401, message: 'Unauthorized' } }),
+    })
+    await expect(getRiskOfBlocking({ token: 'bad' })).rejects.toBeInstanceOf(WhapiError)
   })
 })

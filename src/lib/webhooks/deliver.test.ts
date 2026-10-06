@@ -80,8 +80,14 @@ describe('dispatchWebhookEvent', () => {
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('https://a.test/hook');
     expect(opts.redirect).toBe('manual');
+    expect(opts.headers['X-Taamul-Event']).toBe('message.received');
+    expect(opts.headers['X-Taamul-Signature']).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+    // Pre-rebrand header names still ship, carrying the identical
+    // value, so receivers written against them keep verifying.
     expect(opts.headers['X-Wacrm-Event']).toBe('message.received');
-    expect(opts.headers['X-Wacrm-Signature']).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+    expect(opts.headers['X-Wacrm-Signature']).toBe(
+      opts.headers['X-Taamul-Signature']
+    );
     // Payload carries a dedupe id.
     expect(JSON.parse(opts.body).id).toMatch(/[0-9a-f-]{36}/);
     expect(calls.updates[0]).toMatchObject({ id: 'a', payload: { failure_count: 0 } });

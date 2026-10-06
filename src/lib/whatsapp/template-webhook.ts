@@ -20,11 +20,11 @@
  * button (the legacy fallback, intentionally preserved).
  *
  * ─── Multi-tenant note ────────────────────────────────────────────
- * `meta_template_id` is globally unique per WABA — the lookup doesn't
- * filter by user_id. If two wacrm tenants somehow ended up with the
- * same id (impossible in practice, but a theoretical race during
- * cross-tenant moves), the handler updates both rows and logs a
- * warning so operators can investigate.
+ * Every update is scoped to `accountId` — the account whose WABA the
+ * callback's `entry.id` names and whose app secret verified it (see the
+ * Meta webhook route). It used to match `meta_template_id` across every
+ * account, which let any tenant able to sign a callback (they control
+ * their own app secret) rewrite another tenant's template status.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -79,18 +79,26 @@ export async function handleTemplateWebhookChange(
   // the admin client and exposes it as `any`. Type as the generic
   // SupabaseClient here so this module is testable in isolation.
   supabase: SupabaseClient,
+  /** The verified owner of the WABA the callback is for. Required. */
+  accountId: string,
 ): Promise<void> {
+  if (!accountId) {
+    console.warn('[template-webhook] refusing an unscoped template change')
+    return
+  }
   switch (change.field) {
     case 'message_template_status_update':
       await handleStatusUpdate(
         change.value as TemplateStatusUpdateValue,
         supabase,
+        accountId,
       )
       return
     case 'message_template_quality_update':
       await handleQualityUpdate(
         change.value as TemplateQualityUpdateValue,
         supabase,
+        accountId,
       )
       return
     case 'message_template_components_update':
@@ -104,6 +112,7 @@ export async function handleTemplateWebhookChange(
 async function handleStatusUpdate(
   value: TemplateStatusUpdateValue,
   supabase: SupabaseClient,
+  accountId: string,
 ): Promise<void> {
   const metaTemplateId =
     value.message_template_id !== undefined
@@ -134,6 +143,7 @@ async function handleStatusUpdate(
     .from('message_templates')
     .update(update)
     .eq('meta_template_id', metaTemplateId)
+    .eq('account_id', accountId)
     .select('id')
 
   if (error) {
@@ -162,6 +172,7 @@ async function handleStatusUpdate(
 async function handleQualityUpdate(
   value: TemplateQualityUpdateValue,
   supabase: SupabaseClient,
+  accountId: string,
 ): Promise<void> {
   const metaTemplateId =
     value.message_template_id !== undefined
@@ -185,6 +196,7 @@ async function handleQualityUpdate(
     .from('message_templates')
     .update({ quality_score: score })
     .eq('meta_template_id', metaTemplateId)
+    .eq('account_id', accountId)
 
   if (error) {
     console.error(

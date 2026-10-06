@@ -1,4 +1,5 @@
-import type { Conversation, Contact, Tag } from "@/types";
+import { resolveListHandler } from '@/lib/inbox/handler';
+import type { Conversation, Contact, Tag } from '@/types';
 
 /**
  * Conversation select that embeds the contact plus its tags, so the Inbox
@@ -7,11 +8,11 @@ import type { Conversation, Contact, Tag } from "@/types";
  * flattens them onto `contact.tags`.
  */
 export const CONVERSATION_SELECT =
-  "*, contact:contacts(*, contact_tags(tags(*)))";
+  '*, contact:contacts(*, contact_tags(tags(*)))';
 
 /** Raw shape returned by {@link CONVERSATION_SELECT} before flattening. */
 type RawContact = Contact & { contact_tags?: { tags: Tag | null }[] };
-type RawConversation = Omit<Conversation, "contact"> & {
+type RawConversation = Omit<Conversation, 'contact'> & {
   contact?: RawContact | null;
 };
 
@@ -37,7 +38,7 @@ export function normalizeConversation(raw: RawConversation): Conversation {
 }
 
 export function normalizeConversations(
-  rows: RawConversation[],
+  rows: RawConversation[]
 ): Conversation[] {
   return rows.map(normalizeConversation);
 }
@@ -56,7 +57,7 @@ export interface ContactFilters {
  */
 export function matchesContactFilters(
   conversation: Conversation,
-  { tagIds, company }: ContactFilters,
+  { tagIds, company }: ContactFilters
 ): boolean {
   if (tagIds.length > 0) {
     const contactTagIds = conversation.contact?.tags ?? [];
@@ -68,4 +69,47 @@ export function matchesContactFilters(
   }
 
   return true;
+}
+
+/**
+ * Sentinel for "nobody holds this chat" in the Inbox's by-agent
+ * filter. A real value is a user id (a UUID), so the two can share one
+ * piece of state without colliding.
+ */
+export const UNASSIGNED = 'unassigned';
+
+/**
+ * Who the Inbox list is currently narrowed to: a user id, {@link
+ * UNASSIGNED}, or `null` for no filter.
+ */
+export type AssigneeFilter = string | typeof UNASSIGNED | null;
+
+/**
+ * Whether a conversation passes the Inbox's by-agent filter.
+ *
+ * Picking a teammate asks "what is this person responsible for", and
+ * that is broader than `assigned_agent_id`: a chat nobody ever pressed
+ * Assign on still belongs to its owner (`user_id`), which is the agent
+ * who started it, or — on an inbound chat — whoever connected the
+ * WhatsApp channel. Filtering on the assignment column alone dropped
+ * every one of those from the by-agent view while the Inbox header was
+ * plainly naming an owner (see `resolveListHandler`).
+ *
+ * {@link UNASSIGNED} keeps its narrower meaning — nobody has *taken*
+ * the chat — because that option is the triage queue, and an owner
+ * inherited from the channel is exactly the case it needs to surface.
+ * The two therefore overlap: an owned-but-unassigned chat answers to
+ * both its owner's name and to Unassigned.
+ *
+ * A `null` filter is a no-op, so the default (no filter) matches
+ * every row.
+ */
+export function matchesAssignee(
+  conversation: Conversation,
+  filter: AssigneeFilter
+): boolean {
+  if (filter === null) return true;
+  if (filter === UNASSIGNED)
+    return (conversation.assigned_agent_id ?? null) === null;
+  return resolveListHandler(conversation)?.userId === filter;
 }

@@ -9,6 +9,8 @@ import { ThemedToaster } from "@/components/themed-toaster";
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
+  LEGACY_MODE_STORAGE_KEY,
+  LEGACY_STORAGE_KEY,
   MODE_STORAGE_KEY,
   MODES,
   STORAGE_KEY,
@@ -22,16 +24,13 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: "Taamul Connect",
+    template: "%s — Taamul Connect",
   },
-  description: "Self-hostable CRM template for WhatsApp.",
+  description: "Self-hostable WhatsApp CRM.",
   robots: {
     index: false,
     follow: false,
-  },
-  icons: {
-    icon: [{ url: "/icon" }],
   },
   formatDetection: {
     email: false,
@@ -54,7 +53,10 @@ export const viewport: Viewport = {
 // Kept dependency-free (no imports, no JSX) — must be a string the
 // browser can run as a single <script>. Knowledge of valid ids is
 // sourced from the THEME_IDS / MODES constants so adding one doesn't
-// silently break the boot path.
+// silently break the boot path. It also reads the pre-rebrand
+// localStorage keys as a fallback, so a returning browser keeps its
+// accent through the wacrm → Taamul Connect rename instead of
+// flashing back to the default.
 const THEME_BOOT_SCRIPT = `
 (function(){
   var d = document.documentElement;
@@ -62,13 +64,15 @@ const THEME_BOOT_SCRIPT = `
     var THEME_KEY = ${JSON.stringify(STORAGE_KEY)};
     var THEME_DEFAULT = ${JSON.stringify(DEFAULT_THEME)};
     var THEMES = ${JSON.stringify(THEME_IDS)};
-    var savedTheme = localStorage.getItem(THEME_KEY);
+    var savedTheme = localStorage.getItem(THEME_KEY)
+      || localStorage.getItem(${JSON.stringify(LEGACY_STORAGE_KEY)});
     d.dataset.theme = THEMES.indexOf(savedTheme) !== -1 ? savedTheme : THEME_DEFAULT;
 
     var MODE_KEY = ${JSON.stringify(MODE_STORAGE_KEY)};
     var MODE_DEFAULT = ${JSON.stringify(DEFAULT_MODE)};
     var MODES = ${JSON.stringify(MODES)};
-    var savedMode = localStorage.getItem(MODE_KEY);
+    var savedMode = localStorage.getItem(MODE_KEY)
+      || localStorage.getItem(${JSON.stringify(LEGACY_MODE_STORAGE_KEY)});
     d.dataset.mode = MODES.indexOf(savedMode) !== -1 ? savedMode : MODE_DEFAULT;
   } catch (_e) {
     d.dataset.theme = ${JSON.stringify(DEFAULT_THEME)};

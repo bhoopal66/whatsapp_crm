@@ -29,7 +29,7 @@
 #
 # THIS DEPLOYMENT NO LONGER NEEDS THIS SCRIPT.
 #
-# wacrm now runs behind a NAMED tunnel on wacrm.taamul.ae
+# Taamul Connect now runs behind a NAMED tunnel on wacrm.taamul.ae
 # (/etc/cloudflared/config.yml), whose hostname is stable across
 # restarts. The script is kept for a deployment that falls back to a
 # quick tunnel, and it refuses to run when the configured site URL is
@@ -45,6 +45,11 @@
 # Usage:  sudo bash scripts/sync-tunnel-url.sh
 set -euo pipefail
 
+# NOTE: the paths and unit names below are NOT rebranded. They name
+# real objects on the deployed host — the checkout directory, the
+# systemd units, the log files. Renaming them here without also
+# renaming them on the server would make this script silently target
+# things that do not exist.
 APP_DIR="/home/ubuntu/wacrm"
 TUNNEL_LOG="/var/log/wacrm-tunnel.log"
 ENV_FILE="$APP_DIR/.env.local"

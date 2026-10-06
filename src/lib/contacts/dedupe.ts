@@ -1,5 +1,5 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizePhone, phonesMatch } from "@/lib/whatsapp/phone-utils";
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { normalizePhone, phonesMatch } from '@/lib/whatsapp/phone-utils';
 
 /**
  * Contact de-duplication helpers, shared by the WhatsApp webhook, the
@@ -31,11 +31,25 @@ export interface ExistingContact {
  * or null. Pre-filters in SQL by the last-8-digit suffix (so we don't
  * pull every contact), then applies the strict `phonesMatch` in JS on
  * the small candidate set — the exact approach the webhook has used.
+ *
+ * The suffix filter runs against the generated `phone_normalized`
+ * column (digits only, migration 022), NOT the raw `phone`. A contact
+ * typed into the form as `971 50 455 5843` has spaces inside the last
+ * eight digits, so `LIKE '%04555843'` on `phone` misses it; the insert
+ * then trips the unique index, the race re-lookup misses the same way,
+ * and the inbound message is dropped on the floor.
+ *
+ * An exact digits match always beats a last-8 fuzzy one, and ties go
+ * to the oldest row. When a local-format twin ("50 455 5843") and the
+ * full number ("971 50 455 5843") both exist, heap order used to pick
+ * between them per query: one burst of inbound documents split across
+ * the two contacts, and every reply on the local twin went to a JID
+ * that does not exist while Whapi still reported it 'sent'.
  */
 export async function findExistingContact(
   db: SupabaseClient,
   accountId: string,
-  phone: string,
+  phone: string
 ): Promise<ExistingContact | null> {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
@@ -43,15 +57,20 @@ export async function findExistingContact(
   const suffix = normalized.length >= 8 ? normalized.slice(-8) : normalized;
 
   const { data, error } = await db
-    .from("contacts")
-    .select("*")
-    .eq("account_id", accountId)
-    .like("phone", `%${suffix}`);
+    .from('contacts')
+    .select('*')
+    .eq('account_id', accountId)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .like('phone_normalized', `%${suffix}`);
 
   if (error || !data) return null;
 
+  const candidates = data as ExistingContact[];
   return (
-    (data as ExistingContact[]).find((c) => phonesMatch(c.phone, phone)) ?? null
+    candidates.find((c) => normalizePhone(c.phone) === normalized) ??
+    candidates.find((c) => phonesMatch(c.phone, phone)) ??
+    null
   );
 }
 
@@ -60,7 +79,10 @@ export async function findExistingContact(
  * `phone` (vs only a fuzzy trunk-variant match). The form hard-blocks
  * exact matches but only warns on fuzzy ones.
  */
-export function isExactMatch(existing: ExistingContact, phone: string): boolean {
+export function isExactMatch(
+  existing: ExistingContact,
+  phone: string
+): boolean {
   return normalizeKey(existing.phone) === normalizeKey(phone);
 }
 
@@ -70,8 +92,8 @@ export function isExactMatch(existing: ExistingContact, phone: string): boolean 
  * format-equal insert that slipped past the in-app check.
  */
 export function isUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  return (error as { code?: string }).code === "23505";
+  if (!error || typeof error !== 'object') return false;
+  return (error as { code?: string }).code === '23505';
 }
 
 /**
@@ -81,7 +103,7 @@ export function isUniqueViolation(error: unknown): boolean {
  * count removed as in-file duplicates.
  */
 export function dedupeByPhone<T extends { phone: string }>(
-  rows: T[],
+  rows: T[]
 ): { unique: T[]; duplicates: number } {
   const seen = new Set<string>();
   const unique: T[] = [];

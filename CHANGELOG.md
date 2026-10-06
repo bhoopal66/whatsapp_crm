@@ -1,9 +1,10 @@
 # Changelog
 
-User-visible changes in `wacrm`. Self-hosters: when pulling an update,
-check this file for any **migration required** notes and apply the
-matching SQL files from `supabase/migrations/` against your Supabase
-project before restarting the app.
+User-visible changes in Taamul Connect (previously `wacrm`).
+Self-hosters: when pulling an update, check this file for any
+**migration required** notes and apply the matching SQL files from
+`supabase/migrations/` against your Supabase project before restarting
+the app.
 
 Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
@@ -23,11 +24,638 @@ number sends what.
 > single connected channel becomes the account default and every task
 > inherits it.
 
+> **Migration required:** also apply
+> `supabase/migrations/047_ai_knowledge_fts_any_term.sql`. Keyword
+> search over the AI knowledge base previously required _every_ word of
+> the customer's question to appear in a chunk, so a natural question
+> almost never matched and accounts without an embeddings key ran the
+> bot with an effectively empty knowledge base.
+
+> **Migration required:** and
+> `supabase/migrations/048_campaign_conversations.sql`, which records on
+> each conversation the campaign the customer replied to. The Campaign
+> inbox and the bot's campaign context both read it.
+
+> **Migration required:** and
+> `supabase/migrations/049_ai_auto_reply_campaign_only.sql` for the
+> _Campaign replies only_ switch on the AI agent (off by default).
+
+> **Migration required:** and
+> `supabase/migrations/050_contact_card_messages.sql`, which adds the
+> `contacts` message type and the `contact_cards` column that shared
+> contact cards are stored in.
+
+> **Migration required:** and
+> `supabase/migrations/051_whatsapp_message_costs.sql` for the
+> message-cost ledger behind Settings → Message costs (the rate card,
+> the market map, the per-message ledger and its reporting views).
+> Optional afterwards: load Meta's full rate card with
+> `scripts/load-meta-rate-card.ts`.
+>
+> If you applied 051 before this change, **apply it again** — the file
+> is re-runnable and `record_whatsapp_message_cost` has been corrected
+> (see _Fixed_ below). Deliveries already in the ledger keep the
+> category and cost they were written with; re-run only affects
+> receipts that arrive afterwards.
+
+> **Migration required:** and
+> `supabase/migrations/052_ai_escalation_gates.sql` for the escalation
+> gates on the AI agent (keyword list, retrieval threshold, strict
+> grounding, handoff message, the handoff reason on conversations, and
+> the `ai_knowledge_gaps` log). Every gate is off by default, so an
+> existing install behaves as before until an admin turns one on.
+
+> **Migration required:** and
+> `supabase/migrations/053_broadcast_scheduling.sql` for scheduled
+> broadcasts and quiet hours (`header_media_url`, `quiet_hours`, and
+> the index the scheduler reads). **Scheduled campaigns are delivered by
+> `GET /api/whatsapp/broadcast/cron`** — point your pinger at it
+> alongside the automation and flow crons, same `x-cron-secret`
+> header. Until it is pinged, a scheduled campaign stays _scheduled_
+> and its page offers _Send now_.
+
+> **Migration required:** and
+> `supabase/migrations/054_campaign_flow_continuation.sql` for
+> campaigns that continue as a conversation (`follow_up_flow_id` on
+> broadcasts, `broadcast_id` on flow runs, and the `cap` handoff
+> reason). Existing campaigns and flows behave exactly as before until
+> a campaign is pointed at a flow or a flow's off-script setting is
+> changed — with one exception noted under _Changed_: the AI agent now
+> hands off at its reply cap instead of going silent.
+
+> **Migration required:** and
+> `supabase/migrations/055_message_forwarding.sql`, which adds
+> `messages.is_forwarded`. Both webhooks and every outbound send write
+> it, so **apply it before deploying this build** — without it every
+> message insert fails.
+
+> **Migration required:** and
+> `supabase/migrations/056_compass_integration.sql` for the Taamul
+> Compass integration (the `compass_contacts` and
+> `compass_notifications` tables). Nothing else depends on it; until it
+> is applied only the `/api/v1/compass/*` endpoints and the Taamul
+> Compass screen fail.
+
+> **Security — action required on every self-hosted install:** disable
+> public signup in GoTrue (`DISABLE_SIGNUP=true`,
+> `ENABLE_PHONE_SIGNUP=false` in a self-hosted Supabase `.env`, or turn
+> off "Allow new users to sign up" in the dashboard), then restart the
+> auth service. The app has no signup screen, but GoTrue's own
+> `/auth/v1/signup` stays open by default and hands anyone with the
+> public anon key a session — and, before 057, a phone signup could
+> use it to make itself owner of any account. Members are provisioned
+> with the service role and keep working. See `docs/docker.md`.
+
+> **Migration required:** and
+> `supabase/migrations/057_security_hardening.sql`. Closes schema holes
+> reachable with the public anon key: profile self-insertion into any
+> account, anonymous listing of every tenant's files in the
+> `chat-media` / `flow-media` / `avatars` buckets, a cross-tenant read
+> of the AI knowledge base (047 had undone 032's fix), and
+> `SECURITY DEFINER` helpers any client could call to exhaust a
+> conversation's AI reply cap, disable a webhook or rewrite broadcast
+> counters. Also makes `ai_configs`, `webhook_endpoints` and
+> `api_keys` admin-only to read, scopes `flow_runs` and
+> `broadcast_recipients` like the conversations they describe, and
+> stops an agent opening a thread on a contact they can't see.
+
+> **Migration required:** and
+> `supabase/migrations/058_dashboard_aggregates.sql` — the dashboard
+> charts are now computed in SQL instead of downloading every message
+> of the last 30 days into the browser (which was also silently wrong
+> past 1,000 rows). **Apply before deploying this build**, or the
+> dashboard charts fail to load.
+
+> **Migration required:** and
+> `supabase/migrations/059_rls_performance.sql`. Rewrites the
+> conversations / messages / contacts row-level-security policies so
+> Postgres can use an index on `account_id` instead of scanning every
+> tenant's rows and calling the visibility function per row — who can
+> see what is unchanged — and adds the indexes the inbox, thread,
+> contacts list and inbound webhook were missing.
+
+> **Migration required:** and
+> `supabase/migrations/060_whatsapp_channel_access.sql` for multiple
+> Whapi numbers. It lets `whatsapp_config` hold any number of Whapi rows
+> (the Meta number stays one per account), records the exact number on
+> every conversation and message (`channel_id`), and adds
+> `whatsapp_channel_members` plus the visibility rule behind number
+> allocation. **Apply before deploying this build**: the send and
+> inbound paths write `channel_id`. Existing installs are unchanged
+> until an admin allocates someone to a number, because a number with
+> nobody on it stays shared.
+
+> **Migration required:** and
+> `supabase/migrations/061_conversation_send_channel.sql` for choosing
+> a chat's sending number. It adds `conversations.send_channel_id`, the
+> `conversation_events` table (the notes in the thread) and the
+> `set_conversation_send_channel` function, and extends the visibility
+> rule. **Apply before deploying this build**, because the send path
+> reads `send_channel_id`. Every existing chat stays on automatic.
+
+> **Migration required:** and
+> `supabase/migrations/062_channel_access_hardening.sql`, from a
+> security and correctness review of 060 and 061:
+> - Allocations and a chat's number or pin are tied to their own
+>   account by composite foreign keys.
+> - The number guards now run when a chat is created, not only when it
+>   is edited.
+> - A pin can only be set through the chat's number picker, so every
+>   pin leaves a note.
+> - Signed-in users can no longer insert customer messages.
+> - Access lists and the default number are each saved in one
+>   transaction.
+> - The visibility check is one flat function again, for speed.
+> - A tiny index backs the media proxy's new visibility check.
+>
+> **Apply before deploying this build**, because the app calls
+> `set_channel_members` and `set_primary_channel`.
+
+> **Migration required (before deploying this build):** apply
+> `supabase/migrations/065_channel_health_notifications.sql`. It lets
+> the notifications table hold the new *number disconnected* /
+> *number reconnected* alerts. Without it no alert can be stored:
+> each sweep marks a logged-out number disconnected, cannot save the
+> alert, puts the status back and logs `[channel-health] … the alert
+> was not saved`, so the number keeps showing connected; a number that
+> comes back is marked connected without its notice.
+
+> **Migration required (before deploying this build):** apply
+> `supabase/migrations/066_broadcast_status_reconcile.sql`, then run
+> once, as postgres, `SELECT public.reconcile_broadcast_recipient_statuses(NULL, '60 days');`
+> to repair older campaigns. It adds
+> `reconcile_broadcast_recipient_statuses()`, which replays Meta's cost
+> ledger onto broadcast recipients a delivery receipt missed (a receipt
+> that arrived before the recipient was recorded left it at *sent*),
+> stores Meta's failure reason on failed recipients, and marks a
+> campaign whose recipients all failed later as *failed*. The app runs
+> it after each delivery pass and on every broadcast cron tick, and
+> skips it quietly until the migration is applied.
+
+> **Migration required:** apply
+> `supabase/migrations/073_team_activity_accuracy.sql` and then
+> `supabase/migrations/074_team_activity_team_leaders.sql` (both
+> re-runnable), before deploying the app.
+> - 073 corrects the Team activity figures. Its one-time backfill fills
+>   `messages.channel_id` / `conversations.channel_id` where the number
+>   was unambiguous at the time.
+> - 074 opens the report to team leaders, scoped to their team, and adds
+>   `team_activity_alerts.recipient_id`.
+>
+> The new page reads keys that only 073 and 074 produce, and team leaders
+> are refused without 074.
+
+> **Migration required:** apply
+> `supabase/migrations/072_allocation_grants_no_visibility.sql`
+> (re-runnable). It replaces `can_view_conversation` and
+> `can_view_contact` so that allocation to a WhatsApp number (directly
+> or through a team) no longer shows a member every chat on it. Apply it
+> together with the app: the inbox no longer assumes allocated agents
+> see other people's chats.
+
+> **Migration required:** apply
+> `supabase/migrations/071_team_number_allocation.sql` (re-runnable)
+> **before** deploying the app. It adds `whatsapp_channel_teams`, the
+> `direct` / `via_team` flags on `whatsapp_channel_members`, the triggers
+> that keep team-derived access in step with team membership (and drop
+> a removed member's teams and allocations), and the atomic
+> `update_team` / `set_channel_access` RPCs the Teams and Numbers &
+> access saves now use, over `set_team_members` / `set_channel_teams` /
+> `set_team_channels`. Without it, Settings →
+> Numbers & access and Settings → Teams fail to load (500).
+
+> **Migration required:** apply
+> `supabase/migrations/070_contact_avatars.sql` (re-runnable). It adds
+> `contacts.avatar_checked_at`, which throttles profile-picture lookups
+> to one per contact per week. Until it is applied the inbox keeps
+> showing initials, and its picture request answers 500 (logged, not
+> shown).
+
+> **Migration required:** apply
+> `supabase/migrations/069_member_deactivation.sql` (re-runnable). It
+> adds `profiles.deactivated_at` / `deactivated_by`, the
+> `set_member_active` RPC, and makes the RLS role helpers ignore a
+> deactivated member. The app reads the new column defensively, so an
+> older database keeps working; the Deactivate button needs 069.
+
+> **Migration required (before deploying this build):** apply
+> `supabase/migrations/068_team_activity.sql` (`psql -v ON_ERROR_STOP=1
+> -f …`; re-runnable). It adds the Team activity limits
+> (`team_activity_settings`), the alert log behind the once-a-day bell
+> alerts, the `team_activity_alert` notification type, and the report,
+> drill-down, per-person, send-check and alert-sweep functions. The
+> send path asks `team_activity_start_check` before a person's message
+> on a Whapi number and lets the message through if it is missing, so
+> an older database keeps sending; the page itself needs 068.
+
+> **Migration required (before deploying this build):** apply
+> `supabase/migrations/067_conversation_human_engaged.sql` statement
+> by statement (not with `-1`). It adds `conversations.human_engaged_at`,
+> which triggers set the first time a conversation is assigned or a
+> person sends a message in it, and fills it in for conversations
+> people are already on; and `ai_auto_reply_live()`, which tells any
+> member whether the bot is on. The Inbox, the Campaign inbox and the
+> Inbox's unread dot all read both, and fail to load without them.
+
+> **Migration required (before deploying this build):** apply
+> `supabase/migrations/064_typesafe_account_settings.sql` as one
+> transaction, after 063. It adds `ts_account_settings`, the
+> per-account switches behind Settings → AI safety checks; the
+> `ts_decision_log.intervened` column and `ts_activity_summary()`,
+> which the panel's activity view reads; and an index the opt-out watch
+> uses. No row means off, so nothing changes until an admin switches
+> the layer on.
+
+> **Migration required (before deploying this build):** apply
+> `supabase/migrations/063_typesafe_decision_layer.sql` as one
+> transaction (`psql -1 -v ON_ERROR_STOP=1 -f …`). It adds:
+> - per-account threshold policies with two-person activation, enforced
+>   on every path, and a one-admin emergency stop (`ts_retire_policy`);
+> - an append-only decision log, labels, and the usage and
+>   label-agreement views;
+> - two new AI hand-off reasons, `triage` and `guardrail`.
+>
+> It also changes `claim_ai_reply_slot` to refuse a thread that was
+> handed off or assigned while a reply was being drafted. With
+> `TYPESAFE_API_KEY` set, this build reads 063's and 064's tables on
+> every inbound message, so apply both first.
+
 ### Added
 
+- **Team activity for team leaders.** A team leader can open Team
+  activity and sees only their own team. In the bell, they are told when
+  someone in their team reaches the daily new-chat limit.
+- **Team activity in plain language.** The page now starts with "Needs
+  attention today", one card per person or number. Below that are three
+  everyday figures with what "safe" looks like, then a card per person
+  with a traffic light and one line of advice, and phone numbers with a
+  new-chats-today bar. The charts and a "How we count" explanation are
+  folded away.
+- **Allocate a WhatsApp number to a team.** In Settings → Teams (or the
+  Teams section of Settings → Numbers & access), tick the numbers a team
+  works. Everyone in the team and its leader get the number, as if
+  allocated one by one. Someone who joins the team gets it, and someone
+  who leaves loses it, unless they were also allocated by name.
+- **Settings → Teams redesigned:** an overview of each team's leader,
+  members and numbers, plus who is not in a team yet. Teams are edited in
+  a side panel with search, renaming and an explicit Save.
+- **WhatsApp profile pictures in the inbox** for chats on Whapi numbers:
+  the chat list, the thread header and the contact panel show the
+  contact's photo instead of an initial. The picture is copied into your
+  own storage (WhatsApp's links expire) and refreshed weekly; a contact
+  who hides their picture, or who only wrote to the Meta number, keeps
+  the initial. See `docs/whapi.md` → Profile pictures.
+
+- **Deactivate a member** (admins, Settings → Team members). A
+  deactivated person stays on the roster with their role, chats and
+  history, but cannot sign in: their Supabase Auth login is banned, an
+  open session is signed out, and RLS returns them nothing even on an
+  access token issued before the switch. Reactivate gives access back.
+  The owner and your own row can't be deactivated, and deactivated
+  members are no longer offered as assignees or picked by round-robin.
+
+- **Team activity** (admins, sidebar → Team → Team activity). Per person and
+  per WhatsApp number, for today, yesterday or the last 7, 30 or 90
+  days: chats started (and how many with new contacts), how many got no
+  reply and the reply rate, messages sent, messages piled on contacts
+  who stopped answering, failed sends, response time, customers waiting
+  now, broadcasts, the busiest day, the fastest 10 minutes, chats
+  started at night, links in a first message and the same opener sent
+  to many people. Each person and number gets a status (OK, Watch, At
+  risk) with what to fix and what to tell them, and a click opens the
+  chats behind the numbers. Whapi numbers also show Whapi's own Safety
+  Meter rating. See `docs/team-activity.md`.
+- **Warnings before a risky message.** On a Whapi number the inbox
+  composer (and Contacts → Send message) warns as a person nears their
+  daily new-chat limit, when they or the number reach it, and when the
+  contact has not answered the last few messages. Once an admin has
+  saved the limits, owners, admins and the person get a bell alert,
+  once a day, when someone goes over the limit or a number reaches its
+  own. An admin can also switch on **Block new chats over the limit**,
+  which refuses (with a clear error) a person's message that would
+  start a chat past the limit. Replies always go out, including a late
+  answer to a customer who wrote last, and owners and admins are never
+  blocked. The per-person limits count chats started on Whapi numbers
+  only.
+- **WhatsApp number health monitor.** Every five minutes (from the
+  automation cron, or `GET /api/whatsapp/health/cron`) each Whapi
+  number is probed without waking it. When one is logged out or its
+  token stops working it is marked *disconnected* and every owner and
+  admin gets a notification that says what to do and who does it (scan
+  the QR code at panel.whapi.cloud on the phone that holds the number);
+  another notification follows when it is back. The inbox warns above
+  the composer while a chat's number is disconnected.
+- **Failed replies can be retried.** A reply WhatsApp refused stays in
+  the thread as *Not sent*, with Retry and Discard, and a failed text
+  goes back into the composer. Retry is offered only when the gateway
+  definitely refused the send, never when it may have gone out.
+- **Contact numbers are checked where people type them** (contact form,
+  contact screen, CSV import, the broadcast CSV upload, `POST
+  /api/v1/contacts`, Compass contact sync): spreadsheet notation
+  (`9.71505E+11`), a number without a country code, fewer than 10
+  digits, and malformed +971 numbers are refused with a message asking
+  for the country code. A number saved without it used to take the
+  customer's inbound messages while every reply went to a WhatsApp
+  address that does not exist.
+- **Settings → WhatsApp flags webhooks that are not this CRM's**, since
+  they receive every message on the number.
+- **Settings → AI safety checks.** Admins switch the TypeSafe layer on
+  and off for their account, choose **Monitor only** or **Live**, pick
+  the checks and the languages it may act on, and see what it did: a
+  seven-day summary (hand-offs, opt-outs, replies held or blocked,
+  excerpts removed, outages, cost, latency) and every decision, with
+  the contact. The server now needs only `TYPESAFE_API_KEY` and
+  `TS_LOG_HASH_KEY`; `TS_ACCOUNT_IDS`, `TS_ENABLED_*` and `TS_SHADOW`
+  became optional install-wide overrides (`TS_SHADOW` defaults to
+  `false`). **Live** acts on the built-in thresholds unless two admins
+  approved custom ones.
+- **Opt-outs are caught on every conversation**, not only the ones the
+  bot answers. When *Watch conversations your team handles* is on (the
+  default), an inbound message the bot did not judge is triaged after
+  every reply has gone out, and in Live a clear opt-out tags the
+  contact `opted-out`. It never hands over or replies.
+- **TypeSafe decision layer for the AI bot (module 013, off by
+  default).** Three checks run on the TypeSafe (Jev) API around the
+  auto-reply bot, for each account that switches them on in Settings →
+  AI safety checks:
+  - **Triage**, before any model call. It hands the thread to the team
+    when the customer asks for a person or complains, or might be
+    complaining. It also catches free-text opt-outs, where the bot stays
+    silent and the contact is tagged `opted-out`. A message that tries
+    to steer the bot gets knowledge-base-only answers.
+  - **Passage filter**, after knowledge-base retrieval. Irrelevant and
+    injected excerpts are dropped, and excerpts that contradict the
+    customer's premise are set apart.
+  - **Guardrail**, just before the send. It holds or blocks replies
+    that:
+    - promise approval;
+    - quote a figure no source contains;
+    - name a non-partner bank;
+    - ask for an OTP;
+    - share another customer's details.
+
+    The draft is quoted in the hand-off note for the team. Its
+    deterministic checks keep acting even while the model is in shadow
+    for the reply's language.
+
+  **Monitor only** logs every decision and changes nothing; **Live**
+  acts on the built-in thresholds, or on custom ones an owner or admin
+  proposed and a **different** one approved. With *English only* (the
+  default), Arabic, mixed and other-script traffic is logged only until
+  calibrated. Checks in monitor mode add no latency to replies.
+
+  Before any customer text leaves the server, it is redacted (Emirates
+  ID, IBAN, cards, phones, e-mail, passport and licence numbers, any
+  long number). Only keyed hashes are logged, and deleting a contact
+  erases its identifiers from the log. An invalid `TS_*` value turns the
+  layer off and says so in the service log; it never stops the bot.
+
+  Setup, rollout, emergency stop and calibration are in
+  `docs/typesafe.md`. The pre-eligibility check (E) is included in
+  `lib/typesafe` but not wired, since the app has no eligibility step
+  yet.
+- **Switch a chat's sending number mid-conversation.** The thread header
+  has a number picker on every chat, including existing ones.
+  *Automatic*, the default, replies on the number the customer last
+  wrote to, as before. Picking a number sends everything in that chat
+  from it until someone switches again: agent replies, API replies, and
+  flows, automations and AI replies in the chat. Each switch leaves a
+  note in the thread, e.g. "Alice switched this chat to Support".
+  People only see the numbers they may use: every number for admins,
+  otherwise their allocated numbers plus shared ones. The database
+  enforces this too. A pinned chat stays with the team that had it when
+  the customer answers on the new number, and that number's people can
+  see it as well. A reply that quotes a message carried by the other
+  number is sent without the quote on WhatsApp; the thread still shows
+  it.
+
+- **Several WhatsApp numbers, each with its own people.** New admin
+  screen **Settings → Numbers & access**: connect another Whapi
+  number, name each one ("Sales", "Support"), pick the default, and
+  allocate numbers to specific members. People on a number see every
+  chat on it, which makes it a shared inbox for them, and their new
+  chats start from it. A number with nobody on it works exactly as
+  before, and admins still see everything. Replies always leave on
+  the number the customer last wrote to. Flows, automations and AI
+  replies stay on that number too, unless the admin has routed that
+  task to the Meta number. The inbox labels each chat with its number
+  when an account has more than one. Settings → WhatsApp gets a
+  switcher for each Whapi number's connection panel. See
+  `docs/whapi.md` → *Several numbers*.
+
+- **Taamul Compass (ERP) integration.** Compass syncs its customers
+  into a dedicated table (`POST /api/v1/compass/contacts`, batch upsert
+  keyed by Compass's id, bad records reported per index) and sends
+  status notifications (`POST /api/v1/compass/notifications`). A
+  notification always goes out on the **Whapi** number — it fails with
+  `whapi_not_connected` rather than falling back to Meta — lands in the
+  customer's existing chat without changing who handles it, and is sent
+  at most once per `idempotency_key`. New API-key scopes
+  `compass_contacts:read`, `compass_contacts:write`,
+  `compass_notifications:send`; new admin screen **Taamul Compass**.
+  Integration guide for the Compass team: `docs/compass.md`.
+- **Forward a message to other chats.** Hover a message in the inbox →
+  _Forward_, pick up to five chats, send. Text, photos, videos, voice
+  notes and documents can be forwarded; templates and button messages
+  go out as their text; locations and contact cards cannot. It is a
+  re-send rather than a WhatsApp-native forward (only Whapi has one,
+  and only within a single channel), so the recipient sees no
+  "Forwarded" label — the inbox does. Each target is an ordinary agent
+  send: it follows that customer's number, and on the Meta number it
+  fails outside the 24-hour window like any free-form message. An
+  attachment the gateways can't fetch directly (Meta media, or a Whapi
+  link with mirroring off) is copied into `chat-media` first.
+
+- **"Forwarded" label on inbound messages.** A message the customer
+  forwarded from another chat is now marked as such in the thread, on
+  both the Whapi channel and the Meta number.
+
+- **Personalize a CSV campaign from the file itself.** When the
+  audience is an uploaded CSV, the _Personalize_ step lists every
+  column of the file as a source for each template variable — with
+  row 1's value shown as the example — so `{{1}}` can be an
+  `order_id`, a `due_date`, or any other column the contact record
+  doesn't have. Each recipient gets their own row's value, including
+  contacts that already existed in the CRM under a different name.
+  The preview on that step now renders the file's first row.
+
+- **Campaigns that keep going.** A broadcast can name a Flow to start
+  for each recipient on their first reply (wizard → _When they reply_;
+  `flow_id` on `POST /api/v1/broadcasts` and the MCP `send_broadcast`
+  tool). The reply that started it — the tapped template button or the
+  typed text — is seeded into the run as `{{vars.campaign_reply}}` /
+  `{{vars.campaign_reply_id}}`, so the flow can branch on it without
+  asking again. The campaign page shows the linked flow; the run log
+  records which campaign started a run.
+- **The AI agent inside a Flow.** A new off-script setting on every
+  flow (_Off-script replies_ panel in the editor) — _Let the AI agent
+  answer, then continue the flow_: when the customer types a question
+  instead of picking an option, the agent answers it in the context of
+  the step (it is told the prompt and the options) and asks them to
+  pick one; the run stays where it is, so the buttons still work. If
+  the agent is off, at its cap, on the other number, or the thread has
+  a human, the options are re-sent as before; if the agent hands off,
+  the run ends and the human takes over. Existing flows keep the
+  re-prompt default. The panel also exposes the re-prompt count and
+  what happens after it, which previously could only be set through
+  the API.
+- **Video and document template headers can be uploaded.** The template
+  editor and the broadcast wizard's personalise step now offer _Upload
+  video_ / _Upload PDF_ next to the URL field (MP4/3GPP ≤16 MB, PDF),
+  with an inline player for video, instead of image-only upload with a
+  bare URL box for everything else. This matters most for a template
+  created and approved in Meta's dashboard: it syncs with a video
+  header but no link, and WhatsApp needs the video on **every** send —
+  the review sample is never reused — so without a URL the send was
+  refused. Upload once in the editor and every send of that template
+  carries it.
+- **A broken flow no longer strands the customer.** When a run hits an
+  unrecoverable error on a message — a node deleted while a customer
+  was on it, a send that failed — the run ends as _failed_ and the same
+  message is handed to the AI agent and automations, instead of being
+  swallowed as "handled". `docs/campaign-journeys.md` describes the
+  whole Flow → AI → human chain and what answers at each moment.
+
+- **Broadcast CSV template.** The _Upload CSV_ audience step now links
+  a downloadable template (`name,company,phone`) and keeps the
+  `company` column: contacts created from a broadcast upload used to
+  land with only a name and number, so `{{company}}` variables and the
+  contacts screen were blank for them. Only `phone` (E.164) is
+  required; the header check and column names are unchanged, so
+  existing files still upload.
+
+- **AI agent escalation gates.** Three deterministic checks now run in
+  front of the auto-reply bot, each handing the thread to a human with
+  a recorded reason instead of letting the model answer, and each
+  configured under Settings → AI → _Escalation gates_:
+  - _Escalation keywords_ — words or phrases in any language (`refund*`,
+    `complaint`, `شكوى`, …) that send the message straight to the
+    handoff agent without spending a token. Word-boundary matching; a
+    trailing `*` matches word beginnings.
+  - _Retrieval threshold_ — the minimum similarity the best
+    knowledge-base match must reach; below it the bot hands off and the
+    question is logged under _Unanswered questions_ on the same page,
+    so the knowledge base can be extended where customers actually ask.
+    Needs an embeddings key; short conversational turns (under four
+    words) skip the gate.
+  - _Strict grounding_ — the knowledge base becomes the bot's only
+    source of facts; it may greet and clarify but never states a price,
+    timeline, or policy it cannot quote.
+    A _handoff message_ is sent to the customer when a gate hands off, so
+    they are not left waiting in silence. A provider error or timeout is
+    now a handoff too (previously the bot logged the error and the
+    customer heard nothing), and the internal note the bot leaves names
+    the reason. The Playground exercises the same gates and shows which
+    one fired.
+- **Scheduled broadcasts.** The wizard's last step now offers _Send
+  now_ or _Schedule_ with a date and time; a scheduled campaign is
+  delivered server-side by the new broadcast cron, so the tab need not
+  stay open. Its page shows the appointment and a _Send now_ override.
+- **Quiet hours** on a broadcast — a do-not-send window in your time
+  zone. A send that would land inside it (now or scheduled) is moved to
+  the moment the window ends, and the wizard says so before you
+  confirm.
+- **Frequency cap** on a broadcast audience — skip contacts who
+  received any campaign in the last _N_ days, whatever list they came
+  from (CSV included).
+- **Message costs.** Settings → Message costs shows what the Meta
+  Cloud API number is spending, priced from the `pricing` object on
+  every delivery receipt Meta posts: this month so far, spend per
+  month stacked by category, per number (with the position against
+  the free tier of 1,000 service messages a month that starts on
+  1 October 2026), and per recipient market. Deliveries to a market
+  the rate card does not cover are counted and flagged as _no rate on
+  file_ rather than silently priced at zero; loading Meta's published
+  CSV with the new `scripts/load-meta-rate-card.ts` closes the gap.
+  Meta's own billable flag on a receipt overrides the local rules,
+  and costing runs last in the webhook and fails open, so a rate-card
+  problem can never cost an inbound message. The Whapi channel is a
+  flat subscription and is not metered. Admin and owner only.
+
+- **Campaign inbox.** A second tab under Broadcasts listing the
+  conversations that started as a reply to a campaign while the AI bot
+  is answering them, with a per-campaign filter and, on every row,
+  which campaign it came from. Each conversation is listed in exactly
+  one place — the Inbox lists every other one. A campaign conversation
+  moves to the Inbox for good once a person steps in (it is assigned
+  to anyone, or a person replies; releasing the assignment or a reply
+  to a later campaign does not bring it back), and it is in the Inbox
+  whenever the bot is not answering it: handed off, paused, never
+  answered (a reply on a number the bot does not run on, say), or with
+  the AI auto-reply switched off. The Inbox's unread dot counts only
+  conversations the Inbox lists. Admin and owner only, like the rest
+  of the section.
+- **The AI bot knows which campaign a customer is answering.** When a
+  broadcast recipient replies, the thread is stamped with that
+  campaign and the bot is told the campaign name and message, so its
+  first reply is about the offer the customer received rather than a
+  guess at what they want.
+- **Sync templates from Meta.** Settings → Templates has a _Sync from
+  Meta_ button that pulls every template registered on the connected
+  WhatsApp Business Account — name, language, category, header, body,
+  footer, buttons, approval status — into the CRM. Until now only
+  templates submitted _from_ the CRM were listed, so an account whose
+  templates were built in Meta Business Manager saw an empty list and
+  could not start a broadcast. The Templates panel and the Settings
+  overview counts are also account-wide now instead of per author.
+- **AI agent: _Campaign replies only_.** A switch in Agents → Setup that
+  restricts the bot to conversations that came from a broadcast, so a
+  business can run bot-handled campaigns on a number that also takes
+  ordinary customer chat handled by people.
+- **Upload a file to the AI knowledge base.** Agents → Knowledge has an
+  _Upload file_ button next to _Add document_: a PDF (with a text
+  layer), .txt, .md, .csv or .json is extracted and indexed like pasted
+  text. Scanned PDFs are rejected with a clear message rather than
+  saved empty.
+- **Shared contact cards render as cards.** A contact the customer
+  shares from WhatsApp — on either number — now shows in the thread
+  as a card with the name, every phone number, email and company,
+  plus a _Save to contacts_ action that creates the CRM contact (or
+  opens the existing one when the number is already known). Previously
+  the numbers were discarded at the webhook and the thread showed a
+  bare "[contact] Name" line.
+- **`scripts/bot-pack.ts`** loads a Taamul bot-pack (one product line,
+  or the manifest for all four merged into one agent) into an
+  account's AI agent and knowledge base, and runs the pack's test
+  cases through the same path the live bot uses.
+
+- **The inbox agrees with itself about who owns a chat.** The
+  conversation list now shows the owner's name on a chat nobody has
+  formally assigned, instead of the bare word _Unassigned_, and the
+  **Agent** filter returns those chats under that owner's name. The
+  amber person icon still marks a chat as unclaimed, so the triage
+  signal survives — and **Unassigned** still lists exactly the chats
+  nobody has taken, which now deliberately overlaps with their owner's
+  name.
+- **The chat header names whoever is on the thread.** The Inbox header
+  now carries the agent working the conversation next to the status and
+  Assign controls, instead of leaving a bare **Assign** button on every
+  thread nobody had formally claimed. It shows the assignee when there
+  is one; otherwise the last agent who actually replied, falling back to
+  the chat's owner — hover it to see which of the three you are looking
+  at, and whether the thread is still unassigned. Outbound sends from
+  the composer now record who sent them, which is what makes the
+  "replying" case possible; threads answered before this update fall
+  back to the owner until the next reply.
+- **The inbox now says whose chat each one is.** Every conversation in
+  an admin's inbox — and in a team leader's `/team-inbox` — carries the
+  name of the agent holding it, with unassigned threads called out in
+  amber so the ones nobody has picked up are visible at a glance. A
+  plain agent's inbox is unchanged: every chat there is already theirs.
+- **A chat you start is yours from the first message.** Writing to a
+  contact who has no thread yet now opens it assigned to you, so it
+  shows your name in the inbox instead of Unassigned. Admins reassign to
+  anyone and team leaders within their own team, exactly as before —
+  this only sets the starting point. Inbound chats from strangers are
+  deliberately left unassigned: that is the triage queue.
+- **Filter the inbox by agent.** The same views get an **Agent** filter
+  next to Tags and Company — pick a teammate to see everything they are
+  handling, or **Unassigned** to work the queue nobody has claimed. It
+  combines with the existing status, tag, company and search filters,
+  and clears with **Clear all**.
 - **Meta WhatsApp Cloud API as a second number.** Connect a Cloud API
   number in Settings → WhatsApp and keep your Whapi channel for
-  conversations. It must be a *different* phone number — registering a
+  conversations. It must be a _different_ phone number — registering a
   number on the Cloud API removes it from the WhatsApp app, so no number
   can be on both. See `docs/meta-cloud-api.md`.
 - **Per-task number selection.** An admin can point each of inbox
@@ -56,15 +684,298 @@ number sends what.
 
 ### Changed
 
+- **The inbox looks and reads like WhatsApp.** WhatsApp Web's own
+  palette in light and dark mode, independent of the accent theme:
+  green bubbles for what we sent with the bubble tail, the time and
+  ticks tucked into the last line, blue ticks once read, and the beige
+  or dark chat wallpaper. In the chat list an unread chat is
+  unmistakable — bold name and preview, a green time and a green count
+  — while a read one is plain; the status dot that looked like an
+  unread marker is gone (Pending and Closed now say so in words), rows
+  are separated by hairline dividers, and times read `14:05`,
+  `Yesterday`, `Monday`, `23/09/2026`. Status filters are WhatsApp-style
+  chips with **Unread** always in view. Opening a chat with unread
+  messages shows an **"N unread messages"** divider above the first
+  one. The header gives the contact's name priority, folding labels
+  away in a narrow pane, and the "who is on this chat" chip now opens
+  the assign menu itself. Also fixed: on a phone the chat list was
+  wider than the screen, cutting off times and unread counts.
+- **The sidebar is grouped.** Dashboard, Notifications, Inbox and
+  Contacts stay at the top for everyone. Below them, under small
+  headings, come **Team** (Team inbox, Team contacts, Team activity),
+  **Sales & marketing** (Pipelines, Broadcasts), **AI & automation**
+  (Automations, Flows, AI Agents) and **Integrations** (Compass), and
+  Settings sits apart at the foot. A heading shows only when there is
+  something under it the person may open, so agents and viewers see just
+  the top four, and team leaders also get Team.
+- **Send failures say what actually happened.** A Whapi refusal is
+  followed by a quick status check of the number, so agents see
+  "logged out of WhatsApp — re-scan the QR code" rather than "token
+  invalid or revoked", which sent admins to re-save a token that was
+  fine. Compass notifications answer `409 whapi_not_connected` while the
+  number is disconnected, instead of a 502 and an empty chat.
+- **Broadcasts** stop sending, leaving recipients pending for Resume,
+  when the number itself fails (logged out, token revoked, subscription
+  lapsed), instead of failing every remaining recipient. A Meta
+  template with an image, video or document header but no media is
+  refused at launch (`400 template_media_missing`). Delivery ticks and
+  `message.status_updated` webhooks no longer go backwards.
+- **An AI reply WhatsApp fails to deliver hands the thread to a
+  person** (reason `error`); it used to fail silently.
+- **Meta webhook:** callbacks for a number not connected here are
+  summarised once an hour per number (messages, statuses, how many are
+  signed by this app) instead of one log line per request; template
+  callbacks for a WABA not connected here are acknowledged without a
+  signature check (a latent 401 while `META_APP_SECRET` was unset could
+  have made Meta disable the app's subscription); template quality and
+  components callbacks reach the template handler.
+- **Meta connect** refuses a different number while one is connected
+  (409) instead of silently overwriting the live number, lets the WABA
+  id of the connected number be corrected once Meta lists the number
+  under the new WABA, and checks that the phone number belongs to the
+  WABA before subscribing it (400).
+- **Meta webhook robustness:** a POST mixing template changes and
+  messages processes both halves (the messages used to be dropped with a
+  200); a database error while looking up the WABA or phone number id
+  answers 503 so Meta retries; a malformed or forged body is answered
+  200 `ignored` instead of a 500.
+- **Compass notifications** check the Whapi number the customer's chat
+  actually uses before refusing with `409 whapi_not_connected`, and a
+  synced phone that is not a valid international number is refused with
+  `422 invalid_phone` (it was "sent" to nobody).
+- **Contact numbers:** a national number typed without its country code
+  (e.g. `98765 43210`) is refused instead of being stored as +98…; a
+  trunk 0 after any country code is removed; UAE 600/800 numbers are
+  accepted; a `.0` suffix, letters, or more than 64 characters are
+  refused instead of silently altered. `POST /api/v1/messages` and v1
+  broadcast recipients follow the same rule, and `/messages` matches an
+  existing contact by the normalized number.
+- **Inbox:** a failed text is put back only in its own chat; when a send
+  may have gone out (a timeout or a gateway error) there is no Retry and
+  the toast says it may still have reached the customer; a "sent but not
+  saved" error no longer deletes the attachment the delivered message
+  links to. An attachment kept for Retry is left in storage if the tab
+  is closed before it is retried or discarded.
+- **Broadcasts:** a campaign stopped by a failure of the sending number
+  records the reason on the recipient where it stopped; a delivered
+  receipt no longer drops a read receipt that arrives at the same
+  moment.
+
+- **Contact detail sends split across the two numbers.** With both a
+  Whapi channel and a Meta Cloud API number connected, opening a
+  contact and choosing _Send message_ now goes out on the Whapi number
+  and _Send template_ on the Meta number — a free-form text is what
+  Whapi is for, and an approved template is the only thing that opens
+  a business-initiated conversation on Meta. A caption under the two
+  buttons names the number each will use. Single-number installs are
+  unchanged: both actions use the one connected number. (The dashboard
+  send endpoint gained an optional `provider: 'whapi' | 'meta'` pin
+  behind this; the inbox composer leaves it unset and keeps following
+  the customer's number.)
+- **The AI agent hands off at its reply cap.** Once _Max replies per
+  conversation_ is reached, the thread is handed to a human with reason
+  _reply cap_ (internal note, handoff agent if one is set, the handoff
+  message to the customer if one is set) instead of the bot silently
+  ignoring every further message. A thread the bot has left is still a
+  thread someone must answer.
 - **Replies follow the customer's number.** An agent replying in the
   inbox now answers on whichever number the customer last wrote to,
   rather than a single configured channel. On Meta this is also what
   keeps the reply inside the 24-hour service window the customer opened.
+- **AI auto-reply answers only on its own number.** With two numbers
+  connected, the bot replies to messages that arrive on the number it
+  is routed to and leaves the other number to humans — so routing it to
+  the Meta number gives you a Meta-only bot. Single-number installs are
+  unchanged.
+- **The AI bot can say goodbye before handing off.** When it decides a
+  human should take over, a closing line it wrote ("a relationship
+  manager will contact you within working hours") is sent first instead
+  of the customer seeing silence. Counts against the per-conversation
+  reply cap like any other bot message.
 - **Clearer send failures.** Gateway rejections are translated before
   they reach you — most usefully Meta's closed 24-hour window, which
   previously surfaced as a bare numeric code.
 - Disconnecting one number no longer disturbs the other; any task routed
   to the removed number falls back to the account default.
+
+- **Renamed the product to Taamul Connect.** The app title, sidebar,
+  UI strings (`en` and `ko`), docs and package names now read Taamul
+  Connect. The npm packages are `taamul-connect` and
+  `taamul-connect-mcp`; the Docker Compose project is
+  `taamul-connect`.
+
+  Nothing you have integrated breaks. Every renamed identifier keeps
+  accepting its old value:
+
+  - **API keys** — new keys mint as `taamul_live_…`; existing
+    `wacrm_live_…` keys keep authenticating. The prefix is not a
+    secret and carries no scope, so there is nothing to rotate unless
+    you want to.
+  - **Outbound webhooks** — deliveries now send `X-Taamul-Event`,
+    `X-Taamul-Webhook-Id` and `X-Taamul-Signature`, _and_ continue to
+    send the identical `X-Wacrm-*` headers. Receivers verifying the
+    old names need no change. The old names are deprecated and will
+    be dropped in a future release.
+  - **MCP server** — reads `TAAMUL_BASE_URL` / `TAAMUL_API_KEY` /
+    `TAAMUL_ENABLE_WRITES` / `TAAMUL_ENABLE_BROADCASTS`, falling back
+    to the `WACRM_*` names, so an existing client config keeps
+    working.
+  - **Sessions and preferences** — the auth cookie name is
+    deliberately unchanged (renaming it would sign everyone out).
+    Theme, mode, inbox panel and flow-editor preferences are read
+    from their old `localStorage` keys once and migrate on next
+    write.
+
+  No database migration is required.
+
+  Two things are **not** renamed automatically because they name
+  objects outside this repo: the systemd units, log files and
+  checkout path in `scripts/sync-tunnel-url.sh`, and the
+  `github.com/ArnasDon/wacrm` URLs in the GitHub issue templates and
+  `SECURITY.md`. Update those to match your own deployment and
+  repository.
+
+  If you run Docker Compose, the project name changed, so the old
+  containers are no longer tracked. Run `docker compose -p wacrm
+down` once before bringing the new project up. There are no named
+  volumes, so no data is involved.
+
+### Fixed
+
+- Team activity figures and warnings were inaccurate:
+  - Since a second phone number was connected, older chats belonged to no
+    number, so per-number and per-person totals read low.
+  - "Messaged without an answer" only looked back 7 days.
+  - "Customers waiting" counted threads that ended weeks ago.
+  - Chats started minutes earlier already counted as "no reply".
+  - Compass notifications showed up as replies.
+  - "At the limit" meant different things on the page, in the bell and in
+    the message box.
+  - The reply-rate warning told people to reach a rate they were already
+    above.
+  - Failures on the official number were blamed on agents.
+  - Near-identical first messages that differed only by a name went
+    unnoticed.
+  - New phone numbers now have a lower daily limit (10) for their first
+    two weeks.
+- Number allocation: an agent allocated to a WhatsApp number (or in a
+  team allocated to it) could see every other agent's chats and
+  contacts on that number. Allocation now only controls which numbers
+  they send from and start new chats on; they see their own and
+  assigned chats (team leaders also their team's), and admins and owners
+  see everything. Settings wording and docs updated to match (migration
+  072).
+- Inbox: after a Whapi channel was re-paired to a different phone, the
+  number picker, the conversation list and the alerts kept showing the
+  old number, which was only stored when the token was saved. Settings
+  showed the new one. The channel health check and Settings → WhatsApp
+  now store the number Whapi reports paired, so these screens follow it
+  within one health tick.
+- Inbox: a chat that receives (or sends) a new message now jumps to the
+  top of the list, as in WhatsApp; it used to stay where it was until a
+  reload. Chats with no messages at all — left behind when a first send
+  failed — no longer appear, and no longer sit above every real chat.
+- Re-saving a Whapi token while the phone was logged out erased the
+  number's stored phone number.
+- Inbound contact lookup preferred whichever of two near-duplicate
+  contacts the database returned first; it now prefers the exact number,
+  then the oldest.
+- Broadcast failure reasons were never stored ("-" on every failed
+  recipient); the legacy broadcast route logged full customer phone
+  numbers.
+
+- **Multi-number review.**
+  - *Wrong number:*
+    - Reactions go out through the number that carried the message.
+    - The AI replies only when the number it would answer from is the
+      one the customer wrote to. An explicit AI route to one Whapi
+      number keeps the other Whapi numbers human-only.
+    - A quoted reply to an older message is sent unquoted when it
+      could have been carried by another number.
+  - *Robustness:*
+    - One number with an unreadable token no longer stops every other
+      number from sending.
+    - When no default is flagged, the fallback is a Whapi number, not
+      Meta.
+    - An agent on no number no longer starts new chats from a number
+      allocated to someone else.
+    - A pin set while an inbound message is being processed is no
+      longer overwritten.
+    - Switching back to automatic re-syncs which number the chat is
+      on.
+  - *Speed:* fewer database round trips per send.
+  - *Screens:*
+    - The chat header fits on phones.
+    - Rapidly switching chats no longer mixes up their number or their
+      notes.
+    - Routing dropdowns show names instead of `__inherit__`.
+    - The inbox list no longer loads twice on open.
+- **Security.**
+  - *Outside the multi-number work:*
+    - Delivery-status callbacks only touch the authenticated account's
+      messages and broadcasts.
+    - A Meta callback that batches several numbers is split and each
+      part is filed under its own number and account.
+    - Automation read/edit/delete/duplicate routes are scoped to the
+      caller's current account, so a removed admin can no longer edit
+      automations they wrote. Any admin of the account can now open an
+      automation, not only its author.
+    - The legacy media proxy only serves media that a message the
+      caller can see points at.
+    - Webhook URLs are checked for private addresses when saved.
+  - *Public API:*
+    - Pagination cursors are validated as strict timestamps.
+    - The send error no longer carries raw database text.
+  - *Legacy broadcast endpoint:* capped at 100 recipients per call.
+
+- **A large CSV broadcast import failed with a page of HTML instead of
+  an error.** Importing an audience looked up every phone number in the
+  file in one request, and PostgREST echoes the whole
+  `?phone_normalized=in.(...)` filter back in the `Content-Location`
+  response header. Past roughly 250 rows that header outgrew the
+  default 4 KB buffer in a reverse proxy sitting in front of a
+  self-hosted Supabase, which answered 502 — so the upload stopped with
+  the proxy's "Bad gateway" markup quoted back as the reason, while the
+  identical query was fine against Supabase directly. The lookup is now
+  chunked like the insert beside it. Self-hosters behind a proxy should
+  also raise its response-header buffers; see `docs/docker.md`.
+
+- **A tapped template button got no reply from the AI agent.** A
+  campaign sent without a follow-up Flow whose recipient answered by
+  tapping a quick-reply button ("Get a quote") was never handed to the
+  bot: button taps were reserved for Flows and _interactive reply_
+  automations, and the agent's transcript only read typed messages, so
+  with neither in place the customer heard nothing back. The agent now
+  answers a tap nothing else claimed, reading the tapped title as the
+  customer's message; it still stands down when a Flow consumed the tap
+  or an active _interactive reply_ automation owns the buttons.
+- **The AI agent's _Campaign replies only_ switch did nothing.** The
+  setting (migration 049) was saved and shown but never checked when
+  a message arrived, so the bot answered every chat on its number
+  regardless. It is now enforced: with the switch on, the bot only
+  answers threads a broadcast reply has stamped.
+- **A resumed broadcast lost its media header.** The wizard passed the
+  image / video / document URL per request and never stored it, so a
+  Resume or Retry sent the template's stored sample instead. The URL is
+  now persisted on the campaign and used by every server-side pass.
+- **A media header chosen in the broadcast wizard never reached the
+  Cloud API.** The provider-neutral send layer forwarded the header URL
+  to Whapi but dropped it on the Meta branch, so a video / image /
+  document template synced from Meta (which carries no stored media
+  link) failed every recipient with _"video header requires a media
+  link or id at send time"_ even though the wizard had the URL. The URL
+  is now folded into the Meta send.
+- **Inbound messages from a contact whose number was typed with spaces
+  were silently dropped.** The duplicate-contact lookup pre-filtered on
+  the raw `phone` column, so a contact saved as `971 50 455 5843` was
+  invisible to the webhook; the insert then tripped the unique index
+  and the message never reached the inbox. The lookup now filters on
+  the normalised column the index is built on.
+- Every screen under the dashboard (`/flows`, `/agents`,
+  `/notifications`, `/team-inbox`, `/team-contacts`) now redirects a
+  logged-out visitor to `/login` at the edge, like the rest. Data was
+  never exposed — RLS and the client-side guard still applied — but the
+  page shell was served before the redirect fired.
 
 ## [0.8.1] — 2026-07-10
 
@@ -77,6 +988,52 @@ number.
 > index so one contact can only ever have one conversation).
 
 ### Fixed
+
+- **Message costs no longer zero-rates a template send.** Meta attaches
+  the `pricing` object to the `sent` receipt and does not always repeat
+  it on `delivered`. A delivery with no category of its own was filed
+  as _service_ — free, and invisible to the _no rate on file_ counter —
+  so a marketing or utility send could disappear from the ledger
+  entirely. Such a delivery now adopts the category already recorded
+  for the same message, and the pre-per-message `user_initiated` origin
+  maps to _service_.
+- **Message costs: "Free service messages used" counts.** The tile read
+  the ledger's quota flag, which is only ever set once the 1,000-message
+  allowance is what makes a message free — so it showed a flat zero
+  until 1 October 2026 while the per-number rows beneath it counted
+  normally. It now reads the same free-tier figure they do.
+- **Message costs: a service message Meta bills is no longer also
+  counted as free.** Meta's `billable` flag overrides the local rules,
+  but the row kept its quota-free mark, charging the message and
+  spending an allowance slot for it.
+- **Message costs: an unrecognised category is shown, not dropped.** A
+  category outside the known list (a pre-per-message `business_initiated`,
+  or one Meta adds later) vanished from the stacked chart — leaving the
+  bars short of the headline total — and rendered as a raw translation
+  key in the breakdown list.
+
+### Changed
+
+- The migrations workflow now also replays
+  `supabase/ci/verify-message-costs.sql`, which drives
+  `record_whatsapp_message_cost` with real receipt shapes and asserts
+  the ledger rows it writes. The costing rules live in SQL, so `npm
+test` cannot reach them, and a wrong rate is silent by nature — it
+  under-reports spend without erroring.
+- **AI knowledge base keyword search matches natural questions.** See
+  the migration note above.
+- **Broadcast audience → Upload CSV actually offers a file picker.**
+  The option, its copy and the send-side handling all existed, but the
+  panel with the upload button was never rendered, so choosing it left
+  nothing to click. A `phone` column (E.164) is required; `name` is
+  optional.
+- **CSV audiences no longer fail on contacts that already exist.**
+  Sending to a CSV matched the file's numbers against the raw phone
+  string of the sender's own contacts, so a number a teammate had
+  already saved — or the same number written with spaces or a `+` —
+  was re-inserted and rejected by the per-account unique phone index
+  (`duplicate key value violates … idx_contacts_account_phone_normalized`).
+  Matching is now on the normalized number, account-wide.
 
 - **Duplicate chats for a single contact.** An inbound message could
   create a second conversation for a contact under a race (Meta retries a
@@ -138,7 +1095,7 @@ sidebar — it's no longer tucked inside Settings.
 - **AI Agents (sidebar).** A dedicated `/agents` area with two tabs:
   - **Playground** — a test chat to message your agent and see its
     grounded, multi-turn replies (and where it would hand off to a human)
-    *before* it ever answers a real customer. Runs the exact same path as
+    _before_ it ever answers a real customer. Runs the exact same path as
     the auto-reply bot (knowledge-base retrieval + your provider), and
     works even before you flip the master switch on, so you can try, then
     enable. Backed by `POST /api/ai/playground`.
@@ -214,7 +1171,7 @@ returned to the client after saving.
 ## [0.4.0] — 2026-07-01
 
 Completes the public API (#245): **outbound event webhooks** so
-automations can *react* to activity instead of polling.
+automations can _react_ to activity instead of polling.
 
 ### Added
 
@@ -275,11 +1232,11 @@ always did.
   - `POST /api/v1/broadcasts` + `GET /api/v1/broadcasts/{id}` — launch a
     template broadcast to a recipient list and poll its progress
     (`broadcasts:send`).
-  All list endpoints share one cursor-pagination contract
-  (`{ data, meta: { next_cursor } }`). No migration required — the
-  scopes already existed and the tables are unchanged. Outbound event
-  webhooks (react to inbound messages) are the remaining roadmap item.
-  See `docs/public-api.md`. ([#245](https://github.com/ArnasDon/wacrm/issues/245))
+    All list endpoints share one cursor-pagination contract
+    (`{ data, meta: { next_cursor } }`). No migration required — the
+    scopes already existed and the tables are unchanged. Outbound event
+    webhooks (react to inbound messages) are the remaining roadmap item.
+    See `docs/public-api.md`. ([#245](https://github.com/ArnasDon/wacrm/issues/245))
 
 ### Changed
 
@@ -318,8 +1275,8 @@ always did.
 
 - `supabase/migrations/020_account_sharing_followups.sql` —
   composite partial indexes on `automations(account_id,
-  trigger_type) WHERE is_active` and `flows(account_id) WHERE
-  status='active'` for the engine dispatch hot path; updated
+trigger_type) WHERE is_active` and `flows(account_id) WHERE
+status='active'` for the engine dispatch hot path; updated
   `flow-media` storage RLS to allow account-member writes under
   the new path convention. Idempotent.
 
@@ -510,10 +1467,10 @@ when two users on the same instance saved the same WhatsApp
 - **Inbound WhatsApp messages no longer silently disappear** when two
   users have claimed the same `phone_number_id`. Previously the
   webhook used `.single()` to look up the owning config, which errors
-  `PGRST116` for both 0 rows *and* ≥2 rows — the second user's save
+  `PGRST116` for both 0 rows _and_ ≥2 rows — the second user's save
   put the DB into the ≥2-row state and every inbound message was
-  dropped while the log misleadingly reported *"No config found for
-  phone_number_id"*. Three layers of fix: `POST /api/whatsapp/config`
+  dropped while the log misleadingly reported _"No config found for
+  phone_number_id"_. Three layers of fix: `POST /api/whatsapp/config`
   now returns **409** when another user has already claimed the
   number, the webhook lookup distinguishes 0 rows from ≥2 rows and
   logs the conflicting `user_id`s, and a new DB constraint

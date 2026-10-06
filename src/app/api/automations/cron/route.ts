@@ -1,8 +1,76 @@
 import { timingSafeEqual } from 'node:crypto'
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { resumePendingExecution } from '@/lib/automations/engine'
 import type { AutomationContext } from '@/lib/automations/engine'
+import {
+  everyInterval,
+  runChannelHealthCheck,
+} from '@/lib/whatsapp/channel-health'
+import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
+
+/**
+ * The channel health sweep rides along on this cron, at most once per
+ * 5 minutes per process. It has its own endpoint
+ * (/api/whatsapp/health/cron), but the production server's crontab
+ * already pings this one every minute and cannot be changed yet, so
+ * without this the monitor would never run there. Once the pinger calls
+ * the dedicated path this is merely redundant: a transition is written
+ * conditionally, so two overlapping sweeps do not both alert for it.
+ */
+const healthCheckDue = everyInterval(5 * 60_000)
+
+function scheduleChannelHealthCheck() {
+  try {
+    if (!healthCheckDue()) return
+    // after(): the response (and the automation work before it) never
+    // waits on up to a minute of gateway probes, and the sweep is
+    // awaited inside the callback so the runtime does not cut it off.
+    after(async () => {
+      try {
+        const summary = await runChannelHealthCheck(supabaseAdmin())
+        if (summary.changed > 0 || summary.failed > 0) {
+          console.log('[automations-cron] channel health:', summary)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] channel health sweep failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the channel health sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * The Team activity alert sweep (migration 068) rides along the same
+ * way: at most once per 5 minutes per process, inside after(). It
+ * alerts once per person or number per day, so an overlapping run
+ * changes nothing.
+ */
+const teamActivitySweepDue = everyInterval(5 * 60_000)
+
+function scheduleTeamActivitySweep() {
+  try {
+    if (!teamActivitySweepDue()) return
+    after(async () => {
+      const summary = await runTeamActivityAlertSweep(supabaseAdmin())
+      if (summary && summary.alerts > 0) {
+        console.log('[automations-cron] team activity alerts:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the team activity sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
 
 /**
  * Drain due `automation_pending_executions` rows. Meant to be hit
@@ -30,6 +98,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  try {
+    return await drainDueExecutions()
+  } finally {
+    scheduleChannelHealthCheck()
+    scheduleTeamActivitySweep()
+  }
+}
+
+async function drainDueExecutions(): Promise<NextResponse> {
   const admin = supabaseAdmin()
   const { data: due, error } = await admin
     .from('automation_pending_executions')

@@ -5,8 +5,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { CURRENCIES } from "@/lib/currency";
+import {
+  cachedQuery,
+  MEMBERS_CACHE_KEY,
+  REFERENCE_CACHE_TTL_MS,
+} from "@/lib/client-cache";
+import { ContactPicker, type ContactOption } from "./contact-picker";
 import type {
-  Contact,
   Conversation,
   Deal,
   DealStatus,
@@ -61,12 +66,16 @@ export function DealForm({
   const [value, setValue] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
   const [contactId, setContactId] = useState("");
+  // What the picker displays for `contactId` — the deal's embedded
+  // contact when editing, the picked row otherwise.
+  const [selectedContact, setSelectedContact] = useState<ContactOption | null>(
+    null,
+  );
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [contacts, setContacts] = useState<Contact[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [linkedConversation, setLinkedConversation] =
     useState<Conversation | null>(null);
@@ -90,6 +99,15 @@ export function DealForm({
       // contact_id is nullable when the contact has been deleted
       // (migration 004: ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? "");
+      setSelectedContact(
+        deal.contact_id && deal.contact
+          ? {
+              id: deal.contact.id,
+              name: deal.contact.name ?? null,
+              phone: deal.contact.phone,
+            }
+          : null,
+      );
       setStageId(deal.stage_id);
       setAssignedTo(deal.assigned_to ?? "");
       setExpectedCloseDate(deal.expected_close_date ?? "");
@@ -99,6 +117,7 @@ export function DealForm({
       setValue("");
       setCurrency(defaultCurrency);
       setContactId("");
+      setSelectedContact(null);
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
@@ -107,18 +126,31 @@ export function DealForm({
   }, [open, deal, defaultStageId, stages, defaultCurrency]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // Load supporting data once the sheet is open
+  // Load the assignee list once the sheet is open. Contacts are no
+  // longer preloaded — the picker searches them server-side. Members
+  // share MEMBERS_CACHE_KEY (same query, same shape) with the inbox's
+  // assign dropdown; member writes invalidate it.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [c, p] = await Promise.all([
-        supabase.from("contacts").select("*").order("name"),
-        supabase.from("profiles").select("*").order("full_name"),
-      ]);
+      const data = await cachedQuery(
+        MEMBERS_CACHE_KEY,
+        REFERENCE_CACHE_TTL_MS,
+        async () => {
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .order("full_name");
+          if (error) {
+            console.error("Failed to fetch profiles:", error);
+            return [] as Profile[];
+          }
+          return (data as Profile[] | null) ?? [];
+        },
+      ).catch(() => [] as Profile[]);
       if (cancelled) return;
-      setContacts((c.data ?? []) as Contact[]);
-      setProfiles((p.data ?? []) as Profile[]);
+      setProfiles(data);
     })();
     return () => {
       cancelled = true;
@@ -271,18 +303,14 @@ export function DealForm({
 
             <div className="grid gap-2">
               <Label className="text-muted-foreground">{t("contact")}</Label>
-              <select
-                value={contactId}
-                onChange={(e) => setContactId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="">{t("selectContact")}</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name || c.phone}
-                  </option>
-                ))}
-              </select>
+              <ContactPicker
+                selected={selectedContact}
+                onChange={(c) => {
+                  setSelectedContact(c);
+                  setContactId(c?.id ?? "");
+                }}
+                placeholder={t("selectContact")}
+              />
 
               {linkedConversation && (
                 <Link
@@ -358,11 +386,15 @@ export function DealForm({
                 className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
               >
                 <option value="">{t("unassigned")}</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name || p.email}
-                  </option>
-                ))}
+                {/* Deactivated members (migration 069) aren't offered,
+                    except the one this deal already names. */}
+                {profiles
+                  .filter((p) => !p.deactivated_at || p.id === assignedTo)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name || p.email}
+                    </option>
+                  ))}
               </select>
             </div>
 

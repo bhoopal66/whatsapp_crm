@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/provider'
 import { loadChannels, primaryChannel } from '@/lib/whatsapp/channels'
+import { mediaResponseHeaders } from '@/lib/whatsapp/media-headers'
 
 export async function GET(
   request: Request,
@@ -48,6 +49,24 @@ export async function GET(
       )
     }
 
+    // Only media a message the caller can SEE points at. RLS on
+    // `messages` (042–044/060–062) decides; without this any member —
+    // a viewer, an agent confined to their own chats — could pull any
+    // attachment through the account's gateway tokens by guessing or
+    // replaying an id. The LIKE repeats the partial index's predicate
+    // (migration 062) so the lookup is an index probe, not a scan.
+    const proxyPath = `/api/whatsapp/media/${mediaId}`
+    const { data: owningMessage } = await supabase
+      .from('messages')
+      .select('id, channel_id, provider')
+      .eq('media_url', proxyPath)
+      .like('media_url', '/api/whatsapp/media/%')
+      .limit(1)
+      .maybeSingle()
+    if (!owningMessage) {
+      return NextResponse.json({ error: 'Media not found' }, { status: 404 })
+    }
+
     const channels = await loadChannels(supabase, accountId)
     if (channels.length === 0) {
       return NextResponse.json(
@@ -57,14 +76,18 @@ export async function GET(
     }
 
     // A media id is opaque and belongs to whichever gateway issued it,
-    // and nothing in the URL says which. With at most two connected
+    // and nothing in the URL says which. With a handful of connected
     // channels, trying each (primary first) is simpler and more robust
     // than threading a provider through every caller — and in the
     // common single-channel case it is exactly one attempt.
-    const ordered = [
-      primaryChannel(channels)!,
-      ...channels.filter((c) => c.id !== primaryChannel(channels)!.id),
-    ]
+    //
+    // The message says which number carried it (060+), so that one is
+    // tried first — usually the only attempt with several numbers.
+    const carrier = owningMessage.channel_id
+      ? channels.find((c) => c.id === owningMessage.channel_id)
+      : undefined
+    const first = carrier ?? primaryChannel(channels)!
+    const ordered = [first, ...channels.filter((c) => c.id !== first.id)]
 
     let resolved: { buffer: Buffer; contentType: string; mimeType: string } | null =
       null
@@ -92,10 +115,7 @@ export async function GET(
 
     return new Response(new Uint8Array(buffer), {
       status: 200,
-      headers: {
-        'Content-Type': contentType || mimeType || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400',
-      },
+      headers: mediaResponseHeaders(contentType || mimeType),
     })
   } catch (error) {
     console.error('Error in WhatsApp media GET:', error)

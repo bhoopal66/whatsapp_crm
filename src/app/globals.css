@@ -1,6 +1,6 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -48,6 +48,36 @@
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-soft-2: var(--primary-soft-2);
+  /* The inbox's WhatsApp palette (see "INBOX" below): bg-wa-panel,
+   * text-wa-text-secondary, bg-wa-bubble-out, … */
+  --color-wa-panel: var(--wa-panel);
+  --color-wa-panel-header: var(--wa-panel-header);
+  --color-wa-row-hover: var(--wa-row-hover);
+  --color-wa-row-active: var(--wa-row-active);
+  --color-wa-divider: var(--wa-divider);
+  --color-wa-search: var(--wa-search);
+  --color-wa-input: var(--wa-input);
+  --color-wa-text: var(--wa-text);
+  --color-wa-text-secondary: var(--wa-text-secondary);
+  --color-wa-icon: var(--wa-icon);
+  --color-wa-icon-hover: var(--wa-icon-hover);
+  --color-wa-bubble-in: var(--wa-bubble-in);
+  --color-wa-bubble-out: var(--wa-bubble-out);
+  --color-wa-meta: var(--wa-meta);
+  --color-wa-quote: var(--wa-quote);
+  --color-wa-quote-bar: var(--wa-quote-bar);
+  --color-wa-tick-read: var(--wa-tick-read);
+  --color-wa-date-chip: var(--wa-date-chip);
+  --color-wa-date-chip-fg: var(--wa-date-chip-fg);
+  --color-wa-unread-band: var(--wa-unread-band);
+  --color-wa-green: var(--wa-green);
+  --color-wa-green-fg: var(--wa-green-fg);
+  --color-wa-teal: var(--wa-teal);
+  --color-wa-chip-active: var(--wa-chip-active);
+  --color-wa-avatar: var(--wa-avatar);
+  --color-wa-avatar-fg: var(--wa-avatar-fg);
+  --color-wa-section-gap: var(--wa-section-gap);
+  --color-wa-warning: var(--wa-warning);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -87,7 +117,7 @@
 /* ---- MODE: neutral surfaces ---- */
 
 :root,
-html[data-mode="dark"] {
+html[data-mode='dark'] {
   --background: oklch(0.13 0.01 260);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.18 0.01 260);
@@ -116,7 +146,7 @@ html[data-mode="dark"] {
   --sidebar-border: oklch(0.28 0.01 260);
 }
 
-html[data-mode="light"] {
+html[data-mode='light'] {
   --background: oklch(0.99 0.002 260);
   --foreground: oklch(0.21 0.01 260);
   --card: oklch(1 0 0);
@@ -145,10 +175,101 @@ html[data-mode="light"] {
   --sidebar-border: oklch(0.922 0.004 260);
 }
 
+/* ---- INBOX: WhatsApp surfaces ----
+ *
+ * The inbox borrows WhatsApp Web's own palette, so agents read it the
+ * way they already read WhatsApp: green bubbles for what we sent,
+ * a green badge and timestamp for an unread chat, hairline dividers
+ * between chats. Mode-scoped like the neutral tokens above, and
+ * deliberately independent of the accent: an unread marker that turns
+ * violet or amber with the theme is the confusion this replaces.
+ *
+ * Use these through Tailwind (bg-wa-*, text-wa-*), not `dark:` — that
+ * variant keys on a `.dark` class this app never sets.
+ */
+
+:root,
+html[data-mode='dark'] {
+  --wa-panel: #111b21;
+  --wa-panel-header: #202c33;
+  --wa-chat: #0b141a;
+  /* Laid over the doodle tile to soften it to WhatsApp's strength. */
+  --wa-chat-veil: rgb(11 20 26 / 0.45);
+  --wa-row-hover: #202c33;
+  --wa-row-active: #2a3942;
+  --wa-divider: #222d34;
+  --wa-search: #202c33;
+  --wa-input: #2a3942;
+  --wa-text: #e9edef;
+  --wa-text-secondary: #8696a0;
+  --wa-icon: #aebac1;
+  --wa-icon-hover: rgb(255 255 255 / 0.08);
+  --wa-bubble-in: #202c33;
+  --wa-bubble-out: #005c4b;
+  --wa-meta: rgb(233 237 239 / 0.6);
+  --wa-quote: rgb(0 0 0 / 0.22);
+  --wa-quote-bar: #06cf9c;
+  --wa-tick-read: #53bdeb;
+  --wa-date-chip: #182229;
+  --wa-date-chip-fg: #8696a0;
+  --wa-unread-band: rgb(17 27 33 / 0.6);
+  --wa-green: #00a884;
+  --wa-green-fg: #111b21;
+  --wa-teal: #00a884;
+  --wa-chip-active: #103529;
+  --wa-avatar: #6a7175;
+  --wa-avatar-fg: #e9edef;
+  --wa-section-gap: #0c1317;
+  --wa-warning: #fbbf24;
+}
+
+html[data-mode='light'] {
+  --wa-panel: #ffffff;
+  --wa-panel-header: #f0f2f5;
+  --wa-chat: #efeae2;
+  --wa-chat-veil: rgb(239 234 226 / 0.55);
+  --wa-row-hover: #f5f6f6;
+  --wa-row-active: #f0f2f5;
+  --wa-divider: #e9edef;
+  --wa-search: #f0f2f5;
+  --wa-input: #ffffff;
+  --wa-text: #111b21;
+  --wa-text-secondary: #667781;
+  --wa-icon: #54656f;
+  --wa-icon-hover: rgb(11 20 26 / 0.06);
+  --wa-bubble-in: #ffffff;
+  --wa-bubble-out: #d9fdd3;
+  --wa-meta: #667781;
+  --wa-quote: rgb(11 20 26 / 0.05);
+  --wa-quote-bar: #06cf9c;
+  --wa-tick-read: #53bdeb;
+  --wa-date-chip: #ffffff;
+  --wa-date-chip-fg: #54656f;
+  --wa-unread-band: rgb(255 255 255 / 0.45);
+  --wa-green: #1daa61;
+  --wa-green-fg: #ffffff;
+  --wa-teal: #008069;
+  --wa-chip-active: #d9fdd3;
+  --wa-avatar: #dfe5e7;
+  --wa-avatar-fg: #54656f;
+  --wa-section-gap: #f0f2f5;
+  --wa-warning: #b45309;
+}
+
+/* The chat wallpaper: WhatsApp's beige / near-black with the doodle
+ * tile, softened by the veil layered on top of it. */
+@utility wa-wallpaper {
+  background-color: var(--wa-chat);
+  background-image:
+    linear-gradient(var(--wa-chat-veil), var(--wa-chat-veil)),
+    url('/inbox-doodle.svg');
+  background-repeat: repeat;
+}
+
 /* ---- ACCENT: primary color ---- */
 
 :root,
-html[data-theme="violet"] {
+html[data-theme='violet'] {
   --primary: oklch(0.526 0.247 293);
   --primary-foreground: oklch(0.985 0 0);
   --primary-hover: oklch(0.6 0.22 293);
@@ -161,7 +282,7 @@ html[data-theme="violet"] {
   --sidebar-ring: oklch(0.526 0.247 293);
 }
 
-html[data-theme="emerald"] {
+html[data-theme='emerald'] {
   --primary: oklch(0.62 0.16 162);
   --primary-foreground: oklch(0.16 0.02 162);
   --primary-hover: oklch(0.68 0.15 162);
@@ -175,7 +296,7 @@ html[data-theme="emerald"] {
   --sidebar-ring: oklch(0.62 0.16 162);
 }
 
-html[data-theme="cobalt"] {
+html[data-theme='cobalt'] {
   --primary: oklch(0.585 0.2 254);
   --primary-foreground: oklch(0.985 0 0);
   --primary-hover: oklch(0.66 0.18 254);
@@ -189,7 +310,7 @@ html[data-theme="cobalt"] {
   --sidebar-ring: oklch(0.585 0.2 254);
 }
 
-html[data-theme="amber"] {
+html[data-theme='amber'] {
   --primary: oklch(0.745 0.16 65);
   --primary-foreground: oklch(0.18 0.03 65);
   --primary-hover: oklch(0.8 0.15 65);
@@ -203,7 +324,7 @@ html[data-theme="amber"] {
   --sidebar-ring: oklch(0.745 0.16 65);
 }
 
-html[data-theme="rose"] {
+html[data-theme='rose'] {
   --primary: oklch(0.645 0.22 16);
   --primary-foreground: oklch(0.985 0 0);
   --primary-hover: oklch(0.71 0.2 16);

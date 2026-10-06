@@ -2,8 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, CheckCircle2, Trash2, Eye, EyeOff } from 'lucide-react';
+import {
+  Loader2,
+  Sparkles,
+  CheckCircle2,
+  Trash2,
+  Eye,
+  EyeOff,
+  ShieldAlert,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { AI_AUTO_REPLY_LIVE_CACHE_PREFIX } from '@/hooks/use-ai-auto-reply-live';
+import { invalidateCached } from '@/lib/client-cache';
 import { canEditSettings } from '@/lib/auth/roles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +36,7 @@ import {
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
 import { AiKnowledgeCard } from './ai-knowledge';
+import { AiKnowledgeGapsCard } from './ai-knowledge-gaps';
 import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
@@ -71,9 +82,16 @@ export function AiConfig() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
+  const [autoReplyCampaignOnly, setAutoReplyCampaignOnly] = useState(false);
   const [maxPerConversation, setMaxPerConversation] = useState(3);
   // Empty string = leave unassigned (shared queue).
   const [handoffAgentId, setHandoffAgentId] = useState('');
+  // Gates (migration 052). Keywords are edited as one-per-line text;
+  // the threshold as a string so the field can be cleared to "off".
+  const [escalationKeywords, setEscalationKeywords] = useState('');
+  const [retrievalMinScore, setRetrievalMinScore] = useState('');
+  const [strictGrounding, setStrictGrounding] = useState(false);
+  const [handoffMessage, setHandoffMessage] = useState('');
   const [members, setMembers] = useState<AccountMember[]>([]);
 
   // Guard keyed on the account (not a bare boolean) so an in-place
@@ -98,8 +116,21 @@ export function AiConfig() {
         setSystemPrompt(data.system_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
+        setAutoReplyCampaignOnly(data.auto_reply_campaign_only === true);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
+        setEscalationKeywords(
+          Array.isArray(data.escalation_keywords)
+            ? data.escalation_keywords.join('\n')
+            : ''
+        );
+        setRetrievalMinScore(
+          typeof data.retrieval_min_score === 'number'
+            ? String(data.retrieval_min_score)
+            : ''
+        );
+        setStrictGrounding(data.strict_grounding === true);
+        setHandoffMessage(data.handoff_message ?? '');
         setHasStoredKey(Boolean(data.has_key));
         setApiKey(data.has_key ? MASKED_KEY : '');
         setKeyEdited(false);
@@ -149,8 +180,14 @@ export function AiConfig() {
     system_prompt: systemPrompt.trim() || null,
     is_active: isActive,
     auto_reply_enabled: autoReplyEnabled,
+    auto_reply_campaign_only: autoReplyCampaignOnly,
     auto_reply_max_per_conversation: maxPerConversation,
     handoff_agent_id: handoffAgentId || null,
+    escalation_keywords: escalationKeywords,
+    retrieval_min_score:
+      retrievalMinScore.trim() === '' ? null : Number(retrievalMinScore),
+    strict_grounding: strictGrounding,
+    handoff_message: handoffMessage.trim() || null,
   });
 
   const handleTest = async () => {
@@ -180,6 +217,13 @@ export function AiConfig() {
       toast.error(t('missingModel'));
       return;
     }
+    if (retrievalMinScore.trim() !== '') {
+      const n = Number(retrievalMinScore);
+      if (!Number.isFinite(n) || n < 0 || n > 1) {
+        toast.error(t('invalidThreshold'));
+        return;
+      }
+    }
     if (!configured && !keyEdited) {
       toast.error(t('missingApiKey'));
       return;
@@ -194,6 +238,8 @@ export function AiConfig() {
       const data = await res.json();
       if (res.ok) {
         toast.success(t('saveSuccess'));
+        // The bot's switch decides which list campaign chats are in.
+        invalidateCached(AI_AUTO_REPLY_LIVE_CACHE_PREFIX);
         await fetchConfig();
       } else {
         toast.error(data.error ?? t('saveFailed'));
@@ -211,6 +257,7 @@ export function AiConfig() {
       const res = await fetch('/api/ai/config', { method: 'DELETE' });
       if (res.ok) {
         toast.success(t('removeSuccess'));
+        invalidateCached(AI_AUTO_REPLY_LIVE_CACHE_PREFIX);
         setConfigured(false);
         setHasStoredKey(false);
         setApiKey('');
@@ -219,6 +266,10 @@ export function AiConfig() {
         setAutoReplyEnabled(false);
         setSystemPrompt('');
         setHandoffAgentId('');
+        setEscalationKeywords('');
+        setRetrievalMinScore('');
+        setStrictGrounding(false);
+        setHandoffMessage('');
       } else {
         const data = await res.json();
         toast.error(data.error ?? t('removeFailed'));
@@ -232,8 +283,9 @@ export function AiConfig() {
 
   if (loading || profileLoading) {
     return (
-      <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loadFailed')} {/* Re-using label or a global one, wait, loading is better. Let's use useTranslations from overview or just hardcode Loading... actually I should add loading to aiConfig */}
+      <div className="text-muted-foreground flex items-center justify-center py-16">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('loadFailed')}{' '}
+        {/* Re-using label or a global one, wait, loading is better. Let's use useTranslations from overview or just hardcode Loading... actually I should add loading to aiConfig */}
         {/* Wait, I didn't add loading to aiConfig. I'll just use loading. */}
       </div>
     );
@@ -243,13 +295,10 @@ export function AiConfig() {
 
   return (
     <div>
-      <SettingsPanelHead
-        title={t('title')}
-        description={t('description')}
-      />
+      <SettingsPanelHead title={t('title')} description={t('description')} />
 
       {!canEdit && (
-        <p className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+        <p className="border-border bg-muted/40 text-muted-foreground mb-4 rounded-md border px-3 py-2 text-sm">
           {t('adminOnlyConfig')}
         </p>
       )}
@@ -258,11 +307,10 @@ export function AiConfig() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-primary" /> {t('providerAndKey')}
+              <Sparkles className="text-primary h-4 w-4" />{' '}
+              {t('providerAndKey')}
             </CardTitle>
-            <CardDescription>
-              {t('encryptionNotice')}
-            </CardDescription>
+            <CardDescription>{t('encryptionNotice')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -277,7 +325,9 @@ export function AiConfig() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="openai">{PROVIDER_LABEL.openai}</SelectItem>
+                    <SelectItem value="openai">
+                      {PROVIDER_LABEL.openai}
+                    </SelectItem>
                     <SelectItem value="anthropic">
                       {PROVIDER_LABEL.anthropic}
                     </SelectItem>
@@ -322,7 +372,7 @@ export function AiConfig() {
                   <button
                     type="button"
                     onClick={() => setShowKey((s) => !s)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
                     tabIndex={-1}
                   >
                     {showKey ? (
@@ -350,7 +400,7 @@ export function AiConfig() {
             <div className="space-y-2">
               <Label htmlFor="ai-embeddings-key">
                 {t('embeddingsKey')}{' '}
-                <span className="font-normal text-muted-foreground">
+                <span className="text-muted-foreground font-normal">
                   {t('optionalSemanticSearch')}
                 </span>
               </Label>
@@ -372,7 +422,7 @@ export function AiConfig() {
                 disabled={disabled}
                 autoComplete="off"
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {t('embeddingsHint', {
                   sameKeyText: provider === 'openai' ? t('sameKeyText') : '',
                 })}
@@ -384,9 +434,7 @@ export function AiConfig() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('behaviour')}</CardTitle>
-            <CardDescription>
-              {t('behaviourDesc')}
-            </CardDescription>
+            <CardDescription>{t('behaviourDesc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -401,12 +449,12 @@ export function AiConfig() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
               <div>
-                <p className="text-sm font-medium text-foreground">
+                <p className="text-foreground text-sm font-medium">
                   {t('enableAssistant')}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   {t('enableAssistantDesc')}
                 </p>
               </div>
@@ -417,12 +465,12 @@ export function AiConfig() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
               <div>
-                <p className="text-sm font-medium text-foreground">
+                <p className="text-foreground text-sm font-medium">
                   {t('autoReply')}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   {t('autoReplyDesc')}
                 </p>
               </div>
@@ -433,10 +481,26 @@ export function AiConfig() {
               />
             </div>
 
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('campaignOnly')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('campaignOnlyDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={autoReplyCampaignOnly}
+                onCheckedChange={setAutoReplyCampaignOnly}
+                disabled={disabled || !autoReplyEnabled}
+              />
+            </div>
+
             <div className="flex items-center justify-between gap-4">
               <div>
                 <Label htmlFor="ai-max">{t('maxAutoReplies')}</Label>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-muted-foreground text-xs">
                   {t('maxAutoRepliesDesc')}
                 </p>
               </div>
@@ -448,7 +512,7 @@ export function AiConfig() {
                 value={maxPerConversation}
                 onChange={(e) =>
                   setMaxPerConversation(
-                    Math.min(20, Math.max(1, Number(e.target.value) || 1)),
+                    Math.min(20, Math.max(1, Number(e.target.value) || 1))
                   )
                 }
                 disabled={disabled || !autoReplyEnabled}
@@ -458,7 +522,7 @@ export function AiConfig() {
 
             <div className="space-y-2">
               <Label htmlFor="ai-handoff">{t('handoffTo')}</Label>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 {t('handoffToDesc')}
               </p>
               <Select
@@ -475,13 +539,95 @@ export function AiConfig() {
                   <SelectItem value={HANDOFF_QUEUE}>
                     {t('handoffQueue')}
                   </SelectItem>
-                  {members.map((m) => (
-                    <SelectItem key={m.user_id} value={m.user_id}>
-                      {memberLabel(m)}
-                    </SelectItem>
-                  ))}
+                  {/* Deactivated members (migration 069) can't take a
+                      hand-off — except one already saved here. */}
+                  {members
+                    .filter((m) => !m.deactivated_at || m.user_id === handoffAgentId)
+                    .map((m) => (
+                      <SelectItem key={m.user_id} value={m.user_id}>
+                        {memberLabel(m)}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="text-primary h-4 w-4" /> {t('gatesTitle')}
+            </CardTitle>
+            <CardDescription>{t('gatesDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="ai-escalation">{t('escalationKeywords')}</Label>
+              <p className="text-muted-foreground text-xs">
+                {t('escalationKeywordsDesc')}
+              </p>
+              <Textarea
+                id="ai-escalation"
+                value={escalationKeywords}
+                onChange={(e) => setEscalationKeywords(e.target.value)}
+                placeholder={t('escalationKeywordsPlaceholder')}
+                rows={4}
+                disabled={disabled || !autoReplyEnabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="ai-threshold">{t('retrievalThreshold')}</Label>
+                <p className="text-muted-foreground text-xs">
+                  {t('retrievalThresholdDesc')}
+                </p>
+              </div>
+              <Input
+                id="ai-threshold"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={retrievalMinScore}
+                onChange={(e) => setRetrievalMinScore(e.target.value)}
+                placeholder={t('retrievalThresholdOff')}
+                disabled={disabled || !autoReplyEnabled}
+                className="w-24"
+              />
+            </div>
+
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('strictGrounding')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('strictGroundingDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={strictGrounding}
+                onCheckedChange={setStrictGrounding}
+                disabled={disabled || !isActive}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ai-handoff-message">{t('handoffMessage')}</Label>
+              <p className="text-muted-foreground text-xs">
+                {t('handoffMessageDesc')}
+              </p>
+              <Textarea
+                id="ai-handoff-message"
+                value={handoffMessage}
+                onChange={(e) => setHandoffMessage(e.target.value)}
+                placeholder={t('handoffMessagePlaceholder')}
+                rows={3}
+                maxLength={1000}
+                disabled={disabled || !autoReplyEnabled}
+              />
             </div>
           </CardContent>
         </Card>
@@ -495,6 +641,8 @@ export function AiConfig() {
               : hasStoredEmbeddingsKey
           }
         />
+
+        <AiKnowledgeGapsCard accountId={accountId} canEdit={canEdit} />
 
         <div className="flex items-center justify-between">
           {configured ? (

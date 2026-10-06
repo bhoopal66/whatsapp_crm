@@ -40,6 +40,13 @@
  *    button is actually pressed. Both collapse to one reply id here.
  */
 
+import {
+  metaContactToShared,
+  contactCardsText,
+  type MetaContactPayload,
+  type SharedContact,
+} from './contact-card';
+import { isTemplateWebhookField } from './template-webhook';
 import type {
   NormalizedInboundMessage,
   NormalizedMedia,
@@ -83,7 +90,7 @@ interface RawMetaMessage {
     address?: string;
   };
 
-  contacts?: Array<{ name?: { formatted_name?: string } }>;
+  contacts?: MetaContactPayload[];
 
   reaction?: { message_id?: string; emoji?: string };
 
@@ -101,19 +108,52 @@ interface RawMetaMessage {
    */
   button?: { payload?: string; text?: string };
 
-  /** Quoted (swipe-reply) parent, or the message a button belongs to. */
-  context?: { id?: string; from?: string };
+  /**
+   * Quoted (swipe-reply) parent, or the message a button belongs to.
+   * A forwarded message carries only the two flags and no `id`.
+   */
+  context?: {
+    id?: string;
+    from?: string;
+    forwarded?: boolean;
+    frequently_forwarded?: boolean;
+  };
 
   /** Present on a type Meta could not deliver to us. */
   errors?: Array<{ code?: number; title?: string; message?: string }>;
 }
 
-interface RawMetaStatus {
+/**
+ * A delivery receipt. Exported (unlike the other raw shapes) because
+ * the cost ledger takes the object verbatim: `pricing` is what Meta
+ * bills on, and it is deliberately NOT lifted into `NormalizedStatus`
+ * — Whapi callbacks carry nothing like it, and the neutral shape is
+ * meant to stay provider-blind.
+ */
+export interface RawMetaStatus {
   id?: string;
   status?: string;
   timestamp?: number | string;
   recipient_id?: string;
-  errors?: Array<{ code?: number; title?: string }>;
+  errors?: Array<{
+    code?: number;
+    title?: string;
+    message?: string;
+    error_data?: { details?: string };
+  }>;
+  /** Per-message pricing (PMP), present on `sent`/`delivered`. */
+  pricing?: {
+    billable?: boolean;
+    pricing_model?: string;
+    category?: string;
+    type?: string;
+  };
+  /** The pre-PMP conversation envelope; still sent by older API versions. */
+  conversation?: {
+    id?: string;
+    origin?: { type?: string };
+    expiration_timestamp?: string;
+  };
 }
 
 interface RawMetaContact {
@@ -263,6 +303,13 @@ export function normalizeMetaMessage(
   const interactiveReplyTitle =
     buttonReply?.title ?? listReply?.title ?? templateButton?.text ?? null;
 
+  const sharedContacts =
+    raw.type === 'contacts' && raw.contacts?.length
+      ? raw.contacts
+          .map(metaContactToShared)
+          .filter((c): c is SharedContact => c !== null)
+      : null;
+
   // Body text, or a media caption, or the label of whatever was tapped
   // — the same precedence the Whapi normaliser uses, so a flow reading
   // `text` behaves identically on both providers.
@@ -272,7 +319,7 @@ export function normalizeMetaMessage(
     raw.text?.body ??
     captionSource?.caption ??
     interactiveReplyTitle ??
-    raw.contacts?.[0]?.name?.formatted_name ??
+    (sharedContacts ? contactCardsText(sharedContacts) : null) ??
     null;
 
   const profileName = contacts.find((c) => digitsOnly(c.wa_id) === from)
@@ -298,6 +345,7 @@ export function normalizeMetaMessage(
           address: raw.location.address,
         }
       : null,
+    contacts: sharedContacts && sharedContacts.length ? sharedContacts : null,
     reaction:
       type === 'reaction' && raw.reaction?.message_id
         ? {
@@ -311,6 +359,9 @@ export function normalizeMetaMessage(
     // A template-button tap carries `context.id` pointing at the
     // template message; that is a quote for our purposes too.
     contextMessageId: raw.context?.id ?? null,
+    forwarded:
+      raw.context?.forwarded === true ||
+      raw.context?.frequently_forwarded === true,
     // The Cloud API never echoes our own sends back as inbound, and has
     // no group messaging — both filters the Whapi normaliser needs are
     // structurally unnecessary here.
@@ -326,12 +377,25 @@ export function normalizeMetaStatus(
   const status = toStatusValue(raw.status);
   if (!messageId || !status) return null;
 
-  return {
+  const normalized: NormalizedStatus = {
     messageId,
     status,
     recipientPhone: digitsOnly(raw.recipient_id),
     timestamp: normalizeTimestamp(raw.timestamp),
   };
+
+  // Only the first error: Meta sends one in practice, and the reason a
+  // recipient failed is one line in the UI, not a list.
+  const first = raw.errors?.[0];
+  if (first) {
+    const error: NonNullable<NormalizedStatus['error']> = {};
+    if (typeof first.code === 'number') error.code = first.code;
+    if (first.title) error.title = first.title;
+    if (first.error_data?.details) error.details = first.error_data.details;
+    if (Object.keys(error).length > 0) normalized.error = error;
+  }
+
+  return normalized;
 }
 
 // ============================================================
@@ -353,7 +417,11 @@ export function normalizeMetaStatus(
  * it safe.
  */
 export function normalizeMetaWebhook(
-  payload: RawMetaWebhookPayload
+  payload: RawMetaWebhookPayload,
+  // Keep only the changes for this number. Meta may batch several
+  // numbers into one POST, and each belongs to its own account and must
+  // be filed under its own channel — see `metaPhoneNumberIds`.
+  onlyPhoneNumberId?: string
 ): NormalizedWebhook {
   const messages: NormalizedInboundMessage[] = [];
   const statuses: NormalizedStatus[] = [];
@@ -364,6 +432,12 @@ export function normalizeMetaWebhook(
       if (change.field && change.field !== 'messages') continue;
       const value = change.value;
       if (!value) continue;
+      if (
+        onlyPhoneNumberId &&
+        value.metadata?.phone_number_id !== onlyPhoneNumberId
+      ) {
+        continue;
+      }
 
       if (!channelId && value.metadata?.phone_number_id) {
         channelId = value.metadata.phone_number_id;
@@ -397,15 +471,104 @@ export function normalizeMetaWebhook(
 }
 
 /**
- * Does this payload carry template review results rather than messages?
- * Those go to `template-webhook.ts`, which updates `message_templates`.
+ * Every raw `statuses[]` object in the callback, paired with the number
+ * it belongs to — the input the Meta cost ledger wants (migration 051).
+ *
+ * Separate from `normalizeMetaWebhook` on purpose: that flattens onto
+ * the provider-neutral shape and drops `pricing` with it, while the
+ * ledger function is written against Meta's own object. Statuses the
+ * normaliser discards (`deleted`, `warning`) are kept here — the
+ * ledger records them uncosted, which is what makes a receipt visible
+ * next to the send it belongs to.
  */
-export function isTemplateStatusPayload(
+export function collectMetaStatuses(
+  payload: RawMetaWebhookPayload
+): Array<{ phoneNumberId: string; status: RawMetaStatus }> {
+  const out: Array<{ phoneNumberId: string; status: RawMetaStatus }> = [];
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field && change.field !== 'messages') continue;
+      const value = change.value;
+      const phoneNumberId = value?.metadata?.phone_number_id;
+      if (!value || !phoneNumberId) continue;
+      for (const status of value.statuses ?? []) {
+        if (!status?.id || !status.status) continue;
+        out.push({ phoneNumberId, status });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Does this payload carry template lifecycle events? Those go to
+ * `template-webhook.ts`, which updates `message_templates`. The same
+ * POST can carry `messages` changes too, and the route processes both.
+ *
+ * Any field that handler accepts, not only status updates: a
+ * quality-only or components-only callback used to fall through to the
+ * phone-number path, find no `phone_number_id`, and be dropped — so no
+ * template ever got a quality score.
+ */
+export function isTemplateWebhookPayload(
   payload: RawMetaWebhookPayload
 ): boolean {
   return (payload.entry ?? []).some((entry) =>
     (entry.changes ?? []).some(
-      (change) => change.field === 'message_template_status_update'
+      (change) => !!change.field && isTemplateWebhookField(change.field)
     )
   );
+}
+
+/**
+ * Every distinct `metadata.phone_number_id` in a messages callback, in
+ * order of appearance. One POST can batch several numbers; the webhook
+ * route resolves, authenticates and processes each on its own, so one
+ * number's messages are never filed under another's account or channel.
+ *
+ * Strings only. Meta always sends one, but this runs on a body whose
+ * signature has not been checked yet, and a forged number or object here
+ * used to reach the drop tally's string handling and throw — a 500 and
+ * a stack trace per unauthenticated POST.
+ */
+export function metaPhoneNumberIds(payload: RawMetaWebhookPayload): string[] {
+  const ids: string[] = [];
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field && change.field !== 'messages') continue;
+      const id: unknown = change.value?.metadata?.phone_number_id;
+      if (typeof id === 'string' && id && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Whether a parsed body has the shape every walk over it assumes: an
+ * object whose `entry`, if present, is an array of objects, each with
+ * an `id` that is not an object and a `changes` array of objects.
+ * Meta's own callbacks always have it. The route checks it before
+ * anything reads the body, because that happens before the signature
+ * is checked: `null`, `{"entry":5}`, `{"entry":[null]}` or an `id` of
+ * `{"toString":null}` otherwise threw on the first read — an
+ * unauthenticated 500 and a stack trace in the log per POST.
+ */
+export function isMetaWebhookShape(
+  payload: unknown
+): payload is RawMetaWebhookPayload {
+  if (!isPlainObject(payload)) return false;
+  const { entry } = payload;
+  if (entry === undefined) return true;
+  if (!Array.isArray(entry)) return false;
+  return entry.every((item: unknown) => {
+    if (!isPlainObject(item)) return false;
+    const { id, changes } = item;
+    if (typeof id === 'object' && id !== null) return false;
+    if (changes === undefined) return true;
+    return Array.isArray(changes) && changes.every(isPlainObject);
+  });
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

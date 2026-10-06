@@ -58,7 +58,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
-    const config = await loadAiConfig(supabase, accountId).catch((err) => {
+    // Service-role read, scoped by the account requireRole resolved:
+    // ai_configs holds the encrypted provider key, so its RLS is
+    // admin-only (migration 057) and an agent's own client sees no row.
+    const config = await loadAiConfig(supabaseAdmin(), accountId).catch((err) => {
       // Decrypt failure — surface distinctly from "not configured".
       console.error('[ai/draft] loadAiConfig error:', err)
       throw new AiError('Stored API key could not be decrypted.', {

@@ -72,7 +72,7 @@ export interface BuilderNode {
 // the picker stays scannable as the type list grows, and so a fork
 // adding its own node types has an obvious place to slot them.
 //
-// Note there's no "Events / Triggers" category: in wacrm a flow is
+// Note there's no "Events / Triggers" category: in Taamul Connect a flow is
 // triggered by flow-level config (`trigger_type`), not by a node on
 // the canvas, so `start` is just the entry point under Flow control.
 // ------------------------------------------------------------

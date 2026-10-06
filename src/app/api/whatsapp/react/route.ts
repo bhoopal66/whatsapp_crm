@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { sendReaction, describeSendFailure } from '@/lib/whatsapp/provider';
-import { resolveReplyChannel, ChannelError } from '@/lib/whatsapp/channels';
+import {
+  ChannelError,
+  isWhatsAppProvider,
+  loadChannels,
+  pickByProvider,
+  resolveReplyChannel,
+} from '@/lib/whatsapp/channels';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -47,7 +53,7 @@ export async function POST(request: Request) {
     // Resolve target message + its conversation; verify ownership.
     const { data: targetMessage, error: msgError } = await supabase
       .from('messages')
-      .select('id, message_id, conversation_id')
+      .select('id, message_id, conversation_id, provider, channel_id')
       .eq('id', message_id)
       .maybeSingle();
 
@@ -66,7 +72,7 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, contact:contacts(phone)')
+      .select('id, account_id, channel_id, contact:contacts(phone)')
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -88,16 +94,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // React on whichever number this conversation is happening on
-    // (migration 046) — a reaction has to reach the same chat, so it
-    // follows the customer exactly as a reply does.
+    // React through the number that CARRIED the message being reacted
+    // to. A WhatsApp message id only exists on the gateway that sent or
+    // received it — reacting through another number (the customer has
+    // since written to a second one, or an agent pinned the chat, 061)
+    // is refused. Exact number first (060+), then the provider of an
+    // older row, and only for a row that records neither, the number
+    // the customer is on now.
     let channel;
     try {
-      channel = await resolveReplyChannel(
-        supabase,
-        accountId,
-        targetMessage.conversation_id,
-      );
+      const channels = await loadChannels(supabase, accountId);
+      channel =
+        (targetMessage.channel_id
+          ? channels.find((c) => c.id === targetMessage.channel_id)
+          : undefined) ??
+        (isWhatsAppProvider(targetMessage.provider)
+          ? pickByProvider(channels, targetMessage.provider, [
+              conversation.channel_id as string | null,
+            ])
+          : null) ??
+        (await resolveReplyChannel(
+          supabase,
+          accountId,
+          targetMessage.conversation_id,
+        ));
     } catch (err) {
       if (err instanceof ChannelError) {
         return NextResponse.json({ error: err.message }, { status: err.status });

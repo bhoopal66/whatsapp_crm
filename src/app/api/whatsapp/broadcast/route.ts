@@ -3,6 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { sendTemplate, describeSendFailure } from '@/lib/whatsapp/provider'
 import { resolveChannelForSurface, ChannelError } from '@/lib/whatsapp/channels'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
+import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -60,6 +61,19 @@ interface NewRecipient {
   messageParams?: { headerMediaUrl?: string }
 }
 
+/** See the bound in POST. */
+const MAX_RECIPIENTS_PER_CALL = 100
+
+/**
+ * The server log is readable well beyond the people allowed to see
+ * customer numbers, and one failed batch once wrote 98 full numbers to
+ * it. The last four digits are enough to match a line to a recipient.
+ */
+function maskPhone(phone: unknown): string {
+  const digits = typeof phone === 'string' ? phone.replace(/\D/g, '') : ''
+  return digits.length > 4 ? `…${digits.slice(-4)}` : '…'
+}
+
 export async function POST(request: Request) {
   try {
     // Requires the 'agent' role — `canSendMessages` in lib/auth/roles is
@@ -115,6 +129,20 @@ export async function POST(request: Request) {
       )
     }
 
+    // This one-shot route sends inside the request and persists
+    // nothing, so a large list that times out half way leaves no record
+    // and a retry messages the first half twice. It was built for the
+    // wizard's batches of 10; campaigns go through the recorded,
+    // resumable path (broadcast-core / resume / cron). Bound it.
+    if (recipients.length > MAX_RECIPIENTS_PER_CALL) {
+      return NextResponse.json(
+        {
+          error: `At most ${MAX_RECIPIENTS_PER_CALL} recipients per call. Create a broadcast for larger sends.`,
+        },
+        { status: 400 }
+      )
+    }
+
     if (!template_name) {
       return NextResponse.json(
         { error: 'template_name is required' },
@@ -161,6 +189,23 @@ export async function POST(request: Request) {
       )
     }
     const templateRow = resolvedTemplate.row
+
+    // A media header with no media fails every Meta send identically;
+    // refuse the batch once rather than returning N copies of it.
+    if (channel.provider === 'meta') {
+      for (const recipient of recipients) {
+        const problem = headerMediaProblem(
+          templateRow,
+          recipient.messageParams?.headerMediaUrl
+        )
+        if (problem) {
+          return NextResponse.json(
+            { error: problem, code: 'template_media_missing' },
+            { status: 400 }
+          )
+        }
+      }
+    }
 
     const results: BroadcastResult[] = []
     let sentCount = 0
@@ -221,7 +266,7 @@ export async function POST(request: Request) {
         sentCount++
       } else {
         console.error(
-          `Failed to send broadcast to ${recipient.phone}:`,
+          `Failed to send broadcast to ${maskPhone(recipient.phone)}:`,
           lastError
         )
         results.push({

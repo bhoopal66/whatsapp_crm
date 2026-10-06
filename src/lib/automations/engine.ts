@@ -492,6 +492,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           .from('profiles')
           .select('user_id')
           .eq('account_id', args.automation.account_id)
+          .is('deactivated_at', null)
           .limit(1)
         agentId = profiles?.[0]?.user_id
       }
@@ -634,11 +635,33 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
  * fall back to the contact's conversation for resumed/wait paths and
  * manual engine POSTs. Throws if none exists — send steps have
  * no meaningful target without a conversation.
+ *
+ * `context.conversation_id` is NOT trusted as-is: the manual engine
+ * route passes the request body's `context` straight through, and the
+ * send path writes `messages` / `conversations` on the service-role
+ * client keyed only on this id. An unchecked id is a cross-tenant
+ * write, so it is used only after it is confirmed to belong to this
+ * account AND this contact; otherwise we fall back to the lookup below.
  */
-async function resolveConversationId(args: ExecuteArgs): Promise<string> {
-  const fromCtx = args.context.conversation_id
-  if (fromCtx) return fromCtx
+export async function resolveConversationId(
+  args: Pick<ExecuteArgs, 'automation' | 'contactId' | 'context' | 'triggerEvent'>
+): Promise<string> {
   if (!args.contactId) throw new Error('cannot resolve conversation: no contact')
+  const fromCtx = args.context.conversation_id
+  if (typeof fromCtx === 'string' && fromCtx) {
+    const { data: owned } = await supabaseAdmin()
+      .from('conversations')
+      .select('id')
+      .eq('id', fromCtx)
+      .eq('account_id', args.automation.account_id)
+      .eq('contact_id', args.contactId)
+      .maybeSingle()
+    if (owned?.id) return owned.id as string
+    console.warn(
+      '[automations] ignoring context.conversation_id not owned by this account/contact',
+      fromCtx
+    )
+  }
   const { data, error } = await supabaseAdmin()
     .from('conversations')
     .select('id')

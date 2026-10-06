@@ -70,9 +70,14 @@ export async function POST(request: Request) {
         systemPrompt: null,
         isActive: true,
         autoReplyEnabled: false,
+        autoReplyCampaignOnly: false,
         autoReplyMaxPerConversation: 3,
         handoffAgentId: null,
         embeddingsApiKey: null,
+        escalationKeywords: [],
+        retrievalMinScore: null,
+        strictGrounding: false,
+        handoffMessage: null,
       })
     } catch (err) {
       if (err instanceof AiError) {

@@ -72,17 +72,44 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
+  // Protected pages - redirect to login if not authenticated. This is
+  // every route group under src/app/(dashboard) — keep it in step when
+  // a screen is added, or the new screen ships its whole client bundle
+  // to a logged-out visitor before the shell's client-side redirect
+  // fires (/flows, /agents, /notifications and the /team-* pairs were
+  // missing here for months).
+  const protectedPaths = [
+    '/dashboard',
+    '/inbox',
+    '/team-inbox',
+    '/contacts',
+    '/team-contacts',
+    '/team-activity',
+    '/pipelines',
+    '/broadcasts',
+    '/automations',
+    '/flows',
+    '/agents',
+    '/compass',
+    '/notifications',
+    '/settings',
+  ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // API routes that need auth (not webhooks)
+  // API routes that need auth. Some authenticate themselves rather
+  // than through a session: the inbound webhooks (gateway secret /
+  // HMAC), and the broadcast scheduler's and channel health monitor's
+  // cron endpoints (`x-cron-secret`, like /api/automations/cron and
+  // /api/flows/cron, which sit outside this prefix and never hit this
+  // gate).
   if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+      !request.nextUrl.pathname.includes('/webhook') &&
+      request.nextUrl.pathname !== '/api/whatsapp/broadcast/cron' &&
+      request.nextUrl.pathname !== '/api/whatsapp/health/cron') {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )

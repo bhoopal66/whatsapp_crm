@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   API_KEY_PREFIX,
+  LEGACY_API_KEY_PREFIXES,
   generateApiKey,
   hashApiKey,
   looksLikeApiKey,
@@ -35,11 +36,11 @@ describe('generateApiKey', () => {
 
 describe('hashApiKey', () => {
   it('is deterministic', () => {
-    expect(hashApiKey('wacrm_live_abc')).toBe(hashApiKey('wacrm_live_abc'));
+    expect(hashApiKey('taamul_live_abc')).toBe(hashApiKey('taamul_live_abc'));
   });
 
   it('differs for different inputs', () => {
-    expect(hashApiKey('wacrm_live_abc')).not.toBe(hashApiKey('wacrm_live_abd'));
+    expect(hashApiKey('taamul_live_abc')).not.toBe(hashApiKey('taamul_live_abd'));
   });
 });
 
@@ -53,11 +54,27 @@ describe('looksLikeApiKey', () => {
     expect(looksLikeApiKey('')).toBe(false);
     expect(looksLikeApiKey('some-invite-token')).toBe(false);
   });
+
+  it('still accepts keys issued under a pre-rebrand prefix', () => {
+    for (const legacy of LEGACY_API_KEY_PREFIXES) {
+      expect(looksLikeApiKey(`${legacy}abc`)).toBe(true);
+      // The bare legacy prefix is as malformed as the bare current one.
+      expect(looksLikeApiKey(legacy)).toBe(false);
+    }
+  });
+
+  it('mints new keys under the current prefix only', () => {
+    const { plaintext } = generateApiKey();
+    expect(plaintext.startsWith(API_KEY_PREFIX)).toBe(true);
+    for (const legacy of LEGACY_API_KEY_PREFIXES) {
+      expect(plaintext.startsWith(legacy)).toBe(false);
+    }
+  });
 });
 
 describe('timingSafeHexEqual', () => {
   it('is true for identical digests', () => {
-    const h = hashApiKey('wacrm_live_xyz');
+    const h = hashApiKey('taamul_live_xyz');
     expect(timingSafeHexEqual(h, h)).toBe(true);
   });
 

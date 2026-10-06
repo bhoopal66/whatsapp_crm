@@ -4,7 +4,7 @@ import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
 } from '@/lib/flows/channel-send'
-import { resolveChannelForSurface } from '@/lib/whatsapp/channels'
+import { resolveBotChannel } from '@/lib/whatsapp/channels'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -138,8 +138,15 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
   // Which number automations send from (migration 046). This obeys the
   // admin's `automation` route rather than following the conversation:
   // routing automations to the marketing number has to hold even when
-  // the trigger was an inbound message on the other one.
-  const channel = await resolveChannelForSurface(db, input.accountId, 'automation')
+  // the trigger was an inbound message on the other one. Between two
+  // numbers of the same provider it stays on the thread's (migration
+  // 060, see resolveBotChannel).
+  const channel = await resolveBotChannel(
+    db,
+    input.accountId,
+    'automation',
+    input.conversationId,
+  )
 
   // Local template row. Under Whapi this is not merely a bookkeeping
   // lookup when the send goes over Whapi — there the row IS the
@@ -229,6 +236,7 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     status: 'sent',
     // Which number carried it (migration 046).
     provider: channel.provider,
+    channel_id: channel.id,
   })
   if (msgErr) {
     // The gateway already has the message; record the DB error but
@@ -247,6 +255,9 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
       updated_at: new Date().toISOString(),
     })
     .eq('id', input.conversationId)
+    // Defence in depth: the service-role client bypasses RLS, so never
+    // touch a conversation outside the sending account.
+    .eq('account_id', input.accountId)
 
   return { whatsapp_message_id: waMessageId }
 }

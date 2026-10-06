@@ -5,7 +5,7 @@
 --
 -- Before this, the app hardcoded USD everywhere — deal-value
 -- formatters, the new-deal form, and automation-created deals all
--- assumed USD. wacrm is self-hostable and used globally, so a fixed
+-- assumed USD. Taamul Connect is self-hostable and used globally, so a fixed
 -- USD default made deal tracking unhelpful for non-US businesses
 -- (issue #218).
 --

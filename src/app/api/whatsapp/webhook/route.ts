@@ -57,7 +57,7 @@ export async function GET(request: Request) {
         ok: true,
         provider: 'whapi',
         message:
-          'wacrm Whapi webhook endpoint is reachable. Append ?secret=<your webhook secret> to verify a channel.',
+          'Taamul Connect Whapi webhook endpoint is reachable. Append ?secret=<your webhook secret> to verify a channel.',
       },
       { status: 200 },
     )
@@ -136,8 +136,9 @@ export async function POST(request: Request) {
  * Find the `whatsapp_config` row whose webhook secret matches.
  *
  * Secrets are stored encrypted, so this cannot be a WHERE clause — every
- * row is decrypted and compared in constant time. Installs have one
- * config row per account and a handful of accounts at most; if that ever
+ * row is decrypted and compared in constant time. Installs have a few
+ * Whapi rows per account (one per number since migration 060, each with
+ * its own secret) and a handful of accounts at most; if that ever
  * stops being true, store a SHA-256 of the secret in an indexed column
  * and look it up directly.
  */
@@ -264,7 +265,7 @@ async function processWhapiWebhook(
   }
 
   for (const status of event.statuses) {
-    await handleStatusUpdate(status)
+    await handleStatusUpdate(status, config.account_id)
   }
 
   if (event.messages.length === 0) return
@@ -288,6 +289,9 @@ async function processWhapiWebhook(
     status: config.status ?? 'connected',
   }
 
+  // Background work of each message (TypeSafe's watch), awaited once
+  // the whole delivery is processed — still inside after().
+  const later: Promise<unknown>[] = []
   for (const message of event.messages) {
     await processMessage(
       message,
@@ -298,6 +302,8 @@ async function processWhapiWebhook(
       // user_id FK. Always the admin who saved the channel.
       config.user_id,
       channel,
+      later,
     )
   }
+  await Promise.all(later)
 }

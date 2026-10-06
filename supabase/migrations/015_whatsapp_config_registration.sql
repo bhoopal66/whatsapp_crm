@@ -17,7 +17,7 @@
 --   Until those two complete successfully, Meta routes inbound
 --   events to whichever app last registered the number (often the
 --   one that did Embedded Signup originally). Symptom: a second
---   wacrm user adds a second number under the same WABA, the UI
+--   Taamul Connect user adds a second number under the same WABA, the UI
 --   reports "Connected" because metadata verification succeeds,
 --   but Meta's activity log shows zero events for that number.
 --

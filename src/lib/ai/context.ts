@@ -1,17 +1,20 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ChatMessage } from './types'
-import { aiContextMessageLimit } from './defaults'
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ChatMessage } from './types';
+import { aiContextMessageLimit } from './defaults';
 
 interface DbMessage {
-  sender_type: 'customer' | 'agent' | 'bot'
-  content_text: string | null
+  sender_type: 'customer' | 'agent' | 'bot';
+  content_text: string | null;
 }
 
 /**
  * Fetch the last N text messages of a conversation and map them to the
  * provider-neutral chat shape. Customer messages become `user`; agent
- * and bot messages become `assistant`. Non-text messages (media,
- * templates, interactive) are excluded — they carry no text to model.
+ * and bot messages become `assistant`. Interactive rows count as text:
+ * a customer's row holds the title of the button they tapped, and ours
+ * holds the menu's body — both read as the exchange a human would see
+ * in the inbox. Media and templates are excluded — they carry no text
+ * to model.
  *
  * Ordered oldest-first (chronological) so the transcript reads
  * naturally and the most recent customer message lands last.
@@ -19,23 +22,23 @@ interface DbMessage {
 export async function buildConversationContext(
   db: SupabaseClient,
   conversationId: string,
-  limit: number = aiContextMessageLimit(),
+  limit: number = aiContextMessageLimit()
 ): Promise<ChatMessage[]> {
   const { data, error } = await db
     .from('messages')
     .select('sender_type, content_text')
     .eq('conversation_id', conversationId)
-    .eq('content_type', 'text')
+    .in('content_type', ['text', 'interactive'])
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .limit(limit);
 
-  if (error) throw error
+  if (error) throw error;
 
-  const rows = ((data ?? []) as DbMessage[]).reverse()
+  const rows = ((data ?? []) as DbMessage[]).reverse();
   return rows
     .filter((m) => m.content_text && m.content_text.trim())
     .map((m) => ({
       role: m.sender_type === 'customer' ? 'user' : 'assistant',
       content: m.content_text!.trim(),
-    }))
+    }));
 }

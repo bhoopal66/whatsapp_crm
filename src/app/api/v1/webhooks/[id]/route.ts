@@ -15,6 +15,7 @@ import {
   serializeWebhookEndpoint,
   normalizeWebhookUrl,
 } from '@/lib/webhooks/endpoints';
+import { isDeliverableUrl } from '@/lib/webhooks/ssrf';
 
 export async function GET(
   request: Request,
@@ -65,6 +66,16 @@ export async function PATCH(
       const url = normalizeWebhookUrl(body.url);
       if (!url) {
         return fail('bad_request', "'url' must be a valid https:// URL", 400);
+      }
+      // Checked on save as well as on every delivery (deliver.ts): a URL
+      // that resolves to a private or internal address is refused up
+      // front, rather than accepted and then silently never delivered.
+      if (!(await isDeliverableUrl(url))) {
+        return fail(
+          'bad_request',
+          "'url' must resolve to a public internet address",
+          400
+        );
       }
       updates.url = url;
     }

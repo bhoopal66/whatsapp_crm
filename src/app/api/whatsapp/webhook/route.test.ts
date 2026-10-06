@@ -39,6 +39,7 @@ const h = vi.hoisted(() => ({
     wabaId: '15551230000' as string,
     /** Writes the channel-id adoption made to whatsapp_config. */
     configUpdates: [] as Record<string, unknown>[],
+    conversationUpdates: [] as Record<string, unknown>[],
     /** Objects the inbound-media mirror pushed into chat-media. */
     storageUploads: [] as {
       bucket: string
@@ -105,7 +106,17 @@ vi.mock('@supabase/supabase-js', () => ({
           }
         case 'conversations':
           // findOrCreateConversation: select().eq().eq().order().limit()
+          // plus the channel stamp (migration 060): update().eq()
           return {
+            update: (row: Record<string, unknown>) => ({
+              eq: () => ({
+                // Conditional on no pin (061), re-checked in the statement.
+                is: () => {
+                  h.state.conversationUpdates.push(row)
+                  return Promise.resolve({ error: null })
+                },
+              }),
+            }),
             select: () => ({
               eq: () => ({
                 eq: () => ({
@@ -129,34 +140,49 @@ vi.mock('@supabase/supabase-js', () => ({
           const br: Record<string, unknown> = {}
           const self = () => br
           for (const m of ['select', 'eq', 'in', 'order', 'update']) br[m] = self
-          br.limit = () => Promise.resolve({ data: [], error: null })
+          // flagBroadcastReplyIfAny awaits .limit(); handleStatusUpdate
+          // chains .limit(1).maybeSingle() — answer both.
+          br.limit = () => {
+            const res = Promise.resolve({ data: [], error: null }) as Promise<unknown> &
+              Record<string, unknown>
+            res.maybeSingle = () => Promise.resolve({ data: null, error: null })
+            return res
+          }
           br.maybeSingle = () => Promise.resolve({ data: null, error: null })
           return br
         }
         case 'messages':
           return {
-            // Two different chains land here, told apart by the count
-            // option: the prior-message count (head request) and the
-            // reply-context parent lookup.
-            select: (_columns: string, options?: { head?: boolean }) =>
-              options?.head
-                ? // priorCustomerMsgCount: select('id',{count,head}).eq().eq()
-                  {
-                    eq: () => ({
-                      eq: () =>
-                        Promise.resolve({
-                          count: h.state.priorCustomerMsgCount,
-                          error: null,
-                        }),
-                    }),
-                  }
-                : // Two non-head chains land here, both ending in
-                  // maybeSingle():
-                  //   lookupInternalIdByWhatsAppId: .eq().eq()
-                  //   handleStatusUpdate's owner lookup: .eq().limit()
-                  (() => {
+            // Three chains land here: the prior-customer-message probe
+            // (select('id').eq().eq().limit(1), awaited directly) and two
+            // that end in maybeSingle():
+            //   lookupInternalIdByWhatsAppId: .eq().eq()
+            //   handleStatusUpdate's owner lookup: .eq().limit()
+            select: (columns?: string) =>
+              (() => {
                     const m: Record<string, unknown> = {}
                     const self = () => m
+                    // handleStatusUpdate resolves the rows it may touch
+                    // (inside the callback's account) before updating.
+                    if (columns?.includes('conversations!inner')) {
+                      let messageId = ''
+                      m.eq = (column: string, value: string) => {
+                        if (column === 'message_id') messageId = value
+                        return m
+                      }
+                      m.limit = () =>
+                        Promise.resolve({
+                          data: [
+                            {
+                              id: `row-${messageId}`,
+                              conversation_id: 'conv-1',
+                              conversations: { account_id: 'acc-1' },
+                            },
+                          ],
+                          error: null,
+                        })
+                      return m
+                    }
                     m.eq = self
                     m.limit = self
                     m.maybeSingle = () =>
@@ -164,15 +190,26 @@ vi.mock('@supabase/supabase-js', () => ({
                         data: h.state.replyContextParent,
                         error: null,
                       })
+                    m.then = (
+                      resolve: (v: unknown) => unknown,
+                      reject: (e: unknown) => unknown
+                    ) =>
+                      Promise.resolve({
+                        data:
+                          h.state.priorCustomerMsgCount > 0 ? [{ id: 'prior' }] : [],
+                        error: null,
+                      }).then(resolve, reject)
                     return m
                   })(),
-            // handleStatusUpdate: update({status}).eq('message_id', id)
+            // handleStatusUpdate: update({status}).in('id', [row ids])
             update: (row: { status?: string }) => ({
-              eq: (_column: string, messageId: string) => {
-                h.state.messageStatusUpdates.push({
-                  messageId,
-                  status: String(row.status),
-                })
+              in: (_column: string, ids: string[]) => {
+                for (const id of ids) {
+                  h.state.messageStatusUpdates.push({
+                    messageId: id.replace(/^row-/, ''),
+                    status: String(row.status),
+                  })
+                }
                 return Promise.resolve({ error: null })
               },
             }),
@@ -326,6 +363,7 @@ beforeEach(() => {
   h.state.channelId = 'CHANNEL-1'
   h.state.wabaId = '15551230000'
   h.state.configUpdates = []
+  h.state.conversationUpdates = []
   mockGetMediaUrl.mockResolvedValue({
     url: 'https://lookaside.fbsbx.com/whatsapp/abc',
     mimeType: 'image/jpeg',
@@ -494,6 +532,37 @@ describe('inbound webhook: idempotent insert (#367)', () => {
     expect(h.dispatchWebhookEvent).toHaveBeenCalledTimes(1)
   })
 
+  it('records the exact number on the message and moves the thread to it (migration 060)', async () => {
+    await runWebhook()
+
+    expect(h.state.upsertCalls[0].row.channel_id).toBe('cfg-1')
+    expect(h.state.conversationUpdates).toEqual([{ channel_id: 'cfg-1' }])
+  })
+
+  it('does not rewrite the thread number when it is already on this one', async () => {
+    h.state.conversation = Object.assign(h.state.conversation, {
+      channel_id: 'cfg-1',
+    })
+
+    await runWebhook()
+
+    expect(h.state.conversationUpdates).toEqual([])
+  })
+
+  it('leaves a pinned chat where it is — a person chose its number (migration 061)', async () => {
+    h.state.conversation = Object.assign(h.state.conversation, {
+      channel_id: 'cfg-other',
+      send_channel_id: 'cfg-1',
+    })
+
+    await runWebhook()
+
+    // The message still records the number that carried it…
+    expect(h.state.upsertCalls[0].row.channel_id).toBe('cfg-1')
+    // …but the chat is not handed to that number's team.
+    expect(h.state.conversationUpdates).toEqual([])
+  })
+
   it('a replayed delivery is a no-op: no unread bump, no fan-out', async () => {
     // Upsert hits the unique index and returns no row.
     h.state.messageUpsertResult = []
@@ -580,8 +649,44 @@ describe('inbound webhook: quick-reply button taps', () => {
       (call) => (call[0] as { triggerType: string }).triggerType,
     )
     expect(triggers).toContain('interactive_reply')
-    // The AI auto-reply must stay out of it — a button tap is not a
-    // free-text question.
+  })
+
+  it('fires first_inbound_message only when the thread has no earlier customer message', async () => {
+    const triggersFor = () =>
+      h.runAutomationsForTrigger.mock.calls.map(
+        (call) => (call[0] as { triggerType: string }).triggerType,
+      )
+
+    await runWebhook(buttonTap)
+    expect(triggersFor()).toContain('first_inbound_message')
+
+    h.runAutomationsForTrigger.mockClear()
+    h.state.priorCustomerMsgCount = 3
+    await runWebhook(buttonTap)
+    expect(triggersFor()).not.toContain('first_inbound_message')
+  })
+
+  it('hands an unconsumed tap to the AI agent, flagged as interactive', async () => {
+    // Nothing deterministic claimed it (no Flow consumed the message):
+    // the tapped title is the customer's message and the bot answers
+    // it. Typical case: a template quick-reply on a campaign sent with
+    // no follow-up Flow. The flag lets the bot stand down when an
+    // `interactive_reply` automation owns the buttons instead.
+    await runWebhook(buttonTap)
+
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledTimes(1)
+    expect(h.dispatchInboundToAiReply).toHaveBeenCalledWith(
+      expect.objectContaining({ interactiveReply: true }),
+    )
+  })
+
+  it('keeps the AI out of a tap a Flow consumed', async () => {
+    h.dispatchInboundToFlows.mockResolvedValueOnce({
+      consumed: true,
+      outcome: 'advanced',
+    })
+    await runWebhook(buttonTap)
+
     expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
   })
 

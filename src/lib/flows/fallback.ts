@@ -11,12 +11,11 @@
  * older flow row (or a partial JSONB blob) doesn't crash the runner.
  */
 
-import {
-  DEFAULT_FALLBACK_POLICY,
-  type FlowFallbackPolicy,
-} from "./types";
+import { DEFAULT_FALLBACK_POLICY, type FlowFallbackPolicy } from "./types";
 
 export type FallbackAction =
+  /** Hand the message to the AI agent; the run stays on its node. */
+  | { type: "ai" }
   /** Re-send the same prompt and wait again. */
   | { type: "reprompt" }
   /** End the run with status='handed_off', flip conversation to pending. */
@@ -32,15 +31,14 @@ export type FallbackAction =
  * shape, but rows authored before this default landed, or rows
  * manually edited to a subset, would otherwise crash the runner.
  */
-export function resolveFallbackPolicy(
-  raw: unknown,
-): FlowFallbackPolicy {
+export function resolveFallbackPolicy(raw: unknown): FlowFallbackPolicy {
   if (!raw || typeof raw !== "object") return DEFAULT_FALLBACK_POLICY;
   const r = raw as Partial<FlowFallbackPolicy>;
   return {
     on_unknown_reply:
       r.on_unknown_reply === "handoff" ||
       r.on_unknown_reply === "ignore" ||
+      r.on_unknown_reply === "ai" ||
       r.on_unknown_reply === "reprompt"
         ? r.on_unknown_reply
         : DEFAULT_FALLBACK_POLICY.on_unknown_reply,
@@ -70,22 +68,33 @@ export function resolveFallbackPolicy(
  * - `on_unknown_reply: 'handoff'` → immediately escalate. No retries.
  * - `on_unknown_reply: 'reprompt'` → re-send the prompt up to
  *   `max_reprompts` times, then apply `on_exhaust`.
+ * - `on_unknown_reply: 'ai'` → the AI agent answers and the run stays
+ *   put; if the agent is unavailable (`aiAvailable: false`) behave as
+ *   `reprompt`.
  */
 export function decideFallback(args: {
   policy: FlowFallbackPolicy;
   /** Reprompt count AFTER incrementing (so 1 = first reprompt). */
   reprompt_count: number;
+  /**
+   * For `on_unknown_reply: 'ai'` only. `false` once the engine has
+   * asked the agent and it declined (off, capped, human-owned thread),
+   * at which point the policy degrades to `reprompt` — the customer
+   * still gets the menu back rather than nothing.
+   */
+  aiAvailable?: boolean;
 }): FallbackAction {
   const { policy, reprompt_count } = args;
 
   if (policy.on_unknown_reply === "ignore") return { type: "ignore" };
   if (policy.on_unknown_reply === "handoff") return { type: "handoff" };
+  if (policy.on_unknown_reply === "ai" && args.aiAvailable !== false) {
+    return { type: "ai" };
+  }
 
   // 'reprompt' — guarded by max_reprompts.
   if (reprompt_count <= policy.max_reprompts) {
     return { type: "reprompt" };
   }
-  return policy.on_exhaust === "end"
-    ? { type: "end" }
-    : { type: "handoff" };
+  return policy.on_exhaust === "end" ? { type: "end" } : { type: "handoff" };
 }

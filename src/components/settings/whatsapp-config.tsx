@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   Eye,
@@ -11,11 +11,11 @@ import {
   Loader2,
   ExternalLink,
   AlertTriangle,
-  RotateCcw,
   RefreshCw,
   KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { invalidateCached } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
@@ -65,7 +65,42 @@ interface ChannelInfo {
   uptime?: number | null;
 }
 
-export function WhatsAppConfig() {
+/**
+ * A webhook registered on the channel. `ours` is false for any other
+ * app's, which receives every message on the number just the same.
+ */
+interface WebhookHook {
+  url: string;
+  ours: boolean;
+}
+
+/** `/api/whatsapp/config`, scoped to one Whapi number when known (migration 060). */
+function configUrl(configId: string | null | undefined): string {
+  return configId
+    ? `/api/whatsapp/config?config_id=${encodeURIComponent(configId)}`
+    : '/api/whatsapp/config';
+}
+
+/**
+ * One Whapi number's connection panel.
+ *
+ * `configId` picks which number (an account can hold several since
+ * migration 060); without it the panel shows the account's first Whapi
+ * number, as it did when there could be only one. The parent remounts
+ * it (`key`) to switch numbers, so none of the state below has to know
+ * how to reset itself. `picker` is the number switcher, rendered in the
+ * panel header when there is more than one.
+ */
+export function WhatsAppConfig({
+  configId = null,
+  picker,
+  onSaved,
+}: {
+  configId?: string | null;
+  picker?: ReactNode;
+  /** After a successful save — lets the parent refresh its number list. */
+  onSaved?: () => void;
+} = {}) {
   const t = useTranslations('Settings.whatsapp');
   const supabase = createClient();
 
@@ -83,13 +118,12 @@ export function WhatsAppConfig() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [showToken, setShowToken] = useState(false);
 
   const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
   const [channel, setChannel] = useState<ChannelInfo | null>(null);
-  const [webhookUrls, setWebhookUrls] = useState<string[]>([]);
+  const [webhookHooks, setWebhookHooks] = useState<WebhookHook[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
   const [needsReset, setNeedsReset] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -122,30 +156,53 @@ export function WhatsAppConfig() {
     needs_reset?: boolean;
     message?: string;
     channel?: ChannelInfo;
-    webhook?: { urls?: string[] };
+    webhook?: { urls?: string[]; hooks?: WebhookHook[] };
   }) => {
     setConnectionStatus(payload.connected ? 'connected' : 'disconnected');
     setNeedsReset(Boolean(payload.needs_reset));
     setStatusMessage(payload.message || '');
     setChannel(payload.channel ?? null);
-    setWebhookUrls(payload.webhook?.urls ?? []);
+    // `hooks` says which entries are ours. Without it (an older
+    // server), flag nothing rather than everything.
+    setWebhookHooks(
+      payload.webhook?.hooks ??
+        (payload.webhook?.urls ?? []).map((url) => ({ url, ours: true })),
+    );
   }, []);
 
   const fetchConfig = useCallback(
     async (acctId: string) => {
       setLoading(true);
+      // The health check is a read-only GET that looks the row up
+      // itself, so it need not wait for ours: start both at once (one
+      // round trip instead of two). Its answer is only applied when a
+      // row exists — without one, the panel shows the not-connected
+      // state regardless, exactly as before.
+      const healthPromise: Promise<
+        Parameters<typeof applyHealthPayload>[0]
+      > = fetch(configUrl(configId), { method: 'GET' }).then((res) =>
+        res.json(),
+      );
+      // Settled on every path, so an unused rejection is never reported.
+      healthPromise.catch(() => {});
       try {
-        const { data, error } = await supabase
+        // This panel owns ONE Whapi number. Since migration 046 an
+        // account can also hold a Meta row, and since 060 several
+        // Whapi rows, so the lookup is by id when we have one and
+        // otherwise the same "first Whapi row" the API falls back to —
+        // without either, maybeSingle() matches several rows, errors,
+        // and the panel reports "Not connected" for a healthy channel.
+        let query = supabase
           .from('whatsapp_config')
           .select('*')
           .eq('account_id', acctId)
-          // This panel owns the WHAPI channel specifically. Since
-          // migration 046 an account can also hold a Meta row, and
-          // without this filter maybeSingle() matches two rows, errors,
-          // and the panel reports "Not connected" for a perfectly
-          // healthy channel.
-          .eq('provider', 'whapi')
-          .maybeSingle();
+          .eq('provider', 'whapi');
+        query = configId
+          ? query.eq('id', configId)
+          : query
+              .order('is_primary', { ascending: false })
+              .order('created_at', { ascending: true });
+        const { data, error } = await query.limit(1).maybeSingle();
 
         if (error) console.error('Failed to load config row:', error);
 
@@ -167,8 +224,7 @@ export function WhatsAppConfig() {
 
         if (data) {
           try {
-            const res = await fetch('/api/whatsapp/config', { method: 'GET' });
-            applyHealthPayload(await res.json());
+            applyHealthPayload(await healthPromise);
           } catch (err) {
             console.error('Health check failed:', err);
             setConnectionStatus('disconnected');
@@ -178,7 +234,7 @@ export function WhatsAppConfig() {
           setNeedsReset(false);
           setStatusMessage('');
           setChannel(null);
-          setWebhookUrls([]);
+          setWebhookHooks([]);
         }
       } catch (err) {
         console.error('fetchConfig error:', err);
@@ -187,7 +243,7 @@ export function WhatsAppConfig() {
         setLoading(false);
       }
     },
-    [supabase, applyHealthPayload, t],
+    [supabase, applyHealthPayload, t, configId],
   );
 
   useEffect(() => {
@@ -218,9 +274,10 @@ export function WhatsAppConfig() {
         .from('whatsapp_config')
         .update({ mirror_inbound_media: next })
         .eq('account_id', accountId)
-        // Whapi row only — this toggle belongs to this panel. Without
-        // it the write also flips the Meta channel's setting.
-        .eq('provider', 'whapi');
+        // This number only — the toggle belongs to this panel. Keyed
+        // on anything wider it also flips the Meta channel's setting
+        // and every other Whapi number's.
+        .eq('id', config.id);
       if (error) throw new Error(error.message);
       setConfig({ ...config, mirror_inbound_media: next });
     } catch (error) {
@@ -255,6 +312,9 @@ export function WhatsAppConfig() {
         token: channelToken.trim(),
         channel_id: channelId.trim() || null,
         rotate_secret: opts.rotateSecret === true,
+        // Re-save THIS number; without an id the server would pick the
+        // account's first Whapi row.
+        config_id: config?.id ?? configId ?? undefined,
       }),
     });
 
@@ -275,7 +335,13 @@ export function WhatsAppConfig() {
       toast.success(t('saved'));
     }
 
+    // Screens elsewhere cache "is WhatsApp connected" and the number
+    // list (inbox banner, contact screen, thread picker); a first
+    // connect must not read as "not connected" there for a minute.
+    invalidateCached('whatsapp-channels:');
+    invalidateCached('whatsapp-status:');
     if (accountId) await fetchConfig(accountId);
+    onSaved?.();
     return true;
   }
 
@@ -307,7 +373,9 @@ export function WhatsAppConfig() {
   async function handleTestConnection() {
     try {
       setTesting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'GET' });
+      const res = await fetch(configUrl(config?.id ?? configId), {
+        method: 'GET',
+      });
       const payload = await res.json();
       applyHealthPayload(payload);
 
@@ -329,34 +397,20 @@ export function WhatsAppConfig() {
     }
   }
 
-  async function handleReset() {
-    if (!confirm(t('resetConfirm'))) return;
-    try {
-      setResetting(true);
-      const res = await fetch('/api/whatsapp/config', { method: 'DELETE' });
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast.error(data.error || t('resetFailed'));
-        return;
-      }
-
-      toast.success(t('resetDone'));
-      setConfig(null);
-      setChannel(null);
-      setWebhookUrls([]);
-      setChannelId('');
-      setChannelToken('');
-      setTokenEdited(false);
-      setConnectionStatus('disconnected');
-      setNeedsReset(false);
-      setStatusMessage('');
-    } catch (err) {
-      console.error('Reset error:', err);
-      toast.error(t('resetFailed'));
-    } finally {
-      setResetting(false);
-    }
+  /**
+   * Recovery for a token saved under a rotated ENCRYPTION_KEY: put the
+   * operator in the token field. Re-saving overwrites the unreadable
+   * ciphertext in place (the server mints a fresh callback secret when
+   * the old one will not decrypt either), which keeps the number's row —
+   * its name, its people, its routes, and the chat history tagged with
+   * it (migration 060). Deleting the row, which is what this used to do,
+   * would throw all of that away. Disconnecting a number is a separate,
+   * deliberate act in Settings → Numbers & access.
+   */
+  function handleReenterToken() {
+    const field = document.getElementById('whapi-token') as HTMLInputElement | null;
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    field?.focus();
   }
 
   function copy(value: string) {
@@ -367,7 +421,11 @@ export function WhatsAppConfig() {
   if (loading) {
     return (
       <section className="animate-in fade-in-50 duration-200">
-        <SettingsPanelHead title={t('title')} description={t('description')} />
+        <SettingsPanelHead
+          title={t('title')}
+          description={t('description')}
+          action={picker}
+        />
         <div className="flex items-center justify-center py-12">
           <Loader2 className="size-6 animate-spin text-primary" />
         </div>
@@ -379,13 +437,17 @@ export function WhatsAppConfig() {
 
   return (
     <section className="animate-in fade-in-50 duration-200">
-      <SettingsPanelHead title={t('title')} description={t('description')} />
+      <SettingsPanelHead
+          title={t('title')}
+          description={t('description')}
+          action={picker}
+        />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
           {/* Corrupted-token recovery. Distinct from a plain
               connection failure: no amount of retrying fixes it, the
-              row has to be cleared and re-entered. */}
+              token has to be entered again. */}
           {needsReset && (
             <Alert className="bg-amber-950/40 border-amber-600/40">
               <div className="flex items-start gap-3">
@@ -398,22 +460,13 @@ export function WhatsAppConfig() {
                     {statusMessage}
                   </AlertDescription>
                   <Button
-                    onClick={handleReset}
-                    disabled={resetting || !canEditSettings}
+                    onClick={handleReenterToken}
+                    disabled={!canEditSettings}
                     size="sm"
                     className="mt-3 bg-amber-600 hover:bg-amber-700 text-white"
                   >
-                    {resetting ? (
-                      <>
-                        <Loader2 className="size-4 animate-spin" />
-                        {t('resetting')}
-                      </>
-                    ) : (
-                      <>
-                        <RotateCcw className="size-4" />
-                        {t('resetConfig')}
-                      </>
-                    )}
+                    <KeyRound className="size-4" />
+                    {t('reenterToken')}
                   </Button>
                 </div>
               </div>
@@ -553,14 +606,30 @@ export function WhatsAppConfig() {
                     {t('webhookHttpsHint')}
                   </>
                 )}
-                {webhookUrls.length > 0 && (
+                {webhookHooks.length > 0 && (
                   <ul className="mt-2 space-y-1 font-mono text-[11px] text-foreground/80">
-                    {webhookUrls.map((url) => (
-                      <li key={url} className="break-all">
-                        {url}
+                    {webhookHooks.map((hook) => (
+                      <li key={hook.url} className="break-all">
+                        {hook.url}
+                        {!hook.ours && (
+                          <span className="ml-2 inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px font-sans text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                            <AlertTriangle className="size-3 shrink-0" />
+                            {t('webhookForeign')}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
+                )}
+                {/* Kept on purpose (registerWebhook never drops another
+                    app's hook), so say where it can be removed. A debug
+                    bin left from testing received every customer
+                    message on the number, and this screen listed it as
+                    ours. */}
+                {webhookHooks.some((hook) => !hook.ours) && (
+                  <p className="mt-2 text-amber-700 dark:text-amber-300">
+                    {t('webhookForeignHint')}
+                  </p>
                 )}
               </AlertDescription>
             </Alert>
@@ -655,17 +724,6 @@ export function WhatsAppConfig() {
                     t('testConnection')
                   )}
                 </Button>
-                {config && canEditSettings && (
-                  <Button
-                    variant="outline"
-                    onClick={handleReset}
-                    disabled={resetting}
-                    className="border-border bg-transparent"
-                  >
-                    <RotateCcw className="size-4" />
-                    {t('resetConfig')}
-                  </Button>
-                )}
               </div>
             </CardContent>
           </Card>
@@ -760,7 +818,7 @@ export function WhatsAppConfig() {
           {/* The callback URL is shown redacted so an operator can
               sanity-check the host without the secret leaking into a
               screenshot or a support thread. */}
-          {webhookUrls.length > 0 && (
+          {webhookHooks.length > 0 && (
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-foreground text-base">
@@ -770,20 +828,45 @@ export function WhatsAppConfig() {
               </CardHeader>
               <CardContent className="space-y-2">
                 <Label className="text-xs">{t('webhookUrl')}</Label>
-                {webhookUrls.map((url) => (
-                  <div key={url} className="flex gap-2">
-                    <Input readOnly value={url} className="font-mono text-xs" />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => copy(url)}
-                      className="border-border bg-transparent shrink-0"
+                {webhookHooks.map((hook) => (
+                  <div key={hook.url} className="space-y-1">
+                    <p
+                      className={
+                        'flex items-center gap-1 text-[11px] ' +
+                        (hook.ours
+                          ? 'text-muted-foreground'
+                          : 'font-medium text-amber-700 dark:text-amber-300')
+                      }
                     >
-                      <Copy className="size-4" />
-                    </Button>
+                      {!hook.ours && <AlertTriangle className="size-3 shrink-0" />}
+                      {hook.ours ? t('webhookOurs') : t('webhookForeign')}
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={hook.url}
+                        className={
+                          'font-mono text-xs' +
+                          (hook.ours ? '' : ' border-amber-500/50 bg-amber-500/5')
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => copy(hook.url)}
+                        className="border-border bg-transparent shrink-0"
+                      >
+                        <Copy className="size-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
+                {webhookHooks.some((hook) => !hook.ours) && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    {t('webhookForeignHint')}
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}

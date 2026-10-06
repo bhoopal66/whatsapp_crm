@@ -24,6 +24,7 @@ import {
   resolveAuditUserId,
   ContactError,
 } from '@/lib/api/v1/contacts';
+import { validateContactPhone } from '@/lib/contacts/phone-validation';
 
 // PostgREST filter values are comma/paren-delimited; strip anything
 // that could break the `.or()` grammar before interpolating a search
@@ -109,6 +110,14 @@ export async function POST(request: Request) {
     if (!phone) {
       return fail('bad_request', "'phone' is required", 400);
     }
+    // Stricter than E.164 on purpose: a local or truncated number is
+    // accepted by the gateway as 'sent' and never reaches anyone. Done
+    // here, not in findOrCreateContact, because the v1 broadcast path
+    // shares that helper and counts a bad recipient as rejected.
+    const checked = validateContactPhone(phone, "'phone'");
+    if (!checked.ok) {
+      return fail('bad_request', checked.error, 400);
+    }
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
@@ -117,7 +126,7 @@ export async function POST(request: Request) {
       ctx.accountId,
       auditUserId,
       {
-        phone,
+        phone: checked.normalized,
         name: typeof body.name === 'string' ? body.name : undefined,
         email: typeof body.email === 'string' ? body.email : undefined,
         company: typeof body.company === 'string' ? body.company : undefined,
