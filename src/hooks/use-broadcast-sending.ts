@@ -22,8 +22,10 @@ import {
   COMPASS_AUDIENCE_COLUMNS,
   compassOrderSpec,
   compassRowToCsvRow,
-  compassWindowPage,
+  compassReadIsConsistent,
+  COMPASS_CHANGED_DURING_READ,
   normalizeCompassSelection,
+  readCompassWindow,
   type CompassAudienceRow,
   type CompassOrder,
   type CompassSelection,
@@ -60,6 +62,8 @@ export interface AudienceConfig {
    * the whole slice from `compass_contacts`.
    */
   compassSample?: CsvContactRow;
+  /** `compassSelectionKey` of the selection `compassSample` was read for. */
+  compassSampleKey?: string;
   /** Contacts carrying any of these tags are subtracted from the result. */
   excludeTagIds?: string[];
   /**
@@ -211,23 +215,73 @@ export function compassAudienceQuery(
 }
 
 /**
- * `fetchAllPages` for a slice: reads `[offset, offset + limit)` page by
- * page (see `compassWindowPage`), still stopping only on an EMPTY page.
+ * Read a `compass` audience's window, bracketed by a check that the list
+ * did not change underneath the offset paging (see
+ * `compassReadIsConsistent`): the newest `updated_at` and the filtered
+ * count before, the count and the rows stamped since after. Throws
+ * rather than return a window that may hold the wrong customers.
  */
-async function fetchWindow<T>(
-  page: (from: number, to: number) => PageResult<T>,
-  selection: CompassSelection,
-  what: string
-): Promise<T[]> {
-  const rows: T[] = [];
-  for (;;) {
-    const next = compassWindowPage(selection, rows.length, AUDIENCE_PAGE);
-    if (!next) return rows;
-    const { data, error } = await page(next.from, next.to);
-    if (error) throw new Error(`Failed to fetch ${what}: ${error.message}`);
-    if (!data || data.length === 0) return rows;
-    rows.push(...data);
+async function readCompassAudience(
+  supabase: ReturnType<typeof createClient>,
+  accountId: string,
+  selection: CompassSelection
+): Promise<CompassAudienceRow[]> {
+  const filteredCount = async () => {
+    const { count, error } = await supabase
+      .from('compass_contacts')
+      .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
+      .not('phone_normalized', 'is', null);
+    if (error || count === null) throw new Error(COMPASS_CHANGED_DURING_READ);
+    return count;
+  };
+
+  // Every row, phone or not: setting or clearing a phone moves a row in
+  // or out of the filtered list, and the sync stamps it either way.
+  const newest = await supabase
+    .from('compass_contacts')
+    .select('updated_at')
+    .eq('account_id', accountId)
+    .order('updated_at', { ascending: false, nullsFirst: false })
+    .limit(1);
+  if (newest.error) throw new Error(COMPASS_CHANGED_DURING_READ);
+  // Kept as the string Postgres sent: through a JS Date it would lose
+  // its microseconds, and the newest row would count as changed.
+  const marker = (newest.data?.[0]?.updated_at as string | undefined) ?? null;
+  const countBefore = await filteredCount();
+
+  const rows = await readCompassWindow<CompassAudienceRow>(
+    (from, to) =>
+      compassAudienceQuery(supabase, accountId, selection.order).range(
+        from,
+        to
+      ),
+    selection,
+    AUDIENCE_PAGE,
+    'Compass contacts'
+  );
+
+  const countAfter = await filteredCount();
+  // With no row before the read (no marker), any row now is a change.
+  let changed = supabase
+    .from('compass_contacts')
+    .select('id', { count: 'exact', head: true })
+    .eq('account_id', accountId);
+  if (marker !== null) changed = changed.gt('updated_at', marker);
+  const changedRes = await changed;
+  if (changedRes.error || changedRes.count === null) {
+    throw new Error(COMPASS_CHANGED_DURING_READ);
   }
+
+  if (
+    !compassReadIsConsistent({
+      before: { count: countBefore },
+      after: { count: countAfter, changedSince: changedRes.count },
+    })
+  ) {
+    throw new Error(COMPASS_CHANGED_DURING_READ);
+  }
+  return rows;
 }
 
 interface ResumeResponse {
@@ -434,15 +488,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         throw new Error('Your profile is not linked to an account.');
       }
       const selection = normalizeCompassSelection(audience.compass);
-      const rows = await fetchWindow<CompassAudienceRow>(
-        (from, to) =>
-          compassAudienceQuery(supabase, accountId, selection.order).range(
-            from,
-            to
-          ),
-        selection,
-        'Compass contacts'
-      );
+      // This runs before the broadcast row exists, so a read that
+      // fails its consistency check throws with nothing created.
+      const rows = await readCompassAudience(supabase, accountId, selection);
       csvRows = partitionRowsByPhone(rows.map(compassRowToCsvRow)).valid;
       contacts = await upsertCsvContacts(supabase, csvRows);
     }

@@ -80,8 +80,10 @@ function toCount(value: unknown): number {
 /**
  * Clamp a selection from the UI (or a stored `audience_filter`) to
  * something the query can use: a known order, a non-negative integer
- * offset, and a positive integer limit or null. A limit of 0 is null,
- * because the wizard's "how many" field reads blank/0 as "all".
+ * offset, and a non-negative integer limit or null. Only an absent
+ * limit (null, undefined, '') means "all": a 0, negative, NaN or
+ * infinite one is limit 0, an empty window, because a bad value must
+ * only ever be able to send to nobody — never quietly to everyone.
  */
 export function normalizeCompassSelection(
   input: Partial<CompassSelection> | null | undefined
@@ -89,13 +91,58 @@ export function normalizeCompassSelection(
   const order = COMPASS_ORDERS.includes(input?.order as CompassOrder)
     ? (input!.order as CompassOrder)
     : DEFAULT_COMPASS_SELECTION.order;
-  const limit = toCount(input?.limit);
+  const rawLimit: unknown = input?.limit;
   return {
     order,
     offset: toCount(input?.offset),
-    limit: limit > 0 ? limit : null,
+    limit:
+      rawLimit === null || rawLimit === undefined || rawLimit === ''
+        ? null
+        : toCount(rawLimit),
   };
 }
+
+/**
+ * Which selection a step-2 sample was read for. The sample lands after a
+ * debounce and a round trip, so the wizard holds Next until the sample
+ * it has is the one for the selection on screen.
+ */
+export function compassSelectionKey(selection: CompassSelection): string {
+  return `${selection.order}:${selection.offset}:${selection.limit ?? 'all'}`;
+}
+
+const WHOLE_NUMBER = /^\d+$/;
+
+/**
+ * The wizard's "start at position" text as a 0-based offset, or null
+ * when it is not a whole number of 1 or more. Blank is invalid: there is
+ * no sensible default to guess, and guessing one is how clearing the
+ * field and typing "500" used to become "1500".
+ */
+export function parseCompassStart(text: string): number | null {
+  const trimmed = text.trim();
+  if (!WHOLE_NUMBER.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) && n >= 1 ? n - 1 : null;
+}
+
+/**
+ * The wizard's "how many" text: blank is all (`limit: null`), a whole
+ * number of 1 or more is that many, and anything else — 0 included —
+ * is null (invalid), so it can never be read as "all".
+ */
+export function parseCompassLimit(
+  text: string
+): { limit: number | null } | null {
+  const trimmed = text.trim();
+  if (trimmed === '') return { limit: null };
+  if (!WHOLE_NUMBER.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) && n >= 1 ? { limit: n } : null;
+}
+
+/** The part of a selection that cuts the window (the order is the query's). */
+export type CompassWindow = Pick<CompassSelection, 'offset' | 'limit'>;
 
 /** How many rows the slice holds when `total` rows match. */
 export function compassWindowSize(
@@ -116,7 +163,7 @@ export function compassWindowSize(
  * short when its `max-rows` is below `pageSize`.
  */
 export function compassWindowPage(
-  selection: CompassSelection,
+  selection: CompassWindow,
   fetched: number,
   pageSize: number
 ): { from: number; to: number } | null {
@@ -127,6 +174,66 @@ export function compassWindowPage(
   const from = selection.offset + fetched;
   return { from, to: from + size - 1 };
 }
+
+export type CompassPageResult<T> = PromiseLike<{
+  data: T[] | null;
+  error: { message: string } | null;
+}>;
+
+/**
+ * Read the window `[offset, offset + limit)` page by page through
+ * `page(from, to)` (an inclusive `.range`), following
+ * `compassWindowPage`: never more than `limit` rows, never a range past
+ * `offset + limit - 1`, and the end of the table only on an EMPTY page —
+ * a short page is what every page looks like when PostgREST's
+ * `max-rows` is below `pageSize`. `page` must read a stable order, and
+ * even then offsets only hold while nothing moves: see
+ * `compassReadIsConsistent`.
+ */
+export async function readCompassWindow<T>(
+  page: (from: number, to: number) => CompassPageResult<T>,
+  window: CompassWindow,
+  pageSize: number,
+  what: string
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (;;) {
+    const next = compassWindowPage(window, rows.length, pageSize);
+    if (!next) return rows;
+    const { data, error } = await page(next.from, next.to);
+    if (error) throw new Error(`Failed to fetch ${what}: ${error.message}`);
+    if (!data || data.length === 0) return rows;
+    rows.push(...data);
+  }
+}
+
+/**
+ * Whether a multi-page read of the window saw one unchanging list.
+ * Offset paging over a mutable order is not a snapshot: the Compass sync
+ * stamps `updated_at = now` on every row it upserts, so between two
+ * pages rows jump to the other end of `list_top`/`list_bottom`, a rename
+ * moves a row through the name orders, and an insert or delete shifts
+ * every later position. The read then skips some customers and messages
+ * others past the end of the window — and a message cannot be recalled.
+ * Keyset paging would not save the `updated_at` orders (a moved row
+ * still leaves the window), so the send instead brackets the read:
+ * `before.count`/`after.count` are the filtered row counts (account,
+ * phone set) and `changedSince` the account's rows stamped after the
+ * newest `updated_at` seen before reading. Any difference aborts the
+ * send before anything is created.
+ */
+export function compassReadIsConsistent(read: {
+  before: { count: number };
+  after: { count: number; changedSince: number };
+}): boolean {
+  return (
+    read.after.count === read.before.count && read.after.changedSince === 0
+  );
+}
+
+/** What the send says when `compassReadIsConsistent` fails. */
+export const COMPASS_CHANGED_DURING_READ =
+  'Compass contacts changed while the audience was being read (a sync is probably running). Nothing was sent — try again in a minute.';
 
 /** The `compass_contacts` columns an audience reads. */
 export const COMPASS_AUDIENCE_COLUMNS =

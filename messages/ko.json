@@ -842,8 +842,10 @@
           "name_za": "이름 내림차순 (Z→A)"
         },
         "compassStart": "시작 위치",
+        "compassStartInvalid": "1 이상의 정수를 입력하세요.",
         "compassLimit": "번호 개수",
         "compassLimitAll": "전체",
+        "compassLimitInvalid": "0보다 큰 정수를 입력하거나, 전체를 보내려면 비워 두세요.",
         "compassHint": "위치는 전화번호가 있는 고객만 셉니다. \"번호 개수\"를 비워 두면 남은 전체를 보냅니다. 연락처에 없는 번호는 본인 소유의 연락처로 추가됩니다.",
         "compassWindow": "전체 {total, number}개 중 {from, number}–{to, number}번째 번호를 보냅니다.",
         "compassWindowEmpty": "시작 위치가 끝을 넘었습니다: 전화번호가 있는 고객은 {total, number}명입니다.",

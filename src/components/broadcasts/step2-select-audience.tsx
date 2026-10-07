@@ -17,10 +17,13 @@ import {
   COMPASS_ORDERS,
   compassColumns,
   compassRowToCsvRow,
+  compassSelectionKey,
   compassWindowPage,
   compassWindowSize,
   DEFAULT_COMPASS_SELECTION,
   normalizeCompassSelection,
+  parseCompassLimit,
+  parseCompassStart,
   type CompassAudienceRow,
   type CompassOrder,
   type CompassSelection,
@@ -76,6 +79,8 @@ interface AudienceConfig {
    * send re-reads the whole slice; it never treats this as the audience.
    */
   compassSample?: CsvContactRow;
+  /** `compassSelectionKey` of the selection `compassSample` was read for. */
+  compassSampleKey?: string;
   excludeTagIds?: string[];
   /** Frequency cap — skip anyone sent a campaign in the last N days. */
   skipRecentDays?: number;
@@ -230,13 +235,18 @@ export function Step2SelectAudience({
         mergeSample({
           csvColumns: compassColumns(valid),
           compassSample: valid[0],
+          compassSampleKey: compassSelectionKey(selection),
         });
       } catch (err) {
         if (seq !== compassSeq.current) return;
         setCompassTotal(null);
         setCompassPhoneWarning(null);
         setCompassError(err instanceof Error ? err.message : String(err));
-        mergeSample({ csvColumns: undefined, compassSample: undefined });
+        mergeSample({
+          csvColumns: undefined,
+          compassSample: undefined,
+          compassSampleKey: undefined,
+        });
       } finally {
         if (seq === compassSeq.current) setCompassLoading(false);
       }
@@ -249,6 +259,32 @@ export function Step2SelectAudience({
       ...audience,
       compass: normalizeCompassSelection({ ...compassSelection, ...patch }),
     });
+  }
+
+  // The start and count fields hold what was typed, not the selection:
+  // deriving them from it snapped a cleared start back to "1", so
+  // clearing it and typing "500" read "1500". A valid entry is committed
+  // to the selection as it is typed; an invalid one keeps Next disabled.
+  // Seeded from the selection, since the wizard can come back here.
+  const [compassStartText, setCompassStartText] = useState(() =>
+    String(compassSelection.offset + 1)
+  );
+  const [compassLimitText, setCompassLimitText] = useState(() =>
+    compassSelection.limit === null ? '' : String(compassSelection.limit)
+  );
+  const compassStartValid = parseCompassStart(compassStartText) !== null;
+  const compassLimitValid = parseCompassLimit(compassLimitText) !== null;
+
+  function onCompassStartChange(text: string) {
+    setCompassStartText(text);
+    const offset = parseCompassStart(text);
+    if (offset !== null) updateCompass({ offset });
+  }
+
+  function onCompassLimitChange(text: string) {
+    setCompassLimitText(text);
+    const parsed = parseCompassLimit(text);
+    if (parsed !== null) updateCompass({ limit: parsed.limit });
   }
 
   // Tags are used both by the primary "Filter by Tags" audience type
@@ -507,7 +543,12 @@ export function Step2SelectAudience({
       audience.csvContacts &&
       audience.csvContacts.length > 0) ||
     (audience.type === 'compass' &&
+      compassStartValid &&
+      compassLimitValid &&
       !compassLoading &&
+      // Not a sample still standing in for the previous selection (Next
+      // clicked inside the debounce): the preview must match the slice.
+      audience.compassSampleKey === compassSelectionKey(compassSelection) &&
       compassTotal !== null &&
       compassWindowSize(compassSelection, compassTotal) > 0);
 
@@ -540,7 +581,21 @@ export function Step2SelectAudience({
             return (
               <button
                 key={option.type}
-                onClick={() =>
+                onClick={() => {
+                  // Switching to Compass starts from the default slice
+                  // (see `compass` below), so the fields start from it too.
+                  if (
+                    option.type === 'compass' &&
+                    audience.type !== 'compass'
+                  ) {
+                    const next = normalizeCompassSelection(
+                      audience.compass ?? DEFAULT_COMPASS_SELECTION
+                    );
+                    setCompassStartText(String(next.offset + 1));
+                    setCompassLimitText(
+                      next.limit === null ? '' : String(next.limit)
+                    );
+                  }
                   onUpdate({
                     ...audience,
                     type: option.type,
@@ -569,8 +624,12 @@ export function Step2SelectAudience({
                       option.type === 'compass'
                         ? audience.compassSample
                         : undefined,
-                  })
-                }
+                    compassSampleKey:
+                      option.type === 'compass'
+                        ? audience.compassSampleKey
+                        : undefined,
+                  });
+                }}
                 className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-all ${
                   isSelected
                     ? 'border-primary bg-primary/5 ring-primary/30 ring-1'
@@ -775,36 +834,42 @@ export function Step2SelectAudience({
               <span className="text-muted-foreground block text-xs font-medium">
                 {t('selectAudience.compassStart')}
               </span>
-              {/* Positions are 1-based on screen; the offset is 0-based. */}
+              {/* Positions are 1-based on screen; the offset is 0-based.
+                  Text, not type="number": a number input reports a
+                  half-typed "5e" as "", which the count would read as
+                  "all". */}
               <Input
-                type="number"
-                min={1}
-                value={compassSelection.offset + 1}
-                onChange={(e) =>
-                  updateCompass({
-                    offset: Math.floor(Number(e.target.value) || 1) - 1,
-                  })
-                }
+                type="text"
+                inputMode="numeric"
+                value={compassStartText}
+                aria-invalid={!compassStartValid}
+                onChange={(e) => onCompassStartChange(e.target.value)}
                 className="border-border bg-muted text-foreground"
               />
+              {!compassStartValid && (
+                <span className="block text-xs text-red-400">
+                  {t('selectAudience.compassStartInvalid')}
+                </span>
+              )}
             </label>
             <label className="space-y-1">
               <span className="text-muted-foreground block text-xs font-medium">
                 {t('selectAudience.compassLimit')}
               </span>
               <Input
-                type="number"
-                min={0}
-                value={compassSelection.limit ?? ''}
+                type="text"
+                inputMode="numeric"
+                value={compassLimitText}
+                aria-invalid={!compassLimitValid}
                 placeholder={t('selectAudience.compassLimitAll')}
-                onChange={(e) =>
-                  updateCompass({
-                    limit:
-                      e.target.value === '' ? null : Number(e.target.value),
-                  })
-                }
+                onChange={(e) => onCompassLimitChange(e.target.value)}
                 className="border-border bg-muted text-foreground"
               />
+              {!compassLimitValid && (
+                <span className="block text-xs text-red-400">
+                  {t('selectAudience.compassLimitInvalid')}
+                </span>
+              )}
             </label>
           </div>
           <p className="text-muted-foreground text-xs">

@@ -842,8 +842,10 @@
           "name_za": "Name Z→A"
         },
         "compassStart": "Start at position",
+        "compassStartInvalid": "Enter a whole number, 1 or more.",
         "compassLimit": "How many numbers",
         "compassLimitAll": "All",
+        "compassLimitInvalid": "Enter a whole number above 0, or leave blank for all.",
         "compassHint": "Positions count only customers with a phone number. Leave \"How many\" blank for all remaining. Numbers not yet in your contacts are added as contacts owned by you.",
         "compassWindow": "Will take numbers {from, number}–{to, number} of {total, number}.",
         "compassWindowEmpty": "The start position is past the end: there are {total, number} customers with a phone number.",
