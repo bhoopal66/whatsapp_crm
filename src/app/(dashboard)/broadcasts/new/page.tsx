@@ -58,6 +58,9 @@ export default function NewBroadcastPage() {
           customField: audience.customField,
           csvContacts: audience.csvContacts,
           csvColumns: audience.csvColumns,
+          // Not `compassSample`: that is the preview row, and the send
+          // re-reads the whole slice from this selection.
+          compass: audience.compass,
           excludeTagIds: audience.excludeTagIds,
           skipRecentDays: audience.skipRecentDays,
         },
@@ -120,6 +123,7 @@ export default function NewBroadcastPage() {
       audience_filter: {
         type: audience.type,
         tagIds: audience.tagIds,
+        compass: audience.type === 'compass' ? audience.compass : undefined,
       },
       follow_up_flow_id: followUpFlowId,
       status: 'draft',

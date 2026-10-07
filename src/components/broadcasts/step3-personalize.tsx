@@ -38,9 +38,11 @@ import {
 import { useTranslations } from 'next-intl';
 
 interface Step3Audience {
-  type: 'all' | 'tags' | 'custom_field' | 'csv';
+  type: 'all' | 'tags' | 'custom_field' | 'csv' | 'compass';
   csvContacts?: CsvContactRow[];
   csvColumns?: string[];
+  /** First row of a Compass slice's sample (step 2) — preview only. */
+  compassSample?: CsvContactRow;
 }
 
 interface Step3Props {
@@ -48,7 +50,9 @@ interface Step3Props {
   /**
    * Only the CSV parts are read: a `csv` audience adds "CSV column" as
    * a variable source and drives the preview from the file's first
-   * row, so the admin sees exactly what row 1 will receive.
+   * row, so the admin sees exactly what row 1 will receive. A
+   * `compass` audience works the same way through the same `csv_column`
+   * mapping, labelled "Compass field", with the slice's first row.
    */
   audience: Step3Audience;
   variables: Record<string, VariableMapping>;
@@ -106,12 +110,20 @@ export function Step3Personalize({
   >(new Map());
   const [loadingPreview, setLoadingPreview] = useState(true);
 
+  const isCompass = audience.type === 'compass';
   const csvColumns = useMemo(
-    () => (audience.type === 'csv' ? (audience.csvColumns ?? []) : []),
+    () =>
+      audience.type === 'csv' || audience.type === 'compass'
+        ? (audience.csvColumns ?? [])
+        : [],
     [audience.type, audience.csvColumns]
   );
   const csvFirstRow =
-    audience.type === 'csv' ? (audience.csvContacts?.[0] ?? null) : null;
+    audience.type === 'csv'
+      ? (audience.csvContacts?.[0] ?? null)
+      : isCompass
+        ? (audience.compassSample ?? null)
+        : null;
   const csvAvailable = csvColumns.length > 0;
 
   // Load user's custom fields + a representative contact for the
@@ -321,9 +333,14 @@ export function Step3Personalize({
   }, [template.body_text, variables, placeholders, previewSubject]);
 
   const previewLabel = csvFirstRow
-    ? t('personalize.previewCsvRow', {
-        who: previewSubject.contact.name || csvFirstRow.phone,
-      })
+    ? t(
+        isCompass
+          ? 'personalize.previewCompassRow'
+          : 'personalize.previewCsvRow',
+        {
+          who: previewSubject.contact.name || csvFirstRow.phone,
+        }
+      )
     : firstContact
       ? firstContact.name || firstContact.phone
       : t('personalize.previewSample');
@@ -480,7 +497,9 @@ export function Step3Personalize({
                         </SelectItem>
                         {csvAvailable && (
                           <SelectItem value="csv_column">
-                            {t('personalize.typeCsvColumn')}
+                            {isCompass
+                              ? t('personalize.typeCompassField')
+                              : t('personalize.typeCsvColumn')}
                           </SelectItem>
                         )}
                       </SelectContent>
@@ -492,7 +511,9 @@ export function Step3Personalize({
                       {mapping.type === 'static'
                         ? t('personalize.staticValue')
                         : mapping.type === 'csv_column'
-                          ? t('personalize.csvColumn')
+                          ? isCompass
+                            ? t('personalize.compassField')
+                            : t('personalize.csvColumn')
                           : t('personalize.contactField')}
                     </label>
                     {mapping.type === 'csv_column' ? (
@@ -512,7 +533,9 @@ export function Step3Personalize({
                               placeholder={
                                 csvAvailable
                                   ? t('personalize.selectCsvColumn')
-                                  : t('personalize.csvColumnUnavailable')
+                                  : isCompass
+                                    ? t('personalize.compassFieldUnavailable')
+                                    : t('personalize.csvColumnUnavailable')
                               }
                             />
                           </SelectTrigger>
@@ -534,11 +557,16 @@ export function Step3Personalize({
                         </Select>
                         {csvColumns.includes(mapping.value) && (
                           <p className="text-muted-foreground mt-1.5 text-xs">
-                            {t('personalize.csvColumnHint', {
-                              placeholder,
-                              column: mapping.value,
-                              example: csvExample(mapping.value),
-                            })}
+                            {t(
+                              isCompass
+                                ? 'personalize.compassFieldHint'
+                                : 'personalize.csvColumnHint',
+                              {
+                                placeholder,
+                                column: mapping.value,
+                                example: csvExample(mapping.value),
+                              }
+                            )}
                           </p>
                         )}
                       </>

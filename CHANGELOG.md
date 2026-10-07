@@ -282,6 +282,16 @@ number sends what.
 
 ### Added
 
+- **Broadcasts to Compass customers.** The broadcast wizard's audience
+  step has a fifth option, *Compass contacts*: pick an order (top or
+  bottom of the Compass list, newest or oldest added, name A→Z or Z→A),
+  a start position and how many numbers — e.g. 100 numbers from the
+  bottom of the list. The step shows which numbers it will take ("1–100
+  of 4,213"), and the personalize step can map a template variable to
+  any Compass field, ERP attributes included. Only customers with a
+  phone number count; numbers that fail the contact rules are skipped,
+  and recipients become CRM contacts owned by the admin who sends.
+  Exclude tags and the frequency cap apply as for any audience.
 - **Team activity for team leaders.** A team leader can open Team
   activity and sees only their own team. In the bell, they are told when
   someone in their team reaches the daily new-chat limit.

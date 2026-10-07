@@ -10,6 +10,12 @@ import { resolveSendTime } from '@/hooks/use-broadcast-sending';
 import { parseQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
 import {
+  compassWindowSize,
+  normalizeCompassSelection,
+  type CompassSelection,
+} from '@/lib/broadcasts/compass-audience';
+import { useAuth } from '@/hooks/use-auth';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -43,6 +49,7 @@ interface AudienceConfig {
   tagIds?: string[];
   csvContacts?: { phone: string; name?: string; company?: string }[];
   csvColumns?: string[];
+  compass?: CompassSelection;
 }
 
 /**
@@ -116,6 +123,7 @@ export function Step4ScheduleSend({
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
+  const { accountId } = useAuth();
 
   // Active flows the campaign can hand its replies to, and whether the
   // AI agent is switched on (it is what catches off-script replies and
@@ -207,6 +215,20 @@ export function Step4ScheduleSend({
           setEstimatedReach(uniqueIds.size);
         } else if (audience.type === 'csv' && audience.csvContacts) {
           setEstimatedReach(audience.csvContacts.length);
+        } else if (audience.type === 'compass' && accountId) {
+          // The slice size, over the same rows the send reads (customers
+          // with a phone); exclude tags and the frequency cap can lower it.
+          const { count } = await supabase
+            .from('compass_contacts')
+            .select('id', { count: 'exact', head: true })
+            .eq('account_id', accountId)
+            .not('phone_normalized', 'is', null);
+          setEstimatedReach(
+            compassWindowSize(
+              normalizeCompassSelection(audience.compass),
+              count ?? 0
+            )
+          );
         } else {
           setEstimatedReach(0);
         }
@@ -216,7 +238,7 @@ export function Step4ScheduleSend({
     }
 
     calculateReach();
-  }, [audience]);
+  }, [audience, accountId]);
 
   const audienceLabel =
     audience.type === 'all'
@@ -225,7 +247,9 @@ export function Step4ScheduleSend({
         ? t('scheduleSend.audienceTags')
         : audience.type === 'csv'
           ? t('scheduleSend.audienceCsv')
-          : t('scheduleSend.audienceField');
+          : audience.type === 'compass'
+            ? t('scheduleSend.audienceCompass')
+            : t('scheduleSend.audienceField');
 
   return (
     <div className="space-y-6">

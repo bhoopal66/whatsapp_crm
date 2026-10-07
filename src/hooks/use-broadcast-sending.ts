@@ -18,6 +18,17 @@ import {
   type CsvContactRow,
   type VariableMapping,
 } from '@/lib/broadcasts/variables';
+import {
+  COMPASS_AUDIENCE_COLUMNS,
+  compassOrderSpec,
+  compassRowToCsvRow,
+  compassWindowPage,
+  normalizeCompassSelection,
+  type CompassAudienceRow,
+  type CompassOrder,
+  type CompassSelection,
+} from '@/lib/broadcasts/compass-audience';
+import { partitionRowsByPhone } from '@/lib/contacts/phone-validation';
 
 export type { CsvContactRow, VariableMapping };
 
@@ -30,15 +41,25 @@ export interface CustomFieldFilter {
 }
 
 export interface AudienceConfig {
-  type: 'all' | 'tags' | 'custom_field' | 'csv';
+  type: 'all' | 'tags' | 'custom_field' | 'csv' | 'compass';
   tagIds?: string[];
   customField?: CustomFieldFilter;
   csvContacts?: CsvContactRow[];
   /**
    * Header names of the uploaded CSV (lower-cased), so the personalize
-   * step can offer them as variable sources. Only set for `csv`.
+   * step can offer them as variable sources. Set for `csv`, and for
+   * `compass` from the step-2 sample's fields.
    */
   csvColumns?: string[];
+  /** Which slice of `compass_contacts` a `compass` audience takes. */
+  compass?: CompassSelection;
+  /**
+   * First row of the step-2 sample of a `compass` audience — drives the
+   * personalize preview ONLY. The sample is at most a page of the
+   * slice, so the send path never reads it: `resolveAudience` re-reads
+   * the whole slice from `compass_contacts`.
+   */
+  compassSample?: CsvContactRow;
   /** Contacts carrying any of these tags are subtracted from the result. */
   excludeTagIds?: string[];
   /**
@@ -161,6 +182,48 @@ async function fetchAllPages<T>(
       rows.length,
       rows.length + AUDIENCE_PAGE - 1
     );
+    if (error) throw new Error(`Failed to fetch ${what}: ${error.message}`);
+    if (!data || data.length === 0) return rows;
+    rows.push(...data);
+  }
+}
+
+/**
+ * The rows a `compass` audience is drawn from, in the selection's order:
+ * customers with a phone (so "100 numbers" means 100 numbers), ordered
+ * with `id` as a tiebreak in the same direction so offsets are stable.
+ * Shared by the wizard's count and sample and by the send, so the slice
+ * the admin previewed is the slice that is sent.
+ */
+export function compassAudienceQuery(
+  supabase: ReturnType<typeof createClient>,
+  accountId: string,
+  order: CompassOrder
+) {
+  const spec = compassOrderSpec(order);
+  return supabase
+    .from('compass_contacts')
+    .select(COMPASS_AUDIENCE_COLUMNS)
+    .eq('account_id', accountId)
+    .not('phone_normalized', 'is', null)
+    .order(spec.column, { ascending: spec.ascending, nullsFirst: false })
+    .order('id', { ascending: spec.ascending });
+}
+
+/**
+ * `fetchAllPages` for a slice: reads `[offset, offset + limit)` page by
+ * page (see `compassWindowPage`), still stopping only on an EMPTY page.
+ */
+async function fetchWindow<T>(
+  page: (from: number, to: number) => PageResult<T>,
+  selection: CompassSelection,
+  what: string
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (;;) {
+    const next = compassWindowPage(selection, rows.length, AUDIENCE_PAGE);
+    if (!next) return rows;
+    const { data, error } = await page(next.from, next.to);
     if (error) throw new Error(`Failed to fetch ${what}: ${error.message}`);
     if (!data || data.length === 0) return rows;
     rows.push(...data);
@@ -312,10 +375,18 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  async function resolveAudience(audience: AudienceConfig): Promise<Contact[]> {
+  /**
+   * The audience's contacts, plus the CSV-shaped rows they were made
+   * from (a CSV upload, or a Compass slice) so a `csv_column` mapping
+   * can read each recipient's own row.
+   */
+  async function resolveAudience(
+    audience: AudienceConfig
+  ): Promise<{ contacts: Contact[]; csvRows: CsvContactRow[] }> {
     const supabase = createClient();
 
     let contacts: Contact[] = [];
+    let csvRows: CsvContactRow[] = [];
 
     if (audience.type === 'all') {
       contacts = await fetchAllPages<Contact>(
@@ -351,7 +422,29 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         audience.customField
       );
     } else if (audience.type === 'csv' && audience.csvContacts) {
-      contacts = await upsertCsvContacts(supabase, audience.csvContacts);
+      csvRows = audience.csvContacts;
+      contacts = await upsertCsvContacts(supabase, csvRows);
+    } else if (audience.type === 'compass') {
+      // Compass customers live in `compass_contacts`, not `contacts`, so
+      // they go through the CSV path to become real contacts (deduped
+      // on the normalized phone, created when missing). The slice is
+      // read here, in full — never the wizard's sample. A number the
+      // contact rules refuse is dropped exactly as a CSV upload's is.
+      if (!accountId) {
+        throw new Error('Your profile is not linked to an account.');
+      }
+      const selection = normalizeCompassSelection(audience.compass);
+      const rows = await fetchWindow<CompassAudienceRow>(
+        (from, to) =>
+          compassAudienceQuery(supabase, accountId, selection.order).range(
+            from,
+            to
+          ),
+        selection,
+        'Compass contacts'
+      );
+      csvRows = partitionRowsByPhone(rows.map(compassRowToCsvRow)).valid;
+      contacts = await upsertCsvContacts(supabase, csvRows);
     }
 
     // Apply exclude tags (works across all contact-derived audience
@@ -393,7 +486,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       contacts = contacts.filter((c) => !recentIds.has(c.id));
     }
 
-    return contacts;
+    return { contacts, csvRows };
   }
 
   /**
@@ -566,7 +659,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       // ── Step 1: Resolve audience contacts ─────────────────────────
       setProgress(5);
-      const contacts = await resolveAudience(payload.audience);
+      const { contacts, csvRows } = await resolveAudience(payload.audience);
 
       if (contacts.length === 0) {
         throw new Error('No contacts found for this audience.');
@@ -603,6 +696,10 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             customField: payload.audience.customField,
             excludeTagIds: payload.audience.excludeTagIds,
             skipRecentDays: payload.audience.skipRecentDays || undefined,
+            compass:
+              payload.audience.type === 'compass'
+                ? normalizeCompassSelection(payload.audience.compass)
+                : undefined,
           },
           header_media_url: messageParams?.headerMediaUrl ?? null,
           quiet_hours: payload.quietHours ?? null,
@@ -636,17 +733,14 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       // A `csv_column` mapping reads the recipient's own CSV row: the
       // contact row we upserted may pre-date the upload and carry a
       // different name, but the column the admin picked is what they
-      // saw in the file, so that is what goes out.
+      // saw in the file, so that is what goes out. A Compass slice is
+      // indexed the same way, from the rows resolveAudience read.
       setProgress(20);
       const customValueIndex = await fetchCustomValueIndex(
         supabase,
         contacts.map((c) => c.id)
       );
-      const csvIndex = indexCsvRowsByPhone(
-        payload.audience.type === 'csv'
-          ? (payload.audience.csvContacts ?? [])
-          : []
-      );
+      const csvIndex = indexCsvRowsByPhone(csvRows);
       const paramsByContact = new Map(
         contacts.map((contact) => [
           contact.id,

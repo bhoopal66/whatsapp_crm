@@ -13,6 +13,20 @@ import {
   summarizeRejectedPhones,
 } from '@/lib/contacts/phone-validation';
 import type { CsvContactRow } from '@/lib/broadcasts/variables';
+import {
+  COMPASS_ORDERS,
+  compassColumns,
+  compassRowToCsvRow,
+  compassWindowPage,
+  compassWindowSize,
+  DEFAULT_COMPASS_SELECTION,
+  normalizeCompassSelection,
+  type CompassAudienceRow,
+  type CompassOrder,
+  type CompassSelection,
+} from '@/lib/broadcasts/compass-audience';
+import { compassAudienceQuery } from '@/hooks/use-broadcast-sending';
+import { useAuth } from '@/hooks/use-auth';
 import { CustomField, Tag } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +35,7 @@ import {
   Tags,
   Filter,
   Upload,
+  Building2,
   Loader2,
   ArrowRight,
   ArrowLeft,
@@ -28,10 +43,17 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv';
+type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv' | 'compass';
 
 /** Pause after the last audience change before re-counting. */
 const ESTIMATE_DEBOUNCE_MS = 300;
+
+/**
+ * Rows of a Compass slice read for the personalize step: enough to list
+ * the ERP fields the slice carries and preview its first recipient,
+ * without downloading the whole slice on every keystroke.
+ */
+const COMPASS_SAMPLE_SIZE = 200;
 type CustomFieldOperator = 'is' | 'is_not' | 'contains';
 
 interface CustomFieldFilter {
@@ -47,6 +69,13 @@ interface AudienceConfig {
   csvContacts?: CsvContactRow[];
   /** Lower-cased CSV headers — the personalize step offers them as variable sources. */
   csvColumns?: string[];
+  /** Which slice of the Compass customers a `compass` audience takes. */
+  compass?: CompassSelection;
+  /**
+   * First row of the sample below — the personalize preview only. The
+   * send re-reads the whole slice; it never treats this as the audience.
+   */
+  compassSample?: CsvContactRow;
   excludeTagIds?: string[];
   /** Frequency cap — skip anyone sent a campaign in the last N days. */
   skipRecentDays?: number;
@@ -111,6 +140,12 @@ export function Step2SelectAudience({
         description: t('selectAudience.csvDesc'),
         icon: Upload,
       },
+      {
+        type: 'compass',
+        label: t('selectAudience.method.compass'),
+        description: t('selectAudience.compassDesc'),
+        icon: Building2,
+      },
     ],
     [t]
   );
@@ -120,6 +155,101 @@ export function Step2SelectAudience({
   const [loadingFields, setLoadingFields] = useState(false);
   const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
+  const { accountId } = useAuth();
+
+  // Compass audience: how many customers have a phone (the list the
+  // slice is cut from), and a sample of the slice for the personalize
+  // step. Both are read with the send's own query
+  // (`compassAudienceQuery`), so what is previewed is what is sent.
+  const [compassTotal, setCompassTotal] = useState<number | null>(null);
+  const [compassLoading, setCompassLoading] = useState(false);
+  const [compassError, setCompassError] = useState<string | null>(null);
+  const [compassPhoneWarning, setCompassPhoneWarning] = useState<string | null>(
+    null
+  );
+  const compassSelection = useMemo(
+    () => normalizeCompassSelection(audience.compass),
+    [audience.compass]
+  );
+  // The sample lands after a debounce and a round trip; writing it into
+  // the audience captured when the request started would undo anything
+  // changed meanwhile (the frequency cap, say), so it merges into the
+  // latest one.
+  const audienceRef = useRef(audience);
+  useEffect(() => {
+    audienceRef.current = audience;
+  }, [audience]);
+  const compassSeq = useRef(0);
+  useEffect(() => {
+    if (audience.type !== 'compass' || !accountId) return;
+    const seq = ++compassSeq.current;
+    const selection = compassSelection;
+    const timer = setTimeout(async () => {
+      setCompassLoading(true);
+      const mergeSample = (patch: Partial<AudienceConfig>) => {
+        const latest = audienceRef.current;
+        if (latest.type === 'compass') onUpdate({ ...latest, ...patch });
+      };
+      try {
+        const supabase = createClient();
+        const page = compassWindowPage(selection, 0, COMPASS_SAMPLE_SIZE);
+        const [countRes, sampleRes] = await Promise.all([
+          supabase
+            .from('compass_contacts')
+            .select('id', { count: 'exact', head: true })
+            .eq('account_id', accountId)
+            .not('phone_normalized', 'is', null),
+          page
+            ? compassAudienceQuery(supabase, accountId, selection.order).range(
+                page.from,
+                page.to
+              )
+            : null,
+        ]);
+        if (seq !== compassSeq.current) return;
+        if (countRes.error) throw new Error(countRes.error.message);
+        const total = countRes.count ?? 0;
+        // A start past the end has nothing to sample; whatever the
+        // range read answered there is not worth an error.
+        if (sampleRes?.error && compassWindowSize(selection, total) > 0) {
+          throw new Error(sampleRes.error.message);
+        }
+        const rows = (
+          sampleRes?.error ? [] : (sampleRes?.data ?? [])
+        ) as CompassAudienceRow[];
+        // Same rule the send applies: a number the contact rules refuse
+        // is skipped. Only the sample is checked here, so say so.
+        const { valid, rejected } = partitionRowsByPhone(
+          rows.map(compassRowToCsvRow)
+        );
+        setCompassTotal(total);
+        setCompassError(null);
+        setCompassPhoneWarning(
+          rejected.length > 0 ? summarizeRejectedPhones(rejected) : null
+        );
+        mergeSample({
+          csvColumns: compassColumns(valid),
+          compassSample: valid[0],
+        });
+      } catch (err) {
+        if (seq !== compassSeq.current) return;
+        setCompassTotal(null);
+        setCompassPhoneWarning(null);
+        setCompassError(err instanceof Error ? err.message : String(err));
+        mergeSample({ csvColumns: undefined, compassSample: undefined });
+      } finally {
+        if (seq === compassSeq.current) setCompassLoading(false);
+      }
+    }, ESTIMATE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [audience.type, accountId, compassSelection, onUpdate]);
+
+  function updateCompass(patch: Partial<CompassSelection>) {
+    onUpdate({
+      ...audience,
+      compass: normalizeCompassSelection({ ...compassSelection, ...patch }),
+    });
+  }
 
   // Tags are used both by the primary "Filter by Tags" audience type
   // AND by the exclude-list below — so always load once on mount.
@@ -200,6 +330,17 @@ export function Step2SelectAudience({
       return;
     }
 
+    // The slice size; exclude tags and the frequency cap apply at send
+    // and can only lower it (noted under the estimate).
+    if (audience.type === 'compass') {
+      commit(
+        compassTotal === null
+          ? null
+          : compassWindowSize(compassSelection, compassTotal)
+      );
+      return;
+    }
+
     const tagIds = audience.tagIds ?? [];
     const field = audience.customField;
     const configured =
@@ -265,6 +406,8 @@ export function Step2SelectAudience({
     audience.customField,
     audience.csvContacts,
     audience.excludeTagIds,
+    compassSelection,
+    compassTotal,
   ]);
 
   useEffect(() => {
@@ -362,7 +505,16 @@ export function Step2SelectAudience({
       audience.customField.value.length > 0) ||
     (audience.type === 'csv' &&
       audience.csvContacts &&
-      audience.csvContacts.length > 0);
+      audience.csvContacts.length > 0) ||
+    (audience.type === 'compass' &&
+      !compassLoading &&
+      compassTotal !== null &&
+      compassWindowSize(compassSelection, compassTotal) > 0);
+
+  const compassWindow =
+    compassTotal === null
+      ? 0
+      : compassWindowSize(compassSelection, compassTotal);
 
   return (
     <div className="space-y-6">
@@ -402,8 +554,21 @@ export function Step2SelectAudience({
                         : undefined,
                     csvContacts:
                       option.type === 'csv' ? audience.csvContacts : undefined,
+                    // A Compass audience fills csvColumns from its sample;
+                    // keep them only while it stays a Compass audience.
                     csvColumns:
-                      option.type === 'csv' ? audience.csvColumns : undefined,
+                      option.type === 'csv' ||
+                      (option.type === 'compass' && audience.type === 'compass')
+                        ? audience.csvColumns
+                        : undefined,
+                    compass:
+                      option.type === 'compass'
+                        ? (audience.compass ?? DEFAULT_COMPASS_SELECTION)
+                        : undefined,
+                    compassSample:
+                      option.type === 'compass'
+                        ? audience.compassSample
+                        : undefined,
                   })
                 }
                 className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-all ${
@@ -582,6 +747,102 @@ export function Step2SelectAudience({
         </div>
       )}
 
+      {audience.type === 'compass' && (
+        <div className="border-border bg-card/50 space-y-3 rounded-xl border p-4">
+          <p className="text-foreground text-sm font-medium">
+            {t('selectAudience.method.compass')}
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px_140px]">
+            <label className="space-y-1">
+              <span className="text-muted-foreground block text-xs font-medium">
+                {t('selectAudience.compassOrder')}
+              </span>
+              <select
+                value={compassSelection.order}
+                onChange={(e) =>
+                  updateCompass({ order: e.target.value as CompassOrder })
+                }
+                className="border-border bg-muted text-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
+              >
+                {COMPASS_ORDERS.map((order) => (
+                  <option key={order} value={order}>
+                    {t(`selectAudience.compassOrders.${order}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-muted-foreground block text-xs font-medium">
+                {t('selectAudience.compassStart')}
+              </span>
+              {/* Positions are 1-based on screen; the offset is 0-based. */}
+              <Input
+                type="number"
+                min={1}
+                value={compassSelection.offset + 1}
+                onChange={(e) =>
+                  updateCompass({
+                    offset: Math.floor(Number(e.target.value) || 1) - 1,
+                  })
+                }
+                className="border-border bg-muted text-foreground"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-muted-foreground block text-xs font-medium">
+                {t('selectAudience.compassLimit')}
+              </span>
+              <Input
+                type="number"
+                min={0}
+                value={compassSelection.limit ?? ''}
+                placeholder={t('selectAudience.compassLimitAll')}
+                onChange={(e) =>
+                  updateCompass({
+                    limit:
+                      e.target.value === '' ? null : Number(e.target.value),
+                  })
+                }
+                className="border-border bg-muted text-foreground"
+              />
+            </label>
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {t('selectAudience.compassHint')}
+          </p>
+          {compassLoading ? (
+            <Loader2 className="text-primary h-4 w-4 animate-spin" />
+          ) : compassError ? (
+            <p className="text-xs text-red-400">
+              {t('selectAudience.compassError', { error: compassError })}
+            </p>
+          ) : compassTotal === 0 ? (
+            <p className="text-xs text-amber-400">
+              {t('selectAudience.compassNone')}
+            </p>
+          ) : compassTotal !== null && compassWindow === 0 ? (
+            <p className="text-xs text-amber-400">
+              {t('selectAudience.compassWindowEmpty', { total: compassTotal })}
+            </p>
+          ) : compassTotal !== null ? (
+            <p className="text-foreground text-xs">
+              {t('selectAudience.compassWindow', {
+                from: compassSelection.offset + 1,
+                to: compassSelection.offset + compassWindow,
+                total: compassTotal,
+              })}
+            </p>
+          ) : null}
+          {!compassLoading && !compassError && compassPhoneWarning && (
+            <p className="text-xs text-amber-400">
+              {t('selectAudience.compassPhoneWarning', {
+                summary: compassPhoneWarning,
+              })}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Exclude list — applies regardless of audience type */}
       <div className="border-border bg-card/50 rounded-xl border p-4">
         <div className="mb-3 flex items-center gap-2">
@@ -663,7 +924,7 @@ export function Step2SelectAudience({
         <p className="text-foreground mb-2 text-sm font-medium">
           Audience Summary
         </p>
-        {loadingCount ? (
+        {loadingCount || (audience.type === 'compass' && compassLoading) ? (
           <div className="flex items-center gap-2">
             <Loader2 className="text-primary h-4 w-4 animate-spin" />
             <span className="text-muted-foreground text-xs">Calculating…</span>
@@ -677,6 +938,11 @@ export function Step2SelectAudience({
             <span className="text-muted-foreground text-xs">
               estimated recipients
             </span>
+            {audience.type === 'compass' && (
+              <span className="text-muted-foreground text-xs">
+                · {t('selectAudience.compassEstimateNote')}
+              </span>
+            )}
           </div>
         ) : (
           <p className="text-muted-foreground text-xs">

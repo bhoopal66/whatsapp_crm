@@ -531,3 +531,33 @@ def notify_status_change(app_id, status, customer_id, message):
   API keys** (effective immediately) and create a new one.
 - The general public API (other endpoints, webhooks for inbound
   replies) is documented in [`public-api.md`](public-api.md).
+
+## 9. Broadcasting to Compass customers
+
+A Taamul Connect admin can send a WhatsApp broadcast (template
+campaign) to synced Compass customers: **Broadcasts → New → Compass
+contacts**. Nothing is needed from Compass for this; it is described
+here so both teams know what a broadcast does to the synced records.
+
+- **Which customers.** Only customers with a phone number are counted.
+  The admin picks an order — top or bottom of the Compass list (most or
+  least recently updated), newest or oldest added, name A→Z or Z→A — a
+  start position (1 = the first customer in that order) and how many
+  numbers (blank = all from the start position on). "100 numbers from
+  the bottom of the list" is *bottom of the Compass list*, start 1,
+  100 numbers. The slice is read when the campaign is created, so a
+  sync that lands between preview and send can shift it.
+- **Bad numbers are skipped.** A number that fails the contact rules
+  (no country code, too short, …) is left out, so a slice can send to
+  fewer people than it names. Exclude tags and the frequency cap apply
+  too, and two customers with the same number get one message.
+- **Recipients become CRM contacts.** A campaign's recipients have to
+  be contacts, so a customer whose number is not yet a contact is added
+  as one, owned by the admin who sends. A number that is already a
+  contact is reused and keeps its owner.
+- **The Compass record is not linked.** A broadcast does not set the
+  customer's link to the CRM contact; that still happens the first time
+  Compass itself messages them.
+- **Personalization.** Template variables can take any Compass field —
+  name, phone, email, company, `compass_id`, and every `attributes` key
+  (lower-cased; nested values are sent as JSON).
