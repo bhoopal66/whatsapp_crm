@@ -185,7 +185,7 @@ function buildBodyComponent(
   values.forEach((text, i) => {
     if (!String(text ?? '').trim()) {
       throw new Error(
-        `Template variable {{${indices[i] ?? i + 1}}} is empty for this recipient — Meta rejects blank values. In a broadcast, set an "If empty, use" fallback for it in the Personalize step.`,
+        `Template variable {{${indices[i] ?? i + 1}}} is empty for this recipient — Meta rejects blank template values.`,
       );
     }
   });

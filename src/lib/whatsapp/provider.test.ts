@@ -328,8 +328,8 @@ describe('describeSendFailure — Meta #131008', () => {
     expect(error.isMissingParameter).toBe(true);
     const text = describeSendFailure(error);
     expect(text).toMatch(/missing or blank \(#131008\)/);
-    expect(text).toMatch(/Meta rejects blank values/);
-    expect(text).toMatch(/"If empty, use" fallback/);
+    expect(text).toMatch(/Meta rejects blank template values/);
+    expect(text).not.toMatch(/broadcast|Personalize/i);
   });
 
   it('leaves other Meta codes alone', () => {

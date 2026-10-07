@@ -596,8 +596,10 @@ export function describeSendFailure(error: unknown): string {
     }
     if (error.isMissingParameter) {
       return (
-        'Meta rejected the send because a template value is missing or blank (#131008) — Meta rejects blank values. ' +
-        'In a broadcast, set an "If empty, use" fallback for each variable in the Personalize step.'
+        // Neutral on purpose: this reaches the inbox, automations and
+        // the public v1 API, not only broadcasts (whose Personalize step
+        // warns about blanks and offers a fallback before sending).
+        'Meta rejected the send because a template value is missing or blank (#131008) — Meta rejects blank template values.'
       );
     }
     if (error.isAuthError) {

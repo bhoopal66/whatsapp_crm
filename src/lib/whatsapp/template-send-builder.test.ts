@@ -53,7 +53,7 @@ describe('buildSendComponents — body', () => {
           { body: ['Omar', blank] },
         ),
       ).toThrow(
-        'Template variable {{2}} is empty for this recipient — Meta rejects blank values. In a broadcast, set an "If empty, use" fallback for it in the Personalize step.',
+        'Template variable {{2}} is empty for this recipient — Meta rejects blank template values.',
       );
     }
   });

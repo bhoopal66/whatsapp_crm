@@ -862,8 +862,10 @@ down` once before bringing the new project up. There are no named
   warns how many CSV rows, or how many customers in a sample of a
   Compass selection, would get a blank. A blank value that still
   reaches a Meta send is refused before the gateway call, and the
-  recipient's error names the variable and the fix; a #131008 from Meta
-  is worded the same way.
+  recipient's error names the variable; a #131008 from Meta is worded
+  plainly too. Values are fixed when a broadcast is created, so an
+  affected campaign is fixed by creating it again with a fallback, not
+  by *Retry failed*.
 - Team activity figures and warnings were inaccurate:
   - Since a second phone number was connected, older chats belonged to no
     number, so per-number and per-person totals read low.
