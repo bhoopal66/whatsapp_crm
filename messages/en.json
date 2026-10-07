@@ -911,6 +911,10 @@
         "compassFieldUnavailable": "No Compass fields found for this selection",
         "compassFieldHint": "{placeholder} becomes each recipient's \"{column}\" value from Compass — for the first number in your selection that is \"{example}\".",
         "previewCompassRow": "first number in your Compass selection: {who}",
+        "fallbackLabel": "If empty, use",
+        "fallbackPlaceholder": "e.g. Sir/Madam",
+        "blankWarningCsv": "{placeholder}: {blank} of {total} rows in your CSV have no value — they would get a blank. Meta rejects blank values; set an \"If empty, use\" fallback.",
+        "blankWarningCompass": "{placeholder}: {blank} of {total} sampled customers from your Compass selection have no value — they would get a blank. Meta rejects blank values; set an \"If empty, use\" fallback.",
         "fieldMap": {
           "name": "Name",
           "phone": "Phone",

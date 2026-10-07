@@ -79,6 +79,11 @@ interface AudienceConfig {
    * send re-reads the whole slice; it never treats this as the audience.
    */
   compassSample?: CsvContactRow;
+  /**
+   * The whole sample (≤ COMPASS_SAMPLE_SIZE rows of the slice), so the
+   * personalize step can count who a variable would leave blank.
+   */
+  compassSampleRows?: CsvContactRow[];
   /** `compassSelectionKey` of the selection `compassSample` was read for. */
   compassSampleKey?: string;
   excludeTagIds?: string[];
@@ -235,6 +240,7 @@ export function Step2SelectAudience({
         mergeSample({
           csvColumns: compassColumns(valid),
           compassSample: valid[0],
+          compassSampleRows: valid,
           compassSampleKey: compassSelectionKey(selection),
         });
       } catch (err) {
@@ -245,6 +251,7 @@ export function Step2SelectAudience({
         mergeSample({
           csvColumns: undefined,
           compassSample: undefined,
+          compassSampleRows: undefined,
           compassSampleKey: undefined,
         });
       } finally {
@@ -623,6 +630,10 @@ export function Step2SelectAudience({
                     compassSample:
                       option.type === 'compass'
                         ? audience.compassSample
+                        : undefined,
+                    compassSampleRows:
+                      option.type === 'compass'
+                        ? audience.compassSampleRows
                         : undefined,
                     compassSampleKey:
                       option.type === 'compass'

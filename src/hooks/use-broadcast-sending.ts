@@ -63,6 +63,11 @@ export interface AudienceConfig {
    * the whole slice from `compass_contacts`.
    */
   compassSample?: CsvContactRow;
+  /**
+   * The whole step-2 sample — the personalize step's blank-variable
+   * warning only. Never read by the send, for the same reason.
+   */
+  compassSampleRows?: CsvContactRow[];
   /** `compassSelectionKey` of the selection `compassSample` was read for. */
   compassSampleKey?: string;
   /** Contacts carrying any of these tags are subtracted from the result. */

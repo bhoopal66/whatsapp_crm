@@ -176,6 +176,19 @@ function buildBodyComponent(
   // Trim to the variable count — extra values are dropped silently so
   // a legacy caller that passes too many doesn't error out.
   const values = body.slice(0, varCount);
+  // Meta refuses a blank text parameter with #131008 "Required
+  // parameter is missing" — a broadcast mapped to a Compass field most
+  // customers lacked failed every recipient that way. Refusing here
+  // costs no Meta call and names the variable and the fix on the
+  // recipient row (deliverBroadcast stores this message).
+  const indices = extractVariableIndices(template.body_text);
+  values.forEach((text, i) => {
+    if (!String(text ?? '').trim()) {
+      throw new Error(
+        `Template variable {{${indices[i] ?? i + 1}}} is empty for this recipient — Meta rejects blank values. In a broadcast, set an "If empty, use" fallback for it in the Personalize step.`,
+      );
+    }
+  });
   return {
     type: 'body',
     parameters: values.map((text) => ({ type: 'text', text: String(text) })),

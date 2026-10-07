@@ -374,5 +374,6 @@ and its automations are unaffected.
 | "Service not found" style 404 on save | The phone number id is wrong — it is the numeric id, not the phone number. |
 | Sends fail after a while | A temporary access token expired. Use a System User token. |
 | "can only send an approved template right now" | The 24-hour window closed. Expected; see above. |
+| Broadcast recipients fail with "Template variable {{N}} is empty" or `(#131008) Required parameter is missing` | A template variable resolved blank for them, and Meta rejects blank values. Set an *If empty, use* fallback for the variable in the broadcast's Personalize step. |
 | Message costs shows *no rate on file* | The recipient's market or the category is not in the seeded rate card. Load the official CSV (see above). |
 | Message costs stays empty | Costs come from delivery receipts, so the webhook must be reaching this deployment; check the inbound row above first. |

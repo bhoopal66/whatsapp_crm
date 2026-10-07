@@ -45,6 +45,19 @@ describe('buildSendComponents — body', () => {
     ).toThrow(/2 variable\(s\) but only 1/);
   });
 
+  it('refuses a blank body value before Meta does (#131008), naming the variable', () => {
+    for (const blank of ['', '   ']) {
+      expect(() =>
+        buildSendComponents(
+          row({ body_text: 'Dear {{1}}, your order {{2}} shipped.' }),
+          { body: ['Omar', blank] },
+        ),
+      ).toThrow(
+        'Template variable {{2}} is empty for this recipient — Meta rejects blank values. In a broadcast, set an "If empty, use" fallback for it in the Personalize step.',
+      );
+    }
+  });
+
   it('trims extra body values silently (legacy callers may overshoot)', () => {
     const components = buildSendComponents(
       row({ body_text: 'Hi {{1}}' }),

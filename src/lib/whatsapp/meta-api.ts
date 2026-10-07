@@ -110,6 +110,16 @@ export class MetaError extends Error {
   get isTemplateError(): boolean {
     return this.code === 132000 || this.code === 132001 || this.code === 132015
   }
+
+  /**
+   * True when Meta refused the send for a missing parameter (#131008) —
+   * in practice a template variable that resolved blank, which Meta
+   * treats as absent. The send builder refuses blank body values first;
+   * this names whatever still gets through (a header or button value).
+   */
+  get isMissingParameter(): boolean {
+    return this.code === 131008
+  }
 }
 
 async function throwMetaError(response: Response, fallback: string): Promise<never> {

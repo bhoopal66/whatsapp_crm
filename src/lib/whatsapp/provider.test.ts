@@ -318,6 +318,27 @@ describe('describeSendFailure — Whapi 401/403', () => {
   });
 });
 
+describe('describeSendFailure — Meta #131008', () => {
+  it('names a blank template value and the fallback that fixes it', () => {
+    const error = new MetaError(
+      '(#131008) Required parameter is missing',
+      400,
+      131008
+    );
+    expect(error.isMissingParameter).toBe(true);
+    const text = describeSendFailure(error);
+    expect(text).toMatch(/missing or blank \(#131008\)/);
+    expect(text).toMatch(/Meta rejects blank values/);
+    expect(text).toMatch(/"If empty, use" fallback/);
+  });
+
+  it('leaves other Meta codes alone', () => {
+    const error = new MetaError('Something else', 400, 100);
+    expect(error.isMissingParameter).toBe(false);
+    expect(describeSendFailure(error)).toBe('Something else');
+  });
+});
+
 describe('explainSendFailure', () => {
   beforeEach(() => {
     getChannelInfo.mockReset();

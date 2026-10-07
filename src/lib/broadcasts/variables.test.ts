@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Contact } from '@/types';
 import {
+  countBlankVariables,
   csvValuesForContact,
   indexCsvRowsByPhone,
+  resolveVariableWithFallback,
   resolveVariables,
   sortedVariableKeys,
+  type CsvContactRow,
   type VariableMapping,
 } from './variables';
 
@@ -70,6 +73,149 @@ describe('resolveVariables', () => {
         }
       )
     ).toEqual(['Alice from CSV']);
+  });
+});
+
+describe('resolveVariables — fallback', () => {
+  // Meta refuses a blank text parameter (#131008): a Compass field most
+  // customers lacked failed a whole campaign. The fallback is what
+  // those recipients get instead.
+  const mapping: VariableMapping = {
+    type: 'csv_column',
+    value: 'contact_person',
+    fallback: 'Sir/Madam',
+  };
+
+  it('uses the fallback for an empty cell', () => {
+    expect(
+      resolveVariables({ '1': mapping }, contact, undefined, {
+        contact_person: '',
+      })
+    ).toEqual(['Sir/Madam']);
+  });
+
+  it('uses the fallback for a whitespace-only cell', () => {
+    expect(
+      resolveVariables({ '1': mapping }, contact, undefined, {
+        contact_person: '   ',
+      })
+    ).toEqual(['Sir/Madam']);
+  });
+
+  it('uses the fallback when the column is missing from the row', () => {
+    expect(
+      resolveVariables({ '1': mapping }, contact, undefined, { other: 'x' })
+    ).toEqual(['Sir/Madam']);
+    expect(resolveVariables({ '1': mapping }, contact)).toEqual(['Sir/Madam']);
+  });
+
+  it('keeps a real value over the fallback', () => {
+    expect(
+      resolveVariables({ '1': mapping }, contact, undefined, {
+        contact_person: 'Omar',
+      })
+    ).toEqual(['Omar']);
+  });
+
+  it('applies to contact fields and custom fields too', () => {
+    const noEmail = { ...contact, email: null } as unknown as Contact;
+    expect(
+      resolveVariables(
+        {
+          '1': { type: 'field', value: 'email', fallback: 'no email' },
+          '2': { type: 'custom_field', value: 'cf-plan', fallback: 'Basic' },
+        },
+        noEmail,
+        new Map([['cf-plan', ' ']])
+      )
+    ).toEqual(['no email', 'Basic']);
+  });
+
+  it('applies to an empty static value', () => {
+    expect(
+      resolveVariables(
+        { '1': { type: 'static', value: '', fallback: 'friend' } },
+        contact
+      )
+    ).toEqual(['friend']);
+  });
+
+  it('trims the fallback and ignores a blank one', () => {
+    expect(
+      resolveVariables(
+        {
+          '1': { ...mapping, fallback: '  Sir  ' },
+          '2': { ...mapping, fallback: '   ' },
+        },
+        contact
+      )
+    ).toEqual(['Sir', '']);
+  });
+
+  it('leaves the preview resolver undefined when there is no fallback', () => {
+    const bare: VariableMapping = { type: 'csv_column', value: 'x' };
+    expect(resolveVariableWithFallback(bare, contact)).toBeUndefined();
+    expect(resolveVariableWithFallback(mapping, contact)).toBe('Sir/Madam');
+  });
+});
+
+describe('countBlankVariables', () => {
+  const rows: CsvContactRow[] = [
+    { phone: '1', name: 'A', values: { contact_person: 'Omar', city: '' } },
+    { phone: '2', name: 'B', values: { contact_person: ' ' } },
+    { phone: '3', values: {} },
+    { phone: '4', name: 'D', values: { city: 'Dubai' } },
+  ];
+
+  it('counts rows each mapping would leave blank, in send order', () => {
+    expect(
+      countBlankVariables(
+        {
+          '2': { type: 'field', value: 'name' },
+          '1': { type: 'csv_column', value: 'contact_person' },
+          '3': { type: 'csv_column', value: 'city' },
+        },
+        rows
+      )
+    ).toEqual([
+      { key: '1', blank: 3, total: 4 },
+      { key: '2', blank: 1, total: 4 },
+      { key: '3', blank: 3, total: 4 },
+    ]);
+  });
+
+  it('skips mappings with a fallback, and ones a row cannot answer', () => {
+    expect(
+      countBlankVariables(
+        {
+          '1': {
+            type: 'csv_column',
+            value: 'contact_person',
+            fallback: 'Sir/Madam',
+          },
+          '2': { type: 'custom_field', value: 'cf-plan' },
+          '3': { type: 'static', value: '' },
+          '4': { type: 'csv_column', value: '' },
+          '5': { type: 'field', value: 'phone' },
+        },
+        rows
+      )
+    ).toEqual([]);
+  });
+
+  it('still counts a mapping whose fallback is blank', () => {
+    expect(
+      countBlankVariables(
+        { '1': { type: 'csv_column', value: 'city', fallback: ' ' } },
+        rows
+      )
+    ).toEqual([{ key: '1', blank: 3, total: 4 }]);
+  });
+
+  it('has nothing to say without rows', () => {
+    expect(
+      countBlankVariables({ '1': { type: 'csv_column', value: 'city' } }, [])
+    ).toEqual([]);
   });
 });
 

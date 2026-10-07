@@ -854,6 +854,16 @@ down` once before bringing the new project up. There are no named
 
 ### Fixed
 
+- Broadcasts: a template variable that came out blank for some
+  recipients (a Compass field or CSV cell they lacked, a contact with
+  no email) failed every one of them on Meta with `(#131008) Required
+  parameter is missing`, and on Whapi sent "Hi ,". Each variable in the
+  Personalize step now has an *If empty, use* fallback, and the step
+  warns how many CSV rows, or how many customers in a sample of a
+  Compass selection, would get a blank. A blank value that still
+  reaches a Meta send is refused before the gateway call, and the
+  recipient's error names the variable and the fix; a #131008 from Meta
+  is worded the same way.
 - Team activity figures and warnings were inaccurate:
   - Since a second phone number was connected, older chats belonged to no
     number, so per-number and per-person totals read low.

@@ -594,6 +594,12 @@ export function describeSendFailure(error: unknown): string {
     if (error.isTemplateError) {
       return `Meta rejected the template: ${error.message}. Check it is submitted and APPROVED for this WABA.`;
     }
+    if (error.isMissingParameter) {
+      return (
+        'Meta rejected the send because a template value is missing or blank (#131008) — Meta rejects blank values. ' +
+        'In a broadcast, set an "If empty, use" fallback for each variable in the Personalize step.'
+      );
+    }
     if (error.isAuthError) {
       return 'The Meta access token is invalid, expired, or missing permissions. Reconnect the number in Settings → WhatsApp.';
     }

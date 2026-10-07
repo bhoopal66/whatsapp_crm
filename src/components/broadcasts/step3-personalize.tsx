@@ -12,7 +12,9 @@ import {
 } from '@/lib/whatsapp/header-media';
 import { Contact, CustomField, MessageTemplate } from '@/types';
 import {
-  resolveVariable,
+  countBlankVariables,
+  csvRowContact,
+  resolveVariableWithFallback,
   type CsvContactRow,
   type VariableMapping,
   type VariableType,
@@ -43,6 +45,8 @@ interface Step3Audience {
   csvColumns?: string[];
   /** First row of a Compass slice's sample (step 2) — preview only. */
   compassSample?: CsvContactRow;
+  /** The whole step-2 sample of the slice — the blank-value warning. */
+  compassSampleRows?: CsvContactRow[];
 }
 
 interface Step3Props {
@@ -279,9 +283,48 @@ export function Step3Personalize({
     return missing;
   }, [placeholders, variables, csvColumns]);
 
+  /**
+   * Rows that show who a variable would leave blank: the whole CSV, or
+   * the step-2 sample of a Compass slice (the send re-reads the slice,
+   * so this is only ever a sample of it).
+   */
+  const sampleRows = useMemo<CsvContactRow[]>(() => {
+    if (audience.type === 'csv') return audience.csvContacts ?? [];
+    if (audience.type === 'compass') {
+      return (
+        audience.compassSampleRows ??
+        (audience.compassSample ? [audience.compassSample] : [])
+      );
+    }
+    return [];
+  }, [
+    audience.type,
+    audience.csvContacts,
+    audience.compassSampleRows,
+    audience.compassSample,
+  ]);
+
+  /**
+   * Mapped variables that resolve blank for some of those rows. Meta
+   * rejects a blank parameter (#131008) and Whapi sends "Hi ,", so the
+   * admin is told before sending. A warning, not a block: the send
+   * path refuses a blank Meta parameter per recipient anyway, and the
+   * admin may knowingly accept it on Whapi.
+   */
+  const blankCounts = useMemo(() => {
+    const current = new Set(
+      placeholders
+        .filter((p) => !unmappedKeys.includes(p))
+        .map((p) => p.replace(/^\{\{|\}\}$/g, ''))
+    );
+    return countBlankVariables(variables, sampleRows).filter((c) =>
+      current.has(c.key)
+    );
+  }, [variables, sampleRows, placeholders, unmappedKeys]);
+
   function updateVariable(
     key: string,
-    patch: { type?: VariableType; value?: string }
+    patch: { type?: VariableType; value?: string; fallback?: string }
   ) {
     const current = variables[key] ?? { type: 'static', value: '' };
     onUpdate({
@@ -299,12 +342,7 @@ export function Step3Personalize({
   const previewSubject = useMemo(() => {
     if (csvFirstRow) {
       return {
-        contact: {
-          name: csvFirstRow.name ?? csvFirstRow.values?.name ?? '',
-          phone: csvFirstRow.phone,
-          email: csvFirstRow.values?.email ?? '',
-          company: csvFirstRow.company ?? csvFirstRow.values?.company ?? '',
-        },
+        contact: csvRowContact(csvFirstRow),
         customValues: new Map<string, string>(),
         csvValues: csvFirstRow.values ?? {},
       };
@@ -320,9 +358,9 @@ export function Step3Personalize({
 
   /**
    * Substitute placeholders for the preview subject, with the same
-   * resolver the send path uses. Placeholders keyed by "{{N}}" map to
-   * variable key "N"; anything unresolved stays as the placeholder so
-   * the gap is visible.
+   * resolver the send path uses, fallback included. Placeholders keyed
+   * by "{{N}}" map to variable key "N"; anything unresolved stays as
+   * the placeholder so the gap is visible.
    */
   const previewText = useMemo(() => {
     let text = template.body_text;
@@ -330,7 +368,7 @@ export function Step3Personalize({
       const key = placeholder.replace(/^\{\{|\}\}$/g, '');
       const mapping = variables[key];
       const resolved = mapping?.value
-        ? resolveVariable(
+        ? resolveVariableWithFallback(
             mapping,
             previewSubject.contact,
             previewSubject.customValues,
@@ -640,6 +678,24 @@ export function Step3Personalize({
                     )}
                   </div>
                 </div>
+
+                {/* A static value is the same for everyone, so only the
+                    per-recipient sources can come out blank. */}
+                {mapping.type !== 'static' && (
+                  <div className="mt-3">
+                    <label className="text-muted-foreground mb-1.5 block text-xs font-medium">
+                      {t('personalize.fallbackLabel')}
+                    </label>
+                    <Input
+                      value={mapping.fallback ?? ''}
+                      onChange={(e) =>
+                        updateVariable(key, { fallback: e.target.value })
+                      }
+                      placeholder={t('personalize.fallbackPlaceholder')}
+                      className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -669,6 +725,21 @@ export function Step3Personalize({
           </div>
         </div>
       </div>
+
+      {blankCounts.length > 0 && (
+        <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          {blankCounts.map((c) => (
+            <p key={c.key}>
+              {t(
+                isCompass
+                  ? 'personalize.blankWarningCompass'
+                  : 'personalize.blankWarningCsv',
+                { placeholder: `{{${c.key}}}`, blank: c.blank, total: c.total }
+              )}
+            </p>
+          ))}
+        </div>
+      )}
 
       {unmappedKeys.length > 0 && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
