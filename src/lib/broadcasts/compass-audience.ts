@@ -114,13 +114,24 @@ export function compassSelectionKey(selection: CompassSelection): string {
 const WHOLE_NUMBER = /^\d+$/;
 
 /**
+ * Arabic-Indic (U+0660–0669) and Extended Arabic-Indic (U+06F0–06F9)
+ * digits as ASCII, so an admin typing "٥٠٠" on an Arabic keyboard gets
+ * 500 rather than an "invalid" hint. `\d` in a JS regex is ASCII-only.
+ */
+function asciiDigits(text: string): string {
+  return text.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (d) =>
+    String(d.charCodeAt(0) & 0xf)
+  );
+}
+
+/**
  * The wizard's "start at position" text as a 0-based offset, or null
  * when it is not a whole number of 1 or more. Blank is invalid: there is
  * no sensible default to guess, and guessing one is how clearing the
  * field and typing "500" used to become "1500".
  */
 export function parseCompassStart(text: string): number | null {
-  const trimmed = text.trim();
+  const trimmed = asciiDigits(text).trim();
   if (!WHOLE_NUMBER.test(trimmed)) return null;
   const n = Number(trimmed);
   return Number.isSafeInteger(n) && n >= 1 ? n - 1 : null;
@@ -134,7 +145,7 @@ export function parseCompassStart(text: string): number | null {
 export function parseCompassLimit(
   text: string
 ): { limit: number | null } | null {
-  const trimmed = text.trim();
+  const trimmed = asciiDigits(text).trim();
   if (trimmed === '') return { limit: null };
   if (!WHOLE_NUMBER.test(trimmed)) return null;
   const n = Number(trimmed);

@@ -124,6 +124,12 @@ describe('parseCompassStart', () => {
     expect(parseCompassStart(' 42 ')).toBe(41);
   });
 
+  it('reads Arabic-Indic and Extended Arabic-Indic digits', () => {
+    expect(parseCompassStart('٥٠٠')).toBe(499);
+    expect(parseCompassStart('۱۰۱')).toBe(100);
+    expect(parseCompassStart('٠')).toBeNull();
+  });
+
   it('rejects blank, zero, negative and non-integer text', () => {
     for (const text of ['', ' ', '0', '-1', '1.5', '5e', 'abc', '1e3']) {
       expect(parseCompassStart(text)).toBeNull();
@@ -136,6 +142,7 @@ describe('parseCompassLimit', () => {
     expect(parseCompassLimit('')).toEqual({ limit: null });
     expect(parseCompassLimit('  ')).toEqual({ limit: null });
     expect(parseCompassLimit('100')).toEqual({ limit: 100 });
+    expect(parseCompassLimit('١٠٠')).toEqual({ limit: 100 });
   });
 
   it('rejects 0, negative and non-integer text rather than read it as all', () => {
