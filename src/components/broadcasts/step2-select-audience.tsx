@@ -875,7 +875,10 @@ export function Step2SelectAudience({
           <p className="text-muted-foreground text-xs">
             {t('selectAudience.compassHint')}
           </p>
-          {compassLoading ? (
+          {/* With a field that does not parse, the selection still holds
+              the last valid one — showing its range beside the red hint
+              would describe a slice that is not the one on screen. */}
+          {!compassStartValid || !compassLimitValid ? null : compassLoading ? (
             <Loader2 className="text-primary h-4 w-4 animate-spin" />
           ) : compassError ? (
             <p className="text-xs text-red-400">

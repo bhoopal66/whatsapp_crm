@@ -111,6 +111,16 @@ export function Step3Personalize({
   const [loadingPreview, setLoadingPreview] = useState(true);
 
   const isCompass = audience.type === 'compass';
+  const typeLabel = (type: VariableType): string =>
+    type === 'static'
+      ? t('personalize.typeStatic')
+      : type === 'field'
+        ? t('personalize.typeContact')
+        : type === 'custom_field'
+          ? t('personalize.typeCustom')
+          : isCompass
+            ? t('personalize.typeCompassField')
+            : t('personalize.typeCsvColumn');
   const csvColumns = useMemo(
     () =>
       audience.type === 'csv' || audience.type === 'compass'
@@ -483,23 +493,25 @@ export function Step3Personalize({
                       }
                     >
                       <SelectTrigger className="border-border bg-muted text-foreground w-full">
-                        <SelectValue />
+                        {/* Base UI renders the raw value ("csv_column")
+                            unless told the label. */}
+                        <SelectValue>
+                          {(val: VariableType) => typeLabel(val)}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="border-border bg-popover">
                         <SelectItem value="static">
-                          {t('personalize.typeStatic')}
+                          {typeLabel('static')}
                         </SelectItem>
                         <SelectItem value="field">
-                          {t('personalize.typeContact')}
+                          {typeLabel('field')}
                         </SelectItem>
                         <SelectItem value="custom_field">
-                          {t('personalize.typeCustom')}
+                          {typeLabel('custom_field')}
                         </SelectItem>
                         {csvAvailable && (
                           <SelectItem value="csv_column">
-                            {isCompass
-                              ? t('personalize.typeCompassField')
-                              : t('personalize.typeCsvColumn')}
+                            {typeLabel('csv_column')}
                           </SelectItem>
                         )}
                       </SelectContent>
