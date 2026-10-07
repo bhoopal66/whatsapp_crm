@@ -24,6 +24,7 @@ import {
   compassRowToCsvRow,
   compassReadIsConsistent,
   COMPASS_CHANGED_DURING_READ,
+  COMPASS_CHECK_FAILED,
   normalizeCompassSelection,
   readCompassWindow,
   type CompassAudienceRow,
@@ -232,7 +233,7 @@ async function readCompassAudience(
       .select('id', { count: 'exact', head: true })
       .eq('account_id', accountId)
       .not('phone_normalized', 'is', null);
-    if (error || count === null) throw new Error(COMPASS_CHANGED_DURING_READ);
+    if (error || count === null) throw new Error(COMPASS_CHECK_FAILED);
     return count;
   };
 
@@ -244,22 +245,30 @@ async function readCompassAudience(
     .eq('account_id', accountId)
     .order('updated_at', { ascending: false, nullsFirst: false })
     .limit(1);
-  if (newest.error) throw new Error(COMPASS_CHANGED_DURING_READ);
+  if (newest.error) throw new Error(COMPASS_CHECK_FAILED);
   // Kept as the string Postgres sent: through a JS Date it would lose
   // its microseconds, and the newest row would count as changed.
   const marker = (newest.data?.[0]?.updated_at as string | undefined) ?? null;
   const countBefore = await filteredCount();
 
+  let requests = 0;
   const rows = await readCompassWindow<CompassAudienceRow>(
-    (from, to) =>
-      compassAudienceQuery(supabase, accountId, selection.order).range(
+    (from, to) => {
+      requests++;
+      return compassAudienceQuery(supabase, accountId, selection.order).range(
         from,
         to
-      ),
+      );
+    },
     selection,
     AUDIENCE_PAGE,
     'Compass contacts'
   );
+  // One request is one statement, which is already a snapshot — the
+  // usual "100 numbers" window. Judging it anyway would abort a send
+  // over an ERP edit to some unrelated customer. A `limit: null` read
+  // always ends with an extra (empty) request, so it is always judged.
+  if (requests <= 1) return rows;
 
   const countAfter = await filteredCount();
   // With no row before the read (no marker), any row now is a change.
@@ -270,7 +279,7 @@ async function readCompassAudience(
   if (marker !== null) changed = changed.gt('updated_at', marker);
   const changedRes = await changed;
   if (changedRes.error || changedRes.count === null) {
-    throw new Error(COMPASS_CHANGED_DURING_READ);
+    throw new Error(COMPASS_CHECK_FAILED);
   }
 
   if (

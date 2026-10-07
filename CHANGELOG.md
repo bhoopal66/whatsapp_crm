@@ -291,7 +291,9 @@ number sends what.
   any Compass field, ERP attributes included. Only customers with a
   phone number count; numbers that fail the contact rules are skipped,
   and recipients become CRM contacts owned by the admin who sends.
-  Exclude tags and the frequency cap apply as for any audience.
+  Exclude tags and the frequency cap apply as for any audience. A slice
+  over 1,000 numbers that Compass changes while it is being read is
+  refused, with nothing sent, rather than sent to the wrong people.
 - **Team activity for team leaders.** A team leader can open Team
   activity and sees only their own team. In the bell, they are told when
   someone in their team reaches the daily new-chat limit.

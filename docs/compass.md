@@ -547,6 +547,13 @@ here so both teams know what a broadcast does to the synced records.
   the bottom of the list" is *bottom of the Compass list*, start 1,
   100 numbers. The slice is read when the campaign is created, so a
   sync that lands between preview and send can shift it.
+- **A sync during the send can make it refuse.** A slice too big for
+  one read (over 1,000 numbers, or "all") is read page by page, and a
+  sync that touches any customer meanwhile would move customers between
+  pages. The send then stops before anything is created — "Compass
+  contacts changed while the audience was being read… try again in a
+  minute" — rather than message people outside the slice. A slice read
+  in one request is never refused for this.
 - **Bad numbers are skipped.** A number that fails the contact rules
   (no country code, too short, …) is left out, so a slice can send to
   fewer people than it names. Exclude tags and the frequency cap apply

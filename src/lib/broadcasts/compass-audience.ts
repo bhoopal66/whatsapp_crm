@@ -235,6 +235,13 @@ export function compassReadIsConsistent(read: {
 export const COMPASS_CHANGED_DURING_READ =
   'Compass contacts changed while the audience was being read (a sync is probably running). Nothing was sent — try again in a minute.';
 
+/**
+ * What the send says when a query of that check itself fails (a tunnel
+ * 502, say) — not evidence of a sync, so not worded as one.
+ */
+export const COMPASS_CHECK_FAILED =
+  'Could not confirm the Compass contacts list was stable while it was read. Nothing was sent — try again.';
+
 /** The `compass_contacts` columns an audience reads. */
 export const COMPASS_AUDIENCE_COLUMNS =
   'compass_id, name, phone, email, company, attributes';
