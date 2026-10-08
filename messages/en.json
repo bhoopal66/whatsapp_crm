@@ -1386,8 +1386,8 @@
           "blurb": "Branches on a rule"
         },
         "set_tag": {
-          "label": "Tag contact",
-          "blurb": "Adds or removes a contact tag"
+          "label": "Set chat tag",
+          "blurb": "Sets or clears the chat's tag"
         },
         "handoff": {
           "label": "Handoff to agent",
@@ -1432,14 +1432,15 @@
       "video": "Video",
       "document": "Document",
       "audio": "Audio",
-      "hasTag": "has tag {tag}",
       "opContains": "contains",
       "opExists": "exists",
       "opMissing": "missing",
-      "modeAdd": "Add",
-      "modeRemove": "Remove",
-      "tagPicked": "{mode} tag {tag}…",
-      "tagNone": "{mode} tag (none picked)"
+      "hasChatTag": "chat tag is {tag}",
+      "lacksChatTag": "chat tag is not {tag}",
+      "chatTagSet": "Set chat tag: {tag}",
+      "chatTagClear": "Clear chat tag",
+      "chatTagNone": "Set chat tag (none picked)",
+      "contactTagRetired": "Contact tag (retired) — pick a chat tag"
     }
   },
   "Settings": {

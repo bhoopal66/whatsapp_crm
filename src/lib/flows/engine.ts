@@ -44,8 +44,10 @@ import {
   dispatchInboundToAiReply,
   type AiFlowContext,
 } from '@/lib/ai/auto-reply';
-import { addContactTagAndDispatch } from '@/lib/contacts/tag-events';
-import { removeContactTag } from '@/lib/contacts/tag-write';
+import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
+import { writeConversationChatTags } from '@/lib/chat-tags/server';
+import type { ChatTagsPatch } from '@/types';
+import { chatHasChatTag, planSetChatTag } from './chat-tags';
 import {
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
@@ -190,13 +192,13 @@ export function isTerminal(node_type: string): boolean {
 /**
  * Evaluate a `condition` node's predicate against the current run
  * state. Exported pure for unit testing — the engine wraps it with a
- * DB lookup for `tag` / `contact_field` subjects.
+ * DB lookup for `chat_tag` / `contact_field` subjects.
  */
 export function evaluateConditionPredicate(args: {
   operator: ConditionNodeConfig['operator'];
   /**
    * Resolved value of the subject. `undefined` means the subject is
-   * absent (no var with that key / no such tag / contact field is
+   * absent (no var with that key / chat lacks the tag / contact field is
    * null). Pure function: caller does the DB lookup.
    */
   subjectValue: string | undefined;
@@ -521,6 +523,36 @@ async function executeHandoff(
 }
 
 /**
+ * The chat tags of the run's conversation — the run's own when it
+ * knows it, else the contact's most recently active chat (one per
+ * contact). Null when there is no such chat.
+ */
+async function loadRunChatTags(
+  db: AdminClient,
+  run: FlowRunRow
+): Promise<ChatTagsPatch | null> {
+  if (!run.conversation_id && !run.contact_id) return null;
+  let query = db
+    .from('conversations')
+    .select('chat_tag_id, chat_sub_tag_id')
+    .eq('account_id', run.account_id);
+  query = run.conversation_id
+    ? query.eq('id', run.conversation_id)
+    : query
+        .eq('contact_id', run.contact_id as string)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`chat tag lookup failed: ${error.message}`);
+  if (!data) return null;
+  const row = data as Partial<ChatTagsPatch>;
+  return {
+    chat_tag_id: row.chat_tag_id ?? null,
+    chat_sub_tag_id: row.chat_sub_tag_id ?? null,
+  };
+}
+
+/**
  * Resolve a condition node's subject value from DB / run state, then
  * call the pure `evaluateConditionPredicate`. Splits out so the
  * predicate itself stays unit-testable without a Supabase mock.
@@ -528,13 +560,18 @@ async function executeHandoff(
  * Subject sources:
  *   - `var` → `flow_runs.vars[subject_key]` (captured by collect_input
  *     or http_fetch in v2).
- *   - `tag` → present iff `contact_tags(contact_id, tag_id)` exists.
- *     `subject_key` IS the tag UUID; the SELECT returns 1 row or 0.
+ *   - `chat_tag` → present iff the chat's main tag or sub-tag is
+ *     `subject_key` (a chat tag UUID).
  *   - `contact_field` → one of name/email/phone/company on `contacts`.
+ *
+ * Any other subject — above all the retired contact-tag `"tag"` a
+ * stored flow may still carry — evaluates false and logs, so the run
+ * takes the false branch instead of failing.
  */
 async function evaluateConditionNode(
   db: AdminClient,
   run: FlowRunRow,
+  node: FlowNodeRow,
   cfg: ConditionNodeConfig
 ): Promise<boolean> {
   let subjectValue: string | undefined;
@@ -542,18 +579,12 @@ async function evaluateConditionNode(
     const v = run.vars[cfg.subject_key];
     subjectValue =
       typeof v === 'string' ? v : v === undefined ? undefined : String(v);
-  } else if (cfg.subject === 'tag') {
-    const { count } = await db
-      .from('contact_tags')
-      .select('contact_id', { count: 'exact', head: true })
-      .eq('contact_id', run.contact_id!)
-      .eq('tag_id', cfg.subject_key);
-    // For tags, "present" really is the only meaningful test — the
-    // `present`/`absent` operators are the natural fit. equals/contains
-    // against a tag UUID would still work mechanically (compare its
-    // existence to the value).
-    subjectValue = (count ?? 0) > 0 ? cfg.subject_key : undefined;
-  } else {
+  } else if (cfg.subject === 'chat_tag') {
+    const chat = await loadRunChatTags(db, run);
+    subjectValue = chatHasChatTag(chat, cfg.subject_key)
+      ? cfg.subject_key
+      : undefined;
+  } else if (cfg.subject === 'contact_field') {
     const ALLOWED = ['name', 'email', 'phone', 'company'] as const;
     type AllowedField = (typeof ALLOWED)[number];
     if (!ALLOWED.includes(cfg.subject_key as AllowedField)) {
@@ -566,12 +597,73 @@ async function evaluateConditionNode(
       .maybeSingle();
     const raw = (data as Record<string, unknown> | null)?.[cfg.subject_key];
     subjectValue = typeof raw === 'string' && raw.length > 0 ? raw : undefined;
+  } else {
+    await logEvent(db, run.id, 'error', node.node_key, {
+      reason: 'condition_subject_unsupported',
+      subject: String(cfg.subject),
+    });
+    return false;
   }
   return evaluateConditionPredicate({
     operator: cfg.operator,
     subjectValue,
     configValue: cfg.value,
   });
+}
+
+/**
+ * Run a "Set chat tag" node: write the chat's tags with the engine's
+ * service-role client, then fire `chat_tag_set` automations when that
+ * changed something. Never throws and never stops the run — a failed
+ * write is logged and the run follows its edge, as the contact-tag
+ * node did. A contact-tag config, or one with no tag picked, writes
+ * nothing.
+ */
+async function runSetChatTagNode(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow
+): Promise<void> {
+  const plan = planSetChatTag(node.config);
+  if (plan.kind !== 'write') {
+    await logEvent(db, run.id, 'error', node.node_key, {
+      reason:
+        plan.kind === 'legacy'
+          ? 'set_tag_contact_tag_retired'
+          : 'set_tag_unset',
+    });
+    return;
+  }
+  try {
+    const result = await writeConversationChatTags(db, {
+      accountId: run.account_id,
+      ...(run.conversation_id
+        ? { conversationId: run.conversation_id }
+        : { contactId: run.contact_id ?? undefined }),
+      next: plan.next,
+    });
+    if (!result.ok) {
+      await logEvent(db, run.id, 'error', node.node_key, {
+        reason: 'set_tag_failed',
+        detail: result.message ?? result.reason,
+      });
+      return;
+    }
+    await dispatchChatTagSet({
+      accountId: run.account_id,
+      contactId: result.contactId,
+      conversationId: result.conversationId,
+      previous: result.previous,
+      saved: result.saved,
+    });
+  } catch (err) {
+    // Non-fatal — log + advance. A tag-write failure shouldn't strand
+    // the customer mid-flow.
+    await logEvent(db, run.id, 'error', node.node_key, {
+      reason: 'set_tag_failed',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -755,7 +847,9 @@ async function advanceFromNodeKey(
       const cfg = node.config as unknown as ConditionNodeConfig;
       let branch: 'true' | 'false';
       try {
-        branch = (await evaluateConditionNode(db, run, cfg)) ? 'true' : 'false';
+        branch = (await evaluateConditionNode(db, run, node, cfg))
+          ? 'true'
+          : 'false';
       } catch (err) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'condition_evaluation_failed',
@@ -773,33 +867,7 @@ async function advanceFromNodeKey(
     }
     if (node.node_type === 'set_tag') {
       const cfg = node.config as unknown as SetTagNodeConfig;
-      try {
-        if (cfg.mode === 'add') {
-          await addContactTagAndDispatch({
-            db,
-            accountId: run.account_id,
-            contactId: run.contact_id!,
-            tagId: cfg.tag_id,
-            context: {
-              conversation_id: run.conversation_id ?? undefined,
-              vars: run.vars,
-            },
-          });
-        } else {
-          await removeContactTag(db, {
-            accountId: run.account_id,
-            contactId: run.contact_id!,
-            tagId: cfg.tag_id,
-          });
-        }
-      } catch (err) {
-        // Non-fatal — log + advance. A tag-write failure shouldn't
-        // strand the customer mid-flow.
-        await logEvent(db, run.id, 'error', node.node_key, {
-          reason: 'set_tag_failed',
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      }
+      await runSetChatTagNode(db, run, node);
       currentKey = cfg.next_node_key;
       continue;
     }

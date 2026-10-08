@@ -516,6 +516,145 @@ describe("validateFlowForActivation — send_media", () => {
   });
 });
 
+describe("validateFlowForActivation — chat tags", () => {
+  function issuesFor(node: {
+    node_key: string;
+    node_type: string;
+    config: Record<string, unknown>;
+  }) {
+    return validateFlowForActivation(validFlow, [
+      { node_key: "start", node_type: "start", config: { next_node_key: node.node_key } },
+      node,
+      { node_key: "ho", node_type: "handoff", config: {} },
+    ]).filter((i) => i.node_key === node.node_key);
+  }
+
+  it("passes a set_tag node with a main tag and sub-tag", () => {
+    expect(
+      issuesFor({
+        node_key: "tag",
+        node_type: "set_tag",
+        config: { chat_tag_id: "m1", chat_sub_tag_id: "s1", next_node_key: "ho" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("passes a set_tag node that clears the chat's tag", () => {
+    expect(
+      issuesFor({
+        node_key: "tag",
+        node_type: "set_tag",
+        config: { chat_tag_id: null, next_node_key: "ho" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects a set_tag node with no tag picked", () => {
+    const issues = issuesFor({
+      node_key: "tag",
+      node_type: "set_tag",
+      config: { next_node_key: "ho" },
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        severity: "error",
+        field: "chat_tag_id",
+        message: expect.stringContaining("needs a tag"),
+      }),
+    ]);
+  });
+
+  it("rejects a legacy contact-tag set_tag config, naming the fix", () => {
+    const issues = issuesFor({
+      node_key: "tag",
+      node_type: "set_tag",
+      config: { mode: "add", tag_id: "t1", next_node_key: "ho" },
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        severity: "error",
+        field: "chat_tag_id",
+        message: expect.stringContaining("contact tag"),
+      }),
+    ]);
+  });
+
+  it("passes a chat_tag condition with is present", () => {
+    expect(
+      issuesFor({
+        node_key: "if",
+        node_type: "condition",
+        config: {
+          subject: "chat_tag",
+          subject_key: "m1",
+          operator: "present",
+          true_next: "ho",
+          false_next: "ho",
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects equals / contains on a chat_tag condition", () => {
+    const issues = issuesFor({
+      node_key: "if",
+      node_type: "condition",
+      config: {
+        subject: "chat_tag",
+        subject_key: "m1",
+        operator: "equals",
+        value: "x",
+        true_next: "ho",
+        false_next: "ho",
+      },
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({ severity: "error", field: "operator" }),
+    ]);
+  });
+
+  it("asks for the tag when a chat_tag condition has none", () => {
+    const issues = issuesFor({
+      node_key: "if",
+      node_type: "condition",
+      config: {
+        subject: "chat_tag",
+        subject_key: "",
+        operator: "present",
+        true_next: "ho",
+        false_next: "ho",
+      },
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        field: "subject_key",
+        message: "Pick the chat tag this condition checks.",
+      }),
+    ]);
+  });
+
+  it("rejects the retired contact-tag subject, naming the fix", () => {
+    const issues = issuesFor({
+      node_key: "if",
+      node_type: "condition",
+      config: {
+        subject: "tag",
+        subject_key: "t1",
+        operator: "present",
+        true_next: "ho",
+        false_next: "ho",
+      },
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        severity: "error",
+        field: "subject",
+        message: expect.stringContaining("Contact tags were retired"),
+      }),
+    ]);
+  });
+});
+
 describe("reachableFromEntry", () => {
   it("walks the graph from the entry", () => {
     const set = reachableFromEntry("start", validNodes);

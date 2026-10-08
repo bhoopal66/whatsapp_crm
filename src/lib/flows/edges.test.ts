@@ -47,7 +47,7 @@ describe("deriveCanvasEdges — single-outgoing node types", () => {
         {
           node_key: "t",
           node_type: "set_tag",
-          config: { mode: "add", tag_id: "u", next_node_key: "ci" },
+          config: { chat_tag_id: "u", next_node_key: "ci" },
         },
         {
           node_key: "ci",

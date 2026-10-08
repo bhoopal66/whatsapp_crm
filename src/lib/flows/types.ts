@@ -140,18 +140,23 @@ export interface CollectInputNodeConfig {
 
 export type ConditionOperator = "equals" | "contains" | "present" | "absent";
 
-export type ConditionSubject = "var" | "tag" | "contact_field";
+/**
+ * `chat_tag` replaced the contact-tag subject `"tag"`; a stored
+ * condition still naming `"tag"` evaluates false (see `chat-tags.ts`).
+ */
+export type ConditionSubject = "var" | "chat_tag" | "contact_field";
 
 /**
- * Routes the run based on a predicate over the contact's tags,
- * profile fields, or stored vars. Always auto-advances — no Meta
- * call, no customer-side input.
+ * Routes the run based on a predicate over the chat's tags, the
+ * contact's profile fields, or stored vars. Always auto-advances — no
+ * Meta call, no customer-side input.
  */
 export interface ConditionNodeConfig {
   subject: ConditionSubject;
   /**
    * For `var`: the key in flow_runs.vars.
-   * For `tag`: the tag UUID (matched against contact_tags).
+   * For `chat_tag`: a chat tag UUID, main or sub-tag — true when the
+   *   chat's main tag or sub-tag is it (`present`; `absent` negates).
    * For `contact_field`: one of 'name' | 'email' | 'phone' | 'company'.
    */
   subject_key: string;
@@ -164,10 +169,16 @@ export interface ConditionNodeConfig {
   false_next: string;
 }
 
+/**
+ * "Set chat tag" (node type `set_tag`, the name the DB CHECK knows).
+ * Writes the run's chat's main tag and sub-tag; `chat_tag_id: null`
+ * clears both. A stored config from the contact-tag era
+ * (`{ mode, tag_id }`) is a logged no-op — see `planSetChatTag`.
+ */
 export interface SetTagNodeConfig {
-  mode: "add" | "remove";
-  /** Tag UUID. The builder picks from the user's existing tags. */
-  tag_id: string;
+  chat_tag_id: string | null;
+  /** A sub-tag of `chat_tag_id`; ignored when that is null. */
+  chat_sub_tag_id?: string | null;
   next_node_key: string;
 }
 

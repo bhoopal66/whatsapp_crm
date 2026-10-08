@@ -185,7 +185,9 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         false_next: "",
       };
     case "set_tag":
-      return { mode: "add", tag_id: "", next_node_key: "" };
+      // No `chat_tag_id` yet: the author must pick a tag (or "No tag",
+      // which clears) — validation says so, and the engine does nothing.
+      return { next_node_key: "" };
     case "handoff":
       return { note: "" };
     case "end":

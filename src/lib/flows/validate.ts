@@ -24,6 +24,7 @@
  */
 
 import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/interactive-limits";
+import { planSetChatTag } from "./chat-tags";
 
 export interface ValidationIssue {
   severity: "error" | "warning";
@@ -586,20 +587,34 @@ function validateNode(
 
     case "condition": {
       const cfg = node.config as {
-        subject?: "var" | "tag" | "contact_field";
+        // "tag" is the retired contact-tag subject a stored flow may
+        // still carry; the engine evaluates it false.
+        subject?: "var" | "chat_tag" | "contact_field" | "tag";
         subject_key?: string;
         operator?: "equals" | "contains" | "present" | "absent";
         value?: string;
         true_next?: string;
         false_next?: string;
       };
-      if (!cfg.subject || !["var", "tag", "contact_field"].includes(cfg.subject)) {
+      if (cfg.subject === "tag") {
         issues.push({
           severity: "error",
           scope: "node",
           node_key: node.node_key,
           field: "subject",
-          message: "Condition needs a subject (var / tag / contact_field).",
+          message:
+            "Contact tags were retired, so this condition always takes the false branch. Switch it to a chat tag.",
+        });
+      } else if (
+        !cfg.subject ||
+        !["var", "chat_tag", "contact_field"].includes(cfg.subject)
+      ) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "subject",
+          message: "Condition needs a subject (var / chat_tag / contact_field).",
         });
       }
       if (!cfg.subject_key?.trim()) {
@@ -608,7 +623,23 @@ function validateNode(
           scope: "node",
           node_key: node.node_key,
           field: "subject_key",
-          message: "Condition needs a subject_key (var name, tag id, or field name).",
+          message:
+            cfg.subject === "chat_tag"
+              ? "Pick the chat tag this condition checks."
+              : "Condition needs a subject_key (var name, chat tag, or field name).",
+        });
+      }
+      if (
+        cfg.subject === "chat_tag" &&
+        (cfg.operator === "equals" || cfg.operator === "contains")
+      ) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "operator",
+          message:
+            'A chat-tag condition checks whether the chat has the tag: use "is present" or "is absent".',
         });
       }
       if (
@@ -623,6 +654,7 @@ function validateNode(
           message: "Condition needs an operator.",
         });
       } else if (
+        cfg.subject !== "chat_tag" &&
         (cfg.operator === "equals" || cfg.operator === "contains") &&
         (cfg.value === undefined || cfg.value === "")
       ) {
@@ -658,27 +690,25 @@ function validateNode(
     }
 
     case "set_tag": {
-      const cfg = node.config as {
-        mode?: "add" | "remove";
-        tag_id?: string;
-        next_node_key?: string;
-      };
-      if (!cfg.mode || !["add", "remove"].includes(cfg.mode)) {
+      const cfg = node.config as { next_node_key?: string };
+      const plan = planSetChatTag(node.config);
+      if (plan.kind === "legacy") {
         issues.push({
           severity: "error",
           scope: "node",
           node_key: node.node_key,
-          field: "mode",
-          message: "Set-tag needs a mode (add or remove).",
+          field: "chat_tag_id",
+          message:
+            "This step still adds or removes a contact tag. Contact tags were retired, so it does nothing. Pick a chat tag, or No tag to clear the chat's tag.",
         });
-      }
-      if (!cfg.tag_id) {
+      } else if (plan.kind === "unset") {
         issues.push({
           severity: "error",
           scope: "node",
           node_key: node.node_key,
-          field: "tag_id",
-          message: "Set-tag needs a tag to apply.",
+          field: "chat_tag_id",
+          message:
+            "Set chat tag needs a tag. Pick one, or No tag to clear the chat's tag.",
         });
       }
       if (!cfg.next_node_key) {
@@ -687,7 +717,7 @@ function validateNode(
           scope: "node",
           node_key: node.node_key,
           field: "next_node_key",
-          message: "Set-tag must point to a next node.",
+          message: "Set chat tag must point to a next node.",
         });
       } else if (!knownKeys.has(cfg.next_node_key)) {
         issues.push({
@@ -695,7 +725,7 @@ function validateNode(
           scope: "node",
           node_key: node.node_key,
           field: "next_node_key",
-          message: `Set-tag points to non-existent node "${cfg.next_node_key}".`,
+          message: `Set chat tag points to non-existent node "${cfg.next_node_key}".`,
         });
       }
       break;

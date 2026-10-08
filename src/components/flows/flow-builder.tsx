@@ -26,6 +26,8 @@ import {
   useState,
 } from 'react';
 import { useTranslations } from 'next-intl';
+
+import { useChatTags } from '@/hooks/use-chat-tags';
 import {
   CircleAlert,
   Plus,
@@ -533,7 +535,8 @@ function NodeCard({
   const c = nodeColors(node.node_type);
   const hasError = issues.some((i) => i.severity === 'error');
   const tSummary = useTranslations('Flows.summary');
-  const preview = summarizeNode(node, tSummary);
+  const { tree: chatTags } = useChatTags();
+  const preview = summarizeNode(node, tSummary, chatTags);
   return (
     <div
       ref={cardRef}

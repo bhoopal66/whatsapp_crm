@@ -30,6 +30,8 @@ import {
   Workflow,
 } from 'lucide-react';
 
+import { planSetChatTag } from '@/lib/flows/chat-tags';
+import { chatTagLabel, type ChatTagTree } from '@/lib/chat-tags/tree';
 import { cn } from '@/lib/utils';
 
 // ============================================================
@@ -146,10 +148,10 @@ export const NODE_META: Record<
     category: 'logic',
   },
   set_tag: {
-    label: 'Tag contact',
+    label: 'Set chat tag',
     icon: Tag,
     color: 'text-pink-400',
-    blurb: 'Adds or removes a contact tag',
+    blurb: "Sets or clears the chat's tag",
     category: 'logic',
   },
   handoff: {
@@ -305,9 +307,32 @@ export function truncate(s: string, max = 80): string {
   return clean.slice(0, max - 1) + '…';
 }
 
+/**
+ * A chat tag's display name for a summary: `"Interested customer ·
+ * ADCB"` for a sub-tag (or a main tag with a sub-tag), the main tag's
+ * name alone, or a short id prefix while the tags load / for a tag
+ * that was deleted.
+ */
+export function chatTagSummaryName(
+  tree: ChatTagTree | undefined,
+  mainId: string,
+  subId?: string | null
+): string {
+  const tag = tree?.byId.get(mainId);
+  if (!tag) return `${mainId.slice(0, 8)}…`;
+  // A condition's operand may itself be a sub-tag: name its parent too.
+  if (tag.parent_id) {
+    return chatTagLabel(tree?.byId.get(tag.parent_id) ?? null, tag) ?? tag.name;
+  }
+  const sub = subId ? tree?.byId.get(subId) : undefined;
+  return chatTagLabel(tag, sub && sub.parent_id === tag.id ? sub : null) ?? tag.name;
+}
+
 export function summarizeNode(
   node: BuilderNode,
-  t?: (key: string, values?: Record<string, string | number>) => string
+  t?: (key: string, values?: Record<string, string | number>) => string,
+  /** The account's chat tags, so set_tag / condition can name them. */
+  chatTags?: ChatTagTree
 ): string | null {
   const cfg = node.config;
   switch (node.node_type) {
@@ -380,19 +405,20 @@ export function summarizeNode(
       return varKey ? `→ vars.${varKey}` : null;
     }
     case 'condition': {
+      if (cfg.subject === 'tag') {
+        return t ? t('contactTagRetired') : 'Contact tag (retired) — pick a chat tag';
+      }
       const subjectKey =
         typeof cfg.subject_key === 'string' ? cfg.subject_key : '';
       if (!subjectKey) return null;
-      const subject =
-        cfg.subject === 'tag'
-          ? 'tag'
-          : cfg.subject === 'contact_field'
-            ? 'field'
-            : 'var';
-      const subjectStr =
-        subject === 'tag'
-          ? t ? t('hasTag', { tag: truncate(subjectKey, 24) }) : `has tag ${truncate(subjectKey, 24)}`
-          : `${subject}.${subjectKey}`;
+      if (cfg.subject === 'chat_tag') {
+        const tag = chatTagSummaryName(chatTags, subjectKey);
+        return cfg.operator === 'absent'
+          ? t ? t('lacksChatTag', { tag }) : `chat tag is not ${tag}`
+          : t ? t('hasChatTag', { tag }) : `chat tag is ${tag}`;
+      }
+      const subject = cfg.subject === 'contact_field' ? 'field' : 'var';
+      const subjectStr = `${subject}.${subjectKey}`;
       const op =
         cfg.operator === 'equals'
           ? '=='
@@ -408,17 +434,25 @@ export function summarizeNode(
         (cfg.operator === 'equals' || cfg.operator === 'contains') && value
           ? ` "${truncate(value, 20)}"`
           : '';
-      return subject === 'tag' ? subjectStr : `${subjectStr} ${op}${valStr}`;
+      return `${subjectStr} ${op}${valStr}`;
     }
     case 'set_tag': {
-      const mode = cfg.mode === 'remove' ? (t ? t('modeRemove') : 'Remove') : (t ? t('modeAdd') : 'Add');
-      const tagId = typeof cfg.tag_id === 'string' ? cfg.tag_id : '';
-      // No tag name available without an async lookup here; show a
-      // short prefix of the UUID so users can disambiguate between
-      // multiple set_tag nodes at a glance.
-      return tagId
-        ? t ? t('tagPicked', { mode, tag: tagId.slice(0, 8) }) : `${mode} tag ${tagId.slice(0, 8)}…`
-        : t ? t('tagNone', { mode }) : `${mode} tag (none picked)`;
+      const plan = planSetChatTag(cfg);
+      if (plan.kind === 'legacy') {
+        return t ? t('contactTagRetired') : 'Contact tag (retired) — pick a chat tag';
+      }
+      if (plan.kind === 'unset') {
+        return t ? t('chatTagNone') : 'Set chat tag (none picked)';
+      }
+      if (!plan.next.chat_tag_id) {
+        return t ? t('chatTagClear') : 'Clear chat tag';
+      }
+      const tag = chatTagSummaryName(
+        chatTags,
+        plan.next.chat_tag_id,
+        plan.next.chat_sub_tag_id
+      );
+      return t ? t('chatTagSet', { tag }) : `Set chat tag: ${tag}`;
     }
     case 'handoff': {
       const note = typeof cfg.note === 'string' ? cfg.note : '';

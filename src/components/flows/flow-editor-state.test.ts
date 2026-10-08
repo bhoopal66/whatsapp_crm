@@ -5,6 +5,7 @@ import {
   uniqueNodeKey,
 } from "./flow-editor-state";
 import type { BuilderNode, NodeType } from "./shared";
+import { planSetChatTag } from "@/lib/flows/chat-tags";
 
 describe("uniqueNodeKey", () => {
   it("returns the base key when it isn't taken", () => {
@@ -126,6 +127,12 @@ describe("defaultConfigFor", () => {
     // Mirrors the regex in validate.ts: alphanumeric + underscore,
     // starts with letter or underscore.
     expect(cfg.var_key).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]*$/);
+  });
+
+  it("set_tag default has no chat tag picked, and is not a legacy contact-tag config", () => {
+    expect(planSetChatTag(defaultConfigFor("set_tag"))).toEqual({
+      kind: "unset",
+    });
   });
 
   it("end's default is an empty object (terminal — no config)", () => {
