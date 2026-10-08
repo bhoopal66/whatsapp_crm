@@ -123,9 +123,48 @@ export interface BroadcastPlan {
   planned: PlannedRecipient[];
   /** Phones rejected up front by validateContactPhone; no row is created. */
   rejected: number;
+  /**
+   * Recipients left out because the customer asked not to be messaged
+   * (`contacts.opted_out_at`, migration 076). At plan time no row is
+   * created for them; a resume pass stamps their pending rows failed.
+   */
+  skippedOptedOut: number;
 }
 
 const MAX_RECIPIENTS = 1000;
+
+/**
+ * Contact ids per opted-out lookup: the ids travel in the request URL,
+ * and 1000 of them would outgrow a proxy's request-line limit.
+ */
+const OPT_OUT_LOOKUP_CHUNK = 100;
+
+/**
+ * Which of these contacts asked not to be messaged (migration 076).
+ * Throws on a failed read: a broadcast must not go out to people who
+ * opted out because the check could not run.
+ */
+async function optedOutContactIds(
+  db: SupabaseClient,
+  accountId: string,
+  contactIds: string[]
+): Promise<Set<string>> {
+  const optedOut = new Set<string>();
+  for (let i = 0; i < contactIds.length; i += OPT_OUT_LOOKUP_CHUNK) {
+    const { data, error } = await db
+      .from('contacts')
+      .select('id')
+      .eq('account_id', accountId)
+      .in('id', contactIds.slice(i, i + OPT_OUT_LOOKUP_CHUNK))
+      .not('opted_out_at', 'is', null);
+    if (error) {
+      console.error('[broadcast-core] opted-out lookup error:', error);
+      throw new BroadcastError('internal', 'Failed to check opt-outs', 500);
+    }
+    for (const row of (data ?? []) as { id: string }[]) optedOut.add(row.id);
+  }
+  return optedOut;
+}
 
 /**
  * Validate + persist a broadcast, resolving each recipient to a
@@ -278,12 +317,29 @@ export async function createBroadcast(
   // params aren't silently overwritten by a later duplicate — and so
   // the row↔params pairing below (keyed by contact_id) is unambiguous.
   const seenContact = new Set<string>();
-  const deduped = resolved.filter((r) => {
+  const unique = resolved.filter((r) => {
     if (seenContact.has(r.contactId)) return false;
     seenContact.add(r.contactId);
     return true;
   });
 
+  // A customer who asked not to be messaged (migration 076) gets no
+  // recipient row at all, so no later pass can send to them either.
+  const optedOut = await optedOutContactIds(
+    db,
+    accountId,
+    unique.map((r) => r.contactId)
+  );
+  const deduped = unique.filter((r) => !optedOut.has(r.contactId));
+  const skippedOptedOut = unique.length - deduped.length;
+
+  if (deduped.length === 0 && skippedOptedOut > 0) {
+    throw new BroadcastError(
+      'bad_request',
+      'Every recipient with a valid phone number has opted out of messages.',
+      400
+    );
+  }
   // Only reachable when every recipient was rejected, so the first
   // rejection is set; it says what to fix.
   if (deduped.length === 0) {
@@ -370,6 +426,7 @@ export async function createBroadcast(
     templateRow,
     planned,
     rejected,
+    skippedOptedOut,
   };
 }
 

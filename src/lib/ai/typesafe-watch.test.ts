@@ -13,12 +13,12 @@ import {
 } from '@/lib/typesafe/test-helpers';
 
 // The watch on conversations the bot did not answer: the real decision
-// layer over a simulated TypeSafe, with the database and the tagging
+// layer over a simulated TypeSafe, with the database and the opt-out write
 // stubbed at the module boundary.
 const h = vi.hoisted(() => ({
   layer: null as DecisionLayer | null,
   seen: { data: [] as unknown[], error: null as { message: string } | null },
-  tagged: [] as unknown[],
+  marked: [] as unknown[],
   context: [] as { role: 'user' | 'assistant'; content: string }[],
 }));
 vi.mock('./admin-client', () => ({
@@ -36,8 +36,8 @@ vi.mock('./context', () => ({
   buildConversationContext: async () => h.context,
 }));
 vi.mock('./opt-out', () => ({
-  tagOptedOut: async (_db: unknown, args: unknown) => {
-    h.tagged.push(args);
+  markOptedOut: async (_db: unknown, args: unknown) => {
+    h.marked.push(args);
     return true;
   },
 }));
@@ -86,7 +86,7 @@ beforeEach(() => {
   __resetRateLimitForTests();
   h.layer = null;
   h.seen = { data: [], error: null };
-  h.tagged = [];
+  h.marked = [];
   h.context = [
     { role: 'assistant', content: 'Your statement is ready.' },
     { role: 'user', content: 'please stop sending me messages' },
@@ -94,16 +94,15 @@ beforeEach(() => {
 });
 
 describe('watchInboundMessage', () => {
-  it('tags an opt-out written in a conversation people handle', async () => {
+  it('marks an opt-out written in a conversation people handle', async () => {
     const sim = makeSim(() => ({ answers: { opt_out: 0.97 } }));
     const db = useLayer({ sim });
     await watch();
     expect(sim.calls).toHaveLength(1);
-    expect(h.tagged).toEqual([
+    expect(h.marked).toEqual([
       {
         accountId: TEST_ACCOUNT,
         contactId: '00000000-0000-4000-8000-00000000c001',
-        userId: 'owner-1',
       },
     ]);
     expect(db.inserts[0]).toMatchObject({
@@ -118,7 +117,7 @@ describe('watchInboundMessage', () => {
     const sim = makeSim(() => ({ answers: { wants_human: 0.99 } }));
     const db = useLayer({ sim });
     await watch('can I talk to someone');
-    expect(h.tagged).toEqual([]);
+    expect(h.marked).toEqual([]);
     expect(db.inserts[0]).toMatchObject({ decision: 'rm', acted: false });
   });
 
@@ -126,7 +125,7 @@ describe('watchInboundMessage', () => {
     const sim = makeSim(() => ({ answers: { opt_out: 0.97 } }));
     const db = useLayer({ sim, switches: { mode: 'monitor' } });
     await watch();
-    expect(h.tagged).toEqual([]);
+    expect(h.marked).toEqual([]);
     expect(db.inserts[0]).toMatchObject({ acted: false, shadow: true });
   });
 
@@ -150,7 +149,7 @@ describe('watchInboundMessage', () => {
     await watch();
     expect(sim.calls).toHaveLength(0);
     expect(db.inserts).toHaveLength(0);
-    expect(h.tagged).toEqual([]);
+    expect(h.marked).toEqual([]);
   });
 
   it('skips a message the bot’s own triage already judged', async () => {
@@ -182,6 +181,6 @@ describe('watchInboundMessage', () => {
 
   it('is a no-op without a layer', async () => {
     await expect(watch()).resolves.toBeUndefined();
-    expect(h.tagged).toEqual([]);
+    expect(h.marked).toEqual([]);
   });
 });

@@ -29,7 +29,7 @@ Question set: `qs-013-v0.2`.
 | **Passage filter** (D) | After knowledge-base retrieval, before the prompt is built | Drop irrelevant or injected excerpts; set aside excerpts that contradict the customer's premise | Add knowledge; treat an excerpt as instructions |
 | **Guardrail** (C) | Just before a bot reply is sent (also the closing line before a hand-off marker) | Hold or block the draft. The customer gets the account's hand-off message and the team gets the draft in the hand-off note | Let an unscreened reply out while it is on and live |
 | **Eligibility** (E) | *Not wired* — the app has no pre-eligibility step | (Extracts emirate, legal form, sector, turnover band, years, licence) | Make a credit decision or do arithmetic |
-| **Watch** (A/B on threads the bot did not answer) | After every inbound text the bot's own triage did not judge — threads people handle, flows, automations | Tag an opt-out `opted-out` | Hand off, reply, or change who owns the thread. A request for a person or a complaint there is logged only |
+| **Watch** (A/B on threads the bot did not answer) | After every inbound text the bot's own triage did not judge — threads people handle, flows, automations | Mark an opt-out on the contact (`contacts.opted_out_at`) | Hand off, reply, or change who owns the thread. A request for a person or a complaint there is logged only |
 
 A hand-off from the layer uses the same mechanism as the bot's other
 gates:
@@ -41,8 +41,8 @@ gates:
 
 **Opt-outs are the exception.** After an opt-out, and after a
 *possible* opt-out (probability in the review band), the bot sends no
-farewell message. An acted-on opt-out also **tags the contact
-`opted-out`** (see [Opt-outs](#opt-outs)).
+farewell message. An acted-on opt-out also **marks the contact opted
+out** (see [Opt-outs](#opt-outs)), and every broadcast then skips them.
 
 A guardrail hold is a full hand-off, even when it happened only because
 TypeSafe was unreachable. The operator's fail mode chose `hold`, and
@@ -344,22 +344,22 @@ passage filter logs one row per query, with each passage's route inside
 
 ## Opt-outs
 
-The app has no consent register. When triage acts on a free-text
-request to stop messages:
+When triage acts on a free-text request to stop messages:
 
-- the bot hands the thread over, sends nothing more, and does not fire
-  any `tag_added` automations;
-- the contact is tagged `opted-out`, and the tag is created for the
-  account on first use.
+- the bot hands the thread over and sends nothing more;
+- the contact is marked opted out: `contacts.opted_out_at` (migration
+  076) records when they first asked. A repeat request keeps the
+  first time, and the hand-off note says "marked opted-out" only when
+  this message is the one that marked them.
 
-A *possible* opt-out (the review band) is handed over without a tag,
-so a person can decide.
+A *possible* opt-out (the review band) is handed over without marking
+the contact, so a person can decide.
 
 **On threads the bot does not answer** — a person owns the thread, a
 flow or an automation consumed the message, the bot is off — the watch
 (Settings → *Watch conversations your team handles*, on by default)
 runs the same triage after the message is stored and every reply has
-gone out. In **Live** it tags a clear opt-out `opted-out`; it never
+gone out. In **Live** it marks a clear opt-out on the contact; it never
 hands over, replies or reassigns, because a person or a flow already
 owns the thread. It skips a message the bot's own triage judged, and
 logs each decision with the reason code `WATCH`. It has its own
@@ -367,14 +367,27 @@ budget of 60 messages a minute per account: a burst of campaign replies
 beyond that is not triaged, so it cannot draw a TypeSafe rate limit
 that would pause the checks on the bot's own replies.
 
-The tag alone does **not** stop other messages:
+**Broadcasts skip an opted-out contact automatically, twice:**
 
-- **Broadcasts.** Exclude `opted-out` from every audience.
+- **When a broadcast is planned** through the public API or MCP
+  (`POST /api/v1/broadcasts`), no recipient row is created for them:
+  they are not counted in `accepted`, and a request whose every valid
+  recipient opted out is refused with `400 bad_request`.
+- **When it is sent.** The Resume button and the scheduled-broadcast
+  cron send from the recipient rows frozen at plan time. A customer who
+  opted out after the campaign was planned is left out of the pass and
+  their row is marked failed with the reason *Customer opted out of
+  messages*, so the campaign's failed count includes them and it still
+  finishes.
+
+The mark does **not** stop other messages:
+
 - **Automations.** They still run.
 - **Campaign follow-up flows.** These start before the bot, and so
   before triage, when a customer answers a campaign.
+- **People.** An agent can still write to the customer from the inbox.
 - **Resuming the bot.** Re-enabling it on the thread clears the pause,
-  but not the tag.
+  but not the mark. The app has no control to clear the mark yet.
 
 ## Privacy
 
@@ -576,7 +589,8 @@ Other differences:
   - the licence captured as a Choice.
 - **Hand-offs.** The package's "RM task", "consent register" and
   holding template become this app's hand-off (reason, note, the
-  account's hand-off message) and the `opted-out` tag.
+  account's hand-off message) and the contact's opt-out mark
+  (`contacts.opted_out_at`).
 - **Package tests.** Its vitest cases run colocated in
   `src/lib/typesafe/` against the real SDK and a simulated API. Its
   Postgres cases became `supabase/ci/verify-typesafe.sql`.

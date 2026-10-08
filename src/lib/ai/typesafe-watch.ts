@@ -3,7 +3,7 @@ import { getDecisionLayer } from '@/lib/typesafe';
 import { messageHash } from '@/lib/typesafe/log';
 import { supabaseAdmin } from './admin-client';
 import { buildConversationContext } from './context';
-import { tagOptedOut } from './opt-out';
+import { markOptedOut } from './opt-out';
 import { turnsBefore } from './typesafe-gates';
 
 /** How many earlier turns the triage state carries (the layer caps at 6). */
@@ -18,8 +18,8 @@ const TRIAGE_TURNS = 6;
  * customer who writes "please stop messaging me" to an agent must still
  * be kept out of the next broadcast. So every inbound text the bot's
  * triage did not judge is triaged here too, and the only thing done with
- * the answer is the opt-out: the contact is tagged `opted-out` (in Live
- * mode). A request for a person or a complaint is logged, not acted on —
+ * the answer is the opt-out: the contact is marked opted-out
+ * (`contacts.opted_out_at`, in Live mode), which every broadcast skips. A request for a person or a complaint is logged, not acted on —
  * a person already owns the thread, or an automation or flow answered it.
  *
  * Runs at the end of the inbound pipeline, inside the webhook's after(),
@@ -33,7 +33,11 @@ export async function watchInboundMessage(args: {
   messageId: string;
   /** The inbound's text (a media caption included). */
   text: string;
-  /** Owner of the WhatsApp config, recorded as the tag's creator. */
+  /**
+   * Owner of the WhatsApp config. Unused since the opt-out became a
+   * contact column (076) rather than a tag this user created; kept so
+   * the inbound pipeline's call stays as it is.
+   */
   configOwnerUserId: string;
 }): Promise<void> {
   const { accountId, conversationId, contactId, messageId, text } = args;
@@ -82,11 +86,7 @@ export async function watchInboundMessage(args: {
       source: 'watch',
     });
     if (d.act && d.optOut === 'record') {
-      await tagOptedOut(db, {
-        accountId,
-        contactId,
-        userId: args.configOwnerUserId,
-      });
+      await markOptedOut(db, { accountId, contactId });
     }
   } catch (err) {
     console.error('[ts013] watch failed:', err);

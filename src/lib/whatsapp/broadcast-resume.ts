@@ -121,18 +121,35 @@ export interface ResumePlan {
    * they stop blocking the broadcast's terminal status.
    */
   unsendable: number;
+  /**
+   * In-scope rows whose customer has since asked not to be messaged
+   * (`contacts.opted_out_at`, migration 076). Left out of the plan and
+   * stamped 'failed' with {@link OPTED_OUT_REASON}.
+   */
+  optedOut: number;
+}
+
+/** The failure reason stamped on a recipient who opted out. */
+export const OPTED_OUT_REASON = 'Customer opted out of messages';
+
+interface RecipientContact {
+  phone?: string | null;
+  opted_out_at?: string | null;
 }
 
 interface RecipientRow {
   id: string;
   template_params: unknown;
-  contact: { phone?: string | null } | { phone?: string | null }[] | null;
+  contact: RecipientContact | RecipientContact[] | null;
 }
 
 /** Supabase renders an embedded to-one join as an object or a 1-array. */
+function rowContact(row: RecipientRow): RecipientContact | null {
+  return (Array.isArray(row.contact) ? row.contact[0] : row.contact) ?? null;
+}
+
 function contactPhone(row: RecipientRow): string | null {
-  const c = Array.isArray(row.contact) ? row.contact[0] : row.contact;
-  return c?.phone ?? null;
+  return rowContact(row)?.phone ?? null;
 }
 
 /**
@@ -166,7 +183,7 @@ export async function planBroadcastResume(
   const statuses = scopeStatuses(scope);
   const { data: rawRows, error: recError } = await db
     .from('broadcast_recipients')
-    .select('id, template_params, contact:contacts(phone)')
+    .select('id, template_params, contact:contacts(phone, opted_out_at)')
     .eq('broadcast_id', broadcastId)
     .in('status', statuses)
     // Oldest first, so repeated capped passes chew through the backlog
@@ -183,12 +200,34 @@ export async function planBroadcastResume(
   // A recipient whose contact has no usable phone can never send. Stamp
   // it failed now: leaving it 'pending' would keep the broadcast in
   // 'sending' forever, which is the very symptom being fixed.
+  //
+  // A customer who asked not to be messaged after the campaign was
+  // planned (migration 076) is never sent to: their row is stamped
+  // failed with the reason, which also settles the broadcast's status.
   const sendable: RecipientRow[] = [];
   const unsendable: string[] = [];
+  const optedOut: string[] = [];
   for (const row of rows) {
+    if (rowContact(row)?.opted_out_at) {
+      optedOut.push(row.id);
+      continue;
+    }
     const sanitized = sanitizePhoneForMeta(contactPhone(row) ?? '');
     if (isValidE164(sanitized)) sendable.push(row);
     else unsendable.push(row.id);
+  }
+  if (optedOut.length > 0) {
+    const { error: optOutErr } = await db
+      .from('broadcast_recipients')
+      .update({ status: 'failed', error_message: OPTED_OUT_REASON })
+      .in('id', optedOut);
+    // Still left out of the plan; the next pass retries the stamp.
+    if (optOutErr) {
+      console.error(
+        '[broadcast-resume] opted-out stamp failed:',
+        optOutErr.message
+      );
+    }
   }
   if (unsendable.length > 0) {
     await db
@@ -277,9 +316,15 @@ export async function planBroadcastResume(
         : [],
     })),
     rejected: 0,
+    skippedOptedOut: optedOut.length,
   };
 
-  return { plan, remaining, unsendable: unsendable.length };
+  return {
+    plan,
+    remaining,
+    unsendable: unsendable.length,
+    optedOut: optedOut.length,
+  };
 }
 
 /**

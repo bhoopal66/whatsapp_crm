@@ -15,7 +15,7 @@ import {
   runTriageGate,
   type TsRef,
 } from './typesafe-gates';
-import { OPT_OUT_TAG, tagOptedOut } from './opt-out';
+import { markOptedOut } from './opt-out';
 import { engineSendText } from '@/lib/flows/channel-send';
 import {
   resolveAiReplyChannel,
@@ -466,19 +466,15 @@ export async function dispatchInboundToAiReply(
           : 'open_conversation',
     });
     if (triage.handoff) {
-      // No consent register exists: an acted-on opt-out tags the contact,
-      // which is what admins exclude from broadcast audiences.
-      const tagged =
+      // An acted-on opt-out stamps contacts.opted_out_at (migration
+      // 076), which every broadcast skips when planned and when sent.
+      const marked =
         triage.handoff.optOut === 'record' &&
-        (await tagOptedOut(db, {
-          accountId,
-          contactId,
-          userId: configOwnerUserId,
-        }));
+        (await markOptedOut(db, { accountId, contactId }));
       await handOff(
         'triage',
-        tagged
-          ? `${triage.handoff.detail}; tagged ${OPT_OUT_TAG}`
+        marked
+          ? `${triage.handoff.detail}; marked opted-out`
           : triage.handoff.detail,
         triage.handoff.farewell ? config.handoffMessage : null
       );

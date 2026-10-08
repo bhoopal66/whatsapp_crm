@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   createBroadcast,
@@ -78,7 +78,12 @@ describe('createBroadcast validation', () => {
 // create_broadcast_with_recipients RPC returns.
 function makeDb(
   rpcResult: { data: unknown; error: unknown },
-  opts: { provider?: 'whapi' | 'meta'; template?: Record<string, unknown> } = {}
+  opts: {
+    provider?: 'whapi' | 'meta';
+    template?: Record<string, unknown>;
+    /** Contact ids whose `opted_out_at` is set (migration 076). */
+    optedOut?: string[];
+  } = {}
 ) {
   const calls = {
     rpc: [] as { name: string; args: unknown }[],
@@ -150,6 +155,32 @@ function makeDb(
                   ...opts.template,
                 },
               ],
+              error: null,
+            }),
+        };
+        return chain;
+      }
+      if (table === 'contacts') {
+        // The opted-out lookup: honours the id list and the
+        // `opted_out_at IS NOT NULL` filter it is given.
+        let ids: string[] = [];
+        let notNull = false;
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          in: (_col: string, vals: string[]) => {
+            ids = vals;
+            return chain;
+          },
+          not: (col: string, op: string, val: unknown) => {
+            notNull = col === 'opted_out_at' && op === 'is' && val === null;
+            return chain;
+          },
+          then: (resolve: (r: { data: unknown[]; error: null }) => unknown) =>
+            resolve({
+              data: ids
+                .filter((id) => !notNull || (opts.optedOut ?? []).includes(id))
+                .map((id) => ({ id })),
               error: null,
             }),
         };
@@ -284,6 +315,76 @@ describe('createBroadcast recipient numbers', () => {
 });
 
 // ============================================================
+// Opt-outs (migration 076): a customer who asked not to be messaged
+// gets no recipient row, so no pass of this campaign can reach them.
+// ============================================================
+
+describe('createBroadcast opted-out customers', () => {
+  const byPhone: Record<string, string> = {
+    '14155550123': 'c-ok',
+    '14155550124': 'c-out',
+  };
+  // Back to the file-wide stub, even when a case fails midway.
+  afterEach(() => {
+    vi.mocked(findOrCreateContact).mockImplementation(async () => ({
+      id: 'c1',
+      created: false,
+    }));
+  });
+
+  it('leaves an opted-out contact out of the recipients and counts it', async () => {
+    vi.mocked(findOrCreateContact).mockImplementation(
+      async (_db, _acc, _user, { phone }) => ({
+        id: byPhone[phone],
+        created: false,
+      })
+    );
+    const { db, calls } = makeDb(
+      {
+        data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c-ok' }],
+        error: null,
+      },
+      { optedOut: ['c-out'] }
+    );
+
+    const plan = await createBroadcast(db, 'acc', 'user', {
+      templateName: 'promo',
+      recipients: [{ to: '+14155550123' }, { to: '+14155550124' }],
+    });
+
+    expect(calls.rpc[0].args).toMatchObject({
+      p_total_recipients: 1,
+      p_contact_ids: ['c-ok'],
+    });
+    expect(plan.planned).toEqual([
+      { recipientRowId: 'r-1', phone: '14155550123', params: [] },
+    ]);
+    expect(plan.skippedOptedOut).toBe(1);
+    expect(plan.rejected).toBe(0);
+  });
+
+  it('refuses, persisting nothing, when every recipient opted out', async () => {
+    vi.mocked(findOrCreateContact).mockImplementation(
+      async () => ({ id: 'c-out', created: false })
+    );
+    const { db, calls } = makeDb(
+      { data: [], error: null },
+      { optedOut: ['c-out'] }
+    );
+
+    const err = await createBroadcast(db, 'acc', 'user', {
+      templateName: 'promo',
+      recipients: [{ to: '+14155550124' }],
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BroadcastError);
+    expect(err).toMatchObject({ code: 'bad_request', status: 400 });
+    expect((err as Error).message).toMatch(/opted out/);
+    expect(calls.rpc).toHaveLength(0);
+  });
+});
+
+// ============================================================
 // Terminal status (#472). Derived from the recipient rows, not from a
 // counter local to one delivery pass — a resume only sends the
 // leftovers, so "nothing sent this pass" must not condemn a campaign
@@ -392,6 +493,7 @@ describe('deliverBroadcast', () => {
       headerMediaUrl: 'https://cdn.example.com/promo.jpg',
       planned: [{ recipientRowId: 'r1', phone: '15551234567', params: ['A'] }],
       rejected: 0,
+      skippedOptedOut: 0,
     };
 
     await deliverBroadcast(db, plan);
@@ -531,6 +633,7 @@ function plan3(): BroadcastPlan {
       { recipientRowId: 'r3', phone: '15551234569', params: [] },
     ],
     rejected: 0,
+    skippedOptedOut: 0,
   };
 }
 

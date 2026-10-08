@@ -6,6 +6,7 @@ import {
   claimBroadcastDelivery,
   planBroadcastResume,
   releaseBroadcastDelivery,
+  OPTED_OUT_REASON,
   RESUME_MAX_PER_REQUEST,
 } from './broadcast-resume';
 
@@ -123,6 +124,8 @@ interface PlanWrites {
   statusFilter?: unknown;
   failedIds?: unknown;
   failedUpdate?: Record<string, unknown>;
+  /** Every recipient UPDATE, in order, with the ids it targeted. */
+  updates?: { row: Record<string, unknown>; ids?: unknown }[];
 }
 
 function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
@@ -134,11 +137,16 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
         order: () => b,
         in: (col: string, vals: unknown) => {
           if (col === 'status') writes.statusFilter = vals;
-          if (col === 'id') writes.failedIds = vals;
+          if (col === 'id') {
+            writes.failedIds = vals;
+            const last = writes.updates?.at(-1);
+            if (last) last.ids = vals;
+          }
           return b;
         },
         update: (row: Record<string, unknown>) => {
           writes.failedUpdate = row;
+          (writes.updates ??= []).push({ row });
           return b;
         },
         maybeSingle: async () => ({
@@ -210,11 +218,12 @@ function recipient(
   id: string,
   phone: string | null,
   params: unknown = ['A123'],
+  optedOutAt: string | null = null,
 ) {
   return {
     id,
     template_params: params,
-    contact: phone ? { phone } : null,
+    contact: phone ? { phone, opted_out_at: optedOutAt } : null,
   };
 }
 
@@ -358,6 +367,38 @@ describe('planBroadcastResume', () => {
     expect(writes.failedIds).toEqual(['r2', 'r3']);
     expect(writes.failedUpdate?.status).toBe('failed');
     expect(plan.planned).toHaveLength(1);
+  });
+
+  it('drops a recipient who opted out after planning and fails the row with the reason', async () => {
+    const writes: PlanWrites = {};
+    const { plan, optedOut, unsendable } = await planBroadcastResume(
+      planDb(
+        {
+          broadcast: BROADCAST,
+          config: CONFIG,
+          recipients: [
+            recipient('r1', '+15551234567'),
+            recipient('r2', '+15559876543', ['B456'], '2026-10-08T09:00:00Z'),
+          ],
+        },
+        writes,
+      ),
+      'acct-1',
+      'bc-1',
+      'pending',
+    );
+
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual(['r1']);
+    expect(optedOut).toBe(1);
+    expect(plan.skippedOptedOut).toBe(1);
+    expect(unsendable).toBe(0);
+    // The failed-recipient mechanism: the aggregate trigger counts it.
+    expect(writes.updates).toEqual([
+      {
+        row: { status: 'failed', error_message: OPTED_OUT_REASON },
+        ids: ['r2'],
+      },
+    ]);
   });
 
   it('caps one pass and reports the leftover', async () => {

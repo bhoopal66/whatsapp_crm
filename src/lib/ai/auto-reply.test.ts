@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
   runTriageGate: vi.fn(),
   runPassageGate: vi.fn(),
   runGuardrailGate: vi.fn(),
-  tagOptedOut: vi.fn(),
+  markOptedOut: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string }[],
@@ -43,8 +43,7 @@ vi.mock('./typesafe-gates', async (importOriginal) => ({
   runGuardrailGate: h.runGuardrailGate,
 }));
 vi.mock('./opt-out', () => ({
-  OPT_OUT_TAG: 'opted-out',
-  tagOptedOut: h.tagOptedOut,
+  markOptedOut: h.markOptedOut,
 }));
 vi.mock('@/lib/flows/channel-send', () => ({
   engineSendText: h.engineSendText,
@@ -214,7 +213,7 @@ beforeEach(() => {
     })
   );
   h.runGuardrailGate.mockResolvedValue({ outcome: 'send' });
-  h.tagOptedOut.mockResolvedValue(true);
+  h.markOptedOut.mockResolvedValue(true);
 });
 
 describe('dispatchInboundToAiReply — eligibility gates', () => {
@@ -946,18 +945,17 @@ describe('dispatchInboundToAiReply — TypeSafe decision layer (063)', () => {
       ai_handoff_reason: 'triage',
       ai_autoreply_disabled: true,
     });
-    // No consent register: the contact is tagged for broadcast exclusion.
-    expect(h.tagOptedOut).toHaveBeenCalledWith(expect.anything(), {
+    // The contact is marked opted-out, which every broadcast skips.
+    expect(h.markOptedOut).toHaveBeenCalledWith(expect.anything(), {
       accountId: 'acct-1',
       contactId: 'contact-1',
-      userId: 'user-1',
     });
     expect(h.state.updatePayload!.ai_handoff_summary).toContain(
-      'tagged opted-out'
+      'marked opted-out'
     );
   });
 
-  it('does not tag a possible opt-out that still needs review', async () => {
+  it('does not mark a possible opt-out that still needs review', async () => {
     h.runTriageGate.mockResolvedValue({
       handoff: {
         detail: 'OPT_OUT_REVIEW',
@@ -968,7 +966,7 @@ describe('dispatchInboundToAiReply — TypeSafe decision layer (063)', () => {
       promptNotes: [],
     });
     expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
-    expect(h.tagOptedOut).not.toHaveBeenCalled();
+    expect(h.markOptedOut).not.toHaveBeenCalled();
     expect(h.engineSendText).not.toHaveBeenCalled();
   });
 
