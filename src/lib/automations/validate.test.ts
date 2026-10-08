@@ -3,6 +3,7 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from "./validate";
+import { TRIGGER_META } from "./trigger-meta";
 
 describe("validateStepsForActivation", () => {
   it("rejects empty or missing step lists", () => {
@@ -209,6 +210,30 @@ describe("validateStepsForActivation", () => {
     ]);
   });
 
+  it("refuses the retired contact-tag condition subject", () => {
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "condition",
+          step_config: { subject: "tag_presence", operand: "tag-uuid" },
+        },
+      ]),
+    ).toEqual([
+      {
+        path: "steps[0].subject",
+        message: "contact tags were retired; check the chat tag instead",
+      },
+    ]);
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "condition",
+          step_config: { subject: "chat_tag_presence", operand: "tag-uuid" },
+        },
+      ]),
+    ).toEqual([]);
+  });
+
   it("flags condition subject/operand independently", () => {
     const issues = validateStepsForActivation([
       { step_type: "condition", step_config: {} },
@@ -298,6 +323,18 @@ describe("validateTriggerForActivation", () => {
     ).toEqual([]);
   });
 
+  it("refuses a chat_tag_set sub-tag with no main tag", () => {
+    expect(
+      validateTriggerForActivation("chat_tag_set", {
+        chat_tag_id: "",
+        chat_sub_tag_id: "sub-uuid",
+      }),
+    ).toEqual([
+      { path: "trigger.chat_tag_id", message: "chat tag is required" },
+      { path: "trigger.chat_sub_tag_id", message: "a sub-tag needs its main tag" },
+    ]);
+  });
+
   it("refuses a retired contact-tag step instead of activating it", () => {
     expect(
       validateStepsForActivation([
@@ -321,7 +358,22 @@ describe("validateTriggerForActivation", () => {
     );
   });
 
-  it("does not flag unknown trigger types (handled elsewhere)", () => {
-    expect(validateTriggerForActivation("some_future_trigger", {})).toEqual([]);
+  it("refuses a trigger type outside AutomationTriggerType", () => {
+    expect(validateTriggerForActivation("some_future_trigger", {})).toEqual([
+      { path: "trigger.type", message: "unknown trigger type: some_future_trigger" },
+    ]);
+  });
+
+  it("refuses the retired contact-tag trigger", () => {
+    expect(
+      validateTriggerForActivation("tag_added", { tag_id: "tag-uuid" }),
+    ).toEqual([{ path: "trigger.type", message: "unknown trigger type: tag_added" }]);
+  });
+
+  it("knows every trigger in TRIGGER_META", () => {
+    for (const t of Object.keys(TRIGGER_META)) {
+      const issues = validateTriggerForActivation(t, {});
+      expect(issues.map((i) => i.path)).not.toContain("trigger.type");
+    }
   });
 });

@@ -117,3 +117,11 @@ jobs:
       # so only real Postgres can show them.
       - name: Verify chat tags
         run: supabase db query --local --file supabase/ci/verify-chat-tags.sql
+
+      # A contact's opt-out (076) is what every broadcast trusts to skip
+      # a customer who asked to stop. Only an admin, the service role or
+      # a server job may change it — a trigger, because contacts_update
+      # lets any agent write the row — so only real Postgres can show an
+      # agent is refused while other contact fields stay writable.
+      - name: Verify contact opt-out
+        run: supabase db query --local --file supabase/ci/verify-contact-opt-out.sql

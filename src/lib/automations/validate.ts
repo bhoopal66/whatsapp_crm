@@ -1,5 +1,6 @@
 import type { AutomationTriggerType } from '@/types'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import { TRIGGER_META } from './trigger-meta'
 
 // ------------------------------------------------------------
 // Pre-flight config validation for automations about to be activated.
@@ -20,6 +21,16 @@ export interface ValidationIssue {
   path: string
   message: string
 }
+
+/** Every trigger the engine dispatches. TRIGGER_META is a
+ *  Record<AutomationTriggerType, …>, so a trigger added to the union
+ *  cannot be left out of it, or of this list. */
+const KNOWN_TRIGGER_TYPES: ReadonlySet<string> = new Set(Object.keys(TRIGGER_META))
+
+/** Condition subjects that read contact tags, retired with them. The
+ *  engine evaluates one as false, silently taking the "no" branch, so
+ *  it must not be saved active. Mirrors the engine's own set. */
+const RETIRED_CONDITION_SUBJECTS: ReadonlySet<string> = new Set(['tag_presence'])
 
 interface StepLike {
   step_type: string
@@ -127,6 +138,11 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
     case 'condition':
       if (!nonEmpty(c.subject)) {
         issues.push({ path: `${path}.subject`, message: 'condition subject is required' })
+      } else if (RETIRED_CONDITION_SUBJECTS.has(String(c.subject))) {
+        issues.push({
+          path: `${path}.subject`,
+          message: 'contact tags were retired; check the chat tag instead',
+        })
       }
       if (!nonEmpty(c.operand)) {
         issues.push({ path: `${path}.operand`, message: 'condition operand is required' })
@@ -164,6 +180,12 @@ export function validateTriggerForActivation(
   const issues: ValidationIssue[] = []
   const cfg = (triggerConfig ?? {}) as Record<string, unknown>
 
+  // A retired trigger (the contact-tag `tag_added`) would never fire.
+  if (!KNOWN_TRIGGER_TYPES.has(triggerType)) {
+    issues.push({ path: 'trigger.type', message: `unknown trigger type: ${triggerType}` })
+    return issues
+  }
+
   if (triggerType === 'keyword_match') {
     const k = cfg.keywords
     if (!Array.isArray(k) || k.length === 0) {
@@ -195,6 +217,12 @@ export function validateTriggerForActivation(
   } else if (triggerType === 'chat_tag_set') {
     if (!nonEmpty(cfg.chat_tag_id)) {
       issues.push({ path: 'trigger.chat_tag_id', message: 'chat tag is required' })
+      if (nonEmpty(cfg.chat_sub_tag_id)) {
+        issues.push({
+          path: 'trigger.chat_sub_tag_id',
+          message: 'a sub-tag needs its main tag',
+        })
+      }
     }
   } else if (triggerType === 'interactive_reply') {
     const ids = cfg.reply_ids
