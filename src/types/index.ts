@@ -123,17 +123,6 @@ export interface Contact {
   opted_out_at?: string | null;
   created_at: string;
   updated_at: string;
-  /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
-   *  Inbox conversation list, for tag filtering). Absent otherwise. */
-  tags?: Tag[];
-}
-
-export interface Tag {
-  id: string;
-  user_id: string;
-  name: string;
-  color: string;
-  created_at: string;
 }
 
 /**
@@ -159,12 +148,6 @@ export interface ChatTag {
 export interface ChatTagsPatch {
   chat_tag_id: string | null;
   chat_sub_tag_id: string | null;
-}
-
-export interface ContactTag {
-  id: string;
-  contact_id: string;
-  tag_id: string;
 }
 
 export interface CustomField {

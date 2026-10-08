@@ -448,9 +448,6 @@
       "emailPlaceholder": "jane@example.com",
       "companyLabel": "Company",
       "companyPlaceholder": "Acme Corp",
-      "tagsPlaceholder": "Select tags...",
-      "noTagsFound": "No tags found.",
-      "createTagAction": "Create tag \"{value}\"",
       "cancel": "Cancel",
       "save": "Save Contact",
       "update": "Update",
@@ -472,7 +469,6 @@
         "notes": "Notes",
         "custom": "Custom Fields",
         "deals": "Deals",
-        "noTags": "No tags",
         "noDeals": "No deals",
         "addNotePlaceholder": "Add a note..."
       },

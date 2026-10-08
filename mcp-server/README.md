@@ -79,7 +79,7 @@ when their guard is set.
 | `get_broadcast`      | read      | `broadcasts:send`    | Poll a broadcast's delivery status              |
 | `send_message`       | write     | `messages:send`      | Send a WhatsApp message (text/template/media)   |
 | `create_contact`     | write     | `contacts:write`     | Create (find-or-create) a contact               |
-| `update_contact`     | write     | `contacts:write`     | Update a contact / replace its tags             |
+| `update_contact`     | write     | `contacts:write`     | Update a contact's name, email or company       |
 | `send_broadcast`     | broadcast | `broadcasts:send`    | Launch a template broadcast (requires `confirm`)|
 
 ## Safety model

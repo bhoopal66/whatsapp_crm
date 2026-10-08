@@ -448,9 +448,6 @@
       "emailPlaceholder": "jane@example.com",
       "companyLabel": "회사",
       "companyPlaceholder": "Acme Corp",
-      "tagsPlaceholder": "태그 선택...",
-      "noTagsFound": "태그를 찾을 수 없습니다.",
-      "createTagAction": "\"{value}\" 태그 만들기",
       "cancel": "취소",
       "save": "연락처 저장",
       "update": "업데이트",
@@ -472,7 +469,6 @@
         "notes": "메모",
         "custom": "커스텀 필드",
         "deals": "딜",
-        "noTags": "태그 없음",
         "noDeals": "딜 없음",
         "addNotePlaceholder": "메모 추가..."
       },

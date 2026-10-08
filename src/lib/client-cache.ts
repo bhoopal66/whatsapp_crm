@@ -93,9 +93,6 @@ export function clearClientCache(): void {
 // invalidation into a no-op.
 // ------------------------------------------------------------
 
-/** The account's tag definitions. Read by every tag picker/filter. */
-export const TAGS_CACHE_KEY = 'tags';
-
 /** Account members, for assignee pickers. */
 export const MEMBERS_CACHE_KEY = 'members';
 
