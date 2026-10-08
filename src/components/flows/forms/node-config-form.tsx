@@ -24,7 +24,7 @@
  * renders the advanced rows.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   Loader2,
   Paperclip,
@@ -612,7 +612,7 @@ function ConditionForm({
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const { tree } = useChatTags();
+  const { tags, tree } = useChatTags();
 
   const subject = cfg.subject ?? "var";
   const operator = cfg.operator ?? "equals";
@@ -659,6 +659,12 @@ function ConditionForm({
             <Select
               value={cfg.subject_key ?? ""}
               onValueChange={(v) => onUpdateConfig({ subject_key: v })}
+              items={chatTagItems(
+                tree.mains.flatMap((m) => [m, ...m.subs]),
+                cfg.subject_key,
+                tags !== null,
+                t,
+              )}
             >
               <SelectTrigger className="bg-muted">
                 <SelectValue placeholder={t("pickTag")} />
@@ -791,6 +797,31 @@ function ChatTagOption({ color, name }: { color: string; name: string }) {
   );
 }
 
+/**
+ * The value → label map a chat-tag `<Select>` needs: without `items`,
+ * base-ui's `Select.Value` prints the raw value, so a picked tag read
+ * as its UUID and "No tag" as `__none__`. A saved id no longer in the
+ * tree reads as a deleted tag once the tags have loaded (as nothing
+ * before), never as its UUID.
+ */
+function chatTagItems(
+  options: readonly { id: string; name: string; color: string }[],
+  current: string | null | undefined,
+  loaded: boolean,
+  t: ReturnType<typeof useTranslations>,
+  none?: string,
+): Record<string, ReactNode> {
+  const items: Record<string, ReactNode> = {};
+  if (none !== undefined) items[NO_TAG] = none;
+  for (const o of options) {
+    items[o.id] = <ChatTagOption color={o.color} name={o.name} />;
+  }
+  if (current && items[current] === undefined) {
+    items[current] = loaded ? t("deletedTag") : "";
+  }
+  return items;
+}
+
 function SetTagForm({
   cfg,
   allNodes,
@@ -804,7 +835,7 @@ function SetTagForm({
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const { tree } = useChatTags();
+  const { tags, tree } = useChatTags();
   const main = tree.mains.find((m) => m.id === cfg.chat_tag_id);
   // `undefined` is a node nobody has picked for yet; `null` is "No tag".
   const mainValue =
@@ -827,6 +858,13 @@ function SetTagForm({
                 ...legacy,
               })
             }
+            items={chatTagItems(
+              tree.mains,
+              mainValue,
+              tags !== null,
+              t,
+              t("noTag"),
+            )}
           >
             <SelectTrigger className="bg-muted">
               <SelectValue placeholder={t("pickTag")} />
@@ -853,6 +891,13 @@ function SetTagForm({
                   ...legacy,
                 })
               }
+              items={chatTagItems(
+                main.subs,
+                cfg.chat_sub_tag_id ?? NO_TAG,
+                tags !== null,
+                t,
+                t("noSubTag"),
+              )}
             >
               <SelectTrigger className="bg-muted">
                 <SelectValue placeholder={t("pickSubTag")} />

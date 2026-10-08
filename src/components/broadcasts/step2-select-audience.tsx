@@ -33,6 +33,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import type { ChatTagTree } from '@/lib/chat-tags/tree';
+import { liveChatTagIds } from '@/lib/broadcasts/chat-tag-audience';
 import { chatTagColor } from '@/lib/chat-tags/style';
 import { CHAT_TAGS_SETTINGS_HREF } from '@/components/inbox/thread-tag-bar';
 import type { CustomField } from '@/types';
@@ -148,6 +149,18 @@ export function Step2SelectAudience({
   const { tags: chatTags, tree: chatTagTree } = useChatTags();
   const chatTagsLoading = chatTags === null;
   const noChatTags = !chatTagsLoading && chatTagTree.mains.length === 0;
+  // The picked tags less any deleted meanwhile (`liveChatTagIds`): what
+  // is validated, counted, toggled and handed on, so a vanished tag can
+  // neither keep Next enabled nor send to nobody.
+  const chatTagIds = useMemo(
+    () => liveChatTagIds(audience.chatTagIds, chatTagTree, !chatTagsLoading),
+    [audience.chatTagIds, chatTagTree, chatTagsLoading]
+  );
+  const excludeChatTagIds = useMemo(
+    () =>
+      liveChatTagIds(audience.excludeChatTagIds, chatTagTree, !chatTagsLoading),
+    [audience.excludeChatTagIds, chatTagTree, chatTagsLoading]
+  );
 
   // Compass audience: how many customers have a phone (the list the
   // slice is cut from), and a sample of the slice for the personalize
@@ -334,10 +347,10 @@ export function Step2SelectAudience({
       commit(
         await estimateAudience(createClient(), accountId, {
           type: audience.type,
-          chatTagIds: audience.chatTagIds,
+          chatTagIds,
           customField: audience.customField,
           csvContacts: audience.csvContacts,
-          excludeChatTagIds: audience.excludeChatTagIds,
+          excludeChatTagIds,
         })
       );
     } catch (err) {
@@ -347,10 +360,10 @@ export function Step2SelectAudience({
   }, [
     accountId,
     audience.type,
-    audience.chatTagIds,
+    chatTagIds,
     audience.customField,
     audience.csvContacts,
-    audience.excludeChatTagIds,
+    excludeChatTagIds,
     compassSelection,
     compassTotal,
   ]);
@@ -416,11 +429,24 @@ export function Step2SelectAudience({
   }
 
   function toggleChatTag(key: 'chatTagIds' | 'excludeChatTagIds', id: string) {
-    const current = audience[key] ?? [];
+    const current =
+      (key === 'chatTagIds' ? chatTagIds : excludeChatTagIds) ?? [];
     const updated = current.includes(id)
       ? current.filter((x) => x !== id)
       : [...current, id];
-    onUpdate({ ...audience, [key]: updated });
+    onUpdate({ ...audience, chatTagIds, excludeChatTagIds, [key]: updated });
+  }
+
+  // Next hands on the live lists, so the confirm step and the send
+  // never see a deleted tag's id.
+  function handleNext() {
+    if (
+      chatTagIds !== audience.chatTagIds ||
+      excludeChatTagIds !== audience.excludeChatTagIds
+    ) {
+      onUpdate({ ...audience, chatTagIds, excludeChatTagIds });
+    }
+    onNext();
   }
 
   function updateCustomField(patch: Partial<CustomFieldFilter>) {
@@ -434,9 +460,11 @@ export function Step2SelectAudience({
 
   const isValid =
     audience.type === 'all' ||
+    // Not before the tags load: only then are deleted ones known.
     (audience.type === 'chat_tags' &&
-      audience.chatTagIds &&
-      audience.chatTagIds.length > 0) ||
+      !chatTagsLoading &&
+      chatTagIds &&
+      chatTagIds.length > 0) ||
     (audience.type === 'custom_field' &&
       !!audience.customField?.fieldId &&
       audience.customField.value.length > 0) ||
@@ -610,7 +638,7 @@ export function Step2SelectAudience({
           ) : (
             <ChatTagPicker
               tree={chatTagTree}
-              selected={audience.chatTagIds}
+              selected={chatTagIds}
               onToggle={(id) => toggleChatTag('chatTagIds', id)}
               tone="include"
             />
@@ -849,7 +877,7 @@ export function Step2SelectAudience({
         ) : (
           <ChatTagPicker
             tree={chatTagTree}
-            selected={audience.excludeChatTagIds}
+            selected={excludeChatTagIds}
             onToggle={(id) => toggleChatTag('excludeChatTagIds', id)}
             tone="exclude"
           />
@@ -945,7 +973,7 @@ export function Step2SelectAudience({
           {t('back')}
         </Button>
         <Button
-          onClick={onNext}
+          onClick={handleNext}
           disabled={!isValid}
           className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >

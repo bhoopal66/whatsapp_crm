@@ -10,6 +10,7 @@ import {
   estimateAudience,
   resolveSendTime,
   type AudienceConfig,
+  type AudienceEstimate,
 } from '@/hooks/use-broadcast-sending';
 import { parseQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
@@ -112,7 +113,9 @@ export function Step4ScheduleSend({
 }: Step4Props) {
   const t = useTranslations('Broadcasts.wizard');
   const [showConfirm, setShowConfirm] = useState(false);
-  const [estimatedReach, setEstimatedReach] = useState<number>(0);
+  // Null when the count could not be made: the confirm then says so
+  // rather than "0" for an audience that will be sent to.
+  const [reach, setReach] = useState<AudienceEstimate | null>(null);
   const [loadingReach, setLoadingReach] = useState(true);
   const { accountId } = useAuth();
 
@@ -191,10 +194,10 @@ export function Step4ScheduleSend({
           accountId,
           audience
         );
-        if (!cancelled) setEstimatedReach(estimate?.recipients ?? 0);
+        if (!cancelled) setReach(estimate);
       } catch (err) {
         console.error('[broadcast] audience estimate failed:', err);
-        if (!cancelled) setEstimatedReach(0);
+        if (!cancelled) setReach(null);
       } finally {
         if (!cancelled) setLoadingReach(false);
       }
@@ -203,6 +206,14 @@ export function Step4ScheduleSend({
       cancelled = true;
     };
   }, [audience, accountId]);
+
+  // The confirm's recipient count: "…" while counting, null when the
+  // count failed (the body then says it could not be counted).
+  const confirmCount = loadingReach
+    ? '…'
+    : reach
+      ? reach.recipients.toLocaleString()
+      : null;
 
   const audienceLabel =
     audience.type === 'all'
@@ -262,13 +273,17 @@ export function Step4ScheduleSend({
             <div className="flex items-center gap-1.5">
               {loadingReach ? (
                 <Loader2 className="text-primary h-3 w-3 animate-spin" />
-              ) : (
+              ) : reach ? (
                 <>
                   <Users className="text-primary h-3.5 w-3.5" />
                   <p className="text-foreground font-medium">
-                    {estimatedReach.toLocaleString()}
+                    {reach.recipients.toLocaleString()}
                   </p>
                 </>
+              ) : (
+                <p className="text-muted-foreground">
+                  {t('scheduleSend.reachUnknown')}
+                </p>
               )}
             </div>
           </div>
@@ -513,16 +528,32 @@ export function Step4ScheduleSend({
                 </DialogTitle>
                 <DialogDescription className="text-muted-foreground">
                   {isSchedule
-                    ? t('scheduleSend.confirmScheduleBody', {
-                        count: estimatedReach.toLocaleString(),
-                        template: template.name,
-                        when: effectiveSendAt.toLocaleString(),
-                      })
-                    : t('scheduleSend.confirmBody', {
-                        count: estimatedReach.toLocaleString(),
-                        template: template.name,
-                      })}
+                    ? confirmCount !== null
+                      ? t('scheduleSend.confirmScheduleBody', {
+                          count: confirmCount,
+                          template: template.name,
+                          when: effectiveSendAt.toLocaleString(),
+                        })
+                      : t('scheduleSend.confirmScheduleBodyUnknown', {
+                          template: template.name,
+                          when: effectiveSendAt.toLocaleString(),
+                        })
+                    : confirmCount !== null
+                      ? t('scheduleSend.confirmBody', {
+                          count: confirmCount,
+                          template: template.name,
+                        })
+                      : t('scheduleSend.confirmBodyUnknown', {
+                          template: template.name,
+                        })}
                 </DialogDescription>
+                {!loadingReach && reach && reach.optedOut > 0 && (
+                  <p className="text-muted-foreground text-sm">
+                    {t('selectAudience.optedOutSkipped', {
+                      count: reach.optedOut,
+                    })}
+                  </p>
+                )}
               </DialogHeader>
               <DialogFooter>
                 <Button
