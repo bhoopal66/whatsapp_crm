@@ -504,6 +504,36 @@ identical openers in first messages, failures, response times.
 - **Tests.** The SQL behaviour is asserted in
   `supabase/ci/verify-team-activity.sql`.
 
+### Chat tags (`lib/chat-tags/*`, migration 075)
+
+Admin-defined, colour-coded tags that replaced the chat header's
+Open/Pending/Closed control and the list's status filters.
+`conversations.status` stays: automations close chats, inbound
+reopens them, the public API filters on it. A chat carries at most
+one main tag (`conversations.chat_tag_id`) and one sub-tag of it
+(`chat_sub_tag_id`, e.g. which bank under "Interested");
+`chat_tags.sub_tag_title` captions it ("Bank: ADCB"). These are not
+the contact `tags` (many per contact, used by broadcasts and
+automations).
+
+- **The pairing lives in SQL.** `conversations_chat_tag_guard` refuses
+  a sub-tag as a main tag or a sub-tag of another main tag, and clears
+  the sub-tag when only the main tag changes. `chat_tags_guard` keeps
+  nesting one level deep and `parent_id` immutable. Every reference is
+  a composite FK on `(id, account_id)` with `ON DELETE SET NULL (col)`
+  — the column list keeps `account_id`. `verify-chat-tags.sql` asserts
+  all of it.
+- **Who.** Members read tags, admins write them (Settings → Chat
+  tags). Tagging a chat is a plain conversations UPDATE under the
+  existing policy, so agents and up on chats they can see; viewers
+  never.
+- **Client.** `useChatTags()` caches the list per account, and
+  `reload()` refreshes every mounted consumer (header, list, Settings).
+  The list filter is pushed server-side through `chatTagFilterOrGroup`
+  (UUID-guarded) and re-applied client-side. A save that lands after
+  the agent opened another chat must not patch it:
+  `patchIfSameConversation` checks inside the state updater.
+
 ### Flows vs Automations
 
 Two independent engines, deliberately kept apart:

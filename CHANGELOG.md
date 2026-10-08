@@ -294,6 +294,26 @@ number sends what.
 
 ### Added
 
+- **Chat tags, in place of Open / Pending / Closed.** Admins set up
+  colour-coded tags in **Settings → Chat tags** — for example *New
+  customer*, *Interested customer*, *Not interested* — in the order
+  they want. A main tag can have sub-tags with a heading of its own,
+  such as *Interested customer* → **Bank**: ADCB, Emirates NBD, FAB. In
+  a chat, the tag sits under the customer's name: pick one main tag,
+  and if it has sub-tags the sub-tag menu opens straight away
+  ("Bank: ADCB"). A chat carries one main tag and one sub-tag of it;
+  switching the main tag drops the old sub-tag. The chat list shows
+  each chat's tag and filters by main tag or sub-tag (Open / Pending /
+  Closed filters are gone; the status itself is kept for automations
+  and the public API). Agents and up tag the chats they can see;
+  viewers can't. These are separate from contact tags, which keep
+  driving broadcasts and automations.
+- **A rebuilt chat header.** Two rows: the customer (photo, name,
+  number — on desktop, click it to open or close the contact panel),
+  the sending number, who is on the chat and the refresh and panel
+  buttons; then the chat's tags. The number and the person show short
+  names so the customer's name keeps its room; full names are in the
+  tooltips and menus.
 - **Broadcasts to Compass customers.** The broadcast wizard's audience
   step has a fifth option, *Compass contacts*: pick an order (top or
   bottom of the Compass list, newest or oldest added, name A→Z or Z→A),
