@@ -2,8 +2,8 @@
 // GET /api/v1/conversations — list conversations (scope: conversations:read)
 //
 // Keyset-paginated (newest first). Filters: `?status=` (open/pending/
-// closed) and `?contact_id=`. Each conversation embeds its contact +
-// tags via the shared CONVERSATION_SELECT.
+// closed) and `?contact_id=`. Each conversation embeds its contact and
+// names its chat tag and sub-tag.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -14,10 +14,10 @@ import {
   buildPage,
 } from '@/lib/api/v1/pagination';
 import {
-  CONVERSATION_SELECT,
-  normalizeConversation,
-} from '@/lib/inbox/conversations';
-import { serializeConversation } from '@/lib/api/v1/conversations';
+  CONVERSATION_COLUMNS,
+  loadChatTagLookup,
+  serializeConversation,
+} from '@/lib/api/v1/conversations';
 import type { Conversation } from '@/types';
 
 export async function GET(request: Request) {
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
     let query = ctx.supabase
       .from('conversations')
-      .select(CONVERSATION_SELECT)
+      .select(CONVERSATION_COLUMNS)
       .eq('account_id', ctx.accountId);
 
     if (status) query = query.eq('status', status);
@@ -51,13 +51,16 @@ export async function GET(request: Request) {
     }
 
     const { items, nextCursor } = buildPage(
-      (data ?? []) as Array<{ created_at: string; id: string }>,
+      (data ?? []) as Conversation[],
       limit
     );
+    const chatTags = await loadChatTagLookup(
+      ctx.supabase,
+      ctx.accountId,
+      items
+    );
     return okList(
-      items.map((r) =>
-        serializeConversation(normalizeConversation(r as Conversation))
-      ),
+      items.map((r) => serializeConversation(r, chatTags)),
       nextCursor
     );
   } catch (err) {

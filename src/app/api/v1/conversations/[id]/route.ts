@@ -6,10 +6,10 @@
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
 import {
-  CONVERSATION_SELECT,
-  normalizeConversation,
-} from '@/lib/inbox/conversations';
-import { serializeConversation } from '@/lib/api/v1/conversations';
+  CONVERSATION_COLUMNS,
+  loadChatTagLookup,
+  serializeConversation,
+} from '@/lib/api/v1/conversations';
 import type { Conversation } from '@/types';
 
 export async function GET(
@@ -22,7 +22,7 @@ export async function GET(
 
     const { data, error } = await ctx.supabase
       .from('conversations')
-      .select(CONVERSATION_SELECT)
+      .select(CONVERSATION_COLUMNS)
       .eq('id', id)
       .eq('account_id', ctx.accountId)
       .maybeSingle();
@@ -33,7 +33,11 @@ export async function GET(
     }
     if (!data) return fail('not_found', 'Conversation not found', 404);
 
-    return ok(serializeConversation(normalizeConversation(data as Conversation)));
+    const conv = data as Conversation;
+    const chatTags = await loadChatTagLookup(ctx.supabase, ctx.accountId, [
+      conv,
+    ]);
+    return ok(serializeConversation(conv, chatTags));
   } catch (err) {
     return toApiErrorResponse(err);
   }

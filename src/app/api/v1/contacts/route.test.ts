@@ -14,7 +14,6 @@ vi.mock('@/lib/api/v1/contacts', async (importOriginal) => {
     ...actual,
     resolveAuditUserId: vi.fn(async () => 'owner-1'),
     findOrCreateContact,
-    setContactTags: vi.fn(async () => undefined),
     getContactById: vi.fn(async (_db: unknown, _acct: string, id: string) => ({
       id,
       phone: '971501234567',
@@ -22,7 +21,7 @@ vi.mock('@/lib/api/v1/contacts', async (importOriginal) => {
   };
 });
 
-import { POST } from './route';
+import { GET, POST } from './route';
 
 const post = (body: unknown) =>
   POST(
@@ -82,5 +81,31 @@ describe('POST /api/v1/contacts', () => {
     const res = await post({ name: 'No phone' });
     expect(res.status).toBe(400);
     expect((await res.json()).error.message).toBe("'phone' is required");
+  });
+
+  // The mocked `supabase` is `{}`: any tag table write would throw.
+  it('accepts and ignores a tags field', async () => {
+    const res = await post({ phone: '+971 50 123 4567', tags: ['vip'] });
+    expect(res.status).toBe(201);
+    expect((await res.json()).data.id).toBe('c1');
+    expect(findOrCreateContact).toHaveBeenCalledWith(
+      {},
+      'acct-1',
+      'owner-1',
+      expect.not.objectContaining({ tags: expect.anything() })
+    );
+  });
+});
+
+describe('GET /api/v1/contacts', () => {
+  // `?tag=` used to filter on contact tags; none exist any more, so it
+  // answers an empty page without querying (the mocked client is `{}`).
+  it('answers an empty page for a tag filter', async () => {
+    const res = await GET(new Request('http://x/api/v1/contacts?tag=t1'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: [],
+      meta: { next_cursor: null },
+    });
   });
 });

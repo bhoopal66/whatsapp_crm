@@ -23,7 +23,7 @@ export function registerBroadcastTools(
     {
       title: 'Send broadcast',
       description:
-        'Launch a template broadcast to a list of recipients (up to 1000). This sends a real WhatsApp template message to every recipient — a mass, irreversible action. You MUST set confirm=true, and you should show the full recipient list and template to the user for approval before calling. The call returns fast; poll get_broadcast for delivery progress.',
+        'Launch a template broadcast to a list of recipients (up to 1000). This sends a real WhatsApp template message to every recipient — a mass, irreversible action. You MUST set confirm=true, and you should show the full recipient list and template to the user for approval before calling. Contacts who opted out of messages are skipped (left out of accepted); if every recipient with a valid number has opted out, the call fails and nothing is sent. The call returns fast; poll get_broadcast for delivery progress.',
       inputSchema: {
         name: z
           .string()

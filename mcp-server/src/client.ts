@@ -128,7 +128,6 @@ export class TaamulClient {
     limit?: number;
     cursor?: string;
     search?: string;
-    tag?: string;
   }): Promise<Paginated<unknown>> {
     return this.list('/contacts', query);
   }

@@ -2,26 +2,26 @@ import { describe, it, expect } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  CONTACT_SELECT,
   serializeContact,
   findOrCreateContact,
   ContactError,
 } from './contacts';
 
 describe('serializeContact', () => {
-  it('flattens contact_tags(tags(*)) onto a tags array and nulls missing fields', () => {
+  it('projects the public fields, with empty tags and opted_out_at', () => {
     const row = {
       id: 'c1',
+      account_id: 'internal-acct',
+      user_id: 'internal-user',
       phone: '+14155550123',
       name: 'Jane',
       email: null,
       company: 'Acme',
       avatar_url: null,
+      opted_out_at: '2026-09-01T00:00:00Z',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
-      contact_tags: [
-        { tags: { id: 't1', name: 'vip', color: '#fff' } },
-        { tags: null }, // orphaned join — dropped
-      ],
     };
     expect(serializeContact(row)).toEqual({
       id: 'c1',
@@ -30,24 +30,30 @@ describe('serializeContact', () => {
       email: null,
       company: 'Acme',
       avatar_url: null,
-      tags: [{ id: 't1', name: 'vip', color: '#fff' }],
+      tags: [],
+      opted_out_at: '2026-09-01T00:00:00Z',
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-02T00:00:00Z',
     });
   });
 
-  it('tolerates a row with no contact_tags key', () => {
+  it('nulls opted_out_at and other missing fields', () => {
     const row = {
       id: 'c2',
       phone: '+1',
-      name: null,
-      email: null,
-      company: null,
-      avatar_url: null,
       created_at: 'a',
       updated_at: 'b',
     };
-    expect(serializeContact(row).tags).toEqual([]);
+    const out = serializeContact(row);
+    expect(out.opted_out_at).toBeNull();
+    expect(out.name).toBeNull();
+    expect(out.tags).toEqual([]);
+  });
+});
+
+describe('CONTACT_SELECT', () => {
+  it('no longer embeds contact tags', () => {
+    expect(CONTACT_SELECT).toBe('*');
   });
 });
 

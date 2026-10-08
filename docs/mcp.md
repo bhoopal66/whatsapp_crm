@@ -43,10 +43,14 @@ data or send messages, add `"TAAMUL_ENABLE_WRITES": "true"` (and
 ## What it exposes
 
 - **Reads (always on):** `whoami`, contacts (list/get), conversations
-  (list/get), messages (list), broadcast status.
-- **Writes (opt-in):** send a message, create/update a contact.
+  (list/get, each with its chat tag and sub-tag), messages (list),
+  broadcast status.
+- **Writes (opt-in):** send a message, create/update a contact (name,
+  email, company). Contact tags are retired, so the contact tools no
+  longer take or filter by tags.
 - **Broadcasts (opt-in):** launch a template broadcast — requires an
-  explicit `confirm` and is marked destructive.
+  explicit `confirm` and is marked destructive. Contacts who opted out
+  of messages are skipped.
 
 ## Safety
 

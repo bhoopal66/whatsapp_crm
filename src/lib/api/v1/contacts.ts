@@ -4,18 +4,20 @@
 // Kept out of the route files so `GET/POST /api/v1/contacts` and
 // `GET/PATCH /api/v1/contacts/{id}` share one serializer, one
 // find-or-create (built on the same `findExistingContact` dedupe the
-// webhook and send path use), and one tag-sync routine.
+// webhook and send path use).
+//
+// Contact tags are retired (chat tags on conversations replaced them).
+// `tags` stays on the wire, always `[]`, so a client that reads it keeps
+// working; nothing here reads or writes the old tag tables any more.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
-import { resolveImportTagIds } from '@/lib/contacts/resolve-import-tags';
-import { addContactTagAndDispatch } from '@/lib/contacts/tag-events';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 
-/** Row select that embeds the contact's tags for serialization. */
-export const CONTACT_SELECT = '*, contact_tags(tags(*))';
+/** Row select for serialization. */
+export const CONTACT_SELECT = '*';
 
 export interface ApiContact {
   id: string;
@@ -24,7 +26,10 @@ export interface ApiContact {
   email: string | null;
   company: string | null;
   avatar_url: string | null;
+  /** Deprecated: contact tags are retired. Always empty. */
   tags: { id: string; name: string; color: string }[];
+  /** When the customer asked not to be messaged; broadcasts skip them. */
+  opted_out_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,11 +44,8 @@ export class ContactError extends Error {
   }
 }
 
-type RawTagJoin = { tags: { id: string; name: string; color: string } | null };
-
-/** Flatten a `CONTACT_SELECT` row into the public contact shape. */
+/** Project a `contacts` row into the public contact shape. */
 export function serializeContact(row: Record<string, unknown>): ApiContact {
-  const joins = (row.contact_tags as RawTagJoin[] | undefined) ?? [];
   return {
     id: row.id as string,
     phone: row.phone as string,
@@ -51,10 +53,8 @@ export function serializeContact(row: Record<string, unknown>): ApiContact {
     email: (row.email as string | null) ?? null,
     company: (row.company as string | null) ?? null,
     avatar_url: (row.avatar_url as string | null) ?? null,
-    tags: joins
-      .map((j) => j.tags)
-      .filter((t): t is NonNullable<RawTagJoin['tags']> => t != null)
-      .map((t) => ({ id: t.id, name: t.name, color: t.color })),
+    tags: [],
+    opted_out_at: (row.opted_out_at as string | null) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };
@@ -154,71 +154,6 @@ export async function findOrCreateContact(
   }
 
   return { id: created.id, created: true };
-}
-
-/**
- * Replace a contact's tags to exactly match `tagNames` (case-
- * insensitive; missing tags are created). A no-op when `tagNames` is
- * undefined — pass `[]` to clear all tags. Reuses `resolveImportTagIds`
- * so API and CSV-import tag handling stay consistent.
- */
-export async function setContactTags(
-  db: SupabaseClient,
-  accountId: string,
-  auditUserId: string,
-  contactId: string,
-  tagNames: string[]
-): Promise<void> {
-  const { tagIdByKey } = await resolveImportTagIds(db, {
-    accountId,
-    userId: auditUserId,
-    tagNames,
-    canCreateTags: true,
-  });
-  const desired = new Set(tagIdByKey.values());
-
-  // Diff against the current joins rather than delete-all-then-insert:
-  // a diff only touches tags that actually change, so a mid-operation
-  // failure can never wipe tags that were meant to stay. Every write
-  // is error-checked and surfaced as a ContactError (→ 500) instead of
-  // being swallowed behind a misleading 200.
-  const { data: current, error: readErr } = await db
-    .from('contact_tags')
-    .select('tag_id')
-    .eq('contact_id', contactId);
-  if (readErr) {
-    throw new ContactError('Failed to read contact tags', 500);
-  }
-  const existing = new Set(
-    (current ?? []).map((r) => r.tag_id as string)
-  );
-
-  const toAdd = [...desired].filter((id) => !existing.has(id));
-  const toRemove = [...existing].filter((id) => !desired.has(id));
-
-  if (toRemove.length > 0) {
-    const { error } = await db
-      .from('contact_tags')
-      .delete()
-      .eq('contact_id', contactId)
-      .in('tag_id', toRemove);
-    if (error) throw new ContactError('Failed to update contact tags', 500);
-  }
-  if (toAdd.length > 0) {
-    for (const tagId of toAdd) {
-      try {
-        await addContactTagAndDispatch({
-          db,
-          accountId,
-          contactId,
-          tagId,
-        });
-      } catch (error) {
-        console.error('[api/v1/contacts] tag add failed:', error);
-        throw new ContactError('Failed to update contact tags', 500);
-      }
-    }
-  }
 }
 
 /** Fetch + serialize a single contact scoped to the account, or null. */

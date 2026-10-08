@@ -4,18 +4,14 @@
 //
 // Both are account-scoped: a contact belonging to another account
 // returns 404 (never 403 — don't reveal it exists elsewhere).
-// PATCH updates only the fields present in the body; pass `tags` (an
-// array of tag names) to replace the contact's tags.
+// PATCH updates only the fields present in the body. Contact tags are
+// retired: a `tags` field is accepted and ignored, so an older client
+// does not start failing.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
-import {
-  getContactById,
-  setContactTags,
-  resolveAuditUserId,
-  ContactError,
-} from '@/lib/api/v1/contacts';
+import { getContactById, ContactError } from '@/lib/api/v1/contacts';
 
 export async function GET(
   request: Request,
@@ -78,17 +74,6 @@ export async function PATCH(
         console.error('[api/v1/contacts] update error:', error);
         return fail('internal', 'Failed to update contact', 500);
       }
-    }
-
-    if (Array.isArray(body.tags)) {
-      const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
-      await setContactTags(
-        ctx.supabase,
-        ctx.accountId,
-        auditUserId,
-        id,
-        body.tags.filter((t): t is string => typeof t === 'string')
-      );
     }
 
     const contact = await getContactById(ctx.supabase, ctx.accountId, id);

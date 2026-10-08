@@ -3,9 +3,14 @@
 // POST /api/v1/contacts  — create a contact  (scope: contacts:write)
 //
 // List is keyset-paginated (see src/lib/api/v1/pagination.ts) and
-// supports `?search=` (name/phone) and `?tag=<tagId>` filters. Create
-// is find-or-create by phone: an existing match returns 200 with
-// `created: false`; a new row returns 201 with `created: true`.
+// supports a `?search=` (name/phone) filter. Create is find-or-create
+// by phone: an existing match returns 200 with `created: false`; a new
+// row returns 201 with `created: true`.
+//
+// Contact tags are retired. `?tag=` is still accepted and answers an
+// empty page (no contact carries a tag), and a `tags` field in the
+// create body is ignored, so an older client neither errors nor
+// silently gets an unfiltered list.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -19,7 +24,6 @@ import {
   CONTACT_SELECT,
   serializeContact,
   findOrCreateContact,
-  setContactTags,
   getContactById,
   resolveAuditUserId,
   ContactError,
@@ -39,29 +43,17 @@ export async function GET(request: Request) {
     const { limit, cursor } = parseListParams(request);
     const url = new URL(request.url);
     const search = sanitizeSearch(url.searchParams.get('search') ?? '');
-    const tag = url.searchParams.get('tag');
 
-    // When filtering by tag, add an aliased INNER join on contact_tags
-    // used purely for the WHERE — the parent is kept only if it has the
-    // tag. The main `contact_tags(tags(*))` embed still returns the
-    // contact's FULL tag set for serialization. This filters in one
-    // bounded query (paged by limit+1) instead of pre-fetching an
-    // unbounded id list into an `.in(...)`.
-    const selectClause = tag
-      ? `${CONTACT_SELECT}, tag_filter:contact_tags!inner(tag_id)`
-      : CONTACT_SELECT;
+    // No contact carries a tag any more, so a tag filter matches none.
+    if (url.searchParams.get('tag')) return okList([], null);
 
     let query = ctx.supabase
       .from('contacts')
-      .select(selectClause)
+      .select(CONTACT_SELECT)
       .eq('account_id', ctx.accountId);
 
     if (search) {
       query = query.or(`name.ilike.*${search}*,phone.ilike.*${search}*`);
-    }
-
-    if (tag) {
-      query = query.eq('tag_filter.tag_id', tag);
     }
 
     query = query
@@ -78,11 +70,8 @@ export async function GET(request: Request) {
       return fail('internal', 'Failed to list contacts', 500);
     }
 
-    // Cast via unknown: the conditional `selectClause` (with the
-    // tag_filter alias) is a runtime string, so supabase-js can't infer
-    // a row type from it.
     const { items, nextCursor } = buildPage(
-      (data ?? []) as unknown as Array<{ created_at: string; id: string }>,
+      (data ?? []) as Array<{ created_at: string; id: string }>,
       limit
     );
     return okList(
@@ -132,16 +121,6 @@ export async function POST(request: Request) {
         company: typeof body.company === 'string' ? body.company : undefined,
       }
     );
-
-    if (Array.isArray(body.tags)) {
-      await setContactTags(
-        ctx.supabase,
-        ctx.accountId,
-        auditUserId,
-        id,
-        body.tags.filter((t): t is string => typeof t === 'string')
-      );
-    }
 
     const contact = await getContactById(ctx.supabase, ctx.accountId, id);
     return ok(contact, created ? 201 : 200);

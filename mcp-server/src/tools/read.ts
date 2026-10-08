@@ -32,10 +32,9 @@ export function registerReadTools(server: McpServer, client: TaamulClient): void
     {
       title: 'List contacts',
       description:
-        'List contacts in the CRM, newest first. Optionally filter by a free-text search (matches name or phone) or by a tag id. Results are paginated: pass the returned next_cursor to fetch the next page.',
+        'List contacts in the CRM, newest first. Optionally filter by a free-text search (matches name or phone). Contacts no longer carry tags; conversations carry a chat tag instead (see get_conversation). A contact with opted_out_at set asked not to be messaged, and broadcasts skip it. Results are paginated: pass the returned next_cursor to fetch the next page.',
       inputSchema: {
         search: z.string().optional().describe('Free-text search over name or phone number.'),
-        tag: z.string().optional().describe('Tag id to filter by.'),
         limit: z
           .number()
           .int()
@@ -68,7 +67,7 @@ export function registerReadTools(server: McpServer, client: TaamulClient): void
     {
       title: 'List conversations',
       description:
-        'List conversations, newest first. Optionally filter by status (open / pending / closed) or by contact id. Paginated.',
+        'List conversations, newest first. Each one carries its contact and its chat tag (chat_tag, plus chat_sub_tag when one is set; null when untagged). Optionally filter by status (open / pending / closed) or by contact id. Paginated.',
       inputSchema: {
         status: z.enum(['open', 'pending', 'closed']).optional().describe('Conversation status filter.'),
         contact_id: z.string().optional().describe('Only conversations for this contact.'),
@@ -84,7 +83,8 @@ export function registerReadTools(server: McpServer, client: TaamulClient): void
     'get_conversation',
     {
       title: 'Get conversation',
-      description: 'Read a single conversation by id, including its contact and tags.',
+      description:
+        'Read a single conversation by id, including its contact and its chat tag (chat_tag and chat_sub_tag, each { id, name, color } or null).',
       inputSchema: {
         id: z.string().describe('Conversation id.'),
       },

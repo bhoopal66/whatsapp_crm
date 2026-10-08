@@ -193,8 +193,8 @@ send), `template_malformed` (500).
 ### `GET /api/v1/contacts`
 
 List contacts, newest first. Scope: `contacts:read`. Paginated (see
-[Pagination](#pagination)). Optional filters: `?search=` (matches name
-or phone) and `?tag=<tagId>`.
+[Pagination](#pagination)). Optional filter: `?search=` (matches name
+or phone).
 
 ```json
 {
@@ -202,13 +202,23 @@ or phone) and `?tag=<tagId>`.
     {
       "id": "…", "phone": "+14155550123", "name": "Jane Doe",
       "email": null, "company": "Acme", "avatar_url": null,
-      "tags": [{ "id": "…", "name": "vip", "color": "#3b82f6" }],
+      "tags": [],
+      "opted_out_at": null,
       "created_at": "…", "updated_at": "…"
     }
   ],
   "meta": { "next_cursor": "…" }
 }
 ```
+
+`opted_out_at` is when the customer asked not to be messaged, or `null`.
+Broadcasts skip a contact that has it (see
+[`POST /api/v1/broadcasts`](#post-apiv1broadcasts)).
+
+**Contact tags are retired.** Conversations carry a chat tag instead
+(see [`GET /api/v1/conversations`](#get-apiv1conversations)). Until a
+future API version drops it, `tags` stays in every contact, always
+`[]`, and `?tag=` is still accepted but always returns an empty page.
 
 ### `POST /api/v1/contacts`
 
@@ -229,8 +239,8 @@ code (`+971 050…`, `+44 (0)7700…`, `+966 05…`) is removed, except where
 numbers really start with 0 (`+39 06…`). A number saved without its country code would take the
 customer's inbound messages while replies went nowhere. The stored
 number is the digits only;
-`name`, `email`, `company`, and `tags` (an array of tag names, created
-if missing) are optional. **Find-or-create by phone:** an existing
+`name`, `email` and `company` are optional. A `tags` field is accepted
+and ignored (contact tags are retired). **Find-or-create by phone:** an existing
 match returns `200` with the existing contact; a new contact returns
 `201`. The response body is the serialized contact (same shape as the
 list rows above).
@@ -238,20 +248,48 @@ list rows above).
 ### `GET` / `PATCH /api/v1/contacts/{id}`
 
 Read or update one contact. Scopes: `contacts:read` / `contacts:write`.
-`PATCH` updates only the fields you send (`name`, `email`, `company`);
-pass `tags` (an array of tag names) to replace the contact's tags. A
+`PATCH` updates only the fields you send (`name`, `email`, `company`).
+A `tags` field is accepted and ignored (contact tags are retired). A
 contact in another account returns `404`.
 
 ### `GET /api/v1/conversations`
 
 List conversations, newest first. Scope: `conversations:read`.
 Paginated. Optional filters: `?status=` (`open` / `pending` / `closed`)
-and `?contact_id=`. Each conversation embeds its contact + tags.
+and `?contact_id=`. Each conversation embeds its contact and names its
+chat tag:
+
+```json
+{
+  "data": [
+    {
+      "id": "…", "contact_id": "…", "status": "open",
+      "assigned_agent_id": null,
+      "last_message_text": "Is the offer still on?",
+      "last_message_at": "…", "unread_count": 1,
+      "chat_tag": { "id": "…", "name": "Interested customer", "color": "#16a34a" },
+      "chat_sub_tag": { "id": "…", "name": "ADCB", "color": "#2563eb" },
+      "created_at": "…", "updated_at": "…",
+      "contact": {
+        "id": "…", "phone": "+14155550123", "name": "Jane Doe",
+        "email": null, "company": "Acme",
+        "tags": [], "opted_out_at": null
+      }
+    }
+  ],
+  "meta": { "next_cursor": "…" }
+}
+```
+
+`chat_tag` is the conversation's tag and `chat_sub_tag` the sub-tag
+under it, each `{ id, name, color }` or `null`. A sub-tag only ever
+appears with the tag it belongs to. The embedded contact has the same
+`tags` (always `[]`) and `opted_out_at` as on the contact endpoints.
 
 ### `GET /api/v1/conversations/{id}`
 
-Read one conversation. Scope: `conversations:read`. `404` if it belongs
-to another account.
+Read one conversation, in the same shape as the list rows. Scope:
+`conversations:read`. `404` if it belongs to another account.
 
 ### `GET /api/v1/conversations/{id}/messages`
 
@@ -293,6 +331,12 @@ counted as `rejected`, and no contact is created for it; accepted
 numbers are sent in normalized form (digits only, with the country
 code, a trunk `0` after it removed). If every recipient is rejected the
 call is `400 bad_request` and the message names the first problem.
+
+A recipient whose contact opted out of messages (`opted_out_at` set) is
+skipped: it is not sent to and is counted in neither `accepted` nor
+`rejected`. If every recipient with a valid number has opted out, the
+call is `400 bad_request` ("Every recipient with a valid phone number
+has opted out of messages.") and nothing is sent.
 
 `flow_id` (optional) names an **active Flow** to start for each
 recipient on their first reply to this campaign, so the broadcast
