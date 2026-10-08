@@ -133,6 +133,25 @@ export interface Tag {
   created_at: string;
 }
 
+/**
+ * An admin-configured chat tag (migration 075). A main tag has
+ * `parent_id` null; a sub-tag points at its main tag, and nesting stops
+ * there. `sub_tag_title` captions a main tag's sub-tags ("Bank") and is
+ * always null on a sub-tag.
+ */
+export interface ChatTag {
+  id: string;
+  account_id: string;
+  parent_id: string | null;
+  name: string;
+  /** `#rrggbb` — render through `chatTagColor`, which falls back. */
+  color: string;
+  sub_tag_title: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContactTag {
   id: string;
   contact_id: string;
@@ -235,6 +254,15 @@ export interface Conversation {
    * NULL = automatic: reply on the number the customer last wrote to.
    */
   send_channel_id?: string | null;
+  /**
+   * The chat's admin-configured tag (migration 075): at most one main
+   * tag, and at most one sub-tag, which must belong to that main tag.
+   * Deleting a tag nulls these; switching the main tag server-side
+   * clears a sub-tag that no longer fits. Resolve them through
+   * `resolveConversationChatTags`, which treats a stale id as none.
+   */
+  chat_tag_id?: string | null;
+  chat_sub_tag_id?: string | null;
 }
 
 // ============================================================
