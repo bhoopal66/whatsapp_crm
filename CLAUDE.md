@@ -531,7 +531,10 @@ filter, and the public API (conversations carry `chat_tag` /
   (`resolveAudience` → `finalAudience`), when the API plans
   (`createBroadcast`), and again at send time (`planBroadcastResume`
   marks a recipient who opted out since as failed). The inbox contact
-  panel and the Contacts screens show an "Opted out" badge.
+  panel and the Contacts screens show an "Opted out" badge. Only the
+  service role (the bot, the watch) or an admin of the contact's
+  account may set or clear the stamp (`contacts_opt_out_guard`, on
+  INSERT too); `verify-contact-opt-out.sql` asserts it.
 - **A tag change is a server write.** The header saves through
   `PUT /api/conversations/[id]/chat-tags` (the caller's RLS client via
   `writeConversationChatTags`), which dispatches `chat_tag_set` in
@@ -540,6 +543,14 @@ filter, and the public API (conversations carry `chat_tag` /
   chain of tag-triggered tag writes stops at depth 3
   (`vars._chat_tag_chain_depth`). `chatTagTriggerMatches` fires on
   arrival at the configured tag, never on a re-save.
+- **Writes are compare-and-set.** `writeConversationChatTags` updates
+  only if both columns still hold what it read, re-reading once on a
+  lost race; a writer that finds the chat already where it was going
+  reports no change, so two racing writers dispatch `chat_tag_set`
+  once. A write that leaves `chat_sub_tag_id` out keeps the chat's
+  sub-tag while the main tag is unchanged (`resolveChatTagsWrite`);
+  `null` clears it. The builders' "Keep current sub-tag" saves the key
+  absent.
 
 - **The pairing lives in SQL.** `conversations_chat_tag_guard` refuses
   a sub-tag as a main tag or a sub-tag of another main tag, and clears

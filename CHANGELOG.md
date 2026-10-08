@@ -196,7 +196,8 @@ number sends what.
 > `supabase/migrations/076_contact_opt_out.sql` (re-runnable) **before**
 > deploying the app. It adds `contacts.opted_out_at` (when a customer
 > asked not to be messaged) and fills it from any existing `opted-out`
-> contact tag. Every broadcast now leaves those customers out. The
+> contact tag. Every broadcast now leaves those customers out, and only
+> an admin (or the AI bot) can set or clear the mark. The
 > `tags` / `contact_tags` tables are left in place, unused.
 
 > **Migration required:** apply
