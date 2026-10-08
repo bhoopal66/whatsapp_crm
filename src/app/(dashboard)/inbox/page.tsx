@@ -25,12 +25,8 @@ import {
 } from '@/lib/inbox/pagination';
 import { applyAvatars, avatarRequestBatches } from '@/lib/inbox/avatars';
 import type { ConversationListLoad } from '@/components/inbox/conversation-list';
-import type {
-  Conversation,
-  Message,
-  Contact,
-  ConversationStatus,
-} from '@/types';
+import type { Conversation, Message, Contact } from '@/types';
+import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
@@ -810,13 +806,13 @@ export function InboxPageInner({
     []
   );
 
-  const handleStatusChange = useCallback(
-    (conversationId: string, status: ConversationStatus) => {
+  const handleChatTagsChange = useCallback(
+    (conversationId: string, patch: ChatTagsPatch) => {
       setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, status } : c))
+        prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))
       );
       if (activeConversation?.id === conversationId) {
-        setActiveConversation((prev) => (prev ? { ...prev, status } : prev));
+        setActiveConversation((prev) => (prev ? { ...prev, ...patch } : prev));
       }
     },
     [activeConversation]
@@ -937,7 +933,7 @@ export function InboxPageInner({
             onMessagesLoaded={handleMessagesLoaded}
             onNewMessage={handleNewMessage}
             onUpdateMessage={handleUpdateMessage}
-            onStatusChange={handleStatusChange}
+            onChatTagsChange={handleChatTagsChange}
             onAssignChange={handleAssignChange}
             onBack={handleCloseConversation}
             resyncToken={resyncToken}

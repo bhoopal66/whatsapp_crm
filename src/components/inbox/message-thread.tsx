@@ -30,35 +30,18 @@ import type {
   Message,
   MessageReaction,
   Contact,
-  ConversationStatus,
   MessageTemplate,
   Profile,
   InteractiveMessagePayload,
 } from '@/types';
-import {
-  MessageSquare,
-  ChevronDown,
-  UserPlus,
-  Check,
-  ArrowLeft,
-  RefreshCw,
-  PanelRightOpen,
-  PanelRightClose,
-  AlertTriangle,
-} from 'lucide-react';
+import { MessageSquare, AlertTriangle } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { useTranslations } from 'next-intl';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { MediaLightbox } from './media-lightbox';
-import { ContactAvatar } from './contact-avatar';
 import { ThreadMessageRow } from './thread-message-row';
-import { MemberPresenceDot, ThreadPresenceScope } from './thread-presence';
+import { ThreadPresenceScope } from './thread-presence';
+import { ThreadHeader } from './thread-header';
+import type { ChatTagsPatch } from './thread-tag-bar';
 import { collectMediaGallery } from '@/lib/media/gallery';
 import {
   MessageComposer,
@@ -73,7 +56,6 @@ import { AiThreadBanner } from './ai-thread-banner';
 import { OutreachBanner } from './outreach-banner';
 import {
   ThreadChannelNote,
-  ThreadChannelSwitcher,
   useConversationEvents,
 } from './thread-channel-switcher';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
@@ -134,7 +116,11 @@ interface MessageThreadProps {
   ) => void;
   onNewMessage: (message: Message) => void;
   onUpdateMessage: (id: string, updates: Partial<Message>) => void;
-  onStatusChange: (conversationId: string, status: ConversationStatus) => void;
+  /**
+   * After a chat tag pick saved (migration 075), with the values the
+   * server returned: its trigger may have cleared the sub-tag.
+   */
+  onChatTagsChange: (conversationId: string, patch: ChatTagsPatch) => void;
   onAssignChange: (
     conversationId: string,
     assignedAgentId: string | null
@@ -188,17 +174,6 @@ function formatDateSeparator(
   return format(date, 'MMMM d, yyyy');
 }
 
-const STATUS_OPTIONS: {
-  label: string;
-  value: ConversationStatus;
-  /** The dot beside the label: WhatsApp green, amber, grey. */
-  dot: string;
-}[] = [
-  { label: 'Open', value: 'open', dot: 'bg-wa-green' },
-  { label: 'Pending', value: 'pending', dot: 'bg-amber-500' },
-  { label: 'Closed', value: 'closed', dot: 'bg-wa-text-secondary' },
-];
-
 /**
  * The messages area's side padding, which the full-width unread band
  * cancels with matching negative margins — change one, change both.
@@ -211,10 +186,6 @@ const THREAD_GUTTER_BLEED = '-mx-3 @lg/thread:-mx-8 @3xl/thread:-mx-16';
 
 /** The shadow WhatsApp puts under bubbles and the date chips. */
 const CHIP_SHADOW = 'shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]';
-
-/** Round icon button in the thread header, WhatsApp-style. */
-const HEADER_ICON_BUTTON =
-  'text-wa-icon hover:bg-wa-icon-hover inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors';
 
 /** The tab's sessionStorage, or null where touching it throws. */
 function tabStorage(): Storage | null {
@@ -257,7 +228,7 @@ export function MessageThread({
   onMessagesLoaded,
   onNewMessage,
   onUpdateMessage,
-  onStatusChange,
+  onChatTagsChange,
   onAssignChange,
   onBack,
   resyncToken = 0,
@@ -1207,21 +1178,6 @@ export function MessageThread({
     [conversation, deliver]
   );
 
-  const handleStatusChange = useCallback(
-    async (status: ConversationStatus) => {
-      if (!conversation) return;
-
-      const supabase = createClient();
-      await supabase
-        .from('conversations')
-        .update({ status })
-        .eq('id', conversation.id);
-
-      onStatusChange(conversation.id, status);
-    },
-    [conversation, onStatusChange]
-  );
-
   const handleOpenTemplates = useCallback(() => {
     setTemplateModalOpen(true);
   }, []);
@@ -1480,9 +1436,6 @@ export function MessageThread({
       ? { messageId: unreadMarker.messageId, count: unreadMarker.count }
       : null;
   const quoteContactLabel = contact.name || contact.phone || 'Unknown';
-  const currentStatus = STATUS_OPTIONS.find(
-    (s) => s.value === conversation.status
-  );
   const assignedAgentId = conversation.assigned_agent_id ?? null;
 
   // Handing a conversation to someone ELSE is an admin power — it
@@ -1549,246 +1502,25 @@ export function MessageThread({
     // Issue #257.
     <ThreadPresenceScope>
       <div className="wa-wallpaper @container/thread flex min-w-0 flex-1 flex-col">
-        {/* Header — WhatsApp's grey bar, solid so the wallpaper never
-          shows through. People and status on the left of the controls,
-          the two view utilities (refresh, contact panel) at the far
-          right past a hairline. */}
-        <div className="bg-wa-panel-header border-wa-divider flex min-h-[60px] shrink-0 items-center justify-between gap-2 border-b px-2 py-2 sm:px-4">
-          <div className="flex min-w-0 items-center gap-2 @lg/thread:gap-3">
-            {/* Back-to-list button — mobile only. Hidden on lg+ where the
-              conversation list is always visible next to the thread. */}
-            {onBack && (
-              <button
-                type="button"
-                onClick={onBack}
-                aria-label={t('backToConversations')}
-                className={cn(HEADER_ICON_BUTTON, 'lg:hidden')}
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            )}
-            <ContactAvatar contact={contact} name={displayName} size={40} />
-            <div className="min-w-0">
-              <h2 className="text-wa-text truncate text-[15px] leading-5 font-medium">
-                {displayName}
-              </h2>
-              {/* The number, unless it is already the name. */}
-              {contact.name && (
-                <p className="text-wa-text-secondary truncate text-xs leading-4">
-                  {contact.phone}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Right-hand controls. Each folds down as the thread narrows
-            (container queries on `@container/thread`), so the contact's
-            name always keeps its room: labels go first, then the
-            refresh button. */}
-          <div className="flex shrink-0 items-center gap-1 @lg/thread:gap-1.5">
-            {/* Which number this chat sends from (migration 061):
-              automatic, or pinned by a person to one they may use. */}
-            <ThreadChannelSwitcher
-              // Remount per chat: an in-flight switch (and its rollback
-              // or toast) must never land on the next chat opened.
-              key={conversation.id}
-              conversation={conversation}
-              onSwitched={reloadThreadEvents}
-            />
-
-            {/* Status dropdown — a dot, and the word when there is room. */}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                title={
-                  currentStatus
-                    ? t(`status${currentStatus.label}`)
-                    : t('status')
-                }
-                aria-label={
-                  currentStatus
-                    ? `${t('status')}: ${t(`status${currentStatus.label}`)}`
-                    : t('status')
-                }
-                className="border-wa-divider bg-wa-panel text-wa-text hover:bg-wa-row-hover inline-flex h-8 items-center justify-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors"
-              >
-                <span
-                  className={cn(
-                    'h-2 w-2 shrink-0 rounded-full',
-                    currentStatus?.dot ?? 'bg-wa-text-secondary'
-                  )}
-                />
-                <span className="hidden @2xl/thread:inline">
-                  {currentStatus
-                    ? t(`status${currentStatus.label}`)
-                    : t('status')}
-                </span>
-                <ChevronDown className="text-wa-icon h-3 w-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="border-border bg-popover"
-              >
-                {STATUS_OPTIONS.map((opt) => (
-                  <DropdownMenuItem
-                    key={opt.value}
-                    onClick={() => handleStatusChange(opt.value)}
-                    className="text-popover-foreground text-sm"
-                  >
-                    <span
-                      className={cn('mr-2 h-2 w-2 rounded-full', opt.dot)}
-                    />
-                    <span className="flex-1">{t(`status${opt.label}`)}</span>
-                    {opt.value === conversation.status && (
-                      <Check className="ml-2 h-3 w-3" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Who is on this chat, and the way to hand it to someone —
-              one pill. It names the person to ask about this customer
-              (the assignee, else whoever is replying, else the owner),
-              which an Assign control alone could only do once somebody
-              had pressed it; and it is never captioned "Assign", which
-              made the header read as "nobody has this chat" when
-              somebody plainly did. Green once formally assigned. */}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                title={handlerTitle}
-                aria-label={`${t('assign')}: ${handlerTitle}`}
-                className={cn(
-                  'inline-flex h-8 max-w-[6.5rem] items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors @2xl/thread:max-w-[11rem]',
-                  handler?.kind === 'assigned'
-                    ? 'bg-wa-chip-active text-wa-teal'
-                    : 'border-wa-divider bg-wa-panel text-wa-text-secondary hover:bg-wa-row-hover border'
-                )}
-              >
-                {handler ? (
-                  <MemberPresenceDot userId={handler.userId} />
-                ) : (
-                  <UserPlus className="h-3.5 w-3.5 shrink-0" />
-                )}
-                <span className="truncate">
-                  {handler ? handlerName : t('unassigned')}
-                </span>
-                <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="border-border bg-popover"
-              >
-                {assignableProfiles.length === 0 ? (
-                  <DropdownMenuItem
-                    disabled
-                    className="text-muted-foreground text-sm"
-                  >
-                    {t('noTeammates')}
-                  </DropdownMenuItem>
-                ) : (
-                  assignableProfiles.map((p) => {
-                    const isSelected = p.user_id === assignedAgentId;
-                    return (
-                      <DropdownMenuItem
-                        key={p.id}
-                        onClick={() => handleAssignChange(p.user_id)}
-                        className={cn(
-                          'text-sm',
-                          isSelected
-                            ? 'text-primary'
-                            : 'text-popover-foreground'
-                        )}
-                      >
-                        <MemberPresenceDot
-                          userId={p.user_id}
-                          className="mr-2"
-                        />
-                        <span className="flex-1">
-                          {p.full_name}
-                          {p.user_id === user?.id ? t('me') : ''}
-                        </span>
-                        {isSelected && <Check className="ml-2 h-3 w-3" />}
-                      </DropdownMenuItem>
-                    );
-                  })
-                )}
-                {assignedAgentId && (
-                  <>
-                    <DropdownMenuSeparator className="bg-border" />
-                    <DropdownMenuItem
-                      onClick={() => handleAssignChange(null)}
-                      className="text-muted-foreground text-sm"
-                    >
-                      {t('unassign')}
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {onRefresh && (
-              <span
-                aria-hidden="true"
-                className="bg-wa-divider mx-0.5 hidden h-6 w-px @lg/thread:block"
-              />
-            )}
-
-            {/* Manual refresh — forces a refetch of the messages + the
-              conversation list (the parent bumps its resyncToken). Useful
-              when realtime missed an event or the agent just wants to be
-              sure nothing's stale. Only rendered when the parent wires
-              up `onRefresh`, and folded away in a narrow thread, where
-              the contact's name needs the room more (realtime and the
-              reconnect resync still keep the thread current). */}
-            {onRefresh && (
-              <button
-                type="button"
-                onClick={handleRefreshClick}
-                disabled={isRefreshing}
-                aria-label={t('refreshConversation')}
-                title={t('refresh')}
-                className={cn(
-                  HEADER_ICON_BUTTON,
-                  'hidden disabled:opacity-60 @lg/thread:inline-flex'
-                )}
-              >
-                <RefreshCw
-                  className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
-                />
-              </button>
-            )}
-
-            {/* Contact-panel toggle — desktop only. The contact sidebar
-              eats a chunk of horizontal width that crowds the thread on
-              smaller laptops; this lets agents reclaim it when they just
-              want to read and reply. Hidden on mobile, where the sidebar
-              never renders as a permanent panel anyway. Issue #258. */}
-            {onToggleContactPanel && (
-              <button
-                type="button"
-                onClick={onToggleContactPanel}
-                aria-label={
-                  contactPanelOpen
-                    ? t('hideContactPanel')
-                    : t('showContactPanel')
-                }
-                title={contactPanelOpen ? t('hideContact') : t('showContact')}
-                aria-pressed={contactPanelOpen}
-                className={cn(
-                  HEADER_ICON_BUTTON,
-                  'hidden lg:inline-flex',
-                  contactPanelOpen && 'bg-wa-icon-hover'
-                )}
-              >
-                {contactPanelOpen ? (
-                  <PanelRightClose className="h-4 w-4" />
-                ) : (
-                  <PanelRightOpen className="h-4 w-4" />
-                )}
-              </button>
-            )}
-          </div>
-        </div>
+        <ThreadHeader
+          conversation={conversation}
+          contact={contact}
+          displayName={displayName}
+          onBack={onBack}
+          onChannelSwitched={reloadThreadEvents}
+          handler={handler}
+          handlerName={handlerName}
+          handlerTitle={handlerTitle}
+          assignableProfiles={assignableProfiles}
+          assignedAgentId={assignedAgentId}
+          currentUserId={user?.id ?? null}
+          onAssign={handleAssignChange}
+          onChatTagsChange={onChatTagsChange}
+          onRefresh={onRefresh ? handleRefreshClick : undefined}
+          isRefreshing={isRefreshing}
+          contactPanelOpen={contactPanelOpen}
+          onToggleContactPanel={onToggleContactPanel}
+        />
 
         {/* Messages Area. `data-inbox-scroll-root` lets the media bubbles
           root their lazy-load observers on this scroller. */}

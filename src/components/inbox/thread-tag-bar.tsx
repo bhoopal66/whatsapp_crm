@@ -1,0 +1,396 @@
+'use client';
+
+// ============================================================
+// The chat's tags (migration 075), the second row of the thread
+// header: at most one main tag ("Interested customer") and, when that
+// tag has sub-tags, at most one of them ("Bank: ADCB"). Admins set the
+// tags up in Settings → Chat tags.
+//
+// The database is the authority: a trigger rejects a sub-tag that is
+// not a child of the main tag and clears the sub-tag when only the
+// main tag changes, and RLS lets agent+ write only chats they can see
+// (a filtered UPDATE answers no row, not an error). So a save reports
+// the row the server returned, never what was asked for.
+//
+// Mounted with `key={conversation.id}`: an in-flight save must never
+// land on the next chat opened.
+// ============================================================
+
+import Link from 'next/link';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, Plus, Settings2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useAuth } from '@/hooks/use-auth';
+import { useChatTags } from '@/hooks/use-chat-tags';
+import { hasMinRole } from '@/lib/auth/roles';
+import {
+  resolveConversationChatTags,
+  type ChatTagNode,
+} from '@/lib/chat-tags/tree';
+import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
+import type { ChatTag, Conversation } from '@/types';
+
+/** The two columns a tag pick writes. */
+export interface ChatTagsPatch {
+  chat_tag_id: string | null;
+  chat_sub_tag_id: string | null;
+}
+
+export const CHAT_TAGS_SETTINGS_HREF = '/settings?tab=chat-tags';
+
+const CHIP =
+  'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors';
+/** A tag that is set: a tint of its colour, the text in the theme's. */
+const CHIP_TINTED = 'text-wa-text hover:brightness-95';
+/** Nothing set yet: an invitation, not a value. */
+const CHIP_DASHED =
+  'border-wa-divider text-wa-text-secondary hover:bg-wa-row-hover border-dashed';
+const MENU_HEADING = 'text-muted-foreground px-2 py-1.5 text-xs';
+
+function Dot({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="h-2 w-2 shrink-0 rounded-full"
+      style={{ backgroundColor: chatTagColor(color) }}
+    />
+  );
+}
+
+export function ThreadTagBar({
+  conversation,
+  onChatTagsChange,
+}: {
+  conversation: Conversation;
+  onChatTagsChange: (conversationId: string, patch: ChatTagsPatch) => void;
+}) {
+  const t = useTranslations('Inbox.chatTags');
+  const { accountRole } = useAuth();
+  const { tags, tree, reload } = useChatTags();
+
+  // The pick being saved, shown at once; the props take over again
+  // when the save settles either way.
+  const [pending, setPending] = useState<ChatTagsPatch | null>(null);
+  const savingRef = useRef(false);
+
+  // Picking a main tag that has sub-tags opens the sub-tag menu next.
+  // It waits for two things: the main menu to have finished closing
+  // (so the two menus' focus handling don't fight), and the save to
+  // have landed (a sub-tag picked while it is in flight is ignored).
+  const [subOpen, setSubOpen] = useState(false);
+  const followUp = useRef({ wanted: false, menuClosed: false, saved: false });
+  const maybeOpenSub = () => {
+    const f = followUp.current;
+    if (f.wanted && f.menuClosed && f.saved) {
+      followUp.current = { wanted: false, menuClosed: false, saved: false };
+      setSubOpen(true);
+    }
+  };
+
+  const propIds: ChatTagsPatch = {
+    chat_tag_id: conversation.chat_tag_id ?? null,
+    chat_sub_tag_id: conversation.chat_sub_tag_id ?? null,
+  };
+  const shown = pending ?? propIds;
+  const { main, sub } = resolveConversationChatTags(shown, tree);
+
+  // A chat tagged with an id the loaded list doesn't have: another
+  // admin probably added it since the list was cached. Read the list
+  // again, once per id; until then the chat shows as untagged.
+  const staleId =
+    tags !== null &&
+    propIds.chat_tag_id &&
+    !resolveConversationChatTags(propIds, tree).main
+      ? propIds.chat_tag_id
+      : null;
+  const reloadedFor = useRef(new Set<string>());
+  useEffect(() => {
+    if (!staleId || reloadedFor.current.has(staleId)) return;
+    reloadedFor.current.add(staleId);
+    void reload();
+  }, [staleId, reload]);
+
+  if (tags === null || !accountRole) return null;
+  const isAdmin = hasMinRole(accountRole, 'admin');
+  const canEdit = accountRole !== 'viewer';
+
+  async function save(next: ChatTagsPatch, openSubAfter: boolean) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    // Picks come from an open menu, which has not finished closing.
+    followUp.current = {
+      wanted: openSubAfter,
+      menuClosed: false,
+      saved: false,
+    };
+    setPending(next);
+    let saved: ChatTagsPatch | null = null;
+    try {
+      const { data, error } = await createClient()
+        .from('conversations')
+        .update(next)
+        .eq('id', conversation.id)
+        .select('id, chat_tag_id, chat_sub_tag_id')
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        saved = {
+          chat_tag_id: data.chat_tag_id ?? null,
+          chat_sub_tag_id: data.chat_sub_tag_id ?? null,
+        };
+      }
+    } catch (err) {
+      console.error('[chat-tags] save failed', err);
+    } finally {
+      savingRef.current = false;
+      setPending(null);
+    }
+    if (!saved) {
+      // No row is RLS saying no; either way the chip falls back to
+      // what the chat really carries.
+      followUp.current.wanted = false;
+      toast.error(t('saveFailed'));
+      return;
+    }
+    onChatTagsChange(conversation.id, saved);
+    if (saved.chat_tag_id === next.chat_tag_id) {
+      followUp.current.saved = true;
+      maybeOpenSub();
+    } else {
+      followUp.current.wanted = false;
+    }
+  }
+
+  function pickMain(tag: ChatTagNode | null) {
+    if (!tag) {
+      if (shown.chat_tag_id !== null || shown.chat_sub_tag_id !== null) {
+        void save({ chat_tag_id: null, chat_sub_tag_id: null }, false);
+      }
+      return;
+    }
+    if (tag.id === main?.id) {
+      // Already this tag: keep its sub-tag, but offer one if none.
+      if (!sub && tag.subs.length > 0 && !savingRef.current) {
+        followUp.current = { wanted: true, menuClosed: false, saved: true };
+      }
+      return;
+    }
+    void save(
+      { chat_tag_id: tag.id, chat_sub_tag_id: null },
+      tag.subs.length > 0
+    );
+  }
+
+  function pickSub(tag: ChatTag | null) {
+    if (!main || (tag?.id ?? null) === (sub?.id ?? null)) return;
+    void save(
+      { chat_tag_id: main.id, chat_sub_tag_id: tag?.id ?? null },
+      false
+    );
+  }
+
+  const subTitle = main?.sub_tag_title?.trim() || t('subTagDefault');
+
+  // ── Who sees what ──────────────────────────────────────────────
+  if (tree.mains.length === 0) {
+    // Nothing set up yet: the people who can set it up get the way in.
+    if (!isAdmin) return null;
+    return (
+      <Row label={t('rowLabel')}>
+        <Link href={CHAT_TAGS_SETTINGS_HREF} className={cn(CHIP, CHIP_DASHED)}>
+          <Settings2 className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{t('setUp')}</span>
+        </Link>
+      </Row>
+    );
+  }
+
+  if (!canEdit) {
+    // A viewer reads the tags and cannot change them.
+    if (!main) return null;
+    return (
+      <Row label={t('rowLabel')}>
+        <span
+          title={t('chipTitle', { name: main.name })}
+          className={cn(CHIP, 'text-wa-text')}
+          style={chatTagChipStyle(main.color)}
+        >
+          <Dot color={main.color} />
+          <span className="truncate">{main.name}</span>
+        </span>
+        {sub && (
+          <span
+            title={t('subChipTitle', { title: subTitle, name: sub.name })}
+            className={cn(CHIP, 'text-wa-text')}
+            style={chatTagChipStyle(sub.color)}
+          >
+            <span className="text-wa-text-secondary shrink-0">
+              {t('subCaption', { title: subTitle })}
+            </span>
+            <Dot color={sub.color} />
+            <span className="truncate">{sub.name}</span>
+          </span>
+        )}
+      </Row>
+    );
+  }
+
+  return (
+    <Row label={t('rowLabel')}>
+      <DropdownMenu
+        onOpenChangeComplete={(open) => {
+          if (open) return;
+          followUp.current.menuClosed = true;
+          maybeOpenSub();
+        }}
+      >
+        <DropdownMenuTrigger
+          title={main ? t('chipTitle', { name: main.name }) : t('addTag')}
+          className={cn(CHIP, main ? CHIP_TINTED : CHIP_DASHED)}
+          style={main ? chatTagChipStyle(main.color) : undefined}
+        >
+          {main ? (
+            <>
+              <Dot color={main.color} />
+              <span className="truncate">{main.name}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+            </>
+          ) : (
+            <>
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{t('addTag')}</span>
+            </>
+          )}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="border-border bg-popover w-64"
+        >
+          <div className={MENU_HEADING}>{t('heading')}</div>
+          <DropdownMenuItem
+            onClick={() => pickMain(null)}
+            className="text-popover-foreground text-sm"
+          >
+            <span
+              aria-hidden="true"
+              className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
+            />
+            <span className="flex-1">{t('noTag')}</span>
+            {!main && <Check className="ml-2 h-3 w-3" />}
+          </DropdownMenuItem>
+          {tree.mains.map((tag) => (
+            <DropdownMenuItem
+              key={tag.id}
+              onClick={() => pickMain(tag)}
+              className="text-popover-foreground text-sm"
+            >
+              <Dot color={tag.color} />
+              <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+              {tag.subs.length > 0 && (
+                <span className="text-muted-foreground ml-2 shrink-0 text-xs">
+                  {tag.sub_tag_title?.trim() ||
+                    t('subCount', { count: tag.subs.length })}
+                </span>
+              )}
+              {tag.id === main?.id && <Check className="ml-2 h-3 w-3" />}
+            </DropdownMenuItem>
+          ))}
+          {isAdmin && (
+            <>
+              <DropdownMenuSeparator className="bg-border" />
+              <DropdownMenuItem
+                render={<Link href={CHAT_TAGS_SETTINGS_HREF} />}
+                className="text-muted-foreground text-sm"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                {t('manage')}
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {main && main.subs.length > 0 && (
+        <DropdownMenu open={subOpen} onOpenChange={(open) => setSubOpen(open)}>
+          <DropdownMenuTrigger
+            title={
+              sub
+                ? t('subChipTitle', { title: subTitle, name: sub.name })
+                : t('addSub', { title: subTitle })
+            }
+            className={cn(CHIP, sub ? CHIP_TINTED : CHIP_DASHED)}
+            style={sub ? chatTagChipStyle(sub.color) : undefined}
+          >
+            {sub ? (
+              <>
+                <span className="text-wa-text-secondary shrink-0">
+                  {t('subCaption', { title: subTitle })}
+                </span>
+                <Dot color={sub.color} />
+                <span className="truncate">{sub.name}</span>
+                <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{subTitle}</span>
+              </>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="border-border bg-popover w-56"
+          >
+            <div className={MENU_HEADING}>{subTitle}</div>
+            <DropdownMenuItem
+              onClick={() => pickSub(null)}
+              className="text-popover-foreground text-sm"
+            >
+              <span
+                aria-hidden="true"
+                className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
+              />
+              <span className="flex-1">{t('subNone')}</span>
+              {!sub && <Check className="ml-2 h-3 w-3" />}
+            </DropdownMenuItem>
+            {main.subs.map((tag) => (
+              <DropdownMenuItem
+                key={tag.id}
+                onClick={() => pickSub(tag)}
+                className="text-popover-foreground text-sm"
+              >
+                <Dot color={tag.color} />
+                <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                {tag.id === sub?.id && <Check className="ml-2 h-3 w-3" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </Row>
+  );
+}
+
+/** The row under the header's first, padded to line up with it. */
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="border-wa-divider flex min-h-10 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 sm:px-4"
+    >
+      {children}
+    </div>
+  );
+}
