@@ -56,6 +56,8 @@ const CHIP_TINTED = 'text-wa-text hover:brightness-95';
 /** Nothing set yet: an invitation, not a value. */
 const CHIP_DASHED =
   'border-wa-divider text-wa-text-secondary hover:bg-wa-row-hover border-dashed';
+/** The chip whose pick is being saved. */
+const CHIP_BUSY = 'cursor-wait opacity-60';
 const MENU_HEADING = 'text-muted-foreground px-2 py-1.5 text-xs';
 
 function Dot({ color }: { color: string }) {
@@ -87,14 +89,23 @@ export function ThreadTagBar({
   // Picking a main tag that has sub-tags opens the sub-tag menu next.
   // It waits for two things: the main menu to have finished closing
   // (so the two menus' focus handling don't fight), and the save to
-  // have landed (a sub-tag picked while it is in flight is ignored).
-  const [subOpen, setSubOpen] = useState(false);
-  const followUp = useRef({ wanted: false, menuClosed: false, saved: false });
+  // have landed (both chips are disabled while it is in flight).
+  //
+  // The sub-tag menu is open *for a main tag*, by id. A boolean
+  // outlived the menu: a teammate's change could unmount it while
+  // open, and it popped open by itself when a main tag with sub-tags
+  // came back.
+  const [subOpenFor, setSubOpenFor] = useState<string | null>(null);
+  const followUp = useRef<{
+    forTag: string | null;
+    menuClosed: boolean;
+    saved: boolean;
+  }>({ forTag: null, menuClosed: false, saved: false });
   const maybeOpenSub = () => {
     const f = followUp.current;
-    if (f.wanted && f.menuClosed && f.saved) {
-      followUp.current = { wanted: false, menuClosed: false, saved: false };
-      setSubOpen(true);
+    if (f.forTag && f.menuClosed && f.saved) {
+      followUp.current = { forTag: null, menuClosed: false, saved: false };
+      setSubOpenFor(f.forTag);
     }
   };
 
@@ -104,6 +115,20 @@ export function ThreadTagBar({
   };
   const shown = pending ?? propIds;
   const { main, sub } = resolveConversationChatTags(shown, tree);
+
+  // The main tag whose sub-tag menu is on screen, if any. Once the
+  // menu is gone, or shows another tag's sub-tags, it is closed for
+  // good: forget it now, during render, so the same tag coming back
+  // later does not reopen it.
+  const subMenuFor = main && main.subs.length > 0 ? main.id : null;
+  if (subOpenFor !== null && subOpenFor !== subMenuFor) setSubOpenFor(null);
+  const subOpen = subOpenFor !== null && subOpenFor === subMenuFor;
+
+  // A save in flight: both chips are disabled until it settles, so a
+  // second pick cannot be made (and silently dropped) meanwhile. The
+  // chip being saved is the main one when the main tag changes.
+  const saving = pending !== null;
+  const savingMain = saving && pending.chat_tag_id !== propIds.chat_tag_id;
 
   // A chat tagged with an id the loaded list doesn't have: another
   // admin probably added it since the list was cached. Read the list
@@ -126,11 +151,12 @@ export function ThreadTagBar({
   const canEdit = accountRole !== 'viewer';
 
   async function save(next: ChatTagsPatch, openSubAfter: boolean) {
+    // A backstop: the disabled chips already keep a second pick out.
     if (savingRef.current) return;
     savingRef.current = true;
     // Picks come from an open menu, which has not finished closing.
     followUp.current = {
-      wanted: openSubAfter,
+      forTag: openSubAfter ? next.chat_tag_id : null,
       menuClosed: false,
       saved: false,
     };
@@ -159,7 +185,7 @@ export function ThreadTagBar({
     if (!saved) {
       // No row is RLS saying no; either way the chip falls back to
       // what the chat really carries.
-      followUp.current.wanted = false;
+      followUp.current.forTag = null;
       toast.error(t('saveFailed'));
       return;
     }
@@ -168,7 +194,7 @@ export function ThreadTagBar({
       followUp.current.saved = true;
       maybeOpenSub();
     } else {
-      followUp.current.wanted = false;
+      followUp.current.forTag = null;
     }
   }
 
@@ -182,7 +208,7 @@ export function ThreadTagBar({
     if (tag.id === main?.id) {
       // Already this tag: keep its sub-tag, but offer one if none.
       if (!sub && tag.subs.length > 0 && !savingRef.current) {
-        followUp.current = { wanted: true, menuClosed: false, saved: true };
+        followUp.current = { forTag: tag.id, menuClosed: false, saved: true };
       }
       return;
     }
@@ -247,7 +273,7 @@ export function ThreadTagBar({
   }
 
   return (
-    <Row label={t('rowLabel')}>
+    <Row label={t('rowLabel')} busy={saving}>
       <DropdownMenu
         onOpenChangeComplete={(open) => {
           if (open) return;
@@ -256,8 +282,13 @@ export function ThreadTagBar({
         }}
       >
         <DropdownMenuTrigger
+          disabled={saving}
           title={main ? t('chipTitle', { name: main.name }) : t('addTag')}
-          className={cn(CHIP, main ? CHIP_TINTED : CHIP_DASHED)}
+          className={cn(
+            CHIP,
+            main ? CHIP_TINTED : CHIP_DASHED,
+            savingMain && CHIP_BUSY
+          )}
           style={main ? chatTagChipStyle(main.color) : undefined}
         >
           {main ? (
@@ -322,14 +353,22 @@ export function ThreadTagBar({
       </DropdownMenu>
 
       {main && main.subs.length > 0 && (
-        <DropdownMenu open={subOpen} onOpenChange={(open) => setSubOpen(open)}>
+        <DropdownMenu
+          open={subOpen}
+          onOpenChange={(open) => setSubOpenFor(open ? main.id : null)}
+        >
           <DropdownMenuTrigger
+            disabled={saving}
             title={
               sub
                 ? t('subChipTitle', { title: subTitle, name: sub.name })
                 : t('addSub', { title: subTitle })
             }
-            className={cn(CHIP, sub ? CHIP_TINTED : CHIP_DASHED)}
+            className={cn(
+              CHIP,
+              sub ? CHIP_TINTED : CHIP_DASHED,
+              saving && !savingMain && CHIP_BUSY
+            )}
             style={sub ? chatTagChipStyle(sub.color) : undefined}
           >
             {sub ? (
@@ -383,11 +422,20 @@ export function ThreadTagBar({
 }
 
 /** The row under the header's first, padded to line up with it. */
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({
+  label,
+  busy,
+  children,
+}: {
+  label: string;
+  busy?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div
       role="group"
       aria-label={label}
+      aria-busy={busy || undefined}
       className="border-wa-divider flex min-h-10 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 sm:px-4"
     >
       {children}

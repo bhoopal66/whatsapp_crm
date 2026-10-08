@@ -24,6 +24,7 @@ import {
   type ConversationCursor,
 } from '@/lib/inbox/pagination';
 import { applyAvatars, avatarRequestBatches } from '@/lib/inbox/avatars';
+import { patchIfSameConversation } from '@/lib/inbox/patch-active';
 import type { ConversationListLoad } from '@/components/inbox/conversation-list';
 import type { Conversation, Message, Contact } from '@/types';
 import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
@@ -811,11 +812,13 @@ export function InboxPageInner({
       setConversations((prev) =>
         prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))
       );
-      if (activeConversation?.id === conversationId) {
-        setActiveConversation((prev) => (prev ? { ...prev, ...patch } : prev));
-      }
+      // Checked against the chat open when the save lands, not the one
+      // this callback captured: the agent may have moved on since.
+      setActiveConversation((prev) =>
+        patchIfSameConversation(prev, conversationId, patch)
+      );
     },
-    [activeConversation]
+    []
   );
 
   const handleAssignChange = useCallback(
@@ -827,15 +830,13 @@ export function InboxPageInner({
             : c
         )
       );
-      if (activeConversation?.id === conversationId) {
-        setActiveConversation((prev) =>
-          prev
-            ? { ...prev, assigned_agent_id: assignedAgentId ?? undefined }
-            : prev
-        );
-      }
+      setActiveConversation((prev) =>
+        patchIfSameConversation(prev, conversationId, {
+          assigned_agent_id: assignedAgentId ?? undefined,
+        })
+      );
     },
-    [activeConversation]
+    []
   );
 
   // On mobile (<lg) we show a SINGLE pane — either the list or the
