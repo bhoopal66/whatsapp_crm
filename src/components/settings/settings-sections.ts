@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   Smartphone,
   Tag,
-  Tags,
+  TextCursorInput,
   User,
   UsersRound,
   Zap,
@@ -87,7 +87,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   // The colour-coded tags a chat carries (migration 075). Only admins
   // write them (RLS); every member reads them in the inbox.
   'chat-tags': { id: 'chat-tags', label: 'Chat tags', icon: Tag, group: 'workspace', minRole: 'admin' },
-  fields: { id: 'fields', label: 'Custom fields', icon: Tags, group: 'workspace', minRole: 'admin' },
+  fields: { id: 'fields', label: 'Custom fields', icon: TextCursorInput, group: 'workspace', minRole: 'admin' },
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace', minRole: 'admin' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace', minRole: 'admin' },
   teams: { id: 'teams', label: 'Teams', icon: Network, group: 'workspace', minRole: 'admin' },

@@ -193,6 +193,13 @@ number sends what.
 > skips it quietly until the migration is applied.
 
 > **Migration required:** apply
+> `supabase/migrations/076_contact_opt_out.sql` (re-runnable) **before**
+> deploying the app. It adds `contacts.opted_out_at` (when a customer
+> asked not to be messaged) and fills it from any existing `opted-out`
+> contact tag. Every broadcast now leaves those customers out. The
+> `tags` / `contact_tags` tables are left in place, unused.
+
+> **Migration required:** apply
 > `supabase/migrations/075_chat_tags.sql` (re-runnable) **before**
 > deploying the app. It adds the `chat_tags` table (admin-defined,
 > colour-coded main tags with optional sub-tags, one level deep) and
@@ -294,6 +301,27 @@ number sends what.
 
 ### Added
 
+- **One tag system: chat tags replace contact tags everywhere.** The
+  older contact tags are gone from every screen — the contact panel,
+  the chat list's filter, the Contacts page, contact form and import,
+  and Settings (*Fields & tags* is now **Custom fields**; old
+  `?tab=tags` links open Chat tags). Their jobs use chat tags instead:
+  **broadcasts** go to, or exclude, everyone with a chat tag or a
+  sub-tag such as *Interested · ADCB*; **automations** gain the
+  trigger *Chat tag set*, the step *Set chat tag* and the condition
+  *Has chat tag*; **flows** set and branch on chat tags; the **Contacts
+  page** shows and filters by each contact's chat tag. In the public
+  API, conversations carry `chat_tag` and `chat_sub_tag`; contacts keep
+  a deprecated `tags` field that is always empty (`tags` sent on create
+  or update is ignored, and `?tag=` returns nothing), plus a new
+  `opted_out_at`. The MCP tools drop their tag parameters.
+- **Opted-out customers are skipped automatically.** When a customer
+  asks the AI bot to stop, they are marked **Opted out** (a badge in
+  the contact panel and on the Contacts screens), and every broadcast
+  leaves them out — the wizard shows how many it skipped, and a
+  customer who opts out after a campaign was planned is skipped when it
+  sends. Before, they were only tagged, and an admin had to exclude the
+  tag by hand.
 - **Chat tags, in place of Open / Pending / Closed.** Admins set up
   colour-coded tags in **Settings → Chat tags** — for example *New
   customer*, *Interested customer*, *Not interested* — in the order
@@ -306,8 +334,8 @@ number sends what.
   each chat's tag and filters by main tag or sub-tag (Open / Pending /
   Closed filters are gone; the status itself is kept for automations
   and the public API). Agents and up tag the chats they can see;
-  viewers can't. These are separate from contact tags, which keep
-  driving broadcasts and automations.
+  viewers can't. (Contact tags were later retired in their favour;
+  see above.)
 - **A rebuilt chat header.** Two rows: the customer (photo, name,
   number — on desktop, click it to open or close the contact panel),
   the sending number, who is on the chat and the refresh and panel

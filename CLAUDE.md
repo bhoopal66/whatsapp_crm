@@ -504,7 +504,7 @@ identical openers in first messages, failures, response times.
 - **Tests.** The SQL behaviour is asserted in
   `supabase/ci/verify-team-activity.sql`.
 
-### Chat tags (`lib/chat-tags/*`, migration 075)
+### Chat tags (`lib/chat-tags/*`, migrations 075–076)
 
 Admin-defined, colour-coded tags that replaced the chat header's
 Open/Pending/Closed control and the list's status filters.
@@ -512,9 +512,34 @@ Open/Pending/Closed control and the list's status filters.
 reopens them, the public API filters on it. A chat carries at most
 one main tag (`conversations.chat_tag_id`) and one sub-tag of it
 (`chat_sub_tag_id`, e.g. which bank under "Interested");
-`chat_tags.sub_tag_title` captions it ("Bank: ADCB"). These are not
-the contact `tags` (many per contact, used by broadcasts and
-automations).
+`chat_tags.sub_tag_title` captions it ("Bank: ADCB").
+
+They are the only tag system. The older contact tags (`tags` /
+`contact_tags`, many per contact) were retired from every screen and
+feature; the tables are still in the schema, unused, until a cleanup
+migration drops them. Their jobs moved here: broadcast audiences
+(`chat_tags` / `excludeChatTagIds` in `audience_filter`), the
+automation trigger `chat_tag_set`, step `set_chat_tag` and condition
+`chat_tag_presence`, the flow `set_tag` node (it now sets chat tags)
+and condition subject `chat_tag`, the Contacts screens' column and
+filter, and the public API (conversations carry `chat_tag` /
+`chat_sub_tag`; contacts keep a deprecated, always-empty `tags`).
+
+- **Opt-out is a column, not a tag (076).** `contacts.opted_out_at` is
+  set by the AI bot and the TypeSafe watch (`markOptedOut`). Every
+  broadcast leaves those customers out — when the wizard plans
+  (`resolveAudience` → `finalAudience`), when the API plans
+  (`createBroadcast`), and again at send time (`planBroadcastResume`
+  marks a recipient who opted out since as failed). The inbox contact
+  panel and the Contacts screens show an "Opted out" badge.
+- **A tag change is a server write.** The header saves through
+  `PUT /api/conversations/[id]/chat-tags` (the caller's RLS client via
+  `writeConversationChatTags`), which dispatches `chat_tag_set` in
+  `after()` only when something changed (`dispatchChatTagSet`). The
+  automation step and the flow node write through the same helper; a
+  chain of tag-triggered tag writes stops at depth 3
+  (`vars._chat_tag_chain_depth`). `chatTagTriggerMatches` fires on
+  arrival at the configured tag, never on a re-save.
 
 - **The pairing lives in SQL.** `conversations_chat_tag_guard` refuses
   a sub-tag as a main tag or a sub-tag of another main tag, and clears
@@ -543,8 +568,8 @@ Two independent engines, deliberately kept apart:
   (idempotency on `meta_message_id`, optimistic update on `current_node_key`,
   partial unique index for one active run per contact). Abandoned runs are swept
   by `GET /api/flows/cron`.
-- `lib/automations/*` — stateless trigger → steps rules (keyword, tag,
-  inbound message, schedule). Scheduled work runs via `GET /api/automations/cron`.
+- `lib/automations/*` — stateless trigger → steps rules (keyword, chat
+  tag, inbound message, schedule). Scheduled work runs via `GET /api/automations/cron`.
 
 A flow's `fallback_policy.on_unknown_reply` (JSONB, resolved in
 `lib/flows/fallback.ts`) decides what an off-script reply does: reprompt,
@@ -643,7 +668,8 @@ dispatcher's `finally`.
 
 `lib/ai/typesafe-watch.ts` is the opt-out watch: the last step of the
 inbound pipeline triages any text the bot's own triage did not judge
-(found by the keyed message hash) and, in live, only tags `opted-out` —
+(found by the keyed message hash) and, in live, only marks the contact
+opted out (`contacts.opted_out_at`) —
 it never hands off or replies, because a person or a flow owns those
 threads. No database id goes into TypeSafe state (a UUID trips the
 last-line PII guard); ids stay local and ordinals are sent. Threshold
@@ -683,7 +709,7 @@ origin and ~700ms through Cloudflare. Hence `experimental.staleTimes` in
 `next.config.ts` (caching the *shell* of dynamic routes — safe because
 dashboard screens are client components that fetch their own data on
 mount) and `lib/client-cache.ts` (`cachedQuery`, a TTL cache for
-slow-moving reference data: tags, members, team rosters, channel
+slow-moving reference data: chat tags, members, team rosters, channel
 status). Conversations, messages, and contacts must stay uncached, and
 cache keys must name the *question* including any user/team parameter,
 or two users on one device read each other's data.

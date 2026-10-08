@@ -369,16 +369,19 @@ that would pause the checks on the bot's own replies.
 
 **Broadcasts skip an opted-out contact automatically, twice:**
 
-- **When a broadcast is planned** through the public API or MCP
-  (`POST /api/v1/broadcasts`), no recipient row is created for them:
-  they are not counted in `accepted`, and a request whose every valid
-  recipient opted out is refused with `400 bad_request`.
-- **When it is sent.** The Resume button and the scheduled-broadcast
-  cron send from the recipient rows frozen at plan time. A customer who
-  opted out after the campaign was planned is left out of the pass and
-  their row is marked failed with the reason *Customer opted out of
-  messages*, so the campaign's failed count includes them and it still
-  finishes.
+- **When a broadcast is planned**, no recipient row is created for
+  them. The broadcast wizard leaves them out of every audience (all
+  contacts, chat tags, custom field, CSV, Compass) and shows how many
+  were skipped; through the public API or MCP
+  (`POST /api/v1/broadcasts`) they are not counted in `accepted`, and a
+  request whose every valid recipient opted out is refused with
+  `400 bad_request`.
+- **When it is sent.** The wizard's sends, the Resume button and the
+  scheduled-broadcast cron all deliver from the recipient rows frozen
+  at plan time. A customer who opted out after the campaign was planned
+  is left out of the pass and their row is marked failed with the
+  reason *Customer opted out of messages*, so the campaign's failed
+  count includes them and it still finishes.
 
 The mark does **not** stop other messages:
 
