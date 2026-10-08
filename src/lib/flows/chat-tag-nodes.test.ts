@@ -289,6 +289,57 @@ describe('Set chat tag node (set_tag)', () => {
     expect(errorEvents()).toEqual([{ reason: 'set_tag_contact_tag_retired' }]);
     expect(sentTexts()).toEqual(['yes']);
   });
+
+  // The writer resolves the sub-tag against the chat's current tags;
+  // the real resolver stands in for it on a chat tagged main-1 · sub-1.
+  it.each([
+    ['no sub-tag, same main tag: keeps the sub-tag', {}, 'main-1', 'sub-1'],
+    [
+      'an empty sub-tag counts as none',
+      { chat_sub_tag_id: '' },
+      'main-1',
+      'sub-1',
+    ],
+    ['no sub-tag, another main tag: clears it', {}, 'main-2', null],
+    [
+      'an explicit null sub-tag clears it',
+      { chat_sub_tag_id: null },
+      'main-1',
+      null,
+    ],
+    ['a sub-tag sets it', { chat_sub_tag_id: 'sub-2' }, 'main-1', 'sub-2'],
+  ])('%s', async (_name, sub, main, savedSub) => {
+    const { resolveChatTagsWrite } = await vi.importActual<
+      typeof import('@/lib/chat-tags/server')
+    >('@/lib/chat-tags/server');
+    const previous = { chat_tag_id: 'main-1', chat_sub_tag_id: 'sub-1' };
+    writeChatTags.mockImplementation(
+      async (
+        _db: unknown,
+        args: { next: Parameters<typeof resolveChatTagsWrite>[1] }
+      ) => ({
+        ...SAVED_OK,
+        previous,
+        saved: resolveChatTagsWrite(previous, args.next),
+      })
+    );
+    h.state.nodes = flowWith(
+      node('tag', 'set_tag', {
+        chat_tag_id: main,
+        ...sub,
+        next_node_key: 'yes',
+      })
+    );
+
+    await run();
+
+    expect(dispatchChatTagSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previous,
+        saved: { chat_tag_id: main, chat_sub_tag_id: savedSub },
+      })
+    );
+  });
 });
 
 describe('condition on a chat tag', () => {

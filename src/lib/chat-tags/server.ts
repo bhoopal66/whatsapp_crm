@@ -9,11 +9,60 @@
 // presence), then writes and reports the row the database returned:
 // the guard trigger may have cleared the sub-tag, and RLS answers a
 // refused UPDATE with no row rather than an error. Never throws.
+//
+// The write is a compare-and-set on the tags it read. Two writers on
+// one chat (the inbox header, an automation step, a flow node) could
+// otherwise both read "untagged", both write X and both report the
+// change, so a "when tagged X, send a message" automation messaged the
+// customer twice. The loser re-reads once: a chat already at the
+// target is reported unchanged (nothing to dispatch), anything else is
+// retried from the fresh tags.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { ChatTagsPatch } from '@/types';
+
+/**
+ * What a writer asks for. `chat_sub_tag_id` left undefined means "no
+ * sub-tag named": keep the chat's current sub-tag while the main tag
+ * stays the same, clear it when the main tag changes (the inbox
+ * header's rule). `null` clears it; an id sets it. A `null` main tag
+ * clears both.
+ */
+export interface ChatTagsWrite {
+  chat_tag_id: string | null;
+  chat_sub_tag_id?: string | null;
+}
+
+/** The tags a write leaves on a chat whose current tags are `previous`. */
+export function resolveChatTagsWrite(
+  previous: ChatTagsPatch,
+  next: ChatTagsWrite
+): ChatTagsPatch {
+  if (next.chat_tag_id === null && next.chat_sub_tag_id === undefined) {
+    return { chat_tag_id: null, chat_sub_tag_id: null };
+  }
+  if (next.chat_sub_tag_id !== undefined) {
+    return {
+      chat_tag_id: next.chat_tag_id,
+      chat_sub_tag_id: next.chat_sub_tag_id,
+    };
+  }
+  return {
+    chat_tag_id: next.chat_tag_id,
+    chat_sub_tag_id:
+      previous.chat_tag_id === next.chat_tag_id
+        ? previous.chat_sub_tag_id
+        : null,
+  };
+}
+
+function samePatch(a: ChatTagsPatch, b: ChatTagsPatch): boolean {
+  return (
+    a.chat_tag_id === b.chat_tag_id && a.chat_sub_tag_id === b.chat_sub_tag_id
+  );
+}
 
 export type WriteChatTagsResult =
   | {
@@ -64,7 +113,7 @@ export async function writeConversationChatTags(
     accountId: string;
     conversationId?: string;
     contactId?: string;
-    next: ChatTagsPatch;
+    next: ChatTagsWrite;
   }
 ): Promise<WriteChatTagsResult> {
   try {
@@ -91,29 +140,75 @@ export async function writeConversationChatTags(
     const { data: current, error: readError } = await read.maybeSingle();
     if (readError) return failure(readError);
     if (!current) return { ok: false, reason: 'not_found' };
-    const row = current as ChatTagRow;
+    let row = current as ChatTagRow;
 
-    const { data: written, error: writeError } = await db
-      .from('conversations')
-      .update({
-        chat_tag_id: args.next.chat_tag_id,
-        chat_sub_tag_id: args.next.chat_sub_tag_id,
-      })
-      .eq('id', row.id)
-      .eq('account_id', args.accountId)
-      .select(COLUMNS)
-      .maybeSingle();
-    if (writeError) return failure(writeError);
-    // No row back is RLS refusing the UPDATE (or the chat vanished).
-    if (!written) return { ok: false, reason: 'not_found' };
-    const saved = written as ChatTagRow;
+    // At most two compare-and-set attempts: the read above, then one
+    // fresh read if another writer moved the tags in between.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const previous = toPatch(row);
+      const target = resolveChatTagsWrite(previous, args.next);
+      let update = db
+        .from('conversations')
+        .update(target)
+        .eq('id', row.id)
+        .eq('account_id', args.accountId);
+      update =
+        previous.chat_tag_id === null
+          ? update.is('chat_tag_id', null)
+          : update.eq('chat_tag_id', previous.chat_tag_id);
+      update =
+        previous.chat_sub_tag_id === null
+          ? update.is('chat_sub_tag_id', null)
+          : update.eq('chat_sub_tag_id', previous.chat_sub_tag_id);
+      const { data: written, error: writeError } = await update
+        .select(COLUMNS)
+        .maybeSingle();
+      if (writeError) return failure(writeError);
+      if (written) {
+        const saved = written as ChatTagRow;
+        return {
+          ok: true,
+          conversationId: saved.id,
+          contactId: saved.contact_id,
+          previous,
+          saved: toPatch(saved),
+        };
+      }
+
+      // No row back: RLS refused the UPDATE, the chat vanished, or the
+      // tags changed since the read. Read again to tell which.
+      const { data: fresh, error: freshError } = await db
+        .from('conversations')
+        .select(COLUMNS)
+        .eq('account_id', args.accountId)
+        .eq('id', row.id)
+        .maybeSingle();
+      if (freshError) return failure(freshError);
+      if (!fresh) return { ok: false, reason: 'not_found' };
+      const freshRow = fresh as ChatTagRow;
+      const freshTags = toPatch(freshRow);
+      // Same tags as before: the condition held, so RLS refused it.
+      if (samePatch(freshTags, previous)) {
+        return { ok: false, reason: 'not_found' };
+      }
+      // Another writer already left the chat where this one would:
+      // report no change, so nothing dispatches twice.
+      if (samePatch(freshTags, resolveChatTagsWrite(freshTags, args.next))) {
+        return {
+          ok: true,
+          conversationId: freshRow.id,
+          contactId: freshRow.contact_id,
+          previous: freshTags,
+          saved: freshTags,
+        };
+      }
+      row = freshRow;
+    }
 
     return {
-      ok: true,
-      conversationId: saved.id,
-      contactId: saved.contact_id,
-      previous: toPatch(row),
-      saved: toPatch(saved),
+      ok: false,
+      reason: 'error',
+      message: 'chat tags changed concurrently',
     };
   } catch (err) {
     return {

@@ -454,13 +454,17 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (cfg.chat_tag_id !== null && !cfg.chat_tag_id) {
         throw new Error('set_chat_tag needs a chat tag (or null to clear)')
       }
+      // A sub-tag id sets it and null clears it; none named (absent or
+      // empty) keeps the chat's sub-tag while the main tag is unchanged,
+      // so "Set chat tag: Interested" does not drop the chat's bank.
       const written = await writeConversationChatTags(db, {
         accountId: args.automation.account_id,
         contactId: args.contactId,
-        next: {
-          chat_tag_id: cfg.chat_tag_id,
-          chat_sub_tag_id: cfg.chat_tag_id ? cfg.chat_sub_tag_id || null : null,
-        },
+        next: !cfg.chat_tag_id
+          ? { chat_tag_id: null, chat_sub_tag_id: null }
+          : cfg.chat_sub_tag_id === null || cfg.chat_sub_tag_id
+            ? { chat_tag_id: cfg.chat_tag_id, chat_sub_tag_id: cfg.chat_sub_tag_id }
+            : { chat_tag_id: cfg.chat_tag_id },
       })
       if (!written.ok) {
         throw new Error(

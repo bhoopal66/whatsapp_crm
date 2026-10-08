@@ -661,6 +661,42 @@ describe("set_chat_tag", () => {
     expect(h.state.logInserts).toHaveLength(1);
   });
 
+  // The writer resolves the sub-tag against the chat's current tags;
+  // the real resolver stands in for it on a chat tagged interested · adcb.
+  it.each([
+    ["no sub-tag, same main tag: keeps the sub-tag", {}, "interested", "adcb"],
+    ["an empty sub-tag counts as none", { chat_sub_tag_id: "" }, "interested", "adcb"],
+    ["no sub-tag, another main tag: clears it", {}, "lead", null],
+    ["an explicit null sub-tag clears it", { chat_sub_tag_id: null }, "interested", null],
+    ["a sub-tag sets it", { chat_sub_tag_id: "fab" }, "interested", "fab"],
+  ])("set_chat_tag: %s", async (_name, sub, main, savedSub) => {
+    const { resolveChatTagsWrite } = await vi.importActual<
+      typeof import("@/lib/chat-tags/server")
+    >("@/lib/chat-tags/server");
+    const previous = { chat_tag_id: "interested", chat_sub_tag_id: "adcb" };
+    h.state.owned = { id: "c1" };
+    h.state.automations = [{ ...automationWithUpdateStep(), id: "setter" }];
+    h.state.steps = [setChatTagStep("setter", { chat_tag_id: main, ...sub })];
+    h.writeChatTags.mockImplementation(
+      async (_db: unknown, args: { next: Parameters<typeof resolveChatTagsWrite>[1] }) => ({
+        ...writeResult(["interested", "adcb"], ["interested", "adcb"]),
+        saved: resolveChatTagsWrite(previous, args.next),
+      }),
+    );
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(h.writeChatTags).toHaveBeenCalledTimes(1);
+    expect(await h.writeChatTags.mock.results[0].value).toMatchObject({
+      saved: { chat_tag_id: main, chat_sub_tag_id: savedSub },
+    });
+  });
+
   it("stops an A-to-B-to-A chain at depth 3", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     h.state.owned = { id: "c1" };

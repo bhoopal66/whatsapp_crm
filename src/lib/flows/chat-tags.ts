@@ -12,12 +12,17 @@
 // fix.
 // ============================================================
 
+import type { ChatTagsWrite } from '@/lib/chat-tags/server';
 import type { ChatTagsPatch } from '@/types';
 
 /** What a `set_tag` node's stored config asks the engine to do. */
 export type SetChatTagPlan =
-  /** Write these tags onto the chat (both null clears it). */
-  | { kind: 'write'; next: ChatTagsPatch }
+  /**
+   * Write these tags onto the chat (a null main tag clears it). No
+   * sub-tag named leaves `chat_sub_tag_id` undefined: the writer keeps
+   * the chat's sub-tag if the main tag is unchanged (`ChatTagsWrite`).
+   */
+  | { kind: 'write'; next: ChatTagsWrite }
   /** A contact-tag config (`mode` / `tag_id`) from before chat tags. */
   | { kind: 'legacy' }
   /** No choice made yet — not even "No tag". */
@@ -25,9 +30,12 @@ export type SetChatTagPlan =
 
 /**
  * Read a `set_tag` config. `chat_tag_id` decides: a tag id writes that
- * main tag (with the sub-tag, if one is set), `null` clears both. A
- * config without it is legacy when it carries the contact-tag keys and
- * unset otherwise; the engine does nothing for either.
+ * main tag, `null` clears both. With a tag id, a sub-tag id sets the
+ * sub-tag, an explicit `null` clears it, and no sub-tag (absent or
+ * empty) keeps the chat's own while the main tag is unchanged — so
+ * "Set chat tag: Interested" does not drop a chat's bank. A config
+ * without `chat_tag_id` is legacy when it carries the contact-tag keys
+ * and unset otherwise; the engine does nothing for either.
  */
 export function planSetChatTag(
   config: Record<string, unknown>
@@ -41,13 +49,19 @@ export function planSetChatTag(
   }
   if (typeof main === 'string' && main !== '') {
     const sub = config.chat_sub_tag_id;
-    return {
-      kind: 'write',
-      next: {
-        chat_tag_id: main,
-        chat_sub_tag_id: typeof sub === 'string' && sub !== '' ? sub : null,
-      },
-    };
+    if (sub === null) {
+      return {
+        kind: 'write',
+        next: { chat_tag_id: main, chat_sub_tag_id: null },
+      };
+    }
+    if (typeof sub === 'string' && sub !== '') {
+      return {
+        kind: 'write',
+        next: { chat_tag_id: main, chat_sub_tag_id: sub },
+      };
+    }
+    return { kind: 'write', next: { chat_tag_id: main } };
   }
   if ('tag_id' in config || 'mode' in config) return { kind: 'legacy' };
   return { kind: 'unset' };
