@@ -37,15 +37,10 @@ import {
   type ChatTagNode,
 } from '@/lib/chat-tags/tree';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
-import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
-import type { ChatTag, Conversation } from '@/types';
+import type { ChatTag, ChatTagsPatch, Conversation } from '@/types';
 
-/** The two columns a tag pick writes. */
-export interface ChatTagsPatch {
-  chat_tag_id: string | null;
-  chat_sub_tag_id: string | null;
-}
+export type { ChatTagsPatch } from '@/types';
 
 export const CHAT_TAGS_SETTINGS_HREF = '/settings?tab=chat-tags';
 
@@ -167,19 +162,34 @@ export function ThreadTagBar({
     };
     setPending(next);
     let saved: ChatTagsPatch | null = null;
+    // A 400 carries a message meant for the person who picked.
+    let refusal: string | null = null;
     try {
-      const { data, error } = await createClient()
-        .from('conversations')
-        .update(next)
-        .eq('id', conversation.id)
-        .select('id, chat_tag_id, chat_sub_tag_id')
-        .maybeSingle();
-      if (error) throw error;
-      if (data) {
+      // The route writes under this user's RLS and fires the account's
+      // chat_tag_set automations; it answers the row the database kept.
+      const res = await fetch(
+        `/api/conversations/${conversation.id}/chat-tags`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(next),
+        }
+      );
+      const data = (await res.json().catch(() => null)) as {
+        chat_tag_id?: string | null;
+        chat_sub_tag_id?: string | null;
+        error?: string;
+      } | null;
+      if (res.ok && data) {
         saved = {
           chat_tag_id: data.chat_tag_id ?? null,
           chat_sub_tag_id: data.chat_sub_tag_id ?? null,
         };
+      } else {
+        if (res.status === 400 && typeof data?.error === 'string') {
+          refusal = data.error;
+        }
+        console.error('[chat-tags] save failed', res.status, data?.error);
       }
     } catch (err) {
       console.error('[chat-tags] save failed', err);
@@ -188,10 +198,10 @@ export function ThreadTagBar({
       setPending(null);
     }
     if (!saved) {
-      // No row is RLS saying no; either way the chip falls back to
-      // what the chat really carries.
+      // A 404 is RLS saying no; either way the chip falls back to what
+      // the chat really carries.
       followUp.current.forTag = null;
-      toast.error(t('saveFailed'));
+      toast.error(refusal ?? t('saveFailed'));
       return;
     }
     onChatTagsChange(conversation.id, saved);

@@ -113,6 +113,8 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   send_template: { label: "send_template", icon: FileText, border: "border-l-primary" },
   add_tag: { label: "add_tag", icon: Tag, border: "border-l-primary" },
   remove_tag: { label: "remove_tag", icon: TagIcon, border: "border-l-primary" },
+  // Not addable yet: the step's editor lands with its engine support.
+  set_chat_tag: { label: "set_chat_tag", icon: Tag, border: "border-l-primary" },
   assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-l-primary" },
   update_contact_field: { label: "update_contact_field", icon: PencilLine, border: "border-l-primary" },
   create_deal: { label: "create_deal", icon: Briefcase, border: "border-l-primary" },

@@ -288,6 +288,15 @@ BEGIN
     RAISE EXCEPTION 'chat_tags_guard / conversations_chat_tag_guard trigger is missing — migration 075 did not apply';
   END IF;
 
+  -- 076: a customer's opt-out is a contact column every broadcast skips.
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'contacts'
+      AND column_name = 'opted_out_at'
+  ) THEN
+    RAISE EXCEPTION 'contacts.opted_out_at is missing — migration 076 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

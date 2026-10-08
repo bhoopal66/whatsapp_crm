@@ -31,6 +31,10 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     label: 'Tag Added',
     pillClass: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
   },
+  chat_tag_set: {
+    label: 'Chat Tag Set',
+    pillClass: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  },
   time_based: {
     label: 'Time-Based',
     pillClass: 'border-slate-500/30 bg-slate-500/10 text-muted-foreground',

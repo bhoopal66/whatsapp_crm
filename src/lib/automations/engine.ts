@@ -42,6 +42,14 @@ export interface AutomationContext {
   agent_id?: string
   /** Button / list-row id the customer tapped, for interactive_reply. */
   interactive_reply_id?: string
+  /** The chat's main tag after the change, for chat_tag_set. */
+  chat_tag_id?: string | null
+  /** The chat's sub-tag after the change, for chat_tag_set. */
+  chat_sub_tag_id?: string | null
+  /** The chat's main tag before the change, for chat_tag_set. */
+  previous_chat_tag_id?: string | null
+  /** The chat's sub-tag before the change, for chat_tag_set. */
+  previous_chat_sub_tag_id?: string | null
 }
 
 export interface DispatchInput {

@@ -118,6 +118,9 @@ export interface Contact {
   /** When the WhatsApp profile picture was last looked up (migration
    *  070); NULL means never. Server-written; see `contact-avatars.ts`. */
   avatar_checked_at?: string | null;
+  /** When the customer asked not to be messaged (migration 076); NULL
+   *  means never. Every broadcast skips a contact with a stamp. */
+  opted_out_at?: string | null;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
@@ -150,6 +153,12 @@ export interface ChatTag {
   position: number;
   created_at: string;
   updated_at: string;
+}
+
+/** The two conversation columns a chat tag pick writes (migration 075). */
+export interface ChatTagsPatch {
+  chat_tag_id: string | null;
+  chat_sub_tag_id: string | null;
 }
 
 export interface ContactTag {
@@ -584,6 +593,9 @@ export type AutomationTriggerType =
   | 'new_contact_created'
   | 'conversation_assigned'
   | 'tag_added'
+  /** A chat arrived at a chat tag (migration 075): its main tag, or a
+   *  main + sub-tag pair, was set by someone or something. */
+  | 'chat_tag_set'
   | 'time_based'
   /** Customer tapped a reply button / list row whose id matches; lets
    *  multi-step menus be chained across automations. */
@@ -596,6 +608,8 @@ export type AutomationStepType =
   | 'send_template'
   | 'add_tag'
   | 'remove_tag'
+  /** Set (or clear) the chat's main tag and sub-tag. */
+  | 'set_chat_tag'
   | 'assign_conversation'
   | 'update_contact_field'
   | 'create_deal'
@@ -624,6 +638,18 @@ export interface TagTriggerConfig {
   tag_id: string;
 }
 
+/**
+ * `chat_tag_set` fires when a chat ARRIVES at this tag. Without a
+ * sub-tag, when the main tag changes to `chat_tag_id`; with one, when
+ * the chat's main + sub-tag become this pair. Re-saving the same tags
+ * never fires. See `chatTagTriggerMatches` in
+ * `@/lib/chat-tags/trigger-match`.
+ */
+export interface ChatTagTriggerConfig {
+  chat_tag_id: string;
+  chat_sub_tag_id?: string | null;
+}
+
 export interface TimeBasedTriggerConfig {
   /** Cron expression or simple HH:mm string; engine can accept either. */
   schedule: string;
@@ -639,6 +665,7 @@ export type AutomationTriggerConfig =
   | Record<string, never>
   | KeywordMatchTriggerConfig
   | TagTriggerConfig
+  | ChatTagTriggerConfig
   | TimeBasedTriggerConfig
   | InteractiveReplyTriggerConfig
   | Record<string, unknown>;
@@ -663,6 +690,16 @@ export interface SendTemplateStepConfig {
 
 export interface TagStepConfig {
   tag_id: string;
+}
+
+/**
+ * `set_chat_tag` writes both chat tag columns. A null `chat_tag_id`
+ * clears the chat's tags; a sub-tag must belong to the main tag (the
+ * database refuses anything else).
+ */
+export interface SetChatTagStepConfig {
+  chat_tag_id: string | null;
+  chat_sub_tag_id?: string | null;
 }
 
 export interface AssignConversationStepConfig {
@@ -696,7 +733,17 @@ export interface WaitStepConfig {
 }
 
 export type ConditionSubject =
-  'contact_field' | 'tag_presence' | 'message_content' | 'time_of_day';
+  | 'contact_field'
+  | 'tag_presence'
+  /** Does the chat carry this main tag or sub-tag? */
+  | 'chat_tag_presence'
+  | 'message_content'
+  | 'time_of_day';
+
+/** `chat_tag_presence`: the chat's main tag or its sub-tag is this id. */
+export interface ChatTagPresenceConfig {
+  chat_tag_id: string;
+}
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;
@@ -718,6 +765,8 @@ export type AutomationStepConfig =
   | SendListStepConfig
   | SendTemplateStepConfig
   | TagStepConfig
+  | SetChatTagStepConfig
+  | ChatTagPresenceConfig
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig
   | CreateDealStepConfig
