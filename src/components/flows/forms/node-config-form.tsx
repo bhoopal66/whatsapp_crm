@@ -24,7 +24,7 @@
  * renders the advanced rows.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Loader2,
   Paperclip,
@@ -46,6 +46,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { chatTagColor } from "@/lib/chat-tags/style";
+import { useChatTags } from "@/hooks/use-chat-tags";
 import { uploadAccountMedia, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 import { slugify, type BuilderNode } from "../shared";
 import { NextNodeRow, NodeKeySelect, TextRow } from "./fields";
@@ -589,18 +591,12 @@ function SendListForm({
 // ============================================================
 
 interface ConditionCfg {
-  subject?: "var" | "tag" | "contact_field";
+  subject?: "var" | "chat_tag" | "contact_field";
   subject_key?: string;
   operator?: "equals" | "contains" | "present" | "absent";
   value?: string;
   true_next?: string;
   false_next?: string;
-}
-
-interface UserTag {
-  id: string;
-  name: string;
-  color?: string;
 }
 
 function ConditionForm({
@@ -616,7 +612,7 @@ function ConditionForm({
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const tags = useUserTags();
+  const { tree } = useChatTags();
 
   const subject = cfg.subject ?? "var";
   const operator = cfg.operator ?? "equals";
@@ -630,7 +626,15 @@ function ConditionForm({
           <Select
             value={subject}
             onValueChange={(v) =>
-              onUpdateConfig({ subject: v as ConditionCfg["subject"] })
+              onUpdateConfig(
+                v === "chat_tag"
+                  ? {
+                      subject: v,
+                      subject_key: undefined,
+                      operator: "present",
+                    }
+                  : { subject: v as ConditionCfg["subject"] },
+              )
             }
           >
             <SelectTrigger className="bg-muted">
@@ -638,7 +642,7 @@ function ConditionForm({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="var">{t("capturedVariable")}</SelectItem>
-              <SelectItem value="tag">{t("contactHasTag")}</SelectItem>
+              <SelectItem value="chat_tag">{t("chatHasTag")}</SelectItem>
               <SelectItem value="contact_field">{t("contactField")}</SelectItem>
             </SelectContent>
           </Select>
@@ -647,24 +651,30 @@ function ConditionForm({
           <label className="mb-1 block text-xs text-muted-foreground">
             {subject === "var"
               ? t("varName")
-              : subject === "tag"
+              : subject === "chat_tag"
                 ? t("tagLabel")
                 : t("fieldLabel")}
           </label>
-          {subject === "tag" && tags.length > 0 ? (
+          {subject === "chat_tag" ? (
             <Select
               value={cfg.subject_key ?? ""}
               onValueChange={(v) => onUpdateConfig({ subject_key: v })}
             >
               <SelectTrigger className="bg-muted">
-                <SelectValue placeholder="Pick a tag…" />
+                <SelectValue placeholder={t("pickTag")} />
               </SelectTrigger>
               <SelectContent>
-                {tags.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
+                {tree.mains.flatMap((m) => [
+                  <SelectItem key={m.id} value={m.id}>
+                    <ChatTagOption color={m.color} name={m.name} />
+                  </SelectItem>,
+                  // Sub-tags sit indented under their main tag.
+                  ...m.subs.map((sub) => (
+                    <SelectItem key={sub.id} value={sub.id} className="pl-6">
+                      <ChatTagOption color={sub.color} name={sub.name} />
+                    </SelectItem>
+                  )),
+                ])}
               </SelectContent>
             </Select>
           ) : subject === "contact_field" ? (
@@ -688,7 +698,7 @@ function ConditionForm({
               onChange={(e) =>
                 onUpdateConfig({ subject_key: e.target.value })
               }
-              placeholder={subject === "var" ? t("varKeyPlaceholder") : t("tagUuidPlaceholder")}
+              placeholder={t("varKeyPlaceholder")}
               className="bg-muted font-mono text-xs"
             />
           )}
@@ -715,8 +725,12 @@ function ConditionForm({
             <SelectContent>
               <SelectItem value="present">{t("isPresent")}</SelectItem>
               <SelectItem value="absent">{t("isAbsent")}</SelectItem>
-              <SelectItem value="equals">{t("equals")}</SelectItem>
-              <SelectItem value="contains">{t("contains")}</SelectItem>
+              {subject !== "chat_tag" && (
+                <SelectItem value="equals">{t("equals")}</SelectItem>
+              )}
+              {subject !== "chat_tag" && (
+                <SelectItem value="contains">{t("contains")}</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -757,9 +771,24 @@ function ConditionForm({
 // ============================================================
 
 interface SetTagCfg {
-  mode?: "add" | "remove";
-  tag_id?: string;
+  chat_tag_id?: string | null;
+  chat_sub_tag_id?: string | null;
   next_node_key?: string;
+}
+
+const NO_TAG = "__none__";
+
+/** A chat tag's colour dot and name, as the inbox's tag menu draws it. */
+function ChatTagOption({ color, name }: { color: string; name: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: chatTagColor(color) }}
+      />
+      <span className="truncate">{name}</span>
+    </span>
+  );
 }
 
 function SetTagForm({
@@ -775,55 +804,70 @@ function SetTagForm({
   onUpdateConfig: (patch: Record<string, unknown>) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const tags = useUserTags();
+  const { tree } = useChatTags();
+  const main = tree.mains.find((m) => m.id === cfg.chat_tag_id);
+  // `undefined` is a node nobody has picked for yet; `null` is "No tag".
+  const mainValue =
+    cfg.chat_tag_id === undefined ? "" : (cfg.chat_tag_id ?? NO_TAG);
+
+  // The legacy contact-tag keys drop out of the saved config on any edit.
+  const legacy = { tag_id: undefined, mode: undefined };
 
   return (
     <>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-xs text-muted-foreground">{t("actionLabel")}</label>
+          <label className="mb-1 block text-xs text-muted-foreground">{t("tagLabel")}</label>
           <Select
-            value={cfg.mode ?? "add"}
+            value={mainValue}
             onValueChange={(v) =>
-              onUpdateConfig({ mode: v as SetTagCfg["mode"] })
+              onUpdateConfig({
+                chat_tag_id: v === NO_TAG ? null : v,
+                chat_sub_tag_id: null,
+                ...legacy,
+              })
             }
           >
             <SelectTrigger className="bg-muted">
-              <SelectValue />
+              <SelectValue placeholder={t("pickTag")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="add">{t("addTag")}</SelectItem>
-              <SelectItem value="remove">{t("removeTag")}</SelectItem>
+              <SelectItem value={NO_TAG}>{t("noTag")}</SelectItem>
+              {tree.mains.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  <ChatTagOption color={m.color} name={m.name} />
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">{t("tagLabel")}</label>
-          {tags.length > 0 ? (
+        {main && main.subs.length > 0 && (
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">{t("subTagLabel")}</label>
             <Select
-              value={cfg.tag_id ?? ""}
-              onValueChange={(v) => onUpdateConfig({ tag_id: v })}
+              value={cfg.chat_sub_tag_id ?? NO_TAG}
+              onValueChange={(v) =>
+                onUpdateConfig({
+                  chat_tag_id: main.id,
+                  chat_sub_tag_id: v === NO_TAG ? null : v,
+                  ...legacy,
+                })
+              }
             >
               <SelectTrigger className="bg-muted">
-                <SelectValue placeholder="Pick a tag…" />
+                <SelectValue placeholder={t("pickSubTag")} />
               </SelectTrigger>
               <SelectContent>
-                {tags.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                <SelectItem value={NO_TAG}>{t("noSubTag")}</SelectItem>
+                {main.subs.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    <ChatTagOption color={s.color} name={s.name} />
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          ) : (
-            <Input
-              value={cfg.tag_id ?? ""}
-              onChange={(e) => onUpdateConfig({ tag_id: e.target.value })}
-              placeholder={t("tagUuidPlaceholder")}
-              className="bg-muted font-mono text-xs"
-            />
-          )}
-        </div>
+          </div>
+        )}
       </div>
       <NextNodeRow
         value={cfg.next_node_key ?? ""}
@@ -834,32 +878,6 @@ function SetTagForm({
       />
     </>
   );
-}
-
-/**
- * Shared loader for both `condition` (subject=tag) and `set_tag`.
- * Falls back to raw UUID input if the endpoint is absent on older
- * deployments — the form remains authorable in that case.
- */
-function useUserTags(): UserTag[] {
-  const [tags, setTags] = useState<UserTag[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/tags").catch(() => null);
-        if (!res || !res.ok) return;
-        const json = (await res.json()) as { tags?: UserTag[] };
-        if (!cancelled) setTags(json.tags ?? []);
-      } catch {
-        // Tags endpoint absent — caller falls back to raw input.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return tags;
 }
 
 // ============================================================
