@@ -89,7 +89,7 @@ export function ThreadTagBar({
   // Picking a main tag that has sub-tags opens the sub-tag menu next.
   // It waits for two things: the main menu to have finished closing
   // (so the two menus' focus handling don't fight), and the save to
-  // have landed (both chips are disabled while it is in flight).
+  // have landed (neither menu opens while it is in flight).
   //
   // The sub-tag menu is open *for a main tag*, by id. A boolean
   // outlived the menu: a teammate's change could unmount it while
@@ -124,11 +124,16 @@ export function ThreadTagBar({
   if (subOpenFor !== null && subOpenFor !== subMenuFor) setSubOpenFor(null);
   const subOpen = subOpenFor !== null && subOpenFor === subMenuFor;
 
-  // A save in flight: both chips are disabled until it settles, so a
-  // second pick cannot be made (and silently dropped) meanwhile. The
-  // chip being saved is the main one when the main tag changes.
+  // A save in flight: neither menu opens until it settles, so a second
+  // pick cannot be made (and silently dropped) meanwhile. The chips stay
+  // focusable (`aria-disabled`, not `disabled`): the closing menu hands
+  // focus back to its chip, and a natively disabled chip refused it, so
+  // a keyboard user was dropped to the top of the page after every
+  // pick. The chip being saved is the main one when the main tag
+  // changes.
   const saving = pending !== null;
   const savingMain = saving && pending.chat_tag_id !== propIds.chat_tag_id;
+  const [mainOpen, setMainOpen] = useState(false);
 
   // A chat tagged with an id the loaded list doesn't have: another
   // admin probably added it since the list was cached. Read the list
@@ -151,7 +156,7 @@ export function ThreadTagBar({
   const canEdit = accountRole !== 'viewer';
 
   async function save(next: ChatTagsPatch, openSubAfter: boolean) {
-    // A backstop: the disabled chips already keep a second pick out.
+    // A backstop: the menus already refuse to open while saving.
     if (savingRef.current) return;
     savingRef.current = true;
     // Picks come from an open menu, which has not finished closing.
@@ -275,6 +280,11 @@ export function ThreadTagBar({
   return (
     <Row label={t('rowLabel')} busy={saving}>
       <DropdownMenu
+        open={mainOpen}
+        onOpenChange={(open) => {
+          if (open && savingRef.current) return;
+          setMainOpen(open);
+        }}
         onOpenChangeComplete={(open) => {
           if (open) return;
           followUp.current.menuClosed = true;
@@ -282,7 +292,7 @@ export function ThreadTagBar({
         }}
       >
         <DropdownMenuTrigger
-          disabled={saving}
+          aria-disabled={saving || undefined}
           title={main ? t('chipTitle', { name: main.name }) : t('addTag')}
           className={cn(
             CHIP,
@@ -355,10 +365,13 @@ export function ThreadTagBar({
       {main && main.subs.length > 0 && (
         <DropdownMenu
           open={subOpen}
-          onOpenChange={(open) => setSubOpenFor(open ? main.id : null)}
+          onOpenChange={(open) => {
+            if (open && savingRef.current) return;
+            setSubOpenFor(open ? main.id : null);
+          }}
         >
           <DropdownMenuTrigger
-            disabled={saving}
+            aria-disabled={saving || undefined}
             title={
               sub
                 ? t('subChipTitle', { title: subTitle, name: sub.name })

@@ -1482,12 +1482,15 @@ export function MessageThread({
         handlerProfile?.email ||
         t('unknownAgent')) + (handler.userId === user?.id ? t('me') : '')
     : null;
-  // The pill carries the first name only, so the customer's name keeps
-  // the header's room; the full name is in its tooltip and the menu.
-  const handlerShortName = handler
-    ? (handlerProfile?.full_name?.trim().split(/\s+/)[0] ||
-        handlerProfile?.email?.split('@')[0] ||
-        t('unknownAgent')) + (handler.userId === user?.id ? t('me') : '')
+  // The pill: "Me" for this user, else the full name, which truncates —
+  // the tooltip and the menu keep it whole. Not the first name alone:
+  // two agents called Mohammed read the same.
+  const handlerPillName = handler
+    ? handler.userId === user?.id
+      ? t('meShort')
+      : handlerProfile?.full_name?.trim() ||
+        handlerProfile?.email ||
+        t('unknownAgent')
     : null;
   const handlerTitle =
     handler && handlerName
@@ -1516,7 +1519,7 @@ export function MessageThread({
           onBack={onBack}
           onChannelSwitched={reloadThreadEvents}
           handler={handler}
-          handlerShortName={handlerShortName}
+          handlerPillName={handlerPillName}
           handlerTitle={handlerTitle}
           assignableProfiles={assignableProfiles}
           assignedAgentId={assignedAgentId}

@@ -311,9 +311,10 @@ number sends what.
 - **A rebuilt chat header.** Two rows: the customer (photo, name,
   number — on desktop, click it to open or close the contact panel),
   the sending number, who is on the chat and the refresh and panel
-  buttons; then the chat's tags. The number and the person show short
-  names so the customer's name keeps its room; full names are in the
-  tooltips and menus.
+  buttons; then the chat's tags. In a narrower chat the sending number
+  shows just its name (its phone joins once there is room), your own
+  chats read "Me" and long names truncate, so the customer's name keeps
+  its room; tooltips and menus show everything in full.
 - **Broadcasts to Compass customers.** The broadcast wizard's audience
   step has a fifth option, *Compass contacts*: pick an order (top or
   bottom of the Compass list, newest or oldest added, name A→Z or Z→A),

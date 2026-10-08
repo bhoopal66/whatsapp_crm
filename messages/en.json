@@ -192,6 +192,7 @@
       "handlerNobody": "Nobody is on this chat yet",
       "unassigned": "Unassigned",
       "me": " (me)",
+      "meShort": "Me",
       "noMessagesYet": "No messages yet",
       "sendTemplateHint": "Send a template to start the conversation",
       "selectConversation": "Select a conversation",

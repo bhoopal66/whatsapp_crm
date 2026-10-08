@@ -23,3 +23,22 @@ export function patchIfSameConversation<T extends { id: string }>(
   if (!prev || prev.id !== conversationId) return prev;
   return { ...prev, ...patch };
 }
+
+/**
+ * The inbox page's handler for a save's result, built over its two
+ * state setters: the list row is patched by id, the open chat only if
+ * it is still that chat. Holds no state of its own, so the page can
+ * build it once — a handler that read the open chat from its closure
+ * is exactly what patched the wrong chat.
+ */
+export function conversationPatcher<T extends { id: string }>(
+  setList: (update: (prev: T[]) => T[]) => void,
+  setActive: (update: (prev: T | null) => T | null) => void
+): (conversationId: string, patch: Partial<T>) => void {
+  return (conversationId, patch) => {
+    setList((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))
+    );
+    setActive((prev) => patchIfSameConversation(prev, conversationId, patch));
+  };
+}

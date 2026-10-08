@@ -58,8 +58,8 @@ export interface ThreadHeaderProps {
   onChannelSwitched: () => void;
   /** Who to name on the assignee pill, and why (see MessageThread). */
   handler: ConversationHandler | null;
-  /** Their first name; the full name is in `handlerTitle`. */
-  handlerShortName: string | null;
+  /** "Me", or their name; `handlerTitle` says the rest. */
+  handlerPillName: string | null;
   handlerTitle: string;
   /** Who this person may hand the chat to. */
   assignableProfiles: Profile[];
@@ -82,7 +82,7 @@ export function ThreadHeader({
   onBack,
   onChannelSwitched,
   handler,
-  handlerShortName,
+  handlerPillName,
   handlerTitle,
   assignableProfiles,
   assignedAgentId,
@@ -190,7 +190,7 @@ export function ThreadHeader({
               title={handlerTitle}
               aria-label={`${t('assign')}: ${handlerTitle}`}
               className={cn(
-                'inline-flex h-8 max-w-[6.5rem] items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors @2xl/thread:max-w-[11rem]',
+                'inline-flex h-8 max-w-[6.5rem] items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors @md/thread:max-w-[8.5rem] @2xl/thread:max-w-[11rem]',
                 handler?.kind === 'assigned'
                   ? 'bg-wa-chip-active text-wa-teal border-transparent'
                   : 'border-wa-divider bg-wa-panel text-wa-text-secondary hover:bg-wa-row-hover'
@@ -202,7 +202,7 @@ export function ThreadHeader({
                 <UserPlus className="h-3.5 w-3.5 shrink-0" />
               )}
               <span className="truncate">
-                {handler ? handlerShortName : t('unassigned')}
+                {handler ? handlerPillName : t('unassigned')}
               </span>
               <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
             </DropdownMenuTrigger>

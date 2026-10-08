@@ -24,7 +24,7 @@ import {
   type ConversationCursor,
 } from '@/lib/inbox/pagination';
 import { applyAvatars, avatarRequestBatches } from '@/lib/inbox/avatars';
-import { patchIfSameConversation } from '@/lib/inbox/patch-active';
+import { conversationPatcher } from '@/lib/inbox/patch-active';
 import type { ConversationListLoad } from '@/components/inbox/conversation-list';
 import type { Conversation, Message, Contact } from '@/types';
 import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
@@ -807,36 +807,31 @@ export function InboxPageInner({
     []
   );
 
-  const handleChatTagsChange = useCallback(
-    (conversationId: string, patch: ChatTagsPatch) => {
-      setConversations((prev) =>
-        prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))
-      );
-      // Checked against the chat open when the save lands, not the one
-      // this callback captured: the agent may have moved on since.
-      setActiveConversation((prev) =>
-        patchIfSameConversation(prev, conversationId, patch)
-      );
-    },
+  // A save's result patches the list row, and the open chat only if it
+  // is still the chat it was saved for — checked when the save lands,
+  // not against the chat this callback captured: through the tunnel the
+  // agent has often moved on (lib/inbox/patch-active.ts).
+  const patchConversation = useMemo(
+    () =>
+      conversationPatcher<Conversation>(
+        setConversations,
+        setActiveConversation
+      ),
     []
   );
 
+  const handleChatTagsChange = useCallback(
+    (conversationId: string, patch: ChatTagsPatch) =>
+      patchConversation(conversationId, patch),
+    [patchConversation]
+  );
+
   const handleAssignChange = useCallback(
-    (conversationId: string, assignedAgentId: string | null) => {
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === conversationId
-            ? { ...c, assigned_agent_id: assignedAgentId ?? undefined }
-            : c
-        )
-      );
-      setActiveConversation((prev) =>
-        patchIfSameConversation(prev, conversationId, {
-          assigned_agent_id: assignedAgentId ?? undefined,
-        })
-      );
-    },
-    []
+    (conversationId: string, assignedAgentId: string | null) =>
+      patchConversation(conversationId, {
+        assigned_agent_id: assignedAgentId ?? undefined,
+      }),
+    [patchConversation]
   );
 
   // On mobile (<lg) we show a SINGLE pane — either the list or the
