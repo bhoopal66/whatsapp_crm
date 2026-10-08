@@ -4,9 +4,9 @@ import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 // ------------------------------------------------------------
 // Pre-flight config validation for automations about to be activated.
 //
-// Activating a broken automation (e.g. an add_tag step with tag_id="")
-// used to succeed silently — every trigger then produced a failed log
-// row with a cryptic "add_tag needs contact + tag_id" message, and
+// Activating a broken automation (e.g. a send_template step with no
+// template name) used to succeed silently — every trigger then produced
+// a failed log row with a cryptic runtime message, and
 // users often didn't notice until reviewing logs. This module lets
 // the API refuse activation with a useful 400 response instead.
 //
@@ -74,10 +74,16 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
         issues.push({ path: `${path}.template_name`, message: 'template name is required' })
       }
       break
-    case 'add_tag':
-    case 'remove_tag':
-      if (!nonEmpty(c.tag_id)) {
-        issues.push({ path: `${path}.tag_id`, message: 'tag is required' })
+    case 'set_chat_tag':
+      // null is "No tag" (clears the chat's tags); anything else must be
+      // a picked tag.
+      if (c.chat_tag_id !== null && !nonEmpty(c.chat_tag_id)) {
+        issues.push({ path: `${path}.chat_tag_id`, message: 'chat tag is required' })
+      } else if (c.chat_tag_id === null && nonEmpty(c.chat_sub_tag_id)) {
+        issues.push({
+          path: `${path}.chat_sub_tag_id`,
+          message: 'a sub-tag needs its main tag',
+        })
       }
       break
     case 'assign_conversation':
@@ -186,9 +192,9 @@ export function validateTriggerForActivation(
     if (!nonEmpty(cfg.schedule)) {
       issues.push({ path: 'trigger.schedule', message: 'schedule is required' })
     }
-  } else if (triggerType === 'tag_added') {
-    if (!nonEmpty(cfg.tag_id)) {
-      issues.push({ path: 'trigger.tag_id', message: 'tag is required' })
+  } else if (triggerType === 'chat_tag_set') {
+    if (!nonEmpty(cfg.chat_tag_id)) {
+      issues.push({ path: 'trigger.chat_tag_id', message: 'chat tag is required' })
     }
   } else if (triggerType === 'interactive_reply') {
     const ids = cfg.reply_ids

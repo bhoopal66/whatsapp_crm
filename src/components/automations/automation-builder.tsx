@@ -19,7 +19,6 @@ import {
   MessageSquare,
   FileText,
   Tag,
-  TagIcon,
   UserCheck,
   PencilLine,
   Briefcase,
@@ -53,7 +52,6 @@ import type {
   InteractiveMessagePayload,
   KeywordMatchTriggerConfig,
   MessageTemplate,
-  Tag as TagRecord,
 } from "@/types"
 import {
   InteractiveBuilder,
@@ -62,6 +60,8 @@ import {
 } from "@/components/interactive/interactive-builder"
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
+import { useChatTags } from "@/hooks/use-chat-tags"
+import { chatTagColor } from "@/lib/chat-tags/style"
 import {
   childPath,
   insertAt,
@@ -111,9 +111,6 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   send_buttons: { label: "send_buttons", icon: MousePointerClick, border: "border-l-primary" },
   send_list: { label: "send_list", icon: List, border: "border-l-primary" },
   send_template: { label: "send_template", icon: FileText, border: "border-l-primary" },
-  add_tag: { label: "add_tag", icon: Tag, border: "border-l-primary" },
-  remove_tag: { label: "remove_tag", icon: TagIcon, border: "border-l-primary" },
-  // Not addable yet: the step's editor lands with its engine support.
   set_chat_tag: { label: "set_chat_tag", icon: Tag, border: "border-l-primary" },
   assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-l-primary" },
   update_contact_field: { label: "update_contact_field", icon: PencilLine, border: "border-l-primary" },
@@ -129,8 +126,7 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "send_buttons",
   "send_list",
   "send_template",
-  "add_tag",
-  "remove_tag",
+  "set_chat_tag",
   "assign_conversation",
   "update_contact_field",
   "create_deal",
@@ -147,7 +143,7 @@ const TRIGGER_OPTIONS: { value: AutomationTriggerType }[] = [
   { value: "interactive_reply" },
   { value: "new_contact_created" },
   { value: "conversation_assigned" },
-  { value: "tag_added" },
+  { value: "chat_tag_set" },
   { value: "time_based" },
 ]
 
@@ -182,9 +178,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return toStepConfig(blankListPayload())
     case "send_template":
       return { template_name: "", language: "en_US" }
-    case "add_tag":
-    case "remove_tag":
-      return { tag_id: "" }
+    case "set_chat_tag":
+      return { chat_tag_id: "", chat_sub_tag_id: null }
     case "assign_conversation":
       return { mode: "round_robin" }
     case "update_contact_field":
@@ -194,7 +189,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
     case "wait":
       return { amount: 1, unit: "hours" }
     case "condition":
-      return { subject: "tag_presence", operand: "", value: "" }
+      return { subject: "chat_tag_presence", operand: "", value: "" }
     case "send_webhook":
       return { url: "", headers: {}, body_template: "" }
     case "close_conversation":
@@ -205,7 +200,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
 }
 
 // ------------------------------------------------------------
-// Account resources (tags, members, approved templates, pipelines)
+// Account resources (members, approved templates, pipelines)
 //
 // Loaded once at the builder root and shared via context so the
 // tag / agent / template pickers below can offer existing resources
@@ -215,7 +210,6 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
 // ------------------------------------------------------------
 
 interface AutomationResources {
-  tags: TagRecord[]
   members: AccountMember[]
   templates: MessageTemplate[]
   customFields: CustomField[]
@@ -236,7 +230,6 @@ interface PipelineStageOption {
 }
 
 const ResourcesContext = createContext<AutomationResources>({
-  tags: [],
   members: [],
   templates: [],
   customFields: [],
@@ -249,7 +242,6 @@ function useResources(): AutomationResources {
 }
 
 function ResourcesProvider({ children }: { children: ReactNode }) {
-  const [tags, setTags] = useState<TagRecord[]>([])
   const [members, setMembers] = useState<AccountMember[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
   const [customFields, setCustomFields] = useState<CustomField[]>([])
@@ -260,14 +252,13 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const supabase = createClient()
 
-    // Tags, templates and custom fields come straight from the DB — RLS
+    // Templates and custom fields come straight from the DB — RLS
     // scopes them to the caller's account. Only APPROVED templates can
     // actually be sent (anything else 400s at send time), matching the
     // broadcast picker.
     void (async () => {
-      const [tagsRes, templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
+      const [templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
         await Promise.all([
-          supabase.from("tags").select("*").order("name"),
           supabase
             .from("message_templates")
             .select("*")
@@ -281,7 +272,6 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
             .order("position"),
         ])
       if (cancelled) return
-      setTags((tagsRes.data as TagRecord[] | null) ?? [])
       setTemplates((templatesRes.data as MessageTemplate[] | null) ?? [])
       setCustomFields((customFieldsRes.data as CustomField[] | null) ?? [])
       setPipelines((pipelinesRes.data as PipelineOption[] | null) ?? [])
@@ -309,7 +299,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 
   return (
     <ResourcesContext.Provider
-      value={{ tags, members, templates, customFields, pipelines, stages }}
+      value={{ members, templates, customFields, pipelines, stages }}
     >
       {children}
     </ResourcesContext.Provider>
@@ -319,9 +309,97 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 const SELECT_CLASS =
   "w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none"
 
-/** Tag dropdown by name + color, storing the tag's id. Falls back to a
- *  raw id input when no tags exist yet. */
-function TagSelect({
+/** Colour dot beside a chat tag picker. */
+function ChatTagDot({ color }: { color: string | null | undefined }) {
+  return (
+    <span
+      className="h-3 w-3 shrink-0 rounded-full border border-border"
+      style={{ backgroundColor: color ? chatTagColor(color) : "transparent" }}
+      aria-hidden
+    />
+  )
+}
+
+/** Value of the "No tag" option: the step stores null for it. */
+const NO_CHAT_TAG = "__none__"
+
+/** A main chat tag and, optionally, one of its sub-tags ("any" / none by
+ *  default). `allowNone` adds "No tag" for a step that clears the chat's
+ *  tags; then `mainId` is null. Saved ids that no longer exist stay
+ *  selectable so editing an automation doesn't silently drop them. */
+function ChatTagPairSelect({
+  mainId,
+  subId,
+  allowNone = false,
+  onChange,
+  t,
+}: {
+  mainId: string | null
+  subId: string | null
+  allowNone?: boolean
+  onChange: (mainId: string | null, subId: string | null) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const { tree } = useChatTags()
+  const main = mainId ? tree.mains.find((m) => m.id === mainId) : undefined
+  const subs = main?.subs ?? []
+  const sub = subId ? subs.find((st) => st.id === subId) : undefined
+  return (
+    <>
+      <FieldBlock label={t("chatTags.label")}>
+        <div className="flex items-center gap-2">
+          <ChatTagDot color={main?.color} />
+          <select
+            value={mainId === null ? NO_CHAT_TAG : mainId}
+            onChange={(e) =>
+              onChange(e.target.value === NO_CHAT_TAG ? null : e.target.value, null)
+            }
+            className={SELECT_CLASS}
+          >
+            <option value="">{t("chatTags.select")}</option>
+            {allowNone && <option value={NO_CHAT_TAG}>{t("chatTags.none")}</option>}
+            {tree.mains.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+            {mainId && !main && (
+              <option value={mainId}>{t("chatTags.unknown", { id: mainId })}</option>
+            )}
+          </select>
+        </div>
+      </FieldBlock>
+      {mainId && (subs.length > 0 || subId) && (
+        <FieldBlock label={t("chatTags.subLabel")}>
+          <div className="flex items-center gap-2">
+            <ChatTagDot color={sub?.color ?? main?.color} />
+            <select
+              value={subId ?? ""}
+              onChange={(e) => onChange(mainId, e.target.value || null)}
+              className={SELECT_CLASS}
+            >
+              <option value="">
+                {allowNone ? t("chatTags.noSub") : t("chatTags.anySub")}
+              </option>
+              {subs.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+              {subId && !sub && (
+                <option value={subId}>{t("chatTags.unknown", { id: subId })}</option>
+              )}
+            </select>
+          </div>
+        </FieldBlock>
+      )}
+    </>
+  )
+}
+
+/** Any chat tag, main or sub (sub-tags read "Main › Sub"), storing its
+ *  id — the "Has chat tag" condition matches either column. */
+function ChatTagAnySelect({
   value,
   onChange,
   t,
@@ -330,40 +408,29 @@ function TagSelect({
   onChange: (v: string) => void
   t: ReturnType<typeof useTranslations>
 }) {
-  const { tags } = useResources()
-  if (tags.length === 0) {
-    return (
-      <Input
-        placeholder={t("tags.placeholder")}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="bg-muted text-foreground"
-      />
-    )
-  }
-  const selected = tags.find((t) => t.id === value)
+  const { tree } = useChatTags()
+  const selected = value ? tree.byId.get(value) : undefined
   return (
     <div className="flex items-center gap-2">
-      <span
-        className="h-3 w-3 shrink-0 rounded-full border border-border"
-        style={{ backgroundColor: selected?.color ?? "transparent" }}
-        aria-hidden
-      />
+      <ChatTagDot color={selected?.color} />
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={SELECT_CLASS}
       >
-        <option value="">{t("tags.select")}</option>
-        {tags.map((tg) => (
-          <option key={tg.id} value={tg.id}>
-            {tg.name}
-          </option>
-        ))}
-        {/* Preserve a saved tag that's since been deleted so editing an
-            existing automation doesn't silently drop it. */}
+        <option value="">{t("chatTags.select")}</option>
+        {tree.mains.map((m) => [
+          <option key={m.id} value={m.id}>
+            {m.name}
+          </option>,
+          ...m.subs.map((st) => (
+            <option key={st.id} value={st.id}>
+              {`${m.name} › ${st.name}`}
+            </option>
+          )),
+        ])}
         {value && !selected && (
-          <option value={value}>{t("tags.unknown", { id: value })}</option>
+          <option value={value}>{t("chatTags.unknown", { id: value })}</option>
         )}
       </select>
     </div>
@@ -864,17 +931,15 @@ function TriggerCard({
             {type === "interactive_reply" && (
               <InteractiveReplyConfig config={config} onChange={onConfigChange} t={t} />
             )}
-            {type === "tag_added" && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Tag
-                </label>
-                <TagSelect
-                  value={(config.tag_id as string) ?? ""}
-                  onChange={(v) => onConfigChange({ ...config, tag_id: v })}
-                  t={t}
-                />
-              </div>
+            {type === "chat_tag_set" && (
+              <ChatTagPairSelect
+                mainId={(config.chat_tag_id as string) ?? ""}
+                subId={(config.chat_sub_tag_id as string | null) ?? null}
+                onChange={(mainId, subId) =>
+                  onConfigChange({ ...config, chat_tag_id: mainId, chat_sub_tag_id: subId })
+                }
+                t={t}
+              />
             )}
             {type === "time_based" && (
               <div>
@@ -1096,8 +1161,10 @@ function StepRenderer({
 } & Omit<StepListProps, "steps" | "basePath" | "scope">) {
   const t = useTranslations("Automations.builder")
   const path = childPath(basePath, scope, index)
-  const meta = STEP_META[step.step_type]
-  const Icon = meta.icon
+  // A stored automation may still carry a retired contact-tag step
+  // (the engine skips it); show its raw type rather than crash.
+  const meta: StepMeta | undefined = STEP_META[step.step_type]
+  const Icon = meta?.icon ?? CircleSlash
   const expanded = props.expandedId === step.cid
   const isCondition = step.step_type === "condition"
   const nested = basePath.length > 0
@@ -1125,7 +1192,7 @@ function StepRenderer({
         <div
           className={cn(
             "rounded-lg border border-border border-l-4 bg-card shadow-lg",
-            meta.border,
+            meta?.border ?? "border-l-border",
           )}
         >
           <button
@@ -1141,7 +1208,7 @@ function StepRenderer({
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 {isCondition ? "Condition" : step.step_type === "wait" ? "Wait" : "Action"}
               </div>
-              <div className="truncate text-sm font-medium text-foreground">{t(`steps.${meta.label}`)}</div>
+              <div className="truncate text-sm font-medium text-foreground">{meta ? t(`steps.${meta.label}`) : step.step_type}</div>
               <div className="truncate text-[11px] text-muted-foreground">{previewFor(step)}</div>
             </div>
             <ChevronDown
@@ -1341,16 +1408,17 @@ function StepEditor({
           t={t}
         />
       )
-    case "add_tag":
-    case "remove_tag":
+    case "set_chat_tag":
       return (
-        <FieldBlock label={t("config.tagLabel")}>
-          <TagSelect
-            value={(cfg.tag_id as string) ?? ""}
-            onChange={(v) => set({ tag_id: v })}
-            t={t}
-          />
-        </FieldBlock>
+        <ChatTagPairSelect
+          mainId={cfg.chat_tag_id === null ? null : ((cfg.chat_tag_id as string) ?? "")}
+          subId={(cfg.chat_sub_tag_id as string | null) ?? null}
+          allowNone
+          onChange={(mainId, subId) =>
+            set({ chat_tag_id: mainId, chat_sub_tag_id: subId })
+          }
+          t={t}
+        />
       )
     case "assign_conversation":
       return (
@@ -1452,32 +1520,40 @@ function StepEditor({
         <>
           <FieldBlock label={t("config.subjectLabel")}>
             <select
-              value={(cfg.subject as string) ?? "tag_presence"}
+              value={(cfg.subject as string) ?? "chat_tag_presence"}
               onChange={(e) => set({ subject: e.target.value })}
               className="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
             >
-              <option value="tag_presence">{t("config.subjects.tag_presence")}</option>
+              <option value="chat_tag_presence">{t("config.subjects.chat_tag_presence")}</option>
               <option value="contact_field">{t("config.subjects.contact_field")}</option>
               <option value="message_content">{t("config.subjects.message_content")}</option>
               <option value="time_of_day">{t("config.subjects.time_of_day")}</option>
             </select>
           </FieldBlock>
-          <FieldBlock label={t("config.operandLabel")}>
-            <Input
-              placeholder={
-                cfg.subject === "time_of_day"
-                  ? t("config.placeholderTime")
-                  : cfg.subject === "contact_field"
-                  ? t("config.placeholderContact")
-                  : cfg.subject === "tag_presence"
-                  ? t("config.placeholderTag")
-                  : ""
-              }
-              value={(cfg.operand as string) ?? ""}
-              onChange={(e) => set({ operand: e.target.value })}
-              className="bg-muted text-foreground"
-            />
-          </FieldBlock>
+          {(cfg.subject ?? "chat_tag_presence") === "chat_tag_presence" ? (
+            <FieldBlock label={t("chatTags.label")}>
+              <ChatTagAnySelect
+                value={(cfg.operand as string) ?? ""}
+                onChange={(v) => set({ operand: v })}
+                t={t}
+              />
+            </FieldBlock>
+          ) : (
+            <FieldBlock label={t("config.operandLabel")}>
+              <Input
+                placeholder={
+                  cfg.subject === "time_of_day"
+                    ? t("config.placeholderTime")
+                    : cfg.subject === "contact_field"
+                    ? t("config.placeholderContact")
+                    : ""
+                }
+                value={(cfg.operand as string) ?? ""}
+                onChange={(e) => set({ operand: e.target.value })}
+                className="bg-muted text-foreground"
+              />
+            </FieldBlock>
+          )}
           {(cfg.subject === "contact_field" || cfg.subject === "message_content") && (
             <FieldBlock label="Value">
               <Input

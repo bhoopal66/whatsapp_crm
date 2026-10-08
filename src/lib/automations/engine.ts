@@ -6,21 +6,21 @@ import type {
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
   InteractiveReplyTriggerConfig,
-  TagTriggerConfig,
+  ChatTagTriggerConfig,
   SendMessageStepConfig,
   SendButtonsStepConfig,
   SendListStepConfig,
   SendTemplateStepConfig,
   SendWebhookStepConfig,
-  TagStepConfig,
+  SetChatTagStepConfig,
   UpdateContactFieldStepConfig,
   WaitStepConfig,
   CreateDealStepConfig,
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
-import { addContactTagIfAbsent } from '@/lib/contacts/tag-write'
-import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
+import { writeConversationChatTags } from '@/lib/chat-tags/server'
+import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
@@ -36,8 +36,6 @@ export interface AutomationContext {
   conversation_id?: string
   /** Arbitrary variables accumulated during execution. */
   vars?: Record<string, unknown>
-  /** The tag id that was added, for tag_added trigger. */
-  tag_id?: string
   /** Agent the conversation was assigned to, for conversation_assigned. */
   agent_id?: string
   /** Button / list-row id the customer tapped, for interactive_reply. */
@@ -366,6 +364,16 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
 async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string> {
   const db = supabaseAdmin()
 
+  // Contact tags are retired; an automation saved before that still
+  // carries these steps. They do nothing rather than fail the run.
+  if (RETIRED_STEP_TYPES.has(step.step_type)) {
+    console.warn('[automations] skipping retired contact-tag step', {
+      automationId: args.automation.id,
+      stepType: step.step_type,
+    })
+    return `retired step ${step.step_type} skipped`
+  }
+
   switch (step.step_type) {
     case 'send_message': {
       const cfg = step.step_config as SendMessageStepConfig
@@ -438,54 +446,66 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       return `template sent via Meta (${whatsapp_message_id})`
     }
 
-    case 'add_tag': {
-      const cfg = step.step_config as TagStepConfig
-      if (!args.contactId || !cfg.tag_id) throw new Error('add_tag needs contact + tag_id')
-      const added = await addContactTagIfAbsent(db, {
+    case 'set_chat_tag': {
+      const cfg = step.step_config as SetChatTagStepConfig
+      if (!args.contactId) throw new Error('set_chat_tag needs a contact')
+      // null clears the chat's tags; a missing or empty id is a broken
+      // config, never a silent clear.
+      if (cfg.chat_tag_id !== null && !cfg.chat_tag_id) {
+        throw new Error('set_chat_tag needs a chat tag (or null to clear)')
+      }
+      const written = await writeConversationChatTags(db, {
         accountId: args.automation.account_id,
         contactId: args.contactId,
-        tagId: cfg.tag_id,
+        next: {
+          chat_tag_id: cfg.chat_tag_id,
+          chat_sub_tag_id: cfg.chat_tag_id ? cfg.chat_sub_tag_id || null : null,
+        },
       })
-      if (!added) return `tag ${cfg.tag_id} already present`
+      if (!written.ok) {
+        throw new Error(
+          written.reason === 'not_found'
+            ? 'set_chat_tag: contact has no conversation'
+            : `set_chat_tag failed (${written.reason})${written.message ? `: ${written.message}` : ''}`,
+        )
+      }
+      const { previous, saved } = written
+      if (
+        previous.chat_tag_id === saved.chat_tag_id &&
+        previous.chat_sub_tag_id === saved.chat_sub_tag_id
+      ) {
+        return 'chat tags unchanged'
+      }
 
-      const depth = getTagChainDepth(args.context)
-      if (depth >= MAX_TAG_CHAIN_DEPTH) {
-        console.warn('[automations] tag_added chain depth limit reached', {
+      // A chat_tag_set automation that sets a tag can trigger another
+      // (or itself, A -> B -> A); the depth travels in the dispatched
+      // context and stops the chain. Not chat-tag-dispatch.ts: it
+      // imports this module.
+      const depth = getChatTagChainDepth(args.context)
+      if (depth >= MAX_CHAT_TAG_CHAIN_DEPTH) {
+        console.warn('[automations] chat_tag_set chain depth limit reached', {
           automationId: args.automation.id,
           contactId: args.contactId,
-          tagId: cfg.tag_id,
+          chatTagId: saved.chat_tag_id,
           depth,
         })
-        return `tag ${cfg.tag_id} added; tag_added dispatch skipped at depth ${depth}`
+        return `chat tags set; chat_tag_set dispatch skipped at depth ${depth}`
       }
 
       await runAutomationsForTrigger({
         accountId: args.automation.account_id,
-        triggerType: 'tag_added',
+        triggerType: 'chat_tag_set',
         contactId: args.contactId,
         context: {
-          ...args.context,
-          tag_id: cfg.tag_id,
-          vars: {
-            ...(args.context.vars ?? {}),
-            _tag_chain_depth: depth + 1,
-          },
+          conversation_id: written.conversationId,
+          chat_tag_id: saved.chat_tag_id,
+          chat_sub_tag_id: saved.chat_sub_tag_id,
+          previous_chat_tag_id: previous.chat_tag_id,
+          previous_chat_sub_tag_id: previous.chat_sub_tag_id,
+          vars: { _chat_tag_chain_depth: depth + 1 },
         },
       })
-      return `tag ${cfg.tag_id} added and tag_added dispatched`
-    }
-
-    case 'remove_tag': {
-      // See add_tag: tenant scoping relies on the runAutomationsForTrigger
-      // ownership guard, since contact_tags carries no account_id.
-      const cfg = step.step_config as TagStepConfig
-      if (!args.contactId || !cfg.tag_id) throw new Error('remove_tag needs contact + tag_id')
-      await db
-        .from('contact_tags')
-        .delete()
-        .eq('contact_id', args.contactId)
-        .eq('tag_id', cfg.tag_id)
-      return `tag ${cfg.tag_id} removed`
+      return 'chat tags set and chat_tag_set dispatched'
     }
 
     case 'assign_conversation': {
@@ -637,6 +657,22 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
 // Helpers
 // ------------------------------------------------------------
 
+/** Contact-tag steps and the condition subject that read contact tags,
+ *  retired with contact tags; stored automations may still carry them. */
+const RETIRED_STEP_TYPES: ReadonlySet<string> = new Set(['add_tag', 'remove_tag'])
+const RETIRED_CONDITION_SUBJECTS: ReadonlySet<string> = new Set(['tag_presence'])
+
+/** How many chat_tag_set dispatches deep a run may be and still dispatch. */
+export const MAX_CHAT_TAG_CHAIN_DEPTH = 3
+
+/** `vars._chat_tag_chain_depth`; absent or malformed is 0. */
+function getChatTagChainDepth(context: AutomationContext): number {
+  const raw = context.vars?._chat_tag_chain_depth
+  return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0
+    ? Math.floor(raw)
+    : 0
+}
+
 /**
  * Pick the conversation a send-type step should use. Prefer the id the
  * webhook handed us (it's the one that just got the inbound message);
@@ -678,10 +714,7 @@ export async function resolveConversationId(
     .maybeSingle()
   if (error) throw new Error(`conversation lookup failed: ${error.message}`)
   if (!data?.id) {
-    const prefix = args.triggerEvent === 'tag_added'
-      ? 'tag_added automation cannot send'
-      : 'cannot send'
-    throw new Error(`${prefix}: contact has no existing conversation`)
+    throw new Error('cannot send: contact has no existing conversation')
   }
   return data.id as string
 }
@@ -755,10 +788,21 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
     return cfg.reply_ids.includes(replyId)
   }
 
-  if (automation.trigger_type === 'tag_added') {
-    const cfg = automation.trigger_config as TagTriggerConfig
-    const tagId = ctx?.tag_id
-    return Boolean(tagId && cfg?.tag_id && cfg.tag_id === tagId)
+  // Fires when the chat ARRIVES at the configured tag, not while it
+  // merely carries it.
+  if (automation.trigger_type === 'chat_tag_set') {
+    const cfg = automation.trigger_config as ChatTagTriggerConfig
+    if (!cfg?.chat_tag_id) return false
+    return chatTagTriggerMatches(cfg, {
+      previous: {
+        chat_tag_id: ctx?.previous_chat_tag_id ?? null,
+        chat_sub_tag_id: ctx?.previous_chat_sub_tag_id ?? null,
+      },
+      current: {
+        chat_tag_id: ctx?.chat_tag_id ?? null,
+        chat_sub_tag_id: ctx?.chat_sub_tag_id ?? null,
+      },
+    })
   }
 
   return true
@@ -766,18 +810,29 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
 
 async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
+  if (RETIRED_CONDITION_SUBJECTS.has(cfg.subject)) {
+    console.warn('[automations] retired condition subject evaluates false', {
+      automationId: args.automation.id,
+      subject: cfg.subject,
+    })
+    return false
+  }
   switch (cfg.subject) {
-    case 'tag_presence': {
+    case 'chat_tag_presence': {
+      // `operand` holds the tag id, as for every other subject. True when
+      // it is the chat's main tag or its sub-tag.
       if (!args.contactId || !cfg.operand) return false
-      // contact_tags has no account_id column (its RLS keys off the parent
-      // contact), so tenant scoping here relies on the contact-ownership
-      // guard in runAutomationsForTrigger.
-      const { count } = await db
-        .from('contact_tags')
-        .select('id', { count: 'exact', head: true })
+      const { data, error } = await db
+        .from('conversations')
+        .select('chat_tag_id, chat_sub_tag_id')
+        .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
-        .eq('tag_id', cfg.operand)
-      return (count ?? 0) > 0
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle()
+      if (error) throw new Error(`chat tag lookup failed: ${error.message}`)
+      const row = data as { chat_tag_id: string | null; chat_sub_tag_id: string | null } | null
+      return row?.chat_tag_id === cfg.operand || row?.chat_sub_tag_id === cfg.operand
     }
     case 'contact_field': {
       if (!args.contactId || !cfg.operand) return false

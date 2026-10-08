@@ -592,7 +592,6 @@ export type AutomationTriggerType =
   | 'keyword_match'
   | 'new_contact_created'
   | 'conversation_assigned'
-  | 'tag_added'
   /** A chat arrived at a chat tag (migration 075): its main tag, or a
    *  main + sub-tag pair, was set by someone or something. */
   | 'chat_tag_set'
@@ -606,8 +605,6 @@ export type AutomationStepType =
   | 'send_buttons'
   | 'send_list'
   | 'send_template'
-  | 'add_tag'
-  | 'remove_tag'
   /** Set (or clear) the chat's main tag and sub-tag. */
   | 'set_chat_tag'
   | 'assign_conversation'
@@ -632,10 +629,6 @@ export interface KeywordMatchTriggerConfig {
    */
   match_type: 'exact' | 'contains' | 'word';
   case_sensitive?: boolean;
-}
-
-export interface TagTriggerConfig {
-  tag_id: string;
 }
 
 /**
@@ -664,7 +657,6 @@ export interface InteractiveReplyTriggerConfig {
 export type AutomationTriggerConfig =
   | Record<string, never>
   | KeywordMatchTriggerConfig
-  | TagTriggerConfig
   | ChatTagTriggerConfig
   | TimeBasedTriggerConfig
   | InteractiveReplyTriggerConfig
@@ -686,10 +678,6 @@ export interface SendTemplateStepConfig {
   template_name: string;
   language?: string;
   variables?: Record<string, string>;
-}
-
-export interface TagStepConfig {
-  tag_id: string;
 }
 
 /**
@@ -734,20 +722,15 @@ export interface WaitStepConfig {
 
 export type ConditionSubject =
   | 'contact_field'
-  | 'tag_presence'
-  /** Does the chat carry this main tag or sub-tag? */
+  /** Does the chat carry this main tag or sub-tag? The tag id is the
+   *  condition's `operand`. */
   | 'chat_tag_presence'
   | 'message_content'
   | 'time_of_day';
 
-/** `chat_tag_presence`: the chat's main tag or its sub-tag is this id. */
-export interface ChatTagPresenceConfig {
-  chat_tag_id: string;
-}
-
 export interface ConditionStepConfig {
   subject: ConditionSubject;
-  /** e.g. field name, tag id, substring, or "HH:mm-HH:mm" depending on subject */
+  /** e.g. field name, chat tag id, substring, or "HH:mm-HH:mm" depending on subject */
   operand?: string;
   /** For contact_field equals / message_content contains — comparison value */
   value?: string;
@@ -764,9 +747,7 @@ export type AutomationStepConfig =
   | SendButtonsStepConfig
   | SendListStepConfig
   | SendTemplateStepConfig
-  | TagStepConfig
   | SetChatTagStepConfig
-  | ChatTagPresenceConfig
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig
   | CreateDealStepConfig

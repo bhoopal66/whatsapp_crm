@@ -47,10 +47,6 @@ export const AUTOMATION_TEMPLATES: Record<TemplateSlug, AutomationTemplateDefini
           text: "Hi! 👋 Thanks for reaching out. We'll get back to you shortly.",
         },
       },
-      {
-        step_type: 'add_tag',
-        step_config: { tag_id: '' },
-      },
     ],
   },
   out_of_office: {

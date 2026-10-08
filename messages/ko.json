@@ -1056,8 +1056,7 @@
         "send_buttons": "버튼 보내기",
         "send_list": "목록 보내기",
         "send_template": "템플릿 보내기",
-        "add_tag": "태그 추가",
-        "remove_tag": "태그 제거",
+        "set_chat_tag": "채팅 태그 설정",
         "assign_conversation": "대화 담당자 지정",
         "update_contact_field": "연락처 필드 업데이트",
         "create_deal": "딜 생성",
@@ -1091,9 +1090,9 @@
           "label": "대화 담당자 지정됨",
           "hint": "상담원에게 배정되었을 때"
         },
-        "tag_added": {
-          "label": "태그 추가됨",
-          "hint": "연락처에 태그가 추가되었을 때"
+        "chat_tag_set": {
+          "label": "채팅 태그 설정됨",
+          "hint": "사람이나 자동화가 채팅에 채팅 태그(또는 태그와 하위 태그)를 지정했을 때"
         },
         "time_based": {
           "label": "시간 기반",
@@ -1120,10 +1119,14 @@
         "created": "자동화가 생성되었습니다",
         "saveFailed": "저장 실패"
       },
-      "tags": {
-        "select": "태그 선택…",
-        "placeholder": "태그 id",
-        "unknown": "{id} (알 수 없는 태그)"
+      "chatTags": {
+        "label": "채팅 태그",
+        "subLabel": "하위 태그",
+        "select": "채팅 태그 선택…",
+        "none": "태그 없음 (채팅 태그 지우기)",
+        "anySub": "모든 하위 태그",
+        "noSub": "하위 태그 없음",
+        "unknown": "{id} (알 수 없는 채팅 태그)"
       },
       "fields": {
         "name": "이름",
@@ -1165,7 +1168,6 @@
       "config": {
         "messageText": "메시지 텍스트",
         "placeholderMessageText": "안녕하세요! 문의해주셔서 감사합니다…",
-        "tagLabel": "태그",
         "modeLabel": "모드",
         "modes": {
           "round_robin": "순차 배정",
@@ -1185,7 +1187,7 @@
         },
         "subjectLabel": "대상",
         "subjects": {
-          "tag_presence": "태그 존재 여부",
+          "chat_tag_presence": "채팅 태그 있음",
           "contact_field": "연락처 필드",
           "message_content": "메시지 내용",
           "time_of_day": "시간대"
@@ -1193,7 +1195,6 @@
         "operandLabel": "피연산자",
         "placeholderTime": "HH:mm-HH:mm",
         "placeholderContact": "이름 / 이메일 / 회사",
-        "placeholderTag": "태그 id",
         "urlLabel": "URL",
         "headersLabel": "헤더",
         "placeholderHeaders": "{\"Authorization\": \"Bearer ...\"}",

@@ -14,9 +14,22 @@ const h = vi.hoisted(() => ({
     logInserts: [] as Record<string, unknown>[],
     logUpdates: [] as Record<string, unknown>[],
     // conversations lookup: rows keyed by id, each with its owner.
-    conversations: [] as { id: string; account_id: string; contact_id: string }[],
+    conversations: [] as {
+      id: string;
+      account_id: string;
+      contact_id: string;
+      chat_tag_id?: string | null;
+      chat_sub_tag_id?: string | null;
+    }[],
   },
+  writeChatTags: vi.fn(),
 }));
+
+// Rows match an eq() filter only on the keys they carry, so fixtures
+// that leave a column out keep matching every query.
+function matchesEq(row: Record<string, unknown>, filters: [string, string, unknown][]) {
+  return filters.every(([op, k, v]) => op !== "eq" || !(k in row) || row[k] === v);
+}
 
 vi.mock("./admin-client", () => {
   const { state } = h;
@@ -47,7 +60,12 @@ vi.mock("./admin-client", () => {
       }
       return { data: null, error: null };
     }
-    if (table === "automations") return { data: state.automations, error: null };
+    if (table === "automations") {
+      return {
+        data: state.automations.filter((a) => matchesEq(a, ops.filters)),
+        error: null,
+      };
+    }
     if (table === "automation_logs") {
       if (type === "insert") {
         state.logInserts.push(ops.payload as Record<string, unknown>);
@@ -59,7 +77,12 @@ vi.mock("./admin-client", () => {
       }
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
-    if (table === "automation_steps") return { data: state.steps, error: null };
+    if (table === "automation_steps") {
+      return {
+        data: state.steps.filter((st) => matchesEq(st, ops.filters)),
+        error: null,
+      };
+    }
     if (table === "conversations" && type === "select") {
       // Honour every eq() filter, like PostgREST would.
       const row = state.conversations.find((c) =>
@@ -67,7 +90,7 @@ vi.mock("./admin-client", () => {
           ([, k, v]) => (c as Record<string, unknown>)[k] === v
         )
       );
-      return { data: row ? { id: row.id } : null, error: null };
+      return { data: row ?? null, error: null };
     }
     return { data: null, error: null };
   }
@@ -109,6 +132,10 @@ vi.mock("./admin-client", () => {
   };
 });
 
+vi.mock("@/lib/chat-tags/server", () => ({
+  writeConversationChatTags: h.writeChatTags,
+}));
+
 vi.mock("./meta-send", () => ({
   engineSendText: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendTemplate: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
@@ -125,6 +152,7 @@ import type { Automation, KeywordMatchTriggerConfig } from "@/types";
 const ACCOUNT = "acct-1";
 
 beforeEach(() => {
+  h.writeChatTags.mockReset();
   h.state.owned = null;
   h.state.ownedCustomField = null;
   h.state.automations = [];
@@ -440,66 +468,388 @@ describe("triggerMatches — interactive_reply", () => {
   });
 });
 
-describe("triggerMatches — tag_added", () => {
-  function automation(tagId?: string): Automation {
-    return {
-      id: "a1",
-      account_id: ACCOUNT,
-      user_id: "u1",
-      name: "tag follow-up",
-      trigger_type: "tag_added",
-      trigger_config: tagId ? { tag_id: tagId } : {},
-      is_active: true,
-      execution_count: 0,
-      created_at: "",
-      updated_at: "",
-    };
-  }
+function chatTagAutomation(
+  id: string,
+  trigger: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    id,
+    account_id: ACCOUNT,
+    user_id: "u1",
+    name: id,
+    trigger_type: "chat_tag_set",
+    trigger_config: trigger,
+    is_active: true,
+  };
+}
 
-  it("matches only the exact tag id", () => {
-    expect(triggerMatches(automation("tag-a"), { tag_id: "tag-a" })).toBe(true);
-    expect(triggerMatches(automation("tag-a"), { tag_id: "tag-ab" })).toBe(false);
+function setChatTagStep(automationId: string, config: Record<string, unknown>) {
+  return {
+    id: `step-${automationId}`,
+    automation_id: automationId,
+    step_type: "set_chat_tag",
+    position: 0,
+    parent_step_id: null,
+    step_config: config,
+  };
+}
+
+function writeResult(
+  previous: [string | null, string | null],
+  saved: [string | null, string | null],
+) {
+  return {
+    ok: true,
+    conversationId: "conv-1",
+    contactId: "c1",
+    previous: { chat_tag_id: previous[0], chat_sub_tag_id: previous[1] },
+    saved: { chat_tag_id: saved[0], chat_sub_tag_id: saved[1] },
+  };
+}
+
+function conditionStep(config: Record<string, unknown>) {
+  return {
+    id: "cond",
+    automation_id: "a1",
+    step_type: "condition",
+    position: 0,
+    parent_step_id: null,
+    step_config: config,
+  };
+}
+
+/** The branch the run's condition step recorded (`branch=yes|no`). */
+function branchTaken(): string | undefined {
+  for (const u of h.state.logUpdates) {
+    const steps = (u.steps_executed ?? []) as { step_type: string; detail?: string }[];
+    const cond = steps.find((st) => st.step_type === "condition");
+    if (cond?.detail) return cond.detail.replace("branch=", "");
+  }
+  return undefined;
+}
+
+describe("triggerMatches — chat_tag_set", () => {
+  const onMain = chatTagAutomation("a1", {
+    chat_tag_id: "interested",
+  }) as unknown as Automation;
+  const onPair = chatTagAutomation("a1", {
+    chat_tag_id: "interested",
+    chat_sub_tag_id: "adcb",
+  }) as unknown as Automation;
+
+  it("fires when the chat arrives at the main tag", () => {
+    expect(
+      triggerMatches(onMain, {
+        previous_chat_tag_id: "new",
+        previous_chat_sub_tag_id: null,
+        chat_tag_id: "interested",
+        chat_sub_tag_id: null,
+      }),
+    ).toBe(true);
   });
 
-  it("fails closed when the config or event tag is missing", () => {
-    expect(triggerMatches(automation(), { tag_id: "tag-a" })).toBe(false);
-    expect(triggerMatches(automation("tag-a"), {})).toBe(false);
-    expect(triggerMatches(automation("tag-a"), undefined)).toBe(false);
+  it("does not fire while the chat merely stays on the tag", () => {
+    // Picking a sub-tag under the main tag the chat already carries.
+    expect(
+      triggerMatches(onMain, {
+        previous_chat_tag_id: "interested",
+        previous_chat_sub_tag_id: null,
+        chat_tag_id: "interested",
+        chat_sub_tag_id: "adcb",
+      }),
+    ).toBe(false);
+    // A re-save.
+    expect(
+      triggerMatches(onMain, {
+        previous_chat_tag_id: "interested",
+        chat_tag_id: "interested",
+      }),
+    ).toBe(false);
+  });
+
+  it("with a sub-tag, fires only on arrival at that pair", () => {
+    expect(
+      triggerMatches(onPair, {
+        previous_chat_tag_id: "interested",
+        previous_chat_sub_tag_id: null,
+        chat_tag_id: "interested",
+        chat_sub_tag_id: "adcb",
+      }),
+    ).toBe(true);
+    expect(
+      triggerMatches(onPair, {
+        previous_chat_tag_id: "new",
+        chat_tag_id: "interested",
+        chat_sub_tag_id: "other",
+      }),
+    ).toBe(false);
+  });
+
+  it("fails closed with no configured tag or no event", () => {
+    const blank = chatTagAutomation("a1", {}) as unknown as Automation;
+    expect(triggerMatches(blank, { chat_tag_id: "interested" })).toBe(false);
+    expect(triggerMatches(onMain, undefined)).toBe(false);
   });
 });
 
-describe("tag_added — conversation policy", () => {
-  it("records a clear failed step when the contact has no conversation", async () => {
+describe("set_chat_tag", () => {
+  it("writes the chat's tags and dispatches chat_tag_set once", async () => {
     h.state.owned = { id: "c1" };
-    h.state.automations = [{
-      id: "a1",
-      account_id: ACCOUNT,
-      user_id: "u1",
-      name: "tag outreach",
-      trigger_type: "tag_added",
-      trigger_config: { tag_id: "tag-a" },
-      is_active: true,
-    }];
-    h.state.steps = [{
-      id: "s1",
-      automation_id: "a1",
-      step_type: "send_message",
-      position: 0,
-      parent_step_id: null,
-      step_config: { text: "Hello" },
-    }];
+    h.state.automations = [
+      { ...automationWithUpdateStep(), id: "setter" },
+      chatTagAutomation("listener", { chat_tag_id: "interested" }),
+    ];
+    h.state.steps = [
+      setChatTagStep("setter", {
+        chat_tag_id: "interested",
+        chat_sub_tag_id: "adcb",
+      }),
+      {
+        id: "s-listener",
+        automation_id: "listener",
+        step_type: "close_conversation",
+        position: 0,
+        parent_step_id: null,
+        step_config: {},
+      },
+    ];
+    h.writeChatTags.mockResolvedValue(
+      writeResult([null, null], ["interested", "adcb"]),
+    );
 
     await runAutomationsForTrigger({
       accountId: ACCOUNT,
-      triggerType: "tag_added",
+      triggerType: "new_message_received",
       contactId: "c1",
-      context: { tag_id: "tag-a" },
+      context: {},
     });
 
-    expect(h.state.logUpdates).toContainEqual(expect.objectContaining({
-      status: "failed",
-      error_message: "tag_added automation cannot send: contact has no existing conversation",
-    }));
+    expect(h.writeChatTags).toHaveBeenCalledTimes(1);
+    expect(h.writeChatTags.mock.calls[0][1]).toEqual({
+      accountId: ACCOUNT,
+      contactId: "c1",
+      next: { chat_tag_id: "interested", chat_sub_tag_id: "adcb" },
+    });
+    // Two runs: the setter, then the chat_tag_set listener, once.
+    expect(
+      h.state.logInserts.map((l) => [l.automation_id, l.trigger_event]),
+    ).toEqual([
+      ["setter", "new_message_received"],
+      ["listener", "chat_tag_set"],
+    ]);
+  });
+
+  it("clears both columns for No tag; an unchanged chat dispatches nothing", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [{ ...automationWithUpdateStep(), id: "setter" }];
+    h.state.steps = [
+      setChatTagStep("setter", { chat_tag_id: null, chat_sub_tag_id: "stale" }),
+    ];
+    h.writeChatTags.mockResolvedValue(writeResult([null, null], [null, null]));
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(h.writeChatTags.mock.calls[0][1].next).toEqual({
+      chat_tag_id: null,
+      chat_sub_tag_id: null,
+    });
+    expect(h.state.logInserts).toHaveLength(1);
+  });
+
+  it("stops an A-to-B-to-A chain at depth 3", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.state.owned = { id: "c1" };
+    h.state.automations = [
+      chatTagAutomation("to-b", { chat_tag_id: "a" }),
+      chatTagAutomation("to-a", { chat_tag_id: "b" }),
+    ];
+    h.state.steps = [
+      setChatTagStep("to-b", { chat_tag_id: "b" }),
+      setChatTagStep("to-a", { chat_tag_id: "a" }),
+    ];
+    // Each write moves the chat to the tag asked for. Past ten writes it
+    // reports no change, so a missing cap fails here instead of hanging.
+    let current: string | null = "a";
+    h.writeChatTags.mockImplementation(
+      async (_db: unknown, a: { next: { chat_tag_id: string | null } }) => {
+        if (h.writeChatTags.mock.calls.length > 10) {
+          return writeResult([current, null], [current, null]);
+        }
+        const previous = current;
+        current = a.next.chat_tag_id;
+        return writeResult([previous, null], [current, null]);
+      },
+    );
+
+    // A person tagged the chat "a"; the route dispatched at depth 1.
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "chat_tag_set",
+      contactId: "c1",
+      context: {
+        conversation_id: "conv-1",
+        previous_chat_tag_id: null,
+        chat_tag_id: "a",
+        vars: { _chat_tag_chain_depth: 1 },
+      },
+    });
+
+    // Runs at depth 1, 2 and 3 each write; the third does not dispatch.
+    expect(h.writeChatTags).toHaveBeenCalledTimes(3);
+    expect(h.state.logInserts.map((l) => l.automation_id)).toEqual([
+      "to-b",
+      "to-a",
+      "to-b",
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it("records a failed step when the contact has no chat", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [{ ...automationWithUpdateStep(), id: "setter" }];
+    h.state.steps = [setChatTagStep("setter", { chat_tag_id: "interested" })];
+    h.writeChatTags.mockResolvedValue({ ok: false, reason: "not_found" });
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "set_chat_tag: contact has no conversation",
+      }),
+    );
+  });
+});
+
+describe("retired contact-tag members", () => {
+  it("logs a legacy add_tag step as a no-op and runs the rest", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      {
+        id: "s0",
+        automation_id: "a1",
+        step_type: "add_tag",
+        position: 0,
+        parent_step_id: null,
+        step_config: { tag_id: "tag-a" },
+      },
+      { ...updateStep(), position: 1 },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    // No contact-tag write, the next step still ran, the run succeeded.
+    expect(h.state.fromCalls).not.toContain("contact_tags");
+    expect(h.state.updateCalls).toHaveLength(1);
+    const withStatus = h.state.logUpdates.filter((u) => "status" in u);
+    expect(withStatus.at(-1)).toMatchObject({ status: "success" });
+    expect(warn).toHaveBeenCalledWith(
+      "[automations] skipping retired contact-tag step",
+      expect.objectContaining({ stepType: "add_tag" }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("evaluates a legacy tag_presence condition as false", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      conditionStep({ subject: "tag_presence", operand: "tag-a" }),
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(h.state.fromCalls).not.toContain("contact_tags");
+    expect(branchTaken()).toBe("no");
+    vi.restoreAllMocks();
+  });
+});
+
+describe("condition — chat_tag_presence", () => {
+  async function evaluate(chat: {
+    chat_tag_id: string | null;
+    chat_sub_tag_id: string | null;
+  }) {
+    h.state.owned = { id: "c1" };
+    h.state.conversations = [
+      { id: "conv-1", account_id: ACCOUNT, contact_id: "c1", ...chat },
+    ];
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      conditionStep({ subject: "chat_tag_presence", operand: "interested" }),
+    ];
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+    return branchTaken();
+  }
+
+  it("is true when the tag is the chat's main tag", async () => {
+    await expect(
+      evaluate({ chat_tag_id: "interested", chat_sub_tag_id: null }),
+    ).resolves.toBe("yes");
+  });
+
+  it("is true when the tag is the chat's sub-tag", async () => {
+    await expect(
+      evaluate({ chat_tag_id: "lead", chat_sub_tag_id: "interested" }),
+    ).resolves.toBe("yes");
+  });
+
+  it("is false when the chat carries neither", async () => {
+    await expect(
+      evaluate({ chat_tag_id: "lead", chat_sub_tag_id: "cold" }),
+    ).resolves.toBe("no");
+  });
+
+  it("is false for another account's chat", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.conversations = [
+      {
+        id: "conv-x",
+        account_id: "acct-other",
+        contact_id: "c1",
+        chat_tag_id: "interested",
+        chat_sub_tag_id: null,
+      },
+    ];
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      conditionStep({ subject: "chat_tag_presence", operand: "interested" }),
+    ];
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+    expect(branchTaken()).toBe("no");
   });
 });
 

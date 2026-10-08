@@ -27,10 +27,6 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     label: 'Conversation Assigned',
     pillClass: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300',
   },
-  tag_added: {
-    label: 'Tag Added',
-    pillClass: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
-  },
   chat_tag_set: {
     label: 'Chat Tag Set',
     pillClass: 'border-amber-500/30 bg-amber-500/10 text-amber-300',

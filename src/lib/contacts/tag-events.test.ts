@@ -13,11 +13,7 @@ vi.mock('@/lib/automations/engine', () => ({
   runAutomationsForTrigger: mocks.dispatch,
 }));
 
-import {
-  addContactTagAndDispatch,
-  getTagChainDepth,
-  MAX_TAG_CHAIN_DEPTH,
-} from './tag-events';
+import { addContactTagAndDispatch } from './tag-events';
 
 const base = {
   db: {} as never,
@@ -29,31 +25,27 @@ const base = {
 beforeEach(() => {
   mocks.add.mockReset();
   mocks.dispatch.mockReset();
-  mocks.dispatch.mockResolvedValue(undefined);
 });
 
 describe('addContactTagAndDispatch', () => {
-  it('dispatches once for a newly inserted tag and propagates depth', async () => {
+  it('writes a new tag without dispatching any automation (tag_added is retired)', async () => {
     mocks.add.mockResolvedValue(true);
 
     const result = await addContactTagAndDispatch({
       ...base,
-      context: { vars: { source: 'flow', _tag_chain_depth: 1 } },
+      context: { vars: { source: 'flow' } },
     });
 
-    expect(result).toEqual({ added: true, dispatched: true });
-    expect(mocks.dispatch).toHaveBeenCalledWith({
+    expect(result).toEqual({ added: true, dispatched: false });
+    expect(mocks.add).toHaveBeenCalledWith(base.db, {
       accountId: 'account-1',
-      triggerType: 'tag_added',
       contactId: 'contact-1',
-      context: {
-        tag_id: 'tag-1',
-        vars: { source: 'flow', _tag_chain_depth: 2 },
-      },
+      tagId: 'tag-1',
     });
+    expect(mocks.dispatch).not.toHaveBeenCalled();
   });
 
-  it('does not dispatch when the tag already exists', async () => {
+  it('reports a tag that already exists as a duplicate', async () => {
     mocks.add.mockResolvedValue(false);
 
     await expect(addContactTagAndDispatch(base)).resolves.toEqual({
@@ -62,47 +54,5 @@ describe('addContactTagAndDispatch', () => {
       reason: 'duplicate',
     });
     expect(mocks.dispatch).not.toHaveBeenCalled();
-  });
-
-  it('adds the tag but cuts a chain at the configured depth limit', async () => {
-    mocks.add.mockResolvedValue(true);
-
-    await expect(
-      addContactTagAndDispatch({
-        ...base,
-        context: { vars: { _tag_chain_depth: MAX_TAG_CHAIN_DEPTH } },
-      })
-    ).resolves.toEqual({
-      added: true,
-      dispatched: false,
-      reason: 'max_depth',
-    });
-    expect(mocks.dispatch).not.toHaveBeenCalled();
-  });
-
-  it('cuts an A-to-B-to-A tag chain before it can loop forever', async () => {
-    mocks.add.mockResolvedValue(true);
-    mocks.dispatch.mockImplementation(async (event) => {
-      const nextTag = event.context.tag_id === 'tag-a' ? 'tag-b' : 'tag-a';
-      await addContactTagAndDispatch({
-        ...base,
-        tagId: nextTag,
-        context: event.context,
-      });
-    });
-
-    await addContactTagAndDispatch({ ...base, tagId: 'tag-a' });
-
-    expect(mocks.dispatch).toHaveBeenCalledTimes(MAX_TAG_CHAIN_DEPTH);
-    expect(mocks.add).toHaveBeenCalledTimes(MAX_TAG_CHAIN_DEPTH + 1);
-  });
-});
-
-describe('getTagChainDepth', () => {
-  it('normalizes missing, invalid and fractional values', () => {
-    expect(getTagChainDepth()).toBe(0);
-    expect(getTagChainDepth({ vars: { _tag_chain_depth: '3' } })).toBe(0);
-    expect(getTagChainDepth({ vars: { _tag_chain_depth: -1 } })).toBe(0);
-    expect(getTagChainDepth({ vars: { _tag_chain_depth: 2.8 } })).toBe(2);
   });
 });

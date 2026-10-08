@@ -1056,8 +1056,7 @@
         "send_buttons": "Send Buttons",
         "send_list": "Send List",
         "send_template": "Send Template",
-        "add_tag": "Add Tag",
-        "remove_tag": "Remove Tag",
+        "set_chat_tag": "Set Chat Tag",
         "assign_conversation": "Assign Conversation",
         "update_contact_field": "Update Contact Field",
         "create_deal": "Create Deal",
@@ -1091,9 +1090,9 @@
           "label": "Conversation Assigned",
           "hint": "When assigned to an agent"
         },
-        "tag_added": {
-          "label": "Tag Added",
-          "hint": "When a tag is added to a contact"
+        "chat_tag_set": {
+          "label": "Chat Tag Set",
+          "hint": "When a chat is given a chat tag (or a tag and sub-tag), by a person or an automation"
         },
         "time_based": {
           "label": "Time-Based",
@@ -1120,10 +1119,14 @@
         "created": "Automation created",
         "saveFailed": "Save failed"
       },
-      "tags": {
-        "select": "Select a tag…",
-        "placeholder": "Tag id",
-        "unknown": "{id} (unknown tag)"
+      "chatTags": {
+        "label": "Chat tag",
+        "subLabel": "Sub-tag",
+        "select": "Select a chat tag…",
+        "none": "No tag (clear the chat's tags)",
+        "anySub": "Any sub-tag",
+        "noSub": "No sub-tag",
+        "unknown": "{id} (unknown chat tag)"
       },
       "fields": {
         "name": "Name",
@@ -1165,7 +1168,6 @@
       "config": {
         "messageText": "Message text",
         "placeholderMessageText": "Hi! Thanks for reaching out…",
-        "tagLabel": "Tag",
         "modeLabel": "Mode",
         "modes": {
           "round_robin": "Round-robin",
@@ -1185,7 +1187,7 @@
         },
         "subjectLabel": "Subject",
         "subjects": {
-          "tag_presence": "Tag presence",
+          "chat_tag_presence": "Has chat tag",
           "contact_field": "Contact field",
           "message_content": "Message content",
           "time_of_day": "Time of day"
@@ -1193,7 +1195,6 @@
         "operandLabel": "Operand",
         "placeholderTime": "HH:mm-HH:mm",
         "placeholderContact": "name / email / company",
-        "placeholderTag": "tag id",
         "urlLabel": "URL",
         "headersLabel": "Headers",
         "placeholderHeaders": "{\"Authorization\": \"Bearer ...\"}",

@@ -1,31 +1,30 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import {
-  runAutomationsForTrigger,
-  type AutomationContext,
-} from '@/lib/automations/engine';
+import type { AutomationContext } from '@/lib/automations/engine';
 import { addContactTagIfAbsent } from './tag-write';
-import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from './tag-chain';
-
-export { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from './tag-chain';
 
 interface AddContactTagAndDispatchInput {
   db: SupabaseClient;
   accountId: string;
   contactId: string;
   tagId: string;
+  /** Unused since the `tag_added` trigger was retired; kept so callers
+   *  that pass their run's context keep compiling. */
   context?: AutomationContext;
 }
 
 export interface AddContactTagResult {
   added: boolean;
-  dispatched: boolean;
-  reason?: 'duplicate' | 'max_depth';
+  /** Always false: contact tags no longer trigger automations (chat
+   *  tags do, through `chat_tag_set`). */
+  dispatched: false;
+  reason?: 'duplicate';
 }
 
 /**
- * Central server-side tag writer. It dispatches tag_added only for a
- * newly-created join and caps chained tag automations to avoid loops.
+ * Central server-side contact tag writer. It used to dispatch the
+ * `tag_added` automation trigger; that trigger was retired with contact
+ * tags, so it now only writes the join row.
  */
 export async function addContactTagAndDispatch(
   input: AddContactTagAndDispatchInput
@@ -37,31 +36,5 @@ export async function addContactTagAndDispatch(
   });
 
   if (!added) return { added: false, dispatched: false, reason: 'duplicate' };
-
-  const depth = getTagChainDepth(input.context);
-  if (depth >= MAX_TAG_CHAIN_DEPTH) {
-    console.warn('[automations] tag_added chain depth limit reached', {
-      accountId: input.accountId,
-      contactId: input.contactId,
-      tagId: input.tagId,
-      depth,
-    });
-    return { added: true, dispatched: false, reason: 'max_depth' };
-  }
-
-  await runAutomationsForTrigger({
-    accountId: input.accountId,
-    triggerType: 'tag_added',
-    contactId: input.contactId,
-    context: {
-      ...input.context,
-      tag_id: input.tagId,
-      vars: {
-        ...(input.context?.vars ?? {}),
-        _tag_chain_depth: depth + 1,
-      },
-    },
-  });
-
-  return { added: true, dispatched: true };
+  return { added: true, dispatched: false };
 }
