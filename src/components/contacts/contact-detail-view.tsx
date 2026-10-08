@@ -63,6 +63,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
 import {
+  chatTagsByContact,
   contactChatTagChip,
   type ChatTagIds,
 } from '@/lib/contacts/chat-tag-column';
@@ -80,6 +81,23 @@ interface ContactDetailViewProps {
 }
 
 /** Mirrors `describeChannel` server-side, minus the encryption import. */
+interface ContactThread {
+  pin: string | null;
+  home: string | null;
+  /** The last message that reached WhatsApp; null: none. */
+  last: { at: string; byCustomer: boolean } | null;
+  /** The chat tag (migration 075), picked as the contacts list picks
+   *  it; null: no thread. */
+  chatTags: ChatTagIds | null;
+}
+
+const NO_THREAD: ContactThread = {
+  pin: null,
+  home: null,
+  last: null,
+  chatTags: null,
+};
+
 function channelName(c: AccountNumber): string {
   const name = c.label || c.waba_id || c.phone_number_id;
   return `${name} (${c.provider === 'meta' ? 'Cloud API' : 'Whapi'})`;
@@ -137,27 +155,32 @@ export function ContactDetailView({
   const channels = useAccountNumbers(open);
   const myNumberIds = useMyNumberIds();
   // The thread's pin (migration 061) and its own number, in the order
-  // the server prefers them for a provider-pinned send.
-  const [thread, setThread] = useState<{
-    pin: string | null;
-    home: string | null;
-    /** The last message that reached WhatsApp; null: none. */
-    last: { at: string; byCustomer: boolean } | null;
-    /** The chat tag on the thread (migration 075); null: no thread. */
-    chatTags: ChatTagIds | null;
-  }>({ pin: null, home: null, last: null, chatTags: null });
+  // the server prefers them for a provider-pinned send. Stored with the
+  // contact it was read for and only believed for that contact: opening
+  // another contact would otherwise show the previous one's chat tag
+  // (and predict its number) until the new read lands.
+  const [loadedThread, setLoadedThread] = useState<{
+    contactId: string;
+    thread: ContactThread;
+  } | null>(null);
+  const thread =
+    loadedThread && loadedThread.contactId === contactId
+      ? loadedThread.thread
+      : NO_THREAD;
 
   useEffect(() => {
     if (!contactId || !open) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      // Oldest first. The send-number fields come from the oldest
+      // thread, as before; the chat tag from the first thread that
+      // carries one, which is what the contacts list shows and filters on.
+      const { data: rows } = await supabase
         .from('conversations')
-        .select('id, channel_id, send_channel_id, chat_tag_id, chat_sub_tag_id')
+        .select('id, contact_id, channel_id, send_channel_id, chat_tag_id, chat_sub_tag_id')
         .eq('contact_id', contactId)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: true });
+      const data = rows?.[0] ?? null;
       // Whether a message from here would start a chat (Team activity,
       // migration 068) turns on the last message that went out or came
       // in, and on who sent it.
@@ -172,21 +195,23 @@ export function ContactDetailView({
             .maybeSingle()
         : { data: null };
       if (!cancelled) {
-        setThread({
-          pin: (data?.send_channel_id as string | null) ?? null,
-          home: (data?.channel_id as string | null) ?? null,
-          last: lastRow?.created_at
-            ? {
-                at: lastRow.created_at as string,
-                byCustomer: lastRow.sender_type === 'customer',
-              }
-            : null,
-          chatTags: data
-            ? {
-                chat_tag_id: (data.chat_tag_id as string | null) ?? null,
-                chat_sub_tag_id: (data.chat_sub_tag_id as string | null) ?? null,
-              }
-            : null,
+        setLoadedThread({
+          contactId,
+          thread: {
+            pin: (data?.send_channel_id as string | null) ?? null,
+            home: (data?.channel_id as string | null) ?? null,
+            last: lastRow?.created_at
+              ? {
+                  at: lastRow.created_at as string,
+                  byCustomer: lastRow.sender_type === 'customer',
+                }
+              : null,
+            chatTags: data
+              ? (chatTagsByContact(
+                  rows as (ChatTagIds & { contact_id: string })[]
+                ).get(contactId) ?? null)
+              : null,
+          },
         });
       }
     })();

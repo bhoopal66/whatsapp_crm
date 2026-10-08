@@ -417,7 +417,7 @@
       "addFirstContact": "Add your first contact",
       "unnamed": "Unnamed",
       "optedOut": "Opted out",
-      "optedOutHint": "Asked not to be messaged. Broadcasts skip this customer.",
+      "optedOutHint": "Opted out {date}. Asked not to be messaged. Broadcasts skip this customer.",
       "editAction": "Edit",
       "deleteAction": "Delete",
       "showingPagination": "Showing {start}-{end} of {total}",

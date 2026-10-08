@@ -417,7 +417,7 @@
       "addFirstContact": "첫 연락처 추가하기",
       "unnamed": "이름 없음",
       "optedOut": "수신 거부",
-      "optedOutHint": "메시지 수신을 원하지 않는다고 요청했습니다. 브로드캐스트에서 이 고객은 제외됩니다.",
+      "optedOutHint": "수신 거부 {date}. 메시지 수신을 원하지 않는다고 요청했습니다. 브로드캐스트에서 이 고객은 제외됩니다.",
       "editAction": "수정",
       "deleteAction": "삭제",
       "showingPagination": "전체 {total}개 중 {start}-{end}",

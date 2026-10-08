@@ -56,7 +56,7 @@ import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChatTags } from '@/hooks/use-chat-tags';
@@ -67,7 +67,9 @@ import {
   chatTagsByContact,
   chunkIds,
   contactChatTagChip,
+  mapWithConcurrency,
   pageOfContactIds,
+  readAllPages,
   type ChatTagIds,
 } from '@/lib/contacts/chat-tag-column';
 
@@ -78,6 +80,8 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 /** Rows per conversations read when resolving the chat-tag filter. */
 const FILTER_PAGE_SIZE = 1000;
+/** `contacts` requests (≤200 ids each) in flight at once for the filter. */
+const FILTER_CHUNK_CONCURRENCY = 4;
 const NO_CHAT_TAGS: readonly string[] = [];
 
 interface ContactRow extends Contact {
@@ -98,6 +102,7 @@ interface ContactRow extends Contact {
  */
 export function ContactsPageInner({ teamView = false }: { teamView?: boolean } = {}) {
   const t = useTranslations('Contacts.page');
+  const locale = useLocale();
   const { user, accountRole, profileLoading } = useAuth();
 
   // `null` = no extra narrowing, leaving RLS to decide — what the team
@@ -159,6 +164,15 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   // earlier request resolve last and render stale rows.
   const fetchSeq = useRef(0);
 
+  // The chat-tag filter's matches — every contact id (and created_at)
+  // under the current search, tags and owner narrowing — so paging only
+  // slices them. Keyed on those inputs; cleared after any change to the
+  // contacts themselves (see `refreshContacts`).
+  const filterMatches = useRef<{
+    key: string;
+    rows: { id: string; created_at: string }[];
+  } | null>(null);
+
   const fetchContacts = useCallback(async () => {
     const seq = ++fetchSeq.current;
     setLoading(true);
@@ -186,40 +200,54 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       // read in pages; (2) those contacts under the same search and
       // owner narrowing as the plain path, ≤200 ids per `.in()`;
       // (3) the page, sorted like the plain path, read in full.
-      const matched = new Set<string>();
-      for (let offset = 0; ; offset += FILTER_PAGE_SIZE) {
-        const { data, error } = await supabase
-          .from('conversations')
-          .select('id, contact_id')
-          .or(filterGroup)
-          .order('id')
-          .range(offset, offset + FILTER_PAGE_SIZE - 1);
+      // (1) and (2) are cached per filter, so turning a page re-reads
+      // only (3) instead of every match (~700ms a round trip).
+      const filterKey = JSON.stringify([term, chatTagFilterKey, personalOnlyUserId]);
+      let matchedRows = filterMatches.current?.key === filterKey
+        ? filterMatches.current.rows
+        : null;
+      if (!matchedRows) {
+        const conversations = await readAllPages<{ contact_id: string | null }>(
+          (rangeFrom, rangeTo) =>
+            supabase
+              .from('conversations')
+              .select('id, contact_id')
+              .or(filterGroup)
+              .order('id')
+              .range(rangeFrom, rangeTo),
+          FILTER_PAGE_SIZE
+        );
         if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-        if (error) return failed();
-        const rows = (data ?? []) as { contact_id: string | null }[];
-        for (const row of rows) if (row.contact_id) matched.add(row.contact_id);
-        if (rows.length < FILTER_PAGE_SIZE) break;
-      }
+        if (conversations.error) return failed();
+        const matched = new Set<string>();
+        for (const row of conversations.data) {
+          if (row.contact_id) matched.add(row.contact_id);
+        }
 
-      const results = await Promise.all(
-        chunkIds([...matched]).map((ids) => {
-          let query = supabase
-            .from('contacts')
-            .select('id, created_at')
-            .in('id', ids);
-          if (personalOnlyUserId) query = query.eq('user_id', personalOnlyUserId);
-          if (like) {
-            query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+        const results = await mapWithConcurrency(
+          chunkIds([...matched]),
+          FILTER_CHUNK_CONCURRENCY,
+          (ids) => {
+            let query = supabase
+              .from('contacts')
+              .select('id, created_at')
+              .in('id', ids);
+            if (personalOnlyUserId) query = query.eq('user_id', personalOnlyUserId);
+            if (like) {
+              query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+            }
+            return query;
           }
-          return query;
-        })
-      );
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (results.some((r) => r.error)) return failed();
-      const { ids: pageIds, total } = pageOfContactIds(
-        results.flatMap(
+        );
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (results.some((r) => r.error)) return failed();
+        matchedRows = results.flatMap(
           (r) => (r.data ?? []) as { id: string; created_at: string }[]
-        ),
+        );
+        filterMatches.current = { key: filterKey, rows: matchedRows };
+      }
+      const { ids: pageIds, total } = pageOfContactIds(
+        matchedRows,
         from,
         PAGE_SIZE
       );
@@ -295,7 +323,15 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
     // ids are): the rows keep raw ids and `chatTagTree` resolves them at
     // render, so loading or renaming a tag re-renders without another
     // round trip (~700ms through the tunnel).
-  }, [supabase, page, debouncedSearch, chatTagFilterIds, personalOnlyUserId, t]);
+  }, [supabase, page, debouncedSearch, chatTagFilterIds, chatTagFilterKey, personalOnlyUserId, t]);
+
+  // After a create, edit, delete or import the cached filter matches may
+  // be wrong (a new contact, a changed name the search matches, a
+  // deleted row), so read them again.
+  const refreshContacts = useCallback(() => {
+    filterMatches.current = null;
+    return fetchContacts();
+  }, [fetchContacts]);
 
   // A pending search debounce must not fire into an unmounted page.
   useEffect(
@@ -369,7 +405,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       toast.error(t('toastFailedDelete'));
     } else {
       toast.success(t('toastDeleted'));
-      fetchContacts();
+      refreshContacts();
     }
 
     setDeleting(false);
@@ -414,7 +450,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
     } else {
       toast.success(t('toastBulkDeleted', { count: ids.length }));
       setSelected(new Set());
-      fetchContacts();
+      refreshContacts();
     }
 
     setDeleting(false);
@@ -716,7 +752,15 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
                       {contact.opted_out_at && (
-                        <OptedOutBadge label={t('optedOut')} hint={t('optedOutHint')} />
+                        <OptedOutBadge
+                          label={t('optedOut')}
+                          hint={t('optedOutHint', {
+                            date: new Date(contact.opted_out_at).toLocaleDateString(
+                              locale,
+                              { month: 'short', day: 'numeric', year: 'numeric' }
+                            ),
+                          })}
+                        />
                       )}
                     </div>
                   </TableCell>
@@ -831,7 +875,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         open={formOpen}
         onOpenChange={setFormOpen}
         contact={editContact}
-        onSaved={fetchContacts}
+        onSaved={refreshContacts}
         onViewExisting={(id) => {
           setFormOpen(false);
           openDetail(id);
@@ -843,14 +887,14 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         open={detailOpen}
         onOpenChange={setDetailOpen}
         contactId={detailContactId}
-        onUpdated={fetchContacts}
+        onUpdated={refreshContacts}
       />
 
       {/* Import Modal */}
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImported={fetchContacts}
+        onImported={refreshContacts}
       />
 
       {/* Custom Fields Manager (admin+) */}
@@ -977,13 +1021,20 @@ function ChatTagChip({
   );
 }
 
-/** Set when the customer asked not to be messaged (migration 076). */
+/** Set when the customer asked not to be messaged (migration 076).
+ *  Focusable, and named by the full hint (date included), so a keyboard
+ *  or screen-reader user gets what the tooltip says on hover. */
 function OptedOutBadge({ label, hint }: { label: string; hint: string }) {
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <span className="border-destructive/40 bg-destructive/10 text-destructive inline-flex shrink-0 items-center rounded-full border px-1.5 text-[10px] leading-4 font-medium" />
+          <span
+            role="img"
+            tabIndex={0}
+            aria-label={hint}
+            className="border-destructive/40 bg-destructive/10 text-destructive focus-visible:ring-ring/50 inline-flex shrink-0 items-center rounded-full border px-1.5 text-[10px] leading-4 font-medium outline-none focus-visible:ring-2"
+          />
         }
       >
         {label}

@@ -35,11 +35,73 @@ export function chunkIds<T>(
   return chunks;
 }
 
+/** One page of a PostgREST read: rows `from`..`to`, inclusive. */
+export type PageFetcher<T> = (
+  from: number,
+  to: number
+) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+
+/**
+ * Read every row of a query, `pageSize` at a time, in the query's own
+ * (stable) order. Stops on an EMPTY page, never a short one: PostgREST
+ * caps each response at its `max-rows`, so an install whose cap is
+ * below `pageSize` answers every page short, and stopping there would
+ * silently drop all but the first page (the bug `fetchAllPages` in
+ * `use-broadcast-sending.ts` documents). The next page starts after the
+ * rows actually received, so a capped page leaves no gap.
+ */
+export async function readAllPages<T>(
+  fetchPage: PageFetcher<T>,
+  pageSize: number
+): Promise<
+  { data: T[]; error: null } | { data: null; error: { message: string } }
+> {
+  if (pageSize < 1) throw new RangeError('page size must be at least 1');
+  const rows: T[] = [];
+  for (;;) {
+    const { data, error } = await fetchPage(
+      rows.length,
+      rows.length + pageSize - 1
+    );
+    if (error) return { data: null, error };
+    if (!data || data.length === 0) return { data: rows, error: null };
+    rows.push(...data);
+  }
+}
+
+/**
+ * `fn` over every item with at most `limit` calls in flight, results in
+ * the items' order. The chat-tag filter reads its contacts 200 ids per
+ * request; firing them all at once through the tunnel queues dozens of
+ * requests behind each other and starves the rest of the page.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => PromiseLike<R>
+): Promise<R[]> {
+  if (limit < 1) throw new RangeError('concurrency limit must be at least 1');
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  );
+  return results;
+}
+
 /**
  * The chat tag ids per contact. A contact has one conversation, but if
  * an old install left two, the first one carrying a tag speaks for it —
  * the same answer the filter gives, which matches a contact when ANY of
- * its conversations matches. `rows` must be in the order to prefer.
+ * its conversations matches. `rows` must be in the order to prefer —
+ * oldest first (`created_at` ascending), in the list and in the
+ * contact's detail view alike, so the two always show the same tag.
  */
 export function chatTagsByContact(
   rows: readonly (ChatTagIds & { contact_id: string })[]
