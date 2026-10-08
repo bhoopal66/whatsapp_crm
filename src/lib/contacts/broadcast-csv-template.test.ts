@@ -28,13 +28,11 @@ describe('broadcast CSV template', () => {
         phone: '+971501234567',
         name: 'Ahmed Al Mansoori',
         company: 'Al Safa Restaurant',
-        tagNames: [],
       },
       {
         phone: '+971559876543',
         name: 'Sara Khan',
         company: 'Spice Route Kitchen, LLC',
-        tagNames: [],
       },
     ]);
     // Every column is offered as a variable source in the personalize

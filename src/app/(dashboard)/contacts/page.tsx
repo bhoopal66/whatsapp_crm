@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag } from '@/types';
+import type { Contact } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -58,25 +58,33 @@ import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useChatTags } from '@/hooks/use-chat-tags';
+import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
+import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
 import {
-  cachedQuery,
-  invalidateCached,
-  REFERENCE_CACHE_TTL_MS,
-  TAGS_CACHE_KEY,
-} from '@/lib/client-cache';
+  chatTagFilterChip,
+  chatTagsByContact,
+  chunkIds,
+  contactChatTagChip,
+  pageOfContactIds,
+  type ChatTagIds,
+} from '@/lib/contacts/chat-tag-column';
 
 const PAGE_SIZE = 25;
 /** Typing pause before the search box re-queries. Every keystroke used
  *  to be a round trip (~700ms through the tunnel), racing each other. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-interface ContactWithTags extends Contact {
-  /** Tag ids as stored on the row. Kept raw so that loading the tag
-   *  DEFINITIONS (names/colours) does not have to re-run the contact
-   *  query — see the note on `fetchContacts` deps below. */
-  tagIds: string[];
-  /** Resolved definitions, derived from `tagIds` + `tagsMap`. */
-  tags?: Tag[];
+/** Rows per conversations read when resolving the chat-tag filter. */
+const FILTER_PAGE_SIZE = 1000;
+const NO_CHAT_TAGS: readonly string[] = [];
+
+interface ContactRow extends Contact {
+  /** The chat tag ids on the contact's conversation, kept raw so that
+   *  loading the tag DEFINITIONS (names/colours) does not re-run the
+   *  contact query — they are resolved against the tree at render. */
+  chatTags: ChatTagIds | null;
 }
 
 /**
@@ -100,7 +108,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
 
-  const [contacts, setContacts] = useState<ContactWithTags[]>([]);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // What the query actually uses: `search` after the typing pause.
@@ -108,13 +116,14 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
-  // Tag filter — contacts shown must have ANY of these tags (OR).
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // Chat-tag filter — contacts shown have a conversation carrying ANY
+  // of these main or sub tags (OR), as in the inbox.
+  const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
+  const { tree: chatTagTree } = useChatTags();
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
-  const [editContactTags, setEditContactTags] = useState<ContactTag[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailContactId, setDetailContactId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -127,38 +136,28 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
-  // All tags for display
-  const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
+  // Only ids still in the tree count: a tag another admin deleted
+  // meanwhile would otherwise keep filtering on an id no chat carries,
+  // with no chip left to clear it. Keyed on the joined ids so a tag
+  // reload with the same selection does not refetch the page.
+  const chatTagFilterKey = useMemo(() => {
+    const known = new Set<string>();
+    for (const main of chatTagTree.mains) {
+      known.add(main.id);
+      for (const sub of main.subs) known.add(sub.id);
+    }
+    return selectedChatTagIds.filter((id) => known.has(id)).join(',');
+  }, [selectedChatTagIds, chatTagTree]);
+  const chatTagFilterIds = useMemo<readonly string[]>(
+    () => (chatTagFilterKey ? chatTagFilterKey.split(',') : NO_CHAT_TAGS),
+    [chatTagFilterKey]
+  );
 
   // Guards against out-of-order fetch responses: each fetchContacts run
   // claims a sequence number and only the latest is allowed to commit its
   // results. Without this, rapidly toggling tag filters could let a slower
   // earlier request resolve last and render stale rows.
   const fetchSeq = useRef(0);
-
-  const fetchTags = useCallback(async () => {
-    // Shared with the inbox's tag filter (same key, same loader shape):
-    // the tag list changes rarely and every writer invalidates it.
-    const data = await cachedQuery(
-      TAGS_CACHE_KEY,
-      REFERENCE_CACHE_TTL_MS,
-      async () => {
-        const { data } = await supabase.from('tags').select('*').order('name');
-        return (data as Tag[] | null) ?? [];
-      }
-    ).catch(() => null);
-    if (data) {
-      const map: Record<string, Tag> = {};
-      data.forEach((t) => (map[t.id] = t));
-      setTagsMap(map);
-      // Drop any filter selections whose tag no longer exists (e.g. a tag
-      // deleted elsewhere) so it can't linger invisibly in the query.
-      setSelectedTagIds((prev) => {
-        const pruned = prev.filter((id) => map[id]);
-        return pruned.length === prev.length ? prev : pruned;
-      });
-    }
-  }, [supabase]);
 
   const fetchContacts = useCallback(async () => {
     const seq = ++fetchSeq.current;
@@ -171,43 +170,82 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
     const term = debouncedSearch.trim();
+    const like = term ? `%${term}%` : null;
+    const failed = () => {
+      toast.error(t('toastFailedLoad'));
+      setLoading(false);
+    };
 
     let contactRows: Contact[];
     let count: number;
-    // Tag ids per contact. The plain path embeds them in the same
-    // request; the RPC path returns bare contact rows, so it still asks
-    // contact_tags separately below.
-    let tagsByContact: Record<string, string[]> | null = null;
 
-    if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
-      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
-        p_tag_ids: selectedTagIds,
-        p_search: term || null,
-        p_limit: PAGE_SIZE,
-        p_offset: from,
-        // Same narrowing as the plain path below — applied here too so
-        // the list doesn't change shape the moment a tag is picked.
-        p_owner_id: personalOnlyUserId,
-      });
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
+    const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
+    if (filterGroup) {
+      // Chat-tag filter active. The tags live on conversations, so:
+      // (1) the contact ids whose conversation carries a picked tag,
+      // read in pages; (2) those contacts under the same search and
+      // owner narrowing as the plain path, ≤200 ids per `.in()`;
+      // (3) the page, sorted like the plain path, read in full.
+      const matched = new Set<string>();
+      for (let offset = 0; ; offset += FILTER_PAGE_SIZE) {
+        const { data, error } = await supabase
+          .from('conversations')
+          .select('id, contact_id')
+          .or(filterGroup)
+          .order('id')
+          .range(offset, offset + FILTER_PAGE_SIZE - 1);
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) return failed();
+        const rows = (data ?? []) as { contact_id: string | null }[];
+        for (const row of rows) if (row.contact_id) matched.add(row.contact_id);
+        if (rows.length < FILTER_PAGE_SIZE) break;
       }
-      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      contactRows = rows.map((r) => r.contact);
-      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
+
+      const results = await Promise.all(
+        chunkIds([...matched]).map((ids) => {
+          let query = supabase
+            .from('contacts')
+            .select('id, created_at')
+            .in('id', ids);
+          if (personalOnlyUserId) query = query.eq('user_id', personalOnlyUserId);
+          if (like) {
+            query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+          }
+          return query;
+        })
+      );
+      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+      if (results.some((r) => r.error)) return failed();
+      const { ids: pageIds, total } = pageOfContactIds(
+        results.flatMap(
+          (r) => (r.data ?? []) as { id: string; created_at: string }[]
+        ),
+        from,
+        PAGE_SIZE
+      );
+
+      contactRows = [];
+      if (pageIds.length > 0) {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('*')
+          .in('id', pageIds);
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) return failed();
+        const byId = new Map(
+          ((data ?? []) as Contact[]).map((c) => [c.id, c])
+        );
+        contactRows = pageIds
+          .map((id) => byId.get(id))
+          .filter((c): c is Contact => !!c);
+      }
+      count = total;
     } else {
       // `count: 'exact'` stays: the subtitle and the pager show the
       // precise total.
       let query = supabase
         .from('contacts')
-        .select('*, contact_tags(tag_id)', { count: 'exact' })
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -215,24 +253,14 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         query = query.eq('user_id', personalOnlyUserId);
       }
 
-      if (term) {
-        const like = `%${term}%`;
+      if (like) {
         query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
       }
 
       const { data, count: exactCount, error } = await query;
       if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      type Row = Contact & { contact_tags?: { tag_id: string }[] | null };
-      tagsByContact = {};
-      contactRows = ((data ?? []) as Row[]).map(({ contact_tags, ...c }) => {
-        tagsByContact![c.id] = (contact_tags ?? []).map((ct) => ct.tag_id);
-        return c as Contact;
-      });
+      if (error) return failed();
+      contactRows = (data ?? []) as Contact[];
       count = exactCount ?? 0;
     }
 
@@ -244,50 +272,30 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       return;
     }
 
-    if (!tagsByContact) {
-      // RPC path: fetch tags for these contacts
-      const contactIds = contactRows.map((c) => c.id);
-      const { data: contactTags } = await supabase
-        .from('contact_tags')
-        .select('contact_id, tag_id')
-        .in('contact_id', contactIds);
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+    // The chat tag on each contact's conversation, for the column. A
+    // failed read leaves the column blank rather than the page.
+    const { data: convRows } = await supabase
+      .from('conversations')
+      .select('contact_id, chat_tag_id, chat_sub_tag_id')
+      .in(
+        'contact_id',
+        contactRows.map((c) => c.id)
+      )
+      .order('created_at', { ascending: true });
+    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+    const tagsByContact = chatTagsByContact(
+      (convRows ?? []) as (ChatTagIds & { contact_id: string })[]
+    );
 
-      const byContact: Record<string, string[]> = {};
-      contactTags?.forEach((ct) => {
-        if (!byContact[ct.contact_id]) byContact[ct.contact_id] = [];
-        byContact[ct.contact_id].push(ct.tag_id);
-      });
-      tagsByContact = byContact;
-    }
-
-    const resolvedTags = tagsByContact;
-    const enriched: ContactWithTags[] = contactRows.map((c) => ({
-      ...c,
-      tagIds: resolvedTags[c.id] ?? [],
-    }));
-
-    setContacts(enriched);
+    setContacts(
+      contactRows.map((c) => ({ ...c, chatTags: tagsByContact.get(c.id) ?? null }))
+    );
     setLoading(false);
-    // `tagsMap` is deliberately NOT a dependency. It used to be, because
-    // this function resolved tag ids into Tag objects here — but
-    // `fetchTags` populates `tagsMap` on mount, which changed this
-    // callback's identity and re-ran the effect below, so every visit to
-    // /contacts fetched the contact page AND its contact_tags twice.
-    // Through the tunnel that is two extra round trips (~1.4s) for a
-    // result identical to the one already on screen. The ids are stored
-    // raw instead and resolved in `contactsWithTags` at render time,
-    // which is where a change to the tag definitions actually belongs.
-  }, [supabase, page, debouncedSearch, selectedTagIds, personalOnlyUserId, t]);
-
-  // Load-once-on-mount-ish data fetches. Each setter inside runs
-  // inside an async promise completion (Supabase await), not
-  // synchronously in the effect body, so the cascade the lint rule
-  // warns about doesn't apply here.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchTags();
-  }, [fetchTags]);
+    // The tag tree is deliberately NOT a dependency (only the filter's
+    // ids are): the rows keep raw ids and `chatTagTree` resolves them at
+    // render, so loading or renaming a tag re-renders without another
+    // round trip (~700ms through the tunnel).
+  }, [supabase, page, debouncedSearch, chatTagFilterIds, personalOnlyUserId, t]);
 
   // A pending search debounce must not fire into an unmounted page.
   useEffect(
@@ -317,17 +325,11 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
 
   function openAddForm() {
     setEditContact(null);
-    setEditContactTags([]);
     setFormOpen(true);
   }
 
-  async function openEditForm(contact: Contact) {
-    const { data } = await supabase
-      .from('contact_tags')
-      .select('*')
-      .eq('contact_id', contact.id);
+  function openEditForm(contact: Contact) {
     setEditContact(contact);
-    setEditContactTags(data ?? []);
     setFormOpen(true);
   }
 
@@ -423,35 +425,20 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
-  // Tag filter helpers. Every change resets to page 0 — the result set
-  // shrinks/grows so page N may no longer be valid (mirrors the search box).
-  // Resolve tag ids -> definitions for display. Re-runs when either the
-  // rows or the tag definitions change, and costs no network.
-  const contactsWithTags = useMemo(
-    () =>
-      contacts.map((c) => ({
-        ...c,
-        tags: c.tagIds.map((tid) => tagsMap[tid]).filter(Boolean),
-      })),
-    [contacts, tagsMap]
-  );
+  const hasActiveFilters =
+    debouncedSearch.trim().length > 0 || chatTagFilterIds.length > 0;
 
-  const allTags = Object.values(tagsMap).sort((a, b) =>
-    a.name.localeCompare(b.name)
-  );
-  const hasActiveFilters = debouncedSearch.trim().length > 0 || selectedTagIds.length > 0;
-
-  function toggleTagFilter(tagId: string) {
-    setSelectedTagIds((prev) =>
-      prev.includes(tagId)
-        ? prev.filter((id) => id !== tagId)
-        : [...prev, tagId]
+  // Every filter change resets to page 0 — the result set shrinks or
+  // grows, so page N may no longer be valid (mirrors the search box).
+  function toggleChatTagFilter(id: string) {
+    setSelectedChatTagIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
     setPage(0);
   }
 
-  function clearTagFilters() {
-    setSelectedTagIds([]);
+  function clearChatTagFilters() {
+    setSelectedChatTagIds([]);
     setPage(0);
   }
 
@@ -498,7 +485,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         </div>
       </div>
 
-      {/* Search + tag filter */}
+      {/* Search + chat-tag filter */}
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative w-full max-w-sm">
@@ -533,78 +520,80 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               }
             >
               <Filter className="size-4" />
-              {t('filterByTags')}
-              {selectedTagIds.length > 0 && (
+              {t('filterByChatTag')}
+              {chatTagFilterIds.length > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                  {selectedTagIds.length}
+                  {chatTagFilterIds.length}
                 </span>
               )}
             </PopoverTrigger>
             <PopoverContent align="start" className="w-64 p-0">
               <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                 <span className="text-sm font-medium text-popover-foreground">
-                  {t('filterByTags')}
+                  {t('filterByChatTag')}
                 </span>
-                {selectedTagIds.length > 0 && (
+                {chatTagFilterIds.length > 0 && (
                   <button
-                    onClick={clearTagFilters}
+                    onClick={clearChatTagFilters}
                     className="text-xs text-muted-foreground hover:text-foreground"
                   >
                     {t('clearAll')}
                   </button>
                 )}
               </div>
-              {allTags.length === 0 ? (
+              {chatTagTree.mains.length === 0 ? (
                 <p className="px-3 py-4 text-sm text-muted-foreground text-center">
-                  {t('noTagsYet')}
+                  {t('noChatTagsYet')}
                 </p>
               ) : (
                 <div className="max-h-64 overflow-y-auto py-1">
-                  {allTags.map((tag) => (
-                    <label
-                      key={tag.id}
-                      className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/50"
-                    >
-                      <Checkbox
-                        checked={selectedTagIds.includes(tag.id)}
-                        onCheckedChange={() => toggleTagFilter(tag.id)}
-                        aria-label={`Filter by ${tag.name}`}
+                  {chatTagTree.mains.flatMap((main) => [
+                    <ChatTagFilterOption
+                      key={main.id}
+                      name={main.name}
+                      color={main.color}
+                      checked={chatTagFilterIds.includes(main.id)}
+                      onToggle={() => toggleChatTagFilter(main.id)}
+                    />,
+                    // Sub-tags sit indented under their main tag.
+                    ...main.subs.map((sub) => (
+                      <ChatTagFilterOption
+                        key={sub.id}
+                        name={sub.name}
+                        color={sub.color}
+                        indent
+                        checked={chatTagFilterIds.includes(sub.id)}
+                        onToggle={() => toggleChatTagFilter(sub.id)}
                       />
-                      <span
-                        className="size-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: tag.color }}
-                      />
-                      <span className="text-sm text-popover-foreground truncate">
-                        {tag.name}
-                      </span>
-                    </label>
-                  ))}
+                    )),
+                  ])}
                 </div>
               )}
             </PopoverContent>
           </Popover>
         </div>
 
-        {/* Active tag-filter chips */}
-        {selectedTagIds.length > 0 && (
+        {/* Active chat-tag filter chips */}
+        {chatTagFilterIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            {selectedTagIds.map((id) => {
-              const tag = tagsMap[id];
-              if (!tag) return null;
+            {chatTagFilterIds.map((id) => {
+              const chip = chatTagFilterChip(id, chatTagTree);
+              if (!chip) return null;
               return (
                 <span
                   key={id}
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                  style={{
-                    backgroundColor: tag.color + '20',
-                    color: tag.color,
-                  }}
+                  style={chatTagChipStyle(chip.color)}
+                  className="text-foreground inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium"
                 >
-                  {tag.name}
+                  <span
+                    className="size-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: chatTagColor(chip.color) }}
+                  />
+                  <span className="truncate">{chip.label}</span>
                   <button
-                    onClick={() => toggleTagFilter(id)}
-                    aria-label={`Remove ${tag.name} filter`}
-                    className="hover:opacity-70"
+                    onClick={() => toggleChatTagFilter(id)}
+                    aria-label={t('removeChatTagFilter', { name: chip.label })}
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     <X className="size-3" />
                   </button>
@@ -612,7 +601,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               );
             })}
             <button
-              onClick={clearTagFilters}
+              onClick={clearChatTagFilters}
               className="text-xs text-muted-foreground hover:text-foreground px-1"
             >
               {t('clearAll')}
@@ -668,7 +657,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               <TableHead className="text-muted-foreground">{t('tableColumns.phone')}</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.tags')}</TableHead>
+              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.chatTag')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
@@ -710,7 +699,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                 </TableCell>
               </TableRow>
             ) : (
-              contactsWithTags.map((contact) => (
+              contacts.map((contact) => (
                 <TableRow
                   key={contact.id}
                   className="border-border hover:bg-muted/50 cursor-pointer"
@@ -724,7 +713,12 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
-                    {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                      {contact.opted_out_at && (
+                        <OptedOutBadge label={t('optedOut')} hint={t('optedOutHint')} />
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {contact.phone}
@@ -736,29 +730,9 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                     {contact.company || <span className="text-muted-foreground">-</span>}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      {contact.tags && contact.tags.length > 0 ? (
-                        contact.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{
-                              backgroundColor: tag.color + '20',
-                              color: tag.color,
-                            }}
-                          >
-                            {tag.name}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
-                      )}
-                      {contact.tags && contact.tags.length > 3 && (
-                        <span className="text-[10px] text-muted-foreground">
-                          +{contact.tags.length - 3}
-                        </span>
-                      )}
-                    </div>
+                    <ChatTagChip
+                      chip={contactChatTagChip(contact.chatTags, chatTagTree)}
+                    />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
                     {new Date(contact.created_at).toLocaleDateString('en-US', {
@@ -857,11 +831,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         open={formOpen}
         onOpenChange={setFormOpen}
         contact={editContact}
-        contactTags={editContactTags}
-        onSaved={() => {
-          fetchContacts();
-          fetchTags();
-        }}
+        onSaved={fetchContacts}
         onViewExisting={(id) => {
           setFormOpen(false);
           openDetail(id);
@@ -880,13 +850,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImported={() => {
-          fetchContacts();
-          // An import can create tags (a CSV "tags" column) — refresh the
-          // shared tag cache so they resolve here and in the inbox.
-          invalidateCached(TAGS_CACHE_KEY);
-          fetchTags();
-        }}
+        onImported={fetchContacts}
       />
 
       {/* Custom Fields Manager (admin+) */}
@@ -960,6 +924,74 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   );
 }
 
+/** A chat tag in the filter menu: checkbox, colour dot, name. */
+function ChatTagFilterOption({
+  name,
+  color,
+  checked,
+  indent = false,
+  onToggle,
+}: {
+  name: string;
+  color: string;
+  checked: boolean;
+  indent?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label
+      className={`flex items-center gap-2.5 py-1.5 pr-3 cursor-pointer hover:bg-muted/50 ${
+        indent ? 'pl-8' : 'pl-3'
+      }`}
+    >
+      <Checkbox checked={checked} onCheckedChange={onToggle} />
+      <span
+        className="size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: chatTagColor(color) }}
+      />
+      <span className="text-sm text-popover-foreground truncate">{name}</span>
+    </label>
+  );
+}
+
+/** A contact's chat tag as the inbox list draws it: dot + label on a
+ *  tint of the tag colour, text in the theme's foreground. */
+function ChatTagChip({
+  chip,
+}: {
+  chip: { label: string; color: string } | null;
+}) {
+  if (!chip) return <span className="text-muted-foreground text-xs">-</span>;
+  return (
+    <span
+      title={chip.label}
+      style={chatTagChipStyle(chip.color)}
+      className="text-foreground inline-flex max-w-[14rem] min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-4 font-medium"
+    >
+      <span
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: chatTagColor(chip.color) }}
+      />
+      <span className="truncate">{chip.label}</span>
+    </span>
+  );
+}
+
+/** Set when the customer asked not to be messaged (migration 076). */
+function OptedOutBadge({ label, hint }: { label: string; hint: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="border-destructive/40 bg-destructive/10 text-destructive inline-flex shrink-0 items-center rounded-full border px-1.5 text-[10px] leading-4 font-medium" />
+        }
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent>{hint}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /** Route entry for /contacts — the personal view. */
 export default function ContactsPage() {

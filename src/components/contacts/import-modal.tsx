@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -16,11 +16,6 @@ import {
   partitionRowsByPhone,
   summarizeRejectedPhones,
 } from '@/lib/contacts/phone-validation';
-import {
-  assignImportedContactTags,
-  resolveImportTagIds,
-  type ContactTagAssignment,
-} from '@/lib/contacts/resolve-import-tags';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -39,11 +34,9 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  Tag,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-const DEFAULT_TAG_COLOR = '#3b82f6';
 const PREVIEW_LIMIT = 5;
 
 function truncateFilename(name: string, max = 48): string {
@@ -77,48 +70,6 @@ function PreviewCell({
   );
 }
 
-function ImportPreviewTags({
-  tagNames,
-  tagColorByKey,
-}: {
-  tagNames: string[];
-  tagColorByKey: Map<string, string>;
-}) {
-  const t = useTranslations('Contacts.importModal');
-
-  if (tagNames.length === 0) {
-    return <span className="text-muted-foreground">—</span>;
-  }
-
-  return (
-    <div className="flex min-w-[4.5rem] flex-wrap gap-1">
-      {tagNames.map((name) => {
-        const color =
-          tagColorByKey.get(name.trim().toLowerCase()) ?? DEFAULT_TAG_COLOR;
-        const isKnown = tagColorByKey.has(name.trim().toLowerCase());
-        return (
-          <span
-            key={name}
-            className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10px] leading-none font-medium"
-            style={{
-              backgroundColor: `${color}18`,
-              color,
-              border: `1px solid ${color}${isKnown ? '55' : '30'}`,
-            }}
-            title={isKnown ? name : t('willBeCreated', { name })}
-          >
-            <span
-              className="size-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: color }}
-            />
-            <span className="truncate">{name}</span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 interface ImportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -132,30 +83,23 @@ export function ImportModal({
 }: ImportModalProps) {
   const t = useTranslations('Contacts.importModal');
   const supabase = createClient();
-  const { accountId, canEditSettings } = useAuth();
+  const { accountId } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [parsedRows, setParsedRows] = useState<ParsedContactRow[]>([]);
-  const [hasTagsColumn, setHasTagsColumn] = useState(false);
   const [hasCompanyColumn, setHasCompanyColumn] = useState(false);
-  const [tagColorByKey, setTagColorByKey] = useState<Map<string, string>>(
-    new Map()
-  );
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<{
     imported: number;
     skipped: number;
     failed: number;
-    tagsAssigned: number;
   } | null>(null);
 
   function reset() {
     setFile(null);
     setParsedRows([]);
-    setHasTagsColumn(false);
     setHasCompanyColumn(false);
-    setTagColorByKey(new Map());
     setResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
@@ -173,40 +117,19 @@ export function ImportModal({
     setResult(null);
 
     const text = await selected.text();
-    const {
-      rows,
-      hasTagsColumn: csvHasTags,
-      hasCompanyColumn: csvHasCompany,
-    } = parseContactCsv(text);
+    // A `tags` column is ignored: contact tags are retired, and chat
+    // tags belong to a conversation, which an import does not create.
+    const { rows, hasCompanyColumn: csvHasCompany } = parseContactCsv(text);
 
     if (rows.length === 0) {
       toast.error(t('toastNoValidRows'));
       setParsedRows([]);
-      setHasTagsColumn(false);
       setHasCompanyColumn(false);
-      setTagColorByKey(new Map());
       return;
     }
 
     setParsedRows(rows);
-    setHasTagsColumn(csvHasTags);
     setHasCompanyColumn(csvHasCompany);
-
-    if (csvHasTags && accountId) {
-      const { data: tags } = await supabase
-        .from('tags')
-        .select('name, color')
-        .eq('account_id', accountId);
-
-      const colors = new Map<string, string>();
-      for (const tag of tags ?? []) {
-        const key = tag.name.trim().toLowerCase();
-        if (!colors.has(key)) colors.set(key, tag.color);
-      }
-      setTagColorByKey(colors);
-    } else {
-      setTagColorByKey(new Map());
-    }
   }
 
   async function handleImport() {
@@ -260,23 +183,7 @@ export function ImportModal({
         return true;
       });
 
-      // 3) Resolve tag names → ids (admin+ may auto-create missing tags).
-      //    Skip the round-trip when the import carries no tag names.
-      const allTagNames = toInsert.flatMap((row) => row.tagNames);
-      let tagIdByKey = new Map<string, string>();
-      let skippedNames: string[] = [];
-      if (allTagNames.length > 0) {
-        ({ tagIdByKey, skippedNames } = await resolveImportTagIds(supabase, {
-          accountId,
-          userId: user.id,
-          tagNames: allTagNames,
-          canCreateTags: canEditSettings,
-        }));
-      }
-
-      const tagAssignments: ContactTagAssignment[] = [];
-
-      // 4) Batch insert the genuinely-new rows in chunks of 50. The DB
+      // 3) Batch insert the genuinely-new rows in chunks of 50. The DB
       //    unique index is the backstop: a 23505 (race, or a format
       //    that normalizes equal) counts as skipped, not failed.
       const chunkSize = 50;
@@ -302,21 +209,12 @@ export function ImportModal({
           // the whole chunk.
           for (let j = 0; j < rows.length; j++) {
             const row = rows[j];
-            const source = chunk[j];
-            const { data: singleData, error: singleErr } = await supabase
+            const { error: singleErr } = await supabase
               .from('contacts')
-              .insert(row)
-              .select('id')
-              .single();
+              .insert(row);
 
-            if (!singleErr && singleData) {
+            if (!singleErr) {
               imported++;
-              if (source.tagNames.length > 0) {
-                tagAssignments.push({
-                  contactId: singleData.id,
-                  tagNames: source.tagNames,
-                });
-              }
             } else if (isUniqueViolation(singleErr)) {
               skipped++;
             } else {
@@ -324,48 +222,14 @@ export function ImportModal({
             }
           }
         } else {
-          const inserted = data ?? [];
-          imported += inserted.length;
-          // inserted[j] ↔ chunk[j] only holds because a single INSERT
-          // preserves RETURNING order. If this path is ever split into
-          // parallel inserts, zip by phone or returned id instead.
-          for (let j = 0; j < inserted.length; j++) {
-            const source = chunk[j];
-            if (!source || source.tagNames.length === 0) continue;
-            tagAssignments.push({
-              contactId: inserted[j].id,
-              tagNames: source.tagNames,
-            });
-          }
+          imported += (data ?? []).length;
         }
       }
 
-      // 5) Wire tags onto the contacts we just created. Failure here must
-      //    not mask a successful contact import.
-      let tagsAssigned = 0;
-      try {
-        tagsAssigned = await assignImportedContactTags(
-          supabase,
-          tagAssignments,
-          tagIdByKey
-        );
-      } catch {
-        toast.warning(t('toastTagsWarning'));
-      }
-
-      setResult({ imported, skipped, failed, tagsAssigned });
+      setResult({ imported, skipped, failed });
       if (imported > 0) {
         toast.success(t('toastImported', { count: imported }));
         onImported();
-      }
-      if (tagsAssigned > 0) {
-        toast.success(t('toastTagsAssigned', { count: tagsAssigned }));
-      }
-      if (skippedNames.length > 0) {
-        const sample = skippedNames.slice(0, 3).join(', ');
-        const more =
-          skippedNames.length > 3 ? ` (+${skippedNames.length - 3} more)` : '';
-        toast.info(t('toastTagsSkipped', { sample, more }));
       }
       if (skipped > 0) {
         toast.info(t('toastSkipped', { count: skipped }));
@@ -385,25 +249,10 @@ export function ImportModal({
   }
 
   const preview = parsedRows.slice(0, PREVIEW_LIMIT);
-  // Tags: OR — show when the CSV declares a column or preview rows carry
-  // values, so an all-empty tags column still renders for validation.
-  const previewHasTags =
-    hasTagsColumn || preview.some((row) => row.tagNames.length > 0);
   // Company: AND — hide unless the CSV declares it and preview has data,
   // avoiding an all-dash column that wastes horizontal space.
   const previewHasCompany =
     hasCompanyColumn && preview.some((row) => row.company?.trim());
-
-  const tagStats = useMemo(() => {
-    const names = new Set<string>();
-    let rowsWithTags = 0;
-    for (const row of parsedRows) {
-      if (row.tagNames.length === 0) continue;
-      rowsWithTags++;
-      for (const name of row.tagNames) names.add(name.trim().toLowerCase());
-    }
-    return { unique: names.size, rowsWithTags };
-  }, [parsedRows]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -483,19 +332,9 @@ export function ImportModal({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           {preview.length > 0 && !result && (
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                  {t('preview', { count: preview.length })}
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {tagStats.rowsWithTags > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-muted/90 px-2 py-0.5 text-[11px] text-muted-foreground">
-                      <Tag className="text-primary/80 size-3" />
-                      {t('previewTags', { tags: tagStats.unique, contacts: tagStats.rowsWithTags })}
-                    </span>
-                  )}
-                </div>
-              </div>
+              <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                {t('preview', { count: preview.length })}
+              </p>
 
               <div className="overflow-hidden rounded-xl border border-border ring-1 ring-border/50">
                 <div className="overflow-x-auto">
@@ -514,11 +353,6 @@ export function ImportModal({
                         {previewHasCompany && (
                           <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
                             {t('columns.company')}
-                          </th>
-                        )}
-                        {previewHasTags && (
-                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
-                            {t('columns.tags')}
                           </th>
                         )}
                       </tr>
@@ -556,14 +390,6 @@ export function ImportModal({
                               />
                             </td>
                           )}
-                          {previewHasTags && (
-                            <td className="px-3 py-2 align-top">
-                              <ImportPreviewTags
-                                tagNames={row.tagNames}
-                                tagColorByKey={tagColorByKey}
-                              />
-                            </td>
-                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -587,12 +413,6 @@ export function ImportModal({
                   <div className="text-primary flex items-center gap-1.5 text-sm">
                     <CheckCircle className="size-4 shrink-0" />
                     {t('resultImported', { count: result.imported })}
-                  </div>
-                )}
-                {result.tagsAssigned > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm text-cyan-400">
-                    <CheckCircle className="size-4 shrink-0" />
-                    {t('resultTags', { count: result.tagsAssigned })}
                   </div>
                 )}
                 {result.skipped > 0 && (

@@ -1,6 +1,7 @@
 /**
- * CSV parsing for the contacts import modal. Shared + unit-tested so
- * tag-column handling stays aligned with phone/name/email/company.
+ * CSV parsing for the contacts import modal and the broadcast wizard.
+ * Contact tags are retired, so a `tags` column is not read: it rides
+ * along in `values` like any other column the importer has no use for.
  */
 
 export interface ParsedContactRow {
@@ -8,8 +9,6 @@ export interface ParsedContactRow {
   name?: string;
   email?: string;
   company?: string;
-  /** Tag names from the optional `tags` column (comma/semicolon separated). */
-  tagNames: string[];
   /**
    * Every cell of the row keyed by its (lower-cased) header, known
    * columns included. Broadcast personalization maps template
@@ -20,29 +19,8 @@ export interface ParsedContactRow {
   values: Record<string, string>;
 }
 
-/** Split a CSV cell into unique tag names (case-insensitive de-dupe). */
-export function parseTagCell(value: string | undefined): string[] {
-  if (!value?.trim()) return [];
-
-  const seen = new Set<string>();
-  const names: string[] = [];
-
-  for (const part of value.split(/[,;]/)) {
-    const name = part.trim();
-    if (!name) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    names.push(name);
-  }
-
-  return names;
-}
-
 export interface ParseContactCsvResult {
   rows: ParsedContactRow[];
-  /** True when the CSV header includes a `tags` column. */
-  hasTagsColumn: boolean;
   /** True when the CSV header includes a `company` column. */
   hasCompanyColumn: boolean;
   /** Header names in file order, lower-cased and trimmed; blanks dropped. */
@@ -54,7 +32,6 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
   if (lines.length < 2) {
     return {
       rows: [],
-      hasTagsColumn: false,
       hasCompanyColumn: false,
       columns: [],
     };
@@ -68,7 +45,6 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
   if (phoneIdx === -1) {
     return {
       rows: [],
-      hasTagsColumn: false,
       hasCompanyColumn: false,
       columns: [],
     };
@@ -77,7 +53,6 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
   const nameIdx = headers.indexOf('name');
   const emailIdx = headers.indexOf('email');
   const companyIdx = headers.indexOf('company');
-  const tagsIdx = headers.indexOf('tags');
 
   const rows: ParsedContactRow[] = [];
 
@@ -109,15 +84,12 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
         companyIdx >= 0
           ? values[companyIdx]?.replace(/["']/g, '').trim() || undefined
           : undefined,
-      tagNames:
-        tagsIdx >= 0 ? parseTagCell(values[tagsIdx]?.replace(/["']/g, '')) : [],
       values: byHeader,
     });
   }
 
   return {
     rows,
-    hasTagsColumn: tagsIdx >= 0,
     hasCompanyColumn: companyIdx >= 0,
     columns: headers.filter(Boolean),
   };

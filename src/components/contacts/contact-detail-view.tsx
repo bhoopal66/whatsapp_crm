@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { validatePhoneToSave } from '@/lib/contacts/phone-validation';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyOutreach } from '@/hooks/use-my-outreach';
@@ -16,7 +15,7 @@ import {
 } from '@/hooks/use-whatsapp-numbers';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
+import type { Contact, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
 import {
   TemplatePicker,
   type TemplateSendValues,
@@ -60,7 +59,18 @@ import {
   MessageSquarePlus,
   Send,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
+import { useChatTags } from '@/hooks/use-chat-tags';
+import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import {
+  contactChatTagChip,
+  type ChatTagIds,
+} from '@/lib/contacts/chat-tag-column';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -82,6 +92,8 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+  const locale = useLocale();
+  const { tree: chatTagTree } = useChatTags();
   const supabase = createClient();
   const { accountId, defaultCurrency, user, accountRole } = useAuth();
 
@@ -131,7 +143,9 @@ export function ContactDetailView({
     home: string | null;
     /** The last message that reached WhatsApp; null: none. */
     last: { at: string; byCustomer: boolean } | null;
-  }>({ pin: null, home: null, last: null });
+    /** The chat tag on the thread (migration 075); null: no thread. */
+    chatTags: ChatTagIds | null;
+  }>({ pin: null, home: null, last: null, chatTags: null });
 
   useEffect(() => {
     if (!contactId || !open) return;
@@ -139,7 +153,7 @@ export function ContactDetailView({
     (async () => {
       const { data } = await supabase
         .from('conversations')
-        .select('id, channel_id, send_channel_id')
+        .select('id, channel_id, send_channel_id, chat_tag_id, chat_sub_tag_id')
         .eq('contact_id', contactId)
         .order('created_at', { ascending: true })
         .limit(1)
@@ -165,6 +179,12 @@ export function ContactDetailView({
             ? {
                 at: lastRow.created_at as string,
                 byCustomer: lastRow.sender_type === 'customer',
+              }
+            : null,
+          chatTags: data
+            ? {
+                chat_tag_id: (data.chat_tag_id as string | null) ?? null,
+                chat_sub_tag_id: (data.chat_sub_tag_id as string | null) ?? null,
               }
             : null,
         });
@@ -228,11 +248,6 @@ export function ContactDetailView({
   const [editCompany, setEditCompany] = useState('');
   const [savingDetails, setSavingDetails] = useState(false);
 
-  // Tags tab
-  const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [contactTagIds, setContactTagIds] = useState<string[]>([]);
-  const [savingTags, setSavingTags] = useState(false);
-
   // Notes tab
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [newNote, setNewNote] = useState('');
@@ -267,20 +282,6 @@ export function ContactDetailView({
       setEditCompany(data.company ?? '');
     }
     setLoading(false);
-  }, [contactId, supabase]);
-
-  const fetchTags = useCallback(async () => {
-    if (!contactId) return;
-
-    const [tagsRes, contactTagsRes] = await Promise.all([
-      supabase.from('tags').select('*').order('name'),
-      supabase.from('contact_tags').select('tag_id').eq('contact_id', contactId),
-    ]);
-
-    if (tagsRes.data) setAllTags(tagsRes.data);
-    if (contactTagsRes.data) {
-      setContactTagIds(contactTagsRes.data.map((ct) => ct.tag_id));
-    }
   }, [contactId, supabase]);
 
   const fetchNotes = useCallback(async () => {
@@ -335,12 +336,11 @@ export function ContactDetailView({
   useEffect(() => {
     if (open && contactId) {
       fetchContact();
-      fetchTags();
       fetchNotes();
       fetchCustomFields();
       fetchDeals();
     }
-  }, [open, contactId, fetchContact, fetchTags, fetchNotes, fetchCustomFields, fetchDeals]);
+  }, [open, contactId, fetchContact, fetchNotes, fetchCustomFields, fetchDeals]);
 
   async function copyPhone() {
     if (!contact) return;
@@ -383,27 +383,6 @@ export function ContactDetailView({
       onUpdated();
     }
     setSavingDetails(false);
-  }
-
-  async function toggleTag(tagId: string) {
-    if (!contactId) return;
-    setSavingTags(true);
-
-    const isSelected = contactTagIds.includes(tagId);
-
-    try {
-      if (isSelected) {
-        await deleteContactTag(contactId, tagId);
-        setContactTagIds((prev) => prev.filter((id) => id !== tagId));
-      } else {
-        await addContactTag(contactId, tagId);
-        setContactTagIds((prev) => [...prev, tagId]);
-      }
-      onUpdated();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('toastUpdateFailed'));
-    }
-    setSavingTags(false);
   }
 
   async function addNote() {
@@ -633,6 +612,29 @@ export function ContactDetailView({
                       </span>
                     )}
                   </div>
+                  <ChatTagLine
+                    label={t('chatTag')}
+                    empty={t('noChatTag')}
+                    chip={contactChatTagChip(thread.chatTags, chatTagTree)}
+                  >
+                    {contact.opted_out_at && (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <span className="border-destructive/40 bg-destructive/10 text-destructive inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] leading-4 font-medium" />
+                          }
+                        >
+                          {t('optedOut', {
+                            date: new Date(contact.opted_out_at).toLocaleDateString(
+                              locale,
+                              { month: 'short', day: 'numeric', year: 'numeric' }
+                            ),
+                          })}
+                        </TooltipTrigger>
+                        <TooltipContent>{t('optedOutHint')}</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </ChatTagLine>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -693,12 +695,6 @@ export function ContactDetailView({
                   className="data-active:bg-muted data-active:text-primary text-muted-foreground"
                 >
                   {t('tabs.details')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value="tags"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
-                >
-                  {t('tabs.tags')}
                 </TabsTrigger>
                 <TabsTrigger
                   value="notes"
@@ -770,45 +766,6 @@ export function ContactDetailView({
                     )}
                     {t('saveChangesBtn')}
                   </Button>
-                </div>
-              </TabsContent>
-
-              {/* Tags Tab */}
-              <TabsContent value="tags" className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    {t('tagsTab.clickTagDesc')}
-                  </p>
-                  {allTags.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('tagsTab.noTagsAvailable')}
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {allTags.map((tag) => {
-                        const selected = contactTagIds.includes(tag.id);
-                        return (
-                          <button
-                            key={tag.id}
-                            onClick={() => toggleTag(tag.id)}
-                            disabled={savingTags}
-                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer ${
-                              selected
-                                ? 'ring-2 ring-primary ring-offset-1 ring-offset-border'
-                                : 'opacity-50 hover:opacity-80'
-                            }`}
-                            style={{
-                              backgroundColor: tag.color + '20',
-                              color: tag.color,
-                            }}
-                          >
-                            {selected && <Check className="size-3 mr-1" />}
-                            {tag.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               </TabsContent>
 
@@ -1047,5 +1004,40 @@ export function ContactDetailView({
       onSelect={handleSendTemplate}
     />
     </>
+  );
+}
+
+/** "Chat tag: <chip>", read-only — tags are set on the chat itself. */
+function ChatTagLine({
+  label,
+  empty,
+  chip,
+  children,
+}: {
+  label: string;
+  empty: string;
+  chip: { label: string; color: string } | null;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">{label}:</span>
+      {chip ? (
+        <span
+          title={chip.label}
+          style={chatTagChipStyle(chip.color)}
+          className="text-foreground inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-4 font-medium"
+        >
+          <span
+            className="size-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: chatTagColor(chip.color) }}
+          />
+          <span className="truncate">{chip.label}</span>
+        </span>
+      ) : (
+        <span className="text-muted-foreground italic">{empty}</span>
+      )}
+      {children}
+    </div>
   );
 }

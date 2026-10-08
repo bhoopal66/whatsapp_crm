@@ -1,37 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { parseContactCsv, parseTagCell } from './parse-contact-csv';
-
-describe('parseTagCell', () => {
-  it('splits comma-separated tags and trims whitespace', () => {
-    expect(parseTagCell(' VIP , Lead ,  ')).toEqual(['VIP', 'Lead']);
-  });
-
-  it('splits semicolon-separated tags', () => {
-    expect(parseTagCell('VIP; Lead; Customer')).toEqual([
-      'VIP',
-      'Lead',
-      'Customer',
-    ]);
-  });
-
-  it('de-dupes case-insensitively', () => {
-    expect(parseTagCell('vip, VIP, Lead')).toEqual(['vip', 'Lead']);
-  });
-
-  it('returns empty for blank values', () => {
-    expect(parseTagCell('')).toEqual([]);
-    expect(parseTagCell(undefined)).toEqual([]);
-  });
-});
+import { parseContactCsv } from './parse-contact-csv';
 
 describe('parseContactCsv', () => {
-  it('parses optional tags column', () => {
+  it('ignores a tags column apart from carrying its cells in values', () => {
     const csv = `phone,name,tags
 +15551234567,Alice,"VIP, Lead"
 +15559876543,Bob,Customer`;
 
     expect(parseContactCsv(csv)).toEqual({
-      hasTagsColumn: true,
       hasCompanyColumn: false,
       columns: ['phone', 'name', 'tags'],
       rows: [
@@ -40,7 +16,6 @@ describe('parseContactCsv', () => {
           name: 'Alice',
           email: undefined,
           company: undefined,
-          tagNames: ['VIP', 'Lead'],
           values: { phone: '+15551234567', name: 'Alice', tags: 'VIP, Lead' },
         },
         {
@@ -48,19 +23,17 @@ describe('parseContactCsv', () => {
           name: 'Bob',
           email: undefined,
           company: undefined,
-          tagNames: ['Customer'],
           values: { phone: '+15559876543', name: 'Bob', tags: 'Customer' },
         },
       ],
     });
   });
 
-  it('returns empty tagNames when tags column is absent', () => {
+  it('parses phone and name without optional columns', () => {
     const csv = `phone,name
 +15551234567,Alice`;
 
     expect(parseContactCsv(csv)).toEqual({
-      hasTagsColumn: false,
       hasCompanyColumn: false,
       columns: ['phone', 'name'],
       rows: [
@@ -69,7 +42,6 @@ describe('parseContactCsv', () => {
           name: 'Alice',
           email: undefined,
           company: undefined,
-          tagNames: [],
           values: { phone: '+15551234567', name: 'Alice' },
         },
       ],
