@@ -5,7 +5,6 @@ import { createClient } from '@/lib/supabase/client';
 import {
   MEMBERS_CACHE_KEY,
   REFERENCE_CACHE_TTL_MS,
-  TAGS_CACHE_KEY,
   cachedQuery,
 } from '@/lib/client-cache';
 import {
@@ -44,7 +43,7 @@ import {
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { cn } from '@/lib/utils';
-import type { Conversation, Profile, Tag } from '@/types';
+import type { Conversation, Profile } from '@/types';
 import { Search, ChevronDown, X, UserRound, Radio, Phone } from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { useLocale, useTranslations } from 'next-intl';
@@ -304,11 +303,7 @@ export function ConversationList({
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<InboxFilter>('all');
   const [loading, setLoading] = useState(true);
-  // Contact-based filters (issue #272). Tags use OR logic (a conversation
-  // matches if its contact carries any selected tag), consistent with
-  // Broadcast audience filtering. Company is an exact match on the field.
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  // Contact-based filter (issue #272): exact match on the company field.
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   // Who the list is narrowed to (a user id, UNASSIGNED, or null).
   // Only meaningful when `showAssignee` — read through `assigneeFilter`
@@ -551,35 +546,6 @@ export function ConversationList({
     return m;
   }, [campaigns]);
 
-  // Tag definitions for the filter picker — loaded once so labels/colours
-  // stay stable regardless of which conversations happen to be loaded.
-  //
-  // Cached across mounts: the account's tags are the same on every
-  // screen and change rarely, but this component remounts on every
-  // visit to the inbox, and each of those was a fresh round trip to
-  // the origin. Tag writes call `invalidateCached("tags")`.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const data = await cachedQuery(
-        TAGS_CACHE_KEY,
-        REFERENCE_CACHE_TTL_MS,
-        async () => {
-          const supabase = createClient();
-          const { data } = await supabase
-            .from('tags')
-            .select('*')
-            .order('name');
-          return (data as Tag[] | null) ?? [];
-        }
-      ).catch(() => [] as Tag[]);
-      if (!cancelled) setTags(data);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Account members, for the assignee labels and the by-agent filter.
   // Shares MEMBERS_CACHE_KEY with the thread's assign dropdown, so on a
   // normal inbox visit this costs nothing — the thread has usually
@@ -640,12 +606,6 @@ export function ConversationList({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [conversations]);
 
-  const tagsById = useMemo(() => {
-    const m = new Map<string, Tag>();
-    for (const t of tags) m.set(t.id, t);
-    return m;
-  }, [tags]);
-
   const filtered = useMemo(() => {
     let result = conversations.filter(hasMessages);
 
@@ -671,13 +631,10 @@ export function ConversationList({
       );
     }
 
-    // Contact-based filters (tags via OR logic, exact company match).
-    if (selectedTagIds.length > 0 || selectedCompany !== null) {
+    // Contact-based filter (exact company match).
+    if (selectedCompany !== null) {
       result = result.filter((c) =>
-        matchesContactFilters(c, {
-          tagIds: selectedTagIds,
-          company: selectedCompany,
-        })
+        matchesContactFilters(c, { company: selectedCompany })
       );
     }
 
@@ -697,19 +654,12 @@ export function ConversationList({
     filter,
     chatTagFilterIds,
     search,
-    selectedTagIds,
     selectedCompany,
     assigneeFilter,
     campaignOnly,
     aiLive,
     selectedCampaignId,
   ]);
-
-  const toggleTag = useCallback((id: string) => {
-    setSelectedTagIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
-    );
-  }, []);
 
   const toggleChatTag = useCallback((id: string) => {
     setSelectedChatTagIds((prev) =>
@@ -719,7 +669,6 @@ export function ConversationList({
 
   const clearAllFilters = useCallback(() => {
     setSelectedChatTagIds([]);
-    setSelectedTagIds([]);
     setSelectedCompany(null);
     setSelectedAssignee(null);
     setSelectedCampaignId(null);
@@ -727,7 +676,6 @@ export function ConversationList({
 
   const hasContactFilters =
     chatTagFilterIds.length > 0 ||
-    selectedTagIds.length > 0 ||
     selectedCompany !== null ||
     assigneeFilter !== null ||
     selectedCampaignId !== null;
@@ -836,7 +784,6 @@ export function ConversationList({
         {chatTagTree.mains.length > 0 ||
         (campaignOnly && campaigns.length > 0) ||
         showAssignee ||
-        tags.length > 0 ||
         companies.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
             {chatTagTree.mains.length > 0 && (
@@ -993,48 +940,6 @@ export function ConversationList({
               </DropdownMenu>
             )}
 
-            {tags.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  className={cn(
-                    FACET_TRIGGER,
-                    selectedTagIds.length > 0
-                      ? FACET_TRIGGER_ACTIVE
-                      : FACET_TRIGGER_IDLE
-                  )}
-                >
-                  {t('tags')}
-                  {selectedTagIds.length > 0 && (
-                    <span className="bg-wa-green text-wa-green-fg flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
-                      {selectedTagIds.length}
-                    </span>
-                  )}
-                  <ChevronDown className="h-3 w-3 shrink-0" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="border-border bg-popover max-h-64 w-56"
-                >
-                  {tags.map((t) => (
-                    <DropdownMenuCheckboxItem
-                      key={t.id}
-                      checked={selectedTagIds.includes(t.id)}
-                      onCheckedChange={() => toggleTag(t.id)}
-                      className="text-popover-foreground text-sm"
-                    >
-                      <span className="flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: t.color }}
-                        />
-                        <span className="truncate">{t.name}</span>
-                      </span>
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-
             {companies.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -1100,27 +1005,6 @@ export function ConversationList({
                   />
                   <span className="max-w-24 truncate">
                     {tag?.name ?? t('chatTag')}
-                  </span>
-                  <X className="h-3 w-3" />
-                </button>
-              );
-            })}
-            {selectedTagIds.map((id) => {
-              const tag = tagsById.get(id);
-              return (
-                <button
-                  key={id}
-                  onClick={() => toggleTag(id)}
-                  className={ACTIVE_FILTER_CHIP}
-                >
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{
-                      backgroundColor: tag?.color ?? 'var(--wa-text-secondary)',
-                    }}
-                  />
-                  <span className="max-w-24 truncate">
-                    {tag?.name ?? t('tags')}
                   </span>
                   <X className="h-3 w-3" />
                 </button>
@@ -1247,7 +1131,7 @@ function ChatTagOption({ color, name }: { color: string; name: string }) {
   );
 }
 
-/** The chat-tag / campaign / agent / contact-tag / company dropdowns. */
+/** The chat-tag / campaign / agent / company dropdowns. */
 const FACET_TRIGGER =
   'inline-flex h-7 items-center justify-center gap-1 rounded-full border px-2.5 text-xs transition-colors';
 const FACET_TRIGGER_IDLE =

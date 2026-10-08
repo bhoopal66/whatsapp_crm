@@ -87,7 +87,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   // The colour-coded tags a chat carries (migration 075). Only admins
   // write them (RLS); every member reads them in the inbox.
   'chat-tags': { id: 'chat-tags', label: 'Chat tags', icon: Tag, group: 'workspace', minRole: 'admin' },
-  fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace', minRole: 'admin' },
+  fields: { id: 'fields', label: 'Custom fields', icon: Tags, group: 'workspace', minRole: 'admin' },
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace', minRole: 'admin' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace', minRole: 'admin' },
   teams: { id: 'teams', label: 'Teams', icon: Network, group: 'workspace', minRole: 'admin' },
@@ -109,12 +109,13 @@ function isSection(value: string | null): value is SettingsSection {
 
 /**
  * Resolve a raw `?tab=` value to a section. Legacy tabs from the old
- * flat layout collapse onto their new home (Tags + Custom fields → the
- * merged "Fields & tags" section). Anything unknown falls back to the
+ * flat layout collapse onto their new home (Custom fields → "Custom fields";
+ * Tags → "Chat tags", the only tag system left). Anything unknown falls back to the
  * Overview landing.
  */
 export function resolveSection(raw: string | null): SettingsSection {
-  if (raw === 'tags' || raw === 'custom-fields') return 'fields';
+  if (raw === 'tags') return 'chat-tags';
+  if (raw === 'custom-fields') return 'fields';
   if (isSection(raw)) return raw;
   return DEFAULT_SECTION;
 }

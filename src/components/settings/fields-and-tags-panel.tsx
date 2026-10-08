@@ -6,14 +6,12 @@ import { useTranslations } from 'next-intl';
 
 import { CustomFieldsSettings } from './custom-fields-settings';
 import { SettingsPanelHead } from './settings-panel-head';
-import { TagManager } from './tag-manager';
 
 /**
- * "Fields & tags" section — merges the former Tags and Custom Fields
- * tabs. Tags are visible to everyone; the custom-fields catalogue is
- * account-wide config, so the card is admin-gated (mirroring the old
- * hidden-tab behaviour). `custom_fields` RLS rejects non-admin writes
- * regardless.
+ * "Custom fields" section. The catalogue is account-wide config, so the
+ * card is admin-gated (mirroring the old hidden-tab behaviour).
+ * `custom_fields` RLS rejects non-admin writes regardless. Contact tags
+ * are retired; chat tags live in their own section.
  */
 export function FieldsAndTagsPanel() {
   const t = useTranslations('Settings.tagsAndFields');
@@ -25,7 +23,6 @@ export function FieldsAndTagsPanel() {
         title={t('title')}
         description={t('description')}
       />
-      <TagManager />
       {canEditSettings ? <CustomFieldsSettings /> : null}
     </section>
   );

@@ -7,6 +7,7 @@ import {
   SECTION_META,
   SETTINGS_SECTIONS,
   canOpenSection,
+  resolveSection,
   type SettingsSection,
 } from './settings-sections';
 
@@ -123,5 +124,20 @@ describe('rail labels', () => {
       if (!label) continue;
       expect(groups[group], `missing Settings.groups.${group}`).toBeTruthy();
     }
+  });
+});
+
+describe('resolveSection', () => {
+  it('sends the legacy tags tab to chat tags, where tags live now', () => {
+    expect(resolveSection('tags')).toBe('chat-tags');
+  });
+
+  it('keeps the legacy custom-fields tab on the fields section', () => {
+    expect(resolveSection('custom-fields')).toBe('fields');
+    expect(resolveSection('fields')).toBe('fields');
+  });
+
+  it('labels the fields section as custom fields only', () => {
+    expect(SECTION_META.fields.label).toBe('Custom fields');
   });
 });

@@ -26,7 +26,6 @@ interface OverviewCounts {
   pendingInvites: number | null;
   templates: number | null;
   templatesPending: number | null;
-  tags: number | null;
   customFields: number | null;
 }
 
@@ -67,7 +66,6 @@ export function SettingsOverview({
     if (!user || !accountId) return;
     let cancelled = false;
     const supabase = createClient();
-    const userId = user.id;
     const acctId = accountId;
 
     // Cheap counts — resolve fast, render immediately.
@@ -78,7 +76,6 @@ export function SettingsOverview({
         invitesRes,
         templatesTotal,
         templatesPending,
-        tagsRes,
         fieldsRes,
       ] = await Promise.allSettled([
         // Admin-only endpoint now, and the tile it feeds is filtered
@@ -102,10 +99,6 @@ export function SettingsOverview({
           .from('message_templates')
           .select('id', { count: 'exact', head: true })
           .eq('status', 'PENDING'),
-        supabase
-          .from('tags')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', userId),
         supabase
           .from('custom_fields')
           .select('id', { count: 'exact', head: true }),
@@ -136,8 +129,6 @@ export function SettingsOverview({
           templatesPending.status === 'fulfilled'
             ? (templatesPending.value.count ?? null)
             : null,
-        tags:
-          tagsRes.status === 'fulfilled' ? (tagsRes.value.count ?? null) : null,
         customFields:
           fieldsRes.status === 'fulfilled'
             ? (fieldsRes.value.count ?? null)
@@ -250,15 +241,7 @@ export function SettingsOverview({
     {
       section: 'fields',
       loading: countsLoading,
-      subtitle:
-        counts?.tags == null && counts?.customFields == null
-          ? t('tagsAndFields')
-          : `${t('tagsCount', { count: counts?.tags ?? 0 })} · ${t(
-              'fieldsCount',
-              {
-                count: counts?.customFields ?? 0,
-              }
-            )}`,
+      subtitle: t('fieldsCount', { count: counts?.customFields ?? 0 }),
     },
     {
       section: 'appearance',

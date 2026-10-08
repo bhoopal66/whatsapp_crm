@@ -3,13 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
-import type { Contact, Deal, ContactNote, Tag } from '@/types';
+import type { Contact, Deal, ContactNote } from '@/types';
 import {
   Phone,
   Mail,
   Copy,
   Check,
-  Tag as TagIcon,
   DollarSign,
   StickyNote,
   Plus,
@@ -32,7 +31,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
-  const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
 
@@ -41,8 +39,8 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    // Fetch deals and notes in parallel
+    const [dealsRes, notesRes] = await Promise.all([
       supabase
         .from('deals')
         .select('*, stage:pipeline_stages(*)')
@@ -53,26 +51,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .select('*')
         .eq('contact_id', contact.id)
         .order('created_at', { ascending: false }),
-      supabase
-        .from('contact_tags')
-        .select('id, tag_id, tags(*)')
-        .eq('contact_id', contact.id),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
-    if (tagsRes.data) {
-      const mapped = tagsRes.data
-        .filter((ct: Record<string, unknown>) => ct.tags)
-        .map((ct: Record<string, unknown>) => ({
-          ...(ct.tags as Tag),
-          contact_tag_id: ct.id as string,
-        }));
-      setTags(mapped);
-    }
   }, [contact]);
 
-  // Load on contact change. setContactData/setTags run inside async
+  // Load on contact change. setDeals/setNotes run inside async
   // Supabase callbacks, not synchronously in the effect body.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -142,6 +127,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             <h3 className="text-wa-text mt-3 max-w-full truncate text-lg">
               {displayName}
             </h3>
+            {contact.opted_out_at && (
+              <span
+                title={tSidebar('optedOutHint')}
+                className="bg-destructive/10 text-destructive mt-1.5 inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+              >
+                <span className="truncate">
+                  {tSidebar('optedOut', {
+                    date: format(new Date(contact.opted_out_at), 'MMM d, yyyy'),
+                  })}
+                </span>
+              </span>
+            )}
             {contact.company && (
               <p className="text-wa-text-secondary max-w-full truncate text-sm">
                 {contact.company}
@@ -169,31 +166,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                   <Mail className="text-wa-icon h-4 w-4 shrink-0" />
                   <span className="truncate">{contact.email}</span>
                 </div>
-              )}
-            </div>
-          </section>
-
-          {/* Tags */}
-          <section className="bg-wa-panel px-5 py-4">
-            <SectionTitle icon={TagIcon}>{tSidebar('tags')}</SectionTitle>
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {tags.length === 0 ? (
-                <p className="text-wa-text-secondary text-xs">
-                  {tSidebar('noTags')}
-                </p>
-              ) : (
-                tags.map((tag) => (
-                  <span
-                    key={tag.contact_tag_id}
-                    className="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-                    style={{
-                      backgroundColor: `${tag.color}20`,
-                      color: tag.color,
-                    }}
-                  >
-                    {tag.name}
-                  </span>
-                ))
               )}
             </div>
           </section>
