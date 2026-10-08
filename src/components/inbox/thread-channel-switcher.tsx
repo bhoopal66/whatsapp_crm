@@ -34,6 +34,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
 import {
+  channelDisplayName,
   channelNameWithPhone,
   usableNumbers,
 } from '@/lib/whatsapp/channel-management';
@@ -229,12 +230,22 @@ export function ThreadChannelSwitcher({
     : home
       ? t('autoWith', { name: channelNameWithPhone(home) })
       : t('auto');
+  // A mid-width thread gets the number's name alone: the full label
+  // ("Auto · Sales · +9715…") cut the customer's name in the header
+  // down to a few letters. The full label is back once the thread is
+  // wide, and always in the tooltip and the menu, which is where the
+  // handset a reply leaves on matters.
+  const shortLabel = pinned
+    ? channelDisplayName(pinned)
+    : home
+      ? channelDisplayName(home)
+      : t('auto');
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         disabled={!mayUseViewer}
-        title={pinned ? t('pinnedTitle') : t('autoTitle')}
+        title={`${triggerLabel}. ${pinned ? t('pinnedTitle') : t('autoTitle')}`}
         aria-label={`${t('label')}: ${triggerLabel}`}
         className={cn(
           // Icon-only in a narrow thread: the header already holds
@@ -256,7 +267,10 @@ export function ThreadChannelSwitcher({
         ) : (
           <Phone className="h-3 w-3 shrink-0" />
         )}
-        <span className="hidden truncate @xl/thread:inline">
+        <span className="hidden truncate @xl/thread:inline @3xl/thread:hidden">
+          {shortLabel}
+        </span>
+        <span className="hidden truncate @3xl/thread:inline">
           {triggerLabel}
         </span>
         <ChevronDown className="hidden h-3 w-3 shrink-0 @xl/thread:block" />

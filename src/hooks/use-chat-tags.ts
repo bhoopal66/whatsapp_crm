@@ -36,18 +36,20 @@ type Listener = (loaded: Loaded) => void;
 const listeners = new Set<Listener>();
 
 /**
- * Bumped by every reload. A first load that started before a reload
- * may answer after it with the older list; it is dropped, because the
- * reload has already pushed (or is about to push) the fresh one.
+ * Bumped when a reload pushes a fresh list. A first load that started
+ * before it carries the older list; if it answers after the push it is
+ * dropped. One that answers before the push is simply overwritten by
+ * it, and if the reload fails it still lands, rather than leaving its
+ * screen with no list at all.
  */
 let generation = 0;
 
 /**
  * Read through the cache. A failed read is thrown inside the loader so
- * `cachedQuery` evicts it instead of serving `[]` for the whole TTL,
- * then logged and answered with `[]` so the screen renders untagged.
+ * `cachedQuery` evicts it instead of serving it for the whole TTL, then
+ * logged and answered with null.
  */
-function loadChatTags(accountId: string): Promise<ChatTag[]> {
+function loadChatTags(accountId: string): Promise<ChatTag[] | null> {
   return cachedQuery(
     chatTagsCacheKey(accountId),
     REFERENCE_CACHE_TTL_MS,
@@ -61,7 +63,7 @@ function loadChatTags(accountId: string): Promise<ChatTag[]> {
     }
   ).catch((err: unknown) => {
     console.error('[chat-tags] load failed', err);
-    return [] as ChatTag[];
+    return null;
   });
 }
 
@@ -88,8 +90,9 @@ export function useChatTags(): {
     let cancelled = false;
     const started = generation;
     loadChatTags(accountId).then((tags) => {
+      // A failed first read renders the chats untagged.
       if (!cancelled && started === generation) {
-        setLoaded({ accountId, tags });
+        setLoaded({ accountId, tags: tags ?? [] });
       }
     });
     return () => {
@@ -99,11 +102,15 @@ export function useChatTags(): {
 
   const reload = useCallback(async () => {
     if (!accountId) return;
-    generation += 1;
     setReloading(true);
     try {
       invalidateCached(chatTagsCacheKey(accountId));
       const tags = await loadChatTags(accountId);
+      // A failed read keeps what every screen already shows: pushing []
+      // would blank every chat's tags (and offer an admin "Set up chat
+      // tags") until the next reload.
+      if (!tags) return;
+      generation += 1;
       for (const listener of listeners) listener({ accountId, tags });
     } finally {
       setReloading(false);

@@ -1482,6 +1482,13 @@ export function MessageThread({
         handlerProfile?.email ||
         t('unknownAgent')) + (handler.userId === user?.id ? t('me') : '')
     : null;
+  // The pill carries the first name only, so the customer's name keeps
+  // the header's room; the full name is in its tooltip and the menu.
+  const handlerShortName = handler
+    ? (handlerProfile?.full_name?.trim().split(/\s+/)[0] ||
+        handlerProfile?.email?.split('@')[0] ||
+        t('unknownAgent')) + (handler.userId === user?.id ? t('me') : '')
+    : null;
   const handlerTitle =
     handler && handlerName
       ? handler.kind === 'assigned'
@@ -1509,7 +1516,7 @@ export function MessageThread({
           onBack={onBack}
           onChannelSwitched={reloadThreadEvents}
           handler={handler}
-          handlerName={handlerName}
+          handlerShortName={handlerShortName}
           handlerTitle={handlerTitle}
           assignableProfiles={assignableProfiles}
           assignedAgentId={assignedAgentId}

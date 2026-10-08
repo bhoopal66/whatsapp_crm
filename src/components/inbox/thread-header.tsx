@@ -58,7 +58,8 @@ export interface ThreadHeaderProps {
   onChannelSwitched: () => void;
   /** Who to name on the assignee pill, and why (see MessageThread). */
   handler: ConversationHandler | null;
-  handlerName: string | null;
+  /** Their first name; the full name is in `handlerTitle`. */
+  handlerShortName: string | null;
   handlerTitle: string;
   /** Who this person may hand the chat to. */
   assignableProfiles: Profile[];
@@ -81,7 +82,7 @@ export function ThreadHeader({
   onBack,
   onChannelSwitched,
   handler,
-  handlerName,
+  handlerShortName,
   handlerTitle,
   assignableProfiles,
   assignedAgentId,
@@ -135,18 +136,25 @@ export function ThreadHeader({
           {/* The customer. On lg+ it opens and closes the contact panel,
             the way WhatsApp opens contact info from the chat title.
             Below lg there is no panel to toggle (the page renders it
-            lg+ only), so the tap is switched off rather than flipping
-            state nobody can see. */}
+            lg+ only), so there it is plain text: a button that merely
+            ignored the pointer still took focus, and Enter flipped
+            state nobody could see. `hidden` takes the other copy out of
+            the tab order and the accessibility tree. */}
           {onToggleContactPanel ? (
-            <button
-              type="button"
-              onClick={onToggleContactPanel}
-              title={t('contactInfo')}
-              aria-pressed={contactPanelOpen}
-              className="hover:bg-wa-icon-hover pointer-events-none -mx-1 flex min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left transition-colors lg:pointer-events-auto @lg/thread:gap-3"
-            >
-              {identity}
-            </button>
+            <>
+              <div className="flex min-w-0 items-center gap-2 lg:hidden @lg/thread:gap-3">
+                {identity}
+              </div>
+              <button
+                type="button"
+                onClick={onToggleContactPanel}
+                title={t('contactInfo')}
+                aria-pressed={contactPanelOpen}
+                className="hover:bg-wa-icon-hover -mx-1 hidden min-w-0 items-center gap-2 rounded-lg px-1 py-0.5 text-left transition-colors lg:flex @lg/thread:gap-3"
+              >
+                {identity}
+              </button>
+            </>
           ) : (
             <div className="flex min-w-0 items-center gap-2 @lg/thread:gap-3">
               {identity}
@@ -194,7 +202,7 @@ export function ThreadHeader({
                 <UserPlus className="h-3.5 w-3.5 shrink-0" />
               )}
               <span className="truncate">
-                {handler ? handlerName : t('unassigned')}
+                {handler ? handlerShortName : t('unassigned')}
               </span>
               <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
             </DropdownMenuTrigger>

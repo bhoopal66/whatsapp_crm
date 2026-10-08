@@ -326,8 +326,36 @@ export function ConversationList({
   );
   // Chat tags (migration 075): main tags and sub-tags, OR logic — a chat
   // matches when its main tag or its sub-tag is picked.
-  const { tree: chatTagTree } = useChatTags();
+  const {
+    tags: chatTagRows,
+    tree: chatTagTree,
+    reload: reloadChatTags,
+  } = useChatTags();
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
+  // Rows tagged with ids the loaded list doesn't have: an admin probably
+  // added the tag since the list was cached (up to five minutes ago).
+  // Read the list again, once per id, as the chat header does; until
+  // then those rows show untagged and the filter lacks the tag.
+  const unknownChatTagIds = useMemo(() => {
+    if (chatTagRows === null) return '';
+    const ids = new Set<string>();
+    for (const c of conversations) {
+      for (const id of [c.chat_tag_id, c.chat_sub_tag_id]) {
+        if (id && !chatTagTree.byId.has(id)) ids.add(id);
+      }
+    }
+    return [...ids].sort().join(',');
+  }, [conversations, chatTagRows, chatTagTree]);
+  const chatTagsReloadedFor = useRef(new Set<string>());
+  useEffect(() => {
+    if (!unknownChatTagIds) return;
+    const fresh = unknownChatTagIds
+      .split(',')
+      .filter((id) => !chatTagsReloadedFor.current.has(id));
+    if (fresh.length === 0) return;
+    for (const id of fresh) chatTagsReloadedFor.current.add(id);
+    void reloadChatTags();
+  }, [unknownChatTagIds, reloadChatTags]);
   // Only ids still in the tree count: a tag another admin deleted
   // meanwhile would otherwise keep filtering on an id no chat carries,
   // with no chip left to clear it. Keyed on the joined ids so a tag
