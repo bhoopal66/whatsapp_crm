@@ -783,6 +783,8 @@ interface SetTagCfg {
 }
 
 const NO_TAG = "__none__";
+/** The sub-tag choice that leaves `chat_sub_tag_id` out of the config. */
+const KEEP_SUB = "__keep__";
 
 /** A chat tag's colour dot and name, as the inbox's tag menu draws it. */
 function ChatTagOption({ color, name }: { color: string; name: string }) {
@@ -843,6 +845,12 @@ function SetTagForm({
 
   // The legacy contact-tag keys drop out of the saved config on any edit.
   const legacy = { tag_id: undefined, mode: undefined };
+  const subTitle = main?.sub_tag_title?.trim() || t("subTagFallback");
+  // Absent key = keep the chat's current sub-tag; null = clear it.
+  const subValue =
+    cfg.chat_sub_tag_id === undefined
+      ? KEEP_SUB
+      : (cfg.chat_sub_tag_id ?? NO_TAG);
 
   return (
     <>
@@ -854,7 +862,8 @@ function SetTagForm({
             onValueChange={(v) =>
               onUpdateConfig({
                 chat_tag_id: v === NO_TAG ? null : v,
-                chat_sub_tag_id: null,
+                // A different main tag goes back to "Keep current".
+                chat_sub_tag_id: undefined,
                 ...legacy,
               })
             }
@@ -883,27 +892,36 @@ function SetTagForm({
           <div>
             <label className="mb-1 block text-xs text-muted-foreground">{t("subTagLabel")}</label>
             <Select
-              value={cfg.chat_sub_tag_id ?? NO_TAG}
+              value={subValue}
               onValueChange={(v) =>
                 onUpdateConfig({
                   chat_tag_id: main.id,
-                  chat_sub_tag_id: v === NO_TAG ? null : v,
+                  chat_sub_tag_id:
+                    v === KEEP_SUB ? undefined : v === NO_TAG ? null : v,
                   ...legacy,
                 })
               }
-              items={chatTagItems(
-                main.subs,
-                cfg.chat_sub_tag_id ?? NO_TAG,
-                tags !== null,
-                t,
-                t("noSubTag"),
-              )}
+              items={{
+                [KEEP_SUB]: t("keepSubTag", { title: subTitle }),
+                ...chatTagItems(
+                  main.subs,
+                  subValue,
+                  tags !== null,
+                  t,
+                  t("noSubTagNamed", { title: subTitle }),
+                ),
+              }}
             >
               <SelectTrigger className="bg-muted">
                 <SelectValue placeholder={t("pickSubTag")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_TAG}>{t("noSubTag")}</SelectItem>
+                <SelectItem value={KEEP_SUB}>
+                  {t("keepSubTag", { title: subTitle })}
+                </SelectItem>
+                <SelectItem value={NO_TAG}>
+                  {t("noSubTagNamed", { title: subTitle })}
+                </SelectItem>
                 {main.subs.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     <ChatTagOption color={s.color} name={s.name} />
@@ -911,6 +929,9 @@ function SetTagForm({
                 ))}
               </SelectContent>
             </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t("keepSubTagHint", { title: subTitle })}
+            </p>
           </div>
         )}
       </div>

@@ -1111,7 +1111,10 @@
         "select": "채팅 태그 선택…",
         "none": "태그 없음 (채팅 태그 지우기)",
         "anySub": "모든 하위 태그",
-        "noSub": "하위 태그 없음",
+        "keepSub": "현재 {title} 유지",
+        "noSubNamed": "{title} 없음",
+        "keepSubHint": "채팅에 이미 이 태그가 있으면 현재 {title}을(를) 그대로 둡니다.",
+        "subFallback": "하위 태그",
         "unknown": "{id} (알 수 없는 채팅 태그)"
       },
       "fields": {
@@ -1320,7 +1323,10 @@
         "ifFalseAdvance": "거짓일 경우 → 다음 진행",
         "subTagLabel": "하위 태그",
         "noTag": "태그 없음",
-        "noSubTag": "하위 태그 없음",
+        "keepSubTag": "현재 {title} 유지",
+        "noSubTagNamed": "{title} 없음",
+        "keepSubTagHint": "채팅에 이미 이 태그가 있으면 현재 {title}을(를) 그대로 둡니다.",
+        "subTagFallback": "하위 태그",
         "pickSubTag": "하위 태그 선택…",
         "deletedTag": "삭제된 태그",
         "thenAdvanceTo": "이후 다음 진행",

@@ -179,7 +179,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
     case "send_template":
       return { template_name: "", language: "en_US" }
     case "set_chat_tag":
-      return { chat_tag_id: "", chat_sub_tag_id: null }
+      return { chat_tag_id: "" }
     case "assign_conversation":
       return { mode: "round_robin" }
     case "update_contact_field":
@@ -322,10 +322,14 @@ function ChatTagDot({ color }: { color: string | null | undefined }) {
 
 /** Value of the "No tag" option: the step stores null for it. */
 const NO_CHAT_TAG = "__none__"
+/** Value of the step's "Keep current sub-tag" option: the key is omitted. */
+const KEEP_SUB_TAG = "__keep__"
 
 /** A main chat tag and, optionally, one of its sub-tags ("any" / none by
- *  default). `allowNone` adds "No tag" for a step that clears the chat's
- *  tags; then `mainId` is null. Saved ids that no longer exist stay
+ *  default). `allowNone` marks the "Set chat tag" step: it adds "No tag"
+ *  (then `mainId` is null), and its sub-tag choices are "Keep current"
+ *  (`subId` undefined, the key left out of the config), "No sub-tag"
+ *  (null) or a sub-tag. Saved ids that no longer exist stay
  *  selectable so editing an automation doesn't silently drop them. */
 function ChatTagPairSelect({
   mainId,
@@ -335,15 +339,25 @@ function ChatTagPairSelect({
   t,
 }: {
   mainId: string | null
-  subId: string | null
+  subId: string | null | undefined
   allowNone?: boolean
-  onChange: (mainId: string | null, subId: string | null) => void
+  onChange: (
+    mainId: string | null,
+    subId: string | null | undefined,
+  ) => void
   t: ReturnType<typeof useTranslations>
 }) {
   const { tree } = useChatTags()
   const main = mainId ? tree.mains.find((m) => m.id === mainId) : undefined
   const subs = main?.subs ?? []
   const sub = subId ? subs.find((st) => st.id === subId) : undefined
+  const subTitle = main?.sub_tag_title?.trim() || t("chatTags.subFallback")
+  // The step's select carries sentinels so "Keep" and "No" stay distinct.
+  const subValue = allowNone
+    ? subId === undefined
+      ? KEEP_SUB_TAG
+      : (subId ?? NO_CHAT_TAG)
+    : (subId ?? "")
   return (
     <>
       <FieldBlock label={t("chatTags.label")}>
@@ -352,7 +366,10 @@ function ChatTagPairSelect({
           <select
             value={mainId === null ? NO_CHAT_TAG : mainId}
             onChange={(e) =>
-              onChange(e.target.value === NO_CHAT_TAG ? null : e.target.value, null)
+              onChange(
+                e.target.value === NO_CHAT_TAG ? null : e.target.value,
+                allowNone ? undefined : null,
+              )
             }
             className={SELECT_CLASS}
           >
@@ -374,13 +391,33 @@ function ChatTagPairSelect({
           <div className="flex items-center gap-2">
             <ChatTagDot color={sub?.color ?? main?.color} />
             <select
-              value={subId ?? ""}
-              onChange={(e) => onChange(mainId, e.target.value || null)}
+              value={subValue}
+              onChange={(e) =>
+                onChange(
+                  mainId,
+                  allowNone
+                    ? e.target.value === KEEP_SUB_TAG
+                      ? undefined
+                      : e.target.value === NO_CHAT_TAG
+                        ? null
+                        : e.target.value
+                    : e.target.value || null,
+                )
+              }
               className={SELECT_CLASS}
             >
-              <option value="">
-                {allowNone ? t("chatTags.noSub") : t("chatTags.anySub")}
-              </option>
+              {allowNone ? (
+                <>
+                  <option value={KEEP_SUB_TAG}>
+                    {t("chatTags.keepSub", { title: subTitle })}
+                  </option>
+                  <option value={NO_CHAT_TAG}>
+                    {t("chatTags.noSubNamed", { title: subTitle })}
+                  </option>
+                </>
+              ) : (
+                <option value="">{t("chatTags.anySub")}</option>
+              )}
               {subs.map((st) => (
                 <option key={st.id} value={st.id}>
                   {st.name}
@@ -391,6 +428,11 @@ function ChatTagPairSelect({
               )}
             </select>
           </div>
+          {allowNone && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t("chatTags.keepSubHint", { title: subTitle })}
+            </p>
+          )}
         </FieldBlock>
       )}
     </>
@@ -1412,10 +1454,21 @@ function StepEditor({
       return (
         <ChatTagPairSelect
           mainId={cfg.chat_tag_id === null ? null : ((cfg.chat_tag_id as string) ?? "")}
-          subId={(cfg.chat_sub_tag_id as string | null) ?? null}
+          subId={
+            "chat_sub_tag_id" in cfg
+              ? ((cfg.chat_sub_tag_id as string | null) ?? null)
+              : undefined
+          }
           allowNone
           onChange={(mainId, subId) =>
-            set({ chat_tag_id: mainId, chat_sub_tag_id: subId })
+            onChange({
+              ...step,
+              step_config: {
+                // Left out (not null) for "Keep current".
+                chat_tag_id: mainId,
+                ...(subId === undefined ? {} : { chat_sub_tag_id: subId }),
+              },
+            })
           }
           t={t}
         />

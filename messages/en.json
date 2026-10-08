@@ -1111,7 +1111,10 @@
         "select": "Select a chat tag…",
         "none": "No tag (clear the chat's tags)",
         "anySub": "Any sub-tag",
-        "noSub": "No sub-tag",
+        "keepSub": "Keep current {title}",
+        "noSubNamed": "No {title}",
+        "keepSubHint": "Leaves the chat's current {title} alone when the chat already has this tag.",
+        "subFallback": "sub-tag",
         "unknown": "{id} (unknown chat tag)"
       },
       "fields": {
@@ -1320,7 +1323,10 @@
         "ifFalseAdvance": "If false → advance to",
         "subTagLabel": "Sub-tag",
         "noTag": "No tag",
-        "noSubTag": "No sub-tag",
+        "keepSubTag": "Keep current {title}",
+        "noSubTagNamed": "No {title}",
+        "keepSubTagHint": "Leaves the chat's current {title} alone when the chat already has this tag.",
+        "subTagFallback": "sub-tag",
         "pickSubTag": "Pick a sub-tag…",
         "deletedTag": "Deleted tag",
         "thenAdvanceTo": "Then advance to",
