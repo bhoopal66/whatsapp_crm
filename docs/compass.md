@@ -556,8 +556,9 @@ here so both teams know what a broadcast does to the synced records.
   in one request is never refused for this.
 - **Bad numbers are skipped.** A number that fails the contact rules
   (no country code, too short, …) is left out, so a slice can send to
-  fewer people than it names. Exclude tags and the frequency cap apply
-  too, and two customers with the same number get one message.
+  fewer people than it names. Exclude chat tags, opted-out customers
+  and the frequency cap apply too, and two customers with the same
+  number get one message.
 - **Recipients become CRM contacts.** A campaign's recipients have to
   be contacts, so a customer whose number is not yet a contact is added
   as one, owned by the admin who sends. A number that is already a

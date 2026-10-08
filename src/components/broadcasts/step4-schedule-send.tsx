@@ -6,14 +6,13 @@ import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { resolveSendTime } from '@/hooks/use-broadcast-sending';
+import {
+  estimateAudience,
+  resolveSendTime,
+  type AudienceConfig,
+} from '@/hooks/use-broadcast-sending';
 import { parseQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
-import {
-  compassWindowSize,
-  normalizeCompassSelection,
-  type CompassSelection,
-} from '@/lib/broadcasts/compass-audience';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Select,
@@ -43,14 +42,6 @@ import {
   Bot,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-
-interface AudienceConfig {
-  type: string;
-  tagIds?: string[];
-  csvContacts?: { phone: string; name?: string; company?: string }[];
-  csvColumns?: string[];
-  compass?: CompassSelection;
-}
 
 /**
  * Local-time value of a `<input type="datetime-local">` for a Date,
@@ -188,63 +179,36 @@ export function Step4ScheduleSend({
   );
   const isSchedule = effectiveSendAt !== null;
 
+  // The step-2 count (`estimateAudience`): exclusions and opted-out
+  // customers already taken off, so the confirm states who is sent to.
   useEffect(() => {
-    async function calculateReach() {
+    let cancelled = false;
+    void (async () => {
       setLoadingReach(true);
       try {
-        const supabase = createClient();
-
-        if (audience.type === 'all') {
-          const { count } = await supabase
-            .from('contacts')
-            .select('*', { count: 'exact', head: true });
-          setEstimatedReach(count ?? 0);
-        } else if (
-          audience.type === 'tags' &&
-          audience.tagIds &&
-          audience.tagIds.length > 0
-        ) {
-          const { data: contactTags } = await supabase
-            .from('contact_tags')
-            .select('contact_id')
-            .in('tag_id', audience.tagIds);
-
-          const uniqueIds = new Set(
-            (contactTags ?? []).map((ct) => ct.contact_id)
-          );
-          setEstimatedReach(uniqueIds.size);
-        } else if (audience.type === 'csv' && audience.csvContacts) {
-          setEstimatedReach(audience.csvContacts.length);
-        } else if (audience.type === 'compass' && accountId) {
-          // The slice size, over the same rows the send reads (customers
-          // with a phone); exclude tags and the frequency cap can lower it.
-          const { count } = await supabase
-            .from('compass_contacts')
-            .select('id', { count: 'exact', head: true })
-            .eq('account_id', accountId)
-            .not('phone_normalized', 'is', null);
-          setEstimatedReach(
-            compassWindowSize(
-              normalizeCompassSelection(audience.compass),
-              count ?? 0
-            )
-          );
-        } else {
-          setEstimatedReach(0);
-        }
+        const estimate = await estimateAudience(
+          createClient(),
+          accountId,
+          audience
+        );
+        if (!cancelled) setEstimatedReach(estimate?.recipients ?? 0);
+      } catch (err) {
+        console.error('[broadcast] audience estimate failed:', err);
+        if (!cancelled) setEstimatedReach(0);
       } finally {
-        setLoadingReach(false);
+        if (!cancelled) setLoadingReach(false);
       }
-    }
-
-    calculateReach();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [audience, accountId]);
 
   const audienceLabel =
     audience.type === 'all'
       ? t('scheduleSend.audienceAll')
-      : audience.type === 'tags'
-        ? t('scheduleSend.audienceTags')
+      : audience.type === 'chat_tags'
+        ? t('scheduleSend.audienceChatTags')
         : audience.type === 'csv'
           ? t('scheduleSend.audienceCsv')
           : audience.type === 'compass'

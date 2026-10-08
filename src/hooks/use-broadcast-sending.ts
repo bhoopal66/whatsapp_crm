@@ -27,11 +27,22 @@ import {
   COMPASS_CHECK_FAILED,
   normalizeCompassSelection,
   readCompassWindow,
+  compassWindowSize,
   type CompassAudienceRow,
   type CompassOrder,
   type CompassSelection,
 } from '@/lib/broadcasts/compass-audience';
 import { partitionRowsByPhone } from '@/lib/contacts/phone-validation';
+import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
+import {
+  chunk,
+  countIdAudience,
+  countPhoneAudience,
+  countWholeAudience,
+  finalAudience,
+  uniqueIds,
+  type AudienceCount,
+} from '@/lib/broadcasts/audience-sets';
 
 export type { CsvContactRow, VariableMapping };
 
@@ -44,8 +55,12 @@ export interface CustomFieldFilter {
 }
 
 export interface AudienceConfig {
-  type: 'all' | 'tags' | 'custom_field' | 'csv' | 'compass';
-  tagIds?: string[];
+  type: 'all' | 'chat_tags' | 'custom_field' | 'csv' | 'compass';
+  /**
+   * Chat tags (main or sub-tag ids). A contact matches when its chat's
+   * main tag or sub-tag is one of them, as in the inbox filter.
+   */
+  chatTagIds?: string[];
   customField?: CustomFieldFilter;
   csvContacts?: CsvContactRow[];
   /**
@@ -70,8 +85,11 @@ export interface AudienceConfig {
   compassSampleRows?: CsvContactRow[];
   /** `compassSelectionKey` of the selection `compassSample` was read for. */
   compassSampleKey?: string;
-  /** Contacts carrying any of these tags are subtracted from the result. */
-  excludeTagIds?: string[];
+  /**
+   * Contacts whose chat carries any of these chat tags (main or sub) are
+   * subtracted from the result, whatever the audience type.
+   */
+  excludeChatTagIds?: string[];
   /**
    * Frequency cap: drop contacts who were sent any campaign in the last
    * N days (migration 053 — stored in `audience_filter`). 0/undefined =
@@ -399,6 +417,202 @@ function stripEmbed<T extends object>(row: T, key: string): Contact {
   return contact as unknown as Contact;
 }
 
+type Supabase = ReturnType<typeof createClient>;
+
+/**
+ * Ids per `.in()` request. PostgREST echoes the filter back in the
+ * `Content-Location` header, so a long list overflows the reverse proxy
+ * (see `upsertCsvContacts`); 200 uuids keeps it near 8 KB.
+ */
+const ID_CHUNK = 200;
+
+/**
+ * Contacts whose chat carries any of these chat tags, main or sub (one
+ * conversation per contact). Read through `conversations`, so RLS
+ * scopes it as the inbox is scoped. No usable id → no contacts.
+ */
+async function fetchChatTaggedContactIds(
+  supabase: Supabase,
+  chatTagIds: readonly string[] | undefined
+): Promise<string[]> {
+  const group = chatTagFilterOrGroup(chatTagIds ?? []);
+  if (!group) return [];
+  const rows = await fetchAllPages<{ contact_id: string | null }>(
+    (from, to) =>
+      supabase
+        .from('conversations')
+        .select('contact_id')
+        .or(group)
+        .order('id')
+        .range(from, to),
+    'chat-tagged conversations'
+  );
+  return uniqueIds(rows.map((r) => r.contact_id));
+}
+
+/** Full contact rows for ids, a chunk per request. */
+async function fetchContactsByIds(
+  supabase: Supabase,
+  ids: readonly string[]
+): Promise<Contact[]> {
+  const contacts: Contact[] = [];
+  for (const slice of chunk(ids, ID_CHUNK)) {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('*')
+      .in('id', slice);
+    if (error) throw new Error(`Failed to fetch contacts: ${error.message}`);
+    contacts.push(...((data ?? []) as Contact[]));
+  }
+  return contacts;
+}
+
+/** Every opted-out contact the caller can see (a small set, migration 076). */
+async function fetchOptedOutContactIds(supabase: Supabase): Promise<string[]> {
+  const rows = await fetchAllPages<{ id: string }>(
+    (from, to) =>
+      supabase
+        .from('contacts')
+        .select('id')
+        .not('opted_out_at', 'is', null)
+        .order('id')
+        .range(from, to),
+    'opted-out contacts'
+  );
+  return rows.map((r) => r.id);
+}
+
+export interface AudienceEstimate extends AudienceCount {
+  /**
+   * A Compass slice is counted by its size: its numbers are only read
+   * at send, so exclusions and opt-outs may still lower it.
+   */
+  approximate: boolean;
+}
+
+/**
+ * How many contacts `resolveAudience` will produce, and how many
+ * opted-out customers it leaves out — the wizard's count in steps 2
+ * and 4. Null while the audience is not configured. The frequency cap
+ * is not reflected (it would cost a recipients scan per change).
+ */
+export async function estimateAudience(
+  supabase: Supabase,
+  accountId: string | null,
+  audience: AudienceConfig
+): Promise<AudienceEstimate | null> {
+  const field = audience.customField;
+  if (audience.type === 'compass') {
+    if (!accountId) return null;
+    const { count, error } = await supabase
+      .from('compass_contacts')
+      .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
+      .not('phone_normalized', 'is', null);
+    if (error) throw new Error(error.message);
+    const size = compassWindowSize(
+      normalizeCompassSelection(audience.compass),
+      count ?? 0
+    );
+    return { recipients: size, optedOut: 0, approximate: true };
+  }
+  if (
+    (audience.type === 'chat_tags' && !audience.chatTagIds?.length) ||
+    (audience.type === 'custom_field' && !(field?.fieldId && field.value)) ||
+    (audience.type === 'csv' && !audience.csvContacts?.length)
+  ) {
+    return null;
+  }
+
+  const [excludedIds, optedOutIds] = await Promise.all([
+    fetchChatTaggedContactIds(supabase, audience.excludeChatTagIds),
+    fetchOptedOutContactIds(supabase),
+  ]);
+  const excluded = new Set(excludedIds);
+  const optedOut = new Set(optedOutIds);
+
+  if (audience.type === 'all') {
+    const { count, error } = await supabase
+      .from('contacts')
+      .select('id', { count: 'exact', head: true });
+    if (error) throw new Error(error.message);
+    return {
+      ...countWholeAudience(count ?? 0, excluded, optedOut),
+      approximate: false,
+    };
+  }
+  if (audience.type === 'chat_tags') {
+    // Through the contact rows, as the send reads them.
+    const ids = await fetchChatTaggedContactIds(supabase, audience.chatTagIds);
+    const visible = (await fetchContactsByIds(supabase, ids)).map((c) => c.id);
+    return {
+      ...countIdAudience(visible, excluded, optedOut),
+      approximate: false,
+    };
+  }
+  if (audience.type === 'custom_field' && field) {
+    const rows = await fetchAllPages<{ id: string }>(
+      (from, to) =>
+        customFieldPage<{ id: string }>(supabase, 'id', field, from, to),
+      'contacts for the custom-field filter'
+    );
+    return {
+      ...countIdAudience(
+        rows.map((r) => r.id),
+        excluded,
+        optedOut
+      ),
+      approximate: false,
+    };
+  }
+  // CSV: rows become contacts by normalized phone at send.
+  const keys = uniqueIds(
+    (audience.csvContacts ?? []).map((r) => normalizePhone(r.phone))
+  );
+  const existing = new Map<string, { id: string; optedOut: boolean }>();
+  for (const slice of chunk(keys, ID_CHUNK)) {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('id, phone, opted_out_at')
+      .in('phone_normalized', slice);
+    if (error) throw new Error(error.message);
+    for (const c of data ?? []) {
+      const key = normalizePhone(c.phone ?? '');
+      if (key) existing.set(key, { id: c.id, optedOut: !!c.opted_out_at });
+    }
+  }
+  return {
+    ...countPhoneAudience(keys, existing, excluded),
+    approximate: false,
+  };
+}
+
+/**
+ * Contacts matching a custom-field rule: the condition applies to the
+ * embedded value row, and `!inner` keeps only contacts that have a
+ * matching one. "contains" is a case-insensitive `ilike`.
+ */
+function customFieldPage<T>(
+  supabase: Supabase,
+  columns: string,
+  { fieldId, operator, value }: CustomFieldFilter,
+  from: number,
+  to: number
+): PageResult<T> {
+  // A plain string: the typed select parser cannot read a template.
+  const select: string = `${columns}, contact_custom_values!inner(value)`;
+  let query = supabase
+    .from('contacts')
+    .select(select)
+    .eq('contact_custom_values.custom_field_id', fieldId);
+  if (operator === 'is') query = query.eq('contact_custom_values.value', value);
+  else if (operator === 'is_not')
+    query = query.neq('contact_custom_values.value', value);
+  else if (operator === 'contains')
+    query = query.ilike('contact_custom_values.value', `%${value}%`);
+  return query.order('id').range(from, to) as unknown as PageResult<T>;
+}
+
 /** contactId → (customFieldId → value). */
 type CustomValueIndex = Map<string, Map<string, string>>;
 
@@ -462,28 +676,11 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           supabase.from('contacts').select('*').order('id').range(from, to),
         'contacts'
       );
-    } else if (
-      audience.type === 'tags' &&
-      audience.tagIds &&
-      audience.tagIds.length > 0
-    ) {
-      // One filtered query rather than "fetch the tag's contact ids,
-      // then `.in('id', ids)`": thousands of uuids in a GET URL
-      // overflow the proxy, and the id list itself was capped at
-      // max-rows. `!inner` returns each contact once however many of
-      // the selected tags it carries.
-      const tagIds = audience.tagIds;
-      const rows = await fetchAllPages<Contact & { contact_tags: unknown }>(
-        (from, to) =>
-          supabase
-            .from('contacts')
-            .select('*, contact_tags!inner(tag_id)')
-            .in('contact_tags.tag_id', tagIds)
-            .order('id')
-            .range(from, to),
-        'contacts'
+    } else if (audience.type === 'chat_tags' && audience.chatTagIds?.length) {
+      contacts = await fetchContactsByIds(
+        supabase,
+        await fetchChatTaggedContactIds(supabase, audience.chatTagIds)
       );
-      contacts = rows.map((row) => stripEmbed(row, 'contact_tags'));
     } else if (audience.type === 'custom_field' && audience.customField) {
       contacts = await resolveCustomFieldAudience(
         supabase,
@@ -509,23 +706,13 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       contacts = await upsertCsvContacts(supabase, csvRows);
     }
 
-    // Apply exclude tags (works across all contact-derived audience
-    // types). CSV contacts are synthetic so exclusion doesn't apply.
-    if (audience.excludeTagIds && audience.excludeTagIds.length > 0) {
-      const excludeTagIds = audience.excludeTagIds;
-      const excludeRows = await fetchAllPages<{ contact_id: string }>(
-        (from, to) =>
-          supabase
-            .from('contact_tags')
-            .select('contact_id')
-            .in('tag_id', excludeTagIds)
-            .order('id')
-            .range(from, to),
-        'excluded contacts'
-      );
-      const excludedIds = new Set(excludeRows.map((r) => r.contact_id));
-      contacts = contacts.filter((c) => !excludedIds.has(c.id));
-    }
+    // Exclude chat tags, then every customer who asked not to be
+    // messaged — for every audience type, CSV and Compass included
+    // (their rows are real contacts by now, opt-out stamp and all).
+    const excluded = new Set(
+      await fetchChatTaggedContactIds(supabase, audience.excludeChatTagIds)
+    );
+    contacts = finalAudience(contacts, excluded);
 
     // Frequency cap: anyone already sent a campaign in the window is
     // dropped, whatever list they came from (CSV included — a phone
@@ -660,29 +847,22 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
     supabase: ReturnType<typeof createClient>,
     filter: CustomFieldFilter
   ): Promise<Contact[]> {
-    const { fieldId, operator, value } = filter;
-
-    // One filtered query over contacts, with the condition applied to
-    // the embedded value row (`!inner` keeps only contacts that have a
-    // matching one) — same semantics as matching contact_custom_values
-    // first, without shipping the id list back up in a URL. PostgREST
-    // supports eq/neq/ilike on embedded columns; "contains" uses ilike
-    // with wildcards so the match is case-insensitive.
+    // One filtered query over contacts (`customFieldPage`) — same
+    // semantics as matching contact_custom_values first, without
+    // shipping the id list back up in a URL.
     const rows = await fetchAllPages<
       Contact & { contact_custom_values: unknown }
-    >((from, to) => {
-      let query = supabase
-        .from('contacts')
-        .select('*, contact_custom_values!inner(value)')
-        .eq('contact_custom_values.custom_field_id', fieldId);
-      if (operator === 'is')
-        query = query.eq('contact_custom_values.value', value);
-      else if (operator === 'is_not')
-        query = query.neq('contact_custom_values.value', value);
-      else if (operator === 'contains')
-        query = query.ilike('contact_custom_values.value', `%${value}%`);
-      return query.order('id').range(from, to);
-    }, 'contacts for the custom-field filter');
+    >(
+      (from, to) =>
+        customFieldPage<Contact & { contact_custom_values: unknown }>(
+          supabase,
+          '*',
+          filter,
+          from,
+          to
+        ),
+      'contacts for the custom-field filter'
+    );
     return rows.map((row) => stripEmbed(row, 'contact_custom_values'));
   }
 
@@ -754,9 +934,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           template_variables: payload.variables,
           audience_filter: {
             type: payload.audience.type,
-            tagIds: payload.audience.tagIds,
+            chatTagIds: payload.audience.chatTagIds,
             customField: payload.audience.customField,
-            excludeTagIds: payload.audience.excludeTagIds,
+            excludeChatTagIds: payload.audience.excludeChatTagIds,
             skipRecentDays: payload.audience.skipRecentDays || undefined,
             compass:
               payload.audience.type === 'compass'

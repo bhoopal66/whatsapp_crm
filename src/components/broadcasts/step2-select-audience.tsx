@@ -1,18 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import {
-  cachedQuery,
-  REFERENCE_CACHE_TTL_MS,
-  TAGS_CACHE_KEY,
-} from '@/lib/client-cache';
 import { parseContactCsv } from '@/lib/contacts/parse-contact-csv';
 import {
   partitionRowsByPhone,
   summarizeRejectedPhones,
 } from '@/lib/contacts/phone-validation';
-import type { CsvContactRow } from '@/lib/broadcasts/variables';
 import {
   COMPASS_ORDERS,
   compassColumns,
@@ -28,9 +23,19 @@ import {
   type CompassOrder,
   type CompassSelection,
 } from '@/lib/broadcasts/compass-audience';
-import { compassAudienceQuery } from '@/hooks/use-broadcast-sending';
+import {
+  compassAudienceQuery,
+  estimateAudience,
+  type AudienceConfig,
+  type CustomFieldFilter,
+} from '@/hooks/use-broadcast-sending';
 import { useAuth } from '@/hooks/use-auth';
-import { CustomField, Tag } from '@/types';
+import { useCan } from '@/hooks/use-can';
+import { useChatTags } from '@/hooks/use-chat-tags';
+import type { ChatTagTree } from '@/lib/chat-tags/tree';
+import { chatTagColor } from '@/lib/chat-tags/style';
+import { CHAT_TAGS_SETTINGS_HREF } from '@/components/inbox/thread-tag-bar';
+import type { CustomField } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -46,7 +51,7 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv' | 'compass';
+type AudienceType = AudienceConfig['type'];
 
 /** Pause after the last audience change before re-counting. */
 const ESTIMATE_DEBOUNCE_MS = 300;
@@ -57,38 +62,12 @@ const ESTIMATE_DEBOUNCE_MS = 300;
  * without downloading the whole slice on every keystroke.
  */
 const COMPASS_SAMPLE_SIZE = 200;
-type CustomFieldOperator = 'is' | 'is_not' | 'contains';
+type CustomFieldOperator = CustomFieldFilter['operator'];
 
-interface CustomFieldFilter {
-  fieldId: string;
-  operator: CustomFieldOperator;
-  value: string;
-}
-
-interface AudienceConfig {
-  type: AudienceType;
-  tagIds?: string[];
-  customField?: CustomFieldFilter;
-  csvContacts?: CsvContactRow[];
-  /** Lower-cased CSV headers — the personalize step offers them as variable sources. */
-  csvColumns?: string[];
-  /** Which slice of the Compass customers a `compass` audience takes. */
-  compass?: CompassSelection;
-  /**
-   * First row of the sample below — the personalize preview only. The
-   * send re-reads the whole slice; it never treats this as the audience.
-   */
-  compassSample?: CsvContactRow;
-  /**
-   * The whole sample (≤ COMPASS_SAMPLE_SIZE rows of the slice), so the
-   * personalize step can count who a variable would leave blank.
-   */
-  compassSampleRows?: CsvContactRow[];
-  /** `compassSelectionKey` of the selection `compassSample` was read for. */
-  compassSampleKey?: string;
-  excludeTagIds?: string[];
-  /** Frequency cap — skip anyone sent a campaign in the last N days. */
-  skipRecentDays?: number;
+/** The step-2 count: who will be sent to, and the opted-out left out. */
+interface Estimate {
+  recipients: number;
+  optedOut: number;
 }
 
 interface Step2Props {
@@ -133,9 +112,9 @@ export function Step2SelectAudience({
         icon: Users,
       },
       {
-        type: 'tags',
-        label: t('selectAudience.method.tags'),
-        description: t('selectAudience.tagDesc'),
+        type: 'chat_tags',
+        label: t('selectAudience.method.chatTags'),
+        description: t('selectAudience.chatTagDesc'),
         icon: Tags,
       },
       {
@@ -159,13 +138,16 @@ export function Step2SelectAudience({
     ],
     [t]
   );
-  const [tags, setTags] = useState<Tag[]>([]);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
-  const [loadingTags, setLoadingTags] = useState(false);
   const [loadingFields, setLoadingFields] = useState(false);
-  const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
+  const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
   const { accountId } = useAuth();
+  const canEditSettings = useCan('edit-settings');
+  // Chat tags pick the audience and the exclude list alike.
+  const { tags: chatTags, tree: chatTagTree } = useChatTags();
+  const chatTagsLoading = chatTags === null;
+  const noChatTags = !chatTagsLoading && chatTagTree.mains.length === 0;
 
   // Compass audience: how many customers have a phone (the list the
   // slice is cut from), and a sample of the slice for the personalize
@@ -294,34 +276,6 @@ export function Step2SelectAudience({
     if (parsed !== null) updateCompass({ limit: parsed.limit });
   }
 
-  // Tags are used both by the primary "Filter by Tags" audience type
-  // AND by the exclude-list below — so always load once on mount.
-  useEffect(() => {
-    async function fetchTags() {
-      setLoadingTags(true);
-      try {
-        // Shared tag cache (same key and loader shape as the inbox and
-        // contacts screens); tag writes invalidate it.
-        const data = await cachedQuery(
-          TAGS_CACHE_KEY,
-          REFERENCE_CACHE_TTL_MS,
-          async () => {
-            const supabase = createClient();
-            const { data } = await supabase
-              .from('tags')
-              .select('*')
-              .order('name');
-            return (data as Tag[] | null) ?? [];
-          }
-        ).catch(() => [] as Tag[]);
-        setTags(data);
-      } finally {
-        setLoadingTags(false);
-      }
-    }
-    fetchTags();
-  }, []);
-
   // Lazy-load custom fields only when that audience type is active.
   useEffect(() => {
     if (audience.type !== 'custom_field') return;
@@ -341,122 +295,70 @@ export function Step2SelectAudience({
     fetchFields();
   }, [audience.type]);
 
-  // Audience estimate, counted in the database. It used to download
-  // the matching contact_id lists (and the exclude list) and count them
-  // here: up to three sequential round trips per change, silently
-  // capped at PostgREST's max-rows, re-run on every tag toggle. Now it
-  // is at most two `head` counts fired together, debounced so a burst
-  // of toggles asks once.
+  // Audience estimate: `estimateAudience` (use-broadcast-sending.ts)
+  // counts what the send's `resolveAudience` will produce — the base
+  // list, minus contacts whose chat carries an excluded chat tag, minus
+  // every customer who asked not to be messaged — so the number here is
+  // the number sent. Debounced so a burst of toggles asks once. The
+  // frequency cap is still not reflected — see the note on that control
+  // below.
   //
-  //   estimate = |base| − |base ∩ excluded|
-  //
-  // `base` uses the same filter shape the send resolves the audience
-  // with (`use-broadcast-sending.ts` resolveAudience): contacts with an
-  // `!inner` embed, so a contact matching several tags counts once.
-  // "Excluded" = carries any exclude tag. The frequency cap is still
-  // not reflected — see the note on that control below.
+  // A Compass slice is counted from `compassTotal` (already read for
+  // the sample) and is approximate: its numbers are only read at send,
+  // where exclusions and opt-outs can still lower it (noted under the
+  // estimate).
   const estimateSeq = useRef(0);
-  const fetchEstimatedCount = useCallback(async () => {
+  const fetchEstimate = useCallback(async () => {
     const seq = ++estimateSeq.current;
-    const commit = (n: number | null) => {
+    const commit = (next: Estimate | null) => {
       if (seq !== estimateSeq.current) return; // superseded
-      setEstimatedCount(n);
+      setEstimate(next);
       setLoadingCount(false);
     };
 
-    if (audience.type === 'csv') {
-      commit(
-        audience.csvContacts && audience.csvContacts.length > 0
-          ? audience.csvContacts.length
-          : null
-      );
-      return;
-    }
-
-    // The slice size; exclude tags and the frequency cap apply at send
-    // and can only lower it (noted under the estimate).
     if (audience.type === 'compass') {
       commit(
         compassTotal === null
           ? null
-          : compassWindowSize(compassSelection, compassTotal)
+          : {
+              recipients: compassWindowSize(compassSelection, compassTotal),
+              optedOut: 0,
+            }
       );
       return;
     }
 
-    const tagIds = audience.tagIds ?? [];
-    const field = audience.customField;
-    const configured =
-      audience.type === 'all' ||
-      (audience.type === 'tags' && tagIds.length > 0) ||
-      (audience.type === 'custom_field' && !!field?.fieldId && !!field.value);
-    if (!configured) {
-      // Partially-configured audience — wait for the user to finish.
-      commit(null);
-      return;
-    }
-
     setLoadingCount(true);
-    const supabase = createClient();
-    const excludeTagIds = audience.excludeTagIds ?? [];
-
-    // Builds the base count; `withExcluded` additionally requires an
-    // exclude tag, giving |base ∩ excluded|.
-    const countAudience = (withExcluded: boolean) => {
-      const embeds: string[] = ['id'];
-      if (audience.type === 'tags')
-        embeds.push('inc:contact_tags!inner(tag_id)');
-      if (audience.type === 'custom_field')
-        embeds.push('cf:contact_custom_values!inner(value)');
-      if (withExcluded) embeds.push('exc:contact_tags!inner(tag_id)');
-
-      let q = supabase
-        .from('contacts')
-        .select(embeds.join(', '), { count: 'exact', head: true });
-      if (audience.type === 'tags') q = q.in('inc.tag_id', tagIds);
-      if (audience.type === 'custom_field' && field) {
-        q = q.eq('cf.custom_field_id', field.fieldId);
-        if (field.operator === 'is') q = q.eq('cf.value', field.value);
-        else if (field.operator === 'is_not')
-          q = q.neq('cf.value', field.value);
-        else q = q.ilike('cf.value', `%${field.value}%`);
-      }
-      if (withExcluded) q = q.in('exc.tag_id', excludeTagIds);
-      return q;
-    };
-
     try {
-      const [base, excluded] = await Promise.all([
-        countAudience(false),
-        excludeTagIds.length > 0 ? countAudience(true) : null,
-      ]);
-      if (base.error || excluded?.error) {
-        console.error(
-          '[broadcast] audience estimate failed:',
-          base.error ?? excluded?.error
-        );
-        commit(null);
-        return;
-      }
-      commit(Math.max(0, (base.count ?? 0) - (excluded?.count ?? 0)));
+      // Null while the audience is only partly configured.
+      commit(
+        await estimateAudience(createClient(), accountId, {
+          type: audience.type,
+          chatTagIds: audience.chatTagIds,
+          customField: audience.customField,
+          csvContacts: audience.csvContacts,
+          excludeChatTagIds: audience.excludeChatTagIds,
+        })
+      );
     } catch (err) {
       console.error('[broadcast] audience estimate failed:', err);
       commit(null);
     }
   }, [
+    accountId,
     audience.type,
-    audience.tagIds,
+    audience.chatTagIds,
     audience.customField,
     audience.csvContacts,
-    audience.excludeTagIds,
+    audience.excludeChatTagIds,
     compassSelection,
     compassTotal,
   ]);
 
   useEffect(() => {
-    const timer = setTimeout(fetchEstimatedCount, ESTIMATE_DEBOUNCE_MS);
+    const timer = setTimeout(fetchEstimate, ESTIMATE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [fetchEstimatedCount]);
+  }, [fetchEstimate]);
 
   // CSV audience. Parsed in the browser with the same parser the
   // contacts importer uses (a `phone` column, optional `name`); the
@@ -513,20 +415,12 @@ export function Step2SelectAudience({
     }
   }
 
-  function toggleTag(tagId: string) {
-    const current = audience.tagIds ?? [];
-    const updated = current.includes(tagId)
-      ? current.filter((id) => id !== tagId)
-      : [...current, tagId];
-    onUpdate({ ...audience, tagIds: updated });
-  }
-
-  function toggleExcludeTag(tagId: string) {
-    const current = audience.excludeTagIds ?? [];
-    const updated = current.includes(tagId)
-      ? current.filter((id) => id !== tagId)
-      : [...current, tagId];
-    onUpdate({ ...audience, excludeTagIds: updated });
+  function toggleChatTag(key: 'chatTagIds' | 'excludeChatTagIds', id: string) {
+    const current = audience[key] ?? [];
+    const updated = current.includes(id)
+      ? current.filter((x) => x !== id)
+      : [...current, id];
+    onUpdate({ ...audience, [key]: updated });
   }
 
   function updateCustomField(patch: Partial<CustomFieldFilter>) {
@@ -540,9 +434,9 @@ export function Step2SelectAudience({
 
   const isValid =
     audience.type === 'all' ||
-    (audience.type === 'tags' &&
-      audience.tagIds &&
-      audience.tagIds.length > 0) ||
+    (audience.type === 'chat_tags' &&
+      audience.chatTagIds &&
+      audience.chatTagIds.length > 0) ||
     (audience.type === 'custom_field' &&
       !!audience.customField?.fieldId &&
       audience.customField.value.length > 0) ||
@@ -585,6 +479,36 @@ export function Step2SelectAudience({
           }) => {
             const isSelected = audience.type === option.type;
             const Icon = option.icon;
+            // No chat tags yet: nothing to pick, so not a choice — say
+            // where they are set up (a link for those who can).
+            if (option.type === 'chat_tags' && noChatTags && !isSelected) {
+              return (
+                <div
+                  key={option.type}
+                  className="border-border bg-card/50 flex items-start gap-3 rounded-xl border border-dashed p-4"
+                >
+                  <div className="bg-muted text-muted-foreground flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-sm font-medium">
+                      {option.label}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      {t('selectAudience.chatTagsSetupHint')}
+                    </p>
+                    {canEditSettings && (
+                      <Link
+                        href={CHAT_TAGS_SETTINGS_HREF}
+                        className="text-foreground mt-1 inline-block text-xs underline underline-offset-2"
+                      >
+                        {t('selectAudience.chatTagsSetupLink')}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              );
+            }
             return (
               <button
                 key={option.type}
@@ -608,8 +532,10 @@ export function Step2SelectAudience({
                     type: option.type,
                     // Wipe shape fields from other types to avoid stale
                     // config leaking across selections.
-                    tagIds:
-                      option.type === 'tags' ? audience.tagIds : undefined,
+                    chatTagIds:
+                      option.type === 'chat_tags'
+                        ? audience.chatTagIds
+                        : undefined,
                     customField:
                       option.type === 'custom_field'
                         ? audience.customField
@@ -670,40 +596,24 @@ export function Step2SelectAudience({
         )}
       </div>
 
-      {audience.type === 'tags' && (
+      {audience.type === 'chat_tags' && (
         <div className="border-border bg-card/50 rounded-xl border p-4">
           <p className="text-foreground mb-3 text-sm font-medium">
-            {t('selectAudience.selectTags')}
+            {t('selectAudience.selectChatTags')}
           </p>
-          {loadingTags ? (
+          {chatTagsLoading ? (
             <Loader2 className="text-primary h-5 w-5 animate-spin" />
-          ) : tags.length === 0 ? (
+          ) : noChatTags ? (
             <p className="text-muted-foreground text-xs">
-              {t('selectAudience.noTagsFound')}
+              {t('selectAudience.chatTagsSetupHint')}
             </p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {tags.map((tag) => {
-                const isSelected = audience.tagIds?.includes(tag.id);
-                return (
-                  <button
-                    key={tag.id}
-                    onClick={() => toggleTag(tag.id)}
-                    className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-all ${
-                      isSelected
-                        ? 'border-primary/30 bg-primary/10 text-primary'
-                        : 'border-border bg-muted text-muted-foreground hover:border-border'
-                    }`}
-                  >
-                    <span
-                      className="mr-1.5 h-2 w-2 rounded-full"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    {tag.name}
-                  </button>
-                );
-              })}
-            </div>
+            <ChatTagPicker
+              tree={chatTagTree}
+              selected={audience.chatTagIds}
+              onToggle={(id) => toggleChatTag('chatTagIds', id)}
+              tone="include"
+            />
           )}
         </div>
       )}
@@ -927,36 +837,22 @@ export function Step2SelectAudience({
         <div className="mb-3 flex items-center gap-2">
           <X className="h-4 w-4 text-red-400" />
           <p className="text-foreground text-sm font-medium">
-            {t('selectAudience.excludeTags')}
+            {t('selectAudience.excludeChatTags')}
           </p>
         </div>
-        {tags.length === 0 ? (
+        {chatTagsLoading ? (
+          <Loader2 className="text-primary h-5 w-5 animate-spin" />
+        ) : noChatTags ? (
           <p className="text-muted-foreground text-xs">
-            {t('selectAudience.noTagsFound')}
+            {t('selectAudience.chatTagsSetupHint')}
           </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => {
-              const isExcluded = audience.excludeTagIds?.includes(tag.id);
-              return (
-                <button
-                  key={tag.id}
-                  onClick={() => toggleExcludeTag(tag.id)}
-                  className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-all ${
-                    isExcluded
-                      ? 'border-red-500/30 bg-red-500/10 text-red-300'
-                      : 'border-border bg-muted text-muted-foreground hover:border-border'
-                  }`}
-                >
-                  <span
-                    className="mr-1.5 h-2 w-2 rounded-full"
-                    style={{ backgroundColor: tag.color }}
-                  />
-                  {tag.name}
-                </button>
-              );
-            })}
-          </div>
+          <ChatTagPicker
+            tree={chatTagTree}
+            selected={audience.excludeChatTagIds}
+            onToggle={(id) => toggleChatTag('excludeChatTagIds', id)}
+            tone="exclude"
+          />
         )}
       </div>
 
@@ -1008,19 +904,28 @@ export function Step2SelectAudience({
             <Loader2 className="text-primary h-4 w-4 animate-spin" />
             <span className="text-muted-foreground text-xs">Calculating…</span>
           </div>
-        ) : estimatedCount !== null ? (
-          <div className="flex items-center gap-2">
-            <Users className="text-primary h-4 w-4" />
-            <span className="text-foreground text-sm">
-              {estimatedCount.toLocaleString()}
-            </span>
-            <span className="text-muted-foreground text-xs">
-              estimated recipients
-            </span>
-            {audience.type === 'compass' && (
-              <span className="text-muted-foreground text-xs">
-                · {t('selectAudience.compassEstimateNote')}
+        ) : estimate !== null ? (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Users className="text-primary h-4 w-4" />
+              <span className="text-foreground text-sm">
+                {estimate.recipients.toLocaleString()}
               </span>
+              <span className="text-muted-foreground text-xs">
+                estimated recipients
+              </span>
+              {audience.type === 'compass' && (
+                <span className="text-muted-foreground text-xs">
+                  · {t('selectAudience.compassEstimateNote')}
+                </span>
+              )}
+            </div>
+            {estimate.optedOut > 0 && (
+              <p className="text-muted-foreground text-xs">
+                {t('selectAudience.optedOutSkipped', {
+                  count: estimate.optedOut,
+                })}
+              </p>
             )}
           </div>
         ) : (
@@ -1048,6 +953,64 @@ export function Step2SelectAudience({
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+const CHAT_TAG_TONE = {
+  include: 'border-primary/30 bg-primary/10 text-primary',
+  exclude: 'border-red-500/30 bg-red-500/10 text-red-300',
+} as const;
+
+/**
+ * The account's chat tags as toggles: each main tag, its sub-tags
+ * indented beneath it, each with its colour dot (the inbox filter's
+ * look). A main tag matches its chats whatever the sub-tag; a sub-tag
+ * only its own.
+ */
+function ChatTagPicker({
+  tree,
+  selected,
+  onToggle,
+  tone,
+}: {
+  tree: ChatTagTree;
+  selected: readonly string[] | undefined;
+  onToggle: (id: string) => void;
+  tone: keyof typeof CHAT_TAG_TONE;
+}) {
+  const option = (tag: { id: string; name: string; color: string }) => {
+    const on = selected?.includes(tag.id) ?? false;
+    return (
+      <button
+        key={tag.id}
+        type="button"
+        aria-pressed={on}
+        onClick={() => onToggle(tag.id)}
+        className={`flex w-full min-w-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-xs font-medium transition-all ${
+          on
+            ? CHAT_TAG_TONE[tone]
+            : 'border-border bg-muted text-muted-foreground hover:border-border'
+        }`}
+      >
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: chatTagColor(tag.color) }}
+        />
+        <span className="truncate">{tag.name}</span>
+      </button>
+    );
+  };
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {tree.mains.map((main) => (
+        <div key={main.id} className="space-y-1">
+          {option(main)}
+          {main.subs.length > 0 && (
+            <div className="space-y-1 pl-6">{main.subs.map(option)}</div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

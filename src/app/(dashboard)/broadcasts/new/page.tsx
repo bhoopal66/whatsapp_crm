@@ -54,14 +54,14 @@ export default function NewBroadcastPage() {
         template,
         audience: {
           type: audience.type,
-          tagIds: audience.tagIds,
+          chatTagIds: audience.chatTagIds,
           customField: audience.customField,
           csvContacts: audience.csvContacts,
           csvColumns: audience.csvColumns,
           // Not `compassSample`: that is the preview row, and the send
           // re-reads the whole slice from this selection.
           compass: audience.compass,
-          excludeTagIds: audience.excludeTagIds,
+          excludeChatTagIds: audience.excludeChatTagIds,
           skipRecentDays: audience.skipRecentDays,
         },
         variables,
@@ -122,7 +122,8 @@ export default function NewBroadcastPage() {
       template_variables: variables,
       audience_filter: {
         type: audience.type,
-        tagIds: audience.tagIds,
+        chatTagIds: audience.chatTagIds,
+        excludeChatTagIds: audience.excludeChatTagIds,
         compass: audience.type === 'compass' ? audience.compass : undefined,
       },
       follow_up_flow_id: followUpFlowId,

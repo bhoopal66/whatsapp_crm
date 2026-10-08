@@ -40,7 +40,7 @@ import {
 import { useTranslations } from 'next-intl';
 
 interface Step3Audience {
-  type: 'all' | 'tags' | 'custom_field' | 'csv' | 'compass';
+  type: 'all' | 'chat_tags' | 'custom_field' | 'csv' | 'compass';
   csvContacts?: CsvContactRow[];
   csvColumns?: string[];
   /** First row of a Compass slice's sample (step 2) — preview only. */
