@@ -818,7 +818,15 @@ function chatTagItems(
   for (const o of options) {
     items[o.id] = <ChatTagOption color={o.color} name={o.name} />;
   }
-  if (current && items[current] === undefined) {
+  // Only a real saved id can be a deleted tag: the "keep" and "none"
+  // choices are sentinels, and labelling "Keep current" as "Deleted
+  // tag" steered admins into the sub-tag wipe the default exists to avoid.
+  if (
+    current &&
+    current !== KEEP_SUB &&
+    current !== NO_TAG &&
+    items[current] === undefined
+  ) {
     items[current] = loaded ? t("deletedTag") : "";
   }
   return items;
@@ -902,7 +910,6 @@ function SetTagForm({
                 })
               }
               items={{
-                [KEEP_SUB]: t("keepSubTag", { title: subTitle }),
                 ...chatTagItems(
                   main.subs,
                   subValue,
@@ -910,6 +917,7 @@ function SetTagForm({
                   t,
                   t("noSubTagNamed", { title: subTitle }),
                 ),
+                [KEEP_SUB]: t("keepSubTag", { title: subTitle }),
               }}
             >
               <SelectTrigger className="bg-muted">

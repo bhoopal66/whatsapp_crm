@@ -82,6 +82,8 @@ const SEARCH_DEBOUNCE_MS = 300;
 const FILTER_PAGE_SIZE = 1000;
 /** `contacts` requests (≤200 ids each) in flight at once for the filter. */
 const FILTER_CHUNK_CONCURRENCY = 4;
+/** How long one filter's matched contact ids are reused while paging. */
+const FILTER_MATCHES_TTL_MS = 30_000;
 const NO_CHAT_TAGS: readonly string[] = [];
 
 interface ContactRow extends Contact {
@@ -167,9 +169,13 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   // The chat-tag filter's matches — every contact id (and created_at)
   // under the current search, tags and owner narrowing — so paging only
   // slices them. Keyed on those inputs; cleared after any change to the
-  // contacts themselves (see `refreshContacts`).
+  // contacts themselves (see `refreshContacts`), and kept for
+  // FILTER_MATCHES_TTL_MS only: chats are retagged in the inbox and by
+  // automations while this page is open, and a match set that never
+  // expired kept a retagged contact under the old filter.
   const filterMatches = useRef<{
     key: string;
+    at: number;
     rows: { id: string; created_at: string }[];
   } | null>(null);
 
@@ -203,9 +209,12 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       // (1) and (2) are cached per filter, so turning a page re-reads
       // only (3) instead of every match (~700ms a round trip).
       const filterKey = JSON.stringify([term, chatTagFilterKey, personalOnlyUserId]);
-      let matchedRows = filterMatches.current?.key === filterKey
-        ? filterMatches.current.rows
-        : null;
+      const cached = filterMatches.current;
+      let matchedRows =
+        cached?.key === filterKey &&
+        Date.now() - cached.at < FILTER_MATCHES_TTL_MS
+          ? cached.rows
+          : null;
       if (!matchedRows) {
         const conversations = await readAllPages<{ contact_id: string | null }>(
           (rangeFrom, rangeTo) =>
@@ -244,7 +253,11 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         matchedRows = results.flatMap(
           (r) => (r.data ?? []) as { id: string; created_at: string }[]
         );
-        filterMatches.current = { key: filterKey, rows: matchedRows };
+        filterMatches.current = {
+          key: filterKey,
+          at: Date.now(),
+          rows: matchedRows,
+        };
       }
       const { ids: pageIds, total } = pageOfContactIds(
         matchedRows,
