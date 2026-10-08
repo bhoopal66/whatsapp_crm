@@ -69,6 +69,10 @@ const QuickRepliesManager = dynamic(
   () => import('@/components/settings/quick-replies-manager').then((m) => m.QuickRepliesManager),
   { loading: PanelLoading },
 );
+const ChatTagsPanel = dynamic(
+  () => import('@/components/settings/chat-tags-panel').then((m) => m.ChatTagsPanel),
+  { loading: PanelLoading },
+);
 const FieldsAndTagsPanel = dynamic(
   () => import('@/components/settings/fields-and-tags-panel').then((m) => m.FieldsAndTagsPanel),
   { loading: PanelLoading },
@@ -175,6 +179,7 @@ function SettingsPageInner() {
     costs: <WhatsAppCosts />,
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
+    'chat-tags': <ChatTagsPanel />,
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,

@@ -21,6 +21,7 @@ const WORKSPACE: SettingsSection[] = [
   'costs',
   'templates',
   'quick-replies',
+  'chat-tags',
   'fields',
   'deals',
   'members',

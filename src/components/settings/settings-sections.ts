@@ -10,6 +10,7 @@ import {
   Shield,
   ShieldCheck,
   Smartphone,
+  Tag,
   Tags,
   User,
   UsersRound,
@@ -37,6 +38,7 @@ export const SETTINGS_SECTIONS = [
   'costs',
   'templates',
   'quick-replies',
+  'chat-tags',
   'fields',
   'deals',
   'members',
@@ -82,6 +84,9 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   costs: { id: 'costs', label: 'Message costs', icon: CircleDollarSign, group: 'workspace', minRole: 'admin' },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace', minRole: 'admin' },
   'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace', minRole: 'admin' },
+  // The colour-coded tags a chat carries (migration 075). Only admins
+  // write them (RLS); every member reads them in the inbox.
+  'chat-tags': { id: 'chat-tags', label: 'Chat tags', icon: Tag, group: 'workspace', minRole: 'admin' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace', minRole: 'admin' },
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace', minRole: 'admin' },
   members: { id: 'members', label: 'Team members', icon: UsersRound, group: 'workspace', minRole: 'admin' },
