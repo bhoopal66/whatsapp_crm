@@ -20,6 +20,7 @@ import {
   toChronological,
 } from './pagination';
 import { UNASSIGNED } from './conversations';
+import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import type { Conversation, Message, MessageReaction } from '@/types';
 
 function conv(
@@ -145,6 +146,25 @@ describe('filter groups', () => {
     expect(combineOrGroups(['a.eq.1,b.eq.2'])).toBe('a.eq.1,b.eq.2');
     expect(combineOrGroups(['a.eq.1,b.eq.2', null, 'c.eq.3,d.eq.4'])).toBe(
       'and(or(a.eq.1,b.eq.2),or(c.eq.3,d.eq.4))'
+    );
+  });
+
+  it('ANDs the chat-tag filter with the assignee filter in one or=', () => {
+    const main = '11111111-1111-4111-8111-111111111111';
+    const sub = '22222222-2222-4222-8222-222222222222';
+    expect(
+      combineOrGroups([assigneeGroup('u9'), chatTagFilterOrGroup([main, sub])])
+    ).toBe(
+      'and(' +
+        'or(assigned_agent_id.eq.u9,and(assigned_agent_id.is.null,user_id.eq.u9)),' +
+        `or(chat_tag_id.in.(${main},${sub}),chat_sub_tag_id.in.(${main},${sub}))` +
+        ')'
+    );
+    // No chat tag picked: the assignee group alone, unwrapped.
+    expect(
+      combineOrGroups([assigneeGroup('u9'), chatTagFilterOrGroup([])])
+    ).toBe(
+      'assigned_agent_id.eq.u9,and(assigned_agent_id.is.null,user_id.eq.u9)'
     );
   });
 });

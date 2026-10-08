@@ -34,8 +34,17 @@ import {
   type ConversationCursor,
 } from '@/lib/inbox/pagination';
 import { formatListTimestamp } from '@/lib/inbox/list-time';
+import {
+  chatTagFilterOrGroup,
+  chatTagLabel,
+  matchesChatTagFilter,
+  resolveConversationChatTags,
+  type ChatTagTree,
+} from '@/lib/chat-tags/tree';
+import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import { useChatTags } from '@/hooks/use-chat-tags';
 import { cn } from '@/lib/utils';
-import type { Conversation, ConversationStatus, Profile, Tag } from '@/types';
+import type { Conversation, Profile, Tag } from '@/types';
 import { Search, ChevronDown, X, UserRound, Radio, Phone } from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { useLocale, useTranslations } from 'next-intl';
@@ -141,7 +150,7 @@ interface CampaignOption {
   name: string;
 }
 
-type InboxFilter = ConversationStatus | 'all' | 'unread';
+type InboxFilter = 'all' | 'unread';
 
 /**
  * Past this many changed rows a delta resync stops being cheaper than
@@ -156,6 +165,8 @@ interface ListQueryParams {
   campaignOnly: boolean;
   aiLive: boolean;
   status: InboxFilter;
+  /** Chat tags (main or sub) to narrow to; empty = every chat. */
+  chatTagIds: readonly string[];
   assignee: AssigneeFilter;
   campaignId: string | null;
 }
@@ -164,15 +175,15 @@ interface ListQueryParams {
  * Build the conversations query for a page (`cursor` null → first
  * page) or for a delta resync (`since`).
  *
- * The status / unread / by-agent / by-campaign filters are pushed into
+ * The unread / chat-tag / by-agent / by-campaign filters are pushed into
  * the query so a page holds 50 rows that *match* — filtering 50 loaded
  * rows client-side would show a handful of unread threads while
  * hundreds sat unloaded. The list still re-applies every filter
  * client-side (realtime can add or patch rows that no longer match).
  *
  * A delta deliberately skips those facet filters and keeps only the
- * visibility narrowing: a thread that moved from open to closed must
- * come back so its held copy is corrected, not left showing as open.
+ * visibility narrowing: a thread whose chat tag changed must come back
+ * so its held copy is corrected, not left showing the old tag.
  */
 function conversationsQuery(
   p: ListQueryParams,
@@ -204,7 +215,7 @@ function conversationsQuery(
     // delta: a held row that just got its first message must come back.
     query = query.not('last_message_at', 'is', null);
     if (p.status === 'unread') query = query.gt('unread_count', 0);
-    else if (p.status !== 'all') query = query.eq('status', p.status);
+    groups.push(chatTagFilterOrGroup(p.chatTagIds));
     if (p.assignee === UNASSIGNED) {
       query = query.is('assigned_agent_id', null);
     } else {
@@ -249,6 +260,7 @@ function logFetchError(
 
 /** Stable default, so an omitted prop does not refire the fetch. */
 const NO_CHANNELS: readonly string[] = [];
+const NO_CHAT_TAGS: readonly string[] = [];
 
 export function ConversationList({
   activeConversationId,
@@ -285,9 +297,6 @@ export function ConversationList({
     () => [
       { label: t('filterAll'), value: 'all' },
       { label: t('filterUnread'), value: 'unread' },
-      { label: t('filterOpen'), value: 'open' },
-      { label: t('filterPending'), value: 'pending' },
-      { label: t('filterClosed'), value: 'closed' },
     ],
     [t]
   );
@@ -314,6 +323,26 @@ export function ConversationList({
   const [campaigns, setCampaigns] = useState<CampaignOption[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(
     null
+  );
+  // Chat tags (migration 075): main tags and sub-tags, OR logic — a chat
+  // matches when its main tag or its sub-tag is picked.
+  const { tree: chatTagTree } = useChatTags();
+  const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
+  // Only ids still in the tree count: a tag another admin deleted
+  // meanwhile would otherwise keep filtering on an id no chat carries,
+  // with no chip left to clear it. Keyed on the joined ids so a tag
+  // reload with the same selection does not refetch the first page.
+  const chatTagFilterKey = useMemo(() => {
+    const known = new Set<string>();
+    for (const main of chatTagTree.mains) {
+      known.add(main.id);
+      for (const sub of main.subs) known.add(sub.id);
+    }
+    return selectedChatTagIds.filter((id) => known.has(id)).join(',');
+  }, [selectedChatTagIds, chatTagTree]);
+  const chatTagFilterIds = useMemo<readonly string[]>(
+    () => (chatTagFilterKey ? chatTagFilterKey.split(',') : NO_CHAT_TAGS),
+    [chatTagFilterKey]
   );
 
   // Keep the latest callback in a ref so the fetch effect below can
@@ -342,6 +371,7 @@ export function ConversationList({
       campaignOnly,
       aiLive,
       status: filter,
+      chatTagIds: chatTagFilterIds,
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
     }),
@@ -351,6 +381,7 @@ export function ConversationList({
       campaignOnly,
       aiLive,
       filter,
+      chatTagFilterIds,
       assigneeFilter,
       selectedCampaignId,
     ]
@@ -592,8 +623,10 @@ export function ConversationList({
 
     if (filter === 'unread') {
       result = result.filter((c) => c.unread_count > 0);
-    } else if (filter !== 'all') {
-      result = result.filter((c) => c.status === filter);
+    }
+
+    if (chatTagFilterIds.length > 0) {
+      result = result.filter((c) => matchesChatTagFilter(c, chatTagFilterIds));
     }
 
     if (assigneeFilter !== null) {
@@ -634,6 +667,7 @@ export function ConversationList({
   }, [
     conversations,
     filter,
+    chatTagFilterIds,
     search,
     selectedTagIds,
     selectedCompany,
@@ -649,7 +683,14 @@ export function ConversationList({
     );
   }, []);
 
+  const toggleChatTag = useCallback((id: string) => {
+    setSelectedChatTagIds((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+    );
+  }, []);
+
   const clearAllFilters = useCallback(() => {
+    setSelectedChatTagIds([]);
     setSelectedTagIds([]);
     setSelectedCompany(null);
     setSelectedAssignee(null);
@@ -657,6 +698,7 @@ export function ConversationList({
   }, []);
 
   const hasContactFilters =
+    chatTagFilterIds.length > 0 ||
     selectedTagIds.length > 0 ||
     selectedCompany !== null ||
     assigneeFilter !== null ||
@@ -733,8 +775,8 @@ export function ConversationList({
           />
         </div>
 
-        {/* Status as WhatsApp's filter chips — one tap, and "Unread" is
-            always in sight rather than behind a dropdown. Scrolls
+        {/* All / Unread as WhatsApp's filter chips — one tap, and "Unread"
+            is always in sight rather than behind a dropdown. Scrolls
             sideways when a locale's labels outgrow the column. */}
         <div
           role="radiogroup"
@@ -763,11 +805,59 @@ export function ConversationList({
           })}
         </div>
 
-        {(campaignOnly && campaigns.length > 0) ||
+        {chatTagTree.mains.length > 0 ||
+        (campaignOnly && campaigns.length > 0) ||
         showAssignee ||
         tags.length > 0 ||
         companies.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
+            {chatTagTree.mains.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    FACET_TRIGGER,
+                    chatTagFilterIds.length > 0
+                      ? FACET_TRIGGER_ACTIVE
+                      : FACET_TRIGGER_IDLE
+                  )}
+                >
+                  {t('chatTag')}
+                  {chatTagFilterIds.length > 0 && (
+                    <span className="bg-wa-green text-wa-green-fg flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
+                      {chatTagFilterIds.length}
+                    </span>
+                  )}
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="border-border bg-popover max-h-64 w-56 overflow-y-auto"
+                >
+                  {chatTagTree.mains.flatMap((main) => [
+                    <DropdownMenuCheckboxItem
+                      key={main.id}
+                      checked={chatTagFilterIds.includes(main.id)}
+                      onCheckedChange={() => toggleChatTag(main.id)}
+                      className="text-popover-foreground text-sm"
+                    >
+                      <ChatTagOption color={main.color} name={main.name} />
+                    </DropdownMenuCheckboxItem>,
+                    // Sub-tags sit indented under their main tag.
+                    ...main.subs.map((sub) => (
+                      <DropdownMenuCheckboxItem
+                        key={sub.id}
+                        checked={chatTagFilterIds.includes(sub.id)}
+                        onCheckedChange={() => toggleChatTag(sub.id)}
+                        className="text-popover-foreground pl-6 text-sm"
+                      >
+                        <ChatTagOption color={sub.color} name={sub.name} />
+                      </DropdownMenuCheckboxItem>
+                    )),
+                  ])}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
             {campaignOnly && campaigns.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -968,6 +1058,25 @@ export function ConversationList({
 
         {hasContactFilters && (
           <div className="flex flex-wrap items-center gap-1">
+            {chatTagFilterIds.map((id) => {
+              const tag = chatTagTree.byId.get(id);
+              return (
+                <button
+                  key={id}
+                  onClick={() => toggleChatTag(id)}
+                  className={ACTIVE_FILTER_CHIP}
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: chatTagColor(tag?.color) }}
+                  />
+                  <span className="max-w-24 truncate">
+                    {tag?.name ?? t('chatTag')}
+                  </span>
+                  <X className="h-3 w-3" />
+                </button>
+              );
+            })}
             {selectedTagIds.map((id) => {
               const tag = tagsById.get(id);
               return (
@@ -1061,6 +1170,7 @@ export function ConversationList({
                 locale={locale}
                 showAssignee={showAssignee}
                 memberName={memberName}
+                chatTagTree={chatTagTree}
                 numberName={
                   // The number the chat sends from: a person's pin
                   // (migration 061), else the one it is on.
@@ -1096,7 +1206,20 @@ export function ConversationList({
   );
 }
 
-/** The by-campaign / by-agent / tags / company dropdowns, as chips. */
+/** A chat tag in the filter menu: its colour dot and its name. */
+function ChatTagOption({ color, name }: { color: string; name: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: chatTagColor(color) }}
+      />
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
+/** The chat-tag / campaign / agent / contact-tag / company dropdowns. */
 const FACET_TRIGGER =
   'inline-flex h-7 items-center justify-center gap-1 rounded-full border px-2.5 text-xs transition-colors';
 const FACET_TRIGGER_IDLE =
@@ -1120,6 +1243,8 @@ interface ConversationItemProps {
   showAssignee: boolean;
   /** Resolves a user id to a display name against the members list. */
   memberName: (userId: string) => string;
+  /** The account's chat tags; changes identity only when they reload. */
+  chatTagTree: ChatTagTree;
   /** Campaign inbox: the campaign this thread came from, if known. */
   campaignName?: string | null;
   /** Which WhatsApp number the thread is on, when there are several. */
@@ -1128,8 +1253,8 @@ interface ConversationItemProps {
 
 // Memoised: a realtime patch to one conversation re-renders that row,
 // not all of them. Every prop is stable across unrelated renders
-// (`onSelect` via a ref, `memberName` via useCallback, `today` changes
-// once a day).
+// (`onSelect` via a ref, `memberName` via useCallback, `chatTagTree`
+// memoised by useChatTags, `today` changes once a day).
 const ConversationItem = memo(function ConversationItem({
   conversation,
   isActive,
@@ -1139,6 +1264,7 @@ const ConversationItem = memo(function ConversationItem({
   locale,
   showAssignee,
   memberName,
+  chatTagTree,
   campaignName = null,
   numberName = null,
 }: ConversationItemProps) {
@@ -1152,8 +1278,11 @@ const ConversationItem = memo(function ConversationItem({
   // WhatsApp's unread treatment, and the only thing on the row in its
   // green: bold name and preview, a green time and a green count. A
   // read chat is plain. (The status used to be a dot in the accent
-  // colour beside the count, so every open chat looked unread.)
+  // colour beside the count, so every open chat looked unread; the chat
+  // tag chip there now is a tint with theme-coloured text instead.)
   const unread = conversation.unread_count > 0;
+  const chatTag = resolveConversationChatTags(conversation, chatTagTree);
+  const chatTagText = chatTagLabel(chatTag.main, chatTag.sub);
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
@@ -1182,7 +1311,7 @@ const ConversationItem = memo(function ConversationItem({
 
       {/* The divider runs under the text only, starting past the
           avatar, the way WhatsApp draws it. */}
-      <div className="border-wa-divider min-w-0 flex-1 self-stretch border-b py-3 pr-3">
+      <div className="border-wa-divider @container min-w-0 flex-1 self-stretch border-b py-3 pr-3">
         <div className="flex items-baseline justify-between gap-2">
           <span
             className={cn(
@@ -1211,18 +1340,21 @@ const ConversationItem = memo(function ConversationItem({
             {conversation.last_message_text || t('noMessagesYet')}
           </p>
           <div className="flex shrink-0 items-center gap-1.5">
-            {/* Open is the normal state and needs no mark; the other
-                two get a word, never a coloured dot that could pass
-                for an unread marker. */}
-            {conversation.status === 'pending' && (
-              <span className="bg-wa-search text-wa-text-secondary inline-flex items-center gap-1 rounded px-1.5 text-[10.5px] leading-4 font-medium">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                {t('filterPending')}
-              </span>
-            )}
-            {conversation.status === 'closed' && (
-              <span className="bg-wa-search text-wa-text-secondary rounded px-1.5 text-[10.5px] leading-4 font-medium">
-                {t('filterClosed')}
+            {/* The chat tag: tinted in the tag's colour, text in the
+                theme's, so any colour an admin picks stays legible.
+                Narrower in a narrow column so the preview keeps room;
+                the chip truncates, never the count. */}
+            {chatTag.main && chatTagText && (
+              <span
+                title={chatTagText}
+                style={chatTagChipStyle(chatTag.main.color)}
+                className="text-wa-text inline-flex max-w-[9rem] min-w-0 items-center gap-1 rounded-full border px-1.5 text-[10.5px] leading-4 font-medium @max-[19rem]:max-w-[6.5rem]"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: chatTagColor(chatTag.main.color) }}
+                />
+                <span className="truncate">{chatTagText}</span>
               </span>
             )}
             {unread && (
