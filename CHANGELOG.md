@@ -193,6 +193,18 @@ number sends what.
 > skips it quietly until the migration is applied.
 
 > **Migration required:** apply
+> `supabase/migrations/075_chat_tags.sql` (re-runnable) **before**
+> deploying the app. It adds the `chat_tags` table (admin-defined,
+> colour-coded main tags with optional sub-tags, one level deep) and
+> `conversations.chat_tag_id` / `chat_sub_tag_id`. A chat carries at
+> most one main tag and one sub-tag of it; the database refuses any
+> other pair, and switching a chat's main tag drops its old sub-tag.
+> Deleting a main tag deletes its sub-tags and clears them from every
+> chat. Members read the list, admins and owners edit it.
+> `conversations.status` is unchanged, so automations and the public
+> API keep working as before.
+
+> **Migration required:** apply
 > `supabase/migrations/073_team_activity_accuracy.sql` and then
 > `supabase/migrations/074_team_activity_team_leaders.sql` (both
 > re-runnable), before deploying the app.

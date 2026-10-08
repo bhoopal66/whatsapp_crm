@@ -258,6 +258,36 @@ BEGIN
     RAISE EXCEPTION 'team_members_sync_channels trigger is missing — migration 071 did not apply';
   END IF;
 
+  -- 075: chat tags. The composite FKs keep a chat's tags in its own
+  -- account, and the two guards hold the one-main + one-sub rule.
+  IF to_regclass('public.chat_tags') IS NULL
+     OR to_regclass('public.chat_tags_sibling_name_key') IS NULL THEN
+    RAISE EXCEPTION 'public.chat_tags or its sibling-name index is missing — migration 075 did not apply';
+  END IF;
+  IF (
+    SELECT count(*) FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'conversations'
+      AND column_name IN ('chat_tag_id', 'chat_sub_tag_id')
+  ) <> 2 THEN
+    RAISE EXCEPTION 'conversations.chat_tag_id / chat_sub_tag_id are missing — migration 075 did not apply';
+  END IF;
+  IF (
+    SELECT count(*) FROM pg_constraint
+    WHERE conname IN ('chat_tags_id_account_key', 'chat_tags_parent_fkey',
+                      'conversations_chat_tag_fkey', 'conversations_chat_sub_tag_fkey')
+  ) <> 4 THEN
+    RAISE EXCEPTION 'the chat tag account-scoped keys are missing — migration 075 did not apply';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'chat_tags_guard' AND tgrelid = 'public.chat_tags'::regclass
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'conversations_chat_tag_guard' AND tgrelid = 'public.conversations'::regclass
+  ) THEN
+    RAISE EXCEPTION 'chat_tags_guard / conversations_chat_tag_guard trigger is missing — migration 075 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

@@ -110,3 +110,10 @@ jobs:
       # Postgres can show the derivation, the cascades and the grants.
       - name: Verify team number allocation
         run: supabase db query --local --file supabase/ci/verify-team-numbers.sql
+
+      # Chat tags (075): one main tag and one sub-tag of it per chat.
+      # The pairing rule, the one-level nesting and the delete cascade
+      # live in triggers and composite FKs, and the write rules in RLS,
+      # so only real Postgres can show them.
+      - name: Verify chat tags
+        run: supabase db query --local --file supabase/ci/verify-chat-tags.sql
