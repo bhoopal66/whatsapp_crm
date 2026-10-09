@@ -39,6 +39,7 @@ vi.mock('@/lib/typesafe', async (importOriginal) => ({
 
 import { createDecisionLayer } from '@/lib/typesafe';
 import {
+  guardrailFeedback,
   guardrailWhenConfigInvalid,
   runGuardrailGate,
   runPassageGate,
@@ -672,5 +673,128 @@ describe('guardrail with an invalid TS_* configuration (layer off)', () => {
   it('fails closed on any other read error', async () => {
     h.settingsRead = { data: null, error: { code: '57014' } };
     expect(await guardrailWhenConfigInvalid(ACCT, ON)).toBe(true);
+  });
+});
+
+describe('guardrail holds: reasonCodes and retryable', () => {
+  const evidence = [{ id: 'k1', text: 'The account fee is 2%.' }];
+
+  it('a TypeSafe model block is retryable and carries its codes', async () => {
+    useLayer({
+      sim: makeSim(() => ({ answers: { promises_approval: 0.95 } })),
+    });
+    const r = await runGuardrailGate(REF, {
+      customerMessage: 'will I get the loan?',
+      botReply: 'Yes, your loan will be approved.',
+      evidence,
+    });
+    expect(r.outcome).toBe('block');
+    if (r.outcome === 'send') throw new Error('expected a non-send result');
+    expect(r.reasonCodes).toContain('PROMISES_APPROVAL_BLOCK');
+    expect(r.retryable).toBe(true);
+  });
+
+  it('a code-layer hold while TypeSafe answered OK is retryable', async () => {
+    useLayer({ sim: makeSim() });
+    const r = await runGuardrailGate(REF, {
+      customerMessage: 'what is the fee?',
+      botReply: 'The account fee is 3.5%.',
+      evidence,
+    });
+    expect(r.outcome).toBe('hold');
+    if (r.outcome === 'send') throw new Error('expected a non-send result');
+    expect(r.reasonCodes).toContain('CODE_UNSUPPORTED_FIGURE');
+    expect(r.retryable).toBe(true);
+  });
+
+  it('a fail-mode hold after a 503 is not retryable', async () => {
+    useLayer({ sim: makeSim(() => ({ status: 503 })) });
+    const r = await runGuardrailGate(REF, {
+      customerMessage: 'hi',
+      botReply: 'Hello! How can I help with your business account?',
+      evidence: [],
+    });
+    expect(r.outcome).toBe('hold');
+    if (r.outcome === 'send') throw new Error('expected a non-send result');
+    expect(r.retryable).toBe(false);
+  });
+
+  it('an unreadable-settings hold is not retryable', async () => {
+    useLayer({ sim: makeSim(), mode: 'unreadable' });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await runGuardrailGate(REF, {
+      customerMessage: 'rates?',
+      botReply: 'Our rate is 2.5%.',
+      evidence: [],
+    });
+    err.mockRestore();
+    expect(r).toMatchObject({
+      outcome: 'hold',
+      reasonCodes: ['SETTINGS_LOAD'],
+      retryable: false,
+    });
+  });
+
+  it('an invalid-configuration hold is not retryable', async () => {
+    // Layer off (h.layer null) because the TS_* config does not parse,
+    // and the account runs the guardrail live.
+    vi.stubEnv('TYPESAFE_API_KEY', 'k');
+    vi.stubEnv('TS_SHADOW', 'nope # a typo systemd keeps');
+    h.settingsRead = {
+      data: { enabled: true, guardrail: true, mode: 'live' },
+      error: null,
+    };
+    const r = await runGuardrailGate(REF, {
+      customerMessage: 'rates?',
+      botReply: 'Our rate is 2.5%.',
+      evidence: [],
+    });
+    vi.unstubAllEnvs();
+    expect(r).toMatchObject({
+      outcome: 'hold',
+      reasonCodes: ['CONFIG_INVALID'],
+      retryable: false,
+    });
+  });
+});
+
+describe('guardrailFeedback', () => {
+  const GENERAL = 'using only facts from the knowledge excerpts';
+
+  it('maps a hazard code to its rewrite rule', () => {
+    const f = guardrailFeedback(['PROMISES_APPROVAL_BLOCK']);
+    expect(f).toContain('will be approved');
+    expect(f).not.toContain(GENERAL);
+  });
+
+  it('strips the CODE_ prefix and the _BLOCK/_REVIEW/_ECHO suffixes', () => {
+    expect(guardrailFeedback(['CODE_UNSUPPORTED_FIGURE'])).toContain(
+      'State no figure'
+    );
+    expect(guardrailFeedback(['UNSUPPORTED_FIGURE_REVIEW'])).toContain(
+      'State no figure'
+    );
+    expect(guardrailFeedback(['CODE_ASKS_SECRET_ECHO'])).toContain('password');
+    expect(guardrailFeedback(['GUARANTEES_TIMELINE_REVIEW'])).toContain(
+      'how long'
+    );
+  });
+
+  it('dedups codes that name the same hazard, and joins different ones', () => {
+    const f = guardrailFeedback([
+      'CODE_UNSUPPORTED_FIGURE',
+      'UNSUPPORTED_FIGURE_REVIEW',
+      'PROMISES_APPROVAL_BLOCK',
+    ]);
+    expect(f.split('State no figure')).toHaveLength(2);
+    expect(f).toContain('will be approved');
+  });
+
+  it('gives the general instruction when nothing maps', () => {
+    for (const codes of [
+      [],
+      ['SEVERITY_UPGRADE', 'POLICY_UNAVAILABLE', 'CONFIG_INVALID'],
+    ])
+      expect(guardrailFeedback(codes)).toContain(GENERAL);
   });
 });
