@@ -109,7 +109,9 @@ BEGIN
       SELECT coalesce(string_agg(
                stage_id::text || '/' || user_id::text || '/'
                || coalesce(assigned_to::text, 'null') || '/' || status,
-               ';' ORDER BY created_at, id), '')
+               -- Deals made in one transaction share created_at (now()),
+               -- so a random id would order them by chance: status first.
+               ';' ORDER BY status, created_at, stage_id), '')
         FROM public.deals WHERE contact_id = p_contact;
     $body$
   $fn$;
