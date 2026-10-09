@@ -12,6 +12,46 @@ and polish.
 
 ## [Unreleased]
 
+### AI agent v2
+
+The auto-reply bot gains model tiers with per-message routing, a
+rewrite-then-review path for held drafts, pause and resume around people
+replying, and a record of why it did or did not answer. See
+[docs/ai-agent.md](./docs/ai-agent.md).
+
+> **Migration required:** apply
+> `supabase/migrations/077_ai_agent_v2.sql` (re-runnable) **before**
+> deploying the app. The new code selects the new `ai_configs` columns,
+> so on a pre-077 database the AI config load fails and the bot stops.
+> It adds the Small and Large model tiers (filled once for existing
+> accounts from the provider), the pause and auto-resume settings,
+> `conversations.ai_paused_reason`, the held-draft columns, the
+> `ai_reply_events` table and the `ai_handoff` notification type. Apply
+> it without `-1` so the backfills do not hold table locks.
+
+- **Model tiers.** Settings → AI has Small, Standard and Large models.
+  *Route each message to the right model* (on by default) lets
+  TypeSafe Jev judge each message in parallel with triage; without
+  TypeSafe a simple rule decides. Greetings skip knowledge retrieval.
+  Urgent or ready-to-apply customers never get the Small model. A model
+  the provider rejects is retried once on the Standard model.
+- **Held drafts.** A draft the TypeSafe guardrail holds is rewritten
+  once by the Large model; if it is still held, the chat goes to a
+  person with the draft in the inbox banner (Send draft, Edit, Discard).
+- **Pause and resume.** A person replying in a chat pauses the bot
+  there. *Give the chat back to the AI after* resumes it on the
+  customer's next message. Hand-offs and Take over never auto-resume.
+  The banner shows why the bot is paused and offers **Resume & reply**.
+- **Why didn't the AI reply?** Every dispatch records an outcome; the
+  banner says why the last message went unanswered, and Settings → AI
+  shows a 7-day activity card.
+- **Fixed.** The bot no longer stands down for every message when any
+  keyword automation exists, only when one matches. Two quick messages
+  get one reply that answers both (`AI_BURST_WAIT_MS`, default 3 s). A
+  WhatsApp send failure after the bot drafted a reply now hands the chat
+  to a person. Hand-offs ring a bell for owners and admins when no
+  hand-off agent is set.
+
 Adds an optional **second WhatsApp number** on Meta's Cloud API,
 alongside the existing Whapi channel, with an admin selector for which
 number sends what.

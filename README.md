@@ -48,7 +48,8 @@ clone or fork it to run your own CRM.
   **escalation gates** keep it honest: escalation keywords that bypass
   the model, a retrieval threshold below which it hands off (and logs
   the unanswered question), and strict grounding so it never states a
-  fact it cannot quote.
+  fact it cannot quote. Model tiers, pause and resume, and held-draft
+  review are described in [docs/ai-agent.md](./docs/ai-agent.md).
 - **Real-time dashboard** — response times, daily volume, pipeline
   value, cross-module activity feed.
 - **Team accounts** — invite teammates by link, role-based access

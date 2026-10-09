@@ -463,6 +463,26 @@ Each is bounded by a per-call deadline of about 6–7 s.
 **The AI playground does not run these checks.** It sends no text to
 TypeSafe and writes nothing to the log.
 
+## Route judgment
+
+The AI agent's model-tier router ([ai-agent.md](./ai-agent.md#model-tiers))
+asks Jev one question set per inbound message: what kind of message it
+is, how complex a good reply is, and whether it needs facts about the
+business. It is **not a safety check**:
+
+- it does not appear in Settings → AI safety checks and has no account
+  switch;
+- it runs whenever the install has `TYPESAFE_API_KEY` and the account is
+  allowed (`TS_ACCOUNT_IDS`, if set);
+- the question set is `qs-route-v1`; changing its wording means a new
+  version;
+- it is **never written to `ts_decision_log`**;
+- it has **its own circuit breaker**, so a route outage does not pause
+  triage or the guardrail;
+- it has a hard deadline of 2.5 s and runs in parallel with triage. On
+  timeout, error or an open breaker, the router falls back to a simple
+  word-count rule. The reply is never delayed or blocked by it.
+
 ## Database
 
 Every table is account-scoped, with RLS, and closed to the anon key
