@@ -641,7 +641,11 @@
       "toastFailedMoveDeal": "Failed to move deal",
       "toastFailedCreatePipeline": "Failed to create pipeline",
       "toastPipelineCreated": "Pipeline created",
-      "toastNotLinkedToAccount": "Your profile is not linked to an account."
+      "toastNotLinkedToAccount": "Your profile is not linked to an account.",
+      "showing": "Showing",
+      "ownerEveryone": "Everyone",
+      "ownerMyTeam": "My team",
+      "ownerMine": "My deals"
     },
     "board": {
       "dropDealHere": "Drop a deal here",

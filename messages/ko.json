@@ -641,7 +641,11 @@
       "toastFailedMoveDeal": "딜을 이동하지 못했습니다",
       "toastFailedCreatePipeline": "파이프라인을 만들지 못했습니다",
       "toastPipelineCreated": "파이프라인이 생성되었습니다",
-      "toastNotLinkedToAccount": "프로필이 계정에 연결되어 있지 않습니다."
+      "toastNotLinkedToAccount": "프로필이 계정에 연결되어 있지 않습니다.",
+      "showing": "표시",
+      "ownerEveryone": "전체",
+      "ownerMyTeam": "내 팀",
+      "ownerMine": "내 거래"
     },
     "board": {
       "dropDealHere": "여기에 딜을 놓으세요",
