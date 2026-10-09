@@ -5,9 +5,11 @@ import {
   aiConfigFormFromResponse,
   aiConfigRequestBody,
   applyAiSaveResult,
+  applyKeyFieldEvent,
   buildAiSavePlan,
   emptyAiConfigForm,
   isAiConfigFormDirty,
+  willHaveEmbeddingsKey,
   type AiConfigFormValues,
   type AiSavedState,
 } from './config-form';
@@ -32,6 +34,7 @@ const other: { [K in keyof AiConfigFormValues]: AiConfigFormValues[K] } = {
   keyEdited: true,
   embeddingsKey: 'sk-e',
   embeddingsKeyEdited: true,
+  embeddingsKeyRemoved: true,
   systemPrompt: 'be nice',
   isActive: false,
   autoReplyEnabled: false,
@@ -61,6 +64,113 @@ describe('aiConfigFormFromResponse', () => {
     expect(loaded.autoResumeMinutes).toBe(60);
     expect(loaded.guardrailRetry).toBe(true);
     expect(loaded.modelRouting).toBe(true);
+  });
+});
+
+describe('applyKeyFieldEvent', () => {
+  // Both keys stored: the fields show the mask.
+  const stored = aiConfigFormFromResponse({
+    configured: true,
+    provider: 'openai',
+    model: 'gpt-x',
+    has_key: true,
+    has_embeddings_key: true,
+  });
+  const run = (
+    field: 'apiKey' | 'embeddingsKey',
+    events: Parameters<typeof applyKeyFieldEvent>[2][],
+    from: AiConfigFormValues = stored
+  ) => events.reduce((v, e) => applyKeyFieldEvent(v, field, e, true), from);
+
+  it('focus then blur sends no key and leaves the form clean', () => {
+    for (const field of ['apiKey', 'embeddingsKey'] as const) {
+      // Checked while still focused too: Save can run from another tab.
+      const focused = run(field, [{ type: 'focus' }]);
+      const v = run(field, [{ type: 'blur' }], focused);
+      for (const state of [focused, v]) {
+        const body = JSON.parse(JSON.stringify(aiConfigRequestBody(state)));
+        expect(body).not.toHaveProperty('api_key');
+        expect(body).not.toHaveProperty('embeddings_api_key');
+        expect(isAiConfigFormDirty(stored, state)).toBe(false);
+      }
+    }
+  });
+
+  it('a focused API key field alone is not an unsaved change', () => {
+    const v = run('apiKey', [{ type: 'focus' }]);
+    expect(isAiConfigFormDirty(stored, v)).toBe(false);
+  });
+
+  it('sends a typed key, without the mask it was typed into', () => {
+    const typed = run('embeddingsKey', [
+      { type: 'focus' },
+      { type: 'input', value: `${MASKED_KEY}sk-emb` },
+      { type: 'blur' },
+    ]);
+    expect(aiConfigRequestBody(typed).embeddings_api_key).toBe('sk-emb');
+    expect(willHaveEmbeddingsKey(typed, true)).toBe(true);
+
+    const api = run('apiKey', [{ type: 'input', value: ' sk-new ' }]);
+    expect(aiConfigRequestBody(api).api_key).toBe('sk-new');
+  });
+
+  it('typing then clearing restores the mask on blur', () => {
+    for (const field of ['apiKey', 'embeddingsKey'] as const) {
+      const v = run(field, [
+        { type: 'focus' },
+        { type: 'input', value: 'sk-x' },
+        { type: 'input', value: '' },
+        { type: 'blur' },
+      ]);
+      expect(v[field]).toBe(MASKED_KEY);
+      expect(isAiConfigFormDirty(stored, v)).toBe(false);
+      const body = aiConfigRequestBody(v);
+      expect(body.api_key).toBeUndefined();
+      expect(body.embeddings_api_key).toBeUndefined();
+    }
+  });
+
+  it('a blank field with no stored key stays blank on blur', () => {
+    const blank = emptyAiConfigForm();
+    const v = [
+      { type: 'input', value: 'sk' } as const,
+      { type: 'input', value: '' } as const,
+      { type: 'blur' } as const,
+    ].reduce((x, e) => applyKeyFieldEvent(x, 'apiKey', e, false), blank);
+    expect(v.apiKey).toBe('');
+    expect(aiConfigRequestBody(v).api_key).toBeUndefined();
+  });
+
+  it('a blank edited field never clears a key', () => {
+    const v = run('embeddingsKey', [{ type: 'input', value: '' }]);
+    expect(v.embeddingsKeyEdited).toBe(true);
+    expect(aiConfigRequestBody(v).embeddings_api_key).toBeUndefined();
+  });
+
+  it('Remove key sends null for the embeddings key', () => {
+    const v = run('embeddingsKey', [{ type: 'remove' }]);
+    expect(aiConfigRequestBody(v).embeddings_api_key).toBeNull();
+    expect(isAiConfigFormDirty(stored, v)).toBe(true);
+    expect(willHaveEmbeddingsKey(v, true)).toBe(false);
+    // Focusing and leaving the emptied field does not undo it.
+    const after = run(
+      'embeddingsKey',
+      [{ type: 'focus' }, { type: 'blur' }],
+      v
+    );
+    expect(aiConfigRequestBody(after).embeddings_api_key).toBeNull();
+  });
+
+  it('a key typed after Remove key replaces the stored one', () => {
+    const v = run('embeddingsKey', [
+      { type: 'remove' },
+      { type: 'input', value: 'sk-new' },
+    ]);
+    expect(aiConfigRequestBody(v).embeddings_api_key).toBe('sk-new');
+  });
+
+  it('Remove does nothing to the API key', () => {
+    expect(run('apiKey', [{ type: 'remove' }])).toBe(stored);
   });
 });
 

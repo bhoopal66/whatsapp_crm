@@ -15,11 +15,15 @@ import {
 } from '@/lib/ai/defaults';
 import {
   aiConfigFormFromResponse,
+  apiKeyPayload,
   applyAiSaveResult,
+  applyKeyFieldEvent,
   buildAiSavePlan,
   emptyAiConfigForm,
   type AiConfigFormValues,
   type AiSavedState,
+  type KeyField,
+  type KeyFieldEvent,
 } from '@/lib/ai/config-form';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
@@ -82,6 +86,13 @@ export function useAiConfigForm() {
     ) => setValues((v) => ({ ...v, [field]: value })),
     []
   );
+
+  // The masked key inputs' focus/input/blur and "Remove key".
+  const keyEvent = (field: KeyField, event: KeyFieldEvent) => {
+    const hasStored =
+      field === 'apiKey' ? hasStoredKey : hasStoredEmbeddingsKey;
+    setValues((v) => applyKeyFieldEvent(v, field, event, hasStored));
+  };
 
   const fetchRoutes = useCallback(async () => {
     // Best-effort: without it "Only on" offers just the default number.
@@ -176,9 +187,6 @@ export function useAiConfigForm() {
       };
     });
 
-  const keyPayload = () =>
-    values.keyEdited ? values.apiKey.trim() : undefined;
-
   const saved: AiSavedState = {
     configured,
     values: loaded,
@@ -202,7 +210,7 @@ export function useAiConfigForm() {
         body: JSON.stringify({
           provider: values.provider,
           model: values.model.trim(),
-          api_key: keyPayload(),
+          api_key: apiKeyPayload(values),
         }),
       });
       const data = await res.json();
@@ -227,7 +235,7 @@ export function useAiConfigForm() {
         return;
       }
     }
-    if (!configured && !values.keyEdited) {
+    if (!configured && apiKeyPayload(values) === undefined) {
       toast.error(t('missingApiKey'));
       return;
     }
@@ -327,6 +335,7 @@ export function useAiConfigForm() {
     savedValues: loaded,
     savedAiReplyRoute: loadedRoute,
     set,
+    keyEvent,
     changeProvider,
     members,
     numbers,

@@ -17,6 +17,8 @@ export interface AiConfigFormValues {
   keyEdited: boolean;
   embeddingsKey: string;
   embeddingsKeyEdited: boolean;
+  /** "Remove key" was confirmed: Save deletes the stored embeddings key. */
+  embeddingsKeyRemoved: boolean;
   systemPrompt: string;
   isActive: boolean;
   autoReplyEnabled: boolean;
@@ -50,6 +52,7 @@ export function emptyAiConfigForm(
     keyEdited: false,
     embeddingsKey: '',
     embeddingsKeyEdited: false,
+    embeddingsKeyRemoved: false,
     systemPrompt: '',
     isActive: false,
     autoReplyEnabled: false,
@@ -85,6 +88,7 @@ export function aiConfigFormFromResponse(data: Row): AiConfigFormValues {
     keyEdited: false,
     embeddingsKey: data.has_embeddings_key ? MASKED_KEY : '',
     embeddingsKeyEdited: false,
+    embeddingsKeyRemoved: false,
     systemPrompt: str(data.system_prompt),
     isActive: data.is_active === true,
     autoReplyEnabled: data.auto_reply_enabled === true,
@@ -116,6 +120,85 @@ export function aiConfigFormFromResponse(data: Row): AiConfigFormValues {
   };
 }
 
+export type KeyField = 'apiKey' | 'embeddingsKey';
+
+export type KeyFieldEvent =
+  | { type: 'focus' }
+  | { type: 'input'; value: string }
+  | { type: 'blur' }
+  | { type: 'remove' };
+
+const KEY_FLAGS = {
+  apiKey: 'keyEdited',
+  embeddingsKey: 'embeddingsKeyEdited',
+} as const;
+
+/**
+ * A masked key input's events, as form values. Focus changes nothing:
+ * clearing the field on focus once marked it edited with a blank value,
+ * and the next Save — from any tab, the form is shared — deleted the
+ * stored embeddings key. A blank field therefore never clears a key;
+ * only `remove` (the embeddings key's "Remove key") does.
+ */
+export function applyKeyFieldEvent(
+  values: AiConfigFormValues,
+  field: KeyField,
+  event: KeyFieldEvent,
+  hasStored: boolean
+): AiConfigFormValues {
+  const flag = KEY_FLAGS[field];
+  switch (event.type) {
+    case 'focus':
+      return values;
+    case 'input':
+      // Typing into the mask keeps its bullets in the value.
+      return {
+        ...values,
+        [field]: event.value.replaceAll('•', ''),
+        [flag]: true,
+      };
+    case 'blur':
+      if (!values[flag] || values[field].trim() !== '') return values;
+      return {
+        ...values,
+        [field]: hasStored && !removed(values, field) ? MASKED_KEY : '',
+        [flag]: false,
+      };
+    case 'remove':
+      if (field !== 'embeddingsKey') return values;
+      return {
+        ...values,
+        embeddingsKey: '',
+        embeddingsKeyEdited: false,
+        embeddingsKeyRemoved: true,
+      };
+  }
+}
+
+function removed(values: AiConfigFormValues, field: KeyField): boolean {
+  return field === 'embeddingsKey' && values.embeddingsKeyRemoved;
+}
+
+/** A key the admin typed, or undefined (leave the stored one alone). */
+function typedKey(edited: boolean, value: string): string | undefined {
+  const key = value.trim();
+  return edited && key !== '' ? key : undefined;
+}
+
+/** Will the account have an embeddings key once the form is saved? */
+export function willHaveEmbeddingsKey(
+  values: AiConfigFormValues,
+  hasStored: boolean
+): boolean {
+  if (typedKey(values.embeddingsKeyEdited, values.embeddingsKey)) return true;
+  return hasStored && !values.embeddingsKeyRemoved;
+}
+
+/** The API key to send (POST config / test): undefined = the stored one. */
+export function apiKeyPayload(values: AiConfigFormValues): string | undefined {
+  return typedKey(values.keyEdited, values.apiKey);
+}
+
 const FIELDS = Object.keys(emptyAiConfigForm()) as (keyof AiConfigFormValues)[];
 
 /** The fields that differ between what was loaded and what is shown. */
@@ -139,11 +222,13 @@ export function aiConfigRequestBody(values: AiConfigFormValues) {
   return {
     provider: values.provider,
     model: values.model.trim(),
-    api_key: values.keyEdited ? values.apiKey.trim() : undefined,
-    // undefined = leave unchanged; '' typed = null (clear); text = set.
-    embeddings_api_key: values.embeddingsKeyEdited
-      ? values.embeddingsKey.trim() || null
-      : undefined,
+    // undefined = leave unchanged. A blank field never clears a key;
+    // only a confirmed "Remove key" sends null.
+    api_key: apiKeyPayload(values),
+    // A key typed after "Remove key" replaces the stored one instead.
+    embeddings_api_key:
+      typedKey(values.embeddingsKeyEdited, values.embeddingsKey) ??
+      (values.embeddingsKeyRemoved ? null : undefined),
     system_prompt: values.systemPrompt.trim() || null,
     is_active: values.isActive,
     auto_reply_enabled: values.autoReplyEnabled,

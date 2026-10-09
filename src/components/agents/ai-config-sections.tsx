@@ -35,12 +35,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { AiKnowledgeCard } from '@/components/settings/ai-knowledge';
 import { AiKnowledgeGapsCard } from '@/components/settings/ai-knowledge-gaps';
 import {
   AI_PROVIDER_DEFAULT_MODEL,
   AI_TIER_DEFAULT_MODELS,
 } from '@/lib/ai/defaults';
+import { willHaveEmbeddingsKey } from '@/lib/ai/config-form';
 import { AUTO_RESUME_CHOICES } from '@/lib/ai/outcomes';
 import type { AiProvider } from '@/lib/ai/types';
 import { memberLabel } from '@/lib/account/members';
@@ -202,16 +204,13 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
                   id="ai-key"
                   type={showKey ? 'text' : 'password'}
                   value={v.apiKey}
-                  onChange={(e) => {
-                    set('apiKey', e.target.value);
-                    set('keyEdited', true);
-                  }}
-                  onFocus={() => {
-                    if (!v.keyEdited && form.hasStoredKey) {
-                      set('apiKey', '');
-                      set('keyEdited', true);
-                    }
-                  }}
+                  onChange={(e) =>
+                    form.keyEvent('apiKey', {
+                      type: 'input',
+                      value: e.target.value,
+                    })
+                  }
+                  onBlur={() => form.keyEvent('apiKey', { type: 'blur' })}
                   placeholder={KEY_PLACEHOLDER[v.provider]}
                   disabled={disabled}
                   autoComplete="off"
@@ -249,7 +248,7 @@ export function AssistantSection({ form }: { form: AiConfigForm }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{ta('modelsTitle')}</CardTitle>
-          <CardDescription>{t('modelRoutingDesc')}</CardDescription>
+          <CardDescription>{ta('modelsDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <SwitchRow
@@ -628,6 +627,7 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
 export function KnowledgeSection({ form }: { form: AiConfigForm }) {
   const t = useTranslations('Settings.aiConfig');
   const ta = useTranslations('AiAgents');
+  const [confirmRemoveKey, setConfirmRemoveKey] = useState(false);
   const { values: v, set } = form;
   const disabled = !form.canEdit || form.saving;
 
@@ -649,11 +649,7 @@ export function KnowledgeSection({ form }: { form: AiConfigForm }) {
       <AiKnowledgeCard
         accountId={form.accountId}
         canEdit={form.canEdit}
-        hasEmbeddingsKey={
-          v.embeddingsKeyEdited
-            ? v.embeddingsKey.trim().length > 0
-            : form.hasStoredEmbeddingsKey
-        }
+        hasEmbeddingsKey={willHaveEmbeddingsKey(v, form.hasStoredEmbeddingsKey)}
       />
 
       <Card>
@@ -663,30 +659,58 @@ export function KnowledgeSection({ form }: { form: AiConfigForm }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Input
-              id="ai-embeddings-key"
-              aria-label={t('embeddingsKey')}
-              type="password"
-              value={v.embeddingsKey}
-              onChange={(e) => {
-                set('embeddingsKey', e.target.value);
-                set('embeddingsKeyEdited', true);
-              }}
-              onFocus={() => {
-                if (!v.embeddingsKeyEdited && form.hasStoredEmbeddingsKey) {
-                  set('embeddingsKey', '');
-                  set('embeddingsKeyEdited', true);
+            <div className="flex gap-2">
+              <Input
+                id="ai-embeddings-key"
+                aria-label={t('embeddingsKey')}
+                type="password"
+                value={v.embeddingsKey}
+                onChange={(e) =>
+                  form.keyEvent('embeddingsKey', {
+                    type: 'input',
+                    value: e.target.value,
+                  })
                 }
-              }}
-              placeholder="sk-... (OpenAI)"
-              disabled={disabled}
-              autoComplete="off"
-            />
+                onBlur={() => form.keyEvent('embeddingsKey', { type: 'blur' })}
+                placeholder="sk-... (OpenAI)"
+                disabled={disabled}
+                autoComplete="off"
+                className="flex-1"
+              />
+              {form.hasStoredEmbeddingsKey && !v.embeddingsKeyRemoved && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setConfirmRemoveKey(true)}
+                  disabled={disabled}
+                >
+                  {t('removeEmbeddingsKey')}
+                </Button>
+              )}
+            </div>
+            {v.embeddingsKeyRemoved && !v.embeddingsKeyEdited && (
+              <p className="text-destructive text-xs">
+                {t('embeddingsKeyRemoved')}
+              </p>
+            )}
             <p className="text-muted-foreground text-xs">
               {t('embeddingsHint', {
                 sameKeyText: v.provider === 'openai' ? t('sameKeyText') : '',
               })}
             </p>
+            <ConfirmDialog
+              open={confirmRemoveKey}
+              onOpenChange={setConfirmRemoveKey}
+              title={t('removeEmbeddingsKeyTitle')}
+              description={t('removeEmbeddingsKeyBody')}
+              cancelLabel={t('removeEmbeddingsKeyCancel')}
+              confirmLabel={t('removeEmbeddingsKey')}
+              onConfirm={() => {
+                form.keyEvent('embeddingsKey', { type: 'remove' });
+                setConfirmRemoveKey(false);
+              }}
+              destructive
+            />
           </div>
 
           <AdvancedSection>
