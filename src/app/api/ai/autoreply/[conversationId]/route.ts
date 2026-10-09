@@ -1,8 +1,19 @@
-import { NextResponse } from 'next/server'
-import { requireRole, toErrorResponse } from '@/lib/auth/account'
-import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { NextResponse, after } from 'next/server';
+import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
+import { supabaseAdmin } from '@/lib/ai/admin-client';
+import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
+import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
 
-type Params = { params: Promise<{ conversationId: string }> }
+// `reply_now` answers the customer's last message in after(), which
+// calls the model and sends.
+export const maxDuration = 60;
+
+type Params = { params: Promise<{ conversationId: string }> };
 
 /**
  * POST /api/ai/autoreply/[conversationId]  (agent+)
@@ -10,7 +21,7 @@ type Params = { params: Promise<{ conversationId: string }> }
  * Toggle the AI auto-reply bot for one conversation from the inbox — the
  * "Take over" / "Resume AI" banner.
  *
- * Body: { paused: boolean, assign_to_me?: boolean }
+ * Body: { paused: boolean, assign_to_me?: boolean, reply_now?: boolean }
  *   - paused: true  → pause the bot here (a human is taking over). When
  *                     `assign_to_me` is set, also assign the thread to the
  *                     caller (the usual "Take over" flow). Assignment
@@ -20,52 +31,68 @@ type Params = { params: Promise<{ conversationId: string }> }
  *                     fresh slots, and clear the handoff note. If the
  *                     caller currently owns the thread, unassign it too so
  *                     the bot isn't blocked by the "human owns this" gate.
+ *                     Also clears the pause reason (migration 077), a
+ *                     held draft and the hand-off reason.
+ *   - reply_now: true (with paused: false) → when the chat's latest
+ *                     message is the customer's and has text, answer it
+ *                     now, in after(), the way the inbound pipeline
+ *                     would have. Otherwise the bot waits for the next
+ *                     message, as before.
+ *
+ * Answers { success, paused, replying } — `replying` says whether a
+ * reply_now dispatch was scheduled.
  *
  * Writes go through the RLS-scoped SSR client, so a conversation outside
  * the caller's account simply isn't found (404).
  */
 export async function POST(request: Request, { params }: Params) {
   try {
-    const { supabase, accountId, userId } = await requireRole('agent')
+    const { supabase, accountId, userId } = await requireRole('agent');
 
     // Reuse the send bucket: this is a cheap per-user inbox action and
     // toggling it in a tight loop has no legitimate use.
-    const limit = checkRateLimit(`ai-takeover:${userId}`, RATE_LIMITS.send)
-    if (!limit.success) return rateLimitResponse(limit)
+    const limit = checkRateLimit(`ai-takeover:${userId}`, RATE_LIMITS.send);
+    if (!limit.success) return rateLimitResponse(limit);
 
-    const { conversationId } = await params
-    const body = await request.json().catch(() => null)
+    const { conversationId } = await params;
+    const body = await request.json().catch(() => null);
     if (!body || typeof body.paused !== 'boolean') {
       return NextResponse.json(
         { error: 'paused (boolean) is required' },
-        { status: 400 },
-      )
+        { status: 400 }
+      );
     }
-    const paused = body.paused as boolean
-    const assignToMe = body.assign_to_me === true
+    const paused = body.paused as boolean;
+    const assignToMe = body.assign_to_me === true;
+    const replyNow = !paused && body.reply_now === true;
 
     // Confirm the conversation is in the caller's account before writing.
     const { data: conv, error: convErr } = await supabase
       .from('conversations')
-      .select('id')
+      .select('id, contact_id, channel_id')
       .eq('id', conversationId)
       .eq('account_id', accountId)
-      .maybeSingle()
+      .maybeSingle();
     if (convErr) {
-      console.error('[ai/autoreply] conversation lookup error:', convErr)
+      console.error('[ai/autoreply] conversation lookup error:', convErr);
       return NextResponse.json(
         { error: 'Failed to load conversation' },
-        { status: 500 },
-      )
+        { status: 500 }
+      );
     }
     if (!conv) {
-      return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Conversation not found' },
+        { status: 404 }
+      );
     }
 
-    const update: Record<string, unknown> = { ai_autoreply_disabled: paused }
+    const update: Record<string, unknown> = { ai_autoreply_disabled: paused };
 
     if (paused) {
-      if (assignToMe) update.assigned_agent_id = userId
+      update.ai_paused_reason = 'take_over';
+      update.ai_paused_at = new Date().toISOString();
+      if (assignToMe) update.assigned_agent_id = userId;
     } else {
       // Resuming hands the thread *back to the bot*. Clear the pause and
       // the handoff note, and — crucially — release ANY assignment, not
@@ -74,30 +101,112 @@ export async function POST(request: Request, { params }: Params) {
       // (e.g. the agent a prior handoff routed to) would silently keep
       // the bot muted and make "Resume AI" a no-op. This is the explicit
       // choice to let the bot own the thread again.
-      update.assigned_agent_id = null
+      update.assigned_agent_id = null;
       // Give the bot a fresh reply budget on this thread. This is a
       // deliberate, manual, rate-limited action (not automatable), so it
       // can't be used to bypass the per-conversation cap at scale — it's
       // a human choosing to re-engage the assistant.
-      update.ai_reply_count = 0
-      update.ai_handoff_summary = null
+      update.ai_reply_count = 0;
+      update.ai_handoff_summary = null;
+      update.ai_handoff_reason = null;
+      update.ai_paused_reason = null;
+      update.ai_paused_at = null;
+      // A held draft was the bot's answer to a message it is now free to
+      // answer again; leaving it would show a stale draft next to the
+      // new reply.
+      update.ai_pending_draft = null;
+      update.ai_pending_draft_at = null;
     }
 
     const { error: upErr } = await supabase
       .from('conversations')
       .update(update)
       .eq('id', conversationId)
-      .eq('account_id', accountId)
+      .eq('account_id', accountId);
     if (upErr) {
-      console.error('[ai/autoreply] update error:', upErr)
+      console.error('[ai/autoreply] update error:', upErr);
       return NextResponse.json(
         { error: 'Failed to update conversation' },
-        { status: 500 },
-      )
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ success: true, paused })
+    // The RLS lookup above proved the caller can see this chat; the
+    // reads below need the channel owner's id and the number's provider,
+    // which an agent's RLS does not hand out, so they run on the service
+    // role.
+    const dispatch = replyNow
+      ? await loadReplyNowDispatch(accountId, {
+          id: conv.id as string,
+          contact_id: conv.contact_id as string,
+          channel_id: (conv.channel_id as string | null) ?? null,
+        })
+      : null;
+
+    if (dispatch) {
+      // Awaited inside after(): a floating promise is killed with the
+      // request (issue #301). The dispatcher never throws.
+      after(async () => {
+        await dispatchInboundToAiReply(dispatch);
+      });
+    }
+
+    return NextResponse.json({ success: true, paused, replying: !!dispatch });
   } catch (err) {
-    return toErrorResponse(err)
+    return toErrorResponse(err);
   }
+}
+
+/**
+ * The dispatch that answers the chat's latest message, or null when
+ * there is nothing for the bot to answer: the latest message is not the
+ * customer's, has no text, or its number is gone. Mirrors what
+ * `processMessage` in the inbound pipeline passes: the number the
+ * message arrived on, its provider, and that number's owner as the
+ * sender of record.
+ */
+async function loadReplyNowDispatch(
+  accountId: string,
+  conv: { id: string; contact_id: string; channel_id: string | null }
+): Promise<Parameters<typeof dispatchInboundToAiReply>[0] | null> {
+  const admin = supabaseAdmin();
+  const { data: last, error: lastErr } = await admin
+    .from('messages')
+    .select('sender_type, content_text, message_id, channel_id')
+    .eq('conversation_id', conv.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lastErr) {
+    console.error('[ai/autoreply] latest message lookup error:', lastErr);
+    return null;
+  }
+  const text =
+    typeof last?.content_text === 'string' ? last.content_text.trim() : '';
+  if (!last || last.sender_type !== 'customer' || !text) return null;
+
+  const channelId = (last.channel_id as string | null) ?? conv.channel_id;
+  if (!channelId) return null;
+  const { data: channel, error: channelErr } = await admin
+    .from('whatsapp_config')
+    .select('provider, user_id')
+    .eq('id', channelId)
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (channelErr) {
+    console.error('[ai/autoreply] channel lookup error:', channelErr);
+    return null;
+  }
+  if (!channel) return null;
+
+  return {
+    accountId,
+    conversationId: conv.id,
+    contactId: conv.contact_id,
+    configOwnerUserId: channel.user_id as string,
+    inboundProvider: channel.provider as WhatsAppProvider,
+    inboundChannelId: channelId,
+    inboundMessageId: (last.message_id as string | null) ?? null,
+    inboundText: last.content_text as string,
+  };
 }
