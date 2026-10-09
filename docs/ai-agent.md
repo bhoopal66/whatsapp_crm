@@ -70,6 +70,13 @@ banner with three buttons:
 
 The customer receives the hand-off message you configured.
 
+Only a **hold** waits for review. A draft the guardrail **blocked**
+(asking for a secret, sharing someone else's data, and similar) is never
+queued for one-click sending. The chat is handed to a person, and the
+blocked draft is quoted in the hand-off note for context. If two people
+press **Send draft** at once, only one send goes out; the other gets
+"already sent or discarded".
+
 ## Pause and resume
 
 **A person replying pauses the bot in that chat.** Settings → _Pause the
@@ -144,7 +151,8 @@ did not reply, and how many routings came from Jev versus the rule.
   message.
 - **Two quick messages get one reply that answers both.** The bot waits
   3 seconds (`AI_BURST_WAIT_MS`) for the customer to finish; messages
-  within 2 minutes of each other are joined.
+  within 2 minutes of each other are joined. A photo or voice note with
+  no caption never makes the bot drop the text before it.
 - A WhatsApp send failure after the bot drafted a reply now **hands the
   chat to a person**.
 - Hand-offs ring a **bell for owners and admins** when no hand-off agent
@@ -153,10 +161,11 @@ did not reply, and how many routings came from Jev versus the rule.
 
 ## Environment variables
 
-| Variable                   | Default | Effect                                                                                                                               |
-| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `AI_BURST_WAIT_MS`         | `3000`  | How long the bot waits for a customer to finish typing before answering. `0` disables the wait; the newest-message check still runs. |
-| `AI_REQUEST_TIMEOUT_MS`    | `30000` | Per-call timeout for the AI provider.                                                                                                |
-| `AI_CONTEXT_MESSAGE_LIMIT` | `20`    | How many recent text messages are given to the model.                                                                                |
+| Variable                   | Default | Effect                                                                                                                                                     |
+| -------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_BURST_WAIT_MS`         | `3000`  | How long the bot waits for a customer to finish typing before answering. `0` disables the wait; the newest-message check still runs.                       |
+| `AI_REQUEST_TIMEOUT_MS`    | `30000` | Per-call timeout for the AI provider.                                                                                                                      |
+| `AI_DISPATCH_BUDGET_MS`    | `50000` | Total time one auto-reply may take (the webhook allows 60 s). A retry or rewrite that would not fit is skipped and the chat is handed to a person instead. |
+| `AI_CONTEXT_MESSAGE_LIMIT` | `20`    | How many recent text messages are given to the model.                                                                                                      |
 
 Restart the app after changing them.
