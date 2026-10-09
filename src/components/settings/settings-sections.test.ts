@@ -219,6 +219,14 @@ describe('agentsRedirectHref', () => {
       '/settings?tab=ai-playground'
     );
     expect(agentsRedirectHref(['usage', 'x'])).toBe('/settings?tab=ai-usage');
+    expect(agentsRedirectHref('setup')).toBe('/settings?tab=ai-assistant');
+  });
+
+  it('drops a tab value that is not an AI Agents tab', () => {
+    for (const bad of ['nope', 'usage&add=1', '../profile', 'a b', '']) {
+      expect(agentsRedirectHref(bad)).toBe('/settings?tab=ai');
+    }
+    expect(agentsRedirectHref([])).toBe('/settings?tab=ai');
   });
 });
 

@@ -22,6 +22,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { isAgentTab } from '@/lib/ai/agent-tabs';
 import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 
 /**
@@ -295,6 +296,10 @@ export function settingsParamsFor(
 
 /** Where `/agents?tab=<x>` now lives. */
 export function agentsRedirectHref(tab: string | string[] | undefined): string {
-  const value = Array.isArray(tab) ? tab[0] : tab;
-  return `/settings?tab=${value ? aiTabParam(value) : 'ai'}`;
+  const raw = Array.isArray(tab) ? tab[0] : tab;
+  // `?tab=` is user-supplied and lands in a URL: only a known AI Agents
+  // tab passes (the pre-tabs `setup` is Assistant); anything else is the
+  // area's default landing.
+  const value = raw === 'setup' ? 'assistant' : raw;
+  return `/settings?tab=${isAgentTab(value) ? aiTabParam(value) : 'ai'}`;
 }
