@@ -43,7 +43,6 @@ import {
 } from '@/lib/chat-tags/style';
 import {
   ChatTagPill,
-  PILL_CAPTION,
   PILL_MAIN_TEXT,
   PILL_SUB_TEXT,
   PillDot,
@@ -280,7 +279,6 @@ export function ThreadTagBar({
         <ChatTagPill
           main={main}
           sub={sub}
-          caption={sub ? t('subCaption', { title: subTitle }) : null}
           size="md"
           title={
             sub
@@ -414,9 +412,6 @@ export function ThreadTagBar({
             >
               {sub ? (
                 <>
-                  <span className={PILL_CAPTION}>
-                    {t('subCaption', { title: subTitle })}
-                  </span>
                   <PillDot color={sub.color} size="md" />
                   <span className={PILL_SUB_TEXT}>{sub.name}</span>
                   <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />

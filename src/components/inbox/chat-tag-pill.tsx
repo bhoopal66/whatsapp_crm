@@ -33,8 +33,6 @@ export const PILL_DOT: Record<ChatTagPillSize, string> = {
 export const PILL_MAIN_TEXT = 'truncate font-semibold';
 /** The sub-tag's name: the detail. */
 export const PILL_SUB_TEXT = 'text-wa-text truncate font-medium';
-/** The sub-tag's caption ("Bank:"). */
-export const PILL_CAPTION = 'text-wa-text-secondary shrink-0 font-normal';
 
 export function PillDot({
   color,
@@ -55,15 +53,12 @@ export function PillDot({
 export function ChatTagPill({
   main,
   sub,
-  caption,
   size,
   title,
   className,
 }: {
   main: { name: string; color: string | null | undefined };
   sub?: { name: string; color: string | null | undefined } | null;
-  /** Shown before the sub-tag's name, e.g. "Bank:". */
-  caption?: string | null;
   size: ChatTagPillSize;
   title?: string;
   className?: string;
@@ -98,7 +93,6 @@ export function ChatTagPill({
           )}
           style={chatTagSubStyle(main.color, sub.color)}
         >
-          {caption && <span className={PILL_CAPTION}>{caption}</span>}
           <PillDot color={sub.color} size={size} />
           <span className={PILL_SUB_TEXT}>{sub.name}</span>
         </span>

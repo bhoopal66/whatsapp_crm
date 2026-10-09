@@ -124,11 +124,13 @@ describe('ThreadTagBar', () => {
     expect(render('agent', [], conv(null))).toBe('');
   });
 
-  it('shows the main tag and the captioned sub-tag', () => {
+  it('shows the main tag and the sub-tag, captioned only on hover', () => {
     const html = render('agent', TAGS, conv('t-int', 't-adcb'));
     expect(html).toContain('Interested customer');
-    expect(html).toContain('Bank:');
     expect(html).toContain('ADCB');
+    // The pill shows the chosen sub-tag bare; its heading is the tooltip.
+    expect(html).not.toContain('>Bank:<');
+    expect(html).toContain('title="Bank: ADCB"');
     expect(html).toContain('title="Chat tag: Interested customer"');
     // The chip is a tint of the tag colour; its text is the theme's.
     expect(html).toContain('background-color:rgba(245, 158, 11, 0.14)');

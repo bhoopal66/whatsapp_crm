@@ -211,7 +211,6 @@
       "subTagDefault": "Sub-tag",
       "subCount": "{count, plural, one {# sub-tag} other {# sub-tags}}",
       "subNone": "None",
-      "subCaption": "{title}:",
       "subChipTitle": "{title}: {name}",
       "addSub": "Add {title}",
       "manage": "Manage chat tags…",

@@ -211,7 +211,6 @@
       "subTagDefault": "하위 태그",
       "subCount": "{count, plural, other {하위 태그 #개}}",
       "subNone": "없음",
-      "subCaption": "{title}:",
       "subChipTitle": "{title}: {name}",
       "addSub": "{title} 추가",
       "manage": "채팅 태그 관리…",
