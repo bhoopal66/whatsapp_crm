@@ -2354,9 +2354,7 @@
       "deactivated": "Deactivated",
       "oneTeamHint": "A person can belong to one team. Remove them from their current team first to move them here.",
       "numbersLabel": "WhatsApp numbers",
-      "numbersHint": "Everyone in this team, and its leader, works the numbers you tick: they can send from them and start new chats from them. They still see only their own and assigned chats (leaders also their team's). Joining or leaving the team grants or removes this automatically.",
-      "numbersIndividualHint": "People can also be allocated individually in Numbers & access. Owners and admins always see every number.",
-      "noNumbersConnected": "No WhatsApp numbers are connected yet.",
+      "numbersHint": "Everyone in this team, and its leader, works these numbers: they can send from them and start new chats from them. They still see only their own and assigned chats (leaders also their team’s). Joining or leaving the team grants or removes this automatically.",
       "providerWhapi": "Whapi",
       "providerMeta": "Meta Cloud API",
       "emptyTeamShared": "This team has no members or leader yet, so these numbers stay shared with everyone until someone joins.",
@@ -2372,7 +2370,9 @@
       "deleteIntro": "This removes the team. Here is what happens:",
       "deleteMembers": "{count, plural, =0 {The leader stops seeing the team’s work.} =1 {Its 1 member becomes unassigned, and the leader stops seeing the team’s work.} other {Its # members become unassigned, and the leader stops seeing the team’s work.}}",
       "deleteNumbers": "Numbers allocated through this team are no longer allocated to its people. Allocations made individually stay.",
-      "deleteKeeps": "No chats, contacts or messages are deleted."
+      "deleteKeeps": "No chats, contacts or messages are deleted.",
+      "changeInNumbers": "Change in Numbers & access",
+      "noNumbersAllocated": "No numbers are allocated to this team."
     },
     "costs": {
       "title": "Message costs",

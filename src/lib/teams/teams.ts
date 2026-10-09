@@ -10,6 +10,13 @@
 // number allocation, and each re-write regrants or revokes access.
 // `buildTeamPatch` sends only what the admin actually changed.
 //
+// A team's numbers are owned by Settings → Numbers & access
+// (`set_channel_access`); the Teams editor only shows them. So the
+// draft has no `channel_ids` and the patch never carries one: the
+// route then passes NULL to `update_team`, which leaves the team's
+// numbers exactly as they are — even when the list the editor loaded
+// is stale because someone changed it in Numbers & access meanwhile.
+//
 // The database is the authority on every rule mirrored here (one team
 // per person is a unique index; access to an allocated number is
 // granted in SQL). This module only decides what to show and write.
@@ -28,11 +35,9 @@ export interface Team {
   channel_ids: string[];
 }
 
-/** The editable part of a team: what the editor holds as its draft. */
-export type TeamDraft = Pick<
-  Team,
-  'name' | 'leader_user_id' | 'member_ids' | 'channel_ids'
->;
+/** The editable part of a team: what the editor holds as its draft.
+ *  Numbers are not in it — Numbers & access owns them. */
+export type TeamDraft = Pick<Team, 'name' | 'leader_user_id' | 'member_ids'>;
 
 /** Body for `PATCH /api/account/teams/[id]`; only changed fields. */
 export type TeamPatch = Partial<TeamDraft>;
@@ -54,7 +59,6 @@ export function draftOf(team: Team): TeamDraft {
     name: team.name,
     leader_user_id: team.leader_user_id,
     member_ids: [...team.member_ids],
-    channel_ids: [...team.channel_ids],
   };
 }
 
@@ -83,9 +87,6 @@ export function buildTeamPatch(original: Team, draft: TeamDraft): TeamPatch {
   if (!sameSet(draft.member_ids, original.member_ids)) {
     patch.member_ids = [...new Set(draft.member_ids)];
   }
-  if (!sameSet(draft.channel_ids, original.channel_ids)) {
-    patch.channel_ids = [...new Set(draft.channel_ids)];
-  }
   return patch;
 }
 
@@ -103,14 +104,17 @@ export function teamNameProblem(name: string): TeamNameProblem {
 }
 
 /**
- * True when the draft allocates numbers to a team nobody is in — no
+ * True when the team has numbers but the draft leaves nobody in it — no
  * members and no leader. The database treats a number allocated only
  * to an empty team as still shared with everyone, so the admin is
  * warned rather than led to think the number is now restricted.
  */
-export function allocationStaysShared(draft: TeamDraft): boolean {
+export function allocationStaysShared(
+  channelIds: readonly string[],
+  draft: TeamDraft
+): boolean {
   return (
-    draft.channel_ids.length > 0 &&
+    channelIds.length > 0 &&
     draft.member_ids.length === 0 &&
     !draft.leader_user_id
   );
