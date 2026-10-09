@@ -25,15 +25,14 @@ import { SettingsPanelHead } from "./settings-panel-head";
  * One currency per account (issue #218): the chosen code seeds new
  * deals and formats every aggregated total. Existing deals keep their
  * own saved currency. Writes go straight to `accounts.default_currency`;
- * the `accounts_update` RLS policy (017) already restricts that to
- * admins+, so non-admins see a disabled, read-only control.
+ * the `accounts_update` RLS policy (017) restricts that to admins+,
+ * and only admins can open this section (settings-sections.ts).
  */
 export function DealsSettings() {
   const supabase = createClient();
   const {
     accountId,
     defaultCurrency,
-    canEditSettings,
     profileLoading,
     refreshProfile,
   } = useAuth();
@@ -91,7 +90,7 @@ export function DealsSettings() {
             <select
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
-              disabled={!canEditSettings || profileLoading}
+              disabled={profileLoading}
               className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
             >
               {CURRENCIES.map((c) => (
@@ -100,29 +99,22 @@ export function DealsSettings() {
                 </option>
               ))}
             </select>
-            {!canEditSettings && (
-              <p className="text-xs text-muted-foreground">
-                {t("adminOnlyHint")}
-              </p>
-            )}
           </div>
 
-          {canEditSettings && (
-            <Button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  {t("saving")}
-                </>
-              ) : (
-                t("save")
-              )}
-            </Button>
-          )}
+          <Button
+            onClick={handleSave}
+            disabled={saving || !dirty}
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                {t("saving")}
+              </>
+            ) : (
+              t("save")
+            )}
+          </Button>
         </CardContent>
       </Card>
     </section>

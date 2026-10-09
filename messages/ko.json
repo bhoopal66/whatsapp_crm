@@ -1559,13 +1559,6 @@
       "clipboardBlocked": "클립보드 접근이 차단되었습니다 — 링크를 직접 복사하세요",
       "whatsappMessage": "이 링크(유효 기간 {expiresInDays}일)로 Taamul Connect의 {accountName}에 참여하세요: {url}"
     },
-    "tagsAndFields": {
-      "title": "커스텀 필드",
-      "description": "우편번호, 리드 출처처럼 구조화된 데이터를 담는 연락처 추가 필드입니다. 모든 연락처에 표시됩니다.",
-      "fieldsTitle": "커스텀 필드",
-      "fieldsDesc": "추가 연락처 필드입니다 (예: 우편번호, 리드 출처). 모든 연락처와 \"연락처 필드 업데이트\" 자동화 액션에 표시됩니다.",
-      "adminRole": "관리자"
-    },
     "chatTags": {
       "title": "채팅 태그",
       "description": "채팅을 색상으로 구분하는 태그입니다. 각 채팅에는 메인 태그 하나가 붙으며, 채팅 상단과 채팅 목록에 표시됩니다. 어느 은행인지 같은 세부 정보를 기록하려면 메인 태그에 하위 태그를 추가하세요.",
@@ -1822,7 +1815,6 @@
       "step4_2": "다른 휴대폰에서 연결된 번호로 메시지를 보내세요.",
       "step4_3": "몇 초 안에 받은편지함에 표시되어야 합니다.",
       "whapiDocs": "Whapi 문서",
-      "adminOnly": "관리자만 WhatsApp 연결을 변경할 수 있습니다.",
       "numberPicker": "번호",
       "reenterToken": "토큰 다시 입력",
       "addNumber": "번호 추가",
@@ -2078,7 +2070,6 @@
       "newApiKey": "새 API 키",
       "noApiKeys": "아직 API 키가 없습니다.",
       "createOneHint": "<bold>새 API 키</bold>를 클릭해 만드세요.",
-      "askAdminHint": "관리자에게 생성을 요청하세요.",
       "revoked": "취소됨",
       "expired": "만료됨",
       "noScopes": "권한 범위 없음",
@@ -2116,7 +2107,6 @@
       "defaultCurrency": "기본 통화",
       "defaultCurrencyDesc": "새 딜은 이 통화를 기본값으로 사용하며, 파이프라인과 대시보드 합계도 이 통화로 표시됩니다. 기존 딜은 저장 당시의 통화를 그대로 유지합니다.",
       "currencyLabel": "통화",
-      "adminOnlyHint": "계정 관리자만 기본 통화를 변경할 수 있습니다.",
       "save": "저장",
       "saving": "저장 중...",
       "saveFailed": "기본 통화를 저장하지 못했습니다",
@@ -2686,6 +2676,12 @@
           "hasTradeLicence": "재질문: 영업 허가증"
         }
       }
+    },
+    "customFields": {
+      "title": "커스텀 필드",
+      "description": "우편번호, 리드 출처처럼 구조화된 데이터를 담는 연락처 추가 필드입니다. 모든 연락처에 표시됩니다.",
+      "fieldsTitle": "커스텀 필드",
+      "fieldsDesc": "추가 연락처 필드입니다 (예: 우편번호, 리드 출처). 모든 연락처와 \"연락처 필드 업데이트\" 자동화 액션에 표시됩니다."
     }
   },
   "Compass": {

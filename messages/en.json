@@ -1559,13 +1559,6 @@
       "clipboardBlocked": "Clipboard blocked — copy the link manually",
       "whatsappMessage": "Join {accountName} on Taamul Connect using this link (valid for {expiresInDays} days): {url}"
     },
-    "tagsAndFields": {
-      "title": "Custom fields",
-      "description": "Extra fields for your contacts, for structured data such as ZIP code or lead source. They appear on every contact.",
-      "fieldsTitle": "Custom fields",
-      "fieldsDesc": "Extra contact fields (e.g. ZIP code, lead source). They appear on every contact and in the “Update Contact Field” automation action.",
-      "adminRole": "Admin"
-    },
     "chatTags": {
       "title": "Chat tags",
       "description": "Colour-coded tags for your chats. Each chat carries one main tag, shown at the top of the chat and in the chat list. Give a main tag sub-tags to record a detail, such as which bank.",
@@ -1822,7 +1815,6 @@
       "step4_2": "Message the connected number from a different phone.",
       "step4_3": "It should appear in the Inbox within a few seconds.",
       "whapiDocs": "Whapi documentation",
-      "adminOnly": "Only admins can change the WhatsApp connection.",
       "numberPicker": "Number",
       "reenterToken": "Re-enter token",
       "addNumber": "Add number",
@@ -2078,7 +2070,6 @@
       "newApiKey": "New API key",
       "noApiKeys": "No API keys yet.",
       "createOneHint": "Click <bold>New API key</bold> to create one.",
-      "askAdminHint": "Ask an admin to create one.",
       "revoked": "Revoked",
       "expired": "Expired",
       "noScopes": "No scopes",
@@ -2116,7 +2107,6 @@
       "defaultCurrency": "Default currency",
       "defaultCurrencyDesc": "New deals default to this currency, and pipeline and dashboard totals are shown in it. Existing deals keep the currency they were saved with.",
       "currencyLabel": "Currency",
-      "adminOnlyHint": "Only account admins can change the default currency.",
       "save": "Save",
       "saving": "Saving...",
       "saveFailed": "Failed to save default currency",
@@ -2686,6 +2676,12 @@
           "hasTradeLicence": "Ask again: trade licence"
         }
       }
+    },
+    "customFields": {
+      "title": "Custom fields",
+      "description": "Extra fields for your contacts, for structured data such as ZIP code or lead source. They appear on every contact.",
+      "fieldsTitle": "Custom fields",
+      "fieldsDesc": "Extra contact fields (e.g. ZIP code, lead source). They appear on every contact and in the “Update Contact Field” automation action."
     }
   },
   "Compass": {

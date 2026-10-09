@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react';
 import { toast } from 'sonner';
 import {
   Eye,
@@ -21,7 +27,13 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { SettingsPanelHead } from './settings-panel-head';
@@ -107,13 +119,7 @@ export function WhatsAppConfig({
   // whatsapp_config is one row per ACCOUNT, not per user, so every
   // read keys off `accountId` — a teammate who just joined sees the
   // inviter's saved channel without re-entering anything.
-  const {
-    user,
-    accountId,
-    loading: authLoading,
-    profileLoading,
-    canEditSettings,
-  } = useAuth();
+  const { user, accountId, loading: authLoading, profileLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -124,7 +130,8 @@ export function WhatsAppConfig({
   const [config, setConfig] = useState<WhatsAppConfigType | null>(null);
   const [channel, setChannel] = useState<ChannelInfo | null>(null);
   const [webhookHooks, setWebhookHooks] = useState<WebhookHook[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>('unknown');
   const [needsReset, setNeedsReset] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
 
@@ -136,9 +143,8 @@ export function WhatsAppConfig({
   // handleSave: that path insists on a channel token so it can
   // re-verify, which is a silly toll for flipping a boolean. This
   // writes straight to the row instead — RLS (migration 017)
-  // restricts whatsapp_config UPDATE to admins, hence the
-  // canEditSettings gate; without it a viewer's toggle would match
-  // zero rows and appear to work.
+  // restricts whatsapp_config UPDATE to admins, and only admins can
+  // open this section (settings-sections.ts), so no role check here.
   const [mirrorMedia, setMirrorMedia] = useState(true);
   const [savingMirror, setSavingMirror] = useState(false);
 
@@ -151,24 +157,27 @@ export function WhatsAppConfig({
   const isWebhookRegistered = Boolean(config?.registered_at);
   const lastRegistrationError = config?.last_registration_error ?? null;
 
-  const applyHealthPayload = useCallback((payload: {
-    connected?: boolean;
-    needs_reset?: boolean;
-    message?: string;
-    channel?: ChannelInfo;
-    webhook?: { urls?: string[]; hooks?: WebhookHook[] };
-  }) => {
-    setConnectionStatus(payload.connected ? 'connected' : 'disconnected');
-    setNeedsReset(Boolean(payload.needs_reset));
-    setStatusMessage(payload.message || '');
-    setChannel(payload.channel ?? null);
-    // `hooks` says which entries are ours. Without it (an older
-    // server), flag nothing rather than everything.
-    setWebhookHooks(
-      payload.webhook?.hooks ??
-        (payload.webhook?.urls ?? []).map((url) => ({ url, ours: true })),
-    );
-  }, []);
+  const applyHealthPayload = useCallback(
+    (payload: {
+      connected?: boolean;
+      needs_reset?: boolean;
+      message?: string;
+      channel?: ChannelInfo;
+      webhook?: { urls?: string[]; hooks?: WebhookHook[] };
+    }) => {
+      setConnectionStatus(payload.connected ? 'connected' : 'disconnected');
+      setNeedsReset(Boolean(payload.needs_reset));
+      setStatusMessage(payload.message || '');
+      setChannel(payload.channel ?? null);
+      // `hooks` says which entries are ours. Without it (an older
+      // server), flag nothing rather than everything.
+      setWebhookHooks(
+        payload.webhook?.hooks ??
+          (payload.webhook?.urls ?? []).map((url) => ({ url, ours: true }))
+      );
+    },
+    []
+  );
 
   const fetchConfig = useCallback(
     async (acctId: string) => {
@@ -178,11 +187,8 @@ export function WhatsAppConfig({
       // round trip instead of two). Its answer is only applied when a
       // row exists — without one, the panel shows the not-connected
       // state regardless, exactly as before.
-      const healthPromise: Promise<
-        Parameters<typeof applyHealthPayload>[0]
-      > = fetch(configUrl(configId), { method: 'GET' }).then((res) =>
-        res.json(),
-      );
+      const healthPromise: Promise<Parameters<typeof applyHealthPayload>[0]> =
+        fetch(configUrl(configId), { method: 'GET' }).then((res) => res.json());
       // Settled on every path, so an unused rejection is never reported.
       healthPromise.catch(() => {});
       try {
@@ -243,7 +249,7 @@ export function WhatsAppConfig({
         setLoading(false);
       }
     },
-    [supabase, applyHealthPayload, t, configId],
+    [supabase, applyHealthPayload, t, configId]
   );
 
   useEffect(() => {
@@ -383,7 +389,7 @@ export function WhatsAppConfig({
         toast.success(
           payload.channel?.display_name
             ? `${t('connected')} — ${payload.channel.display_name}`
-            : t('connected'),
+            : t('connected')
         );
       } else {
         toast.error(payload.message || t('testFailed'));
@@ -408,7 +414,9 @@ export function WhatsAppConfig({
    * deliberate act in Settings → Numbers & access.
    */
   function handleReenterToken() {
-    const field = document.getElementById('whapi-token') as HTMLInputElement | null;
+    const field = document.getElementById(
+      'whapi-token'
+    ) as HTMLInputElement | null;
     field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     field?.focus();
   }
@@ -427,7 +435,7 @@ export function WhatsAppConfig({
           action={picker}
         />
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="size-6 animate-spin text-primary" />
+          <Loader2 className="text-primary size-6 animate-spin" />
         </div>
       </section>
     );
@@ -438,10 +446,10 @@ export function WhatsAppConfig({
   return (
     <section className="animate-in fade-in-50 duration-200">
       <SettingsPanelHead
-          title={t('title')}
-          description={t('description')}
-          action={picker}
-        />
+        title={t('title')}
+        description={t('description')}
+        action={picker}
+      />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
@@ -449,21 +457,20 @@ export function WhatsAppConfig({
               connection failure: no amount of retrying fixes it, the
               token has to be entered again. */}
           {needsReset && (
-            <Alert className="bg-amber-950/40 border-amber-600/40">
+            <Alert className="border-amber-600/40 bg-amber-950/40">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="size-5 text-amber-400 mt-0.5 shrink-0" />
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-400" />
                 <div className="flex-1">
-                  <AlertTitle className="text-amber-200 mb-1">
+                  <AlertTitle className="mb-1 text-amber-200">
                     {t('tokenCorrupted')}
                   </AlertTitle>
-                  <AlertDescription className="text-amber-100/80 text-sm">
+                  <AlertDescription className="text-sm text-amber-100/80">
                     {statusMessage}
                   </AlertDescription>
                   <Button
                     onClick={handleReenterToken}
-                    disabled={!canEditSettings}
                     size="sm"
-                    className="mt-3 bg-amber-600 hover:bg-amber-700 text-white"
+                    className="mt-3 bg-amber-600 text-white hover:bg-amber-700"
                   >
                     <KeyRound className="size-4" />
                     {t('reenterToken')}
@@ -477,7 +484,7 @@ export function WhatsAppConfig({
           <Alert className="bg-card border-border">
             <div className="flex items-center gap-2">
               {isConnected ? (
-                <CheckCircle2 className="size-4 text-primary" />
+                <CheckCircle2 className="text-primary size-4" />
               ) : (
                 <XCircle className="size-4 text-red-500" />
               )}
@@ -495,26 +502,38 @@ export function WhatsAppConfig({
               <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
                 {channel.phone && (
                   <>
-                    <dt className="text-muted-foreground">{t('channelPhone')}</dt>
-                    <dd className="text-foreground font-mono">+{channel.phone}</dd>
+                    <dt className="text-muted-foreground">
+                      {t('channelPhone')}
+                    </dt>
+                    <dd className="text-foreground font-mono">
+                      +{channel.phone}
+                    </dd>
                   </>
                 )}
                 {channel.display_name && (
                   <>
-                    <dt className="text-muted-foreground">{t('channelName')}</dt>
+                    <dt className="text-muted-foreground">
+                      {t('channelName')}
+                    </dt>
                     <dd className="text-foreground">{channel.display_name}</dd>
                   </>
                 )}
                 {channel.channel_id && (
                   <>
                     <dt className="text-muted-foreground">{t('channelId')}</dt>
-                    <dd className="text-foreground font-mono">{channel.channel_id}</dd>
+                    <dd className="text-foreground font-mono">
+                      {channel.channel_id}
+                    </dd>
                   </>
                 )}
                 {channel.status && (
                   <>
-                    <dt className="text-muted-foreground">{t('channelStatus')}</dt>
-                    <dd className="text-foreground font-mono">{channel.status}</dd>
+                    <dt className="text-muted-foreground">
+                      {t('channelStatus')}
+                    </dt>
+                    <dd className="text-foreground font-mono">
+                      {channel.status}
+                    </dd>
                   </>
                 )}
               </dl>
@@ -529,11 +548,11 @@ export function WhatsAppConfig({
             <Alert
               className={
                 isWebhookRegistered
-                  ? 'bg-emerald-950/30 border-emerald-700/50'
-                  : 'bg-amber-950/30 border-amber-700/50'
+                  ? 'border-emerald-700/50 bg-emerald-950/30'
+                  : 'border-amber-700/50 bg-amber-950/30'
               }
             >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {isWebhookRegistered ? (
                     <CheckCircle2 className="size-4 text-emerald-400" />
@@ -543,7 +562,9 @@ export function WhatsAppConfig({
                   <AlertTitle
                     className={
                       'mb-0 ' +
-                      (isWebhookRegistered ? 'text-emerald-200' : 'text-amber-200')
+                      (isWebhookRegistered
+                        ? 'text-emerald-200'
+                        : 'text-amber-200')
                     }
                   >
                     {isWebhookRegistered
@@ -551,38 +572,36 @@ export function WhatsAppConfig({
                       : t('webhookNotRegistered')}
                   </AlertTitle>
                 </div>
-                {canEditSettings && (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSave}
-                      disabled={saving || rotating}
-                      className="border-border bg-transparent text-foreground hover:bg-muted h-7"
-                    >
-                      {saving ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="size-3.5" />
-                      )}
-                      {t('reRegister')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleRotateSecret}
-                      disabled={saving || rotating}
-                      className="border-border bg-transparent text-foreground hover:bg-muted h-7"
-                    >
-                      {rotating ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <KeyRound className="size-3.5" />
-                      )}
-                      {t('rotateSecret')}
-                    </Button>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSave}
+                    disabled={saving || rotating}
+                    className="border-border text-foreground hover:bg-muted h-7 bg-transparent"
+                  >
+                    {saving ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3.5" />
+                    )}
+                    {t('reRegister')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRotateSecret}
+                    disabled={saving || rotating}
+                    className="border-border text-foreground hover:bg-muted h-7 bg-transparent"
+                  >
+                    {rotating ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <KeyRound className="size-3.5" />
+                    )}
+                    {t('rotateSecret')}
+                  </Button>
+                </div>
               </div>
 
               <AlertDescription className="text-muted-foreground mt-2 text-xs leading-relaxed">
@@ -602,12 +621,11 @@ export function WhatsAppConfig({
                         </span>{' '}
                       </>
                     )}
-                    {t('webhookNotRegisteredHint')}{' '}
-                    {t('webhookHttpsHint')}
+                    {t('webhookNotRegisteredHint')} {t('webhookHttpsHint')}
                   </>
                 )}
                 {webhookHooks.length > 0 && (
-                  <ul className="mt-2 space-y-1 font-mono text-[11px] text-foreground/80">
+                  <ul className="text-foreground/80 mt-2 space-y-1 font-mono text-[11px]">
                     {webhookHooks.map((hook) => (
                       <li key={hook.url} className="break-all">
                         {hook.url}
@@ -638,7 +656,9 @@ export function WhatsAppConfig({
           {/* Credentials */}
           <Card className="bg-card border-border">
             <CardHeader>
-              <CardTitle className="text-foreground">{t('credentialsTitle')}</CardTitle>
+              <CardTitle className="text-foreground">
+                {t('credentialsTitle')}
+              </CardTitle>
               <CardDescription>{t('credentialsDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -649,7 +669,6 @@ export function WhatsAppConfig({
                     id="whapi-token"
                     type={showToken ? 'text' : 'password'}
                     value={channelToken}
-                    disabled={!canEditSettings}
                     onChange={(e) => {
                       setChannelToken(e.target.value);
                       setTokenEdited(true);
@@ -671,13 +690,19 @@ export function WhatsAppConfig({
                     variant="outline"
                     size="icon"
                     onClick={() => setShowToken((v) => !v)}
-                    className="border-border bg-transparent shrink-0"
+                    className="border-border shrink-0 bg-transparent"
                   >
-                    {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    {showToken ? (
+                      <EyeOff className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
                   </Button>
                 </div>
                 {config && !tokenEdited && (
-                  <p className="text-xs text-muted-foreground">{t('tokenHidden')}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {t('tokenHidden')}
+                  </p>
                 )}
               </div>
 
@@ -686,20 +711,17 @@ export function WhatsAppConfig({
                 <Input
                   id="whapi-channel-id"
                   value={channelId}
-                  disabled={!canEditSettings}
                   onChange={(e) => setChannelId(e.target.value)}
                   placeholder={t('channelIdPlaceholder')}
                   className="font-mono"
                 />
-                <p className="text-xs text-muted-foreground">{t('channelIdHint')}</p>
+                <p className="text-muted-foreground text-xs">
+                  {t('channelIdHint')}
+                </p>
               </div>
 
-              {!canEditSettings && (
-                <p className="text-xs text-amber-400">{t('adminOnly')}</p>
-              )}
-
               <div className="flex flex-wrap gap-2 pt-1">
-                <Button onClick={handleSave} disabled={saving || !canEditSettings}>
+                <Button onClick={handleSave} disabled={saving}>
                   {saving ? (
                     <>
                       <Loader2 className="size-4 animate-spin" />
@@ -732,21 +754,23 @@ export function WhatsAppConfig({
           {config && (
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle className="text-foreground">{t('mediaTitle')}</CardTitle>
+                <CardTitle className="text-foreground">
+                  {t('mediaTitle')}
+                </CardTitle>
                 <CardDescription>{t('mediaDesc')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
                     <Label htmlFor="mirror-media">{t('mirrorInbound')}</Label>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-muted-foreground text-xs">
                       {t('mirrorInboundDesc')}
                     </p>
                   </div>
                   <Switch
                     id="mirror-media"
                     checked={mirrorMedia}
-                    disabled={!canEditSettings || savingMirror}
+                    disabled={savingMirror}
                     onCheckedChange={handleToggleMirrorMedia}
                   />
                 </div>
@@ -772,30 +796,38 @@ export function WhatsAppConfig({
             <CardContent>
               <Accordion>
                 <AccordionItem className="border-border">
-                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">{t('step1')}</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-xs text-muted-foreground">
+                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">
+                    {t('step1')}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-muted-foreground space-y-1 text-xs">
                     <p>{t('step1_1')}</p>
                     <p>{t('step1_2')}</p>
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem className="border-border">
-                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">{t('step2')}</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-xs text-muted-foreground">
+                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">
+                    {t('step2')}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-muted-foreground space-y-1 text-xs">
                     <p>{t('step2_1')}</p>
                     <p>{t('step2_2')}</p>
                     <p>{t('step2_3')}</p>
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem className="border-border">
-                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">{t('step3')}</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-xs text-muted-foreground">
+                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">
+                    {t('step3')}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-muted-foreground space-y-1 text-xs">
                     <p>{t('step3_1')}</p>
                     <p>{t('step3_2')}</p>
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem className="border-border">
-                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">{t('step4')}</AccordionTrigger>
-                  <AccordionContent className="space-y-1 text-xs text-muted-foreground">
+                  <AccordionTrigger className="text-muted-foreground hover:text-foreground hover:no-underline">
+                    {t('step4')}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-muted-foreground space-y-1 text-xs">
                     <p>{t('step4_1')}</p>
                     <p>{t('step4_2')}</p>
                     <p>{t('step4_3')}</p>
@@ -807,7 +839,7 @@ export function WhatsAppConfig({
                 href="https://support.whapi.cloud/help-desk/getting-started/getting-started"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-4 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                className="text-primary mt-4 inline-flex items-center gap-1.5 text-xs hover:underline"
               >
                 {t('whapiDocs')}
                 <ExternalLink className="size-3" />
@@ -838,7 +870,9 @@ export function WhatsAppConfig({
                           : 'font-medium text-amber-700 dark:text-amber-300')
                       }
                     >
-                      {!hook.ours && <AlertTriangle className="size-3 shrink-0" />}
+                      {!hook.ours && (
+                        <AlertTriangle className="size-3 shrink-0" />
+                      )}
                       {hook.ours ? t('webhookOurs') : t('webhookForeign')}
                     </p>
                     <div className="flex gap-2">
@@ -847,7 +881,9 @@ export function WhatsAppConfig({
                         value={hook.url}
                         className={
                           'font-mono text-xs' +
-                          (hook.ours ? '' : ' border-amber-500/50 bg-amber-500/5')
+                          (hook.ours
+                            ? ''
+                            : ' border-amber-500/50 bg-amber-500/5')
                         }
                       />
                       <Button
@@ -855,7 +891,7 @@ export function WhatsAppConfig({
                         variant="outline"
                         size="icon"
                         onClick={() => copy(hook.url)}
-                        className="border-border bg-transparent shrink-0"
+                        className="border-border shrink-0 bg-transparent"
                       >
                         <Copy className="size-4" />
                       </Button>

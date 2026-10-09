@@ -4,9 +4,8 @@
 // ApiKeysSettings — Settings → API keys
 //
 // Manage the credentials that authenticate the public REST API
-// (`/api/v1/*`). Any member sees the roster (read-only); admin+ can
-// mint and revoke (gated by <RequireRole min="admin"> here and the
-// admin-only API routes + RLS on the server).
+// (`/api/v1/*`). The section is admin-only (settings-sections.ts);
+// the admin-only API routes + RLS are the enforcement point.
 //
 // One-time reveal: a freshly-minted key's plaintext is shown ONCE in
 // the creation dialog. After it closes, only the prefix remains —
@@ -33,8 +32,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RequireRole } from '@/components/auth/require-role';
-import { useAuth } from '@/hooks/use-auth';
 import {
   API_SCOPES,
   SCOPE_DESCRIPTIONS,
@@ -70,7 +67,6 @@ function keyStatus(k: ApiKey): 'active' | 'revoked' | 'expired' {
 }
 
 export function ApiKeysSettings() {
-  const { canEditSettings } = useAuth();
   const t = useTranslations('Settings.apiKeys');
 
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -138,19 +134,19 @@ export function ApiKeysSettings() {
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
         title={t('title')}
-        description={
-          t.rich('description', {
-            apiCode: (chunks: React.ReactNode) => <code className="text-xs">{chunks}</code>,
-            headerCode: (chunks: React.ReactNode) => <code className="text-xs">{chunks}</code>
-          })
-        }
+        description={t.rich('description', {
+          apiCode: (chunks: React.ReactNode) => (
+            <code className="text-xs">{chunks}</code>
+          ),
+          headerCode: (chunks: React.ReactNode) => (
+            <code className="text-xs">{chunks}</code>
+          ),
+        })}
         action={
-          <RequireRole min="admin">
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4" />
-              {t('newApiKey')}
-            </Button>
-          </RequireRole>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            {t('newApiKey')}
+          </Button>
         }
       />
 
@@ -161,19 +157,13 @@ export function ApiKeysSettings() {
             <p className="text-muted-foreground mt-2 text-sm">
               {t('noApiKeys')}
             </p>
-            {canEditSettings ? (
-              <p className="text-muted-foreground mt-1 text-xs">
-                {t.rich('createOneHint', {
-                  bold: (chunks: React.ReactNode) => (
-                    <span className="text-foreground">{chunks}</span>
-                  ),
-                })}
-              </p>
-            ) : (
-              <p className="text-muted-foreground mt-1 text-xs">
-                {t('askAdminHint')}
-              </p>
-            )}
+            <p className="text-muted-foreground mt-1 text-xs">
+              {t.rich('createOneHint', {
+                bold: (chunks: React.ReactNode) => (
+                  <span className="text-foreground">{chunks}</span>
+                ),
+              })}
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -242,22 +232,20 @@ export function ApiKeysSettings() {
                     </div>
 
                     {status === 'active' && (
-                      <RequireRole min="admin">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRevoke(k)}
-                          disabled={revoking === k.id}
-                          className="self-start border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-200 sm:self-auto"
-                        >
-                          {revoking === k.id ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="size-4" />
-                          )}
-                          {t('revoke')}
-                        </Button>
-                      </RequireRole>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRevoke(k)}
+                        disabled={revoking === k.id}
+                        className="self-start border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-200 sm:self-auto"
+                      >
+                        {revoking === k.id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-4" />
+                        )}
+                        {t('revoke')}
+                      </Button>
                     )}
                   </li>
                 );
@@ -368,7 +356,9 @@ function CreateKeyDialog({
             </DialogHeader>
 
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">{t('apiKeyLabel')}</Label>
+              <Label className="text-muted-foreground">
+                {t('apiKeyLabel')}
+              </Label>
               <div className="flex gap-2">
                 <Input
                   readOnly
@@ -420,7 +410,9 @@ function CreateKeyDialog({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-muted-foreground">{t('scopesLabel')}</Label>
+                <Label className="text-muted-foreground">
+                  {t('scopesLabel')}
+                </Label>
                 <div className="border-border space-y-2 rounded-md border p-3">
                   {API_SCOPES.map((scope) => (
                     <label
