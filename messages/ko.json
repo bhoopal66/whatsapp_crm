@@ -912,7 +912,7 @@
         "uploadCsv": "CSV 또는 Excel 파일 업로드",
         "csvFormatDesc": ".csv 또는 .xlsx 파일(첫 번째 시트)의 열: 'name', 'company', 'phone'(E.164 형식, 예: +971501234567). 'Customer Name', 'Company Name', 'Phone Number' 머리글도 사용할 수 있습니다. 전화번호 열만 필수이며, 나머지 열은 다음 단계에서 템플릿 변수에 매핑할 수 있습니다.",
         "downloadTemplate": "템플릿 다운로드",
-        "csvContactsFound": "CSV에서 유효한 연락처 {count}개를 찾았습니다.",
+        "csvContactsFound": "파일에서 유효한 연락처 {count}개를 찾았습니다.",
         "errorLoadFields": "커스텀 필드를 불러오지 못했습니다",
         "errorCsvParse": "파일을 읽을 수 없습니다.",
         "errorCsvMissingPhone": "파일에 'phone' 또는 'Phone Number' 열이 있어야 합니다.",

@@ -912,7 +912,7 @@
         "uploadCsv": "Upload CSV or Excel file",
         "csvFormatDesc": "A .csv or .xlsx file (first sheet) with columns 'name', 'company', 'phone' (E.164, e.g. +971501234567) — 'Customer Name', 'Company Name' and 'Phone Number' headers work too. Only a phone column is required — every other column can be mapped to a template variable in the next step.",
         "downloadTemplate": "Download the template",
-        "csvContactsFound": "{count} valid contact(s) found in CSV.",
+        "csvContactsFound": "{count} valid contact(s) found in the file.",
         "errorLoadFields": "Failed to load custom fields",
         "errorCsvParse": "Could not read the file.",
         "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",
