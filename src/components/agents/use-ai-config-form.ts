@@ -15,9 +15,11 @@ import {
 } from '@/lib/ai/defaults';
 import {
   aiConfigFormFromResponse,
+  applyAiSaveResult,
+  buildAiSavePlan,
   emptyAiConfigForm,
-  isAiConfigFormDirty,
   type AiConfigFormValues,
+  type AiSavedState,
 } from '@/lib/ai/config-form';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
@@ -62,10 +64,13 @@ export function useAiConfigForm() {
   const [loaded, setLoaded] = useState<AiConfigFormValues>(emptyAiConfigForm);
   const [values, setValues] = useState<AiConfigFormValues>(emptyAiConfigForm);
   const [members, setMembers] = useState<AccountMember[]>([]);
-  // The `ai_reply` route: null = the default number.
+  // The `ai_reply` route: null = no explicit route (saved) / nothing
+  // picked (shown); the picker then shows the default number.
   const [numbers, setNumbers] = useState<ReplyNumber[]>([]);
   const [loadedRoute, setLoadedRoute] = useState<string | null>(null);
   const [aiReplyRoute, setAiReplyRoute] = useState<string | null>(null);
+  // The number the AI uses with no explicit route.
+  const [defaultRouteId, setDefaultRouteId] = useState<string | null>(null);
 
   // Keyed on the account so an in-place account switch refetches.
   const loadedAccountIdRef = useRef<string | null>(null);
@@ -97,10 +102,20 @@ export function useAiConfigForm() {
           isPrimary: c.is_primary,
         })
       );
-      const row = (data.routes ?? []).find(
-        (r: { surface: string }) => r.surface === 'ai_reply'
-      );
+      const row: {
+        config_id: string | null;
+        effective_config_id: string | null;
+      } | null =
+        (data.routes ?? []).find(
+          (r: { surface: string }) => r.surface === 'ai_reply'
+        ) ?? null;
       setNumbers(list);
+      setDefaultRouteId(
+        row?.effective_config_id ??
+          list.find((n) => n.isPrimary)?.id ??
+          list[0]?.id ??
+          null
+      );
       setLoadedRoute(row?.config_id ?? null);
       setAiReplyRoute(row?.config_id ?? null);
     } catch {
@@ -164,38 +179,19 @@ export function useAiConfigForm() {
   const keyPayload = () =>
     values.keyEdited ? values.apiKey.trim() : undefined;
 
-  const buildBody = () => ({
-    provider: values.provider,
-    model: values.model.trim(),
-    api_key: keyPayload(),
-    // undefined = leave unchanged; '' typed = null (clear); text = set.
-    embeddings_api_key: values.embeddingsKeyEdited
-      ? values.embeddingsKey.trim() || null
-      : undefined,
-    system_prompt: values.systemPrompt.trim() || null,
-    is_active: values.isActive,
-    auto_reply_enabled: values.autoReplyEnabled,
-    auto_reply_campaign_only: values.autoReplyCampaignOnly,
-    auto_reply_max_per_conversation: values.maxPerConversation,
-    handoff_agent_id: values.handoffAgentId || null,
-    escalation_keywords: values.escalationKeywords,
-    retrieval_min_score:
-      values.retrievalMinScore.trim() === ''
-        ? null
-        : Number(values.retrievalMinScore),
-    strict_grounding: values.strictGrounding,
-    handoff_message: values.handoffMessage.trim() || null,
-    model_small: values.modelSmall.trim() || null,
-    model_large: values.modelLarge.trim() || null,
-    model_routing: values.modelRouting,
-    pause_on_agent_reply: values.pauseOnAgentReply,
-    reply_on_all_numbers: values.replyOnAllNumbers,
-    auto_resume_minutes: values.autoResumeMinutes,
-    guardrail_retry: values.guardrailRetry,
-  });
+  const saved: AiSavedState = {
+    configured,
+    values: loaded,
+    route: loadedRoute,
+  };
+  const current = { values, route: aiReplyRoute };
+  const { dirty } = buildAiSavePlan(saved, current, defaultRouteId);
 
-  const routeDirty = aiReplyRoute !== loadedRoute;
-  const dirty = isAiConfigFormDirty(loaded, values) || routeDirty;
+  const commitSaved = (next: AiSavedState) => {
+    setConfigured(next.configured);
+    setLoaded(next.values);
+    setLoadedRoute(next.route);
+  };
 
   const test = async () => {
     setTesting(true);
@@ -235,33 +231,46 @@ export function useAiConfigForm() {
       toast.error(t('missingApiKey'));
       return;
     }
+    const plan = buildAiSavePlan(saved, current, defaultRouteId);
+    let next = saved;
     setSaving(true);
     try {
-      if (isAiConfigFormDirty(loaded, values) || !configured) {
+      if (plan.config) {
         const res = await fetch('/api/ai/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildBody()),
+          body: JSON.stringify(plan.config),
         });
         const data = await res.json();
         if (!res.ok) {
           toast.error(data.error ?? t('saveFailed'));
           return;
         }
+        // Saved even if the route PUT below fails, so a retry only PUTs.
+        next = applyAiSaveResult(next, current, plan, {
+          configSaved: true,
+          routeSaved: false,
+        });
+        commitSaved(next);
       }
-      if (routeDirty) {
+      if (plan.aiReplyRoute !== null) {
         // Only the ai_reply surface: the PUT leaves absent ones alone.
         const res = await fetch('/api/whatsapp/routes', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ routes: { ai_reply: aiReplyRoute } }),
+          body: JSON.stringify({ routes: { ai_reply: plan.aiReplyRoute } }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           toast.error(data.error ?? t('saveFailed'));
           return;
         }
-        setLoadedRoute(aiReplyRoute);
+        next = applyAiSaveResult(next, current, plan, {
+          configSaved: false,
+          routeSaved: true,
+        });
+        commitSaved(next);
+        setAiReplyRoute(next.route);
       }
       toast.success(t('saveSuccess'));
       // The bot's switch decides which list campaign chats are in.
@@ -323,6 +332,8 @@ export function useAiConfigForm() {
     numbers,
     aiReplyRoute,
     setAiReplyRoute,
+    /** The number the AI uses while no explicit route is saved. */
+    defaultRouteId,
     dirty,
     test,
     save,

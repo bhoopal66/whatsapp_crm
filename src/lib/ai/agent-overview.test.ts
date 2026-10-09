@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agentTileStatus,
   autoReplyDot,
+  autoReplyScopeMessage,
   partnerBankCount,
   safetyDot,
   summariseAgentOverview,
@@ -26,7 +27,7 @@ describe('summariseAgentOverview', () => {
     expect(o.autoReply).toEqual({ on: true, scope: { kind: 'all' } });
   });
 
-  it('names the routed number, else the default one', () => {
+  it('names the routed number, else the default one and its kind', () => {
     const routed = summariseAgentOverview({
       configured: true,
       saved: on,
@@ -41,7 +42,12 @@ describe('summariseAgentOverview', () => {
       aiReplyRoute: null,
       numbers,
     });
-    expect(byDefault.autoReply.scope).toEqual({ kind: 'only', name: 'Sales' });
+    // No explicit route: the bot follows the thread on every number of
+    // the default number's provider, so this is not "only".
+    expect(byDefault.autoReply.scope).toEqual({
+      kind: 'default',
+      name: 'Sales',
+    });
   });
 
   it('has no name for the default number when none is primary', () => {
@@ -51,7 +57,7 @@ describe('summariseAgentOverview', () => {
       aiReplyRoute: null,
       numbers: [],
     });
-    expect(o.autoReply.scope).toEqual({ kind: 'only', name: null });
+    expect(o.autoReply.scope).toEqual({ kind: 'default', name: null });
   });
 
   it('shows the id of a routed number that is gone', () => {
@@ -62,6 +68,23 @@ describe('summariseAgentOverview', () => {
       numbers,
     });
     expect(o.autoReply.scope).toEqual({ kind: 'only', name: 'gone' });
+  });
+
+  it('words the scope', () => {
+    expect(autoReplyScopeMessage({ kind: 'all' })).toEqual({
+      key: 'overview.everyNumber',
+    });
+    expect(autoReplyScopeMessage({ kind: 'only', name: 'Support' })).toEqual({
+      key: 'overview.onlyOn',
+      values: { name: 'Support' },
+    });
+    expect(autoReplyScopeMessage({ kind: 'default', name: 'Sales' })).toEqual({
+      key: 'overview.defaultAndOthers',
+      values: { name: 'Sales' },
+    });
+    expect(autoReplyScopeMessage({ kind: 'default', name: null })).toEqual({
+      key: 'overview.defaultAndOthersUnnamed',
+    });
   });
 
   it('auto-reply is off while the assistant is off or not set up', () => {

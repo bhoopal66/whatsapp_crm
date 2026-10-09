@@ -3138,8 +3138,8 @@
       "allDesc": "Whapi or Cloud API, the bot answers on the number the customer used. A chat pinned to another number is left to people.",
       "only": "Only on",
       "onlyDesc": "The bot answers only on this number; chats on other numbers are left to people.",
-      "default": "Default number",
-      "defaultNamed": "Default number ({name})"
+      "lockHint": "Saving will lock the AI to this number only",
+      "whenOff": "Takes effect when auto-reply is on"
     },
     "handOver": "Hand over to a person",
     "needsEmbeddingsKey": "Only applies with an embeddings key.",
@@ -3155,6 +3155,8 @@
       "everyNumber": "Every number",
       "onlyOn": "Only on {name}",
       "onlyOnDefault": "Only on the default number",
+      "defaultAndOthers": "The default number ({name}) and others of its type",
+      "defaultAndOthersUnnamed": "The default number and others of its type",
       "partnerBanks": "{count, plural, =0 {No partner banks} one {# partner bank} other {# partner banks}}",
       "documents": "{count, plural, =0 {No documents} one {# document} other {# documents}}"
     },

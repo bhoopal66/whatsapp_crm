@@ -50,7 +50,6 @@ import type { AiConfigForm } from './use-ai-config-form';
 // Select can't use an empty-string item value: sentinels map to null.
 const HANDOFF_QUEUE = '__queue__';
 const RESUME_NEVER = '__never__';
-const DEFAULT_NUMBER = '__default__';
 
 const PROVIDER_LABEL: Record<AiProvider, string> = {
   openai: 'OpenAI',
@@ -352,15 +351,13 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
     ? AUTO_RESUME_CHOICES
     : [...AUTO_RESUME_CHOICES, v.autoResumeMinutes];
 
-  const defaultNumber = form.numbers.find((n) => n.isPrimary);
-  const defaultLabel = defaultNumber
-    ? ta('replyOn.defaultNamed', { name: defaultNumber.name })
-    : ta('replyOn.default');
+  // "Only on" always names one number: with no explicit route saved the
+  // default number is preselected, and saving pins it (buildAiSavePlan).
+  const pickedNumber = form.aiReplyRoute ?? form.defaultRouteId;
   const routeLabel =
-    form.aiReplyRoute === null
-      ? defaultLabel
-      : (form.numbers.find((n) => n.id === form.aiReplyRoute)?.name ??
-        form.aiReplyRoute);
+    pickedNumber === null
+      ? null
+      : (form.numbers.find((n) => n.id === pickedNumber)?.name ?? pickedNumber);
 
   return (
     <div className="space-y-6">
@@ -390,11 +387,18 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
             <p className="text-foreground text-sm font-medium" id="ai-reply-on">
               {ta('replyOn.title')}
             </p>
+            {!v.autoReplyEnabled ? (
+              <p className="text-muted-foreground text-xs">
+                {ta('replyOn.whenOff')}
+              </p>
+            ) : null}
+            {/* Editable while auto-reply is off, so it is set before the
+                bot starts. */}
             <RadioGroup
               aria-labelledby="ai-reply-on"
               value={v.replyOnAllNumbers ? 'all' : 'only'}
               onValueChange={(x) => set('replyOnAllNumbers', x === 'all')}
-              disabled={off}
+              disabled={disabled}
               className="gap-2"
             >
               {(['all', 'only'] as const).map((mode) => (
@@ -404,7 +408,7 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
                     'border-border flex cursor-pointer items-start gap-3 rounded-md border p-3',
                     (v.replyOnAllNumbers ? 'all' : 'only') === mode &&
                       'border-primary-soft-2 bg-primary-soft',
-                    off && 'cursor-not-allowed opacity-60'
+                    disabled && 'cursor-not-allowed opacity-60'
                   )}
                 >
                   <RadioGroupItem value={mode} className="mt-0.5" />
@@ -416,32 +420,34 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
                       {ta(`replyOn.${mode}Desc`)}
                     </span>
                     {mode === 'only' && !v.replyOnAllNumbers ? (
-                      <Select
-                        value={form.aiReplyRoute ?? DEFAULT_NUMBER}
-                        onValueChange={(x) =>
-                          form.setAiReplyRoute(
-                            !x || x === DEFAULT_NUMBER ? null : x
-                          )
-                        }
-                        disabled={off}
-                      >
-                        <SelectTrigger
-                          className="w-full sm:max-w-xs"
-                          aria-label={ta('replyOn.only')}
+                      <>
+                        <Select
+                          value={pickedNumber}
+                          onValueChange={(x) => {
+                            if (x) form.setAiReplyRoute(x);
+                          }}
+                          disabled={disabled}
                         >
-                          <SelectValue>{routeLabel}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={DEFAULT_NUMBER}>
-                            {defaultLabel}
-                          </SelectItem>
-                          {form.numbers.map((n) => (
-                            <SelectItem key={n.id} value={n.id}>
-                              {n.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            className="w-full sm:max-w-xs"
+                            aria-label={ta('replyOn.only')}
+                          >
+                            <SelectValue>{routeLabel}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {form.numbers.map((n) => (
+                              <SelectItem key={n.id} value={n.id}>
+                                {n.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {form.savedAiReplyRoute === null ? (
+                          <span className="text-muted-foreground block text-xs">
+                            {ta('replyOn.lockHint')}
+                          </span>
+                        ) : null}
+                      </>
                     ) : null}
                   </span>
                 </label>

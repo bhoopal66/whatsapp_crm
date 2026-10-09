@@ -3138,8 +3138,8 @@
       "allDesc": "Whapi든 Cloud API든 고객이 사용한 번호로 봇이 답합니다. 다른 번호에 고정된 채팅은 사람이 처리합니다.",
       "only": "이 번호만",
       "onlyDesc": "봇은 이 번호에서만 답하고, 다른 번호의 채팅은 사람이 처리합니다.",
-      "default": "기본 번호",
-      "defaultNamed": "기본 번호({name})"
+      "lockHint": "저장하면 AI가 이 번호에서만 답하도록 고정됩니다",
+      "whenOff": "자동 응답이 켜져 있을 때 적용됩니다"
     },
     "handOver": "사람에게 넘기기",
     "needsEmbeddingsKey": "임베딩 키가 있을 때만 적용됩니다.",
@@ -3155,6 +3155,8 @@
       "everyNumber": "모든 번호",
       "onlyOn": "{name}에서만",
       "onlyOnDefault": "기본 번호에서만",
+      "defaultAndOthers": "기본 번호({name}) 및 같은 종류의 다른 번호",
+      "defaultAndOthersUnnamed": "기본 번호 및 같은 종류의 다른 번호",
       "partnerBanks": "{count, plural, =0 {제휴 은행 없음} other {제휴 은행 #곳}}",
       "documents": "{count, plural, =0 {문서 없음} other {문서 #개}}"
     },
