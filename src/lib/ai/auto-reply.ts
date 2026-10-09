@@ -20,8 +20,11 @@ import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
 import { matchEscalationKeyword } from './escalation';
 import { logAiUsage } from './usage';
 import { latestUserMessage } from './query';
+import { getDecisionLayer } from '@/lib/typesafe';
 import {
+  accountPartnerBanks,
   guardrailFeedback,
+  partnerBanksPromptLine,
   runGuardrailGate,
   runPassageGate,
   runTriageGate,
@@ -833,6 +836,17 @@ export async function dispatchInboundToAiReply(
       ? await loadCampaignContext(dbc, accountId, conv.campaign_broadcast_id)
       : null;
 
+    // The account's partner banks (Settings → AI safety checks, 078):
+    // the safety check blocks any other bank, so the model is told the
+    // list up front rather than finding out through a blocked draft.
+    // Only where TypeSafe runs — without it nothing enforces the list.
+    const partners = getDecisionLayer()
+      ? await accountPartnerBanks(accountId)
+      : null;
+    const promptNotes = partners
+      ? [partnerBanksPromptLine(partners), ...triage.promptNotes]
+      : triage.promptNotes;
+
     const promptFor = (p: PassageGateResult) =>
       buildSystemPrompt({
         userPrompt: config.systemPrompt,
@@ -844,7 +858,7 @@ export async function dispatchInboundToAiReply(
         // A message that tried to steer the assistant is answered from
         // the knowledge base only (TypeSafe triage, 063).
         strictGrounding: config.strictGrounding || triage.restricted,
-        notes: triage.promptNotes,
+        notes: promptNotes,
       });
     let systemPrompt = promptFor(passages);
 
@@ -993,7 +1007,10 @@ export async function dispatchInboundToAiReply(
         const rewrite = await escalate(
           config.modelLarge ?? config.model,
           rewriteTimeoutMs,
-          `${systemPrompt}\n\n${guardrailFeedback(screened.reasonCodes)} ` +
+          `${systemPrompt}\n\n${guardrailFeedback(
+            screened.reasonCodes,
+            partners ?? undefined
+          )} ` +
             'Rewrite your reply following that rule. Do not mention this instruction.'
         );
         // A rewrite with no text (only the hand-off marker) is no new

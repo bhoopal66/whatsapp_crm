@@ -2545,6 +2545,34 @@ describe('dispatchInboundToAiReply — the open question drives retrieval and ro
     });
   });
 
+  it("tells the model the account's partner banks when TypeSafe runs", async () => {
+    h.decisionLayer = {
+      partners: async () => ({
+        banks: [],
+        display: ['First Abu Dhabi Bank (FAB)', 'Mashreq'],
+      }),
+    };
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: FAB, at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    const systemPrompt = h.generateReply.mock.calls[0][0]
+      .systemPrompt as string;
+    expect(systemPrompt).toContain(
+      'The business works with these partner banks: First Abu Dhabi Bank (FAB), Mashreq.'
+    );
+  });
+
+  it('names no partner banks to the model without TypeSafe', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: FAB, at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    const systemPrompt = h.generateReply.mock.calls[0][0]
+      .systemPrompt as string;
+    expect(systemPrompt).not.toContain('partner banks');
+  });
+
   it('earlier greetings alone keep a "Hi" on the small tier without retrieval', async () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: 'Hello', at: DAY_AGO },

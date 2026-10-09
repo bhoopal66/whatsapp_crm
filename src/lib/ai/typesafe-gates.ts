@@ -677,7 +677,15 @@ export async function accountPartnerBanks(
   accountId: string
 ): Promise<readonly string[]> {
   const ts = getDecisionLayer();
-  return ts ? (await ts.partners(accountId)).display : PARTNER_BANK_DISPLAY;
+  if (!ts) return PARTNER_BANK_DISPLAY;
+  // Never throws: a settings read that fails must not cost the customer
+  // a reply — the built-in list is what the checks fall back to too.
+  try {
+    return (await ts.partners(accountId)).display;
+  } catch (err) {
+    console.error('[ts013] partner banks lookup failed:', err);
+    return PARTNER_BANK_DISPLAY;
+  }
 }
 
 /** One system-prompt line naming the partner banks, for the bot. */
