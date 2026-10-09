@@ -15,6 +15,7 @@ import { matchEscalationKeyword } from './escalation';
 import { logAiUsage } from './usage';
 import { latestUserMessage } from './query';
 import {
+  guardrailFeedback,
   runGuardrailGate,
   runPassageGate,
   runTriageGate,
@@ -22,7 +23,7 @@ import {
   type PassageGateResult,
   type TsRef,
 } from './typesafe-gates';
-import { routeMessage } from './router';
+import { resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { engineSendText } from '@/lib/flows/channel-send';
 import {
@@ -302,7 +303,11 @@ export async function dispatchInboundToAiReply(
   ) => {
     if (recording && db) {
       const routed =
-        outcome === 'replied' || outcome === 'handed_off' ? routing : null;
+        outcome === 'replied' ||
+        outcome === 'handed_off' ||
+        outcome === 'held_for_review'
+          ? routing
+          : null;
       await recordOutcome(db, {
         accountId,
         conversationId,
@@ -488,12 +493,16 @@ export async function dispatchInboundToAiReply(
      * `reasonText` replaces the reason clause when the code only
      * approximates it (a failed WhatsApp send is recorded as `error`,
      * which would otherwise read "AI provider error").
+     *
+     * `outcome` is what gets recorded: `held_for_review` when the
+     * guardrail's held draft waits on the chat for a person.
      */
     const handOff = async (
       reason: AiHandoffReason,
       detail: string | null,
       farewell: string | null,
-      reasonText: string | null = null
+      reasonText: string | null = null,
+      outcome: 'handed_off' | 'held_for_review' = 'handed_off'
     ): Promise<AiReplyOutcome> => {
       if (farewell) {
         const { data: claimed } = await dbc.rpc('claim_ai_reply_slot', {
@@ -563,7 +572,7 @@ export async function dispatchInboundToAiReply(
             reasonText?.trim() || describeHandoffReason(reason, detail),
         });
       }
-      await record('handed_off', detail ? `${reason}: ${detail}` : reason);
+      await record(outcome, detail ? `${reason}: ${detail}` : reason);
       return 'handed_off';
     };
 
@@ -641,9 +650,17 @@ export async function dispatchInboundToAiReply(
         ctx: { inFlow: !!flowContext },
       }),
     ]);
-    // The tier and model for this reply. The one place a triage signal
-    // would raise the tier (make it a `let`) before anything is generated.
-    const route = routed;
+    // The tier and model for this reply. A customer triage judged urgent
+    // or ready to apply is worth more than the small model, and the
+    // facts: such a turn is raised to the standard tier, with retrieval.
+    const route =
+      routed.tier === 'small' && (triage.urgent || triage.readyToApply)
+        ? {
+            ...routed,
+            ...resolveTierModel(config, 'standard'),
+            skipKnowledge: false,
+          }
+        : routed;
     routing = {
       tier: route.tier,
       model: null,
@@ -669,30 +686,24 @@ export async function dispatchInboundToAiReply(
     // screened by the TypeSafe passage filter (063) when it acts. A
     // message the router judged to need no facts (a greeting, a thanks)
     // retrieves nothing — no embedding spend — and so has no excerpts
-    // for the prompt or the guardrail, and no retrieval gate to clear.
-    const passages: PassageGateResult = route.skipKnowledge
-      ? NO_PASSAGES
-      : await runPassageGate(tsRef, {
-          query: question,
-          retrieval: await retrieveKnowledgeScored(
-            dbc,
-            accountId,
-            config,
-            question
-          ),
-        });
-
+    // for the prompt or the guardrail, and no retrieval gate to clear,
+    // unless it is escalated to a bigger model (below).
+    const retrieve = async () =>
+      runPassageGate(tsRef, {
+        query: question,
+        retrieval: await retrieveKnowledgeScored(
+          dbc,
+          accountId,
+          config,
+          question
+        ),
+      });
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
     // close enough, hand off rather than let the model improvise, and
     // record the question so the KB can be extended.
-    const gap = route.skipKnowledge
-      ? null
-      : retrievalGateFailure(
-          passages.retrieval,
-          config.retrievalMinScore,
-          question
-        );
-    if (gap) {
+    const gapIn = (p: PassageGateResult) =>
+      retrievalGateFailure(p.retrieval, config.retrievalMinScore, question);
+    const noKnowledge = async (gap: RetrievalGateFailure) => {
       await logKnowledgeGap(dbc, {
         accountId,
         conversationId,
@@ -700,24 +711,49 @@ export async function dispatchInboundToAiReply(
         bestScore: gap.bestScore,
       });
       return handOff('no_knowledge', gap.detail, config.handoffMessage);
-    }
+    };
+
+    let skippedKnowledge = route.skipKnowledge;
+    let passages: PassageGateResult = skippedKnowledge
+      ? NO_PASSAGES
+      : await retrieve();
+    const gap = skippedKnowledge ? null : gapIn(passages);
+    if (gap) return noKnowledge(gap);
 
     const campaign = conv.campaign_broadcast_id
       ? await loadCampaignContext(dbc, accountId, conv.campaign_broadcast_id)
       : null;
 
-    const systemPrompt = buildSystemPrompt({
-      userPrompt: config.systemPrompt,
-      mode: 'auto_reply',
-      knowledge: passages.knowledge,
-      conflictingKnowledge: passages.conflicts,
-      campaign,
-      flow: flowContext ?? null,
-      // A message that tried to steer the assistant is answered from the
-      // knowledge base only (TypeSafe triage, 063).
-      strictGrounding: config.strictGrounding || triage.restricted,
-      notes: triage.promptNotes,
-    });
+    const promptFor = (p: PassageGateResult) =>
+      buildSystemPrompt({
+        userPrompt: config.systemPrompt,
+        mode: 'auto_reply',
+        knowledge: p.knowledge,
+        conflictingKnowledge: p.conflicts,
+        campaign,
+        flow: flowContext ?? null,
+        // A message that tried to steer the assistant is answered from
+        // the knowledge base only (TypeSafe triage, 063).
+        strictGrounding: config.strictGrounding || triage.restricted,
+        notes: triage.promptNotes,
+      });
+    let systemPrompt = promptFor(passages);
+
+    /**
+     * A turn that skipped knowledge, about to move onto a bigger model:
+     * retrieve now and rebuild the prompt with the excerpts, so that
+     * model is not answering blind. Returns the retrieval gate's
+     * failure when the knowledge base has nothing close enough.
+     */
+    const groundForEscalation =
+      async (): Promise<RetrievalGateFailure | null> => {
+        if (!skippedKnowledge) return null;
+        skippedKnowledge = false;
+        passages = await retrieve();
+        const failed = gapIn(passages);
+        if (!failed) systemPrompt = promptFor(passages);
+        return failed;
+      };
 
     // Gate 3 — the model: the routed tier's. A provider failure (bad
     // key, rate limit, timeout) is a handoff too: the alternative is a
@@ -731,11 +767,12 @@ export async function dispatchInboundToAiReply(
     //   b. the small tier asked for a person — a greeting the cheap
     //      model could not place is worth the account's model's look
     //      before a human is paged.
-    const generate = async (model: string) => {
+    // A turn that skipped knowledge is grounded before either.
+    const generate = async (model: string, prompt: string = systemPrompt) => {
       routing = { ...routing!, model };
       const result = await generateReply({
         config,
-        systemPrompt,
+        systemPrompt: prompt,
         messages,
         model,
       });
@@ -754,11 +791,12 @@ export async function dispatchInboundToAiReply(
       });
       return result;
     };
-    const escalate = (model: string) => {
+    const escalate = (model: string, prompt?: string) => {
       routing = { ...routing!, escalated: true };
-      return generate(model);
+      return generate(model, prompt);
     };
-    let generated: Awaited<ReturnType<typeof generateReply>>;
+    let generated: Awaited<ReturnType<typeof generateReply>> | null = null;
+    let escalationGap: RetrievalGateFailure | null = null;
     try {
       try {
         generated = await generate(route.model);
@@ -767,21 +805,24 @@ export async function dispatchInboundToAiReply(
         console.warn(
           `[ai auto-reply] ${route.tier} model ${route.model} failed (${errorMessage(err)}); retrying on ${config.model}.`
         );
-        generated = await escalate(config.model);
+        escalationGap = await groundForEscalation();
+        if (!escalationGap) generated = await escalate(config.model);
       }
       if (
-        generated.handoff &&
+        generated?.handoff &&
         route.tier === 'small' &&
         !routing.escalated &&
         route.model !== config.model
       ) {
-        generated = await escalate(config.model);
+        escalationGap = await groundForEscalation();
+        if (!escalationGap) generated = await escalate(config.model);
       }
     } catch (err) {
       console.error('[ai auto-reply] provider call failed:', err);
       return handOff('error', errorMessage(err), config.handoffMessage);
     }
-    const { text, handoff } = generated;
+    if (escalationGap) return noKnowledge(escalationGap);
+    let { text, handoff } = generated!;
 
     // TypeSafe guardrail (063): any free text the model wrote is
     // screened before it can reach the customer — the reply, or the
@@ -789,22 +830,50 @@ export async function dispatchInboundToAiReply(
     // against every source the prompt gave the model: the knowledge
     // excerpts, and the business's own text (instructions, the campaign
     // message, the flow step).
-    const screened = text
-      ? await runGuardrailGate(tsRef, {
-          customerMessage: customerTurn,
-          botReply: text,
-          evidence: passages.evidence,
-          context: [
-            config.systemPrompt ?? '',
-            campaign?.body ?? '',
-            flowContext
-              ? [flowContext.promptTemplate ?? '', ...flowContext.options].join(
-                  '\n'
-                )
-              : '',
-          ].filter((c) => c.trim()),
-        })
-      : null;
+    const screen = (botReply: string) =>
+      runGuardrailGate(tsRef, {
+        customerMessage: customerTurn,
+        botReply,
+        evidence: passages.evidence,
+        context: [
+          config.systemPrompt ?? '',
+          campaign?.body ?? '',
+          flowContext
+            ? [flowContext.promptTemplate ?? '', ...flowContext.options].join(
+                '\n'
+              )
+            : '',
+        ].filter((c) => c.trim()),
+      });
+    let screened = text ? await screen(text) : null;
+
+    // A draft TypeSafe actually judged is rewritten once on the large
+    // model, told what to avoid, and screened again. Outside the
+    // cascade's one extra generation: this is the guardrail's retry.
+    if (
+      screened &&
+      screened.outcome !== 'send' &&
+      screened.retryable &&
+      config.guardrailRetry
+    ) {
+      try {
+        const rewrite = await escalate(
+          config.modelLarge ?? config.model,
+          `${systemPrompt}\n\n${guardrailFeedback(screened.reasonCodes)} ` +
+            'Rewrite your reply following that rule. Do not mention this instruction.'
+        );
+        // A rewrite with no text (only the hand-off marker) is no new
+        // draft: the original hold stands.
+        if (rewrite.text) {
+          const again = await screen(rewrite.text);
+          ({ text, handoff } = rewrite);
+          screened = again;
+        }
+      } catch (err) {
+        // The original hold stands; its draft goes to a person.
+        console.error('[ai auto-reply] guardrail rewrite failed:', err);
+      }
+    }
 
     if (screened && screened.outcome !== 'send') {
       // Held or blocked — a reply, or the closing line before a handoff
@@ -812,12 +881,34 @@ export async function dispatchInboundToAiReply(
       // configured handoff message stands in for it. A hand-off like any
       // other (paused, assigned, the note in the banner), including when
       // TypeSafe was unreachable: the operator's fail mode chose "hold".
+      //
+      // The latest held draft waits on the chat for that person (Send /
+      // Edit / Discard in the inbox banner). A failed write must not stop
+      // the hand-off: the note still quotes the draft.
+      try {
+        const { error: draftErr } = await dbc
+          .from('conversations')
+          .update({
+            ai_pending_draft: text,
+            ai_pending_draft_at: new Date().toISOString(),
+          })
+          .eq('id', conversationId)
+          .eq('account_id', accountId);
+        if (draftErr) throw new Error(draftErr.message);
+      } catch (err) {
+        console.error('[ai auto-reply] held draft not stored:', {
+          conversationId,
+          error: errorMessage(err),
+        });
+      }
       return handOff(
         'guardrail',
         handoff
           ? `${screened.detail} The model had also asked for a person.`
           : screened.detail,
-        config.handoffMessage
+        config.handoffMessage,
+        null,
+        'held_for_review'
       );
     }
 

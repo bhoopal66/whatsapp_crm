@@ -41,6 +41,10 @@ const h = vi.hoisted(() => ({
     /** Rows the auto-resume compare-and-set updates. */
     resumeRows: [] as { id: string }[],
     resumes: [] as Record<string, unknown>[],
+    /** Held drafts written for review (`ai_pending_draft`). */
+    drafts: [] as Record<string, unknown>[],
+    /** Fail the held-draft write with this message. */
+    draftError: null as string | null,
   },
 }));
 
@@ -171,11 +175,19 @@ vi.mock('./admin-client', () => ({
         update: (payload: Record<string, unknown>) => {
           // recordOutcome's write is kept apart from the hand-off update.
           // So is auto-resume's compare-and-set.
+          // So is the held-draft write.
           const resume = payload.ai_autoreply_disabled === false;
+          const draft = 'ai_pending_draft' in payload;
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
           else if (resume) h.state.resumes.push(payload);
+          else if (draft) h.state.drafts.push(payload);
           else h.state.updatePayload = payload;
-          const done = Promise.resolve({ error: null });
+          const done = Promise.resolve({
+            error:
+              draft && h.state.draftError
+                ? { message: h.state.draftError }
+                : null,
+          });
           const chain = {
             eq: () => chain,
             is: () => chain,
@@ -197,6 +209,7 @@ vi.mock('./admin-client', () => ({
   }),
 }));
 
+import { guardrailFeedback } from './typesafe-gates';
 import {
   dispatchInboundToAiReply,
   notifyHandoff,
@@ -281,6 +294,8 @@ beforeEach(() => {
   h.state.contact = null;
   h.state.resumeRows = [];
   h.state.resumes = [];
+  h.state.drafts = [];
+  h.state.draftError = null;
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },
@@ -1716,5 +1731,270 @@ describe('dispatchInboundToAiReply — model routing and escalation', () => {
     expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
     expect(models()).toEqual(['gpt-small', 'gpt-test']);
     expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+  });
+});
+
+describe('dispatchInboundToAiReply — triage raises the tier, escalation retrieves', () => {
+  const routed = (extra: Partial<AiConfig> = {}) =>
+    aiConfig({
+      modelRouting: true,
+      modelSmall: 'gpt-small',
+      modelLarge: 'gpt-large',
+      ...extra,
+    });
+  const say = (text: string) =>
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: text },
+    ]);
+  const calls = () =>
+    h.generateReply.mock.calls.map(
+      (c) => c[0] as { model: string; systemPrompt: string }
+    );
+  const lastEvent = () =>
+    h.state.inserts.filter((i) => i.table === 'ai_reply_events').at(-1)?.row as
+      Record<string, unknown> | undefined;
+  const reply = { text: 'Hello!', handoff: false };
+
+  beforeEach(() => {
+    h.generateReply.mockReset();
+    h.generateReply.mockResolvedValue(reply);
+    h.retrieveKnowledge.mockResolvedValue(retrieval(['Fee: AED 1,500.']));
+  });
+
+  it.each(['urgent', 'readyToApply'] as const)(
+    'a %s "hi" goes to the standard model, with retrieval',
+    async (signal) => {
+      h.loadAiConfig.mockResolvedValue(routed());
+      say('hi');
+      h.runTriageGate.mockResolvedValue({
+        handoff: null,
+        restricted: false,
+        promptNotes: [],
+        urgent: false,
+        readyToApply: false,
+        intent: null,
+        [signal]: true,
+      });
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+      expect(calls().map((c) => c.model)).toEqual(['gpt-test']);
+      expect(h.retrieveKnowledge).toHaveBeenCalledTimes(1);
+      expect(calls()[0].systemPrompt).toContain('AED 1,500');
+      expect(lastEvent()).toMatchObject({
+        outcome: 'replied',
+        tier: 'standard',
+        model: 'gpt-test',
+        escalated: false,
+      });
+    }
+  );
+
+  it('the small tier asking for a person: retrieval runs before the standard retry', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say('hi');
+    h.generateReply
+      .mockResolvedValueOnce({ text: '', handoff: true })
+      .mockResolvedValueOnce(reply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-small', 'gpt-test']);
+    expect(h.retrieveKnowledge).toHaveBeenCalledTimes(1);
+    expect(calls()[0].systemPrompt).not.toContain('AED 1,500');
+    expect(calls()[1].systemPrompt).toContain('AED 1,500');
+    // The guardrail checks the reply against what the retry was given.
+    expect(h.runGuardrailGate.mock.calls[0][1]).toMatchObject({
+      evidence: [{ id: 'chunk-1', text: 'Fee: AED 1,500.' }],
+    });
+  });
+
+  it('a small model provider error: retrieval runs before the standard retry', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say('hi');
+    h.generateReply
+      .mockRejectedValueOnce(new AiError('timeout', { code: 'timeout' }))
+      .mockResolvedValueOnce(reply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-small', 'gpt-test']);
+    expect(calls()[1].systemPrompt).toContain('AED 1,500');
+  });
+
+  it('escalation that finds nothing close enough is the no_knowledge hand-off', async () => {
+    h.loadAiConfig.mockResolvedValue(routed({ retrievalMinScore: 0.9 }));
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval([], { hasKnowledgeBase: true })
+    );
+    say('hi there thanks again'); // four words: the gate judges it
+    h.generateReply.mockResolvedValueOnce({ text: '', handoff: true });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-small']);
+    expect(h.state.gaps).toHaveLength(1);
+    expect(h.state.updatePayload).toMatchObject({
+      ai_handoff_reason: 'no_knowledge',
+    });
+  });
+});
+
+describe('dispatchInboundToAiReply — a held draft is rewritten once, then queued for a person', () => {
+  const HANDOFF_MSG = 'A colleague will be in touch shortly.';
+  const FIRST = 'Your loan is approved!';
+  const SECOND = 'Your loan is approved, guaranteed!';
+  const SAFE = 'The bank decides on every application.';
+  const held = (
+    detail: string,
+    extra: { retryable?: boolean; reasonCodes?: string[] } = {}
+  ) => ({
+    outcome: 'hold' as const,
+    detail,
+    reasonCodes: ['PROMISES_APPROVAL_REVIEW'],
+    retryable: true,
+    ...extra,
+  });
+  const calls = () =>
+    h.generateReply.mock.calls.map(
+      (c) => c[0] as { model: string; systemPrompt: string }
+    );
+  const usageModels = () =>
+    h.logAiUsage.mock.calls.map((c) => (c[1] as { model: string }).model);
+  const lastEvent = () =>
+    h.state.inserts.filter((i) => i.table === 'ai_reply_events').at(-1)?.row as
+      Record<string, unknown> | undefined;
+  const sentTexts = () =>
+    h.engineSendText.mock.calls.map((c) => (c[0] as { text: string }).text);
+
+  beforeEach(() => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ modelLarge: 'gpt-large', handoffMessage: HANDOFF_MSG })
+    );
+    h.retrieveKnowledge.mockResolvedValue(retrieval(['Fee: AED 1,500.']));
+    h.logAiUsage.mockReset();
+    h.logAiUsage.mockResolvedValue(undefined);
+    h.generateReply.mockReset();
+    h.generateReply
+      .mockResolvedValueOnce({ text: FIRST, handoff: false })
+      .mockResolvedValueOnce({ text: SECOND, handoff: false });
+    h.runGuardrailGate.mockReset();
+    h.runGuardrailGate.mockResolvedValue({ outcome: 'send' });
+  });
+
+  it('the large model rewrites a held draft with the reasons; a passing rewrite is sent', async () => {
+    h.generateReply.mockReset();
+    h.generateReply
+      .mockResolvedValueOnce({ text: FIRST, handoff: false })
+      .mockResolvedValueOnce({ text: SAFE, handoff: false });
+    h.runGuardrailGate.mockResolvedValueOnce(held('held (approval)'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-test', 'gpt-large']);
+    expect(usageModels()).toEqual(['gpt-test', 'gpt-large']);
+    expect(calls()[1].systemPrompt).toBe(
+      `${calls()[0].systemPrompt}\n\n` +
+        `${guardrailFeedback(['PROMISES_APPROVAL_REVIEW'])} ` +
+        'Rewrite your reply following that rule. Do not mention this instruction.'
+    );
+    expect(calls()[1].systemPrompt).toContain('say that the bank decides');
+    // The rewrite is screened again, against the same evidence.
+    const [first, second] = h.runGuardrailGate.mock.calls.map((c) => c[1]);
+    expect(second).toEqual({ ...first, botReply: SAFE });
+    expect(sentTexts()).toEqual([SAFE]);
+    expect(h.state.rpcCalls.map((c) => c.name)).toEqual([
+      'claim_ai_reply_slot',
+    ]);
+    expect(h.state.drafts).toEqual([]);
+    expect(lastEvent()).toMatchObject({
+      outcome: 'replied',
+      model: 'gpt-large',
+      escalated: true,
+    });
+  });
+
+  it('held twice: the second draft waits for a person, held_for_review', async () => {
+    h.runGuardrailGate
+      .mockResolvedValueOnce(held('held (approval)'))
+      .mockResolvedValueOnce(held('held again (guarantee)'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-test', 'gpt-large']);
+    expect(h.state.drafts).toHaveLength(1);
+    expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: SECOND });
+    expect(typeof h.state.drafts[0].ai_pending_draft_at).toBe('string');
+    // Nothing but the hand-off message reaches the customer.
+    expect(sentTexts()).toEqual([HANDOFF_MSG]);
+    expect(h.state.updatePayload).toMatchObject({
+      ai_handoff_reason: 'guardrail',
+      ai_autoreply_disabled: true,
+    });
+    expect(h.state.updatePayload!.ai_handoff_summary).toContain(
+      'held again (guarantee)'
+    );
+    expect(lastOutcome()).toBe('held_for_review');
+    expect(lastEvent()).toMatchObject({
+      outcome: 'held_for_review',
+      model: 'gpt-large',
+      escalated: true,
+    });
+  });
+
+  it('a held draft that also asked for a person is still stored for review', async () => {
+    h.generateReply.mockReset();
+    h.generateReply.mockResolvedValue({ text: FIRST, handoff: true });
+    h.runGuardrailGate.mockResolvedValue(held('held (approval)'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+    expect(h.state.updatePayload!.ai_handoff_summary).toContain(
+      'The model had also asked for a person.'
+    );
+    expect(lastOutcome()).toBe('held_for_review');
+  });
+
+  it('a hold TypeSafe did not judge is not rewritten: the original waits', async () => {
+    h.runGuardrailGate.mockResolvedValue(
+      held('held (TS_UNAVAILABLE)', { retryable: false })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-test']);
+    expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+    expect(lastOutcome()).toBe('held_for_review');
+    expect(h.state.updatePayload).toMatchObject({
+      ai_handoff_reason: 'guardrail',
+    });
+  });
+
+  it('with guardrailRetry off, no rewrite: the original waits', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        modelLarge: 'gpt-large',
+        handoffMessage: HANDOFF_MSG,
+        guardrailRetry: false,
+      })
+    );
+    h.runGuardrailGate.mockResolvedValue(held('held (approval)'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(calls().map((c) => c.model)).toEqual(['gpt-test']);
+    expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+    expect(lastOutcome()).toBe('held_for_review');
+  });
+
+  it('a rewrite that fails at the provider leaves the original waiting', async () => {
+    h.generateReply.mockReset();
+    h.generateReply
+      .mockResolvedValueOnce({ text: FIRST, handoff: false })
+      .mockRejectedValueOnce(
+        new AiError('upstream', { code: 'provider_error' })
+      );
+    h.runGuardrailGate.mockResolvedValue(held('held (approval)'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+    expect(sentTexts()).toEqual([HANDOFF_MSG]);
+    expect(lastOutcome()).toBe('held_for_review');
+  });
+
+  it('a failed draft write does not stop the hand-off', async () => {
+    h.state.draftError = 'column missing';
+    h.runGuardrailGate.mockResolvedValue(
+      held('held (approval)', { retryable: false })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.updatePayload).toMatchObject({
+      ai_handoff_reason: 'guardrail',
+      ai_autoreply_disabled: true,
+    });
+    expect(sentTexts()).toEqual([HANDOFF_MSG]);
+    expect(lastOutcome()).toBe('held_for_review');
   });
 });
