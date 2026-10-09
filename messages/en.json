@@ -2682,6 +2682,28 @@
       "description": "Extra fields for your contacts, for structured data such as ZIP code or lead source. They appear on every contact.",
       "fieldsTitle": "Custom fields",
       "fieldsDesc": "Extra contact fields (e.g. ZIP code, lead source). They appear on every contact and in the “Update Contact Field” automation action."
+    },
+    "quickReplies": {
+      "title": "Quick replies",
+      "description": "Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer.",
+      "newQuickReply": "New quick reply",
+      "editTitle": "Edit quick reply",
+      "empty": "No quick replies yet. Create one to reuse it across conversations.",
+      "edit": "Edit quick reply",
+      "delete": "Delete quick reply",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Business hours",
+      "kindText": "Text",
+      "kindInteractive": "Interactive",
+      "textPlaceholder": "The message text to insert",
+      "cancel": "Cancel",
+      "save": "Save",
+      "nameRequired": "Give the quick reply a name.",
+      "saveFailed": "Couldn’t save the quick reply.",
+      "updated": "Quick reply updated.",
+      "created": "Quick reply created.",
+      "deleteConfirm": "Delete this quick reply?",
+      "deleteFailed": "Couldn’t delete the quick reply."
     }
   },
   "Compass": {

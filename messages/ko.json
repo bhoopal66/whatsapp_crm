@@ -2682,6 +2682,28 @@
       "description": "우편번호, 리드 출처처럼 구조화된 데이터를 담는 연락처 추가 필드입니다. 모든 연락처에 표시됩니다.",
       "fieldsTitle": "커스텀 필드",
       "fieldsDesc": "추가 연락처 필드입니다 (예: 우편번호, 리드 출처). 모든 연락처와 \"연락처 필드 업데이트\" 자동화 액션에 표시됩니다."
+    },
+    "quickReplies": {
+      "title": "빠른 답장",
+      "description": "상담원이 받은편지함 작성창에서 삽입할 수 있는 재사용 문구입니다. 일반 텍스트나 저장된 인터랙티브 메시지를 사용할 수 있습니다.",
+      "newQuickReply": "새 빠른 답장",
+      "editTitle": "빠른 답장 편집",
+      "empty": "아직 빠른 답장이 없습니다. 하나 만들어 여러 대화에서 다시 사용하세요.",
+      "edit": "빠른 답장 편집",
+      "delete": "빠른 답장 삭제",
+      "nameLabel": "이름",
+      "namePlaceholder": "예: 영업시간",
+      "kindText": "텍스트",
+      "kindInteractive": "인터랙티브",
+      "textPlaceholder": "삽입할 메시지 텍스트",
+      "cancel": "취소",
+      "save": "저장",
+      "nameRequired": "빠른 답장의 이름을 입력하세요.",
+      "saveFailed": "빠른 답장을 저장하지 못했습니다.",
+      "updated": "빠른 답장을 수정했습니다.",
+      "created": "빠른 답장을 만들었습니다.",
+      "deleteConfirm": "이 빠른 답장을 삭제할까요?",
+      "deleteFailed": "빠른 답장을 삭제하지 못했습니다."
     }
   },
   "Compass": {
