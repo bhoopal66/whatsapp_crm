@@ -37,7 +37,13 @@ export const AI_HANDOFF_REASONS: readonly AiHandoffReason[] = [
   'guardrail',
 ];
 
-/** One clause for the internal note, e.g. `Reason: escalation keyword “refund”.` */
+/**
+ * Why the AI needs a person, in plain words, as one or more sentences a
+ * person can act on — e.g. `the customer's message matched the
+ * escalation keyword “refund”.` Starts lower case: it follows the
+ * note's lead ("🤖 AI needs a person: …"); `upperFirst` it to stand
+ * alone (the bell).
+ */
 export function describeHandoffReason(
   reason: AiHandoffReason,
   detail?: string | null
@@ -45,31 +51,35 @@ export function describeHandoffReason(
   switch (reason) {
     case 'keyword':
       return detail
-        ? `Reason: escalation keyword “${detail}”.`
-        : 'Reason: escalation keyword.';
+        ? `the customer's message matched the escalation keyword “${detail}”.`
+        : "the customer's message matched an escalation keyword.";
     case 'no_knowledge':
       return detail
-        ? `Reason: no knowledge-base match (${detail}).`
-        : 'Reason: no knowledge-base match.';
+        ? `the knowledge base has nothing close enough to answer from (${detail}).`
+        : 'the knowledge base has nothing close enough to answer from.';
     case 'error':
       return detail
-        ? `Reason: AI provider error (${truncate(detail, 120)}).`
-        : 'Reason: AI provider error.';
+        ? `the AI provider failed (${truncate(detail, 120)}).`
+        : 'the AI provider failed.';
     case 'model':
-      return 'Reason: the model asked for a human.';
+      return 'the AI was unsure and asked for a person.';
     case 'cap':
       return detail
-        ? `Reason: reply cap reached (${detail}).`
-        : 'Reason: reply cap reached.';
+        ? `the AI reached its reply limit for this chat (${detail}).`
+        : 'the AI reached its reply limit for this chat.';
     case 'triage':
       return detail
-        ? `Reason: triage routed it to a person (${detail}).`
-        : 'Reason: triage routed it to a person.';
+        ? `the safety check routed the message to a person (${detail}).`
+        : 'the safety check routed the message to a person.';
     case 'guardrail':
-      return detail
-        ? `Reason: safety check — ${detail}`
-        : 'Reason: safety check held the drafted reply.';
+      // The guardrail gate writes its own plain-English sentence.
+      return detail?.trim() || 'the safety check held the drafted reply.';
   }
+}
+
+/** The first letter upper-cased, for a reason that stands alone. */
+export function upperFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Longest the quoted customer message runs before we ellipsize it —
@@ -82,8 +92,9 @@ const MAX_QUOTE_LEN = 160;
  * from context we already have (no extra LLM call / token spend), so it
  * can't fail or add latency to the handoff.
  *
- * Reads as, e.g.:
- *   "🤖 AI agent handed off after 2 replies. Last customer message:
+ * Leads with what to do, then why, e.g.:
+ *   "🤖 AI needs a person after 2 replies: the customer's message
+ *    matched the escalation keyword “refund”. Last customer message:
  *    “can I speak to a manager about my refund?”"
  *
  * `replyCount` is the bot's auto-reply tally for the thread (0 when it
@@ -113,15 +124,16 @@ export function buildHandoffSummary(args: {
 
   const replies =
     replyCount === 0
-      ? 'without replying'
+      ? 'before replying'
       : `after ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`;
 
   const why = reasonText?.trim()
-    ? ` ${reasonText.trim()}`
+    ? reasonText.trim()
     : reason
-      ? ` ${describeHandoffReason(reason, detail)}`
+      ? describeHandoffReason(reason, detail)
       : '';
-  const base = `🤖 AI agent handed off ${replies}.${why}`;
+  const lead = `🤖 AI needs a person ${replies}`;
+  const base = why ? `${lead}: ${why}` : `${lead}.`;
 
   if (!lastCustomer) return base;
 

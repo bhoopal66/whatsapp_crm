@@ -13,6 +13,7 @@ import {
 import {
   buildHandoffSummary,
   describeHandoffReason,
+  upperFirst,
   type AiHandoffReason,
 } from './handoff';
 import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
@@ -28,7 +29,7 @@ import {
   type PassageGateResult,
   type TsRef,
 } from './typesafe-gates';
-import { resolveTierModel, routeMessage } from './router';
+import { isGreetingOrThanks, resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { engineSendText } from '@/lib/flows/channel-send';
 import {
@@ -503,6 +504,14 @@ export async function dispatchInboundToAiReply(
       ? burstTurn(messages, inboundText, newestAt) || latest
       : inboundText?.trim() || latest;
     const question = coalesce ? customerTurn : latest;
+    // What the reply is FOR: every customer message since our last one,
+    // however old — "Hi" after an unanswered "What are FAB's charges?"
+    // still asks about FAB. The burst window above only bounds what this
+    // dispatch judges (triage, keywords); retrieval, its gate and the
+    // router read the open question, or a "Hi" retrieves nothing and the
+    // model answers the earlier question blind.
+    const openTurns = openCustomerTurns(messages, inboundText);
+    const openQuestion = openTurns.join('\n') || question;
 
     /**
      * Why a write that requires the chat to still be the bot's found it
@@ -644,8 +653,9 @@ export async function dispatchInboundToAiReply(
           conversationId,
           contactId,
           recipientId: conv.assigned_agent_id ?? null,
-          reasonClause:
-            reasonText?.trim() || describeHandoffReason(reason, detail),
+          reasonClause: upperFirst(
+            reasonText?.trim() || describeHandoffReason(reason, detail)
+          ),
         });
       }
       await record(outcome, detail ? `${reason}: ${detail}` : reason);
@@ -715,8 +725,8 @@ export async function dispatchInboundToAiReply(
       routeMessage({
         config,
         accountId,
-        message: customerTurn,
-        recentTurns: turnsBefore(messages, customerTurn)
+        message: openQuestion,
+        recentTurns: turnsBefore(messages, openQuestion)
           .slice(-ROUTE_TURNS)
           .map((m) => ({
             from: m.role === 'user' ? 'customer' : 'business',
@@ -729,8 +739,13 @@ export async function dispatchInboundToAiReply(
     // The tier and model for this reply. A customer triage judged urgent
     // or ready to apply is worth more than the small model, and the
     // facts: such a turn is raised to the standard tier, with retrieval.
+    // So is an open question that is not all greetings: the small tier
+    // and a skipped retrieval are for "hi" / "thanks" alone, and Jev
+    // judges the newest turn, so the earlier ones get the heuristic.
+    const greetingsOnly = openTurns.slice(0, -1).every(isGreetingOrThanks);
     const route =
-      routed.tier === 'small' && (triage.urgent || triage.readyToApply)
+      routed.tier === 'small' &&
+      (triage.urgent || triage.readyToApply || !greetingsOnly)
         ? {
             ...routed,
             ...resolveTierModel(config, 'standard'),
@@ -759,31 +774,32 @@ export async function dispatchInboundToAiReply(
     }
 
     // Ground the reply in the account's knowledge base (best-effort),
-    // screened by the TypeSafe passage filter (063) when it acts. A
+    // screened by the TypeSafe passage filter (063) when it acts, for
+    // the open question (above), not only the newest message. A
     // message the router judged to need no facts (a greeting, a thanks)
     // retrieves nothing — no embedding spend — and so has no excerpts
     // for the prompt or the guardrail, and no retrieval gate to clear,
     // unless it is escalated to a bigger model (below).
     const retrieve = async () =>
       runPassageGate(tsRef, {
-        query: question,
+        query: openQuestion,
         retrieval: await retrieveKnowledgeScored(
           dbc,
           accountId,
           config,
-          question
+          openQuestion
         ),
       });
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
     // close enough, hand off rather than let the model improvise, and
     // record the question so the KB can be extended.
     const gapIn = (p: PassageGateResult) =>
-      retrievalGateFailure(p.retrieval, config.retrievalMinScore, question);
+      retrievalGateFailure(p.retrieval, config.retrievalMinScore, openQuestion);
     const noKnowledge = async (gap: RetrievalGateFailure) => {
       await logKnowledgeGap(dbc, {
         accountId,
         conversationId,
-        question,
+        question: openQuestion,
         bestScore: gap.bestScore,
       });
       return handOff('no_knowledge', gap.detail, config.handoffMessage);
@@ -983,7 +999,7 @@ export async function dispatchInboundToAiReply(
       // (paused, assigned, the note quoting the draft), including when
       // TypeSafe was unreachable: the operator's fail mode chose "hold".
       const guardDetail = handoff
-        ? `${screened.detail} The model had also asked for a person.`
+        ? `${screened.detail} The AI was also unsure and asked for a person.`
         : screened.detail;
       if (screened.outcome === 'block') {
         // A blocked draft (asks for a secret, shares someone else's data)
@@ -1077,7 +1093,7 @@ export async function dispatchInboundToAiReply(
         'error',
         detail,
         null,
-        `Reason: ${detail.slice(0, 200)}.`,
+        `${detail.slice(0, 200)}.`,
         'error'
       );
     }
@@ -1179,6 +1195,48 @@ export function burstTurn(
   const caption = inboundText?.trim();
   if (caption && !tail.includes(caption)) tail.push(caption);
   return tail.filter(Boolean).join('\n');
+}
+
+/** At most this many of the newest open customer turns are kept… */
+export const OPEN_TURNS_MAX = 5;
+/** …and at most this many characters of them (newest kept). */
+export const OPEN_TURNS_MAX_CHARS = 1_000;
+
+/**
+ * The open customer turns: every customer message after our last one in
+ * the context, oldest first — NOT bounded by `BURST_JOIN_WINDOW_MS`, so
+ * a question that sat through a hand-off is still open when the customer
+ * writes "Hi" later. Plus the triggering message's text when the
+ * text-only context lacks it (a media caption). Capped to the newest
+ * `OPEN_TURNS_MAX` turns and `OPEN_TURNS_MAX_CHARS` characters joined
+ * (a newest turn longer than that alone is cut to fit). Empty when the
+ * context ends on ours.
+ */
+export function openCustomerTurns(
+  messages: ChatMessage[],
+  inboundText: string | null = null
+): string[] {
+  const run: string[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role !== 'user') break;
+    const text = messages[i]!.content.trim();
+    if (text) run.unshift(text);
+  }
+  const caption = inboundText?.trim();
+  if (caption && !run.includes(caption)) run.push(caption);
+  const kept: string[] = [];
+  let chars = 0;
+  for (let i = run.length - 1; i >= 0 && kept.length < OPEN_TURNS_MAX; i--) {
+    // A newline joins each kept turn to the next.
+    const cost = run[i]!.length + (kept.length ? 1 : 0);
+    if (chars + cost > OPEN_TURNS_MAX_CHARS) {
+      if (kept.length === 0) kept.push(run[i]!.slice(0, OPEN_TURNS_MAX_CHARS));
+      break;
+    }
+    kept.unshift(run[i]!);
+    chars += cost;
+  }
+  return kept;
 }
 
 /** How many recent captioned customer messages the burst check reads. */

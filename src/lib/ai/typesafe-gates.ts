@@ -1,5 +1,6 @@
 import { getDecisionLayer, type DecisionLayer } from '@/lib/typesafe';
-import { PARTNER_BANK_DISPLAY } from '@/lib/typesafe/banks';
+import { detectBanks, PARTNER_BANK_DISPLAY } from '@/lib/typesafe/banks';
+import { GUARDRAIL_HAZARDS } from '@/lib/typesafe/describe-decision';
 import {
   accountEnabled,
   isShadow,
@@ -481,7 +482,7 @@ export async function runGuardrailGate(
     return (await guardrailWhenConfigInvalid(ref.accountId))
       ? {
           outcome: 'hold',
-          detail: `draft reply held: the TypeSafe configuration is invalid (CONFIG_INVALID), so it could not be screened. Draft: “${quote(args.botReply)}”`,
+          detail: guardrailDetail('hold', ['CONFIG_INVALID'], args.botReply),
           reasonCodes: ['CONFIG_INVALID'],
           retryable: false,
         }
@@ -492,7 +493,7 @@ export async function runGuardrailGate(
     return (await guardrailWhenSwitchesUnknown(ref.accountId))
       ? {
           outcome: 'hold',
-          detail: `draft reply held: this account's AI safety settings could not be read (SETTINGS_LOAD), so it could not be screened. Draft: “${quote(args.botReply)}”`,
+          detail: guardrailDetail('hold', ['SETTINGS_LOAD'], args.botReply),
           reasonCodes: ['SETTINGS_LOAD'],
           retryable: false,
         }
@@ -516,16 +517,97 @@ export async function runGuardrailGate(
   );
   if (!g || !g.act || g.outcome === 'send') return { outcome: 'send' };
 
-  const verb = g.outcome === 'block' ? 'blocked' : 'held for review';
-  const codes = g.reasonCodes.length ? ` (${g.reasonCodes.join(', ')})` : '';
   return {
     outcome: g.outcome,
-    detail: `draft reply ${verb}${codes}. Draft: “${quote(args.botReply)}”`,
+    detail: guardrailDetail(g.outcome, g.reasonCodes, args.botReply),
     reasonCodes: g.reasonCodes,
     // `fallbackUsed` is the guardrail's "degraded": TypeSafe did not
     // answer (or answered with another model) and the fail mode decided.
     retryable: !g.fallbackUsed,
   };
+}
+
+type GuardrailHazard = (typeof GUARDRAIL_HAZARDS)[number];
+
+/**
+ * What the draft did, per guardrail hazard (the hazard part of a reason
+ * code, as in `REWRITE_RULES`), for the hand-off note a person reads.
+ * Keyed by describe-decision's `GUARDRAIL_HAZARDS`, so a new hazard
+ * there does not compile until it is worded here.
+ */
+const HAZARD_SENTENCES: Record<GuardrailHazard, (draft: string) => string> = {
+  PROMISES_APPROVAL: () =>
+    'the draft promised or implied an approval, which only the bank can decide.',
+  GUARANTEES_TIMELINE: () =>
+    'the draft guaranteed how long something will take.',
+  UNSUPPORTED_FIGURE: () =>
+    'the draft quoted a figure (a fee, rate, amount or time) that is not in your knowledge base or instructions.',
+  NON_PARTNER_BANK: (draft) => {
+    const banks = detectBanks(draft)
+      .filter((b) => !b.partner)
+      .map((b) => b.code);
+    return banks.length
+      ? `the draft named ${banks.length === 1 ? 'a bank' : 'banks'} that ${banks.length === 1 ? 'is' : 'are'} not on your partner list (${banks.join(', ')}). Add ${banks.length === 1 ? 'it' : 'them'} in Settings → AI safety checks → Partner banks if you work with ${banks.length === 1 ? 'it' : 'them'}.`
+      : 'the draft named a bank that is not on your partner list. Add it in Settings → AI safety checks → Partner banks if you work with it.';
+  },
+  UNSUPPORTED_CLAIM: () =>
+    'the draft stated a bank requirement or policy that your knowledge base and instructions do not support.',
+  ASKS_SECRET: () =>
+    'the draft asked for a password, PIN, one-time code or card number.',
+  REVEALS_INSTRUCTIONS: () =>
+    "the draft revealed the assistant's instructions.",
+  SHARES_THIRD_PARTY: () =>
+    'the draft shared details about someone other than this customer.',
+};
+
+/** Codes that name no hazard but explain a hold on their own. */
+const STATE_SENTENCES: Record<string, string> = {
+  DEGRADED_HOLD:
+    'TypeSafe could not be reached to check the draft, so it was held.',
+  TS_UNAVAILABLE:
+    'TypeSafe could not be reached to check the draft, so it was held.',
+  LANGUAGE_SHADOW_MODEL_REVIEW:
+    'the draft is in a language the safety check is not calibrated for, so it was held for review.',
+  CONFIG_INVALID:
+    "the server's TypeSafe configuration is invalid, so the draft could not be checked.",
+  SETTINGS_LOAD:
+    "this account's AI safety settings could not be read, so the draft could not be checked.",
+};
+
+const isHazard = (h: string): h is GuardrailHazard =>
+  (GUARDRAIL_HAZARDS as readonly string[]).includes(h);
+
+/**
+ * The guardrail's hand-off detail in plain words: what the safety check
+ * did, why (each hazard once), what to do about it where there is
+ * something to do, the codes in parentheses for support, then the
+ * quoted draft — a blocked draft is not queued, so the note is the only
+ * place it appears.
+ */
+export function guardrailDetail(
+  outcome: 'hold' | 'block',
+  reasonCodes: string[],
+  draft: string
+): string {
+  const verb = outcome === 'block' ? 'blocked' : 'held';
+  const why = [
+    ...new Set(
+      reasonCodes.map((c) => {
+        const hazard = hazardOf(c);
+        return isHazard(hazard)
+          ? HAZARD_SENTENCES[hazard](draft)
+          : (STATE_SENTENCES[c] ?? null);
+      })
+    ),
+  ].filter((w): w is string => !!w);
+  const lead = `the safety check ${verb} the draft reply`;
+  const body = why.length
+    ? `${lead} because ${why.join(' Also, ')}`
+    : `${lead}.`;
+  const codes = reasonCodes.length
+    ? ` (${reasonCodes.length === 1 ? 'code' : 'codes'}: ${reasonCodes.join(', ')})`
+    : '';
+  return `${body}${codes} Draft: “${quote(draft)}”`;
 }
 
 /**

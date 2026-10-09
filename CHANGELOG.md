@@ -32,7 +32,9 @@ replying, and a record of why it did or did not answer. See
 - **Model tiers.** Settings → AI has Small, Standard and Large models.
   *Route each message to the right model* (on by default) lets
   TypeSafe Jev judge each message in parallel with triage; without
-  TypeSafe a simple rule decides. Greetings skip knowledge retrieval.
+  TypeSafe a simple rule decides. Greetings skip knowledge retrieval,
+  but only when every customer message since the bot last spoke is
+  one: "Hi" after an unanswered question retrieves for that question.
   Urgent or ready-to-apply customers never get the Small model. A model
   the provider rejects is retried once on the Standard model.
 - **Held drafts.** A draft the TypeSafe guardrail holds is rewritten

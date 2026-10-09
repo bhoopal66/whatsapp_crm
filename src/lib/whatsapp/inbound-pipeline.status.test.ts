@@ -393,7 +393,7 @@ describe('handleStatusUpdate — a bot reply WhatsApp refused', () => {
     const summary = String(update.payload?.ai_handoff_summary);
     expect(summary).toContain('after 2 replies');
     expect(summary).toContain(
-      "Reason: WhatsApp did not deliver the bot's last reply"
+      "AI needs a person after 2 replies: WhatsApp did not deliver the bot's last reply"
     );
     expect(summary).toContain(META_FAILURE_REASONS['131031']);
     expect(summary).not.toContain('AI provider error');
