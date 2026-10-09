@@ -180,7 +180,9 @@ function cellValue(type: string | null, body: string, shared: string[]) {
   const raw = v ? decodeText(v[1] ?? '') : '';
   switch (type) {
     case 's':
-      return shared[Number(raw)] ?? '';
+      // An empty `<c t="s"/>` is a blank cell, not shared string 0
+      // (`Number('')` is 0, which would repeat the first header).
+      return raw.trim() === '' ? '' : (shared[Number(raw)] ?? '');
     case 'inlineStr': {
       const is = /<is\b[^>]*>([\s\S]*?)<\/is>/.exec(body);
       return is ? richText(is[1]) : '';
@@ -256,11 +258,22 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
   ]);
   const rels = relsXml ? relationships(relsXml) : [];
 
-  // The first sheet in tab order, which need not be sheet1.xml once
-  // sheets have been reordered or deleted.
-  const firstSheet = workbook && /<sheet\b([^>]*)>/.exec(workbook);
-  const sheetRelId = firstSheet ? attr(firstSheet[1], 'r:id') : null;
-  const sheetRel = rels.find((r) => r.id === sheetRelId);
+  // The first visible worksheet in tab order, which need not be
+  // sheet1.xml once sheets have been reordered or deleted. A hidden tab
+  // is skipped: its rows would be messaged without the uploader ever
+  // having seen them. So is a chartsheet, which has no cells.
+  const sheetRel = Array.from(
+    workbook?.matchAll(/<sheet\b([^>]*)>/g) ?? [],
+    (m) => m[1]
+  )
+    .filter((a) => !/^(?:hidden|veryHidden)$/.test(attr(a, 'state') ?? ''))
+    .map((a) => rels.find((r) => r.id === attr(a, 'r:id')))
+    .find((r) => r?.type.endsWith('/worksheet'));
+  // The default path only for a package with no relationships at all;
+  // a workbook whose every worksheet is hidden has nothing to send.
+  if (!sheetRel && rels.length > 0) {
+    throw new Error('The workbook has no visible worksheet');
+  }
   const sheetPath = sheetRel
     ? resolveTarget(sheetRel.target)
     : 'xl/worksheets/sheet1.xml';
@@ -271,5 +284,10 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
     read(sharedRel ? resolveTarget(sharedRel.target) : 'xl/sharedStrings.xml'),
   ]);
   if (sheet === null) throw new Error('The workbook has no worksheet');
-  return sheetRows(sheet, sharedXml ? sharedStrings(sharedXml) : []);
+  const rows = sheetRows(sheet, sharedXml ? sharedStrings(sharedXml) : []);
+  // Rows are placed by reference, so a sheet whose header sits below a
+  // blank first row would start with []; CSV drops leading blank lines
+  // too, and the header must be row 0.
+  const start = rows.findIndex((r) => r.some((c) => c.trim() !== ''));
+  return start === -1 ? [] : rows.slice(start);
 }

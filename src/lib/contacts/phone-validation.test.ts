@@ -445,6 +445,7 @@ describe('withUaeCountryCode', () => {
     ['050/1234567', '971501234567'],
     ['\u200e0501234567\u200f', '971501234567'],
     [' 0501234567 ', '971501234567'],
+    ['050\u2013123\u20134567', '971501234567'],
   ])('reads %j as a UAE mobile', (raw, expected) => {
     expect(withUaeCountryCode(raw)).toBe(expected);
     expect(validateContactPhone(withUaeCountryCode(raw))).toEqual({

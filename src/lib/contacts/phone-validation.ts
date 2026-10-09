@@ -428,7 +428,7 @@ export function validatePhoneToSave(
  */
 export function withUaeCountryCode(raw: string): string {
   const input = raw.replace(INVISIBLE_MARKS, '').trim();
-  if (!/^[\d\s\-.()/]+$/.test(input)) return raw;
+  if (!/^[\d\s\-.()/\u2010-\u2015\u2212]+$/.test(input)) return raw;
   const digits = input.replace(/\D/g, '');
   return /^0?5\d{8}$/.test(digits) ? `971${digits.slice(-9)}` : raw;
 }

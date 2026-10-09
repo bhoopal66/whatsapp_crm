@@ -435,6 +435,10 @@ export function Step2SelectAudience({
     setCsvError(null);
     setCsvPhoneWarning(null);
     setCsvParsed(null);
+    // A new file starts unticked: the +971 promise was made about the
+    // previous one, and carried over it would turn another country's
+    // local numbers into UAE numbers of strangers.
+    setCsvAssumeUae(false);
     const fail = (message: string) => {
       setCsvError(message);
       onUpdate({ ...audience, csvContacts: undefined, csvColumns: undefined });
@@ -458,7 +462,7 @@ export function Step2SelectAudience({
       const parsed = { rows, columns, skippedNoPhone };
       setCsvParsed(parsed);
       setCsvFileName(file.name);
-      applyCsvRows(parsed, csvAssumeUae);
+      applyCsvRows(parsed, false);
     } catch {
       fail(t('selectAudience.errorCsvParse'));
     }

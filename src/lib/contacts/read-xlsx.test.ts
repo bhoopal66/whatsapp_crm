@@ -87,7 +87,7 @@ const REL =
   'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
 function workbook(
-  sheets: { name: string; rid: string }[],
+  sheets: { name: string; rid: string; state?: string }[],
   rels: { id: string; type: string; target: string }[]
 ): FixtureFile[] {
   return [
@@ -98,7 +98,9 @@ function workbook(
         sheets
           .map(
             (s, i) =>
-              `<sheet name="${s.name}" sheetId="${i + 1}" r:id="${s.rid}"/>`
+              `<sheet name="${s.name}" sheetId="${i + 1}"` +
+              (s.state ? ` state="${s.state}"` : '') +
+              ` r:id="${s.rid}"/>`
           )
           .join('') +
         '</sheets></workbook>',
@@ -290,6 +292,51 @@ describe('readXlsxTable', () => {
       },
     ]);
     expect(await readXlsxTable(bytes)).toEqual([['first']]);
+  });
+
+  it('skips a hidden first sheet and reads the first visible one', async () => {
+    const bytes = zip([
+      ...workbook(
+        [
+          { name: 'Secret', rid: 'rId1', state: 'hidden' },
+          { name: 'Contacts', rid: 'rId2' },
+        ],
+        [
+          { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
+          { id: 'rId2', type: 'worksheet', target: 'worksheets/sheet2.xml' },
+        ]
+      ),
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        content: sheet('<row r="1"><c r="A1" t="str"><v>hidden</v></c></row>'),
+      },
+      {
+        name: 'xl/worksheets/sheet2.xml',
+        content: sheet('<row r="1"><c r="A1" t="str"><v>shown</v></c></row>'),
+      },
+    ]);
+    expect(await readXlsxTable(bytes)).toEqual([['shown']]);
+  });
+
+  it('reads an empty shared-string cell as blank, not string 0', async () => {
+    const bytes = simpleBook(
+      '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>' +
+        '<row r="2"><c r="A2" t="s"/><c r="B2" t="s"><v/></c></row>',
+      '<si><t>Customer Name</t></si><si><t>phone</t></si>'
+    );
+    expect(await readXlsxTable(bytes)).toEqual([
+      ['Customer Name', 'phone'],
+      ['', ''],
+    ]);
+  });
+
+  it('starts at the first non-blank row so the header is row 0', async () => {
+    const bytes = simpleBook(
+      '<row r="1"><c r="A1" t="str"><v> </v></c></row>' +
+        '<row r="3"><c r="A3" t="str"><v>phone</v></c></row>' +
+        '<row r="4"><c r="A4" t="str"><v>971501234567</v></c></row>'
+    );
+    expect(await readXlsxTable(bytes)).toEqual([['phone'], ['971501234567']]);
   });
 
   it('throws on bytes that are not a ZIP', async () => {
