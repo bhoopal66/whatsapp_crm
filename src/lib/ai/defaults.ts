@@ -48,6 +48,23 @@ export function aiRequestTimeoutMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
+const DEFAULT_BURST_WAIT_MS = 3_000;
+
+/**
+ * How long the auto-reply bot waits for a customer to finish typing
+ * before it answers. Customers send "hi" and "I need a loan" seconds
+ * apart; each inbound gets its own dispatch, and without the wait each
+ * got its own reply. After it, only the dispatch for the newest message
+ * answers, and it answers the whole burst. Override with
+ * `AI_BURST_WAIT_MS` (0 = no wait; the newest-message check still runs).
+ */
+export function aiBurstWaitMs(): number {
+  const raw = process.env.AI_BURST_WAIT_MS;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_BURST_WAIT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_BURST_WAIT_MS;
+}
+
 /** How many recent text messages to feed the model. Override with
  *  `AI_CONTEXT_MESSAGE_LIMIT`. */
 export function aiContextMessageLimit(): number {

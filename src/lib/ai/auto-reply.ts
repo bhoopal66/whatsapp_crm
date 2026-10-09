@@ -4,8 +4,13 @@ import { loadAiConfig } from './config';
 import { buildConversationContext } from './context';
 import { retrieveKnowledgeScored, type KnowledgeRetrieval } from './knowledge';
 import { generateReply } from './generate';
-import { buildSystemPrompt } from './defaults';
-import { buildHandoffSummary, type AiHandoffReason } from './handoff';
+import { aiBurstWaitMs, buildSystemPrompt } from './defaults';
+import {
+  buildHandoffSummary,
+  describeHandoffReason,
+  type AiHandoffReason,
+} from './handoff';
+import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
 import { matchEscalationKeyword } from './escalation';
 import { logAiUsage } from './usage';
 import { latestUserMessage } from './query';
@@ -22,7 +27,10 @@ import {
   resolveChannelForSurface,
 } from '@/lib/whatsapp/channels';
 import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
+import type { AiConfig, ChatMessage } from './types';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { triggerMatches } from '@/lib/automations/engine';
+import type { Automation } from '@/types';
 
 /**
  * Name + body of the campaign a thread was stamped with (migration
@@ -167,6 +175,12 @@ export interface DispatchArgs {
    * bot must stand down for (see the automation gate).
    */
   interactiveReply?: boolean;
+  /**
+   * The tapped button / list-row id. An `interactive_reply` automation
+   * stands the bot down only when its `reply_ids` hold this id — the
+   * same exact-id match the automation engine fires on.
+   */
+  interactiveReplyId?: string | null;
   /** The gateway id of the inbound message, carried into the TypeSafe
    *  decision log (063) so a decision can be traced to its message. */
   inboundMessageId?: string | null;
@@ -247,6 +261,7 @@ export async function dispatchInboundToAiReply(
     inboundChannelId,
     flowContext,
     interactiveReply = false,
+    interactiveReplyId = null,
     inboundMessageId = null,
     inboundText = null,
   } = args;
@@ -264,11 +279,34 @@ export async function dispatchInboundToAiReply(
     },
   };
 
-  try {
-    const db = supabaseAdmin();
+  // Set once the account's auto-reply is known to be on: from then on
+  // every exit records why (migration 077), so "why didn't the bot
+  // answer?" has an answer. An account with the bot off records nothing.
+  let db: SupabaseClient | null = null;
+  let recording = false;
+  const record = async (
+    outcome: AiDispatchOutcome,
+    detail: string | null = null
+  ) => {
+    if (recording && db) {
+      await recordOutcome(db, { accountId, conversationId, outcome, detail });
+    }
+  };
+  const skip = async (
+    outcome: AiDispatchOutcome,
+    detail: string | null = null
+  ): Promise<AiReplyOutcome> => {
+    await record(outcome, detail);
+    return 'skipped';
+  };
 
-    const config = await loadAiConfig(db, accountId);
+  try {
+    db = supabaseAdmin();
+    const dbc = db;
+
+    const config = await loadAiConfig(dbc, accountId);
     if (!config || !config.autoReplyEnabled) return 'skipped';
+    recording = true;
 
     // Only answer on the bot's own number. Resolved here, before any
     // LLM spend, with the same lookup `engineSendText` will make.
@@ -279,102 +317,187 @@ export async function dispatchInboundToAiReply(
     // anywhere else lands outside Meta's 24h window, or on a number the
     // admin meant to keep human.
     const botChannel = inboundChannelId
-      ? await resolveAiReplyChannel(db, accountId, conversationId)
-      : await resolveChannelForSurface(db, accountId, 'ai_reply');
+      ? await resolveAiReplyChannel(dbc, accountId, conversationId)
+      : await resolveChannelForSurface(dbc, accountId, 'ai_reply');
     if (
       inboundChannelId
         ? botChannel.id !== inboundChannelId
         : botChannel.provider !== inboundProvider
     ) {
-      return 'skipped';
+      // Ids and providers only: the resolved channel carries credentials.
+      return skip(
+        'skipped_number',
+        `The bot replies from ${botChannel.provider} number ${botChannel.id}; ` +
+          `this message came in on ${inboundProvider}` +
+          (inboundChannelId ? ` number ${inboundChannelId}` : '') +
+          '.'
+      );
     }
 
     // Deterministic, user-configured responders win over the LLM — the
     // caller already excludes messages a Flow consumed. Message-level
     // automations (`new_message_received` / `keyword_match`) are
     // dispatched independently for this same inbound and may send their
-    // own reply, so if the account has any active one we stand down to
-    // avoid double-texting the customer. A button tap also fires
+    // own reply, so when one of them fires on THIS message we stand down
+    // to avoid double-texting the customer. A button tap also fires
     // `interactive_reply`, so for a tap that trigger counts too — an
     // automation-built menu answers its own buttons. (Relationship
     // triggers like `first_inbound_message` don't count — they're not
     // per-message auto-responders.) Not when a Flow is asking: the run
     // consumed the message, so those automations never see it.
+    //
+    // Matched with the engine's own `triggerMatches`, on the context the
+    // pipeline hands the engine. Standing down for any active one, as
+    // this once did, silenced the bot on every message of an account
+    // whose one keyword rule matched none of them.
+    // `new_message_received` matches every message, so an active one
+    // still stands the bot down: it is an auto-responder.
     if (!flowContext) {
       const autoResponderTriggers = ['new_message_received', 'keyword_match'];
-      if (interactiveReply) autoResponderTriggers.push('interactive_reply');
-      const { data: autoResponders } = await db
+      if (interactiveReply || interactiveReplyId) {
+        autoResponderTriggers.push('interactive_reply');
+      }
+      const { data: autoResponders, error: autoErr } = await dbc
         .from('automations')
-        .select('id')
+        .select('id, name, trigger_type, trigger_config')
         .eq('account_id', accountId)
         .eq('is_active', true)
-        .in('trigger_type', autoResponderTriggers)
-        .limit(1);
-      if (autoResponders && autoResponders.length > 0) return 'skipped';
+        .in('trigger_type', autoResponderTriggers);
+      if (autoErr) throw new Error(`automations lookup: ${autoErr.message}`);
+      const matched = ((autoResponders ?? []) as Automation[]).find((a) =>
+        triggerMatches(a, {
+          message_text: inboundText ?? '',
+          interactive_reply_id: interactiveReplyId ?? undefined,
+        })
+      );
+      if (matched) {
+        return skip(
+          'skipped_automation',
+          `Automation “${matched.name ?? matched.id}” answers this message.`
+        );
+      }
     }
 
-    const { data: conv, error: convErr } = await db
+    const { data: conv, error: convErr } = await dbc
       .from('conversations')
       .select(
-        'assigned_agent_id, ai_autoreply_disabled, ai_reply_count, campaign_broadcast_id'
+        'assigned_agent_id, ai_autoreply_disabled, ai_reply_count, campaign_broadcast_id, ai_paused_reason, ai_paused_at'
       )
       .eq('id', conversationId)
       .maybeSingle();
-    if (convErr || !conv) return 'skipped';
-    if (conv.assigned_agent_id) return 'skipped'; // a human owns this thread
-    if (conv.ai_autoreply_disabled) return 'skipped'; // handed off / turned off here
+    if (convErr) throw new Error(`conversation lookup: ${convErr.message}`);
+    if (!conv) return skip('skipped_nothing', 'Conversation not found.');
+    if (conv.assigned_agent_id) {
+      return skip('skipped_assigned'); // a human owns this thread
+    }
+    if (conv.ai_autoreply_disabled) {
+      // Handed off / turned off here — unless an agent's reply paused it
+      // and they have since been quiet for the account's resume window.
+      const resumed = await autoResumeIfDue(dbc, conversationId, conv, config);
+      if (!resumed) {
+        return skip(
+          'skipped_paused',
+          conv.ai_paused_reason ? `Paused: ${conv.ai_paused_reason}.` : null
+        );
+      }
+    }
     // Campaign replies only (migration 049): the thread must carry the
     // stamp `flagBroadcastReplyIfAny` writes when a customer answers a
     // broadcast. Everything else is left to the team.
     if (config.autoReplyCampaignOnly && !conv.campaign_broadcast_id) {
-      return 'skipped';
+      return skip('skipped_campaign_only');
     }
 
-    const messages = await buildConversationContext(db, conversationId);
-    if (messages.length === 0) return 'skipped';
-    const question = latestUserMessage(messages);
+    // Bursts get one reply. A customer types "hi", then "I need a loan"
+    // two seconds later; each inbound gets its own dispatch, and both
+    // used to answer. Wait for them to finish, then only the dispatch
+    // for the newest customer message carries on — and it answers the
+    // whole burst (below). Before any TypeSafe or model spend. Not for
+    // a Flow's fallback: the run is waiting on this exact message.
+    const coalesce = !flowContext && Boolean(inboundMessageId);
+    let newestAt: string | null = null;
+    if (coalesce) {
+      const waitMs = aiBurstWaitMs();
+      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+      const newest = await newestCustomerMessage(dbc, conversationId);
+      newestAt = newest?.at ?? null;
+      if (newest?.id && newest.id !== inboundMessageId) {
+        return skip(
+          'skipped_superseded',
+          'A newer customer message arrived; its reply answers both.'
+        );
+      }
+    }
+
+    // Read after the wait, so the burst is in it.
+    const messages = await buildConversationContext(dbc, conversationId);
+    if (messages.length === 0) return skip('skipped_nothing');
     // What the gates judge: the message that triggered THIS dispatch.
-    // Each inbound gets its own dispatch, so in a burst ("stop sending me
-    // these" / "thanks") every message is judged once, as it arrives —
-    // not the newest stored one, which a slower dispatch would otherwise
-    // read for both. A media caption is not in the text-only context, so
-    // it only reaches the gates this way. Callers that don't pass it (the
-    // flow runner's fallback) keep the latest customer message.
-    const customerTurn = inboundText?.trim() || question;
+    // Coalesced, that is the burst it closes: every customer message
+    // since our last one, so the reply addresses all of it. Otherwise
+    // (the flow runner's fallback, callers with no message id) each
+    // dispatch judges its own message — in a burst ("stop sending me
+    // these" / "thanks") every message once, as it arrives, not the
+    // newest stored one a slower dispatch would otherwise read for both.
+    // A media caption is not in the text-only context, so it only
+    // reaches the gates through `inboundText`. Callers that don't pass
+    // it keep the latest customer message.
+    const latest = latestUserMessage(messages);
+    const customerTurn = coalesce
+      ? burstTurn(messages, inboundText, newestAt) || latest
+      : inboundText?.trim() || latest;
+    const question = coalesce ? customerTurn : latest;
 
     /**
      * Stop auto-replying on this thread and hand it to a human: (a)
-     * pause the bot here (sticky until re-enabled), (b) route the
-     * conversation to the configured handoff agent — null leaves it in
-     * the shared queue — and (c) leave a short internal note with the
-     * reason so whoever picks it up has context. Assigning fires the
-     * `on_conversation_assigned` trigger, which notifies the agent.
+     * pause the bot here (sticky until re-enabled; reason `handoff`,
+     * which auto-resume never lifts), (b) route the conversation to the
+     * configured handoff agent — null leaves it in the shared queue —
+     * (c) leave a short internal note with the reason so whoever picks
+     * it up has context, and (d) ring the bell for whoever should pick
+     * it up. Assigning fires the `on_conversation_assigned` trigger,
+     * which already notifies the agent (`conversation_assigned`), so the
+     * bell rings here only when the hand-off assigned nobody.
      *
      * `farewell` goes to the customer first so they aren't left with
      * silence — but only when a reply slot is free: the cap bounds
-     * every bot message, farewell included.
+     * every bot message, farewell included. A farewell that fails to
+     * send must not stop the hand-off: the customer would then be
+     * unanswered AND nobody told.
      *
+     * `reasonText` replaces the reason clause when the code only
+     * approximates it (a failed WhatsApp send is recorded as `error`,
+     * which would otherwise read "AI provider error").
      */
     const handOff = async (
       reason: AiHandoffReason,
       detail: string | null,
-      farewell: string | null
-    ) => {
+      farewell: string | null,
+      reasonText: string | null = null
+    ): Promise<AiReplyOutcome> => {
       if (farewell) {
-        const { data: claimed } = await db.rpc('claim_ai_reply_slot', {
+        const { data: claimed } = await dbc.rpc('claim_ai_reply_slot', {
           conversation_id: conversationId,
           max_replies: config.autoReplyMaxPerConversation,
         });
         if (claimed === true) {
-          await engineSendText({
-            accountId,
-            userId: configOwnerUserId,
-            conversationId,
-            contactId,
-            text: farewell,
-            aiGenerated: true,
-            surface: 'ai_reply',
-          });
+          try {
+            await engineSendText({
+              accountId,
+              userId: configOwnerUserId,
+              conversationId,
+              contactId,
+              text: farewell,
+              aiGenerated: true,
+              surface: 'ai_reply',
+            });
+          } catch (err) {
+            console.error('[ai auto-reply] handoff farewell failed:', {
+              conversationId,
+              reason,
+              error: errorMessage(err),
+            });
+          }
         }
       }
       const summary = buildHandoffSummary({
@@ -382,9 +505,12 @@ export async function dispatchInboundToAiReply(
         replyCount: conv.ai_reply_count ?? 0,
         reason,
         detail,
+        reasonText,
       });
       const update: Record<string, unknown> = {
         ai_autoreply_disabled: true,
+        ai_paused_reason: 'handoff',
+        ai_paused_at: new Date().toISOString(),
         ai_handoff_summary: summary,
         ai_handoff_reason: reason,
       };
@@ -393,7 +519,7 @@ export async function dispatchInboundToAiReply(
       if (config.handoffAgentId && !conv.assigned_agent_id) {
         update.assigned_agent_id = config.handoffAgentId;
       }
-      const { error: updErr } = await db
+      const { error: updErr } = await dbc
         .from('conversations')
         .update(update)
         .eq('id', conversationId);
@@ -406,6 +532,19 @@ export async function dispatchInboundToAiReply(
           error: updErr.message,
         });
       }
+      // One bell per hand-off: an assignment that landed has rung it.
+      if (!update.assigned_agent_id || updErr) {
+        await notifyHandoff(dbc, {
+          accountId,
+          conversationId,
+          contactId,
+          recipientId: conv.assigned_agent_id ?? null,
+          reasonClause:
+            reasonText?.trim() || describeHandoffReason(reason, detail),
+        });
+      }
+      await record('handed_off', detail ? `${reason}: ${detail}` : reason);
+      return 'handed_off';
     };
 
     // Reply cap (migration 054: a handoff, not silence). The bot has
@@ -416,12 +555,11 @@ export async function dispatchInboundToAiReply(
     // which can lose a race to a concurrent inbound; that one simply
     // sends nothing and the next message lands here.
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
-      await handOff(
+      return handOff(
         'cap',
         `${conv.ai_reply_count} of ${config.autoReplyMaxPerConversation}`,
         config.handoffMessage
       );
-      return 'handed_off';
     }
 
     // Gate 1 — escalation keywords. Deterministic and free: a refund /
@@ -432,8 +570,7 @@ export async function dispatchInboundToAiReply(
       config.escalationKeywords
     );
     if (keyword) {
-      await handOff('keyword', keyword, config.handoffMessage);
-      return 'handed_off';
+      return handOff('keyword', keyword, config.handoffMessage);
     }
 
     // Account-wide throttle on the shared BYO key. The per-conversation
@@ -449,7 +586,10 @@ export async function dispatchInboundToAiReply(
       console.warn(
         `[ai auto-reply] account ${accountId} hit the per-account rate limit — skipping this inbound.`
       );
-      return 'skipped';
+      return skip(
+        'skipped_rate_limited',
+        'The account-wide auto-reply rate limit was reached.'
+      );
     }
 
     // TypeSafe triage (063): a request for a person, a complaint or an
@@ -470,22 +610,26 @@ export async function dispatchInboundToAiReply(
       // 076), which every broadcast skips when planned and when sent.
       const marked =
         triage.handoff.optOut === 'record' &&
-        (await markOptedOut(db, { accountId, contactId }));
-      await handOff(
+        (await markOptedOut(dbc, { accountId, contactId }));
+      return handOff(
         'triage',
         marked
           ? `${triage.handoff.detail}; marked opted-out`
           : triage.handoff.detail,
         triage.handoff.farewell ? config.handoffMessage : null
       );
-      return 'handed_off';
     }
 
     // Ground the reply in the account's knowledge base (best-effort),
     // screened by the TypeSafe passage filter (063) when it acts.
     const passages = await runPassageGate(tsRef, {
       query: question,
-      retrieval: await retrieveKnowledgeScored(db, accountId, config, question),
+      retrieval: await retrieveKnowledgeScored(
+        dbc,
+        accountId,
+        config,
+        question
+      ),
     });
 
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
@@ -497,18 +641,17 @@ export async function dispatchInboundToAiReply(
       question
     );
     if (gap) {
-      await logKnowledgeGap(db, {
+      await logKnowledgeGap(dbc, {
         accountId,
         conversationId,
         question,
         bestScore: gap.bestScore,
       });
-      await handOff('no_knowledge', gap.detail, config.handoffMessage);
-      return 'handed_off';
+      return handOff('no_knowledge', gap.detail, config.handoffMessage);
     }
 
     const campaign = conv.campaign_broadcast_id
-      ? await loadCampaignContext(db, accountId, conv.campaign_broadcast_id)
+      ? await loadCampaignContext(dbc, accountId, conv.campaign_broadcast_id)
       : null;
 
     const systemPrompt = buildSystemPrompt({
@@ -531,10 +674,8 @@ export async function dispatchInboundToAiReply(
     try {
       generated = await generateReply({ config, systemPrompt, messages });
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
       console.error('[ai auto-reply] provider call failed:', err);
-      await handOff('error', detail, config.handoffMessage);
-      return 'handed_off';
+      return handOff('error', errorMessage(err), config.handoffMessage);
     }
     const { text, handoff, usage } = generated;
 
@@ -543,7 +684,7 @@ export async function dispatchInboundToAiReply(
     // swallows its own errors, so the floating promise can't reject.
     // Logged regardless of handoff — the provider call happened either
     // way.
-    void logAiUsage(db, {
+    void logAiUsage(dbc, {
       accountId,
       conversationId,
       mode: 'auto_reply',
@@ -581,22 +722,20 @@ export async function dispatchInboundToAiReply(
       // configured handoff message stands in for it. A hand-off like any
       // other (paused, assigned, the note in the banner), including when
       // TypeSafe was unreachable: the operator's fail mode chose "hold".
-      await handOff(
+      return handOff(
         'guardrail',
         handoff
           ? `${screened.detail} The model had also asked for a person.`
           : screened.detail,
         config.handoffMessage
       );
-      return 'handed_off';
     }
 
     if (handoff || !text) {
       // The model can't (or shouldn't) answer. A closing line it put
       // before the marker ("a relationship manager will contact you")
       // still goes out first.
-      await handOff('model', null, text || null);
-      return 'handed_off';
+      return handOff('model', null, text || null);
     }
 
     // Atomically claim a reply slot: the cap check + increment happen in
@@ -604,7 +743,7 @@ export async function dispatchInboundToAiReply(
     // another inbound just took the last slot, `claimed` is false and we
     // skip the send. (We consume a slot slightly before the send lands —
     // fail-safe: under-reply rather than over-reply.)
-    const { data: claimed, error: claimErr } = await db.rpc(
+    const { data: claimed, error: claimErr } = await dbc.rpc(
       'claim_ai_reply_slot',
       {
         conversation_id: conversationId,
@@ -617,28 +756,287 @@ export async function dispatchInboundToAiReply(
       // service role, or the migration not applied. Log it loudly: a
       // silent return makes "auto-reply never fires" undiagnosable.
       console.error('[ai auto-reply] claim_ai_reply_slot failed:', claimErr);
-      return 'skipped';
+      return skip('error', `claim_ai_reply_slot failed: ${claimErr.message}`);
     }
-    if (claimed !== true) return 'skipped'; // lost the per-conversation cap race
+    if (claimed !== true) {
+      // Lost the per-conversation cap race.
+      return skip('skipped_cap_race');
+    }
 
-    await engineSendText({
-      accountId,
-      userId: configOwnerUserId,
-      conversationId,
-      contactId,
-      text,
-      aiGenerated: true,
-      // Routed independently of the deterministic flow runner
-      // (migration 046) — an admin can put the AI bot on one number and
-      // flows on the other.
-      surface: 'ai_reply',
-    });
+    try {
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text,
+        aiGenerated: true,
+        // Routed independently of the deterministic flow runner
+        // (migration 046) — an admin can put the AI bot on one number and
+        // flows on the other.
+        surface: 'ai_reply',
+      });
+    } catch (err) {
+      // The slot is spent and the customer heard nothing. This used to
+      // land in the catch-all as a silent skip with a log line; now a
+      // person is told. No farewell: it would go out on the number that
+      // just failed.
+      const detail = `WhatsApp send failed: ${errorMessage(err)}`;
+      console.error('[ai auto-reply] reply send failed:', err);
+      await handOff('error', detail, null, `Reason: ${detail.slice(0, 200)}.`);
+      await record('error', detail);
+      return 'handed_off';
+    }
+    await record('replied');
     return 'replied';
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err);
+    await record('error', errorMessage(err));
     return 'skipped';
   } finally {
     if (shadowWork.length) await Promise.allSettled(shadowWork);
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * How far before the newest customer message a burst reaches. Without a
+ * bound, "every customer message since our last one" also takes in an
+ * old message nobody answered — one that sat through a silent hand-off,
+ * say — and the gates judge it again: its escalation keyword hands the
+ * thread off a second time, days later, on a customer's "thanks".
+ */
+export const BURST_JOIN_WINDOW_MS = 120_000;
+
+/**
+ * The customer turn a coalesced dispatch answers: every customer
+ * message since the last message of ours that arrived within
+ * `BURST_JOIN_WINDOW_MS` before the newest one (`newestAt`, else the
+ * last in the context), oldest first, one per line — plus the
+ * triggering message's text when the text-only context lacks it (a
+ * media caption). Empty when the context ends on our message. A message
+ * with no timestamp is kept.
+ */
+export function burstTurn(
+  messages: ChatMessage[],
+  inboundText: string | null,
+  newestAt: string | null = null
+): string {
+  const run: ChatMessage[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role !== 'user') break;
+    run.unshift(messages[i]!);
+  }
+  const anchor = Date.parse(newestAt ?? run[run.length - 1]?.at ?? '');
+  const tail = run
+    .filter((m) => {
+      const at = Date.parse(m.at ?? '');
+      return (
+        !Number.isFinite(anchor) ||
+        !Number.isFinite(at) ||
+        anchor - at <= BURST_JOIN_WINDOW_MS
+      );
+    })
+    .map((m) => m.content.trim());
+  const caption = inboundText?.trim();
+  if (caption && !tail.includes(caption)) tail.push(caption);
+  return tail.filter(Boolean).join('\n');
+}
+
+/**
+ * The gateway id (`messages.message_id`) and `created_at` of the
+ * conversation's newest customer message. Null when it can't be read:
+ * the dispatch then answers rather than risk nobody answering.
+ */
+async function newestCustomerMessage(
+  db: SupabaseClient,
+  conversationId: string
+): Promise<{ id: string | null; at: string | null } | null> {
+  const { data, error } = await db
+    .from('messages')
+    .select('message_id, created_at')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'customer')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error('[ai auto-reply] newest message lookup failed:', error);
+    return null;
+  }
+  const row = data as {
+    message_id: string | null;
+    created_at: string | null;
+  } | null;
+  return row ? { id: row.message_id, at: row.created_at } : null;
+}
+
+/**
+ * Lift an `agent_reply` pause (migration 077) once the agents have been
+ * quiet for `autoResumeMinutes`. True when this call lifted it.
+ *
+ * Never a `take_over` or `handoff` pause — a person chose those — and
+ * never while someone is assigned. Compare-and-set on the `ai_paused_at`
+ * that was read: an agent replying in the meantime refreshes it (the
+ * 077 trigger), and then the chat stays paused.
+ */
+async function autoResumeIfDue(
+  db: SupabaseClient,
+  conversationId: string,
+  conv: {
+    assigned_agent_id: string | null;
+    ai_paused_reason: string | null;
+    ai_paused_at: string | null;
+  },
+  config: AiConfig
+): Promise<boolean> {
+  const minutes = config.autoResumeMinutes;
+  if (!minutes || conv.ai_paused_reason !== 'agent_reply') return false;
+  if (conv.assigned_agent_id || !conv.ai_paused_at) return false;
+  const pausedAt = Date.parse(conv.ai_paused_at);
+  if (!Number.isFinite(pausedAt)) return false;
+  if (Date.now() - pausedAt < minutes * 60_000) return false;
+  const { data, error } = await db
+    .from('conversations')
+    .update({
+      ai_autoreply_disabled: false,
+      ai_paused_reason: null,
+      ai_paused_at: null,
+    })
+    .eq('id', conversationId)
+    .eq('ai_paused_reason', 'agent_reply')
+    .eq('ai_paused_at', conv.ai_paused_at)
+    .is('assigned_agent_id', null)
+    .select('id');
+  if (error) {
+    console.error('[ai auto-reply] auto-resume failed:', error);
+    return false;
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Ring the bell for a hand-off that assigned nobody (migration 077, type
+ * `ai_handoff`): the chat's assignee, else every active owner and admin
+ * — a hand-off nobody hears about leaves the customer as unanswered as
+ * no hand-off. Best-effort: logged, never thrown, never blocks the
+ * hand-off.
+ */
+export async function notifyHandoff(
+  db: SupabaseClient,
+  args: {
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    recipientId: string | null;
+    reasonClause: string;
+  }
+): Promise<void> {
+  try {
+    let recipients: string[];
+    if (args.recipientId) {
+      recipients = [args.recipientId];
+    } else {
+      const { data, error } = await db
+        .from('profiles')
+        .select('user_id')
+        .eq('account_id', args.accountId)
+        .in('account_role', ['owner', 'admin'])
+        .is('deactivated_at', null);
+      if (error) throw new Error(error.message);
+      recipients = ((data ?? []) as { user_id: string }[]).map(
+        (p) => p.user_id
+      );
+    }
+    if (recipients.length === 0) return;
+
+    const { data: contact } = await db
+      .from('contacts')
+      .select('name, phone')
+      .eq('id', args.contactId)
+      .eq('account_id', args.accountId)
+      .maybeSingle();
+    const c = contact as { name: string | null; phone: string | null } | null;
+    const who = c?.name?.trim() || c?.phone?.trim() || 'a customer';
+
+    const { error } = await db.from('notifications').insert(
+      recipients.map((userId) => ({
+        account_id: args.accountId,
+        user_id: userId,
+        type: 'ai_handoff',
+        // The bell opens the chat from conversation_id (/inbox?c=…).
+        conversation_id: args.conversationId,
+        contact_id: args.contactId,
+        actor_user_id: null,
+        title: `The AI agent handed over the chat with ${who}`,
+        body: args.reasonClause,
+      }))
+    );
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    console.error('[ai auto-reply] hand-off notification failed:', {
+      conversationId: args.conversationId,
+      error: errorMessage(err),
+    });
+  }
+}
+
+/**
+ * Record what one dispatch did (migration 077): the conversation's
+ * `ai_last_outcome` / `_detail` / `_at`, and an `ai_reply_events` row.
+ * Best-effort and never throws — a lost record must not cost a reply.
+ * `tier` / `model` / `routeSource` / `escalated` describe which model
+ * answered, for the routed reply path.
+ */
+export async function recordOutcome(
+  db: SupabaseClient,
+  args: {
+    accountId: string;
+    conversationId: string;
+    outcome: AiDispatchOutcome;
+    detail?: string | null;
+    tier?: AiReplyTier | null;
+    model?: string | null;
+    routeSource?: AiRouteSource | null;
+    escalated?: boolean;
+  }
+): Promise<void> {
+  const detail = args.detail ? args.detail.slice(0, 500) : null;
+  try {
+    const [convRes, eventRes] = await Promise.all([
+      db
+        .from('conversations')
+        .update({
+          ai_last_outcome: args.outcome,
+          ai_last_outcome_detail: detail,
+          ai_last_outcome_at: new Date().toISOString(),
+        })
+        .eq('id', args.conversationId)
+        .eq('account_id', args.accountId),
+      db.from('ai_reply_events').insert({
+        account_id: args.accountId,
+        conversation_id: args.conversationId,
+        outcome: args.outcome,
+        detail,
+        tier: args.tier ?? null,
+        model: args.model ?? null,
+        route_source: args.routeSource ?? null,
+        escalated: args.escalated ?? false,
+      }),
+    ]);
+    if (convRes.error || eventRes.error) {
+      console.error('[ai auto-reply] outcome not recorded:', {
+        conversationId: args.conversationId,
+        outcome: args.outcome,
+        conversation: convRes.error?.message,
+        event: eventRes.error?.message,
+      });
+    }
+  } catch (err) {
+    console.error('[ai auto-reply] outcome not recorded:', err);
   }
 }
 

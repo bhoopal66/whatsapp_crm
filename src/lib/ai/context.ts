@@ -5,6 +5,7 @@ import { aiContextMessageLimit } from './defaults';
 interface DbMessage {
   sender_type: 'customer' | 'agent' | 'bot';
   content_text: string | null;
+  created_at?: string;
 }
 
 /**
@@ -26,7 +27,7 @@ export async function buildConversationContext(
 ): Promise<ChatMessage[]> {
   const { data, error } = await db
     .from('messages')
-    .select('sender_type, content_text')
+    .select('sender_type, content_text, created_at')
     .eq('conversation_id', conversationId)
     .in('content_type', ['text', 'interactive'])
     .order('created_at', { ascending: false })
@@ -40,5 +41,6 @@ export async function buildConversationContext(
     .map((m) => ({
       role: m.sender_type === 'customer' ? 'user' : 'assistant',
       content: m.content_text!.trim(),
+      ...(m.created_at ? { at: m.created_at } : {}),
     }));
 }
