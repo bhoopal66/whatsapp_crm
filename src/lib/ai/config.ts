@@ -23,6 +23,7 @@ interface AiConfigRow {
   pause_on_agent_reply: boolean | null;
   auto_resume_minutes: number | null;
   guardrail_retry: boolean | null;
+  reply_on_all_numbers?: boolean | null;
 }
 
 /** A tier model id, or null when unset/blank ("use `model`"). */
@@ -30,8 +31,25 @@ function tierModel(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-const CONFIG_COLUMNS =
+const CONFIG_COLUMNS_078 =
   'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry';
+const CONFIG_COLUMNS = `${CONFIG_COLUMNS_078}, reply_on_all_numbers`;
+
+/**
+ * True when the read failed only because migration 079's column is not
+ * there yet (Postgres 42703, or PGRST204 from the schema cache). The
+ * bot then loads as before 079 — answering on its routed number —
+ * rather than going silent on every inbound until the migration lands.
+ */
+function missingAllNumbersColumn(
+  error: { code?: string; message?: string } | null
+): boolean {
+  return (
+    !!error &&
+    (error.code === '42703' || error.code === 'PGRST204') &&
+    (error.message ?? '').includes('reply_on_all_numbers')
+  );
+}
 
 /**
  * Load and decrypt the account's AI config for *use* (draft or
@@ -50,16 +68,21 @@ export async function loadAiConfig(
   opts: { requireActive?: boolean } = {}
 ): Promise<AiConfig | null> {
   const { requireActive = true } = opts;
-  const { data, error } = await db
-    .from('ai_configs')
-    .select(CONFIG_COLUMNS)
-    .eq('account_id', accountId)
-    .maybeSingle();
+  const read = (columns: string) =>
+    db
+      .from('ai_configs')
+      .select(columns)
+      .eq('account_id', accountId)
+      .maybeSingle();
+  let { data, error } = await read(CONFIG_COLUMNS);
+  if (missingAllNumbersColumn(error)) {
+    ({ data, error } = await read(CONFIG_COLUMNS_078));
+  }
 
   if (error) throw error;
   if (!data) return null;
 
-  const row = data as AiConfigRow;
+  const row = data as unknown as AiConfigRow;
   // The Playground passes requireActive:false so an admin can test the
   // agent before flipping the master switch on.
   if (requireActive && !row.is_active) return null;
@@ -125,6 +148,8 @@ export async function loadAiConfig(
         ? row.auto_resume_minutes
         : null,
     guardrailRetry: row.guardrail_retry !== false,
+    // Migration 079; absent (a pre-079 database) = the routed number only.
+    replyOnAllNumbers: row.reply_on_all_numbers === true,
   };
 }
 

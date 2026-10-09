@@ -132,3 +132,64 @@ describe('loadAiConfig AI agent v2 columns (migration 077)', () => {
     expect(config).toMatchObject({ modelSmall: null, modelLarge: null });
   });
 });
+
+describe('loadAiConfig reply_on_all_numbers (migration 079)', () => {
+  it('reads the switch, absent as off', async () => {
+    const opts = { requireActive: false };
+    expect(
+      (await loadAiConfig(dbReturning(ROW), 'acct', opts))!.replyOnAllNumbers
+    ).toBe(false);
+    expect(
+      (await loadAiConfig(
+        dbReturning({ ...ROW, reply_on_all_numbers: true }),
+        'acct',
+        opts
+      ))!.replyOnAllNumbers
+    ).toBe(true);
+  });
+
+  it('loads as before 079 when the column does not exist yet', async () => {
+    const selects: string[] = [];
+    const chain = {
+      from: () => chain,
+      select: (cols: string) => {
+        selects.push(cols);
+        return chain;
+      },
+      eq: () => chain,
+      maybeSingle: () =>
+        Promise.resolve(
+          selects.at(-1)!.includes('reply_on_all_numbers')
+            ? {
+                data: null,
+                error: {
+                  code: '42703',
+                  message:
+                    'column ai_configs.reply_on_all_numbers does not exist',
+                },
+              }
+            : { data: ROW, error: null }
+        ),
+    };
+    const config = await loadAiConfig(
+      chain as unknown as SupabaseClient,
+      'acct',
+      { requireActive: false }
+    );
+    expect(selects).toHaveLength(2);
+    expect(config!.replyOnAllNumbers).toBe(false);
+  });
+
+  it('still throws any other read error', async () => {
+    const chain = {
+      from: () => chain,
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: () =>
+        Promise.resolve({ data: null, error: { code: '42501', message: 'x' } }),
+    };
+    await expect(
+      loadAiConfig(chain as unknown as SupabaseClient, 'acct')
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+});

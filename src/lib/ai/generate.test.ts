@@ -24,6 +24,7 @@ function config(overrides: Partial<AiConfig> = {}): AiConfig {
     pauseOnAgentReply: true,
     autoResumeMinutes: null,
     guardrailRetry: true,
+    replyOnAllNumbers: false,
     ...overrides,
   };
 }

@@ -342,6 +342,7 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
     pauseOnAgentReply: true,
     autoResumeMinutes: null,
     guardrailRetry: true,
+    replyOnAllNumbers: false,
     ...overrides,
   };
 }
@@ -1302,6 +1303,106 @@ describe('dispatchInboundToAiReply — TypeSafe decision layer (063)', () => {
 function lastOutcome(): unknown {
   return h.state.outcomes.at(-1)?.ai_last_outcome;
 }
+
+describe('dispatchInboundToAiReply — reply on every number (079)', () => {
+  const WHAPI_IN = {
+    ...ARGS,
+    inboundProvider: 'whapi' as const,
+    inboundChannelId: 'ch-whapi',
+  };
+
+  beforeEach(() => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ replyOnAllNumbers: true }));
+    // The `ai_reply` route points at the Meta number.
+    h.resolveAiReplyChannel.mockResolvedValue({
+      id: 'ch-meta',
+      provider: 'meta',
+    });
+  });
+
+  it('answers a Whapi inbound on that Whapi number while the route is on Meta', async () => {
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('replied');
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'ch-whapi', surface: 'ai_reply' })
+    );
+    expect(lastOutcome()).toBe('replied');
+  });
+
+  it('answers a Meta inbound on the Meta number', async () => {
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundProvider: 'meta',
+      inboundChannelId: 'ch-meta',
+    });
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'ch-meta' })
+    );
+  });
+
+  it('stays out of a chat a person pinned to another number', async () => {
+    h.state.conv = { ...h.state.conv, send_channel_id: 'ch-sales' };
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('skipped');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_number');
+    expect(h.state.outcomes.at(-1)?.ai_last_outcome_detail).toContain(
+      'pinned to number ch-sales'
+    );
+  });
+
+  it('answers a chat pinned to the number the customer wrote to', async () => {
+    h.state.conv = { ...h.state.conv, send_channel_id: 'ch-whapi' };
+    await dispatchInboundToAiReply(WHAPI_IN);
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'ch-whapi' })
+    );
+  });
+
+  it('sends the hand-off farewell on the inbound number', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        replyOnAllNumbers: true,
+        escalationKeywords: ['refund'],
+        handoffMessage: 'A specialist will contact you.',
+      })
+    );
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want a refund' },
+    ]);
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('handed_off');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'A specialist will contact you.',
+        channelId: 'ch-whapi',
+      })
+    );
+  });
+
+  it('keeps the provider comparison for a caller without the inbound number', async () => {
+    await dispatchInboundToAiReply({ ...ARGS, inboundProvider: 'whapi' });
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_number');
+  });
+
+  it('off: answers only on the routed number, as before', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ replyOnAllNumbers: false }));
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('skipped');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_number');
+
+    h.state.convReads = 0;
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundProvider: 'meta',
+      inboundChannelId: 'ch-meta',
+    });
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: undefined })
+    );
+  });
+});
 
 function notificationRows(): Record<string, unknown>[] {
   return h.state.inserts

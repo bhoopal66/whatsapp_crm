@@ -37,7 +37,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry, reply_on_all_numbers',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -141,7 +141,8 @@ export async function POST(request: Request) {
     }
 
     // AI agent v2 (migration 077): tiers, the pause, the guardrail
-    // retry. Absent → left unchanged on update, like the gates.
+    // retry — and 079's every-number switch. Absent → left unchanged on
+    // update, like the gates.
     const v2 = parseAiAgentV2Settings(body as Record<string, unknown>)
     if (!v2.ok) return bad(v2.error)
 
@@ -228,6 +229,7 @@ export async function POST(request: Request) {
           pauseOnAgentReply: true,
           autoResumeMinutes: null,
           guardrailRetry: true,
+          replyOnAllNumbers: false,
         })
       } catch (err) {
         if (err instanceof AiError) {

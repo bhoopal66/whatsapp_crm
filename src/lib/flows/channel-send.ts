@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   sendInteractiveButtons,
   sendInteractiveList,
@@ -9,8 +10,10 @@ import {
 } from '@/lib/whatsapp/provider'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
+  loadChannels,
   resolveBotChannel,
   type RoutingSurface,
+  type WhatsAppChannel,
 } from '@/lib/whatsapp/channels'
 import {
   sanitizePhoneForMeta,
@@ -58,6 +61,33 @@ interface SendTextEngineArgs {
    *  badges it as an AI reply. Only the auto-reply bot sets this;
    *  deterministic Flow/automation sends leave it false. */
   aiGenerated?: boolean
+  /**
+   * Send on exactly this number (a `whatsapp_config` id) instead of
+   * resolving the surface's route. The AI bot passes the inbound number
+   * when it answers on every number (migration 079).
+   */
+  channelId?: string
+}
+
+/**
+ * The account's connected number `channelId`, with its decrypted
+ * credentials. Throws when it is not one of them (another account's,
+ * disconnected, or unreadable), so nothing is sent from a number the
+ * caller did not mean.
+ */
+async function exactChannel(
+  db: SupabaseClient,
+  accountId: string,
+  channelId: string,
+): Promise<WhatsAppChannel> {
+  const channels = await loadChannels(db, accountId)
+  const channel = channels.find((c) => c.id === channelId)
+  if (!channel) {
+    throw new Error(
+      `WhatsApp number ${channelId} is not a connected number of this account`,
+    )
+  }
+  return channel
 }
 
 /**
@@ -96,13 +126,16 @@ export async function engineSendText(
   // admin's `flow` route — a flow is bot-driven, so the route wins over
   // whichever channel the customer happens to be on — except between
   // two numbers of the same provider, where it stays on the thread's
-  // (migration 060, see resolveBotChannel).
-  const channel = await resolveBotChannel(
-    db,
-    args.accountId,
-    args.surface ?? 'flow',
-    args.conversationId,
-  )
+  // (migration 060, see resolveBotChannel). A caller that already chose
+  // the number (the every-number AI bot, 079) names it instead.
+  const channel = args.channelId
+    ? await exactChannel(db, args.accountId, args.channelId)
+    : await resolveBotChannel(
+        db,
+        args.accountId,
+        args.surface ?? 'flow',
+        args.conversationId,
+      )
 
   const attempt = async (phone: string): Promise<string> => {
     const r = await sendText({

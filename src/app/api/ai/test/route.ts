@@ -84,6 +84,7 @@ export async function POST(request: Request) {
         pauseOnAgentReply: true,
         autoResumeMinutes: null,
         guardrailRetry: true,
+        replyOnAllNumbers: false,
       })
     } catch (err) {
       if (err instanceof AiError) {

@@ -236,6 +236,9 @@ export type AiReplyOutcome = 'replied' | 'handed_off' | 'skipped';
  *     inbound would in any case be refused: the customer never opened
  *     a service window on that number. Single-channel installs are
  *     unaffected (the route and the inbound are the same channel).
+ *     With *Reply on every number* on (migration 079) the route is not
+ *     consulted: the bot answers on the number the customer wrote to,
+ *     unless a person pinned the chat to a different one.
  *   - *Campaign replies only* (migration 049) is on and the thread was
  *     never stamped by a broadcast reply.
  *
@@ -365,30 +368,58 @@ export async function dispatchInboundToAiReply(
     if (!config || !config.autoReplyEnabled) return 'skipped';
     recording = true;
 
-    // Only answer on the bot's own number. Resolved here, before any
-    // LLM spend, with the same lookup `engineSendText` will make.
-    //
-    // With the exact inbound number known, ask the same question the
-    // send will answer (`resolveAiReplyChannel` — pin, explicit route,
-    // thread number) and require it to BE that number: replying from
-    // anywhere else lands outside Meta's 24h window, or on a number the
-    // admin meant to keep human.
-    const botChannel = inboundChannelId
-      ? await resolveAiReplyChannel(dbc, accountId, conversationId)
-      : await resolveChannelForSurface(dbc, accountId, 'ai_reply');
-    if (
-      inboundChannelId
-        ? botChannel.id !== inboundChannelId
-        : botChannel.provider !== inboundProvider
-    ) {
-      // Ids and providers only: the resolved channel carries credentials.
-      return skip(
-        'skipped_number',
-        `The bot replies from ${botChannel.provider} number ${botChannel.id}; ` +
-          `this message came in on ${inboundProvider}` +
-          (inboundChannelId ? ` number ${inboundChannelId}` : '') +
-          '.'
-      );
+    // Which number the bot answers on (migration 079). Every send below
+    // goes out on `replyChannelId` when it is set; unset, the send
+    // resolves the `ai_reply` route itself, as before 079.
+    let replyChannelId: string | undefined;
+    if (config.replyOnAllNumbers && inboundChannelId) {
+      // Every number: the bot follows the customer, like a person's
+      // inbox reply — it answers on the number they wrote to, which on
+      // Meta is also the 24h window they just opened. A person's pin
+      // (061) still wins: answering a pinned chat from another number
+      // would undo their choice, so the bot stays out of it.
+      const { data: pinRow, error: pinErr } = await dbc
+        .from('conversations')
+        .select('send_channel_id')
+        .eq('id', conversationId)
+        .maybeSingle();
+      if (pinErr) throw new Error(`conversation lookup: ${pinErr.message}`);
+      const pinnedId =
+        (pinRow?.send_channel_id as string | null | undefined) ?? null;
+      if (pinnedId && pinnedId !== inboundChannelId) {
+        return skip(
+          'skipped_number',
+          `This chat is pinned to number ${pinnedId} — a person chose it; ` +
+            `this message came in on ${inboundProvider} number ${inboundChannelId}.`
+        );
+      }
+      replyChannelId = inboundChannelId;
+    } else {
+      // Only answer on the bot's own number. Resolved here, before any
+      // LLM spend, with the same lookup `engineSendText` will make.
+      //
+      // With the exact inbound number known, ask the same question the
+      // send will answer (`resolveAiReplyChannel` — pin, explicit route,
+      // thread number) and require it to BE that number: replying from
+      // anywhere else lands outside Meta's 24h window, or on a number the
+      // admin meant to keep human.
+      const botChannel = inboundChannelId
+        ? await resolveAiReplyChannel(dbc, accountId, conversationId)
+        : await resolveChannelForSurface(dbc, accountId, 'ai_reply');
+      if (
+        inboundChannelId
+          ? botChannel.id !== inboundChannelId
+          : botChannel.provider !== inboundProvider
+      ) {
+        // Ids and providers only: the resolved channel carries credentials.
+        return skip(
+          'skipped_number',
+          `The bot replies from ${botChannel.provider} number ${botChannel.id}; ` +
+            `this message came in on ${inboundProvider}` +
+            (inboundChannelId ? ` number ${inboundChannelId}` : '') +
+            '.'
+        );
+      }
     }
 
     // Deterministic, user-configured responders win over the LLM — the
@@ -600,6 +631,7 @@ export async function dispatchInboundToAiReply(
               text: farewell,
               aiGenerated: true,
               surface: 'ai_reply',
+              channelId: replyChannelId,
             });
           } catch (err) {
             console.error('[ai auto-reply] handoff farewell failed:', {
@@ -1111,6 +1143,8 @@ export async function dispatchInboundToAiReply(
         // (migration 046) — an admin can put the AI bot on one number and
         // flows on the other.
         surface: 'ai_reply',
+        // Every-number mode (079): the number the gate chose.
+        channelId: replyChannelId,
       });
     } catch (err) {
       // The slot is spent and the customer heard nothing. This used to

@@ -21,7 +21,7 @@ export async function validateAiCredentials(config: AiConfig): Promise<void> {
 /** Longest model id accepted for a tier (migration 077). */
 export const MAX_MODEL_ID_LENGTH = 200;
 
-/** The migration-077 columns a settings save may write. */
+/** The migration-077 (and 079) columns a settings save may write. */
 export interface AiAgentV2Settings {
   model_small?: string | null;
   model_large?: string | null;
@@ -29,12 +29,15 @@ export interface AiAgentV2Settings {
   pause_on_agent_reply?: boolean;
   auto_resume_minutes?: number | null;
   guardrail_retry?: boolean;
+  /** Migration 079: answer on every connected number. */
+  reply_on_all_numbers?: boolean;
 }
 
 const V2_BOOLEANS = [
   'model_routing',
   'pause_on_agent_reply',
   'guardrail_retry',
+  'reply_on_all_numbers',
 ] as const;
 
 /**

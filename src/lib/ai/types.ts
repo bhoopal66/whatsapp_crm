@@ -79,6 +79,11 @@ export interface AiConfig {
    * before a person has to review it.
    */
   guardrailRetry: boolean;
+  /**
+   * Answer on every connected number (migration 079): each chat on the
+   * number the customer wrote to, instead of only the `ai_reply` route.
+   */
+  replyOnAllNumbers: boolean;
 }
 
 /** A single conversation turn in the shape both providers accept. */

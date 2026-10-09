@@ -140,3 +140,9 @@ jobs:
       # Postgres can show the trigger and the policies.
       - name: Verify partner banks and needs-attention
         run: supabase db query --local --file supabase/ci/verify-partner-banks-attention.sql
+
+      # Reply on every number (079): the switch is a NOT NULL boolean
+      # defaulting to false, so an account that never saves it keeps the
+      # routed-number bot.
+      - name: Verify AI reply on every number
+        run: supabase db query --local --file supabase/ci/verify-ai-all-numbers.sql

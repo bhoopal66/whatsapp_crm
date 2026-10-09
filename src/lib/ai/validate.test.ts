@@ -18,6 +18,7 @@ describe('parseAiAgentV2Settings', () => {
         pause_on_agent_reply: true,
         auto_resume_minutes: 60,
         guardrail_retry: false,
+        reply_on_all_numbers: true,
       })
     ).toEqual({
       ok: true,
@@ -28,6 +29,7 @@ describe('parseAiAgentV2Settings', () => {
         pause_on_agent_reply: true,
         auto_resume_minutes: 60,
         guardrail_retry: false,
+        reply_on_all_numbers: true,
       },
     });
   });
@@ -51,6 +53,9 @@ describe('parseAiAgentV2Settings', () => {
     expect(parseAiAgentV2Settings({ model_routing: 'yes' }).ok).toBe(false);
     expect(parseAiAgentV2Settings({ pause_on_agent_reply: 1 }).ok).toBe(false);
     expect(parseAiAgentV2Settings({ guardrail_retry: null }).ok).toBe(false);
+    expect(parseAiAgentV2Settings({ reply_on_all_numbers: 'on' }).ok).toBe(
+      false
+    );
   });
 
   it('bounds auto_resume_minutes to 5..10080 whole minutes, or null', () => {
