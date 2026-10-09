@@ -6,6 +6,7 @@
  * `authenticated` no INSERT on ts_decision_log).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { PartnerBanksSetting } from './admin-types';
 import type { AccountSwitches, CheckName } from './config';
 
 export interface PolicyRow {
@@ -62,6 +63,10 @@ export interface SwitchesRow {
   passages: boolean;
   watch_human_threads: boolean;
   languages: string;
+  /** Migration 078; NULL = the built-in list. Not selected by
+   *  accountSwitches yet, so absent until a read selects it. Read it
+   *  through parsePartnerBanks: the CHECK holds only the envelope. */
+  partner_banks?: PartnerBanksSetting | null;
 }
 
 export function switchesFromRow(r: SwitchesRow): AccountSwitches {

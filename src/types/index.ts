@@ -270,6 +270,12 @@ export interface Conversation {
   ai_last_outcome?: AiDispatchOutcome | null;
   ai_last_outcome_detail?: string | null;
   ai_last_outcome_at?: string | null;
+  /**
+   * Migration 078: the bot handed this chat to a person and nobody has
+   * acted yet; the inbox pins it as Important. A person's reply clears
+   * it (the messages trigger, whatever the AI config says).
+   */
+  ai_attention_at?: string | null;
 }
 
 // ============================================================

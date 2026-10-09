@@ -2,9 +2,9 @@
  * The contract between the Settings → AI safety checks panel and its API
  * routes (`/api/typesafe/settings`, `/api/typesafe/activity`).
  *
- * Types only, and no imports: the panel is a client component, and this
- * file must never pull server code (the SDK, node:crypto) into a browser
- * bundle.
+ * Types and import-free pure helpers only: the panel is a client
+ * component, and this file must never pull server code (the SDK,
+ * node:crypto) into a browser bundle.
  */
 
 /** Monitor only: decisions are logged, never acted on. Live: they act. */
@@ -157,4 +157,82 @@ export interface TsActivityResponse {
   /** Opaque cursor: pass as ?before= for the next page; null when there
    *  is none. */
   nextBefore: string | null;
+}
+
+/**
+ * An account's own partner banks (ts_account_settings.partner_banks,
+ * migration 078). `codes` names banks of the built-in catalogue
+ * (lib/typesafe/banks.ts, e.g. MASHREQ, FAB); `custom` adds banks the
+ * catalogue does not know, with the spellings customers use. A row's
+ * NULL means the built-in partner list.
+ */
+export interface PartnerBanksSetting {
+  codes: string[];
+  custom: { name: string; aliases: string[] }[];
+}
+
+export const PARTNER_BANKS_LIMITS = {
+  /** Also bounds `codes`: the catalogue has a few dozen banks, so the
+   *  cap only stops garbage. */
+  customBanks: 50,
+  aliasesPerBank: 10,
+  chars: 80,
+} as const;
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Trimmed and cut to PARTNER_BANKS_LIMITS.chars; null when blank. */
+function cleanText(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().slice(0, PARTNER_BANKS_LIMITS.chars).trim();
+  return t || null;
+}
+
+/** Cleaned strings, case-insensitively distinct (first kept), up to `max`. */
+function cleanList(
+  v: unknown,
+  max: number,
+  map: (s: string) => string = (s) => s
+): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of v) {
+    if (out.length >= max) break;
+    const t = cleanText(item);
+    if (t === null) continue;
+    const value = map(t);
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+/**
+ * Reads a stored or submitted `partner_banks` value. Tolerant inside the
+ * envelope: non-string or blank codes and aliases and custom banks
+ * without a name are dropped, duplicates collapse, codes are uppercased,
+ * text is trimmed and cut to 80 characters, and the lists are capped at
+ * 50 custom banks (and 50 codes) and 10 aliases per bank. Returns null —
+ * the built-in list — when the envelope itself is wrong: not an object,
+ * or no `codes` array (the shape migration 078's CHECK enforces).
+ */
+export function parsePartnerBanks(raw: unknown): PartnerBanksSetting | null {
+  if (!isRecord(raw) || !Array.isArray(raw.codes)) return null;
+  const { customBanks, aliasesPerBank } = PARTNER_BANKS_LIMITS;
+  const codes = cleanList(raw.codes, customBanks, (s) => s.toUpperCase());
+  const custom: PartnerBanksSetting['custom'] = [];
+  const seen = new Set<string>();
+  for (const entry of Array.isArray(raw.custom) ? raw.custom : []) {
+    if (custom.length >= customBanks) break;
+    if (!isRecord(entry)) continue;
+    const name = cleanText(entry.name);
+    if (name === null || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    custom.push({ name, aliases: cleanList(entry.aliases, aliasesPerBank) });
+  }
+  return { codes, custom };
 }

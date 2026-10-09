@@ -5,6 +5,7 @@
  * either.
  */
 import type {
+  PartnerBanksSetting,
   TsAccountSettings,
   TsCheck,
   TsPolicyInfo,
@@ -42,6 +43,10 @@ export interface SettingsRow {
   passages: boolean;
   watch_human_threads: boolean;
   languages: string;
+  /** Migration 078; NULL = the built-in list. Not in SETTINGS_COLUMNS
+   *  yet, so absent until a read selects it. Read it through
+   *  parsePartnerBanks: the CHECK holds only the envelope. */
+  partner_banks?: PartnerBanksSetting | null;
   updated_at: string | null;
   updated_by: string | null;
 }
