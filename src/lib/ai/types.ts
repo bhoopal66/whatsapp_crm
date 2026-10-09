@@ -55,6 +55,30 @@ export interface AiConfig {
    * the customer hears nothing until an agent replies. Null = silent.
    */
   handoffMessage: string | null;
+  /**
+   * Cheap tier for greetings and small talk (migration 077). Null = use
+   * `model`, which is the standard tier.
+   */
+  modelSmall: string | null;
+  /**
+   * Premium tier for complex, sensitive or high-value messages. Null =
+   * use `model`.
+   */
+  modelLarge: string | null;
+  /** Pick a tier per message; false = every message uses `model`. */
+  modelRouting: boolean;
+  /** A person's reply in a chat pauses the bot there (a DB trigger). */
+  pauseOnAgentReply: boolean;
+  /**
+   * Minutes after the last agent reply before an `agent_reply` pause
+   * lifts; null = never auto-resume.
+   */
+  autoResumeMinutes: number | null;
+  /**
+   * When TypeSafe holds a draft, rewrite it once with the large model
+   * before a person has to review it.
+   */
+  guardrailRetry: boolean;
 }
 
 /** A single conversation turn in the shape both providers accept. */

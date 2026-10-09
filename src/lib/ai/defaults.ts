@@ -16,6 +16,19 @@ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
 };
 
 /**
+ * Default cheap (`small`) and premium (`large`) tier models per
+ * provider — the same ids migration 077 backfilled. The standard tier
+ * is the config's own `model`. Starting points only, like the above.
+ */
+export const AI_TIER_DEFAULT_MODELS: Record<
+  AiProvider,
+  { small: string; large: string }
+> = {
+  openai: { small: 'gpt-5.4-nano', large: 'gpt-5.5' },
+  anthropic: { small: 'claude-haiku-5-5', large: 'claude-opus-5-5' },
+};
+
+/**
  * Sentinel the model is instructed to emit (in auto-reply mode) when it
  * can't confidently help and a human should take over. Parsed and
  * stripped by `generateReply`.

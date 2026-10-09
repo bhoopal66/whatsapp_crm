@@ -78,6 +78,12 @@ export async function POST(request: Request) {
         retrievalMinScore: null,
         strictGrounding: false,
         handoffMessage: null,
+        modelSmall: null,
+        modelLarge: null,
+        modelRouting: false,
+        pauseOnAgentReply: true,
+        autoResumeMinutes: null,
+        guardrailRetry: true,
       })
     } catch (err) {
       if (err instanceof AiError) {

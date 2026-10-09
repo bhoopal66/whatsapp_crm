@@ -1,6 +1,7 @@
 import type { SharedContact } from '@/lib/whatsapp/contact-card';
 import type { AccountRole } from '@/lib/auth/roles';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
+import type { AiDispatchOutcome, AiPausedReason } from '@/lib/ai/outcomes';
 
 export type {
   InteractiveMessagePayload,
@@ -255,6 +256,20 @@ export interface Conversation {
    */
   chat_tag_id?: string | null;
   chat_sub_tag_id?: string | null;
+  /**
+   * AI agent v2 (migration 077). `ai_paused_reason` says why
+   * `ai_autoreply_disabled` is set; a person's reply pauses with
+   * `agent_reply` and refreshes `ai_paused_at`. `ai_pending_draft` is a
+   * bot draft TypeSafe held for a person to send, edit or discard.
+   * `ai_last_outcome` is the last auto-reply dispatch result.
+   */
+  ai_paused_reason?: AiPausedReason | null;
+  ai_paused_at?: string | null;
+  ai_pending_draft?: string | null;
+  ai_pending_draft_at?: string | null;
+  ai_last_outcome?: AiDispatchOutcome | null;
+  ai_last_outcome_detail?: string | null;
+  ai_last_outcome_at?: string | null;
 }
 
 // ============================================================

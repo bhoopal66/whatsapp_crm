@@ -83,3 +83,52 @@ describe('loadAiConfig gate columns (migration 052)', () => {
     });
   });
 });
+
+describe('loadAiConfig AI agent v2 columns (migration 077)', () => {
+  it('reads a pre-077 database as routing off, no tiers, pause and retry on', async () => {
+    const config = await loadAiConfig(dbReturning(ROW), 'acct', {
+      requireActive: false,
+    });
+    expect(config).toMatchObject({
+      modelSmall: null,
+      modelLarge: null,
+      modelRouting: false,
+      pauseOnAgentReply: true,
+      autoResumeMinutes: null,
+      guardrailRetry: true,
+    });
+  });
+
+  it('maps the columns when present', async () => {
+    const config = await loadAiConfig(
+      dbReturning({
+        ...ROW,
+        model_small: ' gpt-5.4-nano ',
+        model_large: 'gpt-5.5',
+        model_routing: true,
+        pause_on_agent_reply: false,
+        auto_resume_minutes: 240,
+        guardrail_retry: false,
+      }),
+      'acct',
+      { requireActive: false }
+    );
+    expect(config).toMatchObject({
+      modelSmall: 'gpt-5.4-nano',
+      modelLarge: 'gpt-5.5',
+      modelRouting: true,
+      pauseOnAgentReply: false,
+      autoResumeMinutes: 240,
+      guardrailRetry: false,
+    });
+  });
+
+  it('reads a blank tier model as null', async () => {
+    const config = await loadAiConfig(
+      dbReturning({ ...ROW, model_small: '  ', model_large: '' }),
+      'acct',
+      { requireActive: false }
+    );
+    expect(config).toMatchObject({ modelSmall: null, modelLarge: null });
+  });
+});

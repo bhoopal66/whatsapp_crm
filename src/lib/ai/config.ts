@@ -17,10 +17,21 @@ interface AiConfigRow {
   retrieval_min_score: number | null;
   strict_grounding: boolean | null;
   handoff_message: string | null;
+  model_small: string | null;
+  model_large: string | null;
+  model_routing: boolean | null;
+  pause_on_agent_reply: boolean | null;
+  auto_resume_minutes: number | null;
+  guardrail_retry: boolean | null;
+}
+
+/** A tier model id, or null when unset/blank ("use `model`"). */
+function tierModel(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message';
+  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry';
 
 /**
  * Load and decrypt the account's AI config for *use* (draft or
@@ -102,6 +113,18 @@ export async function loadAiConfig(
       typeof row.handoff_message === 'string' && row.handoff_message.trim()
         ? row.handoff_message.trim()
         : null,
+    // AI agent v2 (migration 077). Absent columns (a pre-077 database)
+    // read as: routing off, no tiers, pause on, no auto-resume, retry on.
+    modelSmall: tierModel(row.model_small),
+    modelLarge: tierModel(row.model_large),
+    modelRouting: row.model_routing === true,
+    pauseOnAgentReply: row.pause_on_agent_reply !== false,
+    autoResumeMinutes:
+      typeof row.auto_resume_minutes === 'number' &&
+      Number.isInteger(row.auto_resume_minutes)
+        ? row.auto_resume_minutes
+        : null,
+    guardrailRetry: row.guardrail_retry !== false,
   };
 }
 

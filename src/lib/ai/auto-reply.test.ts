@@ -163,6 +163,12 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
     retrievalMinScore: null,
     strictGrounding: false,
     handoffMessage: null,
+    modelSmall: null,
+    modelLarge: null,
+    modelRouting: false,
+    pauseOnAgentReply: true,
+    autoResumeMinutes: null,
+    guardrailRetry: true,
     ...overrides,
   };
 }

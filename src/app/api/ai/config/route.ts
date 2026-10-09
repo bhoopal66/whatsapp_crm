@@ -6,7 +6,10 @@ import {
 } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
-import { validateAiCredentials } from '@/lib/ai/validate'
+import {
+  parseAiAgentV2Settings,
+  validateAiCredentials,
+} from '@/lib/ai/validate'
 import { embedTexts } from '@/lib/ai/embeddings'
 import { AiError, type AiProvider } from '@/lib/ai/types'
 import { parseEscalationKeywords } from '@/lib/ai/escalation'
@@ -34,7 +37,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, api_key, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -137,6 +140,11 @@ export async function POST(request: Request) {
       gates.handoff_message = trimmed || null
     }
 
+    // AI agent v2 (migration 077): tiers, the pause, the guardrail
+    // retry. Absent → left unchanged on update, like the gates.
+    const v2 = parseAiAgentV2Settings(body as Record<string, unknown>)
+    if (!v2.ok) return bad(v2.error)
+
     // Handoff routing target for auto-reply. A non-empty string must be a
     // member of this account (else the conversation would be assigned to a
     // stranger); an empty string / null means "leave unassigned" (the
@@ -214,6 +222,12 @@ export async function POST(request: Request) {
           retrievalMinScore: null,
           strictGrounding: false,
           handoffMessage: null,
+          modelSmall: null,
+          modelLarge: null,
+          modelRouting: false,
+          pauseOnAgentReply: true,
+          autoResumeMinutes: null,
+          guardrailRetry: true,
         })
       } catch (err) {
         if (err instanceof AiError) {
@@ -254,6 +268,7 @@ export async function POST(request: Request) {
       auto_reply_campaign_only: autoReplyCampaignOnly,
       auto_reply_max_per_conversation: maxPer,
       ...gates,
+      ...v2.values,
     }
     // Only touch the handoff target when the form actually sent the field,
     // so a partial save (e.g. flipping a toggle) doesn't wipe it.
