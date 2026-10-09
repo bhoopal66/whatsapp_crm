@@ -169,7 +169,29 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
     });
   });
 
-  it('send sends the stored draft as the calling agent, then clears it', async () => {
+  it('send claims the draft before sending it', async () => {
+    setup(HELD);
+    const order: string[] = [];
+    mocks.send.mockImplementation(async () => {
+      order.push('send');
+      return { messageId: 'msg-1', whatsappMessageId: 'wamid-out' };
+    });
+    const orig = scoped.from.bind(scoped);
+    scoped.from = (table: string) => {
+      const b = orig(table) as Record<string, (...a: unknown[]) => unknown>;
+      const upd = b.update;
+      b.update = (...args: unknown[]) => {
+        order.push('update');
+        return upd(...args);
+      };
+      return b as ReturnType<typeof orig>;
+    };
+    const res = await post({ action: 'send' });
+    expect(res.status).toBe(200);
+    expect(order).toEqual(['update', 'send']);
+  });
+
+  it('send sends the stored draft as the calling agent', async () => {
     setup(HELD);
     const res = await post({ action: 'send' });
     expect(res.status).toBe(200);
@@ -199,7 +221,7 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
     );
   });
 
-  it('a failed send leaves the draft in place and answers the send error', async () => {
+  it('a failed send restores the draft and answers the send error', async () => {
     setup(HELD);
     mocks.send.mockRejectedValue(
       new SendMessageError('whatsapp_error', 'WhatsApp refused it', 502, true)
@@ -211,13 +233,42 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
       code: 'whatsapp_error',
       retryable: true,
     });
-    expect(updates()).toHaveLength(0);
+    expect(updates()).toEqual([
+      {
+        method: 'update',
+        args: [{ ai_pending_draft: null, ai_pending_draft_at: null }],
+      },
+      {
+        method: 'update',
+        args: [
+          {
+            ai_pending_draft: HELD.ai_pending_draft,
+            ai_pending_draft_at: DRAFT_AT,
+          },
+        ],
+      },
+    ]);
+    // Only where no newer draft has arrived.
+    expect(scoped.calls).toContainEqual({
+      method: 'is',
+      args: ['ai_pending_draft', null],
+    });
   });
 
-  it('reports cleared: false when a newer draft replaced the one read', async () => {
+  it('a lost claim is 409 and sends nothing', async () => {
     setup(HELD, { data: [], error: null });
     const res = await post({ action: 'send' });
-    expect(res.status).toBe(200);
-    expect((await res.json()).cleared).toBe(false);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      'This draft was already sent or discarded.'
+    );
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(updates()).toHaveLength(1);
+  });
+
+  it('a lost claim on discard is 409 too', async () => {
+    setup(HELD, { data: [], error: null });
+    const res = await post({ action: 'discard' });
+    expect(res.status).toBe(409);
   });
 });

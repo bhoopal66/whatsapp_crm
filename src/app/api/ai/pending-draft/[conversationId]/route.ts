@@ -10,11 +10,13 @@
 //               stored draft, through the inbox composer's send core as
 //               the calling agent — it is a person's message now, so
 //               the 077 trigger pauses the bot like any agent reply —
-//               then clear the draft.
+//               after claiming the draft.
 //
-// Both clears are compare-and-set on `ai_pending_draft_at`: a newer
-// draft the bot held in the meantime is a different message, and stays
-// for someone to look at. A failed send leaves the draft in place.
+// The draft is claimed first: a compare-and-set clear on
+// `ai_pending_draft_at`, before anything is sent, so two agents (or a
+// double-click) cannot both send it and the loser gets 409. A newer
+// draft the bot held in the meantime is a different message and is not
+// claimed. A failed send restores the draft (if none replaced it).
 //
 // Everything runs on the caller's RLS client: a chat they cannot see is
 // a 404, and the send core's own checks (role, number allocation) apply.
@@ -93,6 +95,40 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
+    // Claim the draft before acting on it: a compare-and-set clear on the
+    // draft that was read. Two agents (or a double-click) both read it,
+    // but only one clear matches a row, so only one goes on to send. A
+    // NULL `_at` (a draft written without its time) is matched with
+    // IS NULL.
+    let claim = supabase
+      .from('conversations')
+      .update({ ai_pending_draft: null, ai_pending_draft_at: null })
+      .eq('id', conversationId)
+      .eq('account_id', accountId);
+    claim =
+      draftAt === null
+        ? claim.is('ai_pending_draft_at', null)
+        : claim.eq('ai_pending_draft_at', draftAt);
+    const { data: claimed, error: claimErr } = await claim.select('id');
+    if (claimErr) {
+      console.error('[ai/pending-draft] claim error:', claimErr);
+      return NextResponse.json(
+        {
+          error:
+            action === 'send'
+              ? 'Failed to send the draft'
+              : 'Failed to discard the draft',
+        },
+        { status: 500 }
+      );
+    }
+    if (!Array.isArray(claimed) || claimed.length === 0) {
+      return NextResponse.json(
+        { error: 'This draft was already sent or discarded.' },
+        { status: 409 }
+      );
+    }
+
     let sent: { messageId: string; whatsappMessageId: string } | null = null;
     if (action === 'send') {
       try {
@@ -103,6 +139,18 @@ export async function POST(request: Request, { params }: Params) {
           senderUserId: userId,
         });
       } catch (err) {
+        // Put the draft back so the agent can retry, but only if the bot
+        // has not held a newer one in the meantime.
+        const { error: restoreErr } = await supabase
+          .from('conversations')
+          .update({ ai_pending_draft: draft, ai_pending_draft_at: draftAt })
+          .eq('id', conversationId)
+          .eq('account_id', accountId)
+          .is('ai_pending_draft', null)
+          .select('id');
+        if (restoreErr) {
+          console.error('[ai/pending-draft] restore error:', restoreErr);
+        }
         if (err instanceof SendMessageError) {
           return NextResponse.json(
             { error: err.message, code: err.code, retryable: err.definite },
@@ -113,34 +161,11 @@ export async function POST(request: Request, { params }: Params) {
       }
     }
 
-    // Clear only the draft that was read. A NULL `_at` (a draft written
-    // without its time) is matched with IS NULL.
-    let clear = supabase
-      .from('conversations')
-      .update({ ai_pending_draft: null, ai_pending_draft_at: null })
-      .eq('id', conversationId)
-      .eq('account_id', accountId);
-    clear =
-      draftAt === null
-        ? clear.is('ai_pending_draft_at', null)
-        : clear.eq('ai_pending_draft_at', draftAt);
-    const { data: cleared, error: clearErr } = await clear.select('id');
-    if (clearErr) {
-      // After a send the message is out; say so rather than failing it.
-      console.error('[ai/pending-draft] clear error:', clearErr);
-      if (!sent) {
-        return NextResponse.json(
-          { error: 'Failed to discard the draft' },
-          { status: 500 }
-        );
-      }
-    }
-
     return NextResponse.json({
       success: true,
       action,
-      // False when a newer draft replaced this one meanwhile (it stays).
-      cleared: !clearErr && Array.isArray(cleared) && cleared.length > 0,
+      // Always true now: a lost claim is a 409. Kept for the banner.
+      cleared: true,
       ...(sent
         ? {
             message_id: sent.messageId,
