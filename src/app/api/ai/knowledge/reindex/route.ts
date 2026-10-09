@@ -44,7 +44,7 @@ export async function POST() {
           success: false,
           reindexed: 0,
           error:
-            'Your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key in Settings → AI Assistant). Nothing was reindexed.',
+            'Your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key in AI Agents → Assistant). Nothing was reindexed.',
         },
         { status: 200 },
       )
