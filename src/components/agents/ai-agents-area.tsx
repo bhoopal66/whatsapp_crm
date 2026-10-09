@@ -33,6 +33,7 @@ import { canEditSettings } from '@/lib/auth/roles';
 import { FORM_TABS, type AgentTab } from '@/lib/ai/agent-tabs';
 import {
   autoReplyDot,
+  autoReplyScopeMessage,
   partnerBankCount,
   safetyDot,
   summariseAgentOverview,
@@ -432,13 +433,13 @@ function OverviewTab({
   }, [accountId]);
 
   const onOff = (on: boolean) => (on ? t('overview.on') : t('overview.off'));
-  const scope = overview.autoReply.scope;
+  // Worded by the pure helper so a no-route account is never described
+  // as pinned to one number (it answers on every number of that type).
+  const scopeMessage = autoReplyScopeMessage(overview.autoReply.scope);
   const scopeText =
-    scope.kind === 'all'
-      ? t('overview.everyNumber')
-      : scope.name === null
-        ? t('overview.onlyOnDefault')
-        : t('overview.onlyOn', { name: scope.name });
+    'values' in scopeMessage
+      ? t(scopeMessage.key, scopeMessage.values)
+      : t(scopeMessage.key);
 
   return (
     <div className="space-y-6">
