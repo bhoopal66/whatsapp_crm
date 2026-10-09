@@ -8,6 +8,8 @@ import {
   SETTINGS_SECTIONS,
   agentsRedirectHref,
   canOpenSection,
+  inAppLeaveTarget,
+  leavesAiArea,
   resolveSettingsLocation,
   resolveSettingsTab,
   sectionsOf,
@@ -269,5 +271,75 @@ describe('tab labels', () => {
         `missing Settings.categories.${category}`
       ).toBeTruthy();
     }
+  });
+});
+
+// Unsaved AI edits live only while the AI Agents area is mounted, so
+// these two decide when the Settings page asks before navigating.
+describe('leavesAiArea', () => {
+  it('is true when the section goes from ai to anything else', () => {
+    expect(leavesAiArea('ai', 'profile')).toBe(true);
+    expect(leavesAiArea('ai-assistant', 'overview')).toBe(true);
+    expect(leavesAiArea('ai-safety', 'api')).toBe(true);
+    expect(leavesAiArea('ai', null)).toBe(true);
+  });
+
+  it('is false between AI Agents tabs', () => {
+    expect(leavesAiArea('ai', 'ai-assistant')).toBe(false);
+    expect(leavesAiArea('ai-assistant', 'ai-auto-reply')).toBe(false);
+    expect(leavesAiArea('ai-safety', 'ai')).toBe(false);
+  });
+
+  it('is false when not starting in AI Agents', () => {
+    expect(leavesAiArea('profile', 'members')).toBe(false);
+    expect(leavesAiArea('routing', 'ai-auto-reply')).toBe(false);
+    expect(leavesAiArea(null, 'whatsapp')).toBe(false);
+  });
+});
+
+describe('inAppLeaveTarget', () => {
+  const origin = 'https://crm.example.com';
+
+  it('treats same-origin paths as leaving', () => {
+    expect(inAppLeaveTarget('/inbox', origin)).toBe('/inbox');
+    expect(inAppLeaveTarget('/contacts?q=a#top', origin)).toBe(
+      '/contacts?q=a#top'
+    );
+    expect(inAppLeaveTarget(`${origin}/pipelines`, origin)).toBe('/pipelines');
+  });
+
+  it('treats other Settings sections as leaving', () => {
+    expect(inAppLeaveTarget('/settings?tab=whatsapp', origin)).toBe(
+      '/settings?tab=whatsapp'
+    );
+    expect(inAppLeaveTarget('/settings', origin)).toBe('/settings');
+  });
+
+  it('treats /agents as leaving (a fresh mount drops the edits)', () => {
+    expect(inAppLeaveTarget('/agents', origin)).toBe('/agents');
+    expect(inAppLeaveTarget('/agents?tab=safety', origin)).toBe(
+      '/agents?tab=safety'
+    );
+  });
+
+  it('stays for AI Agents tabs', () => {
+    expect(inAppLeaveTarget('/settings?tab=ai', origin)).toBeNull();
+    expect(inAppLeaveTarget('/settings?tab=ai-safety', origin)).toBeNull();
+    expect(
+      inAppLeaveTarget(`${origin}/settings?tab=ai-assistant`, origin)
+    ).toBeNull();
+  });
+
+  it('ignores other origins and non-http schemes', () => {
+    expect(inAppLeaveTarget('https://other.example.com/', origin)).toBeNull();
+    expect(inAppLeaveTarget('http://crm.example.com/inbox', origin)).toBeNull();
+    expect(inAppLeaveTarget('mailto:help@example.com', origin)).toBeNull();
+    expect(inAppLeaveTarget('tel:+971500000000', origin)).toBeNull();
+  });
+
+  it('ignores hash-only and empty links', () => {
+    expect(inAppLeaveTarget('#section', origin)).toBeNull();
+    expect(inAppLeaveTarget('#', origin)).toBeNull();
+    expect(inAppLeaveTarget('', origin)).toBeNull();
   });
 });

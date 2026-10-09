@@ -92,9 +92,13 @@ function Dot({ dot, label }: { dot: StatusDot; label: string }) {
 export function AiAgentsArea({
   tab,
   onTabChange,
+  onDirtyChange,
 }: {
   tab: AgentTab;
   onTabChange: (t: AgentTab) => void;
+  /** Unsaved edits the caller would drop by unmounting this area.
+   *  Reported false again on unmount. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const t = useTranslations('AiAgents');
   const tSafety = useTranslations('Settings.aiSafety');
@@ -163,6 +167,14 @@ export function AiAgentsArea({
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [form.dirty]);
+
+  // In-app navigation unmounts this area without a beforeunload, so
+  // the host asks before leaving. Only edits that could be saved count.
+  const unsaved = form.dirty && form.canEdit;
+  useEffect(() => {
+    onDirtyChange?.(unsaved);
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange, unsaved]);
 
   const overview = summariseAgentOverview({
     configured: form.configured,

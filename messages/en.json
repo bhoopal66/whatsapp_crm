@@ -1473,6 +1473,12 @@
   "Settings": {
     "pageTitle": "Settings",
     "pageDesc": "Everything in one place — your account and your workspace. Pick a section to manage it.",
+    "leaveGuard": {
+      "title": "Leave without saving?",
+      "body": "You have unsaved changes in AI Agents. They will be lost.",
+      "stay": "Stay",
+      "leave": "Leave"
+    },
     "overview": {
       "notSetup": "Not set up yet",
       "connected": "Connected",

@@ -1,15 +1,18 @@
 'use client';
 
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import dynamic from 'next/dynamic';
 
 import { useAuth } from '@/hooks/use-auth';
 import { SettingsTabs } from '@/components/settings/settings-tabs';
 import { SettingsOverview } from '@/components/settings/settings-overview';
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import {
   aiTabParam,
+  inAppLeaveTarget,
+  leavesAiArea,
   resolveSettingsLocation,
   settingsParamsFor,
   visibleCategories,
@@ -174,14 +177,64 @@ function SettingsPageInner() {
   // the tabs then "do nothing at all" on every click. Next keeps
   // `useSearchParams` in sync with `history.replaceState`, so this
   // re-renders the new tab instantly with no request.
-  const go = (nextTab: string) => {
+  const switchTab = (nextTab: string) => {
     const params = settingsParamsFor(searchParams.toString(), nextTab);
     window.history.replaceState(null, '', `/settings?${params.toString()}`);
+  };
+
+  // Unsaved AI edits live in the AI Agents area and die with it, and an
+  // in-app move (a tab here, a sidebar link) fires no beforeunload. So
+  // every way out of the area asks first while it reports edits.
+  const router = useRouter();
+  const [aiDirty, setAiDirty] = useState(false);
+  const [leaving, setLeaving] = useState<
+    { tab: string } | { href: string } | null
+  >(null);
+
+  const go = (nextTab: string) => {
+    if (aiDirty && leavesAiArea(searchParams.get('tab'), nextTab)) {
+      setLeaving({ tab: nextTab });
+      return;
+    }
+    switchTab(nextTab);
   };
   const goCategory = (next: SettingsCategory) => {
     const first = categories.find((c) => c.id === next)?.sections[0];
     if (first) go(first);
   };
+  const confirmLeave = () => {
+    const target = leaving;
+    setLeaving(null);
+    if (!target) return;
+    if ('tab' in target) switchTab(target.tab);
+    else router.push(target.href);
+  };
+
+  // Links anywhere on the page (sidebar, header, account menu). Capture
+  // phase on the document runs before React's root listener, and Next's
+  // <Link> skips navigating a click that is already defaultPrevented.
+  useEffect(() => {
+    if (!aiDirty) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor =
+        e.target instanceof Element ? e.target.closest('a[href]') : null;
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.hasAttribute('download')) return;
+      const target = anchor.getAttribute('target');
+      if (target && target !== '_self') return;
+      const href = inAppLeaveTarget(
+        anchor.getAttribute('href') ?? '',
+        window.location.origin
+      );
+      if (!href) return;
+      e.preventDefault();
+      setLeaving({ href });
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [aiDirty]);
 
   const panel: Record<SettingsSection, ReactNode> = {
     overview: <SettingsOverview onSelect={go} />,
@@ -212,6 +265,7 @@ function SettingsPageInner() {
       <SettingsAiAgents
         agentTab={agentTab}
         onTabChange={(next) => go(aiTabParam(next))}
+        onDirtyChange={setAiDirty}
       />
     ),
   };
@@ -241,6 +295,19 @@ function SettingsPageInner() {
         />
       </div>
       <div className="mt-5 min-w-0">{panel[section]}</div>
+
+      <ConfirmDialog
+        open={leaving !== null}
+        onOpenChange={(open) => {
+          if (!open) setLeaving(null);
+        }}
+        title={t('leaveGuard.title')}
+        description={t('leaveGuard.body')}
+        cancelLabel={t('leaveGuard.stay')}
+        confirmLabel={t('leaveGuard.leave')}
+        onConfirm={confirmLeave}
+        destructive
+      />
     </div>
   );
 }
@@ -253,9 +320,11 @@ function SettingsPageInner() {
 function SettingsAiAgents({
   agentTab,
   onTabChange,
+  onDirtyChange,
 }: {
   agentTab: string | null;
   onTabChange: (t: AgentTab) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const { accountRole, accountId } = useAuth();
   const canViewUsage = accountRole ? canEditSettings(accountRole) : false;
@@ -290,5 +359,11 @@ function SettingsAiAgents({
     configured: configured.value,
     canViewUsage,
   });
-  return <AiAgentsArea tab={tab} onTabChange={onTabChange} />;
+  return (
+    <AiAgentsArea
+      tab={tab}
+      onTabChange={onTabChange}
+      onDirtyChange={onDirtyChange}
+    />
+  );
 }

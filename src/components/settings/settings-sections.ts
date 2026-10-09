@@ -294,6 +294,49 @@ export function settingsParamsFor(
   return params;
 }
 
+/**
+ * Does switching `?tab=` from `currentTab` to `nextTab` unmount the AI
+ * Agents area? Its unsaved form lives only while the area is on
+ * screen, so moving between its own tabs is safe and anything else
+ * drops the edits.
+ */
+export function leavesAiArea(
+  currentTab: string | null,
+  nextTab: string | null
+): boolean {
+  return (
+    resolveSettingsTab(currentTab).section === 'ai' &&
+    resolveSettingsTab(nextTab).section !== 'ai'
+  );
+}
+
+/**
+ * Where an in-app link (`href` as written on the anchor) would take the
+ * user away from the AI Agents area, as a path to `router.push`; null
+ * when it would not. Other origins and non-http schemes are left to the
+ * browser (`beforeunload` covers a full page load), a hash-only link
+ * stays on the page, and `/settings?tab=ai…` stays in the area. Every
+ * other same-origin path leaves — `/agents` included: it redirects back
+ * here, but as a fresh mount with the edits gone.
+ */
+export function inAppLeaveTarget(href: string, origin: string): string | null {
+  if (!href || href.startsWith('#')) return null;
+  let url: URL;
+  try {
+    url = new URL(href, origin);
+  } catch {
+    return null;
+  }
+  if (url.origin !== origin) return null;
+  if (
+    url.pathname === '/settings' &&
+    resolveSettingsTab(url.searchParams.get('tab')).section === 'ai'
+  ) {
+    return null;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 /** Where `/agents?tab=<x>` now lives. */
 export function agentsRedirectHref(tab: string | string[] | undefined): string {
   const raw = Array.isArray(tab) ? tab[0] : tab;
