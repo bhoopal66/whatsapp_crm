@@ -538,7 +538,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       ai_handoff_reason: 'cap',
     });
     expect(h.state.updatePayload?.ai_handoff_summary).toContain(
-      'reply cap reached (3 of 3)'
+      'the AI reached its reply limit for this chat (3 of 3).'
     );
   });
 
@@ -642,7 +642,7 @@ describe('dispatchInboundToAiReply — handoff', () => {
       ai_autoreply_disabled: true,
     });
     expect(h.state.updatePayload?.ai_handoff_summary).toContain(
-      'AI agent handed off'
+      '🤖 AI needs a person'
     );
     // No handoff target configured → conversation left unassigned.
     expect(h.state.updatePayload).not.toHaveProperty('assigned_agent_id');
@@ -829,7 +829,7 @@ describe('dispatchInboundToAiReply — the message each dispatch judges (063 rev
       ai_autoreply_disabled: true,
     });
     expect(h.state.updatePayload!.ai_handoff_summary).toContain(
-      'The model had also asked for a person.'
+      'The AI was also unsure and asked for a person.'
     );
   });
 });
@@ -2020,7 +2020,7 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
     expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
     expect(h.state.updatePayload!.ai_handoff_summary).toContain(
-      'The model had also asked for a person.'
+      'The AI was also unsure and asked for a person.'
     );
     expect(lastOutcome()).toBe('held_for_review');
   });

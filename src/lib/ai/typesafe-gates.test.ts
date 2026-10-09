@@ -39,6 +39,7 @@ vi.mock('@/lib/typesafe', async (importOriginal) => ({
 
 import { createDecisionLayer } from '@/lib/typesafe';
 import {
+  guardrailDetail,
   guardrailFeedback,
   guardrailWhenConfigInvalid,
   runGuardrailGate,
@@ -503,6 +504,25 @@ describe('runGuardrailGate', () => {
     );
   });
 
+  it('says in plain words which bank a blocked draft named and what to do', async () => {
+    useLayer({ sim: makeSim() });
+    const draft = "I don't have confirmed information on FAB's charges.";
+    const r = await runGuardrailGate(REF, {
+      customerMessage: 'Hi',
+      botReply: draft,
+      evidence,
+    });
+    expect(r.outcome).not.toBe('send');
+    const detail = r.outcome !== 'send' ? r.detail : '';
+    expect(detail).toMatch(
+      /^the safety check (blocked|held) the draft reply because the draft named a bank that is not on your partner list \(FAB\)\. Add it in Settings → AI safety checks → Partner banks if you work with it\./
+    );
+    // The codes stay, in parentheses, for support; the draft is quoted.
+    expect(detail).toContain('(code');
+    expect(detail).toContain('CODE_NON_PARTNER_BANK');
+    expect(detail).toContain(`Draft: “${draft}”`);
+  });
+
   it('holds a figure the evidence does not contain, even with TypeSafe down', async () => {
     useLayer({ sim: makeSim(() => ({ status: 500 })) });
     const r = await runGuardrailGate(REF, {
@@ -927,5 +947,43 @@ describe('turnsBefore', () => {
   it('takes the longest run that joins to the message', () => {
     const msgs = [a('Hello!'), u('ok'), u('ok')];
     expect(turnsBefore(msgs, 'ok\nok')).toEqual([a('Hello!')]);
+  });
+});
+
+describe('guardrailDetail (the hand-off note, in plain words)', () => {
+  it('turns each hazard into a sentence once, codes last, then the draft', () => {
+    const d = guardrailDetail(
+      'block',
+      [
+        'PROMISES_APPROVAL_BLOCK',
+        'CODE_UNSUPPORTED_FIGURE',
+        'SEVERITY_UPGRADE',
+      ],
+      'Approved! Fee is AED 9.'
+    );
+    expect(d).toBe(
+      'the safety check blocked the draft reply because the draft promised or implied an approval, which only the bank can decide. Also, the draft quoted a figure (a fee, rate, amount or time) that is not in your knowledge base or instructions. (codes: PROMISES_APPROVAL_BLOCK, CODE_UNSUPPORTED_FIGURE, SEVERITY_UPGRADE) Draft: “Approved! Fee is AED 9.”'
+    );
+  });
+
+  it('names every non-partner bank the draft named, and none of the partners', () => {
+    expect(
+      guardrailDetail(
+        'hold',
+        ['NON_PARTNER_BANK_REVIEW'],
+        'Unlike Mashreq, ADCB and FAB charge a fee.'
+      )
+    ).toContain(
+      'the draft named banks that are not on your partner list (FAB, ADCB). Add them in Settings → AI safety checks → Partner banks if you work with them.'
+    );
+  });
+
+  it('explains a hold TypeSafe could not judge, without a raw code up front', () => {
+    expect(guardrailDetail('hold', ['SETTINGS_LOAD'], 'Hello')).toBe(
+      "the safety check held the draft reply because this account's AI safety settings could not be read, so the draft could not be checked. (code: SETTINGS_LOAD) Draft: “Hello”"
+    );
+    expect(guardrailDetail('hold', [], 'Hello')).toBe(
+      'the safety check held the draft reply. Draft: “Hello”'
+    );
   });
 });

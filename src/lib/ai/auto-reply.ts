@@ -13,6 +13,7 @@ import {
 import {
   buildHandoffSummary,
   describeHandoffReason,
+  upperFirst,
   type AiHandoffReason,
 } from './handoff';
 import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
@@ -652,8 +653,9 @@ export async function dispatchInboundToAiReply(
           conversationId,
           contactId,
           recipientId: conv.assigned_agent_id ?? null,
-          reasonClause:
-            reasonText?.trim() || describeHandoffReason(reason, detail),
+          reasonClause: upperFirst(
+            reasonText?.trim() || describeHandoffReason(reason, detail)
+          ),
         });
       }
       await record(outcome, detail ? `${reason}: ${detail}` : reason);
@@ -997,7 +999,7 @@ export async function dispatchInboundToAiReply(
       // (paused, assigned, the note quoting the draft), including when
       // TypeSafe was unreachable: the operator's fail mode chose "hold".
       const guardDetail = handoff
-        ? `${screened.detail} The model had also asked for a person.`
+        ? `${screened.detail} The AI was also unsure and asked for a person.`
         : screened.detail;
       if (screened.outcome === 'block') {
         // A blocked draft (asks for a secret, shares someone else's data)
@@ -1091,7 +1093,7 @@ export async function dispatchInboundToAiReply(
         'error',
         detail,
         null,
-        `Reason: ${detail.slice(0, 200)}.`,
+        `${detail.slice(0, 200)}.`,
         'error'
       );
     }

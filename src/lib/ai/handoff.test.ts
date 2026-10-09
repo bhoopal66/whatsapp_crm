@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildHandoffSummary } from './handoff';
+import {
+  buildHandoffSummary,
+  describeHandoffReason,
+  upperFirst,
+} from './handoff';
 
 describe('buildHandoffSummary', () => {
   it('notes the reply count and quotes the last customer message', () => {
@@ -12,7 +16,7 @@ describe('buildHandoffSummary', () => {
       replyCount: 2,
     });
     expect(summary).toBe(
-      '🤖 AI agent handed off after 2 replies. Last customer message: “I want a refund”'
+      '🤖 AI needs a person after 2 replies. Last customer message: “I want a refund”'
     );
   });
 
@@ -24,12 +28,12 @@ describe('buildHandoffSummary', () => {
     expect(summary).toContain('after 1 reply.');
   });
 
-  it('says "without replying" when the bot bailed on the first inbound', () => {
+  it('says "before replying" when the bot bailed on the first inbound', () => {
     const summary = buildHandoffSummary({
       messages: [{ role: 'user', content: 'agent please' }],
       replyCount: 0,
     });
-    expect(summary).toContain('handed off without replying.');
+    expect(summary).toContain('AI needs a person before replying.');
     expect(summary).toContain('“agent please”');
   });
 
@@ -61,7 +65,7 @@ describe('buildHandoffSummary', () => {
       messages: [{ role: 'assistant', content: 'greeting' }],
       replyCount: 0,
     });
-    expect(summary).toBe('🤖 AI agent handed off without replying.');
+    expect(summary).toBe('🤖 AI needs a person before replying.');
   });
 });
 
@@ -76,7 +80,7 @@ describe('buildHandoffSummary — reason clause (migration 052)', () => {
       detail: 'refund',
     });
     expect(s).toBe(
-      '🤖 AI agent handed off without replying. Reason: escalation keyword “refund”. Last customer message: “I want a refund”'
+      "🤖 AI needs a person before replying: the customer's message matched the escalation keyword “refund”. Last customer message: “I want a refund”"
     );
   });
 
@@ -88,7 +92,7 @@ describe('buildHandoffSummary — reason clause (migration 052)', () => {
       detail: 'best similarity 0.21 < 0.40',
     });
     expect(s).toContain(
-      'Reason: no knowledge-base match (best similarity 0.21 < 0.40).'
+      'the knowledge base has nothing close enough to answer from (best similarity 0.21 < 0.40).'
     );
   });
 
@@ -99,13 +103,15 @@ describe('buildHandoffSummary — reason clause (migration 052)', () => {
       reason: 'error',
       detail: 'x'.repeat(300),
     });
-    expect(s).toContain('Reason: AI provider error (');
+    expect(s).toContain('the AI provider failed (');
     expect(s.length).toBeLessThan(300);
   });
 
   it('says the model asked when the reason is model', () => {
     const s = buildHandoffSummary({ messages, replyCount: 2, reason: 'model' });
-    expect(s).toContain('Reason: the model asked for a human.');
+    expect(s).toContain(
+      'after 2 replies: the AI was unsure and asked for a person.'
+    );
   });
 
   it('lets reasonText replace the clause the reason code would give', () => {
@@ -117,7 +123,7 @@ describe('buildHandoffSummary — reason clause (migration 052)', () => {
       reasonText: 'Reason: WhatsApp did not deliver the last bot reply.',
     });
     expect(s).toContain('Reason: WhatsApp did not deliver the last bot reply.');
-    expect(s).not.toContain('AI provider error');
+    expect(s).not.toContain('AI provider failed');
   });
 
   it('ignores a blank reasonText', () => {
@@ -127,6 +133,27 @@ describe('buildHandoffSummary — reason clause (migration 052)', () => {
       reason: 'error',
       reasonText: '  ',
     });
-    expect(s).toContain('Reason: AI provider error.');
+    expect(s).toContain('before replying: the AI provider failed.');
+  });
+});
+
+describe('buildHandoffSummary — a note a person can act on', () => {
+  it('leads with "AI needs a person" and the guardrail sentence, then the customer', () => {
+    const s = buildHandoffSummary({
+      messages: [{ role: 'user', content: 'Hi' }],
+      replyCount: 0,
+      reason: 'guardrail',
+      detail:
+        'the safety check blocked the draft reply because the draft named a bank that is not on your partner list (FAB). (code: CODE_NON_PARTNER_BANK) Draft: “FAB…” The AI was also unsure and asked for a person.',
+    });
+    expect(s).toBe(
+      '🤖 AI needs a person before replying: the safety check blocked the draft reply because the draft named a bank that is not on your partner list (FAB). (code: CODE_NON_PARTNER_BANK) Draft: “FAB…” The AI was also unsure and asked for a person. Last customer message: “Hi”'
+    );
+  });
+
+  it('upperFirst makes a reason stand alone (the bell)', () => {
+    expect(upperFirst(describeHandoffReason('model'))).toBe(
+      'The AI was unsure and asked for a person.'
+    );
   });
 });

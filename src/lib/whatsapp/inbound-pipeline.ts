@@ -367,7 +367,7 @@ async function handOffUndeliveredBotReply(
       ),
       replyCount: conv.ai_reply_count ?? 0,
       reason: 'error',
-      reasonText: `Reason: WhatsApp did not deliver the bot's last reply — ${why}`,
+      reasonText: `WhatsApp did not deliver the bot's last reply — ${why}`,
     });
 
     let write = db

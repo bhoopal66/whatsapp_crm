@@ -151,9 +151,9 @@ answers only on its own number.
 - **Flows → the flow → Runs** — campaign-started runs are logged with
   `trigger_type: campaign` and the broadcast id; every AI fallback is a
   `fallback_fired` event with `action: ai` and the agent's outcome.
-- **The conversation** — the handoff note (`🤖 AI agent handed off …
-  Reason: …`) and, under Settings → AI, the unanswered questions the
-  retrieval gate logged.
+- **The conversation** — the handoff note (`🤖 AI needs a person …: …`
+  — what happened and what to do, in plain words) and, under Settings →
+  AI, the unanswered questions the retrieval gate logged.
 
 ## Limits
 
