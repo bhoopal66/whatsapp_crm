@@ -8,7 +8,6 @@ import {
 } from '@/lib/rate-limit';
 import { getDecisionLayer } from '@/lib/typesafe';
 import {
-  SETTINGS_COLUMNS,
   actsLive,
   parseSettingsUpdate,
   rowFromUpdate,
@@ -17,16 +16,29 @@ import {
   type ActivePolicyRow,
   type SettingsRow,
 } from '@/lib/typesafe/admin';
-import type {
-  TsSettingsConflict,
-  TsSettingsResponse,
+import {
+  parsePartnerBanks,
+  type PartnerBanksSetting,
+  type TsSettingsConflict,
+  type TsSettingsResponse,
 } from '@/lib/typesafe/admin-types';
+import {
+  bankCatalogue,
+  parsePartnerBanksUpdate,
+} from '@/lib/typesafe/partner-banks-settings';
 import { switchesFromRow } from '@/lib/typesafe/store';
 
 /**
  * Settings → AI safety checks: the account's TypeSafe switches (migration
- * 064) and what this server can offer. Admin-only, like the table's RLS.
+ * 064), its partner banks (078) and what this server can offer.
+ * Admin-only, like the table's RLS.
  */
+
+// `*` rather than a column list so the switches keep loading on a
+// database without migration 078's partner_banks (or with PostgREST's
+// schema cache stale right after it): naming a missing column fails the
+// whole select. An absent column reads as the built-in list.
+const ROW_COLUMNS = '*';
 
 async function body(
   supabase: SupabaseClient,
@@ -40,6 +52,8 @@ async function body(
   return {
     settings: settingsFromRow(row, name),
     status: serverStatus(accountId, policies),
+    partner_banks: parsePartnerBanks(row?.partner_banks ?? null),
+    bank_catalogue: bankCatalogue(),
   };
 }
 
@@ -80,7 +94,7 @@ async function readRow(
 ): Promise<{ row: SettingsRow | null; error: string | null }> {
   const { data, error } = await supabase
     .from('ts_account_settings')
-    .select(SETTINGS_COLUMNS)
+    .select(ROW_COLUMNS)
     .eq('account_id', accountId)
     .maybeSingle();
   return {
@@ -157,6 +171,17 @@ export async function PUT(request: Request) {
     if (!parsed.ok)
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     const put = parsed.value;
+    // Absent: unchanged, so a switch save never touches the list (and
+    // keeps working before migration 078).
+    let partnerBanks: PartnerBanksSetting | null | undefined;
+    if ((json as Record<string, unknown>).partner_banks !== undefined) {
+      const banks = parsePartnerBanksUpdate(
+        (json as Record<string, unknown>).partner_banks
+      );
+      if (!banks.ok)
+        return NextResponse.json({ error: banks.error }, { status: 400 });
+      partnerBanks = banks.value;
+    }
 
     const { row: current, error: readError } = await readRow(
       supabase,
@@ -180,27 +205,39 @@ export async function PUT(request: Request) {
     // updated_by / updated_at are stamped by the table's trigger. The
     // update is conditional on the version read above, and a first
     // insert racing another fails on the primary key: either way, 409.
-    const values = rowFromUpdate(accountId, put);
+    const values = {
+      ...rowFromUpdate(accountId, put),
+      ...(partnerBanks !== undefined ? { partner_banks: partnerBanks } : {}),
+    };
     const write = current
       ? supabase
           .from('ts_account_settings')
           .update(values)
           .eq('account_id', accountId)
           .eq('updated_at', current.updated_at)
-          .select(SETTINGS_COLUMNS)
+          .select(ROW_COLUMNS)
           .maybeSingle()
       : supabase
           .from('ts_account_settings')
           .insert(values)
-          .select(SETTINGS_COLUMNS)
+          .select(ROW_COLUMNS)
           .maybeSingle();
     const { data, error } = await write;
     if (error?.code === '23505' || (!error && !data))
       return conflict(supabase, accountId, 'changed');
     if (error) {
       console.error('[typesafe/settings PUT] save error:', error.message);
+      // PGRST204: the column is not in PostgREST's schema (078 not
+      // applied, or the cache not yet reloaded).
+      const noColumn =
+        partnerBanks !== undefined &&
+        (error.code === 'PGRST204' || error.code === '42703');
       return NextResponse.json(
-        { error: 'Failed to save the AI safety settings' },
+        {
+          error: noColumn
+            ? 'Partner banks need database migration 078'
+            : 'Failed to save the AI safety settings',
+        },
         { status: 500 }
       );
     }
@@ -210,7 +247,7 @@ export async function PUT(request: Request) {
     getDecisionLayer()?.switches.set(accountId, switchesFromRow(saved));
     console.info(
       `[ts013] settings changed for account ${accountId} by ${userId}: ` +
-        JSON.stringify(rowFromUpdate(accountId, put))
+        JSON.stringify(values)
     );
     return NextResponse.json(await body(supabase, accountId, saved));
   } catch (err) {

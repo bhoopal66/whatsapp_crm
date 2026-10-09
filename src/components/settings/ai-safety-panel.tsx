@@ -81,6 +81,9 @@ import {
   type OutcomeKind,
 } from '@/lib/typesafe/describe-decision';
 
+import type { PartnerBanksDraft } from '@/lib/typesafe/partner-banks-draft';
+
+import { PartnerBanksCard } from './partner-banks-card';
 import { SettingsChip, type ChipVariant } from './settings-chip';
 import { SettingsPanelHead } from './settings-panel-head';
 import { canOpenSection } from './settings-sections';
@@ -302,7 +305,13 @@ export function AiSafetyPanel() {
   }, [accountId, allowed, loadSettings]);
 
   const save = useCallback(
-    async (patch: Partial<TsSettingsUpdate>, confirmedLive = false) => {
+    async (
+      patch: Partial<TsSettingsUpdate>,
+      confirmedLive = false,
+      // Absent: the list is left as it is. Not optimistic: the card
+      // keeps its draft until the server confirms.
+      partnerBanks?: PartnerBanksDraft
+    ) => {
       if (!data || savingRef.current) return;
       savingRef.current = true;
       setSaving(true);
@@ -321,6 +330,9 @@ export function AiSafetyPanel() {
             // saved since, the server refuses and sends the latest.
             expectedUpdatedAt: previous.updatedAt,
             confirmLive: confirmedLive,
+            ...(partnerBanks !== undefined
+              ? { partner_banks: partnerBanks }
+              : {}),
           } satisfies TsSettingsPut),
         });
         const json: unknown = await res.json().catch(() => null);
@@ -421,6 +433,16 @@ export function AiSafetyPanel() {
             now={now}
             onChange={requestChange}
           />
+          {/* Checked, not trusted: absent from a backend without it. */}
+          {Array.isArray(data.bank_catalogue) ? (
+            <PartnerBanksCard
+              key={accountId ?? 'none'}
+              catalogue={data.bank_catalogue}
+              saved={data.partner_banks ?? null}
+              saving={saving}
+              onSave={(value) => void save({}, false, value)}
+            />
+          ) : null}
         </>
       ) : null}
 

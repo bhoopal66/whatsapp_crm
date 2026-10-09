@@ -2409,6 +2409,28 @@
       "footnote": "Rates are Meta's published USD per-message card for the recipient's market on the delivery date. Meta's own billable flag on each receipt overrides the local rules. Figures are estimates until reconciled against the Meta invoice."
     },
     "aiSafety": {
+      "partners": {
+        "title": "Partner banks",
+        "description": "The AI only discusses these banks. A reply naming any other bank is blocked by the safety check.",
+        "usingBuiltIn": "Using the built-in list.",
+        "usingOwn": "Using your own list.",
+        "reset": "Reset to default",
+        "builtInPartner": "Default",
+        "others": "Other partner banks",
+        "remove": "Remove {name}",
+        "addTitle": "Add a bank",
+        "namePlaceholder": "Bank name",
+        "aliasesPlaceholder": "Other names or abbreviations, comma-separated",
+        "add": "Add",
+        "duplicate": "{name} is already in the list.",
+        "limit": "You can add up to {max} banks.",
+        "found": "Found in your knowledge base",
+        "foundHint": "Your knowledge base mentions these banks, but they are not on the list.",
+        "foundBank": "{name} — in {count} {count, plural, =1 {document} other {documents}}",
+        "addFound": "Add",
+        "unsaved": "Unsaved changes",
+        "save": "Save partner banks"
+      },
       "title": "AI safety checks",
       "description": "TypeSafe checks every message the AI assistant handles — hands requests for a person, complaints and opt-outs to your team, filters the knowledge base, and screens every bot reply before it is sent.",
       "adminOnly": "Only admins can manage AI safety checks.",
