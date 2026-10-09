@@ -381,7 +381,7 @@
       "outcomeWarning": "AI didn’t answer the last message: {reason}",
       "outcomeDetail": "Details: {detail}",
       "outcome": {
-        "skipped_number": "this number isn’t routed to the AI agent (Settings → WhatsApp routing)",
+        "skipped_number": "this number isn’t routed to the AI agent (AI Agents → Auto-reply → Reply on)",
         "skipped_automation": "an active automation answers this message",
         "skipped_rate_limited": "the AI provider or the per-chat pace limit refused the request",
         "skipped_campaign_only": "the AI answers campaign replies only, and this chat didn’t come from a campaign",
@@ -1007,7 +1007,7 @@
         "followUpNone": "No flow — replies go to the AI agent / automations",
         "followUpNoFlows": "No active flows yet. Build one under Flows and activate it to pick it here.",
         "followUpAiOn": "The AI agent is on: it answers off-script replies during the flow (when the flow's fallback is set to it), picks the conversation up after the flow ends or breaks, and hands the thread to a human when it cannot help.",
-        "followUpAiOff": "The AI agent is off (Settings → AI → Auto-reply). Without it, replies the flow does not expect are re-prompted and then handed to a human, and nothing answers once the flow ends."
+        "followUpAiOff": "The AI agent is off (AI Agents → Auto-reply). Without it, replies the flow does not expect are re-prompted and then handed to a human, and nothing answers once the flow ends."
       }
     },
     "tabs": {
@@ -1436,7 +1436,7 @@
       "fallbackExhaustLabel": "After that",
       "fallbackExhaustHandoff": "Hand off to a human",
       "fallbackExhaustEnd": "End the flow",
-      "fallbackAiHint": "The AI agent answers in the context of the step the customer is on and asks them to pick an option; the flow stays where it is. Needs Auto-reply on under Settings → AI. If the agent is off, capped, or the thread already has a human, the options are sent again instead; if the agent hands off, the flow ends and a human takes over."
+      "fallbackAiHint": "The AI agent answers in the context of the step the customer is on and asks them to pick an option; the flow stays where it is. Needs Auto-reply on under AI Agents → Auto-reply. If the agent is off, capped, or the thread already has a human, the options are sent again instead; if the agent hands off, the flow ends and a human takes over."
     },
     "validation": {
       "noIssues": "No issues. Ready to activate.",
@@ -1558,13 +1558,6 @@
       "copied": "Invite link copied",
       "clipboardBlocked": "Clipboard blocked — copy the link manually",
       "whatsappMessage": "Join {accountName} on Taamul Connect using this link (valid for {expiresInDays} days): {url}"
-    },
-    "tagsAndFields": {
-      "title": "Custom fields",
-      "description": "Extra fields for your contacts, for structured data such as ZIP code or lead source. They appear on every contact.",
-      "fieldsTitle": "Custom fields",
-      "fieldsDesc": "Extra contact fields (e.g. ZIP code, lead source). They appear on every contact and in the “Update Contact Field” automation action.",
-      "adminRole": "Admin"
     },
     "chatTags": {
       "title": "Chat tags",
@@ -1822,7 +1815,6 @@
       "step4_2": "Message the connected number from a different phone.",
       "step4_3": "It should appear in the Inbox within a few seconds.",
       "whapiDocs": "Whapi documentation",
-      "adminOnly": "Only admins can change the WhatsApp connection.",
       "numberPicker": "Number",
       "reenterToken": "Re-enter token",
       "addNumber": "Add number",
@@ -1864,11 +1856,8 @@
       "saved": "Meta number connected",
       "saveFailed": "Failed to save the Meta connection",
       "subscribeWarning": "Saved, but the WABA could not be subscribed for webhooks — inbound messages may not arrive.",
-      "disconnect": "Disconnect",
-      "disconnectConfirm": "Disconnect the Meta number? Any task routed to it falls back to your primary number.",
-      "disconnected": "Meta number disconnected",
-      "disconnectFailed": "Failed to disconnect",
-      "setupGuide": "Meta setup guide"
+      "setupGuide": "Meta setup guide",
+      "removeInNumbers": "Remove this number in Numbers & access"
     },
     "whatsappRouting": {
       "title": "Which number sends what",
@@ -1986,7 +1975,8 @@
       "inboundMissing": "Incoming messages aren't set up for this number yet: it can send, but nothing customers write will arrive.",
       "notLive": "This number is not connected right now.",
       "fixInWhatsApp": "Fix in WhatsApp settings",
-      "membersUnavailable": "The member list couldn't be loaded. Reload the page to manage access."
+      "membersUnavailable": "The member list couldn't be loaded. Reload the page to manage access.",
+      "removeBodyMeta": "Messages stop sending and arriving on this Meta number, and any task routed to it falls back to your default number. Chat history is kept, and its access list is removed. You can reconnect it later in the WhatsApp section."
     },
     "sections": {
       "overview": "Overview",
@@ -2080,7 +2070,6 @@
       "newApiKey": "New API key",
       "noApiKeys": "No API keys yet.",
       "createOneHint": "Click <bold>New API key</bold> to create one.",
-      "askAdminHint": "Ask an admin to create one.",
       "revoked": "Revoked",
       "expired": "Expired",
       "noScopes": "No scopes",
@@ -2118,7 +2107,6 @@
       "defaultCurrency": "Default currency",
       "defaultCurrencyDesc": "New deals default to this currency, and pipeline and dashboard totals are shown in it. Existing deals keep the currency they were saved with.",
       "currencyLabel": "Currency",
-      "adminOnlyHint": "Only account admins can change the default currency.",
       "save": "Save",
       "saving": "Saving...",
       "saveFailed": "Failed to save default currency",
@@ -2354,9 +2342,7 @@
       "deactivated": "Deactivated",
       "oneTeamHint": "A person can belong to one team. Remove them from their current team first to move them here.",
       "numbersLabel": "WhatsApp numbers",
-      "numbersHint": "Everyone in this team, and its leader, works the numbers you tick: they can send from them and start new chats from them. They still see only their own and assigned chats (leaders also their team's). Joining or leaving the team grants or removes this automatically.",
-      "numbersIndividualHint": "People can also be allocated individually in Numbers & access. Owners and admins always see every number.",
-      "noNumbersConnected": "No WhatsApp numbers are connected yet.",
+      "numbersHint": "Everyone in this team, and its leader, works these numbers: they can send from them and start new chats from them. They still see only their own and assigned chats (leaders also their team’s). Joining or leaving the team grants or removes this automatically.",
       "providerWhapi": "Whapi",
       "providerMeta": "Meta Cloud API",
       "emptyTeamShared": "This team has no members or leader yet, so these numbers stay shared with everyone until someone joins.",
@@ -2372,7 +2358,9 @@
       "deleteIntro": "This removes the team. Here is what happens:",
       "deleteMembers": "{count, plural, =0 {The leader stops seeing the team’s work.} =1 {Its 1 member becomes unassigned, and the leader stops seeing the team’s work.} other {Its # members become unassigned, and the leader stops seeing the team’s work.}}",
       "deleteNumbers": "Numbers allocated through this team are no longer allocated to its people. Allocations made individually stay.",
-      "deleteKeeps": "No chats, contacts or messages are deleted."
+      "deleteKeeps": "No chats, contacts or messages are deleted.",
+      "changeInNumbers": "Change in Numbers & access",
+      "noNumbersAllocated": "No numbers are allocated to this team."
     },
     "costs": {
       "title": "Message costs",
@@ -2688,6 +2676,34 @@
           "hasTradeLicence": "Ask again: trade licence"
         }
       }
+    },
+    "customFields": {
+      "title": "Custom fields",
+      "description": "Extra fields for your contacts, for structured data such as ZIP code or lead source. They appear on every contact.",
+      "fieldsTitle": "Custom fields",
+      "fieldsDesc": "Extra contact fields (e.g. ZIP code, lead source). They appear on every contact and in the “Update Contact Field” automation action."
+    },
+    "quickReplies": {
+      "title": "Quick replies",
+      "description": "Reusable snippets — plain text or a saved interactive message — that agents can insert from the inbox composer.",
+      "newQuickReply": "New quick reply",
+      "editTitle": "Edit quick reply",
+      "empty": "No quick replies yet. Create one to reuse it across conversations.",
+      "edit": "Edit quick reply",
+      "delete": "Delete quick reply",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Business hours",
+      "kindText": "Text",
+      "kindInteractive": "Interactive",
+      "textPlaceholder": "The message text to insert",
+      "cancel": "Cancel",
+      "save": "Save",
+      "nameRequired": "Give the quick reply a name.",
+      "saveFailed": "Couldn’t save the quick reply.",
+      "updated": "Quick reply updated.",
+      "created": "Quick reply created.",
+      "deleteConfirm": "Delete this quick reply?",
+      "deleteFailed": "Couldn’t delete the quick reply."
     }
   },
   "Compass": {

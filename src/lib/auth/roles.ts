@@ -32,6 +32,24 @@ export const ACCOUNT_ROLES: readonly AccountRole[] = [
 ] as const;
 
 /**
+ * Roles an admin may give a person, highest first: every role but
+ * `owner` (an account has exactly one, moved by `transfer_ownership`).
+ * The create-login dialog, the invite dialog, the roster's inline role
+ * change and the members API all offer exactly this list, so a role
+ * can never be reachable one way and not another. `team_leader` is a
+ * real role (migration 044), not derived from Teams: appointing a team
+ * leader does not change anyone's role.
+ */
+export const ASSIGNABLE_ROLES = [
+  "admin",
+  "team_leader",
+  "agent",
+  "viewer",
+] as const satisfies readonly AccountRole[];
+
+export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
+
+/**
  * Numeric rank of a role. Higher = more privileged. Mirrors the
  * CASE expression in `is_account_member` so JS/SQL stay aligned.
  */

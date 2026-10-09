@@ -74,7 +74,7 @@ const ChatTagsPanel = dynamic(
   { loading: PanelLoading },
 );
 const FieldsAndTagsPanel = dynamic(
-  () => import('@/components/settings/fields-and-tags-panel').then((m) => m.FieldsAndTagsPanel),
+  () => import('@/components/settings/custom-fields-panel').then((m) => m.CustomFieldsSettings),
   { loading: PanelLoading },
 );
 const DealsSettings = dynamic(

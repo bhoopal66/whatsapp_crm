@@ -40,11 +40,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ASSIGNABLE_ROLES, type AssignableRole } from '@/lib/auth/roles';
 import type { AccountMember } from '@/types';
-
-/** Mirrors ASSIGNABLE_ROLES in the members API. `owner` is absent by
- *  design — an account has exactly one, changed via ownership transfer. */
-type AssignableRole = 'admin' | 'team_leader' | 'agent' | 'viewer';
 
 /** Mirrors MIN_PASSWORD_LENGTH server-side, so an obviously-short
  *  password is caught before the round-trip. */
@@ -169,7 +166,9 @@ export function CreateMemberDialog({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-muted-foreground">{t('passwordLabel')}</Label>
+            <Label className="text-muted-foreground">
+              {t('passwordLabel')}
+            </Label>
             <div className="flex gap-2">
               <Input
                 value={password}
@@ -187,7 +186,7 @@ export function CreateMemberDialog({
                 <RefreshCw className="size-4" />
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">{t('passwordHint')}</p>
+            <p className="text-muted-foreground text-xs">{t('passwordHint')}</p>
           </div>
 
           <div className="space-y-2">
@@ -196,24 +195,19 @@ export function CreateMemberDialog({
               value={role}
               onValueChange={(v) => v && setRole(v as AssignableRole)}
             >
-              <SelectTrigger className="w-full bg-muted border-border text-foreground">
+              <SelectTrigger className="bg-muted border-border text-foreground w-full">
                 <SelectValue>{tRoles(role)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="admin">{tRoles('admin')}</SelectItem>
-                <SelectItem value="team_leader">{tRoles('team_leader')}</SelectItem>
-                <SelectItem value="agent">{tRoles('agent')}</SelectItem>
-                <SelectItem value="viewer">{tRoles('viewer')}</SelectItem>
+                {ASSIGNABLE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {tRoles(r)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              {tRoles(
-                `${role}Hint` as
-                  | 'adminHint'
-                  | 'team_leaderHint'
-                  | 'agentHint'
-                  | 'viewerHint',
-              )}
+            <p className="text-muted-foreground text-xs">
+              {tRoles(`${role}Hint`)}
             </p>
           </div>
         </div>

@@ -313,7 +313,7 @@ export function MessageComposer({
       if (!res.ok) {
         if (data.code === 'ai_not_configured') {
           toast.error(
-            "AI isn't set up yet — enable it in Settings → AI Assistant."
+            "AI isn't set up yet — enable it in AI Agents → Assistant."
           );
         } else {
           toast.error(data.error ?? "Couldn't draft a reply.");

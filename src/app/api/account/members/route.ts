@@ -24,14 +24,15 @@ import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
-import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
+import {
+  ASSIGNABLE_ROLES,
+  canManageMembers,
+  isAccountRole,
+  type AssignableRole,
+} from "@/lib/auth/roles";
 import { serverSupabaseUrl } from "@/lib/supabase/urls";
 import type { AccountMember } from "@/types";
 
-/** Roles an admin may hand out. `owner` is deliberately absent — an
- *  account has exactly one, and moving it is `transfer_ownership`. */
-const ASSIGNABLE_ROLES = ["admin", "team_leader", "agent", "viewer"] as const;
-type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
 /** Matches the minimum GoTrue enforces, stated here so the caller gets
  *  a useful message instead of a raw provider error. */

@@ -3,8 +3,9 @@
 // ============================================================
 // Settings -> Teams.
 //
-// Admins group agents into teams, appoint a leader for each, and
-// allocate WhatsApp numbers to a team. The leader appointment is what
+// Admins group agents into teams and appoint a leader for each. The
+// numbers a team works are shown here but allocated in Numbers and
+// access, which owns them. The leader appointment is what
 // gives a team_leader their reach: the Team inbox and Team contacts
 // views, and the ability to move a chat between the people they lead
 // (migration 044). A number allocated to a team is worked by everyone
@@ -13,8 +14,9 @@
 // screen only decides what to write.
 //
 // Edits happen in a sheet and are saved as ONE PATCH of the changed
-// fields (lib/teams/teams.ts). The route replaces member and number
-// lists wholesale, so an unchanged list is never sent.
+// fields (lib/teams/teams.ts). The route replaces the member list
+// wholesale, so an unchanged list is never sent, and the number list
+// is never sent at all.
 // ============================================================
 
 import {

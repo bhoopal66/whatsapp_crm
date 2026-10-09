@@ -1,13 +1,15 @@
 'use client';
 
-// The team editor: name, leader, members and WhatsApp numbers edited as
-// one form and saved with ONE PATCH holding only the changed fields
+// The team editor: name, leader and members edited as one form and
+// saved with ONE PATCH holding only the changed fields
 // (`buildTeamPatch`). Nothing is written until Save, so an admin can
-// try a selection and back out of it.
+// try a selection and back out of it. The team's WhatsApp numbers are
+// shown read-only: Settings → Numbers & access owns them, and the
+// patch never carries them, so a save here cannot drop them.
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertTriangle, Info, Loader2, Search } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Info, Loader2, Search } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,6 +115,9 @@ function EditorBody({
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Set when the discard prompt came from the Numbers & access link, so
+  // confirming it goes there rather than only closing the sheet.
+  const [leaveToNumbers, setLeaveToNumbers] = useState(false);
 
   const patch = useMemo(() => buildTeamPatch(team, draft), [team, draft]);
   const dirty = !isEmptyPatch(patch);
@@ -140,17 +145,46 @@ function EditorBody({
   );
   const leader = draft.leader_user_id ? byId.get(draft.leader_user_id) : null;
 
-  function toggle(key: 'member_ids' | 'channel_ids', id: string, on: boolean) {
+  function toggle(id: string, on: boolean) {
     setDraft((d) => ({
       ...d,
-      [key]: on ? [...d[key], id] : d[key].filter((x) => x !== id),
+      member_ids: on
+        ? [...d.member_ids, id]
+        : d.member_ids.filter((x) => x !== id),
     }));
+  }
+
+  // The numbers this team works, as Numbers & access saved them.
+  const teamNumbers = useMemo(
+    () =>
+      numbers ? numbers.filter((n) => team.channel_ids.includes(n.id)) : null,
+    [numbers, team.channel_ids]
+  );
+
+  /** Hand off to Numbers & access, which owns a team's numbers. Same
+   *  History-API switch as the settings rail (see settings/page.tsx). */
+  function openNumbersAccess() {
+    if (dirty) {
+      setLeaveToNumbers(true);
+      setConfirmDiscard(true);
+      return;
+    }
+    goToNumbers();
+  }
+
+  function goToNumbers() {
+    onClose();
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', 'numbers');
+    window.history.replaceState(null, '', `/settings?${params.toString()}`);
   }
 
   function requestClose() {
     if (saving) return;
-    if (dirty) setConfirmDiscard(true);
-    else onClose();
+    if (dirty) {
+      setLeaveToNumbers(false);
+      setConfirmDiscard(true);
+    } else onClose();
   }
 
   async function save() {
@@ -295,7 +329,7 @@ function EditorBody({
                             checked={checked}
                             disabled={!!claimedBy}
                             onCheckedChange={(next) =>
-                              toggle('member_ids', m.user_id, next === true)
+                              toggle(m.user_id, next === true)
                             }
                           />
                           <MemberAvatar member={m} />
@@ -335,65 +369,53 @@ function EditorBody({
               </p>
             </section>
 
-            {/* WhatsApp numbers */}
+            {/* WhatsApp numbers — read-only; Numbers & access owns them */}
             <section className="space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <Label>{t('numbersLabel')}</Label>
-                <span className="text-muted-foreground text-xs">
-                  {t('selectedCount', { count: draft.channel_ids.length })}
-                </span>
-              </div>
+              <Label>{t('numbersLabel')}</Label>
               <p className="text-muted-foreground text-xs">
                 {t('numbersHint')}
               </p>
-              {numbers === null ? (
+              {teamNumbers === null ? (
                 <div className="border-border flex justify-center rounded-lg border py-6">
                   <Loader2 className="text-muted-foreground size-4 animate-spin" />
                 </div>
-              ) : numbers.length === 0 ? (
-                <p className="border-border text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-center text-sm">
-                  {t('noNumbersConnected')}
+              ) : teamNumbers.length === 0 ? (
+                <p className="border-border text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-center text-sm">
+                  {t('noNumbersAllocated')}
                 </p>
               ) : (
-                <ul className="divide-border border-border divide-y rounded-lg border">
-                  {numbers.map((n) => {
-                    const id = `team-number-${n.id}`;
-                    return (
-                      <li key={n.id}>
-                        <label
-                          htmlFor={id}
-                          className="hover:bg-muted/50 flex cursor-pointer items-center gap-3 px-3 py-2.5"
-                        >
-                          <Checkbox
-                            id={id}
-                            checked={draft.channel_ids.includes(n.id)}
-                            onCheckedChange={(next) =>
-                              toggle('channel_ids', n.id, next === true)
-                            }
-                          />
-                          <span className="text-foreground min-w-0 flex-1 truncate text-sm">
-                            {channelNameWithPhone(n)}
-                          </span>
-                          <Badge variant="outline" className="shrink-0">
-                            {n.provider === 'meta'
-                              ? t('providerMeta')
-                              : t('providerWhapi')}
-                          </Badge>
-                        </label>
-                      </li>
-                    );
-                  })}
+                <ul className="flex flex-wrap gap-1.5">
+                  {teamNumbers.map((n) => (
+                    <li key={n.id}>
+                      <Badge variant="outline" className="h-6 gap-1.5 px-2">
+                        <span className="text-foreground max-w-56 truncate">
+                          {channelNameWithPhone(n)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {n.provider === 'meta'
+                            ? t('providerMeta')
+                            : t('providerWhapi')}
+                        </span>
+                      </Badge>
+                    </li>
+                  ))}
                 </ul>
               )}
-              {allocationStaysShared(draft) ? (
-                <div className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              {allocationStaysShared(team.channel_ids, draft) ? (
+                <div className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 [[data-mode=dark]_&]:text-amber-300">
                   <AlertTriangle className="mt-px size-3.5 shrink-0" />
                   <span>{t('emptyTeamShared')}</span>
                 </div>
               ) : null}
-              <p className="text-muted-foreground text-xs">
-                {t('numbersIndividualHint')}
-              </p>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto px-0"
+                onClick={openNumbersAccess}
+              >
+                {t('changeInNumbers')}
+                <ArrowRight className="size-3.5" />
+              </Button>
             </section>
           </div>
 
@@ -435,7 +457,8 @@ function EditorBody({
               variant="destructive"
               onClick={() => {
                 setConfirmDiscard(false);
-                onClose();
+                if (leaveToNumbers) goToNumbers();
+                else onClose();
               }}
             >
               {t('discard')}

@@ -14,6 +14,7 @@ import {
   teamNameProblem,
   unassignedMembers,
   type Team,
+  type TeamDraft,
   type TeamPerson,
 } from './teams';
 
@@ -56,24 +57,24 @@ describe('buildTeamPatch', () => {
   });
 
   it('treats lists as sets: reordering or re-ticking is no change', () => {
-    const draft = {
-      ...draftOf(original),
-      member_ids: ['b', 'a', 'a'],
-      channel_ids: ['n1', 'n1'],
-    };
+    const draft = { ...draftOf(original), member_ids: ['b', 'a', 'a'] };
     expect(buildTeamPatch(original, draft)).toEqual({});
   });
 
-  it('sends only the number allocation when only numbers changed', () => {
-    const draft = { ...draftOf(original), channel_ids: ['n1', 'n2'] };
-    expect(buildTeamPatch(original, draft)).toEqual({
+  // Numbers & access owns a team's numbers. The route hands update_team
+  // NULL for an absent channel_ids, which leaves the allocation alone;
+  // sending the editor's copy would overwrite a change made there since
+  // the Teams screen loaded.
+  it('never sends channel_ids, so a save keeps the team numbers', () => {
+    const stale = { ...original, channel_ids: [] };
+    const draft = {
+      ...draftOf(original),
+      member_ids: ['a'],
       channel_ids: ['n1', 'n2'],
-    });
-  });
-
-  it('sends an empty number list when every number is unticked', () => {
-    const draft = { ...draftOf(original), channel_ids: [] };
-    expect(buildTeamPatch(original, draft)).toEqual({ channel_ids: [] });
+    } as TeamDraft;
+    expect(buildTeamPatch(original, draft)).toEqual({ member_ids: ['a'] });
+    expect(buildTeamPatch(stale, draftOf(original))).toEqual({});
+    expect('channel_ids' in draftOf(original)).toBe(false);
   });
 
   it('sends only the members when only members changed, de-duplicated', () => {
@@ -102,7 +103,6 @@ describe('buildTeamPatch', () => {
       name: 'Support',
       leader_user_id: 'b',
       member_ids: ['a'],
-      channel_ids: [],
     };
     expect(buildTeamPatch(original, draft)).toEqual(draft);
   });
@@ -110,9 +110,7 @@ describe('buildTeamPatch', () => {
   it('does not alias the original team through draftOf', () => {
     const draft = draftOf(original);
     draft.member_ids.push('z');
-    draft.channel_ids.push('n9');
     expect(original.member_ids).toEqual(['a', 'b']);
-    expect(original.channel_ids).toEqual(['n1']);
   });
 });
 
@@ -126,28 +124,19 @@ describe('teamNameProblem', () => {
 });
 
 describe('allocationStaysShared', () => {
-  const base = {
-    name: 'T',
-    leader_user_id: null,
-    member_ids: [],
-    channel_ids: [],
-  };
+  const base = { name: 'T', leader_user_id: null, member_ids: [] };
 
-  it('warns only when numbers are ticked for a team with nobody in it', () => {
-    expect(allocationStaysShared({ ...base, channel_ids: ['n1'] })).toBe(true);
-    expect(allocationStaysShared(base)).toBe(false);
-    expect(
-      allocationStaysShared({ ...base, channel_ids: ['n1'], member_ids: ['a'] })
-    ).toBe(false);
+  it('warns only when a team with numbers has nobody in it', () => {
+    expect(allocationStaysShared(['n1'], base)).toBe(true);
+    expect(allocationStaysShared([], base)).toBe(false);
+    expect(allocationStaysShared(['n1'], { ...base, member_ids: ['a'] })).toBe(
+      false
+    );
   });
 
   it('counts the leader as someone in the team', () => {
     expect(
-      allocationStaysShared({
-        ...base,
-        channel_ids: ['n1'],
-        leader_user_id: 'lead',
-      })
+      allocationStaysShared(['n1'], { ...base, leader_user_id: 'lead' })
     ).toBe(false);
   });
 });

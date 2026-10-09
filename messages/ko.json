@@ -381,7 +381,7 @@
       "outcomeWarning": "AI가 마지막 메시지에 답하지 않았습니다: {reason}",
       "outcomeDetail": "세부 정보: {detail}",
       "outcome": {
-        "skipped_number": "이 번호는 AI 에이전트로 라우팅되지 않습니다 (설정 → WhatsApp 라우팅)",
+        "skipped_number": "이 번호는 AI 에이전트로 라우팅되지 않습니다 (AI 에이전트 → 자동 답장 → 답장 번호)",
         "skipped_automation": "활성화된 자동화가 이 메시지에 응답합니다",
         "skipped_rate_limited": "AI 제공업체 또는 대화별 속도 제한이 요청을 거부했습니다",
         "skipped_campaign_only": "AI는 캠페인 답장에만 응답하며, 이 대화는 캠페인에서 시작되지 않았습니다",
@@ -1007,7 +1007,7 @@
         "followUpNone": "플로우 없음 — 답장은 AI 에이전트/자동화가 처리",
         "followUpNoFlows": "활성화된 플로우가 없습니다. 플로우에서 만들고 활성화하면 여기서 선택할 수 있습니다.",
         "followUpAiOn": "AI 에이전트가 켜져 있습니다: 플로우 진행 중 예상 밖의 답장에 응답하고(플로우 폴백이 AI로 설정된 경우), 플로우가 끝나거나 중단되면 대화를 이어받으며, 도울 수 없을 때는 담당자에게 넘깁니다.",
-        "followUpAiOff": "AI 에이전트가 꺼져 있습니다(설정 → AI → 자동 답장). 이 경우 플로우가 예상하지 못한 답장은 다시 안내한 뒤 담당자에게 넘겨지며, 플로우가 끝난 뒤에는 아무도 응답하지 않습니다."
+        "followUpAiOff": "AI 에이전트가 꺼져 있습니다(AI 에이전트 → 자동 답장). 이 경우 플로우가 예상하지 못한 답장은 다시 안내한 뒤 담당자에게 넘겨지며, 플로우가 끝난 뒤에는 아무도 응답하지 않습니다."
       }
     },
     "tabs": {
@@ -1436,7 +1436,7 @@
       "fallbackExhaustLabel": "그 다음",
       "fallbackExhaustHandoff": "담당자에게 넘기기",
       "fallbackExhaustEnd": "플로우 종료",
-      "fallbackAiHint": "AI 에이전트가 고객이 있는 단계의 맥락에서 답하고 옵션을 고르도록 안내하며, 플로우는 그 자리에 머뭅니다. 설정 → AI 에서 자동 답장이 켜져 있어야 합니다. 에이전트가 꺼져 있거나 한도에 도달했거나 이미 담당자가 있는 대화라면 옵션을 다시 보내고, 에이전트가 넘기면 플로우가 끝나고 담당자가 이어받습니다."
+      "fallbackAiHint": "AI 에이전트가 고객이 있는 단계의 맥락에서 답하고 옵션을 고르도록 안내하며, 플로우는 그 자리에 머뭅니다. AI 에이전트 → 자동 답장에서 자동 답장이 켜져 있어야 합니다. 에이전트가 꺼져 있거나 한도에 도달했거나 이미 담당자가 있는 대화라면 옵션을 다시 보내고, 에이전트가 넘기면 플로우가 끝나고 담당자가 이어받습니다."
     },
     "validation": {
       "noIssues": "문제가 없습니다. 활성화할 준비가 되었습니다.",
@@ -1558,13 +1558,6 @@
       "copied": "초대 링크가 복사되었습니다",
       "clipboardBlocked": "클립보드 접근이 차단되었습니다 — 링크를 직접 복사하세요",
       "whatsappMessage": "이 링크(유효 기간 {expiresInDays}일)로 Taamul Connect의 {accountName}에 참여하세요: {url}"
-    },
-    "tagsAndFields": {
-      "title": "커스텀 필드",
-      "description": "우편번호, 리드 출처처럼 구조화된 데이터를 담는 연락처 추가 필드입니다. 모든 연락처에 표시됩니다.",
-      "fieldsTitle": "커스텀 필드",
-      "fieldsDesc": "추가 연락처 필드입니다 (예: 우편번호, 리드 출처). 모든 연락처와 \"연락처 필드 업데이트\" 자동화 액션에 표시됩니다.",
-      "adminRole": "관리자"
     },
     "chatTags": {
       "title": "채팅 태그",
@@ -1822,7 +1815,6 @@
       "step4_2": "다른 휴대폰에서 연결된 번호로 메시지를 보내세요.",
       "step4_3": "몇 초 안에 받은편지함에 표시되어야 합니다.",
       "whapiDocs": "Whapi 문서",
-      "adminOnly": "관리자만 WhatsApp 연결을 변경할 수 있습니다.",
       "numberPicker": "번호",
       "reenterToken": "토큰 다시 입력",
       "addNumber": "번호 추가",
@@ -1864,11 +1856,8 @@
       "saved": "Meta 번호가 연결되었습니다",
       "saveFailed": "Meta 연결을 저장하지 못했습니다",
       "subscribeWarning": "저장했지만 WABA를 웹훅에 구독하지 못했습니다. 수신 메시지가 도착하지 않을 수 있습니다.",
-      "disconnect": "연결 해제",
-      "disconnectConfirm": "Meta 번호의 연결을 해제할까요? 이 번호로 지정된 작업은 기본 번호로 되돌아갑니다.",
-      "disconnected": "Meta 번호 연결을 해제했습니다",
-      "disconnectFailed": "연결을 해제하지 못했습니다",
-      "setupGuide": "Meta 설정 가이드"
+      "setupGuide": "Meta 설정 가이드",
+      "removeInNumbers": "번호 및 접근 권한에서 이 번호 삭제"
     },
     "whatsappRouting": {
       "title": "번호별 사용 범위",
@@ -1986,7 +1975,8 @@
       "inboundMissing": "이 번호의 수신 메시지가 아직 설정되지 않았습니다. 보내기는 되지만 고객이 보낸 메시지는 도착하지 않습니다.",
       "notLive": "이 번호는 현재 연결되어 있지 않습니다.",
       "fixInWhatsApp": "WhatsApp 설정에서 해결",
-      "membersUnavailable": "멤버 목록을 불러오지 못했습니다. 페이지를 새로고침한 뒤 접근 권한을 관리하세요."
+      "membersUnavailable": "멤버 목록을 불러오지 못했습니다. 페이지를 새로고침한 뒤 접근 권한을 관리하세요.",
+      "removeBodyMeta": "이 Meta 번호로 메시지를 보내거나 받을 수 없게 되며, 이 번호로 라우팅된 작업은 기본 번호로 넘어갑니다. 대화 기록은 유지되고 접근 목록은 삭제됩니다. 나중에 WhatsApp 섹션에서 다시 연결할 수 있습니다."
     },
     "sections": {
       "overview": "개요",
@@ -2080,7 +2070,6 @@
       "newApiKey": "새 API 키",
       "noApiKeys": "아직 API 키가 없습니다.",
       "createOneHint": "<bold>새 API 키</bold>를 클릭해 만드세요.",
-      "askAdminHint": "관리자에게 생성을 요청하세요.",
       "revoked": "취소됨",
       "expired": "만료됨",
       "noScopes": "권한 범위 없음",
@@ -2118,7 +2107,6 @@
       "defaultCurrency": "기본 통화",
       "defaultCurrencyDesc": "새 딜은 이 통화를 기본값으로 사용하며, 파이프라인과 대시보드 합계도 이 통화로 표시됩니다. 기존 딜은 저장 당시의 통화를 그대로 유지합니다.",
       "currencyLabel": "통화",
-      "adminOnlyHint": "계정 관리자만 기본 통화를 변경할 수 있습니다.",
       "save": "저장",
       "saving": "저장 중...",
       "saveFailed": "기본 통화를 저장하지 못했습니다",
@@ -2354,9 +2342,7 @@
       "deactivated": "비활성화됨",
       "oneTeamHint": "한 사람은 한 팀에만 속할 수 있습니다. 이 팀으로 옮기려면 먼저 현재 팀에서 제외하세요.",
       "numbersLabel": "WhatsApp 번호",
-      "numbersHint": "선택한 번호는 이 팀의 모든 구성원과 리더가 사용합니다. 해당 번호로 메시지를 보낼 수 있고, 새 대화도 그 번호로 시작합니다. 볼 수 있는 대화는 여전히 본인이 맡았거나 배정받은 대화뿐입니다(팀장은 팀의 대화도 볼 수 있습니다). 팀에 합류하거나 떠나면 자동으로 부여되거나 해제됩니다.",
-      "numbersIndividualHint": "번호 및 접근 권한에서 개인별로 배정할 수도 있습니다. 소유자와 관리자는 항상 모든 번호를 봅니다.",
-      "noNumbersConnected": "아직 연결된 WhatsApp 번호가 없습니다.",
+      "numbersHint": "이 번호들은 이 팀의 모든 구성원과 리더가 사용합니다. 해당 번호로 메시지를 보낼 수 있고, 새 대화도 그 번호로 시작합니다. 볼 수 있는 대화는 여전히 본인이 맡았거나 배정받은 대화뿐입니다(팀장은 팀의 대화도 볼 수 있습니다). 팀에 합류하거나 떠나면 자동으로 부여되거나 해제됩니다.",
       "providerWhapi": "Whapi",
       "providerMeta": "Meta Cloud API",
       "emptyTeamShared": "이 팀에는 아직 구성원이나 리더가 없으므로, 누군가 합류할 때까지 이 번호들은 모든 사람과 공유됩니다.",
@@ -2372,7 +2358,9 @@
       "deleteIntro": "팀이 삭제되며 다음과 같이 처리됩니다.",
       "deleteMembers": "{count, plural, =0 {리더는 더 이상 팀의 업무를 보지 못합니다.} other {구성원 #명은 팀이 없는 상태가 되고, 리더는 더 이상 팀의 업무를 보지 못합니다.}}",
       "deleteNumbers": "이 팀을 통해 배정된 번호는 팀원들에게서 배정 해제됩니다. 개인별 배정은 유지됩니다.",
-      "deleteKeeps": "대화, 연락처, 메시지는 삭제되지 않습니다."
+      "deleteKeeps": "대화, 연락처, 메시지는 삭제되지 않습니다.",
+      "changeInNumbers": "번호 및 접근 권한에서 변경",
+      "noNumbersAllocated": "이 팀에 할당된 번호가 없습니다."
     },
     "costs": {
       "title": "메시지 비용",
@@ -2688,6 +2676,34 @@
           "hasTradeLicence": "재질문: 영업 허가증"
         }
       }
+    },
+    "customFields": {
+      "title": "커스텀 필드",
+      "description": "우편번호, 리드 출처처럼 구조화된 데이터를 담는 연락처 추가 필드입니다. 모든 연락처에 표시됩니다.",
+      "fieldsTitle": "커스텀 필드",
+      "fieldsDesc": "추가 연락처 필드입니다 (예: 우편번호, 리드 출처). 모든 연락처와 \"연락처 필드 업데이트\" 자동화 액션에 표시됩니다."
+    },
+    "quickReplies": {
+      "title": "빠른 답장",
+      "description": "상담원이 받은편지함 작성창에서 삽입할 수 있는 재사용 문구입니다. 일반 텍스트나 저장된 인터랙티브 메시지를 사용할 수 있습니다.",
+      "newQuickReply": "새 빠른 답장",
+      "editTitle": "빠른 답장 편집",
+      "empty": "아직 빠른 답장이 없습니다. 하나 만들어 여러 대화에서 다시 사용하세요.",
+      "edit": "빠른 답장 편집",
+      "delete": "빠른 답장 삭제",
+      "nameLabel": "이름",
+      "namePlaceholder": "예: 영업시간",
+      "kindText": "텍스트",
+      "kindInteractive": "인터랙티브",
+      "textPlaceholder": "삽입할 메시지 텍스트",
+      "cancel": "취소",
+      "save": "저장",
+      "nameRequired": "빠른 답장의 이름을 입력하세요.",
+      "saveFailed": "빠른 답장을 저장하지 못했습니다.",
+      "updated": "빠른 답장을 수정했습니다.",
+      "created": "빠른 답장을 만들었습니다.",
+      "deleteConfirm": "이 빠른 답장을 삭제할까요?",
+      "deleteFailed": "빠른 답장을 삭제하지 못했습니다."
     }
   },
   "Compass": {

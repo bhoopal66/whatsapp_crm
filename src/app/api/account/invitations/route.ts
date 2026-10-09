@@ -194,7 +194,7 @@ export async function POST(request: Request) {
       // here gives a clearer 400 than the eventual constraint
       // violation surfaced as a 500.
       return NextResponse.json(
-        { error: "'role' must be one of admin, agent, viewer" },
+        { error: "'role' must be one of admin, team_leader, agent, viewer" },
         { status: 400 },
       );
     }
