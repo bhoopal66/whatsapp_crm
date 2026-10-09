@@ -27,6 +27,7 @@ import { runEligibility, type EligibilityInput } from './checks/eligibility';
 import { runGuardrail, type GuardrailInput } from './checks/guardrail';
 import { runPassageFilter, type RetrievedPassage } from './checks/passages';
 import { runTriage, type TriageInput } from './checks/triage';
+import { runRoute, type RouteInput } from './checks/route';
 import type { CheckDeps, Ref } from './checks/common';
 
 export interface DecisionLayerOptions {
@@ -150,6 +151,11 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
     passages: (input: Ref & { query: string; passages: RetrievedPassage[] }) =>
       runPassageFilter(deps, input),
     eligibility: (input: EligibilityInput) => runEligibility(deps, input),
+    /**
+     * Model-tier routing judgment (lib/ai/router.ts). Not a safety
+     * check: no account switch, no policy, no log row. Never throws.
+     */
+    route: (input: RouteInput) => runRoute({ config, gateway }, input),
   };
 }
 
@@ -206,6 +212,8 @@ export {
 export { routePassage } from './checks/passages';
 export { bandFor, DEFAULT_TURNOVER_BANDS } from './checks/eligibility';
 export { QS_VERSION } from './questions/triage';
+export { ROUTE_QS_VERSION, type RouteKind } from './questions/route';
+export type { RouteInput, RouteJudgment } from './checks/route';
 export type { TriageDecision, TriageInput } from './checks/triage';
 export type { GuardrailDecision, GuardrailInput } from './checks/guardrail';
 export type { PassageDecision, RetrievedPassage } from './checks/passages';

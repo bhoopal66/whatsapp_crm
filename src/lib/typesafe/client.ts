@@ -67,11 +67,25 @@ export type CallResult<Q extends Questions> =
     }
   | { ok: false; errorCode: ErrorCode; latencyMs: number; message: string };
 
+/**
+ * What the gateway calls on behalf of: one of the safety checks, or the
+ * model-tier router (`route`, lib/ai/router.ts). The router is not a
+ * safety check — it has no account switch, policy or decision-log row —
+ * so it is not a `CheckName`; it gets its own outage breaker and
+ * content-failure keys here, so its traffic can never open a check's
+ * breaker or pause a check for an account.
+ */
+export type GatewayCheck = CheckName | 'route';
+export const GATEWAY_CHECKS: readonly GatewayCheck[] = [
+  ...CHECK_NAMES,
+  'route',
+];
+
 export interface AlertSink {
   (event: {
     level: 'warn' | 'error';
     code: string;
-    check?: CheckName;
+    check?: GatewayCheck;
     message: string;
   }): void;
 }
@@ -159,8 +173,8 @@ function stringLeaves(value: unknown, out: string[] = []): string[] {
 export class TypeSafeGateway {
   /** Built on first use: the SDK throws without an API key, and a fully disabled layer never needs one. */
   private clientInstance: TypeSafeClient | null = null;
-  /** Outage breakers, per check. */
-  private readonly breakers: Record<CheckName, CircuitBreaker>;
+  /** Outage breakers, per check (and one for the router). */
+  private readonly breakers: Record<GatewayCheck, CircuitBreaker>;
   /** Content-class breakers and 422 pauses, per `${check}:${accountId}`. */
   private readonly contentBreakers = new Map<string, CircuitBreaker>();
   private readonly invalidStreak = new Map<string, number>();
@@ -175,8 +189,16 @@ export class TypeSafeGateway {
     this.now = deps.now ?? Date.now;
     this.alert = deps.alert ?? (() => {});
     this.breakers = Object.fromEntries(
-      CHECK_NAMES.map((c) => [c, new CircuitBreaker(config.breaker, this.now)])
-    ) as Record<CheckName, CircuitBreaker>;
+      GATEWAY_CHECKS.map((c) => [
+        c,
+        new CircuitBreaker(config.breaker, this.now),
+      ])
+    ) as Record<GatewayCheck, CircuitBreaker>;
+  }
+
+  /** An API key is configured (passed in, or TYPESAFE_API_KEY). */
+  hasKey(): boolean {
+    return !!(this.deps.apiKey?.trim() || process.env.TYPESAFE_API_KEY?.trim());
   }
 
   private get client(): TypeSafeClient {
@@ -216,11 +238,12 @@ export class TypeSafeGateway {
 
   /** Why a call would be refused right now, or null when it may go out. */
   private pausedFor(
-    check: CheckName,
+    check: GatewayCheck,
     key: string
   ): { errorCode: ErrorCode; message: string } | null {
     const t = this.now();
-    if (!this.deps.config.enabled[check])
+    // The router has no TS_ENABLED_* switch: it runs wherever a key is set.
+    if (check === 'route' ? !this.hasKey() : !this.deps.config.enabled[check])
       return { errorCode: 'DISABLED', message: `${check} disabled` };
     if (t < this.authUntil)
       return { errorCode: 'AUTH_PAUSED', message: 'paused after auth failure' };
@@ -237,17 +260,20 @@ export class TypeSafeGateway {
   }
 
   /** True when the check may call TypeSafe right now (for this account). */
-  available(check: CheckName, accountId = '*'): boolean {
+  available(check: GatewayCheck, accountId = '*'): boolean {
     return this.pausedFor(check, `${check}:${accountId}`) === null;
   }
 
   async ask<const Q extends Questions>(
-    check: CheckName,
+    check: GatewayCheck,
     /** Already-redacted state. Plain JSON only. */
     state: string | object,
     questions: Q,
     /** The tenant, for content-class failure accounting. */
-    accountId = '*'
+    accountId = '*',
+    /** `deadlineMs` caps the whole call, retries included, below the
+     *  check's usual budget (the router's short hard deadline). */
+    opts: { deadlineMs?: number } = {}
   ): Promise<CallResult<Q>> {
     const started = this.now();
     const elapsed = () => this.now() - started;
@@ -293,12 +319,17 @@ export class TypeSafeGateway {
       };
     }
 
-    const timeout =
-      check === 'guardrail' ? config.guardrailTimeoutMs : config.timeoutMs;
-    const deadlineMs =
+    const budget = opts.deadlineMs ?? Infinity;
+    const timeout = Math.min(
+      check === 'guardrail' ? config.guardrailTimeoutMs : config.timeoutMs,
+      budget
+    );
+    const deadlineMs = Math.min(
       timeout * (config.maxRetries + 1) +
-      config.maxRetries * (BACKOFF_MAX_MS + MAX_RETRY_AFTER_MS) +
-      100;
+        config.maxRetries * (BACKOFF_MAX_MS + MAX_RETRY_AFTER_MS) +
+        100,
+      budget
+    );
     const deadline = AbortSignal.timeout(deadlineMs);
 
     try {
@@ -394,7 +425,7 @@ export class TypeSafeGateway {
     }
   }
 
-  private fail(check: CheckName, key: string, code: ErrorCode): void {
+  private fail(check: GatewayCheck, key: string, code: ErrorCode): void {
     const breaker = OUTAGE.has(code)
       ? this.breakers[check]
       : this.contentBreaker(key);
