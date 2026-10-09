@@ -115,6 +115,51 @@ describe('check A/B — triage routing (through the real SDK)', () => {
     });
   });
 
+  it('returns the urgency band on every route', async () => {
+    const sim = makeSim(() => ({
+      answers: { intent: 'account_opening', urgency: 1.8 },
+    }));
+    const { layer } = makeLayer({ sim });
+    const d = await layer.triage({
+      ...base,
+      message: 'I need this open today',
+    });
+    expect(d.route).toBe('bot');
+    expect(d.rmTask).toBeNull(); // urgency no longer hides inside rmTask
+    expect(d.urgency).toBe('urgent');
+
+    const quiet = {
+      intent: { choice: 'account_opening' as const, confidence: 0.9 },
+      wants_human: { noul: 0.05 },
+      non_partner_bank: { noul: 0.05 },
+      dissatisfied: { noul: 0.05 },
+      instructs_assistant: { noul: 0.05 },
+      lead_temperature: { score: 0, confidence: 0.9 },
+      opt_out: { noul: 0.05 },
+    };
+    const t = DEFAULT_THRESHOLDS.triage;
+    expect(
+      routeTriage({ ...quiet, urgency: { score: 1.2, confidence: 0.9 } }, t, [])
+        .urgency
+    ).toBe('high');
+    expect(
+      routeTriage({ ...quiet, urgency: { score: 0, confidence: 0.9 } }, t, [])
+        .urgency
+    ).toBe('normal');
+    // the opted-out early return carries it too
+    expect(
+      routeTriage(
+        {
+          ...quiet,
+          opt_out: { noul: 0.95 },
+          urgency: { score: 1.8, confidence: 0.9 },
+        },
+        t,
+        []
+      )
+    ).toMatchObject({ route: 'opted_out', urgency: 'urgent' });
+  });
+
   it('complaint goes to RM', async () => {
     const sim = makeSim(() => ({
       answers: { intent: 'complaint', dissatisfied: 0.9, urgency: 1.2 },

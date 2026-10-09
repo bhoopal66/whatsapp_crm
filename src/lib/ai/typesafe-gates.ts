@@ -104,12 +104,25 @@ export interface TriageGateResult {
   restricted: boolean;
   /** Extra system-prompt lines for this reply. */
   promptNotes: string[];
+  /** The customer says this is time-sensitive: a deadline or business
+   *  impact today (the layer's 'urgent' band, not 'high'). */
+  urgent: boolean;
+  /** The customer is ready to start: the layer's own lead-temperature
+   *  threshold raised a callback task. */
+  readyToApply: boolean;
+  /** What the customer is asking about, as the layer judged it. */
+  intent: string | null;
 }
 
+// Every signal comes from an acting decision only; without one the
+// result is neutral, so a decision with `act: false` changes nothing.
 const NO_TRIAGE: TriageGateResult = {
   handoff: null,
   restricted: false,
   promptNotes: [],
+  urgent: false,
+  readyToApply: false,
+  intent: null,
 };
 
 /**
@@ -212,9 +225,14 @@ export async function runTriageGate(
       },
       restricted: false,
       promptNotes: [],
+      urgent: false,
+      readyToApply: false,
+      intent: null,
     };
   }
 
+  const urgent = d.urgency === 'urgent';
+  const readyToApply = d.callbackTask;
   const promptNotes: string[] = [];
   if (d.nonPartnerBank.detected) {
     // The guardrail blocks any reply naming a non-partner bank, a polite
@@ -223,10 +241,21 @@ export async function runTriageGate(
       `The customer is asking about a bank the business does not work with. Say only that you can help with the partner banks (${PARTNER_BANK_DISPLAY.join(', ')}). Do not name, describe or compare any other bank, not even to decline it.`
     );
   }
+  if (urgent)
+    promptNotes.push(
+      'The customer says this is time-sensitive: acknowledge that and give the quickest next step.'
+    );
+  if (readyToApply)
+    promptNotes.push(
+      'The customer is ready to start: tell them the next step and exactly what to send.'
+    );
   return {
     handoff: null,
     restricted: d.route === 'bot_restricted',
     promptNotes,
+    urgent,
+    readyToApply,
+    intent: d.intent,
   };
 }
 

@@ -46,6 +46,9 @@ export interface TriageDecision extends DecisionMeta {
   optOut: 'record' | 'suppress_pending_review' | 'none';
   rmTask: { reasons: string[]; priority: Priority } | null;
   callbackTask: boolean;
+  /** How time-sensitive the customer says this is ('urgent' = a deadline
+   *  or business impact today). 'normal' whenever there is no judgement. */
+  urgency: Priority;
   nonPartnerBank: {
     /** The customer asks for something at a non-partner bank (model). */
     detected: boolean;
@@ -123,6 +126,7 @@ export function routeTriage(
         ? { reasons: followUp, priority: urgencyPriority }
         : null,
       callbackTask: false,
+      urgency: urgencyPriority,
       reasons,
       nonPartner: a.non_partner_bank.noul >= t.nonPartnerBankMin,
     };
@@ -191,6 +195,7 @@ export function routeTriage(
       ? { reasons: [...new Set(rmReasons)], priority }
       : null,
     callbackTask,
+    urgency: urgencyPriority,
     reasons,
     nonPartner,
   };
@@ -227,6 +232,7 @@ export async function runTriage(
     optOut: 'none' as const,
     rmTask: null,
     callbackTask: false,
+    urgency: 'normal' as const,
     nonPartnerBank: {
       detected: false,
       banks: dictHits,
@@ -346,6 +352,7 @@ export async function runTriage(
     optOut: r.optOut,
     rmTask: r.rmTask,
     callbackTask: r.callbackTask,
+    urgency: r.urgency,
     nonPartnerBank: {
       detected: r.nonPartner,
       banks: dictHits,

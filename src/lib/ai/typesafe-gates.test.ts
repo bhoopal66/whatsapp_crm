@@ -137,6 +137,9 @@ describe('runTriageGate', () => {
       handoff: null,
       restricted: false,
       promptNotes: [],
+      urgent: false,
+      readyToApply: false,
+      intent: null,
     });
     expect(sim.calls).toHaveLength(0);
   });
@@ -215,11 +218,91 @@ describe('runTriageGate', () => {
     expect(note).toMatch(/Do not name/);
   });
 
+  it('tells the bot a time-sensitive request is urgent', async () => {
+    const sim = makeSim(() => ({
+      answers: { intent: 'business_loan', urgency: 1.8 },
+    }));
+    useLayer({ sim });
+    const r = await triage('I need the loan today or payroll bounces');
+    expect(r).toMatchObject({
+      handoff: null,
+      urgent: true,
+      readyToApply: false,
+      intent: 'business_loan',
+    });
+    expect(r.promptNotes).toContain(
+      'The customer says this is time-sensitive: acknowledge that and give the quickest next step.'
+    );
+  });
+
+  it('does not call the high urgency band urgent', async () => {
+    const sim = makeSim(() => ({
+      answers: { intent: 'business_loan', urgency: 1.2 },
+    }));
+    useLayer({ sim });
+    const r = await triage('I would like this sorted this week');
+    expect(r.urgent).toBe(false);
+    expect(r.promptNotes.join(' ')).not.toMatch(/time-sensitive/);
+  });
+
+  it('tells the bot a hot lead is ready to start', async () => {
+    const sim = makeSim(() => ({
+      answers: {
+        intent: 'account_opening',
+        lead_temperature: { score: 3, confidence: 0.9 },
+      },
+    }));
+    useLayer({ sim });
+    const r = await triage('I want to open the account now, what do you need?');
+    expect(r).toMatchObject({
+      handoff: null,
+      urgent: false,
+      readyToApply: true,
+      intent: 'account_opening',
+    });
+    expect(r.promptNotes).toContain(
+      'The customer is ready to start: tell them the next step and exactly what to send.'
+    );
+  });
+
+  it('passes no signal from a decision that does not act', async () => {
+    const answers = {
+      intent: 'account_opening',
+      urgency: 1.8,
+      lead_temperature: { score: 3, confidence: 0.9 },
+    };
+    const neutral = {
+      handoff: null,
+      restricted: false,
+      promptNotes: [],
+      urgent: false,
+      readyToApply: false,
+      intent: null,
+    };
+    // monitor mode
+    const monitored = makeSim(() => ({ answers }));
+    useLayer({ sim: monitored, mode: 'monitor' });
+    expect(await triage('open it today please')).toEqual(neutral);
+    expect(monitored.calls).toHaveLength(1);
+    // install-wide shadow (act: false)
+    const shadowed = makeSim(() => ({ answers }));
+    useLayer({ sim: shadowed, config: { shadow: true } });
+    expect(await triage('open it today please')).toEqual(neutral);
+    expect(shadowed.calls).toHaveLength(1);
+  });
+
   it('changes nothing in shadow mode, whatever the decision', async () => {
     const sim = makeSim(() => ({ answers: { wants_human: 0.99 } }));
     const db = useLayer({ sim, config: { shadow: true } });
     const r = await triage('agent please');
-    expect(r).toEqual({ handoff: null, restricted: false, promptNotes: [] });
+    expect(r).toEqual({
+      handoff: null,
+      restricted: false,
+      promptNotes: [],
+      urgent: false,
+      readyToApply: false,
+      intent: null,
+    });
     // ...but the decision is still logged, against the account.
     expect(db.inserts).toHaveLength(1);
     expect(db.inserts[0]).toMatchObject({
@@ -302,6 +385,9 @@ describe('runTriageGate', () => {
       handoff: null,
       restricted: false,
       promptNotes: [],
+      urgent: false,
+      readyToApply: false,
+      intent: null,
     });
   });
 
