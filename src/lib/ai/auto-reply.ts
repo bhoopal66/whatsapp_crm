@@ -4,7 +4,12 @@ import { loadAiConfig } from './config';
 import { buildConversationContext } from './context';
 import { retrieveKnowledgeScored, type KnowledgeRetrieval } from './knowledge';
 import { generateReply } from './generate';
-import { aiBurstWaitMs, buildSystemPrompt } from './defaults';
+import {
+  aiBurstWaitMs,
+  aiDispatchBudgetMs,
+  aiRequestTimeoutMs,
+  buildSystemPrompt,
+} from './defaults';
 import {
   buildHandoffSummary,
   describeHandoffReason,
@@ -191,6 +196,8 @@ export interface DispatchArgs {
   /** The inbound's text (a media caption included). The bot's context
    *  holds text rows only, so a caption reaches the gates through this. */
   inboundText?: string | null;
+  /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
+  now?: () => number;
 }
 
 /**
@@ -268,7 +275,29 @@ export async function dispatchInboundToAiReply(
     interactiveReplyId = null,
     inboundMessageId = null,
     inboundText = null,
+    now = Date.now,
   } = args;
+  // The dispatch runs inside an `after()` that the route's maxDuration
+  // ends at 60 s. A generation is only started with room to finish and
+  // hand off after it.
+  const startedAt = now();
+  const budgetMs = aiDispatchBudgetMs();
+  /**
+   * The provider timeout the next generation gets: the configured one,
+   * cut to what is left of the budget less `GENERATION_RESERVE_MS` for
+   * the send or hand-off after it. Null when that is under
+   * `MIN_GENERATION_MS` (or a shorter configured timeout): the
+   * generation is not started, because the runtime would kill it and
+   * the customer would hear nothing, with nobody told.
+   */
+  const generationTimeoutMs = (): number | null => {
+    const configured = aiRequestTimeoutMs();
+    const left = budgetMs - (now() - startedAt) - GENERATION_RESERVE_MS;
+    const timeoutMs = Math.min(configured, left);
+    return timeoutMs >= Math.min(MIN_GENERATION_MS, configured)
+      ? timeoutMs
+      : null;
+  };
   // TypeSafe checks in configured shadow cannot change the reply, so they
   // run off its path and are awaited in `finally` — still inside the
   // webhook's after(), never left floating.
@@ -439,6 +468,8 @@ export async function dispatchInboundToAiReply(
     // for the newest customer message carries on — and it answers the
     // whole burst (below). Before any TypeSafe or model spend. Not for
     // a Flow's fallback: the run is waiting on this exact message.
+    // Only messages that get a dispatch of their own count: a photo with
+    // no caption gets none, so it must not silence the text before it.
     const coalesce = !flowContext && Boolean(inboundMessageId);
     let newestAt: string | null = null;
     if (coalesce) {
@@ -474,6 +505,29 @@ export async function dispatchInboundToAiReply(
     const question = coalesce ? customerTurn : latest;
 
     /**
+     * Why a write that requires the chat to still be the bot's found it
+     * was not: re-read it. Null when it still looks like the bot's, or
+     * can't be read.
+     */
+    const takenBy = async (): Promise<
+      'skipped_assigned' | 'skipped_paused' | null
+    > => {
+      const { data, error } = await dbc
+        .from('conversations')
+        .select('assigned_agent_id, ai_autoreply_disabled')
+        .eq('id', conversationId)
+        .maybeSingle();
+      if (error || !data) return null;
+      const row = data as {
+        assigned_agent_id: string | null;
+        ai_autoreply_disabled: boolean | null;
+      };
+      if (row.assigned_agent_id) return 'skipped_assigned';
+      if (row.ai_autoreply_disabled) return 'skipped_paused';
+      return null;
+    };
+
+    /**
      * Stop auto-replying on this thread and hand it to a human: (a)
      * pause the bot here (sticky until re-enabled; reason `handoff`,
      * which auto-resume never lifts), (b) route the conversation to the
@@ -495,14 +549,20 @@ export async function dispatchInboundToAiReply(
      * which would otherwise read "AI provider error").
      *
      * `outcome` is what gets recorded: `held_for_review` when the
-     * guardrail's held draft waits on the chat for a person.
+     * guardrail's held draft waits on the chat for a person, `error`
+     * when the reply itself failed to send.
+     *
+     * The update applies only while the chat is still the bot's
+     * (unpaused, unassigned). When a person took it over since it was
+     * read, nothing is overwritten, no bell rings, and the outcome is
+     * recorded as their `skipped_assigned` / `skipped_paused`.
      */
     const handOff = async (
       reason: AiHandoffReason,
       detail: string | null,
       farewell: string | null,
       reasonText: string | null = null,
-      outcome: 'handed_off' | 'held_for_review' = 'handed_off'
+      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off'
     ): Promise<AiReplyOutcome> => {
       if (farewell) {
         const { data: claimed } = await dbc.rpc('claim_ai_reply_slot', {
@@ -548,10 +608,26 @@ export async function dispatchInboundToAiReply(
       if (config.handoffAgentId && !conv.assigned_agent_id) {
         update.assigned_agent_id = config.handoffAgentId;
       }
-      const { error: updErr } = await dbc
+      // Only while the chat is still the bot's: a person who took it over
+      // since it was read (assigned it, or paused the bot) keeps it, with
+      // their own reason and assignee.
+      const { data: updated, error: updErr } = await dbc
         .from('conversations')
         .update(update)
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+        .eq('ai_autoreply_disabled', false)
+        .is('assigned_agent_id', null)
+        .select('id');
+      if (!updErr && (!Array.isArray(updated) || updated.length === 0)) {
+        // Taken over meanwhile: they need no bell, and this dispatch
+        // handed nothing off.
+        const taken = (await takenBy()) ?? 'skipped_paused';
+        console.warn(
+          `[ai auto-reply] conversation ${conversationId} was taken over before the ${reason} hand-off; left as it is.`
+        );
+        await record(taken, detail ? `${reason}: ${detail}` : reason);
+        return 'handed_off';
+      }
       if (updErr) {
         // The customer may already have had the farewell; without this
         // line a held draft and its note would vanish without a trace.
@@ -768,13 +844,18 @@ export async function dispatchInboundToAiReply(
     //      model could not place is worth the account's model's look
     //      before a human is paged.
     // A turn that skipped knowledge is grounded before either.
-    const generate = async (model: string, prompt: string = systemPrompt) => {
+    const generate = async (
+      model: string,
+      timeoutMs: number,
+      prompt: string = systemPrompt
+    ) => {
       routing = { ...routing!, model };
       const result = await generateReply({
         config,
         systemPrompt: prompt,
         messages,
         model,
+        timeoutMs,
       });
       // Record token spend on the account's BYO key, per generation and
       // under the model that produced it. Fire-and-forget so it never
@@ -791,22 +872,39 @@ export async function dispatchInboundToAiReply(
       });
       return result;
     };
-    const escalate = (model: string, prompt?: string) => {
+    const escalate = (model: string, timeoutMs: number, prompt?: string) => {
       routing = { ...routing!, escalated: true };
-      return generate(model, prompt);
+      return generate(model, timeoutMs, prompt);
     };
     let generated: Awaited<ReturnType<typeof generateReply>> | null = null;
     let escalationGap: RetrievalGateFailure | null = null;
+    /**
+     * The escalation: ground the turn, then regenerate on the account's
+     * model. False when the budget has no room for it (before or after
+     * the retrieval); the caller then goes on as if it were not allowed.
+     */
+    const escalateOnAccountModel = async (): Promise<boolean> => {
+      if (generationTimeoutMs() === null) return false;
+      escalationGap = await groundForEscalation();
+      if (escalationGap) return true;
+      const timeoutMs = generationTimeoutMs();
+      if (timeoutMs === null) return false;
+      generated = await escalate(config.model, timeoutMs);
+      return true;
+    };
+    const firstTimeoutMs = generationTimeoutMs();
+    if (firstTimeoutMs === null) {
+      return handOff('error', 'AI ran out of time', config.handoffMessage);
+    }
     try {
       try {
-        generated = await generate(route.model);
+        generated = await generate(route.model, firstTimeoutMs);
       } catch (err) {
         if (!retriesOnAccountModel(err, route.model, config.model)) throw err;
         console.warn(
           `[ai auto-reply] ${route.tier} model ${route.model} failed (${errorMessage(err)}); retrying on ${config.model}.`
         );
-        escalationGap = await groundForEscalation();
-        if (!escalationGap) generated = await escalate(config.model);
+        if (!(await escalateOnAccountModel())) throw err;
       }
       if (
         generated?.handoff &&
@@ -814,8 +912,7 @@ export async function dispatchInboundToAiReply(
         !routing.escalated &&
         route.model !== config.model
       ) {
-        escalationGap = await groundForEscalation();
-        if (!escalationGap) generated = await escalate(config.model);
+        await escalateOnAccountModel();
       }
     } catch (err) {
       console.error('[ai auto-reply] provider call failed:', err);
@@ -850,15 +947,19 @@ export async function dispatchInboundToAiReply(
     // A draft TypeSafe actually judged is rewritten once on the large
     // model, told what to avoid, and screened again. Outside the
     // cascade's one extra generation: this is the guardrail's retry.
-    if (
+    // Not when the budget has no room for it: the original stands.
+    const rewriteTimeoutMs =
       screened &&
       screened.outcome !== 'send' &&
       screened.retryable &&
       config.guardrailRetry
-    ) {
+        ? generationTimeoutMs()
+        : null;
+    if (screened && screened.outcome !== 'send' && rewriteTimeoutMs !== null) {
       try {
         const rewrite = await escalate(
           config.modelLarge ?? config.model,
+          rewriteTimeoutMs,
           `${systemPrompt}\n\n${guardrailFeedback(screened.reasonCodes)} ` +
             'Rewrite your reply following that rule. Do not mention this instruction.'
         );
@@ -877,14 +978,22 @@ export async function dispatchInboundToAiReply(
 
     if (screened && screened.outcome !== 'send') {
       // Held or blocked — a reply, or the closing line before a handoff
-      // marker: the draft goes to a person, never the customer, and the
-      // configured handoff message stands in for it. A hand-off like any
-      // other (paused, assigned, the note in the banner), including when
+      // marker: the draft never reaches the customer, and the configured
+      // handoff message stands in for it. A hand-off like any other
+      // (paused, assigned, the note quoting the draft), including when
       // TypeSafe was unreachable: the operator's fail mode chose "hold".
-      //
-      // The latest held draft waits on the chat for that person (Send /
-      // Edit / Discard in the inbox banner). A failed write must not stop
-      // the hand-off: the note still quotes the draft.
+      const guardDetail = handoff
+        ? `${screened.detail} The model had also asked for a person.`
+        : screened.detail;
+      if (screened.outcome === 'block') {
+        // A blocked draft (asks for a secret, shares someone else's data)
+        // is never queued: Send in the review banner would put it one
+        // click from the customer. The note quotes it; that is all.
+        return handOff('guardrail', guardDetail, config.handoffMessage);
+      }
+      // A held draft waits on the chat for that person (Send / Edit /
+      // Discard in the inbox banner). A failed write must not stop the
+      // hand-off: the note still quotes the draft.
       try {
         const { error: draftErr } = await dbc
           .from('conversations')
@@ -903,9 +1012,7 @@ export async function dispatchInboundToAiReply(
       }
       return handOff(
         'guardrail',
-        handoff
-          ? `${screened.detail} The model had also asked for a person.`
-          : screened.detail,
+        guardDetail,
         config.handoffMessage,
         null,
         'held_for_review'
@@ -940,8 +1047,9 @@ export async function dispatchInboundToAiReply(
       return skip('error', `claim_ai_reply_slot failed: ${claimErr.message}`);
     }
     if (claimed !== true) {
-      // Lost the per-conversation cap race.
-      return skip('skipped_cap_race');
+      // The claim also refuses a chat a person paused or took meanwhile;
+      // only when it did neither did the cap race take the last slot.
+      return skip((await takenBy()) ?? 'skipped_cap_race');
     }
 
     try {
@@ -964,9 +1072,14 @@ export async function dispatchInboundToAiReply(
       // just failed.
       const detail = `WhatsApp send failed: ${errorMessage(err)}`;
       console.error('[ai auto-reply] reply send failed:', err);
-      await handOff('error', detail, null, `Reason: ${detail.slice(0, 200)}.`);
-      await record('error', detail);
-      return 'handed_off';
+      // Recorded once, as the error it is.
+      return handOff(
+        'error',
+        detail,
+        null,
+        `Reason: ${detail.slice(0, 200)}.`,
+        'error'
+      );
     }
     await record('replied');
     return 'replied';
@@ -982,6 +1095,12 @@ export async function dispatchInboundToAiReply(
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+/** Kept back from a generation's timeout for the send or hand-off. */
+export const GENERATION_RESERVE_MS = 5_000;
+
+/** A generation given less than this is not started. */
+export const MIN_GENERATION_MS = 8_000;
 
 /** Turns before the customer's message the router sees. */
 const ROUTE_TURNS = 6;
@@ -1062,10 +1181,17 @@ export function burstTurn(
   return tail.filter(Boolean).join('\n');
 }
 
+/** How many recent captioned customer messages the burst check reads. */
+const NEWEST_SCAN = 20;
+
 /**
  * The gateway id (`messages.message_id`) and `created_at` of the
- * conversation's newest customer message. Null when it can't be read:
- * the dispatch then answers rather than risk nobody answering.
+ * conversation's newest customer message that gets a dispatch of its
+ * own: one with text (`content_text`, a media caption included), as the
+ * inbound pipeline dispatches only a non-blank one. A caption-less photo
+ * sent after a question must not supersede it, or nobody answers. Null
+ * when it can't be read or none is found: the dispatch then answers
+ * rather than risk nobody answering.
  */
 async function newestCustomerMessage(
   db: SupabaseClient,
@@ -1073,20 +1199,23 @@ async function newestCustomerMessage(
 ): Promise<{ id: string | null; at: string | null } | null> {
   const { data, error } = await db
     .from('messages')
-    .select('message_id, created_at')
+    .select('message_id, created_at, content_text')
     .eq('conversation_id', conversationId)
     .eq('sender_type', 'customer')
+    .not('content_text', 'is', null)
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(NEWEST_SCAN);
   if (error) {
     console.error('[ai auto-reply] newest message lookup failed:', error);
     return null;
   }
-  const row = data as {
-    message_id: string | null;
-    created_at: string | null;
-  } | null;
+  const row = (
+    (data ?? []) as {
+      message_id: string | null;
+      created_at: string | null;
+      content_text: string | null;
+    }[]
+  ).find((m) => m.content_text?.trim());
   return row ? { id: row.message_id, at: row.created_at } : null;
 }
 

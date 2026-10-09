@@ -48,6 +48,20 @@ export function aiRequestTimeoutMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
+const DEFAULT_DISPATCH_BUDGET_MS = 50_000;
+
+/**
+ * How long one auto-reply dispatch may run, measured from its start.
+ * It runs inside the webhook's `after()`, which the route's
+ * `maxDuration = 60` kills at 60 s; a generation started too close to
+ * that is cut off mid-flight and the customer hears nothing, with
+ * nobody told. Override with `AI_DISPATCH_BUDGET_MS`.
+ */
+export function aiDispatchBudgetMs(): number {
+  const raw = Number(process.env.AI_DISPATCH_BUDGET_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DISPATCH_BUDGET_MS;
+}
+
 const DEFAULT_BURST_WAIT_MS = 3_000;
 
 /**

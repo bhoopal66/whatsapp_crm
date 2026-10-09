@@ -18,6 +18,10 @@ export interface GenerateArgs {
   /** The model to ask, on the configured provider and key. Defaults to
    *  `config.model`; the auto-reply router passes a tier's model. */
   model?: string;
+  /** Provider timeout for this call. Defaults to `aiRequestTimeoutMs()`;
+   *  the auto-reply dispatcher passes less when its budget is running
+   *  out. */
+  timeoutMs?: number;
 }
 
 /**
@@ -29,7 +33,7 @@ export async function generateReply(
   args: GenerateArgs
 ): Promise<GenerateResult> {
   const { config, systemPrompt, messages } = args;
-  const timeoutMs = aiRequestTimeoutMs();
+  const timeoutMs = args.timeoutMs ?? aiRequestTimeoutMs();
   const providerArgs = {
     apiKey: config.apiKey,
     model: args.model ?? config.model,
