@@ -87,7 +87,12 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
-    const update: Record<string, unknown> = { ai_autoreply_disabled: paused };
+    // Either way a person has acted on the chat: it no longer needs
+    // attention (migration 078's Important pin).
+    const update: Record<string, unknown> = {
+      ai_autoreply_disabled: paused,
+      ai_attention_at: null,
+    };
 
     if (paused) {
       update.ai_paused_reason = 'take_over';

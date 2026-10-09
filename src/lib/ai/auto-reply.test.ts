@@ -11,6 +11,8 @@ import { supabaseAdmin } from './admin-client';
 
 // Shared, hoisted mock state so the module mocks can close over it.
 const h = vi.hoisted(() => ({
+  /** The TypeSafe decision layer; null (unavailable) unless a test sets one. */
+  decisionLayer: null as unknown,
   loadAiConfig: vi.fn(),
   buildConversationContext: vi.fn(),
   retrieveKnowledge: vi.fn(),
@@ -78,7 +80,7 @@ vi.mock('./usage', () => ({ logAiUsage: h.logAiUsage }));
 // so "hi" is the small tier and two questions the large one.
 vi.mock('@/lib/typesafe', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/typesafe')>()),
-  getDecisionLayer: () => null,
+  getDecisionLayer: () => h.decisionLayer,
 }));
 vi.mock('@/lib/flows/channel-send', () => ({
   engineSendText: h.engineSendText,
@@ -288,6 +290,7 @@ import {
   dispatchInboundToAiReply,
   notifyHandoff,
   openCustomerTurns,
+  earlierCustomerQuestions,
   retrievalGateFailure,
   RETRIEVAL_GATE_MIN_WORDS,
 } from './auto-reply';
@@ -347,6 +350,7 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
 process.env.AI_BURST_WAIT_MS = '0';
 
 beforeEach(() => {
+  h.decisionLayer = null;
   // The per-account AI throttle is real here; don't let this file's
   // own call count trip it.
   __resetRateLimitForTests();
@@ -656,6 +660,24 @@ describe('dispatchInboundToAiReply — handoff', () => {
       ai_autoreply_disabled: true,
       assigned_agent_id: 'agent-7',
     });
+  });
+
+  it('flags the chat as needing attention (078)', async () => {
+    h.generateReply.mockResolvedValue({ text: '', handoff: true });
+    await dispatchInboundToAiReply(ARGS);
+    const at = h.state.updatePayload?.ai_attention_at;
+    expect(typeof at).toBe('string');
+    expect(at).toBe(h.state.updatePayload?.ai_paused_at);
+  });
+
+  it('flags it even when the hand-off assigns an agent (assigning is not acting)', async () => {
+    h.generateReply.mockResolvedValue({ text: '', handoff: true });
+    h.loadAiConfig.mockResolvedValue(aiConfig({ handoffAgentId: 'agent-7' }));
+    await dispatchInboundToAiReply(ARGS);
+    expect(h.state.updatePayload).toMatchObject({
+      assigned_agent_id: 'agent-7',
+    });
+    expect(typeof h.state.updatePayload?.ai_attention_at).toBe('string');
   });
 });
 
@@ -2005,6 +2027,8 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(h.state.updatePayload!.ai_handoff_summary).toContain(
       'held again (guarantee)'
     );
+    // A held draft waits on a person: the chat is pinned Important.
+    expect(typeof h.state.updatePayload!.ai_attention_at).toBe('string');
     expect(lastOutcome()).toBe('held_for_review');
     expect(lastEvent()).toMatchObject({
       outcome: 'held_for_review',
@@ -2464,15 +2488,96 @@ describe('dispatchInboundToAiReply — the open question drives retrieval and ro
     expect(models()).toEqual(['gpt-small']);
   });
 
-  it('"Hi" after an answered question is a greeting: small, no retrieval', async () => {
+  it('"Hi" after a hand-off farewell retrieves for the FAB question, on the standard tier', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: 'Welcome! How can I help?' },
+      { role: 'user', content: FAB, at: DAY_AGO },
+      {
+        role: 'assistant',
+        content: 'A colleague will follow up with you shortly.',
+      },
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(queries()).toEqual([`${FAB}\nHi`]);
+    expect(models()).toEqual(['gpt-test']);
+    expect(
+      (h.generateReply.mock.calls[0][0] as { systemPrompt: string })
+        .systemPrompt
+    ).toContain('AED 50');
+    expect(lastEvent()).toMatchObject({ tier: 'standard', model: 'gpt-test' });
+  });
+
+  it('"Hi" after an answered question still retrieves for it: only a first "hi" skips', async () => {
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: FAB, at: DAY_AGO },
       { role: 'assistant', content: 'FAB charges AED 50 a month.' },
       { role: 'user', content: 'Hi', at: NOW },
     ]);
     expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(queries()).toEqual([`${FAB}\nHi`]);
+    expect(models()).toEqual(['gpt-test']);
+  });
+
+  it('Jev calling the extended "Hi" a greeting still cannot skip the earlier question', async () => {
+    // Jev judges the whole query a greeting that needs no facts (small,
+    // retrieval skipped); an earlier customer question overrules that.
+    h.decisionLayer = {
+      route: async () => ({
+        ok: true,
+        kind: { label: 'greeting_or_thanks', p: { greeting_or_thanks: 0.95 } },
+        complexity: 0,
+        needsFacts: 0,
+        latencyMs: 1,
+      }),
+    };
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: FAB, at: DAY_AGO },
+      { role: 'assistant', content: 'A colleague will follow up shortly.' },
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(queries()).toEqual([`${FAB}\nHi`]);
+    expect(models()).toEqual(['gpt-test']);
+    expect(lastEvent()).toMatchObject({
+      tier: 'standard',
+      route_source: 'jev',
+    });
+  });
+
+  it('earlier greetings alone keep a "Hi" on the small tier without retrieval', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Hello', at: DAY_AGO },
+      { role: 'assistant', content: 'Hello! How can I help?' },
+      { role: 'user', content: 'Thanks', at: DAY_AGO },
+      { role: 'assistant', content: 'You are welcome.' },
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
     expect(h.retrieveKnowledge).not.toHaveBeenCalled();
     expect(models()).toEqual(['gpt-small']);
+  });
+
+  it('earlierCustomerQuestions: the newest two non-greetings before the open turns', () => {
+    const user = (content: string) => ({ role: 'user' as const, content });
+    const bot = (content: string) => ({ role: 'assistant' as const, content });
+    expect(
+      earlierCustomerQuestions([
+        user('Q1'),
+        user('Q2'),
+        bot('a'),
+        user('thanks'),
+        user('Q3'),
+        bot('Someone will follow up.'),
+        user('Hi'),
+      ])
+    ).toEqual(['Q2', 'Q3']);
+    // A true first "hi" has none; the open turns themselves never count.
+    expect(earlierCustomerQuestions([user('Hi')])).toEqual([]);
+    expect(earlierCustomerQuestions([bot('Welcome'), user(FAB)])).toEqual([]);
+    expect(
+      earlierCustomerQuestions([user('x'.repeat(1_500)), bot('ok')])
+    ).toEqual(['x'.repeat(1_000)]);
   });
 
   it('escalation grounding retrieves for the open turns, not the newest one', async () => {

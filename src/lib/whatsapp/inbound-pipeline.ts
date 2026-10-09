@@ -376,6 +376,8 @@ async function handOffUndeliveredBotReply(
         ai_autoreply_disabled: true,
         ai_handoff_summary: summary,
         ai_handoff_reason: 'error',
+        // Important until a person acts (migration 078).
+        ai_attention_at: new Date().toISOString(),
         ...(assign ? { assigned_agent_id: handoffAgentId } : {}),
       })
       .eq('id', conversationId)

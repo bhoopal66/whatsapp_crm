@@ -511,7 +511,17 @@ export async function dispatchInboundToAiReply(
     // router read the open question, or a "Hi" retrieves nothing and the
     // model answers the earlier question blind.
     const openTurns = openCustomerTurns(messages, inboundText);
-    const openQuestion = openTurns.join('\n') || question;
+    const openText = openTurns.join('\n') || question;
+    // When the open turns are only greetings, the question is an earlier
+    // one even if we spoke since: "What are FAB's charges?", a hand-off
+    // farewell, then "Hi" and a person clicking Resume & reply still asks
+    // about FAB. Any such message also rules out the small tier and a
+    // skipped retrieval below — those are for a true first "hi".
+    const earlier = earlierCustomerQuestions(messages);
+    const openQuestion =
+      openTurns.length > 0 && openTurns.every(isGreetingOrThanks)
+        ? [...earlier, ...openTurns].join('\n')
+        : openText;
 
     /**
      * Why a write that requires the chat to still be the bot's found it
@@ -605,12 +615,16 @@ export async function dispatchInboundToAiReply(
         detail,
         reasonText,
       });
+      const now = new Date().toISOString();
       const update: Record<string, unknown> = {
         ai_autoreply_disabled: true,
         ai_paused_reason: 'handoff',
-        ai_paused_at: new Date().toISOString(),
+        ai_paused_at: now,
         ai_handoff_summary: summary,
         ai_handoff_reason: reason,
+        // Pins the chat as Important (migration 078) until a person acts
+        // on it — assigning the hand-off agent below is not acting.
+        ai_attention_at: now,
       };
       // Only set the assignee when a target is configured AND the thread
       // isn't already owned — never stomp an existing human assignment.
@@ -726,7 +740,7 @@ export async function dispatchInboundToAiReply(
         config,
         accountId,
         message: openQuestion,
-        recentTurns: turnsBefore(messages, openQuestion)
+        recentTurns: turnsBefore(messages, openText)
           .slice(-ROUTE_TURNS)
           .map((m) => ({
             from: m.role === 'user' ? 'customer' : 'business',
@@ -739,10 +753,13 @@ export async function dispatchInboundToAiReply(
     // The tier and model for this reply. A customer triage judged urgent
     // or ready to apply is worth more than the small model, and the
     // facts: such a turn is raised to the standard tier, with retrieval.
-    // So is an open question that is not all greetings: the small tier
-    // and a skipped retrieval are for "hi" / "thanks" alone, and Jev
-    // judges the newest turn, so the earlier ones get the heuristic.
-    const greetingsOnly = openTurns.slice(0, -1).every(isGreetingOrThanks);
+    // So is an open question that is not all greetings, or a greeting
+    // with an earlier customer question anywhere in the context: the
+    // small tier and a skipped retrieval are for a true first "hi" /
+    // "thanks" alone, and Jev judges the newest turn, so the earlier
+    // ones get the heuristic.
+    const greetingsOnly =
+      openTurns.slice(0, -1).every(isGreetingOrThanks) && earlier.length === 0;
     const route =
       routed.tier === 'small' &&
       (triage.urgent || triage.readyToApply || !greetingsOnly)
@@ -1234,6 +1251,37 @@ export function openCustomerTurns(
       break;
     }
     kept.unshift(run[i]!);
+    chars += cost;
+  }
+  return kept;
+}
+
+/** At most this many earlier customer questions extend a greeting. */
+export const EARLIER_QUESTIONS_MAX = 2;
+
+/**
+ * The newest (up to `EARLIER_QUESTIONS_MAX`) customer messages BEFORE the
+ * open turns that are not a greeting / thanks / acknowledgement, oldest
+ * first — whatever we said after them (an answer, a hand-off farewell).
+ * At most `OPEN_TURNS_MAX_CHARS` joined, newest kept (one longer than
+ * that alone is cut to fit). Empty for a true first "hi".
+ */
+export function earlierCustomerQuestions(messages: ChatMessage[]): string[] {
+  let i = messages.length - 1;
+  // Skip the open run (the customer's messages since our last one).
+  while (i >= 0 && messages[i]!.role === 'user') i--;
+  const kept: string[] = [];
+  let chars = 0;
+  for (; i >= 0 && kept.length < EARLIER_QUESTIONS_MAX; i--) {
+    const m = messages[i]!;
+    const text = m.content.trim();
+    if (m.role !== 'user' || !text || isGreetingOrThanks(text)) continue;
+    const cost = text.length + 1;
+    if (chars + cost > OPEN_TURNS_MAX_CHARS) {
+      if (kept.length === 0) kept.push(text.slice(0, OPEN_TURNS_MAX_CHARS));
+      break;
+    }
+    kept.unshift(text);
     chars += cost;
   }
   return kept;

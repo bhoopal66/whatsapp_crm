@@ -160,7 +160,13 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
     expect(updates()).toEqual([
       {
         method: 'update',
-        args: [{ ai_pending_draft: null, ai_pending_draft_at: null }],
+        args: [
+          {
+            ai_pending_draft: null,
+            ai_pending_draft_at: null,
+            ai_attention_at: null,
+          },
+        ],
       },
     ]);
     expect(scoped.calls).toContainEqual({
@@ -209,6 +215,8 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
       senderUserId: 'agent-1',
     });
     expect(updates()).toHaveLength(1);
+    // The claim also clears the Important pin (078).
+    expect(updates()[0].args[0]).toHaveProperty('ai_attention_at', null);
   });
 
   it('send uses the agent’s edited text, trimmed', async () => {
@@ -236,7 +244,13 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
     expect(updates()).toEqual([
       {
         method: 'update',
-        args: [{ ai_pending_draft: null, ai_pending_draft_at: null }],
+        args: [
+          {
+            ai_pending_draft: null,
+            ai_pending_draft_at: null,
+            ai_attention_at: null,
+          },
+        ],
       },
       {
         method: 'update',
