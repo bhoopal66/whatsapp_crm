@@ -1,7 +1,6 @@
 import {
   Activity,
   Bell,
-  Bot,
   Building2,
   GitBranch,
   LayoutDashboard,
@@ -131,7 +130,6 @@ export const NAV_GROUPS: NavGroup[] = [
         beta: true,
         minRole: 'admin',
       },
-      { href: '/agents', labelKey: 'aiAgents', icon: Bot, minRole: 'admin' },
     ],
   },
   {

@@ -44,7 +44,7 @@ describe('visibleNavGroups', () => {
       main: EVERYONE,
       team: ['/team-inbox', '/team-contacts', '/team-activity'],
       sales: ['/pipelines', '/broadcasts'],
-      automation: ['/automations', '/flows', '/agents'],
+      automation: ['/automations', '/flows'],
       integrations: ['/compass'],
     });
   });
