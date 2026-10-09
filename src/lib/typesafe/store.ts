@@ -6,7 +6,7 @@
  * `authenticated` no INSERT on ts_decision_log).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { PartnerBanksSetting } from './admin-types';
+import { parsePartnerBanks, type PartnerBanksSetting } from './admin-types';
 import type { AccountSwitches, CheckName } from './config';
 
 export interface PolicyRow {
@@ -63,10 +63,30 @@ export interface SwitchesRow {
   passages: boolean;
   watch_human_threads: boolean;
   languages: string;
-  /** Migration 078; NULL = the built-in list. Not selected by
-   *  accountSwitches yet, so absent until a read selects it. Read it
-   *  through parsePartnerBanks: the CHECK holds only the envelope. */
+  /** Migration 078; NULL = the built-in list. Absent when the read did
+   *  not select it (a pre-078 database). Read it through
+   *  parsePartnerBanks: the CHECK holds only the envelope. */
   partner_banks?: PartnerBanksSetting | null;
+}
+
+const SWITCH_COLUMNS =
+  'enabled, mode, triage, guardrail, passages, watch_human_threads, languages';
+
+/**
+ * PostgREST's answer to a select naming a column the table does not have
+ * (Postgres 42703, or PGRST204 from the schema cache): a database that
+ * has not run the migration adding it yet.
+ */
+export function isUndefinedColumn(
+  error: { code?: string; message?: string } | null,
+  column: string
+): boolean {
+  if (!error) return false;
+  if (error.code === '42703' || error.code === 'PGRST204') return true;
+  return (
+    (error.message ?? '').includes(column) &&
+    /does not exist|could not find/i.test(error.message ?? '')
+  );
 }
 
 export function switchesFromRow(r: SwitchesRow): AccountSwitches {
@@ -82,6 +102,12 @@ export function switchesFromRow(r: SwitchesRow): AccountSwitches {
     },
     watchHumanThreads: r.watch_human_threads,
     languages: r.languages === 'all' ? 'all' : 'english',
+    // Absent (not selected) stays absent: SwitchesStore.set keeps the
+    // partner banks it already knows rather than reverting to the
+    // built-in list on a save whose row did not carry the column.
+    ...('partner_banks' in r
+      ? { partnerBanks: parsePartnerBanks(r.partner_banks) }
+      : {}),
   };
 }
 
@@ -101,15 +127,21 @@ export function supabaseStore(db: SupabaseClient): TsStore {
       return (data as PolicyRow | null) ?? null;
     },
     async accountSwitches(accountId) {
-      const { data, error } = await db
-        .from('ts_account_settings')
-        .select(
-          'enabled, mode, triage, guardrail, passages, watch_human_threads, languages'
-        )
-        .eq('account_id', accountId)
-        .maybeSingle();
+      const read = (columns: string) =>
+        db
+          .from('ts_account_settings')
+          .select(columns)
+          .eq('account_id', accountId)
+          .maybeSingle();
+      let { data, error } = await read(`${SWITCH_COLUMNS}, partner_banks`);
+      // Before migration 078: the switches still apply, with the
+      // built-in partner list.
+      if (isUndefinedColumn(error, 'partner_banks'))
+        ({ data, error } = await read(SWITCH_COLUMNS));
       if (error) throw new Error(error.message);
-      return data ? switchesFromRow(data as SwitchesRow) : null;
+      if (!data) return null;
+      const row = data as unknown as SwitchesRow;
+      return switchesFromRow({ partner_banks: null, ...row });
     },
     async insertDecision(row) {
       const { data, error } = await db

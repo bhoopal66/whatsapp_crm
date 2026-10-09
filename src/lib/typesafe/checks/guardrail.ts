@@ -12,7 +12,11 @@
  *     never the customer's text, or a customer could assert a rate and
  *     have the bot confirm it; an echoed figure goes to a person)
  */
-import { detectBanks, PARTNER_BANK_DISPLAY } from '../banks';
+import {
+  detectBanksIn,
+  partnerCatalogue,
+  type PartnerCatalogue,
+} from '../banks';
 import type { GuardrailThresholds } from '../policy';
 import { detectLanguage, normaliseDigits } from '../redact';
 import {
@@ -46,6 +50,9 @@ export interface GuardrailInput extends Ref {
    * guided-flow step. A figure or claim found there is not "unsupported".
    */
   context?: string[];
+  /** The account's bank dictionary (DecisionLayer.partners). Absent: the
+   *  built-in partner list. */
+  partners?: PartnerCatalogue;
 }
 
 export interface GuardrailDecision extends DecisionMeta {
@@ -187,17 +194,22 @@ export function routeGuardrail(a: GuardAnswers, t: GuardrailThresholds) {
 export function codeLayer(
   botReply: string,
   evidence: { text: string }[],
-  opts: { customerMessage?: string; context?: string[] } = {}
+  opts: {
+    customerMessage?: string;
+    context?: string[];
+    partners?: PartnerCatalogue;
+  } = {}
 ) {
+  const { banks } = opts.partners ?? partnerCatalogue(null);
   const codeHazards: GuardrailDecision['hazards'] = [];
   const codeReasons: string[] = [];
   let codeOutcome: GuardrailOutcome = 'send';
-  const nonPartner = detectBanks(botReply).filter((b) => !b.partner);
+  const nonPartner = detectBanksIn(botReply, banks).filter((b) => !b.partner);
   if (nonPartner.length) {
     // A bank the customer named first is most likely being declined
     // ("we don't work with ADCB") — a person confirms, nothing is sent.
     const named = new Set(
-      detectBanks(opts.customerMessage ?? '').map((b) => b.code)
+      detectBanksIn(opts.customerMessage ?? '', banks).map((b) => b.code)
     );
     const echoOnly = nonPartner.every((b) => named.has(b.code));
     codeOutcome = echoOnly ? 'hold' : 'block';
@@ -258,7 +270,7 @@ const MAX_CONTEXT_CHARS = 4000;
 export function buildGuardrailState(
   input: Pick<
     GuardrailInput,
-    'customerMessage' | 'botReply' | 'evidence' | 'context'
+    'customerMessage' | 'botReply' | 'evidence' | 'context' | 'partners'
   >
 ): GuardrailState {
   return {
@@ -273,7 +285,7 @@ export function buildGuardrailState(
     context_passages: (input.context ?? [])
       .filter((c) => c.trim())
       .map((c) => redactClipped(c, MAX_CONTEXT_CHARS)),
-    partner_banks: PARTNER_BANK_DISPLAY,
+    partner_banks: (input.partners ?? partnerCatalogue(null)).display,
   };
 }
 
@@ -284,7 +296,11 @@ export async function runGuardrail(
   const { codeOutcome, codeHazards, codeReasons, codeLog } = codeLayer(
     input.botReply,
     input.evidence,
-    { customerMessage: input.customerMessage, context: input.context }
+    {
+      customerMessage: input.customerMessage,
+      context: input.context,
+      partners: input.partners,
+    }
   );
 
   // Off for this account (or on this install): no policy read, no

@@ -3,7 +3,11 @@
  * Hook 1: call AFTER the webhook has returned 200 to Meta, and AFTER module
  * 012's keyword-STOP handling. Never writes journey state.
  */
-import { detectBanks, PARTNER_BANK_DISPLAY } from '../banks';
+import {
+  detectBanksIn,
+  partnerCatalogue,
+  type PartnerCatalogue,
+} from '../banks';
 import type { TriageThresholds } from '../policy';
 
 import { detectLanguage } from '../redact';
@@ -37,6 +41,9 @@ export interface TriageInput extends Ref {
   message: string;
   recentTurns?: { from: 'customer' | 'taamul'; text: string }[];
   journeyStage: string;
+  /** The account's bank dictionary (DecisionLayer.partners). Absent: the
+   *  built-in partner list. */
+  partners?: PartnerCatalogue;
 }
 
 export interface TriageDecision extends DecisionMeta {
@@ -206,7 +213,10 @@ const MAX_TURN_CHARS = 1000;
 
 /** Redacted TypeSafe state for check A/B. Shared with the evaluation harness. */
 export function buildTriageState(
-  input: Pick<TriageInput, 'message' | 'recentTurns' | 'journeyStage'>
+  input: Pick<
+    TriageInput,
+    'message' | 'recentTurns' | 'journeyStage' | 'partners'
+  >
 ): TriageState {
   return {
     // Tail-clipped: the newest line of a burst is the one that matters.
@@ -216,7 +226,7 @@ export function buildTriageState(
       text: redactClipped(t.text, MAX_TURN_CHARS),
     })),
     journey_stage: input.journeyStage,
-    partner_banks: PARTNER_BANK_DISPLAY,
+    partner_banks: (input.partners ?? partnerCatalogue(null)).display,
   };
 }
 
@@ -224,7 +234,8 @@ export async function runTriage(
   deps: CheckDeps,
   input: TriageInput
 ): Promise<TriageDecision> {
-  const dictHits = detectBanks(input.message)
+  const catalogue = input.partners ?? partnerCatalogue(null);
+  const dictHits = detectBanksIn(input.message, catalogue.banks)
     .filter((b) => !b.partner)
     .map((b) => b.code);
 

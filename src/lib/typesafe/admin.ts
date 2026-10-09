@@ -43,9 +43,9 @@ export interface SettingsRow {
   passages: boolean;
   watch_human_threads: boolean;
   languages: string;
-  /** Migration 078; NULL = the built-in list. Not in SETTINGS_COLUMNS
-   *  yet, so absent until a read selects it. Read it through
-   *  parsePartnerBanks: the CHECK holds only the envelope. */
+  /** Migration 078; NULL = the built-in list. Only in
+   *  SETTINGS_COLUMNS_078, so absent from a SETTINGS_COLUMNS read. Read
+   *  it through parsePartnerBanks: the CHECK holds only the envelope. */
   partner_banks?: PartnerBanksSetting | null;
   updated_at: string | null;
   updated_by: string | null;
@@ -53,6 +53,16 @@ export interface SettingsRow {
 
 export const SETTINGS_COLUMNS =
   'enabled, mode, triage, guardrail, passages, watch_human_threads, languages, updated_at, updated_by';
+
+/**
+ * SETTINGS_COLUMNS plus partner_banks (migration 078). A database that
+ * has not run 078 rejects it (isUndefinedColumn in ./store): retry with
+ * SETTINGS_COLUMNS, which reads as the built-in list. SETTINGS_COLUMNS
+ * itself stays pre-078 so a route still using it keeps working there;
+ * a save read back without the column leaves the decision layer's
+ * partner banks as they were (SwitchesStore.set).
+ */
+export const SETTINGS_COLUMNS_078 = `${SETTINGS_COLUMNS}, partner_banks`;
 
 export function settingsFromRow(
   row: SettingsRow | null,

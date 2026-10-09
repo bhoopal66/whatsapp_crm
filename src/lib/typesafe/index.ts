@@ -23,6 +23,7 @@ import { DecisionLogger } from './log';
 import { supabaseStore, type TsStore } from './store';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { PolicyStore, SwitchesStore } from './policy';
+import { partnerCatalogue, type PartnerCatalogue } from './banks';
 import { runEligibility, type EligibilityInput } from './checks/eligibility';
 import { runGuardrail, type GuardrailInput } from './checks/guardrail';
 import { runPassageFilter, type RetrievedPassage } from './checks/passages';
@@ -138,6 +139,11 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
     now: opts.now,
   };
 
+  /** The account's partner banks, from its cached settings row (30 s;
+   *  a settings save applies at once). Built-in list when none saved. */
+  const partners = async (accountId: string): Promise<PartnerCatalogue> =>
+    partnerCatalogue((await switches.get(accountId)).partnerBanks ?? null);
+
   return {
     config,
     gateway,
@@ -146,8 +152,17 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
     /** Whether `check` runs, and acts, for this account right now. */
     state: async (check: CheckName, accountId: string): Promise<CheckState> =>
       checkState(config, await switches.get(accountId), check, accountId),
-    triage: (input: TriageInput) => runTriage(deps, input),
-    guardrail: (input: GuardrailInput) => runGuardrail(deps, input),
+    partners,
+    triage: async (input: TriageInput) =>
+      runTriage(deps, {
+        ...input,
+        partners: input.partners ?? (await partners(input.accountId)),
+      }),
+    guardrail: async (input: GuardrailInput) =>
+      runGuardrail(deps, {
+        ...input,
+        partners: input.partners ?? (await partners(input.accountId)),
+      }),
     passages: (input: Ref & { query: string; passages: RetrievedPassage[] }) =>
       runPassageFilter(deps, input),
     eligibility: (input: EligibilityInput) => runEligibility(deps, input),
@@ -201,7 +216,14 @@ export {
   containsRawIdentifier,
   detectLanguage,
 } from './redact';
-export { detectBanks, BANKS, PARTNER_BANK_DISPLAY } from './banks';
+export {
+  detectBanks,
+  detectBanksIn,
+  partnerCatalogue,
+  BANKS,
+  PARTNER_BANK_DISPLAY,
+  type PartnerCatalogue,
+} from './banks';
 export { DEFAULT_THRESHOLDS, validateThresholds } from './policy';
 export { routeTriage } from './checks/triage';
 export {

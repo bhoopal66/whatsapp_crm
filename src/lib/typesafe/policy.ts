@@ -355,6 +355,14 @@ export class SwitchesStore {
 
   /** The account's switches as just saved: applied here at once. */
   set(accountId: string, sw: AccountSwitches): void {
+    // A saved row that did not carry partner_banks (the settings route's
+    // select, or a pre-078 database) says nothing about them: keep the
+    // partner banks already known instead of reverting to the built-ins.
+    if (!('partnerBanks' in sw)) {
+      const known = this.lastGood.get(accountId);
+      if (known && 'partnerBanks' in known)
+        sw = { ...sw, partnerBanks: known.partnerBanks };
+    }
     this.bump(accountId);
     this.lastGood.set(accountId, sw);
     this.cache.set(accountId, {
