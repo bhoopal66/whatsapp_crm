@@ -607,7 +607,8 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // (pre-080 database, no conversation) it stays the automation's.
       const owner = await resolveAutomationDealOwner(args)
       await db.from('deals').insert({
-        // Tenancy + audit, same split as automation_logs above.
+        // Tenancy is the automation's account; user_id is the deal's
+        // owner (resolved above), else the automation's author.
         account_id: args.automation.account_id,
         user_id: owner?.userId ?? args.automation.user_id,
         ...(owner ? { assigned_to: owner.profileId } : {}),

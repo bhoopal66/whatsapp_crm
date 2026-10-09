@@ -42,7 +42,9 @@
 --   deals_update's WITH CHECK), so an agent cannot create a deal for,
 --   or hand their deal to, someone whose deals they could not see. A
 --   leader may assign within their team; an admin anywhere in the
---   account — never to another account's profile.
+--   account — never to another account's profile (deals_assignee_guard,
+--   checked only when assigned_to is set or changed, so a deal whose
+--   assignee has since left the account stays editable).
 -- * A stage may only be linked to a MAIN tag of its own pipeline's
 --   account (pipeline_stages_auto_tag_guard), and a tag opens deals in
 --   at most one stage per pipeline (partial unique index). Linking is
@@ -134,33 +136,46 @@ COMMENT ON FUNCTION public.can_view_deal(uuid, uuid) IS
 REVOKE ALL ON FUNCTION public.can_view_deal(uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.can_view_deal(uuid, uuid) TO authenticated, service_role;
 
--- An assignee must be a member of the deal's own account. SECURITY
--- DEFINER so the answer does not depend on the writer's profiles RLS.
--- Not "active": a deal assigned to someone later deactivated stays
--- editable.
-CREATE OR REPLACE FUNCTION public.deal_assignee_in_account(
-  p_assigned_to uuid,
-  p_account_id  uuid
-)
-RETURNS boolean
-LANGUAGE sql
-STABLE
+-- An assignee must be a member of the deal's own account — checked when
+-- assigned_to is SET or CHANGED, never on a row that merely keeps it.
+-- A person who leaves (remove_account_member) takes their profile to a
+-- new account while their deals keep pointing at it; a check on every
+-- write (it was in deals_update's WITH CHECK) froze those deals for
+-- everyone, admins included, until someone reassigned them. A trigger,
+-- not RLS, because a policy cannot see OLD. It applies to every writer,
+-- the service role included (the automation engine and the tag trigger
+-- below look the profile up within the account). SECURITY DEFINER so
+-- the answer does not depend on the writer's profiles RLS. Not
+-- "active": assigning to a deactivated member is the UI's business.
+CREATE OR REPLACE FUNCTION public.deals_assignee_guard()
+RETURNS trigger
+LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
-  SELECT p_assigned_to IS NULL OR EXISTS (
-    SELECT 1 FROM profiles p
-     WHERE p.id = p_assigned_to
-       AND p.account_id = p_account_id
-  );
+BEGIN
+  IF new.assigned_to IS NOT NULL
+     AND (TG_OP = 'INSERT' OR new.assigned_to IS DISTINCT FROM old.assigned_to)
+     AND NOT EXISTS (
+       SELECT 1 FROM public.profiles p
+        WHERE p.id = new.assigned_to
+          AND p.account_id = new.account_id
+     )
+  THEN
+    -- A missing profile lands here too, before the FK would report it.
+    RAISE EXCEPTION 'A deal can only be assigned to a member of its own account'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN new;
+END
 $$;
 
-COMMENT ON FUNCTION public.deal_assignee_in_account(uuid, uuid) IS
-  'Write check for deals: assigned_to (a profiles.id) is NULL or a profile '
-  'of the deal''s account. See migration 080.';
+DROP TRIGGER IF EXISTS deals_assignee_guard ON public.deals;
+CREATE TRIGGER deals_assignee_guard
+  BEFORE INSERT OR UPDATE OF assigned_to ON public.deals
+  FOR EACH ROW EXECUTE FUNCTION public.deals_assignee_guard();
 
-REVOKE ALL ON FUNCTION public.deal_assignee_in_account(uuid, uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.deal_assignee_in_account(uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.deals_assignee_guard() FROM PUBLIC, anon, authenticated, service_role;
 
 -- The caller's teammates — members of a team in the caller's account
 -- that the caller leads — as auth user ids and as profile ids: the set
@@ -223,9 +238,9 @@ GRANT EXECUTE ON FUNCTION public.led_teammate_profile_ids() TO authenticated, se
 -- can_view_deal() stays the rule's single-row statement; a change to
 -- it is a change to these policies.
 --
--- Writes add deal_assignee_in_account(): an admin passes every other
--- conjunct, so without it they could hand a deal to another account's
--- member.
+-- An admin passes every owner conjunct, so these policies alone would
+-- let them hand a deal to another account's member: deals_assignee_guard
+-- (above) refuses that, and only when assigned_to is set or changed.
 DROP POLICY IF EXISTS deals_select ON public.deals;
 CREATE POLICY deals_select ON public.deals
   FOR SELECT
@@ -247,7 +262,6 @@ CREATE POLICY deals_insert ON public.deals
   WITH CHECK (
     account_id = (SELECT current_account_id())
     AND (SELECT current_role_rank()) >= 2
-    AND deal_assignee_in_account(assigned_to, account_id)
     AND (
       (SELECT current_role_rank()) >= 4
       OR (assigned_to IS NULL AND user_id = (SELECT auth.uid()))
@@ -276,7 +290,6 @@ CREATE POLICY deals_update ON public.deals
   WITH CHECK (
     account_id = (SELECT current_account_id())
     AND (SELECT current_role_rank()) >= 2
-    AND deal_assignee_in_account(assigned_to, account_id)
     AND (
       (SELECT current_role_rank()) >= 4
       OR (assigned_to IS NULL AND user_id = (SELECT auth.uid()))
@@ -302,6 +315,12 @@ CREATE POLICY deals_delete ON public.deals
                OR assigned_to = ANY ((SELECT led_teammate_profile_ids())::uuid[])))
     )
   );
+
+-- An earlier draft of this migration checked the assignee in the write
+-- policies through this helper, which any signed-in user could call
+-- with arbitrary ids. The guard trigger replaced it; dropped after the
+-- policies above so a database that ran the draft has no dependants.
+DROP FUNCTION IF EXISTS public.deal_assignee_in_account(uuid, uuid);
 
 -- ------------------------------------------------------------
 -- 3. Linking a stage to a chat tag
@@ -477,10 +496,13 @@ BEGIN
     -- The owner (header, "Owner"), the tagger acting.
     v_owner := public.resolve_chat_deal_owner(new.id, v_caller);
 
-    -- deals.assigned_to is a profiles.id.
+    -- deals.assigned_to is a profiles.id, and only one of this account:
+    -- the creator fallback (d) may have left, taking their profile to
+    -- another account. Then the deal is theirs by user_id, unassigned.
     SELECT pr.id INTO v_profile
       FROM public.profiles pr
-     WHERE pr.user_id = v_owner;
+     WHERE pr.user_id = v_owner
+       AND pr.account_id = new.account_id;
 
     SELECT COALESCE(NULLIF(btrim(c.name), ''), c.phone) INTO v_title
       FROM public.contacts c

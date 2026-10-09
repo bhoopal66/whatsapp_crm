@@ -304,12 +304,14 @@ BEGIN
          'INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title, assigned_to) '
          'VALUES (%L, %L, %L, %L, %L, %L, %L)', a_acct, u_admin, pl, st_open, ct_seen, 'for account B', p_other));
   n := n + 1;
-  IF r NOT LIKE 'ERROR:%' THEN
+  -- Refused by deals_assignee_guard (its message), not by RLS.
+  IF r NOT LIKE 'ERROR: %member of its own account%' THEN
     failed := array_append(failed, ('admin inserted a deal assigned to another account''s profile: ' || r)::text);
   END IF;
   r := pg_temp.pd_try(u_admin, format('UPDATE deals SET assigned_to = %L WHERE title = %L', p_other, 'admin'));
   n := n + 1;
-  IF r NOT LIKE 'ERROR:%' OR (SELECT assigned_to FROM deals WHERE title = 'admin') IS NOT NULL THEN
+  IF r NOT LIKE 'ERROR: %member of its own account%'
+     OR (SELECT assigned_to FROM deals WHERE title = 'admin') IS NOT NULL THEN
     failed := array_append(failed, ('admin assigned a deal to another account''s profile: ' || r)::text);
   END IF;
 
@@ -479,6 +481,69 @@ BEGIN
     failed := array_append(failed, ('a tag linked to no stage opened a deal: ' || r || ' ' || pg_temp.pd_deals(ct))::text);
   END IF;
 
+  -- ---------- 5. an assignee who left the account ----------
+  -- u_ag2 leaves: their profile moves to a personal account, as
+  -- remove_account_member does (done directly: the fixture user already
+  -- owns the account handle_new_user made, which the RPC would create).
+  -- 'ag2-assigned' still points at the profile. The assignee is checked
+  -- only when assigned_to is set or changed, so the deal stays editable.
+  UPDATE profiles SET account_id = (SELECT id FROM accounts WHERE owner_user_id = u_ag2),
+                      account_role = 'owner'
+   WHERE user_id = u_ag2;
+  n := n + 1;
+  IF (SELECT account_id FROM profiles WHERE id = p_ag2) IS NOT DISTINCT FROM a_acct THEN
+    failed := array_append(failed, 'fixture: the agent''s profile did not leave the account'::text);
+  END IF;
+  r := pg_temp.pd_try(u_admin, format('UPDATE deals SET notes = %L WHERE title = %L', 'left', 'ag2-assigned'));
+  r := r || ',' || pg_temp.pd_try(u_admin, format('UPDATE deals SET stage_id = %L WHERE title = %L', st_int, 'ag2-assigned'));
+  n := n + 1;
+  IF r <> '1,1' OR NOT EXISTS (SELECT 1 FROM deals WHERE title = 'ag2-assigned'
+                                 AND notes = 'left' AND stage_id = st_int AND assigned_to = p_ag2) THEN
+    failed := array_append(failed, ('admin could not edit notes / stage of a deal whose assignee left: ' || r)::text);
+  END IF;
+  -- The deal form re-saves every column, assigned_to included.
+  r := pg_temp.pd_try(u_admin, format(
+         'UPDATE deals SET assigned_to = assigned_to, value = 9 WHERE title = %L', 'ag2-assigned'));
+  r := r || ',' || pg_temp.pd_do(format(
+         'UPDATE deals SET assigned_to = %L, value = 10 WHERE title = %L', p_ag2, 'ag2-assigned'));
+  n := n + 1;
+  IF r <> '1,ok' OR (SELECT value FROM deals WHERE title = 'ag2-assigned') IS DISTINCT FROM 10 THEN
+    failed := array_append(failed, ('re-saving a deal with its unchanged (departed) assignee tripped the guard: ' || r)::text);
+  END IF;
+  -- But nobody may newly assign the departed profile, on update or insert.
+  r := pg_temp.pd_try(u_admin, format('UPDATE deals SET assigned_to = %L WHERE title = %L', p_ag2, 'admin'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR: %member of its own account%'
+     OR (SELECT assigned_to FROM deals WHERE title = 'admin') IS NOT NULL THEN
+    failed := array_append(failed, ('admin assigned a deal to a profile that left the account: ' || r)::text);
+  END IF;
+  r := pg_temp.pd_try(u_admin, format(
+         'INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title, assigned_to) '
+         'VALUES (%L, %L, %L, %L, %L, %L, %L)', a_acct, u_admin, pl, st_open, ct_seen, 'for departed', p_ag2));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR: %member of its own account%' THEN
+    failed := array_append(failed, ('admin inserted a deal assigned to a profile that left the account: ' || r)::text);
+  END IF;
+  -- The guard binds every writer, the table owner / service role too.
+  r := pg_temp.pd_do(format('UPDATE deals SET assigned_to = %L WHERE title = %L', p_other, 'admin'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514:%' THEN
+    failed := array_append(failed, ('the service role assigned a deal to another account''s profile: ' || r)::text);
+  END IF;
+  -- A chat the departed agent started, bot-tagged: the owner falls to
+  -- the creator (d), whose profile is now elsewhere, so the deal is
+  -- theirs by user_id and unassigned — not refused, not cross-account.
+  INSERT INTO contacts (account_id, user_id, phone, name)
+  VALUES (a_acct, u_owner, '971500080018', 'PD departed creator') RETURNING id INTO ct;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_ag2, ct) RETURNING id INTO cv;
+  r := pg_temp.pd_do(format('UPDATE conversations SET chat_tag_id = %L WHERE id = %L', m_int, cv));
+  n := n + 1;
+  IF r <> 'ok' OR pg_temp.pd_deals(ct) <> format('%s/%s/null/open', st_int, u_ag2) THEN
+    failed := array_append(failed, ('tag deal for a departed creator: not unassigned in this account: '
+      || r || ' ' || pg_temp.pd_deals(ct))::text);
+  END IF;
+
   n := n + 1;
   IF has_function_privilege('authenticated', 'public.create_deals_for_chat_tag()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.pipeline_stages_auto_tag_guard()', 'EXECUTE')
@@ -490,10 +555,11 @@ BEGIN
   IF has_function_privilege('authenticated', 'public.resolve_chat_deal_owner(uuid, uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.resolve_chat_deal_owner(uuid, uuid)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.resolve_chat_deal_owner(uuid, uuid)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.deal_assignee_in_account(uuid, uuid)', 'EXECUTE')
+     OR to_regprocedure('public.deal_assignee_in_account(uuid, uuid)') IS NOT NULL
+     OR has_function_privilege('authenticated', 'public.deals_assignee_guard()', 'EXECUTE')
      OR has_function_privilege('anon', 'public.led_teammate_user_ids()', 'EXECUTE')
      OR has_function_privilege('anon', 'public.led_teammate_profile_ids()', 'EXECUTE') THEN
-    failed := array_append(failed, 'resolve_chat_deal_owner is callable by clients (or not by service_role), or anon holds a deals helper'::text);
+    failed := array_append(failed, 'resolve_chat_deal_owner is callable by clients (or not by service_role), anon holds a deals helper, or the dropped deal_assignee_in_account exists'::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

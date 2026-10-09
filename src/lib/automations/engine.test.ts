@@ -442,6 +442,23 @@ describe("create_deal — owned like a tagged chat's deal (080)", () => {
     expect(h.state.dealInserts[0]).not.toHaveProperty("assigned_to");
   });
 
+  it("keeps the automation's owner when the chat's owner has no profile in this account", async () => {
+    // e.g. the creator fallback after that person left: their only
+    // profile now belongs to another account, and assigning it would
+    // hand the deal to an outsider (or trip deals_assignee_guard).
+    setup();
+    h.state.dealOwnerRpc = { data: "left-user", error: null };
+    h.state.profiles = [
+      { id: "left-profile", user_id: "left-user", account_id: "other-account" },
+    ];
+
+    await run();
+
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealInserts[0].user_id).toBe("u1");
+    expect(h.state.dealInserts[0]).not.toHaveProperty("assigned_to");
+  });
+
   it("keeps the automation's owner when the contact has no chat", async () => {
     setup();
     h.state.conversations = [];
