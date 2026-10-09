@@ -342,10 +342,9 @@ number sends what.
   is joined on the right in a lighter tint of its own colour
   (*Interested customer* | ● ADCB), so the two are never mistaken for
   two separate tags; the sub-tag's heading (*Bank*) shows on hover. Tag
-  text takes a shade of the tag's colour. In the list the tag has moved
-  to the row's bottom line, where it has room to be read; in a narrow
-  list a tagged row leaves out the sending number there (the open
-  chat's header still shows it).
+  text takes a shade of the tag's colour. In the list the pill sits on
+  the right of each row, beside the unread count, and may take most of
+  that line: the message preview shortens first.
 - **A rebuilt chat header.** Two rows: the customer (photo, name,
   number — on desktop, click it to open or close the contact panel),
   the sending number, who is on the chat and the refresh and panel

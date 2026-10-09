@@ -1208,10 +1208,8 @@ const ConversationItem = memo(function ConversationItem({
   );
 
   // Everything beyond name and preview shares one quiet line, so a row
-  // is never more than three lines tall. The chat tag leads it: beside
-  // the preview it had to shrink to a few letters.
-  const hasMeta =
-    !!chatTagText || !!numberName || !!campaignName || showAssignee;
+  // is never more than three lines tall.
+  const hasMeta = !!numberName || !!campaignName || showAssignee;
 
   return (
     <button
@@ -1254,7 +1252,20 @@ const ConversationItem = memo(function ConversationItem({
           >
             {conversation.last_message_text || t('noMessagesYet')}
           </p>
-          <div className="flex shrink-0 items-center gap-1.5">
+          {/* The chat tag sits on the right, beside the unread count:
+              one pill, the main tag tinted in its colour and its
+              sub-tag joined on fainter. It may take most of the line;
+              the preview truncates first, and the count never does. */}
+          <div className="flex max-w-[65%] min-w-0 shrink-0 items-center justify-end gap-1.5">
+            {chatTag.main && chatTagText && (
+              <ChatTagPill
+                main={chatTag.main}
+                sub={chatTag.sub}
+                size="sm"
+                title={chatTagText}
+                className="min-w-0"
+              />
+            )}
             {unread && (
               <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold">
                 {conversation.unread_count > 99
@@ -1267,29 +1278,8 @@ const ConversationItem = memo(function ConversationItem({
 
         {hasMeta && (
           <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
-            {/* The chat tag as one pill: the main tag tinted in its
-                colour, its sub-tag joined on fainter. It keeps its
-                room. In a narrow list a tagged row drops the number
-                (the open chat's header shows it) so the agent's name
-                stays readable. */}
-            {chatTag.main && chatTagText && (
-              <ChatTagPill
-                main={chatTag.main}
-                sub={chatTag.sub}
-                size="sm"
-                title={chatTagText}
-                className="max-w-[68%] shrink-0"
-              />
-            )}
-
             {numberName && (
-              <span
-                className={cn(
-                  'inline-flex min-w-0 shrink items-center gap-1',
-                  chatTagText && '@max-[22rem]:hidden'
-                )}
-                title={numberName}
-              >
+              <span className="inline-flex min-w-0 shrink items-center gap-1">
                 <Phone className="h-3 w-3 shrink-0" />
                 <span className="truncate">{numberName}</span>
               </span>
@@ -1315,7 +1305,7 @@ const ConversationItem = memo(function ConversationItem({
                 back to the word itself. */}
             {showAssignee && (
               <span
-                className="inline-flex min-w-[3rem] shrink items-center gap-1"
+                className="inline-flex min-w-0 shrink items-center gap-1"
                 title={
                   handler && handlerName
                     ? handler.kind === 'assigned'
