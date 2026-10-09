@@ -2122,7 +2122,6 @@
       "saveSuccess": "Default currency updated"
     },
     "aiConfig": {
-      "title": "Agent setup",
       "description": "Bring your own OpenAI or Anthropic key. Taamul Connect calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground.",
       "adminOnlyConfig": "Only admins and owners can change the AI configuration.",
       "loadFailed": "Failed to load AI configuration",
@@ -2152,7 +2151,6 @@
       "handoffToDesc": "When the bot can’t help — or hits the reply cap — it pauses and routes the chat here, with a short note on what happened.",
       "handoffQueue": "Unassigned queue (any agent can pick it up)",
       "remove": "Remove",
-      "save": "Save",
       "missingModel": "Enter a model name.",
       "missingApiKey": "Enter your API key.",
       "saveSuccess": "AI assistant saved.",
@@ -2182,7 +2180,6 @@
       "handoverDesc": "When a person steps into a chat, and when the AI gets it back.",
       "pauseOnAgentReply": "Pause the AI when a person replies in a chat",
       "pauseOnAgentReplyDesc": "A reply from anyone on the team stops the bot in that chat, so it never talks over a person.",
-      "replyOnAllNumbers": "Reply on every WhatsApp number",
       "autoResume": "Give the chat back to the AI after",
       "autoResumeDesc": "Counted from the last reply a person sent. Never leaves the chat with the team.",
       "autoResumeNever": "Never",

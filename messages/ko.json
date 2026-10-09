@@ -2122,7 +2122,6 @@
       "saveSuccess": "기본 통화가 업데이트되었습니다"
     },
     "aiConfig": {
-      "title": "에이전트 설정",
       "description": "직접 발급받은 OpenAI 또는 Anthropic 키를 사용하세요. Taamul Connect는 회원님의 키로 공급자에 직접 요청하므로 좌석당 AI 비용이 없고 데이터도 온전히 회원님의 것입니다. 인박스의 AI 답장 초안, 자동 응답 봇, 플레이그라운드에 사용됩니다.",
       "adminOnlyConfig": "관리자와 소유자만 AI 설정을 변경할 수 있습니다.",
       "loadFailed": "AI 설정을 불러오지 못했습니다",
@@ -2152,7 +2151,6 @@
       "handoffToDesc": "봇이 도움을 줄 수 없거나 응답 한도에 도달하면 일시 중지하고 무슨 일이 있었는지 짧은 메모와 함께 이 대상에게 대화를 넘깁니다.",
       "handoffQueue": "미배정 대기열 (모든 상담원이 처리 가능)",
       "remove": "제거",
-      "save": "저장",
       "missingModel": "모델 이름을 입력하세요.",
       "missingApiKey": "API 키를 입력하세요.",
       "saveSuccess": "AI 어시스턴트가 저장되었습니다.",
@@ -2182,7 +2180,6 @@
       "handoverDesc": "사람이 채팅에 들어올 때와 AI가 채팅을 다시 맡을 때.",
       "pauseOnAgentReply": "채팅에서 사람이 답하면 AI 일시 중지",
       "pauseOnAgentReplyDesc": "팀원 누구든 답장하면 그 채팅에서 봇이 멈추므로 사람과 겹쳐 말하지 않습니다.",
-      "replyOnAllNumbers": "모든 WhatsApp 번호에서 답하기",
       "autoResume": "다음 시간이 지나면 채팅을 AI에게 돌려주기",
       "autoResumeDesc": "사람이 보낸 마지막 답장부터 계산합니다. \"안 함\"은 채팅을 팀에 남겨 둡니다.",
       "autoResumeNever": "안 함",
