@@ -85,6 +85,11 @@ export interface AiConfig {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * The row's `created_at`, when read from the database. Used to bound a
+   * burst (`burstTurn`); the providers send role and content only.
+   */
+  at?: string;
 }
 
 /**

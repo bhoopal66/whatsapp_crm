@@ -117,6 +117,12 @@ const NO_TRIAGE: TriageGateResult = {
  * customer turn that says it. A message the context doesn't hold (a media
  * caption) has the whole context before it. A later customer message that
  * already arrived is not "before" it, and is left out.
+ *
+ * `message` may be a joined burst (`burstTurn`): the trailing customer
+ * turns one per line, perhaps with a media caption as the last line.
+ * Then the turns before the burst's FIRST message are what came before —
+ * otherwise triage would see the burst twice, once as the message and
+ * again as its own history.
  */
 export function turnsBefore(
   messages: ChatMessage[],
@@ -126,6 +132,20 @@ export function turnsBefore(
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role === 'user' && messages[i]!.content.trim() === want)
       return messages.slice(0, i);
+  }
+  const nl = want.lastIndexOf('\n');
+  if (nl < 0) return messages;
+  const withoutCaption = want.slice(0, nl).trim();
+  let runStart = messages.length;
+  while (runStart > 0 && messages[runStart - 1]!.role === 'user') runStart--;
+  // Longest run first: "a" / "a" joined is "a\na", not the last "a".
+  for (let s = runStart; s < messages.length; s++) {
+    const joined = messages
+      .slice(s)
+      .map((m) => m.content.trim())
+      .join('\n');
+    if (joined === want || joined === withoutCaption)
+      return messages.slice(0, s);
   }
   return messages;
 }

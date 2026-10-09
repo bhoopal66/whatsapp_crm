@@ -44,6 +44,7 @@ import {
   runGuardrailGate,
   runPassageGate,
   runTriageGate,
+  turnsBefore,
 } from './typesafe-gates';
 
 const REF = {
@@ -796,5 +797,49 @@ describe('guardrailFeedback', () => {
       ['SEVERITY_UPGRADE', 'POLICY_UNAVAILABLE', 'CONFIG_INVALID'],
     ])
       expect(guardrailFeedback(codes)).toContain(GENERAL);
+  });
+});
+
+describe('turnsBefore', () => {
+  const u = (content: string) => ({ role: 'user' as const, content });
+  const a = (content: string) => ({ role: 'assistant' as const, content });
+
+  it('returns the turns before the last customer turn that says it', () => {
+    const msgs = [u('hi'), a('Hello!'), u('fees?'), u('thanks')];
+    expect(turnsBefore(msgs, 'fees?')).toEqual([u('hi'), a('Hello!')]);
+  });
+
+  it('keeps the whole context for a message it does not hold', () => {
+    const msgs = [u('hi'), a('Hello!')];
+    expect(turnsBefore(msgs, 'a caption')).toEqual(msgs);
+  });
+
+  it('puts a joined burst after the turns before its first message', () => {
+    const msgs = [u('old'), a('Hello!'), u('hi'), u('I need a loan')];
+    expect(turnsBefore(msgs, 'hi\nI need a loan')).toEqual([
+      u('old'),
+      a('Hello!'),
+    ]);
+  });
+
+  it('matches a burst that is only the newest part of the trailing run', () => {
+    // An older unanswered message outside the burst window stays history.
+    const msgs = [a('Hello!'), u('refund please'), u('hi'), u('fees?')];
+    expect(turnsBefore(msgs, 'hi\nfees?')).toEqual([
+      a('Hello!'),
+      u('refund please'),
+    ]);
+  });
+
+  it('matches a burst that ends in a media caption', () => {
+    const msgs = [a('Hello!'), u('hi'), u('see this')];
+    expect(turnsBefore(msgs, 'hi\nsee this\nmy invoice')).toEqual([
+      a('Hello!'),
+    ]);
+  });
+
+  it('takes the longest run that joins to the message', () => {
+    const msgs = [a('Hello!'), u('ok'), u('ok')];
+    expect(turnsBefore(msgs, 'ok\nok')).toEqual([a('Hello!')]);
   });
 });

@@ -415,11 +415,13 @@ export async function dispatchInboundToAiReply(
     // whole burst (below). Before any TypeSafe or model spend. Not for
     // a Flow's fallback: the run is waiting on this exact message.
     const coalesce = !flowContext && Boolean(inboundMessageId);
+    let newestAt: string | null = null;
     if (coalesce) {
       const waitMs = aiBurstWaitMs();
       if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-      const newest = await newestCustomerMessageId(dbc, conversationId);
-      if (newest && newest !== inboundMessageId) {
+      const newest = await newestCustomerMessage(dbc, conversationId);
+      newestAt = newest?.at ?? null;
+      if (newest?.id && newest.id !== inboundMessageId) {
         return skip(
           'skipped_superseded',
           'A newer customer message arrived; its reply answers both.'
@@ -442,7 +444,7 @@ export async function dispatchInboundToAiReply(
     // it keep the latest customer message.
     const latest = latestUserMessage(messages);
     const customerTurn = coalesce
-      ? burstTurn(messages, inboundText) || latest
+      ? burstTurn(messages, inboundText, newestAt) || latest
       : inboundText?.trim() || latest;
     const question = coalesce ? customerTurn : latest;
 
@@ -453,8 +455,9 @@ export async function dispatchInboundToAiReply(
      * configured handoff agent — null leaves it in the shared queue —
      * (c) leave a short internal note with the reason so whoever picks
      * it up has context, and (d) ring the bell for whoever should pick
-     * it up. Assigning also fires the `on_conversation_assigned`
-     * trigger, which notifies the agent.
+     * it up. Assigning fires the `on_conversation_assigned` trigger,
+     * which already notifies the agent (`conversation_assigned`), so the
+     * bell rings here only when the hand-off assigned nobody.
      *
      * `farewell` goes to the customer first so they aren't left with
      * silence — but only when a reply slot is free: the cap bounds
@@ -529,14 +532,17 @@ export async function dispatchInboundToAiReply(
           error: updErr.message,
         });
       }
-      await notifyHandoff(dbc, {
-        accountId,
-        conversationId,
-        contactId,
-        recipientId: config.handoffAgentId ?? conv.assigned_agent_id ?? null,
-        reasonClause:
-          reasonText?.trim() || describeHandoffReason(reason, detail),
-      });
+      // One bell per hand-off: an assignment that landed has rung it.
+      if (!update.assigned_agent_id || updErr) {
+        await notifyHandoff(dbc, {
+          accountId,
+          conversationId,
+          contactId,
+          recipientId: conv.assigned_agent_id ?? null,
+          reasonClause:
+            reasonText?.trim() || describeHandoffReason(reason, detail),
+        });
+      }
       await record('handed_off', detail ? `${reason}: ${detail}` : reason);
       return 'handed_off';
     };
@@ -797,37 +803,61 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * How far before the newest customer message a burst reaches. Without a
+ * bound, "every customer message since our last one" also takes in an
+ * old message nobody answered — one that sat through a silent hand-off,
+ * say — and the gates judge it again: its escalation keyword hands the
+ * thread off a second time, days later, on a customer's "thanks".
+ */
+export const BURST_JOIN_WINDOW_MS = 120_000;
+
+/**
  * The customer turn a coalesced dispatch answers: every customer
- * message since the last message of ours, oldest first, one per line —
- * plus the triggering message's text when the text-only context lacks
- * it (a media caption). Empty when the context ends on our message.
+ * message since the last message of ours that arrived within
+ * `BURST_JOIN_WINDOW_MS` before the newest one (`newestAt`, else the
+ * last in the context), oldest first, one per line — plus the
+ * triggering message's text when the text-only context lacks it (a
+ * media caption). Empty when the context ends on our message. A message
+ * with no timestamp is kept.
  */
 export function burstTurn(
   messages: ChatMessage[],
-  inboundText: string | null
+  inboundText: string | null,
+  newestAt: string | null = null
 ): string {
-  const tail: string[] = [];
+  const run: ChatMessage[] = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]!.role !== 'user') break;
-    tail.unshift(messages[i]!.content.trim());
+    run.unshift(messages[i]!);
   }
+  const anchor = Date.parse(newestAt ?? run[run.length - 1]?.at ?? '');
+  const tail = run
+    .filter((m) => {
+      const at = Date.parse(m.at ?? '');
+      return (
+        !Number.isFinite(anchor) ||
+        !Number.isFinite(at) ||
+        anchor - at <= BURST_JOIN_WINDOW_MS
+      );
+    })
+    .map((m) => m.content.trim());
   const caption = inboundText?.trim();
   if (caption && !tail.includes(caption)) tail.push(caption);
   return tail.filter(Boolean).join('\n');
 }
 
 /**
- * The gateway id (`messages.message_id`) of the conversation's newest
- * customer message. Null when it can't be read: the dispatch then
- * answers rather than risk nobody answering.
+ * The gateway id (`messages.message_id`) and `created_at` of the
+ * conversation's newest customer message. Null when it can't be read:
+ * the dispatch then answers rather than risk nobody answering.
  */
-async function newestCustomerMessageId(
+async function newestCustomerMessage(
   db: SupabaseClient,
   conversationId: string
-): Promise<string | null> {
+): Promise<{ id: string | null; at: string | null } | null> {
   const { data, error } = await db
     .from('messages')
-    .select('message_id')
+    .select('message_id, created_at')
     .eq('conversation_id', conversationId)
     .eq('sender_type', 'customer')
     .order('created_at', { ascending: false })
@@ -837,7 +867,11 @@ async function newestCustomerMessageId(
     console.error('[ai auto-reply] newest message lookup failed:', error);
     return null;
   }
-  return (data as { message_id: string | null } | null)?.message_id ?? null;
+  const row = data as {
+    message_id: string | null;
+    created_at: string | null;
+  } | null;
+  return row ? { id: row.message_id, at: row.created_at } : null;
 }
 
 /**
@@ -885,11 +919,11 @@ async function autoResumeIfDue(
 }
 
 /**
- * Ring the bell for a hand-off (migration 077, type `ai_handoff`): the
- * hand-off agent when one is configured, else the chat's assignee, else
- * every active owner and admin — a hand-off nobody hears about leaves
- * the customer as unanswered as no hand-off. Best-effort: logged, never
- * thrown, never blocks the hand-off.
+ * Ring the bell for a hand-off that assigned nobody (migration 077, type
+ * `ai_handoff`): the chat's assignee, else every active owner and admin
+ * — a hand-off nobody hears about leaves the customer as unanswered as
+ * no hand-off. Best-effort: logged, never thrown, never blocks the
+ * hand-off.
  */
 async function notifyHandoff(
   db: SupabaseClient,
