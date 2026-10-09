@@ -16,7 +16,7 @@ other API call.
 
 ## Quick start
 
-1. Create an API key in the dashboard: **Settings → API keys**. Grant
+1. Create an API key in the dashboard: **Settings → Integrations → API keys**. Grant
    only the scopes your assistant needs (a read-only assistant only
    needs the `*:read` scopes).
 2. Add the server to your MCP client config:

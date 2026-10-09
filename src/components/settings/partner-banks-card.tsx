@@ -32,7 +32,7 @@ import {
 import { SettingsChip } from './settings-chip';
 
 /**
- * Settings → AI safety checks → Partner banks (migration 078): the banks
+ * Settings → AI Agents → Safety checks → Partner banks (migration 078): the banks
  * the reply guardrail lets the bot name. Edits stay a local draft until
  * Save, which goes through the panel's version-checked save; a 409
  * comes back as the panel's conflict message, and the draft follows the

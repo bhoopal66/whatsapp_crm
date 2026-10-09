@@ -1,7 +1,7 @@
 import type { AiReplyTier, AiRouteSource } from './outcomes';
 
 // ============================================================
-// AI activity summary (Settings → AI, migration 077).
+// AI activity summary (Settings → AI Agents → Overview, migration 077).
 //
 // `GET /api/ai/activity` fetches a bounded window of `ai_reply_events`
 // and `ai_usage_log` (auto-reply calls only) and hands both here; the

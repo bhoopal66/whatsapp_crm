@@ -77,7 +77,7 @@ rebuild.
 
 ### 3. Paste the token
 
-In the app: **Settings → WhatsApp**. Paste the channel token and click
+In the app: **Settings → WhatsApp → Connections**. Paste the channel token and click
 **Save & connect**. That single action:
 
 1. verifies the token against `GET /health`,
@@ -96,7 +96,7 @@ the Inbox within a few seconds.
 
 An account can connect more than one Whapi channel, and each channel is
 its own WhatsApp number (migration 060). Admins manage them in
-**Settings → Numbers & access**:
+**Settings → WhatsApp → Numbers & access**:
 
 - **Add Whapi number.** Paste the token of a channel created at
   panel.whapi.cloud. Each channel gets its own callback secret and
@@ -112,8 +112,8 @@ its own WhatsApp number (migration 060). Admins manage them in
     (migration 072): they still see only the chats they own or are
     assigned (team leaders also their team's), on any number. Before
     072 an allocated person saw every chat on the number.
-  - *Teams allocated* (Settings → Teams, or the Teams section of Manage
-    access, migration 071): everyone in the team and its leader get the
+  - *Teams allocated* (set in Settings → WhatsApp → Numbers & access, via Manage
+    access; Settings → Teams shows it read-only, migration 071): everyone in the team and its leader get the
     number exactly as if ticked one by one. Joining the team grants it,
     and leaving removes it. Someone also ticked by name keeps the number
     after leaving the team or after the team is unticked; the two kinds
@@ -123,7 +123,7 @@ its own WhatsApp number (migration 060). Admins manage them in
 
 The two settings screens split the work so nothing is done twice:
 
-| Settings → **Numbers & access** | Settings → **WhatsApp** |
+| Settings → WhatsApp → **Numbers & access** | Settings → WhatsApp → **Connections** |
 |---|---|
 | add a number, name it, make it the default, disconnect it | one number's connection: re-enter its token, webhook health, re-register / rotate the callback secret, media retention |
 | who works each number | which number each *task* sends from (routing) |
@@ -180,7 +180,7 @@ The thread header has a number picker on every chat (migration 061):
   one Whapi number, the bot answers there only, and your other Whapi
   numbers stay human-only. With no route, the bot answers on whichever
   number the customer wrote to. Turning on *Reply on every WhatsApp
-  number* in Settings → AI lifts the restriction: the bot answers on the
+  number* in Settings → AI Agents → Auto-reply lifts the restriction: the bot answers on the
   number the customer wrote to, except in a chat a person pinned to
   another number.
 
@@ -238,7 +238,7 @@ API number has no session to lose.
 
 The same probe also reports which phone is paired. When a channel is
 re-paired to a different handset, the tick (and opening Settings →
-WhatsApp) stores the new number. The inbox number picker, the
+WhatsApp → Connections) stores the new number. The inbox number picker, the
 conversation list and the alerts read that stored number, so they
 follow the new phone within one tick and never keep showing the old
 one. A name you typed for the number stays. A default
@@ -324,7 +324,7 @@ On a Whapi-only install both use the Whapi channel.
 inbound attachment arrives as an id whose bytes were never pulled off
 the phone. With it on, each attachment carries a `link`.
 
-That link expires in roughly 30 days, so **Settings → WhatsApp → Media
+That link expires in roughly 30 days, so **Settings → WhatsApp → Connections → Media
 retention** (on by default) copies every inbound attachment into the
 account's `chat-media` Supabase Storage bucket as it arrives. The mirror
 is best-effort: if it fails, the message still lands and falls back to

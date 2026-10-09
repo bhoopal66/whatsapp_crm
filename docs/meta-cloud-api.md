@@ -61,7 +61,7 @@ to verify the signature on inbound webhooks.
 
 ### 2. Connect it in Taamul Connect
 
-**Settings → WhatsApp → Meta Cloud API number.** Paste the phone number
+**Settings → WhatsApp → Connections → Meta Cloud API number.** Paste the phone number
 id, WABA id and access token, and optionally the app secret and a verify
 token of your choosing. Saving:
 
@@ -94,7 +94,7 @@ place, silently moving its routes, conversations and approved
 templates onto the new one. Re-saving the same number (a new token,
 app secret or verify token), or filling in a WABA id the number was
 saved without, works as before. To really switch numbers, disconnect
-first: that removes the *Which number sends what* routes pointing at
+first (Settings → WhatsApp → Numbers & access): that removes the Settings → WhatsApp → Routing routes pointing at
 the old number (they fall back to the default) and unlinks its
 conversations from it, so set the routes again afterwards.
 
@@ -171,7 +171,7 @@ disabled for the whole app, the connected number's messages included.)
 
 ### 4. Choose what each number sends
 
-**Settings → WhatsApp → Which number sends what.** Every task can be
+**Settings → WhatsApp → Routing.** Every task can be
 pointed at either number, or left on *Use default*:
 
 | Task | What it covers |
@@ -222,7 +222,7 @@ on the *other* number is left for a human. Route AI auto-reply to the
 Meta number and the bot runs there alone, while the Whapi number stays
 fully human — and it can never try to answer a Whapi customer from a
 Meta number they never wrote to. With *Reply on every WhatsApp number*
-on in Settings → AI, the bot instead answers on whichever number the
+on in Settings → AI Agents → Auto-reply, the bot instead answers on whichever number the
 customer wrote to (so the 24-hour window is open), skipping chats a
 person pinned to another number.
 
@@ -294,7 +294,7 @@ reported per chat.
 ## Templates
 
 With a Meta number connected, the template review lifecycle in
-**Settings → Templates** becomes live again: submit, track
+**Settings → WhatsApp → Templates** becomes live again: submit, track
 approved/rejected, and see quality ratings. Those states apply **only**
 to sends going through the Meta number. A template sent over Whapi is
 rendered locally and needs no approval, so the same row works on both.
@@ -307,7 +307,7 @@ utility, authentication, service). The invoice arrives a month later as
 one number. Taamul Connect keeps its own ledger so an admin can see the
 spend as it happens: every delivery receipt Meta posts to the webhook
 carries a `pricing` object, and the receipt is costed on arrival
-(migration 051) and shown under **Settings → Message costs** — this
+(migration 051) and shown under **Settings → WhatsApp → Message costs** — this
 month so far, spend per month by category, per number, per market, and
 each number's position against the free service tier.
 

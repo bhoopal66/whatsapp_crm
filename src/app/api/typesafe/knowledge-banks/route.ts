@@ -11,7 +11,7 @@ import {
  * GET /api/typesafe/knowledge-banks (admin+) → KnowledgeBanksResponse
  *
  * The catalogue banks the account's knowledge base mentions, counted in
- * documents, so Settings → AI safety checks → Partner banks can offer
+ * documents, so Settings → AI Agents → Safety checks → Partner banks can offer
  * the ones the business evidently works with. Bounded: the newest
  * KNOWLEDGE_BANKS_CHUNK_LIMIT chunks.
  */

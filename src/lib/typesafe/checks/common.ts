@@ -13,7 +13,7 @@ export interface CheckDeps {
   config: Ts013Config;
   gateway: TypeSafeGateway;
   policies: PolicyStore;
-  /** Each account's own switches (Settings → AI safety checks). */
+  /** Each account's own switches (Settings → AI Agents → Safety checks). */
   switches: SwitchesStore;
   logger: DecisionLogger;
   alert: AlertSink;

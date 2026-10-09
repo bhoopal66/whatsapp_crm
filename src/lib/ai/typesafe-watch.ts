@@ -10,7 +10,7 @@ import { turnsBefore } from './typesafe-gates';
 const TRIAGE_TURNS = 6;
 
 /**
- * The TypeSafe watch on every conversation (Settings → AI safety checks →
+ * The TypeSafe watch on every conversation (Settings → AI Agents → Safety checks →
  * "Watch conversations your team handles", migration 064).
  *
  * The bot's own triage (typesafe-gates.ts) only sees messages the bot is

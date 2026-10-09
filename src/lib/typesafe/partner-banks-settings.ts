@@ -1,5 +1,5 @@
 /**
- * Server side of Settings → AI safety checks → Partner banks: the
+ * Server side of Settings → AI Agents → Safety checks → Partner banks: the
  * built-in catalogue as the panel shows it, and validation of a PUT's
  * `partner_banks`. Pure: the settings route owns the database.
  *

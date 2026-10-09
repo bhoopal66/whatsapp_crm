@@ -2,7 +2,7 @@
  * Threshold policy (spec §7). Every check runs on the built-in thresholds
  * unless the account has an approved custom policy (two admins, enforced
  * in SQL) for the pinned model and question set. Whether a check acts at
- * all is the account's mode (Settings → AI safety checks), not the
+ * all is the account's mode (Settings → AI Agents → Safety checks), not the
  * thresholds'.
  */
 import {

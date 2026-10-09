@@ -1,6 +1,7 @@
 /**
- * The AI Agents screen's sub-tabs (`/agents?tab=<id>`). Pure, so the
- * URL parsing and the landing rule are unit-tested.
+ * The AI Agents screen's sub-tabs (`/agents?tab=<id>`). The sidebar link
+ * redirects to Settings → AI Agents (`/settings?tab=ai-<id>`). Pure, so
+ * the URL parsing and the landing rule are unit-tested.
  */
 export const AGENT_TABS = [
   'overview',

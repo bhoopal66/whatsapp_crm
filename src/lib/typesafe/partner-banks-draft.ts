@@ -1,5 +1,5 @@
 /**
- * The Partner banks card's editing logic (Settings → AI safety checks).
+ * The Partner banks card's editing logic (Settings → AI Agents → Safety checks).
  * Client-safe: imports only the import-free contract. A draft is the
  * value the card would save — null meaning the built-in list — so
  * "Reset to default" is simply null.

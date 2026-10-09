@@ -55,9 +55,9 @@ linked to a CRM contact the first time Compass messages them.
 1. **Apply the database migration.** Run
    `supabase/migrations/056_compass_integration.sql` against the
    Supabase project (self-hosters: see `CHANGELOG.md`).
-2. **Check the Whapi channel is connected:** **Settings → WhatsApp**.
+2. **Check the Whapi channel is connected:** **Settings → WhatsApp → Connections**.
    Notifications cannot be sent without it.
-3. **Create two API keys:** **Settings → API keys → New API key**.
+3. **Create two API keys:** **Settings → Integrations → API keys → New API key**.
    Using separate keys means a large backfill can never use up the rate
    limit that urgent notifications need.
 
@@ -502,7 +502,7 @@ def notify_status_change(app_id, status, customer_id, message):
 ## 7. Go-live checklist
 
 - [ ] Migration `056_compass_integration.sql` applied
-- [ ] Whapi channel connected (Settings → WhatsApp shows it)
+- [ ] Whapi channel connected (Settings → WhatsApp → Connections shows it)
 - [ ] Two API keys created with the scopes above and stored in
       Compass's secret store
 - [ ] `GET /api/v1/me` succeeds with both keys
@@ -528,7 +528,7 @@ def notify_status_change(app_id, status, customer_id, message):
   exactly as given; there are no templates to register for Whapi.
 - **Security:** the keys can send WhatsApp messages as your business.
   Keep them server-side only. If one leaks, revoke it in **Settings →
-  API keys** (effective immediately) and create a new one.
+  Integrations → API keys** (effective immediately) and create a new one.
 - The general public API (other endpoints, webhooks for inbound
   replies) is documented in [`public-api.md`](public-api.md).
 

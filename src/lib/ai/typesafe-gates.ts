@@ -31,8 +31,8 @@ import type { ChatMessage } from './types';
 // Each one follows the layer's host rule: a decision with `act: false`
 // (monitor mode, TypeSafe down, a language kept logged-only) changes
 // nothing, so the bot behaves exactly as it did before 063. Whether a
-// check runs at all is the account's own switch in Settings → AI safety
-// checks (migration 064), within what the install allows. A check that
+// check runs at all is the account's own switch in Settings → AI Agents →
+// Safety checks (migration 064), within what the install allows. A check that
 // is off is not called — no TypeSafe request, no policy read, no log row
 // — and neither is anything when the TS_* configuration is invalid (the
 // layer logs that loudly and stays off, except for the guardrail's

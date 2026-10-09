@@ -91,7 +91,7 @@ import { canOpenSection } from './settings-sections';
 import { AdvancedSection } from '@/components/agents/ai-config-sections';
 
 /**
- * Settings → AI safety checks: the account's switches for the TypeSafe
+ * Settings → AI Agents → Safety checks: the account's switches for the TypeSafe
  * decision layer around the AI auto-reply bot, and a log of everything
  * it decided.
  *

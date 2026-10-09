@@ -12,6 +12,35 @@ and polish.
 
 ## [Unreleased]
 
+### Settings reorganised
+
+Settings is now a row of category tabs, each with sub-tabs. The URL is
+`?tab=<sub-tab id>`; AI Agents uses `?tab=ai-<tab>`.
+
+- **Overview**
+- **My account**: Profile, Login & security, Appearance
+- **WhatsApp**: Connections, Numbers & access, Routing, Templates,
+  Message costs
+- **Inbox**: Chat tags, Quick replies, Custom fields
+- **Team**: Members, Teams
+- **AI Agents**: Overview, Assistant, Auto-reply, Knowledge, Safety
+  checks, Playground, Usage. The sidebar "AI Agents" link redirects here.
+- **Integrations**: API keys, Deals & currency
+
+Renames: "AI safety checks" is now Settings → AI Agents → Safety checks
+(Partner banks sits under it); "Which number sends what" is Settings →
+WhatsApp → Routing; the old AI Agents "Setup" is split into Assistant,
+Auto-reply and Knowledge.
+
+One home per setting, so duplicates are gone: team number access is set
+only in Numbers & access (Settings → Teams shows it read-only); removing
+a Cloud API number is in Numbers & access, like a Whapi one; the AI's own
+number moved from Routing to AI Agents → Auto-reply → Reply on; the team
+leader is offered the same way everywhere; Settings → Quick replies is
+translated.
+
+No migration required. Docs paths updated in `docs/`.
+
 ### Reply on every WhatsApp number
 
 Settings → AI has a switch, **Reply on every WhatsApp number**. On, the

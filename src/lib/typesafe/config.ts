@@ -1,7 +1,7 @@
 /**
  * Module 013 server configuration: what the layer MAY do on this
  * install. Whether it DOES, per account, is the account's own switch in
- * Settings → AI safety checks (ts_account_settings, migration 064; see
+ * Settings → AI Agents → Safety checks (ts_account_settings, migration 064; see
  * `AccountSwitches`).
  *
  * With no TYPESAFE_API_KEY nothing is available. With a key, every check

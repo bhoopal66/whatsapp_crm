@@ -899,7 +899,7 @@ export async function dispatchInboundToAiReply(
       ? await loadCampaignContext(dbc, accountId, conv.campaign_broadcast_id)
       : null;
 
-    // The account's partner banks (Settings → AI safety checks, 078):
+    // The account's partner banks (Settings → AI Agents → Safety checks, 078):
     // the safety check blocks any other bank, so the model is told the
     // list up front rather than finding out through a blocked draft.
     // Only where the guardrail acts — elsewhere nothing enforces it.
@@ -1582,7 +1582,7 @@ export async function recordOutcome(
 
 /**
  * Record a question the retrieval gate rejected (migration 052), for
- * the knowledge-base review under Settings → AI. Best-effort: a failed
+ * the knowledge-base review under Settings → AI Agents → Knowledge. Best-effort: a failed
  * insert is logged and never blocks the handoff.
  */
 async function logKnowledgeGap(

@@ -29,7 +29,7 @@ import {
 import { switchesFromRow } from '@/lib/typesafe/store';
 
 /**
- * Settings → AI safety checks: the account's TypeSafe switches (migration
+ * Settings → AI Agents → Safety checks: the account's TypeSafe switches (migration
  * 064), its partner banks (078) and what this server can offer.
  * Admin-only, like the table's RLS.
  */

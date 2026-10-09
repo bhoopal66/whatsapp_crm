@@ -69,7 +69,7 @@ things specific to campaign Flows:
   (typed text, or a button the Flow does not know) can send the menu.
   Match on the title rather than the id unless you set ids
   deliberately: on the Whapi number a template button's id is the one
-  saved in Settings → Templates (or `btn_1`, `btn_2`, …), while on the
+  saved in Settings → WhatsApp → Templates (or `btn_1`, `btn_2`, …), while on the
   Meta number it is the button's text unless a payload was set.
 
 ### 2. Choose how off-script replies are handled
@@ -79,7 +79,7 @@ does when a reply matches none of the options on the current step:
 
 | Setting | What happens |
 |---|---|
-| **Let the AI agent answer, then continue the flow** | The agent answers in the context of the step (it is told the prompt and the options) and asks the customer to pick one. The run stays on the same step, so the buttons still work. Needs *Auto-reply* on under Settings → AI. If the agent is off, at its cap, routed to the other number, or the thread already has a human, the options are sent again instead. If the agent hands off, the run ends and the human takes over. |
+| **Let the AI agent answer, then continue the flow** | The agent answers in the context of the step (it is told the prompt and the options) and asks the customer to pick one. The run stays on the same step, so the buttons still work. Needs *Auto-reply* on under Settings → AI Agents → Auto-reply. If the agent is off, at its cap, routed to the other number, or the thread already has a human, the options are sent again instead. If the agent hands off, the run ends and the human takes over. |
 | Send the options again | Re-prompt up to *N* times, then hand off or end. The pre-054 default. |
 | Hand off to a human right away | No retries. |
 | Ignore it | The run stays put and the message is left for automations. |
@@ -104,7 +104,7 @@ progress is worse than answering a campaign reply late.
 
 ### 4. Turn the AI agent on
 
-Settings → AI → *Auto-reply*. Everything on this page that is not the
+Settings → AI Agents → Auto-reply. Everything on this page that is not the
 Flow depends on it. Two settings matter for campaigns:
 
 - **Campaign replies only** keeps the bot on campaign threads and off
@@ -114,9 +114,10 @@ Flow depends on it. Two settings matter for campaigns:
   the thread is handed to a human with reason *reply cap* — the bot
   does not simply go quiet.
 
-Route `broadcast`, `flow` and `ai_reply` to the **same number**
-(Settings → WhatsApp → Routing) on a two-number install; the agent
-answers only on its own number.
+Route `broadcast` and `flow` to the **same number**
+(Settings → WhatsApp → Routing) on a two-number install, and set the
+AI's own number to it too (Settings → AI Agents → Auto-reply → Reply on);
+the agent answers only on its own number.
 
 ## What happens when
 
@@ -153,7 +154,7 @@ answers only on its own number.
   `fallback_fired` event with `action: ai` and the agent's outcome.
 - **The conversation** — the handoff note (`🤖 AI needs a person …: …`
   — what happened and what to do, in plain words) and, under Settings →
-  AI, the unanswered questions the retrieval gate logged.
+  AI Agents → Knowledge, the unanswered questions the retrieval gate logged.
 
 ## Limits
 

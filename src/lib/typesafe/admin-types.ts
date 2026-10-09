@@ -1,5 +1,5 @@
 /**
- * The contract between the Settings → AI safety checks panel and its API
+ * The contract between the Settings → AI Agents → Safety checks panel and its API
  * routes (`/api/typesafe/settings`, `/api/typesafe/activity`).
  *
  * Types and import-free pure helpers only: the panel is a client

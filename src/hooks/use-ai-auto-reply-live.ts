@@ -7,7 +7,7 @@ import { cachedQuery } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
 
 /**
- * Cache-key prefix; Settings → AI drops it after a save so the lists
+ * Cache-key prefix; Settings → AI Agents → Auto-reply drops it after a save so the lists
  * follow the bot's switch without waiting out the TTL.
  */
 export const AI_AUTO_REPLY_LIVE_CACHE_PREFIX = 'ai-auto-reply-live:';

@@ -1,7 +1,7 @@
 # AI agent
 
 The auto-reply bot answers inbound WhatsApp messages with the AI
-provider you configured (Settings → AI). This guide covers how it picks
+provider you configured (Settings → AI Agents). This guide covers how it picks
 a model, what happens to a draft TypeSafe holds, when it pauses and
 resumes, and how to find out why it did not answer a message.
 
@@ -11,7 +11,7 @@ that includes this behaviour; see the CHANGELOG.
 
 ## Model tiers
 
-Settings → AI has three models:
+Settings → AI Agents → Assistant has three models:
 
 | Tier     | OpenAI default      | Anthropic default   | Used for                                      |
 | -------- | ------------------- | ------------------- | --------------------------------------------- |
@@ -73,7 +73,7 @@ retrieves for that question instead of answering it blind. A true first
 
 When the TypeSafe guardrail holds a draft it really judged, the Large
 model **rewrites it once**, given the guardrail's reasons. This is
-Settings → _Rewrite a held draft once…_, on by default.
+Settings → AI Agents → Safety checks → _Rewrite a held draft once…_, on by default.
 
 If the rewrite is held too, or TypeSafe could not judge (the fail-safe
 hold), the chat goes to a person and the draft waits in the inbox
@@ -94,12 +94,12 @@ press **Send draft** at once, only one send goes out; the other gets
 
 ## Pause and resume
 
-**A person replying pauses the bot in that chat.** Settings → _Pause the
+**A person replying pauses the bot in that chat.** Settings → AI Agents → Auto-reply → _Pause the
 AI when a person replies_, on by default. A database trigger enforces
 it, so every send path counts. Bot sends and API-key sends that carry
 no user do not.
 
-**Auto-resume.** Settings → _Give the chat back to the AI after_:
+**Auto-resume.** Settings → AI Agents → Auto-reply → _Give the chat back to the AI after_:
 Never, 30 min, 1 h, 4 h, 12 h or 24 h. The bot resumes on the
 customer's **next message** after that much quiet from the person, and
 only if nobody is assigned to the chat. Each new reply from a person
@@ -140,16 +140,15 @@ no longer carry reason codes.
 
 ## Every number
 
-**Settings → AI → Reply on every WhatsApp number.**
+**Settings → AI Agents → Auto-reply → Reply on every WhatsApp number.**
 
 - **On:** the bot answers each chat on the number the customer wrote to,
   Whapi or Cloud API. Because it replies where the customer wrote, Meta's
   24-hour service window is open for a fresh inbound. Resume & reply
-  skips a Meta message older than 24 hours. Settings → WhatsApp → Which number
-  sends what still shows the AI auto-reply row, with a hint that the
-  switch overrides it.
+  skips a Meta message older than 24 hours. The AI's own number is set
+  in the same place (Reply on); the switch overrides it.
 - **Off (default):** the bot answers only on the number set for AI
-  auto-reply in Settings → WhatsApp → Which number sends what (or the
+  auto-reply in Settings → AI Agents → Auto-reply → Reply on (or the
   default number when there is no route).
 - A chat a person **pinned to another number** is skipped
   (`skipped_number`) in both modes: the pin is a person's decision.
@@ -180,7 +179,7 @@ rate limiting, campaign-only mode, or a provider error.
 | `skipped_nothing`       | Nothing to answer: no text, AI off, or nothing new.                                               |
 | `error`                 | The dispatch failed.                                                                              |
 
-Settings → AI also shows an **activity card for the last 7 days**:
+Settings → AI Agents → Overview also shows an **activity card for the last 7 days**:
 replies by tier and model, hand-offs, held drafts, the reasons the bot
 did not reply, and how many routings came from Jev versus the rule.
 
@@ -188,11 +187,11 @@ did not reply, and how many routings came from Jev versus the rule.
 
 | Outcome                                  | What to do                                                                                                                                                                     |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `skipped_number`                         | Turn on _Reply on every WhatsApp number_ in Settings → AI, or route the AI agent to that number in Settings → WhatsApp routing. A chat pinned to another number stays skipped. |
+| `skipped_number`                         | Turn on _Reply on every WhatsApp number_ in Settings → AI Agents → Auto-reply, or set the AI's number under *Reply on* there. A chat pinned to another number stays skipped. |
 | `skipped_automation`                     | A Flow or automation answered first. Check the keyword automations and Flows on that number.                                                                                   |
 | `skipped_assigned`                       | Unassign the chat, or reply yourself.                                                                                                                                          |
 | `skipped_paused`                         | Press **Resume & reply** in the banner, or set an auto-resume time. Hand-offs and Take over need a manual resume.                                                              |
-| `skipped_campaign_only`                  | Turn off _Campaign replies only_ in Settings → AI, or reply to the customer yourself.                                                                                          |
+| `skipped_campaign_only`                  | Turn off _Campaign replies only_ in Settings → AI Agents → Auto-reply, or reply to the customer yourself.                                                                                          |
 | `skipped_rate_limited`                   | The provider is limiting you. Check the provider's quota and billing, then wait.                                                                                               |
 | `skipped_superseded`, `skipped_cap_race` | Normal: another dispatch answered. No action.                                                                                                                                  |
 | `skipped_nothing`                        | The message had no text (a sticker or media only), or AI is off.                                                                                                               |

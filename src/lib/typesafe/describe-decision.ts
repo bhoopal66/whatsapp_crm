@@ -1,6 +1,6 @@
 /**
- * Turns a TypeSafe decision-log row into display data for Settings → AI
- * safety checks: which badge colour, which catalogue message, which
+ * Turns a TypeSafe decision-log row into display data for Settings → AI Agents
+ * → Safety checks: which badge colour, which catalogue message, which
  * humanised reasons.
  *
  * Pure and dependency-free on purpose. It is imported by a client

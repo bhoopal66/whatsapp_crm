@@ -6,8 +6,7 @@ TypeSafe's **Jev** model a set of narrow, typed questions, such as
 to stop messages?". Plain code then turns the answers into decisions
 the bot acts on. It never generates text.
 
-Each account turns it on and off itself, in **Settings → AI safety
-checks** (admins only). The server holds only the secrets. An account
+Each account turns it on and off itself, in **Settings → AI Agents → Safety checks** (admins only). The server holds only the secrets. An account
 that never switched it on sends nothing to TypeSafe and logs nothing.
 An account chooses:
 
@@ -147,7 +146,7 @@ A model answer can only make the outcome stricter.
    comments** on these lines: systemd's `EnvironmentFile` keeps
    `TS_SHADOW=true # note` as the value `true # note`. Check the boot
    line in the service log (below).
-3. **Switch it on per account** in Settings → AI safety checks. Start
+3. **Switch it on per account** in Settings → AI Agents → Safety checks. Start
    with **Monitor only**, look at the activity list, then choose
    **Live**.
 4. **Schedule retention daily.** `pg_cron` ships with Supabase's
@@ -206,7 +205,7 @@ Check the log after every change:
 journalctl -u wacrm | grep '\[ts013\]' | tail
 # at boot, one of:
 #   [ts013] TypeSafe decision layer: off (no TYPESAFE_API_KEY on this server)
-#   [ts013] TypeSafe decision layer: available for any account (triage, guardrail, passages, eligibility); each account switches it on in Settings → AI safety checks; …
+#   [ts013] TypeSafe decision layer: available for any account (triage, guardrail, passages, eligibility); each account switches it on in Settings → AI Agents → Safety checks; …
 #   [ts013] error CONFIG_INVALID: the TypeSafe layer is OFF until this is fixed …
 # and on every change in Settings:
 #   [ts013] settings changed for account <id> by <user id>: {...}
@@ -240,7 +239,7 @@ default; turn it on in monitor mode first.
 
 ### The Settings panel
 
-Settings → **AI safety checks** is admin-only (the page, the API and
+Settings → **AI Agents → Safety checks** is admin-only (the page, the API and
 the table's RLS). It shows:
 
 - **Status**: whether the server has the keys, the model, what the
@@ -275,8 +274,7 @@ at once, and within 30 seconds on any other.
 ### Partner banks
 
 The guardrail and the bot only discuss the banks your business works
-with. That list is per account: Settings → **AI safety checks → Partner
-banks** (admin-only, like the rest of the panel). An account that never
+with. That list is per account: Settings → **AI Agents → Safety checks → Partner banks** (admin-only, like the rest of the panel). An account that never
 saved one uses the built-in list: Mashreq, RAKBANK, NBF, Wio, Ruya and
 UBL.
 
@@ -299,7 +297,7 @@ UBL.
 bank outside the list**, the same check as before with your list in
 place of the fixed one. The hand-off note names the bank and points
 here: "the draft named a bank that is not on your partner list (FAB).
-Add it in Settings → AI safety checks → Partner banks if you work with
+Add it in Settings → AI Agents → Safety checks → Partner banks if you work with
 it." The bot's own instructions also list your partners and tell it to
 discuss only those, so it avoids naming others in the first place.
 
@@ -397,7 +395,7 @@ the contact, so a person can decide.
 
 **On threads the bot does not answer** — a person owns the thread, a
 flow or an automation consumed the message, the bot is off — the watch
-(Settings → *Watch conversations your team handles*, on by default)
+(Settings → AI Agents → Safety checks → *Watch conversations your team handles*, on by default)
 runs the same triage after the message is stored and every reply has
 gone out. In **Live** it marks a clear opt-out on the contact; it never
 hands over, replies or reassigns, because a person or a flow already
@@ -510,7 +508,7 @@ asks Jev one question set per inbound message: what kind of message it
 is, how complex a good reply is, and whether it needs facts about the
 business. It is **not a safety check**:
 
-- it does not appear in Settings → AI safety checks and has no account
+- it does not appear in Settings → AI Agents → Safety checks and has no account
   switch;
 - it runs whenever the install has `TYPESAFE_API_KEY` and the account is
   allowed (`TS_ACCOUNT_IDS`, if set);

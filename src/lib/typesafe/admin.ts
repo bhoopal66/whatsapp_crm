@@ -1,5 +1,5 @@
 /**
- * Server-side helpers behind Settings → AI safety checks
+ * Server-side helpers behind Settings → AI Agents → Safety checks
  * (`/api/typesafe/settings`, `/api/typesafe/activity`). Pure: the routes
  * own the database and the auth; everything here is testable without
  * either.

@@ -26,7 +26,7 @@ the prefix is not a secret or a scope. Rotate at your convenience.
 
 ### Creating a key
 
-In the dashboard: **Settings → API keys → New API key**. Only
+In the dashboard: **Settings → Integrations → API keys → New API key**. Only
 **admins and owners** can create keys.
 
 1. Give the key a name (after the integration that will use it).
@@ -37,7 +37,7 @@ In the dashboard: **Settings → API keys → New API key**. Only
 
 ### Revoking a key
 
-**Settings → API keys → Revoke.** Revocation is effective on the
+**Settings → Integrations → API keys → Revoke.** Revocation is effective on the
 key's next request. Revoked keys stay in the list as an audit trail.
 
 ## Scopes
@@ -350,7 +350,7 @@ in either case.
 A template with an image, video or document header and no stored media
 is `400 template_media_missing` when the account's broadcasts go to its
 Meta number (Meta rejects every such send). Nothing is persisted. Add the
-header media to the template in Settings → Templates.
+header media to the template in Settings → WhatsApp → Templates.
 
 Response (202):
 
