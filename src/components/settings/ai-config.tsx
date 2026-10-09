@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   ShieldAlert,
+  UserRoundCheck,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { AI_AUTO_REPLY_LIVE_CACHE_PREFIX } from '@/hooks/use-ai-auto-reply-live';
@@ -37,7 +38,12 @@ import {
 import { SettingsPanelHead } from './settings-panel-head';
 import { AiKnowledgeCard } from './ai-knowledge';
 import { AiKnowledgeGapsCard } from './ai-knowledge-gaps';
-import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
+import { AiActivityCard } from './ai-activity';
+import {
+  AI_PROVIDER_DEFAULT_MODEL,
+  AI_TIER_DEFAULT_MODELS,
+} from '@/lib/ai/defaults';
+import { AUTO_RESUME_CHOICES } from '@/lib/ai/outcomes';
 import type { AiProvider } from '@/lib/ai/types';
 import type { AccountMember } from '@/types';
 import { fetchAccountMembers, memberLabel } from '@/lib/account/members';
@@ -48,6 +54,20 @@ const MASKED_KEY = '••••••••••••••••';
 // Radix Select can't use an empty-string item value, so the "leave
 // unassigned" choice gets a sentinel that maps to null in the payload.
 const HANDOFF_QUEUE = '__queue__';
+// Same reason: the "never give it back" choice is null in the payload.
+const RESUME_NEVER = '__never__';
+
+type Tier = 'small' | 'large';
+
+// A tier field holds a provider default (or nothing) unless the admin
+// typed their own model, so only then does a provider switch keep it.
+function isDefaultTierModel(value: string, tier: Tier): boolean {
+  return (
+    value.trim() === '' ||
+    value === AI_TIER_DEFAULT_MODELS.openai[tier] ||
+    value === AI_TIER_DEFAULT_MODELS.anthropic[tier]
+  );
+}
 
 const PROVIDER_LABEL: Record<AiProvider, string> = {
   openai: 'OpenAI',
@@ -93,6 +113,21 @@ export function AiConfig() {
   const [strictGrounding, setStrictGrounding] = useState(false);
   const [handoffMessage, setHandoffMessage] = useState('');
   const [members, setMembers] = useState<AccountMember[]>([]);
+  // AI agent v2 (migration 077). The tier fields are pre-filled with the
+  // provider's defaults; a blank one saves as null ("use the standard
+  // model"). The switches start at the column defaults.
+  const [modelSmall, setModelSmall] = useState(
+    AI_TIER_DEFAULT_MODELS.openai.small
+  );
+  const [modelLarge, setModelLarge] = useState(
+    AI_TIER_DEFAULT_MODELS.openai.large
+  );
+  const [modelRouting, setModelRouting] = useState(true);
+  const [pauseOnAgentReply, setPauseOnAgentReply] = useState(true);
+  const [autoResumeMinutes, setAutoResumeMinutes] = useState<number | null>(
+    null
+  );
+  const [guardrailRetry, setGuardrailRetry] = useState(true);
 
   // Guard keyed on the account (not a bare boolean) so an in-place
   // account switch — ownership transfer, multi-account membership —
@@ -131,6 +166,19 @@ export function AiConfig() {
         );
         setStrictGrounding(data.strict_grounding === true);
         setHandoffMessage(data.handoff_message ?? '');
+        const tierDefaults =
+          AI_TIER_DEFAULT_MODELS[data.provider as AiProvider] ??
+          AI_TIER_DEFAULT_MODELS.openai;
+        setModelSmall(data.model_small ?? tierDefaults.small);
+        setModelLarge(data.model_large ?? tierDefaults.large);
+        setModelRouting(data.model_routing !== false);
+        setPauseOnAgentReply(data.pause_on_agent_reply !== false);
+        setAutoResumeMinutes(
+          typeof data.auto_resume_minutes === 'number'
+            ? data.auto_resume_minutes
+            : null
+        );
+        setGuardrailRetry(data.guardrail_retry !== false);
         setHasStoredKey(Boolean(data.has_key));
         setApiKey(data.has_key ? MASKED_KEY : '');
         setKeyEdited(false);
@@ -164,7 +212,24 @@ export function AiConfig() {
       model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
       model.trim() === '';
     if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+    if (isDefaultTierModel(modelSmall, 'small'))
+      setModelSmall(AI_TIER_DEFAULT_MODELS[next].small);
+    if (isDefaultTierModel(modelLarge, 'large'))
+      setModelLarge(AI_TIER_DEFAULT_MODELS[next].large);
   };
+
+  const resumeLabel = (minutes: number | null) =>
+    minutes === null
+      ? t('autoResumeNever')
+      : minutes % 60 === 0
+        ? t('autoResumeHours', { count: minutes / 60 })
+        : t('autoResumeMinutes', { count: minutes });
+
+  // A value saved through the API that is not one of the choices still
+  // shows as itself rather than as a blank select.
+  const resumeChoices = AUTO_RESUME_CHOICES.includes(autoResumeMinutes)
+    ? AUTO_RESUME_CHOICES
+    : [...AUTO_RESUME_CHOICES, autoResumeMinutes];
 
   const keyPayload = () => (keyEdited ? apiKey.trim() : undefined);
 
@@ -188,6 +253,12 @@ export function AiConfig() {
       retrievalMinScore.trim() === '' ? null : Number(retrievalMinScore),
     strict_grounding: strictGrounding,
     handoff_message: handoffMessage.trim() || null,
+    model_small: modelSmall.trim() || null,
+    model_large: modelLarge.trim() || null,
+    model_routing: modelRouting,
+    pause_on_agent_reply: pauseOnAgentReply,
+    auto_resume_minutes: autoResumeMinutes,
+    guardrail_retry: guardrailRetry,
   });
 
   const handleTest = async () => {
@@ -270,6 +341,12 @@ export function AiConfig() {
         setRetrievalMinScore('');
         setStrictGrounding(false);
         setHandoffMessage('');
+        setModelSmall(AI_TIER_DEFAULT_MODELS[provider].small);
+        setModelLarge(AI_TIER_DEFAULT_MODELS[provider].large);
+        setModelRouting(true);
+        setPauseOnAgentReply(true);
+        setAutoResumeMinutes(null);
+        setGuardrailRetry(true);
       } else {
         const data = await res.json();
         toast.error(data.error ?? t('removeFailed'));
@@ -345,6 +422,52 @@ export function AiConfig() {
                   disabled={disabled}
                 />
               </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="ai-model-small">{t('smallModel')}</Label>
+                <Input
+                  id="ai-model-small"
+                  value={modelSmall}
+                  onChange={(e) => setModelSmall(e.target.value)}
+                  placeholder={AI_TIER_DEFAULT_MODELS[provider].small}
+                  disabled={disabled}
+                />
+                <p className="text-muted-foreground text-xs">
+                  {t('smallModelDesc')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ai-model-large">{t('largeModel')}</Label>
+                <Input
+                  id="ai-model-large"
+                  value={modelLarge}
+                  onChange={(e) => setModelLarge(e.target.value)}
+                  placeholder={AI_TIER_DEFAULT_MODELS[provider].large}
+                  disabled={disabled}
+                />
+                <p className="text-muted-foreground text-xs">
+                  {t('largeModelDesc')}
+                </p>
+              </div>
+            </div>
+
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('modelRouting')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('modelRoutingDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={modelRouting}
+                onCheckedChange={setModelRouting}
+                disabled={disabled}
+              />
             </div>
 
             <div className="space-y-2">
@@ -542,7 +665,9 @@ export function AiConfig() {
                   {/* Deactivated members (migration 069) can't take a
                       hand-off — except one already saved here. */}
                   {members
-                    .filter((m) => !m.deactivated_at || m.user_id === handoffAgentId)
+                    .filter(
+                      (m) => !m.deactivated_at || m.user_id === handoffAgentId
+                    )
                     .map((m) => (
                       <SelectItem key={m.user_id} value={m.user_id}>
                         {memberLabel(m)}
@@ -550,6 +675,85 @@ export function AiConfig() {
                     ))}
                 </SelectContent>
               </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UserRoundCheck className="text-primary h-4 w-4" />{' '}
+              {t('handoverTitle')}
+            </CardTitle>
+            <CardDescription>{t('handoverDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('pauseOnAgentReply')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('pauseOnAgentReplyDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={pauseOnAgentReply}
+                onCheckedChange={setPauseOnAgentReply}
+                disabled={disabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="ai-auto-resume">{t('autoResume')}</Label>
+                <p className="text-muted-foreground text-xs">
+                  {t('autoResumeDesc')}
+                </p>
+              </div>
+              <Select
+                value={
+                  autoResumeMinutes === null
+                    ? RESUME_NEVER
+                    : String(autoResumeMinutes)
+                }
+                onValueChange={(v) =>
+                  setAutoResumeMinutes(
+                    !v || v === RESUME_NEVER ? null : Number(v)
+                  )
+                }
+                disabled={disabled || !pauseOnAgentReply}
+              >
+                <SelectTrigger id="ai-auto-resume" className="w-32">
+                  <SelectValue>{resumeLabel(autoResumeMinutes)}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {resumeChoices.map((m) => (
+                    <SelectItem
+                      key={m ?? RESUME_NEVER}
+                      value={m === null ? RESUME_NEVER : String(m)}
+                    >
+                      {resumeLabel(m)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('guardrailRetry')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('guardrailRetryDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={guardrailRetry}
+                onCheckedChange={setGuardrailRetry}
+                disabled={disabled}
+              />
             </div>
           </CardContent>
         </Card>
@@ -643,6 +847,8 @@ export function AiConfig() {
         />
 
         <AiKnowledgeGapsCard accountId={accountId} canEdit={canEdit} />
+
+        <AiActivityCard accountId={accountId} canEdit={canEdit} />
 
         <div className="flex items-center justify-between">
           {configured ? (
