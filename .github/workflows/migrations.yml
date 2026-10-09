@@ -125,3 +125,10 @@ jobs:
       # agent is refused while other contact fields stay writable.
       - name: Verify contact opt-out
         run: supabase db query --local --file supabase/ci/verify-contact-opt-out.sql
+
+      # AI agent v2 (077): a person's reply pauses the bot through a
+      # messages trigger, and only an agent message with a sender_id
+      # counts. Only real Postgres can show the trigger fires, refreshes
+      # its own pause and leaves a hand-off alone.
+      - name: Verify AI agent v2
+        run: supabase db query --local --file supabase/ci/verify-ai-agent-v2.sql
