@@ -21,8 +21,8 @@ import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
  * The sidebar's information architecture.
  *
  * Grouped by who each destination is for, which is also how the role
- * ladder gates them: the opening group is every member's daily work and
- * carries no heading, Team is a team leader's wider view, and the rest
+ * ladder gates them: the opening group is every member's daily work
+ * (their chats, contacts and deals) and carries no heading, Team is a team leader's wider view, and the rest
  * configure the account and are admin+. So an agent sees one short list
  * with no headings, and no role is shown a heading over nothing.
  */
@@ -61,6 +61,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/notifications', labelKey: 'notifications', icon: Bell },
       { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
       { href: '/contacts', labelKey: 'contacts', icon: Users },
+      // Everyone's: each member works their own deals, a team leader
+      // their team's too, an admin all of them. Which deals come back
+      // is RLS's call (migration 080, `can_view_deal`).
+      { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch },
     ],
   },
   {
@@ -99,12 +103,6 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'sales',
     labelKey: 'groups.sales',
     items: [
-      {
-        href: '/pipelines',
-        labelKey: 'pipelines',
-        icon: GitBranch,
-        minRole: 'admin',
-      },
       {
         href: '/broadcasts',
         labelKey: 'broadcasts',

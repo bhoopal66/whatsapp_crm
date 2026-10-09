@@ -18,7 +18,13 @@ function layout(groups: NavGroup[]): Record<string, string[]> {
   );
 }
 
-const EVERYONE = ['/dashboard', '/notifications', '/inbox', '/contacts'];
+const EVERYONE = [
+  '/dashboard',
+  '/notifications',
+  '/inbox',
+  '/contacts',
+  '/pipelines',
+];
 
 const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
 
@@ -43,7 +49,7 @@ describe('visibleNavGroups', () => {
     expect(layout(visibleNavGroups(role))).toEqual({
       main: EVERYONE,
       team: ['/team-inbox', '/team-contacts', '/team-activity'],
-      sales: ['/pipelines', '/broadcasts'],
+      sales: ['/broadcasts'],
       automation: ['/automations', '/flows'],
       integrations: ['/compass'],
     });
