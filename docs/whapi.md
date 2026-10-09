@@ -179,7 +179,10 @@ The thread header has a number picker on every chat (migration 061):
   is the number the customer wrote to. If you route *AI auto-reply* to
   one Whapi number, the bot answers there only, and your other Whapi
   numbers stay human-only. With no route, the bot answers on whichever
-  number the customer wrote to.
+  number the customer wrote to. Turning on *Reply on every WhatsApp
+  number* in Settings → AI lifts the restriction: the bot answers on the
+  number the customer wrote to, except in a chat a person pinned to
+  another number.
 
 Only admins can move a chat to another number. The database refuses
 the change for everyone else (`conversations_channel_guard`), because

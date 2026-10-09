@@ -1910,7 +1910,8 @@
       "defaultIs": "Default number:",
       "manageNumbers": "Change in Numbers & access",
       "useDefaultNamed": "Use default ({name})",
-      "allocatedStartHint": "People allocated to a number start new chats from their own number."
+      "allocatedStartHint": "People allocated to a number start new chats from their own number.",
+      "aiOnAllNumbersHint": "The AI replies on every number — change this in Settings → AI."
     },
     "numbers": {
       "title": "Numbers & access",
@@ -2188,6 +2189,8 @@
       "handoverDesc": "When a person steps into a chat, and when the AI gets it back.",
       "pauseOnAgentReply": "Pause the AI when a person replies in a chat",
       "pauseOnAgentReplyDesc": "A reply from anyone on the team stops the bot in that chat, so it never talks over a person.",
+      "replyOnAllNumbers": "Reply on every WhatsApp number",
+      "replyOnAllNumbersDesc": "The AI answers each chat on the number the customer wrote to — Whapi or Cloud API. Off: it answers only on the number set for AI auto-reply in Settings → WhatsApp → Which number sends what.",
       "autoResume": "Give the chat back to the AI after",
       "autoResumeDesc": "Counted from the last reply a person sent. Never leaves the chat with the team.",
       "autoResumeNever": "Never",

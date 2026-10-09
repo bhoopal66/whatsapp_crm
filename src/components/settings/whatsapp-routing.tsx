@@ -66,6 +66,9 @@ export function WhatsAppRouting() {
   const [saving, setSaving] = useState(false);
   const [channels, setChannels] = useState<RoutingChannel[]>([]);
   const [rows, setRows] = useState<RoutingRow[]>([]);
+  // Whether the AI answers on every number (Settings → AI). Any failure
+  // to read it just means no hint.
+  const [aiOnAllNumbers, setAiOnAllNumbers] = useState(false);
   // Pending edits, keyed by surface. Empty until something changes, so
   // a save only sends what the admin actually touched.
   const [pending, setPending] = useState<Record<string, string | null>>({});
@@ -89,6 +92,23 @@ export function WhatsAppRouting() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/ai/config');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setAiOnAllNumbers(data?.reply_on_all_numbers === true);
+      } catch {
+        // No hint.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const channelName = (channel: RoutingChannel) =>
     channel.label ||
@@ -205,6 +225,11 @@ export function WhatsAppRouting() {
                       ? ` ${t('allocatedStartHint')}`
                       : ''}
                   </p>
+                  {row.surface === 'ai_reply' && aiOnAllNumbers && (
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {t('aiOnAllNumbersHint')}
+                    </p>
+                  )}
                 </div>
                 <Select
                   value={value}
@@ -229,7 +254,9 @@ export function WhatsAppRouting() {
                           : t('useDefault')
                         : (() => {
                             const picked = channels.find((c) => c.id === value);
-                            return picked ? channelName(picked) : t('unnamedChannel');
+                            return picked
+                              ? channelName(picked)
+                              : t('unnamedChannel');
                           })()}
                     </SelectValue>
                   </SelectTrigger>

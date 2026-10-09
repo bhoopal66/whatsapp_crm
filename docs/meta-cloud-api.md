@@ -221,7 +221,10 @@ you a bot-handled campaign.
 on the *other* number is left for a human. Route AI auto-reply to the
 Meta number and the bot runs there alone, while the Whapi number stays
 fully human — and it can never try to answer a Whapi customer from a
-Meta number they never wrote to.
+Meta number they never wrote to. With *Reply on every WhatsApp number*
+on in Settings → AI, the bot instead answers on whichever number the
+customer wrote to (so the 24-hour window is open), skipping chats a
+person pinned to another number.
 
 ## How inbound works
 

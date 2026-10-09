@@ -124,6 +124,7 @@ export function AiConfig() {
   );
   const [modelRouting, setModelRouting] = useState(true);
   const [pauseOnAgentReply, setPauseOnAgentReply] = useState(true);
+  const [replyOnAllNumbers, setReplyOnAllNumbers] = useState(false);
   const [autoResumeMinutes, setAutoResumeMinutes] = useState<number | null>(
     null
   );
@@ -173,6 +174,7 @@ export function AiConfig() {
         setModelLarge(data.model_large ?? tierDefaults.large);
         setModelRouting(data.model_routing !== false);
         setPauseOnAgentReply(data.pause_on_agent_reply !== false);
+        setReplyOnAllNumbers(data.reply_on_all_numbers === true);
         setAutoResumeMinutes(
           typeof data.auto_resume_minutes === 'number'
             ? data.auto_resume_minutes
@@ -257,6 +259,7 @@ export function AiConfig() {
     model_large: modelLarge.trim() || null,
     model_routing: modelRouting,
     pause_on_agent_reply: pauseOnAgentReply,
+    reply_on_all_numbers: replyOnAllNumbers,
     auto_resume_minutes: autoResumeMinutes,
     guardrail_retry: guardrailRetry,
   });
@@ -584,6 +587,22 @@ export function AiConfig() {
               <Switch
                 checked={isActive}
                 onCheckedChange={setIsActive}
+                disabled={disabled}
+              />
+            </div>
+
+            <div className="border-border flex items-center justify-between gap-4 rounded-md border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  {t('replyOnAllNumbers')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('replyOnAllNumbersDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={replyOnAllNumbers}
+                onCheckedChange={setReplyOnAllNumbers}
                 disabled={disabled}
               />
             </div>

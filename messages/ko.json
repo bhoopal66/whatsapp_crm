@@ -1910,7 +1910,8 @@
       "defaultIs": "기본 번호:",
       "manageNumbers": "번호 및 접근 권한에서 변경",
       "useDefaultNamed": "기본 번호 사용 ({name})",
-      "allocatedStartHint": "번호에 배정된 사람은 자신의 번호로 새 채팅을 시작합니다."
+      "allocatedStartHint": "번호에 배정된 사람은 자신의 번호로 새 채팅을 시작합니다.",
+      "aiOnAllNumbersHint": "AI는 모든 번호에서 답합니다 — 설정 → AI에서 변경하세요."
     },
     "numbers": {
       "title": "번호 및 접근 권한",
@@ -2188,6 +2189,8 @@
       "handoverDesc": "사람이 채팅에 들어올 때와 AI가 채팅을 다시 맡을 때.",
       "pauseOnAgentReply": "채팅에서 사람이 답하면 AI 일시 중지",
       "pauseOnAgentReplyDesc": "팀원 누구든 답장하면 그 채팅에서 봇이 멈추므로 사람과 겹쳐 말하지 않습니다.",
+      "replyOnAllNumbers": "모든 WhatsApp 번호에서 답하기",
+      "replyOnAllNumbersDesc": "AI는 고객이 메시지를 보낸 번호(Whapi 또는 Cloud API)에서 각 채팅에 답합니다. 끄면 설정 → WhatsApp → 번호별 사용 범위에서 AI 자동 답장에 지정한 번호에서만 답합니다.",
       "autoResume": "다음 시간이 지나면 채팅을 AI에게 돌려주기",
       "autoResumeDesc": "사람이 보낸 마지막 답장부터 계산합니다. \"안 함\"은 채팅을 팀에 남겨 둡니다.",
       "autoResumeNever": "안 함",

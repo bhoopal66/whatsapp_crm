@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Reply on every WhatsApp number
+
+Settings → AI has a switch, **Reply on every WhatsApp number**. On, the
+AI answers each chat on the number the customer wrote to (Whapi or Cloud
+API); off, only on the number routed for AI auto-reply. A chat a person
+pinned to another number is skipped. Settings → WhatsApp → Which number
+sends what hints when the switch is on. See
+[docs/ai-agent.md](./docs/ai-agent.md).
+
+> **Migration required:** apply
+> `supabase/migrations/079_ai_reply_all_numbers.sql` (re-runnable)
+> **before** deploying the app. The bot tolerates a pre-079 database (it
+> keeps answering on its routed number), but Settings → AI fails to load
+> until 079 is applied.
+
 ### Partner banks, Important chats and open-question retrieval
 
 Each account sets its own partner banks, chats the AI hands over are

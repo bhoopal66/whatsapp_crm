@@ -138,6 +138,24 @@ it is applied, if the customer's message is still waiting.
 the escalation keyword “refund”. Last customer message: “...”". They
 no longer carry reason codes.
 
+## Every number
+
+**Settings → AI → Reply on every WhatsApp number.**
+
+- **On:** the bot answers each chat on the number the customer wrote to,
+  Whapi or Cloud API. Because it replies where the customer wrote, Meta's
+  24-hour service window is open. Settings → WhatsApp → Which number
+  sends what still shows the AI auto-reply row, with a hint that the
+  switch overrides it.
+- **Off (default):** the bot answers only on the number set for AI
+  auto-reply in Settings → WhatsApp → Which number sends what (or the
+  default number when there is no route).
+- A chat a person **pinned to another number** is skipped
+  (`skipped_number`) in both modes: the pin is a person's decision.
+
+Needs migration 079. Before it, the bot keeps answering on its routed
+number and the switch cannot load.
+
 ## Why didn't the AI reply?
 
 Every dispatch records an outcome on the conversation and in an events
@@ -145,21 +163,21 @@ table (admins read it). The banner warns **"AI didn't answer the last
 message: <reason>"** for a wrong number, an automation that answered,
 rate limiting, campaign-only mode, or a provider error.
 
-| Outcome                 | Meaning                                                             |
-| ----------------------- | ------------------------------------------------------------------- |
-| `replied`               | The bot sent a reply.                                               |
-| `handed_off`            | The bot handed the chat to a person (a gate or the model).          |
-| `held_for_review`       | TypeSafe held the draft; it waits on the chat.                      |
-| `skipped_number`        | The message arrived on a number the bot does not answer.            |
-| `skipped_automation`    | A Flow or automation consumed the message.                          |
-| `skipped_assigned`      | The chat is assigned to a person.                                   |
-| `skipped_paused`        | The bot is paused on this chat.                                     |
-| `skipped_campaign_only` | Campaign-only mode is on and the chat did not come from a campaign. |
-| `skipped_rate_limited`  | The provider or the per-chat pace refused the call.                 |
-| `skipped_superseded`    | A newer customer message took over this dispatch.                   |
-| `skipped_cap_race`      | Another dispatch claimed the last reply slot first.                 |
-| `skipped_nothing`       | Nothing to answer: no text, AI off, or nothing new.                 |
-| `error`                 | The dispatch failed.                                                |
+| Outcome                 | Meaning                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `replied`               | The bot sent a reply.                                                                             |
+| `handed_off`            | The bot handed the chat to a person (a gate or the model).                                        |
+| `held_for_review`       | TypeSafe held the draft; it waits on the chat.                                                    |
+| `skipped_number`        | The message arrived on a number the bot does not answer, or the chat is pinned to another number. |
+| `skipped_automation`    | A Flow or automation consumed the message.                                                        |
+| `skipped_assigned`      | The chat is assigned to a person.                                                                 |
+| `skipped_paused`        | The bot is paused on this chat.                                                                   |
+| `skipped_campaign_only` | Campaign-only mode is on and the chat did not come from a campaign.                               |
+| `skipped_rate_limited`  | The provider or the per-chat pace refused the call.                                               |
+| `skipped_superseded`    | A newer customer message took over this dispatch.                                                 |
+| `skipped_cap_race`      | Another dispatch claimed the last reply slot first.                                               |
+| `skipped_nothing`       | Nothing to answer: no text, AI off, or nothing new.                                               |
+| `error`                 | The dispatch failed.                                                                              |
 
 Settings → AI also shows an **activity card for the last 7 days**:
 replies by tier and model, hand-offs, held drafts, the reasons the bot
@@ -167,18 +185,18 @@ did not reply, and how many routings came from Jev versus the rule.
 
 ### Troubleshooting: the AI didn't reply
 
-| Outcome                                  | What to do                                                                                                                     |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `skipped_number`                         | Route the AI agent to that number in Settings → WhatsApp routing.                                                              |
-| `skipped_automation`                     | A Flow or automation answered first. Check the keyword automations and Flows on that number.                                   |
-| `skipped_assigned`                       | Unassign the chat, or reply yourself.                                                                                          |
-| `skipped_paused`                         | Press **Resume & reply** in the banner, or set an auto-resume time. Hand-offs and Take over need a manual resume.              |
-| `skipped_campaign_only`                  | Turn off _Campaign replies only_ in Settings → AI, or reply to the customer yourself.                                          |
-| `skipped_rate_limited`                   | The provider is limiting you. Check the provider's quota and billing, then wait.                                               |
-| `skipped_superseded`, `skipped_cap_race` | Normal: another dispatch answered. No action.                                                                                  |
-| `skipped_nothing`                        | The message had no text (a sticker or media only), or AI is off.                                                               |
-| `held_for_review`                        | Open the chat and Send, Edit or Discard the draft.                                                                             |
-| `error`                                  | See the detail in the banner and the server log. The usual cause is a provider error: check the API key, model name and quota. |
+| Outcome                                  | What to do                                                                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `skipped_number`                         | Turn on _Reply on every WhatsApp number_ in Settings → AI, or route the AI agent to that number in Settings → WhatsApp routing. A chat pinned to another number stays skipped. |
+| `skipped_automation`                     | A Flow or automation answered first. Check the keyword automations and Flows on that number.                                                                                   |
+| `skipped_assigned`                       | Unassign the chat, or reply yourself.                                                                                                                                          |
+| `skipped_paused`                         | Press **Resume & reply** in the banner, or set an auto-resume time. Hand-offs and Take over need a manual resume.                                                              |
+| `skipped_campaign_only`                  | Turn off _Campaign replies only_ in Settings → AI, or reply to the customer yourself.                                                                                          |
+| `skipped_rate_limited`                   | The provider is limiting you. Check the provider's quota and billing, then wait.                                                                                               |
+| `skipped_superseded`, `skipped_cap_race` | Normal: another dispatch answered. No action.                                                                                                                                  |
+| `skipped_nothing`                        | The message had no text (a sticker or media only), or AI is off.                                                                                                               |
+| `held_for_review`                        | Open the chat and Send, Edit or Discard the draft.                                                                                                                             |
+| `error`                                  | See the detail in the banner and the server log. The usual cause is a provider error: check the API key, model name and quota.                                                 |
 
 ## Behaviour changes
 
