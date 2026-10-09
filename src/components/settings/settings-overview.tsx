@@ -6,9 +6,12 @@ import { useTranslations } from 'next-intl';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
-import { useTheme } from '@/hooks/use-theme';
-import { THEMES } from '@/lib/themes';
-import { CURRENCIES } from '@/lib/currency';
+import { aiConfigFormFromResponse } from '@/lib/ai/config-form';
+import {
+  agentTileStatus,
+  summariseAgentOverview,
+  type AgentTileStatus,
+} from '@/lib/ai/agent-overview';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -18,8 +21,7 @@ import {
   canOpenSection,
   type SettingsSection,
 } from './settings-sections';
-import { SettingsChip, StatusDot } from './settings-chip';
-import { ROLE_META } from './role-meta';
+import { StatusDot } from './settings-chip';
 
 interface OverviewCounts {
   members: number | null;
@@ -37,21 +39,19 @@ interface WhatsAppStatus {
 export function SettingsOverview({
   onSelect,
 }: {
-  onSelect: (section: SettingsSection) => void;
+  onSelect: (tab: SettingsSection) => void;
 }) {
   const {
     user,
     profile,
     accountId,
     accountRole,
-    defaultCurrency,
     canManageMembers,
     profileLoading,
   } = useAuth();
-  const { mode, theme } = useTheme();
   const t = useTranslations('Settings.overview');
-  const tRoles = useTranslations('Settings.roles');
   const tSections = useTranslations('Settings.sections');
+  const tCategories = useTranslations('Settings.categories');
 
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
   const [countsLoading, setCountsLoading] = useState(true);
@@ -61,6 +61,8 @@ export function SettingsOverview({
   // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
+  // The AI Agents tile: is the assistant on, and does it auto-reply.
+  const [ai, setAi] = useState<AgentTileStatus | null>(null);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -169,6 +171,28 @@ export function SettingsOverview({
       setWhatsappLoading(false);
     })();
 
+    // AI status — admin-only like the AI Agents category itself.
+    (async () => {
+      if (!canOpenSection('ai', profileLoading ? null : accountRole)) return;
+      try {
+        const res = await fetch('/api/ai/config', { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled || !res.ok) return;
+        setAi(
+          agentTileStatus(
+            summariseAgentOverview({
+              configured: data?.configured === true,
+              saved: aiConfigFormFromResponse(data ?? {}),
+              aiReplyRoute: null,
+              numbers: [],
+            })
+          )
+        );
+      } catch {
+        // The tile falls back to its plain label.
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -178,14 +202,6 @@ export function SettingsOverview({
   const initial = (profile?.full_name || profile?.email || 'U')
     .charAt(0)
     .toUpperCase();
-  const roleMeta = accountRole ? ROLE_META[accountRole] : null;
-  const RoleIcon = roleMeta?.icon;
-
-  const currencyLabel =
-    CURRENCIES.find((c) => c.code === defaultCurrency)?.label ??
-    defaultCurrency;
-  const themeName = THEMES.find((t) => t.id === theme)?.name ?? theme;
-  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
   // Per-tile loading + subtitle. `null` counts render as a graceful
   // fallback so a single failed query never blanks a tile.
@@ -234,19 +250,14 @@ export function SettingsOverview({
             }`,
     },
     {
-      section: 'deals',
-      loading: false,
-      subtitle: `${defaultCurrency} — ${currencyLabel}`,
-    },
-    {
       section: 'fields',
       loading: countsLoading,
       subtitle: t('fieldsCount', { count: counts?.customFields ?? 0 }),
     },
     {
-      section: 'appearance',
+      section: 'ai',
       loading: false,
-      subtitle: t('appearance', { mode: cap(mode), theme: themeName }),
+      subtitle: ai === null ? tSections('ai') : t(ai),
     },
   ];
 
@@ -260,7 +271,7 @@ export function SettingsOverview({
 
   return (
     <section className="animate-in fade-in-50 duration-200">
-      {/* Identity */}
+      {/* Identity — role and dates live in My account → Profile. */}
       <Card className="flex-row items-center gap-4 px-5 py-5">
         <Avatar size="lg" className="size-14">
           {profile?.avatar_url ? (
@@ -280,12 +291,6 @@ export function SettingsOverview({
             </div>
           ) : null}
         </div>
-        {roleMeta && RoleIcon ? (
-          <SettingsChip variant={roleMeta.variant}>
-            <RoleIcon />
-            {tRoles(accountRole!)}
-          </SettingsChip>
-        ) : null}
       </Card>
 
       {/* Status tiles */}
@@ -308,7 +313,9 @@ export function SettingsOverview({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="text-foreground block text-sm font-semibold">
-                  {tSections(section)}
+                  {section === 'whatsapp'
+                    ? tCategories('whatsapp')
+                    : tSections(section)}
                 </span>
                 <span className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
                   {loading ? (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  agentTileStatus,
   autoReplyDot,
   partnerBankCount,
   safetyDot,
@@ -137,5 +138,28 @@ describe('partnerBankCount', () => {
 
   it('is unknown without a catalogue', () => {
     expect(partnerBankCount(null, undefined)).toBeNull();
+  });
+});
+
+describe('agentTileStatus', () => {
+  const at = (
+    configured: boolean,
+    isActive: boolean,
+    autoReplyEnabled: boolean
+  ) =>
+    agentTileStatus(
+      summariseAgentOverview({
+        configured,
+        saved: { isActive, autoReplyEnabled, replyOnAllNumbers: false },
+        aiReplyRoute: null,
+        numbers,
+      })
+    );
+
+  it('names the state the Settings Overview tile shows', () => {
+    expect(at(false, true, true)).toBe('notSetup');
+    expect(at(true, false, true)).toBe('aiOff');
+    expect(at(true, true, false)).toBe('aiOn');
+    expect(at(true, true, true)).toBe('aiAutoReply');
   });
 });

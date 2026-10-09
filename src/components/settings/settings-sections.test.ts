@@ -3,54 +3,66 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  RAIL_GROUPS,
   SECTION_META,
+  SETTINGS_CATEGORIES,
   SETTINGS_SECTIONS,
+  agentsRedirectHref,
   canOpenSection,
-  resolveSection,
+  resolveSettingsLocation,
+  resolveSettingsTab,
+  sectionsOf,
+  settingsParamsFor,
+  visibleCategories,
   type SettingsSection,
 } from './settings-sections';
 
-// `canOpenSection` is the single gate behind all three ways into a
-// settings section — the rail, the `?tab=` panel switch, and the
-// Overview tiles. If it drifts, one of those surfaces starts showing
-// a section the others hide.
+// `canOpenSection` is the single gate behind every way into a settings
+// section — the tab rows, the `?tab=` panel switch, and the Overview
+// tiles. If it drifts, one surface shows a section the others hide.
 
-const WORKSPACE: SettingsSection[] = [
+const ADMIN_ONLY: SettingsSection[] = [
   'whatsapp',
   'numbers',
-  'costs',
+  'routing',
   'templates',
-  'quick-replies',
+  'costs',
   'chat-tags',
+  'quick-replies',
   'fields',
-  'deals',
   'members',
   'teams',
+  'ai',
   'api',
-  'ai-safety',
+  'deals',
 ];
 
-const OPEN_TO_ALL: SettingsSection[] = ['overview', 'profile', 'security', 'appearance'];
+const OPEN_TO_ALL: SettingsSection[] = [
+  'overview',
+  'profile',
+  'security',
+  'appearance',
+];
+
+const params = (tab: string | null) =>
+  new URLSearchParams(tab === null ? '' : `tab=${tab}`);
 
 describe('canOpenSection', () => {
-  it('lets owners and admins into every workspace section', () => {
-    for (const section of WORKSPACE) {
+  it('lets owners and admins into every admin section', () => {
+    for (const section of ADMIN_ONLY) {
       expect(canOpenSection(section, 'owner')).toBe(true);
       expect(canOpenSection(section, 'admin')).toBe(true);
     }
   });
 
-  it('keeps agents and viewers out of every workspace section', () => {
-    for (const section of WORKSPACE) {
-      expect(canOpenSection(section, 'agent')).toBe(false);
-      expect(canOpenSection(section, 'viewer')).toBe(false);
+  it('keeps leaders, agents and viewers out of every admin section', () => {
+    for (const section of ADMIN_ONLY) {
+      for (const role of ['team_leader', 'agent', 'viewer'] as const) {
+        expect(canOpenSection(section, role)).toBe(false);
+      }
     }
   });
 
   it('leaves the personal sections open to every role', () => {
-    // These are the user's OWN settings — profile, password, theme —
-    // and gating them would lock people out of their own account.
     for (const section of OPEN_TO_ALL) {
       for (const role of ['owner', 'admin', 'agent', 'viewer'] as const) {
         expect(canOpenSection(section, role)).toBe(true);
@@ -59,85 +71,195 @@ describe('canOpenSection', () => {
   });
 
   it('fails closed while the role is unknown', () => {
-    // null = profile still loading. Answering "yes" here would flash
-    // the gated sections into the rail and then yank them away.
-    for (const section of WORKSPACE) {
+    for (const section of ADMIN_ONLY)
       expect(canOpenSection(section, null)).toBe(false);
-    }
-    for (const section of OPEN_TO_ALL) {
+    for (const section of OPEN_TO_ALL)
       expect(canOpenSection(section, null)).toBe(true);
-    }
   });
 
   it('covers every declared section, so a new one cannot be forgotten', () => {
-    // A section added to SETTINGS_SECTIONS but to neither list above
-    // would otherwise ship untested and silently ungated.
-    expect([...WORKSPACE, ...OPEN_TO_ALL].sort()).toEqual([...SETTINGS_SECTIONS].sort());
+    expect([...ADMIN_ONLY, ...OPEN_TO_ALL].sort()).toEqual(
+      [...SETTINGS_SECTIONS].sort()
+    );
   });
 
-  it('gates exactly the workspace group', () => {
-    // The grouping is what the UI renders; minRole is what enforces.
-    // They must describe the same set.
+  it('gates everything outside Overview and My account', () => {
     const gated = SETTINGS_SECTIONS.filter((s) => SECTION_META[s].minRole);
-    const workspace = SETTINGS_SECTIONS.filter(
-      (s) => SECTION_META[s].group === 'workspace',
+    const open = SETTINGS_SECTIONS.filter(
+      (s) => !['overview', 'account'].includes(SECTION_META[s].category)
     );
-    expect([...gated].sort()).toEqual([...workspace].sort());
+    expect([...gated].sort()).toEqual([...open].sort());
+  });
+});
+
+describe('categories', () => {
+  it('puts every section in exactly the category the IA names', () => {
+    expect(
+      Object.fromEntries(SETTINGS_CATEGORIES.map((c) => [c, sectionsOf(c)]))
+    ).toEqual({
+      overview: ['overview'],
+      account: ['profile', 'security', 'appearance'],
+      whatsapp: ['whatsapp', 'numbers', 'routing', 'templates', 'costs'],
+      inbox: ['chat-tags', 'quick-replies', 'fields'],
+      team: ['members', 'teams'],
+      ai: ['ai'],
+      integrations: ['api', 'deals'],
+    });
+  });
+
+  it.each(['owner', 'admin'] as const)('shows %s every category', (role) => {
+    expect(visibleCategories(role).map((c) => c.id)).toEqual([
+      ...SETTINGS_CATEGORIES,
+    ]);
+  });
+
+  it.each([null, 'team_leader', 'agent', 'viewer'] as const)(
+    'hides the categories %s has no section in',
+    (role) => {
+      expect(visibleCategories(role)).toEqual([
+        { id: 'overview', sections: ['overview'] },
+        { id: 'account', sections: ['profile', 'security', 'appearance'] },
+      ]);
+    }
+  );
+});
+
+describe('resolveSettingsTab', () => {
+  it('resolves every section id to itself', () => {
+    for (const section of SETTINGS_SECTIONS) {
+      expect(resolveSettingsTab(section).section).toBe(section);
+    }
+  });
+
+  it('keeps every legacy id working', () => {
+    expect(resolveSettingsTab('tags')).toEqual({
+      section: 'chat-tags',
+      agentTab: null,
+    });
+    expect(resolveSettingsTab('custom-fields')).toEqual({
+      section: 'fields',
+      agentTab: null,
+    });
+    // The removed AI safety checks section now lives in AI Agents.
+    expect(resolveSettingsTab('ai-safety')).toEqual({
+      section: 'ai',
+      agentTab: 'safety',
+    });
+  });
+
+  it('carries the AI Agents tab in ?tab=ai-<tab>', () => {
+    expect(resolveSettingsTab('ai')).toEqual({ section: 'ai', agentTab: null });
+    expect(resolveSettingsTab('ai-auto-reply')).toEqual({
+      section: 'ai',
+      agentTab: 'auto-reply',
+    });
+    expect(resolveSettingsTab('ai-')).toEqual({
+      section: 'ai',
+      agentTab: null,
+    });
+  });
+
+  it('sends anything unknown to the Overview', () => {
+    for (const raw of [null, '', 'nope', 'groups']) {
+      expect(resolveSettingsTab(raw)).toEqual({
+        section: 'overview',
+        agentTab: null,
+      });
+    }
+  });
+});
+
+describe('resolveSettingsLocation', () => {
+  it('derives the category from the sub-tab', () => {
+    expect(resolveSettingsLocation(params('routing'), 'admin')).toEqual({
+      section: 'routing',
+      agentTab: null,
+      category: 'whatsapp',
+    });
+    expect(resolveSettingsLocation(params('ai-safety'), 'owner')).toEqual({
+      section: 'ai',
+      agentTab: 'safety',
+      category: 'ai',
+    });
+  });
+
+  it('lands a role below the section on the Overview', () => {
+    for (const tab of ['numbers', 'ai', 'ai-safety', 'tags', 'api']) {
+      expect(resolveSettingsLocation(params(tab), 'agent')).toEqual({
+        section: 'overview',
+        agentTab: null,
+        category: 'overview',
+      });
+    }
+    expect(resolveSettingsLocation(params('security'), 'viewer').section).toBe(
+      'security'
+    );
+  });
+});
+
+describe('settingsParamsFor', () => {
+  it('drops section state when the sub-tab changes', () => {
+    const next = settingsParamsFor(
+      'tab=whatsapp&channel=c1&add=1&x=y',
+      'numbers'
+    );
+    expect(next.toString()).toBe('tab=numbers&x=y');
+  });
+
+  it('keeps section state while the section stays the same', () => {
+    const next = settingsParamsFor('tab=whatsapp&channel=c1', 'whatsapp');
+    expect(next.get('channel')).toBe('c1');
+  });
+});
+
+describe('agentsRedirectHref', () => {
+  it('sends /agents to AI Agents in Settings, keeping its tab', () => {
+    expect(agentsRedirectHref(undefined)).toBe('/settings?tab=ai');
+    expect(agentsRedirectHref('playground')).toBe(
+      '/settings?tab=ai-playground'
+    );
+    expect(agentsRedirectHref(['usage', 'x'])).toBe('/settings?tab=ai-usage');
   });
 });
 
 // ------------------------------------------------------------
-// Rail labels
-//
-// The rail renders every section through `t('sections.<id>')` and
-// every named group through `t('groups.<group>')`. next-intl does not
-// throw on a missing key — it reports MISSING_MESSAGE to onError and
-// renders the keypath — so a section added here without a catalogue
-// entry ships as a chip literally labelled "Settings.sections.teams".
-// Nothing fails; it just looks broken. `messages.test.ts` cannot catch
-// it either: it checks the translations cover en.json, and a key absent
-// from BOTH is at parity.
+// Labels. next-intl does not throw on a missing key — it renders the
+// keypath — and `messages.test.ts` cannot catch a key absent from every
+// catalogue, so check each tab label exists in each locale.
 // ------------------------------------------------------------
 
 const LOCALES = readdirSync(join(process.cwd(), 'messages'))
   .filter((f) => f.endsWith('.json'))
   .map((f) => f.replace(/\.json$/, ''));
 
-function settingsCatalogue(locale: string): Record<string, Record<string, string>> {
-  const raw = readFileSync(join(process.cwd(), 'messages', `${locale}.json`), 'utf8');
+function settingsCatalogue(
+  locale: string
+): Record<string, Record<string, string>> {
+  const raw = readFileSync(
+    join(process.cwd(), 'messages', `${locale}.json`),
+    'utf8'
+  );
   return JSON.parse(raw).Settings;
 }
 
-describe('rail labels', () => {
+describe('tab labels', () => {
   it.each(LOCALES)('%s.json labels every section', (locale) => {
     const sections = settingsCatalogue(locale).sections ?? {};
     for (const section of SETTINGS_SECTIONS) {
-      expect(sections[section], `missing Settings.sections.${section}`).toBeTruthy();
+      expect(
+        sections[section],
+        `missing Settings.sections.${section}`
+      ).toBeTruthy();
     }
   });
 
-  it.each(LOCALES)('%s.json labels every named rail group', (locale) => {
-    const groups = settingsCatalogue(locale).groups ?? {};
-    for (const { label, group } of RAIL_GROUPS) {
-      // A null label means the group renders no heading (the Overview
-      // row) — nothing to translate.
-      if (!label) continue;
-      expect(groups[group], `missing Settings.groups.${group}`).toBeTruthy();
+  it.each(LOCALES)('%s.json labels every category', (locale) => {
+    const categories = settingsCatalogue(locale).categories ?? {};
+    for (const category of SETTINGS_CATEGORIES) {
+      expect(
+        categories[category],
+        `missing Settings.categories.${category}`
+      ).toBeTruthy();
     }
-  });
-});
-
-describe('resolveSection', () => {
-  it('sends the legacy tags tab to chat tags, where tags live now', () => {
-    expect(resolveSection('tags')).toBe('chat-tags');
-  });
-
-  it('keeps the legacy custom-fields tab on the fields section', () => {
-    expect(resolveSection('custom-fields')).toBe('fields');
-    expect(resolveSection('fields')).toBe('fields');
-  });
-
-  it('labels the fields section as custom fields only', () => {
-    expect(SECTION_META.fields.label).toBe('Custom fields');
   });
 });

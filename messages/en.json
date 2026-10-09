@@ -1484,9 +1484,11 @@
       "templatesCount": "{count} {count, plural, =1 {template} other {templates}}",
       "pendingReview": "{count} pending review",
       "fieldsCount": "{count} custom {count, plural, =1 {field} other {fields}}",
-      "appearance": "{mode} mode · {theme} accent",
       "yourAccount": "Your account",
-      "loading": "Loading…"
+      "loading": "Loading…",
+      "aiOff": "Assistant off",
+      "aiOn": "Assistant on · auto-reply off",
+      "aiAutoReply": "Assistant on · auto-reply on"
     },
     "members": {
       "title": "Team members",
@@ -1900,7 +1902,8 @@
       "manageNumbers": "Change in Numbers & access",
       "useDefaultNamed": "Use default ({name})",
       "allocatedStartHint": "People allocated to a number start new chats from their own number.",
-      "aiOnAllNumbersHint": "The AI replies on every number — change this in Settings → AI."
+      "aiReplyElsewhere": "AI replies are set in AI Agents → Auto-reply.",
+      "aiReplyLink": "Open AI Agents"
     },
     "numbers": {
       "title": "Numbers & access",
@@ -1980,25 +1983,31 @@
     },
     "sections": {
       "overview": "Overview",
-      "profile": "Your profile",
+      "profile": "Profile",
       "security": "Login & security",
       "appearance": "Appearance",
-      "whatsapp": "WhatsApp",
+      "whatsapp": "Connections",
       "numbers": "Numbers & access",
-      "costs": "Message costs",
+      "routing": "Routing",
       "templates": "Templates",
-      "quick-replies": "Quick replies",
+      "costs": "Message costs",
       "chat-tags": "Chat tags",
+      "quick-replies": "Quick replies",
       "fields": "Custom fields",
-      "deals": "Deals & currency",
-      "members": "Team members",
+      "members": "Members",
       "teams": "Teams",
+      "ai": "AI Agents",
       "api": "API keys",
-      "ai-safety": "AI safety checks"
+      "deals": "Deals & currency"
     },
-    "groups": {
-      "account": "Account",
-      "workspace": "Workspace"
+    "categories": {
+      "overview": "Overview",
+      "account": "My account",
+      "whatsapp": "WhatsApp",
+      "inbox": "Inbox",
+      "team": "Team",
+      "ai": "AI Agents",
+      "integrations": "Integrations"
     },
     "profile": {
       "title": "Your profile",
@@ -2134,7 +2143,6 @@
       "behaviourDesc": "Tell the assistant about your business — products, tone, what it may and may not promise. This context feeds both drafts and auto-replies.",
       "businessContext": "Business context & instructions",
       "promptPlaceholder": "e.g. We are Acme, a coffee-equipment store. Be warm and concise. Never quote prices or delivery dates — hand off to a human for those.",
-      "enableAssistant": "Enable AI assistant",
       "enableAssistantDesc": "Master switch. Turns on the “Draft with AI” button in the inbox.",
       "autoReply": "Auto-reply to inbound messages",
       "autoReplyDesc": "The bot answers new inbound messages automatically (only when no flow handles them and no agent is assigned). Hands off to a human when it can’t help.",
@@ -2153,8 +2161,6 @@
       "removeFailed": "Failed to remove.",
       "campaignOnly": "Campaign replies only",
       "invalidThreshold": "The retrieval threshold must be a number between 0 and 1.",
-      "gatesTitle": "Escalation gates",
-      "gatesDesc": "Deterministic checks that run before the model is called. Each one hands the conversation to a human with a recorded reason instead of letting the bot answer.",
       "escalationKeywords": "Escalation keywords",
       "escalationKeywordsDesc": "One per line, any language. A customer message containing one of these skips the bot entirely — refund, complaint, legal, manager… Add a trailing * to match word beginnings (refund* matches refunded, refunding).",
       "escalationKeywordsPlaceholder": "refund*\ncomplain*\nlegal\nspeak to a manager\nشكوى",
@@ -2173,12 +2179,10 @@
       "largeModelDesc": "Complex, multi-part or sensitive messages.",
       "modelRouting": "Route each message to the right model",
       "modelRoutingDesc": "TypeSafe Jev judges each message and picks the smallest model that can answer it well; without TypeSafe a simple rule decides. Small-model drafts that ask for a person are retried on the standard model first.",
-      "handoverTitle": "Hand-over",
       "handoverDesc": "When a person steps into a chat, and when the AI gets it back.",
       "pauseOnAgentReply": "Pause the AI when a person replies in a chat",
       "pauseOnAgentReplyDesc": "A reply from anyone on the team stops the bot in that chat, so it never talks over a person.",
       "replyOnAllNumbers": "Reply on every WhatsApp number",
-      "replyOnAllNumbersDesc": "The AI answers each chat on the number the customer wrote to — Whapi or Cloud API. Off: it answers only on the number set for AI auto-reply in Settings → WhatsApp → Which number sends what.",
       "autoResume": "Give the chat back to the AI after",
       "autoResumeDesc": "Counted from the last reply a person sent. Never leaves the chat with the team.",
       "autoResumeNever": "Never",

@@ -66,6 +66,15 @@ export function summariseAgentOverview({
   };
 }
 
+/** The Settings Overview's AI Agents tile, as a message key. */
+export type AgentTileStatus = 'notSetup' | 'aiOff' | 'aiOn' | 'aiAutoReply';
+
+export function agentTileStatus(overview: AgentOverview): AgentTileStatus {
+  if (!overview.assistant.configured) return 'notSetup';
+  if (!overview.assistant.on) return 'aiOff';
+  return overview.autoReply.on ? 'aiAutoReply' : 'aiOn';
+}
+
 /** Green while the bot replies on its own; no dot otherwise. */
 export function autoReplyDot(overview: AgentOverview): StatusDot {
   return overview.autoReply.on ? 'green' : null;
