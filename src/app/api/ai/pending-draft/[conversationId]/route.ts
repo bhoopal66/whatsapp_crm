@@ -100,9 +100,15 @@ export async function POST(request: Request, { params }: Params) {
     // but only one clear matches a row, so only one goes on to send. A
     // NULL `_at` (a draft written without its time) is matched with
     // IS NULL.
+    // The claim also clears the Important pin (migration 078): sending or
+    // discarding the held draft is a person acting on the chat.
     let claim = supabase
       .from('conversations')
-      .update({ ai_pending_draft: null, ai_pending_draft_at: null })
+      .update({
+        ai_pending_draft: null,
+        ai_pending_draft_at: null,
+        ai_attention_at: null,
+      })
       .eq('id', conversationId)
       .eq('account_id', accountId);
     claim =

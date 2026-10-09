@@ -657,6 +657,24 @@ describe('dispatchInboundToAiReply — handoff', () => {
       assigned_agent_id: 'agent-7',
     });
   });
+
+  it('flags the chat as needing attention (078)', async () => {
+    h.generateReply.mockResolvedValue({ text: '', handoff: true });
+    await dispatchInboundToAiReply(ARGS);
+    const at = h.state.updatePayload?.ai_attention_at;
+    expect(typeof at).toBe('string');
+    expect(at).toBe(h.state.updatePayload?.ai_paused_at);
+  });
+
+  it('flags it even when the hand-off assigns an agent (assigning is not acting)', async () => {
+    h.generateReply.mockResolvedValue({ text: '', handoff: true });
+    h.loadAiConfig.mockResolvedValue(aiConfig({ handoffAgentId: 'agent-7' }));
+    await dispatchInboundToAiReply(ARGS);
+    expect(h.state.updatePayload).toMatchObject({
+      assigned_agent_id: 'agent-7',
+    });
+    expect(typeof h.state.updatePayload?.ai_attention_at).toBe('string');
+  });
 });
 
 describe('dispatchInboundToAiReply — campaign replies only (migration 049)', () => {
@@ -2005,6 +2023,8 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(h.state.updatePayload!.ai_handoff_summary).toContain(
       'held again (guarantee)'
     );
+    // A held draft waits on a person: the chat is pinned Important.
+    expect(typeof h.state.updatePayload!.ai_attention_at).toBe('string');
     expect(lastOutcome()).toBe('held_for_review');
     expect(lastEvent()).toMatchObject({
       outcome: 'held_for_review',

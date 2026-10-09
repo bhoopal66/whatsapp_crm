@@ -605,12 +605,16 @@ export async function dispatchInboundToAiReply(
         detail,
         reasonText,
       });
+      const now = new Date().toISOString();
       const update: Record<string, unknown> = {
         ai_autoreply_disabled: true,
         ai_paused_reason: 'handoff',
-        ai_paused_at: new Date().toISOString(),
+        ai_paused_at: now,
         ai_handoff_summary: summary,
         ai_handoff_reason: reason,
+        // Pins the chat as Important (migration 078) until a person acts
+        // on it — assigning the hand-off agent below is not acting.
+        ai_attention_at: now,
       };
       // Only set the assignee when a target is configured AND the thread
       // isn't already owned — never stomp an existing human assignment.

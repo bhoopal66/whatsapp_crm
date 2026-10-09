@@ -183,10 +183,19 @@ describe('POST /api/ai/autoreply/[conversationId]', () => {
       ai_paused_at: null,
       ai_pending_draft: null,
       ai_pending_draft_at: null,
+      ai_attention_at: null,
     });
     // Without reply_now nothing is looked up or dispatched.
     expect(admin.calls).toHaveLength(0);
     expect(mocks.afterCallbacks).toHaveLength(0);
+  });
+
+  it('taking over and resuming both clear the Important pin (078)', async () => {
+    for (const paused of [true, false]) {
+      setup({});
+      await post({ paused });
+      expect(updatePatch()).toHaveProperty('ai_attention_at', null);
+    }
   });
 
   it('reply_now answers the customer’s last message on its own number, in after()', async () => {

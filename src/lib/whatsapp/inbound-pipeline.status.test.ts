@@ -390,6 +390,8 @@ describe('handleStatusUpdate — a bot reply WhatsApp refused', () => {
       ai_handoff_reason: 'error',
       assigned_agent_id: 'agent-9',
     });
+    // Important until a person acts (078), the assignment notwithstanding.
+    expect(typeof update.payload?.ai_attention_at).toBe('string');
     const summary = String(update.payload?.ai_handoff_summary);
     expect(summary).toContain('after 2 replies');
     expect(summary).toContain(
@@ -409,6 +411,7 @@ describe('handleStatusUpdate — a bot reply WhatsApp refused', () => {
     await handleStatusUpdate(status({ status: 'failed' }), ACCOUNT);
     const [update] = find('conversations', 'update');
     expect(update.payload).not.toHaveProperty('assigned_agent_id');
+    expect(typeof update.payload?.ai_attention_at).toBe('string');
     expect(update.filters.some(([k]) => k === 'is')).toBe(false);
     expect(String(update.payload?.ai_handoff_summary)).toContain(
       'WhatsApp reported it as failed.'
