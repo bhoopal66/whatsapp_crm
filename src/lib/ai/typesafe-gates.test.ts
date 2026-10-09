@@ -516,7 +516,7 @@ describe('runGuardrailGate', () => {
     expect(r.outcome).not.toBe('send');
     const detail = r.outcome !== 'send' ? r.detail : '';
     expect(detail).toMatch(
-      /^the safety check (blocked|held) the draft reply because the draft named a bank that is not on your partner list \(First Abu Dhabi Bank \(FAB\)\)\. Add it in Settings → AI safety checks → Partner banks if you work with it\./
+      /^the safety check (blocked|held) the draft reply because the draft named a bank that is not on your partner list \(First Abu Dhabi Bank \(FAB\)\)\. Add it in Settings → AI Agents → Safety checks → Partner banks if you work with it\./
     );
     // The codes stay, in parentheses, for support; the draft is quoted.
     expect(detail).toContain('(code');
@@ -975,7 +975,7 @@ describe('guardrailDetail (the hand-off note, in plain words)', () => {
         'Unlike Mashreq, ADCB and FAB charge a fee.'
       )
     ).toContain(
-      'the draft named banks that are not on your partner list (First Abu Dhabi Bank (FAB), Abu Dhabi Commercial Bank (ADCB)). Add them in Settings → AI safety checks → Partner banks if you work with them.'
+      'the draft named banks that are not on your partner list (First Abu Dhabi Bank (FAB), Abu Dhabi Commercial Bank (ADCB)). Add them in Settings → AI Agents → Safety checks → Partner banks if you work with them.'
     );
   });
 

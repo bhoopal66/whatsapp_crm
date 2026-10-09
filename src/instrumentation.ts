@@ -30,7 +30,7 @@ export async function register() {
         ? 'any account'
         : `${config.accounts.length} account(s) only`;
     console.info(
-      `[ts013] TypeSafe decision layer: available for ${accounts} (${checks}); each account switches it on in Settings → AI safety checks; model ${config.model}; guardrail fail mode ${config.guardrailFailMode}`
+      `[ts013] TypeSafe decision layer: available for ${accounts} (${checks}); each account switches it on in Settings → AI Agents → Safety checks; model ${config.model}; guardrail fail mode ${config.guardrailFailMode}`
     );
   } catch (err) {
     console.error(

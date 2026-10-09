@@ -568,8 +568,8 @@ const HAZARD_SENTENCES: Record<
       .filter((b) => !b.partner)
       .map((b) => names.get(b.code) ?? b.code);
     return banks.length
-      ? `the draft named ${banks.length === 1 ? 'a bank' : 'banks'} that ${banks.length === 1 ? 'is' : 'are'} not on your partner list (${banks.join(', ')}). Add ${banks.length === 1 ? 'it' : 'them'} in Settings → AI safety checks → Partner banks if you work with ${banks.length === 1 ? 'it' : 'them'}.`
-      : 'the draft named a bank that is not on your partner list. Add it in Settings → AI safety checks → Partner banks if you work with it.';
+      ? `the draft named ${banks.length === 1 ? 'a bank' : 'banks'} that ${banks.length === 1 ? 'is' : 'are'} not on your partner list (${banks.join(', ')}). Add ${banks.length === 1 ? 'it' : 'them'} in Settings → AI Agents → Safety checks → Partner banks if you work with ${banks.length === 1 ? 'it' : 'them'}.`
+      : 'the draft named a bank that is not on your partner list. Add it in Settings → AI Agents → Safety checks → Partner banks if you work with it.';
   },
   UNSUPPORTED_CLAIM: () =>
     'the draft stated a bank requirement or policy that your knowledge base and instructions do not support.',
