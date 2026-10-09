@@ -24,6 +24,7 @@ import {
   type BannerOverride,
 } from '@/lib/ai/banner-state';
 import type { Conversation } from '@/types';
+import { ImportantBadge } from './important-badge';
 
 // ------------------------------------------------------------
 // Account AI status is the same for every conversation, so cache it per
@@ -86,6 +87,7 @@ export type AiBannerConversation = Pick<
   | 'ai_last_outcome'
   | 'ai_last_outcome_detail'
   | 'ai_last_outcome_at'
+  | 'ai_attention_at'
 >;
 
 /** What a successful action changed on the row, for the parent to patch. */
@@ -98,6 +100,8 @@ function takeOverPatch(userId: string | null | undefined): AiBannerPatch {
     ai_autoreply_disabled: true,
     ai_paused_reason: 'take_over',
     ai_paused_at: new Date().toISOString(),
+    // The route clears the needs-attention stamp (migration 078).
+    ai_attention_at: null,
     ...(userId ? { assigned_agent_id: userId } : {}),
   };
 }
@@ -111,10 +115,13 @@ const RESUME_PATCH: AiBannerPatch = {
   ai_handoff_summary: null,
   ai_pending_draft: null,
   ai_pending_draft_at: null,
+  ai_attention_at: null,
 };
+// Acting on a held draft is acting on the chat: attention clears too.
 const DRAFT_CLEARED: AiBannerPatch = {
   ai_pending_draft: null,
   ai_pending_draft_at: null,
+  ai_attention_at: null,
 };
 
 type Action = 'toggle' | 'send' | 'sendEdited' | 'discard';
@@ -131,6 +138,12 @@ interface AiThreadBannerProps {
    *  conversation state (the realtime UPDATE also arrives, but this keeps
    *  the banner instant). */
   onChange?: (patch: AiBannerPatch) => void;
+  /**
+   * Where the thread put it: `top` (under the header) while the chat
+   * needs attention (migration 078), else `bottom`, above the composer.
+   * Only the border side differs; the thread chooses the slot.
+   */
+  placement?: 'top' | 'bottom';
 }
 
 /**
@@ -150,6 +163,7 @@ export function AiThreadBanner({
   lastMessageFromCustomer,
   currentUserId,
   onChange,
+  placement = 'bottom',
 }: AiThreadBannerProps) {
   const t = useTranslations('Inbox.aiBanner');
   const { accountId } = useAuth();
@@ -282,6 +296,21 @@ export function AiThreadBanner({
     lastMessageFromCustomer,
   });
   const disabled = busyAction !== null;
+  const attention = state.kind !== 'hidden' && state.attention;
+  const important = attention ? (
+    <ImportantBadge label={t('important')} />
+  ) : null;
+  const takeOverButton = (
+    <BannerButton
+      onClick={() => setPaused(true)}
+      busy={busyAction === 'toggle'}
+      disabled={disabled}
+      icon={Hand}
+      primary={attention}
+    >
+      {t('takeOver')}
+    </BannerButton>
+  );
 
   switch (state.kind) {
     case 'hidden':
@@ -289,8 +318,13 @@ export function AiThreadBanner({
 
     case 'draft':
       return (
-        <Banner tone="primary" stacked>
+        <Banner
+          tone={attention ? 'attention' : 'primary'}
+          placement={placement}
+          stacked
+        >
           <div className="flex items-center gap-1.5">
+            {important}
             <ShieldAlert className="text-wa-teal h-3.5 w-3.5 flex-shrink-0" />
             <span className="text-wa-text font-medium">{t('draftTitle')}</span>
           </div>
@@ -376,14 +410,17 @@ export function AiThreadBanner({
 
     case 'paused':
       return (
-        <Banner tone="muted">
+        <Banner tone={attention ? 'attention' : 'muted'} placement={placement}>
           <div className="min-w-0 flex-1">
-            <p className="text-wa-text font-medium">
-              {state.reason === 'agent_reply'
-                ? t('pausedAgentReply')
-                : state.reason === 'handoff'
-                  ? t('pausedHandoff')
-                  : t('pausedTakeOver')}
+            <p className="text-wa-text flex items-center gap-1.5 font-medium">
+              {important}
+              {attention
+                ? t('attentionTitle')
+                : state.reason === 'agent_reply'
+                  ? t('pausedAgentReply')
+                  : state.reason === 'handoff'
+                    ? t('pausedHandoff')
+                    : t('pausedTakeOver')}
             </p>
             {state.autoResume && (
               <p className="text-wa-text-secondary">
@@ -405,6 +442,9 @@ export function AiThreadBanner({
               />
             )}
           </div>
+          {/* Needing attention, the person can claim the chat or hand
+              it back to the AI. */}
+          {attention && takeOverButton}
           <BannerButton
             onClick={() => setPaused(false, state.replyNow)}
             busy={busyAction === 'toggle'}
@@ -418,10 +458,12 @@ export function AiThreadBanner({
 
     case 'assigned':
       return (
-        <Banner tone="muted">
-          <p className="text-wa-text-secondary min-w-0 flex-1 truncate">
-            {t('assignedText')}
+        <Banner tone={attention ? 'attention' : 'muted'} placement={placement}>
+          <p className="text-wa-text-secondary flex min-w-0 flex-1 items-center gap-1.5">
+            {important}
+            <span className="truncate">{t('assignedText')}</span>
           </p>
+          {attention && takeOverButton}
           <BannerButton
             onClick={() => setPaused(false)}
             busy={busyAction === 'toggle'}
@@ -435,9 +477,13 @@ export function AiThreadBanner({
 
     case 'active':
       return (
-        <Banner tone="primary">
+        <Banner
+          tone={attention ? 'attention' : 'primary'}
+          placement={placement}
+        >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
+              {important}
               <Sparkles className="text-wa-teal h-3.5 w-3.5 flex-shrink-0" />
               <span className="text-wa-text truncate font-medium">
                 {t('activeText')}
@@ -461,14 +507,7 @@ export function AiThreadBanner({
               </div>
             )}
           </div>
-          <BannerButton
-            onClick={() => setPaused(true)}
-            busy={busyAction === 'toggle'}
-            disabled={disabled}
-            icon={Hand}
-          >
-            {t('takeOver')}
-          </BannerButton>
+          {takeOverButton}
         </Banner>
       );
   }
@@ -519,10 +558,13 @@ function ExpandableText({
 
 function Banner({
   tone,
+  placement,
   stacked,
   children,
 }: {
-  tone: 'primary' | 'muted';
+  /** `attention`: a red edge, the one red beside the Important label. */
+  tone: 'primary' | 'muted' | 'attention';
+  placement: 'top' | 'bottom';
   /** Column layout, for the held draft's text, block and buttons. */
   stacked?: boolean;
   children: React.ReactNode;
@@ -532,9 +574,11 @@ function Banner({
     // chat wallpaper's doodles show through the text.
     <div
       className={cn(
-        'border-wa-divider bg-wa-panel-header flex gap-3 border-t px-3 py-2 text-xs sm:px-4',
+        'border-wa-divider bg-wa-panel-header flex gap-3 px-3 py-2 text-xs sm:px-4',
+        placement === 'top' ? 'border-b' : 'border-t',
         stacked ? 'flex-col gap-2' : 'items-center',
-        tone === 'primary' && 'shadow-[inset_3px_0_0_var(--wa-teal)]'
+        tone === 'primary' && 'shadow-[inset_3px_0_0_var(--wa-teal)]',
+        tone === 'attention' && 'shadow-[inset_3px_0_0_var(--destructive)]'
       )}
     >
       {children}
@@ -547,12 +591,15 @@ function BannerButton({
   busy,
   disabled,
   icon: Icon,
+  primary,
   children,
 }: {
   onClick: () => void;
   busy: boolean;
   disabled: boolean;
   icon: typeof Hand;
+  /** Solid green: Take over on a chat that needs a person. */
+  primary?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -560,7 +607,12 @@ function BannerButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="border-wa-divider bg-wa-panel text-wa-teal hover:bg-wa-row-hover inline-flex flex-shrink-0 items-center gap-1 rounded-full border px-3 py-1 font-medium transition-colors disabled:opacity-60"
+      className={cn(
+        'inline-flex flex-shrink-0 items-center gap-1 rounded-full border px-3 py-1 font-medium transition-colors disabled:opacity-60',
+        primary
+          ? 'bg-wa-green text-wa-green-fg border-transparent hover:opacity-90'
+          : 'border-wa-divider bg-wa-panel text-wa-teal hover:bg-wa-row-hover'
+      )}
     >
       {busy ? (
         <Loader2 className="h-3 w-3 animate-spin" />

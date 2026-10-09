@@ -53,6 +53,7 @@ import { FailedSendRow } from './failed-send-row';
 import { deleteAccountMedia } from '@/lib/storage/upload-media';
 import { TemplatePicker } from './template-picker';
 import { AiThreadBanner, type AiBannerPatch } from './ai-thread-banner';
+import { needsAttention } from '@/lib/inbox/attention';
 import {
   lastAiReplyAt as newestAiReplyAt,
   lastMessageFromCustomer as newestIsCustomer,
@@ -1523,6 +1524,8 @@ export function MessageThread({
           : t('handlerOwner', { name: handlerName })
       : t('handlerNobody');
 
+  const aiAttention = needsAttention(conversation);
+
   return (
     // `min-w-0` is load-bearing: the page already puts min-w-0 on the
     // thread's flex *wrapper* (issue #165), but this root keeps the
@@ -1553,6 +1556,20 @@ export function MessageThread({
           contactPanelOpen={contactPanelOpen}
           onToggleContactPanel={onToggleContactPanel}
         />
+
+        {/* A chat the AI handed to a person (migration 078): its banner
+          moves up here, with the red Important label, until someone
+          acts — then it goes back above the composer. */}
+        {aiAttention && (
+          <AiThreadBanner
+            placement="top"
+            conversation={conversation}
+            lastAiReplyAt={lastAiReplyAt}
+            lastMessageFromCustomer={lastMessageFromCustomer}
+            currentUserId={user?.id}
+            onChange={(patch) => onAiChange(conversation.id, patch)}
+          />
+        )}
 
         {/* Messages Area. `data-inbox-scroll-root` lets the media bubbles
           root their lazy-load observers on this scroller. */}
@@ -1695,13 +1712,15 @@ export function MessageThread({
           edit or discard; why the bot is paused, with Resume; take over
           an active bot, and why it left the last message unanswered.
           Renders nothing unless the account has auto-reply configured. */}
-        <AiThreadBanner
-          conversation={conversation}
-          lastAiReplyAt={lastAiReplyAt}
-          lastMessageFromCustomer={lastMessageFromCustomer}
-          currentUserId={user?.id}
-          onChange={(patch) => onAiChange(conversation.id, patch)}
-        />
+        {!aiAttention && (
+          <AiThreadBanner
+            conversation={conversation}
+            lastAiReplyAt={lastAiReplyAt}
+            lastMessageFromCustomer={lastMessageFromCustomer}
+            currentUserId={user?.id}
+            onChange={(patch) => onAiChange(conversation.id, patch)}
+          />
+        )}
 
         {/* The number this chat replies from has dropped. Agents kept
           writing replies into a logged-out number for three hours

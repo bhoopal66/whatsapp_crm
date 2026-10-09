@@ -256,6 +256,19 @@ describe('mergeConversationDelta', () => {
     expect(out.map((c) => c.id)).toEqual(['new', 'a']);
   });
 
+  it('prepends an older row the AI handed over, since it is pinned', () => {
+    const out = mergeConversationDelta(
+      [conv('a', '2026-01-12T00:00:00Z')],
+      [
+        conv('old', '2025-01-01T00:00:00Z', {
+          ai_attention_at: '2026-01-12T01:00:00Z',
+        }),
+      ],
+      cursor
+    );
+    expect(out.map((c) => c.id)).toEqual(['old', 'a']);
+  });
+
   it('returns the same array when nothing applies', () => {
     const existing = [conv('a')];
     expect(mergeConversationDelta(existing, [], cursor)).toBe(existing);

@@ -29,9 +29,16 @@ import {
   hasMessages,
   nextConversationCursor,
   restrictToUserGroup,
-  sortByRecency,
+  appendConversationPage,
   type ConversationCursor,
 } from '@/lib/inbox/pagination';
+import {
+  ATTENTION_LIMIT,
+  countNeedingAttention,
+  needsAttention,
+  sortForInbox,
+} from '@/lib/inbox/attention';
+import { ImportantBadge } from './important-badge';
 import { formatListTimestamp } from '@/lib/inbox/list-time';
 import {
   chatTagFilterOrGroup,
@@ -187,7 +194,19 @@ interface ListQueryParams {
  */
 function conversationsQuery(
   p: ListQueryParams,
-  opts: { cursor?: ConversationCursor | null; since?: string }
+  opts: {
+    cursor?: ConversationCursor | null;
+    since?: string;
+    /**
+     * The chats needing attention (migration 078), under the same
+     * filters, read beside the first page so the pinned ones are on
+     * screen at once. A separate read rather than a leading
+     * `ORDER BY ai_attention_at`: the keyset cursor is on
+     * `last_message_at`, and a page ordered by anything else first
+     * would make it skip rows.
+     */
+    attention?: boolean;
+  }
 ) {
   const supabase = createClient();
   let query = supabase.from('conversations').select(CONVERSATION_SELECT);
@@ -238,6 +257,13 @@ function conversationsQuery(
 
   if (opts.since) {
     return query.order('updated_at', { ascending: false }).limit(DELTA_LIMIT);
+  }
+  if (opts.attention) {
+    return query
+      .not('ai_attention_at', 'is', null)
+      .order('ai_attention_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(ATTENTION_LIMIT);
   }
   return query
     .order('last_message_at', { ascending: false, nullsFirst: true })
@@ -303,6 +329,8 @@ export function ConversationList({
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<InboxFilter>('all');
+  // The "Important · N" chip: only the chats the AI handed over.
+  const [importantOnly, setImportantOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   // Contact-based filter (issue #272): exact match on the company field.
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
@@ -438,7 +466,10 @@ export function ConversationList({
     const generation = ++generationRef.current;
 
     (async () => {
-      const { data, error } = await conversationsQuery(listParams, {});
+      const [{ data, error }, attention] = await Promise.all([
+        conversationsQuery(listParams, {}),
+        conversationsQuery(listParams, { attention: true }),
+      ]);
 
       if (cancelled || generation !== generationRef.current) return;
 
@@ -448,8 +479,19 @@ export function ConversationList({
         return;
       }
 
-      const rows = normalizeConversations(data ?? []);
-      const cursor = nextConversationCursor(rows);
+      const page = normalizeConversations(data ?? []);
+      // The cursor is the page's alone; the pinned rows ride along.
+      const cursor = nextConversationCursor(page);
+      if (attention.error) {
+        logFetchError(
+          'Failed to fetch chats needing attention:',
+          attention.error
+        );
+      }
+      const rows = appendConversationPage(
+        page,
+        normalizeConversations(attention.data ?? [])
+      );
       cursorRef.current = cursor;
       setHasMore(cursor !== null);
       setPageCount((n) => n + 1);
@@ -649,7 +691,7 @@ export function ConversationList({
       });
     }
 
-    return sortByRecency(result);
+    return sortForInbox(result);
   }, [
     conversations,
     filter,
@@ -661,6 +703,19 @@ export function ConversationList({
     aiLive,
     selectedCampaignId,
   ]);
+
+  // Pinned chats the AI handed over, among those the filters show.
+  const importantCount = useMemo(
+    () => countNeedingAttention(filtered),
+    [filtered]
+  );
+  // Off by itself once the last one is dealt with, so the list never
+  // sits empty behind a chip that is no longer there.
+  const showImportantOnly = importantOnly && importantCount > 0;
+  const shown = useMemo(
+    () => (showImportantOnly ? filtered.filter(needsAttention) : filtered),
+    [filtered, showImportantOnly]
+  );
 
   const toggleChatTag = useCallback((id: string) => {
     setSelectedChatTagIds((prev) =>
@@ -755,31 +810,50 @@ export function ConversationList({
         {/* All / Unread as WhatsApp's filter chips — one tap, and "Unread"
             is always in sight rather than behind a dropdown. Scrolls
             sideways when a locale's labels outgrow the column. */}
-        <div
-          role="radiogroup"
-          aria-label={t('filterAll')}
-          className="-mx-3 flex [scrollbar-width:none] gap-1 overflow-x-auto px-3 [&::-webkit-scrollbar]:hidden"
-        >
-          {FILTER_OPTIONS.map((opt) => {
-            const active = filter === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => setFilter(opt.value)}
-                className={cn(
-                  'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
-                  active
-                    ? 'bg-wa-chip-active text-wa-teal font-medium'
-                    : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
-                )}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+        <div className="-mx-3 flex [scrollbar-width:none] gap-1 overflow-x-auto px-3 [&::-webkit-scrollbar]:hidden">
+          <div
+            role="radiogroup"
+            aria-label={t('filterAll')}
+            className="flex gap-1"
+          >
+            {FILTER_OPTIONS.map((opt) => {
+              const active = filter === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setFilter(opt.value)}
+                  className={cn(
+                    'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+                    active
+                      ? 'bg-wa-chip-active text-wa-teal font-medium'
+                      : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
+                  )}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* The chats the AI handed to a person, pinned on top: a tap
+              narrows the list to them. Only there while there are some. */}
+          {importantCount > 0 && (
+            <button
+              type="button"
+              aria-pressed={showImportantOnly}
+              onClick={() => setImportantOnly((v) => !v)}
+              className={cn(
+                'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors',
+                showImportantOnly
+                  ? 'bg-destructive text-white'
+                  : 'border-destructive/40 text-destructive hover:bg-destructive/10 border'
+              )}
+            >
+              {t('importantCount', { count: importantCount })}
+            </button>
+          )}
         </div>
 
         {chatTagTree.mains.length > 0 ||
@@ -1061,7 +1135,7 @@ export function ConversationList({
           <div className="flex items-center justify-center py-12">
             <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : shown.length === 0 ? (
           <div className="px-4 py-12 text-center">
             <p className="text-wa-text-secondary text-sm">
               {/* An empty Campaign inbox says where the chats went. */}
@@ -1072,7 +1146,7 @@ export function ConversationList({
           </div>
         ) : (
           <div className="flex flex-col">
-            {filtered.map((conv) => (
+            {shown.map((conv) => (
               <ConversationItem
                 key={conv.id}
                 conversation={conv}
@@ -1194,6 +1268,9 @@ const ConversationItem = memo(function ConversationItem({
   // colour beside the count, so every open chat looked unread; the chat
   // tag pill there now is a tint, not a dot.)
   const unread = conversation.unread_count > 0;
+  // The AI handed this chat to a person (migration 078): pinned on top
+  // with a red label and a red edge until someone acts.
+  const important = needsAttention(conversation);
   const chatTag = resolveConversationChatTags(conversation, chatTagTree);
   const chatTagText = chatTagLabel(chatTag.main, chatTag.sub);
 
@@ -1217,7 +1294,8 @@ const ConversationItem = memo(function ConversationItem({
       aria-current={isActive ? 'true' : undefined}
       className={cn(
         'flex w-full items-center gap-3 pl-3 text-left transition-colors',
-        isActive ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover'
+        isActive ? 'bg-wa-row-active' : 'hover:bg-wa-row-hover',
+        important && 'shadow-[inset_3px_0_0_var(--destructive)]'
       )}
     >
       <ContactAvatar contact={contact} name={displayName} size={48} />
@@ -1234,13 +1312,18 @@ const ConversationItem = memo(function ConversationItem({
           >
             {displayName}
           </span>
-          <span
-            className={cn(
-              'shrink-0 text-xs',
-              unread ? 'text-wa-green font-semibold' : 'text-wa-text-secondary'
-            )}
-          >
-            {time}
+          <span className="flex shrink-0 items-baseline gap-1.5">
+            {important && <ImportantBadge label={t('important')} />}
+            <span
+              className={cn(
+                'text-xs',
+                unread
+                  ? 'text-wa-green font-semibold'
+                  : 'text-wa-text-secondary'
+              )}
+            >
+              {time}
+            </span>
           </span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">

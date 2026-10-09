@@ -6,8 +6,12 @@
 //
 // Priority: a held draft, then a pause, then an assignment, then the
 // active bot — with a warning when its last dispatch did not answer.
+// Every visible state carries `attention`: the AI handed the chat to a
+// person and nobody has acted (migration 078), which the thread shows
+// at the top with a red Important label and Take over / Resume.
 // ============================================================
 
+import { needsAttention } from '@/lib/inbox/attention';
 import type { AiDispatchOutcome, AiPausedReason } from './outcomes';
 
 export interface AiBannerInput {
@@ -24,6 +28,7 @@ export interface AiBannerInput {
     ai_last_outcome_detail?: string | null;
     ai_last_outcome_at?: string | null;
     assigned_agent_id?: string | null;
+    ai_attention_at?: string | null;
   };
   /** `created_at` of the thread's latest bot-generated message, if any. */
   lastAiReplyAt: string | null;
@@ -41,9 +46,10 @@ export type AiOutcomeWarning =
 
 export type AiBannerState =
   | { kind: 'hidden' }
-  | { kind: 'draft'; draft: string; reason: string | null }
+  | { kind: 'draft'; draft: string; reason: string | null; attention: boolean }
   | {
       kind: 'paused';
+      attention: boolean;
       reason: AiPausedReason;
       summary: string | null;
       /** Only for an agent_reply pause, when the account auto-resumes. */
@@ -51,9 +57,10 @@ export type AiBannerState =
       /** Resume should also answer the customer's waiting message. */
       replyNow: boolean;
     }
-  | { kind: 'assigned' }
+  | { kind: 'assigned'; attention: boolean }
   | {
       kind: 'active';
+      attention: boolean;
       warning: { outcome: AiOutcomeWarning; detail: string | null } | null;
     };
 
@@ -115,12 +122,14 @@ function pausedReason(c: AiBannerInput['conversation']): AiPausedReason {
 export function aiBannerState(input: AiBannerInput): AiBannerState {
   const { conversation: c } = input;
   if (!input.autoReplyOn) return { kind: 'hidden' };
+  const attention = needsAttention(c);
 
   if (c.ai_pending_draft) {
     return {
       kind: 'draft',
       draft: c.ai_pending_draft,
       reason: c.ai_handoff_summary || null,
+      attention,
     };
   }
 
@@ -128,8 +137,11 @@ export function aiBannerState(input: AiBannerInput): AiBannerState {
     const reason = pausedReason(c);
     return {
       kind: 'paused',
+      attention,
       reason,
-      summary: reason === 'handoff' ? c.ai_handoff_summary || null : null,
+      // A chat needing attention always says why the AI let go of it.
+      summary:
+        reason === 'handoff' || attention ? c.ai_handoff_summary || null : null,
       autoResume:
         reason === 'agent_reply'
           ? autoResumeAfter(input.autoResumeMinutes)
@@ -138,7 +150,7 @@ export function aiBannerState(input: AiBannerInput): AiBannerState {
     };
   }
 
-  if (c.assigned_agent_id) return { kind: 'assigned' };
+  if (c.assigned_agent_id) return { kind: 'assigned', attention };
 
   const outcome = outcomeWarning(c.ai_last_outcome);
   const outcomeAt = time(c.ai_last_outcome_at);
@@ -149,6 +161,7 @@ export function aiBannerState(input: AiBannerInput): AiBannerState {
     (repliedAt === null || outcomeAt > repliedAt);
   return {
     kind: 'active',
+    attention,
     warning: warn
       ? { outcome, detail: c.ai_last_outcome_detail || null }
       : null,
@@ -210,6 +223,7 @@ const SNAPSHOT_FIELDS = [
   'ai_last_outcome_detail',
   'ai_last_outcome_at',
   'assigned_agent_id',
+  'ai_attention_at',
 ] as const;
 
 type SnapshotSource = Partial<

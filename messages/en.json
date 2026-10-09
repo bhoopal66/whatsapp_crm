@@ -168,7 +168,9 @@
       "allCampaigns": "All campaigns",
       "campaignEmpty": "No chats the bot is answering right now. Campaign replies that a person has taken, that the bot handed off, or that the bot isn't answering are in the Inbox.",
       "campaignBotOff": "The AI auto-reply is switched off, so replies to campaigns are in the Inbox.",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "important": "Important",
+      "importantCount": "Important · {count}"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -384,7 +386,9 @@
         "skipped_rate_limited": "the AI provider or the per-chat pace limit refused the request",
         "skipped_campaign_only": "the AI answers campaign replies only, and this chat didn’t come from a campaign",
         "error": "the AI provider failed"
-      }
+      },
+      "important": "Important",
+      "attentionTitle": "AI needs a person"
     },
     "contactCard": {
       "unnamed": "Unnamed contact",
