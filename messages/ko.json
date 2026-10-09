@@ -168,7 +168,9 @@
       "allCampaigns": "모든 캠페인",
       "campaignEmpty": "지금 봇이 응답 중인 대화가 없습니다. 상담원이 맡았거나, 봇이 상담원에게 넘겼거나, 봇이 응답하지 않는 캠페인 답장은 인박스에 있습니다.",
       "campaignBotOff": "AI 자동 응답이 꺼져 있어 캠페인 답장은 인박스에 있습니다.",
-      "yesterday": "어제"
+      "yesterday": "어제",
+      "important": "중요",
+      "importantCount": "중요 · {count}"
     },
     "messageThread": {
       "backToConversations": "대화 목록으로 돌아가기",
@@ -384,7 +386,9 @@
         "skipped_rate_limited": "AI 제공업체 또는 대화별 속도 제한이 요청을 거부했습니다",
         "skipped_campaign_only": "AI는 캠페인 답장에만 응답하며, 이 대화는 캠페인에서 시작되지 않았습니다",
         "error": "AI 제공업체 호출이 실패했습니다"
-      }
+      },
+      "important": "중요",
+      "attentionTitle": "AI가 상담원을 필요로 합니다"
     },
     "contactCard": {
       "unnamed": "이름 없는 연락처",

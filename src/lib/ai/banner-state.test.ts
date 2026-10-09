@@ -54,6 +54,7 @@ describe('aiBannerState', () => {
       )
     ).toEqual({
       kind: 'draft',
+      attention: false,
       draft: 'Your card ships tomorrow.',
       reason: 'Mentions a refund amount not in the knowledge base',
     });
@@ -62,6 +63,7 @@ describe('aiBannerState', () => {
   it('a draft with no recorded reason has a null reason', () => {
     expect(aiBannerState(input({ ai_pending_draft: 'Hi' }))).toEqual({
       kind: 'draft',
+      attention: false,
       draft: 'Hi',
       reason: null,
     });
@@ -74,6 +76,7 @@ describe('aiBannerState', () => {
     };
     expect(aiBannerState(input(c))).toEqual({
       kind: 'paused',
+      attention: false,
       reason: 'take_over',
       summary: null,
       autoResume: null,
@@ -94,6 +97,7 @@ describe('aiBannerState', () => {
       )
     ).toMatchObject({
       kind: 'paused',
+      attention: false,
       reason: 'agent_reply',
       autoResume: { unit: 'hours', count: 4 },
     });
@@ -123,6 +127,7 @@ describe('aiBannerState', () => {
       )
     ).toMatchObject({
       kind: 'paused',
+      attention: false,
       reason: 'handoff',
       summary: 'Customer asked for a manager',
     });
@@ -142,11 +147,16 @@ describe('aiBannerState', () => {
   it('an assigned chat that is not paused is the muted assigned state', () => {
     expect(aiBannerState(input({ assigned_agent_id: 'agent-1' }))).toEqual({
       kind: 'assigned',
+      attention: false,
     });
   });
 
   it('an active chat with no outcome has no warning', () => {
-    expect(aiBannerState(input({}))).toEqual({ kind: 'active', warning: null });
+    expect(aiBannerState(input({}))).toEqual({
+      kind: 'active',
+      attention: false,
+      warning: null,
+    });
   });
 
   it('warns about a skip newer than the last AI reply, with its detail', () => {
@@ -163,6 +173,7 @@ describe('aiBannerState', () => {
       )
     ).toEqual({
       kind: 'active',
+      attention: false,
       warning: { outcome: 'error', detail: 'OpenAI 429' },
     });
   });
@@ -189,12 +200,13 @@ describe('aiBannerState', () => {
           { lastAiReplyAt: '2026-10-09T10:05:00Z' }
         )
       )
-    ).toEqual({ kind: 'active', warning: null });
+    ).toEqual({ kind: 'active', attention: false, warning: null });
   });
 
   it('does not warn without an outcome time, or about routine outcomes', () => {
     expect(aiBannerState(input({ ai_last_outcome: 'error' }))).toEqual({
       kind: 'active',
+      attention: false,
       warning: null,
     });
     expect(
@@ -204,7 +216,80 @@ describe('aiBannerState', () => {
           ai_last_outcome_at: '2026-10-09T10:00:00Z',
         })
       )
-    ).toEqual({ kind: 'active', warning: null });
+    ).toEqual({ kind: 'active', attention: false, warning: null });
+  });
+});
+
+describe('aiBannerState attention (migration 078)', () => {
+  const at = '2026-10-09T08:00:00Z';
+
+  it('flags a hand-off needing a person, with its summary', () => {
+    expect(
+      aiBannerState(
+        input(
+          {
+            ai_attention_at: at,
+            ai_autoreply_disabled: true,
+            ai_paused_reason: 'handoff',
+            ai_handoff_summary: 'Asks for a refund',
+          },
+          { lastMessageFromCustomer: true }
+        )
+      )
+    ).toEqual({
+      kind: 'paused',
+      attention: true,
+      reason: 'handoff',
+      summary: 'Asks for a refund',
+      autoResume: null,
+      replyNow: true,
+    });
+  });
+
+  it('keeps the summary on any pause that still needs attention', () => {
+    expect(
+      aiBannerState(
+        input({
+          ai_attention_at: at,
+          ai_autoreply_disabled: true,
+          ai_paused_reason: 'take_over',
+          ai_handoff_summary: 'Wants a call back',
+        })
+      )
+    ).toMatchObject({ attention: true, summary: 'Wants a call back' });
+  });
+
+  it('flags a held draft, which keeps its own state', () => {
+    expect(
+      aiBannerState(input({ ai_attention_at: at, ai_pending_draft: 'Hi' }))
+    ).toEqual({ kind: 'draft', draft: 'Hi', reason: null, attention: true });
+  });
+
+  it('flags the assigned and active states too', () => {
+    expect(
+      aiBannerState(input({ ai_attention_at: at, assigned_agent_id: 'a' }))
+    ).toEqual({ kind: 'assigned', attention: true });
+    expect(aiBannerState(input({ ai_attention_at: at }))).toMatchObject({
+      kind: 'active',
+      attention: true,
+    });
+  });
+
+  it('is off once the stamp clears, and hidden with the bot off', () => {
+    expect(
+      aiBannerState(
+        input({ ai_attention_at: null, ai_autoreply_disabled: true })
+      )
+    ).toMatchObject({ kind: 'paused', attention: false });
+    expect(
+      aiBannerState(input({ ai_attention_at: at }, { autoReplyOn: false }))
+    ).toEqual({ kind: 'hidden' });
+  });
+
+  it('a change to the stamp is a new snapshot', () => {
+    expect(bannerSnapshot({ ai_attention_at: at })).not.toBe(
+      bannerSnapshot({ ai_attention_at: null })
+    );
   });
 });
 

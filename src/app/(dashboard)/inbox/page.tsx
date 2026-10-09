@@ -32,6 +32,7 @@ import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
+import { needsAttention } from '@/lib/inbox/attention';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { BroadcastsTabs } from '@/components/broadcasts/broadcasts-tabs';
 import { toast } from 'sonner';
@@ -498,6 +499,9 @@ export function InboxPageInner({
             )
           );
         } else if (
+          // A chat needing attention is pinned at the top, wherever its
+          // last message falls (lib/inbox/attention.ts).
+          needsAttention(conv) ||
           isWithinLoadedWindow(conv.last_message_at, listCursorRef.current)
         ) {
           // UPDATE arrived before the INSERT (or after a missed INSERT)

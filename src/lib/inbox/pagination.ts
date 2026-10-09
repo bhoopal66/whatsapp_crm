@@ -1,5 +1,6 @@
 import type { Conversation, Message, MessageReaction } from '@/types';
 import { UNASSIGNED, type AssigneeFilter } from '@/lib/inbox/conversations';
+import { needsAttention } from '@/lib/inbox/attention';
 
 /**
  * Keyset pagination for the Inbox — the conversation list and the open
@@ -211,8 +212,10 @@ export function mergeConversationDelta(
     changed = true;
     return { ...c, ...f, contact: f.contact ?? c.contact };
   });
-  const prepend = [...byId.values()].filter((c) =>
-    isWithinLoadedWindow(c.last_message_at, cursor)
+  // A chat needing attention is pinned at the top (attention.ts), so it
+  // belongs on screen wherever its last message falls.
+  const prepend = [...byId.values()].filter(
+    (c) => needsAttention(c) || isWithinLoadedWindow(c.last_message_at, cursor)
   );
   if (!changed && prepend.length === 0) return existing;
   return [...prepend, ...patched];
