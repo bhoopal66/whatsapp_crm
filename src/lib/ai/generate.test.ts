@@ -246,4 +246,18 @@ describe('generateReply — model override (tier routing)', () => {
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('gpt-small');
   });
+
+  it('passes a timeout override to the provider, else the default', async () => {
+    vi.stubGlobal('fetch', ok());
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const args = {
+      config: config(),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user' as const, content: 'Hi' }],
+    };
+    await generateReply({ ...args, timeoutMs: 12_000 });
+    await generateReply(args);
+    expect(timeout.mock.calls.map((c) => c[0])).toEqual([12_000, 30_000]);
+    timeout.mockRestore();
+  });
 });

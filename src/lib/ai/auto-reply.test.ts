@@ -34,8 +34,16 @@ const h = vi.hoisted(() => ({
     gaps: [] as Record<string, unknown>[],
     outcomes: [] as Record<string, unknown>[],
     inserts: [] as { table: string; row: unknown }[],
-    /** The newest customer message (burst check), per test. */
-    newest: null as { message_id: string; created_at: string } | null,
+    /** Customer messages, newest first (burst check), per test. */
+    customerMessages: [] as {
+      message_id: string;
+      created_at: string;
+      content_text: string | null;
+    }[],
+    /** The conversation as it is when written / re-read, when a person
+     *  changed it after the dispatch's first read (null = unchanged). */
+    convLive: null as Record<string, unknown> | null,
+    convReads: 0,
     profiles: [] as Record<string, unknown>[],
     contact: null as { name: string | null; phone: string | null } | null,
     /** Rows the auto-resume compare-and-set updates. */
@@ -152,9 +160,38 @@ vi.mock('./admin-client', () => ({
         };
         return chain;
       }
+      if (table === 'messages') {
+        // .select().eq().eq().not().order().limit() → newest customer rows
+        let rows = h.state.customerMessages;
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          not: (col: string, op: string, v: unknown) => {
+            if (op === 'is' && v === null) {
+              rows = rows.filter(
+                (r) => (r as Record<string, unknown>)[col] != null
+              );
+            }
+            return chain;
+          },
+          order: () => chain,
+          limit: (n: number) => {
+            const page = Promise.resolve({
+              data: rows.slice(0, n),
+              error: null,
+            });
+            return {
+              then: page.then.bind(page),
+              maybeSingle: () =>
+                Promise.resolve({ data: rows[0] ?? null, error: null }),
+            };
+          },
+        };
+        return chain;
+      }
       if (table !== 'conversations') {
-        // messages (newest customer message) / contacts: single reads
-        const row = table === 'messages' ? h.state.newest : h.state.contact;
+        // contacts: single reads
+        const row = h.state.contact;
         const chain = {
           select: () => chain,
           eq: () => chain,
@@ -168,8 +205,16 @@ vi.mock('./admin-client', () => ({
       return {
         select: () => ({
           eq: () => ({
+            // The dispatch's first read sees `conv`; a re-read sees what
+            // a person made of it since (`convLive`).
             maybeSingle: () =>
-              Promise.resolve({ data: h.state.conv, error: null }),
+              Promise.resolve({
+                data:
+                  h.state.convReads++ === 0
+                    ? h.state.conv
+                    : (h.state.convLive ?? h.state.conv),
+                error: null,
+              }),
           }),
         }),
         update: (payload: Record<string, unknown>) => {
@@ -181,22 +226,51 @@ vi.mock('./admin-client', () => ({
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
           else if (resume) h.state.resumes.push(payload);
           else if (draft) h.state.drafts.push(payload);
-          else h.state.updatePayload = payload;
-          const done = Promise.resolve({
+          const handoff = !('ai_last_outcome' in payload) && !resume && !draft;
+          // The hand-off update lands only where its filters match the
+          // row as it is now (`convLive`, else `conv`).
+          const filters: [string, unknown][] = [];
+          const apply = () => {
+            const row = h.state.convLive ?? h.state.conv ?? {};
+            const hit = filters.every(
+              ([col, v]) => col === 'id' || (row[col] ?? null) === v
+            );
+            if (handoff && hit) h.state.updatePayload = payload;
+            return hit;
+          };
+          const result = () => ({
             error:
               draft && h.state.draftError
                 ? { message: h.state.draftError }
                 : null,
           });
           const chain = {
-            eq: () => chain,
-            is: () => chain,
-            select: () =>
-              Promise.resolve({
-                data: resume ? h.state.resumeRows : [],
+            eq: (col: string, v: unknown) => {
+              filters.push([col, v]);
+              return chain;
+            },
+            is: (col: string, v: unknown) => {
+              filters.push([col, v]);
+              return chain;
+            },
+            select: () => {
+              const hit = apply();
+              return Promise.resolve({
+                data: resume
+                  ? h.state.resumeRows
+                  : handoff && hit
+                    ? [{ id: 'conv-1' }]
+                    : [],
                 error: null,
-              }),
-            then: done.then.bind(done),
+              });
+            },
+            then: (
+              ok: (v: unknown) => unknown,
+              fail?: (e: unknown) => unknown
+            ) => {
+              apply();
+              return Promise.resolve(result()).then(ok, fail);
+            },
           };
           return chain;
         },
@@ -289,7 +363,9 @@ beforeEach(() => {
   h.state.gaps = [];
   h.state.outcomes = [];
   h.state.inserts = [];
-  h.state.newest = null;
+  h.state.customerMessages = [];
+  h.state.convLive = null;
+  h.state.convReads = 0;
   h.state.profiles = [];
   h.state.contact = null;
   h.state.resumeRows = [];
@@ -1379,7 +1455,9 @@ describe('dispatchInboundToAiReply — bursts get one reply', () => {
   const at = (msAgo: number) => new Date(T - msAgo).toISOString();
 
   it('stands down when a newer customer message arrived', async () => {
-    h.state.newest = { message_id: 'wamid-2', created_at: at(0) };
+    h.state.customerMessages = [
+      { message_id: 'wamid-2', created_at: at(0), content_text: 'later' },
+    ];
     expect(
       await dispatchInboundToAiReply({ ...ARGS, inboundMessageId: 'wamid-1' })
     ).toBe('skipped');
@@ -1389,7 +1467,9 @@ describe('dispatchInboundToAiReply — bursts get one reply', () => {
   });
 
   it('the newest message answers the whole burst', async () => {
-    h.state.newest = { message_id: 'wamid-2', created_at: at(0) };
+    h.state.customerMessages = [
+      { message_id: 'wamid-2', created_at: at(0), content_text: 'later' },
+    ];
     h.buildConversationContext.mockResolvedValue([
       { role: 'assistant', content: 'Hello!', at: at(600_000) },
       { role: 'user', content: 'hi', at: at(4_000) },
@@ -1422,7 +1502,9 @@ describe('dispatchInboundToAiReply — bursts get one reply', () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({ escalationKeywords: ['refund'] })
     );
-    h.state.newest = { message_id: 'wamid-2', created_at: at(0) };
+    h.state.customerMessages = [
+      { message_id: 'wamid-2', created_at: at(0), content_text: 'later' },
+    ];
     h.buildConversationContext.mockResolvedValue([
       { role: 'assistant', content: 'Hello!', at: at(3_600_000) },
       // Sat unanswered through a silent hand-off, long since resolved.
@@ -1996,5 +2078,322 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     });
     expect(sentTexts()).toEqual([HANDOFF_MSG]);
     expect(lastOutcome()).toBe('held_for_review');
+  });
+});
+
+describe('dispatchInboundToAiReply — dispatch review fixes', () => {
+  const HANDOFF_MSG = 'A colleague will be in touch shortly.';
+  const FIRST = 'Your loan is approved!';
+  const SECOND = 'Send me your OTP to continue.';
+  const SAFE = 'The bank decides on every application.';
+  const routed = (extra: Partial<AiConfig> = {}) =>
+    aiConfig({
+      modelRouting: true,
+      modelSmall: 'gpt-small',
+      modelLarge: 'gpt-large',
+      ...extra,
+    });
+  const models = () =>
+    h.generateReply.mock.calls.map((c) => (c[0] as { model: string }).model);
+  const timeouts = () =>
+    h.generateReply.mock.calls.map(
+      (c) => (c[0] as { timeoutMs: number }).timeoutMs
+    );
+  const sentTexts = () =>
+    h.engineSendText.mock.calls.map((c) => (c[0] as { text: string }).text);
+  const events = () =>
+    h.state.inserts
+      .filter((i) => i.table === 'ai_reply_events')
+      .map((i) => (i.row as { outcome: string }).outcome);
+  const guard = (
+    outcome: 'hold' | 'block',
+    detail: string,
+    retryable = true
+  ) => ({
+    outcome,
+    detail,
+    reasonCodes: ['PROMISES_APPROVAL_REVIEW'],
+    retryable,
+  });
+  /** A clock the mocks move: each slow step takes `ms`. */
+  let clock = 0;
+  const now = () => clock;
+  const slow =
+    <T>(ms: number, value: T) =>
+    async () => {
+      clock += ms;
+      return value;
+    };
+
+  beforeEach(() => {
+    clock = 0;
+    h.generateReply.mockReset();
+    h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false });
+    h.runGuardrailGate.mockReset();
+    h.runGuardrailGate.mockResolvedValue({ outcome: 'send' });
+  });
+
+  describe('a caption-less photo does not supersede the text before it', () => {
+    const T = Date.parse('2026-10-09T10:00:00Z');
+    const at = (msAgo: number) => new Date(T - msAgo).toISOString();
+
+    it('the text dispatch replies when the newest customer row has no text', async () => {
+      h.state.customerMessages = [
+        { message_id: 'wamid-3', created_at: at(0), content_text: null },
+        { message_id: 'wamid-2', created_at: at(500), content_text: '  ' },
+        {
+          message_id: 'wamid-1',
+          created_at: at(1_000),
+          content_text: 'I need a loan',
+        },
+      ];
+      h.buildConversationContext.mockResolvedValue([
+        { role: 'user', content: 'I need a loan', at: at(1_000) },
+      ]);
+      expect(
+        await dispatchInboundToAiReply({ ...ARGS, inboundMessageId: 'wamid-1' })
+      ).toBe('replied');
+      expect(lastOutcome()).toBe('replied');
+      expect(h.engineSendText).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the dispatch budget', () => {
+    it('gives the first generation what is left of the budget', async () => {
+      h.buildConversationContext.mockImplementation(
+        slow(30_000, [{ role: 'user', content: 'hi' }])
+      );
+      expect(await dispatchInboundToAiReply({ ...ARGS, now })).toBe('replied');
+      // 50 s budget − 30 s spent − 5 s reserve.
+      expect(timeouts()).toEqual([15_000]);
+    });
+
+    it('the configured timeout when there is room for it', async () => {
+      expect(await dispatchInboundToAiReply({ ...ARGS, now })).toBe('replied');
+      expect(timeouts()).toEqual([30_000]);
+    });
+
+    it('no time for a first generation: the error hand-off, no model call', async () => {
+      h.loadAiConfig.mockResolvedValue(
+        aiConfig({ handoffMessage: HANDOFF_MSG })
+      );
+      h.buildConversationContext.mockImplementation(
+        slow(40_000, [{ role: 'user', content: 'hi' }])
+      );
+      expect(await dispatchInboundToAiReply({ ...ARGS, now })).toBe(
+        'handed_off'
+      );
+      expect(h.generateReply).not.toHaveBeenCalled();
+      expect(h.state.updatePayload).toMatchObject({
+        ai_handoff_reason: 'error',
+      });
+      expect(h.state.updatePayload!.ai_handoff_summary).toContain(
+        'AI ran out of time'
+      );
+      expect(sentTexts()).toEqual([HANDOFF_MSG]);
+    });
+
+    it('a slow small-tier hand-off leaves no time: no escalation, the model hand-off', async () => {
+      h.loadAiConfig.mockResolvedValue(routed());
+      h.buildConversationContext.mockResolvedValue([
+        { role: 'user', content: 'hi' },
+      ]);
+      h.generateReply.mockImplementation(
+        slow(40_000, { text: '', handoff: true })
+      );
+      expect(await dispatchInboundToAiReply({ ...ARGS, now })).toBe(
+        'handed_off'
+      );
+      expect(models()).toEqual(['gpt-small']);
+      expect(h.state.updatePayload).toMatchObject({
+        ai_handoff_reason: 'model',
+      });
+    });
+
+    it('a slow tier failure leaves no time: no retry, the error hand-off', async () => {
+      h.loadAiConfig.mockResolvedValue(routed());
+      h.buildConversationContext.mockResolvedValue([
+        { role: 'user', content: 'hi' },
+      ]);
+      h.generateReply.mockImplementation(async () => {
+        clock += 40_000;
+        throw new AiError('timeout', { code: 'timeout' });
+      });
+      expect(await dispatchInboundToAiReply({ ...ARGS, now })).toBe(
+        'handed_off'
+      );
+      expect(models()).toEqual(['gpt-small']);
+      expect(h.state.updatePayload).toMatchObject({
+        ai_handoff_reason: 'error',
+      });
+    });
+
+    it('no time for the guardrail rewrite: the held draft goes to review', async () => {
+      h.loadAiConfig.mockResolvedValue(
+        aiConfig({ modelLarge: 'gpt-large', handoffMessage: HANDOFF_MSG })
+      );
+      h.generateReply.mockImplementation(
+        slow(40_000, { text: FIRST, handoff: false })
+      );
+      h.runGuardrailGate.mockResolvedValue(guard('hold', 'held (approval)'));
+      expect(await dispatchInboundToAiReply({ ...ARGS, now })).toBe(
+        'handed_off'
+      );
+      expect(models()).toEqual(['gpt-test']);
+      expect(h.state.drafts).toHaveLength(1);
+      expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+      expect(lastOutcome()).toBe('held_for_review');
+    });
+  });
+
+  describe('a blocked draft is never queued for review', () => {
+    beforeEach(() => {
+      h.loadAiConfig.mockResolvedValue(
+        aiConfig({ modelLarge: 'gpt-large', handoffMessage: HANDOFF_MSG })
+      );
+    });
+
+    it('a block hands off with the draft quoted, nothing queued', async () => {
+      h.generateReply.mockResolvedValue({ text: SECOND, handoff: false });
+      h.runGuardrailGate.mockResolvedValue(
+        guard(
+          'block',
+          `draft reply blocked (ASKS_SECRET_BLOCK). Draft: “${SECOND}”`,
+          false
+        )
+      );
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.drafts).toEqual([]);
+      expect(sentTexts()).toEqual([HANDOFF_MSG]);
+      expect(h.state.updatePayload).toMatchObject({
+        ai_handoff_reason: 'guardrail',
+      });
+      expect(h.state.updatePayload!.ai_handoff_summary).toContain(SECOND);
+      expect(lastOutcome()).toBe('handed_off');
+    });
+
+    it('a held draft whose rewrite is blocked: hand-off, nothing queued', async () => {
+      h.generateReply
+        .mockResolvedValueOnce({ text: FIRST, handoff: false })
+        .mockResolvedValueOnce({ text: SECOND, handoff: false });
+      h.runGuardrailGate
+        .mockResolvedValueOnce(guard('hold', 'held (approval)'))
+        .mockResolvedValueOnce(
+          guard(
+            'block',
+            `draft reply blocked (ASKS_SECRET_BLOCK). Draft: “${SECOND}”`
+          )
+        );
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(models()).toEqual(['gpt-test', 'gpt-large']);
+      expect(h.state.drafts).toEqual([]);
+      expect(h.state.updatePayload!.ai_handoff_summary).toContain(SECOND);
+      expect(lastOutcome()).toBe('handed_off');
+    });
+
+    it('a retryable block is rewritten; a held rewrite is queued', async () => {
+      h.generateReply
+        .mockResolvedValueOnce({ text: SECOND, handoff: false })
+        .mockResolvedValueOnce({ text: FIRST, handoff: false });
+      h.runGuardrailGate
+        .mockResolvedValueOnce(guard('block', 'blocked (ASKS_SECRET_BLOCK)'))
+        .mockResolvedValueOnce(guard('hold', 'held (approval)'));
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.drafts).toHaveLength(1);
+      expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+      expect(lastOutcome()).toBe('held_for_review');
+    });
+
+    it('a retryable block with a clean rewrite sends the rewrite', async () => {
+      h.generateReply
+        .mockResolvedValueOnce({ text: SECOND, handoff: false })
+        .mockResolvedValueOnce({ text: SAFE, handoff: false });
+      h.runGuardrailGate.mockResolvedValueOnce(
+        guard('block', 'blocked (ASKS_SECRET_BLOCK)')
+      );
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+      expect(sentTexts()).toEqual([SAFE]);
+      expect(h.state.drafts).toEqual([]);
+    });
+  });
+
+  describe('a take-over between the read and the hand-off wins', () => {
+    beforeEach(() => {
+      // The cap hands off without a model call.
+      h.state.conv = { ...h.state.conv, ai_reply_count: 3 };
+      h.state.profiles = [
+        { user_id: 'owner-1', account_id: 'acct-1', account_role: 'owner' },
+      ];
+    });
+
+    it('assigned meanwhile: nothing overwritten, no bell, skipped_assigned', async () => {
+      h.state.convLive = {
+        ...h.state.conv,
+        assigned_agent_id: 'agent-5',
+        ai_autoreply_disabled: true,
+        ai_paused_reason: 'take_over',
+      };
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.updatePayload).toBeNull();
+      expect(notificationRows()).toEqual([]);
+      expect(lastOutcome()).toBe('skipped_assigned');
+      expect(events()).toEqual(['skipped_assigned']);
+    });
+
+    it('never reassigns a chat taken meanwhile', async () => {
+      h.loadAiConfig.mockResolvedValue(aiConfig({ handoffAgentId: 'agent-7' }));
+      h.state.convLive = { ...h.state.conv, assigned_agent_id: 'agent-5' };
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.updatePayload).toBeNull();
+      expect(lastOutcome()).toBe('skipped_assigned');
+    });
+
+    it('paused meanwhile: skipped_paused, the held draft still stored', async () => {
+      h.state.conv = { ...h.state.conv, ai_reply_count: 0 };
+      h.state.convLive = {
+        ...h.state.conv,
+        ai_autoreply_disabled: true,
+        ai_paused_reason: 'take_over',
+      };
+      h.generateReply.mockResolvedValue({ text: FIRST, handoff: false });
+      h.runGuardrailGate.mockResolvedValue(
+        guard('hold', 'held (approval)', false)
+      );
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+      expect(h.state.updatePayload).toBeNull();
+      expect(notificationRows()).toEqual([]);
+      expect(lastOutcome()).toBe('skipped_paused');
+    });
+  });
+
+  it('a failed reply send is recorded once, as error', async () => {
+    h.engineSendText.mockRejectedValue(new Error('131047 window closed'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual(['error']);
+    expect(events()).toEqual(['error']);
+  });
+
+  describe('a lost reply-slot claim says why', () => {
+    beforeEach(() => {
+      h.state.claim = false;
+    });
+
+    it('assigned meanwhile: skipped_assigned', async () => {
+      h.state.convLive = { ...h.state.conv, assigned_agent_id: 'agent-5' };
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_assigned');
+    });
+
+    it('paused meanwhile: skipped_paused', async () => {
+      h.state.convLive = { ...h.state.conv, ai_autoreply_disabled: true };
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_paused');
+    });
+
+    it('neither: the cap race', async () => {
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_cap_race');
+    });
   });
 });
