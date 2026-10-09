@@ -15,7 +15,7 @@ describe('knowledgeBankMentions', () => {
     ]);
     expect(out).toEqual([
       { code: 'FAB', name: 'First Abu Dhabi Bank (FAB)', documents: 2 },
-      { code: 'ENBD', name: 'Emirates Nbd (ENBD)', documents: 1 },
+      { code: 'ENBD', name: 'Emirates NBD', documents: 1 },
       { code: 'MASHREQ', name: 'Mashreq', documents: 1 },
     ]);
   });

@@ -22,6 +22,7 @@ import {
  * capitals ("adcb" → "ADCB", not "ADCB (ADCB)"), then the acronym.
  */
 export function bankDisplayName(bank: BankEntry): string {
+  if (bank.displayName?.trim()) return bank.displayName.trim();
   const upper = new Set(bank.acronyms ?? []);
   const name = (bank.names[0] ?? bank.code)
     .split(' ')
