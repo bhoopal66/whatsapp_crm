@@ -11,6 +11,7 @@ import {
   EyeOff,
   Copy,
   ExternalLink,
+  ArrowRight,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -61,7 +62,6 @@ export function MetaChannelConfig() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [state, setState] = useState<MetaChannelState | null>(null);
 
@@ -147,26 +147,14 @@ export function MetaChannelConfig() {
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!window.confirm(t('disconnectConfirm'))) return;
-    setDisconnecting(true);
-    try {
-      const res = await fetch('/api/whatsapp/config/meta', {
-        method: 'DELETE',
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t('disconnectFailed'));
-      toast.success(t('disconnected'));
-      setPhoneNumberId('');
-      setWabaId('');
-      setAccessToken('');
-      setTokenEdited(false);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('disconnectFailed'));
-    } finally {
-      setDisconnecting(false);
-    }
+  /** Removing the number is owned by Numbers and access, for both
+   *  providers; this card keeps the credentials, webhook and quality.
+   *  Same History-API switch as the settings rail (settings/page.tsx). */
+  const openNumbersAccess = () => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', 'numbers');
+    params.delete('channel');
+    window.history.replaceState(null, '', `/settings?${params.toString()}`);
   };
 
   const copyWebhook = async () => {
@@ -352,14 +340,13 @@ export function MetaChannelConfig() {
           </Button>
           {state?.connected && (
             <Button
-              variant="outline"
-              onClick={handleDisconnect}
-              disabled={disconnecting}
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              onClick={openNumbersAccess}
             >
-              {disconnecting && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              {t('disconnect')}
+              {t('removeInNumbers')}
+              <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           )}
           <a

@@ -1864,11 +1864,8 @@
       "saved": "Meta number connected",
       "saveFailed": "Failed to save the Meta connection",
       "subscribeWarning": "Saved, but the WABA could not be subscribed for webhooks — inbound messages may not arrive.",
-      "disconnect": "Disconnect",
-      "disconnectConfirm": "Disconnect the Meta number? Any task routed to it falls back to your primary number.",
-      "disconnected": "Meta number disconnected",
-      "disconnectFailed": "Failed to disconnect",
-      "setupGuide": "Meta setup guide"
+      "setupGuide": "Meta setup guide",
+      "removeInNumbers": "Remove this number in Numbers & access"
     },
     "whatsappRouting": {
       "title": "Which number sends what",
@@ -1986,7 +1983,8 @@
       "inboundMissing": "Incoming messages aren't set up for this number yet: it can send, but nothing customers write will arrive.",
       "notLive": "This number is not connected right now.",
       "fixInWhatsApp": "Fix in WhatsApp settings",
-      "membersUnavailable": "The member list couldn't be loaded. Reload the page to manage access."
+      "membersUnavailable": "The member list couldn't be loaded. Reload the page to manage access.",
+      "removeBodyMeta": "Messages stop sending and arriving on this Meta number, and any task routed to it falls back to your default number. Chat history is kept, and its access list is removed. You can reconnect it later in the WhatsApp section."
     },
     "sections": {
       "overview": "Overview",

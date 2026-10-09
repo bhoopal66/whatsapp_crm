@@ -949,7 +949,9 @@ export function WhatsAppNumbers() {
               })}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {t('removeBody')}
+              {removing?.provider === 'meta'
+                ? t('removeBodyMeta')
+                : t('removeBody')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
