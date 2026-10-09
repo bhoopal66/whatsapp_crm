@@ -12,6 +12,31 @@ and polish.
 
 ## [Unreleased]
 
+### Pipelines for every member, and deals from chat tags
+
+Pipelines is now in every member's sidebar. Each deal belongs to one
+person: its assignee, else whoever created it. Admins and owners see
+every deal and can narrow the board to one person with **Showing**; a
+team leader sees their own deals and their teammates' (**My team**,
+**My deals**, or one teammate); everyone else sees only their own. The
+database enforces this (`can_view_deal`), so the contact panel and the
+dashboard's pipeline figures follow the same rule. Agents create and
+reassign deals for themselves only, leaders for their teammates too.
+Creating pipelines and editing stages stays admin-only.
+
+In **Manage pipeline** an admin can link a stage to a main chat tag
+(**Auto-add chats tagged**). When a chat is given that tag, with or
+without a sub-tag, a deal is created in that stage for the chat's agent
+(the person it is assigned to or who started it, else whoever tagged
+it). The deal is never moved by later tagging, and no second deal is
+made while the contact has an open one in that pipeline. Tags set by
+automations and flows count too.
+
+> **Migration required:** apply
+> `supabase/migrations/080_pipeline_ownership_and_tag_deals.sql`
+> (re-runnable) **before** deploying the app. Then link the stage you
+> want (e.g. New Lead ← Interested customer) once in Manage pipeline.
+
 ### Settings reorganised
 
 Settings is now a row of category tabs, each with sub-tabs. The URL is
