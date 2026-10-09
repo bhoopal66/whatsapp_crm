@@ -40,7 +40,8 @@ import {
   resolveConversationChatTags,
   type ChatTagTree,
 } from '@/lib/chat-tags/tree';
-import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import { chatTagColor } from '@/lib/chat-tags/style';
+import { ChatTagPill } from '@/components/inbox/chat-tag-pill';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { cn } from '@/lib/utils';
 import type { Conversation, Profile } from '@/types';
@@ -1191,7 +1192,7 @@ const ConversationItem = memo(function ConversationItem({
   // green: bold name and preview, a green time and a green count. A
   // read chat is plain. (The status used to be a dot in the accent
   // colour beside the count, so every open chat looked unread; the chat
-  // tag chip there now is a tint with theme-coloured text instead.)
+  // tag pill there now is a tint, not a dot.)
   const unread = conversation.unread_count > 0;
   const chatTag = resolveConversationChatTags(conversation, chatTagTree);
   const chatTagText = chatTagLabel(chatTag.main, chatTag.sub);
@@ -1207,8 +1208,10 @@ const ConversationItem = memo(function ConversationItem({
   );
 
   // Everything beyond name and preview shares one quiet line, so a row
-  // is never more than three lines tall.
-  const hasMeta = !!numberName || !!campaignName || showAssignee;
+  // is never more than three lines tall. The chat tag leads it: beside
+  // the preview it had to shrink to a few letters.
+  const hasMeta =
+    !!chatTagText || !!numberName || !!campaignName || showAssignee;
 
   return (
     <button
@@ -1252,23 +1255,6 @@ const ConversationItem = memo(function ConversationItem({
             {conversation.last_message_text || t('noMessagesYet')}
           </p>
           <div className="flex shrink-0 items-center gap-1.5">
-            {/* The chat tag: tinted in the tag's colour, text in the
-                theme's, so any colour an admin picks stays legible.
-                Narrower in a narrow column so the preview keeps room;
-                the chip truncates, never the count. */}
-            {chatTag.main && chatTagText && (
-              <span
-                title={chatTagText}
-                style={chatTagChipStyle(chatTag.main.color)}
-                className="text-wa-text inline-flex max-w-[9rem] min-w-0 items-center gap-1 rounded-full border px-1.5 text-[10.5px] leading-4 font-medium @max-[19rem]:max-w-[6.5rem]"
-              >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: chatTagColor(chatTag.main.color) }}
-                />
-                <span className="truncate">{chatTagText}</span>
-              </span>
-            )}
             {unread && (
               <span className="bg-wa-green text-wa-green-fg flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold">
                 {conversation.unread_count > 99
@@ -1281,8 +1267,29 @@ const ConversationItem = memo(function ConversationItem({
 
         {hasMeta && (
           <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+            {/* The chat tag as one pill: the main tag tinted in its
+                colour, its sub-tag joined on fainter. It keeps its
+                room. In a narrow list a tagged row drops the number
+                (the open chat's header shows it) so the agent's name
+                stays readable. */}
+            {chatTag.main && chatTagText && (
+              <ChatTagPill
+                main={chatTag.main}
+                sub={chatTag.sub}
+                size="sm"
+                title={chatTagText}
+                className="max-w-[68%] shrink-0"
+              />
+            )}
+
             {numberName && (
-              <span className="inline-flex min-w-0 shrink items-center gap-1">
+              <span
+                className={cn(
+                  'inline-flex min-w-0 shrink items-center gap-1',
+                  chatTagText && '@max-[22rem]:hidden'
+                )}
+                title={numberName}
+              >
                 <Phone className="h-3 w-3 shrink-0" />
                 <span className="truncate">{numberName}</span>
               </span>
@@ -1308,7 +1315,7 @@ const ConversationItem = memo(function ConversationItem({
                 back to the word itself. */}
             {showAssignee && (
               <span
-                className="inline-flex min-w-0 shrink items-center gap-1"
+                className="inline-flex min-w-[3rem] shrink items-center gap-1"
                 title={
                   handler && handlerName
                     ? handler.kind === 'assigned'

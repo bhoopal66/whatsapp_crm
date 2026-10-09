@@ -337,6 +337,14 @@ number sends what.
   and the public API). Agents and up tag the chats they can see;
   viewers can't. (Contact tags were later retired in their favour;
   see above.)
+- **A chat's tag and sub-tag read as one pill.** In the chat header and
+  the chat list, the main tag is the bold, tinted half and its sub-tag
+  is joined on the right in a lighter tint of its own colour
+  (*Interested customer* | Bank: ● ADCB), so the two are never mistaken
+  for two separate tags. Tag text takes a shade of the tag's colour. In
+  the list the tag has moved to the row's bottom line, where it has
+  room to be read; in a narrow list a tagged row leaves out the sending
+  number there (the open chat's header still shows it).
 - **A rebuilt chat header.** Two rows: the customer (photo, name,
   number — on desktop, click it to open or close the contact panel),
   the sending number, who is on the chat and the refresh and panel

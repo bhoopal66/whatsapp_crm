@@ -29,3 +29,52 @@ export function chatTagChipStyle(color: string | null | undefined): {
     borderColor: `rgba(${r}, ${g}, ${b}, 0.45)`,
   };
 }
+
+/**
+ * Text in a tag's colour, anchored to the theme's text colour: darker
+ * than the tag on the light theme, lighter on the dark one, so it reads
+ * as the tag's colour and stays legible on its tint. A browser without
+ * `color-mix` drops the declaration and keeps the class's colour.
+ */
+export function chatTagTextColor(color: string | null | undefined): string {
+  return `color-mix(in oklab, ${chatTagColor(color)} 55%, var(--wa-text))`;
+}
+
+/**
+ * The main tag's half of a tag pill: the chip's tint, with the text
+ * pulled toward the tag's colour.
+ */
+export function chatTagMainStyle(color: string | null | undefined): {
+  backgroundColor: string;
+  borderColor: string;
+  color: string;
+} {
+  return { ...chatTagChipStyle(color), color: chatTagTextColor(color) };
+}
+
+/**
+ * The sub-tag's half, joined on to the main tag: a fainter tint of the
+ * sub-tag's own colour, divided from the main tag by a line in the main
+ * tag's colour. Lighter than the main half, so the pair reads as one tag
+ * and a detail of it.
+ */
+export function chatTagSubStyle(
+  mainColor: string | null | undefined,
+  subColor: string | null | undefined
+): { backgroundColor: string; borderColor: string; borderLeftColor: string } {
+  const main = chatTagChipStyle(mainColor);
+  const [r, g, b] = rgb(chatTagColor(subColor));
+  return {
+    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.06)`,
+    borderColor: main.borderColor,
+    borderLeftColor: main.borderColor.replace(/[\d.]+\)$/, '0.3)'),
+  };
+}
+
+function rgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}

@@ -36,7 +36,18 @@ import {
   resolveConversationChatTags,
   type ChatTagNode,
 } from '@/lib/chat-tags/tree';
-import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import {
+  chatTagColor,
+  chatTagMainStyle,
+  chatTagSubStyle,
+} from '@/lib/chat-tags/style';
+import {
+  ChatTagPill,
+  PILL_CAPTION,
+  PILL_MAIN_TEXT,
+  PILL_SUB_TEXT,
+  PillDot,
+} from '@/components/inbox/chat-tag-pill';
 import { cn } from '@/lib/utils';
 import type { ChatTag, ChatTagsPatch, Conversation } from '@/types';
 
@@ -46,8 +57,12 @@ export const CHAT_TAGS_SETTINGS_HREF = '/settings?tab=chat-tags';
 
 const CHIP =
   'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors';
-/** A tag that is set: a tint of its colour, the text in the theme's. */
-const CHIP_TINTED = 'text-wa-text hover:brightness-95';
+/** A tag that is set: a tint of its colour (the style sets the text). */
+const CHIP_TINTED = 'hover:brightness-95';
+/** The main tag with its sub-tag joined on: the pill's left half. */
+const CHIP_LEFT = 'rounded-r-none border-r-0';
+/** The sub-tag joined on to its main tag: the pill's right half. */
+const CHIP_RIGHT = 'rounded-l-none';
 /** Nothing set yet: an invitation, not a value. */
 const CHIP_DASHED =
   'border-wa-divider text-wa-text-secondary hover:bg-wa-row-hover border-dashed';
@@ -262,184 +277,188 @@ export function ThreadTagBar({
     if (!main) return null;
     return (
       <Row label={t('rowLabel')}>
-        <span
-          title={t('chipTitle', { name: main.name })}
-          className={cn(CHIP, 'text-wa-text')}
-          style={chatTagChipStyle(main.color)}
-        >
-          <Dot color={main.color} />
-          <span className="truncate">{main.name}</span>
-        </span>
-        {sub && (
-          <span
-            title={t('subChipTitle', { title: subTitle, name: sub.name })}
-            className={cn(CHIP, 'text-wa-text')}
-            style={chatTagChipStyle(sub.color)}
-          >
-            <span className="text-wa-text-secondary shrink-0">
-              {t('subCaption', { title: subTitle })}
-            </span>
-            <Dot color={sub.color} />
-            <span className="truncate">{sub.name}</span>
-          </span>
-        )}
+        <ChatTagPill
+          main={main}
+          sub={sub}
+          caption={sub ? t('subCaption', { title: subTitle }) : null}
+          size="md"
+          title={
+            sub
+              ? `${t('chipTitle', { name: main.name })} · ${t('subChipTitle', { title: subTitle, name: sub.name })}`
+              : t('chipTitle', { name: main.name })
+          }
+        />
       </Row>
     );
   }
 
+  // A chosen sub-tag joins its main tag in one pill; an empty sub-tag
+  // slot stays a separate dashed invitation.
+  const joined = !!(main && sub);
+
   return (
     <Row label={t('rowLabel')} busy={saving}>
-      <DropdownMenu
-        open={mainOpen}
-        onOpenChange={(open) => {
-          if (open && savingRef.current) return;
-          setMainOpen(open);
-        }}
-        onOpenChangeComplete={(open) => {
-          if (open) return;
-          followUp.current.menuClosed = true;
-          maybeOpenSub();
-        }}
+      <span
+        className={cn(
+          'inline-flex max-w-full min-w-0 items-center',
+          !joined && 'gap-1.5'
+        )}
       >
-        <DropdownMenuTrigger
-          aria-disabled={saving || undefined}
-          title={main ? t('chipTitle', { name: main.name }) : t('addTag')}
-          className={cn(
-            CHIP,
-            main ? CHIP_TINTED : CHIP_DASHED,
-            savingMain && CHIP_BUSY
-          )}
-          style={main ? chatTagChipStyle(main.color) : undefined}
-        >
-          {main ? (
-            <>
-              <Dot color={main.color} />
-              <span className="truncate">{main.name}</span>
-              <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
-            </>
-          ) : (
-            <>
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{t('addTag')}</span>
-            </>
-          )}
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          className="border-border bg-popover w-64"
-        >
-          <div className={MENU_HEADING}>{t('heading')}</div>
-          <DropdownMenuItem
-            onClick={() => pickMain(null)}
-            className="text-popover-foreground text-sm"
-          >
-            <span
-              aria-hidden="true"
-              className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
-            />
-            <span className="flex-1">{t('noTag')}</span>
-            {!main && <Check className="ml-2 h-3 w-3" />}
-          </DropdownMenuItem>
-          {tree.mains.map((tag) => (
-            <DropdownMenuItem
-              key={tag.id}
-              onClick={() => pickMain(tag)}
-              className="text-popover-foreground text-sm"
-            >
-              <Dot color={tag.color} />
-              <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-              {tag.subs.length > 0 && (
-                <span className="text-muted-foreground ml-2 shrink-0 text-xs">
-                  {tag.sub_tag_title?.trim() ||
-                    t('subCount', { count: tag.subs.length })}
-                </span>
-              )}
-              {tag.id === main?.id && <Check className="ml-2 h-3 w-3" />}
-            </DropdownMenuItem>
-          ))}
-          {isAdmin && (
-            <>
-              <DropdownMenuSeparator className="bg-border" />
-              <DropdownMenuItem
-                render={<Link href={CHAT_TAGS_SETTINGS_HREF} />}
-                className="text-muted-foreground text-sm"
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                {t('manage')}
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {main && main.subs.length > 0 && (
         <DropdownMenu
-          open={subOpen}
+          open={mainOpen}
           onOpenChange={(open) => {
             if (open && savingRef.current) return;
-            setSubOpenFor(open ? main.id : null);
+            setMainOpen(open);
+          }}
+          onOpenChangeComplete={(open) => {
+            if (open) return;
+            followUp.current.menuClosed = true;
+            maybeOpenSub();
           }}
         >
           <DropdownMenuTrigger
             aria-disabled={saving || undefined}
-            title={
-              sub
-                ? t('subChipTitle', { title: subTitle, name: sub.name })
-                : t('addSub', { title: subTitle })
-            }
+            title={main ? t('chipTitle', { name: main.name }) : t('addTag')}
             className={cn(
               CHIP,
-              sub ? CHIP_TINTED : CHIP_DASHED,
-              saving && !savingMain && CHIP_BUSY
+              main ? CHIP_TINTED : CHIP_DASHED,
+              joined && cn(CHIP_LEFT, 'min-w-0'),
+              savingMain && CHIP_BUSY
             )}
-            style={sub ? chatTagChipStyle(sub.color) : undefined}
+            style={main ? chatTagMainStyle(main.color) : undefined}
           >
-            {sub ? (
+            {main ? (
               <>
-                <span className="text-wa-text-secondary shrink-0">
-                  {t('subCaption', { title: subTitle })}
-                </span>
-                <Dot color={sub.color} />
-                <span className="truncate">{sub.name}</span>
+                <PillDot color={main.color} size="md" />
+                <span className={PILL_MAIN_TEXT}>{main.name}</span>
                 <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
               </>
             ) : (
               <>
                 <Plus className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{subTitle}</span>
+                <span className="truncate">{t('addTag')}</span>
               </>
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="border-border bg-popover w-56"
+            className="border-border bg-popover w-64"
           >
-            <div className={MENU_HEADING}>{subTitle}</div>
+            <div className={MENU_HEADING}>{t('heading')}</div>
             <DropdownMenuItem
-              onClick={() => pickSub(null)}
+              onClick={() => pickMain(null)}
               className="text-popover-foreground text-sm"
             >
               <span
                 aria-hidden="true"
                 className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
               />
-              <span className="flex-1">{t('subNone')}</span>
-              {!sub && <Check className="ml-2 h-3 w-3" />}
+              <span className="flex-1">{t('noTag')}</span>
+              {!main && <Check className="ml-2 h-3 w-3" />}
             </DropdownMenuItem>
-            {main.subs.map((tag) => (
+            {tree.mains.map((tag) => (
               <DropdownMenuItem
                 key={tag.id}
-                onClick={() => pickSub(tag)}
+                onClick={() => pickMain(tag)}
                 className="text-popover-foreground text-sm"
               >
                 <Dot color={tag.color} />
                 <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                {tag.id === sub?.id && <Check className="ml-2 h-3 w-3" />}
+                {tag.subs.length > 0 && (
+                  <span className="text-muted-foreground ml-2 shrink-0 text-xs">
+                    {tag.sub_tag_title?.trim() ||
+                      t('subCount', { count: tag.subs.length })}
+                  </span>
+                )}
+                {tag.id === main?.id && <Check className="ml-2 h-3 w-3" />}
               </DropdownMenuItem>
             ))}
+            {isAdmin && (
+              <>
+                <DropdownMenuSeparator className="bg-border" />
+                <DropdownMenuItem
+                  render={<Link href={CHAT_TAGS_SETTINGS_HREF} />}
+                  className="text-muted-foreground text-sm"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  {t('manage')}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
-      )}
+
+        {main && main.subs.length > 0 && (
+          <DropdownMenu
+            open={subOpen}
+            onOpenChange={(open) => {
+              if (open && savingRef.current) return;
+              setSubOpenFor(open ? main.id : null);
+            }}
+          >
+            <DropdownMenuTrigger
+              aria-disabled={saving || undefined}
+              title={
+                sub
+                  ? t('subChipTitle', { title: subTitle, name: sub.name })
+                  : t('addSub', { title: subTitle })
+              }
+              className={cn(
+                CHIP,
+                sub
+                  ? cn(CHIP_TINTED, CHIP_RIGHT, 'max-w-[50%] shrink-0')
+                  : CHIP_DASHED,
+                saving && !savingMain && CHIP_BUSY
+              )}
+              style={sub ? chatTagSubStyle(main.color, sub.color) : undefined}
+            >
+              {sub ? (
+                <>
+                  <span className={PILL_CAPTION}>
+                    {t('subCaption', { title: subTitle })}
+                  </span>
+                  <PillDot color={sub.color} size="md" />
+                  <span className={PILL_SUB_TEXT}>{sub.name}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+                </>
+              ) : (
+                <>
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{subTitle}</span>
+                </>
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="border-border bg-popover w-56"
+            >
+              <div className={MENU_HEADING}>{subTitle}</div>
+              <DropdownMenuItem
+                onClick={() => pickSub(null)}
+                className="text-popover-foreground text-sm"
+              >
+                <span
+                  aria-hidden="true"
+                  className="border-muted-foreground h-2 w-2 shrink-0 rounded-full border"
+                />
+                <span className="flex-1">{t('subNone')}</span>
+                {!sub && <Check className="ml-2 h-3 w-3" />}
+              </DropdownMenuItem>
+              {main.subs.map((tag) => (
+                <DropdownMenuItem
+                  key={tag.id}
+                  onClick={() => pickSub(tag)}
+                  className="text-popover-foreground text-sm"
+                >
+                  <Dot color={tag.color} />
+                  <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                  {tag.id === sub?.id && <Check className="ml-2 h-3 w-3" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </span>
     </Row>
   );
 }
