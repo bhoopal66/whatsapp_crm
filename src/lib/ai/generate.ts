@@ -15,6 +15,9 @@ export interface GenerateArgs {
   systemPrompt: string;
   /** Recent conversation turns, oldest first. */
   messages: ChatMessage[];
+  /** The model to ask, on the configured provider and key. Defaults to
+   *  `config.model`; the auto-reply router passes a tier's model. */
+  model?: string;
 }
 
 /**
@@ -29,7 +32,7 @@ export async function generateReply(
   const timeoutMs = aiRequestTimeoutMs();
   const providerArgs = {
     apiKey: config.apiKey,
-    model: config.model,
+    model: args.model ?? config.model,
     systemPrompt,
     messages,
     timeoutMs,

@@ -213,3 +213,37 @@ describe('generateReply — Anthropic', () => {
     expect(body.messages).toHaveLength(1);
   });
 });
+
+describe('generateReply — model override (tier routing)', () => {
+  const ok = () =>
+    vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ choices: [{ message: { content: 'ok' } }] })
+      );
+
+  it('asks config.model when no model is given', async () => {
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    await generateReply({
+      config: config({ model: 'gpt-standard' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe(
+      'gpt-standard'
+    );
+  });
+
+  it('asks the given model instead of config.model', async () => {
+    const fetchMock = ok();
+    vi.stubGlobal('fetch', fetchMock);
+    await generateReply({
+      config: config({ model: 'gpt-standard' }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+      model: 'gpt-small',
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe('gpt-small');
+  });
+});

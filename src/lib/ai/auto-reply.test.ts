@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { AiConfig } from './types';
+import { AiError, type AiConfig } from './types';
 import type { KnowledgeRetrieval } from './knowledge';
 import {
   __resetRateLimitForTests,
@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   runPassageGate: vi.fn(),
   runGuardrailGate: vi.fn(),
   markOptedOut: vi.fn(),
+  logAiUsage: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as Record<string, unknown>[],
@@ -59,6 +60,13 @@ vi.mock('./typesafe-gates', async (importOriginal) => ({
 }));
 vi.mock('./opt-out', () => ({
   markOptedOut: h.markOptedOut,
+}));
+vi.mock('./usage', () => ({ logAiUsage: h.logAiUsage }));
+// TypeSafe unavailable: the model router falls back to its heuristic,
+// so "hi" is the small tier and two questions the large one.
+vi.mock('@/lib/typesafe', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/typesafe')>()),
+  getDecisionLayer: () => null,
 }));
 vi.mock('@/lib/flows/channel-send', () => ({
   engineSendText: h.engineSendText,
@@ -1501,5 +1509,212 @@ describe('dispatchInboundToAiReply — a failed reply send', () => {
       '131047 window closed'
     );
     expect(lastOutcome()).toBe('error');
+  });
+});
+
+describe('dispatchInboundToAiReply — model routing and escalation', () => {
+  const routed = (extra: Partial<AiConfig> = {}) =>
+    aiConfig({
+      modelRouting: true,
+      modelSmall: 'gpt-small',
+      modelLarge: 'gpt-large',
+      ...extra,
+    });
+  const say = (text: string) =>
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: text },
+    ]);
+  const TWO_QUESTIONS = 'What are the fees? And how long does it take?';
+  const models = () =>
+    h.generateReply.mock.calls.map((c) => (c[0] as { model: string }).model);
+  const usageModels = () =>
+    h.logAiUsage.mock.calls.map((c) => (c[1] as { model: string }).model);
+  const lastEvent = () =>
+    h.state.inserts.filter((i) => i.table === 'ai_reply_events').at(-1)?.row as
+      Record<string, unknown> | undefined;
+  const handoffReply = { text: '', handoff: true };
+  const reply = { text: 'Hello!', handoff: false };
+
+  beforeEach(() => {
+    h.logAiUsage.mockReset();
+    h.logAiUsage.mockResolvedValue(undefined);
+    // Drop any queued once-values a failing test left unconsumed.
+    h.generateReply.mockReset();
+    h.generateReply.mockResolvedValue(reply);
+  });
+
+  it('routing off: the account model answers and is logged', async () => {
+    h.retrieveKnowledge.mockResolvedValue(retrieval(['Fee: AED 1,500.']));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(models()).toEqual(['gpt-test']);
+    expect(usageModels()).toEqual(['gpt-test']);
+    expect(h.retrieveKnowledge).toHaveBeenCalled();
+    expect(lastEvent()).toMatchObject({
+      outcome: 'replied',
+      tier: 'standard',
+      model: 'gpt-test',
+      route_source: 'fixed',
+      escalated: false,
+    });
+  });
+
+  it('"hi" goes to the small model and skips retrieval', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    h.retrieveKnowledge.mockResolvedValue(retrieval(['Fee: AED 1,500.']));
+    say('hi');
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(models()).toEqual(['gpt-small']);
+    expect(usageModels()).toEqual(['gpt-small']);
+    expect(h.retrieveKnowledge).not.toHaveBeenCalled();
+    expect(h.runPassageGate).not.toHaveBeenCalled();
+    const systemPrompt = h.generateReply.mock.calls[0][0]
+      .systemPrompt as string;
+    expect(systemPrompt).not.toContain('AED 1,500');
+    expect(h.runGuardrailGate.mock.calls[0][1]).toMatchObject({
+      evidence: [],
+    });
+    expect(lastEvent()).toMatchObject({
+      outcome: 'replied',
+      tier: 'small',
+      model: 'gpt-small',
+      route_source: 'heuristic',
+      escalated: false,
+    });
+  });
+
+  it('skipping retrieval also skips the retrieval gate', async () => {
+    h.loadAiConfig.mockResolvedValue(routed({ retrievalMinScore: 0.9 }));
+    // A knowledge base with nothing matching: the gate would hand off.
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval([], { hasKnowledgeBase: true })
+    );
+    say('hi there thanks again'); // four words: the gate would judge it
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(h.state.gaps).toEqual([]);
+  });
+
+  it('two questions go to the large model, with retrieval', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say(TWO_QUESTIONS);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(models()).toEqual(['gpt-large']);
+    expect(h.retrieveKnowledge).toHaveBeenCalled();
+    expect(lastEvent()).toMatchObject({ tier: 'large', model: 'gpt-large' });
+  });
+
+  it('a tier model provider error is retried once on the account model', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say(TWO_QUESTIONS);
+    h.generateReply
+      .mockRejectedValueOnce(
+        new AiError('model not found', { code: 'provider_error' })
+      )
+      .mockResolvedValueOnce(reply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(models()).toEqual(['gpt-large', 'gpt-test']);
+    expect(usageModels()).toEqual(['gpt-test']);
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hello!' })
+    );
+    expect(lastEvent()).toMatchObject({
+      outcome: 'replied',
+      tier: 'large',
+      model: 'gpt-test',
+      route_source: 'heuristic',
+      escalated: true,
+    });
+  });
+
+  it('a bad key is not retried: the error hand-off', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say(TWO_QUESTIONS);
+    h.generateReply.mockRejectedValue(
+      new AiError('bad key', { code: 'invalid_key', status: 401 })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(models()).toEqual(['gpt-large']);
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'error' });
+    expect(lastEvent()).toMatchObject({
+      outcome: 'handed_off',
+      tier: 'large',
+      model: 'gpt-large',
+      escalated: false,
+    });
+  });
+
+  it('a rate limit is not retried either', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say(TWO_QUESTIONS);
+    h.generateReply.mockRejectedValue(
+      new AiError('slow down', { code: 'rate_limited', status: 429 })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(models()).toEqual(['gpt-large']);
+  });
+
+  it('a failure on the account model itself is not retried', async () => {
+    h.loadAiConfig.mockResolvedValue(routed({ modelLarge: null }));
+    say(TWO_QUESTIONS);
+    h.generateReply.mockRejectedValue(
+      new AiError('upstream', { code: 'provider_error' })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(models()).toEqual(['gpt-test']);
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'error' });
+  });
+
+  it('the small tier asking for a person is regenerated on the account model', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say('hi');
+    h.generateReply
+      .mockResolvedValueOnce(handoffReply)
+      .mockResolvedValueOnce(reply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(models()).toEqual(['gpt-small', 'gpt-test']);
+    expect(usageModels()).toEqual(['gpt-small', 'gpt-test']);
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hello!' })
+    );
+    expect(lastEvent()).toMatchObject({
+      outcome: 'replied',
+      tier: 'small',
+      model: 'gpt-test',
+      escalated: true,
+    });
+  });
+
+  it('both asking for a person: the model hand-off', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say('hi');
+    h.generateReply.mockResolvedValue(handoffReply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(models()).toEqual(['gpt-small', 'gpt-test']);
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+    expect(lastEvent()).toMatchObject({
+      outcome: 'handed_off',
+      tier: 'small',
+      model: 'gpt-test',
+      escalated: true,
+    });
+  });
+
+  it('a small tier already on the account model is not asked twice', async () => {
+    h.loadAiConfig.mockResolvedValue(routed({ modelSmall: null }));
+    say('hi');
+    h.generateReply.mockResolvedValue(handoffReply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(models()).toEqual(['gpt-test']);
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+  });
+
+  it('at most one extra generation: a retried failure is not escalated again', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say('hi');
+    h.generateReply
+      .mockRejectedValueOnce(new AiError('timeout', { code: 'timeout' }))
+      .mockResolvedValueOnce(handoffReply);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(models()).toEqual(['gpt-small', 'gpt-test']);
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
   });
 });

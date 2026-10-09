@@ -18,8 +18,11 @@ import {
   runGuardrailGate,
   runPassageGate,
   runTriageGate,
+  turnsBefore,
+  type PassageGateResult,
   type TsRef,
 } from './typesafe-gates';
+import { routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { engineSendText } from '@/lib/flows/channel-send';
 import {
@@ -27,7 +30,7 @@ import {
   resolveChannelForSurface,
 } from '@/lib/whatsapp/channels';
 import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
-import type { AiConfig, ChatMessage } from './types';
+import { AiError, type AiConfig, type ChatMessage } from './types';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import { triggerMatches } from '@/lib/automations/engine';
 import type { Automation } from '@/types';
@@ -284,12 +287,29 @@ export async function dispatchInboundToAiReply(
   // answer?" has an answer. An account with the bot off records nothing.
   let db: SupabaseClient | null = null;
   let recording = false;
+  // Which tier this message was routed to and which model last generated
+  // for it (null before any generation), for the `replied` and
+  // `handed_off` records. Set once the router has answered.
+  let routing: {
+    tier: AiReplyTier;
+    model: string | null;
+    routeSource: AiRouteSource;
+    escalated: boolean;
+  } | null = null;
   const record = async (
     outcome: AiDispatchOutcome,
     detail: string | null = null
   ) => {
     if (recording && db) {
-      await recordOutcome(db, { accountId, conversationId, outcome, detail });
+      const routed =
+        outcome === 'replied' || outcome === 'handed_off' ? routing : null;
+      await recordOutcome(db, {
+        accountId,
+        conversationId,
+        outcome,
+        detail,
+        ...routed,
+      });
     }
   };
   const skip = async (
@@ -595,16 +615,41 @@ export async function dispatchInboundToAiReply(
     // TypeSafe triage (063): a request for a person, a complaint or an
     // opt-out goes to the team before any LLM spend. An opt-out gets no
     // farewell — they asked us to stop writing.
-    const triage = await runTriageGate(tsRef, {
-      messages,
-      question,
-      customerTurn,
-      journeyStage: flowContext
-        ? 'guided_flow'
-        : conv.campaign_broadcast_id
-          ? 'campaign_reply'
-          : 'open_conversation',
-    });
+    //
+    // Alongside it, the model router picks the tier that answers this
+    // message (small / standard / large; `router.ts`), judging the same
+    // customer turn. Both are one TypeSafe request at most and neither
+    // throws, so they run together; a triage hand-off still wins.
+    const journeyStage = flowContext
+      ? 'guided_flow'
+      : conv.campaign_broadcast_id
+        ? 'campaign_reply'
+        : 'open_conversation';
+    const [triage, routed] = await Promise.all([
+      runTriageGate(tsRef, { messages, question, customerTurn, journeyStage }),
+      routeMessage({
+        config,
+        accountId,
+        message: customerTurn,
+        recentTurns: turnsBefore(messages, customerTurn)
+          .slice(-ROUTE_TURNS)
+          .map((m) => ({
+            from: m.role === 'user' ? 'customer' : 'business',
+            text: m.content,
+          })),
+        journeyStage,
+        ctx: { inFlow: !!flowContext },
+      }),
+    ]);
+    // The tier and model for this reply. The one place a triage signal
+    // would raise the tier (make it a `let`) before anything is generated.
+    const route = routed;
+    routing = {
+      tier: route.tier,
+      model: null,
+      routeSource: route.source,
+      escalated: false,
+    };
     if (triage.handoff) {
       // An acted-on opt-out stamps contacts.opted_out_at (migration
       // 076), which every broadcast skips when planned and when sent.
@@ -621,25 +666,32 @@ export async function dispatchInboundToAiReply(
     }
 
     // Ground the reply in the account's knowledge base (best-effort),
-    // screened by the TypeSafe passage filter (063) when it acts.
-    const passages = await runPassageGate(tsRef, {
-      query: question,
-      retrieval: await retrieveKnowledgeScored(
-        dbc,
-        accountId,
-        config,
-        question
-      ),
-    });
+    // screened by the TypeSafe passage filter (063) when it acts. A
+    // message the router judged to need no facts (a greeting, a thanks)
+    // retrieves nothing — no embedding spend — and so has no excerpts
+    // for the prompt or the guardrail, and no retrieval gate to clear.
+    const passages: PassageGateResult = route.skipKnowledge
+      ? NO_PASSAGES
+      : await runPassageGate(tsRef, {
+          query: question,
+          retrieval: await retrieveKnowledgeScored(
+            dbc,
+            accountId,
+            config,
+            question
+          ),
+        });
 
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
     // close enough, hand off rather than let the model improvise, and
     // record the question so the KB can be extended.
-    const gap = retrievalGateFailure(
-      passages.retrieval,
-      config.retrievalMinScore,
-      question
-    );
+    const gap = route.skipKnowledge
+      ? null
+      : retrievalGateFailure(
+          passages.retrieval,
+          config.retrievalMinScore,
+          question
+        );
     if (gap) {
       await logKnowledgeGap(dbc, {
         accountId,
@@ -667,31 +719,69 @@ export async function dispatchInboundToAiReply(
       notes: triage.promptNotes,
     });
 
-    // Gate 3 — the model. A provider failure (bad key, rate limit,
-    // timeout) is a handoff too: the alternative is a customer who
-    // wrote in and never hears back, with nobody told.
+    // Gate 3 — the model: the routed tier's. A provider failure (bad
+    // key, rate limit, timeout) is a handoff too: the alternative is a
+    // customer who wrote in and never hears back, with nobody told.
+    //
+    // Escalate on uncertainty, at most one extra generation per
+    // dispatch, always on the account's own model (`config.model`):
+    //   a. a tier model that differs from it failed, for a reason that
+    //      is not the key or the rate limit (shared by every model on
+    //      the key) — a retired or mistyped tier model, a timeout;
+    //   b. the small tier asked for a person — a greeting the cheap
+    //      model could not place is worth the account's model's look
+    //      before a human is paged.
+    const generate = async (model: string) => {
+      routing = { ...routing!, model };
+      const result = await generateReply({
+        config,
+        systemPrompt,
+        messages,
+        model,
+      });
+      // Record token spend on the account's BYO key, per generation and
+      // under the model that produced it. Fire-and-forget so it never
+      // adds latency to the customer-facing send: `logAiUsage` swallows
+      // its own errors, so the floating promise can't reject. Logged
+      // regardless of handoff — the provider call happened either way.
+      void logAiUsage(dbc, {
+        accountId,
+        conversationId,
+        mode: 'auto_reply',
+        provider: config.provider,
+        model,
+        usage: result.usage,
+      });
+      return result;
+    };
+    const escalate = (model: string) => {
+      routing = { ...routing!, escalated: true };
+      return generate(model);
+    };
     let generated: Awaited<ReturnType<typeof generateReply>>;
     try {
-      generated = await generateReply({ config, systemPrompt, messages });
+      try {
+        generated = await generate(route.model);
+      } catch (err) {
+        if (!retriesOnAccountModel(err, route.model, config.model)) throw err;
+        console.warn(
+          `[ai auto-reply] ${route.tier} model ${route.model} failed (${errorMessage(err)}); retrying on ${config.model}.`
+        );
+        generated = await escalate(config.model);
+      }
+      if (
+        generated.handoff &&
+        route.tier === 'small' &&
+        !routing.escalated &&
+        route.model !== config.model
+      ) {
+        generated = await escalate(config.model);
+      }
     } catch (err) {
       console.error('[ai auto-reply] provider call failed:', err);
       return handOff('error', errorMessage(err), config.handoffMessage);
     }
-    const { text, handoff, usage } = generated;
-
-    // Record token spend on the account's BYO key. Fire-and-forget so it
-    // never adds latency to the customer-facing send: `logAiUsage`
-    // swallows its own errors, so the floating promise can't reject.
-    // Logged regardless of handoff — the provider call happened either
-    // way.
-    void logAiUsage(dbc, {
-      accountId,
-      conversationId,
-      mode: 'auto_reply',
-      provider: config.provider,
-      model: config.model,
-      usage,
-    });
+    const { text, handoff } = generated;
 
     // TypeSafe guardrail (063): any free text the model wrote is
     // screened before it can reach the customer — the reply, or the
@@ -800,6 +890,41 @@ export async function dispatchInboundToAiReply(
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Turns before the customer's message the router sees. */
+const ROUTE_TURNS = 6;
+
+/** What the prompt and the guardrail get when retrieval is skipped. */
+const NO_PASSAGES: PassageGateResult = {
+  knowledge: [],
+  conflicts: [],
+  evidence: [],
+  retrieval: {
+    excerpts: [],
+    passages: [],
+    bestSimilarity: null,
+    hasKnowledgeBase: false,
+  },
+};
+
+/**
+ * Whether a failed generation on a routed tier's model is retried once
+ * on the account's own model (escalation case a). Only a provider error
+ * on a DIFFERENT model: a bad key or a rate limit holds for every model
+ * on the key, and anything that is not an `AiError` is not the model's.
+ */
+export function retriesOnAccountModel(
+  err: unknown,
+  triedModel: string,
+  accountModel: string
+): boolean {
+  return (
+    err instanceof AiError &&
+    triedModel !== accountModel &&
+    err.code !== 'invalid_key' &&
+    err.code !== 'rate_limited'
+  );
 }
 
 /**
