@@ -481,6 +481,8 @@ export interface PipelineStage {
   name: string;
   position: number;
   color: string;
+  /** Migration 080: chats arriving at this main tag get a deal here. */
+  auto_chat_tag_id: string | null;
   created_at: string;
 }
 

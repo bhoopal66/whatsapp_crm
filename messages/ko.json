@@ -649,7 +649,8 @@
     },
     "board": {
       "dropDealHere": "여기에 딜을 놓으세요",
-      "addDeal": "딜 추가"
+      "addDeal": "딜 추가",
+      "autoTagTitle": "{tag} 태그가 지정된 새 채팅이 여기에 들어옵니다"
     },
     "card": {
       "noContact": "연락처 없음",
@@ -720,7 +721,13 @@
       "toastMoveOrDeleteDeals": "먼저 이 단계의 딜을 이동하거나 삭제하세요",
       "toastFailedDeleteStage": "단계를 삭제하지 못했습니다",
       "toastFailedDeletePipeline": "파이프라인을 삭제하지 못했습니다",
-      "toastDeleted": "파이프라인이 삭제되었습니다"
+      "toastDeleted": "파이프라인이 삭제되었습니다",
+      "autoTagLabel": "태그된 채팅 자동 추가",
+      "autoTagNone": "없음",
+      "autoTagHelp": "채팅에 이 태그가 지정되면 해당 채팅의 담당자를 위한 딜이 여기에 생성됩니다. 자동으로 이동되지는 않습니다.",
+      "toastTagInUse": "이 파이프라인의 다른 단계에서 이미 해당 태그를 사용하고 있습니다",
+      "toastTagNotMain": "이 계정의 메인 태그를 선택하세요",
+      "toastFailedTagLink": "채팅 태그 연결을 저장하지 못했습니다"
     },
     "analytics": {
       "totalDeals": "전체 딜",

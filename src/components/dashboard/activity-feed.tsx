@@ -47,11 +47,11 @@ export function ActivityFeed({ items, loading }: ActivityFeedProps) {
 
   const { profileLoading, accountRole } = useAuth()
 
-  // Activity can reference deals, broadcasts and automations —
-  // all admin-only screens now. Keep the line, drop the link for
+  // Activity can reference broadcasts and automations —
+  // admin-only screens (pipelines are open to everyone). Keep the line, drop the link for
   // anyone who would only be bounced back to this page.
   const canOpen = (href: string) => {
-    const adminOnly = ['/pipelines', '/broadcasts', '/automations', '/flows', '/agents']
+    const adminOnly = ['/broadcasts', '/automations', '/flows', '/agents']
     if (!adminOnly.some((p) => href.startsWith(p))) return true
     return !profileLoading && !!accountRole && hasMinRole(accountRole, 'admin')
   }

@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useChatTags } from '@/hooks/use-chat-tags';
+import { chatTagChipStyle } from '@/lib/chat-tags/style';
 import {
   DndContext,
   DragOverlay,
@@ -216,6 +218,10 @@ function StageColumn({
 }) {
   const t = useTranslations('Pipelines.board');
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
+  const { tags } = useChatTags();
+  const linkedTag = stage.auto_chat_tag_id
+    ? tags?.find((tag) => tag.id === stage.auto_chat_tag_id)
+    : undefined;
 
   return (
     // On mobile each column is `w-[85vw]` (with a reasonable min/max)
@@ -241,6 +247,15 @@ function StageColumn({
       <p className="text-muted-foreground text-xs">
         {formatCurrency(totalValue, currency)}
       </p>
+      {linkedTag && (
+        <span
+          className="text-foreground mt-1 w-fit max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-medium"
+          style={chatTagChipStyle(linkedTag.color)}
+          title={t('autoTagTitle', { tag: linkedTag.name })}
+        >
+          {linkedTag.name}
+        </span>
+      )}
 
       <div
         ref={setNodeRef}

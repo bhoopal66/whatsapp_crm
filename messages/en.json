@@ -649,7 +649,8 @@
     },
     "board": {
       "dropDealHere": "Drop a deal here",
-      "addDeal": "Add Deal"
+      "addDeal": "Add Deal",
+      "autoTagTitle": "New chats tagged {tag} land here"
     },
     "card": {
       "noContact": "No contact",
@@ -720,7 +721,13 @@
       "toastMoveOrDeleteDeals": "Move or delete deals in this stage first",
       "toastFailedDeleteStage": "Failed to delete stage",
       "toastFailedDeletePipeline": "Failed to delete pipeline",
-      "toastDeleted": "Pipeline deleted"
+      "toastDeleted": "Pipeline deleted",
+      "autoTagLabel": "Auto-add chats tagged",
+      "autoTagNone": "None",
+      "autoTagHelp": "When a chat gets this tag, a deal is created here for the chat's agent. It is never moved automatically.",
+      "toastTagInUse": "Another stage of this pipeline already uses that tag",
+      "toastTagNotMain": "Pick a main tag from this account",
+      "toastFailedTagLink": "Could not save the chat tag link"
     },
     "analytics": {
       "totalDeals": "Total Deals",
