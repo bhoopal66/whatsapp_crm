@@ -39,6 +39,21 @@ number moved from Routing to AI Agents → Auto-reply → Reply on; the team
 leader is offered the same way everywhere; Settings → Quick replies is
 translated.
 
+AI Agents fixes in the same release:
+
+- Leaving AI Agents with unsaved changes (for another Settings tab, or
+  by a link) asks first; moving between AI Agents tabs keeps the edits.
+- **Reply on → Only on** always pins the AI to one number: Save writes
+  the picked number (the default number when none was picked) as the
+  AI's route. An account that never saved a route is not pinned, and
+  its Overview now says so: "The default number and others of its
+  type", not "Only on the default number".
+- The embeddings key has a **Remove key** button (with a confirm).
+  Focusing the masked key field no longer deletes the stored key on the
+  next Save, and a blank key field never clears a key.
+- On a phone the Settings and AI Agents tab rows fade at the edge where
+  more tabs are hidden, and keep the active tab in view.
+
 No migration required. Docs paths updated in `docs/`.
 
 ### Reply on every WhatsApp number

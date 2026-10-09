@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollFadeRow } from '@/components/ui-ext/scroll-fade-row';
 import { cn } from '@/lib/utils';
 import {
   CATEGORY_ICONS,
@@ -18,17 +18,6 @@ export const TABS_TRIGGER_DARK =
   '[[data-mode=dark]_&]:text-muted-foreground [[data-mode=dark]_&]:hover:text-foreground [[data-mode=dark]_&]:data-active:border-input [[data-mode=dark]_&]:data-active:bg-input/30 [[data-mode=dark]_&]:data-active:text-foreground';
 const LINE_TRIGGER_DARK =
   '[[data-mode=dark]_&]:text-muted-foreground [[data-mode=dark]_&]:hover:text-foreground [[data-mode=dark]_&]:data-active:text-foreground';
-
-/** Keeps the active tab of a scrolling row in view (deep links, phones). */
-function useActiveInView(key: string) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current
-      ?.querySelector<HTMLElement>('[data-active]')
-      ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-  }, [key]);
-  return ref;
-}
 
 /**
  * The two Settings tab rows: categories (icon + label), then the active
@@ -52,8 +41,6 @@ export function SettingsTabs({
   onSection: (s: SettingsSection) => void;
 }) {
   const t = useTranslations('Settings');
-  const catRef = useActiveInView(category);
-  const subRef = useActiveInView(section);
 
   return (
     <div className="space-y-3">
@@ -61,9 +48,9 @@ export function SettingsTabs({
         value={category}
         onValueChange={(v) => onCategory(v as SettingsCategory)}
       >
-        <div
-          ref={catRef}
-          className="border-border [scrollbar-width:none] overflow-x-auto border-b pb-1.5 [&::-webkit-scrollbar]:hidden"
+        <ScrollFadeRow
+          activeKey={category}
+          className="border-border [scrollbar-width:none] border-b pb-1.5 [&::-webkit-scrollbar]:hidden"
         >
           <TabsList variant="line" aria-label={t('pageTitle')}>
             {categories.map((id) => {
@@ -80,7 +67,7 @@ export function SettingsTabs({
               );
             })}
           </TabsList>
-        </div>
+        </ScrollFadeRow>
       </Tabs>
 
       {subTabs && subTabs.length > 1 ? (
@@ -88,7 +75,7 @@ export function SettingsTabs({
           value={section}
           onValueChange={(v) => onSection(v as SettingsSection)}
         >
-          <div ref={subRef} className="-mx-1 overflow-x-auto px-1 pb-1">
+          <ScrollFadeRow activeKey={section} className="-mx-1 px-1 pb-1">
             <TabsList aria-label={t(`categories.${category}`)}>
               {subTabs.map((id) => {
                 const Icon = SECTION_META[id].icon;
@@ -104,7 +91,7 @@ export function SettingsTabs({
                 );
               })}
             </TabsList>
-          </div>
+          </ScrollFadeRow>
         </Tabs>
       ) : null}
     </div>
