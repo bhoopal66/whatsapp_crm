@@ -154,3 +154,91 @@ export function aiBannerState(input: AiBannerInput): AiBannerState {
       : null,
   };
 }
+
+// ------------------------------------------------------------
+// Inputs the thread derives from its loaded messages.
+// ------------------------------------------------------------
+
+interface DatedMessage {
+  created_at: string;
+}
+
+/** The newest of `messages` by `created_at`; a tie goes to the later one. */
+function newest<M extends DatedMessage>(messages: readonly M[]): M | null {
+  let best: M | null = null;
+  let bestAt = -Infinity;
+  for (const m of messages) {
+    const at = time(m.created_at);
+    if (at === null) continue;
+    if (at >= bestAt) {
+      best = m;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+/** `created_at` of the newest bot-generated message, or null. */
+export function lastAiReplyAt(
+  messages: readonly (DatedMessage & { ai_generated?: boolean | null })[]
+): string | null {
+  return newest(messages.filter((m) => m.ai_generated))?.created_at ?? null;
+}
+
+/** The newest message is the customer's (so Resume should answer it). */
+export function lastMessageFromCustomer(
+  messages: readonly (DatedMessage & { sender_type: string })[]
+): boolean {
+  return newest(messages)?.sender_type === 'customer';
+}
+
+// ------------------------------------------------------------
+// The banner's optimistic state. A click patches the banner at once;
+// the server's row (the parent's patch, then the realtime UPDATE)
+// supersedes it. The override remembers which chat and which server
+// snapshot it was made against, and is ignored as soon as either
+// differs — derived on render, never reset from an effect.
+// ------------------------------------------------------------
+
+const SNAPSHOT_FIELDS = [
+  'ai_autoreply_disabled',
+  'ai_paused_reason',
+  'ai_handoff_summary',
+  'ai_pending_draft',
+  'ai_pending_draft_at',
+  'ai_last_outcome',
+  'ai_last_outcome_detail',
+  'ai_last_outcome_at',
+  'assigned_agent_id',
+] as const;
+
+type SnapshotSource = Partial<
+  Record<(typeof SNAPSHOT_FIELDS)[number], unknown>
+>;
+
+/** A key that changes whenever any field the banner reads changes. */
+export function bannerSnapshot(c: SnapshotSource): string {
+  return JSON.stringify(SNAPSHOT_FIELDS.map((f) => c[f] ?? null));
+}
+
+export interface BannerOverride<P> {
+  forConversation: string;
+  forSnapshot: string;
+  value: P;
+}
+
+/** `server` with the override applied, if it still belongs to it. */
+export function withOverride<C extends SnapshotSource>(
+  conversationId: string,
+  server: C,
+  override: BannerOverride<Partial<C>> | null
+): C {
+  if (
+    !override ||
+    override.forConversation !== conversationId ||
+    override.forSnapshot !== bannerSnapshot(server)
+  ) {
+    return server;
+  }
+  return { ...server, ...override.value };
+}

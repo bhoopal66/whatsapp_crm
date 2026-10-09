@@ -52,7 +52,11 @@ import {
 import { FailedSendRow } from './failed-send-row';
 import { deleteAccountMedia } from '@/lib/storage/upload-media';
 import { TemplatePicker } from './template-picker';
-import { AiThreadBanner } from './ai-thread-banner';
+import { AiThreadBanner, type AiBannerPatch } from './ai-thread-banner';
+import {
+  lastAiReplyAt as newestAiReplyAt,
+  lastMessageFromCustomer as newestIsCustomer,
+} from '@/lib/ai/banner-state';
 import { OutreachBanner } from './outreach-banner';
 import {
   ThreadChannelNote,
@@ -125,6 +129,9 @@ interface MessageThreadProps {
     conversationId: string,
     assignedAgentId: string | null
   ) => void;
+  /** After an AI banner action (take over, resume, a held draft sent or
+   *  discarded), with what the route changed on the row. */
+  onAiChange: (conversationId: string, patch: AiBannerPatch) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
    * hidden. This callback lets the page deselect the active conversation
@@ -230,6 +237,7 @@ export function MessageThread({
   onUpdateMessage,
   onChatTagsChange,
   onAssignChange,
+  onAiChange,
   onBack,
   resyncToken = 0,
   deltaSyncToken = 0,
@@ -562,7 +570,12 @@ export function MessageThread({
     outreachStartingRef.current = wouldStartChat(messages, outreachNow);
   }, [messages, outreachNow]);
   const guardNotices = useMemo(() => {
-    if (!accountNumbers || !conversationId || !accountRole || accountRole === 'viewer') {
+    if (
+      !accountNumbers ||
+      !conversationId ||
+      !accountRole ||
+      accountRole === 'viewer'
+    ) {
       return [];
     }
     const n = predictSendingNumber(accountNumbers, {
@@ -573,7 +586,8 @@ export function MessageThread({
       messages,
       day: myOutreach,
       channelId: n?.id ?? null,
-      provider: n?.provider === 'whapi' || n?.provider === 'meta' ? n.provider : null,
+      provider:
+        n?.provider === 'whapi' || n?.provider === 'meta' ? n.provider : null,
       now: outreachNow,
     });
   }, [
@@ -1379,6 +1393,14 @@ export function MessageThread({
     () => failedSends.filter((f) => f.conversationId === conversationId),
     [failedSends, conversationId]
   );
+  // The AI banner's evidence from the loaded page: whether the bot has
+  // answered since its last warned outcome, and whether Resume should
+  // also answer a waiting customer message.
+  const lastAiReplyAt = useMemo(() => newestAiReplyAt(messages), [messages]);
+  const lastMessageFromCustomer = useMemo(
+    () => newestIsCustomer(messages),
+    [messages]
+  );
   const profileName = useCallback(
     (userId: string | null) =>
       (userId && profiles.find((p) => p.user_id === userId)?.full_name) || null,
@@ -1669,20 +1691,16 @@ export function MessageThread({
           )}
         </div>
 
-        {/* AI auto-reply banner — take over an active bot, or resume it
-          after a handoff. Renders nothing unless the account has
-          auto-reply configured. */}
+        {/* AI auto-reply banner (AI agent v2) — a held draft to send,
+          edit or discard; why the bot is paused, with Resume; take over
+          an active bot, and why it left the last message unanswered.
+          Renders nothing unless the account has auto-reply configured. */}
         <AiThreadBanner
-          conversationId={conversation.id}
-          disabled={conversation.ai_autoreply_disabled ?? false}
-          handoffSummary={conversation.ai_handoff_summary}
-          assignedAgentId={assignedAgentId}
+          conversation={conversation}
+          lastAiReplyAt={lastAiReplyAt}
+          lastMessageFromCustomer={lastMessageFromCustomer}
           currentUserId={user?.id}
-          onChange={(patch) => {
-            if ('assigned_agent_id' in patch) {
-              onAssignChange(conversation.id, patch.assigned_agent_id ?? null);
-            }
-          }}
+          onChange={(patch) => onAiChange(conversation.id, patch)}
         />
 
         {/* The number this chat replies from has dropped. Agents kept

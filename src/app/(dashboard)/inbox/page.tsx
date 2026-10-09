@@ -31,6 +31,7 @@ import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
+import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
 import { BroadcastsTabs } from '@/components/broadcasts/broadcasts-tabs';
 import { toast } from 'sonner';
@@ -834,6 +835,12 @@ export function InboxPageInner({
     [patchConversation]
   );
 
+  const handleAiChange = useCallback(
+    (conversationId: string, patch: AiBannerPatch) =>
+      patchConversation(conversationId, patch),
+    [patchConversation]
+  );
+
   // On mobile (<lg) we show a SINGLE pane — either the list or the
   // thread — rather than cramming both side-by-side. Selecting a
   // conversation slides the thread in; the thread's back button pops
@@ -931,6 +938,7 @@ export function InboxPageInner({
             onUpdateMessage={handleUpdateMessage}
             onChatTagsChange={handleChatTagsChange}
             onAssignChange={handleAssignChange}
+            onAiChange={handleAiChange}
             onBack={handleCloseConversation}
             resyncToken={resyncToken}
             deltaSyncToken={deltaSync.token}

@@ -4,6 +4,10 @@ import { AI_DISPATCH_OUTCOMES } from './outcomes';
 import {
   aiBannerState,
   autoResumeAfter,
+  bannerSnapshot,
+  lastAiReplyAt,
+  lastMessageFromCustomer,
+  withOverride,
   outcomeWarning,
   type AiBannerInput,
 } from './banner-state';
@@ -243,5 +247,93 @@ describe('autoResumeAfter', () => {
     [1440, { unit: 'hours', count: 24 }],
   ])('%s → %j', (minutes, expected) => {
     expect(autoResumeAfter(minutes)).toEqual(expected);
+  });
+});
+
+describe('lastAiReplyAt', () => {
+  it('is the newest bot-generated message, whatever the list order', () => {
+    expect(
+      lastAiReplyAt([
+        { created_at: '2026-10-09T10:05:00Z', ai_generated: true },
+        { created_at: '2026-10-09T10:09:00Z', ai_generated: false },
+        { created_at: '2026-10-09T10:07:00Z', ai_generated: true },
+        { created_at: '2026-10-09T10:01:00Z', ai_generated: true },
+      ])
+    ).toBe('2026-10-09T10:07:00Z');
+  });
+
+  it('is null with no bot message loaded', () => {
+    expect(lastAiReplyAt([{ created_at: '2026-10-09T10:00:00Z' }])).toBeNull();
+    expect(lastAiReplyAt([])).toBeNull();
+  });
+});
+
+describe('lastMessageFromCustomer', () => {
+  it("reads the newest message's sender", () => {
+    const customerLast = [
+      { created_at: '2026-10-09T10:00:00Z', sender_type: 'agent' },
+      { created_at: '2026-10-09T10:02:00Z', sender_type: 'customer' },
+    ];
+    expect(lastMessageFromCustomer(customerLast)).toBe(true);
+    expect(
+      lastMessageFromCustomer([
+        ...customerLast,
+        { created_at: '2026-10-09T10:03:00Z', sender_type: 'bot' },
+      ])
+    ).toBe(false);
+  });
+
+  it('goes by created_at, not position, and is false when empty', () => {
+    expect(
+      lastMessageFromCustomer([
+        { created_at: '2026-10-09T10:05:00Z', sender_type: 'customer' },
+        { created_at: '2026-10-09T10:01:00Z', sender_type: 'agent' },
+      ])
+    ).toBe(true);
+    expect(lastMessageFromCustomer([])).toBe(false);
+  });
+});
+
+describe('withOverride', () => {
+  const server = {
+    id: 'c1',
+    ai_autoreply_disabled: false,
+    ai_paused_reason: null as string | null,
+  };
+  const paused = { ai_autoreply_disabled: true, ai_paused_reason: 'take_over' };
+
+  it('applies a click to the snapshot it was made against', () => {
+    expect(
+      withOverride('c1', server, {
+        forConversation: 'c1',
+        forSnapshot: bannerSnapshot(server),
+        value: paused,
+      })
+    ).toEqual({ ...server, ...paused });
+  });
+
+  it('yields to the server once the row changes', () => {
+    const override = {
+      forConversation: 'c1',
+      forSnapshot: bannerSnapshot(server),
+      value: paused,
+    };
+    const updated = { ...server, ai_last_outcome: 'error' };
+    expect(withOverride('c1', updated, override)).toBe(updated);
+  });
+
+  it('never carries over to another chat with an identical snapshot', () => {
+    const other = { ...server, id: 'c2' };
+    expect(
+      withOverride('c2', other, {
+        forConversation: 'c1',
+        forSnapshot: bannerSnapshot(server),
+        value: paused,
+      })
+    ).toBe(other);
+  });
+
+  it('is the server row with no override', () => {
+    expect(withOverride('c1', server, null)).toBe(server);
   });
 });
