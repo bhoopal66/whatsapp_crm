@@ -635,6 +635,14 @@ means a migration), and `knowledge.ts` retrieves semantically when an
 embeddings key exists, topped up with Postgres full-text. With no
 embeddings key it degrades to lexical-only rather than failing.
 
+**AI agent v2 (migration 077, `docs/ai-agent.md`).**
+- *Tiers.* `ai_configs.model` is the standard tier; `model_small` / `model_large` are the others. `router.ts` picks one per message: a TypeSafe route judgment (`lib/typesafe/checks/route.ts`, `qs-route-v1`), run in parallel with triage, else a heuristic. The route judgment is not a safety check: it is not in `ts_account_settings`, never written to `ts_decision_log`, and has its own breaker key.
+- *Escalation.* At most one extra generation per dispatch, plus one guardrail rewrite on the large model.
+- *Held drafts.* A guardrail **hold** is queued in `conversations.ai_pending_draft` for Send / Edit / Discard (`/api/ai/pending-draft`, claim-then-send). A **block** is never queued.
+- *Pauses.* `ai_paused_reason` records why the bot is paused. The `agent_reply` pause is set by a `messages` trigger, never by app code, and only that pause auto-resumes.
+- *Outcomes.* Every dispatch records one outcome (`outcomes.ts`) on the conversation and in `ai_reply_events`. That record is how "why didn't the AI reply" gets answered, so an exit path without one is a bug.
+- *Time budget.* The dispatch runs on a deadline inside the 60 s `after()`. A step that cannot fit is skipped in favour of a hand-off, never left to be killed.
+
 ### TypeSafe decision layer (`lib/typesafe/*`, migrations 063–064)
 
 Module 013: TypeSafe (Jev) judgments around the auto-reply bot, hooked
