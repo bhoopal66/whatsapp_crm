@@ -8,6 +8,7 @@ export type CampaignInboxFields = Pick<
   | 'assigned_agent_id'
   | 'ai_autoreply_disabled'
   | 'ai_reply_count'
+  | 'chat_tag_id'
 >;
 
 /**
@@ -21,7 +22,9 @@ export type CampaignInboxFields = Pick<
  * the AI has replied in it, it has not handed it off or been paused on
  * it, and no person has stepped in. A person stepping in — an
  * assignment, or a person's reply — sets `human_engaged_at` for good,
- * so that chat stays in the Inbox from then on. Requiring an AI reply
+ * so that chat stays in the Inbox from then on. A chat tag moves it
+ * too, for as long as the chat carries one: tagging is how a person
+ * files a chat, and a filed chat is the people's. Requiring an AI reply
  * is the safety net: a campaign reply the bot never answers (one on a
  * number it does not run on, or the bot switched off) stays in the
  * Inbox, where a person will see it.
@@ -43,7 +46,8 @@ export function inCampaignInbox(
     !conversation.human_engaged_at &&
     !conversation.assigned_agent_id &&
     !conversation.ai_autoreply_disabled &&
-    (conversation.ai_reply_count ?? 0) > 0
+    (conversation.ai_reply_count ?? 0) > 0 &&
+    !conversation.chat_tag_id
   );
 }
 
@@ -53,7 +57,7 @@ export function inCampaignInbox(
  * AI off the Campaign inbox is empty and is not queried at all.
  */
 export const CAMPAIGN_INBOX_FILTER =
-  'and(campaign_broadcast_id.not.is.null,human_engaged_at.is.null,assigned_agent_id.is.null,ai_autoreply_disabled.is.false,ai_reply_count.gt.0)';
+  'and(campaign_broadcast_id.not.is.null,human_engaged_at.is.null,assigned_agent_id.is.null,ai_autoreply_disabled.is.false,ai_reply_count.gt.0,chat_tag_id.is.null)';
 
 /**
  * The negation of {@link CAMPAIGN_INBOX_FILTER}, for the Inbox query
@@ -61,4 +65,4 @@ export const CAMPAIGN_INBOX_FILTER =
  * Inbox applies no filter.
  */
 export const INBOX_FILTER =
-  'campaign_broadcast_id.is.null,human_engaged_at.not.is.null,assigned_agent_id.not.is.null,ai_autoreply_disabled.is.true,ai_reply_count.lte.0';
+  'campaign_broadcast_id.is.null,human_engaged_at.not.is.null,assigned_agent_id.not.is.null,ai_autoreply_disabled.is.true,ai_reply_count.lte.0,chat_tag_id.not.is.null';

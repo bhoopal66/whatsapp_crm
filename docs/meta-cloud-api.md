@@ -211,7 +211,8 @@ like any other.
 conversation stamped with that campaign. Those threads are listed on
 their own under Broadcasts → **Campaign inbox** while the AI auto-reply
 is answering them (and in the Inbox otherwise, and for good once a
-person assigns the thread or replies in it), and the AI auto-reply,
+person assigns the thread or replies in it, and while it carries a
+chat tag), and the AI auto-reply,
 if it is on and routed to the same number the campaign went out on, is
 told which campaign message the customer is replying to. Routing both
 `broadcast` and `ai_reply` to the Meta number is the setup that gives

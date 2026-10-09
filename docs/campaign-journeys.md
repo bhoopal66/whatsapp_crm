@@ -143,7 +143,9 @@ the agent answers only on its own number.
   thread, so each one is in exactly one place. A thread moves to the
   Inbox for good once it is assigned to anyone or a person replies in
   it — releasing the assignment, or the customer answering a later
-  campaign, does not bring it back — and it is in the Inbox whenever
+  campaign, does not bring it back. A chat tag moves it too, for as
+  long as the thread carries one, whoever set it — and it is in the
+  Inbox whenever
   the bot is not answering it: a reply the AI agent has not answered
   (on a number it does not run on, say, or one a Flow is still
   handling), a hand-off, or the AI auto-reply switched off. A brand-new

@@ -9,6 +9,7 @@ import {
 const CAMPAIGN = 'b0000000-0000-4000-8000-000000000001';
 const AGENT = 'a0000000-0000-4000-8000-000000000001';
 const STAMP = '2026-10-01T08:30:00Z';
+const TAG = 'c0000000-0000-4000-8000-000000000001';
 
 /** A chat the bot is answering; each test changes one thing. */
 const BOT_CHAT: CampaignInboxFields = {
@@ -17,6 +18,7 @@ const BOT_CHAT: CampaignInboxFields = {
   assigned_agent_id: undefined,
   ai_autoreply_disabled: false,
   ai_reply_count: 2,
+  chat_tag_id: null,
 };
 
 describe('inCampaignInbox', () => {
@@ -54,6 +56,12 @@ describe('inCampaignInbox', () => {
     expect(
       inCampaignInbox({ ...BOT_CHAT, human_engaged_at: STAMP }, true)
     ).toBe(false);
+  });
+
+  it('moves a tagged chat to the Inbox', () => {
+    expect(inCampaignInbox({ ...BOT_CHAT, chat_tag_id: TAG }, true)).toBe(
+      false
+    );
   });
 
   it('moves a chat assigned on this screen before realtime brings the stamp', () => {
@@ -120,13 +128,15 @@ function everyRow(): Row[] {
       for (const assigned_agent_id of [null, AGENT])
         for (const ai_autoreply_disabled of [false, true])
           for (const ai_reply_count of [0, 1, 3])
-            rows.push({
-              campaign_broadcast_id,
-              human_engaged_at,
-              assigned_agent_id,
-              ai_autoreply_disabled,
-              ai_reply_count,
-            });
+            for (const chat_tag_id of [null, TAG])
+              rows.push({
+                campaign_broadcast_id,
+                human_engaged_at,
+                assigned_agent_id,
+                ai_autoreply_disabled,
+                ai_reply_count,
+                chat_tag_id,
+              });
   return rows;
 }
 

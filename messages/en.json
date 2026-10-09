@@ -165,7 +165,7 @@
       "unknown": "Unknown",
       "campaign": "Campaign",
       "allCampaigns": "All campaigns",
-      "campaignEmpty": "No chats the bot is answering right now. Campaign replies that a person has taken, that the bot handed off, or that the bot isn't answering are in the Inbox.",
+      "campaignEmpty": "No chats the bot is answering right now. Campaign replies that a person has taken or tagged, that the bot handed off, or that the bot isn't answering are in the Inbox.",
       "campaignBotOff": "The AI auto-reply is switched off, so replies to campaigns are in the Inbox.",
       "yesterday": "Yesterday",
       "important": "Important",

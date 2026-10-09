@@ -11,7 +11,8 @@ import { InboxPageInner } from '../../inbox/page';
  * wading through the rest of the inbox. Every other chat is in /inbox,
  * so each is in exactly one place: a hand-off, a chat the bot is not
  * answering, and — for good — one a person has stepped into (assigned,
- * or replied in; migration 067) are all found there.
+ * or replied in; migration 067), and one carrying a chat tag, are all
+ * found there.
  *
  * Same screen as /inbox with `campaignView` on: the list is narrowed to
  * those threads and gains a per-campaign filter. Inherits the

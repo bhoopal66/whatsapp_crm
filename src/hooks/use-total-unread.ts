@@ -14,7 +14,7 @@ type UnreadRow = Pick<Conversation, 'id' | 'unread_count'> &
   CampaignInboxFields;
 
 const UNREAD_ROW_COLUMNS =
-  'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count';
+  'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id';
 
 /**
  * Count of conversations with at least one unread inbound message for

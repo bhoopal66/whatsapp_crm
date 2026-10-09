@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Tagged campaign chats move to the Inbox
+
+A chat in **Broadcasts → Campaign inbox** now moves to the **Inbox**
+as soon as it is given a chat tag, and stays there while it carries
+one — tagging a chat is filing it for the team. This covers tags set
+from the chat header and by automations and Flows; removing the tag
+puts a chat the bot is still answering back in the Campaign inbox.
+Chats that already carry a tag move on upgrade. No migration.
+
 ### Broadcast audiences from Excel files
 
 The broadcast wizard's **Upload CSV or Excel** audience now takes an
