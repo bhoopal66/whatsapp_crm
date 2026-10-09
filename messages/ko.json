@@ -3094,5 +3094,37 @@
       "unanswered": "이 연락처는 최근 메시지 {count}개에 답하지 않았습니다. 더 보내기 전에 답을 기다리세요.",
       "newContactTip": "이 사람에게 보내는 첫 메시지입니다. 누구인지 밝히고, 직접 쓰고, 링크는 상대가 답한 뒤에 보내세요."
     }
+  },
+  "AiAgents": {
+    "advanced": "고급",
+    "tabs": {
+      "overview": "개요",
+      "assistant": "어시스턴트",
+      "auto-reply": "자동 응답",
+      "knowledge": "지식",
+      "safety": "안전 검사",
+      "playground": "플레이그라운드",
+      "usage": "사용량"
+    },
+    "desc": {
+      "assistant": "AI 공급자, 키와 모델, 그리고 어시스턴트가 알고 있는 비즈니스 정보입니다.",
+      "auto-reply": "봇이 고객에게 스스로 답하는 경우와 사람에게 넘기는 경우를 정합니다.",
+      "knowledge": "AI가 답변에 사용하는 문서와 그 문서를 얼마나 엄격히 따르는지 정합니다."
+    },
+    "assistantOn": "AI 어시스턴트 켜기 — 받은편지함 초안과 자동 응답에 필요",
+    "modelsTitle": "모델",
+    "assistantFirst": "먼저 AI 어시스턴트를 켜세요(어시스턴트 탭).",
+    "whichChats": "대상 채팅",
+    "replyOn": {
+      "title": "응답 번호",
+      "all": "모든 번호 — 고객이 메시지를 보낸 번호",
+      "allDesc": "Whapi든 Cloud API든 고객이 사용한 번호로 봇이 답합니다. 다른 번호에 고정된 채팅은 사람이 처리합니다.",
+      "only": "이 번호만",
+      "onlyDesc": "봇은 이 번호에서만 답하고, 다른 번호의 채팅은 사람이 처리합니다.",
+      "default": "기본 번호",
+      "defaultNamed": "기본 번호({name})"
+    },
+    "handOver": "사람에게 넘기기",
+    "needsEmbeddingsKey": "임베딩 키가 있을 때만 적용됩니다."
   }
 }

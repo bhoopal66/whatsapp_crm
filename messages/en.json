@@ -3094,5 +3094,37 @@
       "unanswered": "This contact has not answered your last {count} messages. Wait for a reply before sending more.",
       "newContactTip": "This is your first message to this person. Say who you are, write it yourself, and send links only after they reply."
     }
+  },
+  "AiAgents": {
+    "advanced": "Advanced",
+    "tabs": {
+      "overview": "Overview",
+      "assistant": "Assistant",
+      "auto-reply": "Auto-reply",
+      "knowledge": "Knowledge",
+      "safety": "Safety checks",
+      "playground": "Playground",
+      "usage": "Usage"
+    },
+    "desc": {
+      "assistant": "Your AI provider, key and models, and what the assistant knows about your business.",
+      "auto-reply": "When the bot answers customers on its own, and when it hands over to a person.",
+      "knowledge": "Documents the AI answers from, and how strictly it sticks to them."
+    },
+    "assistantOn": "AI assistant on — needed for inbox drafts and auto-reply",
+    "modelsTitle": "Models",
+    "assistantFirst": "Turn on the AI assistant first (Assistant tab).",
+    "whichChats": "Which chats",
+    "replyOn": {
+      "title": "Reply on",
+      "all": "Every number — the one the customer wrote to",
+      "allDesc": "Whapi or Cloud API, the bot answers on the number the customer used. A chat pinned to another number is left to people.",
+      "only": "Only on",
+      "onlyDesc": "The bot answers only on this number; chats on other numbers are left to people.",
+      "default": "Default number",
+      "defaultNamed": "Default number ({name})"
+    },
+    "handOver": "Hand over to a person",
+    "needsEmbeddingsKey": "Only applies with an embeddings key."
   }
 }

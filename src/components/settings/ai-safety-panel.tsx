@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -87,6 +88,7 @@ import { PartnerBanksCard } from './partner-banks-card';
 import { SettingsChip, type ChipVariant } from './settings-chip';
 import { SettingsPanelHead } from './settings-panel-head';
 import { canOpenSection } from './settings-sections';
+import { AdvancedSection } from '@/components/agents/ai-config-sections';
 
 /**
  * Settings → AI safety checks: the account's switches for the TypeSafe
@@ -157,12 +159,12 @@ function count(n: unknown): number {
   return typeof n === 'number' && Number.isFinite(n) ? n : 0;
 }
 
-type PanelState = 'off' | 'monitor' | 'live' | 'problem';
+export type PanelState = 'off' | 'monitor' | 'live' | 'problem';
 
 const SWITCHABLE_CHECKS = ['triage', 'guardrail', 'passages'] as const;
 
 /** What the layer is doing right now, for the header chip. */
-function effectiveState(
+export function effectiveState(
   settings: TsAccountSettings,
   status: TsStatus
 ): PanelState {
@@ -231,7 +233,16 @@ function useLabel() {
   );
 }
 
-export function AiSafetyPanel() {
+export function AiSafetyPanel({
+  guardrailExtra,
+  onDataChange,
+}: {
+  /** Rendered right under the Reply guardrail switch (AI Agents puts
+   *  the AI-config form's "rewrite a held draft once" there). */
+  guardrailExtra?: ReactNode;
+  /** Told whenever the loaded or saved settings change. */
+  onDataChange?: (data: TsSettingsResponse) => void;
+} = {}) {
   const { accountId, accountRole, profileLoading } = useAuth();
   const t = useTranslations('Settings.aiSafety');
   const allowed = canOpenSection(
@@ -259,6 +270,9 @@ export function AiSafetyPanel() {
   const loadedAccountIdRef = useRef<string | null>(null);
 
   const tick = useCallback(() => setNow(Date.now()), []);
+  useEffect(() => {
+    if (data) onDataChange?.(data);
+  }, [data, onDataChange]);
   useEffect(() => {
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
@@ -432,6 +446,7 @@ export function AiSafetyPanel() {
             saving={saving}
             now={now}
             onChange={requestChange}
+            guardrailExtra={guardrailExtra}
           />
           {/* Checked, not trusted: absent from a backend without it. */}
           {Array.isArray(data.bank_catalogue) ? (
@@ -603,35 +618,37 @@ function StatusCard({ status }: { status: TsStatus }) {
           </p>
         ) : null}
 
-        <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_minmax(0,1fr)] sm:items-center">
-          <dt className="text-muted-foreground">{t('status.model')}</dt>
-          <dd>
-            <code className="bg-muted rounded px-1.5 py-0.5 text-xs">
-              {status.model || '—'}
-            </code>
-          </dd>
-          <dt className="text-muted-foreground">{t('status.thresholds')}</dt>
-          <dd className="flex flex-wrap gap-1.5">
-            {FILTERABLE_CHECKS.map((c) => {
-              const policy = status.policies?.[c] ?? null;
-              return (
-                <SettingsChip
-                  key={c}
-                  variant={policy === null ? 'muted' : 'admin'}
-                >
-                  {checkName(c)}:{' '}
-                  {policy === null
-                    ? t('status.builtIn')
-                    : policy.loggedOnly
-                      ? t('status.customLoggedOnly', {
-                          version: policy.version,
-                        })
-                      : t('status.custom', { version: policy.version })}
-                </SettingsChip>
-              );
-            })}
-          </dd>
-        </dl>
+        <AdvancedSection>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_minmax(0,1fr)] sm:items-center">
+            <dt className="text-muted-foreground">{t('status.model')}</dt>
+            <dd>
+              <code className="bg-muted rounded px-1.5 py-0.5 text-xs">
+                {status.model || '—'}
+              </code>
+            </dd>
+            <dt className="text-muted-foreground">{t('status.thresholds')}</dt>
+            <dd className="flex flex-wrap gap-1.5">
+              {FILTERABLE_CHECKS.map((c) => {
+                const policy = status.policies?.[c] ?? null;
+                return (
+                  <SettingsChip
+                    key={c}
+                    variant={policy === null ? 'muted' : 'admin'}
+                  >
+                    {checkName(c)}:{' '}
+                    {policy === null
+                      ? t('status.builtIn')
+                      : policy.loggedOnly
+                        ? t('status.customLoggedOnly', {
+                            version: policy.version,
+                          })
+                        : t('status.custom', { version: policy.version })}
+                  </SettingsChip>
+                );
+              })}
+            </dd>
+          </dl>
+        </AdvancedSection>
 
         {status.configured && !status.problem ? (
           <p className="text-muted-foreground text-xs">
@@ -667,12 +684,14 @@ function ControlsCard({
   saving,
   now,
   onChange,
+  guardrailExtra,
 }: {
   settings: TsAccountSettings;
   status: TsStatus;
   saving: boolean;
   now: number;
   onChange: (patch: Partial<TsSettingsUpdate>) => void;
+  guardrailExtra?: ReactNode;
 }) {
   const t = useTranslations('Settings.aiSafety');
   const time = useTimeFormat(now);
@@ -705,6 +724,33 @@ function ControlsCard({
   ];
 
   const changed = time(settings.updatedAt);
+
+  const renderCheck = ({ id, field, check }: (typeof checkRows)[number]) => (
+    <SwitchRow
+      key={id}
+      id={`ts-${id}`}
+      title={t(`controls.${id}`)}
+      description={t(`controls.${id}Desc`)}
+      checked={settings[field]}
+      disabled={disabled || unavailable(check)}
+      onCheckedChange={(value) => {
+        const patch: Partial<TsSettingsUpdate> = {};
+        patch[field] = value;
+        onChange(patch);
+      }}
+      note={
+        unavailable(check) ? (
+          <SettingsChip variant="warn" className="mt-2">
+            {t('controls.unavailableOnServer')}
+          </SettingsChip>
+        ) : id === 'watch' && settings.watchHumanThreads && !settings.triage ? (
+          <SettingsChip variant="warn" className="mt-2">
+            {t('controls.watchNeedsTriage')}
+          </SettingsChip>
+        ) : null
+      }
+    />
+  );
 
   return (
     <Card>
@@ -773,82 +819,66 @@ function ControlsCard({
           <p className="text-foreground text-sm font-medium">
             {t('controls.checks')}
           </p>
-          {checkRows.map(({ id, field, check }) => (
-            <SwitchRow
-              key={id}
-              id={`ts-${id}`}
-              title={t(`controls.${id}`)}
-              description={t(`controls.${id}Desc`)}
-              checked={settings[field]}
-              disabled={disabled || unavailable(check)}
-              onCheckedChange={(value) => {
-                const patch: Partial<TsSettingsUpdate> = {};
-                patch[field] = value;
-                onChange(patch);
-              }}
-              note={
-                unavailable(check) ? (
-                  <SettingsChip variant="warn" className="mt-2">
-                    {t('controls.unavailableOnServer')}
-                  </SettingsChip>
-                ) : id === 'watch' &&
-                  settings.watchHumanThreads &&
-                  !settings.triage ? (
-                  <SettingsChip variant="warn" className="mt-2">
-                    {t('controls.watchNeedsTriage')}
-                  </SettingsChip>
-                ) : null
-              }
-            />
+          {checkRows.slice(0, 2).map((row) => (
+            <Fragment key={row.id}>
+              {renderCheck(row)}
+              {row.id === 'guardrail' ? guardrailExtra : null}
+            </Fragment>
           ))}
         </div>
 
-        <div className="space-y-2">
-          <p
-            className="text-foreground text-sm font-medium"
-            id="ts-languages-label"
-          >
-            {t('controls.languages')}
-          </p>
-          <p className="text-muted-foreground text-xs">
-            {t('controls.languagesDesc')}
-          </p>
-          <Select
-            value={settings.languages}
-            onValueChange={(value) => {
-              if (
-                (value === 'english' || value === 'all') &&
-                value !== settings.languages
-              ) {
-                onChange({ languages: value });
-              }
-            }}
-            disabled={disabled}
-          >
-            <SelectTrigger
-              aria-labelledby="ts-languages-label"
-              className="w-full sm:max-w-md"
+        {/* Less used, or uncalibrated (the knowledge filter): kept out
+            of the way until asked for. */}
+        <AdvancedSection>
+          <div className="space-y-2">{checkRows.slice(2).map(renderCheck)}</div>
+
+          <div className="space-y-2">
+            <p
+              className="text-foreground text-sm font-medium"
+              id="ts-languages-label"
             >
-              {/* Base UI's SelectValue renders the raw value unless
+              {t('controls.languages')}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {t('controls.languagesDesc')}
+            </p>
+            <Select
+              value={settings.languages}
+              onValueChange={(value) => {
+                if (
+                  (value === 'english' || value === 'all') &&
+                  value !== settings.languages
+                ) {
+                  onChange({ languages: value });
+                }
+              }}
+              disabled={disabled}
+            >
+              <SelectTrigger
+                aria-labelledby="ts-languages-label"
+                className="w-full sm:max-w-md"
+              >
+                {/* Base UI's SelectValue renders the raw value unless
                   given children. */}
-              <SelectValue>
-                {settings.languages === 'all'
-                  ? t('controls.all')
-                  : t('controls.english')}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="english">
-                <span className="whitespace-normal">
-                  {t('controls.english')}
-                </span>
-              </SelectItem>
-              <SelectItem value="all">
-                <span className="whitespace-normal">{t('controls.all')}</span>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+                <SelectValue>
+                  {settings.languages === 'all'
+                    ? t('controls.all')
+                    : t('controls.english')}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="english">
+                  <span className="whitespace-normal">
+                    {t('controls.english')}
+                  </span>
+                </SelectItem>
+                <SelectItem value="all">
+                  <span className="whitespace-normal">{t('controls.all')}</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </AdvancedSection>
 
         <p className="text-muted-foreground flex items-center gap-2 text-xs">
           {saving ? (
