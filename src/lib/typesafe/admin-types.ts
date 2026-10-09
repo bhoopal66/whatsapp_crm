@@ -66,6 +66,33 @@ export interface TsPolicyInfo {
 export interface TsSettingsResponse {
   settings: TsAccountSettings;
   status: TsStatus;
+  /** The account's partner banks (migration 078); null = the built-in
+   *  list (every catalogue bank with `defaultPartner`). */
+  partner_banks: PartnerBanksSetting | null;
+  /** The built-in banks an admin can tick. */
+  bank_catalogue: BankCatalogueEntry[];
+}
+
+/** One bank of the built-in catalogue (lib/typesafe/banks.ts). */
+export interface BankCatalogueEntry {
+  code: string;
+  /** Display name, e.g. "First Abu Dhabi Bank (FAB)". */
+  name: string;
+  /** A partner in the built-in list (what a NULL setting means). */
+  defaultPartner: boolean;
+}
+
+/** GET /api/typesafe/knowledge-banks: catalogue banks the account's
+ *  knowledge base mentions, most documents first. */
+export interface KnowledgeBankMention {
+  code: string;
+  name: string;
+  /** Knowledge-base documents that mention the bank. */
+  documents: number;
+}
+
+export interface KnowledgeBanksResponse {
+  banks: KnowledgeBankMention[];
 }
 
 /** The writable switches. */
@@ -87,10 +114,15 @@ export type TsSettingsUpdate = Pick<
  *   PUT is refused with 409 and a `TsSettingsConflict` body.
  * - `confirmLive`: required (true) when the change makes the layer act
  *   where it did not — enabled + Live from anything else — else 409.
+ * - `partner_banks`: optional; written in the same version-checked
+ *   update.
  */
 export interface TsSettingsPut extends TsSettingsUpdate {
   expectedUpdatedAt: string | null;
   confirmLive?: boolean;
+  /** Absent: unchanged. null: back to the built-in list. Codes must be
+   *  catalogue codes. */
+  partner_banks?: PartnerBanksSetting | null;
 }
 
 /** 409 body: what the server holds now. */

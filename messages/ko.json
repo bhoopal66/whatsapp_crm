@@ -2413,6 +2413,28 @@
       "footnote": "요율은 전달일 기준 수신자 시장에 대한 Meta 공식 메시지당 USD 요율표입니다. 각 영수증의 Meta billable 플래그가 로컬 규칙보다 우선합니다. Meta 청구서와 대조하기 전까지는 추정치입니다."
     },
     "aiSafety": {
+      "partners": {
+        "title": "제휴 은행",
+        "description": "AI는 이 은행들에 대해서만 이야기합니다. 다른 은행을 언급하는 답변은 안전 검사에서 차단됩니다.",
+        "usingBuiltIn": "기본 목록을 사용 중입니다.",
+        "usingOwn": "직접 지정한 목록을 사용 중입니다.",
+        "reset": "기본값으로 재설정",
+        "builtInPartner": "기본",
+        "others": "기타 제휴 은행",
+        "remove": "{name} 삭제",
+        "addTitle": "은행 추가",
+        "namePlaceholder": "은행 이름",
+        "aliasesPlaceholder": "다른 이름 또는 약어 (쉼표로 구분)",
+        "add": "추가",
+        "duplicate": "{name}은(는) 이미 목록에 있습니다.",
+        "limit": "은행은 최대 {max}개까지 추가할 수 있습니다.",
+        "found": "지식 베이스에서 발견됨",
+        "foundHint": "지식 베이스에 언급되었지만 목록에 없는 은행입니다.",
+        "foundBank": "{name} — 문서 {count}개",
+        "addFound": "추가",
+        "unsaved": "저장되지 않은 변경 사항",
+        "save": "제휴 은행 저장"
+      },
       "title": "AI 안전 검사",
       "description": "TypeSafe가 AI 어시스턴트가 처리하는 모든 메시지를 검사합니다. 상담원 연결 요청, 불만, 수신 거부는 팀에 넘기고, 지식 베이스를 걸러내며, 모든 봇 답장을 보내기 전에 검토합니다.",
       "adminOnly": "AI 안전 검사는 관리자만 관리할 수 있습니다.",
