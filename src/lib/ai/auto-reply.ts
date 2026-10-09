@@ -20,9 +20,8 @@ import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
 import { matchEscalationKeyword } from './escalation';
 import { logAiUsage } from './usage';
 import { latestUserMessage } from './query';
-import { getDecisionLayer } from '@/lib/typesafe';
 import {
-  accountPartnerBanks,
+  enforcedPartnerBanks,
   guardrailFeedback,
   partnerBanksPromptLine,
   runGuardrailGate,
@@ -839,10 +838,8 @@ export async function dispatchInboundToAiReply(
     // The account's partner banks (Settings → AI safety checks, 078):
     // the safety check blocks any other bank, so the model is told the
     // list up front rather than finding out through a blocked draft.
-    // Only where TypeSafe runs — without it nothing enforces the list.
-    const partners = getDecisionLayer()
-      ? await accountPartnerBanks(accountId)
-      : null;
+    // Only where the guardrail acts — elsewhere nothing enforces it.
+    const partners = await enforcedPartnerBanks(accountId);
     const promptNotes = partners
       ? [partnerBanksPromptLine(partners), ...triage.promptNotes]
       : triage.promptNotes;

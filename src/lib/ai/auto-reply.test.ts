@@ -2545,13 +2545,25 @@ describe('dispatchInboundToAiReply — the open question drives retrieval and ro
     });
   });
 
-  it("tells the model the account's partner banks when TypeSafe runs", async () => {
-    h.decisionLayer = {
-      partners: async () => ({
-        banks: [],
-        display: ['First Abu Dhabi Bank (FAB)', 'Mashreq'],
-      }),
-    };
+  // A layer whose guardrail is on for the account, live or in monitor,
+  // and lets every draft through.
+  const guardrailLayer = (monitor: boolean, enabled = true) => ({
+    config: { enabled: { guardrail: enabled } },
+    state: async () => ({
+      on: true,
+      monitor,
+      shadowLanguages: [],
+      unknown: false,
+    }),
+    guardrail: async () => ({ act: true, outcome: 'send', reasonCodes: [] }),
+    partners: async () => ({
+      banks: [],
+      display: ['First Abu Dhabi Bank (FAB)', 'Mashreq'],
+    }),
+  });
+
+  it("tells the model the account's partner banks when the guardrail acts", async () => {
+    h.decisionLayer = guardrailLayer(false);
     h.buildConversationContext.mockResolvedValue([
       { role: 'user', content: FAB, at: NOW },
     ]);
@@ -2562,6 +2574,23 @@ describe('dispatchInboundToAiReply — the open question drives retrieval and ro
       'The business works with these partner banks: First Abu Dhabi Bank (FAB), Mashreq.'
     );
   });
+
+  it.each([
+    ['in monitor mode', guardrailLayer(true)],
+    ['switched off', guardrailLayer(false, false)],
+  ])(
+    'names no partner banks to the model when the guardrail is %s',
+    async (_label, layer) => {
+      h.decisionLayer = layer;
+      h.buildConversationContext.mockResolvedValue([
+        { role: 'user', content: FAB, at: NOW },
+      ]);
+      expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+      const systemPrompt = h.generateReply.mock.calls[0][0]
+        .systemPrompt as string;
+      expect(systemPrompt).not.toContain('partner banks');
+    }
+  );
 
   it('names no partner banks to the model without TypeSafe', async () => {
     h.buildConversationContext.mockResolvedValue([

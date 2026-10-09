@@ -1,5 +1,10 @@
 import { getDecisionLayer, type DecisionLayer } from '@/lib/typesafe';
-import { detectBanks, PARTNER_BANK_DISPLAY } from '@/lib/typesafe/banks';
+import {
+  BANKS,
+  detectBanksIn,
+  PARTNER_BANK_DISPLAY,
+  type BankEntry,
+} from '@/lib/typesafe/banks';
 import { GUARDRAIL_HAZARDS } from '@/lib/typesafe/describe-decision';
 import {
   accountEnabled,
@@ -524,7 +529,12 @@ export async function runGuardrailGate(
 
   return {
     outcome: g.outcome,
-    detail: guardrailDetail(g.outcome, g.reasonCodes, args.botReply),
+    detail: guardrailDetail(
+      g.outcome,
+      g.reasonCodes,
+      args.botReply,
+      await accountBankCatalogue(ts, ref.accountId)
+    ),
     reasonCodes: g.reasonCodes,
     // `fallbackUsed` is the guardrail's "degraded": TypeSafe did not
     // answer (or answered with another model) and the fail mode decided.
@@ -540,17 +550,23 @@ type GuardrailHazard = (typeof GUARDRAIL_HAZARDS)[number];
  * Keyed by describe-decision's `GUARDRAIL_HAZARDS`, so a new hazard
  * there does not compile until it is worded here.
  */
-const HAZARD_SENTENCES: Record<GuardrailHazard, (draft: string) => string> = {
+const HAZARD_SENTENCES: Record<
+  GuardrailHazard,
+  (draft: string, banks: readonly BankEntry[]) => string
+> = {
   PROMISES_APPROVAL: () =>
     'the draft promised or implied an approval, which only the bank can decide.',
   GUARANTEES_TIMELINE: () =>
     'the draft guaranteed how long something will take.',
   UNSUPPORTED_FIGURE: () =>
     'the draft quoted a figure (a fee, rate, amount or time) that is not in your knowledge base or instructions.',
-  NON_PARTNER_BANK: (draft) => {
-    const banks = detectBanks(draft)
+  NON_PARTNER_BANK: (draft, catalogue) => {
+    // Judged against the account's own list (078): a bank it ticked is
+    // never named here as missing, and each is named as people know it.
+    const names = new Map(catalogue.map((b) => [b.code, b.displayName]));
+    const banks = detectBanksIn(draft, catalogue)
       .filter((b) => !b.partner)
-      .map((b) => b.code);
+      .map((b) => names.get(b.code) ?? b.code);
     return banks.length
       ? `the draft named ${banks.length === 1 ? 'a bank' : 'banks'} that ${banks.length === 1 ? 'is' : 'are'} not on your partner list (${banks.join(', ')}). Add ${banks.length === 1 ? 'it' : 'them'} in Settings → AI safety checks → Partner banks if you work with ${banks.length === 1 ? 'it' : 'them'}.`
       : 'the draft named a bank that is not on your partner list. Add it in Settings → AI safety checks → Partner banks if you work with it.';
@@ -592,7 +608,9 @@ const isHazard = (h: string): h is GuardrailHazard =>
 export function guardrailDetail(
   outcome: 'hold' | 'block',
   reasonCodes: string[],
-  draft: string
+  draft: string,
+  /** The account's bank catalogue (`partnerCatalogue`); built-in by default. */
+  banks: readonly BankEntry[] = BANKS
 ): string {
   const verb = outcome === 'block' ? 'blocked' : 'held';
   const why = [
@@ -600,7 +618,7 @@ export function guardrailDetail(
       reasonCodes.map((c) => {
         const hazard = hazardOf(c);
         return isHazard(hazard)
-          ? HAZARD_SENTENCES[hazard](draft)
+          ? HAZARD_SENTENCES[hazard](draft, banks)
           : (STATE_SENTENCES[c] ?? null);
       })
     ),
@@ -673,6 +691,33 @@ export function guardrailFeedback(
  * built-in one (also when the TypeSafe layer is off or unconfigured —
  * which banks the business works with is a fact, not a check).
  */
+/** The account's bank catalogue for wording a note; never throws. */
+async function accountBankCatalogue(
+  ts: DecisionLayer,
+  accountId: string
+): Promise<readonly BankEntry[]> {
+  try {
+    return (await ts.partners(accountId)).banks;
+  } catch {
+    return BANKS;
+  }
+}
+
+/**
+ * The account's partner banks for the bot's own instructions — only
+ * where the guardrail enforces them, acting (on and live) for this
+ * account. Anywhere else nothing blocks another bank, so telling the
+ * model "only discuss these" would itself refuse banks the business
+ * may well work with (a check that does not act changes nothing).
+ */
+export async function enforcedPartnerBanks(
+  accountId: string
+): Promise<readonly string[] | null> {
+  const on = await layerFor('guardrail', accountId).catch(() => null);
+  if (!on || on.state.monitor) return null;
+  return accountPartnerBanks(accountId);
+}
+
 export async function accountPartnerBanks(
   accountId: string
 ): Promise<readonly string[]> {

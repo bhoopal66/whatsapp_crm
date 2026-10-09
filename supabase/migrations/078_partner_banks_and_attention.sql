@@ -42,8 +42,11 @@
 -- customer's is still waiting for a person. A re-run never re-flags a
 -- chat someone has since dealt with.
 --
--- Apply without -1: ALTER TABLE takes each table's exclusive lock, and
--- in one transaction it would be held through the backfill.
+-- Apply without -1, so each statement commits on its own. The
+-- conversations column and its one-time backfill share one DO block (so
+-- the backfill runs only when the column is new), which means the
+-- table's exclusive lock IS held through that backfill — brief, since it
+-- touches only handed-off chats still waiting on a person.
 --
 -- Re-runnable: ADD COLUMN / CREATE INDEX IF NOT EXISTS, a guarded
 -- constraint, CREATE OR REPLACE. The backfill runs only when the

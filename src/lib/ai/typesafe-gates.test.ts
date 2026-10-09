@@ -10,6 +10,7 @@ import {
 import { SWITCHES_UNMANAGED, type Ts013Config } from '@/lib/typesafe/config';
 import type { TsStore } from '@/lib/typesafe/store';
 import type { KnowledgeRetrieval } from './knowledge';
+import { partnerCatalogue } from '@/lib/typesafe/banks';
 
 // The adapter runs against the REAL decision layer and SDK, with only
 // the TypeSafe HTTP API simulated and the database in memory — so these
@@ -515,7 +516,7 @@ describe('runGuardrailGate', () => {
     expect(r.outcome).not.toBe('send');
     const detail = r.outcome !== 'send' ? r.detail : '';
     expect(detail).toMatch(
-      /^the safety check (blocked|held) the draft reply because the draft named a bank that is not on your partner list \(FAB\)\. Add it in Settings → AI safety checks → Partner banks if you work with it\./
+      /^the safety check (blocked|held) the draft reply because the draft named a bank that is not on your partner list \(First Abu Dhabi Bank \(FAB\)\)\. Add it in Settings → AI safety checks → Partner banks if you work with it\./
     );
     // The codes stay, in parentheses, for support; the draft is quoted.
     expect(detail).toContain('(code');
@@ -974,8 +975,24 @@ describe('guardrailDetail (the hand-off note, in plain words)', () => {
         'Unlike Mashreq, ADCB and FAB charge a fee.'
       )
     ).toContain(
-      'the draft named banks that are not on your partner list (FAB, ADCB). Add them in Settings → AI safety checks → Partner banks if you work with them.'
+      'the draft named banks that are not on your partner list (First Abu Dhabi Bank (FAB), Abu Dhabi Commercial Bank (ADCB)). Add them in Settings → AI safety checks → Partner banks if you work with them.'
     );
+  });
+
+  it("judges banks against the account's own partner list", () => {
+    // The account ticked FAB (078): only ENBD is named as missing.
+    const { banks } = partnerCatalogue({
+      codes: ['MASHREQ', 'FAB'],
+      custom: [],
+    });
+    const d = guardrailDetail(
+      'block',
+      ['NON_PARTNER_BANK_BLOCK'],
+      'FAB and Emirates NBD both offer this.',
+      banks
+    );
+    expect(d).toContain('not on your partner list (Emirates NBD)');
+    expect(d).not.toContain('(First Abu Dhabi Bank (FAB)');
   });
 
   it('explains a hold TypeSafe could not judge, without a raw code up front', () => {
