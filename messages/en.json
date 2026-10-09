@@ -3125,6 +3125,32 @@
       "defaultNamed": "Default number ({name})"
     },
     "handOver": "Hand over to a person",
-    "needsEmbeddingsKey": "Only applies with an embeddings key."
+    "needsEmbeddingsKey": "Only applies with an embeddings key.",
+    "title": "AI Agents",
+    "description": "Your bring-your-own-key AI agent — set it up, then test it in the playground before it replies to customers in the inbox.",
+    "overview": {
+      "desc": "What the AI is doing right now. Change any part on its tab.",
+      "change": "Change",
+      "on": "On",
+      "off": "Off",
+      "notSetUp": "Not set up",
+      "unavailable": "Unavailable",
+      "everyNumber": "Every number",
+      "onlyOn": "Only on {name}",
+      "onlyOnDefault": "Only on the default number",
+      "partnerBanks": "{count, plural, =0 {No partner banks} one {# partner bank} other {# partner banks}}",
+      "documents": "{count, plural, =0 {No documents} one {# document} other {# documents}}"
+    },
+    "dot": {
+      "green": "On",
+      "amber": "Monitoring"
+    },
+    "loading": "Loading…",
+    "saveBar": {
+      "unsaved": "You have unsaved changes",
+      "discard": "Discard",
+      "save": "Save",
+      "saving": "Saving…"
+    }
   }
 }

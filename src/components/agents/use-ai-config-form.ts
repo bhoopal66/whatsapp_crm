@@ -314,6 +314,9 @@ export function useAiConfigForm() {
     hasStoredKey,
     hasStoredEmbeddingsKey,
     values,
+    /** What the server holds (the Overview and tab dots read these). */
+    savedValues: loaded,
+    savedAiReplyRoute: loadedRoute,
     set,
     changeProvider,
     members,
