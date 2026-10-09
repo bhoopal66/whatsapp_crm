@@ -238,8 +238,13 @@ export async function runTriageGate(
   if (d.nonPartnerBank.detected) {
     // The guardrail blocks any reply naming a non-partner bank, a polite
     // refusal included — so the model is told not to name one at all.
+    const { display } = await ts.partners(ref.accountId);
     promptNotes.push(
-      `The customer is asking about a bank the business does not work with. Say only that you can help with the partner banks (${PARTNER_BANK_DISPLAY.join(', ')}). Do not name, describe or compare any other bank, not even to decline it.`
+      `The customer is asking about a bank the business does not work with. ${
+        display.length
+          ? `Say only that you can help with the partner banks (${display.join(', ')}).`
+          : 'Say only that you cannot help with that bank.'
+      } Do not name, describe or compare any other bank, not even to decline it.`
     );
   }
   if (urgent)
@@ -623,7 +628,6 @@ const REWRITE_RULES: Record<string, string> = {
     'Do not guarantee how long anything will take; give a time only as typical or estimated.',
   UNSUPPORTED_FIGURE:
     "State no figure, fee, rate, amount, limit or duration that is not in the knowledge excerpts or the business's instructions.",
-  NON_PARTNER_BANK: `Do not name, describe or compare any bank outside the partner banks (${PARTNER_BANK_DISPLAY.join(', ')}), not even to decline it.`,
   UNSUPPORTED_CLAIM:
     "State no bank requirement or policy that the knowledge excerpts or the business's instructions do not support.",
   ASKS_SECRET:
@@ -643,15 +647,42 @@ const hazardOf = (code: string): string =>
  * LANGUAGE_SHADOW_*, POLICY_UNAVAILABLE…) add nothing; with no hazard at
  * all the instruction is the general one.
  */
-export function guardrailFeedback(reasonCodes: string[]): string {
+export function guardrailFeedback(
+  reasonCodes: string[],
+  /** The account's partner display names (accountPartnerBanks). */
+  partners: readonly string[] = PARTNER_BANK_DISPLAY
+): string {
+  const rule = (hazard: string): string | undefined =>
+    hazard === 'NON_PARTNER_BANK'
+      ? partners.length
+        ? `Do not name, describe or compare any bank outside the partner banks (${partners.join(', ')}), not even to decline it.`
+        : 'Do not name, describe or compare any bank, not even to decline it.'
+      : REWRITE_RULES[hazard];
   const rules = [
     ...new Set(
-      reasonCodes
-        .map((c) => REWRITE_RULES[hazardOf(c)])
-        .filter((r): r is string => !!r)
+      reasonCodes.map((c) => rule(hazardOf(c))).filter((r): r is string => !!r)
     ),
   ];
   return rules.length
     ? `Your previous draft was held before sending. Rewrite it: ${rules.join(' ')}`
     : "Your previous draft was held before sending. Rewrite it using only facts from the knowledge excerpts or the business's instructions, and make no promises.";
+}
+
+/**
+ * The account's partner banks as display names: its saved list, else the
+ * built-in one (also when the TypeSafe layer is off or unconfigured —
+ * which banks the business works with is a fact, not a check).
+ */
+export async function accountPartnerBanks(
+  accountId: string
+): Promise<readonly string[]> {
+  const ts = getDecisionLayer();
+  return ts ? (await ts.partners(accountId)).display : PARTNER_BANK_DISPLAY;
+}
+
+/** One system-prompt line naming the partner banks, for the bot. */
+export function partnerBanksPromptLine(display: readonly string[]): string {
+  return display.length
+    ? `The business works with these partner banks: ${display.join(', ')}. Only discuss these banks.`
+    : 'The business has no partner banks on file. Do not name, describe or compare any bank.';
 }

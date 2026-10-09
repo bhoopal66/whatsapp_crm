@@ -9,6 +9,7 @@
  * whole install; TS_SHADOW=true forces monitor-only for every account;
  * TS_ACCOUNT_IDS, when set, limits which accounts may turn it on.
  */
+import type { PartnerBanksSetting } from './admin-types';
 
 export type CheckName = 'triage' | 'guardrail' | 'passages' | 'eligibility';
 export const CHECK_NAMES: readonly CheckName[] = [
@@ -184,6 +185,12 @@ export interface AccountSwitches {
    * right after a restart cannot let an unscreened reply out.
    */
   unknown?: boolean;
+  /**
+   * The account's partner banks (migration 078), parsed: null means the
+   * built-in list, and so does absent (a pre-078 database, a row read
+   * without the column, or no row at all).
+   */
+  partnerBanks?: PartnerBanksSetting | null;
 }
 
 export const SWITCHES_OFF: AccountSwitches = {
