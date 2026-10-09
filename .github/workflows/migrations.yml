@@ -132,3 +132,11 @@ jobs:
       # its own pause and leaves a hand-off alone.
       - name: Verify AI agent v2
         run: supabase db query --local --file supabase/ci/verify-ai-agent-v2.sql
+
+      # Partner banks and needs-attention (078): partner_banks has a
+      # shape CHECK and is written through the admin-only settings RLS,
+      # and a person's reply clears ai_attention_at through 077's
+      # messages trigger function — even with no AI config. Only real
+      # Postgres can show the trigger and the policies.
+      - name: Verify partner banks and needs-attention
+        run: supabase db query --local --file supabase/ci/verify-partner-banks-attention.sql
