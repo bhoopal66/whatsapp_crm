@@ -30,7 +30,7 @@ import {
  * conversations and a Meta Cloud API number for marketing — so the
  * panel explains itself and stays out of the way while only one is.
  *
- * Two of the six surfaces are deliberately advisory, and the UI says so
+ * Two of the surfaces are deliberately advisory, and the UI says so
  * rather than pretending otherwise: replies in the inbox and through
  * the public API follow whichever number the customer last wrote to,
  * and consult their route only for a thread with no inbound history.
@@ -59,16 +59,21 @@ interface RoutingRow {
   follows_conversation: boolean;
 }
 
-export function WhatsAppRouting() {
+/**
+ * Surfaces this card does not show: the AI's number is chosen in AI
+ * Agents → Auto-reply → "Reply on". The PUT only touches the surfaces
+ * it is sent, and this card sends only the rows edited here, so neither
+ * screen's save can overwrite the other's.
+ */
+const HIDDEN_SURFACES: readonly string[] = ['ai_reply'];
+
+export function WhatsAppRouting({ onOpenAi }: { onOpenAi?: () => void }) {
   const t = useTranslations('Settings.whatsappRouting');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [channels, setChannels] = useState<RoutingChannel[]>([]);
   const [rows, setRows] = useState<RoutingRow[]>([]);
-  // Whether the AI answers on every number (Settings → AI). Any failure
-  // to read it just means no hint.
-  const [aiOnAllNumbers, setAiOnAllNumbers] = useState(false);
   // Pending edits, keyed by surface. Empty until something changes, so
   // a save only sends what the admin actually touched.
   const [pending, setPending] = useState<Record<string, string | null>>({});
@@ -80,7 +85,11 @@ export function WhatsAppRouting() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load routing');
       setChannels(data.channels ?? []);
-      setRows(data.routes ?? []);
+      setRows(
+        ((data.routes ?? []) as RoutingRow[]).filter(
+          (r) => !HIDDEN_SURFACES.includes(r.surface)
+        )
+      );
       setPending({});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('loadFailed'));
@@ -92,23 +101,6 @@ export function WhatsAppRouting() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/ai/config');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setAiOnAllNumbers(data?.reply_on_all_numbers === true);
-      } catch {
-        // No hint.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const channelName = (channel: RoutingChannel) =>
     channel.label ||
@@ -225,11 +217,6 @@ export function WhatsAppRouting() {
                       ? ` ${t('allocatedStartHint')}`
                       : ''}
                   </p>
-                  {row.surface === 'ai_reply' && aiOnAllNumbers && (
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      {t('aiOnAllNumbersHint')}
-                    </p>
-                  )}
                 </div>
                 <Select
                   value={value}
@@ -279,6 +266,20 @@ export function WhatsAppRouting() {
             );
           })}
         </div>
+
+        <p className="text-muted-foreground text-xs">
+          {t('aiReplyElsewhere')}{' '}
+          {onOpenAi ? (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto px-0 text-xs"
+              onClick={onOpenAi}
+            >
+              {t('aiReplyLink')}
+            </Button>
+          ) : null}
+        </p>
 
         <div className="flex items-center gap-3">
           <Button onClick={handleSave} disabled={!dirty || saving}>

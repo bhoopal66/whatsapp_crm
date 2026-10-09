@@ -246,7 +246,7 @@ export function AiSafetyPanel({
   const { accountId, accountRole, profileLoading } = useAuth();
   const t = useTranslations('Settings.aiSafety');
   const allowed = canOpenSection(
-    'ai-safety',
+    'ai',
     profileLoading ? null : accountRole
   );
 

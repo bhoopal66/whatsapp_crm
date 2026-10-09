@@ -102,7 +102,7 @@ export function AiAgentsArea({
   const { accountRole, profileLoading } = useAuth();
   const role = profileLoading ? null : accountRole;
   const canViewUsage = role ? canEditSettings(role) : false;
-  const canViewSafety = canOpenSection('ai-safety', role);
+  const canViewSafety = canOpenSection('ai', role);
 
   // The safety settings: loaded here for the Overview and the tab dot,
   // then kept current by the panel's own loads and saves.
