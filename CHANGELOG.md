@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Broadcast audiences from Excel files
+
+The broadcast wizard's **Upload CSV or Excel** audience now takes an
+Excel `.xlsx` file as it is (the first sheet), so an export no longer
+has to be re-saved as CSV — which is where long numbers turned into
+`9.71505E+11`. Headers such as **Phone Number**, **Customer Name** and
+**Company Name** are recognised alongside `phone`, `name` and
+`company` (also when importing contacts from CSV), and every column
+can still be mapped to a template variable. Rows without a phone
+number are skipped and counted. A new option, **Numbers without a
+country code are UAE mobiles (add +971)**, off by default, accepts
+locally written UAE mobiles (`050 123 4567`, `501234567`); without it
+they are refused as before. Old `.xls` workbooks are refused with a
+request to save as `.xlsx` or CSV. No migration.
+
 ### Pipelines for every member, and deals from chat tags
 
 Pipelines is now in every member's sidebar. Each deal belongs to one

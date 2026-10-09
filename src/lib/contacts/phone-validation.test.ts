@@ -8,6 +8,7 @@ import {
   summarizeRejectedPhones,
   validateContactPhone,
   validatePhoneToSave,
+  withUaeCountryCode,
   type PhoneValidationReason,
 } from './phone-validation';
 
@@ -430,5 +431,40 @@ describe('summarizeRejectedPhones', () => {
         { error: 'bad C' },
       ])
     ).toBe('bad A (+2 more)');
+  });
+});
+
+describe('withUaeCountryCode', () => {
+  it.each([
+    ['0507481985', '971507481985'],
+    ['055 467 3234', '971554673234'],
+    ['568654609', '971568654609'],
+    ['55 974 5680', '971559745680'],
+    ['(050) 123-4567', '971501234567'],
+    ['050.123.4567', '971501234567'],
+    ['050/1234567', '971501234567'],
+    ['\u200e0501234567\u200f', '971501234567'],
+    [' 0501234567 ', '971501234567'],
+  ])('reads %j as a UAE mobile', (raw, expected) => {
+    expect(withUaeCountryCode(raw)).toBe(expected);
+    expect(validateContactPhone(withUaeCountryCode(raw))).toEqual({
+      ok: true,
+      normalized: expected,
+    });
+  });
+
+  it.each([
+    '+971 50 911 0516',
+    '971524799999',
+    '00971567912158',
+    '0544107571, 0565236046',
+    'someone@example.com',
+    '041234567', // a Dubai landline, not a mobile
+    '05012345678', // one digit too many
+    '50123456', // one digit too few
+    '+0501234567',
+    '',
+  ])('leaves %j as it was', (raw) => {
+    expect(withUaeCountryCode(raw)).toBe(raw);
   });
 });

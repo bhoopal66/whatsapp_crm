@@ -863,14 +863,14 @@
           "all": "All Contacts",
           "chatTags": "By chat tag",
           "customField": "Custom Field",
-          "csv": "Upload CSV",
+          "csv": "Upload CSV or Excel",
           "compass": "Compass contacts"
         },
         "allDesc": "Send to all {count} contacts in your database.",
         "allDescLoading": "Send to all contacts in your database.",
         "chatTagDesc": "Send to customers whose chat carries a chat tag.",
         "customFieldDesc": "Send to contacts matching a custom field rule.",
-        "csvDesc": "Upload a CSV with phone numbers (and optional names).",
+        "csvDesc": "Upload a CSV or Excel (.xlsx) file with phone numbers (and optional names).",
         "compassDesc": "Send to customers synced from Taamul Compass — choose which slice.",
         "compassOrder": "Order",
         "compassOrders": {
@@ -909,13 +909,17 @@
         "operatorContains": "Contains",
         "value": "Value",
         "valuePlaceholder": "Value to match",
-        "uploadCsv": "Upload CSV File",
-        "csvFormatDesc": "Columns: 'name', 'company', 'phone' (E.164, e.g. +971501234567). Only 'phone' is required — every other column can be mapped to a template variable in the next step.",
+        "uploadCsv": "Upload CSV or Excel file",
+        "csvFormatDesc": "A .csv or .xlsx file (first sheet) with columns 'name', 'company', 'phone' (E.164, e.g. +971501234567) — 'Customer Name', 'Company Name' and 'Phone Number' headers work too. Only a phone column is required — every other column can be mapped to a template variable in the next step.",
         "downloadTemplate": "Download the template",
         "csvContactsFound": "{count} valid contact(s) found in CSV.",
         "errorLoadFields": "Failed to load custom fields",
-        "errorCsvParse": "Could not parse CSV file.",
-        "errorCsvMissingPhone": "CSV must have a 'phone' column."
+        "errorCsvParse": "Could not read the file.",
+        "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",
+        "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
+        "assumeUaeNumbers": "Numbers without a country code are UAE mobiles (add +971)",
+        "rowsWithoutPhone": "{count, plural, one {# row has no phone number and was skipped.} other {# rows have no phone number and were skipped.}}"
+
       },
       "personalize": {
         "title": "Personalize Variables",

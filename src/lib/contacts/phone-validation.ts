@@ -414,6 +414,25 @@ export function validatePhoneToSave(
   return { ok: true, phone: checked.normalized, changed: true };
 }
 
+/**
+ * A locally written UAE mobile ("050 123 4567", "0501234567", or the
+ * bare "501234567") with 971 in front, ready for `validateContactPhone`.
+ * Anything else comes back unchanged, to be validated — or refused —
+ * as it is: international numbers, landlines, cells holding two
+ * numbers, an email typed into the phone column.
+ *
+ * Opt-in only, never applied by default. This is the one local shape
+ * whose country is assumed, and only because the person uploading the
+ * file says so; elsewhere a number without its country code is refused
+ * rather than guessed.
+ */
+export function withUaeCountryCode(raw: string): string {
+  const input = raw.replace(INVISIBLE_MARKS, '').trim();
+  if (!/^[\d\s\-.()/]+$/.test(input)) return raw;
+  const digits = input.replace(/\D/g, '');
+  return /^0?5\d{8}$/.test(digits) ? `971${digits.slice(-9)}` : raw;
+}
+
 export interface RejectedPhoneRow<T> {
   /** Position in the input array. */
   index: number;

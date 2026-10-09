@@ -3,10 +3,16 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { parseContactCsv } from '@/lib/contacts/parse-contact-csv';
+import {
+  contactCsvTable,
+  parseContactTable,
+  type ParsedContactRow,
+} from '@/lib/contacts/parse-contact-csv';
+import { readXlsxTable } from '@/lib/contacts/read-xlsx';
 import {
   partitionRowsByPhone,
   summarizeRejectedPhones,
+  withUaeCountryCode,
 } from '@/lib/contacts/phone-validation';
 import {
   COMPASS_ORDERS,
@@ -38,6 +44,7 @@ import { chatTagColor } from '@/lib/chat-tags/style';
 import { CHAT_TAGS_SETTINGS_HREF } from '@/components/inbox/thread-tag-bar';
 import type { CustomField } from '@/types';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Users,
@@ -373,9 +380,11 @@ export function Step2SelectAudience({
     return () => clearTimeout(timer);
   }, [fetchEstimate]);
 
-  // CSV audience. Parsed in the browser with the same parser the
-  // contacts importer uses (a `phone` column, optional `name`); the
-  // rows ride along in `audience.csvContacts` and are upserted as
+  // CSV or Excel audience. Parsed in the browser with the same parser
+  // the contacts importer uses (a `phone` column, optional `name`; an
+  // export's "Phone Number" / "Customer Name" headers work too); an
+  // `.xlsx` is read into the same table of cells first (`read-xlsx.ts`).
+  // The rows ride along in `audience.csvContacts` and are upserted as
   // contacts at send time (`use-broadcast-sending.ts`). Every column
   // is kept (`values`) so the personalize step can map a template
   // variable to any of them, not just the ones the importer knows.
@@ -383,48 +392,75 @@ export function Step2SelectAudience({
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [csvPhoneWarning, setCsvPhoneWarning] = useState<string | null>(null);
+  // The parsed file, kept so the UAE option re-runs the phone check
+  // without asking for the file again.
+  const [csvParsed, setCsvParsed] = useState<{
+    rows: ParsedContactRow[];
+    columns: string[];
+    skippedNoPhone: number;
+  } | null>(null);
+  const [csvAssumeUae, setCsvAssumeUae] = useState(false);
+
+  function applyCsvRows(
+    parsed: { rows: ParsedContactRow[]; columns: string[] },
+    assumeUae: boolean
+  ) {
+    // Rows become contacts at send time. A number without its country
+    // code (or an Excel "9.71505E+11") would be created and messaged,
+    // reported 'sent', and reach nobody — so it is left out here and
+    // named, while the rest of the file still goes. The UAE option is
+    // the uploader vouching for the country of the local ones.
+    const { valid, rejected } = partitionRowsByPhone(
+      assumeUae
+        ? parsed.rows.map((r) => ({ ...r, phone: withUaeCountryCode(r.phone) }))
+        : parsed.rows
+    );
+    setCsvPhoneWarning(
+      rejected.length > 0 ? summarizeRejectedPhones(rejected) : null
+    );
+    onUpdate({
+      ...audience,
+      csvContacts: valid.map((r) => ({
+        phone: r.phone,
+        name: r.name,
+        company: r.company,
+        values: r.values,
+      })),
+      csvColumns: parsed.columns,
+    });
+  }
 
   async function handleCsvFile(file: File | undefined) {
     if (!file) return;
     setCsvError(null);
     setCsvPhoneWarning(null);
+    setCsvParsed(null);
+    const fail = (message: string) => {
+      setCsvError(message);
+      onUpdate({ ...audience, csvContacts: undefined, csvColumns: undefined });
+    };
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.xls')) {
+      // The pre-2007 binary format: not a ZIP of XML, so not readable here.
+      fail(t('selectAudience.errorXls'));
+      return;
+    }
     try {
-      const text = await file.text();
-      const headerHasPhone = /(^|,)\s*["']?phone["']?\s*(,|$)/i.test(
-        text.split(/\r?\n/)[0] ?? ''
-      );
-      if (!headerHasPhone) {
-        setCsvError(t('selectAudience.errorCsvMissingPhone'));
-        onUpdate({
-          ...audience,
-          csvContacts: undefined,
-          csvColumns: undefined,
-        });
+      const table = lowerName.endsWith('.xlsx')
+        ? await readXlsxTable(new Uint8Array(await file.arrayBuffer()))
+        : contactCsvTable(await file.text());
+      const { rows, columns, phoneColumn, skippedNoPhone } =
+        parseContactTable(table);
+      if (phoneColumn === null) {
+        fail(t('selectAudience.errorCsvMissingPhone'));
         return;
       }
-      const { rows, columns } = parseContactCsv(text);
-      // Rows become contacts at send time. A number without its country
-      // code (or an Excel "9.71505E+11") would be created and messaged,
-      // reported 'sent', and reach nobody — so it is left out here and
-      // named, while the rest of the file still goes.
-      const { valid, rejected } = partitionRowsByPhone(rows);
-      setCsvPhoneWarning(
-        rejected.length > 0 ? summarizeRejectedPhones(rejected) : null
-      );
+      const parsed = { rows, columns, skippedNoPhone };
+      setCsvParsed(parsed);
       setCsvFileName(file.name);
-      onUpdate({
-        ...audience,
-        csvContacts: valid.map((r) => ({
-          phone: r.phone,
-          name: r.name,
-          company: r.company,
-          values: r.values,
-        })),
-        csvColumns: columns,
-      });
+      applyCsvRows(parsed, csvAssumeUae);
     } catch {
-      setCsvError(t('selectAudience.errorCsvParse'));
-      onUpdate({ ...audience, csvContacts: undefined, csvColumns: undefined });
+      fail(t('selectAudience.errorCsvParse'));
     }
   }
 
@@ -718,7 +754,7 @@ export function Step2SelectAudience({
           <input
             ref={csvInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden"
             onChange={(e) => {
               void handleCsvFile(e.target.files?.[0]);
@@ -749,8 +785,27 @@ export function Step2SelectAudience({
               })}
             </p>
           )}
+          {!csvError && csvParsed && csvParsed.skippedNoPhone > 0 && (
+            <p className="text-muted-foreground mt-1 text-xs">
+              {t('selectAudience.rowsWithoutPhone', {
+                count: csvParsed.skippedNoPhone,
+              })}
+            </p>
+          )}
           {!csvError && csvPhoneWarning && (
             <p className="mt-1 text-xs text-amber-400">{csvPhoneWarning}</p>
+          )}
+          {!csvError && csvParsed && (
+            <label className="text-foreground mt-3 flex items-center gap-2 text-xs">
+              <Checkbox
+                checked={csvAssumeUae}
+                onCheckedChange={(checked) => {
+                  setCsvAssumeUae(checked);
+                  applyCsvRows(csvParsed, checked);
+                }}
+              />
+              {t('selectAudience.assumeUaeNumbers')}
+            </label>
           )}
         </div>
       )}
