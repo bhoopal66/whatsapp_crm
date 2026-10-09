@@ -287,6 +287,7 @@ import { guardrailFeedback } from './typesafe-gates';
 import {
   dispatchInboundToAiReply,
   notifyHandoff,
+  openCustomerTurns,
   retrievalGateFailure,
   RETRIEVAL_GATE_MIN_WORDS,
 } from './auto-reply';
@@ -2395,5 +2396,120 @@ describe('dispatchInboundToAiReply — dispatch review fixes', () => {
       expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
       expect(lastOutcome()).toBe('skipped_cap_race');
     });
+  });
+});
+
+describe('dispatchInboundToAiReply — the open question drives retrieval and routing', () => {
+  const routed = () =>
+    aiConfig({
+      modelRouting: true,
+      modelSmall: 'gpt-small',
+      modelLarge: 'gpt-large',
+    });
+  const DAY_AGO = new Date(Date.now() - 86_400_000).toISOString();
+  const NOW = new Date().toISOString();
+  const FAB = "What are FAB's charges?";
+  const HI = {
+    ...ARGS,
+    inboundMessageId: 'wamid.hi',
+    inboundText: 'Hi',
+  };
+  const models = () =>
+    h.generateReply.mock.calls.map((c) => (c[0] as { model: string }).model);
+  const queries = () =>
+    h.retrieveKnowledge.mock.calls.map((c) => c[3] as string);
+  const lastEvent = () =>
+    h.state.inserts.filter((i) => i.table === 'ai_reply_events').at(-1)?.row as
+      Record<string, unknown> | undefined;
+
+  beforeEach(() => {
+    h.generateReply.mockReset();
+    h.generateReply.mockResolvedValue({ text: 'Hello!', handoff: false });
+    h.retrieveKnowledge.mockReset();
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval(['FAB account fee: AED 50 a month.'])
+    );
+    h.loadAiConfig.mockResolvedValue(routed());
+    h.state.customerMessages = [
+      { message_id: 'wamid.hi', created_at: NOW, content_text: 'Hi' },
+    ];
+  });
+
+  it('"Hi" after an unanswered FAB question retrieves for the FAB question, on the standard tier', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: 'Welcome! How can I help?' },
+      { role: 'user', content: FAB, at: DAY_AGO },
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(queries()).toEqual([`${FAB}\nHi`]);
+    expect(models()).toEqual(['gpt-test']);
+    expect(
+      (h.generateReply.mock.calls[0][0] as { systemPrompt: string })
+        .systemPrompt
+    ).toContain('AED 50');
+    expect(lastEvent()).toMatchObject({ tier: 'standard', model: 'gpt-test' });
+    // The burst window still bounds what this dispatch judges.
+    expect(h.runTriageGate.mock.calls.at(-1)![1]).toMatchObject({
+      customerTurn: 'Hi',
+    });
+  });
+
+  it('a plain "Hi" opening stays on the small tier without retrieval', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(h.retrieveKnowledge).not.toHaveBeenCalled();
+    expect(models()).toEqual(['gpt-small']);
+  });
+
+  it('"Hi" after an answered question is a greeting: small, no retrieval', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: FAB, at: DAY_AGO },
+      { role: 'assistant', content: 'FAB charges AED 50 a month.' },
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(h.retrieveKnowledge).not.toHaveBeenCalled();
+    expect(models()).toEqual(['gpt-small']);
+  });
+
+  it('escalation grounding retrieves for the open turns, not the newest one', async () => {
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: 'Welcome! How can I help?' },
+      { role: 'user', content: 'Hello', at: DAY_AGO },
+      { role: 'user', content: 'Hi', at: NOW },
+    ]);
+    h.generateReply
+      .mockResolvedValueOnce({ text: '', handoff: true })
+      .mockResolvedValueOnce({ text: 'Hello!', handoff: false });
+    expect(await dispatchInboundToAiReply(HI)).toBe('replied');
+    expect(models()).toEqual(['gpt-small', 'gpt-test']);
+    expect(queries()).toEqual(['Hello\nHi']);
+  });
+
+  it('the open turns are capped to the newest five and 1,000 characters', () => {
+    const user = (content: string) => ({ role: 'user' as const, content });
+    const seven = ['1', '2', '3', '4', '5', '6', '7'].map(user);
+    expect(openCustomerTurns(seven)).toEqual(['3', '4', '5', '6', '7']);
+    expect(
+      openCustomerTurns([
+        user('a'.repeat(600)),
+        user('b'.repeat(600)),
+        user('c'.repeat(300)),
+      ])
+    ).toEqual(['b'.repeat(600), 'c'.repeat(300)]);
+    expect(openCustomerTurns([user('x'.repeat(1_500))])).toEqual([
+      'x'.repeat(1_000),
+    ]);
+    expect(
+      openCustomerTurns([user('old'), { role: 'assistant', content: 'ok' }])
+    ).toEqual([]);
+    // A media caption the text-only context lacks is part of the question.
+    expect(openCustomerTurns([user(FAB)], 'and this one?')).toEqual([
+      FAB,
+      'and this one?',
+    ]);
   });
 });
