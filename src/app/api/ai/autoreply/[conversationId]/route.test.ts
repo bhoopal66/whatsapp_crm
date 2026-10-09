@@ -129,7 +129,9 @@ const CUSTOMER_LAST = {
   content_text: 'Is my card ready?',
   message_id: 'wamid-1',
   channel_id: 'chan-msg',
+  created_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
 };
+const HOURS_AGO_25 = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
 
 beforeEach(() => {
   mocks.requireRole.mockReset();
@@ -227,6 +229,31 @@ describe('POST /api/ai/autoreply/[conversationId]', () => {
       inboundMessageId: 'wamid-1',
       inboundText: 'Is my card ready?',
     });
+  });
+
+  it('reply_now skips a Meta message older than 24 hours, the resume still succeeds', async () => {
+    setup({
+      lastMessage: { ...CUSTOMER_LAST, created_at: HOURS_AGO_25 },
+      channel: { provider: 'meta', user_id: 'owner-1' },
+    });
+    const res = await post({ paused: false, reply_now: true });
+    expect(await res.json()).toEqual({
+      success: true,
+      paused: false,
+      replying: false,
+    });
+    expect(updatePatch()).toMatchObject({ ai_autoreply_disabled: false });
+    expect(mocks.afterCallbacks).toHaveLength(0);
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('reply_now still answers an old Whapi message', async () => {
+    setup({
+      lastMessage: { ...CUSTOMER_LAST, created_at: HOURS_AGO_25 },
+      channel: { provider: 'whapi', user_id: 'owner-2' },
+    });
+    const res = await post({ paused: false, reply_now: true });
+    expect((await res.json()).replying).toBe(true);
   });
 
   it('reply_now falls back to the chat’s number when the message has none', async () => {

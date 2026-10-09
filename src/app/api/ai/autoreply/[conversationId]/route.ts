@@ -13,6 +13,8 @@ import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
 // calls the model and sends.
 export const maxDuration = 60;
 
+const META_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 type Params = { params: Promise<{ conversationId: string }> };
 
 /**
@@ -165,8 +167,9 @@ export async function POST(request: Request, { params }: Params) {
 /**
  * The dispatch that answers the chat's latest message, or null when
  * there is nothing for the bot to answer: the latest message is not the
- * customer's, has no text, or its number is gone. Mirrors what
- * `processMessage` in the inbound pipeline passes: the number the
+ * customer's, has no text, its number is gone, or it came in on a Meta
+ * number more than 24 hours ago (the service window is closed). Mirrors
+ * what `processMessage` in the inbound pipeline passes: the number the
  * message arrived on, its provider, and that number's owner as the
  * sender of record.
  */
@@ -177,7 +180,7 @@ async function loadReplyNowDispatch(
   const admin = supabaseAdmin();
   const { data: last, error: lastErr } = await admin
     .from('messages')
-    .select('sender_type, content_text, message_id, channel_id')
+    .select('sender_type, content_text, message_id, channel_id, created_at')
     .eq('conversation_id', conv.id)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -203,6 +206,15 @@ async function loadReplyNowDispatch(
     return null;
   }
   if (!channel) return null;
+
+  // Meta only lets a reply through for 24 hours after the customer's
+  // last message; an older one would only fail at the gateway.
+  if (channel.provider === 'meta') {
+    const sentAt = Date.parse((last.created_at as string | null) ?? '');
+    if (Number.isFinite(sentAt) && Date.now() - sentAt > META_WINDOW_MS) {
+      return null;
+    }
+  }
 
   return {
     accountId,

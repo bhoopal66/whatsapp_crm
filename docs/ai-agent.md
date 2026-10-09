@@ -144,7 +144,8 @@ no longer carry reason codes.
 
 - **On:** the bot answers each chat on the number the customer wrote to,
   Whapi or Cloud API. Because it replies where the customer wrote, Meta's
-  24-hour service window is open. Settings → WhatsApp → Which number
+  24-hour service window is open for a fresh inbound. Resume & reply
+  skips a Meta message older than 24 hours. Settings → WhatsApp → Which number
   sends what still shows the AI auto-reply row, with a hint that the
   switch overrides it.
 - **Off (default):** the bot answers only on the number set for AI

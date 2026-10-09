@@ -372,6 +372,9 @@ export async function dispatchInboundToAiReply(
     // goes out on `replyChannelId` when it is set; unset, the send
     // resolves the `ai_reply` route itself, as before 079.
     let replyChannelId: string | undefined;
+    // Every-number mode only: the number a person pinned the chat to
+    // since the first read, when it is not `replyChannelId`.
+    let pinnedElsewhere: () => Promise<string | null> = async () => null;
     if (config.replyOnAllNumbers && inboundChannelId) {
       // Every number: the bot follows the customer, like a person's
       // inbox reply — it answers on the number they wrote to, which on
@@ -394,6 +397,26 @@ export async function dispatchInboundToAiReply(
         );
       }
       replyChannelId = inboundChannelId;
+      pinnedElsewhere = async () => {
+        // A person may pin the chat while the model is generating; the
+        // first read above predates that. Fails open: a read error
+        // leaves the reply to go out, as before this check existed.
+        const { data, error } = await dbc
+          .from('conversations')
+          .select('send_channel_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+        if (error) {
+          console.error('[ai auto-reply] pin re-read failed:', {
+            conversationId,
+            error: error.message,
+          });
+          return null;
+        }
+        const pinned =
+          (data?.send_channel_id as string | null | undefined) ?? null;
+        return pinned && pinned !== replyChannelId ? pinned : null;
+      };
     } else {
       // Only answer on the bot's own number. Resolved here, before any
       // LLM spend, with the same lookup `engineSendText` will make.
@@ -616,6 +639,15 @@ export async function dispatchInboundToAiReply(
       reasonText: string | null = null,
       outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off'
     ): Promise<AiReplyOutcome> => {
+      // A pin made during generation: skip only the farewell; the
+      // hand-off itself proceeds.
+      if (farewell && (await pinnedElsewhere())) {
+        console.warn(
+          '[ai auto-reply] hand-off farewell skipped: chat pinned to another number',
+          { conversationId }
+        );
+        farewell = null;
+      }
       if (farewell) {
         const { data: claimed } = await dbc.rpc('claim_ai_reply_slot', {
           conversation_id: conversationId,
@@ -1103,6 +1135,15 @@ export async function dispatchInboundToAiReply(
       // before the marker ("a relationship manager will contact you")
       // still goes out first.
       return handOff('model', null, text || null);
+    }
+
+    const pinnedNow = await pinnedElsewhere();
+    if (pinnedNow) {
+      return skip(
+        'skipped_number',
+        `This chat is pinned to number ${pinnedNow} — a person chose it; ` +
+          `this message came in on ${inboundProvider} number ${inboundChannelId}.`
+      );
     }
 
     // Atomically claim a reply slot: the cap check + increment happen in

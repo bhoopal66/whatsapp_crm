@@ -1350,6 +1350,49 @@ describe('dispatchInboundToAiReply — reply on every number (079)', () => {
     );
   });
 
+  it('stays out when a person pins the chat while the model is generating', async () => {
+    // Read 0 (the pin check up front) sees no pin; the re-read before the
+    // claim sees one.
+    h.state.convLive = { ...h.state.conv, send_channel_id: 'ch-sales' };
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('skipped');
+    expect(h.generateReply).toHaveBeenCalled();
+    expect(
+      h.state.rpcCalls.filter((c) => c.name === 'claim_ai_reply_slot')
+    ).toHaveLength(0);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_number');
+    expect(h.state.outcomes.at(-1)?.ai_last_outcome_detail).toContain(
+      'pinned to number ch-sales'
+    );
+  });
+
+  it('replies when the re-read pin is unchanged or is the inbound number', async () => {
+    h.state.convLive = { ...h.state.conv, send_channel_id: 'ch-whapi' };
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('replied');
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'ch-whapi' })
+    );
+  });
+
+  it('skips only the hand-off farewell when the chat is pinned meanwhile', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        replyOnAllNumbers: true,
+        escalationKeywords: ['refund'],
+        handoffMessage: 'A specialist will contact you.',
+      })
+    );
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'I want a refund' },
+    ]);
+    h.state.convLive = { ...h.state.conv, send_channel_id: 'ch-sales' };
+    expect(await dispatchInboundToAiReply(WHAPI_IN)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({
+      ai_paused_reason: 'handoff',
+    });
+  });
+
   it('answers a chat pinned to the number the customer wrote to', async () => {
     h.state.conv = { ...h.state.conv, send_channel_id: 'ch-whapi' };
     await dispatchInboundToAiReply(WHAPI_IN);
