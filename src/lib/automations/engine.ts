@@ -602,10 +602,15 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .select('default_currency')
         .eq('id', args.automation.account_id)
         .maybeSingle()
+      // Own the deal the way a tagged chat's deal is owned (migration
+      // 080), or the chat's agent cannot see it. Without an owner
+      // (pre-080 database, no conversation) it stays the automation's.
+      const owner = await resolveAutomationDealOwner(args)
       await db.from('deals').insert({
         // Tenancy + audit, same split as automation_logs above.
         account_id: args.automation.account_id,
-        user_id: args.automation.user_id,
+        user_id: owner?.userId ?? args.automation.user_id,
+        ...(owner ? { assigned_to: owner.profileId } : {}),
         pipeline_id: cfg.pipeline_id,
         stage_id: cfg.stage_id,
         contact_id: args.contactId,
@@ -691,6 +696,37 @@ function getChatTagChainDepth(context: AutomationContext): number {
  * write, so it is used only after it is confirmed to belong to this
  * account AND this contact; otherwise we fall back to the lookup below.
  */
+/**
+ * The owner of a deal an automation opens for the contact's chat: the
+ * same rule as a deal opened by tagging the chat
+ * (`resolve_chat_deal_owner`, migration 080, with no acting person),
+ * as an auth user id plus the profile id `deals.assigned_to` stores.
+ * Fail-soft: `null` on any miss, and the caller keeps the old owner.
+ */
+async function resolveAutomationDealOwner(
+  args: ExecuteArgs
+): Promise<{ userId: string; profileId: string } | null> {
+  try {
+    const conversationId = await resolveConversationId(args)
+    const db = supabaseAdmin()
+    const { data: owner, error } = await db.rpc('resolve_chat_deal_owner', {
+      p_conversation_id: conversationId,
+      p_actor: null,
+    })
+    if (error || typeof owner !== 'string' || !owner) return null
+    const { data: profile } = await db
+      .from('profiles')
+      .select('id')
+      .eq('user_id', owner)
+      .eq('account_id', args.automation.account_id)
+      .maybeSingle()
+    if (!profile?.id) return null
+    return { userId: owner, profileId: profile.id as string }
+  } catch {
+    return null
+  }
+}
+
 export async function resolveConversationId(
   args: Pick<ExecuteArgs, 'automation' | 'contactId' | 'context' | 'triggerEvent'>
 ): Promise<string> {

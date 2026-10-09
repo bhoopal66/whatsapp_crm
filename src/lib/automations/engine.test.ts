@@ -13,6 +13,11 @@ const h = vi.hoisted(() => ({
     upsertCalls: [] as { table: string; payload: unknown }[],
     logInserts: [] as Record<string, unknown>[],
     logUpdates: [] as Record<string, unknown>[],
+    dealInserts: [] as Record<string, unknown>[],
+    rpcCalls: [] as { fn: string; params: unknown }[],
+    // resolve_chat_deal_owner's answer, and the profiles it maps to.
+    dealOwnerRpc: { data: null, error: null } as { data: unknown; error: unknown },
+    profiles: [] as { id: string; user_id: string; account_id: string }[],
     // conversations lookup: rows keyed by id, each with its owner.
     conversations: [] as {
       id: string;
@@ -83,6 +88,14 @@ vi.mock("./admin-client", () => {
         error: null,
       };
     }
+    if (table === "deals" && type === "insert") {
+      state.dealInserts.push(ops.payload as Record<string, unknown>);
+      return { data: null, error: null };
+    }
+    if (table === "profiles") {
+      const row = state.profiles.find((p) => matchesEq(p, ops.filters));
+      return { data: row ?? null, error: null };
+    }
     if (table === "conversations" && type === "select") {
       // Honour every eq() filter, like PostgREST would.
       const row = state.conversations.find((c) =>
@@ -127,7 +140,13 @@ vi.mock("./admin-client", () => {
         state.fromCalls.push(t);
         return builder(t);
       },
-      rpc: () => Promise.resolve({ error: null }),
+      rpc: (fn: string, params: unknown) => {
+        state.rpcCalls.push({ fn, params });
+        if (fn === "resolve_chat_deal_owner") {
+          return Promise.resolve(state.dealOwnerRpc);
+        }
+        return Promise.resolve({ error: null });
+      },
     }),
   };
 });
@@ -163,6 +182,10 @@ beforeEach(() => {
   h.state.logInserts = [];
   h.state.logUpdates = [];
   h.state.conversations = [];
+  h.state.dealInserts = [];
+  h.state.rpcCalls = [];
+  h.state.dealOwnerRpc = { data: null, error: null };
+  h.state.profiles = [];
 });
 
 describe("resolveConversationId — context.conversation_id is not trusted", () => {
@@ -354,6 +377,81 @@ describe("update_contact_field — custom fields", () => {
 
     expect(h.state.upsertCalls).toHaveLength(0);
     expect(h.state.updateCalls).toHaveLength(0);
+  });
+});
+
+describe("create_deal — owned like a tagged chat's deal (080)", () => {
+  function setup() {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    h.state.steps = [
+      {
+        id: "s1",
+        automation_id: "a1",
+        step_type: "create_deal",
+        position: 0,
+        parent_step_id: null,
+        step_config: { pipeline_id: "pl1", stage_id: "st1", title: "Deal" },
+      },
+    ];
+    h.state.conversations = [
+      { id: "cv1", account_id: ACCOUNT, contact_id: "c1" },
+    ];
+  }
+  const run = () =>
+    runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+  it("gives the deal to the chat's owner, assignee included", async () => {
+    setup();
+    h.state.dealOwnerRpc = { data: "agent-user", error: null };
+    h.state.profiles = [
+      { id: "agent-profile", user_id: "agent-user", account_id: ACCOUNT },
+    ];
+
+    await run();
+
+    expect(h.state.rpcCalls).toContainEqual({
+      fn: "resolve_chat_deal_owner",
+      params: { p_conversation_id: "cv1", p_actor: null },
+    });
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealInserts[0]).toMatchObject({
+      account_id: ACCOUNT,
+      contact_id: "c1",
+      user_id: "agent-user",
+      assigned_to: "agent-profile",
+    });
+  });
+
+  it("keeps the automation's owner when the rpc fails", async () => {
+    setup();
+    h.state.dealOwnerRpc = {
+      data: null,
+      error: { message: "function resolve_chat_deal_owner does not exist" },
+    };
+
+    await run();
+
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealInserts[0].user_id).toBe("u1");
+    expect(h.state.dealInserts[0]).not.toHaveProperty("assigned_to");
+  });
+
+  it("keeps the automation's owner when the contact has no chat", async () => {
+    setup();
+    h.state.conversations = [];
+    h.state.dealOwnerRpc = { data: "agent-user", error: null };
+
+    await run();
+
+    expect(h.state.dealInserts).toHaveLength(1);
+    expect(h.state.dealInserts[0].user_id).toBe("u1");
+    expect(h.state.dealInserts[0]).not.toHaveProperty("assigned_to");
   });
 });
 

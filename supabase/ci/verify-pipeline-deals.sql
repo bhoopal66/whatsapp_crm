@@ -28,6 +28,7 @@ DECLARE
   b_acct   UUID;
   p_ag1    UUID;  -- profiles.id of u_ag1 (deals.assigned_to is a profile id)
   p_ag2    UUID;
+  p_other  UUID;  -- profiles.id of u_other (account B)
   team     UUID;
   pl       UUID;  -- account A pipeline
   st_open  UUID;  -- first stage, not linked
@@ -137,6 +138,7 @@ BEGIN
   UPDATE profiles SET account_id = a_acct, account_role = 'viewer'      WHERE user_id = u_view;
   SELECT id INTO p_ag1 FROM profiles WHERE user_id = u_ag1;
   SELECT id INTO p_ag2 FROM profiles WHERE user_id = u_ag2;
+  SELECT id INTO p_other FROM profiles WHERE user_id = u_other;
   IF p_ag1 = u_ag1 THEN
     RAISE EXCEPTION 'fixture: profiles.id equals user_id, so the profile/user mapping is untested';
   END IF;
@@ -298,6 +300,18 @@ BEGIN
   IF r NOT LIKE 'ERROR:%' THEN
     failed := array_append(failed, ('admin inserted a deal into another account: ' || r)::text);
   END IF;
+  r := pg_temp.pd_try(u_admin, format(
+         'INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title, assigned_to) '
+         'VALUES (%L, %L, %L, %L, %L, %L, %L)', a_acct, u_admin, pl, st_open, ct_seen, 'for account B', p_other));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR:%' THEN
+    failed := array_append(failed, ('admin inserted a deal assigned to another account''s profile: ' || r)::text);
+  END IF;
+  r := pg_temp.pd_try(u_admin, format('UPDATE deals SET assigned_to = %L WHERE title = %L', p_other, 'admin'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR:%' OR (SELECT assigned_to FROM deals WHERE title = 'admin') IS NOT NULL THEN
+    failed := array_append(failed, ('admin assigned a deal to another account''s profile: ' || r)::text);
+  END IF;
 
   -- ---------- 3. linking a stage to a tag ----------
   r := pg_temp.pd_do(format('UPDATE pipeline_stages SET auto_chat_tag_id = %L WHERE id = %L', s_adcb, st_open));
@@ -345,6 +359,14 @@ BEGIN
                       AND title = 'PD case a' AND currency = 'AED' AND value = 0 AND account_id = a_acct) THEN
     failed := array_append(failed, ('(a) assigned chat: not one deal in the linked stage owned by the assignee: '
       || r || ' ' || pg_temp.pd_deals(ct))::text);
+  END IF;
+
+  -- The owner rule on its own, as the automation create_deal step calls
+  -- it (no actor): the assignee.
+  n := n + 1;
+  IF public.resolve_chat_deal_owner(cv, NULL) IS DISTINCT FROM u_ag2 THEN
+    failed := array_append(failed, ('resolve_chat_deal_owner: assigned chat not owned by the assignee: '
+      || coalesce(public.resolve_chat_deal_owner(cv, NULL)::text, 'null'))::text);
   END IF;
 
   -- (b) an agent started the chat and tags it themselves, sub-tag included.
@@ -417,6 +439,22 @@ BEGIN
       || r || ' ' || pg_temp.pd_deals(ct))::text);
   END IF;
 
+  -- The same rule without the trigger: on an untagged inbound chat the
+  -- actor wins only if they are an active member of the chat's account,
+  -- no actor (an automation) falls to the creator, no chat is NULL.
+  INSERT INTO contacts (account_id, user_id, phone, name)
+  VALUES (a_acct, u_owner, '971500080017', 'PD resolve') RETURNING id INTO ct;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_owner, ct) RETURNING id INTO d;
+  r := coalesce(public.resolve_chat_deal_owner(d, u_ag1)::text, 'null') || ','
+    || coalesce(public.resolve_chat_deal_owner(d, u_other)::text, 'null') || ','
+    || coalesce(public.resolve_chat_deal_owner(d, NULL)::text, 'null') || ','
+    || coalesce(public.resolve_chat_deal_owner(gen_random_uuid(), u_ag1)::text, 'null');
+  n := n + 1;
+  IF r <> format('%s,%s,%s,null', u_ag1, u_owner, u_owner) THEN
+    failed := array_append(failed, ('resolve_chat_deal_owner: inbound chat owner not actor / creator / null: ' || r)::text);
+  END IF;
+
   -- (d) inbound chat, tagged by a bot (no caller): the chat's owner.
   INSERT INTO contacts (account_id, user_id, phone, name)
   VALUES (a_acct, u_owner, '971500080015', 'PD case d') RETURNING id INTO ct;
@@ -447,6 +485,15 @@ BEGIN
      OR has_function_privilege('anon', 'public.can_view_deal(uuid, uuid)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.deal_owner(uuid, uuid)', 'EXECUTE') THEN
     failed := array_append(failed, 'anon / clients hold privileges 080 revoked'::text);
+  END IF;
+  n := n + 1;
+  IF has_function_privilege('authenticated', 'public.resolve_chat_deal_owner(uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.resolve_chat_deal_owner(uuid, uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.resolve_chat_deal_owner(uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.deal_assignee_in_account(uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.led_teammate_user_ids()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.led_teammate_profile_ids()', 'EXECUTE') THEN
+    failed := array_append(failed, 'resolve_chat_deal_owner is callable by clients (or not by service_role), or anon holds a deals helper'::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
