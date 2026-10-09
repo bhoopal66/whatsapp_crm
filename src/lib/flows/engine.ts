@@ -1214,6 +1214,10 @@ async function handleReplyForActiveRun(
             ? input.message.text
             : input.message.reply_title,
         interactiveReply: input.message.kind === 'interactive_reply',
+        interactiveReplyId:
+          input.message.kind === 'interactive_reply'
+            ? input.message.reply_id
+            : null,
       });
       await logEvent(db, run.id, 'fallback_fired', run.current_node_key, {
         action: 'ai',

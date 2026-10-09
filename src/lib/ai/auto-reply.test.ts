@@ -25,6 +25,8 @@ const h = vi.hoisted(() => ({
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
     gaps: [] as Record<string, unknown>[],
+    outcomes: [] as Record<string, unknown>[],
+    inserts: [] as { table: string; row: unknown }[],
   },
 }));
 
@@ -62,10 +64,11 @@ vi.mock('./admin-client', () => ({
           eq: () => chain,
           in: (_col: string, values: string[]) => {
             h.state.autoResponderTriggers = values;
-            return chain;
+            return Promise.resolve({
+              data: h.state.autoResponders,
+              error: null,
+            });
           },
-          limit: () =>
-            Promise.resolve({ data: h.state.autoResponders, error: null }),
         };
         return chain;
       }
@@ -95,7 +98,27 @@ vi.mock('./admin-client', () => ({
         };
         return chain;
       }
-      // conversations
+      if (table === 'ai_reply_events' || table === 'notifications') {
+        return {
+          insert: (row: unknown) => {
+            h.state.inserts.push({ table, row });
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      if (table !== 'conversations') {
+        // messages / profiles / contacts: reads only
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          in: () => chain,
+          is: () => Promise.resolve({ data: [], error: null }),
+          order: () => chain,
+          limit: () => chain,
+          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        };
+        return chain;
+      }
       return {
         select: () => ({
           eq: () => ({
@@ -104,8 +127,17 @@ vi.mock('./admin-client', () => ({
           }),
         }),
         update: (payload: Record<string, unknown>) => {
-          h.state.updatePayload = payload;
-          return { eq: () => Promise.resolve({ error: null }) };
+          // recordOutcome's write is kept apart from the hand-off update.
+          if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
+          else h.state.updatePayload = payload;
+          const done = Promise.resolve({ error: null });
+          const chain = {
+            eq: () => chain,
+            is: () => chain,
+            select: () => Promise.resolve({ data: [], error: null }),
+            then: done.then.bind(done),
+          };
+          return chain;
         },
       };
     },
@@ -173,6 +205,9 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
   };
 }
 
+// No burst wait in tests; the newest-message check still runs.
+process.env.AI_BURST_WAIT_MS = '0';
+
 beforeEach(() => {
   // The per-account AI throttle is real here; don't let this file's
   // own call count trip it.
@@ -189,6 +224,8 @@ beforeEach(() => {
   h.state.updatePayload = null;
   h.state.rpcCalls = [];
   h.state.gaps = [];
+  h.state.outcomes = [];
+  h.state.inserts = [];
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },

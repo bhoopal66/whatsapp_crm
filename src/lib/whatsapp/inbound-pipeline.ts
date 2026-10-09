@@ -965,6 +965,7 @@ export async function processMessage(
       inboundProvider: channel.provider,
       inboundChannelId: channel.id,
       interactiveReply: Boolean(interactiveReplyId),
+      interactiveReplyId: interactiveReplyId ?? null,
       inboundMessageId: message.id,
       // A media caption is not in the bot's text context (context.ts
       // keeps text/interactive rows only); the gates still read it.
