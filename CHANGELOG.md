@@ -12,6 +12,44 @@ and polish.
 
 ## [Unreleased]
 
+### Partner banks, Important chats and open-question retrieval
+
+Each account sets its own partner banks, chats the AI hands over are
+pinned in the Inbox until a person acts, and the bot retrieves for the
+customer's open question rather than only the last message. See
+[docs/typesafe.md](./docs/typesafe.md) and
+[docs/ai-agent.md](./docs/ai-agent.md).
+
+> **Migration required:** apply
+> `supabase/migrations/078_partner_banks_and_attention.sql`
+> (re-runnable) **before** deploying the app. It adds
+> `ts_account_settings.partner_banks` and `conversations.ai_attention_at`,
+> and extends the 077 reply trigger to clear it. Without it, partner
+> banks fall back to the built-in list (saving one answers "Partner
+> banks need database migration 078") and the Important pin never
+> shows, but a hand-off, **Take over**, **Resume** and sending or
+> discarding a held draft also write `ai_attention_at`, so on a pre-078
+> database those writes fail: the hand-off is not saved (the chat is
+> not paused and gets no note) and the Take over, Resume and draft
+> buttons return an error. Apply it without `-1` so the backfill does
+> not hold table locks.
+
+- **Partner banks.** Settings → AI safety checks → Partner banks: tick
+  built-in banks (default Mashreq, RAKBANK, NBF, Wio, Ruya, UBL), add
+  others with their abbreviations, or take suggestions from _Found in
+  your knowledge base_. The guardrail blocks a draft naming any other
+  bank, and the bot is told the list. Uploading a bank's documents does
+  not make it a partner.
+- **Important chats.** A chat the AI hands over is pinned at the top of
+  the Inbox with a red Important label, an _Important · N_ filter, and a
+  red bar with Take over and Resume. A person replying, taking over,
+  resuming or acting on a held draft clears it.
+- **Open-question retrieval.** Knowledge lookup uses every customer
+  message since the bot last spoke; a "Hi" after an unanswered question
+  still retrieves for the earlier question.
+- **Changed.** Hand-off notes read as plain sentences ("🤖 AI needs a
+  person ...").
+
 ### AI agent v2
 
 The auto-reply bot gains model tiers with per-message routing, a

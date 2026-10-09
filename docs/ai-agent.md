@@ -5,8 +5,9 @@ provider you configured (Settings → AI). This guide covers how it picks
 a model, what happens to a draft TypeSafe holds, when it pauses and
 resumes, and how to find out why it did not answer a message.
 
-Apply `supabase/migrations/077_ai_agent_v2.sql` **before** deploying
-the build that includes this behaviour; see the CHANGELOG.
+Apply `supabase/migrations/077_ai_agent_v2.sql` and
+`078_partner_banks_and_attention.sql` **before** deploying the build
+that includes this behaviour; see the CHANGELOG.
 
 ## Model tiers
 
@@ -53,6 +54,20 @@ Further rules:
   the Standard model.
 - A Small-model reply that asks for a person is retried once on the
   Standard model before the chat is handed off.
+
+## What the AI reads before answering
+
+The bot looks up the knowledge base for the customer's **open
+question**, not just their last message: every message since the bot
+last spoke, newest turns kept. So a customer who sends two messages in
+a row gets one answer to both.
+
+A greeting or thanks does not replace the question. If the open
+messages are only greetings, the bot also reads the customer's last two
+earlier questions, so "Hi" after an unanswered question (or after a
+hand-off farewell, once a person presses **Resume & reply**) still
+retrieves for that question instead of answering it blind. A true first
+"hi" still skips retrieval.
 
 ## Held drafts
 
@@ -101,6 +116,27 @@ The inbox banner says why the bot is paused:
 
 When the customer's message is waiting, the banner offers **Resume &
 reply**, which answers it immediately.
+
+## Important chats
+
+When the AI hands a chat to a person, the chat is marked **Important**
+until someone acts on it:
+
+- It is **pinned at the top of the Inbox** with a red _Important_
+  label, newest hand-off first.
+- An **Important · N** filter chip shows only those chats.
+- Inside the chat, a **red bar at the top** says the AI needs a person,
+  with **Take over** and **Resume**.
+
+The mark clears when a person replies, presses Take over or Resume, or
+sends or discards a held draft. Assigning the hand-off agent does not
+clear it. Chats handed off before migration 078 are marked once, when
+it is applied, if the customer's message is still waiting.
+
+**Hand-off notes** are plain sentences that lead with what to do, e.g.
+"🤖 AI needs a person after 2 replies: the customer's message matched
+the escalation keyword “refund”. Last customer message: “...”". They
+no longer carry reason codes.
 
 ## Why didn't the AI reply?
 

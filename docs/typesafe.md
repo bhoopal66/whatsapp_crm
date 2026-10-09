@@ -272,6 +272,46 @@ the confirmation dialog; the API refuses it otherwise.
 Changing a switch applies to the next message on this server process
 at once, and within 30 seconds on any other.
 
+### Partner banks
+
+The guardrail and the bot only discuss the banks your business works
+with. That list is per account: Settings → **AI safety checks → Partner
+banks** (admin-only, like the rest of the panel). An account that never
+saved one uses the built-in list: Mashreq, RAKBANK, NBF, Wio, Ruya and
+UBL.
+
+- **Built-in banks.** Tick the ones you work with. The list shows the
+  built-in catalogue; untick a default partner you do not work with.
+- **Other banks.** Add a bank the catalogue does not know, with the
+  other spellings and abbreviations customers use (comma-separated,
+  e.g. `SB, Some Bank LLC`). Each one counts as a partner under all of
+  those names.
+- **Found in your knowledge base.** Suggests banks your documents
+  mention that are not on the list, with how many documents name each.
+  _Add_ puts one on the list; nothing is added for you.
+- **Reset to default** discards your list and goes back to the
+  built-in one.
+- Saves are version-checked like the other switches, and apply to the
+  next message on this server process at once and within 30 seconds on
+  any other.
+
+**What it changes.** The reply guardrail **blocks a draft that names a
+bank outside the list**, the same check as before with your list in
+place of the fixed one. The hand-off note names the bank and points
+here: "the draft named a bank that is not on your partner list (FAB).
+Add it in Settings → AI safety checks → Partner banks if you work with
+it." The bot's own instructions also list your partners and tell it to
+discuss only those, so it avoids naming others in the first place.
+
+**Uploading a bank's documents to the knowledge base does not make it a
+partner.** The knowledge base is what the bot may quote; the partner
+list is who it may talk about. If you work with a bank, tick or add it
+here as well.
+
+Migration 078 adds the column (`ts_account_settings.partner_banks`).
+Before it is applied the built-in list applies and saving a list
+answers "Partner banks need database migration 078".
+
 ### Approving a policy
 
 There is no screen for this yet, so both steps are SQL.
