@@ -925,7 +925,7 @@ async function autoResumeIfDue(
  * no hand-off. Best-effort: logged, never thrown, never blocks the
  * hand-off.
  */
-async function notifyHandoff(
+export async function notifyHandoff(
   db: SupabaseClient,
   args: {
     accountId: string;

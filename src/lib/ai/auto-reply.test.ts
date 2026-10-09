@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AiConfig } from './types';
 import type { KnowledgeRetrieval } from './knowledge';
-import { __resetRateLimitForTests } from '@/lib/rate-limit';
+import {
+  __resetRateLimitForTests,
+  checkRateLimit,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from './admin-client';
 
 // Shared, hoisted mock state so the module mocks can close over it.
 const h = vi.hoisted(() => ({
@@ -18,7 +24,7 @@ const h = vi.hoisted(() => ({
   markOptedOut: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
-    autoResponders: [] as { id: string }[],
+    autoResponders: [] as Record<string, unknown>[],
     autoResponderTriggers: null as string[] | null,
     campaign: null as { name: string; body: string } | null,
     claim: true as boolean,
@@ -27,6 +33,13 @@ const h = vi.hoisted(() => ({
     gaps: [] as Record<string, unknown>[],
     outcomes: [] as Record<string, unknown>[],
     inserts: [] as { table: string; row: unknown }[],
+    /** The newest customer message (burst check), per test. */
+    newest: null as { message_id: string; created_at: string } | null,
+    profiles: [] as Record<string, unknown>[],
+    contact: null as { name: string | null; phone: string | null } | null,
+    /** Rows the auto-resume compare-and-set updates. */
+    resumeRows: [] as { id: string }[],
+    resumes: [] as Record<string, unknown>[],
   },
 }));
 
@@ -106,16 +119,37 @@ vi.mock('./admin-client', () => ({
           },
         };
       }
+      if (table === 'profiles') {
+        // .select().eq().in().is() → the filtered rows
+        let rows = h.state.profiles;
+        const chain = {
+          select: () => chain,
+          eq: (col: string, v: unknown) => {
+            rows = rows.filter((r) => r[col] === v);
+            return chain;
+          },
+          in: (col: string, vs: unknown[]) => {
+            rows = rows.filter((r) => vs.includes(r[col]));
+            return chain;
+          },
+          is: (col: string, v: unknown) =>
+            Promise.resolve({
+              data: rows.filter((r) => (r[col] ?? null) === v),
+              error: null,
+            }),
+        };
+        return chain;
+      }
       if (table !== 'conversations') {
-        // messages / profiles / contacts: reads only
+        // messages (newest customer message) / contacts: single reads
+        const row = table === 'messages' ? h.state.newest : h.state.contact;
         const chain = {
           select: () => chain,
           eq: () => chain,
           in: () => chain,
-          is: () => Promise.resolve({ data: [], error: null }),
           order: () => chain,
           limit: () => chain,
-          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          maybeSingle: () => Promise.resolve({ data: row, error: null }),
         };
         return chain;
       }
@@ -128,13 +162,20 @@ vi.mock('./admin-client', () => ({
         }),
         update: (payload: Record<string, unknown>) => {
           // recordOutcome's write is kept apart from the hand-off update.
+          // So is auto-resume's compare-and-set.
+          const resume = payload.ai_autoreply_disabled === false;
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
+          else if (resume) h.state.resumes.push(payload);
           else h.state.updatePayload = payload;
           const done = Promise.resolve({ error: null });
           const chain = {
             eq: () => chain,
             is: () => chain,
-            select: () => Promise.resolve({ data: [], error: null }),
+            select: () =>
+              Promise.resolve({
+                data: resume ? h.state.resumeRows : [],
+                error: null,
+              }),
             then: done.then.bind(done),
           };
           return chain;
@@ -150,6 +191,7 @@ vi.mock('./admin-client', () => ({
 
 import {
   dispatchInboundToAiReply,
+  notifyHandoff,
   retrievalGateFailure,
   RETRIEVAL_GATE_MIN_WORDS,
 } from './auto-reply';
@@ -226,6 +268,11 @@ beforeEach(() => {
   h.state.gaps = [];
   h.state.outcomes = [];
   h.state.inserts = [];
+  h.state.newest = null;
+  h.state.profiles = [];
+  h.state.contact = null;
+  h.state.resumeRows = [];
+  h.state.resumes = [];
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },
@@ -1126,5 +1173,333 @@ describe('dispatchInboundToAiReply — TypeSafe decision layer (063)', () => {
     expect(h.state.updatePayload!.ai_handoff_summary).toContain(
       'ASKS_SECRET_BLOCK'
     );
+  });
+});
+
+/** The outcome the last dispatch recorded on the conversation (077). */
+function lastOutcome(): unknown {
+  return h.state.outcomes.at(-1)?.ai_last_outcome;
+}
+
+function notificationRows(): Record<string, unknown>[] {
+  return h.state.inserts
+    .filter((i) => i.table === 'notifications')
+    .flatMap((i) => i.row as Record<string, unknown>[]);
+}
+
+describe('dispatchInboundToAiReply — stands down only for a matching automation', () => {
+  const KEYWORD_RULE = {
+    id: 'auto-1',
+    name: 'Price list',
+    trigger_type: 'keyword_match',
+    trigger_config: { keywords: ['price'], match_type: 'contains' },
+  };
+
+  it('replies when an active keyword rule does not match this message', async () => {
+    h.state.autoResponders = [KEYWORD_RULE];
+    expect(
+      await dispatchInboundToAiReply({ ...ARGS, inboundText: 'hello there' })
+    ).toBe('replied');
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
+    expect(lastOutcome()).toBe('replied');
+  });
+
+  it('stands down and records skipped_automation when the rule matches', async () => {
+    h.state.autoResponders = [KEYWORD_RULE];
+    expect(
+      await dispatchInboundToAiReply({
+        ...ARGS,
+        inboundText: 'What is the PRICE?',
+      })
+    ).toBe('skipped');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_automation');
+    expect(h.state.outcomes.at(-1)?.ai_last_outcome_detail).toContain(
+      'Price list'
+    );
+  });
+});
+
+describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
+  it('skipped_number: the inbound came in on a number the bot does not answer', async () => {
+    await dispatchInboundToAiReply({ ...ARGS, inboundProvider: 'whapi' });
+    expect(lastOutcome()).toBe('skipped_number');
+  });
+
+  it('skipped_assigned: a person owns the thread', async () => {
+    h.state.conv = { ...h.state.conv, assigned_agent_id: 'agent-9' };
+    await dispatchInboundToAiReply(ARGS);
+    expect(lastOutcome()).toBe('skipped_assigned');
+  });
+
+  it('skipped_paused: the bot is paused on this thread', async () => {
+    h.state.conv = {
+      ...h.state.conv,
+      ai_autoreply_disabled: true,
+      ai_paused_reason: 'take_over',
+    };
+    await dispatchInboundToAiReply(ARGS);
+    expect(lastOutcome()).toBe('skipped_paused');
+  });
+
+  it('skipped_rate_limited: the account-wide throttle is spent', async () => {
+    for (let i = 0; i < RATE_LIMITS.aiAutoReplyAccount.limit; i++) {
+      checkRateLimit('ai-autoreply:acct-1', RATE_LIMITS.aiAutoReplyAccount);
+    }
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_rate_limited');
+  });
+
+  it('replied: a reply went out', async () => {
+    await dispatchInboundToAiReply(ARGS);
+    expect(lastOutcome()).toBe('replied');
+    expect(h.state.inserts).toContainEqual({
+      table: 'ai_reply_events',
+      row: expect.objectContaining({
+        account_id: 'acct-1',
+        conversation_id: 'conv-1',
+        outcome: 'replied',
+      }),
+    });
+  });
+
+  it('handed_off: the thread went to a person', async () => {
+    h.state.conv = { ...h.state.conv, ai_reply_count: 3 };
+    await dispatchInboundToAiReply(ARGS);
+    expect(lastOutcome()).toBe('handed_off');
+  });
+
+  it('error: an unexpected failure is recorded, not swallowed', async () => {
+    h.buildConversationContext.mockRejectedValue(new Error('db down'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(lastOutcome()).toBe('error');
+    expect(h.state.outcomes.at(-1)?.ai_last_outcome_detail).toBe('db down');
+  });
+
+  it('records nothing for an account with the bot off', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyEnabled: false }));
+    await dispatchInboundToAiReply(ARGS);
+    expect(h.state.outcomes).toEqual([]);
+  });
+});
+
+describe('dispatchInboundToAiReply — auto-resume after an agent reply (077)', () => {
+  const HOURS_AGO = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+  const pausedConv = (extra: Record<string, unknown> = {}) => ({
+    assigned_agent_id: null,
+    ai_autoreply_disabled: true,
+    ai_reply_count: 0,
+    ai_paused_reason: 'agent_reply',
+    ai_paused_at: HOURS_AGO,
+    ...extra,
+  });
+
+  beforeEach(() => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ autoResumeMinutes: 30 }));
+    h.state.resumeRows = [{ id: 'conv-1' }];
+  });
+
+  it('lifts the pause once the window has passed, and replies', async () => {
+    h.state.conv = pausedConv();
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+    expect(h.state.resumes).toEqual([
+      {
+        ai_autoreply_disabled: false,
+        ai_paused_reason: null,
+        ai_paused_at: null,
+      },
+    ]);
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays paused inside the window', async () => {
+    h.state.conv = pausedConv({
+      ai_paused_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.state.resumes).toEqual([]);
+    expect(lastOutcome()).toBe('skipped_paused');
+  });
+
+  it.each(['handoff', 'take_over'])(
+    'never lifts a %s pause',
+    async (reason) => {
+      h.state.conv = pausedConv({ ai_paused_reason: reason });
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(h.state.resumes).toEqual([]);
+      expect(h.engineSendText).not.toHaveBeenCalled();
+    }
+  );
+
+  it('never lifts it while someone is assigned', async () => {
+    h.state.conv = pausedConv({ assigned_agent_id: 'agent-9' });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.state.resumes).toEqual([]);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  it('stays paused when the compare-and-set updates no row', async () => {
+    // An agent replied meanwhile: ai_paused_at moved on.
+    h.state.conv = pausedConv();
+    h.state.resumeRows = [];
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.state.resumes).toHaveLength(1);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(lastOutcome()).toBe('skipped_paused');
+  });
+});
+
+describe('dispatchInboundToAiReply — bursts get one reply', () => {
+  const T = Date.parse('2026-10-09T10:00:00Z');
+  const at = (msAgo: number) => new Date(T - msAgo).toISOString();
+
+  it('stands down when a newer customer message arrived', async () => {
+    h.state.newest = { message_id: 'wamid-2', created_at: at(0) };
+    expect(
+      await dispatchInboundToAiReply({ ...ARGS, inboundMessageId: 'wamid-1' })
+    ).toBe('skipped');
+    expect(lastOutcome()).toBe('skipped_superseded');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  it('the newest message answers the whole burst', async () => {
+    h.state.newest = { message_id: 'wamid-2', created_at: at(0) };
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: 'Hello!', at: at(600_000) },
+      { role: 'user', content: 'hi', at: at(4_000) },
+      { role: 'user', content: 'I need a loan', at: at(0) },
+    ]);
+    expect(
+      await dispatchInboundToAiReply({ ...ARGS, inboundMessageId: 'wamid-2' })
+    ).toBe('replied');
+    expect(h.runTriageGate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        customerTurn: 'hi\nI need a loan',
+        question: 'hi\nI need a loan',
+      })
+    );
+    expect(h.runGuardrailGate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ customerMessage: 'hi\nI need a loan' })
+    );
+    const prompt = h.generateReply.mock.calls[0][0].messages as {
+      content: string;
+    }[];
+    expect(prompt.map((m) => m.content)).toEqual(
+      expect.arrayContaining(['hi', 'I need a loan'])
+    );
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves out a customer message older than the burst window', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ escalationKeywords: ['refund'] })
+    );
+    h.state.newest = { message_id: 'wamid-2', created_at: at(0) };
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'assistant', content: 'Hello!', at: at(3_600_000) },
+      // Sat unanswered through a silent hand-off, long since resolved.
+      { role: 'user', content: 'I want a refund', at: at(121_000) },
+      { role: 'user', content: 'thanks', at: at(0) },
+    ]);
+    expect(
+      await dispatchInboundToAiReply({ ...ARGS, inboundMessageId: 'wamid-2' })
+    ).toBe('replied');
+    expect(h.state.updatePayload).toBeNull();
+    expect(h.runTriageGate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ customerTurn: 'thanks' })
+    );
+  });
+});
+
+describe('dispatchInboundToAiReply — hand-off notifications', () => {
+  beforeEach(() => {
+    // The cap hands off before any model call.
+    h.state.conv = { ...h.state.conv, ai_reply_count: 3 };
+    h.state.contact = { name: 'Sara', phone: '+971500000000' };
+    h.state.profiles = [
+      { user_id: 'owner-1', account_id: 'acct-1', account_role: 'owner' },
+      { user_id: 'admin-1', account_id: 'acct-1', account_role: 'admin' },
+      {
+        user_id: 'admin-gone',
+        account_id: 'acct-1',
+        account_role: 'admin',
+        deactivated_at: '2026-09-01T00:00:00Z',
+      },
+      { user_id: 'agent-1', account_id: 'acct-1', account_role: 'agent' },
+      { user_id: 'owner-x', account_id: 'acct-2', account_role: 'owner' },
+    ];
+  });
+
+  it('rings no ai_handoff bell when it assigns the hand-off agent', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ handoffAgentId: 'agent-7' }));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.updatePayload).toMatchObject({
+      assigned_agent_id: 'agent-7',
+    });
+    // The assignment trigger notifies them (conversation_assigned).
+    expect(notificationRows()).toEqual([]);
+  });
+
+  it('with nobody assigned, rings every active owner and admin', async () => {
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    const rows = notificationRows();
+    expect(rows.map((r) => r.user_id)).toEqual(['owner-1', 'admin-1']);
+    expect(rows[0]).toMatchObject({
+      account_id: 'acct-1',
+      type: 'ai_handoff',
+      conversation_id: 'conv-1',
+      contact_id: 'contact-1',
+    });
+    expect(rows[0]!.title).toContain('Sara');
+  });
+
+  it('rings the assignee when the chat has one', async () => {
+    // Dispatch never hands off an assigned chat (it skips first), so
+    // the assignee branch is exercised directly.
+    await notifyHandoff(supabaseAdmin() as SupabaseClient, {
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      recipientId: 'agent-3',
+      reasonClause: 'Reason: reply cap reached.',
+    });
+    expect(notificationRows()).toEqual([
+      expect.objectContaining({
+        user_id: 'agent-3',
+        type: 'ai_handoff',
+        body: 'Reason: reply cap reached.',
+      }),
+    ]);
+  });
+});
+
+describe('dispatchInboundToAiReply — a failed reply send', () => {
+  it('hands off with reason error, sends no farewell, records error', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ handoffMessage: 'A colleague will be in touch.' })
+    );
+    h.engineSendText.mockRejectedValue(new Error('131047 window closed'));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    // Only the failed reply itself; no farewell on the failing number.
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hello!' })
+    );
+    expect(h.state.rpcCalls).toHaveLength(1);
+    expect(h.state.updatePayload).toMatchObject({
+      ai_autoreply_disabled: true,
+      ai_paused_reason: 'handoff',
+      ai_handoff_reason: 'error',
+    });
+    expect(h.state.updatePayload?.ai_handoff_summary).toContain(
+      '131047 window closed'
+    );
+    expect(lastOutcome()).toBe('error');
   });
 });
