@@ -17,10 +17,17 @@ export type SafetyState = 'off' | 'monitor' | 'live' | 'problem';
 
 export type StatusDot = 'green' | 'amber' | null;
 
-/** Where auto-reply answers: every number, or one (null = the default
- *  number, which has no name when no number is marked primary). */
+/**
+ * Where auto-reply answers: every number; only the explicitly routed
+ * one; or, with no explicit `ai_reply` route, the default number *and*
+ * every other number of its provider, because `resolveAiReplyChannel`
+ * then stays on the thread's own number whenever the providers match.
+ * The default number has no name when no number is marked primary.
+ */
 export type AutoReplyScope =
-  { kind: 'all' } | { kind: 'only'; name: string | null };
+  | { kind: 'all' }
+  | { kind: 'only'; name: string }
+  | { kind: 'default'; name: string | null };
 
 export interface AgentOverview {
   assistant: { configured: boolean; on: boolean };
@@ -38,7 +45,7 @@ export function summariseAgentOverview({
     AiConfigFormValues,
     'isActive' | 'autoReplyEnabled' | 'replyOnAllNumbers'
   >;
-  /** The saved `ai_reply` route: null = the default number. */
+  /** The saved `ai_reply` route: null = no explicit route. */
   aiReplyRoute: string | null;
   numbers: readonly { id: string; name: string; isPrimary: boolean }[];
 }): AgentOverview {
@@ -48,7 +55,7 @@ export function summariseAgentOverview({
     scope = { kind: 'all' };
   } else if (aiReplyRoute === null) {
     scope = {
-      kind: 'only',
+      kind: 'default',
       name: numbers.find((n) => n.isPrimary)?.name ?? null,
     };
   } else {
@@ -64,6 +71,23 @@ export function summariseAgentOverview({
     // The bot loads its config only while the assistant is on.
     autoReply: { on: assistantOn && saved.autoReplyEnabled, scope },
   };
+}
+
+/** The Overview's "Reply on" line, as an `AiAgents` message. */
+export function autoReplyScopeMessage(
+  scope: AutoReplyScope
+):
+  | { key: 'overview.everyNumber' }
+  | { key: 'overview.onlyOn'; values: { name: string } }
+  | { key: 'overview.defaultAndOthers'; values: { name: string } }
+  | { key: 'overview.defaultAndOthersUnnamed' } {
+  if (scope.kind === 'all') return { key: 'overview.everyNumber' };
+  if (scope.kind === 'only') {
+    return { key: 'overview.onlyOn', values: { name: scope.name } };
+  }
+  return scope.name === null
+    ? { key: 'overview.defaultAndOthersUnnamed' }
+    : { key: 'overview.defaultAndOthers', values: { name: scope.name } };
 }
 
 /** The Settings Overview's AI Agents tile, as a message key. */
