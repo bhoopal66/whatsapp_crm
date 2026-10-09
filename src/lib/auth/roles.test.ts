@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_ROLES,
+  ASSIGNABLE_ROLES,
   type AccountRole,
   canDeleteAccount,
   canEditSettings,
@@ -128,5 +129,16 @@ describe("capability predicates", () => {
     expect(canTransferOwnership("admin")).toBe(false);
     expect(canTransferOwnership("agent")).toBe(false);
     expect(canTransferOwnership("viewer")).toBe(false);
+  });
+});
+
+describe("ASSIGNABLE_ROLES", () => {
+  // Create-login, invite and the roster's role change all render this
+  // list; team_leader used to be missing from two of them.
+  it("is every role but owner, highest first, team_leader included", () => {
+    expect([...ASSIGNABLE_ROLES]).toEqual(
+      ACCOUNT_ROLES.filter((r) => r !== "owner").reverse(),
+    );
+    expect(ASSIGNABLE_ROLES).toContain("team_leader");
   });
 });
