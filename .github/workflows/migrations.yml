@@ -146,3 +146,11 @@ jobs:
       # routed-number bot.
       - name: Verify AI reply on every number
         run: supabase db query --local --file supabase/ci/verify-ai-all-numbers.sql
+
+      # Pipelines for everyone (080): a deal is visible to its owner,
+      # their team leader and admins, and tagging a chat with a stage's
+      # linked tag opens one deal there. The rule lives in RLS and the
+      # deal comes from a conversations trigger, so only real Postgres
+      # can show who sees what and that re-tagging never duplicates.
+      - name: Verify pipeline deals
+        run: supabase db query --local --file supabase/ci/verify-pipeline-deals.sql
