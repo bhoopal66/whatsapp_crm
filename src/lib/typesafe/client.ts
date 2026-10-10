@@ -68,18 +68,23 @@ export type CallResult<Q extends Questions> =
   | { ok: false; errorCode: ErrorCode; latencyMs: number; message: string };
 
 /**
- * What the gateway calls on behalf of: one of the safety checks, or the
- * model-tier router (`route`, lib/ai/router.ts). The router is not a
- * safety check — it has no account switch, policy or decision-log row —
- * so it is not a `CheckName`; it gets its own outage breaker and
- * content-failure keys here, so its traffic can never open a check's
- * breaker or pause a check for an account.
+ * What the gateway calls on behalf of: one of the safety checks, the
+ * model-tier router (`route`, lib/ai/router.ts), or the approved-answers
+ * selection (`kb_select`, checks/kb-select.ts). Those two are not safety
+ * checks — no account switch, policy or decision-log row — so they are
+ * not `CheckName`s; each gets its own outage breaker and content-failure
+ * keys here, so its traffic can never open a check's breaker or pause a
+ * check for an account.
  */
-export type GatewayCheck = CheckName | 'route';
+export type SelectionCaller = 'route' | 'kb_select';
+export type GatewayCheck = CheckName | SelectionCaller;
 export const GATEWAY_CHECKS: readonly GatewayCheck[] = [
   ...CHECK_NAMES,
   'route',
+  'kb_select',
 ];
+const isSelectionCaller = (c: GatewayCheck): c is SelectionCaller =>
+  c === 'route' || c === 'kb_select';
 
 export interface AlertSink {
   (event: {
@@ -173,7 +178,7 @@ function stringLeaves(value: unknown, out: string[] = []): string[] {
 export class TypeSafeGateway {
   /** Built on first use: the SDK throws without an API key, and a fully disabled layer never needs one. */
   private clientInstance: TypeSafeClient | null = null;
-  /** Outage breakers, per check (and one for the router). */
+  /** Outage breakers, per check (and one each for route and kb_select). */
   private readonly breakers: Record<GatewayCheck, CircuitBreaker>;
   /** Content-class breakers and 422 pauses, per `${check}:${accountId}`. */
   private readonly contentBreakers = new Map<string, CircuitBreaker>();
@@ -242,8 +247,13 @@ export class TypeSafeGateway {
     key: string
   ): { errorCode: ErrorCode; message: string } | null {
     const t = this.now();
-    // The router has no TS_ENABLED_* switch: it runs wherever a key is set.
-    if (check === 'route' ? !this.hasKey() : !this.deps.config.enabled[check])
+    // The router and the approved-answers selection have no TS_ENABLED_*
+    // switch: they run wherever a key is set.
+    if (
+      isSelectionCaller(check)
+        ? !this.hasKey()
+        : !this.deps.config.enabled[check]
+    )
       return { errorCode: 'DISABLED', message: `${check} disabled` };
     if (t < this.authUntil)
       return { errorCode: 'AUTH_PAUSED', message: 'paused after auth failure' };
