@@ -156,6 +156,84 @@ no longer carry reason codes.
 Needs migration 079. Before it, the bot keeps answering on its routed
 number and the switch cannot load.
 
+## Approved answers only (migration 081)
+
+In this answer mode the bot **never writes text**. It sends one answer
+an admin approved, word for word, or hands the chat to a person. The
+default mode (`generate`) is unchanged.
+
+For each message the bot is allowed to answer, in order:
+
+1. The usual eligibility checks, the reply cap and the
+   sensitive-data warning (below).
+2. Escalation keywords, the account rate limit and TypeSafe triage
+   (including its hand-offs and opt-out marking), exactly as in
+   `generate` mode. The model router does not run: nothing is
+   generated, so there is no tier.
+3. A **shortlist** of up to 8 approved answers for the customer's open
+   question (`kb_shortlist`, a lexical match; an account with at most
+   12 approved answers gets all of them).
+4. A **TypeSafe selection judgment** (`kb_select`) of every shortlisted
+   answer: does it fully answer the question, and is it the same
+   intent? Plus three hand-off conditions: a pricing request, a legal
+   or regulatory question, an angry tone.
+5. The **policy**: a hand-off condition at **0.5** or above hands off
+   (reason `kb`). Otherwise the best answer's score is the lower of its
+   two figures; below **Approved minimum score** (`approved_min_score`,
+   default **0.8**, 0.5–0.99) it hands off (reason `no_knowledge`, and
+   the question is logged as a knowledge gap). An Arabic message gets
+   the Arabic answer; when that answer has none, or the message is in
+   another language, it hands off (`no_knowledge`).
+6. The chosen answer is **sent verbatim**. An answer marked _hand off
+   after_ is sent and then the chat goes to a person (reason `kb`),
+   with no second message: the answer was the farewell.
+
+The guardrail does not run on approved answers: it screens text a model
+wrote, and these were approved word for word.
+
+Every doubt ends with a person, with the configured hand-off message:
+
+| Situation                                                   | Hand-off reason |
+| ----------------------------------------------------------- | --------------- |
+| No approved answer shortlisted, or none scored high enough  | `no_knowledge`  |
+| A pricing, legal or angry signal at 0.5+                    | `kb`            |
+| An answer marked _hand off after_ (after sending it)        | `kb`            |
+| The shortlist lookup failed                                 | `error`         |
+| TypeSafe unavailable, failed or answered with another model | `error`         |
+| Not enough of the dispatch budget left to ask TypeSafe      | `error`         |
+
+**It needs TypeSafe.** Set `TYPESAFE_API_KEY` and list the account in
+`TS_ACCOUNT_IDS`. Without them every message is handed to a person
+("Approved-answer check unavailable (DISABLED)"): an answer nobody
+judged is never sent. The selection is not a safety check, so the
+switches under Settings → AI safety checks do not turn it on or off.
+
+**Internal answers never reach customers.** `kb_shortlist` hard-codes
+the two client audiences (prospective and existing clients) in SQL;
+`internal_staff` rows are never returned to the bot, whatever the
+caller asks.
+
+### Importing answers
+
+Answers are imported from the review spreadsheet: the sheet named
+`Knowledge_Base` (else the first sheet with a question and an answer
+column). Recognised columns: ID / Ref, Audience, Category, Question,
+Bot answer (English), Arabic answer, Source, Status, Reviewer comments,
+Handoff. Rows are matched by ref; rows missing from the file are left
+alone. **Only rows with status Approved are ever sent.** An answer that
+is blank or still contains a `[TO CONFIRM …]` placeholder can never be
+approved: the import files it as _To confirm_, and the database refuses
+it as approved.
+
+### Sensitive-data warning
+
+In **both** answer modes, when **Sensitive-data reply**
+(`sensitive_data_reply`) is set and a customer message contains an
+Emirates ID, a card number (Luhn-checked) or an IBAN, the bot sends
+that text and nothing else for the message: no TypeSafe call, no model.
+It counts against the reply cap. Empty means off. The outcome is
+recorded as `replied`, "Sensitive-data warning sent".
+
 ## Why didn't the AI reply?
 
 Every dispatch records an outcome on the conversation and in an events

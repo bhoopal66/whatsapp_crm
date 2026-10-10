@@ -12,6 +12,28 @@ and polish.
 
 ## [Unreleased]
 
+### AI agent: approved answers only, and a sensitive-data warning
+
+A new answer mode for the auto-reply bot, **Approved answers only**:
+the bot never writes text. It sends one answer an admin approved, word
+for word, or hands the chat to a person. Answers are imported from the
+review spreadsheet (sheet `Knowledge_Base`); only rows marked Approved
+are ever sent, and an answer still saying `[TO CONFIRM …]` cannot be
+approved. TypeSafe picks the answer from a shortlist; a pricing, legal
+or angry message, a weak match (below the minimum score, 0.8 by
+default), a missing Arabic answer, or TypeSafe being unavailable all
+hand the chat to a person. Answers for internal staff never reach
+customers. The mode needs `TYPESAFE_API_KEY` and the account in
+`TS_ACCOUNT_IDS`. See `docs/ai-agent.md`.
+
+In either mode, an optional **sensitive-data reply** is sent instead of
+an answer when a customer shares an Emirates ID, a card number or an
+IBAN. The default mode and settings are unchanged.
+
+> **Migration required:** apply
+> `supabase/migrations/081_approved_answers.sql` (re-runnable)
+> **before** deploying the app.
+
 ### AI safety check: no Central Bank or bank/lender claims
 
 The AI reply guardrail now holds, for a person to review, any draft

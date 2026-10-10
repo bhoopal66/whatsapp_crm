@@ -29,10 +29,21 @@ import {
   runTriageGate,
   turnsBefore,
   type PassageGateResult,
+  type TriageGateResult,
   type TsRef,
 } from './typesafe-gates';
 import { isGreetingOrThanks, resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
+import { containsSensitiveData } from '@/lib/kb/sensitive';
+import { shortlistApprovedAnswers } from '@/lib/kb/shortlist';
+import {
+  decideApprovedAnswer,
+  describeKbSelection,
+  type KbCandidate as ApprovedCandidate,
+} from '@/lib/kb/select-policy';
+import { detectLanguage, getDecisionLayer } from '@/lib/typesafe';
+import type { KbSelectInput, KbSelectJudgment } from '@/lib/typesafe';
+import { KB_SELECT_DEADLINE_MS } from '@/lib/typesafe/checks/kb-select';
 import { engineSendText } from '@/lib/flows/channel-send';
 import {
   resolveAiReplyChannel,
@@ -261,6 +272,13 @@ export type AiReplyOutcome = 'replied' | 'handed_off' | 'skipped';
  * restrict the bot to the knowledge base), the passage filter between
  * retrieval and gate 2, and the guardrail between the model and the
  * send (may hold or block the draft).
+ *
+ * Migration 081 adds two more. A sensitive-data warning, in either
+ * answer mode: a message carrying an Emirates ID, a card number or an
+ * IBAN gets the account's warning before gate 1, and nothing else. And
+ * *Approved answers only* (`answerMode: 'approved'`): after triage the
+ * bot sends one admin-approved answer verbatim, chosen by TypeSafe from
+ * a lexical shortlist, or hands off — no retrieval, model or guardrail.
  *
  * The 24h WhatsApp session window is inherently open here — we're
  * reacting to a customer message that just landed — so no separate
@@ -742,6 +760,83 @@ export async function dispatchInboundToAiReply(
       return 'handed_off';
     };
 
+    /**
+     * Send one bot message to the customer: the pin re-check, the atomic
+     * reply-slot claim, the send, and a person told when the send fails.
+     * Null once the message went out; otherwise the dispatch's outcome,
+     * already recorded. The model's reply, the sensitive-data warning and
+     * an approved answer all go out through here.
+     */
+    const sendReply = async (text: string): Promise<AiReplyOutcome | null> => {
+      const pinnedNow = await pinnedElsewhere();
+      if (pinnedNow) {
+        return skip(
+          'skipped_number',
+          `This chat is pinned to number ${pinnedNow} — a person chose it; ` +
+            `this message came in on ${inboundProvider} number ${inboundChannelId}.`
+        );
+      }
+
+      // Atomically claim a reply slot: the cap check + increment happen in
+      // one UPDATE, so concurrent inbounds can never overshoot the cap. If
+      // another inbound just took the last slot, `claimed` is false and we
+      // skip the send. (We consume a slot slightly before the send lands —
+      // fail-safe: under-reply rather than over-reply.)
+      const { data: claimed, error: claimErr } = await dbc.rpc(
+        'claim_ai_reply_slot',
+        {
+          conversation_id: conversationId,
+          max_replies: config.autoReplyMaxPerConversation,
+        }
+      );
+      if (claimErr) {
+        // A real error here (vs. losing the cap race) is almost always a
+        // deploy issue — e.g. `claim_ai_reply_slot` not EXECUTE-able by the
+        // service role, or the migration not applied. Log it loudly: a
+        // silent return makes "auto-reply never fires" undiagnosable.
+        console.error('[ai auto-reply] claim_ai_reply_slot failed:', claimErr);
+        return skip('error', `claim_ai_reply_slot failed: ${claimErr.message}`);
+      }
+      if (claimed !== true) {
+        // The claim also refuses a chat a person paused or took meanwhile;
+        // only when it did neither did the cap race take the last slot.
+        return skip((await takenBy()) ?? 'skipped_cap_race');
+      }
+
+      try {
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text,
+          aiGenerated: true,
+          // Routed independently of the deterministic flow runner
+          // (migration 046) — an admin can put the AI bot on one number and
+          // flows on the other.
+          surface: 'ai_reply',
+          // Every-number mode (079): the number the gate chose.
+          channelId: replyChannelId,
+        });
+      } catch (err) {
+        // The slot is spent and the customer heard nothing. This used to
+        // land in the catch-all as a silent skip with a log line; now a
+        // person is told. No farewell: it would go out on the number that
+        // just failed.
+        const detail = `WhatsApp send failed: ${errorMessage(err)}`;
+        console.error('[ai auto-reply] reply send failed:', err);
+        // Recorded once, as the error it is.
+        return handOff(
+          'error',
+          detail,
+          null,
+          `${detail.slice(0, 200)}.`,
+          'error'
+        );
+      }
+      return null;
+    };
+
     // Reply cap (migration 054: a handoff, not silence). The bot has
     // said everything it may on this thread; a customer who is still
     // writing needs a person, so route the thread and leave the note
@@ -755,6 +850,17 @@ export async function dispatchInboundToAiReply(
         `${conv.ai_reply_count} of ${config.autoReplyMaxPerConversation}`,
         config.handoffMessage
       );
+    }
+
+    // Sensitive-data warning (migration 081, both answer modes): a
+    // message carrying an Emirates ID, a card number or an IBAN gets the
+    // account's warning and nothing else — no TypeSafe call, no model,
+    // so the identifier goes nowhere further than our own database.
+    if (config.sensitiveDataReply && containsSensitiveData(customerTurn)) {
+      const unsent = await sendReply(config.sensitiveDataReply);
+      if (unsent) return unsent;
+      await record('replied', 'Sensitive-data warning sent');
+      return 'replied';
     }
 
     // Gate 1 — escalation keywords. Deterministic and free: a refund /
@@ -787,6 +893,104 @@ export async function dispatchInboundToAiReply(
       );
     }
 
+    /**
+     * Approved answers only (migration 081): send one admin-approved
+     * answer word for word, or hand the chat to a person. Every doubt —
+     * a failed lookup, TypeSafe unavailable or out of time, no answer
+     * scoring high enough, a hand-off condition — ends with a person.
+     *
+     * The guardrail does not run here: it screens text a model wrote,
+     * and an approved answer is text an admin approved verbatim.
+     * Outcome details carry refs and scores only, never customer text.
+     */
+    const answerFromApproved = async (): Promise<AiReplyOutcome> => {
+      const gapOut = async (detail: string) => {
+        await logKnowledgeGap(dbc, {
+          accountId,
+          conversationId,
+          question: openQuestion,
+          bestScore: null,
+        });
+        return handOff('no_knowledge', detail, config.handoffMessage);
+      };
+
+      let shortlist: ApprovedCandidate[];
+      try {
+        shortlist = (
+          await shortlistApprovedAnswers(dbc, accountId, openQuestion)
+        ).map((r) => ({
+          id: r.id,
+          ref: r.ref,
+          question: r.question,
+          answerEn: r.answer_en,
+          answerAr: r.answer_ar,
+          handoffAfter: r.handoff_after,
+        }));
+      } catch (err) {
+        console.error('[ai auto-reply] approved answers lookup failed:', err);
+        return handOff(
+          'error',
+          `Approved answers lookup failed: ${errorMessage(err)}`,
+          config.handoffMessage
+        );
+      }
+      if (shortlist.length === 0) return gapOut('No approved answer matched');
+
+      // What is left of the dispatch budget, less the reserve for the
+      // send or hand-off after the judgment.
+      const deadlineMs = Math.min(
+        KB_SELECT_DEADLINE_MS,
+        budgetMs - (now() - startedAt) - GENERATION_RESERVE_MS
+      );
+      if (deadlineMs < MIN_KB_SELECT_MS) {
+        return handOff('error', 'AI ran out of time', config.handoffMessage);
+      }
+      const judgment = await judgeApprovedAnswers({
+        accountId,
+        message: openQuestion,
+        recentTurns,
+        candidates: shortlist.map((c) => ({
+          question: c.question,
+          answer: c.answerEn,
+        })),
+        deadlineMs,
+      });
+      if (!judgment.ok) {
+        // Fail-safe: an answer nobody judged is never sent.
+        return handOff(
+          'error',
+          `Approved-answer check unavailable (${judgment.errorCode})`,
+          config.handoffMessage
+        );
+      }
+
+      const decision = decideApprovedAnswer({
+        language: detectLanguage(openQuestion),
+        judgment,
+        candidates: shortlist,
+        minScore: config.approvedMinScore,
+      });
+      if (decision.kind === 'handoff') {
+        return decision.reason === 'no_knowledge'
+          ? gapOut(decision.detail)
+          : handOff(decision.reason, decision.detail, config.handoffMessage);
+      }
+
+      // Verbatim: the approved text is never edited on its way out.
+      const unsent = await sendReply(decision.text);
+      if (unsent) return unsent;
+      if (decision.thenHandOff) {
+        // No farewell: the answer just sent was it.
+        return handOff(
+          'kb',
+          `${describeKbSelection(decision)} hands the chat to a person`,
+          null
+        );
+      }
+      await record('replied', describeKbSelection(decision));
+      return 'replied';
+    };
+
     // TypeSafe triage (063): a request for a person, a complaint or an
     // opt-out goes to the team before any LLM spend. An opt-out gets no
     // farewell — they asked us to stop writing.
@@ -800,18 +1004,49 @@ export async function dispatchInboundToAiReply(
       : conv.campaign_broadcast_id
         ? 'campaign_reply'
         : 'open_conversation';
+    const triageInput = { messages, question, customerTurn, journeyStage };
+    const recentTurns = turnsBefore(messages, openText)
+      .slice(-ROUTE_TURNS)
+      .map((m) => ({
+        from: m.role === 'user' ? ('customer' as const) : ('business' as const),
+        text: m.content,
+      }));
+    const triageHandOff = async (
+      handoff: NonNullable<TriageGateResult['handoff']>
+    ) => {
+      // An acted-on opt-out stamps contacts.opted_out_at (migration
+      // 076), which every broadcast skips when planned and when sent.
+      const marked =
+        handoff.optOut === 'record' &&
+        (await markOptedOut(dbc, { accountId, contactId }));
+      return handOff(
+        'triage',
+        marked ? `${handoff.detail}; marked opted-out` : handoff.detail,
+        handoff.farewell ? config.handoffMessage : null
+      );
+    };
+
+    if (config.answerMode === 'approved') {
+      // Approved answers only (migration 081): nothing is generated, so
+      // there is no tier to route to.
+      const triage = await runTriageGate(tsRef, triageInput);
+      routing = {
+        tier: 'standard',
+        model: null,
+        routeSource: 'fixed',
+        escalated: false,
+      };
+      if (triage.handoff) return triageHandOff(triage.handoff);
+      return answerFromApproved();
+    }
+
     const [triage, routed] = await Promise.all([
-      runTriageGate(tsRef, { messages, question, customerTurn, journeyStage }),
+      runTriageGate(tsRef, triageInput),
       routeMessage({
         config,
         accountId,
         message: openQuestion,
-        recentTurns: turnsBefore(messages, openText)
-          .slice(-ROUTE_TURNS)
-          .map((m) => ({
-            from: m.role === 'user' ? 'customer' : 'business',
-            text: m.content,
-          })),
+        recentTurns,
         journeyStage,
         ctx: { inFlow: !!flowContext },
       }),
@@ -841,20 +1076,7 @@ export async function dispatchInboundToAiReply(
       routeSource: route.source,
       escalated: false,
     };
-    if (triage.handoff) {
-      // An acted-on opt-out stamps contacts.opted_out_at (migration
-      // 076), which every broadcast skips when planned and when sent.
-      const marked =
-        triage.handoff.optOut === 'record' &&
-        (await markOptedOut(dbc, { accountId, contactId }));
-      return handOff(
-        'triage',
-        marked
-          ? `${triage.handoff.detail}; marked opted-out`
-          : triage.handoff.detail,
-        triage.handoff.farewell ? config.handoffMessage : null
-      );
-    }
+    if (triage.handoff) return triageHandOff(triage.handoff);
 
     // Ground the reply in the account's knowledge base (best-effort),
     // screened by the TypeSafe passage filter (063) when it acts, for
@@ -1137,72 +1359,8 @@ export async function dispatchInboundToAiReply(
       return handOff('model', null, text || null);
     }
 
-    const pinnedNow = await pinnedElsewhere();
-    if (pinnedNow) {
-      return skip(
-        'skipped_number',
-        `This chat is pinned to number ${pinnedNow} — a person chose it; ` +
-          `this message came in on ${inboundProvider} number ${inboundChannelId}.`
-      );
-    }
-
-    // Atomically claim a reply slot: the cap check + increment happen in
-    // one UPDATE, so concurrent inbounds can never overshoot the cap. If
-    // another inbound just took the last slot, `claimed` is false and we
-    // skip the send. (We consume a slot slightly before the send lands —
-    // fail-safe: under-reply rather than over-reply.)
-    const { data: claimed, error: claimErr } = await dbc.rpc(
-      'claim_ai_reply_slot',
-      {
-        conversation_id: conversationId,
-        max_replies: config.autoReplyMaxPerConversation,
-      }
-    );
-    if (claimErr) {
-      // A real error here (vs. losing the cap race) is almost always a
-      // deploy issue — e.g. `claim_ai_reply_slot` not EXECUTE-able by the
-      // service role, or the migration not applied. Log it loudly: a
-      // silent return makes "auto-reply never fires" undiagnosable.
-      console.error('[ai auto-reply] claim_ai_reply_slot failed:', claimErr);
-      return skip('error', `claim_ai_reply_slot failed: ${claimErr.message}`);
-    }
-    if (claimed !== true) {
-      // The claim also refuses a chat a person paused or took meanwhile;
-      // only when it did neither did the cap race take the last slot.
-      return skip((await takenBy()) ?? 'skipped_cap_race');
-    }
-
-    try {
-      await engineSendText({
-        accountId,
-        userId: configOwnerUserId,
-        conversationId,
-        contactId,
-        text,
-        aiGenerated: true,
-        // Routed independently of the deterministic flow runner
-        // (migration 046) — an admin can put the AI bot on one number and
-        // flows on the other.
-        surface: 'ai_reply',
-        // Every-number mode (079): the number the gate chose.
-        channelId: replyChannelId,
-      });
-    } catch (err) {
-      // The slot is spent and the customer heard nothing. This used to
-      // land in the catch-all as a silent skip with a log line; now a
-      // person is told. No farewell: it would go out on the number that
-      // just failed.
-      const detail = `WhatsApp send failed: ${errorMessage(err)}`;
-      console.error('[ai auto-reply] reply send failed:', err);
-      // Recorded once, as the error it is.
-      return handOff(
-        'error',
-        detail,
-        null,
-        `${detail.slice(0, 200)}.`,
-        'error'
-      );
-    }
+    const unsent = await sendReply(text);
+    if (unsent) return unsent;
     await record('replied');
     return 'replied';
   } catch (err) {
@@ -1226,6 +1384,26 @@ export const MIN_GENERATION_MS = 8_000;
 
 /** Turns before the customer's message the router sees. */
 const ROUTE_TURNS = 6;
+
+/** An approved-answer judgment given less than this is not started. */
+export const MIN_KB_SELECT_MS = 1_500;
+
+/**
+ * The approved-answers selection judgment, from the process-wide
+ * decision layer. No layer (invalid TS_* configuration) is unavailable,
+ * like an install without an API key; the caller hands off either way.
+ */
+async function judgeApprovedAnswers(
+  input: KbSelectInput
+): Promise<KbSelectJudgment> {
+  const ts = getDecisionLayer();
+  if (!ts) return { ok: false, errorCode: 'DISABLED', latencyMs: 0 };
+  try {
+    return await ts.kbSelect(input);
+  } catch {
+    return { ok: false, errorCode: 'UNKNOWN', latencyMs: 0 };
+  }
+}
 
 /** What the prompt and the guardrail get when retrieval is skipped. */
 const NO_PASSAGES: PassageGateResult = {
