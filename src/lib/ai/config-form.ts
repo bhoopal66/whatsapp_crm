@@ -39,6 +39,35 @@ export interface AiConfigFormValues {
   replyOnAllNumbers: boolean;
   autoResumeMinutes: number | null;
   guardrailRetry: boolean;
+  answerMode: 'generate' | 'approved';
+  approvedMinScore: number;
+  /** The warning is on; off saves `sensitive_data_reply` as null. */
+  sensitiveReplyOn: boolean;
+  sensitiveDataReply: string;
+}
+
+export const APPROVED_MIN_SCORE_RANGE = { min: 0.5, max: 0.99 } as const;
+
+function clampApprovedScore(n: number): number {
+  const { min, max } = APPROVED_MIN_SCORE_RANGE;
+  if (!Number.isFinite(n)) return 0.8;
+  return Math.round(Math.min(max, Math.max(min, n)) * 100) / 100;
+}
+
+/** Switching the warning on pre-fills `defaultText` into a blank text. */
+export function toggleSensitiveReply(
+  values: AiConfigFormValues,
+  on: boolean,
+  defaultText: string
+): AiConfigFormValues {
+  return {
+    ...values,
+    sensitiveReplyOn: on,
+    sensitiveDataReply:
+      on && values.sensitiveDataReply.trim() === ''
+        ? defaultText
+        : values.sensitiveDataReply,
+  };
 }
 
 /** A blank, unconfigured form (also what Remove resets to). */
@@ -70,6 +99,10 @@ export function emptyAiConfigForm(
     replyOnAllNumbers: false,
     autoResumeMinutes: null,
     guardrailRetry: true,
+    answerMode: 'generate',
+    approvedMinScore: 0.8,
+    sensitiveReplyOn: false,
+    sensitiveDataReply: '',
   };
 }
 
@@ -117,6 +150,15 @@ export function aiConfigFormFromResponse(data: Row): AiConfigFormValues {
         ? data.auto_resume_minutes
         : null,
     guardrailRetry: data.guardrail_retry !== false,
+    answerMode: data.answer_mode === 'approved' ? 'approved' : 'generate',
+    approvedMinScore:
+      typeof data.approved_min_score === 'number'
+        ? data.approved_min_score
+        : 0.8,
+    sensitiveReplyOn:
+      typeof data.sensitive_data_reply === 'string' &&
+      data.sensitive_data_reply.trim() !== '',
+    sensitiveDataReply: str(data.sensitive_data_reply),
   };
 }
 
@@ -249,6 +291,11 @@ export function aiConfigRequestBody(values: AiConfigFormValues) {
     reply_on_all_numbers: values.replyOnAllNumbers,
     auto_resume_minutes: values.autoResumeMinutes,
     guardrail_retry: values.guardrailRetry,
+    answer_mode: values.answerMode,
+    approved_min_score: clampApprovedScore(values.approvedMinScore),
+    sensitive_data_reply: values.sensitiveReplyOn
+      ? values.sensitiveDataReply.trim() || null
+      : null,
   };
 }
 

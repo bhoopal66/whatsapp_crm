@@ -9,6 +9,7 @@ import {
   buildAiSavePlan,
   emptyAiConfigForm,
   isAiConfigFormDirty,
+  toggleSensitiveReply,
   willHaveEmbeddingsKey,
   type AiConfigFormValues,
   type AiSavedState,
@@ -52,6 +53,10 @@ const other: { [K in keyof AiConfigFormValues]: AiConfigFormValues[K] } = {
   replyOnAllNumbers: true,
   autoResumeMinutes: 30,
   guardrailRetry: false,
+  answerMode: 'approved',
+  approvedMinScore: 0.9,
+  sensitiveReplyOn: true,
+  sensitiveDataReply: 'careful',
 };
 
 describe('aiConfigFormFromResponse', () => {
@@ -362,5 +367,78 @@ describe('applyAiSaveResult', () => {
         routeSaved: false,
       }).configured
     ).toBe(true);
+  });
+});
+
+describe('answer mode and sensitive-data reply', () => {
+  it('defaults to generate / 0.8 / off', () => {
+    const e = emptyAiConfigForm();
+    expect(e.answerMode).toBe('generate');
+    expect(e.approvedMinScore).toBe(0.8);
+    expect(e.sensitiveReplyOn).toBe(false);
+  });
+
+  it('reads them from the response; blank text is off', () => {
+    const on = aiConfigFormFromResponse({
+      answer_mode: 'approved',
+      approved_min_score: 0.7,
+      sensitive_data_reply: 'warn',
+    });
+    expect(on).toMatchObject({
+      answerMode: 'approved',
+      approvedMinScore: 0.7,
+      sensitiveReplyOn: true,
+      sensitiveDataReply: 'warn',
+    });
+    expect(
+      aiConfigFormFromResponse({ sensitive_data_reply: '  ' }).sensitiveReplyOn
+    ).toBe(false);
+    expect(aiConfigFormFromResponse({}).answerMode).toBe('generate');
+  });
+
+  it('sends null when the switch is off, even with text', () => {
+    const body = aiConfigRequestBody({
+      ...other,
+      sensitiveReplyOn: false,
+      sensitiveDataReply: 'x',
+    });
+    expect(body.sensitive_data_reply).toBeNull();
+  });
+
+  it('sends trimmed text when on, null when on but blank', () => {
+    const on = { ...other, sensitiveReplyOn: true };
+    expect(
+      aiConfigRequestBody({ ...on, sensitiveDataReply: '  hi  ' })
+        .sensitive_data_reply
+    ).toBe('hi');
+    expect(
+      aiConfigRequestBody({ ...on, sensitiveDataReply: '  ' })
+        .sensitive_data_reply
+    ).toBeNull();
+  });
+
+  it('clamps and rounds the score', () => {
+    const score = (n: number) =>
+      aiConfigRequestBody({ ...other, approvedMinScore: n }).approved_min_score;
+    expect(score(0.1)).toBe(0.5);
+    expect(score(2)).toBe(0.99);
+    expect(score(0.8049)).toBe(0.8);
+    expect(score(NaN)).toBe(0.8);
+    expect(aiConfigRequestBody(other).answer_mode).toBe('approved');
+  });
+
+  it('pre-fills the default text only when switched on and blank', () => {
+    const base = emptyAiConfigForm();
+    expect(toggleSensitiveReply(base, true, 'D')).toMatchObject({
+      sensitiveReplyOn: true,
+      sensitiveDataReply: 'D',
+    });
+    expect(
+      toggleSensitiveReply({ ...base, sensitiveDataReply: 'mine' }, true, 'D')
+        .sensitiveDataReply
+    ).toBe('mine');
+    expect(
+      toggleSensitiveReply({ ...base, sensitiveDataReply: 'mine' }, false, 'D')
+    ).toMatchObject({ sensitiveReplyOn: false, sensitiveDataReply: 'mine' });
   });
 });
