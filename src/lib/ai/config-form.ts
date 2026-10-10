@@ -50,7 +50,9 @@ export const APPROVED_MIN_SCORE_RANGE = { min: 0.5, max: 0.99 } as const;
 
 function clampApprovedScore(n: number): number {
   const { min, max } = APPROVED_MIN_SCORE_RANGE;
-  if (!Number.isFinite(n)) return 0.8;
+  // A cleared input reads as 0: keep the default rather than saving the
+  // lowest threshold, which would send the most answers.
+  if (!Number.isFinite(n) || n <= 0) return 0.8;
   return Math.round(Math.min(max, Math.max(min, n)) * 100) / 100;
 }
 

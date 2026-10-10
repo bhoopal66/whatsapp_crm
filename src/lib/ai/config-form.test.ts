@@ -424,6 +424,8 @@ describe('answer mode and sensitive-data reply', () => {
     expect(score(2)).toBe(0.99);
     expect(score(0.8049)).toBe(0.8);
     expect(score(NaN)).toBe(0.8);
+    // A cleared number input reads as 0: the default, not the floor.
+    expect(score(Number(''))).toBe(0.8);
     expect(aiConfigRequestBody(other).answer_mode).toBe('approved');
   });
 
