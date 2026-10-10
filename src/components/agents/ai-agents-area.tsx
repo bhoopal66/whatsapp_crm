@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useTranslations } from 'next-intl';
 import {
+  BadgeCheck,
   BarChart3,
   BookOpen,
   Bot,
@@ -24,6 +25,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollFadeRow } from '@/components/ui-ext/scroll-fade-row';
 import { AiActivityCard } from '@/components/settings/ai-activity';
+import { AiApprovedAnswers } from '@/components/settings/ai-approved-answers';
 import {
   AiSafetyPanel,
   effectiveState,
@@ -58,6 +60,7 @@ const TAB_ICONS: Record<AgentTab, typeof Bot> = {
   assistant: Bot,
   'auto-reply': MessageSquareReply,
   knowledge: BookOpen,
+  answers: BadgeCheck,
   safety: ShieldCheck,
   playground: Sparkles,
   usage: BarChart3,
@@ -201,6 +204,7 @@ export function AiAgentsArea({
     'assistant',
     'auto-reply',
     'knowledge',
+    'answers',
     'safety',
     'playground',
     ...(canViewUsage ? (['usage'] as const) : []),
@@ -264,6 +268,9 @@ export function AiAgentsArea({
         <FormTab form={form}>
           <KnowledgeSection form={form} />
         </FormTab>
+      </TabsContent>
+      <TabsContent value="answers" className="mt-4">
+        <AiApprovedAnswers accountId={form.accountId} canEdit={form.canEdit} />
       </TabsContent>
       <TabsContent value="safety" className="mt-4">
         <AiSafetyPanel

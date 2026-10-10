@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { AGENT_TABS, isAgentTab, resolveAgentTab } from './agent-tabs';
+import {
+  AGENT_TABS,
+  FORM_TABS,
+  isAgentTab,
+  resolveAgentTab,
+} from './agent-tabs';
 
 const ctx = { configured: true, canViewUsage: true };
 
@@ -26,6 +31,11 @@ describe('resolveAgentTab', () => {
   it('maps legacy ids', () => {
     expect(resolveAgentTab('setup', ctx)).toBe('assistant');
     expect(resolveAgentTab('ai-safety', ctx)).toBe('safety');
+  });
+
+  it('has an Approved answers tab outside the config form', () => {
+    expect(resolveAgentTab('answers', ctx)).toBe('answers');
+    expect(FORM_TABS).not.toContain('answers');
   });
 
   it('isAgentTab rejects non-strings', () => {
