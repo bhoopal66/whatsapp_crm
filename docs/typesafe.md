@@ -521,6 +521,41 @@ business. It is **not a safety check**:
   timeout, error or an open breaker, the router falls back to a simple
   word-count rule. The reply is never delayed or blocked by it.
 
+## Approved answers selection (qs-017-v1)
+
+In the "approved answers only" auto-reply mode the bot never writes
+text: it sends one approved Q&A answer verbatim, or hands the thread to
+a person. For each customer message the shortlist (up to 8 approved
+answers) is judged by Jev, and a code policy (`lib/kb/select-policy.ts`)
+decides.
+
+- **One request per candidate** asks two questions over the message,
+  the recent turns and the candidate's question and answer text:
+  `answers_fully` (does the answer fully answer what the customer asks?)
+  and `same_intent` (is the customer asking what the candidate's question
+  asks?). A candidate's score is the lower of the two; the best score
+  must reach the account's minimum or the thread is handed off
+  (`no_knowledge`).
+- **One hand-off request** asks three questions over the message:
+  `pricing_request` (a rate, fee, MDR or other price figure),
+  `legal_regulatory` (a legal, regulatory, licensing or compliance
+  question, or a threat of legal action) and `angry_tone` (hostile,
+  abusive or furious, not mild dissatisfaction). Any of them at 0.5 or
+  above hands off (`kb`), however good an answer is.
+- An Arabic message gets the Arabic answer, or a hand-off when the entry
+  has none; a message in another language is handed off.
+- Candidates go to TypeSafe as text only. No database id or `KB-` ref is
+  sent; results are mapped back by position.
+
+Like the route judgment it is **not a safety check**: no account switch
+in Settings, no policy, never written to `ts_decision_log`, its own
+circuit breaker (`kb_select`), and it runs wherever the install has
+`TYPESAFE_API_KEY` and allows the account (`TS_ACCOUNT_IDS`). All
+requests (at most four at a time) share one deadline of about 6 s. Any
+failed request, timeout or answer from an unpinned model fails the whole
+judgment, and the thread is handed off. The question set is versioned
+separately from the safety checks' `QS_VERSION`.
+
 ## Database
 
 Every table is account-scoped, with RLS, and closed to the anon key
