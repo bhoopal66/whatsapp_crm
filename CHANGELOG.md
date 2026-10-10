@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### AI safety check: no Central Bank or bank/lender claims
+
+The AI reply guardrail now holds, for a person to review, any draft
+that describes the business as registered with, licensed or regulated
+by the Central Bank of the UAE (CBUAE), or as a bank or a lender —
+in English or Arabic, whatever the knowledge base says (reason
+`CODE_REGULATOR_CLAIM`). The one rewrite is told to describe the
+business as a Dubai-based financial broking firm and Direct Sales
+Agent working with UAE partner banks. No migration.
+
 ### Tagged campaign chats move to the Inbox
 
 A chat in **Broadcasts → Campaign inbox** now moves to the **Inbox**

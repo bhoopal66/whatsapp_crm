@@ -2680,6 +2680,7 @@
         "CODE_NON_PARTNER_BANK": "비제휴 은행을 언급함 (규칙 검사)",
         "CODE_NON_PARTNER_BANK_ECHO": "고객이 말한 비제휴 은행을 반복함 (규칙 검사)",
         "CODE_UNSUPPORTED_FIGURE": "자료에 없는 수치를 제시함 (규칙 검사)",
+        "CODE_REGULATOR_CLAIM": "중앙은행 등록 또는 은행·대출기관이라고 주장함 (규칙 검사)",
         "DEGRADED_HOLD": "TypeSafe 사용 불가로 보류됨",
         "DEGRADED_SEND": "TypeSafe 사용 불가로 검사 없이 전송됨",
         "TS_UNAVAILABLE": "TypeSafe에 연결할 수 없음",

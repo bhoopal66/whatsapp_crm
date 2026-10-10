@@ -2680,6 +2680,7 @@
         "CODE_NON_PARTNER_BANK": "Names a non-partner bank (rule check)",
         "CODE_NON_PARTNER_BANK_ECHO": "Repeats a non-partner bank the customer named (rule check)",
         "CODE_UNSUPPORTED_FIGURE": "Quotes a figure not in your sources (rule check)",
+        "CODE_REGULATOR_CLAIM": "Claims Central Bank registration or to be a bank or lender (rule check)",
         "DEGRADED_HOLD": "Held because TypeSafe was unavailable",
         "DEGRADED_SEND": "Sent unchecked because TypeSafe was unavailable",
         "TS_UNAVAILABLE": "TypeSafe could not be reached",

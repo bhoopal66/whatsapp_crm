@@ -11,6 +11,9 @@
  *     (sources: the knowledge excerpts and the business's own context —
  *     never the customer's text, or a customer could assert a rate and
  *     have the bot confirm it; an echoed figure goes to a person)
+ *   - the reply calls the business registered with / licensed or regulated
+ *     by the Central Bank of the UAE, or a bank or lender
+ *     (regulator-claim.ts) → hold. Absolute: no source excuses it.
  */
 import {
   detectBanksIn,
@@ -19,6 +22,7 @@ import {
 } from '../banks';
 import type { GuardrailThresholds } from '../policy';
 import { detectLanguage, normaliseDigits } from '../redact';
+import { regulatorClaims } from '../regulator-claim';
 import {
   GUARDRAIL_NOUL_ACTION,
   GUARDRAIL_QUESTIONS,
@@ -60,7 +64,8 @@ export interface GuardrailDecision extends DecisionMeta {
    *  block = do not send, send holding template, RM task GUARDRAIL_BLOCK with draft attached. */
   outcome: GuardrailOutcome;
   hazards: {
-    hazard: GuardrailHazard | 'severity';
+    /** `regulator_claim` is code-only: no model question asks it. */
+    hazard: GuardrailHazard | 'severity' | 'regulator_claim';
     value: number;
     source: 'model' | 'code';
   }[];
@@ -235,11 +240,25 @@ export function codeLayer(
     });
     codeReasons.push('CODE_UNSUPPORTED_FIGURE');
   }
+  // The draft alone: what the customer or the evidence says is no excuse.
+  const regulatorClaim = regulatorClaims(
+    clip(botReply, MAX_MESSAGE_CHARS),
+    banks
+  );
+  if (regulatorClaim.length) {
+    codeOutcome = worst(codeOutcome, 'hold');
+    codeHazards.push({ hazard: 'regulator_claim', value: 1, source: 'code' });
+    codeReasons.push('CODE_REGULATOR_CLAIM');
+  }
   return {
     codeOutcome,
     codeHazards,
     codeReasons,
-    codeLog: { badFigures, nonPartner: nonPartner.map((b) => b.code) },
+    codeLog: {
+      badFigures,
+      nonPartner: nonPartner.map((b) => b.code),
+      regulatorClaim,
+    },
   };
 }
 
