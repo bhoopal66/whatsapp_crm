@@ -109,7 +109,24 @@ The code checks, which need no model:
   the customer named that bank first (the reply is most likely
   declining it, which a person confirms);
 - a percentage or AED amount in the reply that no sanctioned source
-  contains → **hold**.
+  contains → **hold**;
+- a reply that calls the business registered with, licensed, regulated
+  or approved by the Central Bank of the UAE (CBUAE), or a bank or a
+  lender → **hold** (`CODE_REGULATOR_CLAIM`). It reads the reply only,
+  English and Arabic, one sentence at a time: the central bank and a
+  status word in the same sentence, unless the sentence is plainly
+  about another bank ("Mashreq is regulated by the Central Bank").
+  A sentence that also refers to the business ("we work with banks
+  regulated by the Central Bank") is held, as is "we are a bank",
+  "Taamul is a lender" or "we lend"; "we are not a bank" and "we offer
+  loans from our partner banks" are not. The rule is absolute: a
+  knowledge excerpt or instruction making the same claim does not
+  excuse it. The rewrite is told to describe the business as a
+  Dubai-based financial broking firm and Direct Sales Agent working
+  with UAE partner banks.
+
+A code check is not a model question, so adding or changing one does
+not change the question-set version (`QS_VERSION`).
 
 A figure is supported when it appears in:
 
