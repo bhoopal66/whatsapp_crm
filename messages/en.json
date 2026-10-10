@@ -3268,7 +3268,8 @@
       "failed": "Import failed",
       "done": "Import finished",
       "resultTitle": "Import result",
-      "resultCounts": "{inserted} added · {updated} updated · {unchanged} unchanged · {skipped} skipped · {approved} approved",
+      "resultCounts": "{inserted} added · {updated} updated · {unchanged} unchanged · {skipped} skipped · {approved} client answers approved",
+      "approvedInternal": "{count} internal approved",
       "sheet": "sheet {sheet}",
       "dismiss": "Dismiss",
       "noIssues": "No problems found.",
@@ -3281,7 +3282,7 @@
     "history": {
       "title": "Recent imports",
       "untitled": "Untitled file",
-      "counts": "{total} rows · {inserted} added · {updated} updated · {unchanged} unchanged · {skipped} skipped · {approved} approved"
+      "counts": "{total} rows · {inserted} added · {updated} updated · {unchanged} unchanged · {skipped} skipped · {approved} client answers approved"
     },
     "edit": {
       "title": "Edit answer {ref}",
@@ -3302,6 +3303,7 @@
       "delete": "Delete",
       "saved": "Answer saved",
       "saveFailed": "Failed to save answer",
+      "stale": "This answer changed since you opened it. Reload and review it again.",
       "deleteTitle": "Delete this answer?",
       "deleteDescription": "{ref} will be removed and the bot can no longer send it. Importing a workbook that still contains it adds it back.",
       "deleted": "Answer deleted",

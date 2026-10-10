@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   clientReadiness,
+  isKbEntryId,
   isKbWorkbookName,
   isUnusableApprovalError,
   kbEntryMatches,
@@ -12,6 +13,7 @@ import {
 describe('parseKbEntryPatch', () => {
   it('trims strings and nulls blank optional text', () => {
     const r = parseKbEntryPatch({
+      version: 4,
       question: '  Fees? ',
       answer_ar: '  ',
       reviewer_notes: '',
@@ -28,18 +30,31 @@ describe('parseKbEntryPatch', () => {
         status: 'approved',
         handoff_after: true,
       },
+      version: 4,
     });
   });
 
+  it('requires the displayed version, a whole number of at least 1', () => {
+    for (const version of [undefined, null, 0, -1, 1.5, '2', NaN]) {
+      expect(parseKbEntryPatch({ version, status: 'approved' })).toEqual({
+        ok: false,
+        error: 'version must be a whole number of at least 1',
+      });
+    }
+    expect(parseKbEntryPatch({ version: 1, status: 'approved' }).ok).toBe(true);
+  });
+
   it('rejects a blank question, a bad status and a non-boolean flag', () => {
-    expect(parseKbEntryPatch({ question: ' ' }).ok).toBe(false);
-    expect(parseKbEntryPatch({ status: 'live' }).ok).toBe(false);
-    expect(parseKbEntryPatch({ handoff_after: 'yes' }).ok).toBe(false);
-    expect(parseKbEntryPatch({ answer_en: 3 }).ok).toBe(false);
+    expect(parseKbEntryPatch({ version: 1, question: ' ' }).ok).toBe(false);
+    expect(parseKbEntryPatch({ version: 1, status: 'live' }).ok).toBe(false);
+    expect(parseKbEntryPatch({ version: 1, handoff_after: 'yes' }).ok).toBe(
+      false
+    );
+    expect(parseKbEntryPatch({ version: 1, answer_en: 3 }).ok).toBe(false);
   });
 
   it('rejects an empty or non-object body', () => {
-    expect(parseKbEntryPatch({})).toEqual({
+    expect(parseKbEntryPatch({ version: 1 })).toEqual({
       ok: false,
       error: 'Nothing to update',
     });
@@ -48,7 +63,9 @@ describe('parseKbEntryPatch', () => {
   });
 
   it('caps lengths', () => {
-    expect(parseKbEntryPatch({ category: 'x'.repeat(201) }).ok).toBe(false);
+    expect(
+      parseKbEntryPatch({ version: 1, category: 'x'.repeat(201) }).ok
+    ).toBe(false);
   });
 });
 
@@ -100,6 +117,26 @@ describe('summarizeKb / clientReadiness', () => {
       approved: 0,
       total: 0,
     });
+  });
+});
+
+describe('clientReadiness', () => {
+  it('does not count rows marked remove', () => {
+    const s = summarizeKb([
+      { audience: 'prospective_client', status: 'approved' },
+      { audience: 'existing_client', status: 'remove' },
+      { audience: 'existing_client', status: 'draft' },
+    ]);
+    expect(clientReadiness(s)).toEqual({ approved: 1, total: 2 });
+    expect(s.existing_client.remove).toBe(1);
+  });
+});
+
+describe('isKbEntryId', () => {
+  it('accepts a UUID and nothing else', () => {
+    expect(isKbEntryId('6f1c2a3b-1d2e-4f50-8a9b-0c1d2e3f4a5b')).toBe(true);
+    expect(isKbEntryId('e1')).toBe(false);
+    expect(isKbEntryId("1' or 1=1")).toBe(false);
   });
 });
 

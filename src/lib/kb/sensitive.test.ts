@@ -20,6 +20,11 @@ describe('containsSensitiveData', () => {
       'a dashed IBAN mid-sentence',
       'send to DE89-3704-0044-0532-0130-00 and confirm',
     ],
+    ['an Omani IBAN', 'OM810180000001299123456'],
+    ['an IBAN with a double space', 'AE07  0331 2345 6789 0123 456'],
+    ['an IBAN with a non-breaking space', 'AE07\u00a00331 2345 6789 0123 456'],
+    ['a space after the country code', 'AE 07 0331 2345 6789 0123 456'],
+    ['irregular grouping', 'AE07033123456789 0123456'],
   ])('flags %s', (_label, text) => {
     expect(containsSensitiveData(text)).toBe(true);
   });
@@ -42,6 +47,11 @@ describe('containsSensitiveData', () => {
     ['a grouped reference', 'Ref AB12 3456 7890 please check'],
     ['an IBAN with a bad checksum', 'AE08 0331 2345 6789 0123 456'],
     ['an IBAN of the wrong length', 'GB82 WEST 1234 5698 7654 3'],
+    ['an IBAN running on into a longer word', 'AE070331234567890123456789'],
+    [
+      'prose after a country code',
+      'we are at 20 Main Street opposite the mall',
+    ],
   ])('does not flag %s', (_label, text) => {
     expect(containsSensitiveData(text)).toBe(false);
   });

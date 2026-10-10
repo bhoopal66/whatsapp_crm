@@ -12,7 +12,10 @@
 -- one still carrying a "[TO CONFIRM …]" placeholder is refused by the
 -- kb_entries_approved_usable CHECK, so a placeholder can never reach a
 -- customer. A trigger owns version, updated_at and the approval stamp:
--- editing a question or an answer bumps version; approving (or editing
+-- any change an approval depends on (question, answer, status, audience
+-- or hand-off) bumps version, so PATCH /api/ai/kb/[id], which updates
+-- only the version its dialog displayed, refuses a stale approval;
+-- approving (or editing
 -- the answer or audience of an approved row) stamps approved_at /
 -- approved_by;
 -- leaving `approved` clears them.
@@ -31,9 +34,11 @@
 -- kb_imports audit row. Rows missing from the file are left alone; an
 -- optional column the file does not have (its key absent from a row)
 -- keeps the stored value. A file with no Status column cannot publish
--- an edit: an approved row whose question, answer or audience the file
--- changes is stored as to_confirm (with an issue) until approved again.
--- The issues kb_import raises itself are returned as `issues`.
+-- an edit: an approved row whose question, answer, audience or hand-off
+-- the file changes is stored as to_confirm (with an issue) until
+-- approved again. The issues kb_import raises itself are returned as
+-- `issues`. `approved` counts approved client-audience rows (what the
+-- bot can send); `approved_internal` the internal_staff ones.
 --
 -- ai_configs gains answer_mode, approved_min_score (the selection
 -- confidence floor) and sensitive_data_reply (NULL = off). The hand-off
@@ -121,9 +126,15 @@ BEGIN
 
   answers_changed := NEW.answer_en IS DISTINCT FROM OLD.answer_en
                   OR NEW.answer_ar IS DISTINCT FROM OLD.answer_ar;
-  -- version is trigger-owned: a client cannot set it.
+  -- version is trigger-owned: a client cannot set it. It moves on every
+  -- change an approval depends on, so a dialog opened before any of
+  -- them cannot approve (the PATCH route matches on version).
   NEW.version := OLD.version
-    + CASE WHEN answers_changed OR NEW.question IS DISTINCT FROM OLD.question
+    + CASE WHEN answers_changed
+             OR NEW.question IS DISTINCT FROM OLD.question
+             OR NEW.status IS DISTINCT FROM OLD.status
+             OR NEW.audience IS DISTINCT FROM OLD.audience
+             OR NEW.handoff_after IS DISTINCT FROM OLD.handoff_after
            THEN 1 ELSE 0 END;
 
   IF NEW.status = 'approved' THEN
@@ -226,11 +237,13 @@ REVOKE ALL ON public.kb_imports FROM anon;
 -- question) is skipped with an issue rather than failing the import;
 -- an approved row whose answer is unusable is downgraded to to_confirm
 -- with an issue, mirroring kb_entries_approved_usable. So is a stored
--- approved row the file edits (question, answer_en, answer_ar or
--- audience) without a status key: approval is never carried over to
--- text nobody approved.
+-- approved row the file edits (question, answer_en, answer_ar,
+-- audience or handoff_after) without a status key: approval is never
+-- carried over to an answer nobody approved.
 -- Returns the counts, import_id, and `issues`: only the ones raised
 -- here (p_issues are the caller's own; the audit row keeps both).
+-- `approved` (also the audit row's) counts client-audience rows only;
+-- `approved_internal` the internal_staff ones.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.kb_import(
   p_account_id uuid,
@@ -263,6 +276,7 @@ DECLARE
   n_same     int := 0;
   n_skip     int := 0;
   n_appr     int := 0;
+  n_appr_int int := 0;
   n_parser_skipped int := 0;
   issues     jsonb := '[]'::jsonb;
   rpc_issues jsonb := '[]'::jsonb;
@@ -321,13 +335,15 @@ BEGIN
     v_notes := CASE WHEN r ? 'reviewer_notes' THEN nullif(btrim(coalesce(r->>'reviewer_notes', '')), '')
                     ELSE cur.reviewer_notes END;
 
-    -- No Status column: an edit to what an approved row sends, or to
-    -- whom, needs approving again rather than going live.
+    -- No Status column: an edit to what an approved row sends, to
+    -- whom, or whether a person takes over after it, needs approving
+    -- again rather than going live.
     IF cur.status = 'approved' AND NOT (r ? 'status') AND (
          cur.question IS DISTINCT FROM v_q
          OR cur.answer_en IS DISTINCT FROM v_en
          OR cur.answer_ar IS DISTINCT FROM v_ar
-         OR cur.audience IS DISTINCT FROM v_aud) THEN
+         OR cur.audience IS DISTINCT FROM v_aud
+         OR cur.handoff_after IS DISTINCT FROM v_handoff) THEN
       v_status := 'to_confirm';
       rpc_issues := rpc_issues || jsonb_build_array(jsonb_build_object(
         'row', v_row, 'ref', v_ref,
@@ -366,7 +382,9 @@ BEGIN
        WHERE id = cur.id;
       n_upd := n_upd + 1;
     END IF;
-    IF v_status = 'approved' THEN
+    IF v_status = 'approved' AND v_aud = 'internal_staff' THEN
+      n_appr_int := n_appr_int + 1;
+    ELSIF v_status = 'approved' THEN
       n_appr := n_appr + 1;
     END IF;
     cur := NULL;
@@ -387,6 +405,7 @@ BEGIN
   RETURN jsonb_build_object(
     'inserted', n_ins, 'updated', n_upd, 'unchanged', n_same,
     'skipped', n_skip + n_parser_skipped, 'approved', n_appr,
+    'approved_internal', n_appr_int,
     'import_id', import_id, 'issues', rpc_issues);
 END;
 $$;

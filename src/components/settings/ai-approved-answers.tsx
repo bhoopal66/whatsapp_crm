@@ -194,6 +194,12 @@ export function AiApprovedAnswers({
     setEntries((list) => list.filter((e) => e.id !== id));
     setEditing(null);
   };
+  // The row changed since the dialog opened (a 409): close it and load
+  // the current rows, so nobody approves text they have not seen.
+  const onStale = () => {
+    setEditing(null);
+    void fetchEntries();
+  };
 
   return (
     <Card>
@@ -413,6 +419,7 @@ export function AiApprovedAnswers({
           onClose={() => setEditing(null)}
           onSaved={onSaved}
           onDeleted={onDeleted}
+          onStale={onStale}
         />
       ) : null}
     </Card>
@@ -491,6 +498,9 @@ function ImportResultPanel({
               skipped: result.skipped,
               approved: result.approved,
             })}
+            {result.approved_internal > 0
+              ? ` · ${t('import.approvedInternal', { count: result.approved_internal })}`
+              : ''}
             {result.sheet
               ? ` · ${t('import.sheet', { sheet: result.sheet })}`
               : ''}
@@ -596,12 +606,14 @@ function EditEntryDialog({
   onClose,
   onSaved,
   onDeleted,
+  onStale,
 }: {
   entry: KbEntry;
   canEdit: boolean;
   onClose: () => void;
   onSaved: (entry: KbEntry) => void;
   onDeleted: (id: string) => void;
+  onStale: () => void;
 }) {
   const t = useTranslations('AiApprovedAnswers');
   const [draft, setDraft] = useState<KbEntryDraft>(() => kbEntryDraft(entry));
@@ -613,7 +625,7 @@ function EditEntryDialog({
 
   const save = async () => {
     const patch = kbEntryPatch(entry, draft);
-    if (Object.keys(patch).length === 0) {
+    if (!patch) {
       onClose();
       return;
     }
@@ -632,6 +644,9 @@ function EditEntryDialog({
       if (res.ok && data?.entry) {
         toast.success(t('edit.saved'));
         onSaved(data.entry as KbEntry);
+      } else if (res.status === 409) {
+        toast.error(data?.error ?? t('edit.stale'));
+        onStale();
       } else {
         toast.error(data?.error ?? t('edit.saveFailed'));
       }

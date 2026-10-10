@@ -5,12 +5,17 @@ const mocks = vi.hoisted(() => ({
   readXlsxSheets: vi.fn(),
 }));
 
-vi.mock('@/lib/auth/account', () => ({
-  requireRole: mocks.requireRole,
-  toErrorResponse: vi.fn(() =>
-    Response.json({ error: 'auth failed' }, { status: 403 })
-  ),
-}));
+vi.mock('@/lib/auth/account', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/auth/account')>(
+      '@/lib/auth/account'
+    );
+  return {
+    requireRole: mocks.requireRole,
+    ForbiddenError: actual.ForbiddenError,
+    toErrorResponse: actual.toErrorResponse,
+  };
+});
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: () => ({ success: true }),
   rateLimitResponse: vi.fn(),
@@ -20,8 +25,9 @@ vi.mock('@/lib/contacts/read-xlsx', () => ({
   readXlsxSheets: mocks.readXlsxSheets,
 }));
 
+import { ForbiddenError } from '@/lib/auth/account';
 import { GET } from './route';
-import { PATCH } from './[id]/route';
+import { DELETE, PATCH } from './[id]/route';
 import { POST } from './import/route';
 
 /** A chainable query builder that records its calls and resolves `result`. */
@@ -39,7 +45,15 @@ function query(result: { data: unknown; error: unknown }) {
   return { builder, calls };
 }
 
-const params = { params: Promise.resolve({ id: 'e1' }) };
+const ID = '6f1c2a3b-1d2e-4f50-8a9b-0c1d2e3f4a5b';
+const params = { params: Promise.resolve({ id: ID }) };
+
+function patchRequest(body: unknown) {
+  return new Request('http://x', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
 
 describe('GET /api/ai/kb', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -98,10 +112,7 @@ describe('PATCH /api/ai/kb/[id]', () => {
       userId: 'u1',
     });
     const res = await PATCH(
-      new Request('http://x', {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'approved' }),
-      }),
+      patchRequest({ status: 'approved', version: 2 }),
       params
     );
     expect(mocks.requireRole).toHaveBeenCalledWith('admin');
@@ -121,14 +132,157 @@ describe('PATCH /api/ai/kb/[id]', () => {
       userId: 'u1',
     });
     const res = await PATCH(
-      new Request('http://x', {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'live' }),
-      }),
+      patchRequest({ status: 'live', version: 1 }),
       params
     );
     expect(res.status).toBe(400);
     expect(from).not.toHaveBeenCalled();
+  });
+
+  it('updates only the version the dialog displayed, in the caller account', async () => {
+    const q = query({ data: { id: ID, version: 4 }, error: null });
+    const from = vi.fn(() => q.builder);
+    mocks.requireRole.mockResolvedValue({
+      supabase: { from },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    const res = await PATCH(
+      patchRequest({ status: 'approved', version: 3 }),
+      params
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).entry).toEqual({ id: ID, version: 4 });
+    expect(q.calls).toContainEqual(['eq', ['version', 3]]);
+    expect(q.calls).toContainEqual(['eq', ['account_id', 'a1']]);
+    expect(q.calls).toContainEqual(['eq', ['id', ID]]);
+  });
+
+  it('answers 409 when the row changed since the dialog opened', async () => {
+    const update = query({ data: null, error: null });
+    const reread = query({ data: { id: ID }, error: null });
+    const from = vi
+      .fn()
+      .mockReturnValueOnce(update.builder)
+      .mockReturnValueOnce(reread.builder);
+    mocks.requireRole.mockResolvedValue({
+      supabase: { from },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    const res = await PATCH(
+      patchRequest({ status: 'approved', version: 1 }),
+      params
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      'This answer changed since you opened it. Reload and review it again.'
+    );
+    expect(reread.calls).toContainEqual(['eq', ['account_id', 'a1']]);
+    expect(reread.calls).toContainEqual(['eq', ['id', ID]]);
+  });
+
+  it("answers 404 when the row is gone or another account's", async () => {
+    const update = query({ data: null, error: null });
+    const reread = query({ data: null, error: null });
+    const from = vi
+      .fn()
+      .mockReturnValueOnce(update.builder)
+      .mockReturnValueOnce(reread.builder);
+    mocks.requireRole.mockResolvedValue({
+      supabase: { from },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    const res = await PATCH(
+      patchRequest({ status: 'approved', version: 1 }),
+      params
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('requires the version', async () => {
+    const from = vi.fn();
+    mocks.requireRole.mockResolvedValue({
+      supabase: { from },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    const res = await PATCH(patchRequest({ status: 'approved' }), params);
+    expect(res.status).toBe(400);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 for a non-UUID id', async () => {
+    const from = vi.fn();
+    mocks.requireRole.mockResolvedValue({
+      supabase: { from },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    const res = await PATCH(patchRequest({ status: 'approved', version: 1 }), {
+      params: Promise.resolve({ id: 'e1' }),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid id' });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-admin', async () => {
+    mocks.requireRole.mockRejectedValue(new ForbiddenError());
+    const res = await PATCH(
+      patchRequest({ status: 'approved', version: 1 }),
+      params
+    );
+    expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('DELETE /api/ai/kb/[id]', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setup(result: { data: unknown; error: unknown }) {
+    const q = query(result);
+    const from = vi.fn(() => q.builder);
+    mocks.requireRole.mockResolvedValue({
+      supabase: { from },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    return { q, from };
+  }
+  const del = () => new Request('http://x', { method: 'DELETE' });
+
+  it('deletes within the caller account', async () => {
+    const { q } = setup({ data: [{ id: ID }], error: null });
+    const res = await DELETE(del(), params);
+    expect(res.status).toBe(200);
+    expect(q.calls).toContainEqual(['delete', []]);
+    expect(q.calls).toContainEqual(['eq', ['account_id', 'a1']]);
+    expect(q.calls).toContainEqual(['eq', ['id', ID]]);
+    expect(q.calls).toContainEqual(['select', ['id']]);
+  });
+
+  it('answers 404 when nothing was deleted', async () => {
+    setup({ data: [], error: null });
+    const res = await DELETE(del(), params);
+    expect(res.status).toBe(404);
+  });
+
+  it('answers 400 for a non-UUID id', async () => {
+    const { from } = setup({ data: [], error: null });
+    const res = await DELETE(del(), { params: Promise.resolve({ id: 'x' }) });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid id' });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-admin', async () => {
+    mocks.requireRole.mockRejectedValue(new ForbiddenError());
+    const res = await DELETE(del(), params);
+    expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    expect(res.status).toBe(403);
   });
 });
 
@@ -155,6 +309,14 @@ describe('POST /api/ai/kb/import', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('No Knowledge_Base sheet found');
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-admin', async () => {
+    mocks.requireRole.mockRejectedValue(new ForbiddenError());
+    const res = await POST(upload('kb.xlsx'));
+    expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    expect(res.status).toBe(403);
+    expect(mocks.readXlsxSheets).not.toHaveBeenCalled();
   });
 
   it('refuses a non-xlsx file', async () => {

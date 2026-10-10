@@ -3268,7 +3268,8 @@
       "failed": "가져오기에 실패했습니다",
       "done": "가져오기가 완료되었습니다",
       "resultTitle": "가져오기 결과",
-      "resultCounts": "추가 {inserted} · 업데이트 {updated} · 변경 없음 {unchanged} · 건너뜀 {skipped} · 승인 {approved}",
+      "resultCounts": "추가 {inserted} · 업데이트 {updated} · 변경 없음 {unchanged} · 건너뜀 {skipped} · 고객용 답변 승인 {approved}",
+      "approvedInternal": "내부용 승인 {count}",
       "sheet": "시트 {sheet}",
       "dismiss": "닫기",
       "noIssues": "문제가 없습니다.",
@@ -3281,7 +3282,7 @@
     "history": {
       "title": "최근 가져오기",
       "untitled": "이름 없는 파일",
-      "counts": "{total}행 · 추가 {inserted} · 업데이트 {updated} · 변경 없음 {unchanged} · 건너뜀 {skipped} · 승인 {approved}"
+      "counts": "{total}행 · 추가 {inserted} · 업데이트 {updated} · 변경 없음 {unchanged} · 건너뜀 {skipped} · 고객용 답변 승인 {approved}"
     },
     "edit": {
       "title": "답변 {ref} 편집",
@@ -3302,6 +3303,7 @@
       "delete": "삭제",
       "saved": "답변을 저장했습니다",
       "saveFailed": "답변을 저장하지 못했습니다",
+      "stale": "이 답변은 연 이후에 변경되었습니다. 다시 불러와 검토하세요.",
       "deleteTitle": "이 답변을 삭제할까요?",
       "deleteDescription": "{ref}이(가) 삭제되며 봇이 더 이상 보낼 수 없습니다. 이 답변이 들어 있는 워크북을 다시 가져오면 다시 추가됩니다.",
       "deleted": "답변을 삭제했습니다",

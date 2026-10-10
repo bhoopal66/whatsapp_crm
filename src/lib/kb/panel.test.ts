@@ -40,8 +40,8 @@ describe('kbStatusTone', () => {
 });
 
 describe('kbEntryPatch', () => {
-  it('is empty for an untouched draft', () => {
-    expect(kbEntryPatch(entry, kbEntryDraft(entry))).toEqual({});
+  it('is null for an untouched draft', () => {
+    expect(kbEntryPatch(entry, kbEntryDraft(entry))).toBeNull();
   });
 
   it('ignores whitespace-only edits and blank optional fields', () => {
@@ -51,11 +51,16 @@ describe('kbEntryPatch', () => {
       answer_ar: '   ',
       reviewer_notes: '',
     };
-    expect(kbEntryPatch(entry, draft)).toEqual({});
+    expect(kbEntryPatch(entry, draft)).toBeNull();
   });
 
   it('sends only changed fields, trimmed, blanks as null', () => {
-    const stored = { ...entry, answer_ar: 'مجاني', reviewer_notes: 'ok' };
+    const stored = {
+      ...entry,
+      answer_ar: 'مجاني',
+      reviewer_notes: 'ok',
+      version: 3,
+    };
     const draft = {
       ...kbEntryDraft(stored),
       answer_en: ' Free for everyone. ',
@@ -68,6 +73,16 @@ describe('kbEntryPatch', () => {
       answer_ar: null,
       status: 'approved',
       handoff_after: true,
+      version: 3,
+    });
+  });
+
+  it('carries the displayed version so a stale save is refused', () => {
+    const stored = { ...entry, version: 7 };
+    const draft = { ...kbEntryDraft(stored), status: 'approved' as const };
+    expect(kbEntryPatch(stored, draft)).toEqual({
+      status: 'approved',
+      version: 7,
     });
   });
 });
@@ -81,6 +96,7 @@ describe('parseKbImportResult', () => {
         unchanged: 1,
         skipped: 1,
         approved: 4,
+        approved_internal: 2,
         import_id: 'i1',
         sheet: 'Knowledge_Base',
         issues: [
@@ -94,6 +110,7 @@ describe('parseKbImportResult', () => {
       unchanged: 1,
       skipped: 1,
       approved: 4,
+      approved_internal: 2,
       sheet: 'Knowledge_Base',
       issues: [
         { row: 7, ref: 'PC-009', message: 'No question', skipped: true },
@@ -115,6 +132,7 @@ describe('parseKbImportResult', () => {
       unchanged: 0,
       skipped: 0,
       approved: 0,
+      approved_internal: 0,
       sheet: null,
       issues: [],
     });

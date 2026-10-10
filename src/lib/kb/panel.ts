@@ -5,7 +5,7 @@
  * import history. Pure, so the component stays thin and this is tested.
  */
 
-import type { KbEntryPatch } from './requests';
+import type { KbEntryPatch, KbEntryPatchBody } from './requests';
 import {
   KB_STATUSES,
   type KbEntry,
@@ -55,13 +55,15 @@ export function kbEntryDraft(entry: KbEntry): KbEntryDraft {
 /**
  * Only the fields the dialog changed, normalised the way
  * `parseKbEntryPatch` stores them (trimmed; a blank Arabic answer or
- * note is null). Empty when nothing changed, so Save needs no request
- * and an untouched row's version is never bumped.
+ * note is null), plus the `version` the dialog was opened on, so the
+ * server refuses the save if the row changed meanwhile. Null when
+ * nothing changed, so Save needs no request and an untouched row's
+ * version is never bumped.
  */
 export function kbEntryPatch(
   entry: KbEntry,
   draft: KbEntryDraft
-): KbEntryPatch {
+): KbEntryPatchBody | null {
   const patch: KbEntryPatch = {};
   for (const key of ['question', 'category', 'answer_en'] as const) {
     const value = draft[key].trim();
@@ -75,7 +77,8 @@ export function kbEntryPatch(
   if (draft.handoff_after !== entry.handoff_after) {
     patch.handoff_after = draft.handoff_after;
   }
-  return patch;
+  if (Object.keys(patch).length === 0) return null;
+  return { ...patch, version: entry.version };
 }
 
 /** `POST /api/ai/kb/import`'s answer. */
@@ -84,7 +87,10 @@ export interface KbImportResult {
   updated: number;
   unchanged: number;
   skipped: number;
+  /** Approved rows for the two client audiences: what the bot can send. */
   approved: number;
+  /** Approved internal_staff rows (never sent to customers). */
+  approved_internal: number;
   sheet: string | null;
   issues: KbImportIssue[];
 }
@@ -138,6 +144,7 @@ export function parseKbImportResult(json: unknown): KbImportResult {
     unchanged: count(v.unchanged),
     skipped: count(v.skipped),
     approved: count(v.approved),
+    approved_internal: count(v.approved_internal),
     sheet: text(v.sheet),
     issues: Array.isArray(v.issues)
       ? v.issues.map(parseIssue).filter((i): i is KbImportIssue => i !== null)

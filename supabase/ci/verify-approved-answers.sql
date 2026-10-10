@@ -4,10 +4,14 @@
 -- kb_shortlist never returns internal_staff or non-approved rows, gives
 -- a small KB (<= 8 approved client rows, KB_SELECT_MAX_CANDIDATES)
 -- whole and a larger one only matching rows; the trigger's version bump
--- and approval stamp (re-stamped on an answer or audience change); that
+-- (on question, answer, status, audience and hand-off changes, not on
+-- notes) and approval stamp (re-stamped on an answer or audience
+-- change); that
 -- a non-admin member reads but cannot write, and cannot import; the
--- kb_import counts, keep-existing rule and returned issues, and that a
--- file with no Status column cannot publish an edit to an approved row;
+-- kb_import counts (approved = client audiences, approved_internal
+-- apart), keep-existing rule and returned issues, and that a file with
+-- no Status column cannot publish an edit (hand-off included) to an
+-- approved row;
 -- the RPC privileges; the
 -- ai_configs columns; and the widened hand-off reason CHECK.
 --
@@ -133,29 +137,37 @@ BEGIN
   END IF;
   r := pg_temp.kb_try(u_admin, format($q$UPDATE kb_entries SET status = 'approved' WHERE id = %L$q$, e));
   n := n + 1;
-  IF r <> '1' OR (SELECT approved_at IS NULL OR approved_by IS DISTINCT FROM u_admin OR version <> 2
+  -- A status change bumps version too: a dialog opened on the draft
+  -- can no longer save over the approval (the PATCH matches version).
+  IF r <> '1' OR (SELECT approved_at IS NULL OR approved_by IS DISTINCT FROM u_admin OR version <> 3
                     FROM kb_entries WHERE id = e) THEN
-    failed := array_append(failed, ('approval not stamped with the admin (or version moved): ' || r)::text);
+    failed := array_append(failed, ('approval not stamped with the admin, or version not bumped to 3: ' || r)::text);
   END IF;
   r := pg_temp.kb_try(u_owner, format($q$UPDATE kb_entries SET reviewer_notes = 'ok' WHERE id = %L$q$, e));
   n := n + 1;
-  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_admin OR version <> 2 FROM kb_entries WHERE id = e) THEN
+  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_admin OR version <> 3 FROM kb_entries WHERE id = e) THEN
     failed := array_append(failed, ('a notes-only edit re-stamped the approval or bumped version: ' || r)::text);
   END IF;
   r := pg_temp.kb_try(u_owner, format($q$UPDATE kb_entries SET answer_en = 'By card or transfer.' WHERE id = %L$q$, e));
   n := n + 1;
-  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_owner OR version <> 3 FROM kb_entries WHERE id = e) THEN
+  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_owner OR version <> 4 FROM kb_entries WHERE id = e) THEN
     failed := array_append(failed, ('an approved answer edit did not re-stamp the approval and bump version: ' || r)::text);
   END IF;
   r := pg_temp.kb_try(u_admin, format($q$UPDATE kb_entries SET audience = 'prospective_client' WHERE id = %L$q$, e));
   n := n + 1;
-  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_admin OR status <> 'approved' FROM kb_entries WHERE id = e) THEN
-    failed := array_append(failed, ('an approved row''s audience change did not re-stamp the approval: ' || r)::text);
+  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_admin OR status <> 'approved' OR version <> 5
+                    FROM kb_entries WHERE id = e) THEN
+    failed := array_append(failed, ('an approved row''s audience change did not re-stamp the approval and bump version: ' || r)::text);
+  END IF;
+  r := pg_temp.kb_try(u_admin, format($q$UPDATE kb_entries SET handoff_after = true WHERE id = %L$q$, e));
+  n := n + 1;
+  IF r <> '1' OR (SELECT version <> 6 FROM kb_entries WHERE id = e) THEN
+    failed := array_append(failed, ('a hand-off change did not bump version: ' || r)::text);
   END IF;
   UPDATE kb_entries SET status = 'to_confirm' WHERE id = e;
   n := n + 1;
-  IF (SELECT approved_at IS NOT NULL OR approved_by IS NOT NULL FROM kb_entries WHERE id = e) THEN
-    failed := array_append(failed, 'leaving approved did not clear the approval stamp'::text);
+  IF (SELECT approved_at IS NOT NULL OR approved_by IS NOT NULL OR version <> 7 FROM kb_entries WHERE id = e) THEN
+    failed := array_append(failed, 'leaving approved did not clear the approval stamp, or did not bump version'::text);
   END IF;
   DELETE FROM kb_entries WHERE id = e;
 
@@ -206,7 +218,8 @@ BEGIN
   n := n + 1;
   IF res IS NULL OR (res->>'inserted')::int <> 3 OR (res->>'updated')::int <> 0
      OR (res->>'unchanged')::int <> 0 OR (res->>'skipped')::int <> 2
-     OR (res->>'approved')::int <> 2 OR res->>'import_id' IS NULL THEN
+     OR (res->>'approved')::int <> 1 OR (res->>'approved_internal')::int <> 1
+     OR res->>'import_id' IS NULL THEN
     failed := array_append(failed, ('first import counts wrong: ' || r)::text);
   ELSE
     n := n + 1;
@@ -220,7 +233,7 @@ BEGIN
     IF NOT EXISTS (
       SELECT 1 FROM kb_imports
        WHERE id = (res->>'import_id')::uuid AND imported_by = u_admin AND file_name = 'kb.xlsx'
-         AND total = 5 AND inserted = 3 AND skipped = 2 AND approved = 2
+         AND total = 5 AND inserted = 3 AND skipped = 2 AND approved = 1
          AND jsonb_array_length(issues) = 3
     ) THEN
       failed := array_append(failed, 'kb_imports audit row missing or wrong'::text);
@@ -239,8 +252,9 @@ BEGIN
   res := CASE WHEN r LIKE 'ERROR:%' THEN NULL ELSE r::jsonb END;
   n := n + 1;
   IF res IS NULL OR (res->>'inserted')::int <> 0 OR (res->>'updated')::int <> 1
-     OR (res->>'unchanged')::int <> 1 OR (res->>'skipped')::int <> 0 OR (res->>'approved')::int <> 2 THEN
-    failed := array_append(failed, ('re-import counts wrong: ' || r)::text);
+     OR (res->>'unchanged')::int <> 1 OR (res->>'skipped')::int <> 0 OR (res->>'approved')::int <> 1
+     OR (res->>'approved_internal')::int <> 1 THEN
+    failed := array_append(failed, ('re-import counts wrong (approved counts client rows only): ' || r)::text);
   END IF;
   n := n + 1;
   IF (SELECT answer_ar IS DISTINCT FROM 'واحد بالمئة' OR NOT handoff_after
@@ -280,6 +294,21 @@ BEGIN
             AND x->>'skipped' = 'false' AND x->>'ref' IN ('KB-001', 'KB-005') AND x->>'row' IN ('3', '4')) <> 2
      OR NOT EXISTS (SELECT 1 FROM kb_imports WHERE id = (res->>'import_id')::uuid AND jsonb_array_length(issues) = 2) THEN
     failed := array_append(failed, ('withdrawn approvals not reported as issues: ' || coalesce(res->>'issues', r))::text);
+  END IF;
+  -- ... and so does a hand-off change: whether a person takes over is
+  -- part of what was approved.
+  INSERT INTO kb_entries (account_id, ref, audience, question, answer_en, status)
+  VALUES (a_acct, 'KB-006', 'existing_client', 'Can I speak to someone?', 'Yes.', 'approved');
+  r := pg_temp.kb_try(u_admin, format($q$SELECT kb_import(%L, 'kb.xlsx', %L::jsonb, '[]'::jsonb)::text$q$, a_acct,
+    '[{"ref":"KB-006","audience":"existing_client","question":"Can I speak to someone?","answer_en":"Yes.","handoff_after":true,"row":5}]'));
+  res := CASE WHEN r LIKE 'ERROR:%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF res IS NULL OR (res->>'updated')::int <> 1 OR (res->>'approved')::int <> 0
+     OR (SELECT status <> 'to_confirm' OR NOT handoff_after OR approved_at IS NOT NULL
+           FROM kb_entries WHERE account_id = a_acct AND ref = 'KB-006')
+     OR (SELECT count(*) FROM jsonb_array_elements(res->'issues') x
+          WHERE x->>'ref' = 'KB-006' AND x->>'row' = '5' AND x->>'skipped' = 'false') <> 1 THEN
+    failed := array_append(failed, ('a status-less import published a hand-off change to an approved answer: ' || r)::text);
   END IF;
   n := n + 1;
   r := pg_temp.kb_try(u_admin, format(

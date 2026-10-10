@@ -17,6 +17,8 @@ const IBAN_LENGTHS: Readonly<Record<string, number>> = {
   QA: 29,
   KW: 30,
   BH: 22,
+  OM: 23,
+  IQ: 23,
   JO: 30,
   LB: 28,
   EG: 29,
@@ -37,14 +39,19 @@ const IBAN_LENGTHS: Readonly<Record<string, number>> = {
 };
 
 /**
- * An IBAN-shaped run: country + check digits, then either no
- * separators or a space/dash between groups of four (the printed form,
- * last group shorter). Not redact.ts's IBAN_OTHER, which joins
- * characters across words ("ref AB12 3456 7890 please" → one token).
+ * Where an IBAN may start: a known-looking country code at a word
+ * start, then its check digits, optionally after a space or dash
+ * ("AE 07 …"). The rest of the span is read by `ibanAt`.
  */
-const IBAN_CANDIDATE =
-  /\b[A-Z]{2}\d{2}(?:(?:[ -][A-Z0-9]{4})+(?:[ -][A-Z0-9]{1,3})?|[A-Z0-9]{10,30})\b/gi;
+const IBAN_START = /(?<![A-Z0-9])([A-Z]{2})[ -]?(\d{2})/gi;
 
+const ALNUM = /[A-Z0-9]/i;
+
+/** The fewest digits a real BBAN (the IBAN after its first four
+ *  characters) has among the countries above. Prose that happens to
+ *  start with a country code ("at 20 Main Street …") has far fewer,
+ *  so it never reaches the checksum. */
+const MIN_BBAN_DIGITS = 10;
 /** ISO 13616 mod-97 check of a compact, upper-case IBAN. */
 function ibanChecksumValid(iban: string): boolean {
   let rem = 0;
@@ -65,14 +72,40 @@ export function isValidIban(compact: string): boolean {
   );
 }
 
+/**
+ * The compact IBAN a span starting at `m` spells, or null. Separators
+ * (a space or dash) may fall anywhere, so irregular grouping
+ * ("AE07033123456789 0123456") still reads; but the span takes exactly
+ * the country's length in characters and must end at a word end, so
+ * it never borrows part of a following word ("… 456 and") nor stops
+ * inside a longer one.
+ */
+function ibanAt(text: string, m: RegExpMatchArray): string | null {
+  const country = m[1].toUpperCase();
+  const length = IBAN_LENGTHS[country];
+  if (!length) return null;
+  let compact = country + m[2];
+  let i = (m.index ?? 0) + m[0].length;
+  while (compact.length < length && i < text.length) {
+    const ch = text[i];
+    if (ALNUM.test(ch)) compact += ch.toUpperCase();
+    else if (ch !== ' ' && ch !== '-') break;
+    i++;
+  }
+  if (compact.length !== length) return null;
+  if (i < text.length && ALNUM.test(text[i])) return null;
+  if (compact.slice(4).replace(/\D/g, '').length < MIN_BBAN_DIGITS) {
+    return null;
+  }
+  return compact;
+}
+
 function containsIban(text: string): boolean {
-  for (const m of text.matchAll(IBAN_CANDIDATE)) {
-    // A grouped match can run on into the next word ("… 456 and"), so
-    // each group boundary is tried as the end, longest first.
-    const groups = m[0].split(/[ -]/);
-    for (let k = groups.length; k >= 1; k--) {
-      if (isValidIban(groups.slice(0, k).join(''))) return true;
-    }
+  // One space for any whitespace run (a pasted NBSP, a double space).
+  const t = text.replace(/\s+/g, ' ');
+  for (const m of t.matchAll(IBAN_START)) {
+    const iban = ibanAt(t, m);
+    if (iban && isValidIban(iban)) return true;
   }
   return false;
 }

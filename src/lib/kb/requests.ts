@@ -40,6 +40,17 @@ export interface KbEntryPatch {
   reviewer_notes?: string | null;
 }
 
+/** A PATCH body: the edits plus the `version` the dialog displayed. */
+export type KbEntryPatchBody = KbEntryPatch & { version: number };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A `[id]` route segment shaped like a kb_entries id. */
+export function isKbEntryId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 /** A workbook the import accepts: `.xlsx` only. */
 export function isKbWorkbookName(name: string): boolean {
   return /\.xlsx$/i.test(name.trim());
@@ -50,14 +61,29 @@ export function isKbWorkbookName(name: string): boolean {
  * are trimmed; a blank Arabic answer or note is null; a question cannot
  * be blank. Unknown keys are ignored. Whether an answer may be approved
  * is the database's call (`kb_entries_approved_usable`).
+ *
+ * `version` is required: the row's version the dialog displayed. The
+ * route updates only while the row still has it, so an approval given
+ * in a dialog opened before someone else's edit is refused, not
+ * applied to text the approver never saw.
  */
 export function parseKbEntryPatch(
   body: unknown
-): { ok: true; values: KbEntryPatch } | { ok: false; error: string } {
+):
+  | { ok: true; values: KbEntryPatch; version: number }
+  | { ok: false; error: string } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return { ok: false, error: 'Invalid request body' };
   }
   const b = body as Record<string, unknown>;
+  const version = b.version;
+  if (
+    typeof version !== 'number' ||
+    !Number.isSafeInteger(version) ||
+    version < 1
+  ) {
+    return { ok: false, error: 'version must be a whole number of at least 1' };
+  }
   const values: KbEntryPatch = {};
 
   for (const key of ['question', 'category', 'answer_en'] as const) {
@@ -115,7 +141,7 @@ export function parseKbEntryPatch(
   if (Object.keys(values).length === 0) {
     return { ok: false, error: 'Nothing to update' };
   }
-  return { ok: true, values };
+  return { ok: true, values, version };
 }
 
 /** Is this Postgres error the "approved but unusable" CHECK? */
@@ -147,7 +173,9 @@ export function summarizeKb(
   return summary;
 }
 
-/** Approved / total over the client audiences (what the bot can send). */
+/** Approved / total over the client audiences (what the bot can send).
+ *  Rows marked `remove` are on their way out, so they are not counted
+ *  as answers still to approve. */
 export function clientReadiness(summary: KbSummary): {
   approved: number;
   total: number;
@@ -155,7 +183,7 @@ export function clientReadiness(summary: KbSummary): {
   let approved = 0;
   let total = 0;
   for (const a of KB_CLIENT_AUDIENCES) {
-    for (const s of KB_STATUSES) total += summary[a][s];
+    for (const s of KB_STATUSES) if (s !== 'remove') total += summary[a][s];
     approved += summary[a].approved;
   }
   return { approved, total };
