@@ -9,6 +9,7 @@ import {
   EyeOff,
   Loader2,
   MessagesSquare,
+  ShieldAlert,
   Sparkles,
   Trash2,
   UserRoundCheck,
@@ -42,7 +43,11 @@ import {
   AI_PROVIDER_DEFAULT_MODEL,
   AI_TIER_DEFAULT_MODELS,
 } from '@/lib/ai/defaults';
-import { willHaveEmbeddingsKey } from '@/lib/ai/config-form';
+import {
+  APPROVED_MIN_SCORE_RANGE,
+  toggleSensitiveReply,
+  willHaveEmbeddingsKey,
+} from '@/lib/ai/config-form';
 import { AUTO_RESUME_CHOICES } from '@/lib/ai/outcomes';
 import type { AiProvider } from '@/lib/ai/types';
 import { memberLabel } from '@/lib/account/members';
@@ -372,6 +377,107 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
         onCheckedChange={(x) => set('autoReplyEnabled', x)}
         disabled={disabled || !v.isActive}
       />
+
+      <Card>
+        <CardHeader>
+          <GroupTitle icon={<Sparkles className="text-primary h-4 w-4" />}>
+            {ta('answerMode.title')}
+          </GroupTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <RadioGroup
+            aria-label={ta('answerMode.title')}
+            value={v.answerMode}
+            onValueChange={(x) =>
+              set('answerMode', x === 'approved' ? 'approved' : 'generate')
+            }
+            disabled={disabled}
+            className="gap-2"
+          >
+            {(['generate', 'approved'] as const).map((mode) => (
+              <label
+                key={mode}
+                className={cn(
+                  'border-border flex cursor-pointer items-start gap-3 rounded-md border p-3',
+                  v.answerMode === mode &&
+                    'border-primary-soft-2 bg-primary-soft',
+                  disabled && 'cursor-not-allowed opacity-60'
+                )}
+              >
+                <RadioGroupItem value={mode} className="mt-0.5" />
+                <span className="min-w-0 flex-1 space-y-2">
+                  <span className="text-foreground block text-sm font-medium">
+                    {ta(`answerMode.${mode}`)}
+                  </span>
+                  <span className="text-muted-foreground block text-xs">
+                    {ta(`answerMode.${mode}Desc`)}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </RadioGroup>
+          {v.answerMode === 'approved' ? (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="ai-approved-score">
+                  {ta('answerMode.minScore')}
+                </Label>
+                <p className="text-muted-foreground text-xs">
+                  {ta('answerMode.minScoreHelp')}
+                </p>
+              </div>
+              <Input
+                id="ai-approved-score"
+                type="number"
+                step={0.01}
+                min={APPROVED_MIN_SCORE_RANGE.min}
+                max={APPROVED_MIN_SCORE_RANGE.max}
+                value={v.approvedMinScore}
+                onChange={(e) =>
+                  set('approvedMinScore', Number(e.target.value))
+                }
+                disabled={disabled}
+                className="w-24"
+              />
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <GroupTitle icon={<ShieldAlert className="text-primary h-4 w-4" />}>
+            {ta('sensitive.title')}
+          </GroupTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <SwitchRow
+            title={ta('sensitive.switch')}
+            description={ta('sensitive.help')}
+            checked={v.sensitiveReplyOn}
+            onCheckedChange={(x) => {
+              const next = toggleSensitiveReply(
+                v,
+                x,
+                ta('sensitive.defaultText')
+              );
+              set('sensitiveReplyOn', next.sensitiveReplyOn);
+              set('sensitiveDataReply', next.sensitiveDataReply);
+            }}
+            disabled={disabled}
+          />
+          {v.sensitiveReplyOn ? (
+            <Textarea
+              aria-label={ta('sensitive.text')}
+              value={v.sensitiveDataReply}
+              onChange={(e) => set('sensitiveDataReply', e.target.value)}
+              maxLength={1000}
+              rows={4}
+              disabled={disabled}
+            />
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

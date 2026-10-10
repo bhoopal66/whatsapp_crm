@@ -3168,6 +3168,22 @@
       "lockHint": "Saving will lock the AI to this number only",
       "whenOff": "Takes effect when auto-reply is on"
     },
+    "answerMode": {
+      "title": "How the bot answers",
+      "generate": "Write replies with the AI model",
+      "generateDesc": "The model writes each reply from your knowledge base. TypeSafe screens drafts.",
+      "approved": "Approved answers only",
+      "approvedDesc": "The bot sends only answers you approved in Approved answers, word for word. Anything else goes to a person. Needs TypeSafe.",
+      "minScore": "Confidence needed to send an approved answer",
+      "minScoreHelp": "Higher sends fewer answers and hands more chats to a person. 0.80 is the starting point until it is calibrated."
+    },
+    "sensitive": {
+      "title": "Sensitive data",
+      "switch": "Warn customers who share card, IBAN or Emirates ID numbers",
+      "text": "Warning message",
+      "defaultText": "For your security, please don't share Emirates ID, card or bank account numbers in this chat. Your relationship manager will share a secure way to send documents.",
+      "help": "Works in both modes. The warning replaces the bot's answer to that message."
+    },
     "handOver": "Hand over to a person",
     "needsEmbeddingsKey": "Only applies with an embeddings key.",
     "title": "AI Agents",
