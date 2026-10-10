@@ -172,7 +172,7 @@ For each message the bot is allowed to answer, in order:
    generated, so there is no tier.
 3. A **shortlist** of up to 8 approved answers for the customer's open
    question (`kb_shortlist`, a lexical match; an account with at most
-   12 approved answers gets all of them).
+   8 approved answers gets all of them).
 4. A **TypeSafe selection judgment** (`kb_select`) of every shortlisted
    answer: does it fully answer the question, and is it the same
    intent? Plus three hand-off conditions: a pricing request, a legal
@@ -223,14 +223,20 @@ Handoff. Rows are matched by ref; rows missing from the file are left
 alone. **Only rows with status Approved are ever sent.** An answer that
 is blank or still contains a `[TO CONFIRM …]` placeholder can never be
 approved: the import files it as _To confirm_, and the database refuses
-it as approved.
+it as approved. A file **without a Status column** cannot publish an
+edit either: an approved answer whose question, English or Arabic
+answer, or audience the file changes is filed as _To confirm_ and
+listed in the import's issues ("needs approval again").
 
 ### Sensitive-data warning
 
 In **both** answer modes, when **Sensitive-data reply**
 (`sensitive_data_reply`) is set and a customer message contains an
-Emirates ID, a card number (Luhn-checked) or an IBAN, the bot sends
-that text and nothing else for the message: no TypeSafe call, no model.
+Emirates ID, a card number (Luhn-checked) or an IBAN (a known
+country's length with a valid checksum), the bot sends that text and
+nothing else for the message: no model, and no TypeSafe call from the
+bot. The opt-out watch still triages the message, after redaction has
+replaced the identifier.
 It counts against the reply cap. Empty means off. The outcome is
 recorded as `replied`, "Sensitive-data warning sent".
 

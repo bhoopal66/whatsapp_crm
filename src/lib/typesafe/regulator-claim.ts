@@ -13,7 +13,8 @@
  *  - `regulator`: the sentence names the central bank (CBUAE, "Central
  *    Bank", المصرف/البنك المركزي, مصرف الإمارات العربية المتحدة المركزي)
  *    and a status word (registered, licensed, regulated, authorised,
- *    approved by, supervision; مرخص, مسجل, خاضع, إشراف…), and is not
+ *    approved by, "Central Bank approved", supervised, overseen /
+ *    governed by the Central Bank; مرخص, مسجل, خاضع, إشراف…), and is not
  *    plainly about someone else: it fires when the sentence refers to
  *    us (we, our, Taamul, نحن, …) or names no other bank. "Mashreq is
  *    regulated by the Central Bank" does not fire; "We work with banks
@@ -52,6 +53,11 @@ const STATUS = new RegExp(
     String.raw`\bauthori[sz](?:ed|es|ation)\b`,
     String.raw`\bapproved\s+by\b`,
     String.raw`-approved\b`,
+    // "Central Bank approved", "CBUAE approved" — bare "approved" is
+    // not a status word ("once approved, the Central Bank requires …").
+    String.raw`\b(?:cbuae|central\s+bank)\s+approved\b`,
+    // Only next to the regulator: "governed by" alone is everyday.
+    String.raw`\b(?:governed|overseen)\s+by\s+(?:the\s+)?(?:uae\s+)?(?:cbuae|central\s+bank)\b`,
     String.raw`\baccredit(?:ed|ation)\b`,
     String.raw`\bsupervis(?:ed|es|ion|ors?)\b`,
     String.raw`\boversight\b`,

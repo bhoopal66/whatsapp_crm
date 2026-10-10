@@ -8,6 +8,7 @@ import {
 import { readXlsxSheets } from '@/lib/contacts/read-xlsx';
 import { parseKbTable, pickKbSheet } from '@/lib/kb/import';
 import { isKbWorkbookName, MAX_KB_UPLOAD_BYTES } from '@/lib/kb/requests';
+import type { KbImportIssue } from '@/lib/kb/types';
 
 /**
  * POST /api/ai/kb/import  (admin+)
@@ -82,10 +83,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // kb_import returns only the issues it raised itself (an approval
+    // withdrawn, a placeholder filed as To confirm); the parser's come
+    // first, in sheet order.
+    const result = (data ?? {}) as { issues?: unknown };
+    const rpcIssues = Array.isArray(result.issues)
+      ? (result.issues as KbImportIssue[])
+      : [];
     return NextResponse.json({
-      ...(data as object),
+      ...result,
       sheet: sheet.name,
-      issues,
+      issues: [...issues, ...rpcIssues],
     });
   } catch (err) {
     return toErrorResponse(err);

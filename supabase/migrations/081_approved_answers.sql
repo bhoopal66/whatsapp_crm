@@ -13,22 +13,27 @@
 -- kb_entries_approved_usable CHECK, so a placeholder can never reach a
 -- customer. A trigger owns version, updated_at and the approval stamp:
 -- editing a question or an answer bumps version; approving (or editing
--- the answer of an approved row) stamps approved_at / approved_by;
+-- the answer or audience of an approved row) stamps approved_at /
+-- approved_by;
 -- leaving `approved` clears them.
 --
 -- kb_shortlist() is the only read the bot makes. It runs as the
 -- service role and returns approved rows for the two CLIENT audiences
 -- only: internal_staff answers are hard-coded out and never reach a
 -- customer whatever the caller asks. Ranking is 047's any-term lexical
--- match; an account with at most 12 approved client answers gets all of
+-- match; an account with at most 8 approved client answers gets all of
 -- them, so a paraphrase sharing no word with the question still reaches
--- the reranker.
+-- the reranker. 8 is KB_SELECT_MAX_CANDIDATES (lib/typesafe/checks/
+-- kb-select.ts), the most the judge looks at: change one, change both.
 --
 -- kb_import() upserts a parsed sheet by (account_id, ref) in one
 -- transaction, as the calling admin (RLS applies), and writes one
 -- kb_imports audit row. Rows missing from the file are left alone; an
 -- optional column the file does not have (its key absent from a row)
--- keeps the stored value.
+-- keeps the stored value. A file with no Status column cannot publish
+-- an edit: an approved row whose question, answer or audience the file
+-- changes is stored as to_confirm (with an issue) until approved again.
+-- The issues kb_import raises itself are returned as `issues`.
 --
 -- ai_configs gains answer_mode, approved_min_score (the selection
 -- confidence floor) and sensitive_data_reply (NULL = off). The hand-off
@@ -122,7 +127,10 @@ BEGIN
            THEN 1 ELSE 0 END;
 
   IF NEW.status = 'approved' THEN
-    IF OLD.status IS DISTINCT FROM 'approved' OR answers_changed THEN
+    -- An answer or audience change is a fresh approval of what is sent
+    -- and to whom.
+    IF OLD.status IS DISTINCT FROM 'approved' OR answers_changed
+       OR NEW.audience IS DISTINCT FROM OLD.audience THEN
       NEW.approved_at := now();
       NEW.approved_by := auth.uid();
     ELSE
@@ -217,7 +225,12 @@ REVOKE ALL ON public.kb_imports FROM anon;
 -- A row this function cannot use (bad audience/status, no ref or
 -- question) is skipped with an issue rather than failing the import;
 -- an approved row whose answer is unusable is downgraded to to_confirm
--- with an issue, mirroring kb_entries_approved_usable.
+-- with an issue, mirroring kb_entries_approved_usable. So is a stored
+-- approved row the file edits (question, answer_en, answer_ar or
+-- audience) without a status key: approval is never carried over to
+-- text nobody approved.
+-- Returns the counts, import_id, and `issues`: only the ones raised
+-- here (p_issues are the caller's own; the audit row keeps both).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.kb_import(
   p_account_id uuid,
@@ -252,6 +265,7 @@ DECLARE
   n_appr     int := 0;
   n_parser_skipped int := 0;
   issues     jsonb := '[]'::jsonb;
+  rpc_issues jsonb := '[]'::jsonb;
   import_id  uuid;
 BEGIN
   IF p_account_id IS NULL OR NOT is_account_member(p_account_id, 'admin') THEN
@@ -262,7 +276,6 @@ BEGIN
     RAISE EXCEPTION 'p_rows must be a JSON array' USING ERRCODE = '22023';
   END IF;
   IF p_issues IS NOT NULL AND jsonb_typeof(p_issues) = 'array' THEN
-    issues := p_issues;
     SELECT count(*) INTO n_parser_skipped
       FROM jsonb_array_elements(p_issues) i
      WHERE jsonb_typeof(i) = 'object' AND (i->>'skipped') = 'true';
@@ -272,7 +285,7 @@ BEGIN
     v_row := CASE WHEN jsonb_typeof(r) = 'object' THEN r->'row' END;
     IF jsonb_typeof(r) <> 'object' THEN
       n_skip := n_skip + 1;
-      issues := issues || jsonb_build_array(jsonb_build_object(
+      rpc_issues := rpc_issues || jsonb_build_array(jsonb_build_object(
         'row', NULL, 'ref', NULL, 'message', 'Not a row object', 'skipped', true));
       CONTINUE;
     END IF;
@@ -283,7 +296,7 @@ BEGIN
        OR v_aud IS NULL OR v_aud NOT IN ('prospective_client', 'existing_client', 'internal_staff')
        OR (r ? 'status' AND coalesce(r->>'status', '') NOT IN ('approved', 'draft', 'to_confirm', 'remove')) THEN
       n_skip := n_skip + 1;
-      issues := issues || jsonb_build_array(jsonb_build_object(
+      rpc_issues := rpc_issues || jsonb_build_array(jsonb_build_object(
         'row', v_row, 'ref', nullif(v_ref, ''),
         'message', 'Missing ID or question, or an unknown audience or status', 'skipped', true));
       CONTINUE;
@@ -308,11 +321,25 @@ BEGIN
     v_notes := CASE WHEN r ? 'reviewer_notes' THEN nullif(btrim(coalesce(r->>'reviewer_notes', '')), '')
                     ELSE cur.reviewer_notes END;
 
+    -- No Status column: an edit to what an approved row sends, or to
+    -- whom, needs approving again rather than going live.
+    IF cur.status = 'approved' AND NOT (r ? 'status') AND (
+         cur.question IS DISTINCT FROM v_q
+         OR cur.answer_en IS DISTINCT FROM v_en
+         OR cur.answer_ar IS DISTINCT FROM v_ar
+         OR cur.audience IS DISTINCT FROM v_aud) THEN
+      v_status := 'to_confirm';
+      rpc_issues := rpc_issues || jsonb_build_array(jsonb_build_object(
+        'row', v_row, 'ref', v_ref,
+        'message', 'Answer changed without a Status column — needs approval again',
+        'skipped', false));
+    END IF;
+
     IF v_status = 'approved' AND NOT (
          v_en <> '' AND v_en !~* '\[\s*to confirm'
          AND (v_ar IS NULL OR v_ar !~* '\[\s*to confirm')) THEN
       v_status := 'to_confirm';
-      issues := issues || jsonb_build_array(jsonb_build_object(
+      rpc_issues := rpc_issues || jsonb_build_array(jsonb_build_object(
         'row', v_row, 'ref', v_ref,
         'message', 'Marked Approved but the answer is empty or still says [TO CONFIRM]; imported as To confirm',
         'skipped', false));
@@ -345,6 +372,11 @@ BEGIN
     cur := NULL;
   END LOOP;
 
+  IF p_issues IS NOT NULL AND jsonb_typeof(p_issues) = 'array' THEN
+    issues := p_issues;
+  END IF;
+  issues := issues || rpc_issues;
+
   INSERT INTO kb_imports (account_id, file_name, total, inserted, updated, unchanged,
                           skipped, approved, issues)
   VALUES (p_account_id, nullif(btrim(coalesce(p_file_name, '')), ''),
@@ -355,7 +387,7 @@ BEGIN
   RETURN jsonb_build_object(
     'inserted', n_ins, 'updated', n_upd, 'unchanged', n_same,
     'skipped', n_skip + n_parser_skipped, 'approved', n_appr,
-    'import_id', import_id);
+    'import_id', import_id, 'issues', rpc_issues);
 END;
 $$;
 
@@ -398,14 +430,16 @@ AS $$
       FROM terms
   ),
   small AS (
-    SELECT count(*) <= 12 AS is_small FROM pool
+    -- 8 = KB_SELECT_MAX_CANDIDATES in lib/typesafe/checks/kb-select.ts:
+    -- a small KB is one the judge can read whole.
+    SELECT count(*) <= 8 AS is_small FROM pool
   )
   SELECT p.id, p.ref, p.question, p.answer_en, p.answer_ar, p.handoff_after,
          (CASE WHEN q.tsq IS NULL THEN 0 ELSE ts_rank(p.search, q.tsq) END)::real AS rank
     FROM pool p, q, small
    WHERE small.is_small OR (q.tsq IS NOT NULL AND p.search @@ q.tsq)
    ORDER BY rank DESC, p.ref
-   LIMIT (SELECT CASE WHEN count(*) <= 12 THEN NULL
+   LIMIT (SELECT CASE WHEN count(*) <= 8 THEN NULL
                       ELSE GREATEST(coalesce(p_limit, 8), 0) END
             FROM pool);
 $$;

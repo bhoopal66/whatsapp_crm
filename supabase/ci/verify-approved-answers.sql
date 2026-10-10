@@ -2,10 +2,13 @@
 --
 -- Asserts that a placeholder answer can never be approved; that
 -- kb_shortlist never returns internal_staff or non-approved rows, gives
--- a small KB (<= 12 approved client rows) whole and a large one only
--- matching rows; the trigger's version bump and approval stamp; that a
--- non-admin member reads but cannot write, and cannot import; the
--- kb_import counts and keep-existing rule; the RPC privileges; the
+-- a small KB (<= 8 approved client rows, KB_SELECT_MAX_CANDIDATES)
+-- whole and a larger one only matching rows; the trigger's version bump
+-- and approval stamp (re-stamped on an answer or audience change); that
+-- a non-admin member reads but cannot write, and cannot import; the
+-- kb_import counts, keep-existing rule and returned issues, and that a
+-- file with no Status column cannot publish an edit to an approved row;
+-- the RPC privileges; the
 -- ai_configs columns; and the widened hand-off reason CHECK.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
@@ -21,7 +24,7 @@ DECLARE
   u_admin  UUID := '00000000-0000-4000-8000-000000081002';
   u_agent  UUID := '00000000-0000-4000-8000-000000081003';
   u_owner2 UUID := '00000000-0000-4000-8000-000000081004';
-  a_acct   UUID;   -- large KB (> 12 approved client rows)
+  a_acct   UUID;   -- large KB (> 8 approved client rows)
   b_acct   UUID;   -- small KB
   e        UUID;
   ct       UUID;
@@ -144,6 +147,11 @@ BEGIN
   IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_owner OR version <> 3 FROM kb_entries WHERE id = e) THEN
     failed := array_append(failed, ('an approved answer edit did not re-stamp the approval and bump version: ' || r)::text);
   END IF;
+  r := pg_temp.kb_try(u_admin, format($q$UPDATE kb_entries SET audience = 'prospective_client' WHERE id = %L$q$, e));
+  n := n + 1;
+  IF r <> '1' OR (SELECT approved_by IS DISTINCT FROM u_admin OR status <> 'approved' FROM kb_entries WHERE id = e) THEN
+    failed := array_append(failed, ('an approved row''s audience change did not re-stamp the approval: ' || r)::text);
+  END IF;
   UPDATE kb_entries SET status = 'to_confirm' WHERE id = e;
   n := n + 1;
   IF (SELECT approved_at IS NOT NULL OR approved_by IS NOT NULL FROM kb_entries WHERE id = e) THEN
@@ -202,6 +210,13 @@ BEGIN
     failed := array_append(failed, ('first import counts wrong: ' || r)::text);
   ELSE
     n := n + 1;
+    -- Only kb_import's own issues (the placeholder, the bad audience);
+    -- the parser's one is the caller's.
+    IF jsonb_typeof(res->'issues') IS DISTINCT FROM 'array' OR jsonb_array_length(res->'issues') <> 2
+       OR (SELECT count(*) FROM jsonb_array_elements(res->'issues') x WHERE x->>'message' = 'Missing question') <> 0 THEN
+      failed := array_append(failed, ('kb_import did not return just its own issues: ' || coalesce(res->>'issues', 'none'))::text);
+    END IF;
+    n := n + 1;
     IF NOT EXISTS (
       SELECT 1 FROM kb_imports
        WHERE id = (res->>'import_id')::uuid AND imported_by = u_admin AND file_name = 'kb.xlsx'
@@ -232,6 +247,39 @@ BEGIN
         FROM kb_entries WHERE account_id = a_acct AND ref = 'KB-001')
      OR (SELECT status FROM kb_entries WHERE account_id = a_acct AND ref = 'KB-002') <> 'to_confirm' THEN
     failed := array_append(failed, 'a re-import dropped a value its file had no column for, or touched a row not in the file'::text);
+  END IF;
+  -- No Status column: an edit to an approved row's text or audience
+  -- withdraws the approval; anything else keeps it.
+  INSERT INTO kb_entries (account_id, ref, audience, question, answer_en, status)
+  VALUES (a_acct, 'KB-005', 'existing_client', 'Opening hours?', 'Nine to five.', 'approved');
+  r := pg_temp.kb_try(u_admin, format($q$SELECT kb_import(%L, 'kb.xlsx', %L::jsonb, '[]'::jsonb)::text$q$, a_acct,
+    '[{"ref":"KB-001","audience":"prospective_client","category":"Fees and charges","question":"What is the fee?","answer_en":"One percent.","row":3},
+      {"ref":"KB-005","audience":"existing_client","question":"Opening hours?","answer_en":"Nine to five.","row":4}]'));
+  res := CASE WHEN r LIKE 'ERROR:%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF res IS NULL OR (res->>'updated')::int <> 1 OR (res->>'unchanged')::int <> 1
+     OR (res->>'approved')::int <> 2 OR jsonb_array_length(res->'issues') <> 0
+     OR (SELECT count(*) FROM kb_entries WHERE account_id = a_acct AND ref IN ('KB-001', 'KB-005')
+          AND status = 'approved' AND approved_at IS NOT NULL) <> 2 THEN
+    failed := array_append(failed, ('a status-less import withdrew an approval it did not need to: ' || r)::text);
+  END IF;
+  r := pg_temp.kb_try(u_admin, format($q$SELECT kb_import(%L, 'kb.xlsx', %L::jsonb, '[]'::jsonb)::text$q$, a_acct,
+    '[{"ref":"KB-001","audience":"prospective_client","question":"What is the fee?","answer_en":"Two percent.","row":3},
+      {"ref":"KB-005","audience":"prospective_client","question":"Opening hours?","answer_en":"Nine to five.","row":4}]'));
+  res := CASE WHEN r LIKE 'ERROR:%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF res IS NULL OR (res->>'updated')::int <> 2 OR (res->>'approved')::int <> 0
+     OR (SELECT count(*) FROM kb_entries WHERE account_id = a_acct AND ref IN ('KB-001', 'KB-005')
+          AND status = 'to_confirm' AND approved_at IS NULL AND approved_by IS NULL) <> 2 THEN
+    failed := array_append(failed, ('a status-less import published an edited approved answer: ' || r)::text);
+  END IF;
+  n := n + 1;
+  IF res IS NULL OR jsonb_array_length(res->'issues') <> 2
+     OR (SELECT count(*) FROM jsonb_array_elements(res->'issues') x
+          WHERE x->>'message' = 'Answer changed without a Status column — needs approval again'
+            AND x->>'skipped' = 'false' AND x->>'ref' IN ('KB-001', 'KB-005') AND x->>'row' IN ('3', '4')) <> 2
+     OR NOT EXISTS (SELECT 1 FROM kb_imports WHERE id = (res->>'import_id')::uuid AND jsonb_array_length(issues) = 2) THEN
+    failed := array_append(failed, ('withdrawn approvals not reported as issues: ' || coalesce(res->>'issues', r))::text);
   END IF;
   n := n + 1;
   r := pg_temp.kb_try(u_admin, format(
@@ -280,6 +328,30 @@ BEGIN
   SELECT string_agg(s.ref, ',' ORDER BY s.ref) INTO r FROM kb_shortlist(b_acct, 'commission split draft', 8) s;
   IF r IS DISTINCT FROM 'KB-001,KB-002' THEN
     failed := array_append(failed, ('small KB shortlist leaked internal or draft rows: ' || coalesce(r, 'nothing'))::text);
+  END IF;
+  -- The boundary is KB_SELECT_MAX_CANDIDATES (8): eight approved client
+  -- rows are still returned whole, a ninth makes it a lexical match.
+  FOR i IN 5..10 LOOP
+    INSERT INTO kb_entries (account_id, ref, audience, question, answer_en, status)
+    VALUES (b_acct, format('KB-%s', lpad(i::text, 3, '0')), 'prospective_client',
+            format('Office hours %s', i), 'Answer.', 'approved');
+  END LOOP;
+  n := n + 1;
+  SELECT count(*) INTO i FROM kb_shortlist(b_acct, 'zzz unrelated paraphrase', 3) s;
+  IF i <> 8 THEN
+    failed := array_append(failed, format('an 8-answer KB was not returned whole: %s rows', i));
+  END IF;
+  INSERT INTO kb_entries (account_id, ref, audience, question, answer_en, status)
+  VALUES (b_acct, 'KB-011', 'existing_client', 'Office hours 11', 'Answer.', 'approved');
+  n := n + 1;
+  SELECT count(*) INTO i FROM kb_shortlist(b_acct, 'zzz unrelated paraphrase', 8) s;
+  IF i <> 0 THEN
+    failed := array_append(failed, format('a 9-answer KB returned non-matching rows: %s', i));
+  END IF;
+  n := n + 1;
+  SELECT string_agg(s.ref, ',' ORDER BY s.ref) INTO r FROM kb_shortlist(b_acct, 'can i get a loan', 8) s;
+  IF r IS DISTINCT FROM 'KB-001' THEN
+    failed := array_append(failed, ('a 9-answer KB should return only the matching row, got ' || coalesce(r, 'nothing'))::text);
   END IF;
 
   -- ---------- privileges ----------

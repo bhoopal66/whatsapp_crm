@@ -19,7 +19,8 @@ the bot never writes text. It sends one answer an admin approved, word
 for word, or hands the chat to a person. Answers are imported from the
 review spreadsheet (sheet `Knowledge_Base`); only rows marked Approved
 are ever sent, and an answer still saying `[TO CONFIRM …]` cannot be
-approved. TypeSafe picks the answer from a shortlist; a pricing, legal
+approved. A file without a Status column that edits an approved answer
+files it as To confirm until it is approved again. TypeSafe picks the answer from a shortlist; a pricing, legal
 or angry message, a weak match (below the minimum score, 0.8 by
 default), a missing Arabic answer, or TypeSafe being unavailable all
 hand the chat to a person. Answers for internal staff never reach

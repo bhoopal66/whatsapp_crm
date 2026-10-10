@@ -197,4 +197,43 @@ describe('POST /api/ai/kb/import', () => {
     expect(args.p_file_name).toBe('kb.xlsx');
     expect(args.p_rows).toHaveLength(1);
   });
+
+  it("lists the parser's issues, then the ones kb_import raised", async () => {
+    const withdrawn = {
+      row: 3,
+      ref: 'PC-1',
+      message: 'Answer changed without a Status column — needs approval again',
+      skipped: false,
+    };
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        inserted: 0,
+        updated: 1,
+        unchanged: 0,
+        skipped: 1,
+        approved: 0,
+        issues: [withdrawn],
+      },
+      error: null,
+    });
+    mocks.requireRole.mockResolvedValue({
+      supabase: { rpc },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    mocks.readXlsxSheets.mockResolvedValue([
+      {
+        name: 'Knowledge_Base',
+        rows: [
+          ['ID', 'Audience', 'Question', 'Bot answer'],
+          ['pc-1', 'Prospective client', 'Fees?', 'Zero now.'],
+          ['pc-2', 'Prospective client', '', 'No question.'],
+        ],
+      },
+    ]);
+    const body = await (await POST(upload('kb.xlsx'))).json();
+    const parserIssues = rpc.mock.calls[0][1].p_issues;
+    expect(parserIssues.length).toBeGreaterThan(0);
+    expect(body.issues).toEqual([...parserIssues, withdrawn]);
+  });
 });

@@ -6,7 +6,8 @@ import type { KbCandidate } from './types';
  * The approved answers worth showing the selector for `query`: the
  * bot's only read of `kb_entries` (`kb_shortlist`, service role). SQL
  * returns approved, client-audience rows only; an account with at most
- * 12 of them gets all, ignoring `limit`.
+ * 8 of them (KB_SELECT_MAX_CANDIDATES, the most the judge reads) gets
+ * all, ignoring `limit`.
  *
  * Throws on an RPC error: the caller must hand off rather than treat a
  * failed read as "no answer fits". A row without the fields an answer

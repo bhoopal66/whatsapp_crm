@@ -12,7 +12,14 @@ describe('containsSensitiveData', () => {
     ['a card number', 'card 4111 1111 1111 1111 exp 12/28'],
     ['an unspaced card number', '4111111111111111'],
     ['a UAE IBAN with spaces', 'IBAN AE07 0331 2345 6789 0123 456'],
+    ['a UAE IBAN without spaces', 'AE070331234567890123456'],
+    ['a lower-case UAE IBAN', 'my iban ae07 0331 2345 6789 0123 456 thanks'],
     ['a foreign IBAN', 'GB82WEST12345698765432'],
+    ['a grouped GB IBAN', 'GB82 WEST 1234 5698 7654 32'],
+    [
+      'a dashed IBAN mid-sentence',
+      'send to DE89-3704-0044-0532-0130-00 and confirm',
+    ],
   ])('flags %s', (_label, text) => {
     expect(containsSensitiveData(text)).toBe(true);
   });
@@ -28,6 +35,13 @@ describe('containsSensitiveData', () => {
     ['a date', 'meet on 27/09/2026 or 2026-10-01 at 10:30'],
     ['a card that fails Luhn', '4111 1111 1111 1112'],
     ['plain text', 'What are your fees?'],
+    // Shaped like IBANs only if characters join across words, or not a
+    // real IBAN at all (unknown country, wrong length, bad checksum).
+    ['amounts in a sentence', 'my salary is dh15000 and i need 300000 loan'],
+    ['a loan reference', 'ref LN20240012345 status?'],
+    ['a grouped reference', 'Ref AB12 3456 7890 please check'],
+    ['an IBAN with a bad checksum', 'AE08 0331 2345 6789 0123 456'],
+    ['an IBAN of the wrong length', 'GB82 WEST 1234 5698 7654 3'],
   ])('does not flag %s', (_label, text) => {
     expect(containsSensitiveData(text)).toBe(false);
   });

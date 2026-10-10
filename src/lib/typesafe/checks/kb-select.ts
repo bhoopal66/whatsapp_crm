@@ -60,7 +60,11 @@ export type KbSelectJudgment =
 
 export const KB_SELECT_DEADLINE_MS = 6000;
 export const KB_SELECT_CONCURRENCY = 4;
-/** The shortlist is at most this long; extra rows are not judged. */
+/**
+ * The shortlist is at most this long; extra rows are not judged.
+ * kb_shortlist (migration 081) returns a KB of at most this many
+ * approved client answers whole: change one, change both.
+ */
 export const KB_SELECT_MAX_CANDIDATES = 8;
 const MAX_TURNS = 6;
 const MAX_MESSAGE_CHARS = 4000;

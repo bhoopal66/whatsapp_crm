@@ -12,6 +12,11 @@ describe('regulatorClaims: central bank status', () => {
     'We operate under the supervision of the Central Bank.',
     'Rest assured, our services are approved by the CBUAE!',
     'Fully licensed by the Central Bank of the UAE.',
+    'Taamul is Central Bank approved.',
+    'We are CBUAE approved.',
+    'Our business is overseen by the Central Bank.',
+    'We are governed by the Central Bank of the UAE.',
+    'Taamul is supervised by the CBUAE.',
     'The Central Bank licenses us to arrange business loans.',
     'نحن مرخصون من المصرف المركزي.',
     'شركة تعامل مسجلة لدى مصرف الإمارات العربية المتحدة المركزي',
@@ -30,6 +35,8 @@ describe('regulatorClaims: central bank status', () => {
     'Please bring your trade licence; the Central Bank AECB report is pulled by the bank.',
     // Regulator and status word in different sentences.
     'The Central Bank sets the rules. We are a licensed broker.',
+    'Once approved, the Central Bank requires a 20% down payment.',
+    'Mashreq is Central Bank approved.',
   ])('does not fire on %s', (draft) => {
     expect(regulatorClaims(draft)).toEqual([]);
   });

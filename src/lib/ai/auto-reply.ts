@@ -854,8 +854,10 @@ export async function dispatchInboundToAiReply(
 
     // Sensitive-data warning (migration 081, both answer modes): a
     // message carrying an Emirates ID, a card number or an IBAN gets the
-    // account's warning and nothing else — no TypeSafe call, no model,
-    // so the identifier goes nowhere further than our own database.
+    // account's warning and nothing else: no model, and no TypeSafe call
+    // from this dispatch. The pipeline's opt-out watch
+    // (typesafe-watch.ts) still triages the message, but only after
+    // redact() has replaced the identifier.
     if (config.sensitiveDataReply && containsSensitiveData(customerTurn)) {
       const unsent = await sendReply(config.sensitiveDataReply);
       if (unsent) return unsent;
