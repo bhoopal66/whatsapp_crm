@@ -154,3 +154,11 @@ jobs:
       # can show who sees what and that re-tagging never duplicates.
       - name: Verify pipeline deals
         run: supabase db query --local --file supabase/ci/verify-pipeline-deals.sql
+
+      # Approved answers (081): a placeholder can never be approved, the
+      # bot's shortlist never returns internal-staff or unapproved rows,
+      # and only admins write or import. All of it is a CHECK, a trigger,
+      # RLS or a SECURITY DEFINER function, so only real Postgres can
+      # show it.
+      - name: Verify approved answers
+        run: supabase db query --local --file supabase/ci/verify-approved-answers.sql
