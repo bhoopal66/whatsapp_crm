@@ -3145,6 +3145,7 @@
       "assistant": "어시스턴트",
       "auto-reply": "자동 응답",
       "knowledge": "지식",
+      "answers": "승인된 답변",
       "safety": "안전 검사",
       "playground": "플레이그라운드",
       "usage": "사용량"
@@ -3196,6 +3197,99 @@
       "discard": "취소",
       "save": "저장",
       "saving": "저장 중…"
+    }
+  },
+  "AiApprovedAnswers": {
+    "title": "승인된 답변",
+    "description": "팀이 승인한 질문과 답변입니다. 승인된 답변 모드에서 봇은 이 중 하나를 그대로 보내거나 대화를 담당자에게 넘깁니다.",
+    "loading": "불러오는 중…",
+    "loadFailed": "승인된 답변을 불러오지 못했습니다",
+    "readiness": {
+      "headline": "고객용 답변 {total}개 중 {approved}개 승인됨",
+      "audienceLine": "승인 {approved} · 초안 {draft} · 확인 필요 {toConfirm} · 삭제 예정 {remove}",
+      "noneApproved": "봇에 승인된 답변이 아직 없습니다. 승인된 답변 모드에서는 모든 메시지가 담당자에게 전달됩니다."
+    },
+    "audience": {
+      "all": "모든 대상",
+      "prospective_client": "잠재 고객",
+      "existing_client": "기존 고객",
+      "internal_staff": "내부 직원"
+    },
+    "status": {
+      "all": "모든 상태",
+      "approved": "승인됨",
+      "draft": "초안",
+      "to_confirm": "확인 필요",
+      "remove": "삭제 예정"
+    },
+    "filters": {
+      "audience": "대상",
+      "status": "상태",
+      "search": "검색",
+      "searchPlaceholder": "참조, 질문 또는 답변 검색…"
+    },
+    "table": {
+      "ref": "참조",
+      "audience": "대상",
+      "category": "분류",
+      "question": "질문",
+      "status": "상태",
+      "handoff": "담당자 연결",
+      "handoffTitle": "이 답변을 보낸 뒤 대화를 담당자에게 넘깁니다",
+      "version": "버전",
+      "versionValue": "v{version}",
+      "neverSent": "고객에게 보내지 않음",
+      "count": "답변 {total}개 중 {shown}개",
+      "empty": "아직 답변이 없습니다.",
+      "emptyAdmin": "아직 답변이 없습니다. 검토 워크북을 가져와 추가하세요.",
+      "noMatch": "조건에 맞는 답변이 없습니다."
+    },
+    "import": {
+      "button": "워크북 가져오기 (.xlsx)",
+      "uploading": "가져오는 중…",
+      "hint": "검토 워크북을 업로드하세요. 행은 ID로 대조되며, 새 행은 추가되고 변경된 행은 업데이트됩니다.",
+      "wrongType": "검토 워크북을 .xlsx 파일로 업로드하세요.",
+      "failed": "가져오기에 실패했습니다",
+      "done": "가져오기가 완료되었습니다",
+      "resultTitle": "가져오기 결과",
+      "resultCounts": "추가 {inserted} · 업데이트 {updated} · 변경 없음 {unchanged} · 건너뜀 {skipped} · 승인 {approved}",
+      "sheet": "시트 {sheet}",
+      "dismiss": "닫기",
+      "noIssues": "문제가 없습니다.",
+      "issuesTitle": "{count, plural, other {문제 #건}}",
+      "issueRow": "행",
+      "issueRef": "참조",
+      "issueMessage": "문제",
+      "issueSkipped": "행 건너뜀"
+    },
+    "history": {
+      "title": "최근 가져오기",
+      "untitled": "이름 없는 파일",
+      "counts": "{total}행 · 추가 {inserted} · 업데이트 {updated} · 변경 없음 {unchanged} · 건너뜀 {skipped} · 승인 {approved}"
+    },
+    "edit": {
+      "title": "답변 {ref} 편집",
+      "viewTitle": "답변 {ref}",
+      "readOnly": "관리자만 답변을 변경할 수 있습니다.",
+      "question": "질문",
+      "category": "분류",
+      "status": "상태",
+      "answerEn": "답변 (영어)",
+      "answerAr": "답변 (아랍어)",
+      "handoff": "이 답변을 보낸 뒤 대화를 담당자에게 넘기기",
+      "notes": "검토자 메모",
+      "questionRequired": "질문은 비워 둘 수 없습니다.",
+      "save": "저장",
+      "saving": "저장 중…",
+      "cancel": "취소",
+      "close": "닫기",
+      "delete": "삭제",
+      "saved": "답변을 저장했습니다",
+      "saveFailed": "답변을 저장하지 못했습니다",
+      "deleteTitle": "이 답변을 삭제할까요?",
+      "deleteDescription": "{ref}이(가) 삭제되며 봇이 더 이상 보낼 수 없습니다. 이 답변이 들어 있는 워크북을 다시 가져오면 다시 추가됩니다.",
+      "deleted": "답변을 삭제했습니다",
+      "deleteFailed": "답변을 삭제하지 못했습니다"
     }
   }
 }

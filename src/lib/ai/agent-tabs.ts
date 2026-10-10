@@ -8,6 +8,7 @@ export const AGENT_TABS = [
   'assistant',
   'auto-reply',
   'knowledge',
+  'answers',
   'safety',
   'playground',
   'usage',

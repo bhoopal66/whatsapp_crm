@@ -3145,6 +3145,7 @@
       "assistant": "Assistant",
       "auto-reply": "Auto-reply",
       "knowledge": "Knowledge",
+      "answers": "Approved answers",
       "safety": "Safety checks",
       "playground": "Playground",
       "usage": "Usage"
@@ -3196,6 +3197,99 @@
       "discard": "Discard",
       "save": "Save",
       "saving": "Saving…"
+    }
+  },
+  "AiApprovedAnswers": {
+    "title": "Approved answers",
+    "description": "Questions and answers your team has approved. In Approved-answers mode the bot sends one of these word for word, or hands the chat to a person.",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load approved answers",
+    "readiness": {
+      "headline": "{approved} of {total} client answers approved",
+      "audienceLine": "{approved} approved · {draft} draft · {toConfirm} to confirm · {remove} to remove",
+      "noneApproved": "The bot has no approved answers yet. In Approved-answers mode every message goes to a person."
+    },
+    "audience": {
+      "all": "All audiences",
+      "prospective_client": "Prospective clients",
+      "existing_client": "Existing clients",
+      "internal_staff": "Internal staff"
+    },
+    "status": {
+      "all": "All statuses",
+      "approved": "Approved",
+      "draft": "Draft",
+      "to_confirm": "To confirm",
+      "remove": "Remove"
+    },
+    "filters": {
+      "audience": "Audience",
+      "status": "Status",
+      "search": "Search",
+      "searchPlaceholder": "Search ref, question or answer…"
+    },
+    "table": {
+      "ref": "Ref",
+      "audience": "Audience",
+      "category": "Category",
+      "question": "Question",
+      "status": "Status",
+      "handoff": "Hand-off",
+      "handoffTitle": "Hands the chat to a person after this answer",
+      "version": "Version",
+      "versionValue": "v{version}",
+      "neverSent": "Never sent to customers",
+      "count": "{shown} of {total} answers",
+      "empty": "No answers yet.",
+      "emptyAdmin": "No answers yet. Import the review workbook to add them.",
+      "noMatch": "No answers match these filters."
+    },
+    "import": {
+      "button": "Import workbook (.xlsx)",
+      "uploading": "Importing…",
+      "hint": "Upload the review workbook. Rows are matched by ID: new ones are added and changed ones updated.",
+      "wrongType": "Upload the review workbook as an .xlsx file.",
+      "failed": "Import failed",
+      "done": "Import finished",
+      "resultTitle": "Import result",
+      "resultCounts": "{inserted} added · {updated} updated · {unchanged} unchanged · {skipped} skipped · {approved} approved",
+      "sheet": "sheet {sheet}",
+      "dismiss": "Dismiss",
+      "noIssues": "No problems found.",
+      "issuesTitle": "{count, plural, one {# problem} other {# problems}}",
+      "issueRow": "Row",
+      "issueRef": "Ref",
+      "issueMessage": "Problem",
+      "issueSkipped": "row skipped"
+    },
+    "history": {
+      "title": "Recent imports",
+      "untitled": "Untitled file",
+      "counts": "{total} rows · {inserted} added · {updated} updated · {unchanged} unchanged · {skipped} skipped · {approved} approved"
+    },
+    "edit": {
+      "title": "Edit answer {ref}",
+      "viewTitle": "Answer {ref}",
+      "readOnly": "Only admins can change answers.",
+      "question": "Question",
+      "category": "Category",
+      "status": "Status",
+      "answerEn": "Answer (English)",
+      "answerAr": "Answer (Arabic)",
+      "handoff": "Hand the chat to a person after this answer",
+      "notes": "Reviewer notes",
+      "questionRequired": "The question can't be empty.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "close": "Close",
+      "delete": "Delete",
+      "saved": "Answer saved",
+      "saveFailed": "Failed to save answer",
+      "deleteTitle": "Delete this answer?",
+      "deleteDescription": "{ref} will be removed and the bot can no longer send it. Importing a workbook that still contains it adds it back.",
+      "deleted": "Answer deleted",
+      "deleteFailed": "Failed to delete answer"
     }
   }
 }
