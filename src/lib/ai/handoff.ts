@@ -17,6 +17,9 @@ import type { ChatMessage } from './types';
  *                  intent, or an opt-out (063)
  *   guardrail    — the TypeSafe guardrail held or blocked the drafted
  *                  reply (063); the draft is quoted in the note
+ *   kb           — the approved-answers mode (081) decided a person
+ *                  must take it: pricing, legal or an angry message,
+ *                  or an answer flagged "hand off after"
  */
 export type AiHandoffReason =
   | 'keyword'
@@ -25,7 +28,8 @@ export type AiHandoffReason =
   | 'error'
   | 'cap'
   | 'triage'
-  | 'guardrail';
+  | 'guardrail'
+  | 'kb';
 
 export const AI_HANDOFF_REASONS: readonly AiHandoffReason[] = [
   'keyword',
@@ -35,6 +39,7 @@ export const AI_HANDOFF_REASONS: readonly AiHandoffReason[] = [
   'cap',
   'triage',
   'guardrail',
+  'kb',
 ];
 
 /**
@@ -74,6 +79,10 @@ export function describeHandoffReason(
     case 'guardrail':
       // The guardrail gate writes its own plain-English sentence.
       return detail?.trim() || 'the safety check held the drafted reply.';
+    case 'kb':
+      return detail
+        ? `the approved answers need a person here (${detail}).`
+        : 'the approved answers need a person here.';
   }
 }
 

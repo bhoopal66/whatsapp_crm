@@ -24,6 +24,9 @@ interface AiConfigRow {
   auto_resume_minutes: number | null;
   guardrail_retry: boolean | null;
   reply_on_all_numbers?: boolean | null;
+  answer_mode?: string | null;
+  approved_min_score?: number | null;
+  sensitive_data_reply?: string | null;
 }
 
 /** A tier model id, or null when unset/blank ("use `model`"). */
@@ -33,21 +36,23 @@ function tierModel(value: unknown): string | null {
 
 const CONFIG_COLUMNS_078 =
   'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_campaign_only, auto_reply_max_per_conversation, handoff_agent_id, embeddings_api_key, escalation_keywords, retrieval_min_score, strict_grounding, handoff_message, model_small, model_large, model_routing, pause_on_agent_reply, auto_resume_minutes, guardrail_retry';
-const CONFIG_COLUMNS = `${CONFIG_COLUMNS_078}, reply_on_all_numbers`;
+const CONFIG_COLUMNS_079 = `${CONFIG_COLUMNS_078}, reply_on_all_numbers`;
+const CONFIG_COLUMNS = `${CONFIG_COLUMNS_079}, answer_mode, approved_min_score, sensitive_data_reply`;
 
 /**
- * True when the read failed only because migration 079's column is not
+ * True when the read failed only because a column from `names` is not
  * there yet (Postgres 42703, or PGRST204 from the schema cache). The
- * bot then loads as before 079 — answering on its routed number —
- * rather than going silent on every inbound until the migration lands.
+ * bot then loads as before that migration — rather than going silent
+ * on every inbound until it lands.
  */
-function missingAllNumbersColumn(
-  error: { code?: string; message?: string } | null
+function missingColumn(
+  error: { code?: string; message?: string } | null,
+  names: readonly string[]
 ): boolean {
   return (
     !!error &&
     (error.code === '42703' || error.code === 'PGRST204') &&
-    (error.message ?? '').includes('reply_on_all_numbers')
+    names.some((n) => (error.message ?? '').includes(n))
   );
 }
 
@@ -75,7 +80,18 @@ export async function loadAiConfig(
       .eq('account_id', accountId)
       .maybeSingle();
   let { data, error } = await read(CONFIG_COLUMNS);
-  if (missingAllNumbersColumn(error)) {
+  // Migration 081's columns, then 079's: each step drops to the column
+  // list of the migration before it.
+  if (
+    missingColumn(error, [
+      'answer_mode',
+      'approved_min_score',
+      'sensitive_data_reply',
+    ])
+  ) {
+    ({ data, error } = await read(CONFIG_COLUMNS_079));
+  }
+  if (missingColumn(error, ['reply_on_all_numbers'])) {
     ({ data, error } = await read(CONFIG_COLUMNS_078));
   }
 
@@ -150,6 +166,19 @@ export async function loadAiConfig(
     guardrailRetry: row.guardrail_retry !== false,
     // Migration 079; absent (a pre-079 database) = the routed number only.
     replyOnAllNumbers: row.reply_on_all_numbers === true,
+    // Migration 081; absent (a pre-081 database) = generate, 0.8, no
+    // sensitive-data reply.
+    answerMode: row.answer_mode === 'approved' ? 'approved' : 'generate',
+    approvedMinScore:
+      typeof row.approved_min_score === 'number' &&
+      Number.isFinite(row.approved_min_score)
+        ? row.approved_min_score
+        : 0.8,
+    sensitiveDataReply:
+      typeof row.sensitive_data_reply === 'string' &&
+      row.sensitive_data_reply.trim()
+        ? row.sensitive_data_reply.trim()
+        : null,
   };
 }
 

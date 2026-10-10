@@ -25,6 +25,9 @@ function config(overrides: Partial<AiConfig> = {}): AiConfig {
     autoResumeMinutes: null,
     guardrailRetry: true,
     replyOnAllNumbers: false,
+    answerMode: 'generate',
+    approvedMinScore: 0.8,
+    sensitiveDataReply: null,
     ...overrides,
   };
 }

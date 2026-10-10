@@ -85,6 +85,9 @@ export async function POST(request: Request) {
         autoResumeMinutes: null,
         guardrailRetry: true,
         replyOnAllNumbers: false,
+        answerMode: 'generate',
+        approvedMinScore: 0.8,
+        sensitiveDataReply: null,
       })
     } catch (err) {
       if (err instanceof AiError) {
