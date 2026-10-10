@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 
-import { readXlsxTable } from './read-xlsx';
+import { readXlsxSheets, readXlsxTable } from './read-xlsx';
 
 // Minimal CRC-32 for the zip writer below. The reader does not check
 // it, but a real archive tool would, and the fixtures should be honest
@@ -344,5 +344,73 @@ describe('readXlsxTable', () => {
       readXlsxTable(new TextEncoder().encode('phone,name\n+971501234567,A'))
     ).rejects.toThrow();
     await expect(readXlsxTable(new Uint8Array())).rejects.toThrow();
+  });
+});
+
+describe('readXlsxSheets', () => {
+  it('returns every visible worksheet in tab order, rows in place', async () => {
+    const bytes = zip([
+      ...workbook(
+        [
+          { name: 'README', rid: 'rId3' },
+          { name: 'Secret', rid: 'rId1', state: 'hidden' },
+          { name: 'Chart', rid: 'rId4' },
+          { name: 'Knowledge_Base', rid: 'rId2' },
+        ],
+        [
+          { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
+          { id: 'rId2', type: 'worksheet', target: 'worksheets/sheet2.xml' },
+          {
+            id: 'rId3',
+            type: 'worksheet',
+            target: '/xl/worksheets/sheet3.xml',
+          },
+          { id: 'rId4', type: 'chartsheet', target: 'chartsheets/sheet1.xml' },
+          { id: 'rId5', type: 'sharedStrings', target: 'sharedStrings.xml' },
+        ]
+      ),
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        content: sheet('<row r="1"><c r="A1" t="str"><v>hidden</v></c></row>'),
+      },
+      {
+        name: 'xl/worksheets/sheet2.xml',
+        content: sheet(
+          '<row r="2"><c r="A2" t="s"><v>0</v></c><c r="C2" t="str"><v>Q</v></c></row>' +
+            '<row r="3"><c r="B3" t="str"><v> x </v></c></row>'
+        ),
+      },
+      {
+        name: 'xl/worksheets/sheet3.xml',
+        content: sheet('<row r="1"><c r="A1" t="str"><v>read me</v></c></row>'),
+      },
+      {
+        name: 'xl/sharedStrings.xml',
+        content: `<?xml version="1.0" encoding="UTF-8"?><sst ${NS}><si><t>ID</t></si></sst>`,
+      },
+    ]);
+    expect(await readXlsxSheets(bytes)).toEqual([
+      { name: 'README', rows: [['read me']] },
+      {
+        name: 'Knowledge_Base',
+        // Row 1 is blank and kept, so rows[i] is sheet row i + 1; cell
+        // text is not trimmed.
+        rows: [[], ['ID', '', 'Q'], ['', ' x ']],
+      },
+    ]);
+  });
+
+  it('returns no sheets when every worksheet is hidden', async () => {
+    const bytes = zip([
+      ...workbook(
+        [{ name: 'Secret', rid: 'rId1', state: 'veryHidden' }],
+        [{ id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' }]
+      ),
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        content: sheet('<row r="1"><c r="A1" t="str"><v>hidden</v></c></row>'),
+      },
+    ]);
+    expect(await readXlsxSheets(bytes)).toEqual([]);
   });
 });

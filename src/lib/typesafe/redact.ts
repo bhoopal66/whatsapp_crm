@@ -40,7 +40,7 @@ export function normaliseDigits(text: string): string {
   return out;
 }
 
-function luhnValid(digits: string): boolean {
+export function luhnValid(digits: string): boolean {
   let sum = 0;
   let dbl = false;
   for (let i = digits.length - 1; i >= 0; i--) {
@@ -55,27 +55,29 @@ function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
+// The patterns are global, so they carry lastIndex: other modules use them
+// through matchAll / replace (which reset it), never .test().
 // Separators people type inside numbers: space, dot, dash, slash, parentheses.
 // Emirates ID: 784-YYYY-NNNNNNN-N
-const EID = /(?<!\d)784[\s.\-/]*\d{4}[\s.\-/]*\d{7}[\s.\-/]*\d(?!\d)/g;
+export const EID = /(?<!\d)784[\s.\-/]*\d{4}[\s.\-/]*\d{7}[\s.\-/]*\d(?!\d)/g;
 // UAE IBAN: AE + 2 check digits + 19 digits; spaces or dashes allowed
-const IBAN_AE = /\bAE[\s\-]?\d{2}(?:[\s\-]?\d){19}(?!\d)/gi;
+export const IBAN_AE = /\bAE[\s\-]?\d{2}(?:[\s\-]?\d){19}(?!\d)/gi;
 // Any other IBAN-shaped token (foreign accounts), any case; must contain ≥ 8 digits
-const IBAN_OTHER = /\b[A-Z]{2}\d{2}(?:[\s\-]?[A-Z0-9]){11,30}\b/gi;
+export const IBAN_OTHER = /\b[A-Z]{2}\d{2}(?:[\s\-]?[A-Z0-9]){11,30}\b/gi;
 // Card candidates: 13–19 digits with up to 3 separators between digits; Luhn-checked
-const CARD = /(?<!\d)(?:\d[\s.\-/]{0,3}){12,18}\d(?!\d)/g;
+export const CARD = /(?<!\d)(?:\d[\s.\-/]{0,3}){12,18}\d(?!\d)/g;
 // Bank account numbers after an explicit label
 const ACCOUNT =
   /\b(?:account|acct|a\/c)\s*(?:no\.?|number|num|#)?\s*(?:is)?\s*[:\-]?\s*\d[\d\s\-]{5,}\d/gi;
 const ACCOUNT_AR =
   /(?:رقم الحساب|حساب رقم|رقم حسابي)\s*[:\-]?\s*\d[\d\s\-]{5,}\d/g;
 // UAE phone numbers (+971 / 00971 / 971 / local 0-prefixed, optional parentheses)
-const PHONE_UAE =
+export const PHONE_UAE =
   // No '/' here: this runs before the date exemption, and "27/09/2026 10"
   // would read as a landline. Slashed numbers are caught by LONG_DIGITS.
   /(?<!\d)(?:(?:\+|00)?971[\s.\-]*(?:\(0\)[\s.\-]*)?|\(?0)(?:5\d|[2-9])\)?(?:[\s.\-]*\d){7}(?!\d)/g;
 // Other international numbers: +CC then groups (checked for 8–15 digits)
-const PHONE_INTL =
+export const PHONE_INTL =
   /\+\s?\d{1,3}[\s.\-]*(?:\(?\d{1,4}\)?[\s.\-]*){1,5}\d{2,4}(?!\d)/g;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 // Passport / document numbers: 1–2 letters + 6–8 digits

@@ -1,6 +1,7 @@
 /**
  * Reads the first worksheet of an Excel `.xlsx` file into rows of cell
- * strings, row 0 being the header. Broadcast audiences arrive as Excel
+ * strings, row 0 being the header (readXlsxTable), or every visible
+ * worksheet with its rows in place (readXlsxSheets). Broadcast audiences arrive as Excel
  * exports more often than as CSV, and re-saving one as CSV in Excel
  * mangles long numbers into "9.71505E+11" — so the file is read as it
  * is, in the browser, with no spreadsheet library: an `.xlsx` is a ZIP
@@ -235,9 +236,7 @@ function resolveTarget(target: string): string {
   return parts.join('/');
 }
 
-function relationships(
-  xml: string
-): { id: string; type: string; target: string }[] {
+function relationships(xml: string): Relationship[] {
   return Array.from(xml.matchAll(/<Relationship\b([^>]*)>/g), (m) => ({
     id: attr(m[1], 'Id') ?? '',
     type: attr(m[1], 'Type') ?? '',
@@ -245,7 +244,23 @@ function relationships(
   }));
 }
 
-export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
+interface Relationship {
+  id: string;
+  type: string;
+  target: string;
+}
+
+interface Workbook {
+  /** An entry's text, or null when the package has no such entry. */
+  read: (name: string) => Promise<string | null>;
+  rels: Relationship[];
+  /** Every `<sheet>` in tab order, with its relationship when it has one. */
+  sheets: { name: string; hidden: boolean; rel: Relationship | undefined }[];
+  sharedStringsPath: string;
+}
+
+/** Opens the package and reads the workbook part and its relationships. */
+async function openWorkbook(bytes: Uint8Array): Promise<Workbook> {
   const entries = readCentralDirectory(bytes);
   const read = (name: string) => {
     const entry = entries.get(name);
@@ -257,17 +272,36 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
     read('xl/_rels/workbook.xml.rels'),
   ]);
   const rels = relsXml ? relationships(relsXml) : [];
+  const sheets = Array.from(
+    workbook?.matchAll(/<sheet\b([^>]*)>/g) ?? [],
+    ({ 1: a }) => ({
+      name: attr(a, 'name') ?? '',
+      // A hidden tab is skipped: its rows would be messaged (or
+      // imported) without the uploader ever having seen them.
+      hidden: /^(?:hidden|veryHidden)$/.test(attr(a, 'state') ?? ''),
+      rel: rels.find((r) => r.id === attr(a, 'r:id')),
+    })
+  );
+  const sharedRel = rels.find((r) => r.type.endsWith('/sharedStrings'));
+  return {
+    read,
+    rels,
+    sheets,
+    sharedStringsPath: sharedRel
+      ? resolveTarget(sharedRel.target)
+      : 'xl/sharedStrings.xml',
+  };
+}
+
+export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
+  const { read, rels, sheets, sharedStringsPath } = await openWorkbook(bytes);
 
   // The first visible worksheet in tab order, which need not be
-  // sheet1.xml once sheets have been reordered or deleted. A hidden tab
-  // is skipped: its rows would be messaged without the uploader ever
-  // having seen them. So is a chartsheet, which has no cells.
-  const sheetRel = Array.from(
-    workbook?.matchAll(/<sheet\b([^>]*)>/g) ?? [],
-    (m) => m[1]
-  )
-    .filter((a) => !/^(?:hidden|veryHidden)$/.test(attr(a, 'state') ?? ''))
-    .map((a) => rels.find((r) => r.id === attr(a, 'r:id')))
+  // sheet1.xml once sheets have been reordered or deleted. A chartsheet
+  // is skipped too: it has no cells.
+  const sheetRel = sheets
+    .filter((s) => !s.hidden)
+    .map((s) => s.rel)
     .find((r) => r?.type.endsWith('/worksheet'));
   // The default path only for a package with no relationships at all;
   // a workbook whose every worksheet is hidden has nothing to send.
@@ -278,10 +312,9 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
     ? resolveTarget(sheetRel.target)
     : 'xl/worksheets/sheet1.xml';
 
-  const sharedRel = rels.find((r) => r.type.endsWith('/sharedStrings'));
   const [sheet, sharedXml] = await Promise.all([
     read(sheetPath),
-    read(sharedRel ? resolveTarget(sharedRel.target) : 'xl/sharedStrings.xml'),
+    read(sharedStringsPath),
   ]);
   if (sheet === null) throw new Error('The workbook has no worksheet');
   const rows = sheetRows(sheet, sharedXml ? sharedStrings(sharedXml) : []);
@@ -290,4 +323,37 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
   // too, and the header must be row 0.
   const start = rows.findIndex((r) => r.some((c) => c.trim() !== ''));
   return start === -1 ? [] : rows.slice(start);
+}
+
+/**
+ * Every visible worksheet in tab order, by tab name. Unlike
+ * readXlsxTable the rows are not trimmed: `rows[i]` is sheet row i + 1,
+ * so a caller can name the row a problem is on. A package with no
+ * relationships at all yields its default sheet as "Sheet1".
+ */
+export async function readXlsxSheets(
+  bytes: Uint8Array
+): Promise<{ name: string; rows: string[][] }[]> {
+  const { read, rels, sheets, sharedStringsPath } = await openWorkbook(bytes);
+  const targets =
+    rels.length === 0
+      ? [
+          {
+            name: sheets[0]?.name || 'Sheet1',
+            path: 'xl/worksheets/sheet1.xml',
+          },
+        ]
+      : sheets.flatMap((s) =>
+          !s.hidden && s.rel?.type.endsWith('/worksheet')
+            ? [{ name: s.name, path: resolveTarget(s.rel.target) }]
+            : []
+        );
+  const sharedXml = await read(sharedStringsPath);
+  const shared = sharedXml ? sharedStrings(sharedXml) : [];
+  const out: { name: string; rows: string[][] }[] = [];
+  for (const t of targets) {
+    const xml = await read(t.path);
+    if (xml !== null) out.push({ name: t.name, rows: sheetRows(xml, shared) });
+  }
+  return out;
 }
