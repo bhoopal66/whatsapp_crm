@@ -72,3 +72,49 @@ describe('parseAiAgentV2Settings', () => {
     }
   });
 });
+
+describe('parseAiAgentV2Settings approved answers (migration 081)', () => {
+  it('accepts the three fields, trimming the reply', () => {
+    expect(
+      parseAiAgentV2Settings({
+        answer_mode: 'approved',
+        approved_min_score: 0.5,
+        sensitive_data_reply: '  Please do not share that.  ',
+      })
+    ).toEqual({
+      ok: true,
+      values: {
+        answer_mode: 'approved',
+        approved_min_score: 0.5,
+        sensitive_data_reply: 'Please do not share that.',
+      },
+    });
+  });
+
+  it('reads a blank or null sensitive-data reply as off', () => {
+    for (const raw of ['', '   ', null]) {
+      expect(parseAiAgentV2Settings({ sensitive_data_reply: raw })).toEqual({
+        ok: true,
+        values: { sensitive_data_reply: null },
+      });
+    }
+  });
+
+  it('rejects a bad mode, an out-of-range score and an over-long reply', () => {
+    expect(parseAiAgentV2Settings({ answer_mode: 'other' }).ok).toBe(false);
+    expect(parseAiAgentV2Settings({ answer_mode: null }).ok).toBe(false);
+    for (const bad of [0.49, 1, 0.995, '0.8', null, NaN]) {
+      expect(parseAiAgentV2Settings({ approved_min_score: bad }).ok).toBe(
+        false
+      );
+    }
+    expect(parseAiAgentV2Settings({ approved_min_score: 0.99 }).ok).toBe(true);
+    expect(parseAiAgentV2Settings({ sensitive_data_reply: 5 }).ok).toBe(false);
+    expect(
+      parseAiAgentV2Settings({ sensitive_data_reply: 'x'.repeat(1001) }).ok
+    ).toBe(false);
+    expect(
+      parseAiAgentV2Settings({ sensitive_data_reply: 'x'.repeat(1000) }).ok
+    ).toBe(true);
+  });
+});

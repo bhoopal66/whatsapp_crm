@@ -31,7 +31,15 @@ export interface AiAgentV2Settings {
   guardrail_retry?: boolean;
   /** Migration 079: answer on every connected number. */
   reply_on_all_numbers?: boolean;
+  /** Migration 081: how the bot answers. */
+  answer_mode?: 'generate' | 'approved';
+  approved_min_score?: number;
+  /** Null = the sensitive-data check is off. */
+  sensitive_data_reply?: string | null;
 }
+
+/** Longest sensitive-data reply accepted (migration 081). */
+export const MAX_SENSITIVE_DATA_REPLY_LENGTH = 1000;
 
 const V2_BOOLEANS = [
   'model_routing',
@@ -95,6 +103,51 @@ export function parseAiAgentV2Settings(
     } else {
       values.auto_resume_minutes = raw;
     }
+  }
+
+  if ('answer_mode' in body) {
+    const raw = body.answer_mode;
+    if (raw !== 'generate' && raw !== 'approved') {
+      return {
+        ok: false,
+        error: 'answer_mode must be "generate" or "approved"',
+      };
+    }
+    values.answer_mode = raw;
+  }
+
+  if ('approved_min_score' in body) {
+    const raw = body.approved_min_score;
+    if (
+      typeof raw !== 'number' ||
+      !Number.isFinite(raw) ||
+      raw < 0.5 ||
+      raw > 0.99
+    ) {
+      return {
+        ok: false,
+        error: 'approved_min_score must be a number from 0.5 to 0.99',
+      };
+    }
+    values.approved_min_score = raw;
+  }
+
+  if ('sensitive_data_reply' in body) {
+    const raw = body.sensitive_data_reply;
+    if (raw !== null && typeof raw !== 'string') {
+      return {
+        ok: false,
+        error: 'sensitive_data_reply must be a string or null',
+      };
+    }
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    if (trimmed.length > MAX_SENSITIVE_DATA_REPLY_LENGTH) {
+      return {
+        ok: false,
+        error: `sensitive_data_reply must be at most ${MAX_SENSITIVE_DATA_REPLY_LENGTH} characters`,
+      };
+    }
+    values.sensitive_data_reply = trimmed || null;
   }
 
   return { ok: true, values };

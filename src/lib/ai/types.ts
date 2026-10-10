@@ -84,6 +84,19 @@ export interface AiConfig {
    * number the customer wrote to, instead of only the `ai_reply` route.
    */
   replyOnAllNumbers: boolean;
+  /**
+   * How the bot answers (migration 081): `generate` writes a reply from
+   * the knowledge base; `approved` only sends an answer a person has
+   * approved, handing the chat over when none fits.
+   */
+  answerMode: 'generate' | 'approved';
+  /** Approved mode: the selection confidence floor, 0.5-0.99. */
+  approvedMinScore: number;
+  /**
+   * Approved mode: what the customer is told when they share sensitive
+   * data. `null` = the check is off.
+   */
+  sensitiveDataReply: string | null;
 }
 
 /** A single conversation turn in the shape both providers accept. */

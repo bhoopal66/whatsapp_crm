@@ -193,3 +193,79 @@ describe('loadAiConfig reply_on_all_numbers (migration 079)', () => {
     ).rejects.toMatchObject({ code: '42501' });
   });
 });
+
+describe('loadAiConfig approved answers (migration 081)', () => {
+  const opts = { requireActive: false };
+
+  it('reads the three fields, absent as generate / 0.8 / null', async () => {
+    expect(await loadAiConfig(dbReturning(ROW), 'acct', opts)).toMatchObject({
+      answerMode: 'generate',
+      approvedMinScore: 0.8,
+      sensitiveDataReply: null,
+    });
+    expect(
+      await loadAiConfig(
+        dbReturning({
+          ...ROW,
+          answer_mode: 'approved',
+          approved_min_score: 0.9,
+          sensitive_data_reply: '  Please do not share that here.  ',
+        }),
+        'acct',
+        opts
+      )
+    ).toMatchObject({
+      answerMode: 'approved',
+      approvedMinScore: 0.9,
+      sensitiveDataReply: 'Please do not share that here.',
+    });
+  });
+
+  it('reads an unknown mode as generate and a blank reply as off', async () => {
+    expect(
+      await loadAiConfig(
+        dbReturning({ ...ROW, answer_mode: 'x', sensitive_data_reply: '  ' }),
+        'acct',
+        opts
+      )
+    ).toMatchObject({ answerMode: 'generate', sensitiveDataReply: null });
+  });
+
+  it('retries with the 079 columns when 081 is not applied yet', async () => {
+    const selects: string[] = [];
+    const chain = {
+      from: () => chain,
+      select: (cols: string) => {
+        selects.push(cols);
+        return chain;
+      },
+      eq: () => chain,
+      maybeSingle: () =>
+        Promise.resolve(
+          selects.at(-1)!.includes('answer_mode')
+            ? {
+                data: null,
+                error: {
+                  code: 'PGRST204',
+                  message: "Could not find the 'answer_mode' column",
+                },
+              }
+            : { data: { ...ROW, reply_on_all_numbers: true }, error: null }
+        ),
+    };
+    const config = await loadAiConfig(
+      chain as unknown as SupabaseClient,
+      'acct',
+      opts
+    );
+    expect(selects).toHaveLength(2);
+    expect(selects[1]).toContain('reply_on_all_numbers');
+    expect(selects[1]).not.toContain('answer_mode');
+    expect(config).toMatchObject({
+      replyOnAllNumbers: true,
+      answerMode: 'generate',
+      approvedMinScore: 0.8,
+      sensitiveDataReply: null,
+    });
+  });
+});

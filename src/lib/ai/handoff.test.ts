@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AI_HANDOFF_REASONS,
   buildHandoffSummary,
   describeHandoffReason,
   upperFirst,
@@ -155,5 +156,20 @@ describe('buildHandoffSummary — a note a person can act on', () => {
     expect(upperFirst(describeHandoffReason('model'))).toBe(
       'The AI was unsure and asked for a person.'
     );
+  });
+});
+
+describe('describeHandoffReason kb (migration 081)', () => {
+  it('names the approved answers, with the detail when present', () => {
+    expect(describeHandoffReason('kb')).toBe(
+      'the approved answers need a person here.'
+    );
+    expect(describeHandoffReason('kb', 'pricing')).toBe(
+      'the approved answers need a person here (pricing).'
+    );
+  });
+
+  it('is listed with the other reasons', () => {
+    expect(AI_HANDOFF_REASONS).toContain('kb');
   });
 });
