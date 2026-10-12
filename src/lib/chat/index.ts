@@ -7,3 +7,4 @@ export * from './api';
 export * from './uploads';
 export * from './realtime';
 export * from './message-list';
+export * from './view';
