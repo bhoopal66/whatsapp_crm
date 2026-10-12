@@ -369,7 +369,19 @@ describe('validateConnectionForm', () => {
     expect(ok.ok && ok.payload.webhookSecret).toBe('x'.repeat(32));
   });
 
-  it('needs a Client Secret until one is stored, and a Client ID always', () => {
+  it('keeps the stored Client ID when the field is left empty', () => {
+    expect(validateConnectionForm(draft({ clientId: ' ' }), stored)).toEqual({
+      ok: true,
+      payload: {
+        label: 'Head office',
+        edition: 'cloud',
+        baseUrl: 'https://acme.ras.yeastar.com',
+        clientSecret: 'shh',
+      },
+    });
+  });
+
+  it('needs a Client Secret until one is stored, and a Client ID for a new connection', () => {
     expect(
       validateConnectionForm(draft({ clientSecret: '', clientId: ' ' }), null)
     ).toEqual({

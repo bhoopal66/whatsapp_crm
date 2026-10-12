@@ -180,6 +180,29 @@ describe('PUT /api/pbx/connection', () => {
     expect(fake.tables.pbx_connections[0].label).toBe('Renamed');
   });
 
+  it('keeps the stored Client ID when clientId is omitted; a new connection needs one', async () => {
+    const noId = {
+      label: 'Renamed',
+      edition: VALID.edition,
+      baseUrl: VALID.baseUrl,
+    };
+    expect((await put(noId)).status).toBe(200);
+    const s = fake.tables.pbx_connection_secrets[0];
+    expect(decrypt(String(s.client_id_enc))).toBe('client-id123');
+    expect(s.token_cache_enc).toBe('cached');
+    expect(fake.tables.pbx_connections[0]).toMatchObject({
+      label: 'Renamed',
+      client_id_last4: 'd123',
+    });
+    expect((await put({ ...noId, clientId: '  ' })).status).toBe(400);
+    mocks.requireRole.mockResolvedValue({
+      accountId: 'acct-2',
+      userId: 'x',
+      role: 'admin',
+    });
+    expect((await put({ ...noId, clientSecret: 'a-secret' })).status).toBe(400);
+  });
+
   it('empties the token caches and the backoff when credentials change', async () => {
     fake.tables.pbx_connection_secrets[0].backoff_until =
       '2099-01-01T00:00:00Z';

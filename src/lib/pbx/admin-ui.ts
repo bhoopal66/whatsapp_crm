@@ -380,7 +380,7 @@ export interface ConnectionPayload {
   label: string;
   edition: PbxEdition;
   baseUrl: string;
-  clientId: string;
+  clientId?: string;
   clientSecret?: string;
   sdkAccessId?: string | null;
   sdkAccessKey?: string | null;
@@ -394,8 +394,9 @@ export const WEBHOOK_SECRET_LENGTH = 32;
  * The connection form, checked as PUT /api/pbx/connection checks it,
  * plus the two rules Yeastar imposes: https:// on the Cloud edition and
  * a 32-character webhook secret. A secret left empty is omitted (the
- * stored one is kept); "remove" sends null. The Client ID is always
- * sent: the route needs it on every save.
+ * stored one is kept); "remove" sends null. The Client ID works the same
+ * way once a connection exists (the screen shows only its last 4
+ * characters), and a new connection needs one.
  */
 export function validateConnectionForm(
   d: ConnectionDraft,
@@ -423,7 +424,7 @@ export function validateConnectionForm(
   }
 
   const clientId = d.clientId.trim();
-  if (!clientId || clientId.length > 200)
+  if ((!clientId && !stored) || clientId.length > 200)
     issues.clientId = 'client_id_required';
   const clientSecret = d.clientSecret.trim();
   if (!clientSecret && !stored?.hasClientSecret)
@@ -447,8 +448,8 @@ export function validateConnectionForm(
     label,
     edition: d.edition,
     baseUrl: origin,
-    clientId,
   };
+  if (clientId) payload.clientId = clientId;
   if (clientSecret) payload.clientSecret = clientSecret;
   if (d.clearSdk) {
     payload.sdkAccessId = null;

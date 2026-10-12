@@ -2943,7 +2943,7 @@
         },
         "baseUrl": "PBX 주소",
         "clientId": "Client ID",
-        "clientIdHint": "저장할 때마다 전체 Client ID를 입력하세요. 화면에는 마지막 4자만 남습니다.",
+        "clientIdHint": "비워 두면 저장된 Client ID가 유지됩니다. 화면에는 마지막 4자만 표시됩니다.",
         "clientSecret": "Client Secret",
         "secretKept": "•••• 서버에 보관됨",
         "sdkAccessId": "Linkus SDK AccessID (선택)",

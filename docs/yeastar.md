@@ -20,7 +20,8 @@ admin of the workspace that owns the PBX.
 Paste the Client ID and Secret (and the SDK pair, if you use the
 softphone) into Settings and press **Test connection**. Secrets are
 stored encrypted and never shown again; leave a field empty to keep the
-stored value. On the Cloud edition the address must be `https://`.
+stored value. The Client ID works the same way: only its last four
+characters are shown, and an empty field keeps it. On the Cloud edition the address must be `https://`.
 
 ### Two PBX limits to respect
 
@@ -40,7 +41,7 @@ stored value. On the Cloud edition the address must be `https://`.
 
 One PBX can serve several workspaces.
 
-- **Numbers.** Under **Numbers**, list each dialled number (DID) and the
+- **Numbers.** Under **Phone numbers → workspace**, list each dialled number (DID) and the
   workspace its calls belong to. Numbers are stored as digits only, and
   each may be listed once. You can route a number only to a workspace
   where you are an owner or admin.

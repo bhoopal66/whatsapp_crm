@@ -3,11 +3,13 @@
 //
 //   GET — non-secret fields, which secrets are set, the webhook URL to
 //         paste into Yeastar, mapped-extension and softphone counts.
-//   PUT — { label, edition, baseUrl, apiPath?, clientId, clientSecret?,
+//   PUT — { label, edition, baseUrl, apiPath?, clientId?, clientSecret?,
 //         sdkAccessId?, sdkAccessKey?, webhookSecret? }. Creates or
-//         updates. An omitted secret keeps the stored one; null clears
-//         an SDK credential or the webhook secret. Changing credentials
-//         or the address empties the token caches and the backoff.
+//         updates. An omitted secret keeps the stored one, and so does
+//         an omitted clientId (the screen shows only its last 4
+//         characters); null clears an SDK credential or the webhook
+//         secret. Changing credentials or the address empties the token
+//         caches and the backoff.
 //
 // Admin+. Secrets are written with the service role and never returned.
 // ============================================================
@@ -36,7 +38,7 @@ interface Input {
   edition: (typeof EDITIONS)[number];
   baseUrl: string;
   apiPath: string;
-  clientId: string;
+  clientId?: string;
   clientSecret?: string;
   sdkAccessId?: string | null;
   sdkAccessKey?: string | null;
@@ -75,15 +77,12 @@ function parse(b: Record<string, unknown>): Input | string {
       : text(b.apiPath, 100)?.replace(/^\/+|\/+$/g, '');
   if (!apiPath || !/^[A-Za-z0-9._/-]+$/.test(apiPath))
     return 'apiPath is invalid';
-  const clientId = text(b.clientId, 200);
-  if (!clientId) return 'clientId is required';
-  const input: Input = {
-    label,
-    edition,
-    baseUrl: url.origin,
-    apiPath,
-    clientId,
-  };
+  const input: Input = { label, edition, baseUrl: url.origin, apiPath };
+  if (b.clientId !== undefined) {
+    const clientId = text(b.clientId, 200);
+    if (!clientId) return 'clientId must be a non-empty string';
+    input.clientId = clientId;
+  }
   if (b.clientSecret !== undefined) {
     const s = text(b.clientSecret, 500);
     if (!s) return 'clientSecret must be a non-empty string';
@@ -184,6 +183,11 @@ export async function PUT(request: Request) {
       : { data: null, error: null };
     if (readError)
       throw new Error(`pbx secrets read failed: ${readError.message}`);
+    const storedClientId = openOrNull(
+      (stored as { client_id_enc?: string } | null)?.client_id_enc
+    );
+    const clientId = input.clientId ?? storedClientId;
+    if (!clientId) return bad('clientId is required');
     if (
       !input.clientSecret &&
       !(stored as { client_secret_enc?: string } | null)?.client_secret_enc
@@ -196,11 +200,7 @@ export async function PUT(request: Request) {
       existing.base_url !== input.baseUrl ||
       existing.api_path !== input.apiPath;
     const apiChanged =
-      moved ||
-      input.clientSecret !== undefined ||
-      openOrNull(
-        (stored as { client_id_enc?: string } | null)?.client_id_enc
-      ) !== input.clientId;
+      moved || input.clientSecret !== undefined || storedClientId !== clientId;
     const sdkChanged =
       moved ||
       input.sdkAccessId !== undefined ||
@@ -211,7 +211,7 @@ export async function PUT(request: Request) {
       edition: input.edition,
       base_url: input.baseUrl,
       api_path: input.apiPath,
-      client_id_last4: input.clientId.slice(-4),
+      client_id_last4: clientId.slice(-4),
       ...(apiChanged ? { status: 'unknown', last_error: null } : {}),
     };
     const { data: saved, error } = existing
@@ -239,7 +239,7 @@ export async function PUT(request: Request) {
     const stamp = new Date().toISOString();
     const secrets: Record<string, string | null> = {
       connection_id: id,
-      client_id_enc: encrypt(input.clientId),
+      client_id_enc: encrypt(clientId),
       updated_at: stamp,
     };
     if (input.clientSecret)

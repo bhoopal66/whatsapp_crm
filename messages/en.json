@@ -2943,7 +2943,7 @@
         },
         "baseUrl": "PBX address",
         "clientId": "Client ID",
-        "clientIdHint": "Enter the full Client ID on every save; only its last 4 characters are kept on screen.",
+        "clientIdHint": "Leave empty to keep the stored Client ID; only its last 4 characters are shown.",
         "clientSecret": "Client Secret",
         "secretKept": "•••• kept on the server",
         "sdkAccessId": "Linkus SDK AccessID (optional)",
