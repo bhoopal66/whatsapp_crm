@@ -10,8 +10,8 @@
 // service role, because call-recordings has no client DELETE. Only
 // paths under the caller's `account-<id>/` prefix are touched. The rows
 // are already gone by then, so a path that cannot be removed is logged
-// (the only record left of it) and counted, never thrown: the erasure
-// itself has committed.
+// and counted, never thrown: the erasure itself has committed, and the
+// PBX cron sweeps the leftover audio (sweepOrphanRecordings).
 // ============================================================
 
 import { NextResponse } from 'next/server';

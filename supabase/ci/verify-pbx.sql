@@ -498,6 +498,103 @@ BEGIN
     END IF;
   END;
 
+  -- ---------- erasure reaches the contact's number; leftover audio is swept (C-3) ----------
+  DECLARE
+    e_x UUID; e_y UUID; e_w UUID; e_n UUID; e_b UUID;
+    k_amb UUID; k_same UUID; k_w UUID; k_nat UUID; k_b UUID; k_pend UUID;
+    p_amb TEXT; p_w TEXT; o_old TEXT; o_fresh TEXT; o_pend TEXT;
+    q_calls TEXT := 'INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, '
+      'contact_id, remote_number, meta, recording_file, recording_state, notes) '
+      'VALUES (%L, %L, %L, ''inbound'', ''101'', %L, %L, %L, %L, %L, %L, %L) RETURNING id';
+  BEGIN
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES
+      (a_acct, u_agent, '971501234567', 'PX erase X') RETURNING id INTO e_x;
+    -- Y: the same line with a trunk 0, so a call from it matched both.
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES
+      (a_acct, u_agent, '9710501234567', 'PX erase Y') RETURNING id INTO e_y;
+    -- W: another country, the same last 8 digits.
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES
+      (a_acct, u_agent, '966501234567', 'PX erase W') RETURNING id INTO e_w;
+    -- N: stored in national form; the processor matches it by the last 8.
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES
+      (a_acct, u_agent, '047654321', 'PX erase N') RETURNING id INTO e_n;
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES
+      (b_acct, u_other, '971501234567', 'PX erase B') RETURNING id INTO e_b;
+    EXECUTE format(q_calls, a_acct, conn, 'px-e-amb', u_agent, NULL, '971501234567',
+      jsonb_build_object('contact_candidates', jsonb_build_array(e_x, e_y), 'recording_error', 'PX 0501234567.wav'),
+      'PX-0501234567.wav', 'fetched', 'PX note') INTO k_amb;
+    EXECUTE format(q_calls, a_acct, conn, 'px-e-same', u_agent, NULL, '971501234567',
+      '{"unrouted": true, "recording_attempts": 2}', NULL, 'none', NULL) INTO k_same;
+    EXECUTE format(q_calls, a_acct, conn, 'px-e-w', u_agent, e_w, '966501234567', '{}', NULL, 'fetched', NULL) INTO k_w;
+    EXECUTE format(q_calls, a_acct, conn, 'px-e-nat', u_agent, NULL, '97147654321', '{}', NULL, 'none', NULL) INTO k_nat;
+    EXECUTE format(q_calls, b_acct, NULL, 'px-e-b', u_other, NULL, '971501234567', '{}', NULL, 'none', NULL) INTO k_b;
+    EXECUTE format(q_calls, a_acct, conn, 'px-e-pend', u_agent, NULL, '971559990000', '{}', 'p.wav', 'pending', NULL) INTO k_pend;
+    p_amb := format('account-%s/calls/%s.wav', a_acct, k_amb);
+    p_w := format('account-%s/calls/%s.wav', a_acct, k_w);
+    o_old := format('account-%s/calls/%s.wav', a_acct, gen_random_uuid());
+    o_fresh := format('account-%s/calls/%s.wav', a_acct, gen_random_uuid());
+    o_pend := format('account-%s/calls/%s.wav', a_acct, k_pend);
+    INSERT INTO call_recordings (call_id, account_id, storage_path, announcement_played) VALUES
+      (k_amb, a_acct, p_amb, true), (k_w, a_acct, p_w, true);
+    INSERT INTO storage.objects (bucket_id, name, created_at, updated_at) VALUES
+      ('call-recordings', o_old, now() - interval '2 days', now() - interval '2 days'),
+      ('call-recordings', o_fresh, now(), now()),
+      ('call-recordings', p_w, now() - interval '2 days', now() - interval '2 days'),
+      ('call-recordings', o_pend, now() - interval '2 days', now() - interval '2 days');
+
+    r := pg_temp.px_try('authenticated', u_other, format('SELECT pbx_erase_contact_calls(%L, %L)', e_x, 'PX request'));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR P0002:%' OR EXISTS (SELECT 1 FROM calls WHERE id IN (k_amb, k_same, k_b) AND erased_at IS NOT NULL)
+       OR NOT EXISTS (SELECT 1 FROM call_recordings WHERE call_id = k_amb) THEN
+      failed := array_append(failed, ('another workspace''s owner erased this workspace''s contact: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, format('SELECT pbx_erase_contact_calls(%L, %L)', e_x, 'PX request'));
+    n := n + 1;
+    IF r IS DISTINCT FROM ARRAY[p_amb]::text OR EXISTS (SELECT 1 FROM call_recordings WHERE call_id = k_amb)
+       OR (SELECT count(*) FROM calls WHERE id IN (k_amb, k_same) AND recording_state = 'erased') <> 2 THEN
+      failed := array_append(failed, ('erasure misses an ambiguous or never-matched call from the contact''s number: ' || r)::text);
+    END IF;
+    n := n + 1;
+    IF NOT EXISTS (SELECT 1 FROM calls WHERE id = k_amb AND remote_number IS NULL AND recording_file IS NULL
+                     AND meta = '{}'::jsonb AND notes IS NULL AND extension = '101' AND direction = 'inbound')
+       OR NOT EXISTS (SELECT 1 FROM calls WHERE id = k_same AND remote_number IS NULL AND meta = '{"unrouted": true}'::jsonb)
+       OR NOT EXISTS (SELECT 1 FROM pbx_audit WHERE action = 'erase_contact_calls' AND contact_id = e_x
+                        AND call_ids @> ARRAY[k_amb, k_same]) THEN
+      failed := array_append(failed, 'an erased call keeps the number, the recording file or contact data in meta'::text);
+    END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM calls WHERE id IN (k_w, k_b, k_nat) AND (erased_at IS NOT NULL OR remote_number IS NULL))
+       OR NOT EXISTS (SELECT 1 FROM call_recordings WHERE call_id = k_w) THEN
+      failed := array_append(failed, 'erasure took another workspace''s call, or a number only sharing the last 8 digits'::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, format('SELECT pbx_erase_contact_calls(%L, %L)', e_n, 'PX request'));
+    n := n + 1;
+    IF r LIKE 'ERROR%' OR NOT EXISTS (SELECT 1 FROM calls WHERE id = k_nat AND erased_at IS NOT NULL AND remote_number IS NULL) THEN
+      failed := array_append(failed, ('erasure misses a call matched by the last 8 digits: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE calls SET remote_number = %L, recording_file = %L, meta = %L WHERE id = %L',
+      '971501234567', 'late.wav', jsonb_build_object('contact_candidates', jsonb_build_array(e_x), 'unrouted', true), k_same));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM calls WHERE id = k_same AND remote_number IS NULL
+                                  AND recording_file IS NULL AND meta = '{"unrouted": true}'::jsonb) THEN
+      failed := array_append(failed, ('a late write put the number back on an erased call: ' || r)::text);
+    END IF;
+
+    r := pg_temp.px_try('service_role', NULL,
+      'SELECT coalesce(string_agg(x, '',''), ''none'') FROM pbx_orphan_recordings(''1 hour'', 100) x');
+    n := n + 1;
+    IF r IS DISTINCT FROM o_old THEN
+      failed := array_append(failed, ('pbx_orphan_recordings lists exactly the old unreferenced object (not a fresh one, a referenced one or a pending call''s): ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, 'SELECT count(*)::text FROM pbx_orphan_recordings(''0'', 10)');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' OR has_function_privilege('anon', 'public.pbx_orphan_recordings(interval, integer)', 'EXECUTE')
+       OR has_function_privilege('authenticated', 'public.pbx_phone_variants(text)', 'EXECUTE') THEN
+      failed := array_append(failed, ('a client can list orphaned recordings or run the variants helper: ' || r)::text);
+    END IF;
+  END;
+
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT089', MESSAGE = 'verify-pbx rollback';
   EXCEPTION WHEN SQLSTATE 'ZT089' THEN

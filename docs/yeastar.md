@@ -73,7 +73,15 @@ One PBX can serve several workspaces.
   long to keep them is an open legal decision for each workspace.
 - Recordings sit in a private bucket. Every play is logged, and the
   owner can erase a customer's call records on request, unless a
-  recording is under legal hold.
+  recording is under legal hold. The erasure takes every call of the
+  workspace that is linked to the customer, that listed them as a
+  possible match, or that came from their number (matched as incoming
+  calls are, so also calls from before the contact existed). It deletes
+  the recordings and clears the notes, the outcome, the caller's number,
+  the recording's file name and the match details. What stays is the
+  bare call: time, duration, extension, direction and status. Audio the
+  erasure could not delete at once is swept by the phone-system cron
+  (section 10) once it is an hour old.
 
 ## 4. What is never done
 
@@ -184,7 +192,9 @@ recording notice before the owner is connected.
 
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
 fetches pending recordings, dials due call-backs, retries events that
-failed to process (three times each), and purges old rows. Each run
+failed to process (three times each), purges old rows, and deletes
+recording audio that no call record points to any more (left by an
+erasure, at most 500 files a run). Each run
 stops starting work after 45 seconds. The automations cron also runs it,
 at most once a minute, so an install that already pings
 `/api/automations/cron` needs nothing more. A PBX connection that is
