@@ -11,6 +11,7 @@ import {
   MessagesSquare,
   Network,
   Palette,
+  PhoneCall,
   PlugZap,
   Route,
   Shield,
@@ -55,6 +56,7 @@ export const SETTINGS_SECTIONS = [
   'ai',
   'api',
   'deals',
+  'phone-system',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -178,6 +180,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   deals: {
     id: 'deals',
     icon: Coins,
+    category: 'integrations',
+    minRole: 'admin',
+  },
+  // The Yeastar PBX (migration 089): an outside system wired in, like
+  // the API keys. Admin+, like every /api/pbx admin route behind it.
+  'phone-system': {
+    id: 'phone-system',
+    icon: PhoneCall,
     category: 'integrations',
     minRole: 'admin',
   },

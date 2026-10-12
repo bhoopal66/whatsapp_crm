@@ -139,6 +139,13 @@ const ApiKeysSettings = dynamic(
     ),
   { loading: PanelLoading }
 );
+const PhoneSystemPanel = dynamic(
+  () =>
+    import('@/components/settings/phone-system/phone-system-panel').then(
+      (m) => m.PhoneSystemPanel
+    ),
+  { loading: PanelLoading }
+);
 const AiAgentsArea = dynamic(
   () =>
     import('@/components/agents/ai-agents-area').then((m) => m.AiAgentsArea),
@@ -269,6 +276,7 @@ function SettingsPageInner() {
     teams: <TeamsTab />,
     'team-chat': <TeamChatSettings />,
     api: <ApiKeysSettings />,
+    'phone-system': <PhoneSystemPanel />,
     ai: (
       <SettingsAiAgents
         agentTab={agentTab}
