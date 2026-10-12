@@ -6,9 +6,13 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import type { Notification } from "@/types";
 import {
+  AtSign,
   Bell,
   CheckCheck,
   Loader2,
+  Megaphone,
+  MessageCircle,
+  MessagesSquare,
   ShieldAlert,
   UserPlus,
   Wifi,
@@ -16,6 +20,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
+import { chatNotificationHref } from "@/lib/chat/notification-link";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -25,6 +30,10 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   channel_disconnected: WifiOff,
   channel_reconnected: Wifi,
   team_activity_alert: ShieldAlert,
+  chat_mention: AtSign,
+  chat_dm: MessageCircle,
+  chat_thread_reply: MessagesSquare,
+  chat_broadcast: Megaphone,
 };
 
 // A channel alert's body is the fix (who re-pairs which phone, where),
@@ -132,7 +141,11 @@ export default function NotificationsPage() {
   const handleClick = useCallback(
     (n: Notification) => {
       if (!n.read_at) markRead(n.id);
-      if (n.conversation_id) {
+      // Team chat (087): the channel, or the thread for a reply.
+      const chatHref = chatNotificationHref(n.type, n.meta);
+      if (chatHref) {
+        router.push(chatHref);
+      } else if (n.conversation_id) {
         router.push(`/inbox?c=${n.conversation_id}`);
       } else if (n.type === "team_activity_alert" && canEditSettings) {
         // Only admins can open Team activity; the person over the
