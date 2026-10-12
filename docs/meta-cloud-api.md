@@ -272,6 +272,57 @@ What to do about such a number is a business decision:
   after to confirm only your app disappeared. If the callbacks are *not*
   signed by this app, change the other app's callback URL instead.
 
+## Edge security
+
+Every number's events are screened once their signature has verified,
+before anything in them is processed — one check per POST, however many
+numbers Meta batched into it. Claims and counters live in Postgres
+(migration 084), so every app instance shares them.
+
+- **Replay keys per number.** Each message, and each status transition,
+  is claimed once under a key naming the phone number id it arrived on.
+  A redelivery within 24 hours is skipped as a duplicate, and one
+  account's callbacks can never claim another's events.
+- **4 messages per second per sender** (the customer's number). A
+  message over the limit is not lost: it is saved to the inbox (unread
+  count, thread re-opened) but nothing answers it — no Flow, automation,
+  AI reply or campaign follow-up, and no outbound message webhook.
+  Duplicates never count against the limit.
+- **IP sanity limit**, 600 requests per second per client IP. A request
+  over it is answered 200 and nothing in it is processed, its receipts'
+  costs included. Otherwise *Message costs* sees every receipt, a
+  duplicate too; its ledger ignores a replay.
+
+The webhook **never answers 429**; Meta would only retry sooner. The
+one non-200 screening produces is **503**: another delivery holds a
+live, unconfirmed claim on one of the POST's events (it is still being
+processed, or the process handling it died). None of the POST's messages
+or statuses are processed, and Meta redelivers; by then the claim was
+confirmed (a duplicate) or its 60-second lease has lapsed (processed).
+A claim is confirmed only once its number's events were processed
+without error. If the stores cannot be reached, screening fails open: a
+duplicate is cheaper than a lost message, and the `messages` upsert
+still drops a replayed message.
+
+**Client IP.** The IP limit keys on the one header your own proxy sets,
+named by `EDGE_CLIENT_IP_HEADER` — never guessed:
+
+- Behind a Cloudflare tunnel or proxy: `EDGE_CLIENT_IP_HEADER=cf-connecting-ip`.
+- Behind a proxy that sets it: `x-real-ip`.
+- `x-forwarded-for`, with `EDGE_TRUSTED_PROXY_HOPS` set to the number
+  of proxies you run in front of the app (default 1). The client is
+  the entry that many places from the right. Never trust the left-most
+  entry: the client wrote it.
+
+Unset (or the header missing), every request shares one `unknown`
+bucket, which is safe but coarser.
+
+**Housekeeping.** `edge_purge()` deletes expired claims and counters.
+`GET /api/automations/cron` runs it at most every 15 minutes per
+process; an install that does not ping that cron can schedule
+`SELECT public.edge_purge()` with pg_cron instead. Correctness does not
+depend on it — an unpurged row is dead weight, never a wrong answer.
+
 ## The 24-hour service window
 
 The one operational difference you will actually feel. On the Cloud API,

@@ -12,15 +12,23 @@ and polish.
 
 ## [Unreleased]
 
-### Edge security stores for the webhook and admin API
+### Edge security for the WhatsApp webhooks
 
-Groundwork for webhook replay protection, per-sender rate limits and
-an admin login lockout: Postgres tables and functions that every app
-instance shares, so limits and clocks agree across instances. Nothing
-calls them yet; the webhook wiring that does ships next and needs this
-migration applied first. Schedule `SELECT public.edge_purge()` every
-15 minutes (pg_cron) to drop expired rows; correctness does not depend
-on it.
+Both WhatsApp webhooks (Whapi and Meta) now screen every authenticated
+delivery against Postgres stores that every app instance shares, so
+limits and clocks agree across instances: replay keys per number (a
+redelivery within 24 hours is skipped), 4 messages per second per sender
+(a message over the limit is kept in the inbox but not auto-answered)
+and an IP sanity limit. The webhooks never answer 429; a delivery whose
+event another delivery is still processing is answered 503, so the
+provider redelivers it. Behind a proxy, set `EDGE_CLIENT_IP_HEADER`
+(`cf-connecting-ip` behind a Cloudflare tunnel) and, for
+`x-forwarded-for`, `EDGE_TRUSTED_PROXY_HOPS`; see _Edge security_ in
+`docs/whapi.md` and `docs/meta-cloud-api.md`. The automations cron
+purges expired rows at most every 15 minutes (or schedule
+`SELECT public.edge_purge()` with pg_cron); correctness does not depend
+on it. The same migration adds the store for an admin login lockout,
+which nothing uses yet.
 
 > **Migration required:** apply
 > `supabase/migrations/084_edge_security.sql` (re-runnable)
