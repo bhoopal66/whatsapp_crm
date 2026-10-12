@@ -137,9 +137,14 @@ export interface SharedSnapshot {
 
 export interface SharedCard {
   messageId: string;
-  conversationId: string;
+  /** Null, like every snapshot field, unless the caller may open the conversation. */
+  conversationId: string | null;
   snapshot: SharedSnapshot;
-  /** The caller may open the conversation; the live fields are null otherwise. */
+  /**
+   * The caller may open the conversation now (087 re-checks the inbox
+   * at read time). Otherwise the database sends no snapshot, id or live
+   * fields, only that a card is there.
+   */
   canOpen: boolean;
   chatTag: ChatTagRef | null;
   status: string | null;
@@ -268,7 +273,7 @@ export function toSharedCard(r: Row): SharedCard {
   const s = obj(r.snapshot);
   return {
     messageId: str(r.message_id),
-    conversationId: str(r.conversation_id),
+    conversationId: opt(r.conversation_id),
     snapshot: {
       contactName: opt(s.contact_name),
       phone: opt(s.phone),
