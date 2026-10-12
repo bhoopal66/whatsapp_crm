@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { dialDueCallbacks, inCallbackHours } from '../callbacks';
+import {
+  dialDueCallbacks,
+  inCallbackHours,
+  releaseStaleCallbacks,
+  STALE_DIALING_MS,
+} from '../callbacks';
 import type { PbxHandle } from '../connection';
 import { PbxConnectionError } from '../connection';
 import { retryFailedPbxEvents } from '../housekeeping';
@@ -13,6 +18,8 @@ const A = 'acc';
 // 14:00 in Dubai (UTC+4); 21:00 Dubai is 17:00Z.
 const DAY = Date.parse('2026-10-12T10:00:00.000Z');
 const NIGHT = Date.parse('2026-10-12T17:00:00.000Z');
+// A `dialing` request last touched a minute past the stale limit at DAY.
+const STALE_AT = new Date(DAY - STALE_DIALING_MS - 60_000).toISOString();
 let fake: FakeDb;
 
 const busy = () =>
@@ -272,6 +279,31 @@ describe('dialDueCallbacks', () => {
       attempts: 3,
     });
   });
+
+  it('releases a request stuck dialing even outside call-back hours', async () => {
+    setup({ status: 'dialing', attempts: 1, updated_at: STALE_AT });
+    expect(await run(NIGHT)).toMatchObject({
+      outsideHours: true,
+      released: 1,
+      dialled: 0,
+    });
+    expect(dial).not.toHaveBeenCalled();
+    expect(fake.tables.callback_requests[0]).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+    });
+  });
+
+  it('dials a released request again in the same pass', async () => {
+    setup({ status: 'dialing', attempts: 1, updated_at: STALE_AT });
+    expect(await run()).toMatchObject({ released: 1, dialled: 1 });
+    expect(fake.tables.callback_requests[0]).toMatchObject({
+      status: 'dialing',
+      attempts: 2,
+      pbx_call_id: 'pbx-9',
+      last_error: null,
+    });
+  });
 });
 
 describe('the call-back call ends (30012)', () => {
@@ -346,6 +378,187 @@ describe('the call-back call ends (30012)', () => {
     await ingest('BUSY');
     expect(fake.tables.callback_requests[0].status).toBe('failed');
     expect(fake.tables.tasks[0].status).toBe('open');
+  });
+});
+
+describe('releaseStaleCallbacks', () => {
+  const FRESH_AT = new Date(DAY - STALE_DIALING_MS + 60_000).toISOString();
+  const AT_LIMIT = new Date(DAY - STALE_DIALING_MS).toISOString();
+  const LOST = 'no result came back from the PBX';
+  const setup = (req: Row = {}, tables: Record<string, Row[]> = {}) => {
+    fake = createFakeDb({
+      callback_requests: [
+        {
+          id: 'r1',
+          account_id: A,
+          status: 'dialing',
+          attempts: 1,
+          pbx_call_id: null,
+          task_id: 't1',
+          updated_at: STALE_AT,
+          ...req,
+        },
+      ],
+      tasks: [
+        {
+          id: 't1',
+          account_id: A,
+          source: 'journey',
+          source_ref: 'callback:f1',
+          status: 'open',
+        },
+      ],
+      ...tables,
+    });
+  };
+  const ended = (status: string) => ({
+    calls: [
+      {
+        id: 'k1',
+        account_id: A,
+        connection_id: 'c1',
+        pbx_call_id: 'pbx-5',
+        status,
+        ended_at: '2026-10-12T09:00:00.000Z',
+      },
+    ],
+  });
+  const release = () => releaseStaleCallbacks(fake.db, DAY);
+  const row = () => fake.tables.callback_requests[0];
+  /** Changes the request just before the release writes it, as an overlapping run or a late 30012 would. */
+  const meanwhile = (change: Row) => {
+    const raw = fake.db as unknown as {
+      from: (table: string) => { update: (patch: unknown) => unknown };
+    };
+    const from = raw.from.bind(raw);
+    raw.from = (table) => {
+      const query = from(table);
+      if (table === 'callback_requests') {
+        const update = query.update.bind(query);
+        query.update = (patch) => {
+          Object.assign(row(), change);
+          return update(patch);
+        };
+      }
+      return query;
+    };
+  };
+
+  it('puts a request that never got a call id back to pending, and fails the last attempt', async () => {
+    setup();
+    expect(await release()).toBe(1);
+    // The claim already spent the attempt; releasing spends no more.
+    expect(row()).toMatchObject({
+      status: 'pending',
+      attempts: 1,
+      last_error: LOST,
+    });
+    setup({ attempts: 3 });
+    expect(await release()).toBe(1);
+    expect(row()).toMatchObject({ status: 'failed', last_error: LOST });
+    expect(fake.tables.tasks[0].status).toBe('open');
+  });
+
+  it('treats a call id with no trace as an unanswered attempt', async () => {
+    setup({ pbx_call_id: 'pbx-5' });
+    expect(await release()).toBe(1);
+    expect(row()).toMatchObject({ status: 'pending', last_error: LOST });
+    // A call row that never ended says nothing about the result either.
+    setup(
+      { pbx_call_id: 'pbx-5' },
+      {
+        calls: [
+          {
+            id: 'k1',
+            account_id: A,
+            connection_id: 'c1',
+            pbx_call_id: 'pbx-5',
+            status: 'ringing',
+            ended_at: null,
+          },
+        ],
+      }
+    );
+    expect(await release()).toBe(1);
+    expect(row().status).toBe('pending');
+    // Another workspace's call with the same id is not this request's call.
+    setup(
+      { pbx_call_id: 'pbx-5' },
+      {
+        call_live: [
+          { connection_id: 'c9', account_id: 'other', pbx_call_id: 'pbx-5' },
+        ],
+        calls: [{ ...ended('answered').calls[0], account_id: 'other' }],
+      }
+    );
+    expect(await release()).toBe(1);
+    expect(row().status).toBe('pending');
+  });
+
+  it('settles a request whose call ended answered: done, and its task closed', async () => {
+    setup({ pbx_call_id: 'pbx-5' }, ended('answered'));
+    expect(await release()).toBe(1);
+    expect(row()).toMatchObject({ status: 'done', last_error: null });
+    expect(fake.tables.tasks[0].status).toBe('done');
+  });
+
+  it('settles an unanswered ended call as its 30012 would: pending, failed at the cap, task open', async () => {
+    setup({ pbx_call_id: 'pbx-5' }, ended('no_answer'));
+    expect(await release()).toBe(1);
+    expect(row()).toMatchObject({
+      status: 'pending',
+      last_error: 'call ended no answer',
+    });
+    setup({ pbx_call_id: 'pbx-5', attempts: 3 }, ended('busy'));
+    expect(await release()).toBe(1);
+    expect(row()).toMatchObject({
+      status: 'failed',
+      last_error: 'call ended busy',
+    });
+    expect(fake.tables.tasks[0].status).toBe('open');
+  });
+
+  it('leaves a request whose call is still in call_live', async () => {
+    setup(
+      { pbx_call_id: 'pbx-5' },
+      {
+        call_live: [
+          { connection_id: 'c1', account_id: A, pbx_call_id: 'pbx-5' },
+        ],
+      }
+    );
+    const before = { ...row() };
+    expect(await release()).toBe(0);
+    expect(row()).toEqual(before);
+  });
+
+  it('leaves a request that is not older than the limit', async () => {
+    for (const updated_at of [FRESH_AT, AT_LIMIT]) {
+      setup({ updated_at });
+      const before = { ...row() };
+      expect(await release()).toBe(0);
+      expect(row()).toEqual(before);
+    }
+  });
+
+  describe.each([
+    ['no call id', {}, null],
+    ['its call ended', { pbx_call_id: 'pbx-5' }, 'answered'],
+  ])('%s, changed between the read and the write', (_case, req, status) => {
+    it.each([
+      [
+        're-claimed by an overlapping run',
+        { updated_at: FRESH_AT, attempts: 2 },
+      ],
+      ['settled by a late 30012', { status: 'done' }],
+    ])('stays as it was %s', async (_who, change) => {
+      setup(req, status ? ended(status) : {});
+      meanwhile(change);
+      expect(await release()).toBe(0);
+      expect(row()).toMatchObject(change);
+      expect(row().last_error).toBeUndefined();
+      expect(fake.tables.tasks[0].status).toBe('open');
+    });
   });
 });
 
