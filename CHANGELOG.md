@@ -52,21 +52,33 @@ which nothing uses yet.
 > **Migration required:** apply
 > `supabase/migrations/084_edge_security.sql` (re-runnable)
 
-### Journey bot groundwork: storage, consent register, callback queue
+### Journey bot: WhatsApp journeys from first message to closed deal
 
-The database side of the journey bot (module 016, "Welcome to Close"),
-which will walk a lead from the first message to a closed deal: each
-customer's journey is stored with the messages and tasks it still has
-to send. Contacts gain a consent register beside the existing opt-out
-— a marketing opt-in, which always names its source, and a
-do-not-contact flag that any agent who can see the customer may set
-and only an admin may clear — and every change to the three is kept
-in an append-only consent history. "Call me back" requests queue for
-the click-to-call module. Nothing is visible yet: the bot is not wired
-to WhatsApp in this release.
+The journey bot (module 016, "Welcome to Close") now answers on
+WhatsApp for accounts whose admin switches it on (`enabled` in
+`PUT /api/journeys/settings`):
+it welcomes the customer, pitches a POS terminal, business account or
+business loan, and walks them through quote or eligibility,
+documents, the partner's decision and fulfilment, parking quiet
+customers and re-engaging them once. Advisors record the steps only a
+person can take — quote ready, fit, documents complete, partner
+approved, close with a reason — through the new journey APIs
+(`/api/journeys`, `/api/journeys/{id}/advisor`, `/api/journeys/start`
+for a cold start, `/api/journeys/settings`). Marketing messages go
+only to customers with a recorded opt-in, and STOP / UNSUBSCRIBE (and
+the Arabic equivalents) opt out at any point. Contacts gain a consent
+register beside the existing opt-out — a marketing opt-in, which
+always names its source, and a do-not-contact flag — with an
+append-only history. "Call me back" opens an advisor task and queues
+a callback request for click-to-call. Timers and quiet-hours sends run
+from `GET /api/journeys/cron`, which the automation cron also runs
+every minute. The templates the bot needs, its timing and consent
+rules are in `docs/journey-bot.md`.
 
-> **Migration required:** apply
-> `supabase/migrations/086_journeys.sql` (re-runnable)
+> **Migration required:** (re-)apply
+> `supabase/migrations/086_journeys.sql` — it is re-runnable and has
+> gained columns since it was first published (journey copy, delivery
+> claims).
 
 ### Workspaces: one login, several businesses
 
