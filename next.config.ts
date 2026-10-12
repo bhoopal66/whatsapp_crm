@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+import { contentSecurityPolicy } from "./src/lib/csp";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -29,37 +30,23 @@ const SECURITY_HEADERS = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     // Microphone is allowed for same-origin (`self`) so the inbox
-    // composer can record voice notes via MediaRecorder. Everything
+    // composer can record voice notes via MediaRecorder (and the
+    // browser softphone can open the microphone). Everything
     // else stays denied — a compromised dependency can't silently grab
     // the camera / geolocation / etc.
     key: "Permissions-Policy",
     value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()",
   },
   {
+    // Directives and the env-derived origins (Supabase media, the
+    // Linkus SDK bundle, the PBX for the browser softphone) are built in
+    // src/lib/csp.ts, which csp.test.ts pins.
     key: "Content-Security-Policy-Report-Only",
-    value: [
-      "default-src 'self'",
-      // Next.js needs 'unsafe-inline' for its inline hydration script
-      // and 'unsafe-eval' in dev + some production optimisations.
-      // Nonce-based CSP is a later project.
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      // Tailwind + inline style attributes on lots of components.
-      "style-src 'self' 'unsafe-inline'",
-      // Supabase public-bucket avatars, contact avatars (arbitrary
-      // https URLs paste-able from the UI), OG images, data URLs for
-      // tiny inline assets.
-      "img-src 'self' data: blob: https:",
-      // Outbound media previews (blob: from MediaRecorder + file picker)
-      // and Supabase public-bucket audio/video the inbox renders.
-      "media-src 'self' blob: https://*.supabase.co",
-      "font-src 'self' data:",
-      // Supabase REST + realtime (WSS). All Meta API calls happen
-      // server-side, so graph.facebook.com does not belong here.
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-    ].join("; "),
+    value: contentSecurityPolicy({
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      linkusSdkUrl: process.env.NEXT_PUBLIC_LINKUS_SDK_URL,
+      pbxOrigin: process.env.NEXT_PUBLIC_PBX_ORIGIN,
+    }),
   },
 ] as const;
 
