@@ -48,6 +48,9 @@ example Taamul Credit and TrafeeqPay — with a separate role in each,
 and switch between them. Each workspace keeps its own contacts, chats,
 numbers and settings apart: everything you see follows the workspace
 you are working in. Teams and number allocations survive switching.
+An owner or admin can create a new workspace and add its first people
+in one step, and adding a member by an email that already has a login
+adds that person to your workspace, with no new password.
 
 A new role, **Bank guest**, is for bank officers invited into deal
 rooms and channels: a guest sees none of the inbox, contacts, deals or
