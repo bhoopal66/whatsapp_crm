@@ -1,9 +1,12 @@
 /**
  * Test-only: an in-memory stand-in for the supabase-js query builder,
- * as much of it as the deal-room tests need (eq / neq / is / in / lte,
- * order, limit, insert, update, maybeSingle, single). Updates mutate the
- * stored rows; reads return copies, so a run that read a row earlier
- * holds a stale snapshot, as it would against Postgres.
+ * as much of it as the deal-room tests need (eq / neq / is / in / lt /
+ * lte, order, limit, insert, update, maybeSingle, single, and
+ * `storage.from(bucket).upload`). Updates mutate the stored rows; reads
+ * return copies, so a run that read a row earlier holds a stale
+ * snapshot, as it would against Postgres. Column lists and embeds are
+ * not parsed: a row comes back whole, so seed an embed as a nested
+ * object.
  */
 
 type Row = Record<string, unknown>;
@@ -21,6 +24,15 @@ export interface MemoryDbOptions {
   rpc?: (fn: string, params: Row) => unknown;
   /** Runs just before an update applies: a racing writer goes here. */
   beforeUpdate?: (table: string, values: Row) => void;
+  /** Answers a storage upload; a thrown `{ message }` becomes the error. */
+  upload?: (bucket: string, path: string) => void;
+}
+
+export interface UploadLog {
+  bucket: string;
+  path: string;
+  bytes: Uint8Array;
+  options: Row | undefined;
 }
 
 export function memoryDb(
@@ -29,6 +41,7 @@ export function memoryDb(
 ) {
   const log: QueryLog[] = [];
   const rpcCalls: [string, Row][] = [];
+  const uploads: UploadLog[] = [];
 
   const from = (table: string) => {
     const rows = (tables[table] ??= []);
@@ -83,6 +96,8 @@ export function memoryDb(
       chain(() => filters.push((r) => (r[col] ?? null) === v));
     builder.in = (col: string, vs: unknown[]) =>
       chain(() => filters.push((r) => vs.includes(r[col])));
+    builder.lt = (col: string, v: unknown) =>
+      chain(() => filters.push((r) => String(r[col]) < String(v)));
     builder.lte = (col: string, v: unknown) =>
       chain(() => filters.push((r) => String(r[col]) <= String(v)));
     builder.order = (col: string, o?: { ascending?: boolean }) =>
@@ -128,5 +143,28 @@ export function memoryDb(
     }
   };
 
-  return { db: { from, rpc } as never, tables, log, rpcCalls };
+  const storage = {
+    from: (bucket: string) => ({
+      upload: async (path: string, bytes: Uint8Array, options?: Row) => {
+        try {
+          opts.upload?.(bucket, path);
+        } catch (e) {
+          return {
+            data: null,
+            error: { message: String((e as { message?: string }).message) },
+          };
+        }
+        uploads.push({ bucket, path, bytes, options });
+        return { data: { path }, error: null };
+      },
+    }),
+  };
+
+  return {
+    db: { from, rpc, storage } as never,
+    tables,
+    log,
+    rpcCalls,
+    uploads,
+  };
 }
