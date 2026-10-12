@@ -31,6 +31,10 @@ processor.
 > **Migration required:** apply `supabase/migrations/089_pbx.sql`
 > (re-runnable) **before** deploying the app.
 
+Admin routes for the phone system: extension sync and mapping, number
+routing to workspaces, recording settings and bank numbers
+(`/api/pbx/*`, no new migration); operator notes in `docs/yeastar.md`.
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team
