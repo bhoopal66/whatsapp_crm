@@ -1,0 +1,177 @@
+/**
+ * Deal rooms — the create form's rules (module 014c), pure so they are
+ * tested without a DOM. They mirror what `deal_room_create` (migration
+ * 088) refuses, so the form can say so before the round trip; the
+ * function stays the judge.
+ */
+
+import { ROOM_MEMBER_MAX } from './view';
+
+/** People who can be invited: the group's 8 less our own number. */
+export const INVITEE_MAX = ROOM_MEMBER_MAX - 1;
+
+/** `deal_rooms.subject`: 1 to 128 characters (code points). */
+export const GROUP_NAME_MAX = 128;
+
+/** `deal_room_participants.display_name`: 1 to 120 characters. */
+export const INVITEE_NAME_MAX = 120;
+
+/** Stored with the consent: which wording the customer agreed to. */
+export const CONSENT_TEXT_VERSION = 'deal-room-group-v1';
+
+export const CONSENT_METHODS = [
+  'verbal',
+  'whatsapp',
+  'written',
+  'form',
+] as const;
+export type ConsentMethod = (typeof CONSENT_METHODS)[number];
+
+export type InviteeRole = 'customer' | 'partner' | 'bank_guest';
+
+export interface Invitee {
+  displayName: string;
+  phone: string;
+  role: InviteeRole;
+  contactId?: string | null;
+  bankCode?: string | null;
+}
+
+const length = (s: string) => Array.from(s).length;
+
+/** Digits only; Arabic-Indic and Persian digits read as 0–9. */
+export function phoneDigits(raw: string): string {
+  return raw
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/\D/g, '');
+}
+
+export type InviteeIssue =
+  | { kind: 'none' }
+  | { kind: 'too_many'; max: number }
+  | { kind: 'no_customer' }
+  | { kind: 'name'; name: string }
+  | { kind: 'phone'; name: string }
+  | { kind: 'duplicate'; name: string }
+  | { kind: 'bank'; name: string };
+
+/**
+ * What stops this list from being invited, in the function's order:
+ * 1 to 7 people, each with a name and a 6–15 digit phone, no phone
+ * twice, a bank guest only from a bank whose policy allows guests, and
+ * at least one customer. Empty means the list is fine.
+ */
+export function inviteeIssues(
+  invitees: readonly Invitee[],
+  allowedBanks: ReadonlySet<string>
+): InviteeIssue[] {
+  if (invitees.length === 0) return [{ kind: 'none' }];
+  const issues: InviteeIssue[] = [];
+  if (invitees.length > INVITEE_MAX) {
+    issues.push({ kind: 'too_many', max: INVITEE_MAX });
+  }
+  const seen = new Set<string>();
+  for (const p of invitees) {
+    const name = p.displayName.trim();
+    if (!name || length(name) > INVITEE_NAME_MAX) {
+      issues.push({ kind: 'name', name });
+    }
+    const phone = phoneDigits(p.phone);
+    if (!/^[0-9]{6,15}$/.test(phone)) {
+      issues.push({ kind: 'phone', name });
+    } else if (seen.has(phone)) {
+      issues.push({ kind: 'duplicate', name });
+    }
+    seen.add(phone);
+    if (p.role === 'bank_guest') {
+      const bank = p.bankCode?.trim().toUpperCase();
+      if (!bank || !allowedBanks.has(bank)) issues.push({ kind: 'bank', name });
+    }
+  }
+  if (!invitees.some((p) => p.role === 'customer')) {
+    issues.push({ kind: 'no_customer' });
+  }
+  return issues;
+}
+
+/** Room for one more person on the list. */
+export const canAddInvitee = (count: number) => count < INVITEE_MAX;
+
+/** The banks whose policy lets their officers be invited as guests. */
+export function allowedGuestBanks(
+  policies: readonly { bank_code: string; guests_allowed: boolean }[]
+): Set<string> {
+  return new Set(
+    policies.filter((p) => p.guests_allowed).map((p) => p.bank_code)
+  );
+}
+
+/** Cut to `max` code points, so an emoji is never split. */
+export function clip(text: string, max: number): string {
+  return Array.from(text).slice(0, max).join('');
+}
+
+/** "<customer> × <workspace> — <deal>", at most 128 characters. */
+export function defaultGroupName(parts: {
+  customer: string;
+  workspace: string;
+  deal?: string | null;
+}): string {
+  const head = [parts.customer.trim(), parts.workspace.trim()]
+    .filter(Boolean)
+    .join(' × ');
+  const deal = parts.deal?.trim();
+  return clip(deal ? `${head} — ${deal}` : head, GROUP_NAME_MAX);
+}
+
+/** The group name the function will accept: 1 to 128 characters. */
+export function groupNameOk(name: string): boolean {
+  const n = length(name.trim());
+  return n >= 1 && n <= GROUP_NAME_MAX;
+}
+
+/** Places taken in the group: the invitees plus our own number. */
+export const placesTaken = (inviteeCount: number) => inviteeCount + 1;
+
+/** "<company> · <deal>": how a customer's deal is offered in the picker. */
+export function dealOptionLabel(o: {
+  contactName: string | null;
+  company: string | null;
+  dealTitle: string | null;
+}): string {
+  return [o.company?.trim() || o.contactName?.trim(), o.dealTitle?.trim()]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** The `POST /api/deal-rooms` body. */
+export function createRoomBody(input: {
+  contactId: string;
+  dealId: string | null;
+  subject: string;
+  invitees: readonly Invitee[];
+  consentText: string;
+  method: ConsentMethod;
+}) {
+  return {
+    contactId: input.contactId,
+    dealId: input.dealId,
+    subject: input.subject.trim(),
+    participants: input.invitees.map((p) => ({
+      displayName: p.displayName.trim(),
+      phone: phoneDigits(p.phone),
+      role: p.role,
+      contactId: p.contactId ?? null,
+      bankCode:
+        p.role === 'bank_guest'
+          ? (p.bankCode?.trim().toUpperCase() ?? null)
+          : null,
+    })),
+    consent: {
+      textVersion: CONSENT_TEXT_VERSION,
+      consentText: input.consentText,
+      method: input.method,
+    },
+  };
+}
