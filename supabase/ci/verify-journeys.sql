@@ -48,6 +48,9 @@ DECLARE
   p1       UUID := gen_random_uuid();
   p2       UUID := gen_random_uuid();
   fm       UUID := gen_random_uuid();  -- never inserted
+  ob1      UUID;  -- outbox items for the delivery claim and the welcome cap
+  ob2      UUID;
+  ob3      UUID;
   wf       TEXT := 'taamul_welcome_to_close.v1';
   a_send   JSONB := '{"type":"SEND","template":"t","category":"UTILITY","billable":false,"notBefore":"2026-03-02T05:00:00Z"}';
   a_timer  JSONB := '{"type":"SET_TIMER","kind":"k","fireAt":"2026-03-03T09:00:00Z"}';
@@ -428,6 +431,67 @@ BEGIN
     failed := array_append(failed, ('claim for an unknown contact / with an empty id: ' || r || ', ' || x)::text);
   END IF;
 
+  -- ================= 5b. delivery claims, opt-out writes, the welcome cap =================
+  INSERT INTO journey_outbox (file_id, account_id, seq, action) VALUES (f1, a_acct, 9001, a_send0) RETURNING id INTO ob1;
+  INSERT INTO journey_outbox (file_id, account_id, seq, action, status, drop_reason)
+  VALUES (f1, a_acct, 9002, a_send0, 'dropped', 'OPTED_OUT') RETURNING id INTO ob2;
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1));
+  -- A separate statement: a subquery in the line above reads the snapshot taken before the claims.
+  r := r || ',' || (SELECT attempts || '/' || (sending_at IS NOT NULL)::text FROM journey_outbox WHERE id = ob1);
+  UPDATE journey_outbox SET sending_at = now() - interval '3 minutes' WHERE id = ob1;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1));
+  UPDATE journey_outbox SET delivery_ref = 'wamid.1' WHERE id = ob1;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob2));
+  n := n + 1;
+  IF r <> 'claimed,in_flight,1/true,stale,delivered,dropped' THEN
+    failed := array_append(failed, ('delivery claim states (claimed, in_flight, attempts, stale, delivered, dropped): ' || r)::text);
+  END IF;
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', fm));
+  x := pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_claim_delivery(%L)', ob2));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0002:%' OR x NOT LIKE 'ERROR 42501:%' THEN
+    failed := array_append(failed, ('delivery claim of an unknown item / by an admin: ' || r || ', ' || x)::text);
+  END IF;
+
+  -- journey_set_opt_out: source 'journey', the first stamp kept, the setting restored.
+  UPDATE contacts SET opted_out_at = '2026-01-01T00:00:00Z' WHERE id = c_none;
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', c_none));
+  r := r || ',' || (SELECT opted_out_at = '2026-01-01T00:00:00Z' FROM contacts WHERE id = c_none)::text;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, false)::text', c_none));
+  r := r || ',' || (SELECT opted_out_at IS NULL FROM contacts WHERE id = c_none)::text;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', c_none))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', fm))
+    || ',' || coalesce(nullif(current_setting('app.consent_source', true), ''), '-');
+  n := n + 1;
+  IF r <> 'true,true,true,true,true,false,-'
+     OR pg_temp.jv_events(c_none) <> 'opted_out/journey/-;opted_out/system/-;resubscribed/journey/-' THEN
+    failed := array_append(failed, ('journey_set_opt_out (kept stamp, resubscribe, unknown contact, setting): ' || r
+      || ' history: ' || pg_temp.jv_events(c_none))::text);
+  END IF;
+  r := pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_set_opt_out(%L, false)::text', c_none));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' OR (SELECT opted_out_at IS NULL FROM contacts WHERE id = c_none) THEN
+    failed := array_append(failed, ('admin called journey_set_opt_out: ' || r)::text);
+  END IF;
+
+  -- journey_has_optin_welcome: a claim, or a committed MARK_OPTIN_WELCOME_SENT that is not dropped.
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_w))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po));
+  INSERT INTO journey_outbox (file_id, account_id, seq, action)
+  VALUES (p1, a_acct, 9001, jsonb_build_object('type', 'MARK_OPTIN_WELCOME_SENT', 'contactId', c_po)) RETURNING id INTO ob3;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po));
+  UPDATE journey_outbox SET status = 'delivered' WHERE id = ob3;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po));
+  UPDATE journey_outbox SET status = 'dropped' WHERE id = ob3;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po))
+    || ',' || pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_has_optin_welcome(%L)::text', c_w));
+  n := n + 1;
+  IF r NOT LIKE 'true,false,true,true,false,ERROR 42501:%' THEN
+    failed := array_append(failed, ('opt-in welcome cap (claim, none, pending MARK, delivered MARK, dropped MARK, admin): ' || r)::text);
+  END IF;
+
   -- ================= 6–7. consent guard and its history =================
   -- An opt-in needs a source, from anyone.
   r := pg_temp.jv_try('authenticated', u_agent, format(
@@ -757,6 +821,13 @@ BEGIN
   n := n + 1;
   IF r <> '0/1' THEN
     failed := array_append(failed, ('another account reads journey settings (A/B): ' || r)::text);
+  END IF;
+
+  r := (SELECT copy::text || '/' || (SELECT count(*) FROM pg_constraint WHERE conname = 'journey_settings_copy_object')::text
+        FROM journey_settings WHERE account_id = b_acct);
+  n := n + 1;
+  IF r IS DISTINCT FROM '{}/1' THEN
+    failed := array_append(failed, ('journey_settings.copy default and object check: ' || coalesce(r, 'no row'))::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
