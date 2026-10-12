@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   sweep: vi.fn(),
   rpc: vi.fn(),
   journeyTick: vi.fn(),
+  reconcile: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -61,6 +62,10 @@ vi.mock('@/lib/journeys/host/tick', () => ({
   runJourneyTick: h.journeyTick,
 }));
 
+vi.mock('@/lib/deal-rooms/reconcile', () => ({
+  reconcileCreatingRooms: h.reconcile,
+}));
+
 function req() {
   return new Request('http://localhost/api/automations/cron', {
     headers: { 'x-cron-secret': 's3cret' },
@@ -83,6 +88,7 @@ beforeEach(() => {
     .mockResolvedValue({ checked: 1, changed: 0, notified: 0, failed: 0 });
   h.sweep.mockReset().mockResolvedValue({ alerts: 0, notifications: 0 });
   h.rpc.mockReset().mockResolvedValue({ data: 3, error: null });
+  h.reconcile.mockReset().mockResolvedValue({ checked: 0 });
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-29T13:00:00Z'));
 });
@@ -282,5 +288,29 @@ describe('GET /api/automations/cron — journey tick', () => {
       'boom'
     );
     log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — deal-room reconcile', () => {
+  it('runs the reconcile after the response, at most every 2 minutes', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-12T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.reconcile).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.reconcile).toHaveBeenCalledTimes(1);
+    expect(h.reconcile.mock.calls[0][0]).toHaveProperty('from');
+
+    vi.setSystemTime(new Date('2026-10-12T09:01:59Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.reconcile).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-12T09:02:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.reconcile).toHaveBeenCalledTimes(2);
   });
 });

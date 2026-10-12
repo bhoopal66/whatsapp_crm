@@ -9,6 +9,7 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
+import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -133,6 +134,36 @@ function scheduleJourneyTick() {
 }
 
 /**
+ * The deal-room reconcile (module 014c, migration 088): rooms still
+ * `creating` after 2 minutes. `GET /api/deal-rooms/cron` is its own
+ * endpoint; this runs it at most every 2 minutes per process, inside
+ * after(), so an install that pings only this cron is covered. A
+ * failure is only logged.
+ */
+const dealRoomReconcileDue = everyInterval(2 * 60_000)
+
+function scheduleDealRoomReconcile() {
+  try {
+    if (!dealRoomReconcileDue()) return
+    after(async () => {
+      try {
+        await reconcileCreatingRooms(supabaseAdmin())
+      } catch (err) {
+        console.error(
+          '[automations-cron] deal room reconcile failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the deal room reconcile:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -165,6 +196,7 @@ export async function GET(request: Request) {
     scheduleTeamActivitySweep()
     scheduleEdgePurge()
     scheduleJourneyTick()
+    scheduleDealRoomReconcile()
   }
 }
 
