@@ -1,7 +1,7 @@
 /**
  * Test-only: an in-memory stand-in for the supabase-js query builder,
- * as much of it as the deal-room tests need (eq / neq / is / in / lt /
- * lte, order, limit, insert, update, maybeSingle, single, and
+ * as much of it as the deal-room tests need (eq / neq / is / in / like /
+ * lt / lte, order, limit, insert, update, maybeSingle, single, and
  * `storage.from(bucket).upload`). Updates mutate the stored rows; reads
  * return copies, so a run that read a row earlier holds a stale
  * snapshot, as it would against Postgres. Column lists and embeds are
@@ -96,6 +96,20 @@ export function memoryDb(
       chain(() => filters.push((r) => (r[col] ?? null) === v));
     builder.in = (col: string, vs: unknown[]) =>
       chain(() => filters.push((r) => vs.includes(r[col])));
+    // SQL LIKE: `%` is any run of characters, `_` any one.
+    builder.like = (col: string, pattern: string) =>
+      chain(() => {
+        const re = new RegExp(
+          `^${pattern
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            .replace(/%/g, '.*')
+            .replace(/_/g, '.')}$`,
+          's'
+        );
+        filters.push(
+          (r) => typeof r[col] === 'string' && re.test(r[col] as string)
+        );
+      });
     builder.lt = (col: string, v: unknown) =>
       chain(() => filters.push((r) => String(r[col]) < String(v)));
     builder.lte = (col: string, v: unknown) =>

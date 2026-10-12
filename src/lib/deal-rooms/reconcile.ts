@@ -25,6 +25,11 @@
  * tick matches the new group by subject like any other. A room still
  * without its group 10 minutes in fails, and its creator is told.
  *
+ * It also frees invites stuck mid-send (a claim older than 30 minutes,
+ * see `releaseStaleInviteClaims`) and runs the invites of each such room
+ * that is open again; `sendRoomInvites` re-checks every invitee itself.
+ * That step comes first, never throws, and does not hold up the rest.
+ *
  * Never throws for one room: each failure is counted and logged, the
  * room is left as it was for the next tick, and the rest go on. Only the
  * first read of the stuck rooms can fail the run.
@@ -39,7 +44,7 @@ import {
   type GroupSummary,
 } from '@/lib/whatsapp/meta-groups';
 
-import { sendRoomInvites } from './invites';
+import { releaseStaleInviteClaims, sendRoomInvites } from './invites';
 import { metaChannel, notifyRoomCreator } from './shared';
 
 /** A room still `creating` this long after it was created is stuck. */
@@ -104,6 +109,8 @@ export async function reconcileCreatingRooms(
     waiting: 0,
     errors: 0,
   };
+  await resendStuckInvites(db, now);
+
   const { data, error } = await db
     .from('deal_rooms')
     .select(
@@ -139,6 +146,34 @@ export async function reconcileCreatingRooms(
     }
   }
   return summary;
+}
+
+/** Releases the stale invite claims, then re-runs their open rooms once. */
+async function resendStuckInvites(db: SupabaseClient, now: Date) {
+  const said = (err: unknown) => (err instanceof Error ? err.message : err);
+  try {
+    const touched = await releaseStaleInviteClaims(db, now);
+    if (touched.length === 0) return;
+    const { data, error } = await db
+      .from('deal_rooms')
+      .select('id')
+      .in('id', touched)
+      .eq('status', 'open');
+    if (error) throw new Error(`open room lookup failed: ${error.message}`);
+    for (const { id } of (data ?? []) as { id: string }[]) {
+      try {
+        await sendRoomInvites(db, id);
+      } catch (err) {
+        // A manager's re-send reaches the rest.
+        console.error(
+          `[deal-rooms] invites for room ${id} not re-sent:`,
+          said(err)
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[deal-rooms] stuck invites not handled:', said(err));
+  }
 }
 
 async function reconcileRoom(

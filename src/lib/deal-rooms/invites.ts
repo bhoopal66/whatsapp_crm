@@ -9,10 +9,22 @@
  * Who: status `invited` (a bank guest an agent listed stays
  * `pending_approval` until a team leader lets them in), a phone, a role
  * other than `business` (our own number), and no `invite_message_id`
- * yet. Each person is claimed before the send (a `pending:` marker in
- * `invite_message_id`, set only where it is NULL), so a webhook
- * redelivery and a re-send racing each other invite nobody twice; a
- * failed send releases the claim for the next attempt.
+ * yet. Each person is claimed before the send (a
+ * `pending:<epoch ms>:<uuid>` marker in `invite_message_id`, set only
+ * where it is NULL), so a webhook redelivery and a re-send racing each
+ * other invite nobody twice; a failed send releases the claim for the
+ * next attempt.
+ *
+ * A process that dies between the claim and its result would leave the
+ * marker for good, and the table has no timestamp to date it by, so the
+ * marker carries its own time. `releaseStaleInviteClaims` frees the
+ * claims older than 30 minutes (`STALE_INVITE_CLAIM_MS`), each with a
+ * write conditional on the exact marker it read, and the reconcile (every
+ * 2 minutes, from the cron) then runs this room's invites again. A marker
+ * with no readable time (the earlier `pending:<uuid>` form) counts as
+ * stale. Accepted risk: a send that went out but whose result was never
+ * recorded is invited a second time; one person twice is better than
+ * someone never invited.
  *
  * Right before each send the person is re-checked with
  * `deal_room_admit_block` (migration 088), the rule join-request
@@ -29,6 +41,93 @@ import { sendGroupInviteTemplate } from '@/lib/whatsapp/meta-groups';
 
 import { loadDealRoomSettings, pickInviteTemplate } from './settings';
 import { metaChannel, notifyRoomCreator, type RoomRef } from './shared';
+
+/** A claim older than this belongs to a process that died. */
+export const STALE_INVITE_CLAIM_MS = 30 * 60_000;
+
+const CLAIM_PREFIX = 'pending:';
+const CLAIM_TIME = /^pending:(\d{1,15}):./;
+
+/** The marker written into `invite_message_id` before a send. */
+export function buildInviteClaim(
+  now: Date = new Date(),
+  id: string = randomUUID()
+): string {
+  return `${CLAIM_PREFIX}${now.getTime()}:${id}`;
+}
+
+/**
+ * Reads an `invite_message_id`: null when it is not a claim (empty, or
+ * Meta's message id); otherwise the time it was claimed (epoch ms), or
+ * null when the marker carries none.
+ */
+export function parseInviteClaim(
+  marker: string | null | undefined
+): { claimedAt: number | null } | null {
+  if (typeof marker !== 'string' || !marker.startsWith(CLAIM_PREFIX)) {
+    return null;
+  }
+  const m = CLAIM_TIME.exec(marker);
+  return { claimedAt: m ? Number(m[1]) : null };
+}
+
+/** A claim of unknown age, or older than `maxAgeMs`; never a message id. */
+export function isStaleInviteClaim(
+  marker: string | null | undefined,
+  now: Date,
+  maxAgeMs: number = STALE_INVITE_CLAIM_MS
+): boolean {
+  const claim = parseInviteClaim(marker);
+  if (!claim) return false;
+  return claim.claimedAt === null || now.getTime() - claim.claimedAt > maxAgeMs;
+}
+
+/**
+ * Frees the invites claimed more than 30 minutes ago and never settled,
+ * and returns the ids of the rooms touched. Each release is conditional
+ * on the exact marker read, so a claim replaced meanwhile (settled, or
+ * claimed again) is left alone. A failed write is logged and skipped.
+ */
+export async function releaseStaleInviteClaims(
+  db: SupabaseClient,
+  now: Date = new Date()
+): Promise<string[]> {
+  const { data, error } = await db
+    .from('deal_room_participants')
+    .select('id, room_id, invite_message_id')
+    .eq('status', 'invited')
+    .like('invite_message_id', `${CLAIM_PREFIX}%`);
+  if (error) throw new Error(`stale claim lookup failed: ${error.message}`);
+  const rooms = new Set<string>();
+  for (const p of (data ?? []) as {
+    id: string;
+    room_id: string;
+    invite_message_id: string;
+  }[]) {
+    if (!isStaleInviteClaim(p.invite_message_id, now)) continue;
+    const { data: released, error: releaseErr } = await db
+      .from('deal_room_participants')
+      .update({ invite_message_id: null })
+      .eq('id', p.id)
+      .eq('status', 'invited')
+      .eq('invite_message_id', p.invite_message_id)
+      .select('id')
+      .maybeSingle();
+    if (releaseErr) {
+      console.error(
+        '[deal-rooms] stale claim not released:',
+        releaseErr.message
+      );
+      continue;
+    }
+    if (!released) continue; // settled or claimed again since the read
+    console.warn(
+      `[deal-rooms] released a stale invite claim (room ${p.room_id}, participant ${p.id})`
+    );
+    rooms.add(p.room_id);
+  }
+  return [...rooms];
+}
 
 export interface InviteSummary {
   sent: number;
@@ -142,7 +241,7 @@ export async function sendRoomInvites(
       blocked.push({ participant_id: p.id, reason: String(block) });
       continue;
     }
-    const claim = `pending:${randomUUID()}`;
+    const claim = buildInviteClaim();
     const { data: claimed, error: claimErr } = await db
       .from('deal_room_participants')
       .update({ invite_message_id: claim })
