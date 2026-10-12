@@ -5,9 +5,10 @@
 // Pure, so csp.test.ts can pin every directive.
 //
 // Optional origins, each added only when its env var parses:
-//   - NEXT_PUBLIC_SUPABASE_URL → media-src: recordings and media are
-//     played from signed URLs on the Supabase origin, which on a
-//     self-hosted install is not *.supabase.co.
+//   - NEXT_PUBLIC_SUPABASE_URL → media-src, and connect-src with its
+//     WebSocket twin: recordings and media are played from signed URLs
+//     on the Supabase origin, and the browser's REST and Realtime calls
+//     go there too, which on a self-hosted install is not *.supabase.co.
 //   - NEXT_PUBLIC_LINKUS_SDK_URL → script-src: the operator-hosted
 //     Linkus SDK bundle (browser softphone, module 015).
 //   - NEXT_PUBLIC_PBX_ORIGIN → connect-src https: and wss:: the SDK
@@ -44,6 +45,8 @@ const join = (...parts: (string | null)[]) =>
 
 export function contentSecurityPolicy(env: CspEnv): string {
   const supabase = originOf(env.supabaseUrl, ['https:', 'http:']);
+  // https → wss, http → ws: Realtime rides the same host.
+  const supabaseWs = supabase && supabase.replace(/^http/, 'ws');
   const sdk = originOf(env.linkusSdkUrl);
   const pbx = originOf(env.pbxOrigin);
   return [
@@ -62,11 +65,13 @@ export function contentSecurityPolicy(env: CspEnv): string {
     // and Supabase audio/video the inbox and call screens render.
     join("media-src 'self' blob: https://*.supabase.co", supabase),
     "font-src 'self' data:",
-    // Supabase REST + realtime (WSS). All Meta API calls happen
-    // server-side, so graph.facebook.com does not belong here. The
-    // PBX for the browser softphone.
+    // Supabase REST + realtime (WSS), hosted or self-hosted. All Meta
+    // API calls happen server-side, so graph.facebook.com does not
+    // belong here. The PBX for the browser softphone.
     join(
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      supabase,
+      supabaseWs,
       pbx,
       pbx && pbx.replace(/^https:/, 'wss:')
     ),

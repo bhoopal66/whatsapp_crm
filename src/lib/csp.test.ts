@@ -22,7 +22,7 @@ describe('contentSecurityPolicy', () => {
     );
   });
 
-  it('adds the SDK, the PBX (https + wss) and the Supabase media origin', () => {
+  it('adds the SDK, the PBX (https + wss) and the self-hosted Supabase origin', () => {
     const csp = contentSecurityPolicy({
       supabaseUrl: 'https://db.example.com/',
       linkusSdkUrl: 'https://cdn.example.com/sdk/ys-webrtc.umd.js',
@@ -32,7 +32,7 @@ describe('contentSecurityPolicy', () => {
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.example.com"
     );
     expect(directive(csp, 'connect-src')).toBe(
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://pbx.example.com:8088 wss://pbx.example.com:8088"
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://db.example.com wss://db.example.com https://pbx.example.com:8088 wss://pbx.example.com:8088"
     );
     expect(directive(csp, 'media-src')).toBe(
       "media-src 'self' blob: https://*.supabase.co https://db.example.com"
@@ -48,6 +48,15 @@ describe('contentSecurityPolicy', () => {
     expect(originOf('not a url; script-src *')).toBeNull();
     expect(originOf('http://localhost:54321', ['https:', 'http:'])).toBe(
       'http://localhost:54321'
+    );
+  });
+
+  it('pairs a plain-http Supabase origin with ws: for Realtime', () => {
+    const csp = contentSecurityPolicy({
+      supabaseUrl: 'http://localhost:54321',
+    });
+    expect(directive(csp, 'connect-src')).toBe(
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://localhost:54321 ws://localhost:54321"
     );
   });
 });
