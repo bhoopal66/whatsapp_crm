@@ -197,6 +197,10 @@ example Taamul Credit and TrafeeqPay — with a separate role in each,
 and switch between them. Each workspace keeps its own contacts, chats,
 numbers and settings apart: everything you see follows the workspace
 you are working in. Teams and number allocations survive switching.
+An existing login can be added by email only by an owner or admin of a
+workspace that person is active in, and someone removed from their only
+workspace leaves as a viewer (a bank guest as a guest) of an empty one,
+never its owner.
 An owner or admin can create a new workspace and add its first people
 in one step, and adding a member by an email that already has a login
 adds that person to your workspace, with no new password.

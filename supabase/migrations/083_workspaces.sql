@@ -970,9 +970,15 @@ $$;
 -- allocations in that account only, and deals.assigned_to on that row
 -- falls to NULL (FK). If it was their active row, their most recently
 -- created other row becomes active, a non-deactivated one first. Their
--- ONLY row is moved to a fresh personal account instead, exactly as
--- before (profile id kept), and that account's id is returned; a person
--- who keeps another membership gets NULL (no personal account made).
+-- ONLY row is moved to a fresh empty account instead (profile id and
+-- login kept), and that account's id is returned; a person who keeps
+-- another membership gets NULL (no account made). Before 083 the moved
+-- row became that account's owner, and an owner may now
+-- add_workspace_member and create_workspace: any removed member, a bank
+-- guest included, would leave as someone who can pull logins in. So the
+-- moved row is never owner or admin: a guest stays bank_guest (keeping
+-- its bank_code, which the CHECK requires), anyone else becomes viewer.
+-- Its deactivation is cleared, since no admin there could ever lift it.
 CREATE OR REPLACE FUNCTION public.remove_account_member(p_user_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -1031,8 +1037,11 @@ BEGIN
     VALUES (COALESCE(NULLIF(v_target_name, ''), v_target_email, 'My account'), p_user_id)
     RETURNING id INTO v_new_account_id;
     UPDATE profiles
-       SET account_id = v_new_account_id, account_role = 'owner',
-           bank_code = NULL, is_active = true
+       SET account_id = v_new_account_id,
+           account_role = CASE WHEN v_target_role = 'bank_guest'
+                               THEN 'bank_guest' ELSE 'viewer' END::account_role_enum,
+           bank_code = CASE WHEN v_target_role = 'bank_guest' THEN bank_code END,
+           deactivated_at = NULL, deactivated_by = NULL, is_active = true
      WHERE user_id = p_user_id AND account_id = v_caller_account_id;
     RETURN v_new_account_id;
   END IF;
@@ -1190,8 +1199,12 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
   IF v_personal IS NOT NULL THEN
-    -- Move the row BEFORE dropping the account (ON DELETE CASCADE).
-    UPDATE profiles SET account_id = p_account_id, account_role = p_role, bank_code = v_code
+    -- Move the row BEFORE dropping the account (ON DELETE CASCADE). A
+    -- deactivation belonged to the workspace being discarded, as in
+    -- redeem_invitation: it does not follow the person into this one.
+    UPDATE profiles
+       SET account_id = p_account_id, account_role = p_role, bank_code = v_code,
+           deactivated_at = NULL, deactivated_by = NULL
      WHERE user_id = p_user_id;
     DELETE FROM accounts WHERE id = v_personal;
     RETURN;
@@ -1251,9 +1264,18 @@ END;
 $$;
 
 -- Adds an existing login (by email) to the caller's active workspace and
--- returns its user id. An unknown email raises P0002 'no_such_user': the
--- API route then creates the login through provision_account_member. The
--- row is inactive unless the person has no active row.
+-- returns its user id. The row is inactive unless the person has no
+-- active row. Only someone the caller already administers may be added:
+-- a person with a live row in a workspace where the caller holds a live
+-- owner/admin row (any of the caller's rows, not only the active one —
+-- an owner bringing their RM from workspace A into workspace B). A member
+-- of this workspace passes too, to be refused below as a duplicate: the
+-- caller can list them anyway. Anyone else raises exactly what an unknown
+-- email raises, P0002 'no_such_user', so the RPC never tells a caller
+-- whether an address has a login, nor lets one pull in (and so read the
+-- name of, and watch the presence of) a stranger. On that error the API
+-- route tries to create the login (provision_account_member), which
+-- GoTrue refuses for a registered address.
 CREATE OR REPLACE FUNCTION public.add_workspace_member(
   p_email text,
   p_role account_role_enum,
@@ -1311,7 +1333,15 @@ BEGIN
   SELECT id, email, raw_user_meta_data INTO v_user, v_auth_email, v_meta
     FROM auth.users WHERE lower(email) = v_email_in
    ORDER BY created_at, id LIMIT 1;
-  IF v_user IS NULL THEN
+  -- One error for "no login" and "not yours to add": see above.
+  IF v_user IS NULL OR NOT (
+       EXISTS (SELECT 1 FROM profiles WHERE user_id = v_user AND account_id = v_account)
+       OR EXISTS (SELECT 1
+                    FROM profiles t
+                    JOIN profiles c ON c.account_id = t.account_id
+                   WHERE t.user_id = v_user AND t.deactivated_at IS NULL
+                     AND c.user_id = auth.uid() AND c.deactivated_at IS NULL
+                     AND c.account_role IN ('owner', 'admin'))) THEN
     RAISE EXCEPTION 'no_such_user' USING ERRCODE = 'P0002';
   END IF;
 

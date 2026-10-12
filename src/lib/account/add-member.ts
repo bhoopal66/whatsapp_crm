@@ -10,9 +10,13 @@
 //     because every membership it had was deactivated (PATCH
 //     /api/account/members/[userId]) has the ban lifted, or the new row
 //     would be a member who cannot sign in.
-//   - It has none (`P0002 'no_such_user'`): the login is created here
+//   - Otherwise (`P0002 'no_such_user'`): the login is created here
 //     with the admin's password and moved in by
 //     `provision_account_member`, the path every add took before 083.
+//     The RPC adds only someone the caller already administers in
+//     another workspace and answers `no_such_user` for anyone else, so
+//     a registered address can still land here; GoTrue then refuses
+//     it and the answer is `EMAIL_HAS_LOGIN`, never GoTrue's text.
 //
 // Shared by POST /api/account/members and the invites of POST
 // /api/workspaces. The RPCs authorise the caller and validate the role
@@ -63,6 +67,11 @@ export interface AddMemberInput {
   /** Used only for a new login; an existing one keeps its name. */
   fullName?: string;
 }
+
+/** The one answer for an address that already has a login the caller
+ *  may not add (see `add_workspace_member`, migration 083). */
+export const EMAIL_HAS_LOGIN =
+  "This email already has a login. An administrator of one of that person's workspaces can add them here.";
 
 export type AddMemberResult =
   | { ok: true; userId: string; created: boolean }
@@ -156,13 +165,16 @@ async function createLogin(
 
   if (createError || !created?.user) {
     const message = createError?.message ?? 'Failed to create the user';
-    // GoTrue reports a taken address with 422; surface it as a
-    // conflict so the dialog can point at the email field.
-    const taken = /already|registered|exists/i.test(message);
+    // GoTrue reports a taken address as 422 `email_exists` (older
+    // releases only in the wording): a conflict, so the dialog can
+    // point at the email field.
+    const taken =
+      createError?.code === 'email_exists' ||
+      /already|registered|exists/i.test(message);
     return {
       ok: false,
       status: taken ? 409 : 500,
-      error: taken ? 'That email already has an account' : message,
+      error: taken ? EMAIL_HAS_LOGIN : message,
     };
   }
 

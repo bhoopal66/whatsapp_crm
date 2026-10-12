@@ -9,7 +9,11 @@
 -- switch_account, and the first again after switching back), that a
 -- bank_guest sees nothing, that only switch_account() moves the active
 -- mark, and that the 080 deals policies and the storage policies no
--- longer read "the caller's profile" as a single row.
+-- longer read "the caller's profile" as a single row. Also that a
+-- member removed from their only workspace leaves as neither owner nor
+-- admin, and that add_workspace_member adds only someone the caller
+-- administers elsewhere, refusing anyone else as it refuses an unknown
+-- email.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -374,6 +378,9 @@ BEGIN
     u_gn   UUID := '00000000-0000-4000-8000-000000083013';  -- new login, provisioned into A as a guest
     u_gx   UUID := '00000000-0000-4000-8000-000000083014';  -- new login, refused provisions
     u_w    UUID := '00000000-0000-4000-8000-000000083015';  -- added to A as a guest by email
+    u_gr   UUID := '00000000-0000-4000-8000-000000083016';  -- bank guest in A only, removed
+    ws_new UUID;   -- the workspace A's admin creates
+    r_none TEXT;   -- what add_workspace_member raises for an unknown email
     team_b UUID;
     tmb    TEXT;
     pid    UUID;
@@ -384,8 +391,11 @@ BEGIN
     INSERT INTO auth.users (id, email) VALUES
       (u_m, 'ws-m@example.invalid'), (u_n, 'ws-n@example.invalid'), (u_s, 'ws-s@example.invalid'),
       (u_r, 'ws-r@example.invalid'), (u_p, 'ws-p@example.invalid'), (u_q, 'ws-q@example.invalid'),
-      (u_gn, 'ws-gn@example.invalid'), (u_gx, 'ws-gx@example.invalid'), (u_w, 'ws-w@example.invalid');
+      (u_gn, 'ws-gn@example.invalid'), (u_gx, 'ws-gx@example.invalid'), (u_w, 'ws-w@example.invalid'),
+      (u_gr, 'ws-gr@example.invalid');
     UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_m, u_n, u_s);
+    UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB'
+     WHERE user_id = u_gr;
     UPDATE profiles SET account_id = b_acct, account_role = 'agent' WHERE user_id IN (u_r, u_q);
     UPDATE profiles SET is_active = false WHERE user_id = u_n;
     INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active) VALUES
@@ -444,14 +454,51 @@ BEGIN
                         IS DISTINCT FROM b_acct || '/true' THEN
       failed := array_append(failed, ('remove (active in B): ' || r)::text);
     END IF;
-    SELECT id INTO pid FROM profiles WHERE user_id = u_s;
+    -- Their only row moves to a fresh account, never as its owner or an
+    -- admin (an owner may add_workspace_member and create_workspace): a
+    -- guest stays a guest, anyone else becomes a viewer, and a
+    -- deactivation is cleared (nobody there could ever lift it). S is
+    -- deactivated first.
+    PERFORM pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_active(%L, false)', u_s));
+    SELECT id INTO pid FROM profiles WHERE user_id = u_s AND deactivated_at IS NOT NULL;
     r := pg_temp.ws_val(u_ad, format('SELECT public.remove_account_member(%L)::text', u_s));
     n := n + 1;
-    IF (SELECT string_agg(id || '/' || account_id || '/' || account_role || '/' || is_active, ',')
-          FROM profiles WHERE user_id = u_s) IS DISTINCT FROM pid || '/' || r || '/owner/true'
+    IF pid IS NULL
+       OR (SELECT string_agg(id || '/' || account_id || '/' || account_role || '/' || is_active, ',')
+             FROM profiles WHERE user_id = u_s) IS DISTINCT FROM pid || '/' || r || '/viewer/true'
        OR NOT EXISTS (SELECT 1 FROM accounts WHERE id::text = r AND owner_user_id = u_s) THEN
-      failed := array_append(failed, ('remove (only row): no personal account with the same profile: ' || r)::text);
+      failed := array_append(failed, ('remove (only row, agent): not one viewer row, same profile, in a fresh account: ' || r)::text);
     END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM profiles WHERE user_id = u_s
+                AND (deactivated_at IS NOT NULL OR deactivated_by IS NOT NULL)) THEN
+      failed := array_append(failed, 'remove (only row, deactivated): the deactivation followed them'::text);
+    END IF;
+    SELECT id INTO pid FROM profiles WHERE user_id = u_gr;
+    r := pg_temp.ws_val(u_ad, format('SELECT public.remove_account_member(%L)::text', u_gr));
+    n := n + 1;
+    IF (SELECT string_agg(id || '/' || account_id || '/' || account_role || '/' || bank_code || '/' || is_active, ',')
+          FROM profiles WHERE user_id = u_gr) IS DISTINCT FROM pid || '/' || r || '/bank_guest/ADCB/true'
+       OR pg_temp.ws_val(u_gr, 'SELECT public.current_account_id()::text') <> 'null' THEN
+      failed := array_append(failed, ('remove (only row, guest): not one guest row that sees nothing: ' || r)::text);
+    END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM profiles WHERE user_id IN (u_s, u_gr) AND account_role IN ('owner', 'admin')) THEN
+      failed := array_append(failed, 'remove (only row): a removed guest or agent is an owner or admin somewhere'::text);
+    END IF;
+    FOR i IN 1..2 LOOP
+      DECLARE
+        who UUID := CASE i WHEN 1 THEN u_gr ELSE u_s END;
+      BEGIN
+        r := pg_temp.ws_try('authenticated', who, 'SELECT public.add_workspace_member(''ws-a-only@example.invalid'', ''viewer'')')
+          || ' | ' || pg_temp.ws_try('authenticated', who, 'SELECT public.create_workspace(''WS Mine'', ''WSM'')');
+        n := n + 1;
+        IF r NOT LIKE 'ERROR 42501:% | ERROR 42501:%' THEN
+          failed := array_append(failed, ('remove (only row, ' || CASE i WHEN 1 THEN 'guest' ELSE 'agent' END
+            || '): may add_workspace_member / create_workspace (want 42501 | 42501): ' || r)::text);
+        END IF;
+      END;
+    END LOOP;
 
     -- redeem_invitation by a member of B.
     INSERT INTO account_invitations (account_id, token_hash, role, expires_at) VALUES
@@ -525,6 +572,7 @@ BEGIN
        OR (SELECT account_id FROM profiles WHERE user_id = u_ad AND is_active) IS DISTINCT FROM a_acct THEN
       failed := array_append(failed, ('create_workspace by an admin: ' || r)::text);
     END IF;
+    ws_new := r::uuid;
     r := pg_temp.ws_try('authenticated', u_x, 'SELECT public.create_workspace(''WS X'', ''WSX'')')
       || ' | ' || pg_temp.ws_try('authenticated', u_ad, 'SELECT public.create_workspace(''WS Bad'', ''WSBAD'')');
     n := n + 1;
@@ -549,6 +597,37 @@ BEGIN
         END IF;
       END;
     END LOOP;
+    -- Only someone the caller administers elsewhere may be added. W (its
+    -- own account only), M (live in B only) and, from WS New, U (live in B;
+    -- its row in A is deactivated) raise exactly what an unknown email
+    -- raises, so the RPC is no oracle for "has a login".
+    r_none := pg_temp.ws_try('authenticated', u_ad, 'SELECT public.add_workspace_member(''ws-nobody@example.invalid'', ''agent'')');
+    r := pg_temp.ws_try('authenticated', u_ad, 'SELECT public.add_workspace_member(''ws-w@example.invalid'', ''agent'')')
+      || ' | ' || pg_temp.ws_try('authenticated', u_ad, 'SELECT public.add_workspace_member(''ws-m@example.invalid'', ''agent'')');
+    n := n + 1;
+    IF r_none NOT LIKE 'ERROR P0002:%' OR r <> r_none || ' | ' || r_none
+       OR EXISTS (SELECT 1 FROM profiles WHERE user_id IN (u_w, u_m) AND account_id = a_acct) THEN
+      failed := array_append(failed, ('add_workspace_member of a stranger: want "' || r_none || '" twice, got ' || r)::text);
+    END IF;
+    PERFORM pg_temp.ws_try('authenticated', u_ad, format('SELECT public.switch_account(%L)', ws_new));
+    r := pg_temp.ws_try('authenticated', u_ad, 'SELECT public.add_workspace_member(''ws-multi@example.invalid'', ''agent'')');
+    n := n + 1;
+    IF r IS DISTINCT FROM r_none OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_u AND account_id = ws_new) THEN
+      failed := array_append(failed, ('add_workspace_member of a person deactivated where the caller is admin: ' || r)::text);
+    END IF;
+    -- The cross-workspace add: from WS New, X (live agent in A, where the
+    -- caller is admin; the caller's A row is not the active one).
+    r := pg_temp.ws_val(u_ad, 'SELECT public.add_workspace_member(''ws-a-only@example.invalid'', ''agent'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM u_x::text
+       OR (SELECT account_role || '/' || is_active FROM profiles WHERE user_id = u_x AND account_id = ws_new)
+          IS DISTINCT FROM 'agent/false' THEN
+      failed := array_append(failed, ('add_workspace_member from another workspace the caller administers: ' || r)::text);
+    END IF;
+    PERFORM pg_temp.ws_try('authenticated', u_ad, format('SELECT public.switch_account(%L)', a_acct));
+    -- W works in WS New (A's admin owns it): now W may be added to A.
+    INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+    VALUES (u_w, '', 'ws-w@example.invalid', ws_new, 'agent', false);
     r := pg_temp.ws_val(u_ad, 'SELECT public.add_workspace_member(''ws-w@example.invalid'', ''bank_guest'', ''ADIB'')::text');
     n := n + 1;
     IF r IS DISTINCT FROM u_w::text
