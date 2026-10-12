@@ -17,6 +17,7 @@ import { ChannelView } from '@/components/chat/channel-view';
 import { useChatWorkspaceContext } from '@/components/chat/chat-context';
 import { Composer } from '@/components/chat/composer';
 import { MessageMarksProvider } from '@/components/chat/message-marks';
+import { ThreadPanel } from '@/components/chat/thread-panel';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -45,6 +46,7 @@ import {
   windowCountdown,
   type GroupComposerMode,
 } from '@/lib/deal-rooms/view';
+import { rightColumn, withRightColumn } from '@/lib/chat/panels';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { cn } from '@/lib/utils';
 
@@ -141,6 +143,19 @@ export function DealRoomView({
     const s = q.toString();
     router.replace(`${pathname}${s ? `?${s}` : ''}`, { scroll: false });
   };
+  // Team notes threads open beside the timeline (?thread=), as on a
+  // channel's own page.
+  const right = rightColumn(params);
+  const threadRoot =
+    tab === 'notes' && right?.kind === 'thread' ? right.rootId : null;
+  const showThread = (rootId: string | null) =>
+    router.replace(
+      `${pathname}${withRightColumn(
+        params.toString(),
+        rootId ? { kind: 'thread', rootId } : null
+      )}`,
+      { scroll: false }
+    );
   const phase = roomPhase(room.status, room.participantCount);
   const creator = room.createdBy
     ? ws.peopleById.get(room.createdBy.toLowerCase())?.fullName
@@ -154,7 +169,7 @@ export function DealRoomView({
   const ctx: RoomContext = { detail, reload };
   const mode = groupComposerMode({ ...room, now });
 
-  return (
+  const layout = (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="border-b px-4 py-3">
@@ -239,7 +254,7 @@ export function DealRoomView({
             />
           </>
         ) : (
-          <MessageMarksProvider key={room.channelId} channelId={room.channelId}>
+          <>
             <div className="px-4 pt-3">
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-[#0E7C5A] [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300">
                 <ShieldCheck className="size-3.5" aria-hidden />
@@ -250,16 +265,35 @@ export function DealRoomView({
               <ChannelView
                 embedded
                 channelId={room.channelId}
+                onOpenThread={(rootId) => showThread(rootId)}
                 footer={
                   <Composer key={room.channelId} channelId={room.channelId} />
                 }
               />
             </div>
-          </MessageMarksProvider>
+          </>
         )}
       </div>
+      {threadRoot && (
+        <ThreadPanel
+          key={threadRoot}
+          channelId={room.channelId}
+          rootId={threadRoot}
+          onClose={() => showThread(null)}
+        />
+      )}
       {membersPanel?.(ctx)}
     </div>
+  );
+  // The notes timeline and its thread share one marks provider (saved,
+  // pinned), as on a channel's own page. Staff keep it across the tabs so
+  // switching does not remount the room; a guest never has Team notes.
+  return guest ? (
+    layout
+  ) : (
+    <MessageMarksProvider key={room.channelId} channelId={room.channelId}>
+      {layout}
+    </MessageMarksProvider>
   );
 }
 
