@@ -4,6 +4,7 @@ export {
   type AdminDecision,
   type AdminReq,
 } from './admin';
+export { clientIp } from './client-ip';
 export { ipKey } from './ip';
 export {
   AuthLockout,
