@@ -26,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { sessionStore, takeComposerPrefill } from '@/lib/pbx/timeline';
 import { GatedButton } from '@/components/ui/gated-button';
 import {
   DropdownMenu,
@@ -168,7 +169,12 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
 
-  const [text, setText] = useState('');
+  // "Draft WhatsApp" on the customer page leaves a one-shot text for
+  // this chat: it opens in the box, editable, and is never sent by
+  // itself. Read once, when the composer mounts for the chat.
+  const [text, setText] = useState(
+    () => takeComposerPrefill(sessionStore(), conversationId) ?? ''
+  );
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

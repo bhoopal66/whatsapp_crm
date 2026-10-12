@@ -20,6 +20,7 @@ import {
   maskPhone,
   type ConsentFields,
 } from '@/lib/pbx/call-ui';
+import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
 import { useCalls } from './call-provider';
 
@@ -300,11 +301,10 @@ export function IncomingCallCard() {
       <div className="mt-3 flex items-center justify-between gap-2 text-xs">
         {known ? (
           <Link
-            href={
-              facts?.conversationId
-                ? `/inbox?c=${facts.conversationId}`
-                : '/contacts'
-            }
+            href={customerHref({
+              contactId: call.contact_id ?? pickedId,
+              conversationId: facts?.conversationId,
+            })}
             className="text-emerald-300 hover:underline"
           >
             {t('openCustomer')}
