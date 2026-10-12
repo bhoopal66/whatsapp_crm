@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { useParams, usePathname } from 'next/navigation';
 
+import { CreateDealRoomDialog } from '@/components/deal-rooms/create-dialog';
 import { DealRoomsSidebar } from '@/components/deal-rooms/rooms-sidebar';
 import { useAuth } from '@/hooks/use-auth';
 import { useDealRooms } from '@/hooks/use-deal-rooms';
+import { hasMinRole } from '@/lib/auth/roles';
 import { isSavedPath } from '@/lib/chat/saved';
 import { cn } from '@/lib/utils';
 
@@ -20,21 +22,29 @@ import { NewChannelDialog } from './new-channel-dialog';
  * header has the back link). The New channel dialog and the DM picker
  * are mounted here, inside the workspace provider; never for a guest.
  */
-export function ChatLayout({
-  children,
-  onCreateDealRoom,
-}: {
-  children: React.ReactNode;
-  /** The deal-room create dialog (a later job). */
-  onCreateDealRoom?: () => void;
-}) {
+export function ChatLayout({ children }: { children: React.ReactNode }) {
   const params = useParams<{ channelId?: string; roomId?: string }>();
   const pathname = usePathname();
-  const { isBankGuest, accountId, account, workspaces, activeWorkspaceId } =
-    useAuth();
+  const {
+    isBankGuest,
+    accountId,
+    account,
+    accountRole,
+    workspaces,
+    activeWorkspaceId,
+  } = useAuth();
   const { rooms } = useDealRooms(accountId);
   const [composeOpen, setComposeOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
+  const [dealRoomOpen, setDealRoomOpen] = useState(false);
+  // Agents and up open deal rooms (deal_room_create refuses viewers).
+  const onCreateDealRoom =
+    !isBankGuest && !!accountRole && hasMinRole(accountRole, 'agent')
+      ? () => {
+          setComposeOpen(false);
+          setDealRoomOpen(true);
+        }
+      : undefined;
   const activeChannelId = params?.channelId ?? null;
   const activeRoomId = params?.roomId ?? null;
   // /chat/rooms (the drill-in list) and /chat/rooms/<id> (a room).
@@ -57,7 +67,7 @@ export function ChatLayout({
               account?.name ??
               ''
             }
-            onCreateDealRoom={isBankGuest ? undefined : onCreateDealRoom}
+            onCreateDealRoom={onCreateDealRoom}
             className={sidebarClass}
           />
         ) : (
@@ -80,7 +90,15 @@ export function ChatLayout({
       </div>
       {!isBankGuest && (
         <>
-          <NewChannelDialog open={composeOpen} onOpenChange={setComposeOpen} />
+          <NewChannelDialog
+            open={composeOpen}
+            onOpenChange={setComposeOpen}
+            onCreateDealRoom={onCreateDealRoom}
+          />
+          <CreateDealRoomDialog
+            open={dealRoomOpen}
+            onOpenChange={setDealRoomOpen}
+          />
           <DmPicker open={dmOpen} onOpenChange={setDmOpen} />
         </>
       )}
