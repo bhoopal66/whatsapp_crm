@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   health: vi.fn(),
   sweep: vi.fn(),
   rpc: vi.fn(),
+  journeyTick: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -54,6 +55,10 @@ vi.mock('@/lib/whatsapp/channel-health', async (importOriginal) => ({
 
 vi.mock('@/lib/team-activity/alert-sweep', () => ({
   runTeamActivityAlertSweep: h.sweep,
+}));
+
+vi.mock('@/lib/journeys/host/tick', () => ({
+  runJourneyTick: h.journeyTick,
 }));
 
 function req() {
@@ -234,5 +239,48 @@ describe('GET /api/automations/cron — edge store purge', () => {
     expect(res.status).toBe(401);
     await runAfter();
     expect(h.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/automations/cron — journey tick', () => {
+  it('runs the journey tick after the response, at most once a minute', async () => {
+    vi.resetModules();
+    h.journeyTick.mockReset();
+    h.journeyTick.mockResolvedValue({});
+    vi.setSystemTime(new Date('2026-10-12T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.journeyTick).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.journeyTick).toHaveBeenCalledTimes(1);
+    expect(h.journeyTick.mock.calls[0][0]).toHaveProperty('db');
+
+    vi.setSystemTime(new Date('2026-10-12T09:00:59Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.journeyTick).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-12T09:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.journeyTick).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a failed journey tick and still answers', async () => {
+    vi.resetModules();
+    h.journeyTick.mockReset();
+    h.journeyTick.mockRejectedValue(new Error('boom'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('./route');
+
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] journey tick failed:',
+      'boom'
+    );
+    log.mockRestore();
   });
 });
