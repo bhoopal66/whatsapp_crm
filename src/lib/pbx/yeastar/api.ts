@@ -181,9 +181,12 @@ const MEMBER_KINDS: readonly CallMemberKind[] = [
 
 /**
  * Each entry of `members` is an object keyed by what the leg is. A leg
- * without a channel id cannot be acted on, so it is dropped.
+ * without a channel id cannot be acted on, so it is dropped. Shared by
+ * `call/query` and the (30011) Call State Changed event. The docs' own
+ * samples send `call_path: " "` for a call that took no IVR, queue or
+ * ring group, so a blank path counts as none.
  */
-function parseMembers(raw: unknown): CallMember[] {
+export function parseMembers(raw: unknown): CallMember[] {
   const out: CallMember[] = [];
   if (!Array.isArray(raw)) return out;
   for (const entry of raw) {
@@ -192,7 +195,10 @@ function parseMembers(raw: unknown): CallMember[] {
       const m = entry[kind];
       const channelId = isRecord(m) ? nonEmpty(m.channel_id) : undefined;
       if (!isRecord(m) || !channelId) continue;
-      const callPath = nonEmpty(m.call_path);
+      const callPath =
+        typeof m.call_path === 'string' && m.call_path.trim() !== ''
+          ? m.call_path
+          : undefined;
       const num = nonEmpty(m.number);
       const from = nonEmpty(m.from);
       const to = nonEmpty(m.to);

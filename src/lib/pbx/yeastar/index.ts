@@ -24,7 +24,30 @@ export {
   type YeastarClient,
   type YeastarRequestOptions,
 } from './client';
+export { cdrRecordToCallEnd, dedupeByUid } from './cdr';
 export { YeastarError } from './errors';
+export {
+  DEFAULT_PBX_TIME_ZONE,
+  YEASTAR_EVENT,
+  isMissedCallEnd,
+  parsePbxTime,
+  parseYeastarEvent,
+  remoteParty,
+  ringingExtensions,
+  type CallDirection,
+  type CallEndEvent,
+  type CallStateEvent,
+  type ExtensionCallStateEvent,
+  type ParseResult,
+  type PbxTimeOptions,
+  type PresenceEvent,
+  type PresenceStatus,
+  type RegistrationClient,
+  type RegistrationEvent,
+  type UnknownEvent,
+  type WebhookTestEvent,
+  type YeastarEvent,
+} from './events';
 export type {
   FetchFn,
   YeastarConnection,
@@ -40,3 +63,14 @@ export {
   type TokenProvider,
   type YeastarTokenConnection,
 } from './token';
+export { verifyYeastarWebhookSignature } from './webhook';
+export {
+  DEFAULT_TOPICS,
+  HEARTBEAT,
+  HEARTBEAT_INTERVAL_MS,
+  isHeartbeatReply,
+  nextBackoffMs,
+  parseSubscribeReply,
+  subscribeMessage,
+  wsUrl,
+} from './ws';
