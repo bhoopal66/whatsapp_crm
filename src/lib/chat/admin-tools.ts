@@ -66,3 +66,76 @@ export function chunked<T>(list: readonly T[], size: number): T[][] {
     out.push(list.slice(i, i + Math.max(1, size)));
   return out;
 }
+
+/** One row of GET /api/chat/admin/private-channels. */
+export interface AdminChannelSummary {
+  id: string;
+  kind: AdminReadableChannel['kind'];
+  /** NULL for a DM: label it by `memberNames`. */
+  name: string | null;
+  /** Unknown people are left out, so this can be shorter than memberCount. */
+  memberNames: string[];
+  memberCount: number;
+  /** The newest message, else when the channel was created. */
+  lastActivityAt: string | null;
+  archived: boolean;
+}
+
+/**
+ * privateChannelsNotIn, labelled for the picker. `rows` also embed the
+ * newest message (`internal_messages(created_at)`, newest first);
+ * `people` are the workspace's profiles, deactivated ones included.
+ * DMs, which have no name, sort by their members' names.
+ */
+export function adminChannelList(
+  rows: readonly Record<string, unknown>[],
+  viewerId: string,
+  people: readonly { user_id: unknown; full_name: unknown }[]
+): AdminChannelSummary[] {
+  const names = new Map(
+    people.map((p) => [String(p.user_id).toLowerCase(), p.full_name])
+  );
+  const activity = new Map(
+    rows.map((r) => {
+      const newest = Array.isArray(r.internal_messages)
+        ? (r.internal_messages[0] as Record<string, unknown> | undefined)
+        : undefined;
+      const at = newest?.created_at ?? r.created_at;
+      return [String(r.id), at == null ? null : String(at)];
+    })
+  );
+  const list = privateChannelsNotIn(rows, viewerId).map((c) => ({
+    id: c.id,
+    kind: c.kind,
+    name: c.name,
+    memberNames: c.memberIds
+      .map((id) => names.get(id.toLowerCase()))
+      .filter((n): n is string => typeof n === 'string' && n.trim() !== '')
+      .sort((a, b) => a.localeCompare(b)),
+    memberCount: c.memberIds.length,
+    lastActivityAt: activity.get(c.id) ?? null,
+    archived: c.archived,
+  }));
+  const rank = { private: 0, deal_room: 1, dm: 2 } as const;
+  const label = (c: AdminChannelSummary) => c.name ?? c.memberNames.join(', ');
+  return list.sort(
+    (a, b) => rank[a.kind] - rank[b.kind] || label(a).localeCompare(label(b))
+  );
+}
+
+/**
+ * The erased paths that are this workspace's chat files
+ * (`account-<ws>/…`, as chatFilePath builds them). The service role
+ * deletes them, so nothing outside the workspace may get through.
+ */
+export function chatFilesOfAccount(
+  paths: readonly string[],
+  accountId: string
+): string[] {
+  const prefix = `account-${accountId.toLowerCase()}/`;
+  return paths.filter(
+    (p) =>
+      p.toLowerCase().startsWith(prefix) &&
+      !p.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')
+  );
+}
