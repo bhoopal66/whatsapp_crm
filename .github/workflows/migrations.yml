@@ -195,3 +195,19 @@ jobs:
       # system task is refused and that assigning rings the bell.
       - name: Verify tasks
         run: supabase db query --local --file supabase/ci/verify-tasks.sql
+
+      # Internal chat (087): channels, DMs, threads, mentions and shared
+      # customer-chat cards are RLS plus SECURITY DEFINER functions over
+      # membership in the channel's workspace. A bank guest sees a deal
+      # room but never its Team notes; a shared card shows its live
+      # status only to someone who can open the chat in the inbox. Only
+      # real Postgres can show it.
+      - name: Verify internal chat
+        run: supabase db query --local --file supabase/ci/verify-internal-chat.sql
+
+      # Internal chat (087), part 2: channel membership (D-B1), pins,
+      # direct writes refused for every role, the audited admin read,
+      # erasure, and the private chat-files bucket. RLS and SECURITY
+      # DEFINER RPCs are the boundary, so only real Postgres can show it.
+      - name: Verify internal chat (admin)
+        run: supabase db query --local --file supabase/ci/verify-internal-chat-admin.sql
