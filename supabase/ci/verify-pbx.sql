@@ -352,6 +352,15 @@ BEGIN
   n := n + 1;
   IF r <> '0/1' THEN failed := array_append(failed, ('bank numbers (agent/admin): ' || r)::text); END IF;
 
+  -- ---------- one bell per missed call ----------
+  r := pg_temp.px_try('service_role', NULL, format(
+    'INSERT INTO tasks (account_id, kind, title, assigned_to, source, source_ref) VALUES (%L, %L, %L, %L, %L, %L)',
+    a_acct, 'missed_call', 'PX missed call bell', u_agent, 'pbx', 'px-call-bell'));
+  n := n + 1;
+  IF r LIKE 'ERROR%' OR EXISTS (SELECT 1 FROM notifications WHERE type = 'task_assigned' AND title = 'PX missed call bell') THEN
+    failed := array_append(failed, ('a missed-call task rang task_assigned beside call_missed: ' || r)::text);
+  END IF;
+
   -- ---------- pbx_purge ----------
   r := pg_temp.px_try('service_role', NULL, 'SELECT pbx_purge()::text');
   n := n + 1;

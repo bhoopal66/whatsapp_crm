@@ -888,3 +888,54 @@ GRANT EXECUTE ON FUNCTION
   public.pbx_token_lock(uuid, text), public.pbx_token_swap(uuid, timestamptz, text, text),
   public.pbx_recording_playable(uuid), public.pbx_purge()
   TO service_role;
+
+-- ---------- 13. One bell per missed call ----------
+-- The processor rings its own call_missed bell for a missed call, which
+-- carries the call; 085's assignment bell on the PBX task it opens rang
+-- a second time. A PBX task's INSERT is now silent; reassigning one
+-- later still rings the new assignee. Everything else is 085's.
+-- Appended before release; re-runnable.
+CREATE OR REPLACE FUNCTION public.tasks_notify_assigned()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NEW.assigned_to IS NULL OR NEW.status <> 'open' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.assigned_to IS NOT DISTINCT FROM OLD.assigned_to THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' AND NEW.source = 'pbx' THEN
+    RETURN NEW;
+  END IF;
+  -- Assigning yourself is not news. No auth.uid() (a module on the
+  -- service role) is someone else.
+  IF auth.uid() IS NOT NULL AND auth.uid() = NEW.assigned_to THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO notifications (
+    account_id, user_id, type, conversation_id, contact_id,
+    actor_user_id, title, body
+  ) VALUES (
+    NEW.account_id,
+    NEW.assigned_to,
+    'task_assigned',
+    NEW.conversation_id,
+    NEW.contact_id,
+    auth.uid(),
+    NEW.title,
+    CASE WHEN NEW.due_at IS NOT NULL THEN
+      'Due ' || to_char(NEW.due_at AT TIME ZONE 'UTC', 'DD Mon YYYY HH24:MI') || ' UTC'
+    END
+  );
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'Failed to create the assignment notification for task %: %', NEW.id, SQLERRM;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.tasks_notify_assigned() FROM PUBLIC, anon, authenticated;
