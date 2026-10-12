@@ -49,13 +49,17 @@ function setup(
     room?: Record<string, unknown>;
     people?: Record<string, unknown>[];
     settings?: Record<string, unknown>[];
+    rpc?: (fn: string, params: Record<string, unknown>) => unknown;
   } = {}
 ) {
-  return memoryDb({
-    deal_rooms: [{ ...ROOM, ...over.room }],
-    deal_room_participants: over.people ?? [person('p1')],
-    deal_room_settings: over.settings ?? [SETTINGS],
-  });
+  return memoryDb(
+    {
+      deal_rooms: [{ ...ROOM, ...over.room }],
+      deal_room_participants: over.people ?? [person('p1')],
+      deal_room_settings: over.settings ?? [SETTINGS],
+    },
+    { rpc: over.rpc }
+  );
 }
 
 const participant = (mem: ReturnType<typeof setup>, id: string) =>
@@ -166,6 +170,47 @@ describe('sendRoomInvites', () => {
       type: 'deal_room_update',
       meta: { room_id: 'room-1', event: 'invite_template_missing' },
     });
+    expect(participant(mem, 'p1').invite_message_id).toBeNull();
+  });
+
+  it('re-checks each person before the send: skips, unclaimed, whoever may not be let in now, and records why', async () => {
+    const mem = setup({
+      people: [person('p1'), person('p2', { role: 'bank_guest' })],
+      rpc: (fn, params) =>
+        fn === 'deal_room_admit_block' && params.p_participant === 'p1'
+          ? 'opted_out'
+          : null,
+    });
+    const summary = await sendRoomInvites(mem.db, 'room-1');
+    expect(summary).toMatchObject({ sent: 1, failed: 0, skipped: 1 });
+    expect(mem.rpcCalls).toEqual([
+      ['deal_room_admit_block', { p_participant: 'p1' }],
+      ['deal_room_admit_block', { p_participant: 'p2' }],
+    ]);
+    expect(h.sendGroupInviteTemplate).toHaveBeenCalledTimes(1);
+    expect(h.sendGroupInviteTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ to: '971500000002' })
+    );
+    expect(participant(mem, 'p1').invite_message_id).toBeNull();
+    const audit = mem.log.find((q) => q.table === 'deal_room_audit');
+    expect(audit?.values).toMatchObject({
+      action: 'invites_sent',
+      detail: {
+        sent: 1,
+        blocked: [{ participant_id: 'p1', reason: 'opted_out' }],
+      },
+    });
+  });
+
+  it('sends nothing to a person the re-check could not be made for', async () => {
+    const mem = setup({
+      rpc: () => {
+        throw { message: 'db down' };
+      },
+    });
+    const summary = await sendRoomInvites(mem.db, 'room-1');
+    expect(summary).toMatchObject({ sent: 0, failed: 1 });
+    expect(h.sendGroupInviteTemplate).not.toHaveBeenCalled();
     expect(participant(mem, 'p1').invite_message_id).toBeNull();
   });
 
