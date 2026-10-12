@@ -76,7 +76,13 @@ const sink = (...replies: Reply[]) => {
 const outboxUpdates = (queries: unknown[][]) =>
   queries
     .filter((q) => JSON.stringify(q[0]) === '["from","journey_outbox"]')
-    .map((q) => q.find((c) => (c as unknown[])[0] === 'update')?.[1]);
+    .map(
+      (q) =>
+        (
+          q.find((c) => (c as unknown[])[0] === 'update') as
+            unknown[] | undefined
+        )?.[1]
+    );
 
 beforeEach(() => {
   for (const f of Object.values(h)) f.mockReset();
