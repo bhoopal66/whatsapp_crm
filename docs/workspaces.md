@@ -66,6 +66,19 @@ staff. A guest:
   needs a bank code. Someone who already has a login keeps it and gains
   a membership; an unknown email gets a new login. The new membership
   does not become the person's active one unless they have no other.
+- **Who can add an existing login:** only an owner or admin of a
+  workspace where that person is an active (not deactivated) member —
+  for example an owner bringing their RM from workspace A into
+  workspace B. For any other registered address the answer is the same
+  as for an unknown email, so nobody can test whether an address has a
+  login; creating a login for it then fails with "This email already
+  has a login. An administrator of one of that person's workspaces can
+  add them here."
+- **Removal from the only workspace:** the person keeps their login and
+  is moved to a new, empty workspace of their own — as a viewer (a bank
+  guest stays a bank guest), never as its owner or an admin, and with
+  any deactivation cleared. They cannot add people or create
+  workspaces from there; an invitation brings them back.
 
 ## Deactivation
 

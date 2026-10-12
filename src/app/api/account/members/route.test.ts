@@ -21,7 +21,7 @@ vi.mock('@/lib/auth/account', () => ({
   requireRole: mocks.requireRole,
   getCurrentAccount: mocks.getCurrentAccount,
   toErrorResponse: vi.fn(() =>
-    Response.json({ error: 'auth failed' }, { status: 403 }),
+    Response.json({ error: 'auth failed' }, { status: 403 })
   ),
 }));
 
@@ -43,6 +43,7 @@ vi.mock('@/lib/supabase/urls', () => ({
   serverSupabaseUrl: () => 'http://localhost:8000',
 }));
 
+import { EMAIL_HAS_LOGIN } from '@/lib/account/add-member';
 import { POST } from './route';
 
 // The caller's own client: add_workspace_member, then the read of the
@@ -76,10 +77,16 @@ describe('POST /api/account/members', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireRole.mockResolvedValue(ADMIN_CTX);
-    mocks.createUser.mockResolvedValue({ data: { user: { id: 'user-2' } }, error: null });
+    mocks.createUser.mockResolvedValue({
+      data: { user: { id: 'user-2' } },
+      error: null,
+    });
     mocks.rpc.mockResolvedValue({ error: null });
     mocks.deleteUser.mockResolvedValue({ error: null });
-    mocks.getUserById.mockResolvedValue({ data: { user: { id: 'user-3' } }, error: null });
+    mocks.getUserById.mockResolvedValue({
+      data: { user: { id: 'user-3' } },
+      error: null,
+    });
     mocks.updateUserById.mockResolvedValue({ error: null });
     // Unless a test says otherwise, the email has no login yet.
     mocks.callerRpc.mockResolvedValue({
@@ -96,7 +103,10 @@ describe('POST /api/account/members', () => {
     // Confirmed up front: this deployment sends no mail, so waiting on
     // a verification link would lock the new user out for good.
     expect(mocks.createUser).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'new.person@example.com', email_confirm: true }),
+      expect.objectContaining({
+        email: 'new.person@example.com',
+        email_confirm: true,
+      })
     );
     expect(mocks.rpc).toHaveBeenCalledWith('provision_account_member', {
       p_user_id: 'user-2',
@@ -145,7 +155,7 @@ describe('POST /api/account/members', () => {
 
   it('creates a new login as a bank guest with its bank code', async () => {
     const res = await POST(
-      request({ ...VALID, role: 'bank_guest', bankCode: ' ENBD ' }),
+      request({ ...VALID, role: 'bank_guest', bankCode: ' ENBD ' })
     );
 
     expect(res.status).toBe(201);
@@ -169,7 +179,10 @@ describe('POST /api/account/members', () => {
   it('reports someone already in the workspace as a conflict', async () => {
     mocks.callerRpc.mockResolvedValue({
       data: null,
-      error: { code: '23505', message: 'That person is already a member of this workspace' },
+      error: {
+        code: '23505',
+        message: 'That person is already a member of this workspace',
+      },
     });
     const res = await POST(request(VALID));
     expect(res.status).toBe(409);
@@ -206,10 +219,14 @@ describe('POST /api/account/members', () => {
   it('reports a taken address as a conflict', async () => {
     mocks.createUser.mockResolvedValue({
       data: null,
-      error: { message: 'A user with this email address has already been registered' },
+      error: {
+        message: 'A user with this email address has already been registered',
+      },
     });
     const res = await POST(request(VALID));
     expect(res.status).toBe(409);
+    // One fixed answer, never GoTrue's wording.
+    expect((await res.json()).error).toBe(EMAIL_HAS_LOGIN);
   });
 
   it('deletes the auth user when the move into the account fails', async () => {

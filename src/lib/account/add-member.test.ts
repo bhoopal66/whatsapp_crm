@@ -7,7 +7,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // These pin which branch runs, and that a login banned by an earlier
 // deactivation everywhere can sign in again once it is added.
 
-import { addOrCreateMember, isAddableRole } from './add-member';
+import {
+  addOrCreateMember,
+  EMAIL_HAS_LOGIN,
+  isAddableRole,
+} from './add-member';
 
 const callerRpc = vi.fn();
 const adminRpc = vi.fn();
@@ -147,6 +151,35 @@ describe('addOrCreateMember', () => {
       p_bank_code: 'ENBD',
     });
   });
+
+  it.each([
+    [
+      'its wording',
+      { message: 'A user with this email address has already been registered' },
+    ],
+    [
+      'its code',
+      { message: 'Email address taken', code: 'email_exists', status: 422 },
+    ],
+  ])(
+    'answers one fixed conflict, never GoTrue’s text, for a registered address the RPC refused (%s)',
+    async (_, gotrueError) => {
+      callerRpc.mockResolvedValue({ data: null, error: NO_SUCH_USER });
+      createUser.mockResolvedValue({
+        data: { user: null },
+        error: gotrueError,
+      });
+      const result = await add({ password: 'correct-horse' });
+
+      expect(result).toEqual({
+        ok: false,
+        status: 409,
+        error: EMAIL_HAS_LOGIN,
+      });
+      expect(adminRpc).not.toHaveBeenCalled();
+      expect(deleteUser).not.toHaveBeenCalled();
+    }
+  );
 
   it('asks for a password only when the login has to be created', async () => {
     callerRpc.mockResolvedValue({ data: null, error: NO_SUCH_USER });
