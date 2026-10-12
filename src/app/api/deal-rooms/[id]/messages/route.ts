@@ -77,11 +77,12 @@ export async function POST(
  * A page of the group's messages, oldest first: `?before=<createdAt>`
  * (exclusive; pass the previous page's `nextBefore`) and `limit` (1 to
  * 100, default 50). Each message carries `senderName` / `senderRole`
- * from the roster (a staff member's post reads "<name> · Taamul"),
+ * from the roster (a staff member's post reads "<name> · <workspace
+ * name>", "<name> · Team" when the workspace has no name),
  * `fileName` for media, and `deliveredCount` / `readCount` from the
  * receipts. Guest-capable and read as the caller (RLS decides); only
- * the posters' names are looked up on the service role. 404 when the
- * caller cannot see the room.
+ * the posters' names and the workspace name are looked up on the
+ * service role. 404 when the caller cannot see the room.
  */
 export async function GET(
   request: Request,
