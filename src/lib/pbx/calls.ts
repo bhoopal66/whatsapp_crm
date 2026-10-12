@@ -3,22 +3,24 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { PbxConnectionError } from './connection';
 import { contactPhoneCandidates, normalizeRemoteNumber } from './phone';
 import { YeastarError, type CallInfo, type CallMember } from './yeastar';
+import {
+  isMissedCall,
+  type CallDirection,
+  type CallStatus,
+} from './call-status';
 
 // The call screens' helpers (module 015, migration 089): pure rules
 // first, then the few lookups the /api/pbx/calls routes share.
 
-export const CALL_STATUSES = [
-  'ringing',
-  'in_progress',
-  'answered',
-  'no_answer',
-  'busy',
-  'voicemail',
-  'abandoned',
-  'failed',
-] as const;
-export type CallStatus = (typeof CALL_STATUSES)[number];
-export type CallDirection = 'inbound' | 'outbound' | 'internal';
+// The pure call-status rules live in ./call-status, which the browser
+// can import; this file pulls in next/server.
+export {
+  CALL_STATUSES,
+  MISSED_STATUSES,
+  isMissedCall,
+  type CallDirection,
+  type CallStatus,
+} from './call-status';
 
 /** The calls.disposition CHECK; pbx_set_disposition checks the same. */
 export const DISPOSITIONS = [
@@ -30,14 +32,6 @@ export const DISPOSITIONS = [
 ] as const;
 export type Disposition = (typeof DISPOSITIONS)[number];
 export const NOTES_MAX = 4000;
-
-/** An inbound call that ended like this is missed (as the processor's tasks). */
-export const MISSED_STATUSES: readonly CallStatus[] = [
-  'no_answer',
-  'busy',
-  'abandoned',
-  'voicemail',
-];
 
 /** Ranks from lib/auth/roles.ts: team leader and admin. */
 export const RANK_LEADER = 3;
@@ -65,13 +59,6 @@ export function callStatusLabel(status: string): string {
 
 export function callDirectionLabel(direction: string): string {
   return DIRECTION_LABELS[direction as CallDirection] ?? direction;
-}
-
-export function isMissedCall(c: { direction: string; status: string }) {
-  return (
-    c.direction === 'inbound' &&
-    MISSED_STATUSES.includes(c.status as CallStatus)
-  );
 }
 
 // ---------- Presence ----------

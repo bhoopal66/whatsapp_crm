@@ -1,5 +1,5 @@
 import type { PresenceView } from './calls';
-import { isMissedCall } from './calls';
+import { isMissedCall } from './call-status';
 import type { SoftphoneState } from './linkus-state';
 
 // The customer page, the Calls page and the chat sidebar's CALLS rows
