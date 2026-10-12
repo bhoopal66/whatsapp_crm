@@ -3457,6 +3457,53 @@
       "loading": "스레드를 불러오는 중…",
       "gone": "이 메시지를 볼 수 없습니다.",
       "replies": "{count, plural, =0 {아직 답글이 없습니다} other {답글 #개}}"
+    },
+    "picker": {
+      "search": "사람 검색",
+      "none": "일치하는 사람이 없습니다",
+      "picked": "선택한 사람",
+      "remove": "{name} 제거",
+      "limit": "다이렉트 메시지에는 나를 제외하고 최대 {max}명까지 포함할 수 있습니다."
+    },
+    "dm": {
+      "new": "새 메시지",
+      "title": "새 메시지",
+      "subtitle": "최대 {max}명을 선택하세요. 내부 전용입니다.",
+      "open": "열기",
+      "cancel": "취소"
+    },
+    "newChannel": {
+      "title": "새 채널 또는 그룹",
+      "subtitle": "{workspace} 워크스페이스",
+      "type": "유형",
+      "team": "팀 채널",
+      "teamBody": "워크스페이스의 모든 사람에게 공개됩니다. 내부 전용입니다.",
+      "private": "비공개 채널",
+      "privateBody": "초대된 멤버만 참여합니다(예: 특정 은행 데스크 또는 신용 심사). 내부 전용입니다.",
+      "dealRoom": "딜 룸",
+      "dealRoomBody": "고객(초대한 경우 은행 포함)과 함께하는 실제 WhatsApp 그룹입니다. 고객이 볼 수 있습니다.",
+      "dealRoomSoon": "딜 룸과 함께 제공될 예정입니다",
+      "name": "이름",
+      "namePlaceholder": "예: credit-review",
+      "nameTaken": "이미 사용 중인 이름입니다",
+      "topic": "주제",
+      "optional": "(선택 사항)",
+      "topicPlaceholder": "이 채널은 어떤 용도인가요?",
+      "members": "멤버",
+      "cancel": "취소",
+      "create": "채널 만들기",
+      "creating": "만드는 중…"
+    },
+    "saved": {
+      "row": "저장됨",
+      "title": "저장한 항목",
+      "count": "{count, plural, =0 {저장한 항목 없음} other {저장한 메시지 #개}}",
+      "loading": "불러오는 중…",
+      "empty": "아직 저장한 항목이 없습니다. 메시지에서 “나중을 위해 저장”을 사용하면 여기에 보관됩니다.",
+      "remove": "제거",
+      "inThread": "스레드 답글",
+      "erased": "이 메시지는 영구 삭제되었습니다.",
+      "noText": "첨부 파일 또는 공유된 대화"
     }
   }
 }

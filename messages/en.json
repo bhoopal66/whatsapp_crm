@@ -3457,6 +3457,53 @@
       "loading": "Loading thread…",
       "gone": "This message isn't available.",
       "replies": "{count, plural, =0 {No replies yet} =1 {# reply} other {# replies}}"
+    },
+    "picker": {
+      "search": "Search people",
+      "none": "No one matches",
+      "picked": "Picked",
+      "remove": "Remove {name}",
+      "limit": "That's the most a direct message can include ({max} besides you)."
+    },
+    "dm": {
+      "new": "New message",
+      "title": "New message",
+      "subtitle": "Choose up to {max} people. Internal only.",
+      "open": "Open",
+      "cancel": "Cancel"
+    },
+    "newChannel": {
+      "title": "New channel or group",
+      "subtitle": "In {workspace}",
+      "type": "Type",
+      "team": "Team channel",
+      "teamBody": "Open to everyone in the workspace. Internal only.",
+      "private": "Private channel",
+      "privateBody": "Invited members only, e.g. one bank desk or credit review. Internal only.",
+      "dealRoom": "Deal room",
+      "dealRoomBody": "A real WhatsApp group with the customer (and bank, if invited). Customer can see.",
+      "dealRoomSoon": "Coming with deal rooms",
+      "name": "Name",
+      "namePlaceholder": "e.g. credit-review",
+      "nameTaken": "That name is taken",
+      "topic": "Topic",
+      "optional": "(optional)",
+      "topicPlaceholder": "What is this channel for?",
+      "members": "Members",
+      "cancel": "Cancel",
+      "create": "Create channel",
+      "creating": "Creating…"
+    },
+    "saved": {
+      "row": "Saved",
+      "title": "Saved items",
+      "count": "{count, plural, =0 {Nothing saved} =1 {# saved message} other {# saved messages}}",
+      "loading": "Loading…",
+      "empty": "Nothing saved yet. Use “Save for later” on any message to keep it here.",
+      "remove": "Remove",
+      "inThread": "in a thread",
+      "erased": "This message was erased.",
+      "noText": "Attachment or shared conversation"
     }
   }
 }
