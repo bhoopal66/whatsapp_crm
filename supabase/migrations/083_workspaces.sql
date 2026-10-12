@@ -1138,15 +1138,25 @@ $$;
 -- moved into p_account_id and discarded as before. Someone who already
 -- has other rows gets one more row, inactive unless they have no active
 -- row; nothing is deleted and their active mark stays where it is (the
--- 041 refusals for that case are gone). bank_guest is refused: there is
--- no bank_code argument, and add_workspace_member takes one.
-CREATE OR REPLACE FUNCTION public.provision_account_member(p_user_id uuid, p_account_id uuid, p_role account_role_enum)
+-- 041 refusals for that case are gone). A bank_guest needs p_bank_code
+-- and a brand-new login: that only row becomes the guest row, active, so
+-- the login never holds a workspace of its own. An existing login is made
+-- a guest with add_workspace_member. The 3-argument version is dropped so
+-- no overload makes a named-argument call ambiguous.
+DROP FUNCTION IF EXISTS public.provision_account_member(uuid, uuid, account_role_enum);
+CREATE OR REPLACE FUNCTION public.provision_account_member(
+  p_user_id uuid,
+  p_account_id uuid,
+  p_role account_role_enum,
+  p_bank_code text DEFAULT NULL
+)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
+  v_code TEXT := NULLIF(btrim(p_bank_code), '');
   v_personal UUID;
   v_name TEXT;
   v_email TEXT;
@@ -1156,9 +1166,11 @@ BEGIN
     RAISE EXCEPTION 'Cannot provision a member as owner; transfer ownership instead'
       USING ERRCODE = '22023';
   END IF;
-  IF p_role = 'bank_guest' THEN
-    RAISE EXCEPTION 'A bank guest is added with add_workspace_member, which takes the bank code'
-      USING ERRCODE = '22023';
+  IF p_role = 'bank_guest' AND v_code IS NULL THEN
+    RAISE EXCEPTION 'A bank guest needs a bank code' USING ERRCODE = '22023';
+  END IF;
+  IF p_role <> 'bank_guest' AND v_code IS NOT NULL THEN
+    RAISE EXCEPTION 'Only a bank guest carries a bank code' USING ERRCODE = '22023';
   END IF;
 
   PERFORM 1 FROM profiles WHERE user_id = p_user_id ORDER BY id FOR UPDATE;
@@ -1173,9 +1185,13 @@ BEGIN
   END IF;
 
   v_personal := disposable_personal_account(p_user_id);
+  IF p_role = 'bank_guest' AND v_personal IS NULL THEN
+    RAISE EXCEPTION 'Only a new login is provisioned as a bank guest; add an existing person with add_workspace_member'
+      USING ERRCODE = '22023';
+  END IF;
   IF v_personal IS NOT NULL THEN
     -- Move the row BEFORE dropping the account (ON DELETE CASCADE).
-    UPDATE profiles SET account_id = p_account_id, account_role = p_role
+    UPDATE profiles SET account_id = p_account_id, account_role = p_role, bank_code = v_code
      WHERE user_id = p_user_id;
     DELETE FROM accounts WHERE id = v_personal;
     RETURN;
@@ -1327,5 +1343,7 @@ REVOKE ALL ON FUNCTION public.create_workspace(text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.create_workspace(text, text) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.add_workspace_member(text, account_role_enum, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.add_workspace_member(text, account_role_enum, text) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum) TO service_role;
+REVOKE ALL ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum, text) TO service_role;
+COMMENT ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum, text) IS
+  'Add p_user_id to p_account_id with p_role; a just-created login''s personal account is discarded. bank_guest takes p_bank_code and a new login only. Service-role only; see migrations 041 and 083.';
