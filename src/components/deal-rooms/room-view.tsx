@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useTableSignal } from '@/hooks/use-deal-rooms';
+import { useGuestRefresh, useTableSignal } from '@/hooks/use-deal-rooms';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   MessagePage,
@@ -120,6 +120,8 @@ export function DealRoomView({
       table === 'deal_rooms' ? `id=eq.${roomId}` : `room_id=eq.${roomId}`,
     reload
   );
+  // A guest cannot read `deal_rooms`, so that signal never reaches them.
+  useGuestRefresh(detail?.access === 'guest', reload);
 
   if (!detail) {
     return (
