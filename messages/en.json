@@ -3342,6 +3342,23 @@
       "unknownChannel": "Unknown channel",
       "inThread": "in a thread"
     },
+    "share": {
+      "action": "Share to team chat",
+      "title": "Share to team chat",
+      "description": "Your team sees a read-only card. The customer never sees team chat.",
+      "searchPlaceholder": "Find a channel",
+      "channels": "Channels you can post in",
+      "loading": "Loading channels…",
+      "none": "No channel you can post in matches.",
+      "joins": "You will join",
+      "commentLabel": "Comment (optional)",
+      "commentPlaceholder": "Add a comment for your team (optional)",
+      "defaultBody": "Shared a WhatsApp conversation.",
+      "cancel": "Cancel",
+      "submit": "Share",
+      "done": "Shared to #{name}",
+      "open": "Open"
+    },
     "sections": {
       "inbox": "WhatsApp inbox",
       "channels": "Team channels",
