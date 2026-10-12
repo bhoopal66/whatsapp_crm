@@ -13,6 +13,13 @@
  * `invite_message_id`, set only where it is NULL), so a webhook
  * redelivery and a re-send racing each other invite nobody twice; a
  * failed send releases the claim for the next attempt.
+ *
+ * Right before each send the person is re-checked with
+ * `deal_room_admit_block` (migration 088), the rule join-request
+ * auto-approval uses: the room still open, nobody opted out or marked
+ * do-not-contact, a customer with their recorded consent, a bank guest
+ * whose bank still allows guests. Whoever fails it is skipped, unclaimed,
+ * and the reason goes into the `invites_sent` audit row.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -26,7 +33,10 @@ import { metaChannel, notifyRoomCreator, type RoomRef } from './shared';
 export interface InviteSummary {
   sent: number;
   failed: number;
-  /** Not due: pending approval, already invited, our number, or claimed elsewhere. */
+  /**
+   * Not due: pending approval, already invited, our number, claimed
+   * elsewhere, or blocked by the re-check (the audit row says why).
+   */
   skipped: number;
   /** The room is not open (no group yet): nothing was sent. */
   notOpen: boolean;
@@ -116,7 +126,22 @@ export async function sendRoomInvites(
   if (!channel) throw new Error("the room's Meta number is not connected");
 
   let firstError: string | null = null;
+  const blocked: { participant_id: string; reason: string }[] = [];
   for (const p of due) {
+    const { data: block, error: blockErr } = await db.rpc(
+      'deal_room_admit_block',
+      { p_participant: p.id }
+    );
+    if (blockErr) {
+      summary.failed += 1; // unchecked is unsent
+      firstError ??= blockErr.message;
+      continue;
+    }
+    if (block) {
+      summary.skipped += 1;
+      blocked.push({ participant_id: p.id, reason: String(block) });
+      continue;
+    }
     const claim = `pending:${randomUUID()}`;
     const { data: claimed, error: claimErr } = await db
       .from('deal_room_participants')
@@ -178,6 +203,7 @@ export async function sendRoomInvites(
       template: template.name,
       language: template.language,
       error: firstError,
+      blocked,
     },
   });
   if (auditErr) console.error('[deal-rooms] audit failed:', auditErr.message);

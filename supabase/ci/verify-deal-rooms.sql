@@ -50,6 +50,8 @@ DECLARE
   r_agent2 UUID;   -- the other agent's room
   r_lead   UUID;   -- the leader's room: the guest login is in it
   r_seven  UUID;   -- 7 invitees, the most WhatsApp allows beside our number
+  r_x      UUID;   -- write-path checks: a room closed with a guest awaiting approval
+  p_x      UUID;
   p_guest  UUID;   -- the agent's bank guest participant
   p_pat    UUID;   -- the partner in the leader's room
   p_biz    UUID;   -- our number's row in the leader's room
@@ -591,6 +593,98 @@ BEGIN
   n := n + 1;
   IF r NOT LIKE '1 / 0 / ERROR 42501:%' THEN
     failed := array_append(failed, ('deal_room_settings reads (agent, another account''s owner, anon): ' || r)::text);
+  END IF;
+
+  -- ---------- write paths: auto-approval, closed rooms, consent and contact links ----------
+  -- The consent is the consented contact's own: the seven-person room's
+  -- customer has another number, so their row carries none.
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM deal_room_participants WHERE room_id = r_seven AND consent_id IS NOT NULL)
+     OR NOT EXISTS (SELECT 1 FROM deal_room_participants p JOIN participant_consents pc ON pc.id = p.consent_id
+                     WHERE p.room_id = r_lead AND p.role = 'customer' AND pc.contact_id = c_lead) THEN
+    failed := array_append(failed, 'consent: not only on the consented contact''s own row'::text);
+  END IF;
+  -- An expected, consented customer is let in; a bank guest whose bank was
+  -- switched off and a partner who opted out wait for a person.
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+         'dr-grp-lead@g.us', 'dr-jr-c1', '971500880003'));
+  UPDATE bank_guest_policies SET guests_allowed = false WHERE account_id = a_acct AND bank_code = 'ADCB';
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at)
+  VALUES (a_acct, u_agent, '971500880010', 'Pat as a contact', now());
+  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+         'dr-grp-lead@g.us', 'dr-jr-b1', '971500880021'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+         'dr-grp-main@g.us', 'dr-jr-o1', '971500880010'));
+  UPDATE bank_guest_policies SET guests_allowed = true WHERE account_id = a_acct AND bank_code = 'ADCB';
+  n := n + 1;
+  IF r IS DISTINCT FROM 'auto_approved / pending / pending' THEN
+    failed := array_append(failed, ('join requests (consented customer, bank switched off, opted out): ' || r)::text);
+  END IF;
+  -- A room that is not open lets nobody in by itself.
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT ''s'' FROM public.deal_room_set_status(%L, %L)', r_lead, 'suspended'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+         'dr-grp-lead@g.us', 'dr-jr-c2', '971500880003'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT ''c'' FROM public.deal_room_set_status(%L, %L)', r_lead, 'closed'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+         'dr-grp-lead@g.us', 'dr-jr-c3', '971500880003'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 's / pending / c / pending' THEN
+    failed := array_append(failed, ('join requests on a suspended, then closed room: ' || r)::text);
+  END IF;
+  -- A closed room takes no outbound message and nobody new; an inbound
+  -- message and a system note are still kept for the record.
+  r := pg_temp.dr_try('authenticated', u_agent, pg_temp.dr_create(c_agent, w_meta,
+         '[' || cara || ', {"display_name": "Bo Bank", "phone": "971500880023", "role": "bank_guest", "bank_code": "ADCB"}]',
+         consent));
+  IF r ~ '^[0-9a-f]{8}-' THEN r_x := r::uuid; END IF;
+  SELECT id INTO p_x FROM deal_room_participants WHERE room_id = r_x AND status = 'pending_approval';
+  PERFORM pg_temp.dr_try('service_role', NULL, format('SELECT ''c'' FROM public.deal_room_set_status(%L, %L)', r_x, 'closed'));
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, NULL, %L, NULL, NULL, %L)::text',
+         'dr-grp-lead@g.us', 'out', 'text', 'wamid.DRC1', 'After the close', u_lead))
+       || ' / ' || pg_temp.dr_try('authenticated', u_lead,
+         format('SELECT public.deal_room_add_staff(%L, ARRAY[%L]::uuid[])::text', r_lead, u_agent2))
+       || ' / ' || pg_temp.dr_try('authenticated', u_lead,
+         format('SELECT ''added'' FROM public.deal_room_add_guest_user(%L, %L)', r_lead, u_guest))
+       || ' / ' || pg_temp.dr_try('authenticated', u_lead,
+         format('SELECT public.deal_room_approve_participant(%L, true)', p_x));
+  n := n + 1;
+  IF p_x IS NULL OR r NOT LIKE 'ERROR 22023: deal rooms: the room is closed% / ERROR 22023: deal rooms: the room is closed%'
+                             ' / ERROR 22023: deal rooms: the room is closed% / ERROR 22023: deal rooms: the room is closed%'
+     OR EXISTS (SELECT 1 FROM group_messages WHERE wa_message_id = 'wamid.DRC1')
+     OR EXISTS (SELECT 1 FROM deal_rooms d JOIN chat_channel_members m ON m.channel_id = d.channel_id
+                 WHERE d.id = r_lead AND m.user_id = u_agent2) THEN
+    failed := array_append(failed, ('a closed room took an outbound message, staff, a guest or an approval: ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text',
+         'dr-grp-lead@g.us', 'in', 'text', 'wamid.DRC2', '971500880010', 'Late reply'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(
+         'SELECT public.deal_room_record_message(%L, %L, %L, NULL, NULL, %L, NULL, NULL, NULL, %L)::text',
+         'dr-grp-lead@g.us', 'out', 'system', 'Someone asked to stop', 'sent'));
+  n := n + 1;
+  IF r !~ '^[0-9a-f]{8}-.* / [0-9a-f]{8}-' THEN
+    failed := array_append(failed, ('a closed room dropped a late inbound message or system note: ' || r)::text);
+  END IF;
+  -- A contact the agent cannot see: unknown, opted out or not, and never
+  -- linked by phone.
+  INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at)
+  VALUES (a_acct, u_agent2, '971500880006', 'Hidden opted-out contact', now());
+  r := pg_temp.dr_try('authenticated', u_agent, pg_temp.dr_create(c_agent, w_meta,
+         '[' || cara || format(', {"display_name": "Ivy Invisible", "phone": "971500880030", "role": "partner", "contact_id": "%s"}]',
+         c_agent2), consent))
+       || ' / ' || pg_temp.dr_try('authenticated', u_agent, pg_temp.dr_create(c_agent, w_meta,
+         '[' || cara || ', {"display_name": "Hal Hidden", "phone": "971500880006", "role": "partner"}]', consent));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0002: deal rooms: the contact given for Ivy Invisible was not found%'
+                ' / ERROR P0002: deal rooms: the contact given for Hal Hidden was not found%' THEN
+    failed := array_append(failed, ('an invisible contact (given, opted out) was not an unknown contact: ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('authenticated', u_agent, pg_temp.dr_create(c_agent, w_meta,
+         '[' || cara || ', {"display_name": "Cy Again", "phone": "971500880002", "role": "partner"}]', consent));
+  n := n + 1;
+  IF r !~ '^[0-9a-f]{8}-' OR EXISTS (SELECT 1 FROM deal_room_participants
+                                       WHERE room_id = r::uuid AND phone = '971500880002' AND contact_id IS NOT NULL)
+     OR has_function_privilege('authenticated', 'public.deal_room_admit_block(uuid, text)', 'EXECUTE') THEN
+    failed := array_append(failed, ('linked by phone to a contact the agent cannot see, or admit_block is a client''s: ' || r)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
