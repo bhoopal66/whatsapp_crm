@@ -7,6 +7,7 @@ import {
 } from '@/lib/whatsapp/whapi-webhook-auth'
 import {
   normalizeWhapiWebhook,
+  type NormalizedWhapiWebhook,
   type RawWhapiWebhookPayload,
 } from '@/lib/whatsapp/whapi-webhook'
 import {
@@ -14,7 +15,20 @@ import {
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline'
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels'
+import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
+import {
+  clientIp,
+  confirmAccepted,
+  RateLimiter,
+  ReplayGuard,
+  RpcRateStore,
+  RpcSeenStore,
+  screenWebhook,
+  type ScreenCtx,
+  type ScreenDecision,
+  type ScreenEvent,
+} from '@/lib/edge'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media downloads and mirror
@@ -32,6 +46,23 @@ function supabaseAdmin() {
     )
   }
   return _adminClient
+}
+
+// Edge screening (module 017a), the same pair as the Meta route's. The
+// guard and the limiter keep nothing in memory — claims and counters
+// live in migration 084's tables, shared by every instance — so one pair
+// per process serves every request. Lazy for the same build-time reason
+// as the client above.
+let _edgeCtx: ScreenCtx | null = null
+function edgeCtx(): ScreenCtx {
+  if (!_edgeCtx) {
+    const admin = supabaseAdmin()
+    _edgeCtx = {
+      replay: new ReplayGuard(new RpcSeenStore(admin)),
+      limiter: new RateLimiter(new RpcRateStore(admin)),
+    }
+  }
+  return _edgeCtx
 }
 
 /**
@@ -112,6 +143,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
+  // Normalised before the response only because screening keys on the
+  // message list. Channel adoption and the channel_id cross-check still
+  // run in after(), with everything else.
+  let event: NormalizedWhapiWebhook
+  try {
+    event = normalizeWhapiWebhook(payload)
+  } catch (error) {
+    // A body that cannot be read now will not read better on a retry,
+    // so it is acked and logged, as it was when this ran in after().
+    console.error('[whapi-webhook] processing failed:', error)
+    return NextResponse.json({ status: 'received' }, { status: 200 })
+  }
+
+  // Edge screening (module 017a): one call per request, after the
+  // secret has authenticated it. Never a 429 — that only brings a retry.
+  const screen = await screenWebhook(edgeCtx(), {
+    ip: clientIp(request.headers),
+    events: screenEvents(event, config.id),
+  })
+  if (screen.status === 503) {
+    // Another delivery holds a claim on one of these events and has not
+    // finished with it: 503 so Whapi redelivers once it has (then they
+    // are duplicates) or its lease has lapsed (then they are processed).
+    // Nothing is queued.
+    return NextResponse.json({ error: 'Retry later' }, { status: 503 })
+  }
+
   // Process AFTER the response so Whapi gets a prompt ack (a slow ack
   // triggers redelivery and duplicate work), while still guaranteeing
   // the work runs to completion.
@@ -123,13 +181,102 @@ export async function POST(request: Request) {
   // runtime, which keeps the function alive until it resolves.
   after(async () => {
     try {
-      await processWhapiWebhook(payload, config)
+      const screened = applyScreen(event, screen.decisions)
+      if (screened.duplicates + screened.ipLimited > 0) {
+        console.warn(
+          `[whapi-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`,
+        )
+      }
+      await processWhapiWebhook(screened.event, config, screened.overLimit)
     } catch (error) {
+      // A claim is confirmed only once its event is persisted. These
+      // lapse with their lease instead, so a redelivery is processed
+      // rather than skipped as a duplicate.
       console.error('[whapi-webhook] processing failed:', error)
+      return
     }
+    await confirmAccepted(edgeCtx(), screen.decisions)
   })
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
+}
+
+/**
+ * The events edge screening judges: statuses, then messages, which is
+ * the order `applyScreen` reads the decisions back in.
+ *
+ * Keys name the config row the SECRET resolved — never the payload's
+ * `channel_id`, which is attacker-controlled — so one tenant's callbacks
+ * cannot claim another's events. The row id rather than its
+ * `phone_number_id` because the first callback replaces that phone
+ * placeholder with the real channel id, and a key must not change under
+ * a redelivery.
+ */
+function screenEvents(
+  event: NormalizedWhapiWebhook,
+  configId: string,
+): ScreenEvent[] {
+  const events: ScreenEvent[] = []
+  for (const status of event.statuses) {
+    events.push({
+      key: `whapi:status:${configId}:${status.messageId}:${status.status}`,
+      kind: 'status',
+    })
+  }
+  for (const message of event.messages) {
+    events.push({
+      key: `whapi:${configId}:${message.id}`,
+      senderKey: message.from || message.chatId,
+      kind: 'message',
+    })
+  }
+  return events
+}
+
+/**
+ * Give each event back its screening outcome. Accepted events are
+ * processed as before; a sender over the limit has the message kept in
+ * the inbox without fan-out; duplicates and IP-limited events are
+ * skipped, and only counted.
+ */
+function applyScreen(
+  event: NormalizedWhapiWebhook,
+  decisions: readonly ScreenDecision[],
+) {
+  let next = 0
+  let duplicates = 0
+  let ipLimited = 0
+  const skip = (outcome: ScreenDecision['outcome']) => {
+    if (outcome === 'duplicate') duplicates++
+    else ipLimited++
+  }
+
+  const statuses: NormalizedWhapiWebhook['statuses'] = []
+  for (const status of event.statuses) {
+    const { outcome } = decisions[next++]
+    // Statuses are never sender-limited: accepted, or skipped.
+    if (outcome === 'accept') statuses.push(status)
+    else skip(outcome)
+  }
+
+  const messages: NormalizedInboundMessage[] = []
+  const overLimit = new Set<NormalizedInboundMessage>()
+  for (const message of event.messages) {
+    const { outcome } = decisions[next++]
+    if (outcome === 'accept') messages.push(message)
+    else if (outcome === 'rate_limited') {
+      // Never lost, never answered: into the inbox without fan-out.
+      messages.push(message)
+      overLimit.add(message)
+    } else skip(outcome)
+  }
+
+  return {
+    event: { ...event, statuses, messages },
+    overLimit,
+    duplicates,
+    ipLimited,
+  }
 }
 
 /**
@@ -231,15 +378,15 @@ async function adoptChannelId(config: any, channelId: string): Promise<void> {
  * The heavy lifting — contact dedup, conversation resolution, Flows,
  * automations, AI auto-reply, public webhook fan-out — is all
  * provider-agnostic and lives below. This function's only job is to
- * normalise the payload and dispatch.
+ * cross-check the channel and dispatch the screened events.
  */
 async function processWhapiWebhook(
-  payload: RawWhapiWebhookPayload,
+  event: NormalizedWhapiWebhook,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   config: any,
+  // Messages from a sender over the webhook rate limit (module 017a).
+  overLimit: ReadonlySet<NormalizedInboundMessage>,
 ) {
-  const event = normalizeWhapiWebhook(payload)
-
   // The secret already proved which account this is. A channel_id that
   // disagrees means the operator pointed a *second* channel at a URL
   // minted for the first — messages would land in the wrong account, so
@@ -303,6 +450,8 @@ async function processWhapiWebhook(
       config.user_id,
       channel,
       later,
+      // Over the limit: persisted to the inbox, but nothing answers it.
+      overLimit.has(message) ? { fanOut: false } : undefined,
     )
   }
   await Promise.all(later)
