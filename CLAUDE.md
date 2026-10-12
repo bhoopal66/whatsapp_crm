@@ -11,7 +11,7 @@ npm run dev            # Next dev server on :3000
 npm run build          # Production build (also typechecks)
 npm run typecheck      # tsc --noEmit — fastest correctness pass
 npm run lint           # ESLint (eslint-config-next flat config)
-npm test               # vitest run (node environment, ~30s, 3,400+ tests)
+npm test               # vitest run (node env, ~2 min, ~5,000 tests, ~350 files)
 npm run test:watch
 ```
 
@@ -29,8 +29,8 @@ on every PR. It does *not* run `format:check`.
   tree has never been fully formatted — a repo-wide run rewrites ~360
   files and buries your diff. Format only what you touched:
   `npx prettier --write <path>`.
-- **Lint is a gate.** As of 2026-10-12 (`7c1c16f`) `main` lints with
-  0 errors and ~30 pre-existing warnings (mostly unused vars and unused
+- **Lint is a gate.** As of 2026-10-12 (`9c029cd`) the tree lints with
+  0 errors and ~32 pre-existing warnings (mostly unused vars and unused
   `eslint-disable` directives), so any *error* is yours. Don't use
   `git stash` to compare against a clean tree — worktrees share one stash
   stack; set your change aside as a patch file instead.
@@ -63,8 +63,14 @@ not application code — is the enforcement point.
   signup**; admins provision logins from Settings → Members. Invitation
   links are redeemed at `src/app/join/[token]`.
 - `src/app/(dashboard)` — the authed app (inbox, contacts, pipelines,
-  broadcasts, automations, flows, agents, notifications, settings).
-  Wrapped by `dashboard-shell.tsx`.
+  broadcasts, automations, flows, agents, notifications, settings), plus
+  team chat at `/chat` (deal rooms at `/chat/rooms/[roomId]`),
+  `/journeys`, `/calls` and the customer page `/contacts/[id]`. Tasks have
+  no screen of their own (`/tasks` is only reserved in `middleware.ts`):
+  they show on the customer page, the calls view and chat cards. Wrapped
+  by `dashboard-shell.tsx`, which mounts the call layer and keeps a bank
+  guest on `/chat` (`guestRedirectPath`) — UX only, since RLS gives a
+  guest nothing else.
 - `src/app/api/*` — internal routes for the dashboard. Error shape
   `{ error: string }`.
 - `src/app/api/v1/*` — the versioned **public** API. Different contract:
@@ -99,9 +105,15 @@ sign-in bounces back to `/login`.
 ### Auth and roles
 
 - `lib/auth/roles.ts` — pure role ladder (`owner > admin > team_leader > agent >
-  viewer`) mirroring the SQL `is_account_member(account_id, min_role)` CASE
+  viewer > bank_guest`) mirroring the SQL `is_account_member(account_id, min_role)` CASE
   expression. Capability predicates (`canManageMembers`, `canEditSettings`, …)
   are the single source of truth; never compare role strings inline.
+- `bank_guest` (rank 0, migrations 082–083) is a partner bank's login.
+  `current_account_id()` is NULL for a guest, so every account-wide
+  policy denies them; access is opt-in per table (team chat, deal rooms).
+  `ASSIGNABLE_ROLES` and `STAFF_ROLES` leave it out.
+- One login can hold a profile in several workspaces, the active one
+  marked `is_active`; see **Workspaces** below.
 - `lib/auth/account.ts` — **server-only**. API routes call
   `await requireRole('admin')` for a loaded context (`supabase`, `userId`,
   `accountId`, `role`) and `return toErrorResponse(err)` in one catch.
@@ -505,9 +517,12 @@ identical openers in first messages, failures, response times.
 
 SQL invariants of most recent migrations are asserted by a
 `supabase/ci/verify-*.sql` file of their own (chat tags, opt-out,
-partner banks, pipeline deals, approved answers, …), each a step in
-`.github/workflows/migrations.yml`. A migration that changes one of those
-rules updates its verify file; a new verify file must be wired in there.
+partner banks, pipeline deals, approved answers, and 082–089's
+workspaces, edge security, tasks, journeys, internal chat (two files),
+deal rooms and PBX), each a step in `.github/workflows/migrations.yml`
+and each one statement (the pinned CLI rejects more). A migration that
+changes one of those rules updates its verify file; a new verify file must
+be wired in there.
 
 ### Chat tags (`lib/chat-tags/*`, migrations 075–076)
 
@@ -593,6 +608,314 @@ Automation/flow tagging fires it too. Links are written one stage at a
 time, clears before sets (`stage-tag-links.ts`), because a partial
 unique index allows one stage per tag per pipeline.
 
+### Workspaces (`lib/auth/my-workspaces.ts`, migrations 082–083)
+
+A workspace is an `accounts` row, and a person holds one `profiles` row per
+workspace (`UNIQUE (user_id, account_id)`). `is_active` marks the one they
+work in, at most one per person (`profiles_one_active_per_user`, not
+deferrable, so every write demotes before it promotes). Every existing policy
+still means "the caller's **active** account": `is_account_member` and
+`current_account_id` read only the active, live (`deactivated_at IS NULL`),
+non-guest row, `current_role_rank` the active live row. Someone deactivated in
+B but active in A reaches nothing of B. `docs/workspaces.md` is the operator
+contract.
+
+- **A read by `user_id` alone is multi-row now.** In SQL a scalar subquery
+  raises "more than one row returned", so scope it to the account or
+  `is_active`. In TS `.maybeSingle()` errors and `rows[0]` is arbitrary: go
+  through `pickActiveProfile` (`lib/auth/active-profile.ts`).
+- **Switching** is `switch_account()` (a live row there, guest rows included)
+  behind `POST /api/workspaces/switch`, which authenticates by session only
+  because `getCurrentAccount` 403s a deactivated active row. `is_active` and
+  `bank_code` are guarded columns: only `switch_account` and
+  `redeem_invitation` raise `app.account_switch`.
+- **Member RPCs** take the account from the caller's active row and touch only
+  the target's row there. `remove_account_member`, `redeem_invitation`,
+  `provision_account_member` and `add_workspace_member` take the per-person
+  row lock `switch_account` takes (`… WHERE user_id = … ORDER BY id FOR
+  UPDATE`).
+- **`add_workspace_member`** adds only someone live in a workspace where the
+  caller is a live owner/admin; an unknown email and an ineligible one raise
+  the same P0002 `no_such_user`.
+- **Removing someone's only membership** moves their row to a fresh account as
+  `viewer` (a bank guest stays a guest, `bank_code` and all), never owner.
+- **Deactivation is per workspace.** The GoTrue ban fires only when no other
+  live row is left; otherwise the client moves to `fallbackWorkspace` instead
+  of signing out.
+- `my_live_account_ids()` (every live row, active or not) scopes the
+  `notifications` policies, so the bell covers every workspace.
+  `ts_is_account_admin` needs the caller's active live row; the four-eyes
+  proposer it is asked about need only be live there.
+- Staff↔guest is a removal plus `add_workspace_member`, never a role edit.
+  `verify-workspaces.sql`.
+
+### Edge security (`lib/edge/*`, migration 084)
+
+Replay claims, sliding-window rate limits and the sign-in lockout live in
+`edge_seen_keys`, `edge_rate_events`, `edge_auth_failures` and
+`edge_auth_locks` behind advisory-locked functions on the database clock; RLS
+is on with no policy, and tables and functions are granted to `service_role`
+only. `edge_purge()` only trims expired rows, so nothing depends on it for
+correctness. `lib/edge/rpc.ts` states the failure matrix: rate limits fail
+open or closed per scope (`DEFAULT_SCOPES` in `ratelimit.ts`), the replay
+store fails open, lockout errors propagate. `docs/security.md` is the operator
+contract; `verify-edge-security.sql` asserts the SQL.
+
+- **Webhooks.** `screenWebhook` (`screen.ts`) runs once per request after
+  authentication: Whapi once the secret has resolved the row, Meta over the
+  HMAC-verified numbers. It **never answers 429**: an IP over `webhook.ip`
+  (600/s) gets 200 with nothing processed, and the only non-200 is a 503 while
+  another delivery holds a live claim. A sender over `webhook.number` (4/s,
+  spent only by new messages) is still persisted, through `processMessage(…, {
+  fanOut: false })`, which returns after the persist, unread bump and reopen:
+  no flows, journeys, automations, AI, outbound webhooks or TypeSafe watch.
+- **Replay is two-phase**: `edge_replay_claim` (60 s lease), then
+  `confirmAccepted` (24 h key) only once the events are persisted; a failed
+  persist lets the claims lapse. Keys come from the authenticated row, never
+  the payload: Whapi's use the config row id, not `phone_number_id`, which
+  adoption rewrites. Decisions are positional (statuses, messages, then Meta
+  group messages), so `screenEvents` and `applyScreen` change together.
+- **Sign-in** posts JSON to `POST /api/auth/login` (any other content type is
+  a 400). `admitAdmin` checks the lock (423) and the `admin.ip` / `admin.user`
+  limits (429, **fail closed**) before GoTrue; `settleAdmin` then counts the
+  failure or clears the pair. The lockout guards this route only.
+- **API keys.** `requireApiKey` locks per client IP before the key lookup and
+  answers the ordinary 429 `rate_limited`; it fails open, and is off when no
+  client IP is known.
+- **Client IP.** `clientIp` trusts only the header named by
+  `EDGE_CLIENT_IP_HEADER` (`cf-connecting-ip`, `x-real-ip` or
+  `x-forwarded-for`; unset means no IP) and, for `x-forwarded-for`,
+  `EDGE_TRUSTED_PROXY_HOPS` (default 1); With no IP, webhooks share one
+  `unknown` bucket and sign-in keys on `unknown:<email>`.
+
+### Tasks (`lib/tasks/*`, migration 085)
+
+One `tasks` table serves people and system writers (PBX missed calls and
+call-backs, the journey bot). Kinds are `manual`, `callback`, `missed_call`,
+`journey`, `follow_up`; sources `manual`, `pbx`, `journey`, `chat`,
+`automation`. A person (agent and up, `created_by` = self) inserts only source
+manual/chat with kind manual, callback or follow_up; everything else is the
+service role's. `docs/tasks.md` is the contract.
+
+- **Who sees** (`tasks_select`, active account only): admins all; the assignee
+  and the creator; anyone who can see its contact (`can_view_task_contact`); a
+  leader the tasks *assigned to* people they lead. A system task with neither
+  assignee nor contact is admin-only. **Edit:** agent and up who is the
+  assignee, the creator, the assignee's leader or an admin, and the row must
+  still pass `tasks_select` afterwards, so nobody hands a task out of their
+  own sight. **Delete:** admins any; otherwise only the creator of a
+  manual/chat task.
+- `can_link_task` judges each link (contact, conversation, deal) on its own:
+  visible to the caller, or equal to what the stored row already has, so an
+  edit is never refused over a link the editor cannot see. The API's PATCH
+  cannot change links.
+- `tasks_guard` binds the service role too: links in the task's own account,
+  an active staff assignee (checked when it changes), identity frozen,
+  `completed_at`/`completed_by` stamped on leaving `open` and cleared on
+  reopen.
+- **System writers** use only `createSystemTask` (upsert on `(account_id,
+  source, source_ref)` with `ignoreDuplicates`, then read back; a plain UNIQUE
+  because PostgREST's `on_conflict` cannot target a partial index) and
+  `closeSystemTasks` (open → done only), and filter by account themselves.
+- **One bell per assignment.** The `tasks_notify_assigned` trigger sends
+  `task_assigned` when an open task gets an assignee other than the writer; a
+  redelivered system task inserts nothing, so it never rings twice. Since 089
+  a `pbx` insert is silent (the processor sends its own `call_missed`).
+  `task_due` is reserved; nothing emits it.
+- Untested pairs, change together: the holder roles in `tasks_guard`,
+  `TASK_HOLDER_ROLES` (`system.ts`) and `TASK_HOLDERS` (`pbx/process.ts`); the
+  lists and length limits in `lib/tasks/types.ts` and 085. `verify-tasks.sql`.
+
+### Journey bot (`lib/journeys/*`, migration 086)
+
+A JSON workflow (`workflows/`) per customer. `engine.ts`'s `step()` is pure
+(no I/O, clock or randomness); `runner.ts` does load → step → commit → drain
+through the ports in `ports.ts`, whose Supabase adapters live in `host/`,
+outside the engine barrel. `docs/journey-bot.md` is the contract.
+
+- **`journey_commit` is the write.** Once `ensureOpenFile` has inserted
+  version 0 it is the file's only writer, in one transaction: a replayed event
+  id is `duplicate` before any version check, a stale version is `conflict`
+  (neither writes), else the body at version+1, the processed event and the
+  outbox rows. Event ids are `wa:<message id>` and `timer:<kind>:<fireAt>`, so
+  overlapping ticks dedupe.
+- **Delivery.** Only SEND is at-most-once: `journey_claim_delivery` stamps the
+  claim before the gateway call, and a claim over 2 minutes old with no
+  `delivery_ref` is recorded `unconfirmed`, never resent. Other actions are
+  at-least-once, idempotent on the outbox item id. The drain runs in `seq`
+  order and stops at the first failure; a file backs off only if the sink is
+  wrapped in `withFailureRecording` (the exponent is capped first: an overflow
+  once stopped every account's drain).
+- **Quiet hours** come from the workflow (09:00–20:00 at a fixed UTC+4, timers
+  and cold starts only). A held send gets `not_before`; the drain skips it and
+  its LOG_COST without holding later items, so an opt-out confirmation still
+  goes out at night. That SEND+LOG_COST pairing lives in SQL and in the
+  runner: change both.
+- **Consent.** An opt-out is applied to `contacts.opted_out_at` inside
+  `journey_commit` and re-applied idempotently on delivery; a resubscribe
+  clears only an older stamp, so the newer decision wins. Delivery re-checks a
+  marketing send against opt-out and opt-in. Below admin, the
+  `contacts_consent_guard` trigger lets someone who can see the contact only
+  **set** a do-not-contact (with a reason) where none exists; moving or
+  clearing it is admin-only. Every change lands append-only in
+  `contact_consent_events`.
+- **Inbound.** The hook sits in `inbound-pipeline.ts` after Flows (the
+  campaign follow-up flow included) and before automations, and runs only when
+  no Flow consumed the message. A message it consumes suppresses the
+  content-level automation triggers and the AI reply, as a Flow does.
+- The tick (`runJourneyTick`) runs from `GET /api/journeys/cron` and the
+  automations cron. `SHIPPED_WORKFLOW_KEY` (`host/tick.ts`) equals 086's
+  default key; `host/tick.test.ts` reads the migration. `verify-journeys.sql`.
+
+### Team chat (`lib/chat/*`, migration 087)
+
+Names dodge collisions: `message_reactions` already holds WhatsApp reactions
+(009), hence `internal_message_reactions`, and "channel" already means a
+WhatsApp number, hence `chat_channels` / `chat_channel_members`. Kinds are
+`team`, `private`, `dm` (2–8 people, `chat_open_dm`) and `deal_room` (088
+only). `docs/internal-chat.md` is the contract.
+
+- **Writes are RPCs.** The tables are RLS-forced and grant SELECT only, even
+  to the service role; every write is a SECURITY DEFINER `chat_*` function the
+  browser calls directly (`lib/chat/api.ts`). The exceptions: a file upload is
+  a storage INSERT, and deal-room rows are 088's. Each function is revoked and
+  re-granted (a new one needs its GRANT), and parameter names (`p_ws` …) are
+  the client contract. With `internal_chat_enabled` off, writes raise `CH001`.
+- **Membership** is any live profile row in the channel's workspace, not only
+  the active one; Author checks use `IS DISTINCT FROM`: `<>` on a NULL system
+  author let anyone edit or delete system posts.
+- **Bank guests** see only the private channels and deal rooms they belong to,
+  never a team channel or a DM, and in a deal room the channel and its members
+  but never its messages (the Team notes). They cannot create channels or DMs.
+- **Admin read.** An owner/admin who is not a member reads a private channel,
+  DM or deal room only through `chat_admin_read_private` (a reason of 5+
+  characters, `MIN_REASON_CHARS` in `admin-tools.ts`), which writes
+  `chat_audit_log` first.
+- **Shared conversation cards.** `chat_shared_cards()` and the policy re-run
+  `chat_can_view_conversation` (active account, admin or
+  `can_view_conversation`) at read time; anyone else learns only that a card
+  exists. Sharing into a channel with a guest member is refused at post time
+  only, so a guest added later is held off by the read check.
+- **Files.** The private `chat-files` bucket is readable
+  (`chat_storage_can_read`) only while a live attachment row exists; deleted
+  and erased files used to stay readable. Deletes go through
+  `POST /api/chat/messages/[id]/delete`, and the automations cron's sweep
+  (`chat_orphan_files`) removes objects over 24 h old with no live row. A
+  signed URL (300 s) outlives a delete.
+- **Erasure** (`chat_erase_person`, owner-only, reason required) turns the
+  person's bodies into `[erased]` and deletes their attachments, cards, edit
+  history, mentions, reactions and notifications. Edit history and the audit
+  log are otherwise append-only: the one DELETE needs `chat.erase=on` **and**
+  the table owner, because a client can set the setting.
+- **Bell and realtime.** A trigger turns `chat_notifications` into
+  `notifications` of type `chat_mention` / `chat_dm` / `chat_thread_reply` /
+  `chat_broadcast`; `CHAT_NOTIFICATION_TYPES` (`notification-link.ts`), 085's
+  CHECK and the type lists in edit, delete and erase change together.
+  `verify-internal-chat.sql`, `verify-internal-chat-admin.sql`.
+
+### Deal rooms (`lib/deal-rooms/*`, migration 088)
+
+A deal room is a WhatsApp group on the account's Meta number (a trigger
+refuses any other), linked to a contact and optionally a deal, with a
+`deal_room` chat channel for Team notes. `lib/whatsapp/meta-groups.ts` holds
+the Groups API facts the code relies on, documented in the deal-rooms section
+of `docs/meta-cloud-api.md`: creation is async (the group id and invite link
+arrive by webhook, matched on `request_id`); an invite is a 1:1 template whose
+body carries a `group_id` parameter; group sends are `recipient_type:
+'group'`, and inbound group traffic carries `group_id`; a group holds 8
+participants including our number (`GROUP_MAX_PARTICIPANTS` ↔ SQL's 1–7
+invitees); it has its own 24 h window (`window_until`), templates only outside
+it.
+
+- **Statuses** are `creating`, `open`, `suspended`, `closing`, `closed` and
+  `failed`; `closed` is terminal and `open` needs `wa_group_id`. Client RPCs
+  refuse closing/closed rooms, staff operations need `open`, and SQL refuses
+  outbound non-system messages on a closed room while still recording inbound
+  messages, receipts and membership.
+- **Access** (`deal_room_access`): owner/admin all; a team leader where they
+  can see the contact and, if any, the deal (`deal_room_leader_sees`); members
+  of the room's channel; a bank guest only while their bank's `guests_allowed`
+  switch is on, as a channel member, with a participant from their bank not
+  pending, rejected or removed. `deal_room_can_manage` adds agents who own the
+  contact or administer the channel; guests never manage.
+- **Guests never read `deal_rooms`.** Staff and guests share the
+  `authenticated` role, so column grants cannot hide its internal columns:
+  guests read the security-barrier views `deal_room_guest_rooms` and
+  `deal_room_roster` (no phone column; an unlisted person is "ending NN"), and
+  messages and receipts only from their own join. No client can read
+  `invite_link_hash`, `sender_wa_id` or `participant_wa_id`, so `select=*`
+  fails.
+- `deal_room_admit_block` is the one rule for join-request auto-approval and
+  every invite send (`room_not_open`, `opted_out`, `no_consent`,
+  `bank_guests_off`, …).
+- **Webhook.** The Meta route picks group traffic out (`isGroupMessage`,
+  `isGroupStatus`, `isGroupChange`; the normaliser skips the same items, so
+  change both) and hands it to `handleGroupWebhook` after `processMetaEvent`.
+  It never reaches `inbound-pipeline.ts` but is edge-screened. The
+  service-role functions it calls take the authenticated account id, or a room
+  id resolved inside that account. A group STOP removes the person at Meta and
+  opts the contact out.
+- **Reconcile** (`reconcileCreatingRooms`, from `GET /api/deal-rooms/cron` and
+  the automations cron) takes rooms still `creating` after 2 minutes: matched
+  to their group by subject, asked for once more, or failed at 10. Invites
+  claim each person (a `pending:` marker in `invite_message_id`) before the
+  send and release the claim only when the send fails; nothing releases one a
+  crash left behind. `verify-deal-rooms.sql`.
+
+### Phone system (`lib/pbx/*`, migration 089)
+
+Yeastar P-Series. `lib/pbx/yeastar/*` is the Open API client plus the event
+parser, signature check, WebSocket helpers, token manager and CDR helpers.
+`docs/yeastar.md` is the operator contract.
+
+- Who sees a call is `pbx_can_view_call`; guests see none. Secrets
+  (app-encrypted) live only in `pbx_connection_secrets`: RLS on, no policy, no
+  client grant.
+- **Tokens.** Yeastar allows 8 live tokens per application, each for 30
+  minutes, so `token-cache.ts` shares one cache per connection and credential
+  pair (`api`, `sdk`) in the secrets row: a per-process queue, then a
+  compare-and-set through `pbx_token_swap` (3 tries). `pbx_token_lock` is
+  deliberately unused: through PostgREST its transaction ends before the
+  locked work runs. Recording and socket URLs embed a live token: never log or
+  store them.
+- **Events** come by webhook (`/api/pbx/yeastar/events/[token]`: the path
+  token finds the connection, `X-Signature` is an HMAC-SHA256 of the raw body,
+  fail closed) or from the WebSocket gateway (`scripts/pbx-gateway.mjs`, which
+  never holds PBX credentials). `ingestPbxEvent` (`process.ts`) dedupes on a
+  `pbx_events_raw` hash upsert, then writes `calls`, live state, presence, a
+  `missed_call` task and a `call_missed` bell, and settles call-backs; a bad
+  event never throws.
+- **Recordings** are fetched one at a time (the PBX refuses a second
+  concurrent download) into the private `call-recordings` bucket, uploaded
+  before their row, hence the orphan sweep's 1 h grace.
+  `pbx_recording_playable` decides playback: fetched, not erased, the call
+  announcement played or not required (C-1; one fetched while it was not
+  required is held again if it is switched back on), and not a bank-number
+  call while `exclude_bank_numbers` is on. That is re-checked at play, so a
+  number listed later holds audio already fetched; `bankCandidates()`
+  (`process.ts`) and the function's candidate set change together. A play is
+  logged first in `call_access_log` (guarded: playable, agent and up, leader
+  and up to download), then a 300 s URL is signed.
+- **Erasure.** `pbx_erase_contact_calls` (owner-only, with a reason, refused
+  under a legal hold) matches the contact, its phone candidates and
+  `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`). The
+  `calls_guard` trigger strips number, file and meta for every writer, late
+  PBX events included.
+- **Call-backs** (`callback_requests`, written by the journey sink, which
+  gives a do-not-contact customer a task instead; hours restated untested) are
+  dialled by `callbacks.ts` 09:00–20:00 Asia/Dubai, at most 3 attempts, never
+  to a do-not-contact contact; a `dialing` claim older than 30 minutes is
+  released on every pass, outside hours too.
+- **Browser.** The Linkus softphone SDK loads at runtime from
+  `NEXT_PUBLIC_LINKUS_SDK_URL` (unset: desk phones only). It and
+  `NEXT_PUBLIC_PBX_ORIGIN` (https and wss) are added to the CSP in
+  `src/lib/csp.ts`, both inlined at build time. `CallProvider` in
+  `dashboard-shell.tsx` mounts the incoming-call card, in-call panel and
+  softphone.
+- `runPbxCron` (recordings, call-backs, event retries, purge) runs from
+  `GET /api/pbx/cron` and the automations cron, and starts no new work
+  after 45 s. `verify-pbx.sql`.
+
 ### Flows vs Automations
 
 Two independent engines, deliberately kept apart:
@@ -610,11 +933,16 @@ A flow's `fallback_policy.on_unknown_reply` (JSONB, resolved in
 hand off, end, ignore — or `ai`, which answers with the AI agent while
 the run stays on its node.
 
-**Four cron endpoints**, all authenticated by `AUTOMATION_CRON_SECRET` in
+**Seven cron endpoints**, all authenticated by `AUTOMATION_CRON_SECRET` in
 an `x-cron-secret` header, none of which the app pings itself (Vercel
 Cron / GitHub Actions / any pinger):
 
-- `GET /api/automations/cron` — scheduled automation steps.
+- `GET /api/automations/cron` — scheduled automation steps. It also
+  carries the others' work, each throttled per process (`everyInterval`)
+  inside `after()`, a failure only logged: channel health and Team
+  activity alerts (5 min), edge purge (15 min), chat file sweep
+  (15 min), journey tick (1 min), deal-room reconcile (2 min), PBX
+  housekeeping (1 min). An install that pings only this one is covered.
 - `GET /api/flows/cron` — sweeps abandoned runs.
 - `GET /api/whatsapp/broadcast/cron` (migration 053) — delivers
   scheduled broadcasts. It is deliberately the *resume* machinery from
@@ -630,6 +958,12 @@ Cron / GitHub Actions / any pinger):
   sweep. The automation cron also runs it, throttled to once per 5
   minutes per process, so an install that pings only that one is
   covered.
+- `GET /api/journeys/cron` (migration 086) — the journey tick: due
+  timers and outbox items.
+- `GET /api/deal-rooms/cron` (migration 088) — rooms stuck in
+  `creating`.
+- `GET /api/pbx/cron` (migration 089) — recordings, call-backs, event
+  retries, purge.
 
 ### AI (`lib/ai/*`)
 
@@ -783,8 +1117,9 @@ or two users on one device read each other's data.
 ### `next.config.ts` is a constraint file
 
 Every block there is a fix for a specific production failure, documented
-in place. In practice: the CSP is `Content-Security-Policy-Report-Only`
-and any new external origin (script, image, `connect-src`) has to be
+in place. In practice: the CSP (built in `src/lib/csp.ts`, pinned by
+`csp.test.ts`) is `Content-Security-Policy-Report-Only` and any new
+external origin (script, image, `connect-src`) has to be
 added there before it will work once enforcement is flipped on;
 `output: "standalone"` is what the Dockerfile runs; `allowedDevOrigins`
 is why HMR survives an ngrok/Cloudflare tunnel; the `Cache-Control`
@@ -798,7 +1133,10 @@ nothing in the app runs them. Every statement is guarded (`IF NOT EXISTS`,
 `ON CONFLICT`) so files stay re-runnable, which also means a typo'd object name
 is a silent no-op; `.github/workflows/migrations.yml` replays the whole stack
 against a clean Postgres and asserts `supabase/ci/verify-schema.sql` (it only
-fires on `supabase/**` changes). A schema change ships as: new numbered
+fires on `supabase/**` changes). Apply 082 and 083 in separate runs (a
+new enum value cannot be used in the transaction that adds it); 087 and
+088 refuse to apply except as a superuser or BYPASSRLS role. A schema
+change ships as: new numbered
 migration + a **Migration required** note in `CHANGELOG.md` + updated TS
 mirrors of any SQL predicate.
 
