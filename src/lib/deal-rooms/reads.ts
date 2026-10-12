@@ -104,18 +104,38 @@ interface SummaryRow extends Embeds {
   created_at: string;
 }
 
-/** The newest `ROOM_LIST_MAX` rooms RLS shows the caller, newest first. */
+/**
+ * The newest `ROOM_LIST_MAX` rooms the caller can see, newest first:
+ * staff's from `deal_rooms` (RLS), a bank guest's from
+ * `deal_room_guest_rooms` (no deal or contact). Each source is empty for
+ * the other kind of caller.
+ */
 export async function listRooms(db: SupabaseClient): Promise<RoomSummary[]> {
-  const list = await rows<SummaryRow>(
-    db
-      .from('deal_rooms')
-      .select(
-        `id, channel_id, subject, status, participant_count, window_until, created_at, ${EMBEDS}`
-      )
-      .order('created_at', { ascending: false })
-      .limit(ROOM_LIST_MAX),
-    'room'
-  );
+  const [staff, guest] = await Promise.all([
+    rows<SummaryRow>(
+      db
+        .from('deal_rooms')
+        .select(
+          `id, channel_id, subject, status, participant_count, window_until, created_at, ${EMBEDS}`
+        )
+        .order('created_at', { ascending: false })
+        .limit(ROOM_LIST_MAX),
+      'room'
+    ),
+    rows<SummaryRow>(
+      db
+        .from('deal_room_guest_rooms')
+        .select(
+          'id, channel_id, subject, status, participant_count, window_until, created_at'
+        )
+        .order('created_at', { ascending: false })
+        .limit(ROOM_LIST_MAX),
+      'guest room'
+    ),
+  ]);
+  const list = [...staff, ...guest]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, ROOM_LIST_MAX);
   return list.map((r) => ({
     id: r.id,
     channelId: r.channel_id,
@@ -164,7 +184,8 @@ export interface RoomDetail {
   room: {
     id: string;
     channelId: string;
-    contactId: string;
+    /** Null for a guest, who never sees the contact, deal or last error. */
+    contactId: string | null;
     dealId: string | null;
     subject: string;
     description: string | null;
@@ -193,10 +214,10 @@ export interface RoomDetail {
   pendingApprovals?: StaffParticipant[];
 }
 
-interface DetailRow extends Embeds {
+interface DetailRow extends Partial<Embeds> {
   id: string;
   channel_id: string;
-  contact_id: string;
+  contact_id: string | null;
   deal_id: string | null;
   subject: string;
   description: string | null;
@@ -255,17 +276,33 @@ export async function loadRoomDetail(
   if (access !== 'supervisor' && access !== 'staff' && access !== 'guest') {
     return null;
   }
-  const { data, error } = await db
-    .from('deal_rooms')
-    .select(
-      'id, channel_id, contact_id, deal_id, subject, description, join_approval_mode, status, ' +
-        'participant_count, window_until, created_at, opened_at, closed_at, close_reason, last_error, created_by, ' +
-        EMBEDS
-    )
+  // A guest reads the room from deal_room_guest_rooms: deal_rooms is
+  // staff-only, and its contact, deal and last error are not theirs.
+  const shared =
+    'id, channel_id, subject, description, join_approval_mode, status, ' +
+    'participant_count, window_until, created_at, opened_at, closed_at, close_reason';
+  const { data, error } = await (
+    access === 'guest'
+      ? db.from('deal_room_guest_rooms').select(shared)
+      : db
+          .from('deal_rooms')
+          .select(
+            `${shared}, contact_id, deal_id, last_error, created_by, ${EMBEDS}`
+          )
+  )
     .eq('id', roomId)
     .maybeSingle();
   if (error) throw new Error(`room lookup failed: ${error.message}`);
-  const r = data as DetailRow | null;
+  const g = data as Partial<DetailRow> | null;
+  const r: DetailRow | null = g
+    ? ({
+        contact_id: null,
+        deal_id: null,
+        last_error: null,
+        created_by: null,
+        ...g,
+      } as DetailRow)
+    : null;
   if (!r) return null;
 
   const detail: RoomDetail = {
@@ -448,11 +485,19 @@ export async function listRoomMessages(
   admin: SupabaseClient,
   args: { roomId: string; before: string | null; limit: number }
 ): Promise<MessagePage | null> {
-  const { data: room, error: roomErr } = await db
+  // Staff find the room in deal_rooms, a bank guest in deal_room_guest_rooms.
+  let { data: room, error: roomErr } = await db
     .from('deal_rooms')
     .select('id, account_id')
     .eq('id', args.roomId)
     .maybeSingle();
+  if (!room && !roomErr) {
+    ({ data: room, error: roomErr } = await db
+      .from('deal_room_guest_rooms')
+      .select('id, account_id')
+      .eq('id', args.roomId)
+      .maybeSingle());
+  }
   if (roomErr) throw new Error(`room lookup failed: ${roomErr.message}`);
   if (!room) return null;
   const accountId = (room as { account_id: string }).account_id;

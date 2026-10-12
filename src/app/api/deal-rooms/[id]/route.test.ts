@@ -179,8 +179,32 @@ describe('GET /api/deal-rooms/[id]', () => {
 
   it('gives a guest the roster only, never deal_room_participants', async () => {
     m.access = 'guest';
+    // RLS hides deal_rooms from a guest: the room comes from the view.
+    const [room] = mem.tables.deal_rooms as Record<string, unknown>[];
+    mem.tables.deal_room_guest_rooms = [
+      {
+        id: room.id,
+        channel_id: room.channel_id,
+        subject: room.subject,
+        status: room.status,
+        participant_count: room.participant_count,
+        window_until: room.window_until,
+        created_at: room.created_at,
+      },
+    ];
+    mem.tables.deal_rooms = [];
     const body = await (await get()).json();
     expect(body.access).toBe('guest');
+    expect(body.room).toMatchObject({
+      id: 'room-1',
+      subject: 'Mortgage',
+      contactId: null,
+      dealId: null,
+      lastError: null,
+      createdBy: null,
+      dealTitle: null,
+      contactName: null,
+    });
     expect(body.participants).toEqual([
       {
         id: 'p-cus',

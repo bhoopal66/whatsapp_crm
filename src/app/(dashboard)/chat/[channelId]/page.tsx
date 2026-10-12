@@ -77,15 +77,15 @@ function ChannelScreen() {
   useEffect(() => {
     if (kind !== 'deal_room') return;
     let live = true;
-    void ws.sb
-      .from('deal_rooms')
-      .select('id')
-      .eq('channel_id', channelId)
-      .maybeSingle()
-      .then(({ data }) => {
-        const id = (data as { id: string } | null)?.id;
-        if (live && id) router.replace(`/chat/rooms/${id}`);
-      });
+    // Staff read deal_rooms; a bank guest reads deal_room_guest_rooms.
+    const find = (from: 'deal_rooms' | 'deal_room_guest_rooms') =>
+      ws.sb.from(from).select('id').eq('channel_id', channelId).maybeSingle();
+    void (async () => {
+      const staff = await find('deal_rooms');
+      const { data } = staff.data ? staff : await find('deal_room_guest_rooms');
+      const id = (data as { id: string } | null)?.id;
+      if (live && id) router.replace(`/chat/rooms/${id}`);
+    })();
     return () => {
       live = false;
     };

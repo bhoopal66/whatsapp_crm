@@ -455,7 +455,7 @@ BEGIN
   END IF;
 
   -- ---------- a guest: their rooms' roster, messages and receipts only ----------
-  r := pg_temp.dr_try('authenticated', u_guest, 'SELECT coalesce(string_agg(id::text, '',''), '''') FROM public.deal_rooms');
+  r := pg_temp.dr_try('authenticated', u_guest, 'SELECT coalesce(string_agg(id::text, '',''), '''') FROM public.deal_room_guest_rooms');
   n := n + 1;
   IF r IS DISTINCT FROM r_lead::text THEN
     failed := array_append(failed, ('the guest sees rooms other than their own: ' || r)::text);
@@ -808,6 +808,43 @@ BEGIN
      OR (SELECT count(*) FROM group_message_receipts g JOIN group_messages m ON m.id = g.message_id
           WHERE m.wa_message_id = 'wamid.DRF4C') <> 1 THEN
     failed := array_append(failed, ('a receipt in its own account did not land: ' || r)::text);
+  END IF;
+
+  -- deal_rooms is staff-only: a guest reads no row of it (so none of
+  -- wa_group_id, contact_id, deal_id, last_error) and sees exactly their
+  -- guest rooms through deal_room_guest_rooms; staff still read it.
+  s := pg_temp.dr_try(current_user, u_guest,
+         'SELECT string_agg(id::text, '','' ORDER BY id) FROM public.deal_rooms WHERE public.deal_room_access(id) = ''guest''');
+  r := pg_temp.dr_try('authenticated', u_guest,
+         'SELECT count(*)::text FROM (SELECT wa_group_id, contact_id, deal_id, last_error FROM public.deal_rooms) x')
+       || ' / ' || pg_temp.dr_try('authenticated', u_guest,
+         'SELECT coalesce(string_agg(id::text, '','' ORDER BY id), ''none'') FROM public.deal_room_guest_rooms');
+  n := n + 1;
+  IF s IN ('ok', '') OR s LIKE 'ERROR%' OR r IS DISTINCT FROM '0 / ' || s THEN
+    failed := array_append(failed, ('a guest read deal_rooms, or the guest view is not their rooms ('
+                                    || coalesce(s, 'none') || '): ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('authenticated', u_admin, 'SELECT count(*)::text FROM public.deal_rooms');
+  n := n + 1;
+  IF r IS DISTINCT FROM (SELECT count(*)::text FROM deal_rooms WHERE account_id = a_acct) OR r = '0' THEN
+    failed := array_append(failed, ('staff no longer read deal_rooms: ' || r)::text);
+  END IF;
+  -- A guest put in the channel of a room with no approved participant of
+  -- their bank still does not see it.
+  r := (SELECT d.id::text FROM deal_rooms d
+         WHERE d.account_id = a_acct
+           AND NOT EXISTS (SELECT 1 FROM chat_channel_members m WHERE m.channel_id = d.channel_id AND m.user_id = u_guest)
+           AND NOT EXISTS (SELECT 1 FROM deal_room_participants pp
+                            WHERE pp.room_id = d.id AND pp.bank_code = 'ADCB'
+                              AND pp.status NOT IN ('pending_approval','rejected','removed'))
+         ORDER BY d.created_at LIMIT 1);
+  INSERT INTO chat_channel_members (channel_id, user_id) SELECT channel_id, u_guest FROM deal_rooms WHERE id = r::uuid;
+  s := pg_temp.dr_try('authenticated', u_guest,
+         'SELECT coalesce(string_agg(id::text, '','' ORDER BY id), ''none'') FROM public.deal_room_guest_rooms');
+  n := n + 1;
+  IF r IS NULL OR s LIKE 'ERROR%' OR position(r IN s) > 0 THEN
+    failed := array_append(failed, ('the guest view showed a room of another bank: '
+                                    || coalesce(r, 'no such room') || ' in ' || s)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

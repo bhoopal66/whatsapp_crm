@@ -35,7 +35,8 @@
 --    allowed and the room has an approved, not removed participant of
 --    their bank. A guest reads group messages from when they joined the
 --    channel on (deal_room_visible_since).
---  * What a guest sees, inside their rooms only: deal_rooms and
+--  * What a guest sees, inside their rooms only: the room through the
+--    deal_room_guest_rooms view (not deal_rooms, which is staff-only),
 --    group_messages / group_message_receipts rows, and the people
 --    through the deal_room_roster view (display name, role, status —
 --    no phone). Never deal_room_participants itself, consents, join
@@ -1194,6 +1195,20 @@ CREATE OR REPLACE VIEW public.deal_room_roster WITH (security_barrier = true) AS
    CROSS JOIN LATERAL (SELECT public.deal_room_access(p.room_id) AS access OFFSET 0) a
    WHERE a.access IS NOT NULL;
 
+-- A guest's own rooms. deal_rooms itself is staff-only (deal_rooms_read):
+-- staff and guests share the authenticated role, so column grants cannot
+-- keep wa_group_id, contact_id, deal_id or last_error from a guest. The
+-- guest screens read only these columns, here. Runs with the owner's
+-- rights, so the WHERE clause is the whole access rule (the membership
+-- test only narrows the rows deal_room_access is asked about).
+CREATE OR REPLACE VIEW public.deal_room_guest_rooms WITH (security_barrier = true) AS
+  SELECT r.id, r.account_id, r.channel_id, r.subject, r.description, r.join_approval_mode, r.status,
+         r.participant_count, r.window_until, r.created_at, r.opened_at, r.closed_at, r.close_reason
+    FROM public.deal_rooms r
+   WHERE EXISTS (SELECT 1 FROM public.chat_channel_members m
+                  WHERE m.channel_id = r.channel_id AND m.user_id = auth.uid())
+     AND public.deal_room_access(r.id) = 'guest';
+
 -- ---------- 7. Files: the private deal-files bucket ----------
 
 INSERT INTO storage.buckets (id, name, public)
@@ -1248,8 +1263,9 @@ BEGIN
 END $$;
 
 DROP POLICY IF EXISTS deal_rooms_read ON public.deal_rooms;
+-- staff only: a guest reads their rooms through deal_room_guest_rooms
 CREATE POLICY deal_rooms_read ON public.deal_rooms
-  FOR SELECT TO authenticated USING (public.deal_room_access(id) IS NOT NULL);
+  FOR SELECT TO authenticated USING (public.deal_room_access(id) IN ('supervisor','staff'));
 
 DROP POLICY IF EXISTS group_messages_read ON public.group_messages;
 CREATE POLICY group_messages_read ON public.group_messages
@@ -1328,12 +1344,12 @@ END $$;
 REVOKE ALL ON public.bank_guest_policies, public.deal_rooms, public.participant_consents,
   public.deal_room_participants, public.deal_room_join_requests, public.group_messages,
   public.group_message_receipts, public.deal_files, public.deal_room_audit, public.deal_room_roster,
-  public.deal_room_settings
+  public.deal_room_guest_rooms, public.deal_room_settings
   FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT SELECT ON public.bank_guest_policies, public.participant_consents, public.deal_room_participants,
   public.deal_room_join_requests, public.deal_files, public.deal_room_audit, public.deal_room_roster,
-  public.deal_room_settings
+  public.deal_room_guest_rooms, public.deal_room_settings
   TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON public.bank_guest_policies, public.deal_room_settings TO authenticated;
 -- every column but the invite link (a bearer secret: the server hands it out)
