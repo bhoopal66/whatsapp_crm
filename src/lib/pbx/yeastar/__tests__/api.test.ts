@@ -478,12 +478,30 @@ describe('barrel', () => {
     expect(Object.keys(barrel).sort()).toEqual(
       [
         'CDR_MAX_PAGE_SIZE',
+        'DEFAULT_PBX_TIME_ZONE',
+        'DEFAULT_TOPICS',
+        'HEARTBEAT',
+        'HEARTBEAT_INTERVAL_MS',
         'MemoryTokenCache',
+        'YEASTAR_EVENT',
         'YeastarError',
+        'cdrRecordToCallEnd',
         'createSdkSignature',
         'createTokenManager',
         'createYeastarApi',
         'createYeastarClient',
+        'dedupeByUid',
+        'isHeartbeatReply',
+        'isMissedCallEnd',
+        'nextBackoffMs',
+        'parsePbxTime',
+        'parseSubscribeReply',
+        'parseYeastarEvent',
+        'remoteParty',
+        'ringingExtensions',
+        'subscribeMessage',
+        'verifyYeastarWebhookSignature',
+        'wsUrl',
       ].sort()
     );
   });
