@@ -185,3 +185,44 @@ stops starting work after 45 seconds. The automations cron also runs it,
 at most once a minute, so an install that already pings
 `/api/automations/cron` needs nothing more. A PBX connection that is
 backing off after a refused login is skipped until the backoff ends.
+
+## 11. Calling from the CRM
+
+- **Click-to-call rings your own extension first.** The PBX rings the
+  extension mapped to you in this workspace, then the customer; an
+  extension cannot be chosen in the request. With no extension mapped,
+  calling is refused.
+- **Browser softphone or desk phone.** When an admin switches the
+  browser softphone on for your extension (and the PBX has Linkus SDK
+  credentials), the call rings in the CRM tab. Otherwise the same call
+  rings your desk phone or Linkus app on that extension.
+- **Do-not-contact.** A customer marked do-not-contact cannot be
+  called, through any of their contacts or by typing the number. An
+  owner or admin can override with a reason, which is logged before
+  the PBX is asked.
+- **Outcome and notes.** After a call, the person on it (or a team
+  leader and up) sets the outcome (interested, documents requested,
+  call back, not eligible, wrong number) and notes, up to 4,000
+  characters. Nothing is sent to the customer. A call matched to the
+  wrong customer can be re-linked.
+- **Recordings.** An agent or above who can see a call can play its
+  recording;
+  only team leaders, admins and owners can download one. Every play,
+  download and attach is logged (owners and admins can read the log),
+  and the link the browser gets is valid for five minutes. A recording
+  is held, for everyone, until the English/Arabic notice is confirmed
+  as played (unless the workspace turned that requirement off).
+- **Attaching to a deal** files a reference to the recording on the
+  deal, not a copy: the audio stays in the private bucket, and playing
+  it from the deal goes through the same checks and log.
+
+The routes (errors are `{ error }`; recordings and attach need an
+agent or above, the reads a viewer or above, never a bank guest):
+
+| Route                                | Does                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `POST /api/pbx/calls/{id}/recording` | `{ action: 'play' \| 'download' }` → `{ url, expiresAt }` (409 if held)                         |
+| `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
+| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
+| `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
+| `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
