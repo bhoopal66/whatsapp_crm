@@ -13,6 +13,7 @@ import {
 import { embedTexts } from '@/lib/ai/embeddings'
 import { AiError, type AiProvider } from '@/lib/ai/types'
 import { parseEscalationKeywords } from '@/lib/ai/escalation'
+import { isBankGuest } from '@/lib/auth/roles'
 
 /** Longest handoff message accepted — it is one WhatsApp bubble. */
 const MAX_HANDOFF_MESSAGE_LENGTH = 1000
@@ -155,13 +156,18 @@ export async function POST(request: Request) {
     const handoffProvided = 'handoff_agent_id' in body
     let handoffAgentId: string | null = null
     if (rawHandoff) {
+      // The hand-off person must be staff. Checked on the row, not in the
+      // query: a database without migration 082 rejects the `bank_guest`
+      // literal.
       const { data: member } = await supabase
         .from('profiles')
-        .select('user_id')
+        .select('user_id, account_role')
         .eq('account_id', accountId)
         .eq('user_id', rawHandoff)
         .maybeSingle()
-      if (!member) return bad('handoff_agent_id must be a member of this account')
+      if (!member || isBankGuest(member.account_role)) {
+        return bad('handoff_agent_id must be a member of this account')
+      }
       handoffAgentId = rawHandoff
     }
 

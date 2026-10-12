@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 
 /**
  * The sidebar's information architecture.
@@ -43,6 +43,13 @@ export interface NavItem {
    * because a hidden link is not access control.
    */
   minRole?: AccountRole;
+  /**
+   * Shown to a bank guest (migrations 082/083) as well. Every other row
+   * is the account's own people's only: a guest sees nothing of the
+   * inbox, contacts, deals or settings, and the dashboard shell keeps a
+   * guest on /chat whatever links exist. Reserved for the team-chat row.
+   */
+  guestVisible?: boolean;
 }
 
 export interface NavGroup {
@@ -162,10 +169,26 @@ export const BOTTOM_NAV_ITEMS: NavItem[] = [
 export function visibleNavGroups(role: AccountRole | null): NavGroup[] {
   return NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter(
-      (item) => !item.minRole || (!!role && hasMinRole(role, item.minRole))
-    ),
+    items: group.items.filter((item) => isNavItemVisible(item, role)),
   })).filter((group) => group.items.length > 0);
+}
+
+/** The foot-of-nav rows `role` may see (Settings is staff-only). */
+export function visibleBottomNavItems(role: AccountRole | null): NavItem[] {
+  return BOTTOM_NAV_ITEMS.filter((item) => isNavItemVisible(item, role));
+}
+
+/**
+ * May `role` see `item`? A bank guest sees only `guestVisible` rows;
+ * staff are gated by `minRole` (none = every staff member). Null (the
+ * profile still loading) shows the ungated rows, as above.
+ */
+export function isNavItemVisible(
+  item: NavItem,
+  role: AccountRole | null
+): boolean {
+  if (isBankGuest(role)) return !!item.guestVisible;
+  return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
 
 /**

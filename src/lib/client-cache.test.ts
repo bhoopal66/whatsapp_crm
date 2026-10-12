@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  MEMBERS_CACHE_KEY,
   cachedQuery,
   clearClientCache,
   invalidateCached,
+  membersCacheKey,
 } from './client-cache';
 
 describe('cachedQuery', () => {
@@ -110,5 +112,38 @@ describe('invalidateCached', () => {
     await cachedQuery('teams:leader:alice', 60_000, teams, 1);
 
     expect(teams).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('membersCacheKey', () => {
+  beforeEach(() => {
+    clearClientCache();
+  });
+
+  it('names the account, so two workspaces never share a roster', async () => {
+    const loader = vi
+      .fn()
+      .mockResolvedValueOnce('roster-a')
+      .mockResolvedValueOnce('roster-b');
+
+    expect(await cachedQuery(membersCacheKey('acc-a'), 1000, loader, 0)).toBe(
+      'roster-a',
+    );
+    expect(await cachedQuery(membersCacheKey('acc-b'), 1000, loader, 0)).toBe(
+      'roster-b',
+    );
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("is cleared for every account by invalidating MEMBERS_CACHE_KEY", async () => {
+    const loader = vi.fn().mockResolvedValue('roster');
+    await cachedQuery(membersCacheKey('acc-a'), 1000, loader, 0);
+    await cachedQuery(membersCacheKey('acc-b'), 1000, loader, 0);
+
+    invalidateCached(MEMBERS_CACHE_KEY);
+    await cachedQuery(membersCacheKey('acc-a'), 1000, loader, 1);
+    await cachedQuery(membersCacheKey('acc-b'), 1000, loader, 1);
+
+    expect(loader).toHaveBeenCalledTimes(4);
   });
 });

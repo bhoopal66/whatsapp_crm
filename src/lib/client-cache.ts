@@ -96,6 +96,16 @@ export function clearClientCache(): void {
 /** Account members, for assignee pickers. */
 export const MEMBERS_CACHE_KEY = 'members';
 
+/**
+ * The member roster of a given account. Account-scoped because a person
+ * in two workspaces (migration 083) reads a different roster in each.
+ * `invalidateCached(MEMBERS_CACHE_KEY)` still clears every account's:
+ * no bare `members` entry exists, so it falls through to the prefix match.
+ */
+export function membersCacheKey(accountId: string): string {
+  return `${MEMBERS_CACHE_KEY}:${accountId}`;
+}
+
 /** Prefix covering every leader's roster, for blanket invalidation. */
 export const TEAM_ROSTER_CACHE_PREFIX = 'teams:leader:';
 

@@ -83,6 +83,9 @@ export interface AccountMember {
   /** Set while an admin has deactivated this member (migration 069):
    *  they cannot sign in and RLS hands them nothing. */
   deactivated_at: string | null;
+  /** The partner bank a `bank_guest` belongs to (migration 083); null for
+   *  staff. Optional: absent on a database that predates 083. */
+  bank_code?: string | null;
 }
 
 /**

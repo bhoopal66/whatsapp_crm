@@ -23,7 +23,11 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import {
+  requireRole,
+  toErrorResponse,
+  type AccountContext,
+} from "@/lib/auth/account";
 import { isAccountRole } from "@/lib/auth/roles";
 import {
   checkRateLimit,
@@ -88,7 +92,7 @@ export async function PATCH(
           { status: 400 },
         );
       }
-      return setActive(ctx.supabase, userId, body.active);
+      return setActive(ctx, userId, body.active);
     }
 
     const role = body?.role;
@@ -130,28 +134,58 @@ export async function PATCH(
  *
  *   1. `set_member_active` — authorises the caller (admin+, same
  *      account, not the owner, not self) and flips
- *      `profiles.deactivated_at`. From here RLS hands a deactivated
- *      member nothing, even on an access token that is still valid.
+ *      `profiles.deactivated_at` on this workspace's row only. From
+ *      here RLS hands the member nothing here, even on an access token
+ *      that is still valid.
  *   2. The Auth ban — refuses their password sign-in and every token
- *      refresh, which is what actually keeps them out of the app.
+ *      refresh. The login is shared by every workspace the person is in
+ *      (083), so it is banned only when no other workspace still has
+ *      them active; reactivation always lifts it.
  *
  * The ban runs second because only the RPC knows whether the caller may
- * touch this user. If it fails, the flag is put back: a member shown as
- * deactivated who can still sign in (or shown active who cannot) is
- * worse than a clear error the admin can retry.
+ * touch this user. If it fails, or the other memberships cannot be
+ * read, the flag is put back: a member shown as deactivated who can
+ * still sign in (or shown active who cannot) is worse than a clear
+ * error the admin can retry.
  */
 async function setActive(
-  supabase: SupabaseClient,
+  ctx: AccountContext,
   userId: string,
   active: boolean,
 ): Promise<NextResponse> {
-  const { error } = await supabase.rpc("set_member_active", {
+  const { error } = await ctx.supabase.rpc("set_member_active", {
     p_user_id: userId,
     p_active: active,
   });
   if (error) return rpcErrorToResponse(error);
 
-  const { error: banError } = await supabaseAdmin().auth.admin.updateUserById(
+  const admin = supabaseAdmin();
+
+  if (!active) {
+    // Service role: the caller cannot read the person's rows in
+    // workspaces they are not in themselves.
+    const { data: others, error: lookupError } = await admin
+      .from("profiles")
+      .select("account_id")
+      .eq("user_id", userId)
+      .is("deactivated_at", null)
+      .neq("account_id", ctx.accountId)
+      .limit(1);
+    if (lookupError) {
+      console.error(
+        `[members route] could not read ${userId}'s other memberships:`,
+        lookupError,
+      );
+      return revertActive(ctx.supabase, userId, active);
+    }
+    // Still working elsewhere: the deactivation is this workspace's
+    // row alone, and the login stays open for the others.
+    if (others && others.length > 0) {
+      return NextResponse.json({ ok: true, active });
+    }
+  }
+
+  const { error: banError } = await admin.auth.admin.updateUserById(
     userId,
     { ban_duration: active ? "none" : BAN_DURATION },
   );
@@ -160,27 +194,36 @@ async function setActive(
       `[members route] ${active ? "unban" : "ban"} failed for ${userId}:`,
       banError,
     );
-    const { error: revertError } = await supabase.rpc("set_member_active", {
-      p_user_id: userId,
-      p_active: !active,
-    });
-    if (revertError) {
-      console.error(
-        `[members route] could not revert set_member_active for ${userId}; profile and login now disagree:`,
-        revertError,
-      );
-    }
-    return NextResponse.json(
-      {
-        error: active
-          ? "Could not re-enable this user's login. Nothing was changed; try again."
-          : "Could not disable this user's login. Nothing was changed; try again.",
-      },
-      { status: 502 },
-    );
+    return revertActive(ctx.supabase, userId, active);
   }
 
   return NextResponse.json({ ok: true, active });
+}
+
+/** Put the flag back after the login could not be brought in line. */
+async function revertActive(
+  supabase: SupabaseClient,
+  userId: string,
+  active: boolean,
+): Promise<NextResponse> {
+  const { error: revertError } = await supabase.rpc("set_member_active", {
+    p_user_id: userId,
+    p_active: !active,
+  });
+  if (revertError) {
+    console.error(
+      `[members route] could not revert set_member_active for ${userId}; profile and login now disagree:`,
+      revertError,
+    );
+  }
+  return NextResponse.json(
+    {
+      error: active
+        ? "Could not re-enable this user's login. Nothing was changed; try again."
+        : "Could not disable this user's login. Nothing was changed; try again.",
+    },
+    { status: 502 },
+  );
 }
 
 export async function DELETE(
@@ -204,7 +247,12 @@ export async function DELETE(
 
     if (error) return rpcErrorToResponse(error);
 
-    return NextResponse.json({ ok: true, newPersonalAccountId: data });
+    // The person's new personal account when this was their only
+    // workspace; NULL when they keep another membership (083).
+    return NextResponse.json({
+      ok: true,
+      newPersonalAccountId: (data as string | null) ?? null,
+    });
   } catch (err) {
     return toErrorResponse(err);
   }

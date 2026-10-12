@@ -13,15 +13,18 @@ import {
   LogOut,
   Settings,
   Shield,
+  Landmark,
   User,
   UserCog,
   UsersRound,
   X,
 } from 'lucide-react';
 import type { AccountRole } from '@/lib/auth/roles';
+import { workspaceHomePath } from '@/lib/auth/my-workspaces';
+import { WorkspaceSwitcher } from './workspace-switcher';
 import {
-  BOTTOM_NAV_ITEMS,
   isNavItemActive,
+  visibleBottomNavItems,
   visibleNavGroups,
   type NavItem,
 } from './nav-items';
@@ -65,6 +68,12 @@ const ROLE_CHIP: Record<
     // Muted slate: read-only role; visually quieter than agent.
     className: 'border-border bg-card text-muted-foreground',
   },
+  bank_guest: {
+    icon: Landmark,
+    labelKey: 'roleBankGuest',
+    // Muted like a viewer: an outside guest, not one of the staff.
+    className: 'border-border bg-card text-muted-foreground',
+  },
 };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -84,7 +93,15 @@ interface SidebarProps {
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const t = useTranslations('Sidebar');
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const {
+    profile,
+    profileLoading,
+    account,
+    accountRole,
+    signOut,
+    workspaces,
+    isBankGuest,
+  } = useAuth();
   const totalUnread = useTotalUnread();
   // Only what this role may open; null while the profile loads, so the
   // gated rows fail closed (see visibleNavGroups).
@@ -101,8 +118,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // name diverges and the strip becomes meaningful — that's the signal
   // we gate on. Wait for the profile fetch to settle first, otherwise
   // the strip flashes in once the row resolves (a layout jump).
+  // Someone in several workspaces gets the switcher instead, which
+  // names the workspace whatever it is called.
+  const showSwitcher = workspaces.length > 1;
   const showAccountStrip =
-    !profileLoading && !!account?.name && account.name !== profile?.full_name;
+    !showSwitcher &&
+    !profileLoading &&
+    !!account?.name &&
+    account.name !== profile?.full_name;
 
   // Close the drawer when route changes — users opened it to navigate,
   // so once they pick a destination the drawer should get out of the way.
@@ -219,7 +242,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
         <div className="border-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link
+            href={workspaceHomePath(accountRole)}
+            className="flex items-center gap-2"
+          >
             {/* White chip behind the mark: half the logo is navy
                 (#1b547f) and reads poorly straight against the
                 dark-mode sidebar. */}
@@ -276,13 +302,16 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
           <div className="mt-auto pt-4">
             <ul className="border-border flex flex-col gap-0.5 border-t pt-4">
-              {BOTTOM_NAV_ITEMS.map(renderNavItem)}
+              {visibleBottomNavItems(profileLoading ? null : accountRole).map(
+                renderNavItem
+              )}
             </ul>
           </div>
         </nav>
 
         {/* User section */}
         <div className="border-border shrink-0 border-t p-3">
+          {showSwitcher ? <WorkspaceSwitcher /> : null}
           {/* Account name display — surfaced only when the account
               name differs from the user's own name (see
               `showAccountStrip`). For a default solo account the two
@@ -348,31 +377,36 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               sideOffset={6}
               className="bg-popover text-popover-foreground ring-border min-w-56"
             >
-              <DropdownMenuItem
-                render={
-                  <Link
-                    href="/settings?tab=profile"
-                    onClick={onClose}
-                    className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
-                  />
-                }
-              >
-                <User className="size-4" />
-                {t('menuProfile')}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                render={
-                  <Link
-                    href="/settings?tab=whatsapp"
-                    onClick={onClose}
-                    className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
-                  />
-                }
-              >
-                <Settings className="size-4" />
-                {t('menuSettings')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-border" />
+              {/* Settings is staff-only: the shell keeps a guest on /chat. */}
+              {isBankGuest ? null : (
+                <>
+                  <DropdownMenuItem
+                    render={
+                      <Link
+                        href="/settings?tab=profile"
+                        onClick={onClose}
+                        className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                      />
+                    }
+                  >
+                    <User className="size-4" />
+                    {t('menuProfile')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    render={
+                      <Link
+                        href="/settings?tab=whatsapp"
+                        onClick={onClose}
+                        className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                      />
+                    }
+                  >
+                    <Settings className="size-4" />
+                    {t('menuSettings')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-border" />
+                </>
+              )}
               <DropdownMenuItem
                 onClick={signOut}
                 className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"

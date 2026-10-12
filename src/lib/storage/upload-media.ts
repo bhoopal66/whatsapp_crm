@@ -1,3 +1,4 @@
+import { pickActiveProfile } from "@/lib/auth/active-profile";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -108,11 +109,13 @@ export async function uploadAccountMedia(
   // Resolve account_id so the path is account-scoped (matches the
   // bucket's RLS write policy from migration 020/023). User-scoped
   // paths would be rejected.
-  const { data: profile, error: profileErr } = await supabase
+  // `*` and the active row: one profile per workspace since 083, and a
+  // database without 083 has no `is_active` to name.
+  const { data: profileRows, error: profileErr } = await supabase
     .from("profiles")
-    .select("account_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
+    .select("*")
+    .eq("user_id", user.id);
+  const profile = pickActiveProfile(profileRows);
   if (profileErr || !profile?.account_id) {
     throw new Error("Could not resolve your account.");
   }

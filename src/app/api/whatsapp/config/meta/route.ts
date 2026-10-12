@@ -1,3 +1,4 @@
+import { pickActiveProfile } from '@/lib/auth/active-profile';
 import { NextResponse } from 'next/server';
 
 import { createClient } from '@/lib/supabase/server';
@@ -56,12 +57,11 @@ async function resolveAccountId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string
 ): Promise<string | null> {
-  const { data } = await supabase
+  const { data: rows } = await supabase
     .from('profiles')
-    .select('account_id')
-    .eq('user_id', userId)
-    .maybeSingle();
-  return (data?.account_id as string) ?? null;
+    .select('*')
+    .eq('user_id', userId);
+  return (pickActiveProfile(rows)?.account_id as string) ?? null;
 }
 
 /** Turn a Graph failure into something an operator can act on. */

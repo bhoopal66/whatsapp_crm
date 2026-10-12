@@ -93,6 +93,8 @@ export async function middleware(request: NextRequest) {
     '/compass',
     '/notifications',
     '/settings',
+    '/chat',
+    '/tasks',
   ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()

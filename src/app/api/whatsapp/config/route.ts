@@ -1,3 +1,4 @@
+import { pickActiveProfile } from '@/lib/auth/active-profile'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
@@ -55,11 +56,11 @@ async function resolveAccountId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
 ): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from('profiles')
-    .select('account_id')
+    .select('*')
     .eq('user_id', userId)
-    .maybeSingle()
+  const data = pickActiveProfile(rows)
   if (error || !data?.account_id) return null
   return data.account_id as string
 }

@@ -46,7 +46,7 @@ async function body(
   row: SettingsRow | null
 ): Promise<TsSettingsResponse> {
   const [name, policies] = await Promise.all([
-    row?.updated_by ? displayName(supabase, row.updated_by) : null,
+    row?.updated_by ? displayName(supabase, accountId, row.updated_by) : null,
     activePolicies(supabase, accountId),
   ]);
   return {
@@ -59,12 +59,15 @@ async function body(
 
 async function displayName(
   supabase: SupabaseClient,
+  accountId: string,
   userId: string
 ): Promise<string | null> {
+  // One row per workspace since 083: ask for the one in this account.
   const { data } = await supabase
     .from('profiles')
     .select('full_name, email')
     .eq('user_id', userId)
+    .eq('account_id', accountId)
     .maybeSingle();
   const p = data as { full_name: string | null; email: string | null } | null;
   return p?.full_name?.trim() || p?.email || null;

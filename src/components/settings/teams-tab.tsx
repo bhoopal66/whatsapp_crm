@@ -72,6 +72,7 @@ import {
   useAccountNumbers,
   type AccountNumber,
 } from '@/hooks/use-whatsapp-numbers';
+import { staffOnly } from '@/lib/account/members';
 import type { AccountMember } from '@/types';
 import { SettingsPanelHead } from './settings-panel-head';
 import {
@@ -130,7 +131,9 @@ export function TeamsTab() {
           channel_ids: x.channel_ids ?? [],
         }))
       );
-      setMembers((membersBody?.members ?? []) as AccountMember[]);
+      setMembers(
+        staffOnly((membersBody?.members ?? []) as AccountMember[])
+      );
       setState('ready');
     } catch {
       if (!quiet) setState('error');
