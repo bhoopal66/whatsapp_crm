@@ -48,6 +48,10 @@ Each room also has a staff-only Team notes tab.
 > `supabase/migrations/088_deal_rooms.sql` (re-runnable)
 > **before** deploying the app.
 
+Meta's group webhooks now reach deal rooms and never the inbox:
+subscribe the app to the four `group_*` fields (see
+`docs/meta-cloud-api.md`); no new migration.
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team

@@ -272,6 +272,34 @@ What to do about such a number is a business decision:
   after to confirm only your app disappeared. If the callbacks are *not*
   signed by this app, change the other app's callback URL instead.
 
+## Groups webhooks (deal rooms)
+
+A deal room is a real WhatsApp group on your Meta number, made with the
+Cloud API's Groups API. Its events arrive on the same callback URL as
+everything else.
+
+- **Subscribe the four group fields**, once per *app*, in **Meta → your
+  App → WhatsApp → Configuration**, next to `messages`:
+  `group_lifecycle_update`, `group_participants_update`,
+  `group_settings_update` and `group_status_update`. Without them a new
+  room never learns that its group was created, and joins, leaves,
+  join requests and suspensions are not recorded. Messages written in a
+  group and receipts of group sends arrive on `messages` itself.
+- **The number must be an Official Business Account** on the Cloud API;
+  the Groups API is not available to other numbers.
+- **Group events never reach the inbox.** Messages carrying a
+  `group_id` and receipts with `recipient_type: "group"` are left out
+  of the inbox, and handed, with the `group_*` changes, to the deal
+  rooms of the account whose number they name. They are verified with
+  that number's app secret exactly like its messages (a bad signature
+  is a 401), screened under the same keys
+  (`msg:<phone_number_id>:<message id>`, so a redelivery is skipped),
+  and processed in the same callback.
+- Receipts of group sends are **not** in the message-cost ledger yet:
+  it prices a message by its recipient's phone number, and a group
+  send's recipient is the group. Per-member group billing is a
+  follow-up.
+
 ## Edge security
 
 Every number's events are screened once their signature has verified,
