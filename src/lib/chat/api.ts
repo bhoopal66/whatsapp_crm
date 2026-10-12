@@ -401,6 +401,21 @@ export async function pinsFor(
   ).map(toPin);
 }
 
+/** The caller's saved messages in one channel (RLS returns only their own rows). */
+export async function savedIdsIn(
+  sb: SupabaseClient,
+  channelId: string
+): Promise<string[]> {
+  return (
+    await rows(
+      sb
+        .from('saved_messages')
+        .select('message_id, message:internal_messages!inner(channel_id)')
+        .eq('message.channel_id', channelId)
+    )
+  ).map((r) => String(r.message_id));
+}
+
 export async function attachmentsFor(
   sb: SupabaseClient,
   messageIds: string[]

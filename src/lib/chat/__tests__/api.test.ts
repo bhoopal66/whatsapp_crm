@@ -401,3 +401,28 @@ describe('toChatError', () => {
     expect(toChatError(e)).toBe(e);
   });
 });
+
+describe('savedIdsIn', () => {
+  it('reads the caller’s saved rows of one channel through the message', async () => {
+    const { sb, calls } = fakeSb(
+      ok([{ message_id: M, message: { channel_id: CH } }])
+    );
+    await expect(api.savedIdsIn(sb, CH)).resolves.toEqual([M]);
+    expect(calls[0]).toEqual([
+      { op: 'from', args: ['saved_messages'] },
+      {
+        op: 'select',
+        args: ['message_id, message:internal_messages!inner(channel_id)'],
+      },
+      { op: 'eq', args: ['message.channel_id', CH] },
+    ]);
+  });
+
+  it('throws a ChatError', async () => {
+    const { sb } = fakeSb({
+      data: null,
+      error: { code: '42501', message: 'x' },
+    });
+    await expect(api.savedIdsIn(sb, CH)).rejects.toBeInstanceOf(ChatError);
+  });
+});
