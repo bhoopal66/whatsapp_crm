@@ -12,6 +12,7 @@ import { isChatPath } from "@/lib/chat/view";
 import { CallProvider } from "@/components/pbx/call-provider";
 import { IncomingCallCard } from "@/components/pbx/incoming-call-card";
 import { InCallPanel } from "@/components/pbx/in-call-panel";
+import { SoftphoneMount } from "@/components/pbx/softphone-mount";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -89,6 +90,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       </div>
       <IncomingCallCard />
       <InCallPanel />
+      <SoftphoneMount />
       </div>
     </CallProvider>
   );

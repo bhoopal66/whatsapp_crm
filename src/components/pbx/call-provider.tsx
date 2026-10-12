@@ -27,6 +27,7 @@ import {
   myRingingCall,
   type CallLiveRow,
 } from '@/lib/pbx/call-ui';
+import { SOFTPHONE_OFF, type SoftphoneState } from '@/lib/pbx/linkus-state';
 import type { SoftphoneAdapter } from '@/lib/pbx/softphone';
 import { createClient } from '@/lib/supabase/client';
 
@@ -59,6 +60,9 @@ interface CallsValue {
   closePanel: () => void;
   softphone: SoftphoneAdapter | null;
   registerSoftphone: (a: SoftphoneAdapter) => () => void;
+  /** The browser softphone's status (SoftphoneMount), for a status line. */
+  softphoneState: SoftphoneState;
+  reportSoftphone: (s: SoftphoneState) => void;
   control: (
     pbxCallId: string,
     action: CallControl | 'transfer',
@@ -120,6 +124,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [panel, setPanel] = useState<PanelCall | null>(null);
   const [adapter, setAdapter] = useState<SoftphoneAdapter | null>(null);
   const [adapterActive, setAdapterActive] = useState(false);
+  const [softphoneState, setSoftphoneState] =
+    useState<SoftphoneState>(SOFTPHONE_OFF);
   const [settings, setSettings] = useState({
     announcementRequired: true,
     mandatoryDisposition: false,
@@ -276,6 +282,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         setPanel(nextPanel(null, rowsRef.current, userId, Date.now())),
       softphone: adapter && adapterActive ? adapter : null,
       registerSoftphone,
+      softphoneState,
+      reportSoftphone: setSoftphoneState,
       control,
       settings,
       names,
@@ -297,6 +305,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       adapter,
       adapterActive,
       registerSoftphone,
+      softphoneState,
       control,
       settings,
       names,
