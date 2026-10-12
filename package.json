@@ -29,7 +29,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "pbx:gateway": "node scripts/pbx-gateway.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

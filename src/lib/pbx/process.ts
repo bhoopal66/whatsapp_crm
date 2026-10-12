@@ -168,7 +168,29 @@ export async function ingestPbxEvent(
   }
   const rawId = (data as { id: unknown }[] | null)?.[0]?.id;
   if (rawId === undefined) return { duplicate: true };
+  return processStoredPbxEvent({ db, connectionId, rawId, frame, receivedAt });
+}
 
+export interface StoredEventInput {
+  db: SupabaseClient;
+  connectionId: string;
+  /** pbx_events_raw.id of the stored frame. */
+  rawId: unknown;
+  /** The frame as stored (pbx_events_raw.payload). */
+  frame: unknown;
+  receivedAt: string;
+}
+
+/**
+ * Runs a frame already stored in pbx_events_raw and stamps the outcome
+ * on its row. `ingestPbxEvent` calls it after the insert; the retry
+ * sweep (housekeeping.ts) calls it for a row that failed, because a
+ * second ingest of the same frame would be skipped as a duplicate.
+ */
+export async function processStoredPbxEvent(
+  input: StoredEventInput
+): Promise<IngestResult> {
+  const { db, connectionId, rawId, frame, receivedAt } = input;
   let kind: YeastarEvent['kind'] | undefined;
   let failure: string | null = null;
   let conn: { account_id: string; status: string } | null = null;

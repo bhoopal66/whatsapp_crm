@@ -17,6 +17,15 @@ export interface FakeDb {
   fail(table: string, op: string, error: DbError): void;
 }
 
+/** null never compares; numbers numerically, anything else as text (ISO times sort). */
+function cmp(a: unknown, b: unknown): number {
+  if (a === null || a === undefined) return NaN;
+  const na = Number(a);
+  const nb = Number(b);
+  if (typeof a === 'number' && Number.isFinite(nb)) return na - nb;
+  return String(a).localeCompare(String(b));
+}
+
 export function createFakeDb(
   tables: Record<string, Row[]> = {},
   rpcs: Record<string, Rpc> = {}
@@ -88,6 +97,27 @@ export function createFakeDb(
         `^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`
       );
       this.filters.push((r) => re.test(String(r[c] ?? '')));
+      return this;
+    }
+    lt(c: string, v: unknown) {
+      this.filters.push((r) => cmp(r[c], v) < 0);
+      return this;
+    }
+    lte(c: string, v: unknown) {
+      this.filters.push((r) => cmp(r[c], v) <= 0);
+      return this;
+    }
+    /** PostgREST `or`: comma-separated `col.is.null` / `col.lt.v` / `col.lte.v` terms. */
+    or(expr: string) {
+      const terms = expr.split(',').map((t) => {
+        const [c, op, ...rest] = t.split('.');
+        const v = rest.join('.');
+        if (op === 'is' && v === 'null') return (r: Row) => r[c] == null;
+        if (op === 'lt') return (r: Row) => cmp(r[c], v) < 0;
+        if (op === 'lte') return (r: Row) => cmp(r[c], v) <= 0;
+        throw new Error(`fake-db: unsupported or() term ${t}`);
+      });
+      this.filters.push((r) => terms.some((f) => f(r)));
       return this;
     }
     not(c: string, _op: 'is', v: unknown) {
