@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   rpc: vi.fn(),
   updateUserById: vi.fn(),
+  limit: vi.fn(),
+  filters: [] as unknown[][],
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -19,9 +21,21 @@ vi.mock('@/lib/auth/account', () => ({
   ),
 }));
 
+// The service-role read of the person's non-deactivated rows in OTHER
+// workspaces (083): the login is shared, so it is banned only when none
+// is left.
+const otherRows = {
+  select: () => otherRows,
+  eq: (...args: unknown[]) => (mocks.filters.push(['eq', ...args]), otherRows),
+  is: (...args: unknown[]) => (mocks.filters.push(['is', ...args]), otherRows),
+  neq: (...args: unknown[]) => (mocks.filters.push(['neq', ...args]), otherRows),
+  limit: mocks.limit,
+};
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     auth: { admin: { updateUserById: mocks.updateUserById } },
+    from: () => otherRows,
   }),
 }));
 
@@ -35,7 +49,7 @@ vi.mock('@/lib/rate-limit', () => ({
   RATE_LIMITS: { adminAction: {} },
 }));
 
-import { PATCH } from './route';
+import { DELETE, PATCH } from './route';
 
 const ADMIN_CTX = {
   supabase: { rpc: mocks.rpc },
@@ -57,6 +71,8 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     mocks.requireRole.mockResolvedValue(ADMIN_CTX);
     mocks.rpc.mockResolvedValue({ error: null });
     mocks.updateUserById.mockResolvedValue({ error: null });
+    mocks.limit.mockResolvedValue({ data: [], error: null });
+    mocks.filters.length = 0;
   });
 
   it('flags the profile, then bans the login', async () => {
@@ -73,6 +89,39 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     expect(mocks.rpc.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.updateUserById.mock.invocationCallOrder[0],
     );
+  });
+
+  it('bans a last membership: only other working rows count', async () => {
+    await PATCH(request({ active: false }), params);
+    expect(mocks.filters).toEqual([
+      ['eq', 'user_id', 'user-2'],
+      ['is', 'deactivated_at', null],
+      ['neq', 'account_id', 'account-1'],
+    ]);
+    expect(mocks.updateUserById).toHaveBeenCalledWith('user-2', {
+      ban_duration: '876000h',
+    });
+  });
+
+  it('other membership keeps the login: no ban while another workspace has them', async () => {
+    mocks.limit.mockResolvedValue({ data: [{ account_id: 'account-2' }], error: null });
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, active: false });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('puts the flag back when the other memberships cannot be read', async () => {
+    mocks.limit.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(502);
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenNthCalledWith(2, 'set_member_active', {
+      p_user_id: 'user-2',
+      p_active: true,
+    });
   });
 
   it('reactivating lifts the ban', async () => {
@@ -124,5 +173,28 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
       p_new_role: 'viewer',
     });
     expect(mocks.updateUserById).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/account/members/[userId]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireRole.mockResolvedValue(ADMIN_CTX);
+  });
+
+  it('accepts NULL: the person keeps another membership', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    const res = await DELETE(request(null), params);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, newPersonalAccountId: null });
+    expect(mocks.rpc).toHaveBeenCalledWith('remove_account_member', {
+      p_user_id: 'user-2',
+    });
+  });
+
+  it('returns the new personal account of someone removed from their only workspace', async () => {
+    mocks.rpc.mockResolvedValue({ data: 'account-9', error: null });
+    const res = await DELETE(request(null), params);
+    expect(await res.json()).toEqual({ ok: true, newPersonalAccountId: 'account-9' });
   });
 });
