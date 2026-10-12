@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Deal rooms: database
+
+The database side of deal rooms: a deal room is a real WhatsApp group
+on the workspace's verified Meta number, linked to a contact and
+optionally a deal. The customer's consent is recorded before any group
+exists, and a group holds at most 8 members including the business
+number. People who opted out or are marked do-not-contact are refused.
+Bank officers can join only for a bank whose DSA terms an admin has
+checked, and an agent's bank officer waits for a team leader's
+approval. Members never see each other's phone numbers in the CRM: a
+bank guest sees only the names, roles and messages of their own rooms.
+Each room also has a staff-only Team notes tab.
+
+> **Migration required:** apply
+> `supabase/migrations/088_deal_rooms.sql` (re-runnable)
+> **before** deploying the app.
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team

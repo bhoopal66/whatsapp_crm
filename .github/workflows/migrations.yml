@@ -211,3 +211,13 @@ jobs:
       # DEFINER RPCs are the boundary, so only real Postgres can show it.
       - name: Verify internal chat (admin)
         run: supabase db query --local --file supabase/ci/verify-internal-chat-admin.sql
+
+      # Deal rooms (088): WhatsApp groups on the Meta number, linked to a
+      # contact. Consent before any group, at most 8 members, opted-out
+      # and do-not-contact people refused, bank guests per bank and with
+      # a leader's approval, guests kept to the roster and group
+      # messages, no phone or invite link readable by any client, and the
+      # service-role functions. RLS, column grants and SECURITY DEFINER
+      # functions are the boundary, so only real Postgres can show it.
+      - name: Verify deal rooms
+        run: supabase db query --local --file supabase/ci/verify-deal-rooms.sql
