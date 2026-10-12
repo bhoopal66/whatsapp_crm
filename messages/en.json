@@ -3330,7 +3330,18 @@
     "mentions": "{count, plural, =1 {# mention} other {# mentions}}",
     "pickTitle": "Pick a channel",
     "pickBody": "Choose a channel or a direct message on the left.",
-    "searchSoon": "Search results for “{q}” are coming soon.",
+    "search": {
+      "title": "Results for “{q}”",
+      "people": "People",
+      "message": "Message",
+      "messages": "Messages",
+      "count": "{count, plural, =1 {# match} other {# matches}}",
+      "searching": "Searching…",
+      "none": "No messages match “{q}”.",
+      "noneHint": "Try fewer or different words. Search covers the channels and direct messages you can read.",
+      "unknownChannel": "Unknown channel",
+      "inThread": "in a thread"
+    },
     "sections": {
       "inbox": "WhatsApp inbox",
       "channels": "Team channels",
