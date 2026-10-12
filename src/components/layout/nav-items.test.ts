@@ -29,28 +29,35 @@ const EVERYONE = [
   '/pipelines',
 ];
 
+/** The opening group for an agent and up: Journeys (module 016) is agent+. */
+const STAFF = [...EVERYONE, '/journeys'];
+
 const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
 
 describe('visibleNavGroups', () => {
-  it.each([null, 'viewer', 'agent'] as const)(
+  it.each([
+    [null, EVERYONE],
+    ['viewer', EVERYONE],
+    ['agent', STAFF],
+  ] as const)(
     'gives %s only the opening group, with no heading',
-    (role) => {
+    (role, main) => {
       const groups = visibleNavGroups(role);
-      expect(layout(groups)).toEqual({ main: EVERYONE });
+      expect(layout(groups)).toEqual({ main });
       expect(groups.every((g) => g.labelKey === null)).toBe(true);
     }
   );
 
   it('adds the team views and Team activity for a team leader', () => {
     expect(layout(visibleNavGroups('team_leader'))).toEqual({
-      main: EVERYONE,
+      main: STAFF,
       team: ['/team-inbox', '/team-contacts', '/team-activity'],
     });
   });
 
   it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
     expect(layout(visibleNavGroups(role))).toEqual({
-      main: EVERYONE,
+      main: STAFF,
       team: ['/team-inbox', '/team-contacts', '/team-activity'],
       sales: ['/broadcasts'],
       automation: ['/automations', '/flows'],
@@ -127,7 +134,9 @@ describe('nav model', () => {
         ? 'team_leader'
         : source.includes('AdminOnlyLayout')
           ? 'admin'
-          : undefined;
+          : source.includes('AgentOnlyLayout')
+            ? 'agent'
+            : undefined;
       expect(item.minRole, item.href).toBe(guard);
     }
   });
