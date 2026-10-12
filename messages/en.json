@@ -12,7 +12,12 @@
     "signingIn": "Signing in...",
     "signIn": "Sign in",
     "noAccountAskAdmin": "Need an account? Ask your administrator to create one for you.",
-    "deactivated": "Your access has been deactivated. Contact your administrator."
+    "deactivated": "Your access has been deactivated. Contact your administrator.",
+    "invalidCredentials": "Invalid email or password.",
+    "tooManyAttempts": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+    "rateLimited": "Too many sign-in requests. Wait a moment and try again.",
+    "unavailable": "Sign-in is temporarily unavailable. Try again shortly.",
+    "genericError": "Sign-in failed. Try again."
   },
   "Sidebar": {
     "title": "Taamul Connect",
