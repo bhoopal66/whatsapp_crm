@@ -272,6 +272,118 @@ What to do about such a number is a business decision:
   after to confirm only your app disappeared. If the callbacks are *not*
   signed by this app, change the other app's callback URL instead.
 
+## Deal rooms
+
+A deal room is a real WhatsApp group for one deal: the customer, the
+people on your side, and your Meta number as the business. If you allow
+them, officers of a partner bank can be in it too. It is made through
+the Cloud API's Groups API, so it needs a Meta number; the Whapi
+channel cannot host one. In the CRM it is linked to the customer's
+contact and, optionally, to a deal. A group holds at most 8 members
+including your number, so a room lists 1 to 7 other people.
+
+### Before the first room
+
+1. **A Meta number that is an Official Business Account.** The Groups
+   API is not available to other numbers. Without a connected Meta
+   number, creating a room is refused with a message saying so.
+2. **The four `group_*` webhook fields subscribed**, as described under
+   *Groups webhooks* below.
+3. **The group-invite template.** WhatsApp has no silent add, so each
+   person is invited with a template message in their own 1:1 chat,
+   carrying the group's invite link. Copy Meta's template from the
+   **Template Library** (topic *group invite link*) **unmodified**:
+   Meta turns its `group_id` parameter into the link, and an edited
+   copy will not do that. Submit it in your WABA and wait for it to be
+   approved.
+4. **Settings → Deal rooms** (admins). Enter the approved template's
+   name and language. The page shows whether each name is found in your
+   synced templates and approved. An Arabic copy is optional; today
+   everyone gets the default copy. Until a template is configured a
+   room is still created, but nobody is invited: the creator gets an
+   *Invite template not configured* notification, and a manager sends
+   the invites once it is set (`POST /api/deal-rooms/{id}/invites`).
+
+### How a room runs
+
+1. **Create it from the chat screen** (agents and up). The customer's
+   consent is recorded first (the wording shown, its version and how it
+   was given); without it no group is made. People who opted out or are
+   marked do-not-contact are refused. The room shows as *creating*:
+   Meta answers at once and sends the group id in a `group_create`
+   webhook, which opens the room. If Meta refuses, the room is marked
+   failed straight away and its creator is told.
+2. **Each person gets the invite link in their own 1:1 chat**, sent
+   from your Meta number as the template above. A person is invited
+   once; sending the invites again only reaches those not yet invited.
+3. **Join requests.** Groups are made with join approval on, so tapping
+   the link sends a request. A request from one of the numbers on the
+   room's list is **approved automatically**. Any other number **waits
+   for the relationship manager**: the room's creator and the admins of
+   its channel get a notification, and a manager approves or rejects it
+   in the room.
+4. **Messaging.** Everyone in the group sees every message.
+   - **Free text** can be sent only inside the group's **24-hour reply
+     window**. Any member's message opens it for the whole group, not
+     just for the sender.
+   - **Outside the window**, only an **approved template** can be sent.
+     Meta charges a template **once per member who receives it**.
+   - A group message is text or a template: **no buttons, lists or
+     calls**.
+   - **A sent message cannot be edited or deleted.**
+   - A member who writes `STOP`, `UNSUBSCRIBE` or an Arabic equivalent is
+     removed from the group, marked opted out (no broadcast reaches
+     them again), and a note says so in the room.
+   - A person removed by a manager **cannot rejoin through the invite
+     link**. A manager can fetch the link or reset it; a reset ends
+     every earlier link. The link is never stored, only its hash.
+5. **Files members send are saved to the deal file automatically**
+   (pictures, documents, audio, video, stickers), in a private bucket.
+   If one cannot be saved, its message still arrives and shows the
+   failure.
+6. **Close room.** A manager closes the room: a **transcript is saved to
+   the deal file** (every group message, the files shared and who joined
+   and left, as an HTML file), then **everyone is removed and the group
+   is deleted** at WhatsApp. If WhatsApp fails part-way the room stays
+   *closing* with the reason, and closing again carries on from there.
+   A transcript can also be saved at any time without closing.
+
+A *manager* is a team leader or above, or an agent who is an admin of
+the room's channel or owns the room's contact. If WhatsApp suspends a
+group, the room shows *suspended*, its managers are notified, and
+nothing can be sent until WhatsApp clears it.
+
+### What never leaves the CRM
+
+The room's **Team notes** tab is internal chat for staff. It does not go
+through the group send path, so no member of the group ever sees it, and
+it is not in the transcript. Staff also see group members' phone numbers
+and WhatsApp ids only masked (`+971 XXXXXXX12`).
+
+### Bank officers
+
+- **Off per bank until the bank's DSA terms are checked.** An admin turns
+  a bank on in Settings and the date it was checked is recorded. For any
+  other bank, adding an officer is refused.
+- **A team leader approves each guest** an agent adds: the officer
+  waits, is invited only once a team leader (or above) approves, and is
+  never invited if rejected.
+- A bank officer sees only their own rooms, and in them only member
+  names, roles and messages, never phone numbers.
+
+### Rooms stuck in "creating"
+
+The group id can fail to arrive (a lost webhook, or one that names a
+request no room recorded). `GET /api/deal-rooms/cron`, authenticated like
+the other cron endpoints (`AUTOMATION_CRON_SECRET` in `x-cron-secret`),
+takes every room still *creating* after 2 minutes and finishes it:
+finds its group by exact subject, or asks Meta once more if there is
+none. A room still without its group after 10 minutes is marked
+**failed** and its creator is told. A group that cannot be told apart
+from another is never guessed. The automation cron runs it too, at most
+every 2 minutes per process, so an install that pings only that one is
+covered.
+
 ## Groups webhooks (deal rooms)
 
 A deal room is a real WhatsApp group on your Meta number, made with the

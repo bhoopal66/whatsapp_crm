@@ -31,26 +31,40 @@ processor.
 > **Migration required:** apply `supabase/migrations/089_pbx.sql`
 > (re-runnable) **before** deploying the app.
 
-### Deal rooms: database
+### Deal rooms
 
-The database side of deal rooms: a deal room is a real WhatsApp group
-on the workspace's verified Meta number, linked to a contact and
-optionally a deal. The customer's consent is recorded before any group
-exists, and a group holds at most 8 members including the business
-number. People who opted out or are marked do-not-contact are refused.
-Bank officers can join only for a bank whose DSA terms an admin has
-checked, and an agent's bank officer waits for a team leader's
-approval. Members never see each other's phone numbers in the CRM: a
-bank guest sees only the names, roles and messages of their own rooms.
-Each room also has a staff-only Team notes tab.
+A deal room is a real WhatsApp group on the workspace's verified Meta
+number, made from the chat screen for one customer and, optionally,
+one deal. The customer's consent is recorded before any group exists,
+and a group holds at most 8 members including the business number.
+People who opted out or are marked do-not-contact are refused.
 
-> **Migration required:** apply
-> `supabase/migrations/088_deal_rooms.sql` (re-runnable)
-> **before** deploying the app.
+- **Invites.** Each person gets the group's invite link in their own
+  1:1 chat, as the group-invite template an admin picks in Settings →
+  Deal rooms. A join request from an expected number is approved
+  automatically; any other waits for the relationship manager.
+- **Messaging.** Free text goes out inside the group's 24-hour reply
+  window (any member's message opens it for everyone) and approved
+  templates outside it. Files members send are saved to the deal file
+  automatically.
+- **Close room.** Saves a transcript to the deal file, removes everyone
+  and deletes the group. A room stuck in "creating" is finished or
+  failed by a background job (`/api/deal-rooms/cron`, also run every 2
+  minutes by the automation cron).
+- **Bank officers** can join only for a bank whose DSA terms an admin
+  has checked, and an agent's bank officer waits for a team leader's
+  approval. Members never see each other's phone numbers in the CRM,
+  and a bank guest sees only the names, roles and messages of their own
+  rooms. Each room also has a staff-only Team notes tab that never
+  reaches the group.
 
-Meta's group webhooks now reach deal rooms and never the inbox:
-subscribe the app to the four `group_*` fields (see
-`docs/meta-cloud-api.md`); no new migration.
+Subscribe the Meta app to the four `group_*` webhook fields and use a
+Meta number that is an Official Business Account; setup is in
+`docs/meta-cloud-api.md` (Deal rooms).
+
+> **Migration required:** apply `supabase/migrations/088_deal_rooms.sql`
+> (re-runnable; re-apply if you applied an earlier copy — it gained the
+> `deal_room_settings` table) **before** deploying the app.
 
 ### Internal team chat
 
