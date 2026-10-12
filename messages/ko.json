@@ -3450,6 +3450,13 @@
       "deleteTitle": "이 메시지를 삭제할까요?",
       "deleteBody": "채널의 모든 사람에게 “삭제된 메시지입니다.”로 표시됩니다. 첨부 파일도 함께 삭제됩니다.",
       "deleteConfirm": "삭제"
+    },
+    "thread": {
+      "title": "스레드",
+      "close": "스레드 닫기",
+      "loading": "스레드를 불러오는 중…",
+      "gone": "이 메시지를 볼 수 없습니다.",
+      "replies": "{count, plural, =0 {아직 답글이 없습니다} other {답글 #개}}"
     }
   }
 }

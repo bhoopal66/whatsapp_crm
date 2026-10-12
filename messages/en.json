@@ -3450,6 +3450,13 @@
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
       "deleteConfirm": "Delete"
+    },
+    "thread": {
+      "title": "Thread",
+      "close": "Close thread",
+      "loading": "Loading thread…",
+      "gone": "This message isn't available.",
+      "replies": "{count, plural, =0 {No replies yet} =1 {# reply} other {# replies}}"
     }
   }
 }
