@@ -13,7 +13,11 @@ import type {
   SharedSnapshot,
 } from './types';
 
-/** Bank guests have no inbox to share from; viewers don't post. */
+/**
+ * Who is offered Share: bank guests have no inbox to share from, and a
+ * viewer's role is read-only on customer data. (Viewers can still post
+ * in Team chat; the database decides who may share.)
+ */
 export function canShareToTeamChat(role: string | null | undefined): boolean {
   return !!role && role !== 'viewer' && role !== 'bank_guest';
 }

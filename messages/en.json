@@ -4490,7 +4490,7 @@
       },
       "errors": {
         "sourceRequired": "An opt-in needs its source.",
-        "adminOnly": "Only an admin can clear do not contact.",
+        "adminOnly": "Only an admin can change or clear a do-not-contact.",
         "notAllowed": "You can't change this customer's consent.",
         "generic": "Couldn't save. Try again."
       },
