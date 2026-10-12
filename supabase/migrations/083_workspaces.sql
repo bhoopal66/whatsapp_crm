@@ -139,7 +139,7 @@ CREATE OR REPLACE FUNCTION public.is_account_member(
 RETURNS boolean
 LANGUAGE sql
 STABLE SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
   SELECT EXISTS (
     SELECT 1
@@ -173,7 +173,7 @@ CREATE OR REPLACE FUNCTION public.current_account_id()
 RETURNS uuid
 LANGUAGE sql
 STABLE SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
   SELECT account_id FROM profiles
   WHERE user_id = auth.uid()
@@ -187,7 +187,7 @@ CREATE OR REPLACE FUNCTION public.current_role_rank()
 RETURNS integer
 LANGUAGE sql
 STABLE SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
   SELECT COALESCE((
     SELECT CASE account_role
@@ -208,7 +208,7 @@ CREATE OR REPLACE FUNCTION public.led_teammate_profile_ids()
 RETURNS uuid[]
 LANGUAGE sql
 STABLE SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
   SELECT COALESCE(array_agg(p.id), '{}')
     FROM profiles p
@@ -310,7 +310,7 @@ CREATE OR REPLACE FUNCTION public.notify_conversation_assigned()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path = public, pg_temp
 AS $function$
 DECLARE
   v_contact_name TEXT;
@@ -365,7 +365,7 @@ CREATE OR REPLACE FUNCTION public.team_activity_alert_sweep()
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
- SET search_path TO 'public'
+ SET search_path = public, pg_temp
 AS $function$
 DECLARE
   v_account uuid;
@@ -499,7 +499,7 @@ $function$
 CREATE OR REPLACE FUNCTION public.enforce_profile_privilege_columns()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF current_user = 'authenticated' AND (
@@ -651,7 +651,7 @@ CREATE OR REPLACE FUNCTION public.touch_presence(p_status text DEFAULT 'online')
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF auth.uid() IS NULL THEN
@@ -788,7 +788,7 @@ CREATE OR REPLACE FUNCTION public.set_member_role(p_user_id uuid, p_new_role acc
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_caller_account_id UUID;
@@ -851,7 +851,7 @@ CREATE OR REPLACE FUNCTION public.set_member_active(p_user_id uuid, p_active boo
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_caller_account_id UUID;
@@ -912,7 +912,7 @@ CREATE OR REPLACE FUNCTION public.transfer_account_ownership(p_new_owner_user_id
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_caller_account_id UUID;
@@ -983,7 +983,7 @@ CREATE OR REPLACE FUNCTION public.remove_account_member(p_user_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_caller_account_id UUID;
@@ -1071,7 +1071,7 @@ CREATE OR REPLACE FUNCTION public.redeem_invitation(p_token_hash text)
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_caller_id UUID := auth.uid();
@@ -1162,7 +1162,7 @@ CREATE OR REPLACE FUNCTION public.provision_account_member(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_code TEXT := NULLIF(btrim(p_bank_code), '');
