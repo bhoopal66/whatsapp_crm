@@ -12,6 +12,25 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system (Yeastar) — database
+
+The database for the Yeastar P-Series phone system. Calls land on the
+customer's timeline next to their WhatsApp chat (direction, number,
+extension, ring and talk time, outcome and notes); an agent sees the
+calls they were on and those of customers they can see, team leaders
+and up every call of the workspace, bank guests none. Recordings are
+kept in a private storage bucket no browser can read: every play is
+logged, and playback is held until the English/Arabic recording notice
+is confirmed played (a workspace can switch that requirement off). It
+also holds PBX connections (credentials encrypted, service role only),
+number routing, extension mapping, the live screen pop and presence.
+The owner can erase a customer's call records on request, unless a
+recording is under legal hold. Missed-call tasks come with the event
+processor.
+
+> **Migration required:** apply `supabase/migrations/089_pbx.sql`
+> (re-runnable) **before** deploying the app.
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team
