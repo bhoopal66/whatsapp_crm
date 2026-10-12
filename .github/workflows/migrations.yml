@@ -162,3 +162,11 @@ jobs:
       # show it.
       - name: Verify approved answers
         run: supabase db query --local --file supabase/ci/verify-approved-answers.sql
+
+      # Edge security (084): the webhook replay keys, the sliding-window
+      # rate limiter and the admin lockout are advisory-locked functions
+      # over service-role-only tables. Only real Postgres can show the
+      # window prunes, a lapsed claim is taken over, a success clears
+      # only its own pair, and anon/authenticated are refused.
+      - name: Verify edge security
+        run: supabase db query --local --file supabase/ci/verify-edge-security.sql

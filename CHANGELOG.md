@@ -12,6 +12,20 @@ and polish.
 
 ## [Unreleased]
 
+### Edge security stores for the webhook and admin API
+
+Groundwork for webhook replay protection, per-sender rate limits and
+an admin login lockout: Postgres tables and functions that every app
+instance shares, so limits and clocks agree across instances. Nothing
+calls them yet; the webhook wiring that does ships next and needs this
+migration applied first. Schedule `SELECT public.edge_purge()` every
+15 minutes (pg_cron) to drop expired rows; correctness does not depend
+on it.
+
+> **Migration required:** apply
+> `supabase/migrations/084_edge_security.sql` (re-runnable)
+> **before** deploying the app.
+
 ### AI agent: approved answers only, and a sensitive-data warning
 
 A new answer mode for the auto-reply bot, **Approved answers only**:
