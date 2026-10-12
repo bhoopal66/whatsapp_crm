@@ -47,13 +47,20 @@
 -- requirement off), so held audio cannot be served by a route that logs
 -- first. The log and pbx_audit are append-only.
 --
--- Erasure (C-3). pbx_erase_contact_calls (owner only) deletes the
--- contact's recording rows and returns their storage paths for the
--- route to delete, clears notes and disposition, and marks the calls
--- erased; time, duration, extension and direction stay. An erased call
--- stays erased and cannot take notes, a disposition or a recording
--- again (calls_erased_check, calls_guard, call_recordings_guard). A
--- recording under legal hold blocks the erasure.
+-- Erasure (C-3). pbx_erase_contact_calls (owner only) takes, in the
+-- caller's workspace, the contact's calls, the calls that listed it as
+-- a candidate, and the calls from its number as the processor matches
+-- numbers (pbx_phone_variants), linked or not. It deletes their
+-- recording rows and returns the storage paths for the route to
+-- delete, clears notes and disposition, and marks the calls erased;
+-- calls_guard then keeps an erased call to the bare fact: no remote
+-- number, no recording file name, and of meta only `unrouted`. Time,
+-- duration, extension, direction and status stay. An erased call stays
+-- erased and cannot take notes, a disposition or a recording again
+-- (calls_erased_check, calls_guard, call_recordings_guard). A recording
+-- under legal hold blocks the erasure. Audio the route failed to
+-- delete is swept: pbx_orphan_recordings() lists bucket objects no
+-- recording row names, and the PBX cron removes them (housekeeping.ts).
 --
 -- pbx_purge() (service role, from a cron) drops screen-pop rows older
 -- than a day, processed raw events older than 30 days, and raw events
@@ -313,6 +320,13 @@ BEGIN
     IF OLD.erased_at IS NOT NULL AND NEW.erased_at IS DISTINCT FROM OLD.erased_at THEN
       RAISE EXCEPTION 'An erased call stays erased' USING ERRCODE = 'check_violation';
     END IF;
+  END IF;
+  -- C-3: an erased call keeps only the bare fact, whoever writes it (the
+  -- erasure, or a late PBX event for the same call).
+  IF NEW.erased_at IS NOT NULL THEN
+    NEW.remote_number := NULL;
+    NEW.recording_file := NULL;
+    NEW.meta := jsonb_strip_nulls(jsonb_build_object('unrouted', NEW.meta -> 'unrouted'));
   END IF;
   IF NEW.deal_id IS NOT NULL
      AND (TG_OP = 'INSERT' OR NEW.deal_id IS DISTINCT FROM OLD.deal_id)
@@ -688,7 +702,52 @@ BEGIN
 END;
 $$;
 
+-- phoneVariants (src/lib/whatsapp/phone-utils.ts) in SQL: the number,
+-- then a trunk 0 inserted, then one removed, after a 1-, 2- and 3-digit
+-- country code. The processor looks a caller up by these
+-- (contactPhoneCandidates, src/lib/pbx/phone.ts). Change one, change both.
+CREATE OR REPLACE FUNCTION public.pbx_phone_variants(p_digits text)
+RETURNS text[]
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_out  text[] := '{}';
+  v_v    text;
+  v_cc   integer;
+  v_rest text;
+BEGIN
+  IF COALESCE(p_digits, '') = '' THEN
+    RETURN v_out;
+  END IF;
+  v_out := ARRAY[p_digits];
+  FOREACH v_cc IN ARRAY ARRAY[1, 2, 3, -1, -2, -3] LOOP
+    v_rest := substr(p_digits, abs(v_cc) + 1);
+    v_v := CASE
+      WHEN v_cc > 0 AND length(p_digits) > v_cc AND left(v_rest, 1) <> '0'
+        THEN left(p_digits, v_cc) || '0' || v_rest
+      WHEN v_cc < 0 AND length(p_digits) > 1 - v_cc AND left(v_rest, 1) = '0'
+        THEN left(p_digits, -v_cc) || substr(v_rest, 2)
+    END;
+    IF v_v IS NOT NULL AND NOT v_v = ANY (v_out) THEN
+      v_out := v_out || v_v;
+    END IF;
+  END LOOP;
+  RETURN v_out;
+END;
+$$;
+
 -- C-3, owner only. Returns the storage paths for the route to delete.
+-- A call is the contact's when it is linked to it, listed it as a
+-- candidate (meta.contact_candidates), or came from its number as the
+-- processor would match that number today (matchContact,
+-- src/lib/pbx/process.ts): one of the number's phoneVariants is the
+-- contact's phone, or, when no contact of the workspace is one of them,
+-- the last 8 digits agree. So a call that never matched, because the
+-- contact did not exist yet or the match was ambiguous, is erased too,
+-- even one a person linked to someone else: the number on it is this
+-- contact's.
 CREATE OR REPLACE FUNCTION public.pbx_erase_contact_calls(p_contact_id uuid, p_reason text)
 RETURNS text[]
 LANGUAGE plpgsql
@@ -698,6 +757,7 @@ AS $$
 DECLARE
   v_account uuid := current_account_id();
   v_reason  text := NULLIF(btrim(p_reason), '');
+  v_phone   text;
   v_calls   uuid[];
   v_paths   text[];
 BEGIN
@@ -707,12 +767,22 @@ BEGIN
   IF v_reason IS NULL THEN
     RAISE EXCEPTION 'A reason is required' USING ERRCODE = '22023';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM contacts WHERE id = p_contact_id AND account_id = v_account) THEN
+  SELECT NULLIF(phone_normalized, '') INTO v_phone
+    FROM contacts WHERE id = p_contact_id AND account_id = v_account;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Contact not found' USING ERRCODE = 'P0002';
   END IF;
   WITH locked AS (
-    SELECT id, started_at FROM calls
-     WHERE contact_id = p_contact_id AND account_id = v_account
+    SELECT c.id, c.started_at FROM calls c
+     WHERE c.account_id = v_account
+       AND (c.contact_id = p_contact_id
+            OR c.meta -> 'contact_candidates' ? p_contact_id::text
+            OR v_phone = ANY (pbx_phone_variants(c.remote_number))
+            OR (length(v_phone) >= 8 AND length(c.remote_number) >= 8
+                AND right(c.remote_number, 8) = right(v_phone, 8)
+                AND NOT EXISTS (SELECT 1 FROM contacts o
+                                 WHERE o.account_id = v_account
+                                   AND o.phone_normalized = ANY (pbx_phone_variants(c.remote_number)))))
      FOR UPDATE)
   SELECT COALESCE(array_agg(id ORDER BY started_at, id), '{}') INTO v_calls FROM locked;
   IF EXISTS (SELECT 1 FROM call_recordings WHERE call_id = ANY (v_calls) AND legal_hold) THEN
@@ -749,6 +819,31 @@ BEGIN
   GET DIAGNOSTICS v_events = ROW_COUNT;
   RETURN jsonb_build_object('call_live', v_live, 'events', v_events);
 END;
+$$;
+
+-- Service role, from the PBX cron (housekeeping.ts): objects in
+-- call-recordings that no recording row names, oldest first. Untouched
+-- for p_older_than, because a fetch uploads before it writes the row,
+-- and never the object of a call still pending, which a fetch may be
+-- re-uploading (recordings.ts names it account-<id>/calls/<call id>.<ext>).
+CREATE OR REPLACE FUNCTION public.pbx_orphan_recordings(p_older_than interval, p_limit integer)
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT o.name
+    FROM storage.objects o
+   WHERE o.bucket_id = 'call-recordings'
+     AND GREATEST(o.created_at, o.updated_at) < now() - p_older_than
+     AND NOT EXISTS (SELECT 1 FROM call_recordings r WHERE r.storage_path = o.name)
+     AND NOT EXISTS (
+       SELECT 1 FROM calls c
+        WHERE c.recording_state = 'pending'
+          AND c.id = substring(o.name FROM
+                '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[^/.]*$')::uuid)
+   ORDER BY o.created_at, o.name
+   LIMIT GREATEST(LEAST(p_limit, 1000), 0)
 $$;
 
 -- ---------- 10. Row-level security ----------
@@ -894,6 +989,11 @@ GRANT EXECUTE ON FUNCTION
   public.pbx_token_lock(uuid, text), public.pbx_token_swap(uuid, timestamptz, text, text),
   public.pbx_recording_playable(uuid), public.pbx_purge()
   TO service_role;
+-- C-3's helpers: the variants only inside the erasure (its owner runs
+-- them), the orphan list for the service role.
+REVOKE ALL ON FUNCTION public.pbx_phone_variants(text), public.pbx_orphan_recordings(interval, integer)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.pbx_orphan_recordings(interval, integer) TO service_role;
 
 -- ---------- 13. One bell per missed call ----------
 -- The processor rings its own call_missed bell for a missed call, which
