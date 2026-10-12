@@ -65,6 +65,7 @@ DECLARE
   r        TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
+  v_team UUID; v_pl UUID; v_st UUID; v_deal_out UUID; v_deal_in UUID; v_ch UUID; v_pre UUID;
 BEGIN
   BEGIN
   -- Run a statement as p_role (a signed-in user when p_uid is given):
@@ -442,8 +443,8 @@ BEGIN
   r := pg_temp.dr_try('authenticated', u_lead, format(
          'SELECT count(*)::text FROM public.deal_rooms WHERE id IN (%L, %L, %L, %L)', r_main, r_agent, r_agent2, r_lead));
   n := n + 1;
-  IF r IS DISTINCT FROM '4' THEN
-    failed := array_append(failed, ('the team leader does not see every room: ' || r)::text);
+  IF r IS DISTINCT FROM '1' THEN
+    failed := array_append(failed, ('a team leader with no team sees rooms other than their own customer''s: ' || r)::text);
   END IF;
   r := pg_temp.dr_try('authenticated', u_other,
          'SELECT ((SELECT count(*) FROM public.deal_rooms) + (SELECT count(*) FROM public.deal_room_roster)'
@@ -520,7 +521,7 @@ BEGIN
        || '/' || pg_temp.dr_try('authenticated', u_agent2, format('SELECT public.deal_room_can_manage(%L)::text', r_main))
        || '/' || pg_temp.dr_try('authenticated', u_lead, format('SELECT public.deal_room_can_manage(%L)::text', r_agent2));
   n := n + 1;
-  IF r IS DISTINCT FROM 'true/true/false/true/false/false/false/true' THEN
+  IF r IS DISTINCT FROM 'true/true/false/true/false/false/false/false' THEN
     failed := array_append(failed, ('can_post/can_manage (agent member post, manage; viewer post; guest post, manage; '
                                     || 'outside agent post, manage; leader manage): ' || r)::text);
   END IF;
@@ -591,6 +592,89 @@ BEGIN
   n := n + 1;
   IF r NOT LIKE '1 / 0 / ERROR 42501:%' THEN
     failed := array_append(failed, ('deal_room_settings reads (agent, another account''s owner, anon): ' || r)::text);
+  END IF;
+
+  -- ---------- a team leader's and a guest's reach ----------
+  -- A team leader with no team (the fixture's) is no supervisor of the
+  -- admin's room on the agent's customer: no access, no managing, no
+  -- adding themselves (so no Team notes), no rows, no room files.
+  SELECT channel_id INTO v_ch FROM deal_rooms WHERE id = r_main;
+  INSERT INTO deal_files (account_id, room_id, storage_path, name, source)
+  VALUES (a_acct, r_main, format('account-%s/room-%s/f.pdf', a_acct, r_main), 'f.pdf', 'upload');
+  s := format('SELECT public.deal_files_storage_can_read(%L)::text', format('account-%s/room-%s/f.pdf', a_acct, r_main));
+  r := pg_temp.dr_try('authenticated', u_lead, format('SELECT coalesce(public.deal_room_access(%L), ''none'')', r_main))
+       || '/' || pg_temp.dr_try('authenticated', u_lead, format('SELECT public.deal_room_can_manage(%L)::text', r_main))
+       || '/' || left(pg_temp.dr_try('authenticated', u_lead,
+         format('SELECT public.deal_room_add_staff(%L, ARRAY[%L]::uuid[])::text', r_main, u_lead)), 11)
+       || '/' || pg_temp.dr_try('authenticated', u_lead, format('SELECT public.chat_can_read_channel(%L)::text', v_ch))
+       || '/' || pg_temp.dr_try('authenticated', u_lead, format(
+         'SELECT ((SELECT count(*) FROM public.deal_rooms WHERE id = %L)'
+         ' + (SELECT count(*) FROM public.deal_room_participants WHERE room_id = %L)'
+         ' + (SELECT count(*) FROM public.deal_room_roster WHERE room_id = %L)'
+         ' + (SELECT count(*) FROM public.deal_files WHERE room_id = %L))::text', r_main, r_main, r_main, r_main))
+       || '/' || pg_temp.dr_try('authenticated', u_lead, s)
+       || '/' || pg_temp.dr_try('authenticated', u_admin, s);
+  n := n + 1;
+  IF r IS DISTINCT FROM 'none/false/ERROR 42501/false/0/false/true' THEN
+    failed := array_append(failed, ('a team leader with no team (access/manage/add self/Team notes/rows/file; '
+                                    || 'the admin''s file): ' || r)::text);
+  END IF;
+  -- With a team, the leader supervises the room of a teammate's customer,
+  -- unless the room's deal is someone else's.
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'DR team', u_lead) RETURNING id INTO v_team;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (v_team, u_agent2, a_acct);
+  INSERT INTO pipelines (account_id, user_id, name) VALUES (a_acct, u_owner, 'DR pipe') RETURNING id INTO v_pl;
+  INSERT INTO pipeline_stages (pipeline_id, name, position) VALUES (v_pl, 'New', 0) RETURNING id INTO v_st;
+  INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title)
+  VALUES (a_acct, u_agent, v_pl, v_st, c_agent2, 'not the team''s') RETURNING id INTO v_deal_out;
+  INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title)
+  VALUES (a_acct, u_agent2, v_pl, v_st, c_agent2, 'the team''s') RETURNING id INTO v_deal_in;
+  s := format('SELECT coalesce(public.deal_room_access(%L), ''none'') || '' '' || public.deal_room_can_manage(%L)::text',
+              r_agent2, r_agent2);
+  r := pg_temp.dr_try('authenticated', u_lead, s);
+  UPDATE deal_rooms SET deal_id = v_deal_out WHERE id = r_agent2;
+  r := r || '/' || pg_temp.dr_try('authenticated', u_lead, s);
+  UPDATE deal_rooms SET deal_id = v_deal_in WHERE id = r_agent2;
+  r := r || '/' || pg_temp.dr_try('authenticated', u_lead, s);
+  n := n + 1;
+  IF r IS DISTINCT FROM 'supervisor true/none false/supervisor true' THEN
+    failed := array_append(failed, ('a team leader with a team (teammate''s customer; another''s deal; '
+                                    || 'the teammate''s deal): ' || r)::text);
+  END IF;
+  -- A guest loses the room when their bank's guests are switched off,
+  -- and when their bank's participant is removed from the group.
+  s := format('SELECT coalesce(public.deal_room_access(%L), ''none'') || '' '' || public.deal_room_can_post(%L)::text'
+              ' || '' '' || (SELECT count(*) FROM public.group_messages WHERE room_id = %L)', r_lead, r_lead, r_lead);
+  r := pg_temp.dr_try('authenticated', u_guest, s);
+  UPDATE bank_guest_policies SET guests_allowed = false WHERE account_id = a_acct AND bank_code = 'ADCB';
+  r := r || '/' || pg_temp.dr_try('authenticated', u_guest, s);
+  UPDATE bank_guest_policies SET guests_allowed = true WHERE account_id = a_acct AND bank_code = 'ADCB';
+  UPDATE deal_room_participants SET status = 'removed' WHERE room_id = r_lead AND role = 'bank_guest';
+  r := r || '/' || pg_temp.dr_try('authenticated', u_guest, s);
+  UPDATE deal_room_participants SET status = 'joined' WHERE room_id = r_lead AND role = 'bank_guest';
+  n := n + 1;
+  IF r IS DISTINCT FROM 'guest true 2/none false 0/none false 0' THEN
+    failed := array_append(failed, ('a guest (cleared; bank switched off; participant removed): ' || r)::text);
+  END IF;
+  -- A guest's roster masks someone nobody listed (named after their
+  -- number); staff read the name. A guest reads no message from before
+  -- they joined; staff do.
+  PERFORM public.deal_room_add_unlisted(r_lead, a_acct, '971555000111');
+  INSERT INTO group_messages (room_id, account_id, direction, type, body, created_at)
+  VALUES (r_lead, a_acct, 'in', 'text', 'before the guest joined', now() - interval '1 day') RETURNING id INTO v_pre;
+  r := pg_temp.dr_try('authenticated', u_guest, format(
+         'SELECT count(*) FILTER (WHERE display_name ~ ''555000111'') || '' '' '
+         ' || count(*) FILTER (WHERE display_name = ''Unlisted number ending 11'') FROM public.deal_room_roster WHERE room_id = %L', r_lead))
+       || '/' || pg_temp.dr_try('authenticated', u_lead, format(
+         'SELECT count(*)::text FROM public.deal_room_roster WHERE room_id = %L AND display_name = ''+971555000111''', r_lead))
+       || '/' || pg_temp.dr_try('authenticated', u_guest,
+         format('SELECT count(*)::text FROM public.group_messages WHERE id = %L', v_pre))
+       || '/' || pg_temp.dr_try('authenticated', u_lead,
+         format('SELECT count(*)::text FROM public.group_messages WHERE id = %L', v_pre));
+  n := n + 1;
+  IF r IS DISTINCT FROM '0 1/1/0/1' THEN
+    failed := array_append(failed, ('a guest''s roster masks an unlisted number; a guest reads no earlier message '
+                                    || '(guest roster / leader roster / guest / leader): ' || r)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
