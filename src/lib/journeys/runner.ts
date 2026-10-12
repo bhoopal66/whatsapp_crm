@@ -176,14 +176,20 @@ export function createRunner(deps: RunnerDeps) {
       for (let attempt = 1; attempt <= 1 + MAX_CONFLICT_RETRIES; attempt++) {
         const file = await deps.store.load(fileId);
         if (!file) return { status: 'not_found' };
-        const [marketingOptIn, optedOut, received] = await Promise.all([
-          deps.consent.hasMarketingOptIn(file.contactId),
-          deps.consent.isOptedOut(file.contactId),
-          deps.consent.hasReceivedOptinWelcome(file.contactId),
-        ]);
+        const [marketingOptIn, optedOut, received, doNotContact] =
+          await Promise.all([
+            deps.consent.hasMarketingOptIn(file.contactId),
+            deps.consent.isOptedOut(file.contactId),
+            deps.consent.hasReceivedOptinWelcome(file.contactId),
+            deps.consent.doNotContact?.(file.contactId) ?? false,
+          ]);
         const variant = deps.variantOf?.(fileId);
         const result = step(deps.def, file, rest as JourneyEvent, now, {
-          consent: { marketingOptIn, optedOut },
+          consent: {
+            marketingOptIn,
+            optedOut,
+            ...(doNotContact ? { doNotContact: true } : {}),
+          },
           contactHasReceivedOptinWelcome: received,
           ...(variant ? { variant } : {}),
         });

@@ -170,3 +170,11 @@ jobs:
       # only its own pair, and anon/authenticated are refused.
       - name: Verify edge security
         run: supabase db query --local --file supabase/ci/verify-edge-security.sql
+
+      # Journey bot host (086): a commit lands file, event id and outbox
+      # together, a replay is 'duplicate' whatever its version, and only
+      # an agent who can see a customer touches their consent, with an
+      # append-only history. Functions, triggers, RLS and grants: only
+      # real Postgres can show it.
+      - name: Verify journeys
+        run: supabase db query --local --file supabase/ci/verify-journeys.sql

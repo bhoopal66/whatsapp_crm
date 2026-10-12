@@ -24,6 +24,22 @@ on it.
 
 > **Migration required:** apply
 > `supabase/migrations/084_edge_security.sql` (re-runnable)
+
+### Journey bot groundwork: storage, consent register, callback queue
+
+The database side of the journey bot (module 016, "Welcome to Close"),
+which will walk a lead from the first message to a closed deal: each
+customer's journey is stored with the messages and tasks it still has
+to send. Contacts gain a consent register beside the existing opt-out
+— a marketing opt-in, which always names its source, and a
+do-not-contact flag that any agent who can see the customer may set
+and only an admin may clear — and every change to the three is kept
+in an append-only consent history. "Call me back" requests queue for
+the click-to-call module. Nothing is visible yet: the bot is not wired
+to WhatsApp in this release.
+
+> **Migration required:** apply
+> `supabase/migrations/086_journeys.sql` (re-runnable)
 > **before** deploying the app.
 
 ### AI agent: approved answers only, and a sensitive-data warning

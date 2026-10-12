@@ -11,6 +11,8 @@ export interface ConsentPort {
    * now claimed by `claimId`) or already claimed by this same `claimId` (a redelivery of the same outbox item).
    */
   claimOptinWelcome(contactId: string, claimId: string): Promise<boolean>;
+  /** Host do-not-contact flag; feeds `StepContext.consent.doNotContact`. Absent: never do-not-contact. */
+  doNotContact?(contactId: string): Promise<boolean>;
 }
 
 /** One persisted action awaiting (or done with) delivery. `id` is stable and unique; `seq` orders a file's items. */
