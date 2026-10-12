@@ -3352,7 +3352,8 @@
       "dealRoomNote": "The customer group view arrives with deal rooms.",
       "empty": "No messages yet.",
       "loadingOlder": "Loading older messages…",
-      "notFound": "This channel isn't available."
+      "notFound": "This channel isn't available.",
+      "jumpFailed": "That message couldn’t be found in this channel."
     },
     "timeline": {
       "today": "Today",
@@ -3457,6 +3458,45 @@
       "loading": "Loading thread…",
       "gone": "This message isn't available.",
       "replies": "{count, plural, =0 {No replies yet} =1 {# reply} other {# replies}}"
+    },
+    "members": {
+      "title": "Members",
+      "close": "Close members",
+      "loading": "Loading members…",
+      "you": "(you)",
+      "admin": "Admin",
+      "guest": "Guest",
+      "add": "Add people",
+      "back": "Back to members",
+      "search": "Search people",
+      "pick": "Pick {name}",
+      "addPicked": "{count, plural, =0 {Add} other {Add #}}",
+      "added": "{count, plural, =0 {They’re already in the channel} =1 {Added # person} other {Added # people}}",
+      "nobody": "Everyone you can add is already here.",
+      "noMatch": "No one matches “{q}”.",
+      "blockGuestTeam": "Bank guests can’t join team channels.",
+      "blockGuestRole": "Only an owner, admin or team leader can add bank guests.",
+      "blockStaffRole": "Only a channel admin can add staff.",
+      "menu": "Actions for {name}",
+      "makeAdmin": "Make admin",
+      "makeMember": "Make member",
+      "madeAdmin": "{name} is now a channel admin",
+      "madeMember": "{name} is now a member",
+      "leave": "Leave channel",
+      "leaveTitle": "Leave this channel?",
+      "leaveBody": "You’ll stop getting its messages. To come back to a private channel, someone in it has to add you again.",
+      "leaveConfirm": "Leave",
+      "left": "You left the channel",
+      "cancel": "Cancel"
+    },
+    "pins": {
+      "title": "Pinned messages",
+      "close": "Close pinned messages",
+      "loading": "Loading pinned messages…",
+      "empty": "Nothing is pinned yet. Pin a message from its ⋯ menu to keep it here.",
+      "jump": "Jump to the message from {name}",
+      "inThread": "In a thread",
+      "noText": "Attachment"
     }
   }
 }
