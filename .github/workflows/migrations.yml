@@ -211,3 +211,11 @@ jobs:
       # DEFINER RPCs are the boundary, so only real Postgres can show it.
       - name: Verify internal chat (admin)
         run: supabase db query --local --file supabase/ci/verify-internal-chat-admin.sql
+
+      # Phone system (089): who sees a call is RLS through
+      # pbx_can_view_call (leaders all, the call's people, whoever can
+      # see its contact; guests nothing), three SECURITY DEFINER
+      # functions re-check the caller, and a recording's play is logged
+      # only while it is playable. Only real Postgres can show it.
+      - name: Verify phone system
+        run: supabase db query --local --file supabase/ci/verify-pbx.sql
