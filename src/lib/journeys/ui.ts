@@ -268,6 +268,17 @@ export function startBlocker(
   return null;
 }
 
+/**
+ * The contacts patch that withdraws a marketing opt-in. Both columns:
+ * the consent guard needs a source only while the stamp is set, and a
+ * source left behind would describe an opt-in that no longer exists.
+ * Any agent who can see the contact may write it (086's guard).
+ */
+export const WITHDRAW_OPT_IN = {
+  marketing_opt_in_at: null,
+  marketing_opt_in_source: null,
+} as const;
+
 /** Sources an agent records an opt-in with (`marketing_opt_in_source`). */
 export const OPT_IN_SOURCES = [
   'verbal',

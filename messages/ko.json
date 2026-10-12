@@ -2030,7 +2030,8 @@
       "ai": "AI 에이전트",
       "api": "API 키",
       "deals": "딜 & 통화",
-      "team-chat": "팀 채팅"
+      "team-chat": "팀 채팅",
+      "journey-bot": "여정 봇"
     },
     "categories": {
       "overview": "개요",
@@ -2813,6 +2814,79 @@
         "summary": "{messages, plural, other {메시지 #개}} 삭제, {files, plural, other {파일 #개}} 제거.",
         "summaryFilesOnly": "메시지 삭제, {files, plural, other {파일 #개}} 제거.",
         "filesFailed": "{count, plural, other {파일 #개}}를 저장소에서 제거하지 못했습니다. 경로는 서버 로그에 있습니다."
+      }
+    },
+    "journeyBot": {
+      "title": "여정 봇",
+      "description": "“Welcome to Close” 여정: 봇이 WhatsApp에서 비즈니스 고객을 첫 메시지부터 계약 성사까지 안내합니다.",
+      "loadFailed": "여정 봇 설정을 불러오지 못했습니다.",
+      "saveFailed": "저장하지 못했습니다. 다시 시도하세요.",
+      "saved": "저장했습니다",
+      "bot": {
+        "title": "봇",
+        "enabled": "여정 봇",
+        "enabledHint": "여정 봇은 WhatsApp에서 비즈니스 고객을 첫 메시지부터 세 가지 상품(POS 단말기, 비즈니스 계좌, 비즈니스 대출) 중 하나의 계약 성사까지 안내하고, 사람만 할 수 있는 단계는 여정 화면의 결정 항목으로 상담원에게 넘깁니다. 켜져 있는 동안 봇이 WhatsApp에서 응답하고 타이머를 실행합니다. 마케팅 템플릿은 마케팅 수신 동의가 기록된 고객에게만 발송됩니다.",
+        "firstInbound": "고객의 첫 메시지로 여정 시작",
+        "firstInboundHint": "진행 중인 여정이 없는 고객이 메시지를 보내면 여정이 시작됩니다. 끄면 CRM에서 직접 시작한 경우에만 시작됩니다."
+      },
+      "did": {
+        "title": "통화 버튼용 Taamul 전화번호",
+        "description": "서류 요청, 신청 상태, 이행 템플릿의 Call Taamul 버튼에 연결되는 번호입니다. +97141234567 같은 국제 형식으로 입력하고, 비우면 삭제됩니다.",
+        "placeholder": "+97141234567",
+        "invalid": "+97141234567 같은 국제 형식 번호를 입력하세요.",
+        "unset": "아직 설정되지 않았습니다.",
+        "save": "번호 저장"
+      },
+      "templates": {
+        "title": "템플릿 체크리스트",
+        "description": "모든 MARKETING 및 UTILITY 메시지는 템플릿입니다. Meta 번호에서는 WABA에 정확히 이 이름으로 APPROVED 상태여야 하고, Whapi 번호에서는 메시지 템플릿으로 존재해야 합니다. 없거나 승인되지 않은 템플릿은 건너뛰고 작업을 생성합니다.",
+        "name": "템플릿",
+        "category": "카테고리",
+        "buttons": "버튼",
+        "meta": "Meta 번호",
+        "whapi": "Whapi 번호",
+        "callButton": "Call Taamul",
+        "categories": {
+          "MARKETING": "마케팅",
+          "UTILITY": "유틸리티"
+        },
+        "state": {
+          "approved": "승인됨 ✓",
+          "pending": "검토 중",
+          "notApproved": "승인되지 않음 ({status})",
+          "missing": "없음",
+          "present": "있음",
+          "create": "템플릿에서 만드세요"
+        },
+        "noNumbers": "연결된 WhatsApp 번호가 없어 아직 템플릿을 보낼 수 없습니다.",
+        "loadFailed": "계정의 템플릿을 불러오지 못했습니다.",
+        "sessionNote": "SESSION 메시지는 템플릿이 필요 없습니다. 24시간 서비스 창 안에서 자유 형식 메시지로 발송되며, 문구는 아래에서 편집합니다."
+      },
+      "copy": {
+        "title": "세션 문구",
+        "description": "봇의 SESSION 메시지는 기본 제공되는 편집 가능한 문구로, 서비스 창 안에서 답장 버튼, 목록 또는 텍스트로 발송됩니다. 필드를 비워 두면 회색으로 표시된 기본 문구가 사용됩니다.",
+        "messages": {
+          "welcome_menu": "환영 메뉴",
+          "pos_pitch_in_window": "POS 안내 (창 안)",
+          "acct_pitch_in_window": "비즈니스 계좌 안내 (창 안)",
+          "loan_pitch_in_window": "비즈니스 대출 안내 (창 안)",
+          "callback_ack": "콜백 확인"
+        },
+        "body": "메시지",
+        "bodyFallback": "해당 변형이 없을 때의 메시지",
+        "buttonLabel": "목록 버튼 레이블",
+        "variants": {
+          "IN_HOURS": "업무 시간",
+          "OUT_OF_HOURS": "업무 시간 외"
+        },
+        "payload": "페이로드",
+        "buttonTitle": "답장 버튼 제목",
+        "rowTitle": "목록 행 제목",
+        "reset": "기본값으로 재설정",
+        "resetTitle": "이 제목을 기본값으로 재설정",
+        "sharedTitles": "제목은 해당 페이로드를 표시하는 모든 메시지에서 공유됩니다. 템플릿의 빠른 답장 버튼은 기본 제목이나 사용자 지정 제목 중 하나로 표시될 수 있습니다.",
+        "tooLong": "{count}개의 문구가 WhatsApp 글자 수 제한을 넘습니다.",
+        "save": "문구 저장"
       }
     }
   },
@@ -3883,7 +3957,11 @@
         "adminOnly": "연락 금지는 관리자만 해제할 수 있습니다.",
         "notAllowed": "이 고객의 동의 정보를 변경할 수 없습니다.",
         "generic": "저장하지 못했습니다. 다시 시도하세요."
-      }
+      },
+      "withdraw": "수신 동의 철회",
+      "withdrawTitle": "마케팅 수신 동의를 철회할까요?",
+      "withdrawBody": "동의가 다시 기록될 때까지 이 고객에게 마케팅 템플릿이 발송되지 않습니다. 본인 신청에 관한 메시지는 계속 발송됩니다.",
+      "withdrawConfirm": "철회"
     },
     "page": {
       "funnel": "단계",

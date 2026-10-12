@@ -112,6 +112,13 @@ const CustomFieldsSettings = dynamic(
     ),
   { loading: PanelLoading }
 );
+const JourneyBotSettings = dynamic(
+  () =>
+    import('@/components/settings/journey-bot-settings').then(
+      (m) => m.JourneyBotSettings
+    ),
+  { loading: PanelLoading }
+);
 const DealsSettings = dynamic(
   () =>
     import('@/components/settings/deals-settings').then((m) => m.DealsSettings),
@@ -264,6 +271,9 @@ function SettingsPageInner() {
     'quick-replies': <QuickRepliesManager />,
     'chat-tags': <ChatTagsPanel />,
     fields: <CustomFieldsSettings />,
+    'journey-bot': (
+      <JourneyBotSettings onOpenTemplates={() => go('templates')} />
+    ),
     deals: <DealsSettings />,
     members: <MembersTab />,
     teams: <TeamsTab />,

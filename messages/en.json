@@ -2030,7 +2030,8 @@
       "ai": "AI Agents",
       "api": "API keys",
       "deals": "Deals & currency",
-      "team-chat": "Team chat"
+      "team-chat": "Team chat",
+      "journey-bot": "Journey bot"
     },
     "categories": {
       "overview": "Overview",
@@ -2813,6 +2814,79 @@
         "summary": "{messages, plural, one {# message} other {# messages}} erased, {files, plural, one {# file} other {# files}} deleted.",
         "summaryFilesOnly": "Messages erased, {files, plural, one {# file} other {# files}} deleted.",
         "filesFailed": "{count, plural, one {# file} other {# files}} could not be deleted from storage. The paths are in the server log."
+      }
+    },
+    "journeyBot": {
+      "title": "Journey bot",
+      "description": "The “Welcome to Close” journey: the bot walks a business customer on WhatsApp from the first message to a closed deal.",
+      "loadFailed": "Couldn't load the journey bot settings.",
+      "saveFailed": "Couldn't save. Try again.",
+      "saved": "Saved",
+      "bot": {
+        "title": "Bot",
+        "enabled": "Journey bot",
+        "enabledHint": "The journey bot walks a business customer on WhatsApp from the first message to a closed deal for one of three products — a POS terminal, a business account or a business loan — and hands the steps only a person can take to an advisor as decisions on the Journeys screen. While it is on, the bot answers on WhatsApp and runs its timers. Marketing templates go only to customers with a recorded marketing opt-in.",
+        "firstInbound": "Start a journey on a customer's first message",
+        "firstInboundHint": "A customer with no open journey who writes in starts one. Off: only a cold start from the CRM does."
+      },
+      "did": {
+        "title": "Taamul phone number for the Call button",
+        "description": "The number behind the Call Taamul button of the document-request, application-status and fulfilment templates. International format, such as +97141234567; leave it empty to clear it.",
+        "placeholder": "+97141234567",
+        "invalid": "Enter an international number such as +97141234567.",
+        "unset": "Not set yet.",
+        "save": "Save number"
+      },
+      "templates": {
+        "title": "Templates checklist",
+        "description": "Every MARKETING and UTILITY message is a template. On a Meta number it must be APPROVED in the WABA under exactly this name; on a Whapi number it must exist as a message template. A missing or unapproved one is skipped and opens a task.",
+        "name": "Template",
+        "category": "Category",
+        "buttons": "Buttons",
+        "meta": "Meta number",
+        "whapi": "Whapi number",
+        "callButton": "Call Taamul",
+        "categories": {
+          "MARKETING": "Marketing",
+          "UTILITY": "Utility"
+        },
+        "state": {
+          "approved": "Approved ✓",
+          "pending": "Pending",
+          "notApproved": "Not approved ({status})",
+          "missing": "Missing",
+          "present": "Present",
+          "create": "create it in Templates"
+        },
+        "noNumbers": "No WhatsApp number is connected, so no template can be sent yet.",
+        "loadFailed": "Couldn't load the account's templates.",
+        "sessionNote": "SESSION messages need no template: they go out as free-form messages inside the 24-hour service window, worded below."
+      },
+      "copy": {
+        "title": "Session copy",
+        "description": "The bot's SESSION messages are default, editable copy, sent as reply buttons, a list or text inside the service window. Leave a field empty to use the default shown in grey.",
+        "messages": {
+          "welcome_menu": "Welcome menu",
+          "pos_pitch_in_window": "POS pitch (in window)",
+          "acct_pitch_in_window": "Business account pitch (in window)",
+          "loan_pitch_in_window": "Business loan pitch (in window)",
+          "callback_ack": "Call-back acknowledgement"
+        },
+        "body": "Message",
+        "bodyFallback": "Message when no variant applies",
+        "buttonLabel": "List button label",
+        "variants": {
+          "IN_HOURS": "In hours",
+          "OUT_OF_HOURS": "Out of hours"
+        },
+        "payload": "Payload",
+        "buttonTitle": "Reply-button title",
+        "rowTitle": "List-row title",
+        "reset": "Reset to default",
+        "resetTitle": "Reset this title to default",
+        "sharedTitles": "A title is shared by every message that shows its payload. A template's quick-reply button may read as either the default title or yours.",
+        "tooLong": "{count, plural, =1 {One text is} other {# texts are}} too long for WhatsApp.",
+        "save": "Save copy"
       }
     }
   },
@@ -3883,7 +3957,11 @@
         "adminOnly": "Only an admin can clear do not contact.",
         "notAllowed": "You can't change this customer's consent.",
         "generic": "Couldn't save. Try again."
-      }
+      },
+      "withdraw": "Withdraw opt-in",
+      "withdrawTitle": "Withdraw the marketing opt-in?",
+      "withdrawBody": "Marketing templates stop going to this customer until an opt-in is recorded again. Messages about their own application still go out.",
+      "withdrawConfirm": "Withdraw"
     },
     "page": {
       "funnel": "Stages",

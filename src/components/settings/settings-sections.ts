@@ -19,6 +19,7 @@ import {
   TextCursorInput,
   User,
   UsersRound,
+  Workflow,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -49,6 +50,7 @@ export const SETTINGS_SECTIONS = [
   'chat-tags',
   'quick-replies',
   'fields',
+  'journey-bot',
   'members',
   'teams',
   'team-chat',
@@ -148,6 +150,15 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   fields: {
     id: 'fields',
     icon: TextCursorInput,
+    category: 'inbox',
+    minRole: 'admin',
+  },
+  // The journey bot (module 016). Inbox, not AI Agents: it is a fixed
+  // workflow rather than an AI agent, it works the inbox's chats, and
+  // the AI category's sub-tab row is the AI Agents area's own tab bar.
+  'journey-bot': {
+    id: 'journey-bot',
+    icon: Workflow,
     category: 'inbox',
     minRole: 'admin',
   },

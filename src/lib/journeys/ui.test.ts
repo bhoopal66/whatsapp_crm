@@ -18,6 +18,7 @@ import {
   timerLabel,
   validUntilFromDate,
   windowStatus,
+  WITHDRAW_OPT_IN,
 } from './ui';
 
 const NOW = '2026-10-12T10:00:00.000Z';
@@ -279,5 +280,21 @@ describe('error keys', () => {
     ).toBe('notAllowed');
     expect(consentErrorKey({ code: 'PGRST116' })).toBe('generic');
     expect(consentErrorKey(null)).toBe('generic');
+  });
+});
+
+describe('WITHDRAW_OPT_IN', () => {
+  it('clears the stamp and its source together', () => {
+    expect(WITHDRAW_OPT_IN).toEqual({
+      marketing_opt_in_at: null,
+      marketing_opt_in_source: null,
+    });
+    expect(
+      startBlocker({
+        ...WITHDRAW_OPT_IN,
+        opted_out_at: null,
+        do_not_contact_at: null,
+      })
+    ).toBe('noOptIn');
   });
 });

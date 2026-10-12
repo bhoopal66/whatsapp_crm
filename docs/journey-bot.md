@@ -155,7 +155,9 @@ closing reason.
 
 ## Settings
 
-`journey_settings`, one row per account (members read, admins write):
+`journey_settings`, one row per account (members read, admins write).
+Admins edit it in **Settings → Inbox → Journey bot**, which also
+shows the templates checklist per connected kind of number:
 
 | field                 | meaning                                                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |

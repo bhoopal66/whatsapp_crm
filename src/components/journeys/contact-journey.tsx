@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Route, ShieldCheck, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
 import { SHIPPED_WORKFLOW as DEF } from '@/lib/journeys/workflow';
@@ -14,6 +15,7 @@ import type { Product } from '@/lib/journeys/schema';
 import type { AdvisorDecision, JourneyFile } from '@/lib/journeys/types';
 import {
   OPT_IN_SOURCES,
+  WITHDRAW_OPT_IN,
   closeReasons,
   consentErrorKey,
   decisionOptions,
@@ -429,6 +431,7 @@ function ConsentControls({
   const t = useTranslations('Journeys.consent');
   const [editing, setEditing] = useState<'optIn' | 'dnc' | null>(null);
   const [value, setValue] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
   const edit = (what: 'optIn' | 'dnc' | null) => {
     setEditing(what);
     setValue('');
@@ -473,6 +476,30 @@ function ConsentControls({
             {t('record')}
           </Button>
         )}
+        {consent.marketing_opt_in_at && canSet && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-1 h-7 px-2 text-[11px]"
+            disabled={busy}
+            onClick={() => setWithdrawing(true)}
+          >
+            {t('withdraw')}
+          </Button>
+        )}
+        <ConfirmDialog
+          open={withdrawing}
+          onOpenChange={setWithdrawing}
+          title={t('withdrawTitle')}
+          description={t('withdrawBody')}
+          cancelLabel={t('cancel')}
+          confirmLabel={t('withdrawConfirm')}
+          destructive
+          onConfirm={() => {
+            setWithdrawing(false);
+            void onWrite({ ...WITHDRAW_OPT_IN });
+          }}
+        />
       </div>
       <div>
         <p className="text-wa-text font-medium">{t('dnc')}</p>
