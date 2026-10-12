@@ -29,6 +29,7 @@ import { isSavedPath, SAVED_PATH } from '@/lib/chat/saved';
 import { channelDisplayName as numberName } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
 
+import { CallsSection } from './calls-section';
 import { useChatWorkspaceContext } from './chat-context';
 import { PresenceDot } from './presence-dot';
 import { useSavedCount } from './saved-items';
@@ -259,6 +260,9 @@ export function ChatSidebar({
               ))}
             </ul>
           </div>
+        )}
+        {!isBankGuest && (
+          <CallsSection labelClassName={SECTION_LABEL} rowClassName={ROW} />
         )}
         {section(t('sections.channels'), sections.team)}
         {section(t('sections.dealRooms'), sections.dealRooms)}
