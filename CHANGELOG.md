@@ -57,6 +57,23 @@ settings.
 > `supabase/migrations/082_account_role_bank_guest.sql` and then
 > `supabase/migrations/083_workspaces.sql` (both re-runnable, in that
 > order, each in its own run — 082 adds an enum value that 083 uses)
+
+### Tasks: call-backs and follow-ups on contacts
+
+A shared task list for the follow-ups that used to live in someone's
+head or a chat note: call a customer back, chase a document, follow
+up on a deal. A task has a title, an optional note and due date, an
+assignee, and can be linked to a contact, a chat and a deal. People
+create tasks themselves; the phone system (a missed call) and the
+journey bot (an advisor step) open them automatically, once per
+event, so a redelivered webhook never opens a second task. Assigning
+a task to someone else rings their bell; assigning it to yourself
+does not. A task follows its customer the way chats do: you see the
+tasks you hold or created and those on contacts you can see, a team
+leader also their team's, admins every task. See `docs/tasks.md`.
+
+> **Migration required:** apply
+> `supabase/migrations/085_tasks.sql` (re-runnable)
 > **before** deploying the app.
 
 ### AI agent: approved answers only, and a sensitive-data warning

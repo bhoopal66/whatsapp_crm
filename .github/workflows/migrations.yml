@@ -186,3 +186,12 @@ jobs:
       # helpers, so only real Postgres can show it.
       - name: Verify workspaces
         run: supabase db query --local --file supabase/ci/verify-workspaces.sql
+
+      # Tasks (085): who sees a task is RLS (admins all, the assignee,
+      # the creator, whoever can see its contact, a leader their team),
+      # and a trigger vets the assignee, freezes a task's identity and
+      # stamps completion for every writer, the service role included.
+      # Only real Postgres can show who sees what, that a redelivered
+      # system task is refused and that assigning rings the bell.
+      - name: Verify tasks
+        run: supabase db query --local --file supabase/ci/verify-tasks.sql
