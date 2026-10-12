@@ -24,10 +24,14 @@ const h = vi.hoisted(() => ({
   load: vi.fn(),
   createRunner: vi.fn(),
   createSink: vi.fn(),
+  wrapSink: vi.fn((sink: unknown, db: unknown) => ({ wrapped: sink, db })),
 }));
 
 vi.mock('../runner', () => ({ createRunner: h.createRunner }));
-vi.mock('./sink', () => ({ createJourneySink: h.createSink }));
+vi.mock('./sink', () => ({
+  createJourneySink: h.createSink,
+  withFailureRecording: h.wrapSink,
+}));
 vi.mock('./consent', () => ({ SupabaseConsentPort: class {} }));
 vi.mock('./store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./store')>()),
@@ -156,7 +160,11 @@ describe('runJourneyTick: which accounts it ticks', () => {
       ['await'],
     ]);
     expect(queries[1]).toContainEqual(['in', 'account_id', ['a1', 'a2']]);
-    expect(queries[2]).toContainEqual(['in', 'account_id', ['a1', 'a2']]);
+    expect(queries[2][0]).toEqual([
+      'rpc',
+      'journey_drain_candidates',
+      expect.objectContaining({ p_account_ids: ['a1', 'a2'] }),
+    ]);
     expect(result).toEqual({ ...ZERO, accounts: 2 });
   });
 
@@ -217,7 +225,7 @@ describe('runJourneyTick: which accounts it ticks', () => {
   it.each([
     ['journey_settings', 0],
     ['journey_files', 1],
-    ['journey_outbox', 2],
+    ['journey_drain_candidates', 2],
   ])('fails the tick when the %s listing fails', async (source, at) => {
     const replies: Reply[] = [enabled(['a1', KEY]), ...lists()];
     replies[at] = { error: { message: 'boom', code: '57014' } };
@@ -432,18 +440,42 @@ describe('runJourneyTick: one file failing does not stop the others', () => {
 });
 
 describe('runJourneyTick: the outbox drain', () => {
-  it('asks for pending items that have no not_before or one that has passed, oldest first', async () => {
-    const { queries } = await tick([enabled(['a1', KEY]), ...lists()]);
+  it('asks journey_drain_candidates for the fair pick of files at the tick time, for the ticked accounts', async () => {
+    const { queries } = await tick(
+      [enabled(['a1', KEY], ['a2', 'ghost.v9']), ...lists()],
+      { limit: 7 }
+    );
     expect(queries[2]).toEqual([
-      ['from', 'journey_outbox'],
-      ['select', 'file_id, account_id'],
-      ['in', 'account_id', ['a1']],
-      ['eq', 'status', 'pending'],
-      ['or', `not_before.is.null,not_before.lte."${AT}"`],
-      ['order', 'committed_at', { ascending: true }],
-      ['limit', 50],
+      [
+        'rpc',
+        'journey_drain_candidates',
+        { p_now: AT, p_limit: 7, p_account_ids: ['a1'] },
+      ],
       ['await'],
     ]);
+  });
+
+  it('drains the files in the order the RPC ranks them, not re-sorted', async () => {
+    await tick([
+      enabled(['a1', KEY]),
+      ...lists(rows(), pendingItems(['f9', 'a1'], ['f1', 'a1'], ['f5', 'a1'])),
+    ]);
+    expect(runners[0].drain.mock.calls.map(([id]) => id)).toEqual([
+      'f9',
+      'f1',
+      'f5',
+    ]);
+  });
+
+  it("wraps each runner's sink so a failed delivery is recorded on its item", async () => {
+    const { db } = fakeDb(enabled(['a1', KEY]), ...lists());
+    h.createSink.mockReturnValue('the sink');
+    await runJourneyTick({ db, now: NOW });
+    expect(h.wrapSink).toHaveBeenCalledWith('the sink', db);
+    expect(h.createRunner.mock.calls[0][0].sink).toEqual({
+      wrapped: 'the sink',
+      db,
+    });
   });
 
   it('drains each file with due pending items at the tick time, summing the counts', async () => {

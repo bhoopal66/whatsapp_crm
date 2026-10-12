@@ -7,6 +7,7 @@ import {
   JourneyDeliveryInFlightError,
   createJourneySink,
   taskTitle,
+  withFailureRecording,
 } from './sink';
 
 const h = vi.hoisted(() => ({
@@ -509,5 +510,65 @@ describe('the opt-in welcome through the runner', () => {
     expect(h.sendTemplate).toHaveBeenCalledWith(
       expect.objectContaining({ templateName: 'taamul_optin_welcome' })
     );
+  });
+});
+
+describe('withFailureRecording', () => {
+  const failing = (err: unknown) => ({
+    deliver: vi.fn(async () => {
+      throw err;
+    }),
+  });
+  const LOG = item({ type: 'LOG_COST', template: 't', category: 'UTILITY' });
+
+  it('records a failed delivery on its item and rethrows the original error', async () => {
+    const boom = new Error('Whapi 500');
+    const { db, queries } = fakeDb({ data: true });
+    await expect(
+      withFailureRecording(failing(boom), db).deliver(LOG)
+    ).rejects.toBe(boom);
+    expect(queries).toEqual([
+      [
+        [
+          'rpc',
+          'journey_outbox_failed',
+          { p_item_id: 'it-1', p_error: 'Whapi 500' },
+        ],
+        ['await'],
+      ],
+    ]);
+  });
+
+  it('passes a successful delivery through untouched, recording nothing', async () => {
+    const inner = { deliver: vi.fn(async () => undefined) };
+    const { db, queries } = fakeDb();
+    await withFailureRecording(inner, db).deliver(LOG);
+    expect(inner.deliver).toHaveBeenCalledWith(LOG);
+    expect(queries).toEqual([]);
+  });
+
+  it('records a non-Error throw as text, cut to 500 characters', async () => {
+    const { db, queries } = fakeDb();
+    await expect(
+      withFailureRecording(failing('x'.repeat(600)), db).deliver(LOG)
+    ).rejects.toBe('x'.repeat(600));
+    expect(queries[0][0][2]).toEqual({
+      p_item_id: 'it-1',
+      p_error: 'x'.repeat(500),
+    });
+  });
+
+  it('still rethrows the delivery error when recording it fails, and logs that', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const inFlight = new JourneyDeliveryInFlightError('it-1');
+    const { db } = fakeDb({ error: { message: 'db down' } });
+    await expect(
+      withFailureRecording(failing(inFlight), db).deliver(LOG)
+    ).rejects.toBe(inFlight);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('could not record the failed delivery'),
+      expect.stringContaining('db down')
+    );
+    error.mockRestore();
   });
 });

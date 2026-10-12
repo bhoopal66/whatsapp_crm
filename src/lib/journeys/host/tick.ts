@@ -1,6 +1,7 @@
 /**
- * The journey cron tick: fires due timers and drains outbox items that
- * are due, for accounts whose `journey_settings.enabled` is on.
+ * The journey cron tick: fires due timers and drains files whose head
+ * outbox item is due (fairly: `journey_drain_candidates` backs off a
+ * failing head), for accounts whose `journey_settings.enabled` is on.
  * Server-only (service-role client). Called by `GET /api/journeys/cron`
  * and, at most once a minute per process, by the automation cron.
  *
@@ -16,7 +17,7 @@ import type { WorkflowDef } from '../schema';
 import { toMs } from '../time';
 import { SHIPPED_WORKFLOW } from '../workflow';
 import { SupabaseConsentPort } from './consent';
-import { createJourneySink } from './sink';
+import { createJourneySink, withFailureRecording } from './sink';
 import { JourneyDbError, SupabaseJourneyStore } from './store';
 
 /** A workflow's `journey_settings.workflow_key`: `<id>.v<version>` (086's default is the shipped one). */
@@ -39,7 +40,7 @@ export interface JourneyTickResult {
 export interface JourneyTickArgs {
   db: SupabaseClient;
   now?: Date;
-  /** Files per phase (due timers, due outbox items). */
+  /** Files per phase (due timers, files to drain). */
   limit?: number;
   /** Workflow definitions by `journey_settings.workflow_key`; the shipped one by default. */
   workflows?: Record<string, WorkflowDef>;
@@ -88,7 +89,10 @@ export async function runJourneyTick({
         def,
         store,
         consent,
-        sink: createJourneySink({ db, now: () => now, def }),
+        sink: withFailureRecording(
+          createJourneySink({ db, now: () => now, def }),
+          db
+        ),
       });
       runners.set(s.workflow_key, runner);
     }
@@ -152,16 +156,14 @@ export async function runJourneyTick({
     }
   }
 
-  // 2. Files with outbox items due now (a quiet-hours SEND waits until its not_before).
-  const { data: pending, error: pendErr } = await db
-    .from('journey_outbox')
-    .select('file_id, account_id')
-    .in('account_id', accountIds)
-    .eq('status', 'pending')
-    .or(`not_before.is.null,not_before.lte."${at}"`)
-    .order('committed_at', { ascending: true })
-    .limit(limit);
-  if (pendErr) throw new JourneyDbError('journey_outbox', pendErr);
+  // 2. Files whose head outbox item is due (a quiet-hours SEND and its LOG_COST wait until their not_before), fairly:
+  // a head that failed recently is backed off and never-tried heads go first (journey_drain_candidates, 086), so a
+  // file stuck on one item cannot hold a slot every tick and starve the others.
+  const { data: pending, error: pendErr } = await db.rpc(
+    'journey_drain_candidates',
+    { p_now: at, p_limit: limit, p_account_ids: accountIds }
+  );
+  if (pendErr) throw new JourneyDbError('journey_drain_candidates', pendErr);
   for (const o of (pending ?? []) as {
     file_id: string;
     account_id: string;

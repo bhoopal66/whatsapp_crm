@@ -22,7 +22,10 @@
 --   answers 'conflict'. Neither writes anything.
 -- * journey_outbox is the transactional outbox the runner drains in
 --   `seq` order; seq continues across commits of a file. A SEND's
---   notBefore is copied to not_before so the cron can find due items.
+--   notBefore is copied to not_before, and to the LOG_COST that follows
+--   it (the runner holds the pair back together), so the cron can find
+--   due items. journey_drain_candidates() is the cron's fair pick of
+--   files to drain (see the end of this file).
 -- * journey_pending_opt_out() lets the delivery-time consent re-check
 --   see an opt-out committed on any of the contact's files but not yet
 --   applied to contacts.opted_out_at.
@@ -272,13 +275,21 @@ BEGIN
   SELECT coalesce(max(seq), 0) INTO v_seq
   FROM public.journey_outbox WHERE file_id = p_file_id;
   -- clock_timestamp(): two commits in one transaction still order.
+  -- A LOG_COST right after the SEND of its template waits with it: the
+  -- runner skips a deferred SEND and its LOG_COST together, so a NULL
+  -- not_before there made the file look due every tick (job J5b4).
   INSERT INTO public.journey_outbox
     (file_id, account_id, seq, action, not_before, committed_at)
   SELECT p_file_id, v_row.account_id, v_seq + a.ord::integer, a.value,
          CASE WHEN a.value ->> 'type' = 'SEND'
-              THEN (a.value ->> 'notBefore')::timestamptz END,
+                THEN (a.value ->> 'notBefore')::timestamptz
+              WHEN a.value ->> 'type' = 'LOG_COST'
+               AND a.prev ->> 'type' = 'SEND'
+               AND a.prev ->> 'template' = a.value ->> 'template'
+                THEN (a.prev ->> 'notBefore')::timestamptz END,
          clock_timestamp()
-  FROM jsonb_array_elements(p_actions) WITH ORDINALITY AS a(value, ord);
+  FROM (SELECT e.value, e.ord, lag(e.value) OVER (ORDER BY e.ord) AS prev
+        FROM jsonb_array_elements(p_actions) WITH ORDINALITY AS e(value, ord)) a;
 
   RETURN 'ok';
 END
@@ -722,3 +733,90 @@ REVOKE ALL ON FUNCTION public.journey_has_optin_welcome(uuid) FROM PUBLIC, anon,
 GRANT EXECUTE ON FUNCTION public.journey_claim_delivery(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.journey_set_opt_out(uuid, boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.journey_has_optin_welcome(uuid) TO service_role;
+
+-- ------------------------------------------------------------
+-- Drain fairness (job J5b4): per-item backoff, a fair pick of files
+-- ------------------------------------------------------------
+-- The cron listed due outbox rows oldest first under a limit, so a file
+-- whose head item kept failing (a gateway error, a template the gateway
+-- rejects, an in-flight claim) held a slot every minute and could starve
+-- the files after it. Now every failed delivery is recorded on its item
+-- by journey_outbox_failed() (the host wraps its sink in
+-- withFailureRecording), and journey_drain_candidates() picks files by
+-- their HEAD: the lowest pending seq that is due (a SEND held for quiet
+-- hours and its LOG_COST are skipped, as the runner skips them). A head
+-- that failed less than 2^attempts minutes ago (at most 60) waits;
+-- never-tried heads come first, then the one tried longest ago.
+-- attempts also counts journey_claim_delivery's claims, so a claimed
+-- SEND that fails counts twice: that only lengthens its first backoff,
+-- and it is never resent (the next try finds the claim stale).
+ALTER TABLE public.journey_outbox
+  ADD COLUMN IF NOT EXISTS last_attempt_at timestamptz NULL;
+
+-- Rows committed before journey_commit gave a LOG_COST its SEND's
+-- not_before (a re-run of this file over an earlier copy of it).
+UPDATE public.journey_outbox l
+   SET not_before = s.not_before
+  FROM public.journey_outbox s
+ WHERE s.file_id = l.file_id AND s.seq = l.seq - 1
+   AND l.status = 'pending' AND l.not_before IS NULL
+   AND l.action ->> 'type' = 'LOG_COST'
+   AND s.action ->> 'type' = 'SEND' AND s.not_before IS NOT NULL
+   AND s.action ->> 'template' = l.action ->> 'template';
+
+-- One failed delivery of a pending item; true iff the item is pending.
+CREATE OR REPLACE FUNCTION public.journey_outbox_failed(p_item_id uuid, p_error text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  UPDATE public.journey_outbox
+     SET attempts        = attempts + 1,
+         last_attempt_at = now(),
+         last_error      = left(coalesce(p_error, 'unknown error'), 500)
+   WHERE id = p_item_id AND status = 'pending';
+  RETURN FOUND;
+END
+$$;
+
+-- Up to p_limit files to drain at p_now, fairest first, on accounts
+-- with journeys enabled (and in p_account_ids when it is given: the
+-- tick passes the accounts it has a workflow for, so an account it
+-- cannot tick never holds a slot). The exponent is capped before
+-- power(): 2^attempts overflows float8 past ~1023 attempts, and that
+-- error would stop every account's drain.
+CREATE OR REPLACE FUNCTION public.journey_drain_candidates(
+  p_now timestamptz,
+  p_limit integer,
+  p_account_ids uuid[] DEFAULT NULL
+)
+RETURNS TABLE (file_id uuid, account_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT h.file_id, h.account_id
+  FROM (
+    SELECT DISTINCT ON (o.file_id)
+           o.file_id, o.account_id, o.attempts, o.last_attempt_at, o.committed_at
+    FROM public.journey_outbox o
+    JOIN public.journey_settings s ON s.account_id = o.account_id AND s.enabled
+    WHERE o.status = 'pending'
+      AND (o.not_before IS NULL OR o.not_before <= p_now)
+      AND (p_account_ids IS NULL OR o.account_id = ANY (p_account_ids))
+    ORDER BY o.file_id, o.seq
+  ) h
+  WHERE h.last_attempt_at IS NULL
+     OR h.last_attempt_at <= p_now
+          - make_interval(mins => least(power(2, least(h.attempts, 6))::integer, 60))
+  ORDER BY h.last_attempt_at ASC NULLS FIRST, h.committed_at, h.file_id
+  LIMIT p_limit
+$$;
+
+REVOKE ALL ON FUNCTION public.journey_outbox_failed(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.journey_drain_candidates(timestamptz, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.journey_outbox_failed(uuid, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.journey_drain_candidates(timestamptz, integer, uuid[]) TO service_role;

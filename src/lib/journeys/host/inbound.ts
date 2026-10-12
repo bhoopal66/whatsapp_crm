@@ -28,7 +28,7 @@ import { NEW_STATE, type JourneyEvent } from '../types';
 import { SHIPPED_WORKFLOW } from '../workflow';
 import { SupabaseConsentPort } from './consent';
 import { mergeCopy, payloadForReply, type JourneyCopy } from './copy';
-import { createJourneySink } from './sink';
+import { createJourneySink, withFailureRecording } from './sink';
 import { JourneyDbError, SupabaseJourneyStore, ensureOpenFile } from './store';
 import { SHIPPED_WORKFLOW_KEY } from './tick';
 
@@ -93,7 +93,7 @@ const shippedRunner = (def: WorkflowDef, db: SupabaseClient): Runner =>
     def,
     store: new SupabaseJourneyStore(db),
     consent: new SupabaseConsentPort(db),
-    sink: createJourneySink({ db, def }),
+    sink: withFailureRecording(createJourneySink({ db, def }), db),
   });
 
 async function openFile(
