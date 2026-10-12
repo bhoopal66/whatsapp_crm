@@ -2,7 +2,11 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { getCurrentAccount } from '@/lib/auth/account';
-import { canEditSettings, canLeadTeam } from '@/lib/auth/roles';
+import {
+  canEditSettings,
+  canLeadTeam,
+  canSendMessages,
+} from '@/lib/auth/roles';
 
 /**
  * Server-side gate for the workspace-configuration screens —
@@ -62,6 +66,28 @@ export async function TeamLeaderOnlyLayout({ children }: { children: ReactNode }
   try {
     const ctx = await getCurrentAccount();
     allowed = canLeadTeam(ctx.role);
+  } catch {
+    signedIn = false;
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect('/dashboard');
+
+  return <>{children}</>;
+}
+
+/**
+ * Server-side gate for the screens where people act on customers
+ * (Journeys): agent and above, so never a viewer or a bank guest.
+ * Same shape as {@link AdminOnlyLayout}, redirects outside the try.
+ */
+export async function AgentOnlyLayout({ children }: { children: ReactNode }) {
+  let signedIn = true;
+  let allowed = false;
+
+  try {
+    const ctx = await getCurrentAccount();
+    allowed = canSendMessages(ctx.role);
   } catch {
     signedIn = false;
   }

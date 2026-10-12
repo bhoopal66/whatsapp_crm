@@ -18,6 +18,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
 import { useTranslations } from 'next-intl';
 import { ContactAvatar } from './contact-avatar';
+import { ContactJourneySections } from '@/components/journeys/contact-journey';
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -209,6 +210,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </div>
           </section>
+
+          {/* Journey + consent (module 016) */}
+          <ContactJourneySections
+            key={contact.id}
+            contactId={contact.id}
+            SectionTitle={SectionTitle}
+          />
 
           {/* Notes */}
           <section className="bg-wa-panel px-5 py-4">

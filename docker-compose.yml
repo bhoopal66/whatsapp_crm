@@ -38,3 +38,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # Optional Yeastar event gateway (docs/yeastar.md, "Running the
+  # gateway"): `docker compose --profile pbx up -d`. Not the app image:
+  # that one is Node 20, and the gateway needs Node 22's global
+  # WebSocket. It reaches the app over the compose network and needs
+  # PBX_GATEWAY_SECRET (and PBX_CONNECTION_ID when several PBXs are
+  # configured) in .env.local.
+  pbx-gateway:
+    profiles: ['pbx']
+    image: node:22-alpine
+    command: ['node', '/gateway/pbx-gateway.mjs']
+    volumes:
+      - ./scripts/pbx-gateway.mjs:/gateway/pbx-gateway.mjs:ro
+    env_file:
+      - .env.local
+    environment:
+      APP_URL: http://app:3000
+    depends_on:
+      - app
+    restart: unless-stopped

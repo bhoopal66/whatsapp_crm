@@ -7,6 +7,7 @@ import {
   MessageSquare,
   MessagesSquare,
   Radio,
+  Route,
   Settings,
   Users,
   UsersRound,
@@ -67,11 +68,26 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
       { href: '/notifications', labelKey: 'notifications', icon: Bell },
       { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
+      // Team chat (migration 087): the one row a bank guest sees too.
+      {
+        href: '/chat',
+        labelKey: 'chat',
+        icon: MessagesSquare,
+        guestVisible: true,
+      },
       { href: '/contacts', labelKey: 'contacts', icon: Users },
       // Everyone's: each member works their own deals, a team leader
       // their team's too, an admin all of them. Which deals come back
       // is RLS's call (migration 080, `can_view_deal`).
       { href: '/pipelines', labelKey: 'pipelines', icon: GitBranch },
+      // The journey bot's files (module 016): advisors act on them, so
+      // agents and up; the route's layout enforces it server-side.
+      {
+        href: '/journeys',
+        labelKey: 'journeys',
+        icon: Route,
+        minRole: 'agent',
+      },
     ],
   },
   {

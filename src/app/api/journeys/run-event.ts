@@ -11,7 +11,10 @@ import type { WorkflowDef } from '@/lib/journeys/schema';
 import type { JourneyEvent } from '@/lib/journeys/types';
 import { SHIPPED_WORKFLOW } from '@/lib/journeys/workflow';
 import { SupabaseConsentPort } from '@/lib/journeys/host/consent';
-import { createJourneySink } from '@/lib/journeys/host/sink';
+import {
+  createJourneySink,
+  withFailureRecording,
+} from '@/lib/journeys/host/sink';
 import { SupabaseJourneyStore } from '@/lib/journeys/host/store';
 import { SHIPPED_WORKFLOW_KEY } from '@/lib/journeys/host/tick';
 
@@ -51,7 +54,7 @@ export async function runJourneyEvent(
     def,
     store: new SupabaseJourneyStore(db),
     consent: new SupabaseConsentPort(db),
-    sink: createJourneySink({ db, def }),
+    sink: withFailureRecording(createJourneySink({ db, def }), db),
   });
   let r;
   try {

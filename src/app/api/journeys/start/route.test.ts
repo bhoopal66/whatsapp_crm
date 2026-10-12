@@ -23,6 +23,7 @@ vi.mock('@/lib/journeys/runner', async (orig) => ({
 }));
 vi.mock('@/lib/journeys/host/sink', () => ({
   createJourneySink: () => ({ deliver: vi.fn() }),
+  withFailureRecording: (sink: unknown) => sink,
 }));
 vi.mock('@/lib/journeys/host/store', async (orig) => ({
   ...(await orig<typeof import('@/lib/journeys/host/store')>()),

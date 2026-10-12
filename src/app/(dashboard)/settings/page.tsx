@@ -112,6 +112,13 @@ const CustomFieldsSettings = dynamic(
     ),
   { loading: PanelLoading }
 );
+const JourneyBotSettings = dynamic(
+  () =>
+    import('@/components/settings/journey-bot-settings').then(
+      (m) => m.JourneyBotSettings
+    ),
+  { loading: PanelLoading }
+);
 const DealsSettings = dynamic(
   () =>
     import('@/components/settings/deals-settings').then((m) => m.DealsSettings),
@@ -123,6 +130,13 @@ const MembersTab = dynamic(
 );
 const TeamsTab = dynamic(
   () => import('@/components/settings/teams-tab').then((m) => m.TeamsTab),
+  { loading: PanelLoading }
+);
+const TeamChatSettings = dynamic(
+  () =>
+    import('@/components/settings/team-chat-settings').then(
+      (m) => m.TeamChatSettings
+    ),
   { loading: PanelLoading }
 );
 const ApiKeysSettings = dynamic(
@@ -257,9 +271,13 @@ function SettingsPageInner() {
     'quick-replies': <QuickRepliesManager />,
     'chat-tags': <ChatTagsPanel />,
     fields: <CustomFieldsSettings />,
+    'journey-bot': (
+      <JourneyBotSettings onOpenTemplates={() => go('templates')} />
+    ),
     deals: <DealsSettings />,
     members: <MembersTab />,
     teams: <TeamsTab />,
+    'team-chat': <TeamChatSettings />,
     api: <ApiKeysSettings />,
     ai: (
       <SettingsAiAgents

@@ -294,7 +294,13 @@ export type NotificationType =
   // Team activity (migration 068): a person went past their daily
   // new-chat limit, or a Whapi number reached its own. Sent to owners,
   // admins and the person concerned, no conversation.
-  | 'team_activity_alert';
+  | 'team_activity_alert'
+  // Team chat (087): mentions, DMs, thread replies and @channel/@here.
+  // meta = {channel_id, message_id, thread_root_id}.
+  | 'chat_mention'
+  | 'chat_dm'
+  | 'chat_thread_reply'
+  | 'chat_broadcast';
 
 export interface Notification {
   id: string;
@@ -308,6 +314,8 @@ export interface Notification {
   actor_user_id?: string;
   title: string;
   body?: string;
+  /** Type-specific details (087's chat types: channel, message, thread root). */
+  meta?: Record<string, unknown>;
   read_at?: string;
   created_at: string;
 }

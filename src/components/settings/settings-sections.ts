@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayoutGrid,
   MessageCircle,
+  MessagesSquare,
   Network,
   Palette,
   PlugZap,
@@ -18,6 +19,7 @@ import {
   TextCursorInput,
   User,
   UsersRound,
+  Workflow,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -48,8 +50,10 @@ export const SETTINGS_SECTIONS = [
   'chat-tags',
   'quick-replies',
   'fields',
+  'journey-bot',
   'members',
   'teams',
+  'team-chat',
   'ai',
   'api',
   'deals',
@@ -149,6 +153,15 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'inbox',
     minRole: 'admin',
   },
+  // The journey bot (module 016). Inbox, not AI Agents: it is a fixed
+  // workflow rather than an AI agent, it works the inbox's chats, and
+  // the AI category's sub-tab row is the AI Agents area's own tab bar.
+  'journey-bot': {
+    id: 'journey-bot',
+    icon: Workflow,
+    category: 'inbox',
+    minRole: 'admin',
+  },
   members: {
     id: 'members',
     icon: UsersRound,
@@ -156,6 +169,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     minRole: 'admin',
   },
   teams: { id: 'teams', icon: Network, category: 'team', minRole: 'admin' },
+  // Internal chat (migration 087): the workspace switch, the audited
+  // private read and the owner-only erasure. Admin+, like the RPCs.
+  'team-chat': {
+    id: 'team-chat',
+    icon: MessagesSquare,
+    category: 'team',
+    minRole: 'admin',
+  },
   // The AI Agents area, admin-only like the /agents screen it replaced
   // (and the TypeSafe API routes behind its Safety checks tab).
   ai: { id: 'ai', icon: Bot, category: 'ai', minRole: 'admin' },

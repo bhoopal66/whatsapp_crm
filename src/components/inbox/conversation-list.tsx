@@ -151,6 +151,13 @@ interface ConversationListProps {
    * every chat.
    */
   aiLive?: boolean;
+  /**
+   * Seeds the by-agent and chat-tag filters on mount (the `?assignee=` /
+   * `?tag=` deep links, lib/inbox/filter-params.ts); the controls then
+   * own them as usual.
+   */
+  initialAssignee?: AssigneeFilter;
+  initialChatTagIds?: readonly string[];
 }
 
 /** Just enough of a broadcast to label and filter by. */
@@ -304,6 +311,8 @@ export function ConversationList({
   numberNames = null,
   campaignOnly = false,
   aiLive = false,
+  initialAssignee = null,
+  initialChatTagIds,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const locale = useLocale();
@@ -341,7 +350,7 @@ export function ConversationList({
   // below so a filter can never survive, invisible, into a view that
   // has no control to clear it with.
   const [selectedAssignee, setSelectedAssignee] =
-    useState<AssigneeFilter>(null);
+    useState<AssigneeFilter>(initialAssignee);
   const [members, setMembers] = useState<Profile[]>([]);
   const assigneeFilter: AssigneeFilter = showAssignee ? selectedAssignee : null;
   // Campaign inbox only: the account's broadcasts, for row labels and
@@ -357,7 +366,9 @@ export function ConversationList({
     tree: chatTagTree,
     reload: reloadChatTags,
   } = useChatTags();
-  const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>([]);
+  const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>(
+    () => [...(initialChatTagIds ?? [])]
+  );
   // Rows tagged with ids the loaded list doesn't have: an admin probably
   // added the tag since the list was cached (up to five minutes ago).
   // Read the list again, once per id, as the chat header does; until
