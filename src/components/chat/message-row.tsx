@@ -43,6 +43,10 @@ export interface MessageRowProps {
   onToggleReaction: (messageId: string, emoji: string) => void;
   /** Opens the thread panel (a later job). */
   onOpenThread?: (rootId: string) => void;
+  /** Gives the row its anchor id (message-<id>); the main timeline only, so ids stay unique. */
+  anchor?: boolean;
+  /** The target of a jump, tinted for a moment. */
+  highlighted?: boolean;
 }
 
 function AttachmentView({ a }: { a: ChatAttachment }) {
@@ -96,6 +100,8 @@ export function MessageRow({
   actions,
   onToggleReaction,
   onOpenThread,
+  anchor = false,
+  highlighted = false,
 }: MessageRowProps) {
   const t = useTranslations('Chat');
   const tRole = useTranslations('Sidebar');
@@ -163,9 +169,13 @@ export function MessageRow({
 
   return (
     <div
+      id={anchor ? `message-${m.id}` : undefined}
+      data-message-id={m.id}
       className={cn(
-        'group hover:bg-muted/40 relative flex gap-3 px-4',
-        grouped ? 'py-0.5' : 'pt-3 pb-0.5'
+        'group hover:bg-muted/40 relative flex gap-3 px-4 transition-colors',
+        grouped ? 'py-0.5' : 'pt-3 pb-0.5',
+        highlighted &&
+          'bg-amber-100 hover:bg-amber-100 [[data-mode=dark]_&]:bg-amber-500/20 [[data-mode=dark]_&]:hover:bg-amber-500/20'
       )}
     >
       {actions && !edits.editing && (

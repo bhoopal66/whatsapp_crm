@@ -25,6 +25,9 @@ export interface ChannelViewProps {
   onOpenThread?: (rootId: string) => void;
   onOpenMembers?: () => void;
   onOpenPins?: () => void;
+  /** ?message=: a top-level message the timeline brings into view. */
+  focusMessageId?: string | null;
+  onFocusDone?: (found: boolean) => void;
 }
 
 export function ChannelView({
@@ -33,6 +36,8 @@ export function ChannelView({
   onOpenThread,
   onOpenMembers,
   onOpenPins,
+  focusMessageId,
+  onFocusDone,
 }: ChannelViewProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
@@ -121,6 +126,8 @@ export function ChannelView({
             onToggleReaction={tl.toggle}
             onOpenThread={onOpenThread}
             actions={actions}
+            focusId={focusMessageId}
+            onFocusDone={onFocusDone}
           />
           {footer}
         </>

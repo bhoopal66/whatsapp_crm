@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import {
@@ -9,6 +9,7 @@ import {
   type ChatMessage,
   type SharedCard,
 } from '@/lib/chat';
+import { focusStep } from '@/lib/chat/compose';
 
 import type { RowActionContext } from './message-actions';
 import { MessageRow } from './message-row';
@@ -23,7 +24,13 @@ export interface MessageTimelineProps {
   onToggleReaction: (messageId: string, emoji: string) => void;
   onOpenThread?: (rootId: string) => void;
   actions?: RowActionContext;
+  /** A top-level message to bring into view, paging older as needed. */
+  focusId?: string | null;
+  /** The jump to `focusId` ended: scrolled to it, or gave up. */
+  onFocusDone?: (found: boolean) => void;
 }
+
+const HIGHLIGHT_MS = 2000;
 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -35,6 +42,74 @@ export function MessageTimeline(p: MessageTimelineProps) {
   const heightBeforeOlder = useRef<number | null>(null);
   const atBottom = useRef(true);
   const groups = useMemo(() => groupByDay(p.messages, TZ), [p.messages]);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const focus = useRef({ id: null as string | null, pages: 0, done: false });
+
+  // A jump: page older until the target is loaded (focusStep), then
+  // scroll it into view and tint it. Older pages keep the reading
+  // position, as when scrolling up by hand.
+  const {
+    focusId,
+    onFocusDone,
+    messages,
+    loading,
+    loadingOlder,
+    hasMoreOlder,
+    onLoadOlder,
+  } = p;
+  useEffect(() => {
+    if (!focusId) {
+      focus.current = { id: null, pages: 0, done: false };
+      return;
+    }
+    if (focus.current.id !== focusId)
+      focus.current = { id: focusId, pages: 0, done: false };
+    const f = focus.current;
+    if (f.done) return;
+    const step = focusStep({
+      found: messages.some((m) => m.id === focusId),
+      loading,
+      loadingOlder,
+      hasMoreOlder,
+      pagesRead: f.pages,
+    });
+    if (step === 'wait') return;
+    if (step === 'loadOlder') {
+      f.pages += 1;
+      if (ref.current) heightBeforeOlder.current = ref.current.scrollHeight;
+      onLoadOlder();
+      return;
+    }
+    if (step === 'giveUp') {
+      f.done = true;
+      onFocusDone?.(false);
+      return;
+    }
+    // After this commit's own scroll fix-up (the layout effect above).
+    const raf = requestAnimationFrame(() => {
+      f.done = true;
+      ref.current
+        ?.querySelector(`[data-message-id="${focusId}"]`)
+        ?.scrollIntoView({ block: 'center' });
+      setHighlightId(focusId);
+      onFocusDone?.(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [
+    focusId,
+    onFocusDone,
+    messages,
+    loading,
+    loadingOlder,
+    hasMoreOlder,
+    onLoadOlder,
+  ]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const timer = setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -121,6 +196,8 @@ export function MessageTimeline(p: MessageTimelineProps) {
               actions={p.actions}
               onToggleReaction={p.onToggleReaction}
               onOpenThread={p.onOpenThread}
+              anchor
+              highlighted={m.id === highlightId}
             />
           ))}
         </section>
