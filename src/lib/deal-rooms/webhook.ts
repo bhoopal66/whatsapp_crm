@@ -24,6 +24,8 @@ import {
   removeParticipants,
 } from '@/lib/whatsapp/meta-groups';
 
+import { sendRoomInvites } from './invites';
+
 export const GROUP_WEBHOOK_FIELDS = [
   'group_lifecycle_update',
   'group_participants_update',
@@ -248,13 +250,16 @@ export async function handleGroupWebhook(
         return console.warn('[deal-rooms] group_create without request_id');
       if (!failed && groupId) {
         const link = str(event.invite_link);
-        await rpc('deal_room_group_created', {
+        const roomId = await rpc('deal_room_group_created', {
           p_request_id: requestId,
           p_group_id: groupId,
           p_invite_link_hash: link
             ? createHash('sha256').update(link).digest('hex')
             : null,
         });
+        // The room is open: invite its people. Claim-then-send, so a
+        // redelivered webhook invites nobody twice.
+        if (typeof roomId === 'string') await sendRoomInvites(db, roomId);
         return;
       }
       const { data, error } = await db

@@ -27,6 +27,10 @@ vi.mock('@/lib/whatsapp/meta-groups', () => ({
 }));
 vi.mock('@/lib/whatsapp/meta-api', () => ({ getMediaUrl, downloadMedia }));
 vi.mock('@/lib/ai/opt-out', () => ({ markOptedOut }));
+const { sendRoomInvites } = vi.hoisted(() => ({
+  sendRoomInvites: vi.fn(async () => ({})),
+}));
+vi.mock('./invites', () => ({ sendRoomInvites }));
 
 import {
   groupMessages,
@@ -145,6 +149,15 @@ describe('lifecycle', () => {
       p_group_id: GROUP,
       p_invite_link_hash: createHash('sha256').update(link).digest('hex'),
     });
+  });
+
+  it('invites the people of the room the created group opened', async () => {
+    const { db } = fakeDb({ rpc: { deal_room_group_created: 'room-1' } });
+    await run(db, {
+      groups: [{ type: 'group_create', group_id: GROUP, request_id: 'req-1' }],
+    });
+    expect(sendRoomInvites).toHaveBeenCalledTimes(1);
+    expect(sendRoomInvites).toHaveBeenCalledWith(db, 'room-1');
   });
 
   it('marks a failed create failed and tells the room creator', async () => {
