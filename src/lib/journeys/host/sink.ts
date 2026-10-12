@@ -16,7 +16,10 @@
  *   and opens one task per template per day.
  * - ADVISOR_TASK opens a task (sourceRef = the item id); REQUEST_CALLBACK
  *   queues a `callback_requests` row (unique on the item id).
- * - SET_OPT_OUT writes the register through `journey_set_opt_out`.
+ * - SET_OPT_OUT: `journey_commit` already wrote the register with the
+ *   decision (086), so broadcasts and automations see it even while the
+ *   drain waits; `journey_set_opt_out` re-applies it by item id, which
+ *   changes nothing unless the commit did not (a newer change wins).
  * - START_NEW_JOURNEY opens the contact's next file and stores its id in
  *   the item's `delivery_ref`: that is the marker for the inbound job (a
  *   fresh file, version 0 and entry null, which the next inbound event —
@@ -354,11 +357,9 @@ export function createJourneySink({
     if (error) throw new JourneyDbError('callback_requests', error);
   }
 
-  async function setOptOut(item: OutboxItem, optedOut: boolean): Promise<void> {
-    const ctx = await fileCtx(item.fileId);
+  async function setOptOut(item: OutboxItem): Promise<void> {
     const { error } = await db.rpc('journey_set_opt_out', {
-      p_contact_id: ctx.contactId,
-      p_opted_out: optedOut,
+      p_item_id: item.id,
     });
     if (error) throw new JourneyDbError('journey_set_opt_out', error);
   }
@@ -395,7 +396,7 @@ export function createJourneySink({
         case 'REQUEST_CALLBACK':
           return requestCallback(item, a);
         case 'SET_OPT_OUT':
-          return setOptOut(item, a.optedOut);
+          return setOptOut(item);
         case 'START_NEW_JOURNEY':
           return startNewJourney(item, a);
         case 'SET_TIMER':

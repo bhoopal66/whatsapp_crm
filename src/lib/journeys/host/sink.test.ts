@@ -402,14 +402,14 @@ describe('journey sink: the other actions', () => {
     ]);
   });
 
-  it('SET_OPT_OUT writes the register through journey_set_opt_out', async () => {
-    const { sink: s, queries } = sink(FILE);
+  it('SET_OPT_OUT re-applies the committed decision through journey_set_opt_out, by item id', async () => {
+    const { sink: s, queries } = sink({ data: true });
     await s.deliver(item({ type: 'SET_OPT_OUT', optedOut: true }));
-    expect(queries[1]).toEqual([
-      ['rpc', 'journey_set_opt_out', { p_contact_id: 'c1', p_opted_out: true }],
-      ['await'],
+    // journey_commit applied it with the decision; the item holds its value and time.
+    expect(queries).toEqual([
+      [['rpc', 'journey_set_opt_out', { p_item_id: 'it-1' }], ['await']],
     ]);
-    const e = await sink(FILE, { error: { message: 'denied', code: '42501' } })
+    const e = await sink({ error: { message: 'denied', code: '42501' } })
       .sink.deliver(item({ type: 'SET_OPT_OUT', optedOut: false }))
       .catch((x: unknown) => x);
     expect(e).toMatchObject({ source: 'journey_set_opt_out', code: '42501' });
