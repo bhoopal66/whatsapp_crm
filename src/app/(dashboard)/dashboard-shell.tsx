@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { guestRedirectPath } from "@/lib/auth/my-workspaces";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
@@ -13,8 +14,17 @@ import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 // client components can't export Next's metadata object.
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, profileLoading, accountRole } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  // A bank guest (migrations 082/083) has team chat and nothing else, so
+  // any other path sends them to /chat. Hidden links are not access
+  // control and neither is this — RLS already gives a guest none of the
+  // other screens' data; this spares them a dashboard of empty panels.
+  // Null while the role loads: staff pages are not held back for it.
+  const guestRedirect = profileLoading
+    ? null
+    : guestRedirectPath(accountRole, pathname);
 
   // Sidebar drawer state — only used on mobile. On lg+ the sidebar is
   // always visible and this stays at `false` (ignored by the component).
@@ -26,6 +36,10 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       router.push("/login");
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (guestRedirect) router.replace(guestRedirect);
+  }, [guestRedirect, router]);
 
   if (loading) {
     return (
@@ -39,6 +53,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return null;
+
+  // Nothing of a screen the guest is being moved off.
+  if (guestRedirect) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

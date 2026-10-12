@@ -49,7 +49,10 @@
       "automation": "AI & automation",
       "integrations": "Integrations"
     },
-    "roleBankGuest": "Bank guest"
+    "roleBankGuest": "Bank guest",
+    "switchWorkspace": "Switch workspace",
+    "workspaceDeactivated": "Deactivated",
+    "workspaceSwitchFailed": "Couldn't switch workspace: {reason}"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -67,7 +70,8 @@
     "menuProfile": "Profile",
     "menuSettings": "Settings",
     "menuSignOut": "Sign out",
-    "teamActivity": "Team activity"
+    "teamActivity": "Team activity",
+    "chat": "Team chat"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -3311,5 +3315,9 @@
       "deleted": "Answer deleted",
       "deleteFailed": "Failed to delete answer"
     }
+  },
+  "Chat": {
+    "settingUpTitle": "Team chat is being set up",
+    "settingUpBody": "Your workspace's team chat will appear here."
   }
 }
