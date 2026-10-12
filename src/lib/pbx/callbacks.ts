@@ -22,11 +22,25 @@ import { digitsOnly } from './extensions';
  *
  * The call's 30012 settles a `dialing` request (`settleCallbackCall`,
  * from the event processor): answered closes it and its task.
+ *
+ * A request still `dialing` after `STALE_DIALING_MS` has lost its result:
+ * the process died between the claim and the dial's answer, or the 30012
+ * never arrived, and nothing else would ever move it. Every pass starts by
+ * releasing those (`releaseStaleCallbacks`), outside call-back hours too,
+ * because releasing never dials. A call still in `call_live` is left to
+ * finish; one that has ended is settled as its 30012 would have been; no
+ * trace of a call counts as one unanswered attempt. Each write re-checks
+ * that the request is still `dialing` and still that old, so a late 30012
+ * or an overlapping run wins.
  */
 
 export const CALLBACK_TIME_ZONE = 'Asia/Dubai';
 export const CALLBACK_HOURS = { start: 9, end: 20 } as const;
 export const MAX_CALLBACK_ATTEMPTS = 3;
+/** A `dialing` request not updated for this long has lost its result. */
+export const STALE_DIALING_MS = 30 * 60 * 1000;
+/** Stale requests looked at in one pass; the rest wait for the next. */
+const STALE_BATCH = 50;
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
@@ -62,6 +76,8 @@ export interface CallbacksSummary {
   /** Left pending: owner busy, unmapped, or the PBX backing off. */
   waiting: number;
   failed: number;
+  /** Requests stuck `dialing` that were moved on (`STALE_DIALING_MS`). */
+  released: number;
 }
 
 /** Whether the extension can take the call now, by its last known state. */
@@ -86,7 +102,10 @@ export async function dialDueCallbacks(
     skipped: 0,
     waiting: 0,
     failed: 0,
+    released: 0,
   };
+  // Before the hours check: releasing a stuck request never dials.
+  summary.released = await releaseStaleCallbacks(db, now);
   if (!inCallbackHours(now())) {
     summary.outsideHours = true;
     return summary;
@@ -238,6 +257,7 @@ export async function dialDueCallbacks(
  * The 30012 of a call dialled for a call-back: answered → `done` and the
  * request's task closed; otherwise back to `pending`, or `failed` once
  * the attempts are spent. A call no `dialing` request placed is ignored.
+ * Answers whether a request was settled.
  */
 export async function settleCallbackCall(
   db: SupabaseClient,
@@ -246,8 +266,10 @@ export async function settleCallbackCall(
     pbxCallId: string;
     answered: boolean;
     status: string;
+    /** Settle only a request not updated since then (the stale release). */
+    staleBefore?: string;
   }
-): Promise<void> {
+): Promise<boolean> {
   const { data, error } = await db
     .from('callback_requests')
     .select('id, attempts, task_id')
@@ -257,7 +279,7 @@ export async function settleCallbackCall(
     .limit(1);
   if (error) throw new Error(`callback_requests read failed: ${error.message}`);
   const req = ((data ?? []) as Row[])[0];
-  if (!req) return;
+  if (!req) return false;
   const attempts = Number(req.attempts ?? 0);
   const next = input.answered
     ? { status: 'done', last_error: null }
@@ -265,18 +287,20 @@ export async function settleCallbackCall(
         status: attempts >= MAX_CALLBACK_ATTEMPTS ? 'failed' : 'pending',
         last_error: `call ended ${input.status.toLowerCase()}`,
       };
-  const moved = await db
+  const move = db
     .from('callback_requests')
     .update(next)
     .eq('id', req.id)
-    .eq('status', 'dialing')
-    .select('id');
+    .eq('status', 'dialing');
+  const moved = await (
+    input.staleBefore ? move.lt('updated_at', input.staleBefore) : move
+  ).select('id');
   if (moved.error) {
     throw new Error(`callback_requests update failed: ${moved.error.message}`);
   }
-  if (!input.answered || !((moved.data ?? []) as unknown[]).length) return;
+  if (!((moved.data ?? []) as unknown[]).length) return false;
   const taskId = str(req.task_id);
-  if (!taskId) return;
+  if (!input.answered || !taskId) return true;
   const t = await db
     .from('tasks')
     .select('source, source_ref')
@@ -286,10 +310,95 @@ export async function settleCallbackCall(
   if (t.error) throw new Error(`tasks read failed: ${t.error.message}`);
   const task = t.data as Row | null;
   const sourceRef = str(task?.source_ref);
-  if (!task || !sourceRef) return;
+  if (!task || !sourceRef) return true;
   await closeSystemTasks(db, {
     accountId: input.accountId,
     source: task.source as SystemTaskSource,
     sourceRef,
   });
+  return true;
+}
+
+/**
+ * Moves on every request stuck `dialing` (see the header) and answers how
+ * many it moved. `now` is the clock, or the instant itself. A request that
+ * changed since it was read is not counted: whoever changed it won.
+ */
+export async function releaseStaleCallbacks(
+  db: SupabaseClient,
+  now: number | (() => number)
+): Promise<number> {
+  const at = typeof now === 'function' ? now() : now;
+  const staleBefore = new Date(at - STALE_DIALING_MS).toISOString();
+  const { data, error } = await db
+    .from('callback_requests')
+    .select('id, account_id, attempts, pbx_call_id')
+    .eq('status', 'dialing')
+    .lt('updated_at', staleBefore)
+    .order('updated_at', { ascending: true })
+    .limit(STALE_BATCH);
+  if (error) throw new Error(`callback_requests read failed: ${error.message}`);
+
+  let released = 0;
+  for (const req of (data ?? []) as Row[]) {
+    const id = String(req.id);
+    try {
+      const accountId = String(req.account_id);
+      const callId = str(req.pbx_call_id);
+      if (callId) {
+        // A call still on is not lost: its 30012 will settle the request.
+        const live = await db
+          .from('call_live')
+          .select('pbx_call_id')
+          .eq('account_id', accountId)
+          .eq('pbx_call_id', callId)
+          .limit(1);
+        if (live.error)
+          throw new Error(`call_live read: ${live.error.message}`);
+        if (((live.data ?? []) as unknown[]).length) continue;
+        // A call that ended without its 30012 reaching us: settle it from
+        // the call's own record, the way that event would have.
+        const ended = await db
+          .from('calls')
+          .select('status')
+          .eq('account_id', accountId)
+          .eq('pbx_call_id', callId)
+          .not('ended_at', 'is', null)
+          .limit(1);
+        if (ended.error) throw new Error(`calls read: ${ended.error.message}`);
+        const call = ((ended.data ?? []) as Row[])[0];
+        if (call) {
+          const status = str(call.status) ?? 'failed';
+          const settled = await settleCallbackCall(db, {
+            accountId,
+            pbxCallId: callId,
+            answered: status === 'answered',
+            status: status.replace(/_/g, ' '),
+            staleBefore,
+          });
+          if (settled) released++;
+          continue;
+        }
+      }
+      // No call id, or no trace of the call: one unanswered attempt.
+      const attempts = Number(req.attempts ?? 0);
+      const moved = await db
+        .from('callback_requests')
+        .update({
+          status: attempts >= MAX_CALLBACK_ATTEMPTS ? 'failed' : 'pending',
+          last_error: 'no result came back from the PBX',
+        })
+        .eq('id', id)
+        .eq('status', 'dialing')
+        .lt('updated_at', staleBefore)
+        .select('id');
+      if (moved.error) {
+        throw new Error(`callback_requests update: ${moved.error.message}`);
+      }
+      if (((moved.data ?? []) as unknown[]).length) released++;
+    } catch (err) {
+      console.error(`[pbx] callback ${id} release: ${message(err)}`);
+    }
+  }
+  return released;
 }

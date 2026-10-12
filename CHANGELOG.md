@@ -91,7 +91,11 @@ call. `089_pbx.sql` gains `calls.recording_file` and `calls.meta`
 `GET /api/pbx/cron` (also run by the automations cron, once a minute)
 copies pending recordings into private storage, dials due call-backs
 between 09:00 and 20:00 Dubai time from the owner's free extension,
-retries failed events (three times), and purges old rows. See
+retries failed events (three times), and purges old rows. A call-back
+left _dialing_ for 30 minutes with no result (a restart mid-dial, or a
+lost call-end event) is released on the next run, at any hour: settled
+from the call's record if it ended, left alone while the call is still
+on, otherwise counted as one unanswered attempt. See
 `docs/yeastar.md` (sections 7–10).
 
 > **Migration required:** `089_pbx.sql` gained

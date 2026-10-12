@@ -187,6 +187,13 @@ recording notice before the owner is connected.
 - An answered call marks the request _done_ and closes its task. An
   unanswered one is tried again; after three attempts the request is
   _failed_, and the task stays open for a person.
+- A request still _dialing_ 30 minutes after its last update has lost
+  its result (the server stopped mid-dial, or the PBX's call-end event
+  never arrived). The next cron run releases it, at any hour. If the
+  call's record shows it ended, the request is settled by that outcome,
+  as above. A call still on the line is left alone. With no trace of a
+  call, it counts as one unanswered attempt ("no result came back from
+  the PBX").
 
 ## 10. The phone-system cron
 
