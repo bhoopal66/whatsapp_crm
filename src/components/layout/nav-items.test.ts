@@ -24,6 +24,7 @@ const EVERYONE = [
   '/dashboard',
   '/notifications',
   '/inbox',
+  '/chat',
   '/contacts',
   '/pipelines',
 ];
@@ -57,8 +58,8 @@ describe('visibleNavGroups', () => {
     });
   });
 
-  it('shows a bank guest no existing destination', () => {
-    expect(visibleNavGroups('bank_guest')).toEqual([]);
+  it('shows a bank guest team chat and nothing else', () => {
+    expect(layout(visibleNavGroups('bank_guest'))).toEqual({ main: ['/chat'] });
     expect(visibleBottomNavItems('bank_guest')).toEqual([]);
   });
 

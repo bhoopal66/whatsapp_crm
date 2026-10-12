@@ -52,7 +52,9 @@
     "roleBankGuest": "Bank guest",
     "switchWorkspace": "Switch workspace",
     "workspaceDeactivated": "Deactivated",
-    "workspaceSwitchFailed": "Couldn't switch workspace: {reason}"
+    "workspaceSwitchFailed": "Couldn't switch workspace: {reason}",
+    "chat": "Team chat",
+    "unreadChat": "{count} unread team chat {count, plural, =1 {message} other {messages}}"
   },
   "Header": {
     "dashboard": "Dashboard",

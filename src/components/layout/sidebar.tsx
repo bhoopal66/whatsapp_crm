@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
+import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useUnreadNotifications } from '@/hooks/use-unread-notifications';
 import {
   Crown,
@@ -110,6 +111,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const groupIdPrefix = useId();
 
   const unreadNotifications = useUnreadNotifications();
+  const chatUnread = useChatUnreadTotal();
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -163,6 +165,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     // viewing this section".
     const showNotificationBadge =
       item.href === '/notifications' && unreadNotifications > 0;
+    const showChatBadge = item.href === '/chat' && chatUnread > 0;
 
     return (
       <li key={item.href}>
@@ -204,6 +207,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
             >
               {unreadNotifications > 9 ? '9+' : unreadNotifications}
+            </span>
+          )}
+          {showChatBadge && (
+            <span
+              aria-label={t('unreadChat', { count: chatUnread })}
+              className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
+            >
+              {chatUnread > 99 ? '99+' : chatUnread}
             </span>
           )}
         </Link>
