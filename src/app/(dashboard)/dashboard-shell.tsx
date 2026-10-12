@@ -9,6 +9,9 @@ import { Header } from "@/components/layout/header";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { isChatPath } from "@/lib/chat/view";
+import { CallProvider } from "@/components/pbx/call-provider";
+import { IncomingCallCard } from "@/components/pbx/incoming-call-card";
+import { InCallPanel } from "@/components/pbx/in-call-panel";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -59,7 +62,10 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   if (guestRedirect) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    // The call screens (module 015): one incoming-call card and one
+    // in-call panel for the whole app, over whatever page is open.
+    <CallProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
@@ -81,7 +87,10 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
-    </div>
+      <IncomingCallCard />
+      <InCallPanel />
+      </div>
+    </CallProvider>
   );
 }
 
