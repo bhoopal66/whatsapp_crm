@@ -10,6 +10,7 @@ import {
   type SharedCard,
 } from '@/lib/chat';
 
+import type { RowActionContext } from './message-actions';
 import { MessageRow } from './message-row';
 
 export interface MessageTimelineProps {
@@ -21,6 +22,7 @@ export interface MessageTimelineProps {
   onLoadOlder: () => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
   onOpenThread?: (rootId: string) => void;
+  actions?: RowActionContext;
 }
 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -116,6 +118,7 @@ export function MessageTimeline(p: MessageTimelineProps) {
               message={m}
               grouped={isGroupedWithPrevious(g.messages[i - 1], m)}
               card={p.cards[m.id]}
+              actions={p.actions}
               onToggleReaction={p.onToggleReaction}
               onOpenThread={p.onOpenThread}
             />

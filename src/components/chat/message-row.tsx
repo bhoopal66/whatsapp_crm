@@ -23,6 +23,12 @@ import {
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
+import {
+  MessageActions,
+  MessageEditor,
+  useMessageEdits,
+  type RowActionContext,
+} from './message-actions';
 import { SharedConversationCard } from './shared-conversation-card';
 
 const CHIP =
@@ -32,6 +38,8 @@ export interface MessageRowProps {
   message: ChatMessage;
   grouped: boolean;
   card?: SharedCard;
+  /** The hover toolbar's context; no toolbar without it. */
+  actions?: RowActionContext;
   onToggleReaction: (messageId: string, emoji: string) => void;
   /** Opens the thread panel (a later job). */
   onOpenThread?: (rootId: string) => void;
@@ -82,15 +90,18 @@ function AttachmentView({ a }: { a: ChatAttachment }) {
 }
 
 export function MessageRow({
-  message: m,
+  message,
   grouped,
   card,
+  actions,
   onToggleReaction,
   onOpenThread,
 }: MessageRowProps) {
   const t = useTranslations('Chat');
   const tRole = useTranslations('Sidebar');
   const { peopleById, people, userId } = useChatWorkspaceContext();
+  const edits = useMessageEdits(message);
+  const m = edits.shown;
   const system = m.authorKind === 'system';
   const person: ChatPerson | undefined = m.authorId
     ? peopleById.get(m.authorId.toLowerCase())
@@ -140,13 +151,33 @@ export function MessageRow({
       </p>
     );
 
+  if (edits.editing && !m.deletedAt)
+    body = (
+      <MessageEditor
+        message={m}
+        broadcasts={actions?.broadcasts ?? false}
+        onSave={edits.save}
+        onCancel={() => edits.setEditing(false)}
+      />
+    );
+
   return (
     <div
       className={cn(
-        'group hover:bg-muted/40 flex gap-3 px-4',
+        'group hover:bg-muted/40 relative flex gap-3 px-4',
         grouped ? 'py-0.5' : 'pt-3 pb-0.5'
       )}
     >
+      {actions && !edits.editing && (
+        <MessageActions
+          message={m}
+          ctx={actions}
+          onToggleReaction={onToggleReaction}
+          onOpenThread={onOpenThread}
+          onEdit={() => edits.setEditing(true)}
+          onDelete={edits.remove}
+        />
+      )}
       <div className="w-9 shrink-0">
         {!grouped &&
           (system ? (

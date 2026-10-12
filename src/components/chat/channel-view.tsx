@@ -3,19 +3,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
+import { useAuth } from '@/hooks/use-auth';
 import { useChannelTimeline } from '@/hooks/use-channel-timeline';
 import { channelMembers, markRead } from '@/lib/chat';
+import { offersBroadcasts } from '@/lib/chat/composer-input';
 import { channelDisplayName } from '@/lib/chat/view';
 
 import { ChannelHeader } from './channel-header';
 import { useChatWorkspaceContext } from './chat-context';
+import type { RowActionContext } from './message-actions';
+import { useMessageMarks } from './message-marks';
 import { MessageTimeline } from './message-timeline';
+import { useWriteBlock } from './use-write-block';
 
 const MARK_READ_DEBOUNCE_MS = 800;
 
 export interface ChannelViewProps {
   channelId: string;
-  /** The composer (a later job) renders here, under the timeline. */
+  /** The composer, under the timeline. */
   footer?: React.ReactNode;
   onOpenThread?: (rootId: string) => void;
   onOpenMembers?: () => void;
@@ -34,29 +39,20 @@ export function ChannelView({
   const channel = ws.channels?.find((c) => c.id === channelId) ?? null;
   const tl = useChannelTimeline(ws, channelId);
   const [memberCount, setMemberCount] = useState<number | null>(null);
-  const [pinCount, setPinCount] = useState<number | null>(null);
-  const { sb, listen, refreshUnread } = ws;
+  const { sb, refreshUnread } = ws;
+  const { canManageMembers } = useAuth();
+  const marks = useMessageMarks();
+  const block = useWriteBlock(channel);
 
   useEffect(() => {
     let off = false;
     channelMembers(sb, channelId)
       .then((m) => !off && setMemberCount(m.length))
       .catch(() => {});
-    sb.from('message_pins')
-      .select('message_id', { count: 'exact', head: true })
-      .eq('channel_id', channelId)
-      .then(({ count }) => !off && setPinCount(count ?? 0));
-    const unlisten = listen((e) => {
-      if (e.kind === 'pin' && e.event.channelId === channelId)
-        setPinCount((n) =>
-          Math.max(0, (n ?? 0) + (e.event.type === 'pin' ? 1 : -1))
-        );
-    });
     return () => {
       off = true;
-      unlisten();
     };
-  }, [sb, channelId, listen]);
+  }, [sb, channelId]);
 
   // Read up to now whenever the visible timeline changes.
   const newest = tl.messages[tl.messages.length - 1]?.id;
@@ -91,13 +87,21 @@ export function ChannelView({
       </p>
     );
 
+  const actions: RowActionContext = {
+    userId: ws.userId,
+    workspaceAdmin: canManageMembers,
+    canWrite: block === null,
+    threads: !!onOpenThread,
+    broadcasts: offersBroadcasts(channel.kind),
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ChannelHeader
         channel={channel}
         name={name}
         memberCount={memberCount}
-        pinCount={pinCount}
+        pinCount={marks.pinCount}
         onOpenMembers={onOpenMembers}
         onOpenPins={onOpenPins}
       />
@@ -116,6 +120,7 @@ export function ChannelView({
             onLoadOlder={tl.loadOlder}
             onToggleReaction={tl.toggle}
             onOpenThread={onOpenThread}
+            actions={actions}
           />
           {footer}
         </>
