@@ -77,15 +77,41 @@ describe('fetchPendingRecordings', () => {
       call_id: 'k1',
       bytes: 3,
       format: 'mp3',
-      announcement_played: true,
+      // Fetched while the notice was switched off: not known to be
+      // announced, so held if the requirement is switched back on (C-1).
+      announcement_played: false,
     });
     const k1 = fake.tables.calls.find((c) => c.id === 'k1')!;
-    expect(k1).toMatchObject({ recording_state: 'fetched' });
+    expect(k1).toMatchObject({
+      recording_state: 'fetched',
+      announcement_played: false,
+    });
     expect(k1.meta).toEqual({ announcement_basis: 'not_required' });
     expect(JSON.stringify(fake.tables)).not.toContain('SECRET');
     expect(fake.tables.calls.find((c) => c.id === 'k3')!.recording_state).toBe(
       'held'
     );
+  });
+
+  it('marks a recording announced only while the workspace requires the notice', async () => {
+    // No pbx_settings row: the requirement is on (the default).
+    fake = createFakeDb({ calls: [call('k1')] });
+    const out = await fetchPendingRecordings({
+      db: fake.db,
+      apiFor: handle({ recordingDownloadUrl: async () => 'https://pbx/dl' }),
+      fetch: async () => audio(),
+    });
+    expect(out.fetched).toBe(1);
+    expect(fake.tables.call_recordings[0]).toMatchObject({
+      call_id: 'k1',
+      announcement_played: true,
+    });
+    const k1 = fake.tables.calls.find((c) => c.id === 'k1')!;
+    expect(k1).toMatchObject({
+      recording_state: 'fetched',
+      announcement_played: true,
+    });
+    expect(k1.meta).toEqual({ announcement_basis: 'pbx_prompt' });
   });
 
   it('stops the run on 70651 without spending an attempt', async () => {

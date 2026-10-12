@@ -58,10 +58,13 @@ One PBX can serve several workspaces.
 ## 3. Recording rules
 
 - **Announcement.** Configure the English/Arabic recording notice on
-  the PBX to play before **every** recorded call. A fetched recording is
-  marked as announced on that basis, and the basis is kept on the call
-  (`meta.announcement_basis`: `pbx_prompt` while the workspace requires
-  the notice, the default; `not_required` while it is switched off).
+  the PBX to play before **every** recorded call. A recording fetched
+  while the workspace requires the notice (the default) is marked as
+  announced on that basis; the basis is kept on the call
+  (`meta.announcement_basis`: `pbx_prompt` while required,
+  `not_required` while switched off). A recording fetched while the
+  notice was switched off is not marked announced, so it is held from
+  playback whenever the requirement is on.
 - **Bank numbers.** List the bank staff numbers (with the bank's code)
   under **Bank numbers**. While **Exclude bank numbers** is on (the
   default), calls with those numbers are kept unrecorded. Leave it on

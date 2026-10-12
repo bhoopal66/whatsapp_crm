@@ -402,6 +402,102 @@ BEGIN
     failed := array_append(failed, ('anon executes an 089 function or reads calls (functions/anon-executable): ' || r)::text);
   END IF;
 
+  -- ---------- review fixes: C-1 basis, re-link, C-2 bank numbers, C-8 log ----------
+  DECLARE
+    k_nr    UUID;   -- fetched while the notice was switched off (not_required)
+    k_rel   UUID;   -- the other agent's call with the agent's customer
+    k_bank  UUID;   -- a listed bank number's call, recorded
+    k_bank0 UUID;   -- the same, the number listed in its local "0" form
+    c_lead  UUID;   -- the team leader's own customer
+    q_play  TEXT := 'SELECT pbx_recording_playable(%L)::text';
+    q_link  TEXT := 'SELECT pbx_link_call_contact(%L, %L)';
+  BEGIN
+    INSERT INTO pbx_settings (account_id, announcement_required, exclude_bank_numbers)
+    VALUES (a_acct, true, true)
+    ON CONFLICT (account_id) DO UPDATE SET announcement_required = true, exclude_bank_numbers = true;
+    INSERT INTO pbx_bank_numbers (account_id, number, bank_code) VALUES (a_acct, '042089111', 'FAB');
+    INSERT INTO contacts (account_id, user_id, phone, name)
+    VALUES (a_acct, u_lead, '971500089006', 'PX lead customer') RETURNING id INTO c_lead;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id,
+                       remote_number, recording_state, meta)
+    VALUES (a_acct, conn, 'px-nr', 'inbound', '101', u_agent, '971500089005', 'fetched',
+            '{"announcement_basis": "not_required"}') RETURNING id INTO k_nr;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, contact_id)
+    VALUES (a_acct, conn, 'px-rel', 'inbound', '102', u_agent2, c_agent) RETURNING id INTO k_rel;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id,
+                       remote_number, recording_state)
+    VALUES (a_acct, conn, 'px-bank', 'inbound', '101', u_agent, '97142089000', 'fetched') RETURNING id INTO k_bank;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id,
+                       remote_number, recording_state)
+    VALUES (a_acct, conn, 'px-bank0', 'outbound', '101', u_agent, '97142089111', 'fetched') RETURNING id INTO k_bank0;
+    INSERT INTO call_recordings (call_id, account_id, storage_path, announcement_played) VALUES
+      (k_nr, a_acct, format('account-%s/px-nr.wav', a_acct), false),
+      (k_bank, a_acct, format('account-%s/px-bank.wav', a_acct), true),
+      (k_bank0, a_acct, format('account-%s/px-bank0.wav', a_acct), true);
+
+    -- C-1: the fetcher marks a not_required recording unannounced; it is
+    -- held while the notice is required and plays while it is not.
+    r := pg_temp.px_try('service_role', NULL, format(q_play, k_nr));
+    UPDATE pbx_settings SET announcement_required = false WHERE account_id = a_acct;
+    r := r || '/' || pg_temp.px_try('service_role', NULL, format(q_play, k_nr));
+    UPDATE pbx_settings SET announcement_required = true WHERE account_id = a_acct;
+    n := n + 1;
+    IF r <> 'false/true' THEN
+      failed := array_append(failed, ('a not_required recording (required on/off): ' || r)::text);
+    END IF;
+
+    -- Re-link: the disposition's rule. The agent sees k_rel through
+    -- their customer but was not on it.
+    r := pg_temp.px_try('authenticated', u_agent, format(q_link, k_rel, c_hold));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' OR (SELECT contact_id FROM calls WHERE id = k_rel) <> c_agent THEN
+      failed := array_append(failed, ('an agent re-linked another person''s call seen through their customer: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_agent2, format(q_link, k_rel, c_x));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT contact_id FROM calls WHERE id = k_rel) <> c_x THEN
+      failed := array_append(failed, ('the person on the call re-links it: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_lead, format(q_link, k_rel, c_lead));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT contact_id FROM calls WHERE id = k_rel) <> c_lead THEN
+      failed := array_append(failed, ('a team leader re-links a call they were not on: ' || r)::text);
+    END IF;
+
+    -- C-2: a bank number's recording (listed internationally, or in the
+    -- local "0" form) is held while the workspace excludes bank numbers.
+    r := pg_temp.px_try('service_role', NULL, format(q_play, k_bank))
+         || '/' || pg_temp.px_try('service_role', NULL, format(q_play, k_bank0))
+         || '/' || pg_temp.px_try('service_role', NULL, format(q_log, k_bank, a_acct, u_agent, 'play'));
+    n := n + 1;
+    IF r NOT LIKE 'false/false/ERROR 55000:%' THEN
+      failed := array_append(failed, ('a bank number''s recording while excluded (intl/local/logged play): ' || r)::text);
+    END IF;
+    UPDATE pbx_settings SET exclude_bank_numbers = false WHERE account_id = a_acct;
+    r := pg_temp.px_try('service_role', NULL, format(q_play, k_bank));
+    UPDATE pbx_settings SET exclude_bank_numbers = true WHERE account_id = a_acct;
+    n := n + 1;
+    IF r <> 'true' THEN
+      failed := array_append(failed, ('a bank number''s recording once exclusion is off: ' || r)::text);
+    END IF;
+
+    -- C-8: the log names an active agent-or-above of the call's account,
+    -- and a download is a team leader's (k_hold is playable).
+    r := pg_temp.px_try('service_role', NULL, format(q_log, k_hold, a_acct, u_agent, 'download'))
+         || ' / ' || pg_temp.px_try('service_role', NULL, format(q_log, k_hold, a_acct, u_other, 'play'))
+         || ' / ' || pg_temp.px_try('service_role', NULL, format(q_log, k_hold, a_acct, u_guest, 'play'));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% / ERROR 42501:% / ERROR 42501:%' THEN
+      failed := array_append(failed, ('access log rows (an agent''s download / another account''s user / a bank guest): ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format(q_log, k_hold, a_acct, u_lead, 'download'))
+         || '/' || pg_temp.px_try('service_role', NULL, format(q_log, k_hold, a_acct, u_agent, 'play'));
+    n := n + 1;
+    IF r <> 'ok/ok' THEN
+      failed := array_append(failed, ('a team leader''s download and an agent''s play are logged: ' || r)::text);
+    END IF;
+  END;
+
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT089', MESSAGE = 'verify-pbx rollback';
   EXCEPTION WHEN SQLSTATE 'ZT089' THEN
