@@ -273,6 +273,15 @@ CREATE TABLE IF NOT EXISTS public.calls (
     AND (erased_at IS NULL OR (notes IS NULL AND disposition IS NULL)))
 );
 -- The contact timeline, "calls this month", "my calls".
+-- Filled by the event processor (src/lib/pbx/process.ts): the PBX's
+-- recording file name, for the fetch while recording_state is
+-- 'pending'; and meta: contact_candidates (a number that matched more
+-- than one contact, for a person to pick) and unrouted (an inbound call
+-- to a number with no pbx_did_routes row, filed under the connection's
+-- own workspace). Appended to 089 before release; re-runnable.
+ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS recording_file text NULL;
+ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS meta jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE INDEX IF NOT EXISTS calls_contact_timeline_idx
   ON public.calls (contact_id, started_at DESC) WHERE contact_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS calls_account_started_idx ON public.calls (account_id, started_at DESC);

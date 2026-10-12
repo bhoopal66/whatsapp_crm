@@ -140,6 +140,26 @@ export async function loadPbxConnection(
   };
 }
 
+/**
+ * The connection's decrypted webhook secret, or null when none is
+ * stored. Reads only that secret: the webhook route needs nothing else.
+ */
+export async function loadPbxWebhookSecret(
+  db: SupabaseClient,
+  connectionId: string
+): Promise<string | null> {
+  const { data, error } = await db
+    .from('pbx_connection_secrets')
+    .select('webhook_secret_enc')
+    .eq('connection_id', connectionId)
+    .maybeSingle();
+  if (error) throw new Error(`PBX secrets read failed: ${error.message}`);
+  return open(
+    (data as { webhook_secret_enc?: unknown } | null)?.webhook_secret_enc,
+    connectionId
+  );
+}
+
 function infoOf(c: PbxCredentials): PbxConnectionInfo {
   return {
     id: c.id,

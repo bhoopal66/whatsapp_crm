@@ -83,6 +83,13 @@ export function createFakeDb(
       this.filters.push((r) => vs.includes(r[c]));
       return this;
     }
+    like(c: string, pattern: string) {
+      const re = new RegExp(
+        `^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`
+      );
+      this.filters.push((r) => re.test(String(r[c] ?? '')));
+      return this;
+    }
     not(c: string, _op: 'is', v: unknown) {
       this.filters.push((r) => (r[c] ?? null) !== v);
       return this;
@@ -126,18 +133,20 @@ export function createFakeDb(
         const items = (
           Array.isArray(this.payload) ? this.payload : [this.payload]
         ) as Row[];
-        data = items.map((item) => {
+        // As PostgREST: a duplicate skipped by ignoreDuplicates is not returned.
+        data = items.flatMap((item) => {
           const existing =
             this.op === 'upsert'
               ? rows.find((r) => this.conflict.every((k) => r[k] === item[k]))
               : undefined;
           if (existing) {
-            if (!this.ignoreDuplicates) Object.assign(existing, item);
-            return existing;
+            if (this.ignoreDuplicates) return [];
+            Object.assign(existing, item);
+            return [existing];
           }
           const row = { id: crypto.randomUUID(), ...item };
           rows.push(row);
-          return row;
+          return [row];
         });
       } else if (this.op === 'update') {
         data = rows.filter(match);
