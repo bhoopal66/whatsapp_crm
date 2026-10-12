@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   health: vi.fn(),
   sweep: vi.fn(),
   rpc: vi.fn(),
+  pbx: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -56,6 +57,8 @@ vi.mock('@/lib/team-activity/alert-sweep', () => ({
   runTeamActivityAlertSweep: h.sweep,
 }));
 
+vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
+
 function req() {
   return new Request('http://localhost/api/automations/cron', {
     headers: { 'x-cron-secret': 's3cret' },
@@ -78,6 +81,7 @@ beforeEach(() => {
     .mockResolvedValue({ checked: 1, changed: 0, notified: 0, failed: 0 });
   h.sweep.mockReset().mockResolvedValue({ alerts: 0, notifications: 0 });
   h.rpc.mockReset().mockResolvedValue({ data: 3, error: null });
+  h.pbx.mockReset().mockResolvedValue({ outOfTime: [], errors: {} });
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-29T13:00:00Z'));
 });
@@ -234,5 +238,50 @@ describe('GET /api/automations/cron — edge store purge', () => {
     expect(res.status).toBe(401);
     await runAfter();
     expect(h.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/automations/cron — phone system piggy-back', () => {
+  it('runs the PBX work after the response, at most once a minute', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.pbx).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.pbx).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:00:59Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.pbx).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.pbx).toHaveBeenCalledTimes(2);
+  });
+
+  it('swallows a thrown PBX run and leaves the other jobs running', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.pbx.mockRejectedValue(new Error('pbx down'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(h.health).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] pbx run failed:',
+      'pbx down'
+    );
+    log.mockRestore();
+  });
+
+  it('does not run for an unauthenticated caller', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    await GET(new Request('http://localhost/api/automations/cron'));
+    await runAfter();
+    expect(h.pbx).not.toHaveBeenCalled();
   });
 });
