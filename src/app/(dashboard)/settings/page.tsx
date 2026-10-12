@@ -153,6 +153,20 @@ const PhoneSystemPanel = dynamic(
     ),
   { loading: PanelLoading }
 );
+const ConsentRetentionPanel = dynamic(
+  () =>
+    import('@/components/settings/consent-retention-panel').then(
+      (m) => m.ConsentRetentionPanel
+    ),
+  { loading: PanelLoading }
+);
+const AuditLogPanel = dynamic(
+  () =>
+    import('@/components/settings/audit-log-panel').then(
+      (m) => m.AuditLogPanel
+    ),
+  { loading: PanelLoading }
+);
 const AiAgentsArea = dynamic(
   () =>
     import('@/components/agents/ai-agents-area').then((m) => m.AiAgentsArea),
@@ -285,6 +299,8 @@ function SettingsPageInner() {
     members: <MembersTab />,
     teams: <TeamsTab />,
     'team-chat': <TeamChatSettings />,
+    'consent-retention': <ConsentRetentionPanel />,
+    'audit-log': <AuditLogPanel />,
     api: <ApiKeysSettings />,
     'phone-system': <PhoneSystemPanel />,
     ai: (

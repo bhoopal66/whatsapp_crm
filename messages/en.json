@@ -2032,7 +2032,9 @@
       "deals": "Deals & currency",
       "team-chat": "Team chat",
       "journey-bot": "Journey bot",
-      "phone-system": "Phone system"
+      "phone-system": "Phone system",
+      "consent-retention": "Consent and retention",
+      "audit-log": "Audit log"
     },
     "categories": {
       "overview": "Overview",
@@ -3042,6 +3044,141 @@
           "bank_code_required": "Enter the bank's code (at most 32 characters)."
         }
       }
+    },
+    "consentRetention": {
+      "title": "Consent and retention",
+      "description": "Which banks may join customer groups and be recorded, how long records are kept, and erasing a customer's call recordings on a lawful request.",
+      "banks": {
+        "title": "Bank guests and recording, per bank",
+        "description": "Both are off by default. Bank officers join customer groups (deal rooms) only after the bank's DSA agreement allows it, so turning guests on records the date its DSA terms were checked.",
+        "bank": "Bank",
+        "guests": "Bank guests allowed in deal rooms",
+        "recording": "Calls with this bank may be recorded",
+        "checked": "DSA checked",
+        "checkedBy": "{date} · {name}",
+        "notChecked": "Not checked",
+        "note": "Note",
+        "remove": "Remove {bank}",
+        "addPlaceholder": "Bank code, e.g. MASHREQ",
+        "add": "Add bank",
+        "invalidCode": "Use letters, digits, - or _ (up to 32).",
+        "exists": "{bank} is already in the list.",
+        "empty": "No banks yet. Add one to set its guests and recording.",
+        "loading": "Loading banks…",
+        "loadFailed": "Couldn't load the bank policies.",
+        "saveFailed": "Couldn't save the change.",
+        "dialogTitle": "Allow {bank}'s officers in deal rooms",
+        "dialogDesc": "Only once the bank's DSA agreement allows its officers to join customer groups. Record when you checked its terms.",
+        "dateLabel": "DSA terms checked on",
+        "dateRequired": "Enter the date the DSA terms were checked.",
+        "dateInFuture": "The date can't be in the future.",
+        "noteLabel": "Note (optional)",
+        "noteTooLong": "Keep the note under 2,000 characters.",
+        "allow": "Allow guests",
+        "cancel": "Cancel"
+      },
+      "retention": {
+        "title": "Retention",
+        "chats": "WhatsApp chats and team chat are kept with no automatic deletion.",
+        "recordingsKept": "Call recordings are kept with no automatic deletion.",
+        "recordingsDays": "Call recordings are kept for {days, plural, one {# day} other {# days}}.",
+        "recordingsUnknown": "Call recordings follow the period set in Phone system settings.",
+        "erasure": "Erasure handles lawful requests: a customer's call recordings below, a staff member's chat messages in Team chat settings.",
+        "openPhone": "Phone system settings",
+        "openTeamChat": "Team chat settings"
+      },
+      "erase": {
+        "title": "Erase a customer's call recordings",
+        "description": "Owner only. Deletes every recording of the customer's calls and clears their call notes and outcomes; the calls stay in the history as erased. Cannot be undone.",
+        "contactLabel": "Customer",
+        "contactPlaceholder": "Search by name or phone",
+        "reasonLabel": "Reason",
+        "reasonPlaceholder": "The lawful request this erasure answers (at least 5 characters)",
+        "confirmLabel": "Type {word} to confirm",
+        "warning": "The erasure and its reason are recorded in the audit log. It cannot be undone.",
+        "submit": "Erase recordings",
+        "failed": "The erasure failed. Check the audit log before trying again.",
+        "forbidden": "Only the workspace owner can erase call records.",
+        "notFound": "That customer wasn't found.",
+        "legalHold": "A recording of this customer is under legal hold, so nothing was erased.",
+        "doneTitle": "Erased {name}'s call records",
+        "summary": "{count, plural, =0 {No recordings were stored.} one {# recording deleted.} other {# recordings deleted.}}",
+        "filesFailed": "{count, plural, one {# file} other {# files}} could not be removed from storage; the server log lists them.",
+        "teamChatHint": "To erase a staff member's chat messages, use Team chat settings."
+      }
+    },
+    "auditLog": {
+      "title": "Audit log",
+      "description": "Who did what, newest first: private team chat reads and erasures, recording plays and downloads, do-not-contact overrides and call erasures, and deal room changes.",
+      "filters": {
+        "source": "Source",
+        "all": "All sources",
+        "from": "From",
+        "to": "To",
+        "person": "Person",
+        "anyone": "Anyone"
+      },
+      "sources": {
+        "team_chat": "Team chat",
+        "recordings": "Recordings",
+        "phone": "Phone",
+        "deal_rooms": "Deal rooms"
+      },
+      "system": "System",
+      "unknownPerson": "Former member",
+      "items": {
+        "channel": "Channel",
+        "person": "Person",
+        "call": "Call",
+        "contact": "Customer",
+        "deal_room": "Deal room"
+      },
+      "actions": {
+        "team_chat": {
+          "admin_read_private": "Read a private channel",
+          "erase_person": "Erased a person's messages",
+          "add_members": "Added channel members",
+          "set_member_role": "Changed a channel role"
+        },
+        "recordings": {
+          "play": "Played a recording",
+          "download": "Downloaded a recording",
+          "attach": "Attached a recording"
+        },
+        "phone": {
+          "erase_contact_calls": "Erased a customer's call records",
+          "dnc_override_call": "Called a do-not-contact customer"
+        },
+        "deal_rooms": {
+          "create_requested": "Requested a deal room",
+          "created": "Created a deal room",
+          "group_created": "Created the WhatsApp group",
+          "guests_pending_approval": "Guests await approval",
+          "guest_user_added": "Added a bank guest",
+          "join_request": "Received a join request",
+          "participant_approved": "Approved a participant",
+          "participant_rejected": "Rejected a participant",
+          "participant_unlisted": "Removed a participant",
+          "staff_added": "Added staff",
+          "status_changed": "Changed the status"
+        }
+      },
+      "facts": {
+        "messages": "{count, plural, one {# message} other {# messages}}",
+        "files": "{count, plural, one {# file} other {# files}}",
+        "recordings": "{count, plural, one {# recording} other {# recordings}}",
+        "calls": "{count, plural, one {# call} other {# calls}}",
+        "members": "{count, plural, one {# member} other {# members}}",
+        "change": "{from} → {to}",
+        "number": "Number {value}"
+      },
+      "reason": "Reason: {reason}",
+      "loading": "Loading…",
+      "loadFailed": "Couldn't load the audit log.",
+      "empty": "Nothing recorded for these filters.",
+      "newer": "Newer",
+      "older": "Older",
+      "page": "Page {page}"
     }
   },
   "Compass": {
