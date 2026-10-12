@@ -5,11 +5,11 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import {
   cachedQuery,
-  MEMBERS_CACHE_KEY,
   REFERENCE_CACHE_TTL_MS,
+  membersCacheKey,
   teamRosterCacheKey,
 } from '@/lib/client-cache';
-import { canLeadTeam, hasMinRole } from '@/lib/auth/roles';
+import { canLeadTeam, hasMinRole, isBankGuest } from '@/lib/auth/roles';
 import type { DealPeopleInput } from '@/lib/pipelines/owner';
 import { createClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types';
@@ -25,27 +25,32 @@ const NO_ONE: ReadonlySet<string> = new Set();
 export function useDealPeople(
   enabled = true
 ): DealPeopleInput<Profile> & { members: Profile[] } {
-  const { accountRole, user } = useAuth();
+  const { accountRole, accountId, user } = useAuth();
   const [members, setMembers] = useState<Profile[]>([]);
   const [ledUserIds, setLedUserIds] = useState<ReadonlySet<string>>(NO_ONE);
 
+  // The active workspace only (RLS also returns the caller's own row in
+  // every other one), and a bank guest is never listed.
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !accountId) return;
     let cancelled = false;
     (async () => {
       const data = await cachedQuery(
-        MEMBERS_CACHE_KEY,
+        membersCacheKey(accountId),
         REFERENCE_CACHE_TTL_MS,
         async () => {
           const { data, error } = await createClient()
             .from('profiles')
             .select('*')
+            .eq('account_id', accountId)
             .order('full_name');
           if (error) {
             console.error('Failed to fetch profiles:', error);
             return [] as Profile[];
           }
-          return (data as Profile[] | null) ?? [];
+          return ((data as Profile[] | null) ?? []).filter(
+            (p) => !isBankGuest(p.account_role)
+          );
         }
       ).catch(() => [] as Profile[]);
       if (!cancelled) setMembers(data);
@@ -53,7 +58,7 @@ export function useDealPeople(
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, accountId]);
 
   // Only a team leader needs the roster: an admin already reaches
   // everyone, anyone else only themselves.

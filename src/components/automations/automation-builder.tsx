@@ -60,6 +60,7 @@ import {
 } from "@/components/interactive/interactive-builder"
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
+import { staffOnly } from '@/lib/account/members'
 import { useChatTags } from "@/hooks/use-chat-tags"
 import { chatTagColor } from "@/lib/chat-tags/style"
 import {
@@ -286,7 +287,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
         const res = await fetch("/api/account/members", { cache: "no-store" })
         if (!res.ok) return
         const json = (await res.json()) as { members?: AccountMember[] }
-        if (!cancelled) setMembers(json.members ?? [])
+        if (!cancelled) setMembers(staffOnly(json.members ?? []))
       } catch {
         // Members endpoint absent — caller falls back to raw input.
       }

@@ -3,10 +3,12 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
-  MEMBERS_CACHE_KEY,
   REFERENCE_CACHE_TTL_MS,
   cachedQuery,
+  membersCacheKey,
 } from '@/lib/client-cache';
+import { useAuth } from '@/hooks/use-auth';
+import { isBankGuest } from '@/lib/auth/roles';
 import {
   CONVERSATION_SELECT,
   UNASSIGNED,
@@ -590,28 +592,34 @@ export function ConversationList({
   }, [campaigns]);
 
   // Account members, for the assignee labels and the by-agent filter.
-  // Shares MEMBERS_CACHE_KEY with the thread's assign dropdown, so on a
+  // Shares its cache entry with the thread's assign dropdown, so on a
   // normal inbox visit this costs nothing — the thread has usually
   // already asked. Only fetched for a viewer who can see other
   // people's chats; nobody else renders either affordance.
+  // Scoped to the active workspace (RLS also returns the caller's own row
+  // in every other one), and a bank guest is never listed.
+  const { accountId } = useAuth();
   useEffect(() => {
-    if (!showAssignee) return;
+    if (!showAssignee || !accountId) return;
     let cancelled = false;
     (async () => {
       const data = await cachedQuery(
-        MEMBERS_CACHE_KEY,
+        membersCacheKey(accountId),
         REFERENCE_CACHE_TTL_MS,
         async () => {
           const supabase = createClient();
           const { data, error } = await supabase
             .from('profiles')
             .select('*')
+            .eq('account_id', accountId)
             .order('full_name');
           if (error) {
             console.error('Failed to fetch profiles:', error);
             return [] as Profile[];
           }
-          return (data as Profile[] | null) ?? [];
+          return ((data as Profile[] | null) ?? []).filter(
+            (p) => !isBankGuest(p.account_role)
+          );
         }
       ).catch(() => [] as Profile[]);
       if (!cancelled) setMembers(data);
@@ -619,7 +627,7 @@ export function ConversationList({
     return () => {
       cancelled = true;
     };
-  }, [showAssignee]);
+  }, [showAssignee, accountId]);
 
   // Keyed by `user_id`, not `id` — `conversations.assigned_agent_id`
   // references auth.users, the same column the assign dropdown matches on.

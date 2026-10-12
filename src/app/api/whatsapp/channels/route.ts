@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { isBankGuest } from '@/lib/auth/roles';
 
 interface ChannelListRow {
   id: string;
@@ -58,12 +59,13 @@ export async function GET() {
         .from('whatsapp_channel_teams')
         .select('config_id, team_id')
         .eq('account_id', accountId),
-      // Staff only: a bank guest is never a number's user.
+      // Staff only, filtered below: a bank guest is never a number's
+      // user. In code, not in the query: a database without migration
+      // 082 rejects the `bank_guest` literal.
       supabase
         .from('profiles')
-        .select('user_id')
-        .eq('account_id', accountId)
-        .neq('account_role', 'bank_guest'),
+        .select('user_id, account_role')
+        .eq('account_id', accountId),
     ]);
 
     // All four or nothing: a missing roster would read as "nobody is
@@ -95,7 +97,9 @@ export async function GET() {
     // would show a ghost, and sending it back on save would be rejected
     // as "not a member of this account".
     const current = new Set(
-      (profilesRes.data ?? []).map((p) => p.user_id as string)
+      (profilesRes.data ?? [])
+        .filter((p) => !isBankGuest(p.account_role))
+        .map((p) => p.user_id as string)
     );
     const push = (map: Map<string, string[]>, key: string, id: string) => {
       const list = map.get(key) ?? [];

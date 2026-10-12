@@ -40,7 +40,13 @@ function query(result: Result) {
 function ctx(tables: Record<string, Result> = {}) {
   const all: Record<string, Result> = {
     whatsapp_config: { data: { id: 'cfg-1' } },
-    profiles: { data: [{ user_id: 'ana' }, { user_id: 'bo' }] },
+    profiles: {
+      data: [
+        { user_id: 'ana', account_role: 'agent' },
+        { user_id: 'bo', account_role: 'agent' },
+        { user_id: 'gus', account_role: 'bank_guest' },
+      ],
+    },
     teams: { data: [{ id: 'team-a' }, { id: 'team-b' }] },
     ...tables,
   };
@@ -74,15 +80,26 @@ describe('PATCH /api/whatsapp/channels/[id] { team_ids }', () => {
       params
     );
     expect(res.status).toBe(200);
-    // Only staff can be put on a number: the roster it is checked
-    // against leaves bank guests out.
-    expect(neqCalls).toEqual([['account_role', 'bank_guest']]);
+    // The roster is filtered on its rows, not in the query: a database
+    // without migration 082 rejects the `bank_guest` literal.
+    expect(neqCalls).toEqual([]);
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
     expect(mocks.rpc).toHaveBeenCalledWith('set_channel_access', {
       p_config_id: 'cfg-1',
       p_user_ids: ['ana'],
       p_team_ids: ['team-a'],
     });
+  });
+
+  it('refuses a bank guest as a number\'s user', async () => {
+    // Only staff can be put on a number: the roster the ids are checked
+    // against leaves bank guests out.
+    const res = await PATCH(request({ member_ids: ['ana', 'gus'] }), params);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'User gus is not a member of this account',
+    });
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
   it('an empty team list takes every team off the number', async () => {

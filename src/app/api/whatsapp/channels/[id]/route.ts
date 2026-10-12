@@ -21,6 +21,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { isBankGuest } from '@/lib/auth/roles';
 import {
   normalizeChannelLabel,
   validateIdList,
@@ -74,11 +75,12 @@ export async function PATCH(
 
     let memberIds: string[] | undefined;
     if ('member_ids' in body) {
+      // Staff only, filtered below rather than in the query: a database
+      // without migration 082 rejects the `bank_guest` literal.
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id')
-        .eq('account_id', accountId)
-        .neq('account_role', 'bank_guest'); // staff only
+        .select('user_id, account_role')
+        .eq('account_id', accountId);
       if (profilesError) {
         console.error('[whatsapp/channels] roster load failed:', profilesError);
         return NextResponse.json(
@@ -88,7 +90,11 @@ export async function PATCH(
       }
       const result = validateMemberIds(
         body.member_ids,
-        new Set((profiles ?? []).map((p) => p.user_id as string))
+        new Set(
+          (profiles ?? [])
+            .filter((p) => !isBankGuest(p.account_role))
+            .map((p) => p.user_id as string)
+        )
       );
       if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: 400 });

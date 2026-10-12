@@ -69,6 +69,7 @@ import {
   type TeamRoster,
 } from '@/lib/whatsapp/team-allocation';
 import { SettingsPanelHead } from './settings-panel-head';
+import { staffOnly } from '@/lib/account/members';
 import type { AccountMember } from '@/types';
 
 interface NumberRow {
@@ -163,7 +164,7 @@ export function WhatsAppNumbers() {
         throw new Error(numbersBody?.error || t('loadFailed'));
       const rows: NumberRow[] = numbersBody.channels ?? [];
       setNumbers(rows);
-      setMembers(membersBody?.members ?? []);
+      setMembers(staffOnly(membersBody?.members ?? []));
       setMembersLoaded(membersRes.ok && Array.isArray(membersBody?.members));
       setTeams(teamsBody?.teams ?? []);
       setTeamsLoaded(teamsRes.ok && Array.isArray(teamsBody?.teams));

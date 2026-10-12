@@ -66,6 +66,8 @@ function tables(overrides: Record<string, Result> = {}) {
         { config_id: 'cfg-1', user_id: 'cy', direct: true, via_team: true },
         // Moved off the account: listed nowhere.
         { config_id: 'cfg-1', user_id: 'gone', direct: true, via_team: true },
+        // A bank guest who somehow holds an allocation: listed nowhere.
+        { config_id: 'cfg-1', user_id: 'gus', direct: true, via_team: true },
       ],
     },
     whatsapp_channel_teams: {
@@ -75,7 +77,12 @@ function tables(overrides: Record<string, Result> = {}) {
       ],
     },
     profiles: {
-      data: [{ user_id: 'ana' }, { user_id: 'bo' }, { user_id: 'cy' }],
+      data: [
+        { user_id: 'ana', account_role: 'agent' },
+        { user_id: 'bo', account_role: 'agent' },
+        { user_id: 'cy', account_role: 'team_leader' },
+        { user_id: 'gus', account_role: 'bank_guest' },
+      ],
     },
     conversations: { count: 3 },
     ...overrides,
@@ -99,8 +106,10 @@ describe('GET /api/whatsapp/channels', () => {
     const body = await res.json();
     expect(mocks.requireRole).toHaveBeenCalledWith('admin');
     // The roster behind "who is still on the account" is staff only: a
-    // bank guest is never a number's user.
-    expect(neqCalls).toEqual([['account_role', 'bank_guest']]);
+    // bank guest is never a number's user (`gus` above is dropped from
+    // both lists). It is filtered on the rows, not in the query: a
+    // database without migration 082 rejects the `bank_guest` literal.
+    expect(neqCalls).toEqual([]);
 
     const [first, second] = body.channels;
     expect(first.member_ids).toEqual(['ana', 'cy']);

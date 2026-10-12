@@ -59,6 +59,8 @@ interface ProfileRow {
   account_role: string;
   created_at: string;
   deactivated_at: string | null;
+  /** Migration 083; undefined on a database that predates it. */
+  bank_code?: string | null;
 }
 
 export async function GET() {
@@ -66,12 +68,16 @@ export async function GET() {
     const ctx = await requireRole("admin");
 
     // RLS on profiles allows reading any row whose account matches
-    // the caller's, so this query is naturally account-scoped.
+    // the caller's, so this query is naturally account-scoped; since
+    // migration 083 it also returns the caller's own row in every other
+    // workspace, hence the explicit `account_id` filter.
+    //
+    // `*` rather than a column list so a database without 083 (no
+    // `bank_code` yet) still answers: naming a missing column fails the
+    // whole select. The mapping below picks the fields that are returned.
     const { data, error } = await ctx.supabase
       .from("profiles")
-      .select(
-        "user_id, full_name, email, avatar_url, account_role, created_at, deactivated_at",
-      )
+      .select("*")
       .eq("account_id", ctx.accountId)
       .order("created_at", { ascending: true });
 
@@ -99,6 +105,7 @@ export async function GET() {
           role: row.account_role,
           joined_at: row.created_at,
           deactivated_at: row.deactivated_at ?? null,
+          bank_code: row.bank_code ?? null,
         },
       ];
     });

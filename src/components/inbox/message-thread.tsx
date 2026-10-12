@@ -11,10 +11,10 @@ import {
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
-  MEMBERS_CACHE_KEY,
   REFERENCE_CACHE_TTL_MS,
   cachedQuery,
   invalidateCached,
+  membersCacheKey,
   teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
@@ -83,7 +83,7 @@ import { predictSendingNumber } from '@/lib/inbox/sending-number';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
 import { ForwardDialog } from './forward-dialog';
-import { canSendMessages } from '@/lib/auth/roles';
+import { canSendMessages, isBankGuest } from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
 import { canAssignToOthers } from '@/lib/auth/conversation-visibility';
@@ -250,7 +250,7 @@ export function MessageThread({
   const tQuote = useTranslations('Inbox.replyQuote');
   const tFailedSend = useTranslations('Inbox.failedSend');
 
-  const { user, profileLoading, accountRole } = useAuth();
+  const { user, profileLoading, accountRole, accountId } = useAuth();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Older-page state. The thread opens on its latest page; scrolling to
@@ -367,23 +367,30 @@ export function MessageThread({
   // opens the inbox or switches conversation, and the member list is
   // the same answer each time. Through the tunnel that repeat was a
   // few hundred milliseconds of the delay before the thread was usable.
+  //
+  // Scoped to the active workspace (RLS also returns the caller's own row
+  // in every other one), and a bank guest is never listed.
   useEffect(() => {
+    if (!accountId) return;
     let cancelled = false;
     (async () => {
       const data = await cachedQuery(
-        MEMBERS_CACHE_KEY,
+        membersCacheKey(accountId),
         REFERENCE_CACHE_TTL_MS,
         async () => {
           const supabase = createClient();
           const { data, error } = await supabase
             .from('profiles')
             .select('*')
+            .eq('account_id', accountId)
             .order('full_name');
           if (error) {
             console.error('Failed to fetch profiles:', error);
             return [] as Profile[];
           }
-          return (data as Profile[] | null) ?? [];
+          return ((data as Profile[] | null) ?? []).filter(
+            (p) => !isBankGuest(p.account_role)
+          );
         }
       ).catch(() => [] as Profile[]);
       if (!cancelled) setProfiles(data);
@@ -391,7 +398,7 @@ export function MessageThread({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accountId]);
 
   // Who this user leads. Only a team leader needs it: admins can
   // already assign to anyone, and everyone else can only self-assign,
