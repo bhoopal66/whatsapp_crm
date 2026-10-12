@@ -121,8 +121,13 @@ provider redelivers it. Behind a proxy, set `EDGE_CLIENT_IP_HEADER`
 `docs/whapi.md` and `docs/meta-cloud-api.md`. The automations cron
 purges expired rows at most every 15 minutes (or schedule
 `SELECT public.edge_purge()` with pg_cron); correctness does not depend
-on it. The same migration adds the store for an admin login lockout,
-which nothing uses yet.
+on it.
+
+Sign-in now goes through `POST /api/auth/login`, which locks out 5
+failures per email and IP, or 20 per IP, within 10 minutes for 15
+minutes, before GoTrue sees the password; the login page shows "Try
+again in N minutes". The public API locks out an IP that presents bad
+keys the same way, answering `429 rate_limited`. See `docs/security.md`.
 
 > **Migration required:** apply
 > `supabase/migrations/084_edge_security.sql` (re-runnable)
