@@ -42,10 +42,13 @@
 -- (account-<id>/…) with no client storage policy: playback is a server
 -- route that writes call_access_log and then signs a 5-minute URL. The
 -- log refuses a row unless the recording is playable
--- (pbx_recording_playable: fetched, not erased, and the English+Arabic
+-- (pbx_recording_playable: fetched, not erased, the English+Arabic
 -- announcement confirmed played unless the workspace turned that
--- requirement off), so held audio cannot be served by a route that logs
--- first. The log and pbx_audit are append-only.
+-- requirement off, and — C-2 — not a listed bank number's call while
+-- the workspace excludes them), so held audio cannot be served by a
+-- route that logs first. It also refuses a reader who is not an active
+-- agent-or-above of the call's account, and a download below team
+-- leader. The log and pbx_audit are append-only.
 --
 -- Erasure (C-3). pbx_erase_contact_calls (owner only) deletes the
 -- contact's recording rows and returns their storage paths for the
@@ -417,14 +420,42 @@ CREATE TABLE IF NOT EXISTS public.pbx_audit (
 );
 CREATE INDEX IF NOT EXISTS pbx_audit_account_idx ON public.pbx_audit (account_id, at DESC);
 
+-- C-8. A row names a live staff member (agent and up, as the routes
+-- require) of the call's own account, and a download is a team
+-- leader's or above. The routes check both first; this holds for any
+-- service-role writer, so the log cannot record an access that the
+-- rules refuse.
 CREATE OR REPLACE FUNCTION public.call_access_log_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+  v_rank integer;
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    SELECT CASE p.account_role
+             WHEN 'owner'       THEN 5
+             WHEN 'admin'       THEN 4
+             WHEN 'team_leader' THEN 3
+             WHEN 'agent'       THEN 2
+             WHEN 'viewer'      THEN 1
+             ELSE 0
+           END
+      INTO v_rank
+      FROM profiles p
+     WHERE p.user_id = NEW.user_id
+       AND p.account_id = NEW.account_id
+       AND p.deactivated_at IS NULL;
+    IF COALESCE(v_rank, 0) < 2 THEN
+      RAISE EXCEPTION 'Only an active member of the call''s workspace can open its recording'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NEW.action = 'download' AND v_rank < 3 THEN
+      RAISE EXCEPTION 'Only a team leader or above can download a recording'
+        USING ERRCODE = '42501';
+    END IF;
     IF NOT pbx_recording_playable(NEW.call_id) THEN
       RAISE EXCEPTION 'This recording is not playable (held, erased or not fetched)'
         USING ERRCODE = '55000';
@@ -535,6 +566,21 @@ CREATE TABLE IF NOT EXISTS public.pbx_bank_numbers (
 
 -- C-1: fetched, not erased, and the announcement confirmed played
 -- unless the workspace switched the requirement off.
+-- C-2: and, while the workspace excludes bank numbers (the default, as
+-- in the processor), not a call with a listed bank number: a number
+-- listed, or exclusion switched on, after the call was recorded holds
+-- the recording too. The candidates are bankCandidates() in
+-- src/lib/pbx/process.ts — the stored number, its trunk-0 variants
+-- (phoneVariants) and the UAE "0" local form — change one, change both.
+-- The processor also tries the raw caller-ID digits, which no column
+-- keeps, so their other two shapes (an "00" prefix, a UAE number
+-- without its trunk 0) are tried instead: a miss here plays a bank
+-- call, a spare candidate only holds one.
+-- call_recordings_guard deliberately accepts such a row: the fetcher
+-- uploads the audio before it writes the row, so a refused row would
+-- leave the object unlisted (out of reach of the C-3 erasure), and the
+-- hold has to lift by itself once a bank's DSA terms allow recording.
+-- Playback is the only way out (the access log refuses a row first).
 CREATE OR REPLACE FUNCTION public.pbx_recording_playable(p_call_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -551,7 +597,28 @@ AS $$
        AND c.recording_state = 'fetched'
        AND c.erased_at IS NULL
        AND r.erased_at IS NULL
-       AND (r.announcement_played OR NOT COALESCE(s.announcement_required, true)))
+       AND (r.announcement_played OR NOT COALESCE(s.announcement_required, true))
+       AND NOT (COALESCE(s.exclude_bank_numbers, true)
+                AND c.remote_number IS NOT NULL
+                AND EXISTS (
+                  SELECT 1
+                    FROM pbx_bank_numbers b
+                   WHERE b.account_id = c.account_id
+                     AND b.number IN (
+                       SELECT c.remote_number
+                       UNION ALL SELECT '00' || c.remote_number
+                       UNION ALL SELECT '0' || substr(c.remote_number, 4) WHERE c.remote_number LIKE '971%'
+                       UNION ALL SELECT substr(c.remote_number, 4) WHERE c.remote_number LIKE '971%'
+                       -- phoneVariants: a trunk 0 inserted or removed after a
+                       -- 1-, 2- or 3-digit country code.
+                       UNION ALL
+                       SELECT CASE WHEN substr(c.remote_number, k + 1, 1) = '0'
+                                   THEN left(c.remote_number, k) || substr(c.remote_number, k + 2)
+                                   ELSE left(c.remote_number, k) || '0' || substr(c.remote_number, k + 1)
+                              END
+                         FROM generate_series(1, 3) AS k
+                        WHERE length(c.remote_number)
+                              > k + CASE WHEN substr(c.remote_number, k + 1, 1) = '0' THEN 1 ELSE 0 END))))
 $$;
 
 -- updated_at on the plain tables.
@@ -646,8 +713,9 @@ BEGIN
 END;
 $$;
 
--- Re-link a mis-matched call to a contact the caller can see. The
--- chat follows the contact; a deal of another contact is dropped.
+-- Re-link a mis-matched call to a contact the caller can see: the
+-- person on the call or a team leader and up, as for the disposition.
+-- The chat follows the contact; a deal of another contact is dropped.
 CREATE OR REPLACE FUNCTION public.pbx_link_call_contact(p_call_id uuid, p_contact_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -664,6 +732,12 @@ BEGIN
   SELECT * INTO v_call FROM calls WHERE id = p_call_id FOR UPDATE;
   IF NOT FOUND OR NOT pbx_can_view_call(v_call) THEN
     RAISE EXCEPTION 'Call not found' USING ERRCODE = 'P0002';
+  END IF;
+  -- The disposition's rule: seeing a call through its customer is not
+  -- enough to move another person's call.
+  IF current_role_rank() < 3 AND NOT COALESCE(v_call.user_id = auth.uid(), false) THEN
+    RAISE EXCEPTION 'Only the person on the call or a team leader can re-link it'
+      USING ERRCODE = '42501';
   END IF;
   IF v_call.direction = 'internal' THEN
     RAISE EXCEPTION 'An internal call has no customer' USING ERRCODE = '22023';
