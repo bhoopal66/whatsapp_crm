@@ -11,6 +11,7 @@ import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
+import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -70,6 +71,45 @@ function scheduleTeamActivitySweep() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the team activity sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Team-chat files no live message carries (migration 087's
+ * chat_orphan_files: a deleted or erased message's file the delete route
+ * did not reach, or an upload never posted, older than 24 hours) are
+ * removed with the service role. At most once per 15 minutes per
+ * process, inside after(), at most 500 per run; failures are only
+ * logged: such a file is already unreadable, the next run retries it.
+ */
+const chatFileSweepDue = everyInterval(15 * 60_000)
+
+function scheduleChatFileSweep() {
+  try {
+    if (!chatFileSweepDue()) return
+    after(async () => {
+      try {
+        const summary = await runChatFileSweep(supabaseAdmin())
+        if (summary.failed.length > 0) {
+          console.error(
+            `[automations-cron] chat file sweep left ${summary.failed.length} of ${summary.found} file(s):`,
+            summary.failed,
+          )
+        } else if (summary.found > 0) {
+          console.log('[automations-cron] chat file sweep removed', summary.deleted)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] chat file sweep failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the chat file sweep:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -228,6 +268,7 @@ export async function GET(request: Request) {
     scheduleChannelHealthCheck()
     scheduleTeamActivitySweep()
     scheduleEdgePurge()
+    scheduleChatFileSweep()
     scheduleJourneyTick()
     scheduleDealRoomReconcile()
     schedulePbxCron()
