@@ -194,6 +194,74 @@ export async function getGroupInfo(args: GroupAuth): Promise<GroupInfo> {
   };
 }
 
+export interface GroupSummary {
+  id: string;
+  subject: string | null;
+  /** Unix seconds; null when Meta sends none. */
+  createdAt: number | null;
+}
+
+export interface ListGroupsArgs extends NumberAuth {
+  limit?: number;
+  /** `paging.cursors.after` of the previous page. */
+  after?: string | null;
+}
+
+/** Unix seconds from a number, a numeric string or an ISO date. */
+function unixSeconds(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || !value) return null;
+  if (/^\d+$/.test(value)) return Number(value);
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+}
+
+/**
+ * The number's active groups, one page. The body is read tolerantly
+ * (`data.groups[]`, else `data[]`, else `groups[]`): only id, subject
+ * and creation time are used, to find a group whose `group_create`
+ * webhook never matched a room. `after` is null on the last page.
+ */
+export async function listGroups(
+  args: ListGroupsArgs
+): Promise<{ groups: GroupSummary[]; after: string | null }> {
+  const query = new URLSearchParams();
+  if (args.limit) query.set('limit', String(args.limit));
+  if (args.after) query.set('after', args.after);
+  const qs = query.toString();
+  const data = await call(
+    `${META_API_BASE}/${args.phoneNumberId}/groups${qs ? `?${qs}` : ''}`,
+    args.accessToken,
+    'GET'
+  );
+  const inner = data.data;
+  const list: unknown = Array.isArray(inner)
+    ? inner
+    : inner && typeof inner === 'object'
+      ? (inner as Record<string, unknown>).groups
+      : data.groups;
+  const groups: GroupSummary[] = [];
+  for (const g of Array.isArray(list) ? list : []) {
+    const row = (g ?? {}) as Record<string, unknown>;
+    const id = str(row.id);
+    if (!id) continue;
+    groups.push({
+      id,
+      subject: str(row.subject),
+      createdAt: unixSeconds(row.created_at ?? row.creation_timestamp),
+    });
+  }
+  const paging = (data.paging ?? {}) as {
+    next?: unknown;
+    cursors?: { after?: unknown };
+  };
+  return {
+    groups,
+    // Graph pages carry `next` only when another page exists.
+    after: paging.next ? str(paging.cursors?.after) : null,
+  };
+}
+
 /**
  * Deletes the group and removes everyone in it, our number included.
  * The outcome is confirmed by the `group_delete` webhook.

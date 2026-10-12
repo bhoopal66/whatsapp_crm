@@ -7,6 +7,7 @@ import {
   deleteGroup,
   getGroupInfo,
   getInviteLink,
+  listGroups,
   listJoinRequests,
   rejectJoinRequests,
   removeParticipants,
@@ -405,5 +406,58 @@ describe('sending to a group', () => {
       text: 'hi',
     }).catch((e: unknown) => e);
     expect((err as MetaError).isGroupNotReady).toBe(true);
+  });
+});
+
+describe('listGroups', () => {
+  it('reads data.groups and follows the after cursor while next exists', async () => {
+    respond({
+      data: {
+        groups: [
+          { id: 'g1', subject: 'Deal 42', creation_timestamp: '1760000000' },
+          { id: 'g2', subject: 'Other', created_at: 1760000100 },
+          { subject: 'no id' },
+        ],
+      },
+      paging: { cursors: { after: 'CUR' }, next: 'https://graph/next' },
+    });
+    const first = await listGroups({
+      phoneNumberId: '106',
+      ...AUTH,
+      limit: 50,
+    });
+    expect(lastCall().method).toBe('GET');
+    expect(lastCall().url).toBe(`${META_API_BASE}/106/groups?limit=50`);
+    expect(lastCall().auth).toBe('Bearer tok');
+    expect(first).toEqual({
+      groups: [
+        { id: 'g1', subject: 'Deal 42', createdAt: 1760000000 },
+        { id: 'g2', subject: 'Other', createdAt: 1760000100 },
+      ],
+      after: 'CUR',
+    });
+
+    respond({
+      data: { groups: [{ id: 'g3' }] },
+      paging: { cursors: { after: 'END' } },
+    });
+    const last = await listGroups({
+      phoneNumberId: '106',
+      ...AUTH,
+      after: 'CUR',
+    });
+    expect(lastCall().url).toBe(`${META_API_BASE}/106/groups?after=CUR`);
+    // No `next`: the last page, whatever cursor it carries.
+    expect(last).toEqual({
+      groups: [{ id: 'g3', subject: null, createdAt: null }],
+      after: null,
+    });
+  });
+
+  it('throws MetaError on a refusal', async () => {
+    respond({ error: { message: 'bad', code: 100 } }, 400);
+    await expect(
+      listGroups({ phoneNumberId: '106', ...AUTH })
+    ).rejects.toBeInstanceOf(MetaError);
   });
 });
