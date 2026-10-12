@@ -295,20 +295,39 @@ export function roleLabelKey(role: string | null | undefined): string | null {
   }
 }
 
-/** The ChatError keys the screen has wording for (Chat.errors.*). */
-export const UI_ERROR_KEYS: readonly ChatErrorKey[] = [
-  'forbidden',
-  'notFound',
-  'disabled',
-  'invalid',
-  'conflict',
-  'unknown',
-  'notWorkspaceMember',
-  'notChannelMember',
-  'archived',
-  'guestRestricted',
-  'messageDeleted',
-];
+/** Every ChatErrorKey (the Record type makes a new key a compile error here). */
+const ERROR_KEYS: Record<ChatErrorKey, true> = {
+  forbidden: true,
+  notFound: true,
+  disabled: true,
+  invalid: true,
+  conflict: true,
+  unknown: true,
+  notWorkspaceMember: true,
+  notChannelMember: true,
+  archived: true,
+  guestRestricted: true,
+  notAuthor: true,
+  messageDeleted: true,
+  adminRequired: true,
+  cannotShare: true,
+  attachmentMissing: true,
+  attachmentInvalid: true,
+  fileTooLarge: true,
+  tooManyFiles: true,
+  uploadFailed: true,
+  dmSize: true,
+  lastAdmin: true,
+  lastMember: true,
+  pinLimit: true,
+  reasonRequired: true,
+  threadInvalid: true,
+  bodyLength: true,
+  duplicateName: true,
+};
+
+/** The ChatError keys the screen has wording for (Chat.errors.*): all of them. */
+export const UI_ERROR_KEYS = Object.keys(ERROR_KEYS) as readonly ChatErrorKey[];
 
 /** The Chat.errors key to show for any thrown value. */
 export function chatErrorKey(err: unknown): ChatErrorKey {

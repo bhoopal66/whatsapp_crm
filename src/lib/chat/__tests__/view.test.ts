@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { ChatError } from '../errors';
+import { ChatError, type ChatErrorKey } from '../errors';
 import type { ChannelWithMembership, ChatPerson } from '../types';
 import {
   AVATAR_TINTS,
@@ -19,6 +22,7 @@ import {
   roleLabelKey,
   sidebarSections,
   totalUnread,
+  UI_ERROR_KEYS,
 } from '../view';
 
 const ME = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -235,11 +239,19 @@ describe('formatting', () => {
       'archived'
     );
     expect(chatErrorKey(new ChatError('INVALID', 'dmSize', 'x'))).toBe(
-      'invalid'
+      'dmSize'
     );
     expect(
-      chatErrorKey(new ChatError('NOT_FOUND', 'attachmentMissing', 'x'))
+      chatErrorKey(new ChatError('NOT_FOUND', 'later' as ChatErrorKey, 'x'))
     ).toBe('notFound');
     expect(chatErrorKey(new Error('boom'))).toBe('unknown');
+  });
+  it('every error key has wording in en.json', () => {
+    const en = JSON.parse(
+      readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
+    ) as { Chat: { errors: Record<string, string> } };
+    const missing = UI_ERROR_KEYS.filter((k) => !en.Chat.errors[k]);
+    expect(missing).toEqual([]);
+    expect(UI_ERROR_KEYS).toContain('duplicateName');
   });
 });
