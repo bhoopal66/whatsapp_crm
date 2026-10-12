@@ -36,7 +36,10 @@ is included.
 - `NEXT_PUBLIC_*` variables are **inlined into the client bundle at
   build time**. They are passed as Docker build args by
   `docker-compose.yml`. If you change any of them, rebuild:
-  `docker compose --env-file .env.local up --build -d`.
+  `docker compose --env-file .env.local up --build -d`. That includes
+  the optional browser softphone's `NEXT_PUBLIC_LINKUS_SDK_URL` and
+  `NEXT_PUBLIC_PBX_ORIGIN` (`docs/yeastar.md`); with plain Docker add
+  them as `--build-arg`s too.
 - Everything else (`SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY`,
   `ENCRYPTION_KEY`, …) is read at **runtime** from `.env.local` via
   `env_file` and is never baked into the image — safe to change with
