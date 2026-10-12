@@ -1,5 +1,6 @@
 'use client';
 
+import { CallButton } from '@/components/pbx/call-button';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { validatePhoneToSave } from '@/lib/contacts/phone-validation';
@@ -624,6 +625,7 @@ export function ContactDetailView({
                         <Copy className="size-3" />
                       )}
                     </button>
+                    <CallButton contact={contact} />
                     {contact.email && (
                       <span className="flex items-center gap-1">
                         <Mail className="size-3" />
