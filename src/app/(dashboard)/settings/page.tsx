@@ -160,6 +160,13 @@ const ConsentRetentionPanel = dynamic(
     ),
   { loading: PanelLoading }
 );
+const DealRoomsPanel = dynamic(
+  () =>
+    import('@/components/settings/deal-rooms-panel').then(
+      (m) => m.DealRoomsPanel
+    ),
+  { loading: PanelLoading }
+);
 const AuditLogPanel = dynamic(
   () =>
     import('@/components/settings/audit-log-panel').then(
@@ -289,6 +296,9 @@ function SettingsPageInner() {
     routing: <WhatsAppRouting onOpenAi={() => go(aiTabParam('auto-reply'))} />,
     costs: <WhatsAppCosts />,
     templates: <TemplateManager />,
+    'deal-rooms': (
+      <DealRoomsPanel onOpenConsent={() => go('consent-retention')} />
+    ),
     'quick-replies': <QuickRepliesManager />,
     'chat-tags': <ChatTagsPanel />,
     fields: <CustomFieldsSettings />,
