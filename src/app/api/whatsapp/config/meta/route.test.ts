@@ -62,6 +62,9 @@ function makeSupabase() {
           db.writes.push(q);
           return resolve({ error: null });
         }
+        if (table === 'profiles') {
+          return resolve({ data: [{ account_id: 'acc-1' }], error: null });
+        }
         return resolve({ count: 0, data: [], error: null });
       };
       return b;

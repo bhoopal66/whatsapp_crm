@@ -77,7 +77,8 @@ export async function PATCH(
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
         .select('user_id')
-        .eq('account_id', accountId);
+        .eq('account_id', accountId)
+        .neq('account_role', 'bank_guest'); // staff only
       if (profilesError) {
         console.error('[whatsapp/channels] roster load failed:', profilesError);
         return NextResponse.json(

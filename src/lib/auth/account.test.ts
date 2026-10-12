@@ -42,6 +42,12 @@ function makeClient(opts: {
           opts.byTable[table] ?? { data: null, error: null },
         );
       },
+      // The profiles read is awaited as a list (one row per workspace).
+      then(resolve: (r: unknown) => unknown) {
+        return Promise.resolve(
+          opts.byTable[table] ?? { data: null, error: null },
+        ).then(resolve);
+      },
     };
     return builder;
   };
@@ -80,7 +86,7 @@ describe("getCurrentAccount", () => {
       user: { id: "user-1" },
       byTable: {
         profiles: {
-          data: { account_id: "acct-1", account_role: "owner" },
+          data: [{ account_id: "acct-1", account_role: "owner" }],
           error: null,
         },
         accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
@@ -104,6 +110,45 @@ describe("getCurrentAccount", () => {
     expect(calls[0].eqArgs).toEqual([["user_id", "user-1"]]);
     expect(calls[1].columns).not.toMatch(/accounts!/);
     expect(calls[1].eqArgs).toEqual([["id", "acct-1"]]);
+  });
+
+  it("takes the active workspace's row when the person has several (083)", async () => {
+    const { client } = makeClient({
+      user: { id: "user-1" },
+      byTable: {
+        profiles: {
+          data: [
+            { account_id: "acct-0", account_role: "owner", is_active: false },
+            { account_id: "acct-1", account_role: "agent", is_active: true },
+          ],
+          error: null,
+        },
+        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+      },
+    });
+    createClient.mockReturnValue(client);
+
+    const ctx = await getCurrentAccount();
+
+    expect(ctx).toMatchObject({ accountId: "acct-1", role: "agent" });
+  });
+
+  it("still resolves on a database without is_active (083 not applied)", async () => {
+    const { client } = makeClient({
+      user: { id: "user-1" },
+      byTable: {
+        profiles: {
+          data: [{ account_id: "acct-1", account_role: "owner" }],
+          error: null,
+        },
+        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+      },
+    });
+    createClient.mockReturnValue(client);
+
+    await expect(getCurrentAccount()).resolves.toMatchObject({
+      accountId: "acct-1",
+    });
   });
 
   it("throws UnauthorizedError when there is no session", async () => {
@@ -132,7 +177,7 @@ describe("getCurrentAccount", () => {
       user: { id: "user-1" },
       byTable: {
         profiles: {
-          data: { account_id: "acct-1", account_role: "admin" },
+          data: [{ account_id: "acct-1", account_role: "admin" }],
           error: null,
         },
         accounts: { data: null, error: { code: "PGRST200" } },
@@ -148,7 +193,7 @@ describe("getCurrentAccount", () => {
     const { client } = makeClient({
       user: { id: "user-1" },
       byTable: {
-        profiles: { data: { account_id: null, account_role: null }, error: null },
+        profiles: { data: [{ account_id: null, account_role: null }], error: null },
       },
     });
     createClient.mockReturnValue(client);
@@ -162,7 +207,7 @@ describe("getCurrentAccount", () => {
       user: { id: "user-1" },
       byTable: {
         profiles: {
-          data: { account_id: "acct-1", account_role: "viewer" },
+          data: [{ account_id: "acct-1", account_role: "viewer" }],
           error: null,
         },
         accounts: { data: null, error: null },

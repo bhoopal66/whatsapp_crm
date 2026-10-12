@@ -58,7 +58,12 @@ export async function GET() {
         .from('whatsapp_channel_teams')
         .select('config_id, team_id')
         .eq('account_id', accountId),
-      supabase.from('profiles').select('user_id').eq('account_id', accountId),
+      // Staff only: a bank guest is never a number's user.
+      supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('account_id', accountId)
+        .neq('account_role', 'bank_guest'),
     ]);
 
     // All four or nothing: a missing roster would read as "nobody is

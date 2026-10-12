@@ -154,7 +154,18 @@ function makeSupabaseMock() {
     b.single = vi.fn(terminal);
     b.maybeSingle = vi.fn(terminal);
     b.then = (resolve: (v: unknown) => unknown) =>
-      resolve(didInsert ? insertResult() : selectResult());
+      resolve(
+        didInsert
+          ? insertResult()
+          : table === 'profiles'
+            ? // The caller's profile is read as a list: one row per
+              // workspace since migration 083.
+              {
+                data: [(selectResult() as { data: unknown }).data],
+                error: null,
+              }
+            : selectResult()
+      );
     return b;
   }
 

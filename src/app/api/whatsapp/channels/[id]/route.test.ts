@@ -19,11 +19,17 @@ import { PATCH } from './route';
 
 type Result = { data?: unknown; error?: unknown };
 
+const neqCalls: unknown[][] = [];
+
 function query(result: Result) {
   const builder: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'update']) {
     builder[m] = () => builder;
   }
+  builder.neq = (...args: unknown[]) => {
+    neqCalls.push(args);
+    return builder;
+  };
   builder.maybeSingle = () =>
     Promise.resolve({ data: null, error: null, ...result });
   builder.then = (resolve: (r: Result) => unknown) =>
@@ -56,6 +62,7 @@ const params = { params: Promise.resolve({ id: 'cfg-1' }) };
 describe('PATCH /api/whatsapp/channels/[id] { team_ids }', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    neqCalls.length = 0;
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.requireRole.mockResolvedValue(ctx());
     mocks.rpc.mockResolvedValue({ error: null });
@@ -67,6 +74,9 @@ describe('PATCH /api/whatsapp/channels/[id] { team_ids }', () => {
       params
     );
     expect(res.status).toBe(200);
+    // Only staff can be put on a number: the roster it is checked
+    // against leaves bank guests out.
+    expect(neqCalls).toEqual([['account_role', 'bank_guest']]);
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
     expect(mocks.rpc).toHaveBeenCalledWith('set_channel_access', {
       p_config_id: 'cfg-1',

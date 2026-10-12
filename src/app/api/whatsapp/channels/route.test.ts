@@ -21,12 +21,18 @@ import { GET } from './route';
 
 type Result = { data?: unknown; error?: unknown; count?: number };
 
+const neqCalls: unknown[][] = [];
+
 /** A thenable query builder: every chained call returns itself. */
 function query(result: Result) {
   const builder: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'order']) {
     builder[m] = () => builder;
   }
+  builder.neq = (...args: unknown[]) => {
+    neqCalls.push(args);
+    return builder;
+  };
   builder.then = (resolve: (r: Result) => unknown) =>
     Promise.resolve({ data: null, error: null, ...result }).then(resolve);
   return builder;
@@ -79,6 +85,7 @@ function tables(overrides: Record<string, Result> = {}) {
 describe('GET /api/whatsapp/channels', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    neqCalls.length = 0;
   });
 
   it('splits direct people from team people, and lists the teams', async () => {
@@ -91,6 +98,9 @@ describe('GET /api/whatsapp/channels', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    // The roster behind "who is still on the account" is staff only: a
+    // bank guest is never a number's user.
+    expect(neqCalls).toEqual([['account_role', 'bank_guest']]);
 
     const [first, second] = body.channels;
     expect(first.member_ids).toEqual(['ana', 'cy']);

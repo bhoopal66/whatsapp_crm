@@ -60,7 +60,10 @@ function fakeDb() {
         return { data: null, error: null };
       };
       builder.then = (resolve: (r: unknown) => unknown) =>
-        resolve({ data: [], error: null });
+        resolve({
+          data: table === 'profiles' ? [{ account_id: 'acct-1' }] : [],
+          error: null,
+        });
       return builder;
     },
   };

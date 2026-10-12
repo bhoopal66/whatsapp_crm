@@ -500,6 +500,7 @@ async function startFor(
     .from('profiles')
     .select('account_role')
     .eq('user_id', senderUserId)
+    .eq('account_id', accountId)
     .maybeSingle();
   const role = profile?.account_role as string | undefined;
   if (role === 'admin' || role === 'owner') return routed;

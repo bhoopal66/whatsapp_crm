@@ -524,6 +524,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
           .from('profiles')
           .select('user_id')
           .eq('account_id', args.automation.account_id)
+          .neq('account_role', 'bank_guest') // a guest is never an assignee
           .is('deactivated_at', null)
           .limit(1)
         agentId = profiles?.[0]?.user_id

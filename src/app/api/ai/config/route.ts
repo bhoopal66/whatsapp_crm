@@ -159,6 +159,7 @@ export async function POST(request: Request) {
         .from('profiles')
         .select('user_id')
         .eq('account_id', accountId)
+        .neq('account_role', 'bank_guest') // the hand-off person must be staff
         .eq('user_id', rawHandoff)
         .maybeSingle()
       if (!member) return bad('handoff_agent_id must be a member of this account')
