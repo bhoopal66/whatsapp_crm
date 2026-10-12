@@ -22,9 +22,12 @@
 -- the customer the way chats do); a team leader the tasks of the
 -- people they lead. Allocation, pins and channels grant nothing here.
 -- Writing one: agents and up, on tasks they hold or created (leaders
--- also their team's, admins all). Deleting: the creator of a task a
--- person made, or an admin. The service role bypasses RLS and is how
--- system tasks are written.
+-- also their team's, admins all). A person files only the kinds manual,
+-- callback and follow_up (missed_call and journey are the system's),
+-- and may point a task only at a contact, conversation and deal they
+-- can see (can_link_task, on insert and when moving one). Deleting: the
+-- creator of a task a person made, or an admin. The service role
+-- bypasses RLS and is how system tasks are written.
 --
 -- tasks_guard (BEFORE INSERT/UPDATE) is the integrity the policies
 -- cannot express, and it holds for every writer, the service role
@@ -237,6 +240,56 @@ $$;
 REVOKE ALL ON FUNCTION public.can_view_task_contact(uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.can_view_task_contact(uuid, uuid) TO authenticated, service_role;
 
+-- Whether the caller may leave a task pointing at these links. Each
+-- one that is set must be something they can see, by the predicates
+-- their own screens use (can_view_task_contact above, can_view_conversation
+-- 072, can_view_deal 080; admins and owners see the whole account, so
+-- for them it only confirms the link is in it) or already be on the
+-- stored task: an admin may hand someone work on a customer they cannot
+-- see, and finishing it must not be refused. A policy's WITH CHECK
+-- cannot see OLD, so this reads the stored row, which during an
+-- UPDATE's check is still the old version (an INSERT has none: every
+-- link must be visible). DEFINER so reading tasks from tasks' own
+-- policy does not recurse; the can_view_* predicates still judge the
+-- caller.
+CREATE OR REPLACE FUNCTION public.can_link_task(
+  p_task_id         uuid,
+  p_account_id      uuid,
+  p_contact_id      uuid,
+  p_conversation_id uuid,
+  p_deal_id         uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  WITH stored AS (
+    SELECT t.contact_id, t.conversation_id, t.deal_id
+      FROM tasks t
+     WHERE t.id = p_task_id AND t.account_id = p_account_id
+  )
+  SELECT
+    (p_contact_id IS NULL
+     OR EXISTS (SELECT 1 FROM stored s WHERE s.contact_id = p_contact_id)
+     OR can_view_task_contact(p_account_id, p_contact_id))
+    AND (p_conversation_id IS NULL
+     OR EXISTS (SELECT 1 FROM stored s WHERE s.conversation_id = p_conversation_id)
+     OR EXISTS (SELECT 1 FROM conversations cv
+                 WHERE cv.id = p_conversation_id AND cv.account_id = p_account_id
+                   AND can_view_conversation(cv.account_id, cv.user_id, cv.assigned_agent_id,
+                                             cv.channel_id, cv.send_channel_id)))
+    AND (p_deal_id IS NULL
+     OR EXISTS (SELECT 1 FROM stored s WHERE s.deal_id = p_deal_id)
+     OR EXISTS (SELECT 1 FROM deals d
+                 WHERE d.id = p_deal_id AND d.account_id = p_account_id
+                   AND can_view_deal(d.account_id, deal_owner(d.assigned_to, d.user_id))));
+$$;
+
+REVOKE ALL ON FUNCTION public.can_link_task(uuid, uuid, uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_link_task(uuid, uuid, uuid, uuid, uuid) TO authenticated, service_role;
+
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS tasks_select ON public.tasks;
@@ -259,13 +312,18 @@ CREATE POLICY tasks_insert ON public.tasks FOR INSERT TO authenticated
     AND (SELECT current_role_rank()) >= 2
     AND created_by = (SELECT auth.uid())
     AND source IN ('manual', 'chat')
-    AND (contact_id IS NULL OR can_view_task_contact(account_id, contact_id))
+    AND kind IN ('manual', 'callback', 'follow_up')
+    AND can_link_task(id, account_id, contact_id, conversation_id, deal_id)
   );
 
--- WITH CHECK stays at the account: handing a task to someone else is
--- allowed (tasks_guard vets the assignee). Postgres still requires the
--- new row to pass tasks_select, so nobody can write a task out of
--- their own sight.
+-- Handing a task to someone else is allowed (tasks_guard vets the
+-- assignee). Postgres still requires the new row to pass tasks_select,
+-- so nobody can write a task out of their own sight. WITH CHECK also
+-- holds the links: a task moves onto a contact, conversation or deal
+-- only if the caller can see it (can_link_task), or it stays where it
+-- is. Without that an agent could file a task onto a customer they
+-- cannot see, and it would then show to everyone who can see that
+-- customer.
 DROP POLICY IF EXISTS tasks_update ON public.tasks;
 CREATE POLICY tasks_update ON public.tasks FOR UPDATE TO authenticated
   USING (
@@ -281,6 +339,7 @@ CREATE POLICY tasks_update ON public.tasks FOR UPDATE TO authenticated
   WITH CHECK (
     account_id = (SELECT current_account_id())
     AND (SELECT current_role_rank()) >= 2
+    AND can_link_task(id, account_id, contact_id, conversation_id, deal_id)
   );
 
 DROP POLICY IF EXISTS tasks_delete ON public.tasks;
@@ -295,9 +354,12 @@ CREATE POLICY tasks_delete ON public.tasks FOR DELETE TO authenticated
     )
   );
 
+-- A new public table starts with every privilege for anon and
+-- authenticated, TRUNCATE (which skips RLS), REFERENCES and TRIGGER
+-- among them: start from nothing and grant what the policies govern.
+REVOKE ALL ON public.tasks FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.tasks TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.tasks TO service_role;
-REVOKE ALL ON public.tasks FROM anon;
 
 -- ------------------------------------------------------------
 -- 4. The bell: every planned kind, once
