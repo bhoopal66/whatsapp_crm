@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   calls: [] as Call[],
   rpcs: [] as string[],
   flows: vi.fn(),
+  journey: vi.fn(),
   automations: vi.fn(),
   ai: vi.fn(),
   webhook: vi.fn(),
@@ -97,6 +98,9 @@ vi.mock('@/lib/conversations/reopen', () => ({
 vi.mock('@/lib/flows/engine', () => ({
   dispatchInboundToFlows: (...args: unknown[]) => h.flows(...args),
 }));
+vi.mock('@/lib/journeys/host/inbound', () => ({
+  dispatchInboundToJourney: (...args: unknown[]) => h.journey(...args),
+}));
 vi.mock('@/lib/automations/engine', () => ({
   runAutomationsForTrigger: (...args: unknown[]) => h.automations(...args),
 }));
@@ -158,6 +162,7 @@ beforeEach(() => {
   h.calls = [];
   h.rpcs = [];
   h.flows.mockReset().mockResolvedValue({ consumed: false });
+  h.journey.mockReset().mockResolvedValue({ consumed: false });
   h.automations.mockReset().mockResolvedValue(undefined);
   h.ai.mockReset().mockResolvedValue(undefined);
   h.webhook.mockReset().mockResolvedValue(undefined);
@@ -185,6 +190,7 @@ describe('processMessage — fanOut', () => {
     expect(h.reopen).toHaveBeenCalledTimes(1);
 
     expect(h.flows).not.toHaveBeenCalled();
+    expect(h.journey).not.toHaveBeenCalled();
     expect(h.automations).not.toHaveBeenCalled();
     expect(h.ai).not.toHaveBeenCalled();
     expect(h.webhook).not.toHaveBeenCalled();
@@ -205,5 +211,63 @@ describe('processMessage — fanOut', () => {
       expect.anything()
     );
     expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The journey bot (module 016) runs after Flows, only when no Flow took
+// the message; when it consumes, content automations and the AI reply
+// stand down as they do for a Flow.
+describe('processMessage — journey bot', () => {
+  const triggers = () =>
+    h.automations.mock.calls.map(
+      (c) => (c[0] as { triggerType: string }).triggerType
+    );
+
+  it('hands an unconsumed message to the journey with the contact and thread', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    expect(h.journey).toHaveBeenCalledTimes(1);
+    expect(h.journey.mock.calls[0][0]).toMatchObject({
+      accountId: 'acct-1',
+      contactId: 'contact-1',
+      conversationId: 'conv-1',
+      message: { id: 'wamid.over-limit' },
+    });
+    expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
+    expect(h.ai).toHaveBeenCalledTimes(1);
+  });
+
+  it('a journey that consumes suppresses content automations and the AI reply', async () => {
+    h.journey.mockResolvedValue({ consumed: true });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    expect(triggers()).toEqual([]);
+    expect(h.ai).not.toHaveBeenCalled();
+    expect(h.webhook).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'message.received',
+      expect.anything()
+    );
+    expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a message a Flow consumed never reaches the journey', async () => {
+    h.flows.mockResolvedValue({ consumed: true });
+    h.journey.mockResolvedValue({ consumed: true });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    expect(h.journey).not.toHaveBeenCalled();
+    expect(triggers()).toEqual([]);
+    expect(h.ai).not.toHaveBeenCalled();
+  });
+
+  it('a failing journey hook leaves the rest of the fan-out running', async () => {
+    h.journey.mockRejectedValue(new Error('boom'));
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
+    expect(h.ai).toHaveBeenCalledTimes(1);
+    expect(h.webhook).toHaveBeenCalled();
   });
 });

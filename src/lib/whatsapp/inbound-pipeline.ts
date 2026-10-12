@@ -46,6 +46,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
+import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
 // replied. Webhook replays must never regress a recipient back down
@@ -900,6 +901,24 @@ export async function processMessage(
   });
   const flowConsumed = flowResult.consumed;
 
+  // Journey bot (module 016): the contact's open journey file takes the
+  // message — only when no Flow consumed it (a Flow owns the thread
+  // while it runs). A journey that handles it suppresses the content
+  // automations and the AI reply exactly as a Flow does; relationship
+  // triggers still fire. Awaited inside `after()`; never throws.
+  const journeyConsumed = flowConsumed
+    ? false
+    : (
+        await dispatchInboundToJourney({
+          db: supabaseAdmin(),
+          accountId,
+          contactId: contactRecord.id,
+          conversationId: conversation.id,
+          message,
+        }).catch(() => ({ consumed: false }))
+      ).consumed;
+  const botConsumed = flowConsumed || journeyConsumed;
+
   // Fire any automations that react to this webhook event. All dispatches
   // run here (not earlier) so the contact, conversation, and inbound
   // message all exist before any step — including send_message — runs.
@@ -913,9 +932,9 @@ export async function processMessage(
     | 'keyword_match'
     | 'interactive_reply'
   )[] = [];
-  // Content-level triggers are suppressed when a flow consumed the
-  // message — see the comment block above.
-  if (!flowConsumed) {
+  // Content-level triggers are suppressed when a flow (or a journey)
+  // consumed the message — see the comment block above.
+  if (!botConsumed) {
     automationTriggers.push('new_message_received', 'keyword_match');
     // Interactive tap → fire the interactive_reply trigger too (only
     // meaningful when a button/list reply actually arrived). Enables
@@ -978,7 +997,7 @@ export async function processMessage(
   // back here too, so the customer is not left with a bot that stopped
   // mid-sentence.
   const flowBroke = flowResult.outcome === 'failed';
-  if ((flowBroke || !flowConsumed) && inboundText.trim()) {
+  if (!journeyConsumed && (flowBroke || !flowConsumed) && inboundText.trim()) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
