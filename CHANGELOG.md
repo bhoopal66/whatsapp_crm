@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system (Yeastar) — browser softphone
+
+Agents whose softphone is switched on can answer, decline and control
+calls in the CRM tab through the Yeastar Linkus SDK for Web, which the
+operator hosts (`NEXT_PUBLIC_LINKUS_SDK_URL`; the PBX's address goes in
+`NEXT_PUBLIC_PBX_ORIGIN`, both build-time). Without it, calls keep
+ringing the desk phone. The Content-Security-Policy now also allows a
+self-hosted Supabase origin for media, so recordings keep playing once
+the policy is enforced. See `docs/yeastar.md`, section 12.
+
 ### Phone system (Yeastar) — database
 
 The database for the Yeastar P-Series phone system. Calls land on the
