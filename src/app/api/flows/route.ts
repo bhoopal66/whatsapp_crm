@@ -1,3 +1,4 @@
+import { pickActiveProfile } from '@/lib/auth/active-profile'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
@@ -72,11 +73,11 @@ export async function POST(request: Request) {
   // Resolve the caller's account_id — `flows.account_id` is NOT NULL
   // post-017, so an INSERT without it trips the not-null constraint
   // even though the admin client below bypasses RLS.
-  const { data: profile } = await supabase
+  const { data: profileRows } = await supabase
     .from('profiles')
-    .select('account_id')
+    .select('*')
     .eq('user_id', userId)
-    .single()
+  const profile = pickActiveProfile(profileRows)
   const accountId = profile?.account_id as string | undefined
   if (!accountId) {
     return NextResponse.json(

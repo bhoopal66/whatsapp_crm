@@ -1,5 +1,6 @@
 import {
   Crown,
+  Landmark,
   Shield,
   UserCog,
   UserIcon,
@@ -53,6 +54,14 @@ export const ROLE_META: Record<
     variant: 'muted',
     // Outline-only so it stays quieter than the filled Agent chip in
     // both modes — bg-card would blend into a card surface in light mode.
+    className: 'border-border bg-transparent text-muted-foreground',
+  },
+  // A partner bank's guest (migrations 082/083): outside the staff
+  // ladder, so it reads as quietly as a viewer.
+  bank_guest: {
+    icon: Landmark,
+    label: 'bank_guest',
+    variant: 'muted',
     className: 'border-border bg-transparent text-muted-foreground',
   },
 };

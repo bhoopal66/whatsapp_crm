@@ -299,3 +299,11 @@ describe('normalizeWhapiWebhook — what reaches the inbox', () => {
     expect(normalizeWhapiWebhook({})).toMatchObject({ messages: [], statuses: [] })
   })
 })
+
+describe('normalizeWhapiMessage — free entry', () => {
+  it("is never free entry: Meta's 72 h window has no Whapi equivalent", () => {
+    const m = normalizeWhapiMessage({ ...BASE, type: 'text', text: { body: 'Hi' } })
+    expect(m?.freeEntry).toBe(false)
+    expect(m).not.toHaveProperty('referral')
+  })
+})

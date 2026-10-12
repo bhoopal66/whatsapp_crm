@@ -85,6 +85,33 @@ export interface NormalizedInboundMessage {
   fromMe: boolean;
   /** True when the chat is a group — the CRM's 1:1 inbox skips these. */
   isGroup: boolean;
+  /**
+   * Meta only: the ad, post or link the customer tapped to open the chat
+   * (`messages[].referral`). Whapi never sets it.
+   */
+  referral?: InboundReferral;
+  /**
+   * The chat was opened from a Click-to-WhatsApp ad (`referral.source_type
+   * === 'ad'`), which opens Meta's 72-hour free-entry window. QR codes,
+   * website links and posts do not. Always false on Whapi.
+   */
+  freeEntry: boolean;
+  /**
+   * Meta's business-scoped user id for the sender, when the callback
+   * carries one (`from_user_id`, else the sender's `contacts[].user_id`).
+   */
+  bsuid?: string;
+}
+
+/** `messages[].referral`, renamed; only the fields Meta sent are set. */
+export interface InboundReferral {
+  sourceType: string;
+  sourceId?: string;
+  sourceUrl?: string;
+  headline?: string;
+  body?: string;
+  /** Click-to-WhatsApp click id, for ad attribution. */
+  ctwaClid?: string;
 }
 
 /** Status values the `messages.status` CHECK constraint accepts. */

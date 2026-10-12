@@ -24,6 +24,7 @@ import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { isBankGuest, type AccountRole } from '@/lib/auth/roles'
 
 // ------------------------------------------------------------
 // Public API
@@ -520,13 +521,19 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         // Pick any member of the account. The existing implementation
         // only ever returned the automation's author; preserving that
         // shape until a real round-robin algorithm replaces it.
+        // Staff only: a guest is never an assignee. Filtered here, not in
+        // the query: a database without migration 082 rejects the
+        // `bank_guest` literal, and a LIMIT 1 ahead of the filter could
+        // hand back nothing but a guest.
         const { data: profiles } = await db
           .from('profiles')
-          .select('user_id')
+          .select('user_id, account_role')
           .eq('account_id', args.automation.account_id)
           .is('deactivated_at', null)
-          .limit(1)
-        agentId = profiles?.[0]?.user_id
+        agentId = (profiles ?? []).find(
+          (p: { account_role?: string | null }) =>
+            !isBankGuest(p.account_role as AccountRole | undefined)
+        )?.user_id
       }
       if (!agentId) return 'no agent resolved'
       await db

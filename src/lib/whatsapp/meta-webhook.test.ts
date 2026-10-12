@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import {
   collectMetaStatuses,
@@ -47,7 +47,13 @@ describe('normalizeMetaMessage — contact cards', () => {
         contacts: [
           {
             name: { formatted_name: 'Ahmed Al Mansoori', first_name: 'Ahmed' },
-            phones: [{ phone: '+971 50 123 4567', type: 'CELL', wa_id: '971501234567' }],
+            phones: [
+              {
+                phone: '+971 50 123 4567',
+                type: 'CELL',
+                wa_id: '971501234567',
+              },
+            ],
             emails: [{ email: 'ahmed@dargol.ae' }],
             org: { company: 'Dargol Logistics FZE' },
           },
@@ -315,7 +321,10 @@ describe('normalizeMetaMessage — the two button-reply envelopes (issue #478)',
       { ...BASE, type: 'text', text: { body: 'hi' } },
       CONTACTS
     );
-    expect(forwarded).toMatchObject({ forwarded: true, contextMessageId: null });
+    expect(forwarded).toMatchObject({
+      forwarded: true,
+      contextMessageId: null,
+    });
     expect(frequently?.forwarded).toBe(true);
     expect(plain?.forwarded).toBe(false);
   });
@@ -513,11 +522,16 @@ describe('isTemplateWebhookPayload', () => {
   it.each([
     'message_template_quality_update',
     'message_template_components_update',
-  ])('detects a %s-only callback too — it carries no status change', (field) => {
-    expect(
-      isTemplateWebhookPayload({ entry: [{ id: 'W1', changes: [{ field }] }] })
-    ).toBe(true);
-  });
+  ])(
+    'detects a %s-only callback too — it carries no status change',
+    (field) => {
+      expect(
+        isTemplateWebhookPayload({
+          entry: [{ id: 'W1', changes: [{ field }] }],
+        })
+      ).toBe(true);
+    }
+  );
 
   it('is false for an ordinary message callback', () => {
     expect(
@@ -537,15 +551,30 @@ describe('isTemplateWebhookPayload', () => {
 });
 
 describe('collectMetaStatuses — raw receipts for the cost ledger', () => {
-  const pricing = { billable: true, pricing_model: 'PMP', category: 'marketing' };
+  const pricing = {
+    billable: true,
+    pricing_model: 'PMP',
+    category: 'marketing',
+  };
 
   it('returns every status verbatim, paired with its phone_number_id', () => {
     const out = collectMetaStatuses(
       envelope({
         metadata: { phone_number_id: 'PN1' },
         statuses: [
-          { id: 'wamid.1', status: 'delivered', recipient_id: '971501', timestamp: '1', pricing },
-          { id: 'wamid.2', status: 'read', recipient_id: '971501', timestamp: '2' },
+          {
+            id: 'wamid.1',
+            status: 'delivered',
+            recipient_id: '971501',
+            timestamp: '1',
+            pricing,
+          },
+          {
+            id: 'wamid.2',
+            status: 'read',
+            recipient_id: '971501',
+            timestamp: '2',
+          },
         ],
       })
     );
@@ -577,10 +606,16 @@ describe('collectMetaStatuses — raw receipts for the cost ledger', () => {
         {
           id: '1',
           changes: [
-            { field: 'messages', value: { statuses: [{ id: 'x', status: 'sent' }] } as never },
+            {
+              field: 'messages',
+              value: { statuses: [{ id: 'x', status: 'sent' }] } as never,
+            },
             {
               field: 'message_template_status_update',
-              value: { metadata: { phone_number_id: 'PN1' }, statuses: [{ id: 'y', status: 'sent' }] } as never,
+              value: {
+                metadata: { phone_number_id: 'PN1' },
+                statuses: [{ id: 'y', status: 'sent' }],
+              } as never,
             },
           ],
         },
@@ -595,7 +630,10 @@ describe('batched callbacks for several numbers', () => {
     field: 'messages',
     value: {
       messaging_product: 'whatsapp',
-      metadata: { display_phone_number: phoneNumberId, phone_number_id: phoneNumberId },
+      metadata: {
+        display_phone_number: phoneNumberId,
+        phone_number_id: phoneNumberId,
+      },
       contacts: [{ wa_id: '15550001111', profile: { name: 'A' } }],
       messages: [
         {
@@ -611,7 +649,10 @@ describe('batched callbacks for several numbers', () => {
   const payload = {
     object: 'whatsapp_business_account',
     entry: [
-      { id: 'waba', changes: [change('PN-1', 'wamid.1'), change('PN-2', 'wamid.2')] },
+      {
+        id: 'waba',
+        changes: [change('PN-1', 'wamid.1'), change('PN-2', 'wamid.2')],
+      },
     ],
   } as unknown as Parameters<typeof normalizeMetaWebhook>[0];
 
@@ -626,9 +667,18 @@ describe('batched callbacks for several numbers', () => {
       entry: [
         {
           changes: [
-            { field: 'messages', value: { metadata: { phone_number_id: 12345 } } },
-            { field: 'messages', value: { metadata: { phone_number_id: { a: 1 } } } },
-            { field: 'messages', value: { metadata: { phone_number_id: 'PN-3' } } },
+            {
+              field: 'messages',
+              value: { metadata: { phone_number_id: 12345 } },
+            },
+            {
+              field: 'messages',
+              value: { metadata: { phone_number_id: { a: 1 } } },
+            },
+            {
+              field: 'messages',
+              value: { metadata: { phone_number_id: 'PN-3' } },
+            },
           ],
         },
       ],
@@ -639,7 +689,9 @@ describe('batched callbacks for several numbers', () => {
   it('accepts the shape Meta sends, and nothing that would throw on a read', () => {
     expect(isMetaWebhookShape(payload)).toBe(true);
     expect(isMetaWebhookShape({})).toBe(true);
-    expect(isMetaWebhookShape({ entry: [{ id: 123, changes: [] }] })).toBe(true);
+    expect(isMetaWebhookShape({ entry: [{ id: 123, changes: [] }] })).toBe(
+      true
+    );
     expect(isMetaWebhookShape({ entry: [{ id: null }] })).toBe(true);
     for (const forged of [
       null,
@@ -664,5 +716,93 @@ describe('batched callbacks for several numbers', () => {
     const second = normalizeMetaWebhook(payload, 'PN-2');
     expect(second.channelId).toBe('PN-2');
     expect(second.messages.map((m) => m.id)).toEqual(['wamid.2']);
+  });
+});
+
+describe('normalizeMetaMessage — referral, free entry and BSUID', () => {
+  const text = { ...BASE, type: 'text', text: { body: 'Hi' } };
+
+  it('a Click-to-WhatsApp ad opens free entry and keeps the click id', () => {
+    const m = normalizeMetaMessage(
+      {
+        ...text,
+        referral: {
+          source_type: 'ad',
+          source_id: '120208',
+          source_url: 'https://fb.me/abc',
+          headline: 'Car loans',
+          body: 'Apply today',
+          ctwa_clid: 'ARAkLkA8rmlFeiCktEJQ',
+        },
+      },
+      CONTACTS
+    );
+    expect(m?.freeEntry).toBe(true);
+    expect(m?.referral).toEqual({
+      sourceType: 'ad',
+      sourceId: '120208',
+      sourceUrl: 'https://fb.me/abc',
+      headline: 'Car loans',
+      body: 'Apply today',
+      ctwaClid: 'ARAkLkA8rmlFeiCktEJQ',
+    });
+  });
+
+  it.each(['qr', 'website', 'post'])(
+    'a %s referral is recorded but opens no free entry',
+    (sourceType) => {
+      const m = normalizeMetaMessage(
+        { ...text, referral: { source_type: sourceType, source_id: 'x' } },
+        CONTACTS
+      );
+      expect(m?.referral).toEqual({ sourceType, sourceId: 'x' });
+      expect(m?.freeEntry).toBe(false);
+    }
+  );
+
+  it('no referral: no free entry, no referral field', () => {
+    const m = normalizeMetaMessage(text, CONTACTS);
+    expect(m?.freeEntry).toBe(false);
+    expect(m && 'referral' in m).toBe(false);
+  });
+
+  it('a sender carrying a BSUID keeps working, with the BSUID added', () => {
+    const plain = normalizeMetaMessage(text, CONTACTS);
+    const withBsuid = normalizeMetaMessage(
+      { ...text, from_user_id: 'US.13491208655302741918' },
+      CONTACTS
+    );
+    expect(withBsuid).toEqual({ ...plain, bsuid: 'US.13491208655302741918' });
+  });
+
+  it('falls back to the BSUID on the contacts entry naming the same sender', () => {
+    const contacts = [
+      { wa_id: '19990000000', user_id: 'US.other', profile: { name: 'X' } },
+      { ...CONTACTS[0], user_id: 'US.1349' },
+    ];
+    expect(normalizeMetaMessage(text, contacts)?.bsuid).toBe('US.1349');
+    expect(
+      normalizeMetaMessage(text, [contacts[0]]) ?? { bsuid: 'none' }
+    ).not.toHaveProperty('bsuid');
+  });
+
+  it('logs a skipped unknown type once, and still skips it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const value = {
+      metadata: { phone_number_id: 'PNID' },
+      contacts: CONTACTS,
+      messages: [
+        { ...BASE, id: 'wamid.a', type: 'hologram' },
+        { ...BASE, id: 'wamid.b', type: 'hologram' },
+        { ...text, id: 'wamid.c' },
+      ],
+    };
+    const event = normalizeMetaWebhook(envelope(value));
+    expect(event.messages.map((m) => m.id)).toEqual(['wamid.c']);
+    const lines = warn.mock.calls.filter((c) =>
+      String(c[0]).includes('"hologram"')
+    );
+    expect(lines).toHaveLength(1);
+    warn.mockRestore();
   });
 });

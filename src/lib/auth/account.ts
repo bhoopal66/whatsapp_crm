@@ -29,6 +29,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
+import { pickActiveProfile } from "./active-profile";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 
 // ------------------------------------------------------------
@@ -118,15 +119,24 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // `deactivated_at` (migration 069) is not there yet — an unapplied
   // migration or PostgREST's stale schema cache right after one. Naming
   // a missing column fails the whole select, and with it every API route.
-  const { data, error } = await supabase
+  //
+  // Since migration 083 the caller has one row per workspace; take the
+  // active one — the workspace RLS and `current_account_id()` resolve to.
+  // `.maybeSingle()` would error for anyone in two workspaces.
+  const { data: rows, error } = await supabase
     .from("profiles")
     .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle<{
-      account_id: string | null;
-      account_role: string | null;
-      deactivated_at?: string | null;
-    }>();
+    .eq("user_id", user.id);
+  const data = pickActiveProfile(
+    rows as
+      | {
+          account_id: string | null;
+          account_role: string | null;
+          deactivated_at?: string | null;
+          is_active?: boolean | null;
+        }[]
+      | null,
+  );
 
   if (error) {
     console.error("[getCurrentAccount] profile fetch error:", error);

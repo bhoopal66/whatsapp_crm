@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   resume: vi.fn(),
   health: vi.fn(),
   sweep: vi.fn(),
+  rpc: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -21,6 +22,7 @@ vi.mock('next/server', async (importOriginal) => {
 
 vi.mock('@/lib/automations/admin-client', () => ({
   supabaseAdmin: () => ({
+    rpc: h.rpc,
     from: () => {
       const builder: Record<string, unknown> = {
         select: () => builder,
@@ -75,6 +77,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ checked: 1, changed: 0, notified: 0, failed: 0 });
   h.sweep.mockReset().mockResolvedValue({ alerts: 0, notifications: 0 });
+  h.rpc.mockReset().mockResolvedValue({ data: 3, error: null });
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-29T13:00:00Z'));
 });
@@ -168,5 +171,68 @@ describe('GET /api/automations/cron — team activity alerts piggy-back', () => 
     await runAfter();
     expect(h.sweep).toHaveBeenCalledTimes(1);
     log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — edge store purge', () => {
+  it('runs edge_purge after the response, at most every 15 minutes', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.rpc).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.rpc).toHaveBeenCalledTimes(1);
+    expect(h.rpc).toHaveBeenCalledWith('edge_purge');
+
+    vi.setSystemTime(new Date('2026-09-29T13:14:59Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.rpc).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:15:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a failed purge and leaves the other jobs running', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] edge purge failed:',
+      'boom'
+    );
+    expect(h.health).toHaveBeenCalledTimes(1);
+    expect(h.sweep).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('swallows a thrown purge', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.rpc.mockRejectedValue(new Error('network down'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await GET(req());
+    await expect(runAfter()).resolves.toBeUndefined();
+    log.mockRestore();
+  });
+
+  it('does not run for an unauthenticated caller', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    const res = await GET(
+      new Request('http://localhost/api/automations/cron', {
+        headers: { 'x-cron-secret': 'wrong!' },
+      })
+    );
+    expect(res.status).toBe(401);
+    await runAfter();
+    expect(h.rpc).not.toHaveBeenCalled();
   });
 });

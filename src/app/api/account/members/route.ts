@@ -23,25 +23,21 @@
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import {
-  ASSIGNABLE_ROLES,
-  canManageMembers,
-  isAccountRole,
-  type AssignableRole,
-} from "@/lib/auth/roles";
+  ADDABLE_ROLES,
+  addOrCreateMember,
+  isAddableRole,
+} from "@/lib/account/add-member";
+import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
 import { serverSupabaseUrl } from "@/lib/supabase/urls";
 import type { AccountMember } from "@/types";
 
 
-/** Matches the minimum GoTrue enforces, stated here so the caller gets
- *  a useful message instead of a raw provider error. */
-const MIN_PASSWORD_LENGTH = 8;
-
 /**
  * Service-role client. Creating a login is an admin-API operation and
- * cannot be done with the caller's own token; the route authorises the
- * caller first and only then reaches for this.
+ * cannot be done with the caller's own token; `add_workspace_member`
+ * authorises the caller before `addOrCreateMember` reaches for this.
  */
 function supabaseAdmin() {
   return createAdminClient(
@@ -59,6 +55,8 @@ interface ProfileRow {
   account_role: string;
   created_at: string;
   deactivated_at: string | null;
+  /** Migration 083; undefined on a database that predates it. */
+  bank_code?: string | null;
 }
 
 export async function GET() {
@@ -66,12 +64,16 @@ export async function GET() {
     const ctx = await requireRole("admin");
 
     // RLS on profiles allows reading any row whose account matches
-    // the caller's, so this query is naturally account-scoped.
+    // the caller's, so this query is naturally account-scoped; since
+    // migration 083 it also returns the caller's own row in every other
+    // workspace, hence the explicit `account_id` filter.
+    //
+    // `*` rather than a column list so a database without 083 (no
+    // `bank_code` yet) still answers: naming a missing column fails the
+    // whole select. The mapping below picks the fields that are returned.
     const { data, error } = await ctx.supabase
       .from("profiles")
-      .select(
-        "user_id, full_name, email, avatar_url, account_role, created_at, deactivated_at",
-      )
+      .select("*")
       .eq("account_id", ctx.accountId)
       .order("created_at", { ascending: true });
 
@@ -99,6 +101,7 @@ export async function GET() {
           role: row.account_role,
           joined_at: row.created_at,
           deactivated_at: row.deactivated_at ?? null,
+          bank_code: row.bank_code ?? null,
         },
       ];
     });
@@ -112,17 +115,15 @@ export async function GET() {
 // ============================================================
 // POST /api/account/members
 //
-// Create a teammate's login directly, with their role chosen up
-// front. This replaces self-service signup: /signup is gone, so an
-// admin provisioning the account is the ONLY way in.
+// Add a person to the caller's workspace, with their role chosen up
+// front: one of `ASSIGNABLE_ROLES`, or `bank_guest` with a `bankCode`.
+// There is no self-service signup, so an admin adding them is the ONLY
+// way in.
 //
-// Order matters. The auth user is created first, which fires
-// `handle_new_user()` and hands them their own private account; the
-// `provision_account_member` RPC then moves them into the caller's
-// account and discards that orphan. If the RPC fails we delete the
-// auth user again, because a login that exists but belongs to an
-// invisible account is worse than no login: nobody can see it to fix
-// it, and the email is now taken so the admin cannot simply retry.
+// Body: { email, role, full_name?, password?, bankCode? }. Since
+// migration 083 the email decides what happens (`addOrCreateMember`):
+// an existing login gets a row here and needs no password; a new one
+// is created with `password` and moved in. 201 { member, created }.
 // ============================================================
 export async function POST(request: Request) {
   try {
@@ -133,83 +134,66 @@ export async function POST(request: Request) {
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body.password === "string" ? body.password : "";
     const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
+    const bankCode = typeof body.bankCode === "string" ? body.bankCode.trim() : "";
     const role = body.role;
 
     if (!email || !email.includes("@")) {
       return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
+    if (!isAddableRole(role)) {
       return NextResponse.json(
-        { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` },
-        { status: 400 },
-      );
-    }
-    if (!ASSIGNABLE_ROLES.includes(role as AssignableRole)) {
-      return NextResponse.json(
-        { error: `Role must be one of: ${ASSIGNABLE_ROLES.join(", ")}` },
+        { error: `Role must be one of: ${ADDABLE_ROLES.join(", ")}` },
         { status: 400 },
       );
     }
 
-    const admin = supabaseAdmin();
-
-    // `email_confirm: true` because an admin typing the address IS the
-    // verification, and this deployment has no outbound mail — waiting
-    // on a confirmation link nobody receives would lock the new user
-    // out permanently.
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
+    const result = await addOrCreateMember({
+      supabase: ctx.supabase,
+      admin: supabaseAdmin(),
+      accountId: ctx.accountId,
       email,
+      role,
+      bankCode: bankCode || null,
       password,
-      email_confirm: true,
-      user_metadata: { full_name: fullName },
+      fullName,
     });
-
-    if (createError || !created?.user) {
-      const message = createError?.message ?? "Failed to create the user";
-      // GoTrue reports a taken address with 422; surface it as a
-      // conflict so the dialog can point at the email field.
-      const taken = /already|registered|exists/i.test(message);
-      return NextResponse.json(
-        { error: taken ? "That email already has an account" : message },
-        { status: taken ? 409 : 500 },
-      );
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
-    const newUserId = created.user.id;
-
-    const { error: moveError } = await admin.rpc("provision_account_member", {
-      p_user_id: newUserId,
-      p_account_id: ctx.accountId,
-      p_role: role,
-    });
-
-    if (moveError) {
-      // Compensating delete — see the header comment.
-      const { error: cleanupError } = await admin.auth.admin.deleteUser(newUserId);
-      if (cleanupError) {
-        console.error(
-          `[POST /api/account/members] orphaned auth user ${newUserId} after a failed move; delete it manually:`,
-          cleanupError,
-        );
-      }
-      console.error("[POST /api/account/members] provision failed:", moveError);
-      return NextResponse.json(
-        { error: "Could not add the user to this account" },
-        { status: 500 },
-      );
-    }
-
-    const member: AccountMember = {
-      user_id: newUserId,
+    let member: AccountMember = {
+      user_id: result.userId,
       full_name: fullName,
       email,
       avatar_url: null,
-      role: role as AssignableRole,
+      role,
       joined_at: new Date().toISOString(),
       deactivated_at: null,
+      bank_code: role === "bank_guest" ? bankCode : null,
     };
 
-    return NextResponse.json({ member }, { status: 201 });
+    if (!result.created) {
+      // An existing login brings the name and avatar of its other
+      // workspaces: read the row add_workspace_member just made.
+      const { data: row } = await ctx.supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", result.userId)
+        .eq("account_id", ctx.accountId)
+        .maybeSingle();
+      if (row) {
+        const profile = row as ProfileRow;
+        member = {
+          ...member,
+          full_name: profile.full_name ?? "",
+          email: profile.email ?? email,
+          avatar_url: profile.avatar_url,
+          joined_at: profile.created_at,
+        };
+      }
+    }
+
+    return NextResponse.json({ member, created: result.created }, { status: 201 });
   } catch (err) {
     return toErrorResponse(err);
   }

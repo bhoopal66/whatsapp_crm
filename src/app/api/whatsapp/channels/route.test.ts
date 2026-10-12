@@ -21,12 +21,18 @@ import { GET } from './route';
 
 type Result = { data?: unknown; error?: unknown; count?: number };
 
+const neqCalls: unknown[][] = [];
+
 /** A thenable query builder: every chained call returns itself. */
 function query(result: Result) {
   const builder: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'order']) {
     builder[m] = () => builder;
   }
+  builder.neq = (...args: unknown[]) => {
+    neqCalls.push(args);
+    return builder;
+  };
   builder.then = (resolve: (r: Result) => unknown) =>
     Promise.resolve({ data: null, error: null, ...result }).then(resolve);
   return builder;
@@ -60,6 +66,8 @@ function tables(overrides: Record<string, Result> = {}) {
         { config_id: 'cfg-1', user_id: 'cy', direct: true, via_team: true },
         // Moved off the account: listed nowhere.
         { config_id: 'cfg-1', user_id: 'gone', direct: true, via_team: true },
+        // A bank guest who somehow holds an allocation: listed nowhere.
+        { config_id: 'cfg-1', user_id: 'gus', direct: true, via_team: true },
       ],
     },
     whatsapp_channel_teams: {
@@ -69,7 +77,12 @@ function tables(overrides: Record<string, Result> = {}) {
       ],
     },
     profiles: {
-      data: [{ user_id: 'ana' }, { user_id: 'bo' }, { user_id: 'cy' }],
+      data: [
+        { user_id: 'ana', account_role: 'agent' },
+        { user_id: 'bo', account_role: 'agent' },
+        { user_id: 'cy', account_role: 'team_leader' },
+        { user_id: 'gus', account_role: 'bank_guest' },
+      ],
     },
     conversations: { count: 3 },
     ...overrides,
@@ -79,6 +92,7 @@ function tables(overrides: Record<string, Result> = {}) {
 describe('GET /api/whatsapp/channels', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    neqCalls.length = 0;
   });
 
   it('splits direct people from team people, and lists the teams', async () => {
@@ -91,6 +105,11 @@ describe('GET /api/whatsapp/channels', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(mocks.requireRole).toHaveBeenCalledWith('admin');
+    // The roster behind "who is still on the account" is staff only: a
+    // bank guest is never a number's user (`gus` above is dropped from
+    // both lists). It is filtered on the rows, not in the query: a
+    // database without migration 082 rejects the `bank_guest` literal.
+    expect(neqCalls).toEqual([]);
 
     const [first, second] = body.channels;
     expect(first.member_ids).toEqual(['ana', 'cy']);

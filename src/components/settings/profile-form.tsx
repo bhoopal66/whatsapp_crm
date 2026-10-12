@@ -139,7 +139,8 @@ export function ProfileForm() {
         nextAvatarUrl = null;
       }
 
-      // Persist name + avatar to profiles.
+      // Persist name + avatar to profiles. Every workspace's row of this
+      // person is updated on purpose: the name is theirs, not a workspace's.
       const { error: updateError } = await supabase
         .from('profiles')
         .update({

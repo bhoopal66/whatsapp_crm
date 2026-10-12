@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { AI_AUTO_REPLY_LIVE_CACHE_PREFIX } from '@/hooks/use-ai-auto-reply-live';
 import { invalidateCached } from '@/lib/client-cache';
 import { canEditSettings } from '@/lib/auth/roles';
-import { fetchAccountMembers } from '@/lib/account/members';
+import { fetchAccountMembers, staffOnly } from '@/lib/account/members';
 import {
   AI_PROVIDER_DEFAULT_MODEL,
   AI_TIER_DEFAULT_MODELS,
@@ -163,7 +163,7 @@ export function useAiConfigForm() {
     loadedAccountIdRef.current = accountId;
     void fetchConfig();
     void fetchRoutes();
-    void fetchAccountMembers().then(setMembers);
+    void fetchAccountMembers().then((all) => setMembers(staffOnly(all)));
   }, [accountId, fetchConfig, fetchRoutes]);
 
   // Swap the model defaults when the provider changes, unless the user
