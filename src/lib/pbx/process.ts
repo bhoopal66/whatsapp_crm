@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSystemTask, resolveTaskOwner } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/whatsapp/phone-utils';
 
+import { settleCallbackCall } from './callbacks';
 import { digitsOnly } from './extensions';
 import {
   contactPhoneCandidates,
@@ -168,7 +169,29 @@ export async function ingestPbxEvent(
   }
   const rawId = (data as { id: unknown }[] | null)?.[0]?.id;
   if (rawId === undefined) return { duplicate: true };
+  return processStoredPbxEvent({ db, connectionId, rawId, frame, receivedAt });
+}
 
+export interface StoredEventInput {
+  db: SupabaseClient;
+  connectionId: string;
+  /** pbx_events_raw.id of the stored frame. */
+  rawId: unknown;
+  /** The frame as stored (pbx_events_raw.payload). */
+  frame: unknown;
+  receivedAt: string;
+}
+
+/**
+ * Runs a frame already stored in pbx_events_raw and stamps the outcome
+ * on its row. `ingestPbxEvent` calls it after the insert; the retry
+ * sweep (housekeeping.ts) calls it for a row that failed, because a
+ * second ingest of the same frame would be skipped as a duplicate.
+ */
+export async function processStoredPbxEvent(
+  input: StoredEventInput
+): Promise<IngestResult> {
+  const { db, connectionId, rawId, frame, receivedAt } = input;
   let kind: YeastarEvent['kind'] | undefined;
   let failure: string | null = null;
   let conn: { account_id: string; status: string } | null = null;
@@ -776,6 +799,13 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     ((written.data ?? []) as { id: unknown }[])[0]?.id ?? existing?.id
   );
   await deleteLive(ctx, ev.callId);
+  // A call the cron placed for a call-back settles its request.
+  await settleCallbackCall(ctx.db, {
+    accountId: ws.accountId,
+    pbxCallId: ev.callId,
+    answered: ANSWERED.has(ev.status),
+    status: ev.status,
+  });
 
   // Only here: a ring-group call a colleague answered is not missed.
   if (!isMissedCallEnd(ev)) return;

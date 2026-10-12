@@ -31,6 +31,23 @@ processor.
 > **Migration required:** apply `supabase/migrations/089_pbx.sql`
 > (re-runnable) **before** deploying the app.
 
+### Deal rooms: database
+
+The database side of deal rooms: a deal room is a real WhatsApp group
+on the workspace's verified Meta number, linked to a contact and
+optionally a deal. The customer's consent is recorded before any group
+exists, and a group holds at most 8 members including the business
+number. People who opted out or are marked do-not-contact are refused.
+Bank officers can join only for a bank whose DSA terms an admin has
+checked, and an agent's bank officer waits for a team leader's
+approval. Members never see each other's phone numbers in the CRM: a
+bank guest sees only the names, roles and messages of their own rooms.
+Each room also has a staff-only Team notes tab.
+
+> **Migration required:** apply
+> `supabase/migrations/088_deal_rooms.sql` (re-runnable)
+> **before** deploying the app.
+
 Admin routes for the phone system: extension sync and mapping, number
 routing to workspaces, recording settings and bank numbers
 (`/api/pbx/*`, no new migration); operator notes in `docs/yeastar.md`.
@@ -40,6 +57,19 @@ Phone-system event processor and the signed webhook
 presence, recordings to fetch, and a task plus bell for each missed
 call. `089_pbx.sql` gains `calls.recording_file` and `calls.meta`
 (re-runnable; re-apply it if you applied an earlier copy).
+
+### Phone system (Yeastar) — recordings, call-backs, cron
+
+`GET /api/pbx/cron` (also run by the automations cron, once a minute)
+copies pending recordings into private storage, dials due call-backs
+between 09:00 and 20:00 Dubai time from the owner's free extension,
+retries failed events (three times), and purges old rows. See
+`docs/yeastar.md` (sections 7–10).
+
+> **Migration required:** `089_pbx.sql` gained
+> `pbx_events_raw.attempts` and `callback_requests.pbx_call_id`, and
+> `pbx_purge()` now drops events that failed all retries after 30 days.
+> Re-apply the file (it is re-runnable).
 
 ### Internal team chat
 
@@ -81,21 +111,33 @@ which nothing uses yet.
 > **Migration required:** apply
 > `supabase/migrations/084_edge_security.sql` (re-runnable)
 
-### Journey bot groundwork: storage, consent register, callback queue
+### Journey bot: WhatsApp journeys from first message to closed deal
 
-The database side of the journey bot (module 016, "Welcome to Close"),
-which will walk a lead from the first message to a closed deal: each
-customer's journey is stored with the messages and tasks it still has
-to send. Contacts gain a consent register beside the existing opt-out
-— a marketing opt-in, which always names its source, and a
-do-not-contact flag that any agent who can see the customer may set
-and only an admin may clear — and every change to the three is kept
-in an append-only consent history. "Call me back" requests queue for
-the click-to-call module. Nothing is visible yet: the bot is not wired
-to WhatsApp in this release.
+The journey bot (module 016, "Welcome to Close") now answers on
+WhatsApp for accounts whose admin switches it on (`enabled` in
+`PUT /api/journeys/settings`):
+it welcomes the customer, pitches a POS terminal, business account or
+business loan, and walks them through quote or eligibility,
+documents, the partner's decision and fulfilment, parking quiet
+customers and re-engaging them once. Advisors record the steps only a
+person can take — quote ready, fit, documents complete, partner
+approved, close with a reason — through the new journey APIs
+(`/api/journeys`, `/api/journeys/{id}/advisor`, `/api/journeys/start`
+for a cold start, `/api/journeys/settings`). Marketing messages go
+only to customers with a recorded opt-in, and STOP / UNSUBSCRIBE (and
+the Arabic equivalents) opt out at any point. Contacts gain a consent
+register beside the existing opt-out — a marketing opt-in, which
+always names its source, and a do-not-contact flag — with an
+append-only history. "Call me back" opens an advisor task and queues
+a callback request for click-to-call. Timers and quiet-hours sends run
+from `GET /api/journeys/cron`, which the automation cron also runs
+every minute. The templates the bot needs, its timing and consent
+rules are in `docs/journey-bot.md`.
 
-> **Migration required:** apply
-> `supabase/migrations/086_journeys.sql` (re-runnable)
+> **Migration required:** (re-)apply
+> `supabase/migrations/086_journeys.sql` — it is re-runnable and has
+> gained columns since it was first published (journey copy, delivery
+> claims).
 
 ### Workspaces: one login, several businesses
 

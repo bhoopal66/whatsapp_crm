@@ -321,6 +321,23 @@ BEGIN
     failed := array_append(failed, ('a service-role assignment rings the bell: ' || r)::text);
   END IF;
 
+  -- A PBX task's insert is silent (the processor's call_missed bell
+  -- carries the call, 089); reassigning it later still rings.
+  r := pg_temp.tk_try('service_role', NULL, format(
+    'INSERT INTO tasks (account_id, kind, title, assigned_to, source, source_ref) VALUES (%L, %L, %L, %L, %L, %L)',
+    a_acct, 'missed_call', 'TK pbx bell', u_agent2, 'pbx', 'tk-call-bell'));
+  n := n + 1;
+  IF r <> 'ok' OR EXISTS (SELECT 1 FROM notifications WHERE type = 'task_assigned' AND title = 'TK pbx bell') THEN
+    failed := array_append(failed, ('a PBX task''s insert rang the assignment bell: ' || r)::text);
+  END IF;
+  r := pg_temp.tk_try('service_role', NULL, format(
+    'UPDATE tasks SET assigned_to = %L WHERE account_id = %L AND source_ref = %L', u_agent, a_acct, 'tk-call-bell'));
+  n := n + 1;
+  IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM notifications WHERE user_id = u_agent
+       AND type = 'task_assigned' AND title = 'TK pbx bell') THEN
+    failed := array_append(failed, ('reassigning a PBX task rings the new assignee: ' || r)::text);
+  END IF;
+
   -- ---------- the notification kinds ----------
   FOREACH kind_name IN ARRAY ARRAY[
     'conversation_assigned', 'channel_disconnected', 'channel_reconnected',

@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import type { Contact, Conversation, Profile } from '@/types';
 
 import { ContactAvatar } from './contact-avatar';
+import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { ThreadChannelSwitcher } from './thread-channel-switcher';
 import { MemberPresenceDot } from './thread-presence';
 import { ThreadTagBar, type ChatTagsPatch } from './thread-tag-bar';
@@ -253,6 +254,8 @@ export function ThreadHeader({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <ShareToChatButton conversationId={conversation.id} />
 
           {onRefresh && (
             <span

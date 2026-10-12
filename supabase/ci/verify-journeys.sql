@@ -48,6 +48,9 @@ DECLARE
   p1       UUID := gen_random_uuid();
   p2       UUID := gen_random_uuid();
   fm       UUID := gen_random_uuid();  -- never inserted
+  ob1      UUID;  -- outbox items for the delivery claim and the welcome cap
+  ob2      UUID;
+  ob3      UUID;
   wf       TEXT := 'taamul_welcome_to_close.v1';
   a_send   JSONB := '{"type":"SEND","template":"t","category":"UTILITY","billable":false,"notBefore":"2026-03-02T05:00:00Z"}';
   a_timer  JSONB := '{"type":"SET_TIMER","kind":"k","fireAt":"2026-03-03T09:00:00Z"}';
@@ -58,6 +61,15 @@ DECLARE
   x        TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
+  -- Section 10 (drain fairness): files q1..q4 in account A, qb in B.
+  q1 UUID := gen_random_uuid();
+  q2 UUID := gen_random_uuid();
+  q3 UUID := gen_random_uuid();
+  q4 UUID := gen_random_uuid();
+  qb UUID := gen_random_uuid();
+  cq1 UUID; cq2 UUID; cq3 UUID; cq4 UUID; cqb UUID;
+  oq1 UUID; oq4 UUID;
+  t_later TIMESTAMPTZ := date_trunc('second', now()) + interval '3 hours';
 BEGIN
   BEGIN
   -- Run a statement as p_role (a signed-in user when p_uid is given;
@@ -428,6 +440,67 @@ BEGIN
     failed := array_append(failed, ('claim for an unknown contact / with an empty id: ' || r || ', ' || x)::text);
   END IF;
 
+  -- ================= 5b. delivery claims, opt-out writes, the welcome cap =================
+  INSERT INTO journey_outbox (file_id, account_id, seq, action) VALUES (f1, a_acct, 9001, a_send0) RETURNING id INTO ob1;
+  INSERT INTO journey_outbox (file_id, account_id, seq, action, status, drop_reason)
+  VALUES (f1, a_acct, 9002, a_send0, 'dropped', 'OPTED_OUT') RETURNING id INTO ob2;
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1));
+  -- A separate statement: a subquery in the line above reads the snapshot taken before the claims.
+  r := r || ',' || (SELECT attempts || '/' || (sending_at IS NOT NULL)::text FROM journey_outbox WHERE id = ob1);
+  UPDATE journey_outbox SET sending_at = now() - interval '3 minutes' WHERE id = ob1;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1));
+  UPDATE journey_outbox SET delivery_ref = 'wamid.1' WHERE id = ob1;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob1))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', ob2));
+  n := n + 1;
+  IF r <> 'claimed,in_flight,1/true,stale,delivered,dropped' THEN
+    failed := array_append(failed, ('delivery claim states (claimed, in_flight, attempts, stale, delivered, dropped): ' || r)::text);
+  END IF;
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_claim_delivery(%L)', fm));
+  x := pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_claim_delivery(%L)', ob2));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0002:%' OR x NOT LIKE 'ERROR 42501:%' THEN
+    failed := array_append(failed, ('delivery claim of an unknown item / by an admin: ' || r || ', ' || x)::text);
+  END IF;
+
+  -- journey_set_opt_out: source 'journey', the first stamp kept, the setting restored.
+  UPDATE contacts SET opted_out_at = '2026-01-01T00:00:00Z' WHERE id = c_none;
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', c_none));
+  r := r || ',' || (SELECT opted_out_at = '2026-01-01T00:00:00Z' FROM contacts WHERE id = c_none)::text;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, false)::text', c_none));
+  r := r || ',' || (SELECT opted_out_at IS NULL FROM contacts WHERE id = c_none)::text;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', c_none))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', fm))
+    || ',' || coalesce(nullif(current_setting('app.consent_source', true), ''), '-');
+  n := n + 1;
+  IF r <> 'true,true,true,true,true,false,-'
+     OR pg_temp.jv_events(c_none) <> 'opted_out/journey/-;opted_out/system/-;resubscribed/journey/-' THEN
+    failed := array_append(failed, ('journey_set_opt_out (kept stamp, resubscribe, unknown contact, setting): ' || r
+      || ' history: ' || pg_temp.jv_events(c_none))::text);
+  END IF;
+  r := pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_set_opt_out(%L, false)::text', c_none));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' OR (SELECT opted_out_at IS NULL FROM contacts WHERE id = c_none) THEN
+    failed := array_append(failed, ('admin called journey_set_opt_out: ' || r)::text);
+  END IF;
+
+  -- journey_has_optin_welcome: a claim, or a committed MARK_OPTIN_WELCOME_SENT that is not dropped.
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_w))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po));
+  INSERT INTO journey_outbox (file_id, account_id, seq, action)
+  VALUES (p1, a_acct, 9001, jsonb_build_object('type', 'MARK_OPTIN_WELCOME_SENT', 'contactId', c_po)) RETURNING id INTO ob3;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po));
+  UPDATE journey_outbox SET status = 'delivered' WHERE id = ob3;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po));
+  UPDATE journey_outbox SET status = 'dropped' WHERE id = ob3;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_has_optin_welcome(%L)::text', c_po))
+    || ',' || pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_has_optin_welcome(%L)::text', c_w));
+  n := n + 1;
+  IF r NOT LIKE 'true,false,true,true,false,ERROR 42501:%' THEN
+    failed := array_append(failed, ('opt-in welcome cap (claim, none, pending MARK, delivered MARK, dropped MARK, admin): ' || r)::text);
+  END IF;
+
   -- ================= 6–7. consent guard and its history =================
   -- An opt-in needs a source, from anyone.
   r := pg_temp.jv_try('authenticated', u_agent, format(
@@ -757,6 +830,118 @@ BEGIN
   n := n + 1;
   IF r <> '0/1' THEN
     failed := array_append(failed, ('another account reads journey settings (A/B): ' || r)::text);
+  END IF;
+
+  r := (SELECT copy::text || '/' || (SELECT count(*) FROM pg_constraint WHERE conname = 'journey_settings_copy_object')::text
+        FROM journey_settings WHERE account_id = b_acct);
+  n := n + 1;
+  IF r IS DISTINCT FROM '{}/1' THEN
+    failed := array_append(failed, ('journey_settings.copy default and object check: ' || coalesce(r, 'no row'))::text);
+  END IF;
+
+  -- ================= 10. drain fairness: failed items, journey_drain_candidates =================
+  -- The candidates at p_now as "contact name,..." in the function's order.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.jv_cand(p_now timestamptz, p_limit integer DEFAULT 50, p_accts uuid[] DEFAULT NULL)
+    RETURNS text LANGUAGE plpgsql AS $body$
+    DECLARE ids text;
+    BEGIN
+      ids := pg_temp.jv_try('service_role', NULL, format(
+        'SELECT string_agg(c.file_id::text, '','' ORDER BY c.ord) '
+        'FROM public.journey_drain_candidates(%L::timestamptz, %s, %L::uuid[]) WITH ORDINALITY c(file_id, account_id, ord)',
+        p_now, p_limit, p_accts));
+      IF ids = 'null' THEN RETURN ''; END IF;
+      IF ids LIKE 'ERROR%' THEN RETURN ids; END IF;
+      RETURN (SELECT string_agg(ct.name, ',' ORDER BY u.ord)
+              FROM unnest(string_to_array(ids, ',')::uuid[]) WITH ORDINALITY u(id, ord)
+              JOIN public.journey_files f ON f.id = u.id
+              JOIN public.contacts ct ON ct.id = f.contact_id);
+    END $body$
+  $fn$;
+
+  -- Only this section's items are pending from here on.
+  UPDATE journey_outbox SET status = 'delivered', delivered_at = now() WHERE status = 'pending';
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086101', 'q1') RETURNING id INTO cq1;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086102', 'q2') RETURNING id INTO cq2;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086103', 'q3') RETURNING id INTO cq3;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086104', 'q4') RETURNING id INTO cq4;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (b_acct, u_other, '971500086105', 'qb') RETURNING id INTO cqb;
+  INSERT INTO journey_files (id, account_id, contact_id, workflow_key, state, body, version) VALUES
+    (q1, a_acct, cq1, wf, 'NEW', pg_temp.jv_body(q1, cq1, a_acct, 'NEW'), 0),
+    (q2, a_acct, cq2, wf, 'NEW', pg_temp.jv_body(q2, cq2, a_acct, 'NEW'), 0),
+    (q3, a_acct, cq3, wf, 'NEW', pg_temp.jv_body(q3, cq3, a_acct, 'NEW'), 0),
+    (q4, a_acct, cq4, wf, 'NEW', pg_temp.jv_body(q4, cq4, a_acct, 'NEW'), 0),
+    (qb, b_acct, cqb, wf, 'NEW', pg_temp.jv_body(qb, cqb, b_acct, 'NEW'), 0);
+  INSERT INTO journey_outbox (file_id, account_id, seq, action, committed_at)
+  VALUES (q1, a_acct, 1, a_send0, now() - interval '3 hours') RETURNING id INTO oq1;
+  INSERT INTO journey_outbox (file_id, account_id, seq, action, committed_at)
+  VALUES (q4, a_acct, 1, a_send0, now() - interval '2 hours') RETURNING id INTO oq4;
+  INSERT INTO journey_outbox (file_id, account_id, seq, action, committed_at) VALUES
+    (q3, a_acct, 1, a_send0, now() - interval '1 hour'),
+    (qb, b_acct, 1, a_send0, now() - interval '4 hours');
+
+  -- Failed-item bookkeeping: attempts + 1, last_attempt_at, last_error (cut to 500); pending items only; service role only.
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_outbox_failed(%L, %L)::text', oq1, 'Whapi 500'));
+  r := r || ',' || (SELECT attempts || '/' || (last_attempt_at = now())::text || '/' || last_error FROM journey_outbox WHERE id = oq1);
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_outbox_failed(%L, %L)::text', oq4, repeat('e', 600)));
+  r := r || ',' || (SELECT attempts || '/' || length(last_error) FROM journey_outbox WHERE id = oq4);
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_outbox_failed(%L, %L)::text', ob1, 'late'));
+  r := r || ',' || (SELECT attempts || '/' || coalesce(last_error, '-') FROM journey_outbox WHERE id = ob1);
+  x := pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_outbox_failed(%L, %L)::text', oq1, 'x'))
+    || ' | ' || pg_temp.jv_try('authenticated', u_admin, format('SELECT count(*) FROM public.journey_drain_candidates(%L, 5)', now()));
+  n := n + 1;
+  IF r <> 'true,1/true/Whapi 500,true,1/500,false,1/-' OR x NOT LIKE 'ERROR 42501:% | ERROR 42501:%' THEN
+    failed := array_append(failed, ('journey_outbox_failed bookkeeping (pending, truncated, delivered item, admin): ' || r || ' / ' || x)::text);
+  END IF;
+
+  -- A LOG_COST takes the not_before of the SEND of its template right before it.
+  r := pg_temp.jv_commit(q2, 0, pg_temp.jv_body(q2, cq2, a_acct, 'QUALIFY'), 'q2-1', jsonb_build_array(
+    jsonb_build_object('type', 'SEND', 'template', 't', 'category', 'MARKETING', 'billable', true, 'notBefore', t_later),
+    '{"type":"LOG_COST","template":"t","category":"MARKETING"}'::jsonb,
+    a_send0, '{"type":"LOG_COST","template":"t0","category":"UTILITY"}'::jsonb, a_timer));
+  x := to_char(t_later AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
+  n := n + 1;
+  IF r <> 'ok' OR pg_temp.jv_outbox(q2) <> format('1:SEND:pending:%s,2:LOG_COST:pending:%s,3:SEND:pending:-,'
+       '4:LOG_COST:pending:-,5:SET_TIMER:pending:-', x, x) THEN
+    failed := array_append(failed, ('LOG_COST inherits its SEND''s not_before: ' || r || ' ' || pg_temp.jv_outbox(q2))::text);
+  END IF;
+
+  -- A recently failed head is skipped (q1: one failure, 2 minutes), and back once its backoff is over; never-tried
+  -- heads come first, oldest commit first (q4 has failed too, but its failure is checked below).
+  UPDATE journey_outbox SET attempts = 0, last_attempt_at = NULL, last_error = NULL WHERE id = oq4;
+  r := pg_temp.jv_cand(now() + interval '1 minute') || ' | ' || pg_temp.jv_cand(now() + interval '2 minutes');
+  n := n + 1;
+  IF r <> 'q4,q3,q2 | q4,q3,q2,q1' THEN
+    failed := array_append(failed, ('recently failed head skipped, back after its backoff (+1 min | +2 min): ' || r)::text);
+  END IF;
+
+  -- A never-tried file comes before a long-failing one, and the longest-waiting failed head first; the backoff stops
+  -- at 60 minutes, and a huge attempts count does not overflow it.
+  UPDATE journey_outbox SET attempts = 3, last_attempt_at = now() - interval '1 day' WHERE id = oq1;
+  UPDATE journey_outbox SET attempts = 5000, last_attempt_at = now() - interval '59 minutes' WHERE id = oq4;
+  r := pg_temp.jv_cand(now()) || ' | ' || pg_temp.jv_cand(now() + interval '1 minute');
+  n := n + 1;
+  IF r <> 'q3,q2,q1 | q3,q2,q1,q4' THEN
+    failed := array_append(failed, ('never-tried before long-failing, 60-minute cap (now | +1 min): ' || r)::text);
+  END IF;
+
+  -- A deferred SEND does not hide the due items after it (q2 above); with only the quiet-hours pair left, the file is
+  -- not a candidate until its not_before.
+  UPDATE journey_outbox SET status = 'delivered', delivered_at = now() WHERE file_id = q2 AND seq >= 3;
+  r := pg_temp.jv_cand(now()) || ' | ' || pg_temp.jv_cand(t_later - interval '1 second') || ' | ' || pg_temp.jv_cand(t_later);
+  n := n + 1;
+  IF r <> 'q3,q1 | q3,q1,q4 | q3,q2,q1,q4' THEN
+    failed := array_append(failed, ('quiet-hours-deferred file waits for its not_before (now | before | at): ' || r)::text);
+  END IF;
+
+  -- Only accounts with journeys enabled; p_account_ids narrows them; p_limit caps the list.
+  UPDATE journey_settings SET enabled = true WHERE account_id = b_acct;
+  r := pg_temp.jv_cand(now()) || ' | ' || pg_temp.jv_cand(now(), 50, ARRAY[a_acct]) || ' | ' || pg_temp.jv_cand(now(), 1);
+  UPDATE journey_settings SET enabled = false WHERE account_id = a_acct;
+  r := r || ' | ' || pg_temp.jv_cand(now());
+  n := n + 1;
+  IF r <> 'qb,q3,q1 | q3,q1 | qb | qb' THEN
+    failed := array_append(failed, ('candidates follow journey_settings.enabled, p_account_ids and p_limit: ' || r)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

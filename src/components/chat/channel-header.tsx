@@ -1,0 +1,98 @@
+'use client';
+
+import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+import {
+  ArrowLeft,
+  Hash,
+  Lock,
+  MessageCircle,
+  ShieldCheck,
+  User,
+} from 'lucide-react';
+
+import type { ChannelWithMembership } from '@/lib/chat';
+
+export interface ChannelHeaderProps {
+  channel: ChannelWithMembership;
+  name: string;
+  memberCount: number | null;
+  pinCount: number | null;
+  /** Members panel (a later job). */
+  onOpenMembers?: () => void;
+  /** Pinned panel (a later job). */
+  onOpenPins?: () => void;
+}
+
+const CHIP =
+  'flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50';
+
+export function ChannelHeader({
+  channel,
+  name,
+  memberCount,
+  pinCount,
+  onOpenMembers,
+  onOpenPins,
+}: ChannelHeaderProps) {
+  const t = useTranslations('Chat.channel');
+  const kind = channel.kind;
+  const Icon =
+    kind === 'private'
+      ? Lock
+      : kind === 'dm'
+        ? User
+        : kind === 'deal_room'
+          ? MessageCircle
+          : Hash;
+  const sub = [
+    t(`kind.${kind}`),
+    kind !== 'dm' && memberCount !== null
+      ? t('members', { count: memberCount })
+      : null,
+    channel.topic,
+  ].filter(Boolean);
+
+  return (
+    <header className="border-b px-4 py-3">
+      <div className="flex items-center gap-2">
+        <Link
+          href="/chat"
+          className="hover:bg-muted -ml-1 rounded p-1 lg:hidden"
+          aria-label={t('back')}
+        >
+          <ArrowLeft className="size-4" />
+        </Link>
+        <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+        <h2 className="min-w-0 truncate text-base font-bold">{name}</h2>
+      </div>
+      <p className="text-muted-foreground mt-0.5 truncate text-xs">
+        {sub.join(' · ')}
+      </p>
+      {kind !== 'deal_room' && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-[#0E7C5A] [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300">
+            <ShieldCheck className="size-3.5" aria-hidden />
+            {t('internal')}
+          </span>
+          <button
+            type="button"
+            className={CHIP}
+            onClick={onOpenMembers}
+            disabled={!onOpenMembers}
+          >
+            {t('membersButton')}
+          </button>
+          <button
+            type="button"
+            className={CHIP}
+            onClick={onOpenPins}
+            disabled={!onOpenPins}
+          >
+            {t('pinned', { count: pinCount ?? 0 })}
+          </button>
+        </div>
+      )}
+    </header>
+  );
+}

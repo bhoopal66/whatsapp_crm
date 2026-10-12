@@ -56,9 +56,11 @@ One PBX can serve several workspaces.
 
 ## 3. Recording rules
 
-- **Announcement.** Playback of a recording is held until the PBX
-  confirms the English/Arabic recording notice was played on that call.
-  The workspace can switch this requirement off; it is on by default.
+- **Announcement.** Configure the English/Arabic recording notice on
+  the PBX to play before **every** recorded call. A fetched recording is
+  marked as announced on that basis, and the basis is kept on the call
+  (`meta.announcement_basis`: `pbx_prompt` while the workspace requires
+  the notice, the default; `not_required` while it is switched off).
 - **Bank numbers.** List the bank staff numbers (with the bank's code)
   under **Bank numbers**. While **Exclude bank numbers** is on (the
   default), calls with those numbers are kept unrecorded. Leave it on
@@ -118,3 +120,68 @@ connection with no secret stored refuses every push. Optionally set
   for a bank number while **Exclude bank numbers** is on.
 - Every event is stored once (re-sends are ignored); one that cannot be
   processed keeps its error on the stored event.
+
+## 7. Running the gateway
+
+Firmware without webhook push (before 84.20.0.21) relays events through
+`scripts/pbx-gateway.mjs`, a plain Node 22 process that holds the PBX's
+event socket and posts each frame to the app. It never sees the PBX
+credentials. Set:
+
+| Variable             | Value                                                               |
+| -------------------- | ------------------------------------------------------------------- |
+| `APP_URL`            | The app's address as the gateway reaches it, e.g. `http://app:3000` |
+| `PBX_GATEWAY_SECRET` | A long random secret; the app must have the same value              |
+| `PBX_CONNECTION_ID`  | Optional: which PBX connection, when more than one is configured    |
+
+Run it one of three ways:
+
+- `APP_URL=… PBX_GATEWAY_SECRET=… npm run pbx:gateway`
+- Docker: `docker compose --profile pbx up -d` starts the `pbx-gateway`
+  service (`node:22-alpine`, reading `.env.local`).
+- systemd: a unit with `ExecStart=/usr/bin/node /opt/taamul/scripts/pbx-gateway.mjs`,
+  the variables in `Environment=` lines (or an `EnvironmentFile=`), and
+  `Restart=always`.
+
+Run one gateway per PBX.
+
+## 8. Recordings
+
+A call the PBX recorded is marked _pending_ when it ends, and the
+phone-system cron (below) copies the audio **once** into the private
+`call-recordings` bucket (`account-<id>/calls/<call id>.<ext>`, with
+its SHA-256 and size), one download at a time. The PBX's own download
+link (valid 30 minutes) is never stored. A busy answer from the PBX
+ends the run and the next run continues; any other failure is retried,
+up to five times, before the call is marked _failed_.
+
+Calls _held_ for a bank number and _erased_ calls are never fetched.
+Playback goes through the server, which logs every access before it
+signs a short-lived link.
+
+## 9. Call-backs
+
+When a customer taps **Call me back**, the journey opens a CALLBACK
+task and a call-back request. The cron dials a request once it is due,
+only between **09:00 and 20:00 Dubai time**, from the extension of the
+request's assignee (else the contact's owner) in that workspace, and
+only while that extension is idle (and registered and available, when
+known). The PBX rings the owner first, then the customer, who hears the
+recording notice before the owner is connected.
+
+- A customer on **do-not-contact** is never dialled (the request is
+  _skipped_).
+- While the owner is on a call or away, the request waits.
+- An answered call marks the request _done_ and closes its task. An
+  unanswered one is tried again; after three attempts the request is
+  _failed_, and the task stays open for a person.
+
+## 10. The phone-system cron
+
+`GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
+fetches pending recordings, dials due call-backs, retries events that
+failed to process (three times each), and purges old rows. Each run
+stops starting work after 45 seconds. The automations cron also runs it,
+at most once a minute, so an install that already pings
+`/api/automations/cron` needs nothing more. A PBX connection that is
+backing off after a refused login is skipped until the backoff ends.
