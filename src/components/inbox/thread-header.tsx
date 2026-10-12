@@ -37,6 +37,7 @@ import type { Contact, Conversation, Profile } from '@/types';
 
 import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
+import { CallButton } from '@/components/pbx/call-button';
 import { ThreadChannelSwitcher } from './thread-channel-switcher';
 import { MemberPresenceDot } from './thread-presence';
 import { ThreadTagBar, type ChatTagsPatch } from './thread-tag-bar';
@@ -255,6 +256,7 @@ export function ThreadHeader({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <CallButton contact={contact} conversationId={conversation.id} />
           <ShareToChatButton conversationId={conversation.id} />
 
           {onRefresh && (

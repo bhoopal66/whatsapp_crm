@@ -1,0 +1,318 @@
+import { describe, expect, it } from 'vitest';
+import {
+  DISPOSITIONS,
+  NOTES_MAX as ROUTE_NOTES_MAX,
+  OVERRIDE_REASON_MAX as ROUTE_OVERRIDE_MAX,
+} from '../calls';
+import {
+  CARD_NOTES_MAX,
+  NOTES_MAX,
+  OUTCOMES,
+  OVERRIDE_REASON_MAX,
+  alsoRinging,
+  callCardText,
+  clip,
+  consentState,
+  consentText,
+  contactCandidates,
+  dialResult,
+  formatTimer,
+  isCustomerCall,
+  liveKey,
+  maskPhone,
+  myActiveCall,
+  myRingingCall,
+  needsOutcome,
+  type CallCardLabels,
+  type CallLiveRow,
+} from '../call-ui';
+
+const ME = 'u-me';
+const SARA = 'u-sara';
+const OMAR = 'u-omar';
+const inbound = {
+  kind: 'inbound',
+  channelId: 't1',
+  status: 'ALERT',
+  from: '971501234567',
+};
+const outbound = {
+  kind: 'outbound',
+  channelId: 't2',
+  status: 'ANSWERED',
+  to: '971501234567',
+};
+const ext = (n: string, status = 'RING') => ({
+  kind: 'extension',
+  channelId: `e${n}`,
+  status,
+  number: n,
+});
+
+function row(p: Partial<CallLiveRow> = {}): CallLiveRow {
+  return {
+    connection_id: 'c1',
+    pbx_call_id: 'p1',
+    account_id: 'a1',
+    contact_id: null,
+    remote_number: '971501234567',
+    did_number: null,
+    ringing_user_ids: [ME],
+    answered_by: null,
+    members: [inbound, ext('101')],
+    state: 'ringing',
+    updated_at: '2026-10-12T10:00:00Z',
+    ...p,
+  };
+}
+
+describe('constants mirror the routes', () => {
+  it('offers exactly the dispositions the DB accepts', () => {
+    expect([...OUTCOMES]).toEqual([...DISPOSITIONS]);
+  });
+  it('limits notes and override reasons as the routes do', () => {
+    expect(NOTES_MAX).toBe(ROUTE_NOTES_MAX);
+    expect(OVERRIDE_REASON_MAX).toBe(ROUTE_OVERRIDE_MAX);
+  });
+});
+
+describe('myRingingCall', () => {
+  it('is an inbound, unanswered call ringing my extension', () => {
+    expect(myRingingCall([row()], ME)?.pbx_call_id).toBe('p1');
+  });
+  it('ignores a call a leader merely sees', () => {
+    expect(myRingingCall([row({ ringing_user_ids: [SARA] })], ME)).toBeNull();
+  });
+  it('ignores an answered call, even if my id lingers', () => {
+    expect(myRingingCall([row({ answered_by: SARA })], ME)).toBeNull();
+  });
+  it('ignores my own click-to-call ringing my phone first', () => {
+    const r = row({ members: [ext('101')] });
+    expect(myRingingCall([r], ME)).toBeNull();
+    expect(
+      myRingingCall([row({ members: [ext('101'), outbound] })], ME)
+    ).toBeNull();
+  });
+  it('picks the oldest of two and needs a user', () => {
+    const late = row({ pbx_call_id: 'p2', updated_at: '2026-10-12T10:00:09Z' });
+    expect(myRingingCall([late, row()], ME)?.pbx_call_id).toBe('p1');
+    expect(myRingingCall([row()], null)).toBeNull();
+  });
+});
+
+describe('myActiveCall', () => {
+  it('is a customer call I answered, inbound or click-to-call', () => {
+    expect(
+      myActiveCall([row({ answered_by: ME, state: 'answered' })], ME)
+    ).not.toBeNull();
+    const out = row({
+      members: [ext('101', 'ANSWERED'), outbound],
+      answered_by: ME,
+    });
+    expect(myActiveCall([out], ME)?.pbx_call_id).toBe('p1');
+  });
+  it('is not a call someone else answered or an internal call', () => {
+    expect(myActiveCall([row({ answered_by: SARA })], ME)).toBeNull();
+    const internal = row({
+      members: [ext('101', 'ANSWERED'), ext('102')],
+      answered_by: ME,
+    });
+    expect(isCustomerCall(internal)).toBe(false);
+    expect(myActiveCall([internal], ME)).toBeNull();
+  });
+  it('survives a malformed members value', () => {
+    expect(
+      myActiveCall([row({ members: null, answered_by: ME })], ME)
+    ).toBeNull();
+    expect(liveKey(row())).toBe('c1:p1');
+  });
+});
+
+describe('contactCandidates', () => {
+  it('reads the candidates riding on the customer leg, once each', () => {
+    const r = row({
+      members: [
+        { ...inbound, contactCandidates: ['k1', 'k2', 'k1', 7] },
+        ext('101'),
+      ],
+    });
+    expect(contactCandidates(r)).toEqual(['k1', 'k2']);
+    expect(contactCandidates(row())).toEqual([]);
+  });
+});
+
+describe('maskPhone', () => {
+  it('keeps the country code and the last four of a long number', () => {
+    expect(maskPhone('971501234567')).toBe('+971 ••••• 4567');
+    expect(maskPhone('+971 50 123 4567')).toBe('+971 ••••• 4567');
+    expect(maskPhone('0501234567')).toBe('050 ••• 4567');
+  });
+  it('keeps less of a short number', () => {
+    expect(maskPhone('1234567')).toBe('••• 4567');
+    expect(maskPhone('8001')).toBe('•• 01');
+    expect(maskPhone('12')).toBe('••');
+    expect(maskPhone(null)).toBe('');
+  });
+  it('never shows more than seven digits of a number', () => {
+    for (const n of ['971501234567', '447700900123', '12025550123'])
+      expect(maskPhone(n).replace(/\D/g, '').length).toBeLessThanOrEqual(7);
+  });
+});
+
+describe('formatTimer', () => {
+  it('formats m:ss and h:mm:ss', () => {
+    expect(formatTimer(7_000)).toBe('0:07');
+    expect(formatTimer(192_400)).toBe('3:12');
+    expect(formatTimer(3_723_000)).toBe('1:02:03');
+    expect(formatTimer(-5)).toBe('0:00');
+    expect(formatTimer(Number.NaN)).toBe('0:00');
+  });
+});
+
+describe('consent', () => {
+  const labels = {
+    callsOk: 'Calls OK',
+    doNotContact: 'Do not contact',
+    marketingOn: 'marketing on',
+    marketingOff: 'marketing off',
+  };
+  it('reads calls OK and marketing off by default', () => {
+    expect(consentText({}, labels)).toBe('Calls OK · marketing off');
+  });
+  it('turns marketing on only with an opt-in and no opt-out', () => {
+    const optIn = { marketing_opt_in_at: '2026-01-01' };
+    expect(consentText(optIn, labels)).toBe('Calls OK · marketing on');
+    expect(consentText({ ...optIn, opted_out_at: '2026-02-01' }, labels)).toBe(
+      'Calls OK · marketing off'
+    );
+  });
+  it('does not call a do-not-contact customer, and carries the reason', () => {
+    const c = {
+      do_not_contact_at: '2026-03-01',
+      do_not_contact_reason: ' Asked ',
+      marketing_opt_in_at: '2026-01-01',
+    };
+    expect(consentState(c)).toEqual({
+      callsOk: false,
+      dncReason: 'Asked',
+      marketing: false,
+    });
+    expect(consentText(c, labels)).toBe('Do not contact · marketing off');
+    expect(
+      consentState({ do_not_contact_at: 'x', do_not_contact_reason: ' ' })
+        .dncReason
+    ).toBeNull();
+  });
+});
+
+describe('alsoRinging', () => {
+  it('names the others, not me, and counts the rest', () => {
+    const r = row({ ringing_user_ids: [ME, SARA, OMAR, 'u-x', SARA] });
+    expect(alsoRinging(r, ME, { [SARA]: 'Sara', [OMAR]: 'Omar' })).toEqual({
+      names: ['Sara', 'Omar'],
+      more: 1,
+    });
+    expect(
+      alsoRinging(r, ME, { [SARA]: 'Sara', [OMAR]: 'Omar', 'u-x': 'X' }, 1)
+    ).toEqual({
+      names: ['Sara'],
+      more: 2,
+    });
+    expect(alsoRinging(row(), ME, {})).toEqual({ names: [], more: 0 });
+  });
+});
+
+describe('callCardText', () => {
+  const labels: CallCardLabels = {
+    heading: (d, who) => `${d} call with ${who}`,
+    direction: {
+      inbound: 'Inbound',
+      outbound: 'Outbound',
+      internal: 'Internal',
+    },
+    outcome: {
+      interested: 'Interested',
+      docs_requested: 'Docs requested',
+      call_back: 'Call back',
+      not_eligible: 'Not eligible',
+      wrong_number: 'Wrong number',
+    },
+    noOutcome: 'No outcome',
+    unknownCaller: 'Unknown caller',
+  };
+  const base = {
+    direction: 'inbound' as const,
+    talkSeconds: 192,
+    outcome: 'interested' as const,
+  };
+
+  it('reads as the walkthrough shows it', () => {
+    expect(
+      callCardText(
+        {
+          ...base,
+          contactName: 'Acme Trading',
+          notes: ' Wants  the card form ',
+        },
+        labels
+      )
+    ).toBe(
+      '📞 Inbound call with Acme Trading · 3:12 · Interested — Wants the card form'
+    );
+  });
+  it('says when there is no outcome and leaves out empty notes', () => {
+    expect(
+      callCardText(
+        { ...base, contactName: 'Acme', outcome: null, talkSeconds: null },
+        labels
+      )
+    ).toBe('📞 Inbound call with Acme · 0:00 · No outcome');
+  });
+  it('names an unknown customer by a masked number, never the number', () => {
+    const text = callCardText(
+      { ...base, contactName: ' ', remoteNumber: '971501234567' },
+      labels
+    );
+    expect(text).toContain('+971 ••••• 4567');
+    expect(text).not.toContain('971501234567');
+    expect(text).not.toMatch(/\d{5,}/);
+  });
+  it('falls back to "Unknown caller" and clips long notes', () => {
+    const text = callCardText({ ...base, notes: 'n'.repeat(5000) }, labels);
+    expect(text.startsWith('📞 Inbound call with Unknown caller')).toBe(true);
+    expect(text.endsWith('…')).toBe(true);
+    expect(text.length).toBeLessThan(CARD_NOTES_MAX + 80);
+    expect(clip('ab😀cd', 4)).toBe('ab😀…');
+  });
+});
+
+describe('dialResult', () => {
+  it('maps the dial route answers', () => {
+    expect(dialResult(200, { pbxCallId: 'x1' })).toEqual({
+      kind: 'ok',
+      pbxCallId: 'x1',
+    });
+    expect(
+      dialResult(409, { code: 'do_not_contact', reason: 'Asked' })
+    ).toEqual({
+      kind: 'do_not_contact',
+      reason: 'Asked',
+    });
+    expect(dialResult(409, { code: 'no_extension' })).toEqual({
+      kind: 'no_extension',
+    });
+    expect(dialResult(502, { error: 'PBX down' })).toEqual({
+      kind: 'error',
+      message: 'PBX down',
+    });
+    expect(dialResult(200, null)).toEqual({ kind: 'error', message: null });
+  });
+});
+
+describe('needsOutcome', () => {
+  it('asks only when mandatory and unset', () => {
+    expect(needsOutcome(true, null)).toBe(true);
+    expect(needsOutcome(true, 'call_back')).toBe(false);
+    expect(needsOutcome(false, null)).toBe(false);
+  });
+});
