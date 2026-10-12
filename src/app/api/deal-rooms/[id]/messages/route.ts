@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { UnauthorizedError, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { parsePostBody, sendRoomMessage } from '@/lib/deal-rooms/operations';
+import { listRoomMessages, parsePageQuery } from '@/lib/deal-rooms/reads';
 import { createClient } from '@/lib/supabase/server';
 
 /** One gateway round trip. */
@@ -67,6 +68,51 @@ export async function POST(
       { id: result.id, waMessageId: result.waMessageId },
       { status: 201 }
     );
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/**
+ * A page of the group's messages, oldest first: `?before=<createdAt>`
+ * (exclusive; pass the previous page's `nextBefore`) and `limit` (1 to
+ * 100, default 50). Each message carries `senderName` / `senderRole`
+ * from the roster (a staff member's post reads "<name> · Taamul"),
+ * `fileName` for media, and `deliveredCount` / `readCount` from the
+ * receipts. Guest-capable and read as the caller (RLS decides); only
+ * the posters' names are looked up on the service role. 404 when the
+ * caller cannot see the room.
+ */
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) throw new UnauthorizedError();
+    const { id } = await params;
+    const query = parsePageQuery(new URL(request.url).searchParams);
+    if (!query.ok) {
+      return NextResponse.json(
+        { error: query.error, code: 'invalid' },
+        { status: 400 }
+      );
+    }
+    const page = await listRoomMessages(supabase, supabaseAdmin(), {
+      roomId: id,
+      before: query.before,
+      limit: query.limit,
+    });
+    if (!page) {
+      return NextResponse.json(
+        { error: 'Deal room not found', code: 'not_found' },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json(page, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   } catch (err) {
     return toErrorResponse(err);
   }

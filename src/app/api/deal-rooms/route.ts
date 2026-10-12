@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 
-import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import {
+  UnauthorizedError,
+  requireRole,
+  toErrorResponse,
+} from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { createDealRoom, parseCreateBody } from '@/lib/deal-rooms/create';
+import { listRooms } from '@/lib/deal-rooms/reads';
+import { createClient } from '@/lib/supabase/server';
 import { ChannelError } from '@/lib/whatsapp/channels';
 
 /** Asking Meta for the group is a gateway round trip. */
@@ -57,6 +63,29 @@ export async function POST(request: Request) {
     if (err instanceof ChannelError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    return toErrorResponse(err);
+  }
+}
+
+/**
+ * The deal rooms the caller can see, newest first (at most 500):
+ * `{ rooms: [{ id, channelId, subject, status, participantCount,
+ * windowUntil, dealTitle, contactName, createdAt }] }`. Guest-capable:
+ * the session is checked here and the read runs as the caller, so RLS
+ * (`deal_room_access`) picks the rooms; a deal or contact RLS hides
+ * from the caller comes back null.
+ */
+export async function GET() {
+  try {
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) throw new UnauthorizedError();
+    const rooms = await listRooms(supabase);
+    return NextResponse.json(
+      { rooms },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
+  } catch (err) {
     return toErrorResponse(err);
   }
 }
