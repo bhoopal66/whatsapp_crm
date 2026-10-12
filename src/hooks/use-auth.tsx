@@ -18,8 +18,17 @@ import {
   canManageMembers as canManageMembersFor,
   canSendMessages as canSendMessagesFor,
   isAccountRole,
+  isBankGuest as isBankGuestRole,
   type AccountRole,
 } from "@/lib/auth/roles";
+import { pickActiveProfile } from "@/lib/auth/active-profile";
+import {
+  fallbackWorkspace,
+  parseMyWorkspaces,
+  workspaceHomePath,
+  type Workspace,
+} from "@/lib/auth/my-workspaces";
+import { clearClientCache } from "@/lib/client-cache";
 
 interface Profile {
   id: string;
@@ -130,6 +139,25 @@ interface AuthContextValue {
   canEditSettings: boolean;
   /** True if the caller can send messages and edit operational data (agent+). */
   canSendMessages: boolean;
+
+  // ----------------------------------------------------------
+  // Workspaces (migration 083): one login, one profile row per
+  // workspace (account), exactly one of them active.
+  // ----------------------------------------------------------
+
+  /** Every workspace the person belongs to, active first (my_workspaces()).
+   *  Empty while loading, and on a database without migration 083. */
+  workspaces: Workspace[];
+  /** The workspace the app is working in — `accountId` once loaded. */
+  activeWorkspaceId: string | null;
+  /** True if the active role is `bank_guest`: team chat only. */
+  isBankGuest: boolean;
+  /**
+   * Make `accountId` the active workspace, then reload the app there
+   * (a hard navigation, so realtime channels and caches restart in the
+   * new workspace). Rejects with the server's reason when refused.
+   */
+  switchWorkspace: (accountId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -154,6 +182,37 @@ interface ProfileRow {
   account_role: string | null;
   /** Migration 069. Absent on a database that predates it. */
   deactivated_at?: string | null;
+  /** Migration 083. Absent on a database that predates it. */
+  is_active?: boolean | null;
+}
+
+/** Other tabs of this browser follow a workspace switch (see below). */
+const WORKSPACE_CHANNEL = "taamul-connect:workspace";
+
+/**
+ * Ask the server to move the caller's active workspace. Null on
+ * success, else the reason. Never throws: the deactivation path below
+ * must reach its own fallback whatever the network does.
+ */
+async function requestWorkspaceSwitch(
+  accountId: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch("/api/workspaces/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId }),
+    });
+    if (res.ok) return null;
+    const body: unknown = await res.json().catch(() => null);
+    const error =
+      body && typeof body === "object" && "error" in body
+        ? (body as { error: unknown }).error
+        : null;
+    return typeof error === "string" && error ? error : `HTTP ${res.status}`;
+  } catch (err) {
+    return err instanceof Error ? err.message : "network error";
+  }
 }
 
 /**
@@ -165,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   // Why the account/role couldn't be established, when it couldn't.
   // Null on the happy path.
@@ -180,6 +240,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // profileLoading back to true on window focus events/token refresh.
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
+  // Every switch lands here: drop what the old workspace cached, tell
+  // this browser's other tabs (they share the active workspace, which
+  // is a database flag, not per tab), and load the new workspace's
+  // landing page from scratch.
+  const workspaceChannelRef = useRef<BroadcastChannel | null>(null);
+  const enterWorkspace = useCallback((role: AccountRole | null) => {
+    clearClientCache();
+    try {
+      workspaceChannelRef.current?.postMessage({ type: "switched", role });
+    } catch {
+      // Closed channel: the other tabs follow on their next load.
+    }
+    window.location.assign(workspaceHomePath(role));
+  }, []);
+
   // Shared across init, auth-state-change listener, and the exposed
   // refreshProfile() callback. Reads the current session's user id and
   // pulls the matching profile row along with its account summary.
@@ -192,17 +267,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // below, rather than after it. These are two sequential round trips
     // on the critical path of every full page load, and on a tunnelled
     // self-host each one costs ~700ms — the profile has to land before
-    // any screen can decide what the user may do.
+    // any screen can decide what the user may do. `Promise.resolve`
+    // is what starts it: a PostgREST builder sends nothing until its
+    // `then` is called, so holding the bare builder ran it after the
+    // profile read after all.
     //
     // No account id is needed to ask: `accounts_select` is
     // `USING (is_account_member(id))` (migration 017), so this returns
     // exactly the caller's own account. The result is still matched
     // against `profile.account_id` below and falls back to the point
     // lookup if it somehow disagrees, so the guarantee is unchanged.
-    // A rejection is caught at the point of use, not here.
-    const accountsPromise = supabase
-      .from("accounts")
-      .select("id, name, default_currency");
+    // Never rejects: a failure reads as null, handled at the point of use.
+    const accountsRead = Promise.resolve(
+      supabase.from("accounts").select("id, name, default_currency"),
+    ).then(
+      (r) => (r.error ? null : (r.data ?? [])),
+      () => null,
+    );
+    // The person's workspaces (migration 083), for the switcher, for a
+    // bank guest's account name (a guest cannot read `accounts`), and
+    // for leaving a deactivated workspace. In parallel too; a failure
+    // (a database without 083) reads as none.
+    const workspacesRead = Promise.resolve(supabase.rpc("my_workspaces")).then(
+      (r) => (r.error ? [] : parseMyWorkspaces(r.data)),
+      () => [] as Workspace[],
+    );
+    // A switch navigates away; keep the loading state rather than flash
+    // the error alert for the profile this tab is about to replace.
+    let leaving = false;
 
     try {
       let data: ProfileRow | null = null;
@@ -210,14 +302,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await supabase
           .from("profiles")
           // `*`, not a column list: `deactivated_at` (migration 069)
-          // may not exist yet, and naming a missing column fails the
-          // whole read — which locks every user out of the UI.
+          // and `is_active` (083) may not exist yet, and naming a
+          // missing column fails the whole read — which locks every
+          // user out of the UI.
           .select("*")
-          .eq("user_id", userId)
-          .maybeSingle<ProfileRow>();
+          // One row per workspace since 083 (RLS hands a person all of
+          // their own), so not `.maybeSingle()`, which errors for anyone
+          // in two workspaces: take the active row.
+          .eq("user_id", userId);
 
         if (!result.error) {
-          data = result.data;
+          data = pickActiveProfile(result.data as ProfileRow[] | null);
           break;
         }
 
@@ -241,12 +336,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const workspaceList = await workspacesRead;
+      setWorkspaces(workspaceList);
+
       if (data?.deactivated_at) {
-        // An admin deactivated this member (migration 069). Their login
-        // is banned and RLS already returns them nothing, but a tab
-        // opened earlier still holds a session; end it rather than
-        // leave them on a dashboard that silently shows nothing. The
-        // default (global) sign-out also revokes their refresh tokens.
+        // An admin deactivated this membership (migration 069) — since
+        // 083 that is one workspace, not the login. If another of the
+        // person's workspaces is still open, move there: signing them
+        // out would only land them back here at the next sign-in, and
+        // out again.
+        const fallback = fallbackWorkspace(
+          workspaceList,
+          data.account_id ?? null,
+        );
+        if (fallback) {
+          const failure = await requestWorkspaceSwitch(fallback.accountId);
+          if (!failure) {
+            leaving = true;
+            enterWorkspace(fallback.role);
+            return;
+          }
+          // Still signed in: their other workspace is open to them. The
+          // access alert shows this with a Retry, and the switcher works.
+          lastFetchedUserIdRef.current = null;
+          setStatusDetail(
+            `this workspace was deactivated; switching to ${fallback.name} failed: ${failure}`,
+          );
+          return;
+        }
+        // Every membership is deactivated, so the login is banned and
+        // RLS already returns them nothing, but a tab opened earlier
+        // still holds a session; end it rather than leave them on a
+        // dashboard that silently shows nothing. The default (global)
+        // sign-out also revokes their refresh tokens.
         // If the global sign-out is refused, still clear the local
         // session: the middleware bounces a signed-in visitor off
         // /login, which would otherwise loop back here.
@@ -259,6 +381,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data) {
+        // Narrow the DB enum into our AccountRole union. The DB
+        // constraint should make this unconditional, but a future
+        // migration that broadens the enum without updating TS would
+        // otherwise crash here — fall back to null and let UI gates
+        // treat the caller as least-privileged.
+        const accountRole = isAccountRole(data.account_role)
+          ? data.account_role
+          : null;
+
         // Load the account with a plain lookup by id instead of an
         // embedded FK join. The embed (`account:accounts!inner(...)`)
         // forces PostgREST to resolve the profiles.account_id →
@@ -270,18 +401,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // (with account_id / account_role) still resolves even if the
         // account name lookup itself can't.
         let accountRow: AccountSummary | null = null;
-        if (data.account_id) {
+        // A bank guest cannot read `accounts` (083): skip the point
+        // lookup's round trip and name the account from the list below.
+        if (data.account_id && !isBankGuestRole(accountRole)) {
           // The parallel read above has usually already landed. Take the
           // row matching this profile's account_id; anything else (an
           // error, or a set that somehow doesn't contain it) falls
           // through to the original point lookup.
-          const parallel = await accountsPromise.then(
-            (r) =>
-              r.error
-                ? null
-                : (r.data ?? []).find((a) => a.id === data!.account_id) ?? null,
-            () => null,
-          );
+          const parallel =
+            (await accountsRead)?.find((a) => a.id === data!.account_id) ??
+            null;
 
           const { data: account, error: accountErr } = parallel
             ? { data: parallel, error: null }
@@ -307,15 +436,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             };
           }
         }
-
-        // Narrow the DB enum into our AccountRole union. The DB
-        // constraint should make this unconditional, but a future
-        // migration that broadens the enum without updating TS would
-        // otherwise crash here — fall back to null and let UI gates
-        // treat the caller as least-privileged.
-        const accountRole = isAccountRole(data.account_role)
-          ? data.account_role
-          : null;
+        if (!accountRow && data.account_id) {
+          // my_workspaces() names the account for anyone who cannot
+          // read it: a bank guest, or a read that failed above.
+          const entry = workspaceList.find(
+            (w) => w.accountId === data!.account_id,
+          );
+          if (entry) {
+            accountRow = {
+              id: entry.accountId,
+              name: entry.name,
+              default_currency: DEFAULT_CURRENCY,
+            };
+          }
+        }
 
         setProfile({
           id: data.id,
@@ -351,8 +485,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastFetchedUserIdRef.current = null;
       setStatusDetail(err instanceof Error ? err.message : "profile fetch failed");
     } finally {
-      setProfileLoading(false);
+      if (!leaving) setProfileLoading(false);
     }
+  }, [enterWorkspace]);
+
+  // Another tab of this browser switched workspace: the database's
+  // active workspace is now that one for this tab too, so follow it
+  // rather than keep showing the old workspace over the new one's data.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(WORKSPACE_CHANNEL);
+    workspaceChannelRef.current = channel;
+    channel.onmessage = (event: MessageEvent) => {
+      const role: unknown = (event.data as { role?: unknown } | null)?.role;
+      clearClientCache();
+      window.location.assign(
+        workspaceHomePath(isAccountRole(role) ? role : null),
+      );
+    };
+    return () => {
+      workspaceChannelRef.current = null;
+      channel.close();
+    };
   }, []);
 
   useEffect(() => {
@@ -417,6 +571,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastFetchedUserIdRef.current = null;
         setProfile(null);
         setAccount(null);
+        setWorkspaces([]);
         setProfileLoading(false);
       }
 
@@ -436,8 +591,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setProfile(null);
     setAccount(null);
+    setWorkspaces([]);
     window.location.href = "/login";
   }, []);
+
+  const switchWorkspace = useCallback(
+    async (accountId: string) => {
+      const failure = await requestWorkspaceSwitch(accountId);
+      if (failure) throw new Error(failure);
+      const target = workspaces.find((w) => w.accountId === accountId);
+      enterWorkspace(target?.role ?? null);
+    },
+    [workspaces, enterWorkspace],
+  );
 
   const refreshProfile = useCallback(async () => {
     if (!user?.id) return;
@@ -460,8 +626,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canManageMembers: role ? canManageMembersFor(role) : false,
       canEditSettings: role ? canEditSettingsFor(role) : false,
       canSendMessages: role ? canSendMessagesFor(role) : false,
+      isBankGuest: isBankGuestRole(role),
     };
   }, [profile?.account_role, profile?.account_id]);
+
+  const activeWorkspaceId =
+    derived.accountId ??
+    workspaces.find((w) => w.isActive)?.accountId ??
+    null;
 
   // Signed out is not a broken account — the shell redirects to /login
   // before anything reads this.
@@ -492,6 +664,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accountStatus,
       accountStatusDetail: statusDetail,
       ...derived,
+      workspaces,
+      activeWorkspaceId,
+      switchWorkspace,
     }),
     [
       user,
@@ -505,6 +680,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       accountStatus,
       statusDetail,
       derived,
+      workspaces,
+      activeWorkspaceId,
+      switchWorkspace,
     ],
   );
 
@@ -546,6 +724,10 @@ export function useAuth(): AuthContextValue {
       canManageMembers: false,
       canEditSettings: false,
       canSendMessages: false,
+      workspaces: [],
+      activeWorkspaceId: null,
+      isBankGuest: false,
+      switchWorkspace: async () => {},
     };
   }
   return ctx;
