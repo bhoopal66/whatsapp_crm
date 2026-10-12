@@ -1544,7 +1544,7 @@
       "cancel": "Cancel",
       "removing": "Removing...",
       "removeBtn": "Remove member",
-      "createMember": "Create user",
+      "createMember": "Add person",
       "inactive": "Inactive",
       "inactiveCount": "{count} inactive",
       "deactivate": "Deactivate",
@@ -1555,7 +1555,8 @@
       "deactivateDialogTitle": "Deactivate member",
       "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. Their role, assigned chats and history stay as they are.",
       "deactivating": "Deactivating...",
-      "deactivateBtn": "Deactivate"
+      "deactivateBtn": "Deactivate",
+      "bankCode": "Bank: {code}"
     },
     "invite": {
       "inviteCreated": "Invite created",
@@ -1583,7 +1584,8 @@
       "labelTooLong": "Label must be {max} characters or fewer",
       "copied": "Invite link copied",
       "clipboardBlocked": "Clipboard blocked — copy the link manually",
-      "whatsappMessage": "Join {accountName} on Taamul Connect using this link (valid for {expiresInDays} days): {url}"
+      "whatsappMessage": "Join {accountName} on Taamul Connect using this link (valid for {expiresInDays} days): {url}",
+      "bankGuestHint": "Bank guests are added by email with “Add person”, not by link."
     },
     "chatTags": {
       "title": "Chat tags",
@@ -2304,8 +2306,8 @@
       "truncated": "Showing the newest 5,000 records only."
     },
     "createMember": {
-      "dialogTitle": "Create a user",
-      "dialogDesc": "Creates a login that can sign in immediately. Share the password with them directly — no email is sent.",
+      "dialogTitle": "Add a person",
+      "dialogDesc": "If this email already has a login, they are added to this workspace with their existing password.",
       "emailLabel": "Email",
       "emailPlaceholder": "name@company.com",
       "nameLabel": "Full name",
@@ -2314,10 +2316,15 @@
       "passwordHint": "Shown in plain text so you can copy it accurately. At least 8 characters.",
       "regenerate": "Generate a new password",
       "roleLabel": "Role",
-      "submit": "Create user",
+      "submit": "Add person",
       "cancel": "Cancel",
       "created": "Created {email}",
-      "failed": "Could not create the user"
+      "failed": "Could not create the user",
+      "added": "Added {email} with their existing login",
+      "noLoginHint": "No login uses this email yet. Set a password to create one, and share it with them directly — no email is sent.",
+      "bankCodeLabel": "Bank",
+      "bankCodePlaceholder": "Bank (e.g. Mashreq)",
+      "bankCodeRequired": "A bank guest needs their bank."
     },
     "teams": {
       "title": "Teams",
@@ -3319,5 +3326,67 @@
   "Chat": {
     "settingUpTitle": "Team chat is being set up",
     "settingUpBody": "Your workspace's team chat will appear here."
+  },
+  "Workspaces": {
+    "rail": {
+      "label": "Workspaces",
+      "create": "Create a workspace",
+      "mentions": "{count, plural, one {# mention} other {# mentions}}",
+      "unread": "Unread messages"
+    },
+    "create": {
+      "title": "Create a workspace",
+      "description": "A workspace is one business. Its contacts, chats, channels and permissions are kept apart from every other workspace.",
+      "nameLabel": "Workspace name",
+      "namePlaceholder": "e.g. Taamul Partners",
+      "shortNameLabel": "Short name",
+      "shortNameHint": "Up to 4 letters or digits, shown on the workspace rail.",
+      "numberLabel": "WhatsApp number for this workspace",
+      "numberMeta": "Connect a new number with Meta…",
+      "numberWhapi": "Connect a Whapi channel…",
+      "numberSkip": "Skip for now",
+      "numberHint": "One number belongs to one workspace. Deal rooms need a verified (green-tick) business account.",
+      "inviteHeading": "Invite people",
+      "youAreOwner": "You are the owner",
+      "emailLabel": "Email",
+      "emailPlaceholder": "name@company.com",
+      "roleLabel": "Role",
+      "bankCodePlaceholder": "Bank (e.g. Mashreq)",
+      "removeRow": "Remove",
+      "addAnother": "Add another",
+      "cardAdminTitle": "Admin / Supervisor",
+      "cardAdminBody": "All channels and chats, settings, approvals.",
+      "cardAgentTitle": "RM / Agent",
+      "cardAgentBody": "Own customers, channels they are added to.",
+      "cardGuestTitle": "Bank guest",
+      "cardGuestBody": "Only the channels and deal rooms they are invited to.",
+      "cancel": "Cancel",
+      "submit": "Create workspace",
+      "creating": "Creating…",
+      "failed": "Couldn't create the workspace",
+      "errors": {
+        "nameRequired": "Give the workspace a name.",
+        "nameTooLong": "Keep the name to 80 characters or fewer.",
+        "shortNameInvalid": "Use 1 to 4 letters or digits.",
+        "email": "Enter a valid email.",
+        "duplicate": "This email is already in the list.",
+        "bankCode": "Enter the bank for a bank guest.",
+        "tooMany": "Invite at most {max} people at a time."
+      },
+      "resultsTitle": "Workspace created",
+      "resultsDescription": "{name} is ready. Here is how the invitations went.",
+      "inviteAdded": "Added with their existing login",
+      "inviteFailed": "Not added",
+      "noLoginHint": "No login uses this email yet. Create one with a temporary password and share it with them directly.",
+      "createLogin": "Create a login",
+      "fullNameLabel": "Full name",
+      "fullNamePlaceholder": "Optional",
+      "passwordLabel": "Temporary password",
+      "passwordHint": "At least {min} characters. No email is sent.",
+      "regenerate": "Generate a new password",
+      "loginCreated": "Login created and added",
+      "loginFailed": "Couldn't create the login",
+      "continue": "Continue"
+    }
   }
 }

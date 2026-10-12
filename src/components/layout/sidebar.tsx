@@ -21,7 +21,8 @@ import {
 } from 'lucide-react';
 import type { AccountRole } from '@/lib/auth/roles';
 import { workspaceHomePath } from '@/lib/auth/my-workspaces';
-import { WorkspaceSwitcher } from './workspace-switcher';
+import { showWorkspaceRail } from '@/lib/workspaces/form';
+import { WorkspaceRail } from './workspace-rail';
 import {
   isNavItemActive,
   visibleBottomNavItems,
@@ -101,6 +102,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     signOut,
     workspaces,
     isBankGuest,
+    canManageMembers,
   } = useAuth();
   const totalUnread = useTotalUnread();
   // Only what this role may open; null while the profile loads, so the
@@ -118,14 +120,18 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // name diverges and the strip becomes meaningful — that's the signal
   // we gate on. Wait for the profile fetch to settle first, otherwise
   // the strip flashes in once the row resolves (a layout jump).
-  // Someone in several workspaces gets the switcher instead, which
-  // names the workspace whatever it is called.
-  const showSwitcher = workspaces.length > 1;
+  // Someone in several workspaces always gets it: the rail's tiles
+  // carry only short names, so this is where the active one is named.
+  //
+  // The workspace rail: another workspace to switch to, or the "+"
+  // that creates one (owner/admin of the active workspace, the gate
+  // POST /api/workspaces applies).
+  const canCreateWorkspace = !profileLoading && canManageMembers;
+  const showRail = showWorkspaceRail(workspaces.length, canCreateWorkspace);
   const showAccountStrip =
-    !showSwitcher &&
     !profileLoading &&
     !!account?.name &&
-    account.name !== profile?.full_name;
+    (workspaces.length > 1 || account.name !== profile?.full_name);
 
   // Close the drawer when route changes — users opened it to navigate,
   // so once they pick a destination the drawer should get out of the way.
@@ -230,192 +236,197 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          // Mobile: fixed drawer that slides in from the left.
-          'border-border bg-card fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r',
+          // Mobile: fixed drawer that slides in from the left. With the
+          // workspace rail the drawer is a row: rail, then the nav.
+          'border-border bg-card fixed inset-y-0 left-0 z-40 flex h-full flex-row border-r',
+          showRail ? 'w-80' : 'w-64',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
           // Desktop: static, always visible — reset all the mobile framing.
-          'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
+          'lg:static lg:z-0 lg:translate-x-0 lg:transition-none',
+          showRail ? 'lg:w-76' : 'lg:w-60'
         )}
         aria-label="Primary"
       >
-        {/* Logo row. On mobile we put a close button here; on desktop the
+        {showRail ? <WorkspaceRail canCreate={canCreateWorkspace} /> : null}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
-        <div className="border-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <Link
-            href={workspaceHomePath(accountRole)}
-            className="flex items-center gap-2"
-          >
-            {/* White chip behind the mark: half the logo is navy
+          <div className="border-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
+            <Link
+              href={workspaceHomePath(accountRole)}
+              className="flex items-center gap-2"
+            >
+              {/* White chip behind the mark: half the logo is navy
                 (#1b547f) and reads poorly straight against the
                 dark-mode sidebar. */}
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white p-1">
-              <img
-                src="/brand/taamul-mark.png"
-                alt=""
-                width={24}
-                height={24}
-                className="h-6 w-6"
-              />
-            </div>
-            <span className="text-foreground text-sm font-semibold">
-              {t('title')}
-            </span>
-          </Link>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t('closeMenu')}
-            className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 items-center justify-center rounded-md lg:hidden"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white p-1">
+                <img
+                  src="/brand/taamul-mark.png"
+                  alt=""
+                  width={24}
+                  height={24}
+                  className="h-6 w-6"
+                />
+              </div>
+              <span className="text-foreground text-sm font-semibold">
+                {t('title')}
+              </span>
+            </Link>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t('closeMenu')}
+              className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 items-center justify-center rounded-md lg:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
-        {/* Main navigation: headed groups (nav-items.ts), then Settings
+          {/* Main navigation: headed groups (nav-items.ts), then Settings
             set apart at the foot — below everything while the groups
             fit, after them once the nav scrolls. */}
-        <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
-          <div className="flex flex-col gap-5">
-            {navGroups.map((group) => {
-              const headingId = `${groupIdPrefix}-${group.id}`;
-              return (
-                <div key={group.id}>
-                  {group.labelKey ? (
-                    <div
-                      id={headingId}
-                      className="text-muted-foreground px-3 pb-1.5 text-[11px] font-semibold tracking-[0.09em] uppercase"
+          <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
+            <div className="flex flex-col gap-5">
+              {navGroups.map((group) => {
+                const headingId = `${groupIdPrefix}-${group.id}`;
+                return (
+                  <div key={group.id}>
+                    {group.labelKey ? (
+                      <div
+                        id={headingId}
+                        className="text-muted-foreground px-3 pb-1.5 text-[11px] font-semibold tracking-[0.09em] uppercase"
+                      >
+                        {t(group.labelKey)}
+                      </div>
+                    ) : null}
+                    <ul
+                      aria-labelledby={group.labelKey ? headingId : undefined}
+                      className="flex flex-col gap-0.5"
                     >
-                      {t(group.labelKey)}
-                    </div>
-                  ) : null}
-                  <ul
-                    aria-labelledby={group.labelKey ? headingId : undefined}
-                    className="flex flex-col gap-0.5"
-                  >
-                    {group.items.map(renderNavItem)}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
+                      {group.items.map(renderNavItem)}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
 
-          <div className="mt-auto pt-4">
-            <ul className="border-border flex flex-col gap-0.5 border-t pt-4">
-              {visibleBottomNavItems(profileLoading ? null : accountRole).map(
-                renderNavItem
-              )}
-            </ul>
-          </div>
-        </nav>
+            <div className="mt-auto pt-4">
+              <ul className="border-border flex flex-col gap-0.5 border-t pt-4">
+                {visibleBottomNavItems(profileLoading ? null : accountRole).map(
+                  renderNavItem
+                )}
+              </ul>
+            </div>
+          </nav>
 
-        {/* User section */}
-        <div className="border-border shrink-0 border-t p-3">
-          {showSwitcher ? <WorkspaceSwitcher /> : null}
-          {/* Account name display — surfaced only when the account
+          {/* User section */}
+          <div className="border-border shrink-0 border-t p-3">
+            {/* Account name display — surfaced only when the account
               name differs from the user's own name (see
               `showAccountStrip`). For a default solo account the two
               match, so we hide it to avoid duplicating the user name
               below; for renamed or shared accounts it tells the user
               which account they're acting in. */}
-          {showAccountStrip && account?.name ? (
-            <div className="text-muted-foreground mb-2 flex items-center gap-2 px-3 text-xs">
-              <UsersRound className="size-3.5 shrink-0" />
-              {/* `title=` exposes the full name on hover when it
+            {showAccountStrip && account?.name ? (
+              <div className="text-muted-foreground mb-2 flex items-center gap-2 px-3 text-xs">
+                <UsersRound className="size-3.5 shrink-0" />
+                {/* `title=` exposes the full name on hover when it
                   gets truncated (long account names + narrow
                   sidebars). Cheap a11y win. */}
-              <span className="truncate" title={account.name}>
-                {account.name}
-              </span>
-              {accountRole
-                ? // Always render the chip — owners used to be
-                  // invisible here, which made them indistinguishable
-                  // from admins at a glance. Now everyone sees their
-                  // role (with a colour cue) regardless of tier.
-                  (() => {
-                    const meta = ROLE_CHIP[accountRole];
-                    const Icon = meta.icon;
-                    return (
-                      <span
-                        className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wider uppercase ${meta.className}`}
-                      >
-                        <Icon className="size-3" />
-                        {t(meta.labelKey as string)}
-                      </span>
-                    );
-                  })()
-                : null}
-            </div>
-          ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors focus:outline-none">
-              <Avatar className="size-8 shrink-0">
-                {profile?.avatar_url ? (
-                  <AvatarImage
-                    src={profile.avatar_url}
-                    alt={profile.full_name ?? t('defaultAvatar')}
-                  />
-                ) : null}
-                <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
-                  {profile?.full_name?.charAt(0)?.toUpperCase() ??
-                    profile?.email?.charAt(0)?.toUpperCase() ??
-                    'U'}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="text-foreground truncate text-sm font-medium">
-                  {profile?.full_name ?? t('defaultUser')}
-                </p>
-                <p className="text-muted-foreground truncate text-xs">
-                  {profile?.email ?? ''}
-                </p>
+                <span className="truncate" title={account.name}>
+                  {account.name}
+                </span>
+                {accountRole
+                  ? // Always render the chip — owners used to be
+                    // invisible here, which made them indistinguishable
+                    // from admins at a glance. Now everyone sees their
+                    // role (with a colour cue) regardless of tier.
+                    (() => {
+                      const meta = ROLE_CHIP[accountRole];
+                      const Icon = meta.icon;
+                      return (
+                        <span
+                          className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wider uppercase ${meta.className}`}
+                        >
+                          <Icon className="size-3" />
+                          {t(meta.labelKey as string)}
+                        </span>
+                      );
+                    })()
+                  : null}
               </div>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              side="top"
-              sideOffset={6}
-              className="bg-popover text-popover-foreground ring-border min-w-56"
-            >
-              {/* Settings is staff-only: the shell keeps a guest on /chat. */}
-              {isBankGuest ? null : (
-                <>
-                  <DropdownMenuItem
-                    render={
-                      <Link
-                        href="/settings?tab=profile"
-                        onClick={onClose}
-                        className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
-                      />
-                    }
-                  >
-                    <User className="size-4" />
-                    {t('menuProfile')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    render={
-                      <Link
-                        href="/settings?tab=whatsapp"
-                        onClick={onClose}
-                        className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
-                      />
-                    }
-                  >
-                    <Settings className="size-4" />
-                    {t('menuSettings')}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-border" />
-                </>
-              )}
-              <DropdownMenuItem
-                onClick={signOut}
-                className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors focus:outline-none">
+                <Avatar className="size-8 shrink-0">
+                  {profile?.avatar_url ? (
+                    <AvatarImage
+                      src={profile.avatar_url}
+                      alt={profile.full_name ?? t('defaultAvatar')}
+                    />
+                  ) : null}
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+                    {profile?.full_name?.charAt(0)?.toUpperCase() ??
+                      profile?.email?.charAt(0)?.toUpperCase() ??
+                      'U'}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="text-foreground truncate text-sm font-medium">
+                    {profile?.full_name ?? t('defaultUser')}
+                  </p>
+                  <p className="text-muted-foreground truncate text-xs">
+                    {profile?.email ?? ''}
+                  </p>
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="top"
+                sideOffset={6}
+                className="bg-popover text-popover-foreground ring-border min-w-56"
               >
-                <LogOut className="size-4" />
-                {t('menuSignOut')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {/* Settings is staff-only: the shell keeps a guest on /chat. */}
+                {isBankGuest ? null : (
+                  <>
+                    <DropdownMenuItem
+                      render={
+                        <Link
+                          href="/settings?tab=profile"
+                          onClick={onClose}
+                          className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                        />
+                      }
+                    >
+                      <User className="size-4" />
+                      {t('menuProfile')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      render={
+                        <Link
+                          href="/settings?tab=whatsapp"
+                          onClick={onClose}
+                          className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                        />
+                      }
+                    >
+                      <Settings className="size-4" />
+                      {t('menuSettings')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-border" />
+                  </>
+                )}
+                <DropdownMenuItem
+                  onClick={signOut}
+                  className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                >
+                  <LogOut className="size-4" />
+                  {t('menuSignOut')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </aside>
     </>
