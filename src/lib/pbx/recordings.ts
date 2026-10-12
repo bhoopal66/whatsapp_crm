@@ -17,11 +17,13 @@ import { YeastarError } from './yeastar/errors';
  * token: it is fetched here and never stored or logged.
  *
  * Announcement: the bilingual notice is configured on the PBX to play
- * before every recorded call (the design), so the recording row is
- * stored with `announcement_played = true`. The workspace's
+ * before every recorded call (the design). The workspace's
  * `announcement_required` setting at fetch time is the basis, kept in
  * `calls.meta.announcement_basis`: `pbx_prompt` while required,
- * `not_required` while switched off.
+ * `not_required` while switched off. Only `pbx_prompt` marks the
+ * recording (and the call) `announcement_played`: a recording fetched
+ * while the notice was switched off is not known to be announced, so
+ * pbx_recording_playable (089) holds it whenever the requirement is on.
  */
 
 export const RECORDING_BUCKET = 'call-recordings';
@@ -163,6 +165,7 @@ export async function fetchPendingRecordings(
       const basis = (await announcementRequired(accountId))
         ? 'pbx_prompt'
         : 'not_required';
+      const announced = basis === 'pbx_prompt';
       const rec = await db.from('call_recordings').upsert(
         {
           call_id: callId,
@@ -172,7 +175,7 @@ export async function fetchPendingRecordings(
           bytes: bytes.byteLength,
           format,
           fetched_at: new Date(now()).toISOString(),
-          announcement_played: true,
+          announcement_played: announced,
         },
         { onConflict: 'call_id' }
       );
@@ -181,7 +184,7 @@ export async function fetchPendingRecordings(
         .from('calls')
         .update({
           recording_state: 'fetched',
-          announcement_played: true,
+          announcement_played: announced,
           meta: { ...meta, announcement_basis: basis },
         })
         .eq('id', callId)
