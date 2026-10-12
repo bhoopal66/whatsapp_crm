@@ -563,6 +563,22 @@ async function handleReaction(
   }
 }
 
+/** How much of the pipeline a message gets (module 017a). */
+export interface ProcessMessageOptions {
+  /**
+   * false: persist the message to the inbox (row, unread bump, thread
+   * number, re-open) and stop — no campaign follow-up, Flows,
+   * automations, AI reply, outbound webhooks or TypeSafe watch. For a
+   * sender over the webhook rate limit, whose message must never be
+   * lost but must not be answered either. Default true.
+   *
+   * The outbound `conversation.created` webhook still fires when the
+   * message opens a brand-new thread: it is emitted before this cut-off,
+   * and the conversation does exist.
+   */
+  fanOut?: boolean;
+}
+
 export async function processMessage(
   message: NormalizedInboundMessage,
   // Tenancy. Resolved from the matched whatsapp_config row; every
@@ -581,7 +597,8 @@ export async function processMessage(
   // Work that must finish inside the route's after() but need not hold
   // up the next message of the same delivery (TypeSafe's watch). The
   // route awaits it after its loop; without it, it is awaited here.
-  later?: Promise<unknown>[]
+  later?: Promise<unknown>[],
+  options: ProcessMessageOptions = {}
 ) {
   const mirrorMedia = channel.mirrorInboundMedia;
   const senderPhone = normalizePhone(message.from);
@@ -816,6 +833,9 @@ export async function processMessage(
   // update above so the write can be gated on the row's CURRENT status in
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation);
+
+  // Everything above is the inbox; everything below reacts to it.
+  if (options.fanOut === false) return;
 
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate

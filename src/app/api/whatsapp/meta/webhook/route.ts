@@ -27,7 +27,20 @@ import {
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
+import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import {
+  clientIp,
+  confirmAccepted,
+  RateLimiter,
+  ReplayGuard,
+  RpcRateStore,
+  RpcSeenStore,
+  screenWebhook,
+  type ScreenCtx,
+  type ScreenDecision,
+  type ScreenEvent,
+} from '@/lib/edge';
 
 /**
  * Meta Cloud API webhook — the second inbound hub.
@@ -69,6 +82,22 @@ function supabaseAdmin() {
     );
   }
   return _adminClient;
+}
+
+// Edge screening (module 017a). The guard and the limiter keep nothing
+// in memory — claims and counters live in migration 084's tables, shared
+// by every instance — so one pair per process serves every request.
+// Lazy for the same build-time reason as the client above.
+let _edgeCtx: ScreenCtx | null = null;
+function edgeCtx(): ScreenCtx {
+  if (!_edgeCtx) {
+    const admin = supabaseAdmin();
+    _edgeCtx = {
+      replay: new ReplayGuard(new RpcSeenStore(admin)),
+      limiter: new RateLimiter(new RpcRateStore(admin)),
+    };
+  }
+  return _edgeCtx;
 }
 
 // Callbacks for numbers not connected here, summarised per id rather
@@ -195,7 +224,13 @@ export async function POST(request: Request) {
   const phoneNumberIds = metaPhoneNumberIds(payload);
   let phone: HalfResult | null = null;
   if (phoneNumberIds.length > 0) {
-    phone = await phoneNumberHalf(payload, phoneNumberIds, rawBody, signature);
+    phone = await phoneNumberHalf(
+      payload,
+      phoneNumberIds,
+      rawBody,
+      signature,
+      clientIp(request.headers)
+    );
     if (phone.lookupFailed) return lookupFailed();
   } else if (!template) {
     // No metadata.phone_number_id — nothing we can route. 200 so Meta
@@ -220,6 +255,15 @@ export async function POST(request: Request) {
         }
       }
     });
+  }
+
+  // Another delivery holds a claim on one of these events and has not
+  // finished with it: 503 so Meta redelivers once it has (then they are
+  // duplicates) or its lease has lapsed (then they are processed). No
+  // phone work was queued; a template half that verified was, and
+  // replaying it is idempotent, as with the 401 below.
+  if (phone?.inFlight) {
+    return NextResponse.json({ error: 'Retry later' }, { status: 503 });
   }
 
   // 401 rather than a silent 200 so a misconfigured app secret shows up
@@ -247,17 +291,19 @@ interface HalfResult {
   unauthorized: boolean;
   /** The database could not say whether an id is connected here. */
   lookupFailed: boolean;
+  /** Edge screening found an event claimed by a delivery in flight. */
+  inFlight: boolean;
 }
 
 const NOTHING_TO_DO: HalfResult = {
   work: null,
   unauthorized: false,
   lookupFailed: false,
+  inFlight: false,
 };
 
 const LOOKUP_FAILED: HalfResult = {
-  work: null,
-  unauthorized: false,
+  ...NOTHING_TO_DO,
   lookupFailed: true,
 };
 
@@ -282,7 +328,8 @@ async function phoneNumberHalf(
   payload: RawMetaWebhookPayload,
   phoneNumberIds: string[],
   rawBody: string,
-  signature: string | null
+  signature: string | null,
+  ip: string | undefined
 ): Promise<HalfResult> {
   // Every lookup first: one that fails part-way must not leave a tally
   // line calling an earlier, connected number "unconnected".
@@ -351,27 +398,108 @@ async function phoneNumberHalf(
     return { ...NOTHING_TO_DO, unauthorized: knownButUnverified };
   }
 
+  // Edge screening: ONE call for every verified number's events, since
+  // per-number calls would count a batched POST several times against
+  // the IP limit. Only verified events get here, and every key names its
+  // number, so one tenant's callbacks can never claim another's events.
+  const events: ScreenEvent[] = [];
+  for (const { event, config } of verified) {
+    const number = config.phone_number_id;
+    for (const status of event.statuses) {
+      events.push({
+        key: `status:${number}:${status.messageId}:${status.status}`,
+        kind: 'status',
+      });
+    }
+    for (const message of event.messages) {
+      events.push({
+        key: `msg:${number}:${message.id}`,
+        senderKey: message.from || message.bsuid,
+        kind: 'message',
+      });
+    }
+  }
+  const screen = await screenWebhook(edgeCtx(), { ip, events });
+  if (screen.status === 503) {
+    return { ...NOTHING_TO_DO, inFlight: true };
+  }
+
+  // One decision per event, in `events` order: walk the numbers again in
+  // the same order to give each event back its outcome.
+  const decisions = screen.decisions;
+  let next = 0;
+  let duplicates = 0;
+  let ipLimited = 0;
+  const skip = (outcome: ScreenDecision['outcome']) => {
+    if (outcome === 'duplicate') duplicates++;
+    else ipLimited++;
+  };
+  const screened = verified.map(({ event, config, rawStatuses }) => {
+    const own: ScreenDecision[] = [];
+    const statuses: typeof event.statuses = [];
+    for (const status of event.statuses) {
+      const decision = decisions[next++];
+      own.push(decision);
+      // Statuses are never sender-limited: accepted, or skipped.
+      if (decision.outcome === 'accept') statuses.push(status);
+      else skip(decision.outcome);
+    }
+    const messages: NormalizedInboundMessage[] = [];
+    const overLimit = new Set<NormalizedInboundMessage>();
+    for (const message of event.messages) {
+      const decision = decisions[next++];
+      own.push(decision);
+      if (decision.outcome === 'accept') messages.push(message);
+      else if (decision.outcome === 'rate_limited') {
+        // Never lost, never answered: into the inbox without fan-out.
+        messages.push(message);
+        overLimit.add(message);
+      } else skip(decision.outcome);
+    }
+    return {
+      event: { ...event, statuses, messages },
+      config,
+      rawStatuses,
+      overLimit,
+      decisions: own,
+    };
+  });
+
   return {
     ...NOTHING_TO_DO,
     work: async () => {
-      for (const { event, config, rawStatuses } of verified) {
+      if (duplicates + ipLimited > 0) {
+        console.warn(
+          `[meta-webhook] skipped ${duplicates} duplicate and ${ipLimited} IP-limited event(s)`
+        );
+      }
+      // Claims of a number whose processing threw are left to lapse with
+      // their lease rather than confirmed: a claim is confirmed only once
+      // its event is persisted, so a later redelivery is still processed.
+      const persisted: ScreenDecision[] = [];
+      for (const n of screened) {
         try {
-          await processMetaEvent(event, config);
+          await processMetaEvent(n.event, n.config, n.overLimit);
+          persisted.push(...n.decisions);
         } catch (error) {
           console.error('[meta-webhook] processing failed:', error);
         }
         // Costing runs LAST and fails open (migration 051): a rate-card
         // problem must never cost an inbound message its fan-out, and a
         // thrown error here would only be logged anyway — the order is
-        // what keeps the ledger from delaying the pipeline.
-        if (rawStatuses.length > 0) {
+        // what keeps the ledger from delaying the pipeline. It sees the
+        // number's raw receipts, duplicates included (the ledger is ON
+        // CONFLICT DO NOTHING), except in a request over the IP limit,
+        // which processes nothing.
+        if (n.rawStatuses.length > 0 && ipLimited === 0) {
           await recordMetaMessageCosts(supabaseAdmin(), {
-            accountId: config.account_id,
-            phoneNumberId: config.phone_number_id,
-            statuses: rawStatuses,
+            accountId: n.config.account_id,
+            phoneNumberId: n.config.phone_number_id,
+            statuses: n.rawStatuses,
           });
         }
       }
+      await confirmAccepted(edgeCtx(), persisted);
     },
   };
 }
@@ -594,7 +722,9 @@ async function findMetaConfigByPhoneNumberId(
  */
 async function processMetaEvent(
   event: ReturnType<typeof normalizeMetaWebhook>,
-  config: MetaConfigRow
+  config: MetaConfigRow,
+  // Messages over their sender's webhook rate limit.
+  overLimit: ReadonlySet<NormalizedInboundMessage>
 ) {
   for (const status of event.statuses) {
     await handleStatusUpdate(status, config.account_id);
@@ -627,7 +757,9 @@ async function processMetaEvent(
       config.account_id,
       config.user_id,
       channel,
-      later
+      later,
+      // Over the limit: persisted to the inbox, but nothing answers it.
+      overLimit.has(message) ? { fanOut: false } : undefined
     );
   }
   await Promise.all(later);

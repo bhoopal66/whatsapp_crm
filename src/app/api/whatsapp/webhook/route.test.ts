@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /**
  * Shared secret the fixture channel is registered with.
@@ -17,6 +17,9 @@ const h = vi.hoisted(() => ({
   dispatchInboundToFlows: vi.fn(),
   dispatchInboundToAiReply: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
+  screenWebhook: vi.fn(),
+  confirmAccepted: vi.fn(),
+  clientIp: vi.fn(),
   state: {
     // Result the message upsert's .select() resolves to. A genuine insert
     // returns the row; a replayed delivery conflicts and returns [].
@@ -201,17 +204,29 @@ vi.mock('@supabase/supabase-js', () => ({
                       }).then(resolve, reject)
                     return m
                   })(),
-            // handleStatusUpdate: update({status}).in('id', [row ids])
+            // handleStatusUpdate's forward-only write:
+            //   update({status}).in('id', [row ids])
+            //     .in('status', [predecessors]).select('id')
+            // (A mock ending at the first .in() threw on the second, and
+            // the after() catch hid it while a receipt was all a callback
+            // carried.)
             update: (row: { status?: string }) => ({
-              in: (_column: string, ids: string[]) => {
-                for (const id of ids) {
-                  h.state.messageStatusUpdates.push({
-                    messageId: id.replace(/^row-/, ''),
-                    status: String(row.status),
-                  })
-                }
-                return Promise.resolve({ error: null })
-              },
+              in: (_column: string, ids: string[]) => ({
+                in: () => ({
+                  select: () => {
+                    for (const id of ids) {
+                      h.state.messageStatusUpdates.push({
+                        messageId: id.replace(/^row-/, ''),
+                        status: String(row.status),
+                      })
+                    }
+                    return Promise.resolve({
+                      data: ids.map((id) => ({ id })),
+                      error: null,
+                    })
+                  },
+                }),
+              }),
             }),
             // Idempotent insert: upsert(...).select('id')
             upsert: (row: Record<string, unknown>, options: unknown) => {
@@ -289,10 +304,52 @@ vi.mock('@/lib/webhooks/deliver', () => ({
 }))
 
 import { POST } from './route'
+// Edge screening is its own module with its own tests; here it is a
+// seam. By default every event is accepted with a claim token, which is
+// the pre-screening behaviour the older tests describe. (The real stores
+// would also land in `rpcCalls`, which several tests count.)
+vi.mock('@/lib/edge', () => ({
+  clientIp: h.clientIp,
+  screenWebhook: h.screenWebhook,
+  confirmAccepted: h.confirmAccepted,
+  ReplayGuard: class {},
+  RateLimiter: class {},
+  RpcSeenStore: class {},
+  RpcRateStore: class {},
+}))
+// The real pipeline, observed: the screening tests read the options
+// each message was processed with.
+vi.mock('@/lib/whatsapp/inbound-pipeline', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/whatsapp/inbound-pipeline')>()
+  return { ...actual, processMessage: vi.fn(actual.processMessage) }
+})
+
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/whapi-api'
+import { processMessage } from '@/lib/whatsapp/inbound-pipeline'
 
 const mockGetMediaUrl = vi.mocked(getMediaUrl)
 const mockDownloadMedia = vi.mocked(downloadMedia)
+const mockProcessMessage = vi.mocked(processMessage)
+
+type Outcome = 'accept' | 'duplicate' | 'rate_limited' | 'ip_limited'
+type ScreenInputArg = {
+  ip: string | undefined
+  events: { key: string; senderKey?: string; kind: string }[]
+}
+
+/** A screenWebhook stand-in deciding each event by its key. */
+function screenAs(outcomeOf: (key: string) => Outcome) {
+  return async (_ctx: unknown, input: ScreenInputArg) => ({
+    status: 200 as const,
+    decisions: input.events.map((e) => {
+      const outcome = outcomeOf(e.key)
+      return outcome === 'accept'
+        ? { key: e.key, outcome, claimToken: `tok:${e.key}` }
+        : { key: e.key, outcome }
+    }),
+  })
+}
 
 const TEXT_MESSAGE = {
   id: 'p.w30M7fgwWD4XwHu-gBgTwl0rVw',
@@ -347,6 +404,9 @@ async function runWebhook(message?: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  h.screenWebhook.mockImplementation(screenAs(() => 'accept'))
+  h.confirmAccepted.mockResolvedValue({ unconfirmed: [] })
+  h.clientIp.mockReturnValue('203.0.113.7')
   h.state.messageUpsertResult = [{ id: 'msg-1' }]
   h.state.priorCustomerMsgCount = 0
   h.state.replyContextParent = null
@@ -891,5 +951,203 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
     // If the dispatches were fire-and-forget, completed would still be 0
     // here — the callback would have resolved before the timers fired.
     expect(h.state.automationCompleted).toBe(3)
+  })
+})
+
+describe('inbound webhook: edge screening (module 017a)', () => {
+  const MSG_KEY = `whapi:cfg-1:${TEXT_MESSAGE.id}`
+  const STATUS = {
+    id: 'YhNqCveDWW90-wO4Twl0rVw',
+    code: 3,
+    status: 'delivered',
+    recipient_id: '15551230000@s.whatsapp.net',
+    timestamp: '1700000100',
+  }
+  const STATUS_KEY = `whapi:status:cfg-1:${STATUS.id}:delivered`
+  /** A second customer writing in the same delivery. */
+  const OTHER_MESSAGE = {
+    ...TEXT_MESSAGE,
+    id: 'p.Bq81Kd0vXz4LmNw-gBgTwl0rVw',
+    from: '15550000000',
+    chat_id: '15550000000@s.whatsapp.net',
+    text: { body: 'hi' },
+  }
+  const OTHER_KEY = `whapi:cfg-1:${OTHER_MESSAGE.id}`
+
+  /** One delivery carrying a receipt plus the given messages. */
+  function deliveryRequest(
+    messages: Record<string, unknown>[] = [TEXT_MESSAGE],
+    opts: { channelId?: string; secret?: string } = {},
+  ) {
+    return {
+      url: `https://crm.test/api/whatsapp/webhook?secret=${opts.secret ?? WEBHOOK_SECRET}`,
+      json: async () => ({
+        messages,
+        statuses: [STATUS],
+        event: { type: 'messages', event: 'post' },
+        channel_id: opts.channelId ?? 'CHANNEL-1',
+      }),
+      headers: { get: () => null },
+    } as unknown as Request
+  }
+
+  async function deliver(req: Request) {
+    const res = (await POST(req)) as unknown as { init: { status: number } }
+    for (const cb of h.state.afterCallbacks) await cb()
+    return res
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('screens each delivery once, keyed by the config row the secret resolved', async () => {
+    // The row still holds the phone placeholder and the payload names
+    // the real channel. Keys use neither: the body cannot steer them,
+    // and adopting the channel id cannot change them.
+    h.state.channelId = '15551230000'
+    h.state.wabaId = '15551230000'
+    const req = deliveryRequest([TEXT_MESSAGE], { channelId: 'NIGHTW-JJC9J' })
+
+    const res = await deliver(req)
+
+    expect(res.init.status).toBe(200)
+    expect(h.screenWebhook).toHaveBeenCalledTimes(1)
+    expect(h.clientIp).toHaveBeenCalledWith(req.headers)
+    expect(h.screenWebhook.mock.calls[0][1]).toEqual({
+      ip: '203.0.113.7',
+      events: [
+        { key: STATUS_KEY, kind: 'status' },
+        { key: MSG_KEY, senderKey: '15551230000', kind: 'message' },
+      ],
+    })
+    // The first callback still adopts the real channel id, in after().
+    expect(h.state.configUpdates).toHaveLength(1)
+    expect(h.state.configUpdates[0].phone_number_id).toBe('NIGHTW-JJC9J')
+    expect(h.state.upsertCalls).toHaveLength(1)
+  })
+
+  it('answers 503 and queues nothing while an event is in flight elsewhere', async () => {
+    h.screenWebhook.mockResolvedValue({ status: 503, decisions: [] })
+
+    const res = (await POST(deliveryRequest())) as unknown as {
+      init: { status: number }
+    }
+
+    // Whapi redelivers a non-200; by then the other delivery has
+    // confirmed (a duplicate) or its lease has lapsed (processed).
+    expect(res.init.status).toBe(503)
+    expect(h.state.afterCallbacks).toHaveLength(0)
+    expect(mockProcessMessage).not.toHaveBeenCalled()
+    expect(h.state.messageStatusUpdates).toHaveLength(0)
+    expect(h.confirmAccepted).not.toHaveBeenCalled()
+  })
+
+  it('skips duplicates, logging the count once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    h.screenWebhook.mockImplementation(
+      screenAs((key) => (key === OTHER_KEY ? 'accept' : 'duplicate')),
+    )
+
+    await deliver(deliveryRequest([TEXT_MESSAGE, OTHER_MESSAGE]))
+
+    expect(mockProcessMessage).toHaveBeenCalledTimes(1)
+    expect(mockProcessMessage.mock.calls[0][0]).toMatchObject({
+      id: OTHER_MESSAGE.id,
+    })
+    expect(h.state.messageStatusUpdates).toHaveLength(0)
+    expect(
+      warn.mock.calls
+        .map((c) => String(c[0]))
+        .filter((line) => line.startsWith('[whapi-webhook] skipped')),
+    ).toEqual(['[whapi-webhook] skipped 2 duplicate and 0 IP-limited event(s)'])
+  })
+
+  it('persists a rate-limited message without fan-out', async () => {
+    h.screenWebhook.mockImplementation(
+      screenAs((key) => (key === MSG_KEY ? 'rate_limited' : 'accept')),
+    )
+
+    await deliver(deliveryRequest())
+
+    expect(mockProcessMessage).toHaveBeenCalledTimes(1)
+    expect(mockProcessMessage.mock.calls[0][5]).toEqual({ fanOut: false })
+    // Kept in the inbox…
+    expect(h.state.upsertCalls).toHaveLength(1)
+    // …but nothing answers it.
+    expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
+    expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+
+  it('processes an accepted message with the default options', async () => {
+    h.screenWebhook.mockImplementation(
+      screenAs((key) => (key === MSG_KEY ? 'rate_limited' : 'accept')),
+    )
+
+    await deliver(deliveryRequest([TEXT_MESSAGE, OTHER_MESSAGE]))
+
+    expect(mockProcessMessage).toHaveBeenCalledTimes(2)
+    const accepted = mockProcessMessage.mock.calls[1]
+    expect(accepted[0]).toMatchObject({ id: OTHER_MESSAGE.id })
+    expect(accepted[5]).toBeUndefined()
+    expect(h.dispatchInboundToFlows).toHaveBeenCalledTimes(1)
+    expect(h.state.messageStatusUpdates).toContainEqual({
+      messageId: STATUS.id,
+      status: 'delivered',
+    })
+  })
+
+  it('confirms the accepted claims only after processing', async () => {
+    await POST(deliveryRequest())
+    // Nothing is persisted before after() runs, so nothing is confirmed.
+    expect(h.confirmAccepted).not.toHaveBeenCalled()
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect(h.confirmAccepted).toHaveBeenCalledTimes(1)
+    expect(h.confirmAccepted.mock.calls[0][1]).toEqual([
+      { key: STATUS_KEY, outcome: 'accept', claimToken: `tok:${STATUS_KEY}` },
+      { key: MSG_KEY, outcome: 'accept', claimToken: `tok:${MSG_KEY}` },
+    ])
+    expect(mockProcessMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      h.confirmAccepted.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('leaves the claims unconfirmed when processing threw', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockProcessMessage.mockRejectedValueOnce(new Error('boom'))
+
+    await deliver(deliveryRequest())
+
+    // Unconfirmed claims lapse with their lease, so a redelivery is
+    // processed rather than skipped as a duplicate.
+    expect(mockProcessMessage).toHaveBeenCalledTimes(1)
+    expect(h.confirmAccepted).not.toHaveBeenCalled()
+  })
+
+  it('answers 200 and processes nothing over the IP limit', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    h.screenWebhook.mockImplementation(screenAs(() => 'ip_limited'))
+
+    const res = await deliver(deliveryRequest())
+
+    // Never a 429: that only makes the gateway retry sooner.
+    expect(res.init.status).toBe(200)
+    expect(mockProcessMessage).not.toHaveBeenCalled()
+    expect(h.state.messageStatusUpdates).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(
+      '[whapi-webhook] skipped 0 duplicate and 2 IP-limited event(s)',
+    )
+  })
+
+  it('rejects an unknown secret with 401 before any screening', async () => {
+    const res = (await POST(
+      deliveryRequest([TEXT_MESSAGE], { secret: 'b'.repeat(64) }),
+    )) as unknown as { init: { status: number } }
+
+    expect(res.init.status).toBe(401)
+    expect(h.screenWebhook).not.toHaveBeenCalled()
+    expect(h.state.afterCallbacks).toHaveLength(0)
   })
 })

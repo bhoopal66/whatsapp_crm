@@ -73,6 +73,36 @@ function scheduleTeamActivitySweep() {
 }
 
 /**
+ * Module 017a's edge stores (migration 084: replay claims, rate-limit
+ * windows, lockouts) only grow; `edge_purge()` deletes what has expired.
+ * At most once per 15 minutes per process, inside after(), and a failure
+ * is only logged: an unpurged row is dead weight, never a wrong answer.
+ */
+const edgePurgeDue = everyInterval(15 * 60_000)
+
+function scheduleEdgePurge() {
+  try {
+    if (!edgePurgeDue()) return
+    after(async () => {
+      try {
+        const { error } = await supabaseAdmin().rpc('edge_purge')
+        if (error) throw new Error(error.message)
+      } catch (err) {
+        console.error(
+          '[automations-cron] edge purge failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the edge purge:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -103,6 +133,7 @@ export async function GET(request: Request) {
   } finally {
     scheduleChannelHealthCheck()
     scheduleTeamActivitySweep()
+    scheduleEdgePurge()
   }
 }
 

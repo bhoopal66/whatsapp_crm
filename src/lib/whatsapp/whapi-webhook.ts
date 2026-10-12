@@ -225,6 +225,8 @@ export function normalizeWhapiMessage(
       raw.context?.forwarded === true || (raw.context?.forwarding_score ?? 0) > 0,
     fromMe: raw.from_me === true,
     isGroup: isGroupChat(chatId),
+    // Meta's free-entry window has no Whapi equivalent.
+    freeEntry: false,
   }
 
   switch (raw.type) {
