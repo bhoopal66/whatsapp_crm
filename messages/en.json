@@ -48,7 +48,8 @@
       "sales": "Sales & marketing",
       "automation": "AI & automation",
       "integrations": "Integrations"
-    }
+    },
+    "roleBankGuest": "Bank guest"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -919,7 +920,6 @@
         "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
         "assumeUaeNumbers": "Numbers without a country code are UAE mobiles (add +971)",
         "rowsWithoutPhone": "{count, plural, one {# row has no phone number and was skipped.} other {# rows have no phone number and were skipped.}}"
-
       },
       "personalize": {
         "title": "Personalize Variables",
@@ -1758,7 +1758,9 @@
       "owner": "Owner",
       "ownerHint": "Full control over account and billing",
       "team_leader": "Team leader",
-      "team_leaderHint": "Sees and assigns their team's chats; no settings"
+      "team_leaderHint": "Sees and assigns their team's chats; no settings",
+      "bank_guest": "Bank guest",
+      "bank_guestHint": "A partner bank officer; sees only what is shared with them"
     },
     "whatsapp": {
       "title": "WhatsApp connection",

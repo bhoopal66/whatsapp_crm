@@ -13,6 +13,7 @@ import {
   LogOut,
   Settings,
   Shield,
+  Landmark,
   User,
   UserCog,
   UsersRound,
@@ -20,8 +21,8 @@ import {
 } from 'lucide-react';
 import type { AccountRole } from '@/lib/auth/roles';
 import {
-  BOTTOM_NAV_ITEMS,
   isNavItemActive,
+  visibleBottomNavItems,
   visibleNavGroups,
   type NavItem,
 } from './nav-items';
@@ -63,6 +64,12 @@ const ROLE_CHIP: Record<
     icon: User,
     labelKey: 'roleViewer',
     // Muted slate: read-only role; visually quieter than agent.
+    className: 'border-border bg-card text-muted-foreground',
+  },
+  bank_guest: {
+    icon: Landmark,
+    labelKey: 'roleBankGuest',
+    // Muted like a viewer: an outside guest, not one of the staff.
     className: 'border-border bg-card text-muted-foreground',
   },
 };
@@ -276,7 +283,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
           <div className="mt-auto pt-4">
             <ul className="border-border flex flex-col gap-0.5 border-t pt-4">
-              {BOTTOM_NAV_ITEMS.map(renderNavItem)}
+              {visibleBottomNavItems(profileLoading ? null : accountRole).map(
+                renderNavItem
+              )}
             </ul>
           </div>
         </nav>

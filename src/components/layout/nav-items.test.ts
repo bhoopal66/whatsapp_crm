@@ -7,6 +7,8 @@ import {
   BOTTOM_NAV_ITEMS,
   NAV_GROUPS,
   isNavItemActive,
+  isNavItemVisible,
+  visibleBottomNavItems,
   visibleNavGroups,
   type NavGroup,
 } from './nav-items';
@@ -53,6 +55,41 @@ describe('visibleNavGroups', () => {
       automation: ['/automations', '/flows'],
       integrations: ['/compass'],
     });
+  });
+
+  it('shows a bank guest no existing destination', () => {
+    expect(visibleNavGroups('bank_guest')).toEqual([]);
+    expect(visibleBottomNavItems('bank_guest')).toEqual([]);
+  });
+
+  it('shows a guestVisible row to a guest and to staff alike', () => {
+    const chat = {
+      href: '/chat',
+      labelKey: 'chat',
+      icon: ALL_ITEMS[0].icon,
+      guestVisible: true,
+    };
+    expect(isNavItemVisible(chat, 'bank_guest')).toBe(true);
+    expect(isNavItemVisible(chat, 'viewer')).toBe(true);
+    expect(isNavItemVisible({ ...chat, minRole: 'admin' }, 'agent')).toBe(
+      false
+    );
+  });
+
+  it('keeps Settings for every staff role, and while loading', () => {
+    for (const role of [
+      null,
+      'viewer',
+      'agent',
+      'team_leader',
+      'admin',
+      'owner',
+    ] as const) {
+      expect(
+        visibleBottomNavItems(role).map((i) => i.href),
+        String(role)
+      ).toEqual(['/settings']);
+    }
   });
 
   it.each([null, ...ACCOUNT_ROLES])('never hands %s an empty group', (role) => {
