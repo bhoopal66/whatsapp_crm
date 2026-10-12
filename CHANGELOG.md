@@ -52,6 +52,10 @@ An owner or admin can create a new workspace and add its first people
 in one step, and adding a member by an email that already has a login
 adds that person to your workspace, with no new password.
 
+Someone in more than one workspace switches from the sidebar; the app
+reloads in the chosen workspace, and other open tabs follow. See
+`docs/workspaces.md`.
+
 A new role, **Bank guest**, is for bank officers invited into deal
 rooms and channels: a guest sees none of the inbox, contacts, deals or
 settings.

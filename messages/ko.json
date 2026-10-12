@@ -49,7 +49,10 @@
       "automation": "AI 및 자동화",
       "integrations": "연동"
     },
-    "roleBankGuest": "은행 게스트"
+    "roleBankGuest": "은행 게스트",
+    "switchWorkspace": "워크스페이스 전환",
+    "workspaceDeactivated": "비활성화됨",
+    "workspaceSwitchFailed": "워크스페이스를 전환하지 못했습니다: {reason}"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -67,7 +70,8 @@
     "menuProfile": "프로필",
     "menuSettings": "설정",
     "menuSignOut": "로그아웃",
-    "teamActivity": "팀 활동"
+    "teamActivity": "팀 활동",
+    "chat": "팀 채팅"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -3311,5 +3315,9 @@
       "deleted": "답변을 삭제했습니다",
       "deleteFailed": "답변을 삭제하지 못했습니다"
     }
+  },
+  "Chat": {
+    "settingUpTitle": "팀 채팅을 준비하고 있습니다",
+    "settingUpBody": "워크스페이스의 팀 채팅이 여기에 표시됩니다."
   }
 }
