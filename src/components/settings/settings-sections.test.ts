@@ -38,6 +38,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'ai',
   'api',
   'deals',
+  'phone-system',
 ];
 
 const OPEN_TO_ALL: SettingsSection[] = [
@@ -107,7 +108,7 @@ describe('categories', () => {
       inbox: ['chat-tags', 'quick-replies', 'fields', 'journey-bot'],
       team: ['members', 'teams', 'team-chat'],
       ai: ['ai'],
-      integrations: ['api', 'deals'],
+      integrations: ['api', 'deals', 'phone-system'],
     });
   });
 

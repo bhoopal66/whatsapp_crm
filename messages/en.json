@@ -2031,7 +2031,8 @@
       "api": "API keys",
       "deals": "Deals & currency",
       "team-chat": "Team chat",
-      "journey-bot": "Journey bot"
+      "journey-bot": "Journey bot",
+      "phone-system": "Phone system"
     },
     "categories": {
       "overview": "Overview",
@@ -2887,6 +2888,159 @@
         "sharedTitles": "A title is shared by every message that shows its payload. A template's quick-reply button may read as either the default title or yours.",
         "tooLong": "{count, plural, =1 {One text is} other {# texts are}} too long for WhatsApp.",
         "save": "Save copy"
+      }
+    },
+    "phoneSystem": {
+      "title": "Phone system",
+      "subtitle": "Yeastar P-Series",
+      "subtitleShared": "Yeastar P-Series · shared by {names}",
+      "testConnection": "Test connection",
+      "loadFailed": "Couldn't load the phone system settings",
+      "saveFailed": "Couldn't save",
+      "test": {
+        "connected": "Connected to the PBX · {count, plural, one {# extension} other {# extensions}}",
+        "authFailed": "The PBX refused the Client ID and Secret",
+        "disconnected": "The PBX could not be reached",
+        "backoff": "The PBX refused these credentials recently. Correct them, or wait up to {minutes} minutes before testing again.",
+        "noConnection": "Set up the connection first",
+        "failed": "The test could not run"
+      },
+      "connection": {
+        "title": "Connection",
+        "connected": "Connected",
+        "lastEvent": "last event {unit, select, s {{count} s} min {{count} min} h {{count} h} other {{count} d}} ago",
+        "noEvents": "no events yet",
+        "notConnected": "Not connected",
+        "authFailed": "Login refused — check the Client ID and Secret",
+        "none": "Not set up yet",
+        "firmware": "firmware {version}",
+        "clientId": "Client ID ••••{last4} · secret kept on the server",
+        "edit": "Edit",
+        "setUp": "Set up"
+      },
+      "events": {
+        "title": "Events",
+        "liveLink": "Live link (webhook or gateway) · {ago}",
+        "sharedToken": "API sessions are shared: one token for the whole team"
+      },
+      "softphone": {
+        "title": "Browser softphone",
+        "enabled": "Linkus SDK enabled",
+        "notConfigured": "Linkus SDK not configured",
+        "usage": "{used} of {mapped} mapped people use it"
+      },
+      "form": {
+        "title": "PBX connection",
+        "description": "Secrets are stored encrypted and never shown again. Leave a secret empty to keep the stored one.",
+        "label": "Name",
+        "edition": "Edition",
+        "editions": {
+          "cloud": "Cloud",
+          "software": "Software",
+          "appliance": "Appliance"
+        },
+        "baseUrl": "PBX address",
+        "clientId": "Client ID",
+        "clientIdHint": "Enter the full Client ID on every save; only its last 4 characters are kept on screen.",
+        "clientSecret": "Client Secret",
+        "secretKept": "•••• kept on the server",
+        "sdkAccessId": "Linkus SDK AccessID (optional)",
+        "sdkAccessKey": "Linkus SDK AccessKey (optional)",
+        "removeSdk": "Remove the stored SDK credentials",
+        "webhookSecret": "Webhook secret (32 characters)",
+        "removeWebhookSecret": "Remove the stored webhook secret",
+        "webhookUrl": "Webhook URL",
+        "webhookUrlAfterSave": "Shown after the first save.",
+        "copy": "Copy",
+        "copied": "Webhook URL copied",
+        "cancel": "Cancel",
+        "save": "Save",
+        "saved": "Connection saved",
+        "issues": {
+          "label_required": "Enter a name (at most 100 characters).",
+          "base_url_invalid": "Enter the PBX address as http:// or https://.",
+          "base_url_https": "Yeastar Cloud needs an https:// address.",
+          "base_url_credentials": "Leave the user name and password out of the address.",
+          "client_id_required": "Enter the Client ID.",
+          "client_secret_required": "Enter the Client Secret.",
+          "sdk_pair": "Enter both the AccessID and the AccessKey.",
+          "webhook_secret_length": "The webhook secret must be exactly 32 characters."
+        }
+      },
+      "routes": {
+        "title": "Phone numbers → workspace",
+        "number": "Dialled number",
+        "nameOnPbx": "Name on PBX",
+        "workspace": "Workspace",
+        "pickWorkspace": "Choose a workspace",
+        "otherWorkspace": "Another workspace",
+        "add": "Add number",
+        "remove": "Remove",
+        "save": "Save",
+        "saved": "Phone numbers saved",
+        "empty": "No numbers yet.",
+        "issues": {
+          "number_required": "Enter the number.",
+          "number_invalid": "Use digits only (1 to 20).",
+          "number_duplicate": "This number is already listed.",
+          "name_too_long": "At most 100 characters.",
+          "workspace_required": "Choose a workspace."
+        }
+      },
+      "extensions": {
+        "title": "Extensions → people",
+        "sync": "Sync extensions",
+        "synced": "{total, plural, one {# extension} other {# extensions}} read from the PBX, {added} new",
+        "syncFailed": "Couldn't sync the extensions",
+        "extension": "Extension",
+        "person": "Person",
+        "workspace": "Workspace",
+        "softphone": "Softphone",
+        "showStatus": "Show status",
+        "state": "State",
+        "notMapped": "Not mapped",
+        "mappedElsewhere": "Mapped in another workspace",
+        "states": {
+          "registered": "Registered",
+          "desk_phone": "Desk phone",
+          "unmapped": "Not mapped",
+          "offline": "Offline"
+        },
+        "empty": "No extensions yet. Press Sync extensions to read them off the PBX.",
+        "saveFailed": "Couldn't save extension {extension}"
+      },
+      "rules": {
+        "title": "Recording rules",
+        "announcement": "Play the English and Arabic recording notice before every recorded call",
+        "excludeBanks": "Don't record calls with bank numbers (until each bank's DSA terms are checked)",
+        "retention": "Keep recordings for",
+        "days": "days",
+        "keep": "keep (decision D-Y5 pending)",
+        "erasure": "Erasure requests delete audio and notes.",
+        "dueAfter": "Missed-call task due after",
+        "minutes": "minutes",
+        "mandatory": "Make a call outcome mandatory",
+        "whatsappDraft": "Offer a WhatsApp 'sorry we missed you' draft (never sent automatically)",
+        "save": "Save rules",
+        "saved": "Recording rules saved",
+        "retentionInvalid": "Enter 1 to 3650 days, or leave empty to keep recordings.",
+        "dueInvalid": "Enter 1 to 1440 minutes."
+      },
+      "banks": {
+        "title": "Bank numbers",
+        "number": "Number",
+        "bankCode": "Bank code",
+        "add": "Add bank number",
+        "remove": "Remove",
+        "save": "Save bank numbers",
+        "saved": "Bank numbers saved",
+        "empty": "No bank numbers yet.",
+        "issues": {
+          "number_required": "Enter the number.",
+          "number_invalid": "Use digits only (3 to 20).",
+          "number_duplicate": "This number is already listed.",
+          "bank_code_required": "Enter the bank's code (at most 32 characters)."
+        }
       }
     }
   },

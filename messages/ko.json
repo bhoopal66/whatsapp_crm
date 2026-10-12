@@ -2031,7 +2031,8 @@
       "api": "API 키",
       "deals": "딜 & 통화",
       "team-chat": "팀 채팅",
-      "journey-bot": "여정 봇"
+      "journey-bot": "여정 봇",
+      "phone-system": "전화 시스템"
     },
     "categories": {
       "overview": "개요",
@@ -2887,6 +2888,159 @@
         "sharedTitles": "제목은 해당 페이로드를 표시하는 모든 메시지에서 공유됩니다. 템플릿의 빠른 답장 버튼은 기본 제목이나 사용자 지정 제목 중 하나로 표시될 수 있습니다.",
         "tooLong": "{count}개의 문구가 WhatsApp 글자 수 제한을 넘습니다.",
         "save": "문구 저장"
+      }
+    },
+    "phoneSystem": {
+      "title": "전화 시스템",
+      "subtitle": "Yeastar P-Series",
+      "subtitleShared": "Yeastar P-Series · 공유 워크스페이스: {names}",
+      "testConnection": "연결 테스트",
+      "loadFailed": "전화 시스템 설정을 불러오지 못했습니다",
+      "saveFailed": "저장하지 못했습니다",
+      "test": {
+        "connected": "PBX에 연결됨 · 내선 {count}개",
+        "authFailed": "PBX가 Client ID와 Secret을 거부했습니다",
+        "disconnected": "PBX에 연결할 수 없습니다",
+        "backoff": "PBX가 최근 이 자격 증명을 거부했습니다. 수정하거나 최대 {minutes}분 기다린 후 다시 테스트하세요.",
+        "noConnection": "먼저 연결을 설정하세요",
+        "failed": "테스트를 실행하지 못했습니다"
+      },
+      "connection": {
+        "title": "연결",
+        "connected": "연결됨",
+        "lastEvent": "마지막 이벤트 {unit, select, s {{count}초} min {{count}분} h {{count}시간} other {{count}일}} 전",
+        "noEvents": "아직 이벤트 없음",
+        "notConnected": "연결되지 않음",
+        "authFailed": "로그인 거부됨 — Client ID와 Secret을 확인하세요",
+        "none": "아직 설정되지 않음",
+        "firmware": "펌웨어 {version}",
+        "clientId": "Client ID ••••{last4} · Secret은 서버에 보관됨",
+        "edit": "편집",
+        "setUp": "설정"
+      },
+      "events": {
+        "title": "이벤트",
+        "liveLink": "실시간 연결(웹훅 또는 게이트웨이) · {ago}",
+        "sharedToken": "API 세션은 공유됩니다: 팀 전체가 토큰 하나를 사용합니다"
+      },
+      "softphone": {
+        "title": "브라우저 소프트폰",
+        "enabled": "Linkus SDK 사용 중",
+        "notConfigured": "Linkus SDK가 설정되지 않음",
+        "usage": "매핑된 {mapped}명 중 {used}명 사용"
+      },
+      "form": {
+        "title": "PBX 연결",
+        "description": "Secret은 암호화되어 저장되며 다시 표시되지 않습니다. 저장된 값을 유지하려면 비워 두세요.",
+        "label": "이름",
+        "edition": "에디션",
+        "editions": {
+          "cloud": "Cloud",
+          "software": "Software",
+          "appliance": "Appliance"
+        },
+        "baseUrl": "PBX 주소",
+        "clientId": "Client ID",
+        "clientIdHint": "저장할 때마다 전체 Client ID를 입력하세요. 화면에는 마지막 4자만 남습니다.",
+        "clientSecret": "Client Secret",
+        "secretKept": "•••• 서버에 보관됨",
+        "sdkAccessId": "Linkus SDK AccessID (선택)",
+        "sdkAccessKey": "Linkus SDK AccessKey (선택)",
+        "removeSdk": "저장된 SDK 자격 증명 삭제",
+        "webhookSecret": "웹훅 Secret (32자)",
+        "removeWebhookSecret": "저장된 웹훅 Secret 삭제",
+        "webhookUrl": "웹훅 URL",
+        "webhookUrlAfterSave": "처음 저장한 후 표시됩니다.",
+        "copy": "복사",
+        "copied": "웹훅 URL을 복사했습니다",
+        "cancel": "취소",
+        "save": "저장",
+        "saved": "연결을 저장했습니다",
+        "issues": {
+          "label_required": "이름을 입력하세요(최대 100자).",
+          "base_url_invalid": "PBX 주소를 http:// 또는 https://로 입력하세요.",
+          "base_url_https": "Yeastar Cloud는 https:// 주소가 필요합니다.",
+          "base_url_credentials": "주소에 사용자 이름과 비밀번호를 넣지 마세요.",
+          "client_id_required": "Client ID를 입력하세요.",
+          "client_secret_required": "Client Secret을 입력하세요.",
+          "sdk_pair": "AccessID와 AccessKey를 모두 입력하세요.",
+          "webhook_secret_length": "웹훅 Secret은 정확히 32자여야 합니다."
+        }
+      },
+      "routes": {
+        "title": "전화번호 → 워크스페이스",
+        "number": "착신 번호",
+        "nameOnPbx": "PBX상 이름",
+        "workspace": "워크스페이스",
+        "pickWorkspace": "워크스페이스 선택",
+        "otherWorkspace": "다른 워크스페이스",
+        "add": "번호 추가",
+        "remove": "삭제",
+        "save": "저장",
+        "saved": "전화번호를 저장했습니다",
+        "empty": "아직 번호가 없습니다.",
+        "issues": {
+          "number_required": "번호를 입력하세요.",
+          "number_invalid": "숫자만 사용하세요(1~20자리).",
+          "number_duplicate": "이미 목록에 있는 번호입니다.",
+          "name_too_long": "최대 100자입니다.",
+          "workspace_required": "워크스페이스를 선택하세요."
+        }
+      },
+      "extensions": {
+        "title": "내선 → 담당자",
+        "sync": "내선 동기화",
+        "synced": "PBX에서 내선 {total}개를 읽었습니다(신규 {added}개)",
+        "syncFailed": "내선을 동기화하지 못했습니다",
+        "extension": "내선",
+        "person": "담당자",
+        "workspace": "워크스페이스",
+        "softphone": "소프트폰",
+        "showStatus": "상태 표시",
+        "state": "상태",
+        "notMapped": "매핑되지 않음",
+        "mappedElsewhere": "다른 워크스페이스에 매핑됨",
+        "states": {
+          "registered": "등록됨",
+          "desk_phone": "데스크폰",
+          "unmapped": "매핑되지 않음",
+          "offline": "오프라인"
+        },
+        "empty": "아직 내선이 없습니다. 내선 동기화를 눌러 PBX에서 읽어 오세요.",
+        "saveFailed": "내선 {extension}을(를) 저장하지 못했습니다"
+      },
+      "rules": {
+        "title": "녹음 규칙",
+        "announcement": "녹음되는 모든 통화 전에 영어·아랍어 녹음 안내를 재생",
+        "excludeBanks": "은행 번호와의 통화는 녹음하지 않음(각 은행의 DSA 조건을 확인할 때까지)",
+        "retention": "녹음 보관 기간",
+        "days": "일",
+        "keep": "보관(결정 D-Y5 대기 중)",
+        "erasure": "삭제 요청 시 음성과 메모가 삭제됩니다.",
+        "dueAfter": "부재중 전화 작업 기한",
+        "minutes": "분 후",
+        "mandatory": "통화 결과 입력 필수",
+        "whatsappDraft": "WhatsApp '전화를 받지 못해 죄송합니다' 초안 제안(자동 발송되지 않음)",
+        "save": "규칙 저장",
+        "saved": "녹음 규칙을 저장했습니다",
+        "retentionInvalid": "1~3650일을 입력하거나, 녹음을 보관하려면 비워 두세요.",
+        "dueInvalid": "1~1440분을 입력하세요."
+      },
+      "banks": {
+        "title": "은행 번호",
+        "number": "번호",
+        "bankCode": "은행 코드",
+        "add": "은행 번호 추가",
+        "remove": "삭제",
+        "save": "은행 번호 저장",
+        "saved": "은행 번호를 저장했습니다",
+        "empty": "아직 은행 번호가 없습니다.",
+        "issues": {
+          "number_required": "번호를 입력하세요.",
+          "number_invalid": "숫자만 사용하세요(3~20자리).",
+          "number_duplicate": "이미 목록에 있는 번호입니다.",
+          "bank_code_required": "은행 코드를 입력하세요(최대 32자)."
+        }
       }
     }
   },
