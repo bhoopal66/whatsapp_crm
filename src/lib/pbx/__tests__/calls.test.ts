@@ -6,8 +6,10 @@ import {
   isMissedCall,
   monthStart,
   myLeg,
+  parseCallListQuery,
   presenceByUser,
   presenceView,
+  recordingFileName,
   recordingRefusal,
   summarizeMonth,
 } from '../calls';
@@ -64,7 +66,7 @@ describe('pbx call helpers', () => {
     );
     expect(by).toEqual({
       u1: {
-        status: 'away',
+        state: 'away',
         extension: '201',
         updatedAt: '2026-10-12T09:58:00Z',
       },
@@ -133,6 +135,46 @@ describe('pbx call helpers', () => {
     );
     expect(recordingRefusal('erased')).toBe('This recording was erased');
     expect(recordingRefusal('pending')).toBe('This call has no recording yet');
+  });
+
+  it('names an attached recording by its Dubai day and who was called', () => {
+    // 22:30 UTC on the 11th is already the 12th in Dubai.
+    expect(recordingFileName('2026-10-11T22:30:00Z', ' Ahmed Ali ')).toBe(
+      'Call recording 2026-10-12 Ahmed Ali'
+    );
+    expect(recordingFileName('2026-10-11T22:30:00Z', null, 'UTC')).toBe(
+      'Call recording 2026-10-11'
+    );
+    const long = recordingFileName('2026-10-12T08:00:00Z', '😀'.repeat(300));
+    expect(Array.from(long)).toHaveLength(255);
+    expect(long.endsWith('😀')).toBe(true);
+  });
+
+  it('checks a call list query', () => {
+    const q = (s: string) => parseCallListQuery(new URLSearchParams(s));
+    expect(q('')).toEqual({
+      contactId: null,
+      scope: 'all',
+      from: null,
+      to: null,
+      limit: 50,
+    });
+    expect(
+      q(
+        'contactId=00000000-0000-4000-8000-000000000001&scope=missed&from=2026-10-01T00:00:00%2B04:00&limit=200'
+      )
+    ).toEqual({
+      contactId: '00000000-0000-4000-8000-000000000001',
+      scope: 'missed',
+      from: '2026-09-30T20:00:00.000Z',
+      to: null,
+      limit: 200,
+    });
+    expect(q('contactId=x')).toBe('contactId must be an id');
+    expect(q('scope=team')).toBe('scope must be one of mine, missed, all');
+    expect(q('to=yesterday')).toBe('from and to must be dates');
+    for (const limit of ['0', '201', '2.5', 'ten'])
+      expect(q(`limit=${limit}`)).toMatch(/^limit must be/);
   });
 
   it('finds the caller’s own leg only on a call that lists their extension', () => {

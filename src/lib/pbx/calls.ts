@@ -116,7 +116,7 @@ export function presenceView(row: PresenceRow, now: number): PresenceView {
 }
 
 export interface UserPresence {
-  status: PresenceView;
+  state: PresenceView;
   extension: string;
   updatedAt: string;
 }
@@ -133,7 +133,7 @@ export function presenceByUser(
     if (prev && Date.parse(prev.updatedAt) >= Date.parse(r.updated_at))
       continue;
     out[r.user_id] = {
-      status: presenceView(r, now),
+      state: presenceView(r, now),
       extension: r.extension,
       updatedAt: r.updated_at,
     };
@@ -142,6 +142,9 @@ export function presenceByUser(
 }
 
 // ---------- "Calls this month" ----------
+
+/** The workspace's zone when the client names none (the UAE's). */
+export const DEFAULT_TIME_ZONE = 'Asia/Dubai';
 
 export function isTimeZone(tz: string): boolean {
   try {
@@ -245,6 +248,35 @@ export function dncDecision(input: {
 }
 
 // ---------- Recordings ----------
+
+/** The private bucket (089): no client storage policy names it. */
+export const RECORDINGS_BUCKET = 'call-recordings';
+/** How long a signed play / download link lives. */
+export const RECORDING_LINK_SECONDS = 300;
+export type RecordingAccess = 'play' | 'download' | 'attach';
+
+/**
+ * A deal file's name for an attached recording, "Call recording
+ * 2026-10-12 Ahmed Ali": the call's day in `timeZone`, then who was
+ * called, within deal_files.name's 255 characters.
+ */
+export function recordingFileName(
+  startedAt: string,
+  who: string | null,
+  timeZone = DEFAULT_TIME_ZONE
+): string {
+  const at = new Date(startedAt);
+  const day = Number.isFinite(at.getTime())
+    ? new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(at)
+    : '';
+  const name = ['Call recording', day, who?.trim()].filter(Boolean).join(' ');
+  return Array.from(name).slice(0, 255).join('');
+}
 
 /** Why the access log refused a recording, by the call's state. */
 export function recordingRefusal(state: string): string {
@@ -368,6 +400,45 @@ export function parseOutcome(
   return Object.keys(out).length ? out : 'Nothing to change';
 }
 
+// ---------- Call lists ----------
+
+export const CALL_SCOPES = ['mine', 'missed', 'all'] as const;
+export type CallScope = (typeof CALL_SCOPES)[number];
+export const CALL_LIST_LIMIT = 50;
+export const CALL_LIST_MAX = 200;
+
+export interface CallListQuery {
+  contactId: string | null;
+  scope: CallScope;
+  /** ISO instants: started_at >= from, < to. */
+  from: string | null;
+  to: string | null;
+  limit: number;
+}
+
+/** `?contactId=&scope=&from=&to=&limit=`, checked; a string is the 400. */
+export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
+  const contactId = q.get('contactId') || null;
+  if (contactId && !UUID.test(contactId)) return 'contactId must be an id';
+  const scope = q.get('scope') || 'all';
+  if (!(CALL_SCOPES as readonly string[]).includes(scope))
+    return `scope must be one of ${CALL_SCOPES.join(', ')}`;
+  const instant = (key: 'from' | 'to') => {
+    const v = q.get(key);
+    if (!v) return null;
+    const at = Date.parse(v);
+    return Number.isFinite(at) ? new Date(at).toISOString() : undefined;
+  };
+  const from = instant('from');
+  const to = instant('to');
+  if (from === undefined || to === undefined)
+    return 'from and to must be dates';
+  const limit = q.get('limit') ? Number(q.get('limit')) : CALL_LIST_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > CALL_LIST_MAX)
+    return `limit must be a whole number from 1 to ${CALL_LIST_MAX}`;
+  return { contactId, scope: scope as CallScope, from, to, limit };
+}
+
 // ---------- Shared lookups (route side) ----------
 
 /** The request's JSON object body, or null for anything else. */
@@ -415,6 +486,56 @@ export async function myExtension(
     extension: row.extension,
     softphoneEnabled: row.softphone_enabled === true,
   };
+}
+
+export interface VisibleCall {
+  id: string;
+  account_id: string;
+  recording_state: string;
+  started_at: string;
+  contact_id: string | null;
+  remote_number: string | null;
+}
+
+/** The call as the caller's client shows it (pbx_can_view_call), or null. */
+export async function visibleCall(
+  rls: SupabaseClient,
+  id: string
+): Promise<VisibleCall | null> {
+  const { data, error } = await rls
+    .from('calls')
+    .select(
+      'id, account_id, recording_state, started_at, contact_id, remote_number'
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(`calls read failed: ${error.message}`);
+  return data as VisibleCall | null;
+}
+
+/**
+ * Writes a recording access to call_access_log on the service role
+ * (`authenticated` has no INSERT), before anything about the audio is
+ * read or signed. The log's guard refuses the row unless
+ * pbx_recording_playable() (fetched, not erased, the notice confirmed):
+ * that refusal is a 409 worded by the call's state. Null when written.
+ */
+export async function logRecordingAccess(
+  service: SupabaseClient,
+  call: VisibleCall,
+  userId: string,
+  action: RecordingAccess
+): Promise<NextResponse | null> {
+  const { error } = await service.from('call_access_log').insert({
+    call_id: call.id,
+    account_id: call.account_id,
+    user_id: userId,
+    action,
+  });
+  if (!error) return null;
+  if (error.code === '55000')
+    return fail(recordingRefusal(call.recording_state), 409);
+  throw new Error(`call_access_log insert failed: ${error.message}`);
 }
 
 export const noExtension = () =>
