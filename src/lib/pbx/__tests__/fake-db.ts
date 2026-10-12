@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // A small in-memory stand-in for the supabase-js query builder: enough
-// of select / insert / update / upsert / delete / rpc for the PBX code.
+// of select / insert / update / upsert / delete / rpc for the PBX code,
+// and storage uploads (kept in `objects`, keyed `<bucket>/<path>`).
 
 export type Row = Record<string, unknown>;
 type DbError = { message: string; code?: string };
@@ -13,7 +14,8 @@ export interface FakeDb {
   tables: Record<string, Row[]>;
   rpcs: Record<string, Rpc>;
   log: { table: string; op: string; payload?: unknown }[];
-  /** The next `op` on `table` answers with this error. */
+  objects: Record<string, { bytes: number; contentType?: string }>;
+  /** The next `op` on `table` (`storage:<bucket>` for uploads) answers with this error. */
   fail(table: string, op: string, error: DbError): void;
 }
 
@@ -94,7 +96,10 @@ export function createFakeDb(
     }
     like(c: string, pattern: string) {
       const re = new RegExp(
-        `^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')}$`
+        `^${pattern
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          .replace(/%/g, '.*')
+          .replace(/_/g, '.')}$`
       );
       this.filters.push((r) => re.test(String(r[c] ?? '')));
       return this;
@@ -212,10 +217,12 @@ export function createFakeDb(
     }
   }
 
+  const objects: FakeDb['objects'] = {};
   const fake: FakeDb = {
     tables,
     rpcs,
     log,
+    objects,
     fail: (table, op, error) => failures.set(`${table}:${op}`, error),
     db: {
       from: (table: string) => new Query(table),
@@ -225,6 +232,31 @@ export function createFakeDb(
         return fn
           ? fn(args)
           : { data: null, error: { message: `no rpc ${name}` } };
+      },
+      storage: {
+        from: (bucket: string) => ({
+          upload: async (
+            path: string,
+            body: Uint8Array,
+            o?: { contentType?: string }
+          ) => {
+            log.push({
+              table: `storage:${bucket}`,
+              op: 'upload',
+              payload: path,
+            });
+            const failure = failures.get(`storage:${bucket}:upload`);
+            if (failure) {
+              failures.delete(`storage:${bucket}:upload`);
+              return { data: null, error: failure };
+            }
+            objects[`${bucket}/${path}`] = {
+              bytes: body.byteLength,
+              contentType: o?.contentType,
+            };
+            return { data: { path }, error: null };
+          },
+        }),
       },
     } as unknown as SupabaseClient,
   };
