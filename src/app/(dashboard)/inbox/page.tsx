@@ -30,6 +30,7 @@ import type { Conversation, Message, Contact } from '@/types';
 import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
+import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
 import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
@@ -143,6 +144,11 @@ export function InboxPageInner({
    * automatically instead of showing the empty center panel.
    */
   const deepLinkConvId = searchParams.get('c');
+  // `?assignee=` / `?tag=` (team chat's WHATSAPP INBOX rows): read once,
+  // as the list's starting filters.
+  const [initialFilters] = useState(() =>
+    parseInboxFilterParams(searchParams, user?.id ?? null)
+  );
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -886,6 +892,8 @@ export function InboxPageInner({
           )}
         >
           <ConversationList
+            initialAssignee={initialFilters.assignee}
+            initialChatTagIds={initialFilters.chatTagIds}
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}
