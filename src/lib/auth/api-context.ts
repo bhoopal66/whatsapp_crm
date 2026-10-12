@@ -35,6 +35,8 @@ import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
 import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { edgeAuthGuards } from '@/lib/auth/edge-guards';
+import { clientIp, consoleLogger, ipKey } from '@/lib/edge';
 
 export interface ApiKeyContext {
   /** Discriminant — lets shared logic tell key auth from cookie auth. */
@@ -72,7 +74,8 @@ function extractKey(request: Request): string | null {
  *
  *   401 unauthorized — no key, malformed, unknown, revoked, expired
  *   403 forbidden    — valid key without the required scope
- *   429 rate_limited — per-key budget exhausted
+ *   429 rate_limited — per-key budget exhausted, or this client IP is
+ *                      locked out for presenting bad keys
  *
  * On success, bumps `last_used_at` (fire-and-forget) and returns the
  * account context.
@@ -86,11 +89,23 @@ export async function requireApiKey(
     throw unauthorized();
   }
 
+  // Bad-key lockout (module 017a), keyed `apikey:<client ip>` with no
+  // user, so 5 bad keys in a row or 20 in 10 minutes lock the IP for
+  // 15. A locked caller is refused before its key is looked up, with
+  // the ordinary rate-limit answer: lockout and rate limiting look the
+  // same on the wire. Without a client IP (EDGE_CLIENT_IP_HEADER unset)
+  // there is nothing to key on — one shared bucket would let one bad
+  // caller lock out every integration — so the lockout is skipped.
+  const ip = clientIp(request.headers);
+  const lockKey = ip ? `apikey:${ipKey(ip)}` : null;
+  if (lockKey) await refuseLockedCaller(lockKey);
+
   const row = await findActiveKeyByHash(hashApiKey(presented));
   if (!row) {
     // Covers unknown, revoked, and expired keys alike — we don't
     // distinguish them on the wire so a probe can't learn whether a
     // key ever existed.
+    if (lockKey) await recordKey(lockKey, false);
     throw unauthorized();
   }
 
@@ -100,6 +115,8 @@ export async function requireApiKey(
   if (!limit.success) {
     throw rateLimited(limit);
   }
+
+  if (lockKey) await recordKey(lockKey, true);
 
   if (scope && !hasScope(row.scopes, scope)) {
     throw forbidden(`This API key is missing the '${scope}' scope`);
@@ -115,4 +132,42 @@ export async function requireApiKey(
     scopes: row.scopes,
     createdBy: row.created_by,
   };
+}
+
+// The lockout fails OPEN here, unlike sign-in. API keys are 256-bit
+// random secrets, so the lockout is defence in depth, not the barrier a
+// password needs; and Compass, the MCP server and every other
+// integration live on this API. An unreachable edge store must not take
+// all of them down, so a store error is logged and the request goes on.
+
+async function refuseLockedCaller(lockKey: string): Promise<void> {
+  let retryAfterMs = 0;
+  try {
+    const lock = await edgeAuthGuards().lockout.state(lockKey);
+    if (lock.locked) retryAfterMs = lock.retryAfterMs;
+  } catch (err) {
+    consoleLogger.warn('api-key lockout unreadable; failing open', {
+      err: String(err),
+    });
+  }
+  if (retryAfterMs > 0) {
+    throw rateLimited({
+      success: false,
+      remaining: 0,
+      reset: Date.now() + retryAfterMs,
+      limit: RATE_LIMITS.publicApi.limit,
+    });
+  }
+}
+
+async function recordKey(lockKey: string, good: boolean): Promise<void> {
+  try {
+    const { lockout } = edgeAuthGuards();
+    if (good) await lockout.recordSuccess(lockKey);
+    else await lockout.recordFailure(lockKey);
+  } catch (err) {
+    consoleLogger.warn('api-key lockout not recorded; failing open', {
+      err: String(err),
+    });
+  }
 }
