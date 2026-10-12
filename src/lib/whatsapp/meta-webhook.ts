@@ -48,6 +48,7 @@ import {
 } from './contact-card';
 import { isTemplateWebhookField } from './template-webhook';
 import type {
+  InboundReferral,
   NormalizedInboundMessage,
   NormalizedMedia,
   NormalizedMessageType,
@@ -72,6 +73,8 @@ interface RawMetaMedia {
 interface RawMetaMessage {
   id?: string;
   from?: string;
+  /** Business-scoped user id (BSUID) of the sender. */
+  from_user_id?: string;
   timestamp?: number | string;
   type?: string;
 
@@ -121,6 +124,16 @@ interface RawMetaMessage {
 
   /** Present on a type Meta could not deliver to us. */
   errors?: Array<{ code?: number; title?: string; message?: string }>;
+
+  /** The ad, post or link that opened the chat (Click-to-WhatsApp etc.). */
+  referral?: {
+    source_type?: string;
+    source_id?: string;
+    source_url?: string;
+    headline?: string;
+    body?: string;
+    ctwa_clid?: string;
+  };
 }
 
 /**
@@ -158,6 +171,8 @@ export interface RawMetaStatus {
 
 interface RawMetaContact {
   wa_id?: string;
+  /** Business-scoped user id (BSUID). */
+  user_id?: string;
   profile?: { name?: string };
 }
 
@@ -322,8 +337,12 @@ export function normalizeMetaMessage(
     (sharedContacts ? contactCardsText(sharedContacts) : null) ??
     null;
 
-  const profileName = contacts.find((c) => digitsOnly(c.wa_id) === from)
-    ?.profile?.name;
+  // The `contacts[]` entry that names this sender — never another
+  // sender's in the same batch.
+  const sender = contacts.find((c) => digitsOnly(c.wa_id) === from);
+  const profileName = sender?.profile?.name;
+  const bsuid = nonEmpty(raw.from_user_id) ?? nonEmpty(sender?.user_id);
+  const referral = toReferral(raw.referral);
 
   return {
     id,
@@ -367,8 +386,38 @@ export function normalizeMetaMessage(
     // structurally unnecessary here.
     fromMe: false,
     isGroup: false,
+    ...(referral ? { referral } : {}),
+    // Only a Click-to-WhatsApp ad opens the 72 h free-entry window.
+    freeEntry: referral?.sourceType === 'ad',
+    ...(bsuid ? { bsuid } : {}),
   };
 }
+
+function nonEmpty(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+function toReferral(
+  raw: RawMetaMessage['referral']
+): InboundReferral | undefined {
+  const sourceType = nonEmpty(raw?.source_type);
+  if (!raw || !sourceType) return undefined;
+  const referral: InboundReferral = { sourceType };
+  const sourceId = nonEmpty(raw.source_id);
+  const sourceUrl = nonEmpty(raw.source_url);
+  const headline = nonEmpty(raw.headline);
+  const body = nonEmpty(raw.body);
+  const ctwaClid = nonEmpty(raw.ctwa_clid);
+  if (sourceId) referral.sourceId = sourceId;
+  if (sourceUrl) referral.sourceUrl = sourceUrl;
+  if (headline) referral.headline = headline;
+  if (body) referral.body = body;
+  if (ctwaClid) referral.ctwaClid = ctwaClid;
+  return referral;
+}
+
+/** Unknown types already reported, so a stream of them logs one line each. */
+const reportedUnknownTypes = new Set<string>();
 
 export function normalizeMetaStatus(
   raw: RawMetaStatus
@@ -449,8 +498,18 @@ export function normalizeMetaWebhook(
         const normalized = normalizeMetaMessage(raw, contacts);
         if (!normalized) continue;
         // Unsupported types carry nothing renderable and would insert a
-        // blank bubble. Dropped, matching the Whapi normaliser.
-        if (normalized.type === 'unsupported') continue;
+        // blank bubble. Dropped, matching the Whapi normaliser — but said
+        // once per type, so a new Meta type is not lost without a trace.
+        if (normalized.type === 'unsupported') {
+          const type = String(raw.type ?? '(none)');
+          if (!reportedUnknownTypes.has(type)) {
+            reportedUnknownTypes.add(type);
+            console.warn(
+              `[meta-webhook] skipping messages of unsupported type "${type}"`
+            );
+          }
+          continue;
+        }
         messages.push(normalized);
       }
 
