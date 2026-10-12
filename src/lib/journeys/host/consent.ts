@@ -42,14 +42,20 @@ export class SupabaseConsentPort implements ConsentPort {
     return (await this.stamps(contactId)).do_not_contact_at != null;
   }
 
+  /**
+   * The step-time cap: true once the welcome is claimed, or once a
+   * MARK_OPTIN_WELCOME_SENT for the contact is committed and not dropped
+   * (086's journey_has_optin_welcome). The MARK item is emitted before
+   * the SEND and counts from commit time, so a second event cannot plan
+   * a second welcome while the first waits for delivery; the sink
+   * delivers MARK as a no-op, leaving the claim to the SEND itself.
+   */
   async hasReceivedOptinWelcome(contactId: string): Promise<boolean> {
-    const { data, error } = await this.db
-      .from('journey_optin_claims')
-      .select('contact_id')
-      .eq('contact_id', contactId)
-      .maybeSingle();
-    if (error) throw new JourneyDbError('journey_optin_claims', error);
-    return data != null;
+    const { data, error } = await this.db.rpc('journey_has_optin_welcome', {
+      p_contact_id: contactId,
+    });
+    if (error) throw new JourneyDbError('journey_has_optin_welcome', error);
+    return rpcScalar('journey_has_optin_welcome', data) === true;
   }
 
   async claimOptinWelcome(

@@ -10,6 +10,12 @@ export {
   type OpenFileInit,
 } from './store';
 export { SupabaseConsentPort } from './consent';
+export { advisorDecisionsFor } from './advisor';
+export {
+  dispatchInboundToJourney,
+  journeyEventFor,
+  type JourneyInboundArgs,
+} from './inbound';
 export type {
   CommitResult,
   ConsentPort,

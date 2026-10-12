@@ -602,3 +602,123 @@ CREATE POLICY callback_requests_select ON public.callback_requests
       )
     )
   );
+
+-- ------------------------------------------------------------
+-- Host sink (job J5b1): delivery claims, opt-out writes, copy
+-- ------------------------------------------------------------
+-- A SEND is delivered at most once. The sink claims the item
+-- (sending_at) before calling the gateway and stores the WhatsApp
+-- message id in delivery_ref after it. A claim older than two minutes
+-- with no ref is 'stale': the send may or may not have reached
+-- WhatsApp, so the sink records delivery_ref = 'unconfirmed' instead
+-- of sending again. START_NEW_JOURNEY's delivery_ref is the new file.
+ALTER TABLE public.journey_outbox
+  ADD COLUMN IF NOT EXISTS sending_at   timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS delivery_ref text NULL;
+
+-- Per-account overrides of the default session copy
+-- (src/lib/journeys/host/copy.ts), merged over it key by key.
+ALTER TABLE public.journey_settings
+  ADD COLUMN IF NOT EXISTS copy jsonb NOT NULL DEFAULT '{}'::jsonb;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'journey_settings_copy_object'
+                   AND conrelid = 'public.journey_settings'::regclass) THEN
+    ALTER TABLE public.journey_settings
+      ADD CONSTRAINT journey_settings_copy_object CHECK (jsonb_typeof(copy) = 'object');
+  END IF;
+END
+$$;
+
+-- 'delivered' when the item already has a delivery_ref (or is no
+-- longer pending), 'dropped' when it was dropped, 'claimed' when this
+-- call set sending_at, 'in_flight' when another delivery claimed it
+-- less than two minutes ago, 'stale' when that claim is older and no
+-- ref was stored. The row lock serialises two concurrent claims.
+CREATE OR REPLACE FUNCTION public.journey_claim_delivery(p_item_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row public.journey_outbox%ROWTYPE;
+BEGIN
+  SELECT * INTO v_row FROM public.journey_outbox WHERE id = p_item_id FOR UPDATE;
+  IF v_row.id IS NULL THEN
+    RAISE EXCEPTION 'journey_claim_delivery: no outbox item %', p_item_id
+      USING ERRCODE = 'P0002';
+  END IF;
+  IF v_row.delivery_ref IS NOT NULL OR v_row.status = 'delivered' THEN
+    RETURN 'delivered';
+  END IF;
+  IF v_row.status = 'dropped' THEN
+    RETURN 'dropped';
+  END IF;
+  IF v_row.sending_at IS NULL THEN
+    UPDATE public.journey_outbox
+       SET sending_at = now(), attempts = attempts + 1
+     WHERE id = p_item_id;
+    RETURN 'claimed';
+  END IF;
+  IF v_row.sending_at > now() - interval '2 minutes' THEN
+    RETURN 'in_flight';
+  END IF;
+  RETURN 'stale';
+END
+$$;
+
+-- SET_OPT_OUT: the register write, logged with source 'journey'. An
+-- opt-out keeps the first stamp, so a redelivery logs nothing new.
+-- True iff the contact exists.
+CREATE OR REPLACE FUNCTION public.journey_set_opt_out(p_contact_id uuid, p_opted_out boolean)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_prev  text := current_setting('app.consent_source', true);
+  v_found boolean;
+BEGIN
+  IF p_contact_id IS NULL OR p_opted_out IS NULL THEN
+    RAISE EXCEPTION 'journey_set_opt_out: contact and value are required'
+      USING ERRCODE = '22023';
+  END IF;
+  PERFORM set_config('app.consent_source', 'journey', true);
+  UPDATE public.contacts
+     SET opted_out_at = CASE WHEN p_opted_out THEN coalesce(opted_out_at, now()) END
+   WHERE id = p_contact_id;
+  v_found := FOUND;
+  PERFORM set_config('app.consent_source', coalesce(v_prev, ''), true);
+  RETURN v_found;
+END
+$$;
+
+-- The step-time opt-in welcome cap: true once the welcome is claimed,
+-- or once a MARK_OPTIN_WELCOME_SENT for the contact is committed (and
+-- not dropped) — from commit time, before the SEND's own delivery-time
+-- claim, so a second event cannot plan a second welcome meanwhile.
+CREATE OR REPLACE FUNCTION public.journey_has_optin_welcome(p_contact_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.journey_optin_claims WHERE contact_id = p_contact_id)
+      OR EXISTS (SELECT 1
+                 FROM public.journey_files f
+                 JOIN public.journey_outbox o ON o.file_id = f.id
+                 WHERE f.contact_id = p_contact_id
+                   AND o.action ->> 'type' = 'MARK_OPTIN_WELCOME_SENT'
+                   AND o.status <> 'dropped')
+$$;
+
+REVOKE ALL ON FUNCTION public.journey_claim_delivery(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.journey_set_opt_out(uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.journey_has_optin_welcome(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.journey_claim_delivery(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.journey_set_opt_out(uuid, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.journey_has_optin_welcome(uuid) TO service_role;

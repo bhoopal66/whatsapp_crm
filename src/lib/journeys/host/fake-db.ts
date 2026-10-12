@@ -23,7 +23,20 @@ export function fakeDb(...replies: Reply[]) {
   const chain = (calls: Call[]) => {
     queries.push(calls);
     const b: Record<string, unknown> = {};
-    for (const m of ['select', 'insert', 'update', 'eq', 'is'])
+    for (const m of [
+      'select',
+      'insert',
+      'update',
+      'upsert',
+      'eq',
+      'neq',
+      'is',
+      'in',
+      'lte',
+      'or',
+      'order',
+      'limit',
+    ])
       b[m] = (...a: unknown[]) => {
         calls.push([m, ...a]);
         return b;
