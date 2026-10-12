@@ -93,6 +93,11 @@ Requests are limited **per key**: **120 requests per minute**. On a
 - `Retry-After` — seconds until the window resets
 - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
 
+A client IP that presents 5 unknown, revoked or expired keys in a row,
+or 20 in 10 minutes, gets the same `429 rate_limited` for 15 minutes
+(`Retry-After` says when), whatever key it sends. This needs the
+deployment's client-IP header; see `docs/security.md`.
+
 > The limiter is in-memory and **per process**. A single-instance
 > deploy (the common case for a self-hosted fork) is fine as-is. If
 > you scale to multiple instances, swap the limiter for a shared

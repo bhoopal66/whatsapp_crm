@@ -12,7 +12,12 @@
     "signingIn": "로그인 중...",
     "signIn": "로그인",
     "noAccountAskAdmin": "계정이 필요하신가요? 관리자에게 생성을 요청하세요.",
-    "deactivated": "접근 권한이 비활성화되었습니다. 관리자에게 문의하세요."
+    "deactivated": "접근 권한이 비활성화되었습니다. 관리자에게 문의하세요.",
+    "invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "tooManyAttempts": "시도 횟수가 너무 많습니다. {minutes}분 후에 다시 시도하세요.",
+    "rateLimited": "로그인 요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
+    "unavailable": "일시적으로 로그인할 수 없습니다. 잠시 후 다시 시도하세요.",
+    "genericError": "로그인에 실패했습니다. 다시 시도하세요."
   },
   "Sidebar": {
     "title": "Taamul Connect",
