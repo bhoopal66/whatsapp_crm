@@ -9,7 +9,12 @@
 -- stamped by the status. This asserts those rules, the dedupe of
 -- system tasks on (account_id, source, source_ref), the assignment
 -- bell, the notification kinds 085 adds, that deleting a login only
--- nulls its references, the realtime publication and anon's grants.
+-- nulls its references, the realtime publication and the table grants
+-- (no TRUNCATE for clients). A person files only manual, callback and
+-- follow_up tasks and points one only at a contact, conversation and
+-- deal they can see, on insert and when moving it; a link the task
+-- already carries stays workable (an admin assigned it), an admin sees
+-- the whole account.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -43,6 +48,15 @@ DECLARE
   t_gone     UUID; -- assigned to a member deactivated afterwards
   t_reassign UUID;
   t_temp     UUID;
+  c_admin    UUID;   -- the admin's contact: no one else sees it
+  cv_agent   UUID;   -- the agent's chat
+  cv_agent2  UUID;   -- the other agent's chat: the agent cannot see it
+  d_agent    UUID;   -- the agent's deal
+  d_agent2   UUID;   -- the other agent's deal: the agent cannot see it
+  pl         UUID;
+  st         UUID;
+  t_links    UUID;   -- assigned to the agent, on a contact, chat and deal they cannot see
+  t_move     UUID;   -- the agent's own, no links yet
   kind_name  TEXT;
   r        TEXT;
   n        INT := 0;
@@ -403,8 +417,128 @@ BEGIN
   n := n + 1;
   IF has_function_privilege('authenticated', 'public.tasks_guard()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.tasks_notify_assigned()', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.can_view_task_contact(uuid, uuid)', 'EXECUTE') THEN
+     OR has_function_privilege('anon', 'public.can_view_task_contact(uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.can_link_task(uuid, uuid, uuid, uuid, uuid)', 'EXECUTE') THEN
     failed := array_append(failed, 'clients may call the 085 functions'::text);
+  END IF;
+
+  -- ---------- what a person may point a task at ----------
+  INSERT INTO contacts (account_id, user_id, phone, name)
+  VALUES (a_acct, u_admin, '971500085004', 'TK admin contact') RETURNING id INTO c_admin;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_agent, c_agent) RETURNING id INTO cv_agent;
+  INSERT INTO conversations (account_id, user_id, contact_id)
+  VALUES (a_acct, u_agent2, c_agent2) RETURNING id INTO cv_agent2;
+  INSERT INTO pipelines (account_id, user_id, name) VALUES (a_acct, u_admin, 'TK pipeline') RETURNING id INTO pl;
+  INSERT INTO pipeline_stages (pipeline_id, name, position) VALUES (pl, 'TK stage', 0) RETURNING id INTO st;
+  INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title)
+  VALUES (a_acct, u_agent, pl, st, c_agent, 'TK agent deal') RETURNING id INTO d_agent;
+  INSERT INTO deals (account_id, user_id, pipeline_id, stage_id, contact_id, title)
+  VALUES (a_acct, u_agent2, pl, st, c_agent2, 'TK agent2 deal') RETURNING id INTO d_agent2;
+  INSERT INTO tasks (account_id, kind, title, contact_id, conversation_id, deal_id, assigned_to, created_by)
+  VALUES (a_acct, 'callback', 'TK links', c_agent2, cv_agent2, d_agent2, u_agent, u_admin) RETURNING id INTO t_links;
+  INSERT INTO tasks (account_id, kind, title, assigned_to, created_by)
+  VALUES (a_acct, 'manual', 'TK move', u_agent, u_agent) RETURNING id INTO t_move;
+
+  -- Inserting: a chat or deal the person cannot see, and the system's kinds.
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'INSERT INTO tasks (account_id, kind, title, conversation_id, created_by) VALUES (%L, %L, %L, %L, %L)',
+    a_acct, 'callback', 'TK invisible chat', cv_agent2, u_agent));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent filed a task on a chat they cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'INSERT INTO tasks (account_id, kind, title, deal_id, created_by) VALUES (%L, %L, %L, %L, %L)',
+    a_acct, 'callback', 'TK invisible deal', d_agent2, u_agent));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent filed a task on a deal they cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'INSERT INTO tasks (account_id, kind, title, created_by) VALUES (%L, %L, %L, %L)',
+    a_acct, 'missed_call', 'TK forged missed call', u_agent));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent filed a missed_call task: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'INSERT INTO tasks (account_id, kind, title, source, created_by) VALUES (%L, %L, %L, %L, %L)',
+    a_acct, 'journey', 'TK forged journey', 'chat', u_agent));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent filed a journey task: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_admin, format(
+    'INSERT INTO tasks (account_id, kind, title, created_by) VALUES (%L, %L, %L, %L)',
+    a_acct, 'journey', 'TK admin forged journey', u_admin));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('an admin filed a journey task: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'INSERT INTO tasks (account_id, kind, title, contact_id, conversation_id, deal_id, created_by) VALUES (%L, %L, %L, %L, %L, %L, %L)',
+    a_acct, 'follow_up', 'TK visible links', c_agent, cv_agent, d_agent, u_agent));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('agent files a task on a contact, chat and deal they see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_admin, format(
+    'INSERT INTO tasks (account_id, kind, title, contact_id, conversation_id, deal_id, created_by) VALUES (%L, %L, %L, %L, %L, %L, %L)',
+    a_acct, 'manual', 'TK admin links', c_agent2, cv_agent2, d_agent2, u_admin));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('an admin files a task on any contact, chat and deal of the account: ' || r)::text); END IF;
+
+  -- Moving a task: never onto what the person cannot see.
+  r := pg_temp.tk_try('authenticated', u_agent, format('UPDATE tasks SET contact_id = %L WHERE id = %L', c_agent2, t_move));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent moved a task onto a contact they cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format('UPDATE tasks SET conversation_id = %L WHERE id = %L', cv_agent2, t_move));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent moved a task onto a chat they cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format('UPDATE tasks SET deal_id = %L WHERE id = %L', d_agent2, t_move));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent moved a task onto a deal they cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'UPDATE tasks SET contact_id = %L, conversation_id = %L, deal_id = %L WHERE id = %L', c_agent, cv_agent, d_agent, t_move));
+  n := n + 1;
+  IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM tasks WHERE id = t_move AND contact_id = c_agent
+       AND conversation_id = cv_agent AND deal_id = d_agent) THEN
+    failed := array_append(failed, ('agent moves a task onto a contact, chat and deal they see: ' || r)::text);
+  END IF;
+  r := pg_temp.tk_try('authenticated', u_admin, format(
+    'UPDATE tasks SET contact_id = %L, conversation_id = %L, deal_id = %L WHERE id = %L', c_agent2, cv_agent2, d_agent2, t_move));
+  n := n + 1;
+  IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM tasks WHERE id = t_move AND contact_id = c_agent2
+       AND conversation_id = cv_agent2 AND deal_id = d_agent2) THEN
+    failed := array_append(failed, ('an admin moves a task onto any contact, chat and deal of the account: ' || r)::text);
+  END IF;
+
+  -- A link the task already carries stays workable, whatever the holder sees.
+  r := pg_temp.tk_try('authenticated', u_agent, format('UPDATE tasks SET status = %L WHERE id = %L', 'done', t_links));
+  n := n + 1;
+  IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM tasks WHERE id = t_links AND status = 'done' AND contact_id = c_agent2
+       AND conversation_id = cv_agent2 AND deal_id = d_agent2) THEN
+    failed := array_append(failed, ('the assignee completes a task on links they cannot see: ' || r)::text);
+  END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format(
+    'UPDATE tasks SET contact_id = contact_id, conversation_id = conversation_id, deal_id = deal_id, title = %L WHERE id = %L',
+    'TK links, renamed', t_links));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('a whole-row write-back keeps links the holder cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_agent, format('UPDATE tasks SET contact_id = %L WHERE id = %L', c_admin, t_links));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent swapped one invisible contact for another: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_lead, format('UPDATE tasks SET status = %L WHERE id = %L', 'open', t_links));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('a leader works their team''s task on links they cannot see: ' || r)::text); END IF;
+  r := pg_temp.tk_try('authenticated', u_lead, format('UPDATE tasks SET contact_id = %L WHERE id = %L', c_admin, t_links));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a leader moved a task onto a contact they cannot see: ' || r)::text); END IF;
+
+  -- Table grants: nothing beyond what the policies govern.
+  n := n + 1;
+  IF has_table_privilege('authenticated', 'public.tasks', 'TRUNCATE,REFERENCES,TRIGGER') THEN
+    failed := array_append(failed, 'authenticated holds TRUNCATE, REFERENCES or TRIGGER on tasks'::text);
+  END IF;
+  n := n + 1;
+  IF NOT (has_table_privilege('authenticated', 'public.tasks', 'SELECT')
+          AND has_table_privilege('authenticated', 'public.tasks', 'INSERT')
+          AND has_table_privilege('authenticated', 'public.tasks', 'UPDATE')
+          AND has_table_privilege('authenticated', 'public.tasks', 'DELETE')) THEN
+    failed := array_append(failed, 'authenticated lost SELECT, INSERT, UPDATE or DELETE on tasks'::text);
+  END IF;
+  n := n + 1;
+  IF has_table_privilege('anon', 'public.tasks', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+    failed := array_append(failed, 'anon holds a privilege on tasks'::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
