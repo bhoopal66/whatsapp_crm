@@ -1,7 +1,25 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { closeSystemTasks, createSystemTask, resolveTaskOwner } from './system';
+
+// A role ladder that also knows `bank_guest` and ranks it at the top,
+// the worst place a later branch could put it. Who may hold a task is
+// a named list, so where the ladder ranks a role must not matter.
+vi.mock('@/lib/auth/roles', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/auth/roles')>();
+  return {
+    ...actual,
+    isAccountRole: (value: unknown) =>
+      value === 'bank_guest' || actual.isAccountRole(value),
+    hasMinRole: (role: string, min: string) =>
+      role === 'bank_guest' ||
+      actual.hasMinRole(
+        role as Parameters<typeof actual.hasMinRole>[0],
+        min as Parameters<typeof actual.hasMinRole>[1]
+      ),
+  };
+});
 
 type Row = Record<string, unknown>;
 type DbError = { code: string; message: string };
@@ -236,6 +254,12 @@ describe('resolveTaskOwner', () => {
           account_role: 'admin',
           deactivated_at: null,
         },
+        {
+          user_id: 'guest-6',
+          account_id: A,
+          account_role: 'bank_guest',
+          deactivated_at: null,
+        },
       ],
       conversations: [
         {
@@ -261,6 +285,12 @@ describe('resolveTaskOwner', () => {
           account_id: A,
           assigned_agent_id: 'gone-4',
           contact_id: 'contact-2',
+        },
+        {
+          id: 'conv-5',
+          account_id: A,
+          assigned_agent_id: 'guest-6',
+          contact_id: 'contact-1',
         },
         {
           id: 'conv-b',
@@ -301,6 +331,12 @@ describe('resolveTaskOwner', () => {
   it('skips an assignee who is a viewer', async () => {
     expect(
       await resolveTaskOwner(world().db, A, { conversationId: 'conv-3' })
+    ).toBe('lead-2');
+  });
+
+  it('skips a role outside the staff list, however the ladder ranks it', async () => {
+    expect(
+      await resolveTaskOwner(world().db, A, { conversationId: 'conv-5' })
     ).toBe('lead-2');
   });
 

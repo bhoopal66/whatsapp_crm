@@ -10,7 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { hasMinRole, isAccountRole } from '@/lib/auth/roles';
+import type { AccountRole } from '@/lib/auth/roles';
 
 import { truncateChars } from './text';
 import {
@@ -22,6 +22,18 @@ import {
 
 /** The table's UNIQUE (account_id, source, source_ref): the dedupe key. */
 const SOURCE_KEY = 'account_id,source,source_ref';
+
+/**
+ * The roles that can hold a task: tasks_guard's own list (085). Named,
+ * not ranked, so a role added later (a bank guest) never qualifies
+ * until it is put here on purpose.
+ */
+const TASK_HOLDER_ROLES: readonly AccountRole[] = [
+  'owner',
+  'admin',
+  'team_leader',
+  'agent',
+];
 
 function dbError(
   operation: string,
@@ -103,9 +115,10 @@ export async function createSystemTask(
 /**
  * Who a system task goes to: the person the chat is assigned to, else
  * the contact's owner (`contactId`, else the conversation's contact).
- * The first of them who can still hold a task wins: an active member
- * of this account at agent or above, the rule the tasks trigger puts
- * on `assigned_to`. Null leaves the task in the unassigned queue.
+ * The first of them who can still hold a task wins: an active owner,
+ * admin, team leader or agent of this account (`TASK_HOLDER_ROLES`,
+ * the rule the tasks trigger puts on `assigned_to`). Null leaves the
+ * task in the unassigned queue.
  */
 export async function resolveTaskOwner(
   db: SupabaseClient,
@@ -157,9 +170,8 @@ export async function resolveTaskOwner(
   if (error) throw dbError('resolveTaskOwner: reading profiles', error);
   const eligible = new Set(
     ((data ?? []) as { user_id: string; account_role: unknown }[])
-      .filter(
-        (p) =>
-          isAccountRole(p.account_role) && hasMinRole(p.account_role, 'agent')
+      .filter((p) =>
+        (TASK_HOLDER_ROLES as readonly unknown[]).includes(p.account_role)
       )
       .map((p) => p.user_id)
   );
