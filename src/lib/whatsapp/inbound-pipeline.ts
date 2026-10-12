@@ -571,6 +571,10 @@ export interface ProcessMessageOptions {
    * automations, AI reply, outbound webhooks or TypeSafe watch. For a
    * sender over the webhook rate limit, whose message must never be
    * lost but must not be answered either. Default true.
+   *
+   * The outbound `conversation.created` webhook still fires when the
+   * message opens a brand-new thread: it is emitted before this cut-off,
+   * and the conversation does exist.
    */
   fanOut?: boolean;
 }

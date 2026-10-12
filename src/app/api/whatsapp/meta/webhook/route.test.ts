@@ -19,6 +19,10 @@ const h = vi.hoisted(() => ({
   processMessage: vi.fn(),
   handleStatusUpdate: vi.fn(),
   handleTemplateWebhookChange: vi.fn(),
+  screenWebhook: vi.fn(),
+  confirmAccepted: vi.fn(),
+  clientIp: vi.fn(),
+  recordMetaMessageCosts: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
   state: {
     /** Rows `whatsapp_config` returns for provider='meta' lookups. */
@@ -42,6 +46,23 @@ vi.mock('next/server', async () => {
 vi.mock('@/lib/whatsapp/inbound-pipeline', () => ({
   processMessage: h.processMessage,
   handleStatusUpdate: h.handleStatusUpdate,
+}));
+
+// Edge screening is its own module with its own tests; here it is a
+// seam. By default every event is accepted with a claim token, which
+// is the pre-screening behaviour the older tests describe.
+vi.mock('@/lib/edge', () => ({
+  clientIp: h.clientIp,
+  screenWebhook: h.screenWebhook,
+  confirmAccepted: h.confirmAccepted,
+  ReplayGuard: class {},
+  RateLimiter: class {},
+  RpcSeenStore: class {},
+  RpcRateStore: class {},
+}));
+
+vi.mock('@/lib/whatsapp/message-costs', () => ({
+  recordMetaMessageCosts: h.recordMetaMessageCosts,
 }));
 
 vi.mock('@/lib/whatsapp/template-webhook', () => ({
@@ -161,6 +182,25 @@ function post(payload: unknown, signature: string | null) {
   });
 }
 
+type Outcome = 'accept' | 'duplicate' | 'rate_limited' | 'ip_limited';
+type ScreenInputArg = {
+  ip: string | undefined;
+  events: { key: string; senderKey?: string; kind: string }[];
+};
+
+/** A screenWebhook stand-in deciding each event by its key. */
+function screenAs(outcomeOf: (key: string) => Outcome) {
+  return async (_ctx: unknown, input: ScreenInputArg) => ({
+    status: 200 as const,
+    decisions: input.events.map((e) => {
+      const outcome = outcomeOf(e.key);
+      return outcome === 'accept'
+        ? { key: e.key, outcome, claimToken: `tok:${e.key}` }
+        : { key: e.key, outcome };
+    }),
+  });
+}
+
 async function runAfterCallbacks() {
   const cbs = [...h.afterCallbacks];
   h.afterCallbacks.length = 0;
@@ -173,6 +213,10 @@ beforeEach(() => {
   h.afterCallbacks.length = 0;
   h.state.metaConfigs = [CONFIG];
   h.state.failLookup = null;
+  h.screenWebhook.mockImplementation(screenAs(() => 'accept'));
+  h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });
+  h.clientIp.mockReturnValue('203.0.113.7');
+  h.recordMetaMessageCosts.mockResolvedValue([]);
   process.env.META_APP_SECRET = APP_SECRET;
   delete process.env.META_VERIFY_TOKEN;
 });
@@ -817,5 +861,231 @@ describe('POST — a batch mixing template changes and messages', () => {
     await runAfterCallbacks();
     expect(h.processMessage).not.toHaveBeenCalled();
     expect(h.handleTemplateWebhookChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST — edge screening', () => {
+  const MSG_KEY = 'msg:109876543210:wamid.ABC';
+
+  /** One number, the given messages plus one delivery receipt. */
+  function deliveryPayload(messages: Record<string, unknown>[]) {
+    const payload = messagePayload();
+    const value = payload.entry[0].changes[0].value as Record<string, unknown>;
+    value.messages = messages;
+    value.statuses = [
+      {
+        id: 'wamid.OUT',
+        status: 'delivered',
+        timestamp: '1712995245',
+        recipient_id: '15551234567',
+      },
+    ];
+    return payload;
+  }
+
+  function textMessage(id: string, from = '15551234567') {
+    return {
+      id,
+      from,
+      timestamp: '1712995245',
+      type: 'text',
+      text: { body: id },
+    };
+  }
+
+  it('screens a two-number batch in ONE call, with number-scoped keys', async () => {
+    // One app, two numbers in two accounts. The same wamid on both must
+    // be two claims: an unscoped key would let one tenant's callback
+    // pre-claim the other's message.
+    h.state.metaConfigs = [
+      CONFIG,
+      { ...CONFIG, id: 'cfg-2', account_id: 'acc-2', phone_number_id: '555' },
+    ];
+    const first = deliveryPayload([textMessage('wamid.ABC')]);
+    const second = messagePayload('555');
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [...first.entry, ...second.entry],
+    };
+    const { POST } = await import('./route');
+    const req = post(payload, sign(JSON.stringify(payload)));
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    expect(h.screenWebhook).toHaveBeenCalledTimes(1);
+    expect(h.clientIp).toHaveBeenCalledWith(req.headers);
+    expect(h.screenWebhook.mock.calls[0][1]).toEqual({
+      ip: '203.0.113.7',
+      events: [
+        { key: 'status:109876543210:wamid.OUT:delivered', kind: 'status' },
+        { key: MSG_KEY, senderKey: '15551234567', kind: 'message' },
+        { key: 'msg:555:wamid.ABC', senderKey: '15551234567', kind: 'message' },
+      ],
+    });
+
+    await runAfterCallbacks();
+    expect(h.processMessage.mock.calls.map((c) => c[1])).toEqual([
+      'acc-1',
+      'acc-2',
+    ]);
+  });
+
+  it('answers 503 and queues nothing while an event is in flight elsewhere', async () => {
+    h.screenWebhook.mockResolvedValue({ status: 503, decisions: [] });
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    // Meta redelivers a 5xx; by then the other delivery has confirmed
+    // (a duplicate) or its lease has lapsed (processed).
+    expect(res.status).toBe(503);
+    expect(h.afterCallbacks).toHaveLength(0);
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+    expect(h.confirmAccepted).not.toHaveBeenCalled();
+  });
+
+  it('still runs the verified template half of a mixed body on a 503', async () => {
+    h.screenWebhook.mockResolvedValue({ status: 503, decisions: [] });
+    const messages = messagePayload();
+    const quality = {
+      field: 'message_template_quality_update',
+      value: { message_template_id: '777', new_quality_score: 'YELLOW' },
+    };
+    const payload = {
+      object: 'whatsapp_business_account',
+      entry: [
+        { ...messages.entry[0], id: CONFIG.waba_id },
+        { id: CONFIG.waba_id, changes: [quality] },
+      ],
+    };
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(503);
+    await runAfterCallbacks();
+    expect(h.handleTemplateWebhookChange).toHaveBeenCalledTimes(1);
+    expect(h.handleTemplateWebhookChange.mock.calls[0][2]).toBe('acc-1');
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.confirmAccepted).not.toHaveBeenCalled();
+  });
+
+  it('skips duplicates, logging the count once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.screenWebhook.mockImplementation(
+      screenAs((key) =>
+        key === MSG_KEY || key.startsWith('status:') ? 'duplicate' : 'accept'
+      )
+    );
+    const payload = deliveryPayload([
+      textMessage('wamid.ABC'),
+      textMessage('wamid.NEW'),
+    ]);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.processMessage.mock.calls[0][0]).toMatchObject({
+      id: 'wamid.NEW',
+    });
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+      '[meta-webhook] skipped 2 duplicate and 0 IP-limited event(s)',
+    ]);
+    // Costing still sees the receipt; its ledger ignores a replay.
+    expect(h.recordMetaMessageCosts).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a rate-limited message without fan-out', async () => {
+    h.screenWebhook.mockImplementation(
+      screenAs((key) => (key === MSG_KEY ? 'rate_limited' : 'accept'))
+    );
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.processMessage.mock.calls[0][0]).toMatchObject({
+      id: 'wamid.ABC',
+    });
+    expect(h.processMessage.mock.calls[0][5]).toEqual({ fanOut: false });
+  });
+
+  it('processes an accepted message with the default options', async () => {
+    h.screenWebhook.mockImplementation(
+      screenAs((key) => (key === MSG_KEY ? 'rate_limited' : 'accept'))
+    );
+    const payload = deliveryPayload([
+      textMessage('wamid.ABC'),
+      textMessage('wamid.NEW', '15550000000'),
+    ]);
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(h.processMessage).toHaveBeenCalledTimes(2);
+    const accepted = h.processMessage.mock.calls[1];
+    expect(accepted[0]).toMatchObject({ id: 'wamid.NEW' });
+    expect(accepted[5]).toBeUndefined();
+    expect(h.handleStatusUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms the accepted claims only after processing', async () => {
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    // Nothing is persisted before after() runs, so nothing is confirmed.
+    expect(h.confirmAccepted).not.toHaveBeenCalled();
+    await runAfterCallbacks();
+
+    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
+    const [, decisions] = h.confirmAccepted.mock.calls[0];
+    const STATUS_KEY = 'status:109876543210:wamid.OUT:delivered';
+    expect(decisions).toEqual([
+      { key: STATUS_KEY, outcome: 'accept', claimToken: `tok:${STATUS_KEY}` },
+      { key: MSG_KEY, outcome: 'accept', claimToken: `tok:${MSG_KEY}` },
+    ]);
+    const confirmedAt = h.confirmAccepted.mock.invocationCallOrder[0];
+    expect(h.processMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmedAt
+    );
+    expect(h.handleStatusUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmedAt
+    );
+  });
+
+  it('leaves the claims of a number whose processing threw unconfirmed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.processMessage.mockRejectedValueOnce(new Error('boom'));
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(h.confirmAccepted).toHaveBeenCalledWith(expect.anything(), []);
+  });
+
+  it('answers 200 and processes nothing over the IP limit', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.screenWebhook.mockImplementation(screenAs(() => 'ip_limited'));
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+    expect(h.recordMetaMessageCosts).not.toHaveBeenCalled();
+  });
+
+  it('screens nothing for a callback that failed verification', async () => {
+    const payload = messagePayload();
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, 'sha256=deadbeef'));
+    expect(res.status).toBe(401);
+    expect(h.screenWebhook).not.toHaveBeenCalled();
   });
 });
