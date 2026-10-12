@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   journeyTick: vi.fn(),
   reconcile: vi.fn(),
   pbx: vi.fn(),
+  chatFiles: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -67,6 +68,7 @@ vi.mock('@/lib/deal-rooms/reconcile', () => ({
   reconcileCreatingRooms: h.reconcile,
 }));
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
+vi.mock('@/lib/chat/file-cleanup', () => ({ runChatFileSweep: h.chatFiles }));
 
 function req() {
   return new Request('http://localhost/api/automations/cron', {
@@ -91,6 +93,9 @@ beforeEach(() => {
   h.sweep.mockReset().mockResolvedValue({ alerts: 0, notifications: 0 });
   h.rpc.mockReset().mockResolvedValue({ data: 3, error: null });
   h.pbx.mockReset().mockResolvedValue({ outOfTime: [], errors: {} });
+  h.chatFiles
+    .mockReset()
+    .mockResolvedValue({ found: 0, deleted: 0, failed: [] });
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-09-29T13:00:00Z'));
 });
@@ -247,6 +252,66 @@ describe('GET /api/automations/cron — edge store purge', () => {
     expect(res.status).toBe(401);
     await runAfter();
     expect(h.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/automations/cron — chat file sweep', () => {
+  it('runs the sweep after the response, at most every 15 minutes', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.chatFiles).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.chatFiles).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:14:59Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.chatFiles).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:15:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.chatFiles).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a failed sweep or leftover files and leaves the other jobs running', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.chatFiles.mockRejectedValue(new Error('permission denied'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] chat file sweep failed:',
+      'permission denied'
+    );
+    expect(h.rpc).toHaveBeenCalledWith('edge_purge');
+    expect(h.health).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:15:00Z'));
+    h.chatFiles.mockResolvedValue({ found: 2, deleted: 1, failed: ['x'] });
+    await GET(req());
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] chat file sweep left 1 of 2 file(s):',
+      ['x']
+    );
+    log.mockRestore();
+  });
+
+  it('does not run for an unauthenticated caller', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    const res = await GET(
+      new Request('http://localhost/api/automations/cron', {
+        headers: { 'x-cron-secret': 'wrong!' },
+      })
+    );
+    expect(res.status).toBe(401);
+    await runAfter();
+    expect(h.chatFiles).not.toHaveBeenCalled();
   });
 });
 

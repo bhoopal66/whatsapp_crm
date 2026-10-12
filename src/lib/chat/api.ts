@@ -6,7 +6,12 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { toChatError } from './errors';
+import {
+  ChatError,
+  toChatError,
+  type ChatErrorCode,
+  type ChatErrorKey,
+} from './errors';
 import { isUuid } from './mentions';
 import {
   toAttachment,
@@ -107,7 +112,12 @@ export const editMessage = (
 ): Promise<void> =>
   rpc(sb, 'chat_edit_message', { p_message: i.messageId, p_body: i.body });
 
-/** Soft delete; returns the storage paths of the attachments it dropped. */
+/**
+ * Soft delete; returns the storage paths of the attachments it dropped.
+ * For POST /api/chat/messages/[id]/delete, on the caller's session: the
+ * browser calls deleteMessageAndFiles, because only that route can also
+ * remove the files (chat-files has no client DELETE policy).
+ */
 export const deleteMessage = async (
   sb: SupabaseClient,
   messageId: string
@@ -115,6 +125,43 @@ export const deleteMessage = async (
   (await rpc<string[] | null>(sb, 'chat_delete_message', {
     p_message: messageId,
   })) ?? [];
+
+const DELETE_ERROR_BY_STATUS: Record<number, [ChatErrorCode, ChatErrorKey]> = {
+  400: ['INVALID', 'invalid'],
+  403: ['FORBIDDEN', 'forbidden'],
+  404: ['NOT_FOUND', 'notFound'],
+  409: ['CONFLICT', 'conflict'],
+};
+
+/** Deletes a message and its files through the server route; throws a ChatError. */
+export async function deleteMessageAndFiles(
+  messageId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetchImpl(
+      `/api/chat/messages/${encodeURIComponent(messageId)}/delete`,
+      { method: 'POST' }
+    );
+  } catch (err) {
+    throw toChatError(err);
+  }
+  if (res.ok) return;
+  const json = (await res.json().catch(() => null)) as {
+    error?: unknown;
+    key?: unknown;
+  } | null;
+  const [code, coarse] = DELETE_ERROR_BY_STATUS[res.status] ?? [
+    'UNKNOWN',
+    'unknown',
+  ];
+  throw new ChatError(
+    code,
+    typeof json?.key === 'string' ? (json.key as ChatErrorKey) : coarse,
+    typeof json?.error === 'string' ? json.error : `HTTP ${res.status}`
+  );
+}
 
 /** Marks the channel read up to `at` (default: now, server time). */
 export const markRead = (

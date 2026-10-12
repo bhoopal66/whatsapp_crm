@@ -433,7 +433,8 @@ BEGIN
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%at most 25 MB%', 'attachments: oversize: ' || r);
   r := pg_temp.u(u_rm2, pg_temp.q_post(ch, 'x', NULL, (SELECT jsonb_agg(atts->0) FROM generate_series(1, 11))));
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%at most 10 items%', 'attachments: 11 files: ' || r);
-  -- Download: readers of the channel only.
+  -- Download: readers of the channel only, once a live message carries the file.
+  PERFORM pg_temp.id(u_rm, pg_temp.q_post(ch2, 'file', NULL, jsonb_set(atts, '{0,storage_path}', to_jsonb(t))));
   r := format('SELECT count(*) FROM storage.objects WHERE bucket_id = %L AND name = %L', 'chat-files', t);
   n := n+1; failed := failed || pg_temp.ck(pg_temp.u(u_rm2, r) = '0', 'storage: a non-member reads a private channel''s file');
   n := n+1; failed := failed || pg_temp.ck(pg_temp.u(u_ag, r) = '1', 'storage: a member cannot read the channel''s file');
@@ -447,7 +448,7 @@ BEGIN
   -- Deal room: a guest sees the room, never its notes or files.
   t := format('account-%s/channel-%s/%s-deal.pdf', a, deal, gen_random_uuid());
   INSERT INTO storage.objects (bucket_id, name) VALUES ('chat-files', t);
-  PERFORM pg_temp.id(u_rm, pg_temp.q_post(deal, 'deal note'));
+  PERFORM pg_temp.id(u_rm, pg_temp.q_post(deal, 'deal note', NULL, jsonb_set(atts, '{0,storage_path}', to_jsonb(t))));
   r := format('SELECT count(*) FROM storage.objects WHERE bucket_id = %L AND name = %L', 'chat-files', t);
   n := n+1; failed := failed || pg_temp.ck(pg_temp.u(u_guest, r) = '0' AND pg_temp.u(u_rm, r) = '1', 'storage: deal room file visibility (guest 0, staff 1)');
   n := n+1; failed := failed || pg_temp.ck(pg_temp.u(u_guest, pg_temp.q_n('chat_channels', 'id', deal)) = '1'
@@ -523,10 +524,10 @@ BEGIN
      AND (has_function_privilege('anon', p.oid, 'EXECUTE')
           OR coalesce(aclcontains(p.proacl, makeaclitem(0, p.proowner, 'EXECUTE', false)), true));
   n := n+1; failed := failed || pg_temp.ck(r IS NULL, 'anon or PUBLIC may execute: ' || r);
-  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO r FROM pg_proc p
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO r FROM pg_proc p
    WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'chat\_%' AND p.proname <> 'chat_tags_guard'
      AND has_function_privilege('service_role', p.oid, 'EXECUTE');
-  n := n+1; failed := failed || pg_temp.ck(r = 'chat_post_system_message(uuid,text,jsonb)', 'service_role executes: ' || coalesce(r, 'nothing'));
+  n := n+1; failed := failed || pg_temp.ck(r = 'chat_orphan_files(integer), chat_post_system_message(uuid,text,jsonb)', 'service_role executes: ' || coalesce(r, 'nothing'));
   r := pg_temp.ic_go('anon', NULL, pg_temp.q_dm(a, ARRAY[u_rm]), false)
     || '|' || pg_temp.ic_go('service_role', NULL, format('SELECT public.chat_erase_person(%L, %L, %L)', a, u_rm, 'service purge'), false);
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR 42501: permission denied for function%|ERROR 42501: permission denied for function%',

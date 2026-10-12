@@ -24,7 +24,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
-import { deleteMessage, editMessage, type ChatMessage } from '@/lib/chat';
+import {
+  deleteMessageAndFiles,
+  editMessage,
+  type ChatMessage,
+} from '@/lib/chat';
 import { deserializeBody } from '@/lib/chat/composer';
 import { editSubmission } from '@/lib/chat/composer-input';
 import {
@@ -85,7 +89,7 @@ export function useMessageEdits(message: ChatMessage) {
     },
     remove: () =>
       void run(localPatch(message, { deletedAt: now() }), () =>
-        deleteMessage(sb, message.id)
+        deleteMessageAndFiles(message.id)
       ),
   };
 }

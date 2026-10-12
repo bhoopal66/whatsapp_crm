@@ -53,8 +53,13 @@
 --    "no access" card. No share into a channel with a bank guest.
 --  * Attachments: private bucket `chat-files` (25 MB), objects at
 --    account-<ws>/channel-<ch>/<uuid>-<name>; upload needs the right to
---    post in that channel, download the right to read its messages.
---    chat_post_message(p_attachments) checks each object exists.
+--    post in that channel, download the right to read its messages
+--    AND a live message_attachments row for the object (a message not
+--    deleted or erased). chat_post_message(p_attachments) checks each
+--    object exists. A delete goes through POST
+--    /api/chat/messages/[id]/delete, which removes the files with the
+--    service role; chat_orphan_files() feeds the cron sweep that
+--    removes whatever that left behind.
 --  * Bell: each chat_notifications row inserts the matching
 --    notifications row (types chat_*, 085's CHECK) with
 --    notifications.meta = {channel_id, message_id, thread_root_id}.
@@ -298,6 +303,8 @@ CREATE TABLE IF NOT EXISTS public.message_attachments (
   scanned      boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS message_attachments_msg_idx ON public.message_attachments (message_id);
+-- chat_storage_can_read and chat_orphan_files look objects up by path.
+CREATE INDEX IF NOT EXISTS message_attachments_path_idx ON public.message_attachments (storage_path);
 
 -- conversation_id has no FK on purpose: the snapshot outlives the chat.
 CREATE TABLE IF NOT EXISTS public.shared_conversations (
@@ -772,7 +779,10 @@ BEGIN
 END $$;
 
 -- Soft delete. Also removes the message's mentions, shared cards, bell
--- rows and attachment metadata; returns the storage paths to delete.
+-- rows and attachment metadata; returns the storage paths to delete
+-- (POST /api/chat/messages/[id]/delete removes them with the service
+-- role). From here the objects are unreadable: chat_storage_can_read
+-- wants a live attachment row.
 CREATE OR REPLACE FUNCTION public.chat_delete_message(p_message uuid)
 RETURNS text[] LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -1295,10 +1305,40 @@ EXCEPTION WHEN OTHERS THEN
   RETURN false;
 END $$;
 
--- Download: the caller may read the path's channel's messages.
+-- Download: the caller may read the path's channel's messages, and a
+-- live message (not deleted, not erased) carries the object. Without
+-- the second half a deleted or erased attachment stayed readable to
+-- every member, and erasure could no longer find it. Nothing reads an
+-- object before its message is posted, so there is no uploader grace
+-- here: the composer uploads with upsert off (an INSERT, which needs no
+-- read policy), shows no preview, and chat_post_message's existence
+-- check runs as the definer.
 CREATE OR REPLACE FUNCTION public.chat_storage_can_read(p_name text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT coalesce(public.chat_can_read_channel(public.chat_storage_channel(p_name)), false)
+     AND EXISTS (SELECT 1 FROM public.message_attachments a
+                   JOIN public.internal_messages m ON m.id = a.message_id
+                  WHERE a.storage_path = p_name AND m.deleted_at IS NULL AND m.erased_at IS NULL)
+$$;
+
+-- The cron's orphan sweep (service role only): chat-files objects no
+-- live message carries, oldest first, at most p_limit (1..1000). The
+-- 24-hour window protects uploads waiting in a composer (chips do not
+-- survive a reload); anything older without a live row is a deleted or
+-- erased message's file the delete route did not reach, or an upload
+-- that was never posted.
+CREATE OR REPLACE FUNCTION public.chat_orphan_files(p_limit integer DEFAULT 500)
+RETURNS text[] LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT coalesce(array_agg(x.name ORDER BY x.created_at, x.name), '{}')
+    FROM (SELECT o.name, o.created_at
+            FROM storage.objects o
+           WHERE o.bucket_id = 'chat-files'
+             AND o.created_at < now() - interval '24 hours'
+             AND NOT EXISTS (SELECT 1 FROM public.message_attachments a
+                               JOIN public.internal_messages m ON m.id = a.message_id
+                              WHERE a.storage_path = o.name AND m.deleted_at IS NULL AND m.erased_at IS NULL)
+           ORDER BY o.created_at, o.name
+           LIMIT least(greatest(coalesce(p_limit, 500), 1), 1000)) x
 $$;
 
 DROP POLICY IF EXISTS "Chat members can upload chat files" ON storage.objects;
@@ -1422,7 +1462,7 @@ BEGIN
                 'chat_unread_counts','chat_workspace_badges','chat_search','chat_toggle_reaction','chat_set_pin',
                 'chat_set_saved','chat_shared_cards','chat_people','chat_add_members','chat_leave_channel',
                 'chat_admin_read_private','chat_erase_person','chat_set_member_role','chat_notification_to_bell',
-                'chat_storage_channel','chat_storage_can_write','chat_storage_can_read')
+                'chat_storage_channel','chat_storage_can_write','chat_storage_can_read','chat_orphan_files')
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', f);
   END LOOP;
@@ -1445,5 +1485,6 @@ GRANT EXECUTE ON FUNCTION
   public.chat_set_member_role(uuid, uuid, text)
   TO authenticated;
 
--- service_role: SELECT (above) and system posts only.
+-- service_role: SELECT (above), system posts and the orphan sweep only.
 GRANT EXECUTE ON FUNCTION public.chat_post_system_message(uuid, text, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.chat_orphan_files(integer) TO service_role;

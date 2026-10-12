@@ -45,7 +45,7 @@ DECLARE
   m UUID; m1 UUID; m2 UUID; root UUID; rep UUID; gone UUID; mr UUID; sm UUID;
   ar UUID; en UUID; ad UUID; tg UUID; tm UUID;
   k1 UUID; k2 UUID; kb UUID; cv1 UUID; cv2 UUID; cvb UUID;
-  r TEXT;
+  r TEXT; f1 TEXT; f2 TEXT; f3 TEXT; f4 TEXT;
   n INT := 0;
   failed TEXT[] := '{}';
 BEGIN
@@ -445,6 +445,51 @@ BEGIN
   PERFORM pg_temp.ck('active in B: badges',
     pg_temp.ic(u_mx, format('SELECT string_agg(account_id || ''='' || unread || ''/'' || mentions, '','' ORDER BY account_id <> %L) FROM public.chat_workspace_badges()', a)),
     a || '=1/1,' || b || '=0/0');
+
+  -- ================= attachments after a delete or an erasure =================
+  -- An object is readable only while a live message carries it; what
+  -- no live message carries is the cron sweep's once 24 hours old.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.postf(p_uid uuid, p_ch uuid, p_path text) RETURNS text LANGUAGE sql AS $b$
+      SELECT pg_temp.ic(p_uid, format('SELECT public.chat_post_message(%L, %L, NULL, NULL, %L::jsonb)', p_ch, 'file',
+        jsonb_build_array(jsonb_build_object('storage_path', p_path, 'name', 'f.pdf', 'mime', 'application/pdf', 'bytes', 1)))) $b$
+  $fn$;
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.orphan(p_path text) RETURNS text LANGUAGE sql AS $b$
+      SELECT pg_temp.ic(NULL, format('SELECT (%L = ANY (public.chat_orphan_files(1000)))::text', p_path), 'service_role') $b$
+  $fn$;
+  t := pg_temp.must(pg_temp.mk(u_rm, a, 'team', 'files-del'));
+  uu := extras[1];
+  f1 := format('account-%s/channel-%s/%s-a.pdf', a, t, gen_random_uuid());
+  f2 := format('account-%s/channel-%s/%s-b.pdf', a, t, gen_random_uuid());
+  f3 := format('account-%s/channel-%s/%s-c.pdf', a, t, gen_random_uuid());
+  f4 := format('account-%s/channel-%s/%s-d.pdf', a, t, gen_random_uuid());
+  INSERT INTO storage.objects (bucket_id, name, owner) VALUES
+    ('chat-files', f1, u_rm), ('chat-files', f2, uu), ('chat-files', f3, u_rm), ('chat-files', f4, u_rm);
+  m := pg_temp.must(pg_temp.postf(u_rm, t, f1));
+  r := format('storage.objects WHERE bucket_id = ''chat-files'' AND name = %L', f1);
+  PERFORM pg_temp.ck('files: another member reads a posted file', pg_temp.cnt(u_rm2, r), '1');
+  PERFORM pg_temp.ck('files: delete returns the path', pg_temp.ic(u_rm, format('SELECT public.chat_delete_message(%L)', m)), '{' || f1 || '}');
+  PERFORM pg_temp.ck('files: another member reads a deleted message''s file', pg_temp.cnt(u_rm2, r), '0');
+  PERFORM pg_temp.ck('files: the author reads a deleted message''s file', pg_temp.cnt(u_rm, r), '0');
+  PERFORM pg_temp.ck('files: an unposted upload is readable', pg_temp.cnt(u_rm, format('storage.objects WHERE bucket_id = ''chat-files'' AND name = %L', f3)), '0');
+  m := pg_temp.must(pg_temp.postf(uu, t, f2));
+  PERFORM pg_temp.ck('files: the person deletes their file', pg_temp.ic(uu, format('SELECT public.chat_delete_message(%L)', m)), '{' || f2 || '}');
+  PERFORM pg_temp.ck('files: erasure after the delete', pg_temp.ic(u_own, format('SELECT public.chat_erase_person(%L, %L, %L)', a, uu, 'lawful request')), '{}');
+  PERFORM pg_temp.must(pg_temp.postf(u_rm, t, f4));
+  PERFORM pg_temp.ck('files: orphan while younger than the window', pg_temp.orphan(f2), 'false');
+  PERFORM pg_temp.ck('files: fresh unposted upload is an orphan', pg_temp.orphan(f3), 'false');
+  UPDATE storage.objects SET created_at = now() - interval '25 hours' WHERE bucket_id = 'chat-files' AND name IN (f1, f2, f3, f4);
+  PERFORM pg_temp.ck('files: erased person''s deleted file is an orphan once old', pg_temp.orphan(f2), 'true');
+  PERFORM pg_temp.ck('files: deleted file is an orphan once old', pg_temp.orphan(f1), 'true');
+  PERFORM pg_temp.ck('files: old unposted upload is an orphan', pg_temp.orphan(f3), 'true');
+  PERFORM pg_temp.ck('files: a live old attachment is an orphan', pg_temp.orphan(f4), 'false');
+  PERFORM pg_temp.ck('files: orphan list by a member', pg_temp.ic(u_own, 'SELECT public.chat_orphan_files()'), 'ERROR 42501:%');
+  PERFORM pg_temp.ck('files: orphan list grants',
+    (NOT has_function_privilege('authenticated', 'public.chat_orphan_files(integer)', 'EXECUTE')
+     AND NOT has_function_privilege('anon', 'public.chat_orphan_files(integer)', 'EXECUTE')
+     AND NOT has_function_privilege('public', 'public.chat_orphan_files(integer)', 'EXECUTE')
+     AND has_function_privilege('service_role', 'public.chat_orphan_files(integer)', 'EXECUTE'))::text, 'true');
 
   SELECT count(*), coalesce(array_agg(label || ': got ' || coalesce(got, 'NULL') || ', want ' || want ORDER BY id)
                               FILTER (WHERE got IS NULL OR got NOT LIKE want), '{}')
