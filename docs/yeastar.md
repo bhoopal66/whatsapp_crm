@@ -91,3 +91,30 @@ workspace; errors are `{ error }`):
 | `GET/PUT /api/pbx/routes`                                      | `{ routes: [{ didNumber, nameOnPbx?, accountId }] }`, replaces the list |
 | `GET/PUT /api/pbx/settings`                                    | Recording and missed-call settings                                      |
 | `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers: [{ number, bankCode }] }`, replaces the list            |
+
+## 6. Live events
+
+The PBX pushes to `POST /api/pbx/yeastar/events/{token}` (the URL shown
+in Settings). Each request must carry `X-Signature`, the Base64
+HMAC-SHA256 of the raw body with the webhook's 32-character secret; a
+connection with no secret stored refuses every push. Optionally set
+`PBX_WEBHOOK_ALLOWED_IPS` (comma list, read through
+`EDGE_CLIENT_IP_HEADER`) to accept the PBX's address only.
+
+- **Workspace.** An inbound call belongs to the workspace its dialled
+  number routes to. A number with no route files the call under the
+  PBX's own workspace, flagged _unrouted_ with the number kept, so an
+  admin can add the route. Other calls follow their extension's
+  workspace.
+- **Customer.** The caller is matched only among that workspace's
+  contacts. Several matches link none; the candidates are kept on the
+  call for the person to pick.
+- **Missed calls** (an inbound call that ends unanswered, busy,
+  abandoned or in voicemail) open one _Call back_ task, due after the
+  workspace's missed-call delay, for the contact's owner, else the first
+  person it rang, and ring that person's bell. A ring-group call a
+  colleague answered is not missed.
+- **Recordings** are marked for fetching, or kept unrecorded (_held_)
+  for a bank number while **Exclude bank numbers** is on.
+- Every event is stored once (re-sends are ignored); one that cannot be
+  processed keeps its error on the stored event.

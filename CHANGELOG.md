@@ -35,6 +35,12 @@ Admin routes for the phone system: extension sync and mapping, number
 routing to workspaces, recording settings and bank numbers
 (`/api/pbx/*`, no new migration); operator notes in `docs/yeastar.md`.
 
+Phone-system event processor and the signed webhook
+(`POST /api/pbx/yeastar/events/{token}`): calls, the screen pop,
+presence, recordings to fetch, and a task plus bell for each missed
+call. `089_pbx.sql` gains `calls.recording_file` and `calls.meta`
+(re-runnable; re-apply it if you applied an earlier copy).
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team
