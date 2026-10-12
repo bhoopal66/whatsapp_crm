@@ -125,6 +125,13 @@ const TeamsTab = dynamic(
   () => import('@/components/settings/teams-tab').then((m) => m.TeamsTab),
   { loading: PanelLoading }
 );
+const TeamChatSettings = dynamic(
+  () =>
+    import('@/components/settings/team-chat-settings').then(
+      (m) => m.TeamChatSettings
+    ),
+  { loading: PanelLoading }
+);
 const ApiKeysSettings = dynamic(
   () =>
     import('@/components/settings/api-keys-settings').then(
@@ -260,6 +267,7 @@ function SettingsPageInner() {
     deals: <DealsSettings />,
     members: <MembersTab />,
     teams: <TeamsTab />,
+    'team-chat': <TeamChatSettings />,
     api: <ApiKeysSettings />,
     ai: (
       <SettingsAiAgents

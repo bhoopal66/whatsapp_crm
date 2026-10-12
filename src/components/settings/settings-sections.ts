@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayoutGrid,
   MessageCircle,
+  MessagesSquare,
   Network,
   Palette,
   PlugZap,
@@ -50,6 +51,7 @@ export const SETTINGS_SECTIONS = [
   'fields',
   'members',
   'teams',
+  'team-chat',
   'ai',
   'api',
   'deals',
@@ -156,6 +158,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     minRole: 'admin',
   },
   teams: { id: 'teams', icon: Network, category: 'team', minRole: 'admin' },
+  // Internal chat (migration 087): the workspace switch, the audited
+  // private read and the owner-only erasure. Admin+, like the RPCs.
+  'team-chat': {
+    id: 'team-chat',
+    icon: MessagesSquare,
+    category: 'team',
+    minRole: 'admin',
+  },
   // The AI Agents area, admin-only like the /agents screen it replaced
   // (and the TypeSafe API routes behind its Safety checks tab).
   ai: { id: 'ai', icon: Bot, category: 'ai', minRole: 'admin' },

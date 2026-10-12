@@ -67,6 +67,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
       { href: '/notifications', labelKey: 'notifications', icon: Bell },
       { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
+      // Team chat (migration 087): the one row a bank guest sees too.
+      {
+        href: '/chat',
+        labelKey: 'chat',
+        icon: MessagesSquare,
+        guestVisible: true,
+      },
       { href: '/contacts', labelKey: 'contacts', icon: Users },
       // Everyone's: each member works their own deals, a team leader
       // their team's too, an admin all of them. Which deals come back

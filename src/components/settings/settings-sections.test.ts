@@ -33,6 +33,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'fields',
   'members',
   'teams',
+  'team-chat',
   'ai',
   'api',
   'deals',
@@ -103,7 +104,7 @@ describe('categories', () => {
       account: ['profile', 'security', 'appearance'],
       whatsapp: ['whatsapp', 'numbers', 'routing', 'templates', 'costs'],
       inbox: ['chat-tags', 'quick-replies', 'fields'],
-      team: ['members', 'teams'],
+      team: ['members', 'teams', 'team-chat'],
       ai: ['ai'],
       integrations: ['api', 'deals'],
     });
