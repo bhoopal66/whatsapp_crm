@@ -34,6 +34,18 @@ vi.mock('@/components/layout/account-access-alert', () => ({
 vi.mock('@/components/presence/presence-heartbeat', () => ({
   PresenceHeartbeat: () => null,
 }));
+// The call layer (migration 089) opens a Supabase client; it is a
+// module boundary here like the sidebar and header.
+vi.mock('@/components/pbx/call-provider', () => ({
+  CallProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock('@/components/pbx/incoming-call-card', () => ({
+  IncomingCallCard: () => null,
+}));
+vi.mock('@/components/pbx/in-call-panel', () => ({ InCallPanel: () => null }));
+vi.mock('@/components/pbx/softphone-mount', () => ({
+  SoftphoneMount: () => null,
+}));
 
 import { DashboardShell } from './dashboard-shell';
 
