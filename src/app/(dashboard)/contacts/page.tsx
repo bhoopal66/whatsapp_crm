@@ -50,6 +50,7 @@ import {
   Filter,
   X,
 } from 'lucide-react';
+import Link from 'next/link';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
@@ -763,7 +764,13 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   </TableCell>
                   <TableCell className="text-foreground font-medium">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                      <Link
+                        href={`/contacts/${contact.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline"
+                      >
+                        {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                      </Link>
                       {contact.opted_out_at && (
                         <OptedOutBadge
                           label={t('optedOut')}

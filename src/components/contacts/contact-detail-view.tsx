@@ -37,7 +37,8 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,6 +60,7 @@ import {
   LayoutTemplate,
   MessageSquarePlus,
   Send,
+  ExternalLink,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useChatTags } from '@/hooks/use-chat-tags';
@@ -111,6 +113,7 @@ export function ContactDetailView({
   onUpdated,
 }: ContactDetailViewProps) {
   const t = useTranslations('Contacts.detailView');
+  const tc = useTranslations('CustomerTimeline');
   const locale = useLocale();
   const { tree: chatTagTree } = useChatTags();
   const supabase = createClient();
@@ -698,6 +701,13 @@ export function ContactDetailView({
                   )}
                   {t('sendTemplateBtn')}
                 </Button>
+                <Link
+                  href={`/contacts/${contact.id}`}
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                >
+                  <ExternalLink className="size-4" />
+                  {tc('openCustomerPage')}
+                </Link>
               </div>
               {channels && channels.length > 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">
