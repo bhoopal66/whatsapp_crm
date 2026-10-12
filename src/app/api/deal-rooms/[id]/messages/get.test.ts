@@ -94,6 +94,10 @@ beforeEach(() => {
     ],
   });
   admin = memoryDb({
+    accounts: [
+      { id: 'acct-1', name: 'Acme Brokers' },
+      { id: 'acct-2', name: 'Other Workspace Ltd' },
+    ],
     profiles: [
       {
         user_id: 'staff-1',
@@ -131,7 +135,7 @@ const get = (qs = '') =>
   });
 
 describe('GET /api/deal-rooms/[id]/messages', () => {
-  it('returns the newest page oldest first, named from the roster, staff as "<name> · Taamul", with receipt counts', async () => {
+  it('returns the newest page oldest first, named from the roster, staff as "<name> · <workspace name>", with receipt counts', async () => {
     const res = await get();
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -150,7 +154,7 @@ describe('GET /api/deal-rooms/[id]/messages', () => {
       readCount: 0,
     });
     expect(body.messages[1]).toMatchObject({
-      senderName: 'Sara · Taamul',
+      senderName: 'Sara · Acme Brokers',
       senderRole: 'staff',
       status: 'read',
       deliveredCount: 2,
@@ -164,6 +168,48 @@ describe('GET /api/deal-rooms/[id]/messages', () => {
       senderName: 'Omar · HSBC',
       senderRole: 'bank_guest',
     });
+  });
+
+  it("labels our side with the room's own workspace name, never another's", async () => {
+    // A message from the business itself: no CRM user, no roster entry.
+    mem.tables.group_messages.push(
+      msg('m5', '2026-10-01T10:04:00Z', {
+        direction: 'out',
+        status: 'sent',
+      })
+    );
+    const body = await (await get()).json();
+    const byId = Object.fromEntries(
+      body.messages.map((x: { id: string }) => [x.id, x])
+    );
+    expect(byId.m5).toMatchObject({
+      senderName: 'Acme Brokers',
+      senderRole: 'business',
+    });
+    expect(JSON.stringify(body)).not.toContain('Other Workspace');
+    // Read once, for the room's account only.
+    const lookups = admin.log.filter((q) => q.table === 'accounts');
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0].eq).toEqual({ id: 'acct-1' });
+  });
+
+  it('falls back to "Team" when the workspace name is missing or blank', async () => {
+    admin.tables.accounts[0].name = '   ';
+    let body = await (await get()).json();
+    expect(body.messages[1]).toMatchObject({ senderName: 'Sara · Team' });
+    admin.tables.accounts.length = 0;
+    body = await (await get()).json();
+    expect(body.messages[1]).toMatchObject({ senderName: 'Sara · Team' });
+    // A bank officer is labelled by bank, not by the workspace.
+    expect(body.messages[3]).toMatchObject({ senderName: 'Omar · HSBC' });
+  });
+
+  it('does not look the workspace up for a page of inbound messages only', async () => {
+    mem.tables.group_messages = mem.tables.group_messages.filter(
+      (x) => x.direction === 'in'
+    );
+    await get();
+    expect(admin.log.filter((q) => q.table === 'accounts')).toHaveLength(0);
   });
 
   it('pages back with before / limit', async () => {

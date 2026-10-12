@@ -7,8 +7,9 @@
  * phone numbers and WhatsApp ids only masked (`maskPhone`). Columns are
  * always named: the column grants refuse `select=*`.
  *
- * The one service-role read is the names of the CRM users who posted
- * the messages on a page the caller was already allowed to read.
+ * The service-role reads are the names of the CRM users who posted the
+ * messages on a page the caller was already allowed to read, and the
+ * room's workspace name for their "Sara · <workspace>" label.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -19,8 +20,16 @@ import { isWindowOpen } from './operations';
 
 export type RoomAccess = 'supervisor' | 'staff' | 'guest';
 
-/** The suffix on a staff member's group message: "Sara · Taamul". */
-export const STAFF_LABEL = 'Taamul';
+/**
+ * The suffix on a staff member's group message ("Sara · Acme Brokers") is
+ * the workspace's own name (`accounts.name`), so a fork shows its own
+ * business. This neutral word stands in when the name is missing or blank.
+ */
+export const STAFF_LABEL_FALLBACK = 'Team';
+
+export function staffLabel(accountName: string | null | undefined): string {
+  return accountName?.trim() || STAFF_LABEL_FALLBACK;
+}
 
 /**
  * A phone number or WhatsApp id with everything but its calling code
@@ -43,6 +52,18 @@ async function rows<T>(
   const { data, error } = await query;
   if (error) throw new Error(`${what} lookup failed: ${error.message}`);
   return (data ?? []) as T[];
+}
+
+/** `accounts.name` of the room's workspace, or null when there is none. */
+async function workspaceName(
+  admin: SupabaseClient,
+  accountId: string
+): Promise<string | null> {
+  const [row] = await rows<{ name: string | null }>(
+    admin.from('accounts').select('name').eq('id', accountId).limit(1),
+    'account'
+  );
+  return row?.name ?? null;
 }
 
 // The deal and the contact come through their composite FKs, so RLS on
@@ -469,9 +490,11 @@ export async function listRoomMessages(
         .map((m) => m.staff_user_id as string)
     ),
   ];
-  const posters = new Map(
-    (posterIds.length
-      ? await rows<Poster>(
+  // The workspace's name labels our side of the page; an inbound-only
+  // page has no use for it.
+  const [posterRows, accountName] = await Promise.all([
+    posterIds.length
+      ? rows<Poster>(
           admin
             .from('profiles')
             .select('user_id, full_name, account_role, bank_code')
@@ -479,9 +502,13 @@ export async function listRoomMessages(
             .in('user_id', posterIds),
           'profile'
         )
-      : []
-    ).map((p) => [p.user_id, p])
-  );
+      : Promise.resolve([] as Poster[]),
+    page.some((m) => m.direction === 'out')
+      ? workspaceName(admin, accountId)
+      : Promise.resolve(null),
+  ]);
+  const posters = new Map(posterRows.map((p) => [p.user_id, p]));
+  const label = staffLabel(accountName);
 
   const outIds = page.filter((m) => m.direction === 'out').map((m) => m.id);
   const receipts = outIds.length
@@ -523,14 +550,14 @@ export async function listRoomMessages(
             name: p.bank_code ? `${name} · ${p.bank_code}` : name,
             role: 'bank_guest',
           }
-        : { name: `${name} · ${STAFF_LABEL}`, role: 'staff' };
+        : { name: `${name} · ${label}`, role: 'staff' };
     }
     const p = m.sender_participant_id
       ? roster.get(m.sender_participant_id)
       : undefined;
     if (p) return { name: p.display_name, role: p.role };
     return m.direction === 'out'
-      ? { name: STAFF_LABEL, role: 'business' }
+      ? { name: label, role: 'business' }
       : { name: 'Unknown', role: null };
   };
 
