@@ -83,20 +83,26 @@ describe('SupabaseConsentPort: the register on contacts', () => {
 });
 
 describe('SupabaseConsentPort: the opt-in welcome', () => {
-  it('hasReceivedOptinWelcome: a claim row exists for the contact', async () => {
+  it('hasReceivedOptinWelcome asks journey_has_optin_welcome (a claim or a committed MARK)', async () => {
     const { db, queries } = fakeDb(
-      { data: { contact_id: 'c1' } },
-      { data: null }
+      { data: true },
+      { data: [{ journey_has_optin_welcome: false }] }
     );
     const port = new SupabaseConsentPort(db);
     expect(await port.hasReceivedOptinWelcome('c1')).toBe(true);
     expect(await port.hasReceivedOptinWelcome('c1')).toBe(false);
     expect(queries[0]).toEqual([
-      ['from', 'journey_optin_claims'],
-      ['select', 'contact_id'],
-      ['eq', 'contact_id', 'c1'],
-      ['maybeSingle'],
+      ['rpc', 'journey_has_optin_welcome', { p_contact_id: 'c1' }],
+      ['await'],
     ]);
+  });
+
+  it('hasReceivedOptinWelcome throws the RPC error', async () => {
+    const err = { message: 'permission denied', code: '42501' };
+    const e = await new SupabaseConsentPort(fakeDb({ error: err }).db)
+      .hasReceivedOptinWelcome('c1')
+      .catch((x: unknown) => x);
+    expect(e).toMatchObject({ source: 'journey_has_optin_welcome', code: '42501' });
   });
 
   it('claimOptinWelcome calls journey_claim_optin_welcome with the contact and claim ids', async () => {
