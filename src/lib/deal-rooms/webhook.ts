@@ -67,12 +67,25 @@ export function isGroupChange(change: unknown): boolean {
   return (GROUP_WEBHOOK_FIELDS as readonly unknown[]).includes(field);
 }
 
+/**
+ * A message written inside a group (`group_id` present): never 1:1.
+ * The Meta normaliser skips exactly these, so each message has one home.
+ */
+export function isGroupMessage(message: unknown): boolean {
+  return str(obj(message).group_id) !== null;
+}
+
+/** A receipt for our own group send (`recipient_type: 'group'`). */
+export function isGroupStatus(status: unknown): boolean {
+  return obj(status).recipient_type === 'group';
+}
+
 /** Messages written inside a group (`group_id` present): never 1:1. */
 export function groupMessages(value: unknown): Json[] {
   const messages = obj(value).messages;
   return (Array.isArray(messages) ? messages : [])
     .map(obj)
-    .filter((m) => str(m.group_id) !== null);
+    .filter(isGroupMessage);
 }
 
 /** Receipts for our own group sends (`recipient_type: 'group'`). */
@@ -80,7 +93,7 @@ export function groupStatuses(value: unknown): Json[] {
   const statuses = obj(value).statuses;
   return (Array.isArray(statuses) ? statuses : [])
     .map(obj)
-    .filter((s) => s.recipient_type === 'group');
+    .filter(isGroupStatus);
 }
 
 /**

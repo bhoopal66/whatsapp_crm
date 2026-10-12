@@ -24,8 +24,11 @@
  *    The Cloud API never delivers outbound as inbound, so `fromMe` is
  *    always false here.
  *
- *  * **No groups.** The Cloud API is 1:1 only, so `isGroup` is always
- *    false — there is no group envelope to filter out.
+ *  * **Groups are not the inbox's.** The Groups API (deal rooms) posts
+ *    to the same URL: the four `group_*` fields, messages carrying
+ *    `group_id` and receipts with `recipient_type: 'group'`. All of it
+ *    belongs to `lib/deal-rooms/webhook.ts`, so the normaliser skips it
+ *    and `isGroup` is always false on what it returns.
  *
  *  * **Media has no link.** Whapi auto-downloads and hands over a
  *    `link`. Meta hands over an id that must be exchanged for a URL via
@@ -47,6 +50,11 @@ import {
   type SharedContact,
 } from './contact-card';
 import { isTemplateWebhookField } from './template-webhook';
+import {
+  isGroupChange,
+  isGroupMessage,
+  isGroupStatus,
+} from '@/lib/deal-rooms/webhook';
 import type {
   InboundReferral,
   NormalizedInboundMessage,
@@ -75,6 +83,8 @@ interface RawMetaMessage {
   from?: string;
   /** Business-scoped user id (BSUID) of the sender. */
   from_user_id?: string;
+  /** Written inside a group (deal rooms): never a 1:1 message. */
+  group_id?: string;
   timestamp?: number | string;
   type?: string;
 
@@ -148,6 +158,8 @@ export interface RawMetaStatus {
   status?: string;
   timestamp?: number | string;
   recipient_id?: string;
+  /** `'group'` on a receipt for a group send; `recipient_id` is the group. */
+  recipient_type?: string;
   errors?: Array<{
     code?: number;
     title?: string;
@@ -381,9 +393,9 @@ export function normalizeMetaMessage(
     forwarded:
       raw.context?.forwarded === true ||
       raw.context?.frequently_forwarded === true,
-    // The Cloud API never echoes our own sends back as inbound, and has
-    // no group messaging — both filters the Whapi normaliser needs are
-    // structurally unnecessary here.
+    // The Cloud API never echoes our own sends back as inbound, and a
+    // group message never gets here (`normalizeMetaWebhook` leaves it to
+    // the deal-room handler) — so neither Whapi filter is needed.
     fromMe: false,
     isGroup: false,
     ...(referral ? { referral } : {}),
@@ -457,7 +469,9 @@ export function normalizeMetaStatus(
  * One POST can carry several entries and several changes, each with its
  * own `value`. Only `field: 'messages'` changes are handled here —
  * `message_template_status_update` (template review results) is a
- * different concern and belongs to `template-webhook.ts`.
+ * different concern and belongs to `template-webhook.ts`. Within them,
+ * group messages and group receipts are skipped: they belong to the
+ * deal-room handler and must never reach the 1:1 inbox.
  *
  * `channelId` comes from `metadata.phone_number_id`, which is what the
  * route matches against `whatsapp_config.phone_number_id` to find the
@@ -495,6 +509,7 @@ export function normalizeMetaWebhook(
       const contacts = value.contacts ?? [];
 
       for (const raw of value.messages ?? []) {
+        if (isGroupMessage(raw)) continue;
         const normalized = normalizeMetaMessage(raw, contacts);
         if (!normalized) continue;
         // Unsupported types carry nothing renderable and would insert a
@@ -514,6 +529,7 @@ export function normalizeMetaWebhook(
       }
 
       for (const raw of value.statuses ?? []) {
+        if (isGroupStatus(raw)) continue;
         const normalized = normalizeMetaStatus(raw);
         if (normalized) statuses.push(normalized);
       }
@@ -539,6 +555,10 @@ export function normalizeMetaWebhook(
  * normaliser discards (`deleted`, `warning`) are kept here — the
  * ledger records them uncosted, which is what makes a receipt visible
  * next to the send it belongs to.
+ *
+ * Receipts for group sends (`recipient_type: 'group'`) are left out: the
+ * ledger keys a market on a phone `recipient_id`, and a group's is the
+ * group id. Follow-up: per-member group billing.
  */
 export function collectMetaStatuses(
   payload: RawMetaWebhookPayload
@@ -552,6 +572,7 @@ export function collectMetaStatuses(
       if (!value || !phoneNumberId) continue;
       for (const status of value.statuses ?? []) {
         if (!status?.id || !status.status) continue;
+        if (isGroupStatus(status)) continue;
         out.push({ phoneNumberId, status });
       }
     }
@@ -584,6 +605,9 @@ export function isTemplateWebhookPayload(
  * order of appearance. One POST can batch several numbers; the webhook
  * route resolves, authenticates and processes each on its own, so one
  * number's messages are never filed under another's account or channel.
+ * The Groups API fields (`group_*`, deal rooms) are per number too, so
+ * their ids are listed: their signature is checked with that number's
+ * app secret, and that number's account handles them.
  *
  * Strings only. Meta always sends one, but this runs on a body whose
  * signature has not been checked yet, and a forged number or object here
@@ -594,7 +618,8 @@ export function metaPhoneNumberIds(payload: RawMetaWebhookPayload): string[] {
   const ids: string[] = [];
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      if (change.field && change.field !== 'messages') continue;
+      if (change.field && change.field !== 'messages' && !isGroupChange(change))
+        continue;
       const id: unknown = change.value?.metadata?.phone_number_id;
       if (typeof id === 'string' && id && !ids.includes(id)) ids.push(id);
     }
