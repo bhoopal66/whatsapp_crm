@@ -43,6 +43,7 @@ beforeEach(() => {
           participant_count: 3,
           window_until: new Date(Date.now() + 3_600_000).toISOString(),
           created_at: '2026-10-01T09:00:00Z',
+          created_by: 'user-9',
           deal: { title: 'Ahmed home loan' },
           contact: { name: 'Ahmed' },
         },
@@ -135,6 +136,7 @@ describe('GET /api/deal-rooms/[id]', () => {
         id: 'room-1',
         dealTitle: 'Ahmed home loan',
         contactName: 'Ahmed',
+        createdBy: 'user-9',
       },
     });
     expect(body.participants).toEqual([

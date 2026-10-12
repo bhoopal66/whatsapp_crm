@@ -158,6 +158,8 @@ export interface RoomDetail {
     lastError: string | null;
     dealTitle: string | null;
     contactName: string | null;
+    /** The CRM user who opened the room (an auth user id). */
+    createdBy: string | null;
   };
   access: RoomAccess;
   canManage: boolean;
@@ -186,6 +188,7 @@ interface DetailRow extends Embeds {
   closed_at: string | null;
   close_reason: string | null;
   last_error: string | null;
+  created_by: string | null;
 }
 
 interface RosterRow {
@@ -235,7 +238,7 @@ export async function loadRoomDetail(
     .from('deal_rooms')
     .select(
       'id, channel_id, contact_id, deal_id, subject, description, join_approval_mode, status, ' +
-        'participant_count, window_until, created_at, opened_at, closed_at, close_reason, last_error, ' +
+        'participant_count, window_until, created_at, opened_at, closed_at, close_reason, last_error, created_by, ' +
         EMBEDS
     )
     .eq('id', roomId)
@@ -263,6 +266,7 @@ export async function loadRoomDetail(
       lastError: r.last_error,
       dealTitle: r.deal?.title ?? null,
       contactName: r.contact?.name ?? null,
+      createdBy: r.created_by,
     },
     access,
     canManage: false,
