@@ -12,6 +12,25 @@ and polish.
 
 ## [Unreleased]
 
+### Internal team chat
+
+Slack-style chat for the team, inside each workspace: open team
+channels, private channels, direct messages and group DMs (up to 8
+people), one-level threads, @mentions (including @channel and @here),
+reactions, pins, saved messages, unread counts and search that works for
+Arabic and English. A customer's WhatsApp conversation can be shared
+into a channel as a read-only card; the card shows its live status only
+to people who can open that chat in the inbox. Mentions and direct
+messages ring the notifications bell. Nothing typed in a channel can
+reach WhatsApp. Owners and admins can read a private channel they are
+not in only through an audited action that records the reason, and an
+owner can erase one person's messages on a lawful request. Internal
+chat can be switched off per workspace.
+
+> **Migration required:** apply
+> `supabase/migrations/087_internal_chat.sql` (re-runnable)
+> **before** deploying the app.
+
 ### Edge security stores for the webhook and admin API
 
 Groundwork for webhook replay protection, per-sender rate limits and
