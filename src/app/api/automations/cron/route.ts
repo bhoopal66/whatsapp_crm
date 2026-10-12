@@ -9,6 +9,7 @@ import {
 } from '@/lib/whatsapp/channel-health'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
+import { runPbxCron } from '@/lib/pbx/housekeeping'
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -133,6 +134,38 @@ function scheduleJourneyTick() {
 }
 
 /**
+ * The phone system's work (recordings, call-backs, event retries,
+ * purge; GET /api/pbx/cron) rides along at most once a minute per
+ * process, inside after(). It stops starting work after 45 s, and a
+ * failure is only logged.
+ */
+const pbxCronDue = everyInterval(60_000)
+
+function schedulePbxCron() {
+  try {
+    if (!pbxCronDue()) return
+    after(async () => {
+      try {
+        const summary = await runPbxCron({ db: supabaseAdmin() })
+        if (Object.keys(summary.errors).length > 0) {
+          console.error('[automations-cron] pbx:', summary.errors)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] pbx run failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the pbx run:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -165,6 +198,7 @@ export async function GET(request: Request) {
     scheduleTeamActivitySweep()
     scheduleEdgePurge()
     scheduleJourneyTick()
+    schedulePbxCron()
   }
 }
 
