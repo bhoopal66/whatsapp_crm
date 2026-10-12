@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChannelError } from '@/lib/whatsapp/channels';
 
@@ -12,12 +12,16 @@ vi.mock('@/lib/whatsapp/meta-groups', () => ({
   listGroups: h.listGroups,
   createGroup: h.createGroup,
 }));
-vi.mock('./invites', () => ({ sendRoomInvites: h.sendRoomInvites }));
+vi.mock('./invites', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./invites')>()),
+  sendRoomInvites: h.sendRoomInvites,
+}));
 vi.mock('./shared', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./shared')>()),
   metaChannel: h.metaChannel,
 }));
 
+import { buildInviteClaim } from './invites';
 import { reconcileCreatingRooms } from './reconcile';
 import { memoryDb } from './test-db';
 
@@ -56,12 +60,19 @@ const group = (id: string, over: Record<string, unknown> = {}) => ({
 
 function setup(
   rooms: Record<string, unknown>[],
-  beforeUpdate?: (table: string, values: Record<string, unknown>) => void
+  beforeUpdate?: (table: string, values: Record<string, unknown>) => void,
+  participants: Record<string, unknown>[] = []
 ) {
   const rpc = vi.fn((fn: string) =>
     fn === 'deal_room_group_created' ? 'room-1' : null
   );
-  return { ...memoryDb({ deal_rooms: rooms }, { rpc, beforeUpdate }), rpc };
+  return {
+    ...memoryDb(
+      { deal_rooms: rooms, deal_room_participants: participants },
+      { rpc, beforeUpdate }
+    ),
+    rpc,
+  };
 }
 
 const groups = (...list: ReturnType<typeof group>[]) =>
@@ -418,5 +429,98 @@ describe('reconcileCreatingRooms — giving up', () => {
     expect(mem.rpcCalls).toEqual([]);
     expect(mem.tables.deal_rooms[0].last_error).toBeNull();
     log.mockRestore();
+  });
+});
+
+describe('reconcileCreatingRooms — invites stuck mid-send', () => {
+  const claimAged = (minutes: number) =>
+    buildInviteClaim(new Date(NOW.getTime() - minutes * 60_000), 'u1');
+  const open = (over: Record<string, unknown> = {}) =>
+    room({
+      status: 'open',
+      wa_group_id: 'G1',
+      created_at: minutesAgo(90),
+      ...over,
+    });
+  const invitee = (id: string, marker: string | null, over = {}) => ({
+    id,
+    room_id: 'room-1',
+    status: 'invited',
+    invite_message_id: marker,
+    ...over,
+  });
+  const marker = (mem: ReturnType<typeof setup>, id: string) =>
+    mem.tables.deal_room_participants.find((p) => p.id === id)!
+      .invite_message_id;
+  const none = counts({ checked: 0 });
+
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps a fresh claim and runs no invites', async () => {
+    const mem = setup([open()], undefined, [invitee('p1', claimAged(5))]);
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(none);
+    expect(marker(mem, 'p1')).toBe(claimAged(5));
+    expect(h.sendRoomInvites).not.toHaveBeenCalled();
+  });
+
+  it('releases a 31-minute-old claim and an old-style one, and runs the room once', async () => {
+    const mem = setup([open()], undefined, [
+      invitee('p1', claimAged(31)),
+      invitee('p2', 'pending:6f1c2d3e-0000-4000-8000-000000000000'),
+      invitee('p3', claimAged(5)),
+    ]);
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(none);
+    expect(marker(mem, 'p1')).toBeNull();
+    expect(marker(mem, 'p2')).toBeNull();
+    expect(marker(mem, 'p3')).toBe(claimAged(5));
+    expect(h.sendRoomInvites).toHaveBeenCalledTimes(1);
+    expect(h.sendRoomInvites).toHaveBeenCalledWith(mem.db, 'room-1');
+  });
+
+  it('releases the claim of a room that is not open but runs nothing', async () => {
+    const mem = setup([open({ status: 'closed' })], undefined, [
+      invitee('p1', claimAged(31)),
+    ]);
+    await reconcileCreatingRooms(mem.db, NOW);
+    expect(marker(mem, 'p1')).toBeNull();
+    expect(h.sendRoomInvites).not.toHaveBeenCalled();
+  });
+
+  it('leaves a claim replaced meanwhile, and runs nothing for it', async () => {
+    const people = [invitee('p1', claimAged(31))];
+    const mem = setup(
+      [open()],
+      (table) => {
+        if (table === 'deal_room_participants') {
+          people[0].invite_message_id = 'wamid.7';
+        }
+      },
+      people
+    );
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(none);
+    expect(marker(mem, 'p1')).toBe('wamid.7');
+    expect(h.sendRoomInvites).not.toHaveBeenCalled();
+  });
+
+  it('goes on to the stuck rooms when an invite run fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.sendRoomInvites.mockRejectedValueOnce(new Error('meta down'));
+    const mem = setup(
+      [
+        open(),
+        room({ id: 'room-2', subject: 'Deal 43', create_request_id: 'req-2' }),
+      ],
+      undefined,
+      [invitee('p1', claimAged(31))]
+    );
+    groups(group('G2', { subject: 'Deal 43' }));
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ opened: 1 })
+    );
+    expect(log).toHaveBeenCalled();
+    expect(h.sendRoomInvites).toHaveBeenCalledTimes(2);
   });
 });

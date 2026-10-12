@@ -229,3 +229,22 @@ export function templateParamCount(body: string | null | undefined): number {
   }
   return max;
 }
+
+/** How often a bank guest's room screens re-read, in ms. */
+export const GUEST_ROOM_REFRESH_MS = 60_000;
+
+/**
+ * A bank guest cannot read `deal_rooms` (staff-only; they read
+ * `deal_room_guest_rooms`), so the realtime signal on it never reaches
+ * them and a room that closed or was suspended would stay as it was until
+ * a reload. Re-reads on a timer for a guest, and does nothing for staff,
+ * whom the signal serves. Returns the stop function.
+ */
+export function startGuestRefresh(
+  guest: boolean,
+  reload: () => void
+): () => void {
+  if (!guest) return () => {};
+  const id = setInterval(reload, GUEST_ROOM_REFRESH_MS);
+  return () => clearInterval(id);
+}

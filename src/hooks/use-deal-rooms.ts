@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { RoomSummary } from '@/lib/deal-rooms/reads';
+import { startGuestRefresh } from '@/lib/deal-rooms/view';
 import { createClient } from '@/lib/supabase/client';
 
 const DEBOUNCE_MS = 600;
@@ -49,8 +50,20 @@ export function useTableSignal(
   }, [sb, key, onChange]);
 }
 
-/** The deal rooms the viewer can see (GET /api/deal-rooms), kept live. */
-export function useDealRooms(accountId: string | null) {
+/**
+ * A bank guest's room screens never get the `deal_rooms` signal (they
+ * cannot read that table), so they re-read every minute while mounted.
+ * Staff: nothing, the signal serves them.
+ */
+export function useGuestRefresh(guest: boolean, reload: () => void) {
+  useEffect(() => startGuestRefresh(guest, reload), [guest, reload]);
+}
+
+/**
+ * The deal rooms the viewer can see (GET /api/deal-rooms), kept live: by
+ * the realtime signal for staff, by a 60 s refresh for a bank guest.
+ */
+export function useDealRooms(accountId: string | null, guest = false) {
   const sb = useMemo<SupabaseClient>(() => createClient(), []);
   const [rooms, setRooms] = useState<RoomSummary[] | null>(null);
   const reload = useCallback(async () => {
@@ -73,5 +86,6 @@ export function useDealRooms(accountId: string | null) {
     () => (accountId ? `account_id=eq.${accountId}` : null),
     reload
   );
+  useGuestRefresh(guest, reload);
   return { rooms, reload };
 }

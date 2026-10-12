@@ -33,7 +33,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
     workspaces,
     activeWorkspaceId,
   } = useAuth();
-  const { rooms } = useDealRooms(accountId);
+  const { rooms } = useDealRooms(accountId, isBankGuest);
   const [composeOpen, setComposeOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const [dealRoomOpen, setDealRoomOpen] = useState(false);

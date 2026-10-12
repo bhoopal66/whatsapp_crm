@@ -1,15 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GROUP_MAX_PARTICIPANTS } from '@/lib/whatsapp/meta-groups';
 
 import type { RoomMessage } from './reads';
 import {
+  GUEST_ROOM_REFRESH_MS,
   ROOM_MEMBER_MAX,
   bubbleOf,
   groupAudience,
   groupComposerMode,
   mergeRoomMessages,
   receiptLine,
+  startGuestRefresh,
   roomPhase,
   roomSubLine,
   roomTitle,
@@ -245,5 +247,37 @@ describe('templateParamCount', () => {
     expect(templateParamCount('Hi {{1}}, your {{3}} and {{2}}')).toBe(3);
     expect(templateParamCount('No values')).toBe(0);
     expect(templateParamCount(null)).toBe(0);
+  });
+});
+
+describe('startGuestRefresh', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("re-reads a guest's room every 60 seconds, until stopped", () => {
+    const reload = vi.fn();
+    const stop = startGuestRefresh(true, reload);
+    vi.advanceTimersByTime(GUEST_ROOM_REFRESH_MS - 1);
+    expect(reload).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(reload).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2 * GUEST_ROOM_REFRESH_MS);
+    expect(reload).toHaveBeenCalledTimes(3);
+    stop();
+    vi.advanceTimersByTime(10 * GUEST_ROOM_REFRESH_MS);
+    expect(reload).toHaveBeenCalledTimes(3);
+  });
+
+  it('leaves staff to the realtime signal: no timer at all', () => {
+    const reload = vi.fn();
+    const stop = startGuestRefresh(false, reload);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(10 * GUEST_ROOM_REFRESH_MS);
+    expect(reload).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('is 60 seconds', () => {
+    expect(GUEST_ROOM_REFRESH_MS).toBe(60_000);
   });
 });

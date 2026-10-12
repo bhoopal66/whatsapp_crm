@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
   sendGroupInviteTemplate: vi.fn(),
@@ -12,7 +12,14 @@ vi.mock('./shared', async (importOriginal) => ({
   metaChannel: h.metaChannel,
 }));
 
-import { sendRoomInvites } from './invites';
+import {
+  buildInviteClaim,
+  isStaleInviteClaim,
+  parseInviteClaim,
+  releaseStaleInviteClaims,
+  sendRoomInvites,
+  STALE_INVITE_CLAIM_MS,
+} from './invites';
 import { memoryDb } from './test-db';
 
 const ROOM = {
@@ -221,5 +228,129 @@ describe('sendRoomInvites', () => {
       sent: 0,
     });
     expect(h.sendGroupInviteTemplate).not.toHaveBeenCalled();
+  });
+});
+
+const NOW = new Date('2026-10-12T09:00:00.000Z');
+const claimAged = (minutes: number, id = 'u1') =>
+  buildInviteClaim(new Date(NOW.getTime() - minutes * 60_000), id);
+const OLD_STYLE = 'pending:6f1c2d3e-0000-4000-8000-000000000000';
+
+describe('the invite claim marker', () => {
+  it('carries its time and reads it back', () => {
+    expect(buildInviteClaim(new Date(1_760_000_000_000), 'abc')).toBe(
+      'pending:1760000000000:abc'
+    );
+    expect(buildInviteClaim()).toMatch(/^pending:\d{13}:[0-9a-f-]{36}$/);
+    expect(parseInviteClaim('pending:1760000000000:abc')).toEqual({
+      claimedAt: 1_760_000_000_000,
+    });
+  });
+
+  it('reads a marker with no time as a claim of unknown age, a message id as no claim', () => {
+    expect(parseInviteClaim(OLD_STYLE)).toEqual({ claimedAt: null });
+    expect(parseInviteClaim('pending:other')).toEqual({ claimedAt: null });
+    for (const v of ['wamid.1', '', null, undefined]) {
+      expect(parseInviteClaim(v)).toBeNull();
+    }
+  });
+
+  it('is stale after 30 minutes or with no readable time, never a message id', () => {
+    expect(isStaleInviteClaim(claimAged(30), NOW)).toBe(false);
+    const justOver = new Date(NOW.getTime() - STALE_INVITE_CLAIM_MS - 1);
+    expect(isStaleInviteClaim(buildInviteClaim(justOver), NOW)).toBe(true);
+    expect(isStaleInviteClaim(claimAged(-5), NOW)).toBe(false);
+    expect(isStaleInviteClaim(OLD_STYLE, NOW)).toBe(true);
+    expect(isStaleInviteClaim('wamid.1', NOW)).toBe(false);
+    expect(isStaleInviteClaim(null, NOW)).toBe(false);
+  });
+
+  it('is what a send claims with, dated when it was claimed', async () => {
+    const mem = setup();
+    const before = Date.now();
+    await sendRoomInvites(mem.db, 'room-1');
+    const claim = mem.log.find((q) => q.op === 'update')!.values as {
+      invite_message_id: string;
+    };
+    const at = parseInviteClaim(claim.invite_message_id)?.claimedAt ?? 0;
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
+  });
+});
+
+describe('releaseStaleInviteClaims', () => {
+  const held = (id: string, marker: string | null, extra = {}) =>
+    person(id, { invite_message_id: marker, ...extra });
+
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps a fresh claim, a message id, and a claim on someone no longer invited', async () => {
+    const mem = setup({
+      people: [
+        held('p1', claimAged(5)),
+        held('p2', 'wamid.9'),
+        held('p3', claimAged(90), { status: 'joined' }),
+        held('p4', null),
+      ],
+    });
+    expect(await releaseStaleInviteClaims(mem.db, NOW)).toEqual([]);
+    expect(mem.log.filter((q) => q.op === 'update')).toEqual([]);
+    expect(participant(mem, 'p1').invite_message_id).toBe(claimAged(5));
+    expect(participant(mem, 'p3').invite_message_id).toBe(claimAged(90));
+  });
+
+  it('releases a claim 31 minutes old and an old-style one, and names their rooms', async () => {
+    const mem = setup({
+      people: [
+        held('p1', claimAged(31)),
+        held('p2', OLD_STYLE),
+        held('p3', claimAged(40), { room_id: 'room-2' }),
+      ],
+    });
+    expect((await releaseStaleInviteClaims(mem.db, NOW)).sort()).toEqual([
+      'room-1',
+      'room-2',
+    ]);
+    for (const id of ['p1', 'p2', 'p3']) {
+      expect(participant(mem, id).invite_message_id).toBeNull();
+    }
+  });
+
+  it.each([
+    ['a message id', 'wamid.7'],
+    ['a fresh claim', claimAged(1, 'u2')],
+  ])('leaves a claim replaced meanwhile by %s', async (_, replacement) => {
+    const mem = setup({ people: [held('p1', claimAged(31))] });
+    const racing = memoryDb(mem.tables, {
+      beforeUpdate: (table) => {
+        if (table === 'deal_room_participants') {
+          participant(mem, 'p1').invite_message_id = replacement;
+        }
+      },
+    });
+    expect(await releaseStaleInviteClaims(racing.db, NOW)).toEqual([]);
+    expect(participant(mem, 'p1').invite_message_id).toBe(replacement);
+  });
+
+  it('lets the person be invited once released', async () => {
+    const mem = setup({ people: [held('p1', claimAged(31))] });
+    expect(await sendRoomInvites(mem.db, 'room-1')).toMatchObject({ sent: 0 });
+    await releaseStaleInviteClaims(mem.db, NOW);
+    expect(await sendRoomInvites(mem.db, 'room-1')).toMatchObject({ sent: 1 });
+    expect(participant(mem, 'p1').invite_message_id).toBe('wamid.1');
+  });
+
+  it('throws when the lookup fails', async () => {
+    const q: Record<string, unknown> = {};
+    q.select = () => q;
+    q.eq = () => q;
+    q.like = async () => ({ data: null, error: { message: 'db down' } });
+    const db = { from: () => q } as never;
+    await expect(releaseStaleInviteClaims(db, NOW)).rejects.toThrow(
+      'stale claim lookup failed: db down'
+    );
   });
 });

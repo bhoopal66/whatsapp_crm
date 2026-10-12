@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useTableSignal } from '@/hooks/use-deal-rooms';
+import { useGuestRefresh, useTableSignal } from '@/hooks/use-deal-rooms';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   MessagePage,
@@ -102,7 +102,12 @@ export function DealRoomView({
       const res = await fetch(`/api/deal-rooms/${roomId}`, {
         cache: 'no-store',
       });
-      if (res.status === 404) return setState('gone');
+      if (res.status === 404) {
+        // Gone, or no longer ours (a guest whose access was withdrawn):
+        // drop what is on screen rather than keep showing it.
+        setDetail(null);
+        return setState('gone');
+      }
       if (!res.ok) throw new Error(String(res.status));
       setDetail((await res.json()) as RoomDetail);
       setState('ok');
@@ -120,6 +125,8 @@ export function DealRoomView({
       table === 'deal_rooms' ? `id=eq.${roomId}` : `room_id=eq.${roomId}`,
     reload
   );
+  // A guest cannot read `deal_rooms`, so that signal never reaches them.
+  useGuestRefresh(detail?.access === 'guest', reload);
 
   if (!detail) {
     return (
