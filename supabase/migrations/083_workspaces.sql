@@ -35,10 +35,10 @@
 -- 071 profiles_leave_account_teams trigger (UPDATE OF account_id) does
 -- not fire: team memberships and number allocations survive a switch.
 --
--- Not here (next migration): the member RPCs (set_member_role,
--- remove_account_member, transfer_account_ownership, redeem_invitation,
--- provision_account_member, set_member_active) still assume one row per
--- person; they behave as before for anyone who has one.
+-- Section 11 moves the member RPCs (set_member_role, set_member_active,
+-- transfer_account_ownership, remove_account_member, redeem_invitation,
+-- provision_account_member) onto one membership each, and adds
+-- create_workspace() and add_workspace_member().
 
 -- ---------- 1. profiles: one row per (user, account) ----------
 DO $$
@@ -518,8 +518,9 @@ BEGIN
   END IF;
 
   -- switch_account() checked the caller itself, and moving out of a
-  -- workspace where they were deactivated is what it is for. It is the
-  -- only place this flag is raised; clients cannot set it.
+  -- workspace where they were deactivated is what it is for; so is
+  -- redeem_invitation(), whose token is the authority. Those are the
+  -- only places this flag is raised; clients cannot set it.
   IF COALESCE(current_setting('app.account_switch', TRUE), '') = 'on' THEN
     RETURN NEW;
   END IF;
@@ -720,3 +721,611 @@ REVOKE ALL ON FUNCTION public.account_initials(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.account_initials(text) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.profiles_propagate_identity() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.accounts_fill_short_name() FROM PUBLIC, anon, authenticated;
+
+-- ---------- 11. member RPCs: one membership at a time ----------
+-- The six member RPCs read "the caller's profile" and "the target's
+-- profile" by user_id alone (the first row of a multi-row person) and
+-- wrote every row of the target. Each now takes the account from the
+-- caller's ACTIVE row and reads or writes only the target's row in that
+-- account. SQLSTATEs are unchanged: 42501 forbidden, 22023 bad input,
+-- 23505 duplicate. A caller whose active row is deactivated is refused
+-- up front with the 069 guard's own message, so no other refusal masks it.
+
+-- The refusal for a target with no row in the caller's account: 42501
+-- when they exist elsewhere, 22023 when they do not exist (as before).
+CREATE OR REPLACE FUNCTION public.raise_not_a_member(p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM profiles WHERE user_id = p_user_id) THEN
+    RAISE EXCEPTION 'Target user is not a member of your account'
+      USING ERRCODE = '42501';
+  END IF;
+  RAISE EXCEPTION 'Target user not found' USING ERRCODE = '22023';
+END;
+$$;
+
+-- The account a person leaves behind when they join another: their ONLY
+-- row, in an account they own alone, with no data (the account
+-- handle_new_user() or a legacy removal made). A person with a second
+-- row gets NULL, so a workspace made with create_workspace() is never
+-- discarded as a leftover. The data list is redeem_invitation's (019).
+CREATE OR REPLACE FUNCTION public.disposable_personal_account(p_user_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT a.id
+    FROM profiles p
+    JOIN accounts a ON a.id = p.account_id
+   WHERE p.user_id = p_user_id
+     AND a.owner_user_id = p_user_id
+     AND NOT EXISTS (SELECT 1 FROM profiles o
+                      WHERE o.user_id = p_user_id AND o.id <> p.id)
+     AND NOT EXISTS (SELECT 1 FROM profiles o
+                      WHERE o.account_id = a.id AND o.user_id <> p_user_id)
+     AND NOT EXISTS (
+       SELECT 1 FROM contacts WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM conversations WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM broadcasts WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM automations WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM flows WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM pipelines WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM message_templates WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM tags WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM custom_fields WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM contact_notes WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM whatsapp_config WHERE account_id = a.id);
+$$;
+
+-- Role of the target's row in the caller's account. Staff <-> bank_guest
+-- is refused: a guest row carries a bank_code (CHECK) and sees nothing,
+-- so that change is remove + add_workspace_member, not a role edit.
+CREATE OR REPLACE FUNCTION public.set_member_role(p_user_id uuid, p_new_role account_role_enum)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_caller_account_id UUID;
+  v_caller_role account_role_enum;
+  v_caller_deactivated TIMESTAMPTZ;
+  v_target_role account_role_enum;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT account_id, account_role, deactivated_at
+    INTO v_caller_account_id, v_caller_role, v_caller_deactivated
+    FROM profiles WHERE user_id = auth.uid() AND is_active;
+  IF v_caller_account_id IS NULL THEN
+    RAISE EXCEPTION 'Caller has no account' USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_deactivated IS NOT NULL THEN
+    RAISE EXCEPTION 'Your access to this account has been deactivated'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION 'This action requires the admin role or higher'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'Cannot change your own role' USING ERRCODE = '22023';
+  END IF;
+  IF p_new_role IS NULL THEN
+    RAISE EXCEPTION 'p_new_role is required' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT account_role INTO v_target_role
+    FROM profiles WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+  IF NOT FOUND THEN
+    PERFORM raise_not_a_member(p_user_id);
+  END IF;
+
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION 'Use transfer_account_ownership to demote an owner'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_new_role = 'owner' THEN
+    RAISE EXCEPTION 'Use transfer_account_ownership to promote to owner'
+      USING ERRCODE = '22023';
+  END IF;
+  IF (v_target_role = 'bank_guest') <> (p_new_role = 'bank_guest') THEN
+    RAISE EXCEPTION 'A bank guest cannot become staff or staff a bank guest; remove the member and add them again'
+      USING ERRCODE = '22023';
+  END IF;
+
+  UPDATE profiles SET account_role = p_new_role
+   WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+END;
+$$;
+
+-- Deactivates the target's row in the caller's account only: their other
+-- workspaces are untouched. It does not move their active mark; a person
+-- whose active row is deactivated can still switch_account() away.
+CREATE OR REPLACE FUNCTION public.set_member_active(p_user_id uuid, p_active boolean)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_caller_account_id UUID;
+  v_caller_role account_role_enum;
+  v_caller_deactivated TIMESTAMPTZ;
+  v_target_role account_role_enum;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT account_id, account_role, deactivated_at
+    INTO v_caller_account_id, v_caller_role, v_caller_deactivated
+    FROM profiles WHERE user_id = auth.uid() AND is_active;
+  IF v_caller_account_id IS NULL THEN
+    RAISE EXCEPTION 'Caller has no account' USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_deactivated IS NOT NULL THEN
+    RAISE EXCEPTION 'Your access to this account has been deactivated'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION 'This action requires the admin role or higher'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_active IS NULL THEN
+    RAISE EXCEPTION 'p_active is required' USING ERRCODE = '22023';
+  END IF;
+  IF p_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'You cannot deactivate or reactivate yourself'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT account_role INTO v_target_role
+    FROM profiles WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+  IF NOT FOUND THEN
+    PERFORM raise_not_a_member(p_user_id);
+  END IF;
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION 'The account owner cannot be deactivated'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_active THEN
+    UPDATE profiles SET deactivated_at = NULL, deactivated_by = NULL
+     WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+  ELSE
+    UPDATE profiles
+       SET deactivated_at = COALESCE(deactivated_at, NOW()),
+           deactivated_by = COALESCE(deactivated_by, auth.uid())
+     WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+  END IF;
+END;
+$$;
+
+-- Rows of the caller's account only. The new owner must be a working
+-- member: not deactivated, not a bank guest.
+CREATE OR REPLACE FUNCTION public.transfer_account_ownership(p_new_owner_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_caller_account_id UUID;
+  v_caller_role account_role_enum;
+  v_caller_deactivated TIMESTAMPTZ;
+  v_target_role account_role_enum;
+  v_target_deactivated TIMESTAMPTZ;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT account_id, account_role, deactivated_at
+    INTO v_caller_account_id, v_caller_role, v_caller_deactivated
+    FROM profiles WHERE user_id = auth.uid() AND is_active;
+  IF v_caller_account_id IS NULL THEN
+    RAISE EXCEPTION 'Caller has no account' USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_deactivated IS NOT NULL THEN
+    RAISE EXCEPTION 'Your access to this account has been deactivated'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_role <> 'owner' THEN
+    RAISE EXCEPTION 'Only the account owner can transfer ownership'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_new_owner_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'You are already the owner' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT account_role, deactivated_at INTO v_target_role, v_target_deactivated
+    FROM profiles
+   WHERE user_id = p_new_owner_user_id AND account_id = v_caller_account_id;
+  IF NOT FOUND THEN
+    PERFORM raise_not_a_member(p_new_owner_user_id);
+  END IF;
+  IF v_target_deactivated IS NOT NULL THEN
+    RAISE EXCEPTION 'The new owner must not be deactivated' USING ERRCODE = '22023';
+  END IF;
+  IF v_target_role = 'bank_guest' THEN
+    RAISE EXCEPTION 'A bank guest cannot own an account' USING ERRCODE = '22023';
+  END IF;
+
+  -- Demote first; both writes are in this transaction.
+  UPDATE profiles SET account_role = 'admin'
+   WHERE user_id = auth.uid() AND account_id = v_caller_account_id;
+  UPDATE profiles SET account_role = 'owner'
+   WHERE user_id = p_new_owner_user_id AND account_id = v_caller_account_id;
+  UPDATE accounts SET owner_user_id = p_new_owner_user_id
+   WHERE id = v_caller_account_id;
+END;
+$$;
+
+-- Deletes the target's row in the caller's account; the DELETE trigger
+-- (profiles_leave_account_teams) clears their teams and number
+-- allocations in that account only, and deals.assigned_to on that row
+-- falls to NULL (FK). If it was their active row, their most recently
+-- created other row becomes active, a non-deactivated one first. Their
+-- ONLY row is moved to a fresh personal account instead, exactly as
+-- before (profile id kept), and that account's id is returned; a person
+-- who keeps another membership gets NULL (no personal account made).
+CREATE OR REPLACE FUNCTION public.remove_account_member(p_user_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_caller_account_id UUID;
+  v_caller_role account_role_enum;
+  v_caller_deactivated TIMESTAMPTZ;
+  v_target_role account_role_enum;
+  v_target_name TEXT;
+  v_target_email TEXT;
+  v_was_active BOOLEAN;
+  v_new_account_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT account_id, account_role, deactivated_at
+    INTO v_caller_account_id, v_caller_role, v_caller_deactivated
+    FROM profiles WHERE user_id = auth.uid() AND is_active;
+  IF v_caller_account_id IS NULL THEN
+    RAISE EXCEPTION 'Caller has no account' USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_deactivated IS NOT NULL THEN
+    RAISE EXCEPTION 'Your access to this account has been deactivated'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_caller_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION 'This action requires the admin role or higher'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'Cannot remove yourself; transfer ownership or leave the account instead'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- switch_account's per-person lock: the active mark read below stays true.
+  PERFORM 1 FROM profiles WHERE user_id = p_user_id ORDER BY id FOR UPDATE;
+
+  SELECT account_role, full_name, email
+    INTO v_target_role, v_target_name, v_target_email
+    FROM profiles WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+  IF NOT FOUND THEN
+    PERFORM raise_not_a_member(p_user_id);
+  END IF;
+  IF v_target_role = 'owner' THEN
+    RAISE EXCEPTION 'Cannot remove the account owner; transfer ownership first'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM profiles
+                  WHERE user_id = p_user_id AND account_id <> v_caller_account_id) THEN
+    INSERT INTO accounts (name, owner_user_id)
+    VALUES (COALESCE(NULLIF(v_target_name, ''), v_target_email, 'My account'), p_user_id)
+    RETURNING id INTO v_new_account_id;
+    UPDATE profiles
+       SET account_id = v_new_account_id, account_role = 'owner',
+           bank_code = NULL, is_active = true
+     WHERE user_id = p_user_id AND account_id = v_caller_account_id;
+    RETURN v_new_account_id;
+  END IF;
+
+  DELETE FROM profiles
+   WHERE user_id = p_user_id AND account_id = v_caller_account_id
+  RETURNING is_active INTO v_was_active;
+
+  IF v_was_active THEN
+    UPDATE profiles SET is_active = true
+     WHERE id = (SELECT id FROM profiles WHERE user_id = p_user_id
+                  ORDER BY (deactivated_at IS NULL) DESC, created_at DESC, id DESC
+                  LIMIT 1);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+-- Adds a row for the inviting account and makes it the caller's active
+-- row. Other memberships and data no longer refuse: they stay, inactive.
+-- Only a caller whose ONLY row is an empty personal account
+-- (disposable_personal_account) has it discarded, by moving that row, as
+-- before. Joining while the active row is deactivated is a move out of
+-- that workspace, as in switch_account, so the guard's flag is raised for
+-- the caller's own rows. Returns the inviting account's id.
+CREATE OR REPLACE FUNCTION public.redeem_invitation(p_token_hash text)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_inv account_invitations%ROWTYPE;
+  v_personal UUID;
+  v_name TEXT;
+  v_email TEXT;
+  v_avatar TEXT;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_inv FROM account_invitations
+   WHERE token_hash = p_token_hash FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Invitation not found' USING ERRCODE = '22023';
+  END IF;
+  IF v_inv.accepted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'Invitation has already been redeemed' USING ERRCODE = '22023';
+  END IF;
+  IF v_inv.expires_at <= NOW() THEN
+    RAISE EXCEPTION 'Invitation has expired' USING ERRCODE = '22023';
+  END IF;
+  -- A guest row needs a bank_code, which an invitation does not carry.
+  IF v_inv.role = 'bank_guest' THEN
+    RAISE EXCEPTION 'A bank guest is added with add_workspace_member, not by invitation'
+      USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM 1 FROM profiles WHERE user_id = v_caller_id ORDER BY id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Caller has no profile' USING ERRCODE = '42501';
+  END IF;
+  IF EXISTS (SELECT 1 FROM profiles
+              WHERE user_id = v_caller_id AND account_id = v_inv.account_id) THEN
+    RAISE EXCEPTION 'You are already a member of this account' USING ERRCODE = '23505';
+  END IF;
+
+  v_personal := disposable_personal_account(v_caller_id);
+  SELECT full_name, email, avatar_url INTO v_name, v_email, v_avatar
+    FROM profiles WHERE user_id = v_caller_id
+   ORDER BY is_active DESC, created_at DESC, id DESC LIMIT 1;
+
+  PERFORM set_config('app.account_switch', 'on', TRUE);
+  IF v_personal IS NOT NULL THEN
+    UPDATE profiles
+       SET account_id = v_inv.account_id, account_role = v_inv.role,
+           is_active = true, deactivated_at = NULL, deactivated_by = NULL
+     WHERE user_id = v_caller_id;
+  ELSE
+    -- Demote, then insert: profiles_one_active_per_user is not deferrable.
+    UPDATE profiles SET is_active = false WHERE user_id = v_caller_id AND is_active;
+    INSERT INTO profiles (user_id, full_name, email, avatar_url, account_id, account_role, is_active)
+    VALUES (v_caller_id, v_name, v_email, v_avatar, v_inv.account_id, v_inv.role, true);
+  END IF;
+  PERFORM set_config('app.account_switch', '', TRUE);
+
+  UPDATE account_invitations
+     SET accepted_at = NOW(), accepted_by_user_id = v_caller_id
+   WHERE id = v_inv.id;
+
+  IF v_personal IS NOT NULL THEN
+    DELETE FROM accounts WHERE id = v_personal;
+  END IF;
+
+  RETURN v_inv.account_id;
+END;
+$$;
+
+-- Service role, right after the members API created a login: that new
+-- person's only row is the empty account handle_new_user() made, which is
+-- moved into p_account_id and discarded as before. Someone who already
+-- has other rows gets one more row, inactive unless they have no active
+-- row; nothing is deleted and their active mark stays where it is (the
+-- 041 refusals for that case are gone). bank_guest is refused: there is
+-- no bank_code argument, and add_workspace_member takes one.
+CREATE OR REPLACE FUNCTION public.provision_account_member(p_user_id uuid, p_account_id uuid, p_role account_role_enum)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_personal UUID;
+  v_name TEXT;
+  v_email TEXT;
+  v_avatar TEXT;
+BEGIN
+  IF p_role = 'owner' THEN
+    RAISE EXCEPTION 'Cannot provision a member as owner; transfer ownership instead'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_role = 'bank_guest' THEN
+    RAISE EXCEPTION 'A bank guest is added with add_workspace_member, which takes the bank code'
+      USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM 1 FROM profiles WHERE user_id = p_user_id ORDER BY id FOR UPDATE;
+  IF NOT FOUND THEN
+    -- handle_new_user() swallows its own failures with a WARNING.
+    RAISE EXCEPTION 'No profile for user %; account bootstrap failed', p_user_id
+      USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (SELECT 1 FROM profiles
+              WHERE user_id = p_user_id AND account_id = p_account_id) THEN
+    RAISE EXCEPTION 'User is already a member of this account' USING ERRCODE = '23505';
+  END IF;
+
+  v_personal := disposable_personal_account(p_user_id);
+  IF v_personal IS NOT NULL THEN
+    -- Move the row BEFORE dropping the account (ON DELETE CASCADE).
+    UPDATE profiles SET account_id = p_account_id, account_role = p_role
+     WHERE user_id = p_user_id;
+    DELETE FROM accounts WHERE id = v_personal;
+    RETURN;
+  END IF;
+
+  SELECT full_name, email, avatar_url INTO v_name, v_email, v_avatar
+    FROM profiles WHERE user_id = p_user_id
+   ORDER BY is_active DESC, created_at DESC, id DESC LIMIT 1;
+  INSERT INTO profiles (user_id, full_name, email, avatar_url, account_id, account_role, is_active)
+  VALUES (p_user_id, v_name, v_email, v_avatar, p_account_id, p_role,
+          NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = p_user_id AND is_active));
+END;
+$$;
+
+-- A new workspace owned by the caller (an owner/admin of their active
+-- workspace). The owner row is inactive: the client switches explicitly.
+CREATE OR REPLACE FUNCTION public.create_workspace(p_name text, p_short_name text)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_role account_role_enum;
+  v_deactivated TIMESTAMPTZ;
+  v_full TEXT;
+  v_email TEXT;
+  v_avatar TEXT;
+  v_name TEXT := btrim(p_name);
+  v_short TEXT := btrim(p_short_name);
+  v_id UUID;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT account_role, deactivated_at, full_name, email, avatar_url
+    INTO v_role, v_deactivated, v_full, v_email, v_avatar
+    FROM profiles WHERE user_id = v_uid AND is_active;
+  IF NOT FOUND OR v_deactivated IS NOT NULL OR v_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION 'Creating a workspace requires the admin role or higher'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_name IS NULL OR char_length(v_name) NOT BETWEEN 1 AND 80 THEN
+    RAISE EXCEPTION 'Workspace name must be 1 to 80 characters' USING ERRCODE = '22023';
+  END IF;
+  IF v_short IS NULL OR v_short !~ '^[A-Za-z0-9]{1,4}$' THEN
+    RAISE EXCEPTION 'Short name must be 1 to 4 letters or digits' USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO accounts (name, short_name, owner_user_id)
+  VALUES (v_name, v_short, v_uid) RETURNING id INTO v_id;
+  INSERT INTO profiles (user_id, full_name, email, avatar_url, account_id, account_role, is_active)
+  VALUES (v_uid, v_full, v_email, v_avatar, v_id, 'owner', false);
+  RETURN v_id;
+END;
+$$;
+
+-- Adds an existing login (by email) to the caller's active workspace and
+-- returns its user id. An unknown email raises P0002 'no_such_user': the
+-- API route then creates the login through provision_account_member. The
+-- row is inactive unless the person has no active row.
+CREATE OR REPLACE FUNCTION public.add_workspace_member(
+  p_email text,
+  p_role account_role_enum,
+  p_bank_code text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_account UUID;
+  v_role account_role_enum;
+  v_deactivated TIMESTAMPTZ;
+  v_code TEXT := NULLIF(btrim(p_bank_code), '');
+  v_email_in TEXT := lower(btrim(p_email));
+  v_user UUID;
+  v_auth_email TEXT;
+  v_meta JSONB;
+  v_full TEXT;
+  v_email TEXT;
+  v_avatar TEXT;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT account_id, account_role, deactivated_at
+    INTO v_account, v_role, v_deactivated
+    FROM profiles WHERE user_id = auth.uid() AND is_active;
+  IF v_account IS NULL THEN
+    RAISE EXCEPTION 'Caller has no account' USING ERRCODE = '42501';
+  END IF;
+  IF v_deactivated IS NOT NULL THEN
+    RAISE EXCEPTION 'Your access to this account has been deactivated'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_role NOT IN ('owner', 'admin') THEN
+    RAISE EXCEPTION 'This action requires the admin role or higher'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_email_in IS NULL OR v_email_in = '' THEN
+    RAISE EXCEPTION 'An email is required' USING ERRCODE = '22023';
+  END IF;
+  IF p_role IS NULL OR p_role = 'owner' THEN
+    RAISE EXCEPTION 'Cannot add a member as owner; transfer ownership instead'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_role = 'bank_guest' AND v_code IS NULL THEN
+    RAISE EXCEPTION 'A bank guest needs a bank code' USING ERRCODE = '22023';
+  END IF;
+  IF p_role <> 'bank_guest' AND v_code IS NOT NULL THEN
+    RAISE EXCEPTION 'Only a bank guest carries a bank code' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT id, email, raw_user_meta_data INTO v_user, v_auth_email, v_meta
+    FROM auth.users WHERE lower(email) = v_email_in
+   ORDER BY created_at, id LIMIT 1;
+  IF v_user IS NULL THEN
+    RAISE EXCEPTION 'no_such_user' USING ERRCODE = 'P0002';
+  END IF;
+
+  PERFORM 1 FROM profiles WHERE user_id = v_user ORDER BY id FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM profiles WHERE user_id = v_user AND account_id = v_account) THEN
+    RAISE EXCEPTION 'That person is already a member of this workspace'
+      USING ERRCODE = '23505';
+  END IF;
+
+  SELECT full_name, email, avatar_url INTO v_full, v_email, v_avatar
+    FROM profiles WHERE user_id = v_user
+   ORDER BY is_active DESC, created_at DESC, id DESC LIMIT 1;
+  IF NOT FOUND THEN
+    v_full := COALESCE(v_meta->>'full_name', '');
+    v_email := COALESCE(v_auth_email, '');
+  END IF;
+
+  INSERT INTO profiles (user_id, full_name, email, avatar_url, account_id,
+                        account_role, bank_code, is_active)
+  VALUES (v_user, v_full, v_email, v_avatar, v_account, p_role, v_code,
+          NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = v_user AND is_active));
+  RETURN v_user;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.raise_not_a_member(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.disposable_personal_account(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.create_workspace(text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.create_workspace(text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.add_workspace_member(text, account_role_enum, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.add_workspace_member(text, account_role_enum, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum) TO service_role;
