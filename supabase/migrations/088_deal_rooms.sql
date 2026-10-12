@@ -812,6 +812,14 @@ BEGIN
 END $$;
 
 -- ---------- 5. Server functions (service role) ----------
+--
+-- Every function a webhook drives takes the account the webhook
+-- authenticated (the Meta webhook resolves it from phone_number_id and
+-- checks the HMAC with that account's app secret) and looks for its room
+-- or message in that account only. A group, request or message id names
+-- one row across all accounts, but each tenant holds its own app secret
+-- and so can sign a callback naming any id it has seen (a bank guest
+-- reads wa_message_id): an id of another account's row changes nothing.
 
 -- The Meta client is about to create the group with this request id.
 CREATE OR REPLACE FUNCTION public.deal_room_mark_requested(p_room uuid, p_request_id text)
@@ -839,7 +847,9 @@ BEGIN
 END $$;
 
 -- Meta created the group: the room opens and our number is in it.
-CREATE OR REPLACE FUNCTION public.deal_room_group_created(p_request_id text, p_group_id text, p_invite_link_hash text)
+DROP FUNCTION IF EXISTS public.deal_room_group_created(text, text, text);
+CREATE OR REPLACE FUNCTION public.deal_room_group_created(p_account uuid, p_request_id text, p_group_id text,
+                                                          p_invite_link_hash text)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_r public.deal_rooms;
 BEGIN
@@ -847,7 +857,8 @@ BEGIN
   IF btrim(coalesce(p_group_id, '')) = '' THEN
     RAISE EXCEPTION 'deal rooms: a group id is required' USING ERRCODE = '22023';
   END IF;
-  SELECT * INTO v_r FROM public.deal_rooms WHERE create_request_id = p_request_id FOR UPDATE;
+  SELECT * INTO v_r FROM public.deal_rooms
+   WHERE create_request_id = p_request_id AND account_id = p_account FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'deal rooms: no room for create request %', p_request_id USING ERRCODE = 'P0002';
   END IF;
@@ -951,7 +962,9 @@ END $$;
 -- then approves it at Meta), else 'pending' for a person to decide, which
 -- on a room that is not open (closed included) is only kept for the
 -- record. A redelivery returns the stored decision.
-CREATE OR REPLACE FUNCTION public.deal_room_record_join_request(p_group_id text, p_join_request_id text, p_wa_id text)
+DROP FUNCTION IF EXISTS public.deal_room_record_join_request(text, text, text);
+CREATE OR REPLACE FUNCTION public.deal_room_record_join_request(p_account uuid, p_group_id text, p_join_request_id text,
+                                                                p_wa_id text)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_r        public.deal_rooms;
@@ -964,7 +977,7 @@ BEGIN
   IF btrim(coalesce(p_join_request_id, '')) = '' OR btrim(coalesce(p_wa_id, '')) = '' THEN
     RAISE EXCEPTION 'deal rooms: a join request needs its id and the requester' USING ERRCODE = '22023';
   END IF;
-  SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id;
+  SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id AND account_id = p_account;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'deal rooms: unknown group' USING ERRCODE = 'P0002';
   END IF;
@@ -1001,7 +1014,9 @@ END $$;
 -- Membership as WhatsApp reports it; keeps participant_count (joined
 -- rows, our number included). Returns the event, or 'unknown' when it
 -- names nobody this room knows (a joiner nobody listed is added).
-CREATE OR REPLACE FUNCTION public.deal_room_participant_event(p_group_id text, p_wa_id text, p_event text)
+DROP FUNCTION IF EXISTS public.deal_room_participant_event(text, text, text);
+CREATE OR REPLACE FUNCTION public.deal_room_participant_event(p_account uuid, p_group_id text, p_wa_id text,
+                                                              p_event text)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_r   public.deal_rooms;
@@ -1015,7 +1030,8 @@ BEGIN
   IF btrim(coalesce(p_wa_id, '')) = '' THEN
     RAISE EXCEPTION 'deal rooms: the event names no participant' USING ERRCODE = '22023';
   END IF;
-  SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id FOR UPDATE;   -- one count writer per room
+  SELECT * INTO v_r FROM public.deal_rooms
+   WHERE wa_group_id = p_group_id AND account_id = p_account FOR UPDATE;   -- one count writer per room
   IF NOT FOUND THEN
     RAISE EXCEPTION 'deal rooms: unknown group' USING ERRCODE = 'P0002';
   END IF;
@@ -1055,8 +1071,9 @@ END $$;
 -- sender refuses anything but open). Inbound reopens the group's 24-hour
 -- service window and resolves the sender to a participant; outbound is
 -- attributed to our number's participant row and the staff user.
+DROP FUNCTION IF EXISTS public.deal_room_record_message(text, text, text, text, text, text, jsonb, text, uuid, text, text);
 CREATE OR REPLACE FUNCTION public.deal_room_record_message(
-  p_group_id text, p_direction text, p_type text,
+  p_account uuid, p_group_id text, p_direction text, p_type text,
   p_wa_message_id text DEFAULT NULL, p_sender_wa_id text DEFAULT NULL, p_body text DEFAULT NULL,
   p_media jsonb DEFAULT NULL, p_template_name text DEFAULT NULL, p_staff_user_id uuid DEFAULT NULL,
   p_status text DEFAULT NULL, p_error text DEFAULT NULL)
@@ -1070,7 +1087,7 @@ BEGIN
   IF p_direction IS NULL OR p_direction NOT IN ('in','out') THEN
     RAISE EXCEPTION 'deal rooms: direction must be in or out' USING ERRCODE = '22023';
   END IF;
-  SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id;
+  SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id AND account_id = p_account;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'deal rooms: unknown group' USING ERRCODE = 'P0002';
   END IF;
@@ -1078,7 +1095,7 @@ BEGIN
     RAISE EXCEPTION 'deal rooms: the room is closed' USING ERRCODE = '22023';
   END IF;
   IF p_wa_message_id IS NOT NULL THEN
-    SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id;
+    SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id AND account_id = p_account;
     IF FOUND THEN
       RETURN v_id;   -- redelivery
     END IF;
@@ -1104,8 +1121,8 @@ BEGIN
           p_error)
   ON CONFLICT (wa_message_id) DO NOTHING
   RETURNING id INTO v_id;
-  IF v_id IS NULL THEN   -- a concurrent redelivery won
-    SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id;
+  IF v_id IS NULL THEN   -- a concurrent redelivery won (NULL: the id is another account's)
+    SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id AND account_id = p_account;
     RETURN v_id;
   END IF;
   IF p_direction = 'in' THEN
@@ -1117,8 +1134,10 @@ END $$;
 
 -- A per-participant receipt. The message's own status moves forward only
 -- (pending → sent → delivered → read); failed only from pending/sent.
--- false: unknown message or a redelivered receipt.
-CREATE OR REPLACE FUNCTION public.deal_room_record_receipt(p_wa_message_id text, p_participant_wa_id text, p_status text)
+-- false: no such message in the account, or a redelivered receipt.
+DROP FUNCTION IF EXISTS public.deal_room_record_receipt(text, text, text);
+CREATE OR REPLACE FUNCTION public.deal_room_record_receipt(p_account uuid, p_wa_message_id text,
+                                                           p_participant_wa_id text, p_status text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_m public.group_messages;
 BEGIN
@@ -1129,7 +1148,8 @@ BEGIN
   IF btrim(coalesce(p_participant_wa_id, '')) = '' THEN
     RAISE EXCEPTION 'deal rooms: the receipt names no participant' USING ERRCODE = '22023';
   END IF;
-  SELECT * INTO v_m FROM public.group_messages WHERE wa_message_id = p_wa_message_id FOR UPDATE;
+  SELECT * INTO v_m FROM public.group_messages
+   WHERE wa_message_id = p_wa_message_id AND account_id = p_account FOR UPDATE;
   IF NOT FOUND THEN
     RETURN false;
   END IF;
@@ -1360,11 +1380,11 @@ GRANT EXECUTE ON FUNCTION
 -- service_role: the Meta client and the webhooks.
 GRANT EXECUTE ON FUNCTION
   public.deal_room_mark_requested(uuid, text),
-  public.deal_room_group_created(text, text, text),
+  public.deal_room_group_created(uuid, text, text, text),
   public.deal_room_set_status(uuid, text, text),
-  public.deal_room_record_join_request(text, text, text),
-  public.deal_room_participant_event(text, text, text),
-  public.deal_room_record_message(text, text, text, text, text, text, jsonb, text, uuid, text, text),
-  public.deal_room_record_receipt(text, text, text),
+  public.deal_room_record_join_request(uuid, text, text, text),
+  public.deal_room_participant_event(uuid, text, text, text),
+  public.deal_room_record_message(uuid, text, text, text, text, text, text, jsonb, text, uuid, text, text),
+  public.deal_room_record_receipt(uuid, text, text, text),
   public.deal_room_admit_block(uuid, text)
   TO service_role;

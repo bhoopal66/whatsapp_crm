@@ -251,6 +251,7 @@ export async function handleGroupWebhook(
       if (!failed && groupId) {
         const link = str(event.invite_link);
         const roomId = await rpc('deal_room_group_created', {
+          p_account: accountId,
           p_request_id: requestId,
           p_group_id: groupId,
           p_invite_link_hash: link
@@ -335,6 +336,7 @@ export async function handleGroupWebhook(
         const waId = digits(event.wa_id);
         if (!joinRequestId || !waId) return;
         const decision = await rpc('deal_room_record_join_request', {
+          p_account: accountId,
           p_group_id: groupId,
           p_join_request_id: joinRequestId,
           p_wa_id: waId,
@@ -401,6 +403,7 @@ export async function handleGroupWebhook(
 
   async function participant(groupId: string, waId: string, event: string) {
     return rpc('deal_room_participant_event', {
+      p_account: accountId,
       p_group_id: groupId,
       p_wa_id: waId,
       p_event: event,
@@ -431,6 +434,7 @@ export async function handleGroupWebhook(
     }
 
     await rpc('deal_room_record_message', {
+      p_account: accountId,
       p_group_id: groupId,
       p_direction: 'in',
       p_type: rawMedia || type === 'text' ? type : 'unsupported',
@@ -536,6 +540,7 @@ export async function handleGroupWebhook(
     }
     if (contactId) await markOptedOut(db, { accountId, contactId });
     await rpc('deal_room_record_message', {
+      p_account: accountId,
       p_group_id: groupId,
       p_direction: 'out',
       p_type: 'system',
@@ -554,6 +559,7 @@ export async function handleGroupWebhook(
     if (status === 'delivered' || status === 'read') {
       if (who)
         await rpc('deal_room_record_receipt', {
+          p_account: accountId,
           p_wa_message_id: id,
           p_participant_wa_id: who,
           p_status: status,
@@ -563,6 +569,7 @@ export async function handleGroupWebhook(
       const key = who ?? str(s.recipient_id);
       if (key)
         await rpc('deal_room_record_receipt', {
+          p_account: accountId,
           p_wa_message_id: id,
           p_participant_wa_id: key,
           p_status: 'failed',

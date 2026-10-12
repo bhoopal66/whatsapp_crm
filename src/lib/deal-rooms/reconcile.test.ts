@@ -100,7 +100,12 @@ describe('reconcileCreatingRooms — matching', () => {
     expect(mem.rpcCalls).toEqual([
       [
         'deal_room_group_created',
-        { p_request_id: 'req-1', p_group_id: 'G1', p_invite_link_hash: null },
+        {
+          p_account: 'acct-1',
+          p_request_id: 'req-1',
+          p_group_id: 'G1',
+          p_invite_link_hash: null,
+        },
       ],
     ]);
     expect(mem.tables.deal_room_audit).toEqual([
@@ -134,6 +139,7 @@ describe('reconcileCreatingRooms — matching', () => {
       [
         'deal_room_group_created',
         {
+          p_account: 'acct-1',
           p_request_id: 'reconciled:G1',
           p_group_id: 'G1',
           p_invite_link_hash: null,

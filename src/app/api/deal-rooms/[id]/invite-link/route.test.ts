@@ -141,7 +141,12 @@ describe('POST /api/deal-rooms/[id]/participants/[pid]/remove', () => {
     });
     expect(mem.rpcCalls).toContainEqual([
       'deal_room_participant_event',
-      { p_group_id: 'grp-1', p_wa_id: '971500000001', p_event: 'removed' },
+      {
+        p_account: 'acct-1',
+        p_group_id: 'grp-1',
+        p_wa_id: '971500000001',
+        p_event: 'removed',
+      },
     ]);
   });
 
