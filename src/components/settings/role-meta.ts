@@ -57,11 +57,12 @@ export const ROLE_META: Record<
     className: 'border-border bg-transparent text-muted-foreground',
   },
   // A partner bank's guest (migrations 082/083): outside the staff
-  // ladder, so it reads as quietly as a viewer.
+  // ladder, so it gets its own lavender rather than a rung's colour.
   bank_guest: {
     icon: Landmark,
     label: 'bank_guest',
     variant: 'muted',
-    className: 'border-border bg-transparent text-muted-foreground',
+    className:
+      'border-violet-500/30 bg-violet-500/10 text-violet-700 [[data-mode=dark]_&]:text-violet-300',
   },
 };

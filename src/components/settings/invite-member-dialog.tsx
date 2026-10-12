@@ -297,6 +297,11 @@ export function InviteMemberDialog({
                 <p className="text-muted-foreground text-xs">
                   {tRoles(`${role}Hint`)}
                 </p>
+                {/* redeem_invitation refuses a guest: a guest row needs
+                    a bank code, which an invitation does not carry. */}
+                <p className="text-muted-foreground text-xs">
+                  {t('bankGuestHint')}
+                </p>
               </div>
 
               <div className="space-y-2">

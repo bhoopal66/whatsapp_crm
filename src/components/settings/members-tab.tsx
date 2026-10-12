@@ -91,6 +91,8 @@ interface Member {
   role: AccountRole;
   joined_at: string;
   deactivated_at: string | null;
+  /** A bank guest's bank (migration 083); null on every other row. */
+  bank_code?: string | null;
 }
 
 interface Invitation {
@@ -494,8 +496,10 @@ export function MembersTab() {
                       role dropdown lines up under the avatar. */}
                   <div className="flex items-center gap-2 sm:gap-3">
                     {/* Role display / editor. Not on the owner row (owner
-                        changes go through transfer) nor your own. */}
-                    {!isOwnerRow && !isSelf ? (
+                        changes go through transfer) nor your own, and
+                        not on a bank guest's: set_member_role refuses to
+                        turn a guest into staff or back. */}
+                    {!isOwnerRow && !isSelf && member.role !== 'bank_guest' ? (
                       <Select
                         value={member.role}
                         onValueChange={(v) =>
@@ -521,11 +525,18 @@ export function MembersTab() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${roleMeta.className}`}
-                      >
-                        <RoleIcon className="size-3.5" />
-                        {tRoles(member.role)}
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${roleMeta.className}`}
+                        >
+                          <RoleIcon className="size-3.5" />
+                          {tRoles(member.role)}
+                        </span>
+                        {member.role === 'bank_guest' && member.bank_code ? (
+                          <span className="text-muted-foreground text-xs">
+                            {t('bankCode', { code: member.bank_code })}
+                          </span>
+                        ) : null}
                       </span>
                     )}
 
