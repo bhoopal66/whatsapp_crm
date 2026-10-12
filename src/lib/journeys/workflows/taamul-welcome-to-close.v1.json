@@ -1,0 +1,1147 @@
+{
+  "id": "taamul_welcome_to_close",
+  "version": 1,
+  "products": {
+    "POS": "pos",
+    "ACCOUNT": "acct",
+    "LOAN": "loan"
+  },
+  "windows": {
+    "serviceHours": 24,
+    "freeEntryHours": 72
+  },
+  "quietHours": {
+    "utcOffsetMinutes": 240,
+    "start": "09:00",
+    "end": "20:00",
+    "appliesTo": [
+      "TIMER",
+      "START_COLD"
+    ]
+  },
+  "caps": {
+    "remindersThisStage": 2,
+    "reengageSent": 1,
+    "paidAfterParked": 1
+  },
+  "optOut": {
+    "keywords": [
+      "STOP",
+      "UNSUBSCRIBE",
+      "إلغاء",
+      "الغاء",
+      "ايقاف",
+      "إيقاف"
+    ],
+    "send": {
+      "template": "taamul_optout_confirm"
+    },
+    "keepStates": [
+      "DOCS",
+      "SUBMITTED",
+      "REMATCH",
+      "FULFILMENT"
+    ],
+    "to": "CLOSED_OPTED_OUT"
+  },
+  "resubscribe": {
+    "keywords": [
+      "START"
+    ]
+  },
+  "callback": {
+    "payload": "CALL_ME_BACK",
+    "ack": {
+      "template": "callback_ack"
+    },
+    "dueIn": "15m",
+    "throttle": "2h"
+  },
+  "globalAdvisor": {
+    "CLOSE": {
+      "guards": [
+        "reasonRequired"
+      ],
+      "onGuardFail": "reject",
+      "to": "CLOSED_ADVISOR"
+    }
+  },
+  "entries": {
+    "INBOUND": {
+      "on": [
+        "INBOUND_TEXT",
+        "BUTTON",
+        "MEDIA"
+      ],
+      "send": [
+        {
+          "template": "welcome_menu"
+        }
+      ],
+      "to": "S_MENU"
+    },
+    "COLD": {
+      "on": [
+        "START_COLD"
+      ],
+      "guards": [
+        "consentMarketing",
+        "notOptedOut",
+        "onceOptinWelcome"
+      ],
+      "send": [
+        {
+          "template": "taamul_optin_welcome"
+        }
+      ],
+      "to": "S_MENU"
+    }
+  },
+  "states": {
+    "S_MENU": {
+      "buttons": {
+        "POS": {
+          "setProduct": "POS",
+          "to": "P_PITCH"
+        },
+        "ACCOUNT": {
+          "setProduct": "ACCOUNT",
+          "to": "B_PITCH"
+        },
+        "LOAN": {
+          "setProduct": "LOAN",
+          "to": "L_PITCH"
+        }
+      },
+      "timers": [
+        {
+          "kind": "MENU_NUDGE",
+          "anchor": "silence",
+          "after": "20h",
+          "then": {
+            "guards": [
+              "inWindow"
+            ],
+            "task": {
+              "kind": "ADVISOR_NUDGE",
+              "note": "Send a free-text nudge; it does not extend the 24h window (D-016-1)"
+            }
+          }
+        },
+        {
+          "kind": "MENU_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "P_PITCH": {
+      "onEnter": {
+        "send": [
+          {
+            "template": "pos_pitch_in_window",
+            "when": "inWindow"
+          },
+          {
+            "template": "pos_intro_offer",
+            "variants": {
+              "intro": "pos_intro_offer",
+              "switch": "pos_switch_offer"
+            },
+            "when": "outOfWindow",
+            "guards": [
+              "consentMarketing",
+              "notOptedOut"
+            ]
+          }
+        ]
+      },
+      "buttons": {
+        "QUOTE": {
+          "to": "P_QUOTE_WAIT"
+        },
+        "COMPARE": {
+          "to": "P_COMPARE_WAIT"
+        },
+        "ADVISOR": {
+          "task": {
+            "kind": "ADVISOR_REQUESTED",
+            "note": "Customer asked to speak to an advisor"
+          }
+        },
+        "NOT_NOW": {
+          "to": "PARKED",
+          "reason": "NOT_NOW"
+        }
+      },
+      "timers": [
+        {
+          "kind": "PITCH_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "P_QUOTE_WAIT": {
+      "onEnter": {
+        "task": {
+          "kind": "PREPARE_QUOTE",
+          "note": "Prepare POS quote"
+        }
+      },
+      "advisor": {
+        "QUOTE_READY": {
+          "send": [
+            {
+              "template": "pos_quote"
+            }
+          ],
+          "to": "P_DECIDE"
+        }
+      }
+    },
+    "P_COMPARE_WAIT": {
+      "onEnter": {
+        "task": {
+          "kind": "REQUEST_STATEMENT",
+          "note": "Ask the customer (free text) for a recent card-processing statement"
+        }
+      },
+      "advisor": {
+        "COMPARISON_READY": {
+          "send": [
+            {
+              "template": "pos_rate_comparison"
+            }
+          ],
+          "to": "P_DECIDE"
+        }
+      }
+    },
+    "P_DECIDE": {
+      "buttons": {
+        "PROCEED": {
+          "to": "DOCS"
+        },
+        "NOT_NOW": {
+          "to": "PARKED",
+          "reason": "NOT_NOW"
+        }
+      },
+      "timers": [
+        {
+          "kind": "QUOTE_VALIDITY",
+          "anchor": "validUntil",
+          "after": "0h",
+          "then": {
+            "to": "PARKED",
+            "reason": "VALIDITY_LAPSED"
+          }
+        },
+        {
+          "kind": "DECIDE_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ],
+      "validity": {
+        "slot": "quote",
+        "onLapse": {
+          "task": {
+            "kind": "REISSUE_OFFER",
+            "note": "Quote/offer lapsed — re-issue it (advisor QUOTE_READY / COMPARISON_READY / FULFILMENT_SCHEDULED) before the customer can proceed"
+          },
+          "to": "PARKED",
+          "reason": "VALIDITY_LAPSED"
+        }
+      }
+    },
+    "B_PITCH": {
+      "onEnter": {
+        "send": [
+          {
+            "template": "acct_pitch_in_window",
+            "when": "inWindow"
+          },
+          {
+            "template": "acct_intro_offer",
+            "when": "outOfWindow",
+            "guards": [
+              "consentMarketing",
+              "notOptedOut"
+            ]
+          }
+        ]
+      },
+      "buttons": {
+        "CHECK_ELIGIBILITY": {
+          "send": [
+            {
+              "template": "acct_eligibility_prescreen"
+            }
+          ],
+          "to": "PRESCREEN"
+        },
+        "NOT_NOW": {
+          "to": "PARKED",
+          "reason": "NOT_NOW"
+        }
+      },
+      "timers": [
+        {
+          "kind": "PITCH_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "L_PITCH": {
+      "onEnter": {
+        "send": [
+          {
+            "template": "loan_pitch_in_window",
+            "when": "inWindow"
+          },
+          {
+            "template": "loan_intro_offer",
+            "when": "outOfWindow",
+            "guards": [
+              "consentMarketing",
+              "notOptedOut"
+            ]
+          }
+        ]
+      },
+      "buttons": {
+        "CHECK_ELIGIBILITY": {
+          "send": [
+            {
+              "template": "loan_eligibility_prescreen"
+            }
+          ],
+          "to": "PRESCREEN"
+        },
+        "NOT_NOW": {
+          "to": "PARKED",
+          "reason": "NOT_NOW"
+        }
+      },
+      "timers": [
+        {
+          "kind": "PITCH_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "PRESCREEN": {
+      "advisor": {
+        "FIT": {
+          "to": "DOCS"
+        },
+        "NO_FIT": {
+          "task": {
+            "kind": "EXPLAIN_NO_FIT",
+            "note": "Explain in chat why the application is outside appetite"
+          },
+          "to": "CLOSED_NO_FIT"
+        }
+      },
+      "timers": [
+        {
+          "kind": "PRESCREEN_NUDGE",
+          "anchor": "enter",
+          "after": "3d",
+          "then": {
+            "task": {
+              "kind": "ADVISOR_NUDGE",
+              "note": "Prescreen pending for 3 days"
+            }
+          }
+        },
+        {
+          "kind": "PRESCREEN_STALE",
+          "anchor": "enter",
+          "after": "14d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "DOCS": {
+      "onEnter": {
+        "send": [
+          {
+            "template": "{product}_docs_request"
+          }
+        ]
+      },
+      "onMedia": {
+        "task": {
+          "kind": "CHECK_DOCS",
+          "note": "Documents received - check completeness"
+        }
+      },
+      "buttons": {
+        "SENDING_NOW": {},
+        "NEED_MORE_TIME": {
+          "to": "PARKED",
+          "reason": "NEED_TIME"
+        },
+        "UPLOAD_HELP": {
+          "task": {
+            "kind": "UPLOAD_HELP",
+            "note": "Customer needs help uploading documents"
+          }
+        }
+      },
+      "advisor": {
+        "DOCS_COMPLETE": {
+          "to": "SUBMITTED"
+        }
+      },
+      "timers": [
+        {
+          "kind": "DOCS_REMINDER_1",
+          "anchor": "enter",
+          "after": "3d",
+          "then": {
+            "send": [
+              {
+                "template": "docs_reminder",
+                "counter": "remindersThisStage"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "DOCS_REMINDER_2",
+          "anchor": "enter",
+          "after": "7d",
+          "then": {
+            "send": [
+              {
+                "template": "docs_reminder",
+                "counter": "remindersThisStage"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "DOCS_SILENCE",
+          "anchor": "silence",
+          "after": "14d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "SUBMITTED": {
+      "onEnter": {
+        "send": [
+          {
+            "template": "{product}_application_status"
+          }
+        ]
+      },
+      "advisor": {
+        "PARTNER_APPROVED": {
+          "to": "FULFILMENT"
+        },
+        "PARTNER_MORE_INFO": {
+          "to": "DOCS"
+        },
+        "PARTNER_DECLINED": {
+          "to": "REMATCH"
+        }
+      }
+    },
+    "REMATCH": {
+      "onEnter": {
+        "send": [
+          {
+            "template": "declined_rematch"
+          }
+        ]
+      },
+      "buttons": {
+        "PROCEED": {
+          "to": "SUBMITTED"
+        },
+        "ADVISOR": {
+          "task": {
+            "kind": "ADVISOR_REQUESTED",
+            "note": "Discuss rematch options"
+          }
+        }
+      },
+      "advisor": {
+        "SUBMITTED": {
+          "to": "SUBMITTED"
+        }
+      },
+      "timers": [
+        {
+          "kind": "REMATCH_SILENCE",
+          "anchor": "silence",
+          "after": "7d",
+          "then": {
+            "to": "CLOSED_DECLINED"
+          }
+        }
+      ]
+    },
+    "FULFILMENT": {
+      "advisor": {
+        "FULFILMENT_SCHEDULED": {
+          "send": [
+            {
+              "overrides": {
+                "POS": "pos_delivery_scheduled",
+                "ACCOUNT": "acct_bank_matched",
+                "LOAN": "loan_offer_received"
+              }
+            }
+          ]
+        }
+      },
+      "buttons": {
+        "CONFIRM": {
+          "to": "WON"
+        },
+        "ACCEPT": {
+          "to": "WON"
+        },
+        "CHANGE_SLOT": {
+          "task": {
+            "kind": "RESCHEDULE",
+            "note": "Customer asked for a different slot"
+          }
+        },
+        "REJECT": {
+          "to": "CLOSED_REJECTED"
+        }
+      },
+      "timers": [
+        {
+          "kind": "OFFER_EXPIRY",
+          "anchor": "validUntil",
+          "after": "0h",
+          "then": {
+            "to": "PARKED",
+            "reason": "VALIDITY_LAPSED"
+          }
+        },
+        {
+          "kind": "FULFILMENT_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ],
+      "validity": {
+        "slot": "offer",
+        "onLapse": {
+          "task": {
+            "kind": "REISSUE_OFFER",
+            "note": "Quote/offer lapsed — re-issue it (advisor QUOTE_READY / COMPARISON_READY / FULFILMENT_SCHEDULED) before the customer can proceed"
+          },
+          "to": "PARKED",
+          "reason": "VALIDITY_LAPSED"
+        }
+      }
+    },
+    "WON": {
+      "terminal": true,
+      "outcome": {
+        "kind": "WON",
+        "reason": "CONVERTED"
+      },
+      "timers": [
+        {
+          "kind": "THANKYOU",
+          "anchor": "enter",
+          "after": "48h",
+          "then": {
+            "send": [
+              {
+                "overrides": {
+                  "POS": "pos_activated_thankyou",
+                  "ACCOUNT": "acct_opened_thankyou",
+                  "LOAN": "loan_disbursed_thankyou"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "buttons": {
+        "REFER": {
+          "startNewJourney": true
+        },
+        "CROSS_SELL": {
+          "startNewJourney": true
+        }
+      }
+    },
+    "PARKED": {
+      "keepsPrev": true,
+      "outcome": {
+        "kind": "PARKED"
+      },
+      "onInbound": {
+        "to": "$prev"
+      },
+      "byReason": {
+        "VALIDITY_LAPSED": {
+          "onInbound": {
+            "task": {
+              "kind": "REISSUE_OFFER",
+              "note": "Quote/offer lapsed — re-issue it (advisor QUOTE_READY / COMPARISON_READY / FULFILMENT_SCHEDULED) before the customer can proceed"
+            }
+          }
+        }
+      },
+      "advisor": {
+        "QUOTE_READY": {
+          "send": [
+            {
+              "template": "pos_quote"
+            }
+          ],
+          "to": "P_DECIDE",
+          "onlyProducts": [
+            "POS"
+          ]
+        },
+        "COMPARISON_READY": {
+          "send": [
+            {
+              "template": "pos_rate_comparison"
+            }
+          ],
+          "to": "P_DECIDE",
+          "onlyProducts": [
+            "POS"
+          ]
+        },
+        "FULFILMENT_SCHEDULED": {
+          "send": [
+            {
+              "overrides": {
+                "POS": "pos_delivery_scheduled",
+                "ACCOUNT": "acct_bank_matched",
+                "LOAN": "loan_offer_received"
+              }
+            }
+          ],
+          "to": "FULFILMENT"
+        }
+      },
+      "timers": [
+        {
+          "kind": "PARKED_SILENCE",
+          "anchor": "silence",
+          "after": "30d",
+          "then": {
+            "to": "RE_ENGAGE"
+          }
+        }
+      ]
+    },
+    "RE_ENGAGE": {
+      "keepsPrev": true,
+      "guards": [
+        "onceReengage",
+        "consentMarketing",
+        "notOptedOut"
+      ],
+      "onGuardFail": "CLOSED_NO_RESPONSE",
+      "onEnter": {
+        "send": [
+          {
+            "template": "taamul_reengage_30d",
+            "counter": "reengageSent"
+          }
+        ]
+      },
+      "buttons": {
+        "YES_CONTINUE": {
+          "to": "$prev"
+        },
+        "NOT_NOW": {
+          "to": "CLOSED_NO_RESPONSE"
+        }
+      },
+      "byReason": {
+        "VALIDITY_LAPSED": {
+          "buttons": {
+            "YES_CONTINUE": {
+              "task": {
+                "kind": "REISSUE_OFFER",
+                "note": "Quote/offer lapsed — re-issue it (advisor QUOTE_READY / COMPARISON_READY / FULFILMENT_SCHEDULED) before the customer can proceed"
+              },
+              "to": "PARKED",
+              "reason": "VALIDITY_LAPSED"
+            }
+          }
+        }
+      },
+      "timers": [
+        {
+          "kind": "REENGAGE_SILENCE",
+          "anchor": "silence",
+          "after": "7d",
+          "then": {
+            "to": "CLOSED_NO_RESPONSE"
+          }
+        }
+      ]
+    },
+    "CLOSED_NO_FIT": {
+      "terminal": true,
+      "outcome": {
+        "kind": "NOT_WON",
+        "reason": "OUTSIDE_APPETITE"
+      }
+    },
+    "CLOSED_DECLINED": {
+      "terminal": true,
+      "outcome": {
+        "kind": "NOT_WON",
+        "reason": "DECLINED_NO_REMATCH"
+      }
+    },
+    "CLOSED_REJECTED": {
+      "terminal": true,
+      "outcome": {
+        "kind": "NOT_WON",
+        "reason": "OFFER_REJECTED"
+      }
+    },
+    "CLOSED_NO_RESPONSE": {
+      "terminal": true,
+      "outcome": {
+        "kind": "NOT_WON",
+        "reason": "NO_RESPONSE"
+      }
+    },
+    "CLOSED_OPTED_OUT": {
+      "terminal": true,
+      "outcome": {
+        "kind": "NOT_WON",
+        "reason": "OPT_OUT"
+      }
+    },
+    "CLOSED_ADVISOR": {
+      "terminal": true,
+      "outcome": {
+        "kind": "NOT_WON",
+        "reason": "$event.reasonCode"
+      }
+    }
+  },
+  "templates": {
+    "welcome_menu": {
+      "category": "SESSION",
+      "buttons": [
+        "POS",
+        "ACCOUNT",
+        "LOAN"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": null
+    },
+    "taamul_optin_welcome": {
+      "category": "MARKETING",
+      "buttons": [
+        "POS",
+        "ACCOUNT",
+        "LOAN"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": null
+    },
+    "pos_pitch_in_window": {
+      "category": "SESSION",
+      "buttons": [
+        "QUOTE",
+        "COMPARE",
+        "ADVISOR",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "pos",
+      "interactive": "list"
+    },
+    "pos_intro_offer": {
+      "category": "MARKETING",
+      "buttons": [
+        "QUOTE",
+        "COMPARE",
+        "ADVISOR",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "pos"
+    },
+    "pos_switch_offer": {
+      "category": "MARKETING",
+      "buttons": [
+        "QUOTE",
+        "COMPARE",
+        "ADVISOR",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "pos"
+    },
+    "pos_quote": {
+      "category": "UTILITY",
+      "buttons": [
+        "PROCEED",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "quote_ref",
+        "valid_until"
+      ],
+      "product": "pos"
+    },
+    "pos_rate_comparison": {
+      "category": "UTILITY",
+      "buttons": [
+        "PROCEED",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "saving_pct"
+      ],
+      "product": "pos"
+    },
+    "acct_pitch_in_window": {
+      "category": "SESSION",
+      "buttons": [
+        "CHECK_ELIGIBILITY",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "acct"
+    },
+    "acct_intro_offer": {
+      "category": "MARKETING",
+      "buttons": [
+        "CHECK_ELIGIBILITY",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "acct"
+    },
+    "loan_pitch_in_window": {
+      "category": "SESSION",
+      "buttons": [
+        "CHECK_ELIGIBILITY",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "loan"
+    },
+    "loan_intro_offer": {
+      "category": "MARKETING",
+      "buttons": [
+        "CHECK_ELIGIBILITY",
+        "NOT_NOW",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "loan"
+    },
+    "acct_eligibility_prescreen": {
+      "category": "UTILITY",
+      "buttons": [
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "acct"
+    },
+    "loan_eligibility_prescreen": {
+      "category": "UTILITY",
+      "buttons": [
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "loan"
+    },
+    "pos_docs_request": {
+      "category": "UTILITY",
+      "buttons": [
+        "UPLOAD_HELP",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "doc_list"
+      ],
+      "product": "pos",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "acct_docs_request": {
+      "category": "UTILITY",
+      "buttons": [
+        "UPLOAD_HELP",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "doc_list"
+      ],
+      "product": "acct",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "loan_docs_request": {
+      "category": "UTILITY",
+      "buttons": [
+        "UPLOAD_HELP",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "doc_list"
+      ],
+      "product": "loan",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "docs_reminder": {
+      "category": "UTILITY",
+      "buttons": [
+        "SENDING_NOW",
+        "NEED_MORE_TIME",
+        "UPLOAD_HELP",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "doc_list"
+      ],
+      "product": null
+    },
+    "pos_application_status": {
+      "category": "UTILITY",
+      "buttons": [],
+      "variables": [
+        "customer_name",
+        "application_ref"
+      ],
+      "product": "pos",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "loan_application_status": {
+      "category": "UTILITY",
+      "buttons": [],
+      "variables": [
+        "customer_name",
+        "application_ref"
+      ],
+      "product": "loan",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "acct_bank_matched": {
+      "category": "UTILITY",
+      "buttons": [
+        "CONFIRM",
+        "CHANGE_SLOT"
+      ],
+      "variables": [
+        "customer_name",
+        "bank_name"
+      ],
+      "product": "acct",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "declined_rematch": {
+      "category": "UTILITY",
+      "buttons": [
+        "PROCEED",
+        "ADVISOR",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": null
+    },
+    "pos_delivery_scheduled": {
+      "category": "UTILITY",
+      "buttons": [
+        "CONFIRM",
+        "CHANGE_SLOT"
+      ],
+      "variables": [
+        "customer_name",
+        "slot"
+      ],
+      "product": "pos",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "loan_offer_received": {
+      "category": "UTILITY",
+      "buttons": [
+        "ACCEPT",
+        "REJECT",
+        "CALL_ME_BACK"
+      ],
+      "variables": [
+        "customer_name",
+        "offer_ref"
+      ],
+      "product": "loan",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "pos_activated_thankyou": {
+      "category": "UTILITY",
+      "buttons": [
+        "REFER",
+        "CROSS_SELL"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "pos"
+    },
+    "acct_opened_thankyou": {
+      "category": "UTILITY",
+      "buttons": [
+        "REFER",
+        "CROSS_SELL"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "acct"
+    },
+    "loan_disbursed_thankyou": {
+      "category": "UTILITY",
+      "buttons": [
+        "REFER",
+        "CROSS_SELL"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": "loan"
+    },
+    "taamul_reengage_30d": {
+      "category": "MARKETING",
+      "buttons": [
+        "YES_CONTINUE",
+        "NOT_NOW"
+      ],
+      "variables": [
+        "customer_name"
+      ],
+      "product": null
+    },
+    "taamul_optout_confirm": {
+      "category": "UTILITY",
+      "buttons": [],
+      "variables": [],
+      "product": null
+    },
+    "acct_application_status": {
+      "category": "UTILITY",
+      "buttons": [],
+      "variables": [
+        "customer_name",
+        "application_ref"
+      ],
+      "product": "acct",
+      "phoneButton": {
+        "label": "Call Taamul",
+        "number": "{TAAMUL_DID}"
+      }
+    },
+    "callback_ack": {
+      "category": "SESSION",
+      "buttons": [],
+      "variables": [
+        "customer_name"
+      ],
+      "product": null
+    }
+  }
+}
