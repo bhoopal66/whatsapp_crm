@@ -125,6 +125,10 @@ export interface Contact {
   /** When the customer asked not to be messaged (migration 076); NULL
    *  means never. Every broadcast skips a contact with a stamp. */
   opted_out_at?: string | null;
+  /** The consent register (migration 086); calls refuse a stamped one. */
+  do_not_contact_at?: string | null;
+  do_not_contact_reason?: string | null;
+  marketing_opt_in_at?: string | null;
   created_at: string;
   updated_at: string;
 }
