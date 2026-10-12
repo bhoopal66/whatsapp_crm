@@ -4,6 +4,7 @@ import {
   CircleDollarSign,
   Coins,
   FileText,
+  Handshake,
   Inbox,
   KeyRound,
   LayoutGrid,
@@ -49,6 +50,7 @@ export const SETTINGS_SECTIONS = [
   'numbers',
   'routing',
   'templates',
+  'deal-rooms',
   'costs',
   'chat-tags',
   'quick-replies',
@@ -129,6 +131,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   templates: {
     id: 'templates',
     icon: FileText,
+    category: 'whatsapp',
+    minRole: 'admin',
+  },
+  // The group-invite template of the deal rooms (migration 088's
+  // deal_room_settings): a Meta template, so beside Templates.
+  'deal-rooms': {
+    id: 'deal-rooms',
+    icon: Handshake,
     category: 'whatsapp',
     minRole: 'admin',
   },

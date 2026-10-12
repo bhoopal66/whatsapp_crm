@@ -27,6 +27,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'numbers',
   'routing',
   'templates',
+  'deal-rooms',
   'costs',
   'chat-tags',
   'quick-replies',
@@ -106,7 +107,14 @@ describe('categories', () => {
     ).toEqual({
       overview: ['overview'],
       account: ['profile', 'security', 'appearance'],
-      whatsapp: ['whatsapp', 'numbers', 'routing', 'templates', 'costs'],
+      whatsapp: [
+        'whatsapp',
+        'numbers',
+        'routing',
+        'templates',
+        'deal-rooms',
+        'costs',
+      ],
       inbox: ['chat-tags', 'quick-replies', 'fields', 'journey-bot'],
       team: ['members', 'teams', 'team-chat', 'consent-retention', 'audit-log'],
       ai: ['ai'],
