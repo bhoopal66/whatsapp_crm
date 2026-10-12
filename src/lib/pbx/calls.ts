@@ -298,7 +298,90 @@ export function myLeg(
   };
 }
 
+const isGone = (m: CallMember) => m.status.toUpperCase() === 'BYE';
+
+/**
+ * {@link myLeg}, counting only legs still on the call: a leg that left
+ * (BYE, e.g. after the caller transferred the customer away) controls
+ * nothing, and the call's remaining parties are no longer theirs.
+ */
+export function myLiveLeg(
+  calls: CallInfo[],
+  pbxCallId: string,
+  extension: string
+): { mine: CallMember; others: CallMember[] } | null {
+  const call = calls.find((c) => c.callId === pbxCallId);
+  if (!call) return null;
+  const live = { ...call, members: call.members.filter((m) => !isGone(m)) };
+  return myLeg([live], pbxCallId, extension);
+}
+
+/**
+ * The channel a blind transfer moves. The PBX moves the member whose
+ * channel it is given (api.ts), so it is the party at the other end of
+ * the caller's leg: the one outside line (the customer) if there is one,
+ * else the one other extension. Null when nobody else is on the call or
+ * it is ambiguous (a conference, a ring group still ringing).
+ */
+export function blindTransferChannel(others: CallMember[]): string | null {
+  const trunks = others.filter((m) => m.kind !== 'extension');
+  if (trunks.length === 1) return trunks[0].channelId;
+  if (!trunks.length && others.length === 1) return others[0].channelId;
+  return null;
+}
+
+// ---------- Call outcome ----------
+
+export interface OutcomePatch {
+  disposition?: Disposition | null;
+  notes?: string | null;
+}
+
+/**
+ * `{ disposition?, notes? }` as pbx_set_disposition will judge it: a
+ * known disposition or null, notes as text or null, at most NOTES_MAX
+ * characters once btrim'd (spaces only, as SQL's btrim). An omitted
+ * field is absent from the result, for the route to keep its value.
+ */
+export function parseOutcome(
+  b: Record<string, unknown>
+): OutcomePatch | string {
+  const out: OutcomePatch = {};
+  if (b.disposition !== undefined) {
+    if (
+      b.disposition !== null &&
+      !(DISPOSITIONS as readonly unknown[]).includes(b.disposition)
+    )
+      return `disposition must be one of ${DISPOSITIONS.join(', ')}, or null`;
+    out.disposition = b.disposition as Disposition | null;
+  }
+  if (b.notes !== undefined) {
+    if (b.notes !== null && typeof b.notes !== 'string')
+      return 'notes must be text or null';
+    if (
+      typeof b.notes === 'string' &&
+      Array.from(b.notes.replace(/^ +| +$/g, '')).length > NOTES_MAX
+    )
+      return `Notes are limited to ${NOTES_MAX} characters`;
+    out.notes = b.notes;
+  }
+  return Object.keys(out).length ? out : 'Nothing to change';
+}
+
 // ---------- Shared lookups (route side) ----------
+
+/** The request's JSON object body, or null for anything else. */
+export async function jsonObject(
+  request: Request
+): Promise<Record<string, unknown> | null> {
+  const b: unknown = await request.json().catch(() => null);
+  return typeof b === 'object' && b !== null && !Array.isArray(b)
+    ? (b as Record<string, unknown>)
+    : null;
+}
+
+/** The PBX's address for the Linkus SDK, without a trailing slash. */
+export const pbxUrl = (baseUrl: string) => baseUrl.trim().replace(/\/+$/, '');
 
 export const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -344,7 +427,9 @@ export function pbxFailure(err: unknown): NextResponse | null {
   if (err instanceof PbxConnectionError) {
     switch (err.code) {
       case 'no_sdk_credentials':
-        return fail('The softphone is not set up on this phone system', 409);
+        return fail('The softphone is not set up on this phone system', 409, {
+          code: 'no_sdk_credentials',
+        });
       case 'auth_backoff':
         return fail(
           'The phone system refused its credentials; try again in a few minutes',
