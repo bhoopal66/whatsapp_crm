@@ -2,9 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Hash, Lock, MessageCircle, PenSquare, Search } from 'lucide-react';
+import {
+  Bookmark,
+  Hash,
+  Lock,
+  MessageCircle,
+  PenSquare,
+  Plus,
+  Search,
+} from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
@@ -17,11 +25,13 @@ import {
   sidebarSections,
   type SidebarChannelRow,
 } from '@/lib/chat/view';
+import { isSavedPath, SAVED_PATH } from '@/lib/chat/saved';
 import { channelDisplayName as numberName } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
 import { PresenceDot } from './presence-dot';
+import { useSavedCount } from './saved-items';
 
 const SECTION_LABEL =
   'px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45';
@@ -30,8 +40,10 @@ const ROW =
 
 export interface ChatSidebarProps {
   activeChannelId: string | null;
-  /** Opens the New-channel dialog (a later job); the button is disabled without it. */
+  /** Opens the New-channel dialog; the button is disabled without it. */
   onCompose?: () => void;
+  /** Opens the DM picker; no "+" by Direct messages without it. */
+  onNewDm?: () => void;
   className?: string;
 }
 
@@ -39,10 +51,13 @@ export interface ChatSidebarProps {
 export function ChatSidebar({
   activeChannelId,
   onCompose,
+  onNewDm,
   className,
 }: ChatSidebarProps) {
   const t = useTranslations('Chat');
   const router = useRouter();
+  const savedActive = isSavedPath(usePathname());
+  const savedCount = useSavedCount();
   const { account, workspaces, activeWorkspaceId, isBankGuest, accountRole } =
     useAuth();
   const ws = useChatWorkspaceContext();
@@ -124,10 +139,27 @@ export function ChatSidebar({
     );
   };
 
-  const section = (label: string, list: SidebarChannelRow[]) =>
-    list.length > 0 && (
+  const section = (
+    label: string,
+    list: SidebarChannelRow[],
+    add?: { label: string; onClick: () => void }
+  ) =>
+    (list.length > 0 || add) && (
       <div>
-        <p className={SECTION_LABEL}>{label}</p>
+        <div className="flex items-center pr-2">
+          <p className={cn(SECTION_LABEL, 'min-w-0 flex-1')}>{label}</p>
+          {add && (
+            <button
+              type="button"
+              onClick={add.onClick}
+              aria-label={add.label}
+              title={add.label}
+              className="mt-3 flex size-6 items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          )}
+        </div>
         <ul>{list.map(channelRow)}</ul>
       </div>
     );
@@ -182,6 +214,22 @@ export function ChatSidebar({
         className="min-h-0 flex-1 overflow-y-auto px-1 pb-4"
         aria-label={t('title')}
       >
+        <Link
+          href={SAVED_PATH}
+          aria-current={savedActive ? 'page' : undefined}
+          className={cn(
+            ROW,
+            'mt-2',
+            savedActive &&
+              'bg-[#0E7C5A] font-semibold text-white hover:bg-[#0E7C5A]'
+          )}
+        >
+          <Bookmark className="size-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">{t('saved.row')}</span>
+          {savedCount ? (
+            <span className="text-xs text-white/60">{savedCount}</span>
+          ) : null}
+        </Link>
         {rows.length > 0 && (
           <div>
             <p className={SECTION_LABEL}>{t('sections.inbox')}</p>
@@ -214,7 +262,13 @@ export function ChatSidebar({
         )}
         {section(t('sections.channels'), sections.team)}
         {section(t('sections.dealRooms'), sections.dealRooms)}
-        {section(t('sections.dms'), sections.dms)}
+        {section(
+          t('sections.dms'),
+          sections.dms,
+          onNewDm && !isBankGuest
+            ? { label: t('dm.new'), onClick: onNewDm }
+            : undefined
+        )}
         {ws.channels === null ? (
           <div className="space-y-2 px-3 pt-4" aria-hidden>
             {[0, 1, 2, 3].map((i) => (

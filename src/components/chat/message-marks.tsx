@@ -17,6 +17,7 @@ import {
   withMark,
   type PinEvent,
 } from '@/lib/chat/composer-input';
+import { emitSavedChange } from '@/lib/chat/saved';
 
 import { useChatWorkspaceContext } from './chat-context';
 
@@ -102,6 +103,9 @@ export function MessageMarksProvider({
       setSavedIds((s) => withMark(s, messageId, on));
       try {
         await setSaved(sb, messageId, on);
+        // saved_messages has no realtime feed: tell the sidebar's Saved
+        // count to re-read now rather than on the next navigation.
+        emitSavedChange();
         toast.success(t(on ? 'saved' : 'unsaved'));
       } catch (err) {
         setSavedIds((s) => withMark(s, messageId, !on));
