@@ -71,6 +71,12 @@ retries failed events (three times), and purges old rows. See
 > `pbx_purge()` now drops events that failed all retries after 30 days.
 > Re-apply the file (it is re-runnable).
 
+Calling from the CRM: call lists, this month's totals, team presence,
+recording playback (5-minute links, downloads for team leaders and up,
+every access logged, held until the notice is confirmed) and attaching
+a recording to a deal as a reference; no new migration. See
+`docs/yeastar.md` section 11.
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team

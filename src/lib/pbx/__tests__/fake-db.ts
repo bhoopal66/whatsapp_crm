@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 // A small in-memory stand-in for the supabase-js query builder: enough
 // of select / insert / update / upsert / delete / rpc for the PBX code,
-// and storage uploads (kept in `objects`, keyed `<bucket>/<path>`).
+// and storage uploads (kept in `objects`, keyed `<bucket>/<path>`) and
+// signed links (logged as `sign`).
 
 export type Row = Record<string, unknown>;
 type DbError = { message: string; code?: string };
@@ -15,7 +16,7 @@ export interface FakeDb {
   rpcs: Record<string, Rpc>;
   log: { table: string; op: string; payload?: unknown }[];
   objects: Record<string, { bytes: number; contentType?: string }>;
-  /** The next `op` on `table` (`storage:<bucket>` for uploads) answers with this error. */
+  /** The next `op` on `table` (`storage:<bucket>` for `upload` / `sign`) answers with this error. */
   fail(table: string, op: string, error: DbError): void;
 }
 
@@ -42,6 +43,7 @@ export function createFakeDb(
     private mode: 'many' | 'single' | 'maybe' = 'many';
     private sort?: [string, boolean];
     private max?: number;
+    private offset = 0;
     private counted = false;
     private head = false;
     private conflict: string[] = [];
@@ -112,12 +114,17 @@ export function createFakeDb(
       this.filters.push((r) => cmp(r[c], v) <= 0);
       return this;
     }
-    /** PostgREST `or`: comma-separated `col.is.null` / `col.lt.v` / `col.lte.v` terms. */
+    gte(c: string, v: unknown) {
+      this.filters.push((r) => cmp(r[c], v) >= 0);
+      return this;
+    }
+    /** PostgREST `or`: comma-separated `col.is.null` / `col.eq.v` / `col.lt.v` / `col.lte.v` terms. */
     or(expr: string) {
       const terms = expr.split(',').map((t) => {
         const [c, op, ...rest] = t.split('.');
         const v = rest.join('.');
         if (op === 'is' && v === 'null') return (r: Row) => r[c] == null;
+        if (op === 'eq') return (r: Row) => r[c] != null && String(r[c]) === v;
         if (op === 'lt') return (r: Row) => cmp(r[c], v) < 0;
         if (op === 'lte') return (r: Row) => cmp(r[c], v) <= 0;
         throw new Error(`fake-db: unsupported or() term ${t}`);
@@ -135,6 +142,12 @@ export function createFakeDb(
     }
     limit(n: number) {
       this.max = n;
+      return this;
+    }
+    /** Rows `from` to `to`, inclusive, as PostgREST's Range. */
+    range(from: number, to: number) {
+      this.offset = from;
+      this.max = to - from + 1;
       return this;
     }
     maybeSingle() {
@@ -199,13 +212,14 @@ export function createFakeDb(
               (asc ? 1 : -1)
           );
         }
-        if (this.max !== undefined) data = data.slice(0, this.max);
+        // As PostgREST: the count is every matching row, whatever the page.
+        const count = data.length;
+        data = data.slice(
+          this.offset,
+          this.max === undefined ? undefined : this.offset + this.max
+        );
         if (this.counted) {
-          return {
-            data: this.head ? null : data,
-            error: null,
-            count: data.length,
-          };
+          return { data: this.head ? null : data, error: null, count };
         }
       }
       const copy = data.map((r) => ({ ...r }));
@@ -255,6 +269,29 @@ export function createFakeDb(
               contentType: o?.contentType,
             };
             return { data: { path }, error: null };
+          },
+          createSignedUrl: async (
+            path: string,
+            expiresIn: number,
+            o?: { download?: string | boolean }
+          ) => {
+            log.push({
+              table: `storage:${bucket}`,
+              op: 'sign',
+              payload: { path, expiresIn, download: o?.download ?? null },
+            });
+            const failure = failures.get(`storage:${bucket}:sign`);
+            if (failure) {
+              failures.delete(`storage:${bucket}:sign`);
+              return { data: null, error: failure };
+            }
+            const base = process.env.SUPABASE_INTERNAL_URL || 'https://db.test';
+            return {
+              data: {
+                signedUrl: `${base}/storage/v1/object/sign/${bucket}/${path}?token=t${expiresIn}`,
+              },
+              error: null,
+            };
           },
         }),
       },

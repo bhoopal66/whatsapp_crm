@@ -1,0 +1,197 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import {
+  createFakeDb,
+  type FakeDb,
+  type Row,
+} from '@/lib/pbx/__tests__/fake-db';
+
+const mocks = vi.hoisted(() => ({ requireRole: vi.fn() }));
+vi.mock('@/lib/auth/account', () => ({
+  requireRole: mocks.requireRole,
+  toErrorResponse: vi.fn(() =>
+    Response.json({ error: 'Forbidden' }, { status: 403 })
+  ),
+}));
+
+import { GET as list } from './route';
+import { GET as summary } from './summary/route';
+
+const A = '00000000-0000-4000-8000-00000000000a';
+const C1 = '00000000-0000-4000-8000-000000000001';
+const C2 = '00000000-0000-4000-8000-000000000002';
+let rls: FakeDb;
+
+function as(role: AccountRole) {
+  mocks.requireRole.mockImplementation(async (min: AccountRole) => {
+    if (!hasMinRole(role, min)) throw new Error('Insufficient role');
+    return { accountId: A, userId: 'me', role, supabase: rls.db };
+  });
+}
+let n = 0;
+const call = (p: Row): Row => ({
+  id: `call-${++n}`,
+  account_id: A,
+  direction: 'inbound',
+  status: 'answered',
+  started_at: '2026-10-12T08:00:00.000Z',
+  answered_at: null,
+  ended_at: null,
+  ring_seconds: 5,
+  talk_seconds: 60,
+  remote_number: '971501234567',
+  extension: '201',
+  contact_id: C1,
+  user_id: 'me',
+  peer_user_id: null,
+  disposition: null,
+  notes: null,
+  recording_state: 'none',
+  ...p,
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  n = 0;
+  rls = createFakeDb({
+    calls: [],
+    contacts: [{ id: C1, name: 'Ahmed Ali' }],
+    profiles: [{ user_id: 'me', full_name: 'Sara' }],
+  });
+  as('viewer');
+});
+afterEach(() => vi.useRealTimers());
+
+const get = async (qs = '') => {
+  const res = await list(
+    new Request(`https://crm.example.com/api/pbx/calls?${qs}`)
+  );
+  return { status: res.status, body: await res.json() };
+};
+const ids = async (qs: string) =>
+  ((await get(qs)).body.calls as { id: string }[]).map((c) => c.id);
+
+describe('GET /api/pbx/calls', () => {
+  it('lists visible calls newest first, with names and the outcome', async () => {
+    rls.tables.calls.push(
+      call({ started_at: '2026-10-11T08:00:00.000Z', notes: 'Wants a card' }),
+      call({ contact_id: C2, user_id: 'other', disposition: 'call_back' }),
+      call({ account_id: 'elsewhere' })
+    );
+    const { status, body } = await get();
+    expect(status).toBe(200);
+    expect(mocks.requireRole).toHaveBeenCalledWith('viewer');
+    expect(body.calls).toEqual([
+      expect.objectContaining({
+        id: 'call-2',
+        contactId: C2,
+        contactName: null, // a contact the caller cannot see
+        userId: 'other',
+        userName: null,
+        disposition: 'call_back',
+      }),
+      {
+        id: 'call-1',
+        direction: 'inbound',
+        status: 'answered',
+        startedAt: '2026-10-11T08:00:00.000Z',
+        answeredAt: null,
+        endedAt: null,
+        ringSeconds: 5,
+        talkSeconds: 60,
+        remoteNumber: '971501234567',
+        extension: '201',
+        contactId: C1,
+        contactName: 'Ahmed Ali',
+        userId: 'me',
+        userName: 'Sara',
+        disposition: null,
+        notes: 'Wants a card',
+        recordingState: 'none',
+      },
+    ]);
+  });
+
+  it('filters by scope, contact, dates and limit', async () => {
+    rls.tables.calls.push(
+      call({
+        user_id: 'other',
+        peer_user_id: 'me',
+        started_at: '2026-10-01T00:00:00.000Z',
+      }),
+      call({ user_id: 'other', status: 'no_answer' }),
+      call({
+        user_id: 'other',
+        status: 'voicemail',
+        answered_at: '2026-10-12T08:00:05Z',
+      }),
+      call({ direction: 'outbound', status: 'no_answer', contact_id: C2 })
+    );
+    expect(await ids('scope=mine')).toEqual(['call-4', 'call-1']);
+    expect(await ids('scope=missed')).toEqual(['call-2']);
+    expect(await ids(`contactId=${C2}`)).toEqual(['call-4']);
+    expect(await ids('to=2026-10-02T00:00:00Z')).toEqual(['call-1']);
+    expect(await ids('from=2026-10-02T00:00:00Z&limit=1')).toHaveLength(1);
+    expect((await get('scope=team')).status).toBe(400);
+    expect((await get('limit=500')).status).toBe(400);
+  });
+
+  it('refuses a bank guest', async () => {
+    as('bank_guest');
+    expect((await get()).status).toBe(403);
+  });
+});
+
+describe('GET /api/pbx/calls/summary', () => {
+  const sum = async (qs = '') => {
+    const res = await summary(
+      new Request(`https://crm.example.com/api/pbx/calls/summary?${qs}`)
+    );
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('counts this month from midnight on the 1st, Dubai time', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // 00:30 on 1 October in Dubai, still 30 September in UTC.
+    vi.setSystemTime(new Date('2026-09-30T20:30:00.000Z'));
+    rls.tables.calls.push(
+      call({ started_at: '2026-09-30T19:59:59.000Z' }), // 23:59:59 on the 30th
+      call({ started_at: '2026-09-30T20:00:00.000Z', talk_seconds: 30 }),
+      call({
+        started_at: '2026-09-30T20:10:00.000Z',
+        status: 'no_answer',
+        talk_seconds: null,
+      }),
+      call({
+        started_at: '2026-09-30T20:20:00.000Z',
+        contact_id: C2,
+        status: 'busy',
+        direction: 'outbound',
+        talk_seconds: null,
+      })
+    );
+    expect((await sum()).body).toEqual({
+      total: 3,
+      answered: 1,
+      missed: 1,
+      talkSeconds: 30,
+    });
+    expect((await sum(`contactId=${C1}`)).body).toEqual({
+      total: 2,
+      answered: 1,
+      missed: 1,
+      talkSeconds: 30,
+    });
+    // In UTC it is still September: all four.
+    expect((await sum('tz=UTC')).body.total).toBe(4);
+    expect((await sum('tz=Mars/Base')).status).toBe(400);
+    expect((await sum('contactId=x')).status).toBe(400);
+  });
+
+  it('pages past PostgREST’s row cap', async () => {
+    for (let i = 0; i < 2500; i++)
+      rls.tables.calls.push(call({ started_at: new Date().toISOString() }));
+    expect((await sum()).body).toMatchObject({ total: 2500, answered: 2500 });
+    expect(rls.log.filter((l) => l.table === 'calls')).toHaveLength(3);
+  });
+});
