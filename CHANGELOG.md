@@ -174,7 +174,9 @@ only to customers with a recorded opt-in, and STOP / UNSUBSCRIBE (and
 the Arabic equivalents) opt out at any point. Contacts gain a consent
 register beside the existing opt-out — a marketing opt-in, which
 always names its source, and a do-not-contact flag — with an
-append-only history. "Call me back" opens an advisor task and queues
+append-only history. A STOP reaches the contact's opt-out at once,
+even while the journey bot is off, and only an admin can change or
+clear a do-not-contact. "Call me back" opens an advisor task and queues
 a callback request for click-to-call. Timers and quiet-hours sends run
 from `GET /api/journeys/cron`, which the automation cron also runs
 every minute. The templates the bot needs, its timing and consent

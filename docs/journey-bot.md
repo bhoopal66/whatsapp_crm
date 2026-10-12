@@ -75,11 +75,19 @@ opt-in). While parked, the bot sends at most one paid message.
   an application already under way, which stays open with only its
   non-marketing reminders.
   **START** re-subscribes.
+- An opt-out or a START takes effect on the contact when the bot
+  decides it, in the same transaction — not when its outbox is
+  drained. So broadcasts, automations and the AI bot see it at once,
+  even if the journey bot is switched off right after or a message
+  queued before it is still failing. A START clears only an opt-out
+  older than itself: one recorded since (by the AI bot, the TypeSafe
+  watch or an admin) stands.
 - Every send is checked again at delivery, so a marketing message
   queued before an opt-out is dropped, not sent. The opt-in welcome
   goes to a customer once, ever.
 - **Do-not-contact** (`contacts.do_not_contact_at`) blocks cold starts
-  and calls.
+  and calls. An agent who can see the customer can place one, with a
+  reason; only an admin can change its date or reason, or clear it.
 
 ## Call me back
 
