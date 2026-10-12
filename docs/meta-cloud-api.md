@@ -316,12 +316,20 @@ including your number, so a room lists 1 to 7 other people.
 2. **Each person gets the invite link in their own 1:1 chat**, sent
    from your Meta number as the template above. A person is invited
    once; sending the invites again only reaches those not yet invited.
+   Each invite is re-checked just before it is sent: nobody is invited
+   while the room is not open, after they opted out or were marked
+   do-not-contact, if they are a customer without recorded consent
+   (only the consented contact's own number counts), or if they are a
+   bank officer whose bank's guest switch is off.
 3. **Join requests.** Groups are made with join approval on, so tapping
    the link sends a request. A request from one of the numbers on the
-   room's list is **approved automatically**. Any other number **waits
-   for the relationship manager**: the room's creator and the admins of
-   its channel get a notification, and a manager approves or rejects it
-   in the room.
+   room's list is **approved automatically** — only while the same
+   checks pass. Any other number, and any listed number that fails a
+   check, **waits for the relationship manager**: the room's creator and
+   the admins of its channel get a notification, and a manager approves
+   or rejects it in the room.
+   A closing or closed room takes no new staff, guests or approvals and
+   sends nothing; messages that still arrive are kept for the record.
 4. **Messaging.** Everyone in the group sees every message.
    - **Free text** can be sent only inside the group's **24-hour reply
      window**. Any member's message opens it for the whole group, not
