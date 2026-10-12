@@ -13,7 +13,9 @@
 -- member removed from their only workspace leaves as neither owner nor
 -- admin, and that add_workspace_member adds only someone the caller
 -- administers elsewhere, refusing anyone else as it refuses an unknown
--- email.
+-- email. And that a person deactivated in one workspace and live in
+-- another reads none of the first's notifications, gets none of its
+-- team-activity alerts, and cannot approve or retire its AI policies.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -674,6 +676,101 @@ BEGIN
        OR has_function_privilege('authenticated', to_regprocedure('public.provision_account_member(uuid,uuid,account_role_enum,text)'), 'EXECUTE') IS NOT FALSE
        OR has_function_privilege('service_role', to_regprocedure('public.provision_account_member(uuid,uuid,account_role_enum,text)'), 'EXECUTE') IS NOT TRUE THEN
       failed := array_append(failed, 'grants: a 3-argument provision_account_member remains, or the 4-argument one is not service-role only'::text);
+    END IF;
+  END;
+
+  -- ---------- 13. deactivated in B, live in A: nothing of B through A ----------
+  -- Deactivation bans the login only when the person has no other live
+  -- workspace, so D (admin in B, deactivated there; agent in A, active)
+  -- still has a session. B's bell rows, B's team-activity alerts and B's
+  -- guardrail policies are B's, not D's.
+  DECLARE
+    u_d   UUID := '00000000-0000-4000-8000-000000083017';  -- agent in A (active), admin in B (deactivated)
+    u_b2  UUID := '00000000-0000-4000-8000-000000083018';  -- live admin of B
+    u_gb  UUID := '00000000-0000-4000-8000-000000083019';  -- bank guest in B
+    u_lb  UUID := '00000000-0000-4000-8000-000000083020';  -- team leader in B (deactivated)
+    u_sb  UUID := '00000000-0000-4000-8000-000000083021';  -- agent in B, over the daily limit
+    w_b   UUID;
+    tb    UUID;
+    pol_b UUID;
+  BEGIN
+    INSERT INTO auth.users (id, email) VALUES
+      (u_d, 'ws-d@example.invalid'), (u_b2, 'ws-b2@example.invalid'), (u_gb, 'ws-gb@example.invalid'),
+      (u_lb, 'ws-lb@example.invalid'), (u_sb, 'ws-sb@example.invalid');
+    UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_d;
+    UPDATE profiles SET account_id = b_acct, account_role = 'admin' WHERE user_id = u_b2;
+    UPDATE profiles SET account_id = b_acct, account_role = 'team_leader' WHERE user_id = u_lb;
+    UPDATE profiles SET account_id = b_acct, account_role = 'agent' WHERE user_id = u_sb;
+    UPDATE profiles SET account_id = b_acct, account_role = 'bank_guest', bank_code = 'FAB' WHERE user_id = u_gb;
+    INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+    VALUES (u_d, '', 'ws-d@example.invalid', b_acct, 'admin', false);
+    INSERT INTO teams (account_id, name, leader_user_id) VALUES (b_acct, 'WS team BL', u_lb) RETURNING id INTO tb;
+    INSERT INTO team_members (team_id, user_id, account_id) VALUES (tb, u_sb, b_acct);
+    UPDATE profiles SET deactivated_at = now() WHERE user_id IN (u_d, u_lb) AND account_id = b_acct;
+
+    INSERT INTO notifications (account_id, user_id, type, title, body) VALUES
+      (b_acct, u_d, 'conversation_assigned', 'WS B note', 'x'),
+      (a_acct, u_d, 'conversation_assigned', 'WS A note', 'x'),
+      (b_acct, u_gb, 'conversation_assigned', 'WS guest note', 'x');
+    r := pg_temp.ws_val(u_d, 'SELECT coalesce(string_agg(title, '','' ORDER BY title), '''') FROM notifications');
+    n := n + 1;
+    IF r <> 'WS A note' THEN
+      failed := array_append(failed, ('deactivated in B: D reads notifications "' || r || '", want only A''s')::text);
+    END IF;
+    r := pg_temp.ws_val(u_d, format(
+      'WITH x AS (UPDATE notifications SET read_at = now() WHERE account_id = %L RETURNING 1) SELECT count(*) FROM x', b_acct));
+    n := n + 1;
+    IF r <> '0' THEN
+      failed := array_append(failed, ('deactivated in B: D marked B''s notifications read: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_val(u_gb, 'SELECT coalesce(string_agg(title, '',''), '''') FROM notifications');
+    n := n + 1;
+    IF r <> 'WS guest note' THEN
+      failed := array_append(failed, ('a bank guest does not read its own notification: ' || r)::text);
+    END IF;
+
+    -- The sweep: SB starts a chat on B's Whapi number, over a limit of 1.
+    INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, label, status, is_primary)
+    VALUES (u_ob, b_acct, 'whapi', 'WS-083-B1', 'x', '971500083099', 'WS B number', 'connected', true)
+    RETURNING id INTO w_b;
+    INSERT INTO team_activity_settings (account_id, timezone, daily_new_chats_per_user, daily_new_chats_per_number)
+    VALUES (b_acct, 'UTC', 1, 50);
+    INSERT INTO contacts (account_id, user_id, phone, name)
+    VALUES (b_acct, u_ob, '971500083021', 'WS B swept') RETURNING id INTO ct;
+    INSERT INTO conversations (account_id, contact_id, user_id) VALUES (b_acct, ct, u_ob) RETURNING id INTO cv_b;
+    INSERT INTO messages (conversation_id, sender_type, sender_id, content_text, created_at, channel_id, provider, status)
+    VALUES (cv_b, 'agent', u_sb, 'WS hello', now() - interval '1 minute', w_b, 'whapi', 'sent');
+    PERFORM public.team_activity_alert_sweep();
+    n := n + 1;
+    IF (SELECT array_agg(user_id ORDER BY user_id) FROM notifications
+         WHERE account_id = b_acct AND type = 'team_activity_alert' AND user_id IN (u_ob, u_sb))
+       IS DISTINCT FROM (SELECT array_agg(x ORDER BY x) FROM unnest(ARRAY[u_ob, u_sb]) AS x) THEN
+      failed := array_append(failed, 'sweep fixture: B''s owner and the agent over the limit were not alerted'::text);
+    END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM notifications WHERE account_id = b_acct AND type = 'team_activity_alert'
+                AND user_id IN (u_d, u_lb, u_gb)) THEN
+      failed := array_append(failed, 'sweep: a deactivated admin or leader of B, or B''s bank guest, got a B alert'::text);
+    END IF;
+
+    -- Guardrail policies: proposed by B's owner; D may neither approve nor retire.
+    INSERT INTO ts_policy (account_id, check_name, version, model_id, question_set_version, thresholds, shadow, proposed_by)
+    VALUES (b_acct, 'triage', 1, 'jev-1.13.0', 'qs-013-v0.2', '{"intentConfidenceMin":0.5,"possibleComplaintMin":0.25,"wantsHumanMin":0.7,"complaintConfidenceMin":0.5,"instructsAssistantMin":0.7,"nonPartnerBankMin":0.7,"dissatisfiedMin":0.7,"leadTemperatureMin":2,"leadTemperatureConfMin":0.5,"urgencyHighMin":1,"urgencyUrgentMin":1.6,"optOutRecordMin":0.8,"optOutReviewMin":0.4}'::jsonb, false, u_ob)
+    RETURNING id INTO pol_b;
+    r := pg_temp.ws_try('authenticated', u_d, format('SELECT public.ts_approve_policy(%L)', pol_b));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' OR (SELECT status FROM ts_policy WHERE id = pol_b) <> 'proposed' THEN
+      failed := array_append(failed, ('ts_approve_policy by an admin deactivated in B: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_b2, format('SELECT public.ts_approve_policy(%L)', pol_b));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT status || '/' || approved_by FROM ts_policy WHERE id = pol_b) IS DISTINCT FROM 'active/' || u_b2 THEN
+      failed := array_append(failed, ('ts_approve_policy by a live admin of B: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_d, format('SELECT public.ts_retire_policy(%L)', pol_b));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' OR (SELECT status FROM ts_policy WHERE id = pol_b) <> 'active' THEN
+      failed := array_append(failed, ('ts_retire_policy by an admin deactivated in B: ' || r)::text);
     END IF;
   END;
 

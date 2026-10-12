@@ -360,7 +360,9 @@ $function$
 ;
 
 -- 074 (latest body): the per-person count joined every membership of
--- the sender; now only their row in the account being swept.
+-- the sender; now only their row in the account being swept. Recipients
+-- are live, non-guest rows: a person deactivated here may still be
+-- signed in through another workspace, and would read the alert there.
 CREATE OR REPLACE FUNCTION public.team_activity_alert_sweep()
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -431,6 +433,7 @@ BEGIN
         WHERE t.account_id = v_account
           AND t.leader_user_id IS NOT NULL
           AND p.account_role = 'team_leader'
+          AND p.deactivated_at IS NULL
           AND t.leader_user_id IS DISTINCT FROM CASE WHEN r.kind = 'user_daily_limit' THEN r.subject_id END
           AND CASE WHEN r.kind = 'user_daily_limit'
                    THEN EXISTS (SELECT 1 FROM team_members tm
@@ -471,6 +474,8 @@ BEGIN
                ELSE format('%s has started %s new chats today; the limit is %s. Unanswered first messages are the main reason WhatsApp restricts a number.', r.who, r.n, r.lim) END
         FROM profiles p
         WHERE p.account_id = v_account
+          AND p.deactivated_at IS NULL
+          AND p.account_role <> 'bank_guest'
           AND (p.account_role IN ('owner', 'admin') OR p.user_id = r.subject_id);
       ELSE
         INSERT INTO notifications (account_id, user_id, type, title, body)
@@ -480,6 +485,7 @@ BEGIN
           format('%s has started %s new chats today; the limit is %s. Starting more today raises the risk of WhatsApp restricting this number.', r.who, r.n, r.lim)
         FROM profiles p
         WHERE p.account_id = v_account
+          AND p.deactivated_at IS NULL
           AND p.account_role IN ('owner', 'admin');
       END IF;
       GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -1377,3 +1383,64 @@ REVOKE ALL ON FUNCTION public.provision_account_member(uuid, uuid, account_role_
 GRANT EXECUTE ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum, text) TO service_role;
 COMMENT ON FUNCTION public.provision_account_member(uuid, uuid, account_role_enum, text) IS
   'Add p_user_id to p_account_id with p_role; a just-created login''s personal account is discarded. bank_guest takes p_bank_code and a new login only. Service-role only; see migrations 041 and 083.';
+
+-- ---------- 12. live membership where the helpers are not used ----------
+-- Deactivation bans the login only when the person has no other live
+-- workspace, so someone deactivated in B can hold a session through A.
+-- The three helpers refuse them B; these read user_id themselves.
+
+-- The accounts where the caller's membership is live: any row, active
+-- or not, a bank guest's included (guests are members of their workspace).
+CREATE OR REPLACE FUNCTION public.my_live_account_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT coalesce(array_agg(account_id), '{}')
+    FROM profiles
+   WHERE user_id = auth.uid() AND deactivated_at IS NULL;
+$$;
+REVOKE ALL ON FUNCTION public.my_live_account_ids() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.my_live_account_ids() TO authenticated, service_role;
+
+-- 027 matched user_id alone, so a person deactivated in B read B's bell
+-- rows (staff names, counts, contact names) from a session through A.
+-- A row is now theirs only in a workspace where they are live; every such
+-- workspace, not only the active one, as the bell lists them all. A row
+-- of a workspace they were removed from is hidden too. account_id is NOT
+-- NULL (027); a NULL could match no membership and would stay hidden.
+DROP POLICY IF EXISTS notifications_select ON public.notifications;
+CREATE POLICY notifications_select ON public.notifications FOR SELECT
+  USING (user_id = (SELECT auth.uid())
+         AND account_id = ANY ((SELECT public.my_live_account_ids())::uuid[]));
+DROP POLICY IF EXISTS notifications_update ON public.notifications;
+CREATE POLICY notifications_update ON public.notifications FOR UPDATE
+  USING (user_id = (SELECT auth.uid())
+         AND account_id = ANY ((SELECT public.my_live_account_ids())::uuid[]))
+  WITH CHECK (user_id = (SELECT auth.uid())
+              AND account_id = ANY ((SELECT public.my_live_account_ids())::uuid[]));
+
+-- 063 checked the role alone, so an admin deactivated in B approved and
+-- retired B's guardrail policies through a session in A. Now the row must
+-- be live, and the caller's must be the active one, as
+-- is_account_member() reads it. ts_approve_policy's four-eyes check also
+-- passes the proposer, who need only be live there, not working in it now.
+CREATE OR REPLACE FUNCTION public.ts_is_account_admin(p_account uuid, p_user uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.user_id = p_user
+      AND p.account_id = p_account
+      AND p.deactivated_at IS NULL
+      AND p.account_role IN ('owner', 'admin')
+      AND (p.is_active OR p_user IS DISTINCT FROM auth.uid())
+  )
+$$;
+REVOKE ALL ON FUNCTION public.ts_is_account_admin(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
