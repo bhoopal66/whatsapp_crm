@@ -26,9 +26,13 @@
 --   it (the runner holds the pair back together), so the cron can find
 --   due items. journey_drain_candidates() is the cron's fair pick of
 --   files to drain (see the end of this file).
--- * journey_pending_opt_out() lets the delivery-time consent re-check
---   see an opt-out committed on any of the contact's files but not yet
---   applied to contacts.opted_out_at.
+-- * A SET_OPT_OUT is applied to contacts.opted_out_at by
+--   journey_commit() itself, with the decision, so it never waits on
+--   the drain (which follows the journey switch); the delivery only
+--   re-applies it. A resubscribe clears only an opt-out older than
+--   itself (journey_apply_opt_out()). journey_pending_opt_out() lets
+--   the delivery-time consent re-check see a SET_OPT_OUT still pending
+--   on any of the contact's files.
 -- * journey_optin_claims holds the once-per-contact, ever, claim of
 --   the opt-in welcome (journey_claim_optin_welcome(), atomic).
 -- * The consent register lives on contacts beside 076's opted_out_at:
@@ -223,6 +227,7 @@ DECLARE
   v_row  public.journey_files%ROWTYPE;
   v_kind text;
   v_seq  integer;
+  v_opt  record;
 BEGIN
   IF p_file_id IS NULL OR p_expected_version IS NULL
      OR coalesce(p_event_id, '') = ''
@@ -232,6 +237,12 @@ BEGIN
      OR jsonb_typeof(p_file -> 'timers') IS DISTINCT FROM 'array'
      OR jsonb_typeof(p_actions) IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION 'journey_commit: malformed arguments for file %', p_file_id
+      USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_actions) e
+             WHERE e ->> 'type' = 'SET_OPT_OUT'
+               AND jsonb_typeof(e -> 'optedOut') IS DISTINCT FROM 'boolean') THEN
+    RAISE EXCEPTION 'journey_commit: SET_OPT_OUT without a boolean optedOut for file %', p_file_id
       USING ERRCODE = '22023';
   END IF;
 
@@ -291,12 +302,28 @@ BEGIN
   FROM (SELECT e.value, e.ord, lag(e.value) OVER (ORDER BY e.ord) AS prev
         FROM jsonb_array_elements(p_actions) WITH ORDINALITY AS e(value, ord)) a;
 
+  -- A SET_OPT_OUT reaches the consent register here, with the decision,
+  -- not when the outbox is drained: broadcasts, automations and the AI
+  -- bot read only contacts.opted_out_at, and the drain waits on the
+  -- journey switch, the tick's account list and every item before it
+  -- (finding F6b). The delivery re-applies it (journey_set_opt_out),
+  -- which changes nothing the decision did not.
+  FOR v_opt IN SELECT (o.action ->> 'optedOut')::boolean AS opted_out, o.committed_at
+               FROM public.journey_outbox o
+               WHERE o.file_id = p_file_id AND o.seq > v_seq
+                 AND o.action ->> 'type' = 'SET_OPT_OUT'
+               ORDER BY o.seq LOOP
+    PERFORM public.journey_apply_opt_out(v_row.contact_id, v_opt.opted_out, v_opt.committed_at);
+  END LOOP;
+
   RETURN 'ok';
 END
 $$;
 
 -- The optedOut of the contact's most recently committed SET_OPT_OUT
--- that is still pending, on any of its files; NULL when none is.
+-- that is still pending, on any of its files; NULL when none is, and
+-- NULL for a resubscribe older than the contact's opt-out stamp: a
+-- newer opt-out wins, here as in journey_apply_opt_out().
 CREATE OR REPLACE FUNCTION public.journey_pending_opt_out(p_contact_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -304,14 +331,17 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT (o.action ->> 'optedOut')::boolean
-  FROM public.journey_outbox o
-  JOIN public.journey_files f ON f.id = o.file_id
-  WHERE f.contact_id = p_contact_id
-    AND o.status = 'pending'
-    AND o.action ->> 'type' = 'SET_OPT_OUT'
-  ORDER BY o.committed_at DESC, o.seq DESC
-  LIMIT 1
+  SELECT CASE WHEN NOT p.opted_out AND c.opted_out_at >= p.committed_at THEN NULL
+              ELSE p.opted_out END
+  FROM (SELECT (o.action ->> 'optedOut')::boolean AS opted_out, o.committed_at
+        FROM public.journey_outbox o
+        JOIN public.journey_files f ON f.id = o.file_id
+        WHERE f.contact_id = p_contact_id
+          AND o.status = 'pending'
+          AND o.action ->> 'type' = 'SET_OPT_OUT'
+        ORDER BY o.committed_at DESC, o.seq DESC
+        LIMIT 1) p
+  LEFT JOIN public.contacts c ON c.id = p_contact_id
 $$;
 
 -- True iff the contact's opt-in welcome was unclaimed (now claimed by
@@ -360,12 +390,13 @@ ALTER TABLE public.contacts
 COMMENT ON COLUMN public.contacts.marketing_opt_in_at IS
   'When the customer agreed to marketing messages; needs marketing_opt_in_source (migration 086).';
 COMMENT ON COLUMN public.contacts.do_not_contact_at IS
-  'Do not call or message this customer; set by an agent who can see them, cleared only by an admin (migration 086).';
+  'Do not call or message this customer; placed (with a reason) by an agent who can see them, moved, re-reasoned or cleared only by an admin (migration 086).';
 
 -- Who may write the opt-in and do-not-contact. The service role and
 -- server jobs (no signed-in user) may write anything; an agent or
--- above who can see the contact may set or withdraw an opt-in and set
--- do-not-contact; only an admin clears do-not-contact. An opt-in
+-- above who can see the contact may set or withdraw an opt-in and place
+-- a do-not-contact where none is, with its reason; only an admin
+-- changes or clears one. An opt-in
 -- always names its source, whoever writes it. 076's guard still owns
 -- opted_out_at.
 CREATE OR REPLACE FUNCTION public.contacts_consent_guard()
@@ -401,12 +432,20 @@ BEGIN
     RETURN new;
   END IF;
 
-  IF o_dnc IS NOT NULL AND new.do_not_contact_at IS NULL THEN
-    IF public.is_account_member(new.account_id, 'admin') THEN
-      RETURN new;
+  -- Below an admin, a do-not-contact can only be placed where none is,
+  -- with its reason; moving, re-reasoning or clearing one is an
+  -- admin's (finding F6b: an agent moved a stamp and dropped its reason).
+  IF (new.do_not_contact_at IS DISTINCT FROM o_dnc
+      OR new.do_not_contact_reason IS DISTINCT FROM o_reason)
+     AND NOT public.is_account_member(new.account_id, 'admin') THEN
+    IF o_dnc IS NOT NULL OR new.do_not_contact_at IS NULL THEN
+      RAISE EXCEPTION 'Only an admin can change or clear a do-not-contact'
+        USING ERRCODE = '42501';
     END IF;
-    RAISE EXCEPTION 'Only an admin can clear do-not-contact'
-      USING ERRCODE = '42501';
+    IF nullif(btrim(new.do_not_contact_reason), '') IS NULL THEN
+      RAISE EXCEPTION 'A do-not-contact must give its reason'
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
 
   IF public.is_account_member(new.account_id, 'agent')
@@ -680,30 +719,93 @@ BEGIN
 END
 $$;
 
--- SET_OPT_OUT: the register write, logged with source 'journey'. An
--- opt-out keeps the first stamp, so a redelivery logs nothing new.
+-- One SET_OPT_OUT decision, taken at p_decided_at (its outbox item's
+-- committed_at), written to the register with source 'journey'. A
+-- newer change always wins, so applying a decision again changes
+-- nothing it did not:
+-- * an opt-out stamps the decision time and keeps an existing stamp
+--   (a redelivery logs nothing), but does not stamp again once the
+--   contact was resubscribed after it — by a later journey decision
+--   or by anyone's clear (contact_consent_events);
+-- * a resubscribe clears only a stamp older than itself, never the
+--   bot's, the watch's or an admin's opt-out taken since.
+-- Not granted: only journey_commit() and journey_set_opt_out() call it.
 -- True iff the contact exists.
-CREATE OR REPLACE FUNCTION public.journey_set_opt_out(p_contact_id uuid, p_opted_out boolean)
+CREATE OR REPLACE FUNCTION public.journey_apply_opt_out(
+  p_contact_id uuid,
+  p_opted_out boolean,
+  p_decided_at timestamptz
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_prev text := current_setting('app.consent_source', true);
+BEGIN
+  IF p_contact_id IS NULL OR p_opted_out IS NULL OR p_decided_at IS NULL THEN
+    RAISE EXCEPTION 'journey_apply_opt_out: contact, value and decision time are required'
+      USING ERRCODE = '22023';
+  END IF;
+  PERFORM set_config('app.consent_source', 'journey', true);
+  IF p_opted_out THEN
+    UPDATE public.contacts c
+       SET opted_out_at = p_decided_at
+     WHERE c.id = p_contact_id
+       AND c.opted_out_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM public.journey_outbox o
+         JOIN public.journey_files f ON f.id = o.file_id
+         WHERE f.contact_id = p_contact_id
+           AND o.action ->> 'type' = 'SET_OPT_OUT'
+           AND o.committed_at > p_decided_at)
+       AND NOT EXISTS (
+         SELECT 1 FROM public.contact_consent_events e
+         WHERE e.contact_id = p_contact_id
+           AND e.kind = 'resubscribed'
+           AND e.at > p_decided_at);
+  ELSE
+    UPDATE public.contacts c
+       SET opted_out_at = NULL
+     WHERE c.id = p_contact_id
+       AND c.opted_out_at < p_decided_at;
+  END IF;
+  PERFORM set_config('app.consent_source', coalesce(v_prev, ''), true);
+  RETURN EXISTS (SELECT 1 FROM public.contacts WHERE id = p_contact_id);
+END
+$$;
+
+-- The outbox delivery of a SET_OPT_OUT item: re-applies the decision
+-- journey_commit() already applied (an item committed by an earlier
+-- copy of this migration gets its first application here). Keyed on
+-- the item, so the decision time is the committed one, not a caller's.
+-- True iff the contact exists.
+DROP FUNCTION IF EXISTS public.journey_set_opt_out(uuid, boolean);
+CREATE OR REPLACE FUNCTION public.journey_set_opt_out(p_item_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_prev  text := current_setting('app.consent_source', true);
-  v_found boolean;
+  v_contact uuid;
+  v_action  jsonb;
+  v_at      timestamptz;
 BEGIN
-  IF p_contact_id IS NULL OR p_opted_out IS NULL THEN
-    RAISE EXCEPTION 'journey_set_opt_out: contact and value are required'
+  SELECT f.contact_id, o.action, o.committed_at INTO v_contact, v_action, v_at
+  FROM public.journey_outbox o
+  JOIN public.journey_files f ON f.id = o.file_id
+  WHERE o.id = p_item_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'journey_set_opt_out: no outbox item %', p_item_id
+      USING ERRCODE = 'P0002';
+  END IF;
+  IF v_action ->> 'type' IS DISTINCT FROM 'SET_OPT_OUT'
+     OR jsonb_typeof(v_action -> 'optedOut') IS DISTINCT FROM 'boolean' THEN
+    RAISE EXCEPTION 'journey_set_opt_out: outbox item % is not a SET_OPT_OUT', p_item_id
       USING ERRCODE = '22023';
   END IF;
-  PERFORM set_config('app.consent_source', 'journey', true);
-  UPDATE public.contacts
-     SET opted_out_at = CASE WHEN p_opted_out THEN coalesce(opted_out_at, now()) END
-   WHERE id = p_contact_id;
-  v_found := FOUND;
-  PERFORM set_config('app.consent_source', coalesce(v_prev, ''), true);
-  RETURN v_found;
+  RETURN public.journey_apply_opt_out(v_contact, (v_action ->> 'optedOut')::boolean, v_at);
 END
 $$;
 
@@ -728,10 +830,11 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.journey_claim_delivery(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.journey_set_opt_out(uuid, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.journey_set_opt_out(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.journey_apply_opt_out(uuid, boolean, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.journey_has_optin_welcome(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.journey_claim_delivery(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.journey_set_opt_out(uuid, boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.journey_set_opt_out(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.journey_has_optin_welcome(uuid) TO service_role;
 
 -- ------------------------------------------------------------

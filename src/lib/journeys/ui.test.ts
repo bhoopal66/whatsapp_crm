@@ -268,7 +268,7 @@ describe('error keys', () => {
     expect(
       consentErrorKey({
         code: '42501',
-        message: 'Only an admin can clear do-not-contact',
+        message: 'Only an admin can change or clear a do-not-contact',
       })
     ).toBe('adminOnly');
     expect(

@@ -42,6 +42,16 @@ DECLARE
   c_ins    UUID;  -- inserted by the agent already opted in
   c_del    UUID;  -- deleted to show the history cascades
   c_b      UUID;  -- account B's contact
+  c_stop   UUID;  -- owner's contact: STOP committed while journeys are off
+  c_rs     UUID;  -- owner's contact: a resubscribe delivered late
+  c_ss     UUID;  -- owner's contact: STOP then START, both still pending
+  s1       UUID := gen_random_uuid();
+  s2       UUID := gen_random_uuid();
+  s3       UUID := gen_random_uuid();
+  ob4      UUID;  -- SET_OPT_OUT items of s1..s3
+  ob5      UUID;
+  ob6      UUID;
+  ob7      UUID;
   cv       UUID;
   f1       UUID := gen_random_uuid();
   f2       UUID := gen_random_uuid();
@@ -217,6 +227,9 @@ BEGIN
   INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_view, '971500086008', 'JV viewer') RETURNING id INTO c_view;
   INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086009', 'JV deleted') RETURNING id INTO c_del;
   INSERT INTO contacts (account_id, user_id, phone, name) VALUES (b_acct, u_other, '971500086010', 'JV account B') RETURNING id INTO c_b;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086201', 'JV stop') RETURNING id INTO c_stop;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086202', 'JV late resubscribe') RETURNING id INTO c_rs;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500086203', 'JV stop start') RETURNING id INTO c_ss;
   INSERT INTO conversations (account_id, user_id, contact_id, assigned_agent_id)
   VALUES (a_acct, u_owner, c_conv, u_agent) RETURNING id INTO cv;
 
@@ -464,25 +477,102 @@ BEGIN
     failed := array_append(failed, ('delivery claim of an unknown item / by an admin: ' || r || ', ' || x)::text);
   END IF;
 
-  -- journey_set_opt_out: source 'journey', the first stamp kept, the setting restored.
-  UPDATE contacts SET opted_out_at = '2026-01-01T00:00:00Z' WHERE id = c_none;
-  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', c_none));
-  r := r || ',' || (SELECT opted_out_at = '2026-01-01T00:00:00Z' FROM contacts WHERE id = c_none)::text;
-  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, false)::text', c_none));
-  r := r || ',' || (SELECT opted_out_at IS NULL FROM contacts WHERE id = c_none)::text;
-  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', c_none))
-    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L, true)::text', fm))
+  -- F6b: a committed STOP reaches contacts.opted_out_at with the
+  -- decision, while journeys are off and nothing drains the file; the
+  -- pending item then drains harmlessly (same stamp, no new history).
+  INSERT INTO journey_settings (account_id, enabled) VALUES (a_acct, false);
+  INSERT INTO journey_files (id, account_id, contact_id, workflow_key, state, body)
+  VALUES (s1, a_acct, c_stop, wf, 'NEW', pg_temp.jv_body(s1, c_stop, a_acct, 'NEW'));
+  r := pg_temp.jv_commit(s1, 0, pg_temp.jv_body(s1, c_stop, a_acct, 'STOPPED', NULL, NULL,
+    '{"kind":"NOT_WON","reason":"opted out"}'), 'stop-1',
+    jsonb_build_array(a_send0, '{"type":"SET_OPT_OUT","optedOut":true}'::jsonb));
+  SELECT id INTO ob4 FROM journey_outbox WHERE file_id = s1 AND action ->> 'type' = 'SET_OPT_OUT';
+  r := r || ',' || coalesce((SELECT (c.opted_out_at = o.committed_at)::text
+                             FROM contacts c, journey_outbox o WHERE c.id = c_stop AND o.id = ob4), 'unstamped')
+    || ',' || (SELECT count(*) FROM public.journey_drain_candidates(now() + interval '1 day', 50) d WHERE d.file_id = s1)
+    || ',' || coalesce((SELECT status FROM journey_outbox WHERE id = ob4), '-')
+    || ',' || pg_temp.jv_events(c_stop);
+  s0 := (SELECT opted_out_at::text FROM contacts WHERE id = c_stop);
+  x := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob4));
+  -- Separate statements: a subquery beside the call reads the snapshot taken before it.
+  x := x || ',' || ((SELECT opted_out_at::text FROM contacts WHERE id = c_stop) IS NOT DISTINCT FROM s0)::text
+    || ',' || pg_temp.jv_events(c_stop)
     || ',' || coalesce(nullif(current_setting('app.consent_source', true), ''), '-');
+  DELETE FROM journey_settings WHERE account_id = a_acct;
   n := n + 1;
-  IF r <> 'true,true,true,true,true,false,-'
-     OR pg_temp.jv_events(c_none) <> 'opted_out/journey/-;opted_out/system/-;resubscribed/journey/-' THEN
-    failed := array_append(failed, ('journey_set_opt_out (kept stamp, resubscribe, unknown contact, setting): ' || r
-      || ' history: ' || pg_temp.jv_events(c_none))::text);
+  IF r IS DISTINCT FROM 'ok,true,0,pending,opted_out/journey/-'
+     OR x IS DISTINCT FROM 'true,true,opted_out/journey/-,-' THEN
+    failed := array_append(failed, ('STOP committed with journeys off (commit,stamped at decision,candidates,item,history / redelivery,stamp kept,history,setting): '
+      || r || ' / ' || x)::text);
   END IF;
-  r := pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_set_opt_out(%L, false)::text', c_none));
+
+  -- F6b: a resubscribe delivered late does not clear an opt-out taken
+  -- since (the bot's, here); one decided after the stamp clears it.
+  UPDATE contacts SET opted_out_at = '2026-01-01T00:00:00Z' WHERE id = c_rs;
+  INSERT INTO journey_files (id, account_id, contact_id, workflow_key, state, body)
+  VALUES (s2, a_acct, c_rs, wf, 'NEW', pg_temp.jv_body(s2, c_rs, a_acct, 'NEW'));
+  r := pg_temp.jv_commit(s2, 0, pg_temp.jv_body(s2, c_rs, a_acct, 'NEW'), 'start-1',
+    jsonb_build_array('{"type":"SET_OPT_OUT","optedOut":false}'::jsonb));
+  SELECT id INTO ob5 FROM journey_outbox WHERE file_id = s2 AND action ->> 'type' = 'SET_OPT_OUT';
+  r := r || ',' || (SELECT (opted_out_at IS NULL)::text FROM contacts WHERE id = c_rs);
+  -- The decision was an hour ago; the bot opted the customer out since.
+  UPDATE journey_outbox SET committed_at = now() - interval '1 hour' WHERE id = ob5;
+  PERFORM set_config('app.consent_source', 'ai_bot', true);
+  UPDATE contacts SET opted_out_at = now() WHERE id = c_rs;
+  PERFORM set_config('app.consent_source', '', true);
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob5));
+  r := r || ',' || coalesce((SELECT (opted_out_at = now())::text FROM contacts WHERE id = c_rs), 'cleared')
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_pending_opt_out(%L)::text', c_rs));
+  -- A stamp older than the decision is cleared by it.
+  UPDATE contacts SET opted_out_at = now() - interval '2 hours' WHERE id = c_rs;
+  r := r || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_pending_opt_out(%L)::text', c_rs))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob5));
+  r := r || ',' || (SELECT (opted_out_at IS NULL)::text FROM contacts WHERE id = c_rs);
   n := n + 1;
-  IF r NOT LIKE 'ERROR 42501:%' OR (SELECT opted_out_at IS NULL FROM contacts WHERE id = c_none) THEN
-    failed := array_append(failed, ('admin called journey_set_opt_out: ' || r)::text);
+  IF r IS DISTINCT FROM 'ok,true,true,true,null,false,true,true'
+     OR pg_temp.jv_events(c_rs) <>'opted_out/ai_bot/-;opted_out/system/-;opted_out/system/-;resubscribed/journey/-;resubscribed/journey/-' THEN
+    failed := array_append(failed, ('late resubscribe (commit,cleared at commit,deliver,newer stamp kept,pending ignored / older stamp: pending,deliver,cleared): '
+      || r || ' history: ' || pg_temp.jv_events(c_rs))::text);
+  END IF;
+
+  -- STOP then START, both still pending: delivering them in order
+  -- leaves the customer resubscribed (the STOP does not stamp again).
+  INSERT INTO journey_files (id, account_id, contact_id, workflow_key, state, body)
+  VALUES (s3, a_acct, c_ss, wf, 'NEW', pg_temp.jv_body(s3, c_ss, a_acct, 'NEW'));
+  r := pg_temp.jv_commit(s3, 0, pg_temp.jv_body(s3, c_ss, a_acct, 'NEW'), 'ss-1',
+    jsonb_build_array(a_send0, '{"type":"SET_OPT_OUT","optedOut":true}'::jsonb))
+    || ',' || pg_temp.jv_commit(s3, 1, pg_temp.jv_body(s3, c_ss, a_acct, 'NEW'), 'ss-2',
+    jsonb_build_array('{"type":"SET_OPT_OUT","optedOut":false}'::jsonb));
+  SELECT id INTO ob6 FROM journey_outbox WHERE file_id = s3 AND seq = 2;
+  SELECT id INTO ob7 FROM journey_outbox WHERE file_id = s3 AND seq = 3;
+  r := r || ',' || (SELECT (opted_out_at IS NULL)::text FROM contacts WHERE id = c_ss)
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob6))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob7));
+  r := r || ',' || (SELECT (opted_out_at IS NULL)::text FROM contacts WHERE id = c_ss);
+  -- An admin's clear after an older pending STOP also stands.
+  UPDATE journey_outbox SET committed_at = now() - interval '1 hour' WHERE id = ob4;
+  x := pg_temp.jv_try('authenticated', u_admin, format('UPDATE contacts SET opted_out_at = NULL WHERE id = %L', c_stop))
+    || ',' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob4));
+  x := x || ',' || (SELECT (opted_out_at IS NULL)::text FROM contacts WHERE id = c_stop);
+  n := n + 1;
+  IF r IS DISTINCT FROM 'ok,ok,true,true,true,true'
+     OR pg_temp.jv_events(c_ss) <> 'opted_out/journey/-;resubscribed/journey/-'
+     OR x IS DISTINCT FROM '1,true,true' THEN
+    failed := array_append(failed, ('pending STOP then START (commits,resubscribed,deliver,deliver,still resubscribed) / admin clear then STOP redelivered: '
+      || r || ' / ' || x || ' history: ' || pg_temp.jv_events(c_ss))::text);
+  END IF;
+
+  -- Delivery checks its item: unknown, not a SET_OPT_OUT, not the service role.
+  r := pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', fm))
+    || ' | ' || pg_temp.jv_try('service_role', NULL, format('SELECT public.journey_set_opt_out(%L)::text', ob1))
+    || ' | ' || pg_temp.jv_try('authenticated', u_admin, format('SELECT public.journey_set_opt_out(%L)::text', ob5))
+    || ' | ' || pg_temp.jv_try('service_role', NULL, format(
+         'SELECT public.journey_apply_opt_out(%L, false, now())::text', c_rs))
+    || ' | ' || pg_temp.jv_commit(f1, (SELECT version FROM journey_files WHERE id = f1), pg_temp.jv_body(f1, c_j, a_acct, 'NEW'),
+         'bad-opt-out', '[{"type":"SET_OPT_OUT","optedOut":"yes"}]');
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0002:% | ERROR 22023:% | ERROR 42501:% | ERROR 42501:% | ERROR 22023:%' THEN
+    failed := array_append(failed, ('journey_set_opt_out of an unknown item / a SEND / by an admin, journey_apply_opt_out by the service role, a non-boolean commit: ' || r)::text);
   END IF;
 
   -- journey_has_optin_welcome: a claim, or a committed MARK_OPTIN_WELCOME_SENT that is not dropped.
@@ -575,6 +665,29 @@ BEGIN
   IF r NOT LIKE 'ERROR 42501:%' OR (SELECT do_not_contact_at FROM contacts WHERE id = c_agent) IS NULL THEN
     failed := array_append(failed, ('agent cleared do-not-contact: ' || r)::text);
   END IF;
+  -- F6b: below an admin, an existing do-not-contact is neither moved
+  -- nor re-reasoned; an admin may do both.
+  r := pg_temp.jv_try('authenticated', u_agent, format(
+         'UPDATE contacts SET do_not_contact_at = do_not_contact_at + interval ''1 day'' WHERE id = %L', c_agent))
+    || ' | ' || pg_temp.jv_try('authenticated', u_agent, format(
+         'UPDATE contacts SET do_not_contact_reason = NULL WHERE id = %L', c_agent))
+    || ' | ' || pg_temp.jv_try('authenticated', u_agent, format(
+         'UPDATE contacts SET do_not_contact_at = now() - interval ''1 day'', do_not_contact_reason = %L WHERE id = %L', 'other', c_agent));
+  x := pg_temp.jv_try('authenticated', u_admin, format(
+         'UPDATE contacts SET do_not_contact_reason = %L WHERE id = %L', 'asked twice', c_agent))
+    || ',' || pg_temp.jv_try('authenticated', u_admin, format(
+         'UPDATE contacts SET do_not_contact_at = now(), do_not_contact_reason = %L WHERE id = %L', 'admin', c_none))
+    || ',' || pg_temp.jv_try('authenticated', u_admin, format(
+         'UPDATE contacts SET do_not_contact_at = now() - interval ''1 day'', do_not_contact_reason = %L WHERE id = %L', 'moved', c_none));
+  -- Its own statement: a read beside the updates sees the snapshot taken before them.
+  x := x || ',' || coalesce((SELECT do_not_contact_reason FROM contacts WHERE id = c_agent), '-')
+    || ',' || coalesce((SELECT (do_not_contact_at = now() - interval '1 day')::text || '/' || do_not_contact_reason
+                        FROM contacts WHERE id = c_none), '-');
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:% | ERROR 42501:% | ERROR 42501:%' OR x IS DISTINCT FROM '1,1,1,asked twice,true/moved' THEN
+    failed := array_append(failed, ('agent moved/re-reasoned/both an existing do-not-contact: ' || r
+      || ' / admin re-reasoned, set and moved: ' || x)::text);
+  END IF;
   -- A screen writing the row back with the stamps unchanged.
   r := pg_temp.jv_try('authenticated', u_agent, format(
     'UPDATE contacts SET name = %L, do_not_contact_at = do_not_contact_at, marketing_opt_in_at = marketing_opt_in_at, marketing_opt_in_source = marketing_opt_in_source WHERE id = %L',
@@ -589,6 +702,15 @@ BEGIN
   IF r <> '1' OR (SELECT do_not_contact_at FROM contacts WHERE id = c_agent) IS NOT NULL
      OR pg_temp.jv_events(c_agent) <> 'do_not_contact_cleared/manual/jv-admin;do_not_contact_set/manual/jv-agent;marketing_opt_in/manual/jv-agent' THEN
     failed := array_append(failed, ('admin cleared do-not-contact: ' || r || ' history: ' || pg_temp.jv_events(c_agent))::text);
+  END IF;
+  -- An agent's new do-not-contact names its reason; a reason alone is not one.
+  r := pg_temp.jv_try('authenticated', u_agent, format(
+         'UPDATE contacts SET do_not_contact_at = now(), do_not_contact_reason = %L WHERE id = %L', '  ', c_agent))
+    || ' | ' || pg_temp.jv_try('authenticated', u_agent, format(
+         'UPDATE contacts SET do_not_contact_reason = %L WHERE id = %L', 'no stamp', c_agent));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514:% | ERROR 42501:%' OR (SELECT do_not_contact_at FROM contacts WHERE id = c_agent) IS NOT NULL THEN
+    failed := array_append(failed, ('agent do-not-contact with a blank reason / a reason alone: ' || r)::text);
   END IF;
   -- An agent may withdraw an opt-in.
   r := pg_temp.jv_try('authenticated', u_agent, format(
