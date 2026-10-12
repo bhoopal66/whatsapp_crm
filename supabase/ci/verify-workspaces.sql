@@ -25,6 +25,7 @@ DECLARE
   u_u      UUID := '00000000-0000-4000-8000-000000083003';  -- agent in A, B and C
   u_x      UUID := '00000000-0000-4000-8000-000000083004';  -- agent in A only
   u_g      UUID := '00000000-0000-4000-8000-000000083005';  -- bank guest in A, agent in B
+  u_ad     UUID := '00000000-0000-4000-8000-000000083006';  -- admin of A
   a_acct   UUID;
   b_acct   UUID;
   c_acct   UUID;   -- U's third membership (deactivated for checks 4 and 8)
@@ -102,7 +103,8 @@ BEGIN
     (u_ob, 'ws-owner-b@example.invalid'),
     (u_u,  'ws-multi@example.invalid'),
     (u_x,  'ws-a-only@example.invalid'),
-    (u_g,  'ws-guest@example.invalid')
+    (u_g,  'ws-guest@example.invalid'),
+    (u_ad, 'ws-admin-a@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT id INTO a_acct FROM accounts WHERE owner_user_id = u_oa;
   SELECT id INTO b_acct FROM accounts WHERE owner_user_id = u_ob;
@@ -112,6 +114,7 @@ BEGIN
   INSERT INTO accounts (name, owner_user_id) VALUES ('WS C', u_oa) RETURNING id INTO c_acct;
   INSERT INTO accounts (name, owner_user_id) VALUES ('WS D', u_oa) RETURNING id INTO d_acct;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_u, u_x);
+  UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_ad;
   UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB'
    WHERE user_id = u_g;
 
@@ -121,7 +124,7 @@ BEGIN
   n := n + 1;
   IF EXISTS (SELECT 1 FROM profiles GROUP BY user_id
               HAVING count(*) FILTER (WHERE is_active) <> 1)
-     OR (SELECT count(*) FROM profiles WHERE user_id IN (u_oa, u_ob, u_u, u_x, u_g)) <> 5 THEN
+     OR (SELECT count(*) FROM profiles WHERE user_id IN (u_oa, u_ob, u_u, u_x, u_g, u_ad)) <> 6 THEN
     failed := array_append(failed, 'backfill: a person does not have exactly one active row'::text);
   END IF;
 
@@ -338,7 +341,11 @@ BEGIN
   IF r NOT LIKE 'ERROR 42501:%' THEN
     failed := array_append(failed, ('switch_account into a deactivated row: ' || r)::text);
   END IF;
-  UPDATE profiles SET deactivated_at = now() WHERE user_id = u_u AND account_id = a_acct;
+  r := pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_active(%L, false)', u_u));
+  n := n + 1;
+  IF r <> 'ok' OR (SELECT deactivated_at FROM profiles WHERE user_id = u_u AND account_id = a_acct) IS NULL THEN
+    failed := array_append(failed, ('set_member_active by A''s admin on U''s active row: ' || r)::text);
+  END IF;
   r := pg_temp.ws_try('authenticated', u_u, format('SELECT public.switch_account(%L)', b_acct));
   n := n + 1;
   IF r <> 'ok' OR (SELECT account_id FROM profiles WHERE user_id = u_u AND is_active) IS DISTINCT FROM b_acct THEN
@@ -353,6 +360,243 @@ BEGIN
      OR NOT has_function_privilege('authenticated', 'public.my_workspaces()', 'EXECUTE') THEN
     failed := array_append(failed, 'grants: anon may call switch_account/my_workspaces, or authenticated may not'::text);
   END IF;
+
+  -- ---------- 12. member RPCs: one membership at a time ----------
+  -- Every created_at in this block is equal, so a "which row becomes
+  -- active" check gives its person exactly one other row.
+  DECLARE
+    u_m    UUID := '00000000-0000-4000-8000-000000083007';  -- agent in A (active) and B
+    u_n    UUID := '00000000-0000-4000-8000-000000083008';  -- agent in A and B (active)
+    u_s    UUID := '00000000-0000-4000-8000-000000083009';  -- agent in A only
+    u_r    UUID := '00000000-0000-4000-8000-000000083010';  -- agent in B, redeems A's invitations
+    u_p    UUID := '00000000-0000-4000-8000-000000083011';  -- new login, provisioned into A
+    u_q    UUID := '00000000-0000-4000-8000-000000083012';  -- agent in B (active) and C
+    u_gn   UUID := '00000000-0000-4000-8000-000000083013';  -- new login, provisioned into A as a guest
+    u_gx   UUID := '00000000-0000-4000-8000-000000083014';  -- new login, refused provisions
+    u_w    UUID := '00000000-0000-4000-8000-000000083015';  -- added to A as a guest by email
+    team_b UUID;
+    tmb    TEXT;
+    pid    UUID;
+    acct_n BIGINT;
+    old_p  UUID;
+    sigs   TEXT;
+  BEGIN
+    INSERT INTO auth.users (id, email) VALUES
+      (u_m, 'ws-m@example.invalid'), (u_n, 'ws-n@example.invalid'), (u_s, 'ws-s@example.invalid'),
+      (u_r, 'ws-r@example.invalid'), (u_p, 'ws-p@example.invalid'), (u_q, 'ws-q@example.invalid'),
+      (u_gn, 'ws-gn@example.invalid'), (u_gx, 'ws-gx@example.invalid'), (u_w, 'ws-w@example.invalid');
+    UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_m, u_n, u_s);
+    UPDATE profiles SET account_id = b_acct, account_role = 'agent' WHERE user_id IN (u_r, u_q);
+    UPDATE profiles SET is_active = false WHERE user_id = u_n;
+    INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active) VALUES
+      (u_m, '', 'ws-m@example.invalid', b_acct, 'agent', false),
+      (u_n, '', 'ws-n@example.invalid', b_acct, 'agent', true),
+      (u_q, '', 'ws-q@example.invalid', c_acct, 'agent', false);
+    INSERT INTO team_members (team_id, user_id, account_id) VALUES (team, u_m, a_acct);
+    INSERT INTO teams (account_id, name) VALUES (b_acct, 'WS team B') RETURNING id INTO team_b;
+    INSERT INTO team_members (team_id, user_id, account_id) VALUES (team_b, u_m, b_acct);
+    SELECT ctid::text INTO tmb FROM team_members WHERE team_id = team_b AND user_id = u_m;
+
+    -- set_member_role / set_member_active by A's admin: the A row only.
+    r := pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_role(%L, ''viewer'')', u_m));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT string_agg(account_role::text, ',' ORDER BY account_id = a_acct DESC)
+                       FROM profiles WHERE user_id = u_m) IS DISTINCT FROM 'viewer,agent' THEN
+      failed := array_append(failed, ('set_member_role: not exactly the A row changed: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_role(%L, ''bank_guest'')', u_m))
+      || ' | ' || pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_role(%L, ''agent'')', u_g));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 22023:% | ERROR 22023:%' THEN
+      failed := array_append(failed, ('set_member_role: staff<->guest not refused: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_role(%L, ''agent'')', u_ob))
+      || ' | ' || pg_temp.ws_try('authenticated', u_ad, 'SELECT public.set_member_role(''00000000-0000-4000-8000-0000000830ff'', ''agent'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% | ERROR 22023:%' THEN
+      failed := array_append(failed, ('set_member_role: not-a-member refusals (want 42501 | 22023): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_active(%L, false)', u_m));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT string_agg((deactivated_at IS NOT NULL) || '/' || is_active, ',' ORDER BY account_id = a_acct DESC)
+                       FROM profiles WHERE user_id = u_m) IS DISTINCT FROM 'true/true,false/false' THEN
+      failed := array_append(failed, ('set_member_active: not exactly the A row deactivated, or the mark moved: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_ad, format('SELECT public.set_member_active(%L, true)', u_m));
+    n := n + 1;
+    IF r <> 'ok' OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_m AND deactivated_at IS NOT NULL) THEN
+      failed := array_append(failed, ('set_member_active: reactivating the A row: ' || r)::text);
+    END IF;
+
+    -- remove_account_member.
+    r := pg_temp.ws_val(u_ad, format('SELECT public.remove_account_member(%L)::text', u_m));
+    n := n + 1;
+    IF r <> 'null'
+       OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_m AND account_id = a_acct)
+       OR (SELECT is_active FROM profiles WHERE user_id = u_m AND account_id = b_acct) IS NOT TRUE
+       OR EXISTS (SELECT 1 FROM team_members WHERE user_id = u_m AND account_id = a_acct)
+       OR (SELECT ctid::text FROM team_members WHERE team_id = team_b AND user_id = u_m) IS DISTINCT FROM tmb THEN
+      failed := array_append(failed, ('remove (active in A): A row/teams not gone, or B row/team not kept active: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_val(u_ad, format('SELECT public.remove_account_member(%L)::text', u_n));
+    n := n + 1;
+    IF r <> 'null' OR (SELECT string_agg(account_id || '/' || is_active, ',') FROM profiles WHERE user_id = u_n)
+                        IS DISTINCT FROM b_acct || '/true' THEN
+      failed := array_append(failed, ('remove (active in B): ' || r)::text);
+    END IF;
+    SELECT id INTO pid FROM profiles WHERE user_id = u_s;
+    r := pg_temp.ws_val(u_ad, format('SELECT public.remove_account_member(%L)::text', u_s));
+    n := n + 1;
+    IF (SELECT string_agg(id || '/' || account_id || '/' || account_role || '/' || is_active, ',')
+          FROM profiles WHERE user_id = u_s) IS DISTINCT FROM pid || '/' || r || '/owner/true'
+       OR NOT EXISTS (SELECT 1 FROM accounts WHERE id::text = r AND owner_user_id = u_s) THEN
+      failed := array_append(failed, ('remove (only row): no personal account with the same profile: ' || r)::text);
+    END IF;
+
+    -- redeem_invitation by a member of B.
+    INSERT INTO account_invitations (account_id, token_hash, role, expires_at) VALUES
+      (a_acct, 'ws-083-invite-1', 'agent', now() + interval '1 day'),
+      (a_acct, 'ws-083-invite-2', 'agent', now() + interval '1 day');
+    SELECT count(*) INTO acct_n FROM accounts;
+    r := pg_temp.ws_val(u_r, 'SELECT public.redeem_invitation(''ws-083-invite-1'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM a_acct::text
+       OR (SELECT string_agg(account_id || '/' || is_active, ',' ORDER BY is_active DESC) FROM profiles WHERE user_id = u_r)
+          IS DISTINCT FROM a_acct || '/true,' || b_acct || '/false'
+       OR (SELECT count(*) FROM accounts) <> acct_n THEN
+      failed := array_append(failed, ('redeem (already in B): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_r, 'SELECT public.redeem_invitation(''ws-083-invite-2'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 23505:%' THEN
+      failed := array_append(failed, ('redeem into an account already joined: ' || r)::text);
+    END IF;
+
+    -- provision_account_member (service role), named arguments as the API calls it.
+    SELECT account_id INTO old_p FROM profiles WHERE user_id = u_p;
+    r := pg_temp.ws_try('service_role', NULL, format(
+      'SELECT public.provision_account_member(p_user_id => %L, p_account_id => %L, p_role => ''agent'')', u_p, a_acct));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT string_agg(account_id || '/' || account_role || '/' || is_active, ',') FROM profiles WHERE user_id = u_p)
+                      IS DISTINCT FROM a_acct || '/agent/true'
+       OR EXISTS (SELECT 1 FROM accounts WHERE id = old_p) THEN
+      failed := array_append(failed, ('provision (new login): ' || r)::text);
+    END IF;
+    SELECT count(*) INTO acct_n FROM accounts;
+    r := pg_temp.ws_try('service_role', NULL, format(
+      'SELECT public.provision_account_member(p_user_id => %L, p_account_id => %L, p_role => ''agent'')', u_q, d_acct));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT string_agg(account_id || '/' || is_active, ',' ORDER BY account_id = b_acct DESC, account_id = c_acct DESC)
+                       FROM profiles WHERE user_id = u_q)
+                      IS DISTINCT FROM b_acct || '/true,' || c_acct || '/false,' || d_acct || '/false'
+       OR (SELECT count(*) FROM accounts) <> acct_n THEN
+      failed := array_append(failed, ('provision (multi-row person): ' || r)::text);
+    END IF;
+    SELECT account_id INTO old_p FROM profiles WHERE user_id = u_gn;
+    r := pg_temp.ws_try('service_role', NULL, format(
+      'SELECT public.provision_account_member(p_user_id => %L, p_account_id => %L, p_role => ''bank_guest'', p_bank_code => ''FAB'')',
+      u_gn, a_acct));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT string_agg(account_id || '/' || account_role || '/' || bank_code || '/' || is_active, ',')
+                       FROM profiles WHERE user_id = u_gn) IS DISTINCT FROM a_acct || '/bank_guest/FAB/true'
+       OR EXISTS (SELECT 1 FROM accounts WHERE id = old_p) THEN
+      failed := array_append(failed, ('provision (new guest login): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_val(u_gn, 'SELECT public.current_account_id()::text');
+    n := n + 1;
+    IF r <> 'null' THEN
+      failed := array_append(failed, ('provision (new guest login): current_account_id() = ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('service_role', NULL, format('SELECT public.provision_account_member(%L, %L, ''bank_guest'', ''  '')', u_gx, a_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format('SELECT public.provision_account_member(%L, %L, ''agent'', ''FAB'')', u_gx, a_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format('SELECT public.provision_account_member(%L, %L, ''bank_guest'', ''FAB'')', u_q, a_acct));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 22023:% | ERROR 22023:% | ERROR 22023:%' OR r LIKE '%ERROR 2350%'
+       OR EXISTS (SELECT 1 FROM profiles WHERE user_id IN (u_gx, u_q) AND account_id = a_acct) THEN
+      failed := array_append(failed, ('provision: blank code / code on staff / guest for an existing login not refused: ' || r)::text);
+    END IF;
+
+    -- create_workspace.
+    r := pg_temp.ws_val(u_ad, 'SELECT public.create_workspace(''WS New'', ''WSN'')::text');
+    n := n + 1;
+    IF (SELECT string_agg(account_role || '/' || is_active, ',') FROM profiles WHERE user_id = u_ad AND account_id::text = r)
+         IS DISTINCT FROM 'owner/false'
+       OR NOT EXISTS (SELECT 1 FROM accounts WHERE id::text = r AND owner_user_id = u_ad)
+       OR (SELECT account_id FROM profiles WHERE user_id = u_ad AND is_active) IS DISTINCT FROM a_acct THEN
+      failed := array_append(failed, ('create_workspace by an admin: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_x, 'SELECT public.create_workspace(''WS X'', ''WSX'')')
+      || ' | ' || pg_temp.ws_try('authenticated', u_ad, 'SELECT public.create_workspace(''WS Bad'', ''WSBAD'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% | ERROR 22023:%' THEN
+      failed := array_append(failed, ('create_workspace: agent caller / bad short name (want 42501 | 22023): ' || r)::text);
+    END IF;
+
+    -- add_workspace_member by A's admin.
+    FOR i IN 1..5 LOOP
+      DECLARE
+        args TEXT := CASE i WHEN 1 THEN '''ws-nobody@example.invalid'', ''agent'''
+                            WHEN 2 THEN '''WS-A-ONLY@example.invalid'', ''agent'''
+                            WHEN 3 THEN '''ws-w@example.invalid'', ''owner'''
+                            WHEN 4 THEN '''ws-w@example.invalid'', ''bank_guest'''
+                            ELSE '''ws-w@example.invalid'', ''agent'', ''ADIB''' END;
+        want TEXT := CASE i WHEN 1 THEN 'P0002' WHEN 2 THEN '23505' ELSE '22023' END;
+      BEGIN
+        r := pg_temp.ws_try('authenticated', u_ad, 'SELECT public.add_workspace_member(' || args || ')');
+        n := n + 1;
+        IF r NOT LIKE 'ERROR ' || want || ':%' THEN
+          failed := array_append(failed, ('add_workspace_member(' || args || '): want ' || want || ', got ' || r)::text);
+        END IF;
+      END;
+    END LOOP;
+    r := pg_temp.ws_val(u_ad, 'SELECT public.add_workspace_member(''ws-w@example.invalid'', ''bank_guest'', ''ADIB'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM u_w::text
+       OR (SELECT string_agg(account_role || '/' || bank_code || '/' || is_active, ',') FROM profiles
+            WHERE user_id = u_w AND account_id = a_acct) IS DISTINCT FROM 'bank_guest/ADIB/false'
+       OR (SELECT count(*) FROM profiles WHERE user_id = u_w AND is_active) <> 1 THEN
+      failed := array_append(failed, ('add_workspace_member: guest with a code: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_x, 'SELECT public.add_workspace_member(''ws-q@example.invalid'', ''agent'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' THEN
+      failed := array_append(failed, ('add_workspace_member by an agent: ' || r)::text);
+    END IF;
+
+    -- transfer_account_ownership by A's owner.
+    r := pg_temp.ws_try('authenticated', u_oa, format('SELECT public.transfer_account_ownership(%L)', u_g));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 22023:%' OR (SELECT owner_user_id FROM accounts WHERE id = a_acct) IS DISTINCT FROM u_oa THEN
+      failed := array_append(failed, ('transfer to a bank guest: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_oa, format('SELECT public.transfer_account_ownership(%L)', u_r));
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT owner_user_id FROM accounts WHERE id = a_acct) IS DISTINCT FROM u_r
+       OR (SELECT account_role::text FROM profiles WHERE user_id = u_oa AND account_id = a_acct) IS DISTINCT FROM 'admin'
+       OR (SELECT string_agg(account_role::text, ',' ORDER BY account_id = a_acct DESC) FROM profiles WHERE user_id = u_r)
+          IS DISTINCT FROM 'owner,agent' THEN
+      failed := array_append(failed, ('transfer to a staff member: ' || r)::text);
+    END IF;
+
+    -- grants: nothing here is anon's; provision is the service role's alone.
+    SELECT string_agg(s, ', ') INTO sigs FROM unnest(ARRAY[
+      'public.create_workspace(text,text)', 'public.add_workspace_member(text,account_role_enum,text)',
+      'public.provision_account_member(uuid,uuid,account_role_enum,text)', 'public.raise_not_a_member(uuid)',
+      'public.disposable_personal_account(uuid)', 'public.set_member_role(uuid,account_role_enum)',
+      'public.set_member_active(uuid,boolean)', 'public.transfer_account_ownership(uuid)',
+      'public.remove_account_member(uuid)', 'public.redeem_invitation(text)']) AS s
+     WHERE to_regprocedure(s) IS NULL OR has_function_privilege('anon', to_regprocedure(s), 'EXECUTE');
+    n := n + 1;
+    IF sigs IS NOT NULL THEN
+      failed := array_append(failed, ('grants: missing or executable by anon: ' || sigs)::text);
+    END IF;
+    n := n + 1;
+    IF to_regprocedure('public.provision_account_member(uuid,uuid,account_role_enum)') IS NOT NULL
+       OR has_function_privilege('authenticated', to_regprocedure('public.provision_account_member(uuid,uuid,account_role_enum,text)'), 'EXECUTE') IS NOT FALSE
+       OR has_function_privilege('service_role', to_regprocedure('public.provision_account_member(uuid,uuid,account_role_enum,text)'), 'EXECUTE') IS NOT TRUE THEN
+      failed := array_append(failed, 'grants: a 3-argument provision_account_member remains, or the 4-argument one is not service-role only'::text);
+    END IF;
+  END;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT083', MESSAGE = 'verify-workspaces rollback';
