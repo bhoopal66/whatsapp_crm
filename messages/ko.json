@@ -54,7 +54,8 @@
     "workspaceDeactivated": "비활성화됨",
     "workspaceSwitchFailed": "워크스페이스를 전환하지 못했습니다: {reason}",
     "chat": "팀 채팅",
-    "unreadChat": "읽지 않은 팀 채팅 메시지 {count}개"
+    "unreadChat": "읽지 않은 팀 채팅 메시지 {count}개",
+    "journeys": "여정"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -3710,6 +3711,200 @@
       "loginCreated": "로그인을 만들고 추가했습니다",
       "loginFailed": "로그인을 만들지 못했습니다",
       "continue": "계속"
+    }
+  },
+  "Journeys": {
+    "title": "여정",
+    "subtitle": "각 고객이 여정 봇의 어느 단계에 있는지, 어드바이저의 결정을 기다리는 항목은 무엇인지 보여줍니다.",
+    "states": {
+      "NEW": "시작 중",
+      "S_MENU": "메뉴",
+      "P_PITCH": "POS 안내",
+      "P_QUOTE_WAIT": "견적 대기",
+      "P_COMPARE_WAIT": "요율 비교 대기",
+      "P_DECIDE": "견적 결정 중",
+      "B_PITCH": "계좌 안내",
+      "L_PITCH": "대출 안내",
+      "PRESCREEN": "자격 사전 심사",
+      "DOCS": "서류",
+      "SUBMITTED": "파트너에 제출됨",
+      "REMATCH": "파트너 재매칭",
+      "FULFILMENT": "이행",
+      "WON": "성사",
+      "PARKED": "보류",
+      "RE_ENGAGE": "재참여 중",
+      "CLOSED_NO_FIT": "종료: 부적합",
+      "CLOSED_DECLINED": "종료: 거절됨",
+      "CLOSED_REJECTED": "종료: 제안 거절",
+      "CLOSED_NO_RESPONSE": "종료: 응답 없음",
+      "CLOSED_OPTED_OUT": "종료: 수신 거부",
+      "CLOSED_ADVISOR": "어드바이저가 종료함"
+    },
+    "stages": {
+      "menu": "메뉴",
+      "pitch": "안내",
+      "quote": "견적 / 사전 심사",
+      "docs": "서류",
+      "submitted": "제출됨",
+      "fulfilment": "이행",
+      "won": "성사",
+      "parked": "보류",
+      "closed": "종료"
+    },
+    "products": {
+      "POS": "POS 단말기",
+      "ACCOUNT": "사업자 계좌",
+      "LOAN": "사업자 대출"
+    },
+    "entry": {
+      "INBOUND": "인바운드",
+      "COLD": "콜드"
+    },
+    "decisions": {
+      "FIT": "적합",
+      "NO_FIT": "부적합",
+      "QUOTE_READY": "견적 준비됨",
+      "COMPARISON_READY": "비교 준비됨",
+      "DOCS_COMPLETE": "서류 완료",
+      "SUBMITTED": "파트너에 제출",
+      "PARTNER_APPROVED": "파트너 승인",
+      "PARTNER_MORE_INFO": "파트너 추가 정보 요청",
+      "PARTNER_DECLINED": "파트너 거절",
+      "FULFILMENT_SCHEDULED": "이행 일정 확정",
+      "CLOSE": "여정 종료"
+    },
+    "outcomes": {
+      "WON": "성사",
+      "NOT_WON": "미성사",
+      "PARKED": "보류"
+    },
+    "reasons": {
+      "CONVERTED": "전환됨",
+      "OUTSIDE_APPETITE": "취급 범위 밖",
+      "DECLINED_NO_REMATCH": "거절, 재매칭 없음",
+      "OFFER_REJECTED": "제안 거절",
+      "NO_RESPONSE": "응답 없음",
+      "OPT_OUT": "수신 거부",
+      "NOT_NOW": "고객이 나중에 하겠다고 함",
+      "NEED_TIME": "고객이 시간이 더 필요함",
+      "VALIDITY_LAPSED": "견적 또는 제안 만료"
+    },
+    "timers": {
+      "docsReminder": "서류 알림",
+      "nudge": "알림",
+      "reengage": "재참여 메시지",
+      "autoClose": "자동 종료",
+      "expiry": "견적 또는 제안 만료",
+      "thankYou": "감사 메시지",
+      "other": "다음 단계"
+    },
+    "card": {
+      "title": "여정",
+      "none": "여정 없음",
+      "start": "여정 시작",
+      "startAgain": "새 여정 시작",
+      "startHint": "수신 동의 환영 템플릿(유료 마케팅 메시지)을 보낸 뒤 메뉴를 보냅니다.",
+      "blocked": {
+        "optedOut": "수신 거부: 시작할 수 없음",
+        "doNotContact": "연락 금지: 시작할 수 없음",
+        "noOptIn": "먼저 마케팅 수신 동의를 기록하세요"
+      },
+      "window": {
+        "open": "{time}까지 답장 가능",
+        "closed": "답장 기간 종료: 템플릿만 가능",
+        "freeEntry": "{time}까지 무료 진입"
+      },
+      "next": "{label} {when}",
+      "outcome": "{kind}: {reason}",
+      "history": "최근 단계",
+      "reason": "사유",
+      "chooseReason": "사유 선택",
+      "validUntil": "유효 기한 (선택)",
+      "confirm": "확인",
+      "cancel": "취소",
+      "saved": "여정이 업데이트되었습니다",
+      "started": "여정이 시작되었습니다",
+      "alreadyStarted": "이 고객의 여정이 이미 진행 중입니다",
+      "deliveryLater": "저장되었지만 메시지를 아직 보내지 못했습니다. 다시 시도됩니다",
+      "loadError": "여정을 불러오지 못했습니다"
+    },
+    "errors": {
+      "DECISION_NOT_AVAILABLE": "이 단계에서는 더 이상 이 결정을 할 수 없습니다.",
+      "REASON_REQUIRED": "여정을 종료할 사유를 선택하세요.",
+      "CONFLICT": "저장하는 동안 여정이 변경되었습니다. 다시 시도하세요.",
+      "DUPLICATE": "이미 처리되었습니다.",
+      "OPTED_OUT": "이 고객은 수신을 거부했습니다.",
+      "DO_NOT_CONTACT": "이 고객은 연락 금지로 표시되어 있습니다.",
+      "NO_MARKETING_OPT_IN": "먼저 고객의 마케팅 수신 동의를 기록하세요.",
+      "JOURNEYS_DISABLED": "이 계정에서는 여정 봇이 꺼져 있습니다.",
+      "UNKNOWN_WORKFLOW": "이 여정은 앱이 알지 못하는 워크플로를 사용합니다.",
+      "WRONG_PRODUCT": "이 결정은 이 상품에 적용되지 않습니다.",
+      "NO_CONSENT": "보내지 않음: 고객의 마케팅 수신 동의가 없습니다.",
+      "WINDOW_CLOSED": "보내지 않음: 답장 기간이 종료되었습니다.",
+      "CAP_REACHED": "보내지 않음: 이미 보낸 메시지입니다.",
+      "generic": "저장하지 못했습니다. 다시 시도하세요."
+    },
+    "consent": {
+      "title": "동의",
+      "optIn": "마케팅 수신 동의",
+      "optInAt": "{date} · {source}",
+      "none": "기록 없음",
+      "record": "수신 동의 기록",
+      "source": "출처",
+      "chooseSource": "출처 선택",
+      "sources": {
+        "verbal": "구두",
+        "written_form": "서면 양식",
+        "whatsapp_message": "WhatsApp 메시지",
+        "website": "웹사이트"
+      },
+      "dnc": "연락 금지",
+      "dncAt": "{date} · {reason}",
+      "dncNone": "설정 안 됨",
+      "setDnc": "연락 금지로 표시",
+      "dncReason": "사유",
+      "clear": "해제",
+      "clearAdminOnly": "연락 금지는 관리자만 해제할 수 있습니다",
+      "optedOut": "수신 거부",
+      "save": "저장",
+      "cancel": "취소",
+      "saved": "동의 정보가 업데이트되었습니다",
+      "history": "동의 기록",
+      "events": {
+        "marketing_opt_in": "수신 동의 기록됨",
+        "marketing_opt_in_withdrawn": "수신 동의 철회됨",
+        "opted_out": "수신 거부함",
+        "resubscribed": "다시 구독함",
+        "do_not_contact_set": "연락 금지 설정됨",
+        "do_not_contact_cleared": "연락 금지 해제됨"
+      },
+      "errors": {
+        "sourceRequired": "수신 동의에는 출처가 필요합니다.",
+        "adminOnly": "연락 금지는 관리자만 해제할 수 있습니다.",
+        "notAllowed": "이 고객의 동의 정보를 변경할 수 없습니다.",
+        "generic": "저장하지 못했습니다. 다시 시도하세요."
+      }
+    },
+    "page": {
+      "funnel": "단계",
+      "funnelNote": "최근 여정 {count}건",
+      "stage": "단계",
+      "allStages": "모든 단계",
+      "product": "상품",
+      "allProducts": "모든 상품",
+      "openOnly": "진행 중만",
+      "columns": {
+        "customer": "고객",
+        "state": "현재 단계",
+        "product": "상품",
+        "entry": "진입",
+        "outcome": "결과",
+        "updated": "마지막 변경"
+      },
+      "empty": "일치하는 여정이 없습니다",
+      "loadError": "여정을 불러오지 못했습니다",
+      "noChat": "아직 채팅 없음",
+      "openChat": "채팅 열기"
     }
   }
 }
