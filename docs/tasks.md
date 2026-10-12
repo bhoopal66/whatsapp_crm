@@ -46,11 +46,15 @@ people create) never collide.
 ## Who can change a task
 
 - **Create:** agents and up (viewers cannot), with `source` `manual` or
-  `chat`, and only on a contact they can see. System sources are
-  written only by the service role.
+  `chat`, a `kind` of `manual`, `callback` or `follow_up`, and only on
+  a contact, chat and deal they can see. System sources and the kinds
+  `missed_call` and `journey` are written only by the service role.
 - **Edit:** agents and up on tasks they hold or created; a team leader
   also their team's; admins any task of the account. A task can be
-  handed to someone else.
+  handed to someone else. A task can be moved onto a contact, chat or
+  deal only if the editor can see it (admins see the account's); a
+  link it already carries stays, so an assignee can still complete a
+  task an admin set up on a customer they cannot see.
 - **Delete:** admins, or the person who created a task by hand.
 - **For every writer, the service role included:** the linked contact,
   conversation and deal must belong to the task's account; the assignee
