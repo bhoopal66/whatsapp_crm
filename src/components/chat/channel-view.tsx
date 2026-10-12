@@ -28,6 +28,11 @@ export interface ChannelViewProps {
   /** ?message=: a top-level message the timeline brings into view. */
   focusMessageId?: string | null;
   onFocusDone?: (found: boolean) => void;
+  /**
+   * Drawn inside a deal room's Team notes tab: the room screen has the
+   * header, and the deal room's own timeline is shown.
+   */
+  embedded?: boolean;
 }
 
 export function ChannelView({
@@ -38,6 +43,7 @@ export function ChannelView({
   onOpenPins,
   focusMessageId,
   onFocusDone,
+  embedded = false,
 }: ChannelViewProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
@@ -102,15 +108,17 @@ export function ChannelView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ChannelHeader
-        channel={channel}
-        name={name}
-        memberCount={memberCount}
-        pinCount={marks.pinCount}
-        onOpenMembers={onOpenMembers}
-        onOpenPins={onOpenPins}
-      />
-      {channel.kind === 'deal_room' ? (
+      {!embedded && (
+        <ChannelHeader
+          channel={channel}
+          name={name}
+          memberCount={memberCount}
+          pinCount={marks.pinCount}
+          onOpenMembers={onOpenMembers}
+          onOpenPins={onOpenPins}
+        />
+      )}
+      {channel.kind === 'deal_room' && !embedded ? (
         <p className="text-muted-foreground p-8 text-center text-sm">
           {t('channel.dealRoomNote')}
         </p>

@@ -1,0 +1,249 @@
+import { describe, expect, it } from 'vitest';
+
+import { GROUP_MAX_PARTICIPANTS } from '@/lib/whatsapp/meta-groups';
+
+import type { RoomMessage } from './reads';
+import {
+  ROOM_MEMBER_MAX,
+  bubbleOf,
+  groupAudience,
+  groupComposerMode,
+  mergeRoomMessages,
+  receiptLine,
+  roomPhase,
+  roomSubLine,
+  roomTitle,
+  templateParamCount,
+  windowCountdown,
+} from './view';
+
+const NOW = Date.parse('2026-10-12T12:00:00Z');
+const inHours = (h: number) => new Date(NOW + h * 3_600_000).toISOString();
+
+function msg(over: Partial<RoomMessage>): RoomMessage {
+  return {
+    id: 'm1',
+    direction: 'in',
+    type: 'text',
+    body: 'Hello',
+    templateName: null,
+    fileName: null,
+    status: null,
+    createdAt: '2026-10-12T10:00:00Z',
+    senderName: 'Omar',
+    senderRole: 'customer',
+    deliveredCount: 0,
+    readCount: 0,
+    ...over,
+  };
+}
+
+describe('room phase and sub-line', () => {
+  it('keeps the member cap equal to the gateway cap', () => {
+    expect(ROOM_MEMBER_MAX).toBe(GROUP_MAX_PARTICIPANTS);
+  });
+
+  it('calls an open room nobody else joined waiting', () => {
+    expect(roomPhase('open', 1)).toBe('waiting');
+    expect(roomPhase('open', 0)).toBe('waiting');
+    expect(roomPhase('open', 2)).toBe('active');
+  });
+
+  it('passes the other statuses through and reads an unknown one as closed', () => {
+    for (const s of ['creating', 'suspended', 'closing', 'closed', 'failed']) {
+      expect(roomPhase(s, 5)).toBe(s);
+    }
+    expect(roomPhase('archived', 5)).toBe('closed');
+  });
+
+  it('counts members out of the cap', () => {
+    expect(roomSubLine({ status: 'open', participantCount: 4 })).toEqual({
+      count: 4,
+      max: 8,
+      phase: 'active',
+    });
+  });
+
+  it('titles a room by contact and deal, else subject', () => {
+    const base = { contactName: 'Al Noor', dealTitle: null, subject: 'Loan' };
+    expect(roomTitle(base)).toBe('Al Noor · Loan');
+    expect(roomTitle({ ...base, dealTitle: 'Working capital' })).toBe(
+      'Al Noor · Working capital'
+    );
+    expect(roomTitle({ ...base, contactName: null })).toBe('Loan');
+  });
+
+  it('counts the audience without our own number', () => {
+    expect(groupAudience(4)).toBe(3);
+    expect(groupAudience(0)).toBe(0);
+  });
+});
+
+describe('bubbleOf', () => {
+  it('centres a system line', () => {
+    const b = bubbleOf(
+      msg({ type: 'system', direction: 'out', body: 'Mariam joined' })
+    );
+    expect(b.side).toBe('system');
+    expect(b.content).toEqual({ kind: 'text', text: 'Mariam joined' });
+  });
+
+  it('puts staff and the business on our side', () => {
+    const staff = msg({
+      direction: 'out',
+      senderName: 'Sara · Taamul',
+      senderRole: 'staff',
+    });
+    expect(bubbleOf(staff)).toMatchObject({
+      side: 'ours',
+      name: 'Sara · Taamul',
+    });
+    expect(bubbleOf({ ...staff, senderRole: 'business' }).side).toBe('ours');
+  });
+
+  it('tags the customer and the partner', () => {
+    expect(bubbleOf(msg({})).tag).toBe('customer');
+    expect(bubbleOf(msg({ senderRole: 'partner' })).tag).toBe('partner');
+    expect(bubbleOf(msg({ senderRole: null })).tag).toBeNull();
+  });
+
+  it("splits a bank guest's bank off the name, on their side", () => {
+    expect(
+      bubbleOf(
+        msg({
+          direction: 'out',
+          senderName: 'Mariam · Mashreq',
+          senderRole: 'bank_guest',
+        })
+      )
+    ).toMatchObject({
+      side: 'theirs',
+      name: 'Mariam',
+      tag: 'bank',
+      bank: 'Mashreq',
+    });
+    expect(
+      bubbleOf(msg({ senderName: 'Mariam', senderRole: 'bank_guest' }))
+    ).toMatchObject({ name: 'Mariam', tag: 'bank', bank: null });
+  });
+
+  it('draws files as a chip and anything unknown as unsupported', () => {
+    expect(
+      bubbleOf(msg({ type: 'document', body: null, fileName: 'offer.pdf' }))
+        .content
+    ).toEqual({ kind: 'file', name: 'offer.pdf', type: 'document' });
+    expect(bubbleOf(msg({ type: 'unsupported' })).content).toEqual({
+      kind: 'unsupported',
+    });
+    expect(bubbleOf(msg({ type: 'text', body: null })).content).toEqual({
+      kind: 'unsupported',
+    });
+    expect(
+      bubbleOf(msg({ type: 'template', body: null, templateName: 'kyc' }))
+        .content
+    ).toEqual({ kind: 'template', name: 'kyc', text: null });
+  });
+});
+
+describe('receiptLine', () => {
+  it('counts deliveries and reads under our messages only', () => {
+    const ours = msg({
+      direction: 'out',
+      status: 'delivered',
+      senderRole: 'staff',
+      deliveredCount: 3,
+      readCount: 1,
+    });
+    expect(receiptLine(ours)).toEqual({
+      key: 'reached',
+      delivered: 3,
+      read: 1,
+    });
+    expect(receiptLine({ ...ours, status: 'failed' })).toEqual({
+      key: 'failed',
+    });
+    expect(receiptLine({ ...ours, status: 'pending' })).toEqual({
+      key: 'sending',
+    });
+    expect(receiptLine(msg({}))).toBeNull();
+    expect(receiptLine({ ...ours, type: 'system' })).toBeNull();
+  });
+});
+
+describe('mergeRoomMessages', () => {
+  it('keeps one row per id, the newer copy, oldest first', () => {
+    const a = msg({ id: 'a', createdAt: '2026-10-12T10:00:00Z' });
+    const b = msg({ id: 'b', createdAt: '2026-10-12T11:00:00Z' });
+    const b2 = { ...b, readCount: 2 };
+    const c = msg({ id: 'c', createdAt: '2026-10-12T09:00:00Z' });
+    expect(mergeRoomMessages([a, b], [b2, c])).toEqual([c, a, b2]);
+  });
+});
+
+describe('groupComposerMode', () => {
+  const room = {
+    status: 'open',
+    participantCount: 3,
+    windowUntil: inHours(2),
+    now: NOW,
+  };
+
+  it('offers free text while the window is open', () => {
+    expect(groupComposerMode(room)).toEqual({ mode: 'text' });
+  });
+
+  it('offers templates only once the window has closed or never opened', () => {
+    expect(groupComposerMode({ ...room, windowUntil: inHours(-1) })).toEqual({
+      mode: 'template',
+    });
+    expect(groupComposerMode({ ...room, windowUntil: null })).toEqual({
+      mode: 'template',
+    });
+    expect(groupComposerMode({ ...room, windowUntil: inHours(0) })).toEqual({
+      mode: 'template',
+    });
+  });
+
+  it('takes nothing in a room that is not open or that nobody joined', () => {
+    expect(groupComposerMode({ ...room, participantCount: 1 })).toEqual({
+      mode: 'disabled',
+      reason: 'waiting',
+    });
+    for (const status of [
+      'creating',
+      'suspended',
+      'closing',
+      'closed',
+      'failed',
+    ] as const) {
+      expect(groupComposerMode({ ...room, status })).toEqual({
+        mode: 'disabled',
+        reason: status,
+      });
+    }
+  });
+});
+
+describe('windowCountdown', () => {
+  it('counts hours and minutes left, rounded down', () => {
+    expect(windowCountdown(inHours(5.21), NOW)).toEqual({
+      open: true,
+      hours: 5,
+      minutes: 12,
+    });
+  });
+
+  it('is closed at or past the end, or with no window', () => {
+    expect(windowCountdown(inHours(0), NOW)).toEqual({ open: false });
+    expect(windowCountdown(inHours(-3), NOW)).toEqual({ open: false });
+    expect(windowCountdown(null, NOW)).toEqual({ open: false });
+  });
+});
+
+describe('templateParamCount', () => {
+  it('takes the highest placeholder', () => {
+    expect(templateParamCount('Hi {{1}}, your {{3}} and {{2}}')).toBe(3);
+    expect(templateParamCount('No values')).toBe(0);
+    expect(templateParamCount(null)).toBe(0);
+  });
+});

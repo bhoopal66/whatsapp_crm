@@ -15,7 +15,7 @@
  * ~2-year clock and a pinned constant is the thing that silently rots.
  */
 const META_API_VERSION = process.env.META_API_VERSION || 'v23.0'
-const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
+export const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
 import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
 
@@ -120,9 +120,48 @@ export class MetaError extends Error {
   get isMissingParameter(): boolean {
     return this.code === 131008
   }
+
+  // ── Groups API (deal rooms, `meta-groups.ts`) ──────────────────────
+
+  /**
+   * #131020: the group has no participant besides our number yet. A
+   * group can be written to only once someone joined — wait for the
+   * `group_participants_add` webhook rather than retrying.
+   */
+  get isGroupNotReady(): boolean {
+    return this.code === 131020
+  }
+
+  /** #131041: the group is unknown — deleted, or our number left it. */
+  get isGroupUnknown(): boolean {
+    return this.code === 131041
+  }
+
+  /** #131207: WhatsApp suspended the group; every operation fails until cleared. */
+  get isGroupSuspended(): boolean {
+    return this.code === 131207
+  }
+
+  /** #131208: too many group operations from this number — back off. */
+  get isGroupRateLimited(): boolean {
+    return this.code === 131208
+  }
+
+  /** #131211: the number already has the maximum of groups (10,000). */
+  get isGroupCapReached(): boolean {
+    return this.code === 131211
+  }
+
+  /**
+   * #131214: group creation is disabled for a while because the WABA
+   * sent too many marketing messages inside service windows lately.
+   */
+  get isGroupCreationBlocked(): boolean {
+    return this.code === 131214
+  }
 }
 
-async function throwMetaError(response: Response, fallback: string): Promise<never> {
+export async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   let code: number | null = null
   let subcode: number | null = null
@@ -144,7 +183,7 @@ async function throwMetaError(response: Response, fallback: string): Promise<nev
  * it so one unresponsive upstream cannot hold a serverless invocation
  * open until the platform kills it mid-write.
  */
-async function metaFetch(url: string, init?: RequestInit): Promise<Response> {
+export async function metaFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, { ...init, signal: AbortSignal.timeout(META_TIMEOUT_MS) })
   } catch (err) {

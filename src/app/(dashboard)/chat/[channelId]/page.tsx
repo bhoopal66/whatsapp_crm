@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback } from 'react';
+import { Suspense, useCallback, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   useParams,
@@ -11,6 +11,7 @@ import {
 import { toast } from 'sonner';
 
 import { ChannelView } from '@/components/chat/channel-view';
+import { useChatWorkspaceContext } from '@/components/chat/chat-context';
 import { Composer } from '@/components/chat/composer';
 import { MembersPanel } from '@/components/chat/members-panel';
 import { MessageMarksProvider } from '@/components/chat/message-marks';
@@ -69,6 +70,26 @@ function ChannelScreen() {
     [go, query, t]
   );
   const close = () => show(null);
+
+  // A deal room's channel is its Team notes: open the room instead.
+  const ws = useChatWorkspaceContext();
+  const kind = ws.channels?.find((c) => c.id === channelId)?.kind;
+  useEffect(() => {
+    if (kind !== 'deal_room') return;
+    let live = true;
+    void ws.sb
+      .from('deal_rooms')
+      .select('id')
+      .eq('channel_id', channelId)
+      .maybeSingle()
+      .then(({ data }) => {
+        const id = (data as { id: string } | null)?.id;
+        if (live && id) router.replace(`/chat/rooms/${id}`);
+      });
+    return () => {
+      live = false;
+    };
+  }, [kind, channelId, ws.sb, router]);
 
   return (
     <MessageMarksProvider key={channelId} channelId={channelId}>

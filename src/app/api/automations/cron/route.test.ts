@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   sweep: vi.fn(),
   rpc: vi.fn(),
   journeyTick: vi.fn(),
+  reconcile: vi.fn(),
   pbx: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
@@ -62,6 +63,9 @@ vi.mock('@/lib/journeys/host/tick', () => ({
   runJourneyTick: h.journeyTick,
 }));
 
+vi.mock('@/lib/deal-rooms/reconcile', () => ({
+  reconcileCreatingRooms: h.reconcile,
+}));
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
 
 function req() {
@@ -286,6 +290,30 @@ describe('GET /api/automations/cron — journey tick', () => {
       'boom'
     );
     log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — deal-room reconcile', () => {
+  it('runs the reconcile after the response, at most every 2 minutes', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-12T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.reconcile).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.reconcile).toHaveBeenCalledTimes(1);
+    expect(h.reconcile.mock.calls[0][0]).toHaveProperty('from');
+
+    vi.setSystemTime(new Date('2026-10-12T09:01:59Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.reconcile).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-12T09:02:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.reconcile).toHaveBeenCalledTimes(2);
   });
 });
 

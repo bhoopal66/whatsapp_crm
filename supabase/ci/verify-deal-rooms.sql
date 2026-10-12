@@ -16,7 +16,10 @@
 -- phone, a WhatsApp id or the invite link; the can_manage / can_post
 -- truth table; the service functions (refused to clients, the group
 -- lifecycle, join requests, membership events, message dedupe and the
--- service window); the private bucket and anon's grants.
+-- service window); the private bucket and anon's grants; and
+-- deal_room_settings, the account's group-invite template: an admin
+-- writes it, an agent reads it but cannot write it, another account
+-- and anon cannot read it.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -562,6 +565,32 @@ BEGIN
      OR has_table_privilege('authenticated', 'public.group_messages', 'INSERT')
      OR has_table_privilege('authenticated', 'public.participant_consents', 'DELETE') THEN
     failed := array_append(failed, 'clients may call a deal-room helper or write a deal-room table'::text);
+  END IF;
+
+  -- ---------- deal_room_settings: the group-invite template ----------
+  -- An admin writes the account's row; the agent's UPDATE matches no row
+  -- (RLS) and their INSERT is refused, so the admin's name stays.
+  r := pg_temp.dr_try('authenticated', u_admin, format(
+         'INSERT INTO public.deal_room_settings (account_id, invite_template_name, updated_by) VALUES (%L, %L, %L)',
+         a_acct, 'dr_group_invite', u_admin))
+       || ' / ' || pg_temp.dr_try('authenticated', u_agent, format(
+         'UPDATE public.deal_room_settings SET invite_template_name = %L WHERE account_id = %L', 'dr_agent_invite', a_acct))
+       || ' / ' || pg_temp.dr_try('authenticated', u_agent, format(
+         'INSERT INTO public.deal_room_settings (account_id, invite_template_name) VALUES (%L, %L)', a_acct, 'dr_agent_invite'));
+  -- A statement of its own: the one above cannot see the rows its calls wrote.
+  r := r || ' / ' || coalesce((SELECT invite_template_name FROM deal_room_settings WHERE account_id = a_acct), 'no row');
+  n := n + 1;
+  IF r NOT LIKE 'ok / ok / ERROR 42501:% / dr_group_invite' THEN
+    failed := array_append(failed, ('deal_room_settings writes (admin insert, agent update, agent insert, name): ' || r)::text);
+  END IF;
+  -- Members of the account read it; another account's owner and anon do not.
+  s := format('SELECT count(*)::text FROM public.deal_room_settings WHERE account_id = %L', a_acct);
+  r := pg_temp.dr_try('authenticated', u_agent, s)
+       || ' / ' || pg_temp.dr_try('authenticated', u_other, s)
+       || ' / ' || pg_temp.dr_try('anon', NULL, s);
+  n := n + 1;
+  IF r NOT LIKE '1 / 0 / ERROR 42501:%' THEN
+    failed := array_append(failed, ('deal_room_settings reads (agent, another account''s owner, anon): ' || r)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

@@ -27,6 +27,14 @@ import {
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
+import {
+  groupMessages,
+  handleGroupWebhook,
+  isGroupChange,
+  isGroupMessage,
+  isGroupStatus,
+  type GroupWebhookValue,
+} from '@/lib/deal-rooms/webhook';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
@@ -64,7 +72,8 @@ import {
  *
  * Configure this URL in Meta → your App → WhatsApp → Configuration:
  *   https://<your-host>/api/whatsapp/meta/webhook
- * and subscribe at least the `messages` field.
+ * and subscribe at least the `messages` field (plus the four `group_*`
+ * fields for deal rooms, whose traffic never reaches the 1:1 inbox).
  */
 
 // Matches the Whapi route: inbound processing fans out to per-media
@@ -321,7 +330,8 @@ function lookupFailed(): Response {
 }
 
 /**
- * The `messages` half: every distinct `metadata.phone_number_id`,
+ * The per-number half — `messages` changes and the Groups API's
+ * `group_*` changes: every distinct `metadata.phone_number_id`,
  * resolved to its own account and verified with its own key.
  */
 async function phoneNumberHalf(
@@ -344,6 +354,8 @@ async function phoneNumberHalf(
     event: ReturnType<typeof normalizeMetaWebhook>;
     config: MetaConfigRow;
     rawStatuses: ReturnType<typeof collectMetaStatuses>[number]['status'][];
+    /** Deal rooms: the number's group traffic, which `event` leaves out. */
+    groups: GroupWebhookValue[];
   }> = [];
   let knownButUnverified = false;
   let signedHere: Promise<boolean> | null = null;
@@ -391,6 +403,7 @@ async function phoneNumberHalf(
       rawStatuses: collectMetaStatuses(payload)
         .filter((s) => s.phoneNumberId === phoneNumberId)
         .map((s) => s.status),
+      groups: groupValuesOf(payload, phoneNumberId),
     });
   }
 
@@ -403,7 +416,7 @@ async function phoneNumberHalf(
   // the IP limit. Only verified events get here, and every key names its
   // number, so one tenant's callbacks can never claim another's events.
   const events: ScreenEvent[] = [];
-  for (const { event, config } of verified) {
+  for (const { event, config, groups } of verified) {
     const number = config.phone_number_id;
     for (const status of event.statuses) {
       events.push({
@@ -415,6 +428,14 @@ async function phoneNumberHalf(
       events.push({
         key: `msg:${number}:${message.id}`,
         senderKey: message.from || message.bsuid,
+        kind: 'message',
+      });
+    }
+    // Group messages share the key space: a wamid is one message.
+    for (const message of groups.flatMap(screenedGroupMessages)) {
+      events.push({
+        key: `msg:${number}:${message.id}`,
+        senderKey: typeof message.from === 'string' ? message.from : undefined,
         kind: 'message',
       });
     }
@@ -434,7 +455,7 @@ async function phoneNumberHalf(
     if (outcome === 'duplicate') duplicates++;
     else ipLimited++;
   };
-  const screened = verified.map(({ event, config, rawStatuses }) => {
+  const screened = verified.map(({ event, config, rawStatuses, groups }) => {
     const own: ScreenDecision[] = [];
     const statuses: typeof event.statuses = [];
     for (const status of event.statuses) {
@@ -456,12 +477,31 @@ async function phoneNumberHalf(
         overLimit.add(message);
       } else skip(decision.outcome);
     }
+    // The handler has no fan-out to hold back, so a message over its
+    // sender's limit is recorded like any other; nothing else is lost.
+    const groupDecisions: ScreenDecision[] = [];
+    const groupValues = groups.map((value) => {
+      const kept: Record<string, unknown>[] = [];
+      for (const message of screenedGroupMessages(value)) {
+        const decision = decisions[next++];
+        groupDecisions.push(decision);
+        if (
+          decision.outcome === 'accept' ||
+          decision.outcome === 'rate_limited'
+        )
+          kept.push(message);
+        else skip(decision.outcome);
+      }
+      return { ...value, messages: kept };
+    });
     return {
       event: { ...event, statuses, messages },
       config,
       rawStatuses,
       overLimit,
       decisions: own,
+      groups: groupValues,
+      groupDecisions,
     };
   });
 
@@ -484,6 +524,26 @@ async function phoneNumberHalf(
         } catch (error) {
           console.error('[meta-webhook] processing failed:', error);
         }
+        // Deal rooms, apart from the 1:1 work so neither can cost the
+        // other its events. A request over the IP limit processes
+        // nothing, here as for costing.
+        if (n.groups.length > 0 && ipLimited === 0) {
+          try {
+            const accessToken = decrypt(n.config.access_token);
+            for (const value of n.groups) {
+              await handleGroupWebhook({
+                db: supabaseAdmin(),
+                accountId: n.config.account_id,
+                phoneNumberId: n.config.phone_number_id,
+                accessToken,
+                value,
+              });
+            }
+            persisted.push(...n.groupDecisions);
+          } catch (error) {
+            console.error('[meta-webhook] group processing failed:', error);
+          }
+        }
         // Costing runs LAST and fails open (migration 051): a rate-card
         // problem must never cost an inbound message its fan-out, and a
         // thrown error here would only be logged anyway — the order is
@@ -502,6 +562,46 @@ async function phoneNumberHalf(
       await confirmAccepted(edgeCtx(), persisted);
     },
   };
+}
+
+/**
+ * A number's deal-room traffic, which `normalizeMetaWebhook` skips: its
+ * `group_*` changes, and the group part of its `messages` changes —
+ * messages carrying `group_id`, receipts with `recipient_type: 'group'`.
+ */
+function groupValuesOf(
+  payload: RawMetaWebhookPayload,
+  phoneNumberId: string
+): GroupWebhookValue[] {
+  const values: GroupWebhookValue[] = [];
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      const value = change.value;
+      if (value?.metadata?.phone_number_id !== phoneNumberId) continue;
+      if (isGroupChange(change)) {
+        values.push({ ...value });
+      } else if (!change.field || change.field === 'messages') {
+        const messages = (value.messages ?? []).filter(isGroupMessage);
+        const statuses = (value.statuses ?? []).filter(isGroupStatus);
+        if (messages.length > 0 || statuses.length > 0) {
+          values.push({ metadata: value.metadata, messages, statuses });
+        }
+      }
+    }
+  }
+  return values;
+}
+
+/**
+ * The group messages that are screened and handed over: those with an
+ * id, which the handler needs too. Called once to build the screening
+ * call and once to read its decisions back, so it must stay pure.
+ */
+function screenedGroupMessages(value: GroupWebhookValue) {
+  return groupMessages(value).filter(
+    (m): m is Record<string, unknown> & { id: string } =>
+      typeof m.id === 'string' && m.id !== ''
+  );
 }
 
 /**

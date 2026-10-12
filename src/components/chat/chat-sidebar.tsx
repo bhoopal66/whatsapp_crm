@@ -14,7 +14,9 @@ import {
   Search,
 } from 'lucide-react';
 
+import { RoomItem } from '@/components/deal-rooms/rooms-sidebar';
 import { useAuth } from '@/hooks/use-auth';
+import type { RoomSummary } from '@/lib/deal-rooms/reads';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import { useInboxCounts } from '@/hooks/use-chat-workspace';
 import {
@@ -40,6 +42,8 @@ const ROW =
 
 export interface ChatSidebarProps {
   activeChannelId: string | null;
+  /** The deal rooms the viewer can see (null while loading). */
+  rooms?: RoomSummary[] | null;
   /** Opens the New-channel dialog; the button is disabled without it. */
   onCompose?: () => void;
   /** Opens the DM picker; no "+" by Direct messages without it. */
@@ -50,6 +54,7 @@ export interface ChatSidebarProps {
 /** Dark green-black in both modes, by design. */
 export function ChatSidebar({
   activeChannelId,
+  rooms = null,
   onCompose,
   onNewDm,
   className,
@@ -261,7 +266,18 @@ export function ChatSidebar({
           </div>
         )}
         {section(t('sections.channels'), sections.team)}
-        {section(t('sections.dealRooms'), sections.dealRooms)}
+        {rooms && rooms.length > 0 && (
+          <div>
+            <p className={SECTION_LABEL}>{t('sections.dealRooms')}</p>
+            <ul className="space-y-0.5">
+              {rooms.map((r) => (
+                <li key={r.id}>
+                  <RoomItem room={r} active={false} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {section(
           t('sections.dms'),
           sections.dms,

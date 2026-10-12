@@ -806,3 +806,119 @@ describe('normalizeMetaMessage — referral, free entry and BSUID', () => {
     warn.mockRestore();
   });
 });
+
+describe('group traffic (deal rooms) never reaches the 1:1 inbox', () => {
+  const GROUP = 'Y2FwaV9ncm91cDoxNzA1NTU1MDEzOToxMjAzNjM0MDQ2OTQyMzM4MjAZD';
+  const metadata = {
+    display_phone_number: '15550783881',
+    phone_number_id: 'PN1',
+  };
+
+  /** A `messages` change mixing a 1:1 and a group message and receipt. */
+  const mixed = () =>
+    envelope({
+      metadata,
+      contacts: CONTACTS,
+      messages: [
+        { ...BASE, type: 'text', text: { body: 'one to one' } },
+        {
+          ...BASE,
+          id: 'wamid.GROUP',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'in the group' },
+        },
+      ],
+      statuses: [
+        {
+          id: 'wamid.OUT',
+          status: 'delivered',
+          timestamp: '1',
+          recipient_id: '15551234567',
+          pricing: { billable: true, pricing_model: 'PMP' },
+        },
+        {
+          id: 'wamid.GOUT',
+          status: 'delivered',
+          timestamp: '1',
+          recipient_id: GROUP,
+          recipient_type: 'group',
+          recipient_participant_id: '15551234567',
+          pricing: { billable: true, pricing_model: 'PMP' },
+        },
+      ],
+    });
+
+  /** Meta's group_lifecycle_update shape: `groups[]`, no messages. */
+  const lifecycle = (
+    phoneNumberId: string,
+    field = 'group_lifecycle_update'
+  ) => ({
+    field,
+    value: {
+      messaging_product: 'whatsapp',
+      metadata: { ...metadata, phone_number_id: phoneNumberId },
+      groups: [
+        {
+          timestamp: '1712995245',
+          group_id: GROUP,
+          type: 'group_create',
+          request_id: 'req-1',
+          invite_link: 'https://chat.whatsapp.com/AAA',
+        },
+      ],
+    },
+  });
+
+  const groupOnly = {
+    object: 'whatsapp_business_account',
+    entry: [{ id: '102290129340398', changes: [lifecycle('PN-G')] }],
+  } as unknown as RawMetaWebhookPayload;
+
+  it('lists the number of a group_* change, so its signature is checked', () => {
+    expect(metaPhoneNumberIds(groupOnly)).toEqual(['PN-G']);
+    const payload = {
+      entry: [
+        {
+          id: 'waba',
+          changes: [
+            lifecycle('PN-1', 'group_participants_update'),
+            lifecycle('PN-2', 'group_settings_update'),
+            lifecycle('PN-3', 'group_status_update'),
+            // Any other WABA-level field still names no number.
+            lifecycle('PN-4', 'account_update'),
+            ...mixed().entry![0].changes!,
+          ],
+        },
+      ],
+    } as unknown as RawMetaWebhookPayload;
+    expect(metaPhoneNumberIds(payload)).toEqual([
+      'PN-1',
+      'PN-2',
+      'PN-3',
+      'PN1',
+    ]);
+  });
+
+  it('accepts a group-only body as a webhook payload', () => {
+    expect(isMetaWebhookShape(JSON.parse(JSON.stringify(groupOnly)))).toBe(
+      true
+    );
+  });
+
+  it('skips group messages and group receipts, keeping the 1:1 ones', () => {
+    const out = normalizeMetaWebhook(mixed(), 'PN1');
+    expect(out.messages.map((m) => m.id)).toEqual([BASE.id]);
+    expect(out.statuses.map((s) => s.messageId)).toEqual(['wamid.OUT']);
+    // A group change has no 1:1 part at all.
+    const none = normalizeMetaWebhook(groupOnly, 'PN-G');
+    expect(none.messages).toEqual([]);
+    expect(none.statuses).toEqual([]);
+  });
+
+  it('keeps group receipts out of the cost ledger', () => {
+    expect(collectMetaStatuses(mixed()).map((s) => s.status.id)).toEqual([
+      'wamid.OUT',
+    ]);
+  });
+});

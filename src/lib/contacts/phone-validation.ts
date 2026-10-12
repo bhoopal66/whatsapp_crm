@@ -252,6 +252,15 @@ function countryCodeOf(digits: string): string | null {
   return null;
 }
 
+/**
+ * The calling code an international number (digits only) starts with,
+ * the UAE's included, or null when none does. For display (masking),
+ * not validation.
+ */
+export function callingCodeOf(digits: string): string | null {
+  return digits.startsWith(UAE) ? UAE : countryCodeOf(digits);
+}
+
 function fitsPlan(code: string, national: string): boolean {
   if (!national) return false;
   return (PLAN.get(code) ?? []).some(

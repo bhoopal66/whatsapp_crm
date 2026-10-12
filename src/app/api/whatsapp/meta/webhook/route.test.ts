@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   confirmAccepted: vi.fn(),
   clientIp: vi.fn(),
   recordMetaMessageCosts: vi.fn(),
+  handleGroupWebhook: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
   state: {
     /** Rows `whatsapp_config` returns for provider='meta' lookups. */
@@ -70,9 +71,17 @@ vi.mock('@/lib/whatsapp/template-webhook', () => ({
   isTemplateWebhookField: (f: string) => f.startsWith('message_template_'),
 }));
 
+// The deal-room handler is a seam; its group/1:1 predicates stay real,
+// because the normaliser shares them.
+vi.mock('@/lib/deal-rooms/webhook', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/deal-rooms/webhook')>()),
+  handleGroupWebhook: h.handleGroupWebhook,
+}));
+
 vi.mock('@/lib/whatsapp/encryption', () => ({
-  // Identity, so fixtures can carry plaintext credentials.
-  decrypt: (v: string) => v,
+  // Identity, so fixtures can carry plaintext credentials; an `enc:`
+  // prefix shows where a test needs to see that decryption happened.
+  decrypt: (v: string) => v.replace(/^enc:/, ''),
   encrypt: (v: string) => v,
   isLegacyFormat: () => false,
 }));
@@ -1087,5 +1096,219 @@ describe('POST — edge screening', () => {
     const res = await POST(post(payload, 'sha256=deadbeef'));
     expect(res.status).toBe(401);
     expect(h.screenWebhook).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST — deal-room group traffic', () => {
+  const GROUP = 'Y2FwaV9ncm91cDoxNzA1NTU1MDEzOToxMjAzNjM0MDQ2OTQyMzM4MjAZD';
+  const NUMBER = CONFIG.phone_number_id;
+
+  function groupMessage(id: string, from = '15559990000') {
+    return {
+      id,
+      from,
+      group_id: GROUP,
+      timestamp: '1712995245',
+      type: 'text',
+      text: { body: `group ${id}` },
+    };
+  }
+
+  /** One `messages` change for the number carrying the given parts. */
+  function messagesBody(value: Record<string, unknown>) {
+    const payload = messagePayload();
+    const v = payload.entry[0].changes[0].value as Record<string, unknown>;
+    Object.assign(v, value);
+    return payload;
+  }
+
+  const lifecycleChange = {
+    field: 'group_lifecycle_update',
+    value: {
+      messaging_product: 'whatsapp',
+      metadata: { phone_number_id: NUMBER },
+      groups: [
+        {
+          timestamp: '1712995245',
+          group_id: GROUP,
+          type: 'group_create',
+          request_id: 'req-1',
+          invite_link: 'https://chat.whatsapp.com/AAA',
+        },
+      ],
+    },
+  };
+  const lifecycleBody = {
+    object: 'whatsapp_business_account',
+    entry: [{ id: CONFIG.waba_id, changes: [lifecycleChange] }],
+  };
+
+  const groupCalls = () =>
+    h.handleGroupWebhook.mock.calls.map(
+      (c) =>
+        c[0] as {
+          accountId: string;
+          phoneNumberId: string;
+          accessToken: string;
+          value: Record<string, unknown[]>;
+        }
+    );
+
+  it('never hands a group message to the 1:1 pipeline', async () => {
+    const payload = messagesBody({ messages: [groupMessage('wamid.G1')] });
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(groupCalls()).toHaveLength(1);
+    expect(groupCalls()[0].value.messages).toEqual([groupMessage('wamid.G1')]);
+    expect(h.screenWebhook.mock.calls[0][1].events).toEqual([
+      {
+        key: `msg:${NUMBER}:wamid.G1`,
+        senderKey: '15559990000',
+        kind: 'message',
+      },
+    ]);
+  });
+
+  it("hands a groups[] lifecycle change over with the number's decrypted token", async () => {
+    h.state.metaConfigs = [{ ...CONFIG, access_token: 'enc:meta-token' }];
+    const { POST } = await import('./route');
+    const res = await POST(
+      post(lifecycleBody, sign(JSON.stringify(lifecycleBody)))
+    );
+    // A group-only body is a webhook payload, routed by its number.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'received' });
+    await runAfterCallbacks();
+
+    expect(h.handleGroupWebhook).toHaveBeenCalledTimes(1);
+    expect(h.handleGroupWebhook.mock.calls[0][0]).toMatchObject({
+      accountId: 'acc-1',
+      phoneNumberId: NUMBER,
+      accessToken: 'meta-token',
+      value: lifecycleChange.value,
+    });
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+  });
+
+  it('records a group receipt neither as a 1:1 status nor in the cost ledger', async () => {
+    const receipt = {
+      id: 'wamid.GOUT',
+      status: 'delivered',
+      timestamp: '1712995245',
+      recipient_id: GROUP,
+      recipient_type: 'group',
+      recipient_participant_id: '15559990000',
+      pricing: { billable: true, pricing_model: 'PMP', category: 'utility' },
+    };
+    const payload = messagesBody({ messages: [], statuses: [receipt] });
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+    expect(h.recordMetaMessageCosts).not.toHaveBeenCalled();
+    expect(groupCalls()[0].value.statuses).toEqual([receipt]);
+  });
+
+  it('answers 401 to a group-only body with a bad signature, running nothing', async () => {
+    const { POST } = await import('./route');
+    const res = await POST(
+      post(lifecycleBody, sign(JSON.stringify(lifecycleBody), 'wrong-secret'))
+    );
+    expect(res.status).toBe(401);
+    await runAfterCallbacks();
+    expect(h.screenWebhook).not.toHaveBeenCalled();
+    expect(h.handleGroupWebhook).not.toHaveBeenCalled();
+  });
+
+  it('still runs the 1:1 message beside them, and confirms both claims after', async () => {
+    const payload = messagesBody({
+      messages: [messagePayload().entry[0].changes[0].value.messages[0]],
+    });
+    const v = payload.entry[0].changes[0].value as { messages: unknown[] };
+    v.messages.push(groupMessage('wamid.G1'));
+    (payload.entry[0].changes as unknown[]).push(lifecycleChange);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    expect(h.processMessage.mock.calls[0][0]).toMatchObject({
+      id: 'wamid.ABC',
+      text: 'hello',
+    });
+    expect(h.processMessage.mock.calls[0][3]).toMatchObject({
+      provider: 'meta',
+      accountId: 'acc-1',
+      phoneNumberId: NUMBER,
+    });
+    // The messages change's group part, then the lifecycle change.
+    expect(groupCalls().map((c) => c.value.messages)).toEqual([
+      [groupMessage('wamid.G1')],
+      [],
+    ]);
+    expect(groupCalls()[1].value.groups).toEqual(lifecycleChange.value.groups);
+
+    const [, decisions] = h.confirmAccepted.mock.calls[0];
+    expect(decisions.map((d: { key: string }) => d.key)).toEqual([
+      `msg:${NUMBER}:wamid.ABC`,
+      `msg:${NUMBER}:wamid.G1`,
+    ]);
+    const confirmedAt = h.confirmAccepted.mock.invocationCallOrder[0];
+    expect(h.handleGroupWebhook.mock.invocationCallOrder[1]).toBeLessThan(
+      confirmedAt
+    );
+  });
+
+  it('skips a duplicate group message and keeps a rate-limited one', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.screenWebhook.mockImplementation(
+      screenAs((key) =>
+        key.endsWith('wamid.G1')
+          ? 'duplicate'
+          : key.endsWith('wamid.G2')
+            ? 'rate_limited'
+            : 'accept'
+      )
+    );
+    const payload = messagesBody({
+      messages: [
+        groupMessage('wamid.G1'),
+        groupMessage('wamid.G2'),
+        groupMessage('wamid.G3'),
+      ],
+    });
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(groupCalls()[0].value.messages).toEqual([
+      groupMessage('wamid.G2'),
+      groupMessage('wamid.G3'),
+    ]);
+    const [, decisions] = h.confirmAccepted.mock.calls[0];
+    expect(
+      decisions
+        .filter((d: { outcome: string }) => d.outcome === 'accept')
+        .map((d: { key: string }) => d.key)
+    ).toEqual([`msg:${NUMBER}:wamid.G3`]);
+  });
+
+  it('hands nothing over in a request over the IP limit', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    h.screenWebhook.mockImplementation(screenAs(() => 'ip_limited'));
+    const payload = messagesBody({ messages: [groupMessage('wamid.G1')] });
+    (payload.entry[0].changes as unknown[]).push(lifecycleChange);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+    expect(h.handleGroupWebhook).not.toHaveBeenCalled();
   });
 });

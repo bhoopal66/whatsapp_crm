@@ -2034,7 +2034,8 @@
       "journey-bot": "Journey bot",
       "phone-system": "Phone system",
       "consent-retention": "Consent and retention",
-      "audit-log": "Audit log"
+      "audit-log": "Audit log",
+      "deal-rooms": "Deal rooms"
     },
     "categories": {
       "overview": "Overview",
@@ -3179,6 +3180,25 @@
       "newer": "Newer",
       "older": "Older",
       "page": "Page {page}"
+    },
+    "dealRooms": {
+      "title": "Deal rooms",
+      "description": "The template that sends each person the group's invite link in their own 1:1 chat.",
+      "noMeta": "Connect the Meta Cloud API number first: only the Cloud API can create WhatsApp groups.",
+      "name": "Invite template name",
+      "language": "Language",
+      "nameAr": "Arabic template name (optional)",
+      "arHelp": "Sent to people who prefer Arabic, as language ar.",
+      "ready": "Approved on Meta",
+      "notReady": "Not approved on Meta yet ({status})",
+      "notFound": "Not among your synced templates yet.",
+      "notSet": "No invite template yet: rooms are created, but nobody is invited until one is set.",
+      "help": "Copy the group invite template from Meta's Template Library (topic “Group invite link”) into your WhatsApp Business Account without editing it, wait for approval, sync your templates, then enter its name here.",
+      "banks": "Which banks' officers may be invited as guests is a per-bank switch in Settings → Consent and retention.",
+      "save": "Save",
+      "saved": "Deal room settings saved.",
+      "saveFailed": "Couldn't save: {error}",
+      "loadFailed": "Couldn't load the deal room settings."
     }
   },
   "Compass": {
@@ -3819,7 +3839,7 @@
       "internal": "Internal — customers never see this",
       "membersButton": "Members",
       "pinned": "Pinned ({count})",
-      "dealRoomNote": "The customer group view arrives with deal rooms.",
+      "dealRoomNote": "Open this deal room from Deal rooms in the sidebar.",
       "empty": "No messages yet.",
       "loadingOlder": "Loading older messages…",
       "notFound": "This channel isn't available.",
@@ -4014,6 +4034,225 @@
       "inThread": "in a thread",
       "erased": "This message was erased.",
       "noText": "Attachment or shared conversation"
+    },
+    "rooms": {
+      "new": "New deal room",
+      "back": "Back to {name}",
+      "empty": "No deal rooms yet.",
+      "subLine": "{count} of {max} members · {phase}",
+      "phase": {
+        "creating": "creating",
+        "waiting": "waiting to join",
+        "active": "active",
+        "suspended": "suspended",
+        "closing": "closing",
+        "closed": "closed",
+        "failed": "couldn't be created"
+      },
+      "pickTitle": "Pick a deal room",
+      "pickBody": "Each deal room is a WhatsApp group with the customer, the partner and, when invited, a bank officer.",
+      "notFound": "This deal room isn't available.",
+      "loadFailed": "Couldn't load this deal room.",
+      "kindLine": "WhatsApp group",
+      "openedBy": "opened by {name}",
+      "linkedDeal": "linked to a deal",
+      "tabs": {
+        "label": "Room view",
+        "group": "Group chat",
+        "notes": "Team notes"
+      },
+      "everyone": "<b>Everyone in this group sees every message</b>, including the customer and the bank officer. Keep internal remarks in Team notes.",
+      "banner": {
+        "creating": "Still creating the WhatsApp group…",
+        "waiting": "Nobody has joined the group yet. WhatsApp accepts group messages once someone has.",
+        "suspended": "WhatsApp suspended this group. Nothing can be sent until that is cleared.",
+        "closing": "This room is closing.",
+        "closed": "This room is closed. You can read it, but not post.",
+        "failed": "WhatsApp couldn't create this group."
+      },
+      "window": {
+        "open": "Reply window open · {hours} h {minutes} min left",
+        "closed": "Reply window closed · templates only"
+      },
+      "timeline": {
+        "loading": "Loading messages…",
+        "loadOlder": "Load older messages",
+        "empty": "No messages in this group yet.",
+        "unsupported": "Unsupported message",
+        "savedToDeal": "Saved to deal file automatically",
+        "template": "Template · {name}",
+        "file": "Attachment"
+      },
+      "tag": {
+        "customer": "Customer",
+        "partner": "Partner",
+        "bank": "Bank",
+        "bankOf": "Bank · {bank}"
+      },
+      "receipts": {
+        "reached": "Delivered to {delivered} · Read by {read}",
+        "sending": "Sending…",
+        "failed": "Not delivered"
+      },
+      "composer": {
+        "label": "Message the group on WhatsApp · goes to {count, plural, =1 {# person} other {# people}}",
+        "placeholder": "Visible to the customer and the bank…",
+        "send": "Send to group",
+        "footer": "Free inside the reply window. Templates are charged per member who receives them. Sent messages can't be edited or deleted.",
+        "templateFooter": "The reply window is closed: nobody in the group has written in the last 24 hours. Until someone does, only an approved template can be sent, charged per member who receives it. Sent messages can't be edited or deleted.",
+        "templatePick": "Pick an approved template",
+        "noTemplates": "No approved templates yet.",
+        "param": "Value {n}",
+        "review": "Review and send",
+        "confirmTitle": "Send this template to the group?",
+        "confirmBody": "It goes to {count, plural, =1 {# person} other {# people}} and is charged per member who receives it. It can't be edited or deleted once sent.",
+        "confirm": "Send template",
+        "cancel": "Cancel",
+        "errors": {
+          "window_closed": "The reply window just closed. Send an approved template instead.",
+          "room_not_open": "This room isn't open.",
+          "group_not_ready": "Nobody has joined the group yet.",
+          "group_suspended": "WhatsApp suspended this group.",
+          "template_rejected": "WhatsApp refused this template.",
+          "forbidden": "You can't post in this room.",
+          "generic": "Couldn't send. Try again."
+        }
+      },
+      "create": {
+        "title": "New deal room",
+        "description": "A WhatsApp group with the customer, from the {workspace} number.",
+        "link": "Link to customer / deal",
+        "search": "Search customers…",
+        "noCustomers": "No customers found.",
+        "deal": "Deal",
+        "noDeal": "No deal",
+        "groupName": "Group name (shown on WhatsApp)",
+        "who": "Who gets the invite link",
+        "chip": {
+          "customer": "{name} · customer",
+          "partner": "{name} · partner",
+          "bank": "{name} · {bank} (bank guest)"
+        },
+        "remove": "Remove {name}",
+        "add": "Add",
+        "name": "Name",
+        "phone": "Phone",
+        "role": "Role",
+        "roles": {
+          "customer": "Customer",
+          "partner": "Partner",
+          "bank_guest": "Bank guest"
+        },
+        "bank": "Bank",
+        "noBanks": "No bank allows guests yet.",
+        "addConfirm": "Add to list",
+        "guestWaits": "A bank guest added by an agent waits for a team leader's approval before the invite goes out.",
+        "places": "Each person gets the link in their own 1:1 chat; WhatsApp has no silent add. With the {workspace} number, that is {places} of 8 places.",
+        "issues": {
+          "none": "Add at least the customer.",
+          "too_many": "At most {max} people can be invited.",
+          "no_customer": "Add the customer.",
+          "name": "Each person needs a name of up to 120 characters.",
+          "phone": "{name} has no valid phone number.",
+          "duplicate": "{name} is listed twice (same phone number).",
+          "bank": "{name}'s bank does not allow guests."
+        },
+        "before": {
+          "title": "Before you create a deal room",
+          "phones": "Members see each other's phone numbers.",
+          "max": "Up to 8 members, including the {workspace} number.",
+          "cost": "Templates are charged once per member who receives them. Ordinary replies are free, and a message from any member opens a free reply window for the whole group.",
+          "limits": "Buttons, lists, calls, and editing or deleting sent messages don't work in groups. Text, files and templates do."
+        },
+        "consent": "The customer agreed to a group with the people above. Record their consent on the deal.",
+        "method": "How they agreed",
+        "methods": {
+          "verbal": "Verbally",
+          "whatsapp": "On WhatsApp",
+          "written": "In writing",
+          "form": "Through a form"
+        },
+        "consentText": "{customer} agreed to a WhatsApp group named “{group}” with {people} and the {workspace} number. Members see each other's phone numbers.",
+        "footer": "Every room keeps a Team notes tab the customer never sees.",
+        "cancel": "Cancel",
+        "submit": "Create deal room and send invites",
+        "creating": "Creating…",
+        "failed": "Couldn't create the deal room: {error}"
+      },
+      "members": {
+        "title": "Members",
+        "count": "{count} of {max}",
+        "open": "Members",
+        "close": "Close members",
+        "business": "Business number · {name} posts through it",
+        "businessPlain": "Business number",
+        "role": {
+          "customer": "Customer",
+          "partner": "Co-signatory · partner",
+          "bank": "Bank officer · {bank}",
+          "bankUnknown": "Bank officer",
+          "person": "Member",
+          "business": "Business number"
+        },
+        "badge": {
+          "consent": "Consent given",
+          "guest": "Guest",
+          "pending": "Awaiting approval",
+          "invited": "Invited",
+          "joined": "Joined",
+          "left": "Left",
+          "removed": "Removed",
+          "rejected": "Rejected"
+        },
+        "requests": "Join requests",
+        "requestFrom": "{phone} asked to join",
+        "someone": "Someone",
+        "approve": "Approve",
+        "reject": "Reject",
+        "pendingGuests": "Bank guests awaiting approval",
+        "pendingHelp": "Only a team leader or an admin can approve a bank guest.",
+        "decideFailed": "Couldn't save the decision: {error}",
+        "inviteLink": "Invite link",
+        "showLink": "Show link",
+        "copy": "Copy",
+        "copied": "Invite link copied.",
+        "linkFailed": "Couldn't get the invite link: {error}",
+        "approveEach": "Approve each join request",
+        "approveEachHelp": "Expected numbers are approved automatically; anyone else waits for you.",
+        "linkHelp": "People join only by this link. WhatsApp allows 8 members including the {workspace} number.",
+        "resend": "Re-send invites",
+        "resent": "Invites: {sent} sent, {failed} failed.",
+        "resendFailed": "Couldn't send the invites: {error}",
+        "menu": "Actions for {name}",
+        "remove": "Remove from group",
+        "removeTitle": "Remove {name}?",
+        "removeBody": "They leave the WhatsApp group and cannot rejoin through the invite link.",
+        "removed": "{name} was removed. A removed person cannot rejoin through the invite link.",
+        "removeFailed": "Couldn't remove {name}: {error}"
+      },
+      "actions": {
+        "title": "Room actions",
+        "transcript": "Save transcript to deal file",
+        "transcriptSaved": "Transcript saved as {name}.",
+        "transcriptFailed": "Couldn't save the transcript: {error}",
+        "reset": "Reset invite link",
+        "resetTitle": "Reset the invite link?",
+        "resetBody": "Old links stop working at once. People already in the group stay.",
+        "resetConfirm": "Reset link",
+        "resetDone": "New invite link ready.",
+        "resetFailed": "Couldn't reset the invite link: {error}",
+        "close": "Close room when account is opened",
+        "closeTitle": "Close this deal room?",
+        "closeBody": "The transcript is saved to the deal's files, everyone is removed and the WhatsApp group is deleted. This can't be undone.",
+        "closeReason": "Reason (optional)",
+        "closeConfirm": "Close room",
+        "closed": "The room is closed.",
+        "closeIncomplete": "Closing stopped at the {step} step. Retry to finish.",
+        "retry": "Retry",
+        "closeFailed": "Couldn't close the room: {error}",
+        "cancel": "Cancel",
+        "unknownError": "something went wrong"
+      }
     }
   },
   "Workspaces": {

@@ -17,9 +17,15 @@
 --    (append-only) and bank_guest_policies (per bank: guests are off
 --    until an admin records that the bank's DSA agreement was checked;
 --    recording_allowed is read later by the phone module).
+--  * deal_room_settings (one row per account): the group-invite
+--    template, an approved Template Library copy (topic
+--    `group_invite_link`) on the Meta number; the server sends it 1:1
+--    to each invitee with the group id. A NULL name means not
+--    configured; the optional Arabic copy is sent with language 'ar'.
 --  * Writes: the SECURITY DEFINER functions below, each re-checking the
 --    caller, or the service role (the Meta client and webhooks). Clients
---    get SELECT only (bank_guest_policies: admins also write).
+--    get SELECT only (bank_guest_policies and deal_room_settings: admins
+--    also write).
 --  * Who sees a room (deal_room_access): team leaders and up see every
 --    room of their ACTIVE account ('supervisor'); agents and viewers see
 --    rooms whose channel they are a member of ('staff'); a bank guest of
@@ -69,6 +75,24 @@ CREATE TABLE IF NOT EXISTS public.bank_guest_policies (
 );
 DROP TRIGGER IF EXISTS set_updated_at ON public.bank_guest_policies;
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.bank_guest_policies
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Template names are Meta's: 1 to 512 lowercase letters, digits and
+-- underscores. Postgres caps a regex bound at 255 ({1,512} is an
+-- "invalid repetition count" on every insert), so the length is a
+-- char_length.
+CREATE TABLE IF NOT EXISTS public.deal_room_settings (
+  account_id               uuid PRIMARY KEY REFERENCES public.accounts(id) ON DELETE CASCADE,
+  invite_template_name     text CHECK (invite_template_name IS NULL
+                                       OR (invite_template_name ~ '^[a-z0-9_]+$' AND char_length(invite_template_name) <= 512)),
+  invite_template_language text NOT NULL DEFAULT 'en' CHECK (invite_template_language ~ '^[a-z]{2,3}(_[A-Z]{2,3})?$'),
+  invite_template_name_ar  text CHECK (invite_template_name_ar IS NULL
+                                       OR (invite_template_name_ar ~ '^[a-z0-9_]+$' AND char_length(invite_template_name_ar) <= 512)),
+  updated_at               timestamptz NOT NULL DEFAULT now(),
+  updated_by               uuid REFERENCES auth.users(id) ON DELETE SET NULL
+);
+DROP TRIGGER IF EXISTS set_updated_at ON public.deal_room_settings;
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.deal_room_settings
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 CREATE TABLE IF NOT EXISTS public.deal_rooms (
@@ -1056,7 +1080,7 @@ DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['bank_guest_policies','deal_rooms','participant_consents','deal_room_participants',
-    'deal_room_join_requests','group_messages','group_message_receipts','deal_files','deal_room_audit']
+    'deal_room_join_requests','group_messages','group_message_receipts','deal_files','deal_room_audit','deal_room_settings']
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', t);
@@ -1109,6 +1133,24 @@ CREATE POLICY bank_guest_policies_delete ON public.bank_guest_policies
   FOR DELETE TO authenticated
   USING (account_id = (SELECT public.current_account_id()) AND (SELECT public.current_role_rank()) >= 4);
 
+-- the group-invite template: members read it, admins write it
+DROP POLICY IF EXISTS deal_room_settings_read ON public.deal_room_settings;
+CREATE POLICY deal_room_settings_read ON public.deal_room_settings
+  FOR SELECT TO authenticated USING (account_id = (SELECT public.current_account_id()));
+DROP POLICY IF EXISTS deal_room_settings_insert ON public.deal_room_settings;
+CREATE POLICY deal_room_settings_insert ON public.deal_room_settings
+  FOR INSERT TO authenticated
+  WITH CHECK (account_id = (SELECT public.current_account_id()) AND (SELECT public.current_role_rank()) >= 4);
+DROP POLICY IF EXISTS deal_room_settings_update ON public.deal_room_settings;
+CREATE POLICY deal_room_settings_update ON public.deal_room_settings
+  FOR UPDATE TO authenticated
+  USING (account_id = (SELECT public.current_account_id()) AND (SELECT public.current_role_rank()) >= 4)
+  WITH CHECK (account_id = (SELECT public.current_account_id()) AND (SELECT public.current_role_rank()) >= 4);
+DROP POLICY IF EXISTS deal_room_settings_delete ON public.deal_room_settings;
+CREATE POLICY deal_room_settings_delete ON public.deal_room_settings
+  FOR DELETE TO authenticated
+  USING (account_id = (SELECT public.current_account_id()) AND (SELECT public.current_role_rank()) >= 4);
+
 -- ---------- 9. Realtime ----------
 
 DO $$
@@ -1132,13 +1174,15 @@ END $$;
 
 REVOKE ALL ON public.bank_guest_policies, public.deal_rooms, public.participant_consents,
   public.deal_room_participants, public.deal_room_join_requests, public.group_messages,
-  public.group_message_receipts, public.deal_files, public.deal_room_audit, public.deal_room_roster
+  public.group_message_receipts, public.deal_files, public.deal_room_audit, public.deal_room_roster,
+  public.deal_room_settings
   FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT SELECT ON public.bank_guest_policies, public.participant_consents, public.deal_room_participants,
-  public.deal_room_join_requests, public.deal_files, public.deal_room_audit, public.deal_room_roster
+  public.deal_room_join_requests, public.deal_files, public.deal_room_audit, public.deal_room_roster,
+  public.deal_room_settings
   TO authenticated;
-GRANT INSERT, UPDATE, DELETE ON public.bank_guest_policies TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON public.bank_guest_policies, public.deal_room_settings TO authenticated;
 -- every column but the invite link (a bearer secret: the server hands it out)
 GRANT SELECT (id, account_id, channel_id, contact_id, deal_id, whatsapp_config_id, wa_group_id, create_request_id,
   subject, description, join_approval_mode, status, participant_count, window_until, created_by, created_at,
@@ -1150,7 +1194,7 @@ GRANT SELECT (message_id, participant_id, status, at) ON public.group_message_re
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.bank_guest_policies, public.deal_rooms, public.participant_consents,
   public.deal_room_participants, public.deal_room_join_requests, public.group_messages,
-  public.group_message_receipts, public.deal_files, public.deal_room_audit
+  public.group_message_receipts, public.deal_files, public.deal_room_audit, public.deal_room_settings
   TO service_role;
 
 DO $$
