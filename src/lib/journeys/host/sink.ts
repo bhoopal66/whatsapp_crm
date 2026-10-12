@@ -414,3 +414,41 @@ export function createJourneySink({
     },
   };
 }
+
+/**
+ * Records a failed delivery on its outbox item (`journey_outbox_failed`:
+ * attempts, last_attempt_at, last_error) and rethrows the original error,
+ * so the cron's `journey_drain_candidates` backs the file off instead of
+ * retrying its head every tick. A delivery that succeeds is untouched, so
+ * `deliver` stays as idempotent as the sink it wraps; a failed recording
+ * is only logged.
+ */
+export function withFailureRecording(
+  sink: ActionSink,
+  db: SupabaseClient
+): ActionSink {
+  return {
+    async deliver(item: OutboxItem): Promise<void> {
+      try {
+        await sink.deliver(item);
+      } catch (err) {
+        const message = (
+          err instanceof Error ? err.message : String(err)
+        ).slice(0, 500);
+        try {
+          const { error } = await db.rpc('journey_outbox_failed', {
+            p_item_id: item.id,
+            p_error: message,
+          });
+          if (error) throw new JourneyDbError('journey_outbox_failed', error);
+        } catch (recordErr) {
+          console.error(
+            `[journeys] outbox item ${item.id}: could not record the failed delivery:`,
+            recordErr instanceof Error ? recordErr.message : recordErr
+          );
+        }
+        throw err;
+      }
+    },
+  };
+}

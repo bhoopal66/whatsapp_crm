@@ -24,6 +24,7 @@ vi.mock('@/lib/journeys/runner', async (orig) => ({
 }));
 vi.mock('@/lib/journeys/host/sink', () => ({
   createJourneySink: () => ({ deliver: vi.fn() }),
+  withFailureRecording: (sink: unknown) => sink,
 }));
 
 import { POST } from './route';
