@@ -538,6 +538,7 @@ BEGIN
     AND NOT has_function_privilege('authenticated', 'public.chat_assert_can_write(uuid,boolean)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.chat_user_can_read_channel(uuid,uuid,boolean)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.chat_can_view_conversation(uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.chat_bell_body(text,uuid)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.chat_conversation_snapshot(uuid)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.chat_user_role(uuid,uuid)', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.chat_storage_channel(text)', 'EXECUTE')
