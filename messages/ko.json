@@ -2032,7 +2032,9 @@
       "deals": "딜 & 통화",
       "team-chat": "팀 채팅",
       "journey-bot": "여정 봇",
-      "phone-system": "전화 시스템"
+      "phone-system": "전화 시스템",
+      "consent-retention": "동의 및 보존",
+      "audit-log": "감사 로그"
     },
     "categories": {
       "overview": "개요",
@@ -3042,6 +3044,141 @@
           "bank_code_required": "은행 코드를 입력하세요(최대 32자)."
         }
       }
+    },
+    "consentRetention": {
+      "title": "동의 및 보존",
+      "description": "어느 은행이 고객 그룹에 참여하고 녹음될 수 있는지, 기록을 얼마나 보관하는지, 적법한 요청에 따라 고객의 통화 녹음을 삭제하는 방법을 관리합니다.",
+      "banks": {
+        "title": "은행별 게스트 및 녹음",
+        "description": "둘 다 기본적으로 꺼져 있습니다. 은행 직원은 해당 은행의 DSA 계약이 허용한 뒤에만 고객 그룹(딜룸)에 참여할 수 있으므로, 게스트를 켜면 DSA 조건을 확인한 날짜가 기록됩니다.",
+        "bank": "은행",
+        "guests": "딜룸에 은행 게스트 허용",
+        "recording": "이 은행과의 통화 녹음 허용",
+        "checked": "DSA 확인",
+        "checkedBy": "{date} · {name}",
+        "notChecked": "확인 안 됨",
+        "note": "메모",
+        "remove": "{bank} 삭제",
+        "addPlaceholder": "은행 코드 (예: MASHREQ)",
+        "add": "은행 추가",
+        "invalidCode": "영문, 숫자, - 또는 _만 사용하세요(최대 32자).",
+        "exists": "{bank}은(는) 이미 목록에 있습니다.",
+        "empty": "아직 은행이 없습니다. 은행을 추가해 게스트와 녹음을 설정하세요.",
+        "loading": "은행 불러오는 중…",
+        "loadFailed": "은행 정책을 불러오지 못했습니다.",
+        "saveFailed": "변경 사항을 저장하지 못했습니다.",
+        "dialogTitle": "{bank} 직원의 딜룸 참여 허용",
+        "dialogDesc": "은행의 DSA 계약이 직원의 고객 그룹 참여를 허용하는 경우에만 켜세요. 조건을 확인한 날짜를 기록하세요.",
+        "dateLabel": "DSA 조건 확인일",
+        "dateRequired": "DSA 조건을 확인한 날짜를 입력하세요.",
+        "dateInFuture": "미래 날짜는 입력할 수 없습니다.",
+        "noteLabel": "메모(선택)",
+        "noteTooLong": "메모는 2,000자 이내로 작성하세요.",
+        "allow": "게스트 허용",
+        "cancel": "취소"
+      },
+      "retention": {
+        "title": "보존",
+        "chats": "WhatsApp 채팅과 팀 채팅은 자동 삭제 없이 보관됩니다.",
+        "recordingsKept": "통화 녹음은 자동 삭제 없이 보관됩니다.",
+        "recordingsDays": "통화 녹음은 {days}일 동안 보관됩니다.",
+        "recordingsUnknown": "통화 녹음은 전화 시스템 설정의 기간을 따릅니다.",
+        "erasure": "삭제는 적법한 요청을 처리합니다. 고객의 통화 녹음은 아래에서, 직원의 채팅 메시지는 팀 채팅 설정에서 삭제합니다.",
+        "openPhone": "전화 시스템 설정",
+        "openTeamChat": "팀 채팅 설정"
+      },
+      "erase": {
+        "title": "고객의 통화 녹음 삭제",
+        "description": "소유자 전용입니다. 고객 통화의 모든 녹음을 삭제하고 통화 메모와 결과를 지웁니다. 통화는 삭제됨으로 기록에 남습니다. 되돌릴 수 없습니다.",
+        "contactLabel": "고객",
+        "contactPlaceholder": "이름 또는 전화번호로 검색",
+        "reasonLabel": "사유",
+        "reasonPlaceholder": "이 삭제가 처리하는 적법한 요청(5자 이상)",
+        "confirmLabel": "확인하려면 {word}을(를) 입력하세요",
+        "warning": "삭제와 사유는 감사 로그에 기록됩니다. 되돌릴 수 없습니다.",
+        "submit": "녹음 삭제",
+        "failed": "삭제에 실패했습니다. 다시 시도하기 전에 감사 로그를 확인하세요.",
+        "forbidden": "워크스페이스 소유자만 통화 기록을 삭제할 수 있습니다.",
+        "notFound": "해당 고객을 찾을 수 없습니다.",
+        "legalHold": "이 고객의 녹음이 법적 보존 중이므로 아무것도 삭제되지 않았습니다.",
+        "doneTitle": "{name}의 통화 기록을 삭제했습니다",
+        "summary": "{count, plural, =0 {저장된 녹음이 없었습니다.} other {녹음 #개를 삭제했습니다.}}",
+        "filesFailed": "파일 {count}개를 저장소에서 삭제하지 못했습니다. 서버 로그에 목록이 있습니다.",
+        "teamChatHint": "직원의 채팅 메시지를 삭제하려면 팀 채팅 설정을 사용하세요."
+      }
+    },
+    "auditLog": {
+      "title": "감사 로그",
+      "description": "누가 무엇을 했는지 최신순으로 표시합니다: 비공개 팀 채팅 열람과 삭제, 녹음 재생과 다운로드, 연락 금지 무시와 통화 삭제, 딜룸 변경.",
+      "filters": {
+        "source": "출처",
+        "all": "모든 출처",
+        "from": "시작일",
+        "to": "종료일",
+        "person": "사용자",
+        "anyone": "모든 사용자"
+      },
+      "sources": {
+        "team_chat": "팀 채팅",
+        "recordings": "녹음",
+        "phone": "전화",
+        "deal_rooms": "딜룸"
+      },
+      "system": "시스템",
+      "unknownPerson": "이전 멤버",
+      "items": {
+        "channel": "채널",
+        "person": "사용자",
+        "call": "통화",
+        "contact": "고객",
+        "deal_room": "딜룸"
+      },
+      "actions": {
+        "team_chat": {
+          "admin_read_private": "비공개 채널 열람",
+          "erase_person": "사용자 메시지 삭제",
+          "add_members": "채널 멤버 추가",
+          "set_member_role": "채널 역할 변경"
+        },
+        "recordings": {
+          "play": "녹음 재생",
+          "download": "녹음 다운로드",
+          "attach": "녹음 첨부"
+        },
+        "phone": {
+          "erase_contact_calls": "고객 통화 기록 삭제",
+          "dnc_override_call": "연락 금지 고객에게 전화"
+        },
+        "deal_rooms": {
+          "create_requested": "딜룸 요청",
+          "created": "딜룸 생성",
+          "group_created": "WhatsApp 그룹 생성",
+          "guests_pending_approval": "게스트 승인 대기",
+          "guest_user_added": "은행 게스트 추가",
+          "join_request": "참여 요청 접수",
+          "participant_approved": "참여자 승인",
+          "participant_rejected": "참여자 거절",
+          "participant_unlisted": "참여자 제거",
+          "staff_added": "직원 추가",
+          "status_changed": "상태 변경"
+        }
+      },
+      "facts": {
+        "messages": "메시지 {count}개",
+        "files": "파일 {count}개",
+        "recordings": "녹음 {count}개",
+        "calls": "통화 {count}건",
+        "members": "멤버 {count}명",
+        "change": "{from} → {to}",
+        "number": "번호 {value}"
+      },
+      "reason": "사유: {reason}",
+      "loading": "불러오는 중…",
+      "loadFailed": "감사 로그를 불러오지 못했습니다.",
+      "empty": "이 조건에 해당하는 기록이 없습니다.",
+      "newer": "최신",
+      "older": "이전",
+      "page": "{page}페이지"
     }
   },
   "Compass": {

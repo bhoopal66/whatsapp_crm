@@ -14,7 +14,9 @@ import {
   PhoneCall,
   PlugZap,
   Route,
+  ScrollText,
   Shield,
+  ShieldCheck,
   Smartphone,
   Tag,
   TextCursorInput,
@@ -55,6 +57,8 @@ export const SETTINGS_SECTIONS = [
   'members',
   'teams',
   'team-chat',
+  'consent-retention',
+  'audit-log',
   'ai',
   'api',
   'deals',
@@ -176,6 +180,24 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'team-chat': {
     id: 'team-chat',
     icon: MessagesSquare,
+    category: 'team',
+    minRole: 'admin',
+  },
+  // Bank guests and recording per bank (088's bank_guest_policies,
+  // admin-written), the retention summary and the owner-only erasure of
+  // a customer's call recordings. Team, beside Team chat's own erasure:
+  // both answer who may see what of the people the team works with.
+  'consent-retention': {
+    id: 'consent-retention',
+    icon: ShieldCheck,
+    category: 'team',
+    minRole: 'admin',
+  },
+  // One newest-first list over 087-089's four audit tables, each of
+  // which RLS opens to admins of the active account (GET /api/audit).
+  'audit-log': {
+    id: 'audit-log',
+    icon: ScrollText,
     category: 'team',
     minRole: 'admin',
   },
