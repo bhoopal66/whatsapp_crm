@@ -461,6 +461,7 @@ DECLARE
   v_channel   uuid;
   v_room      uuid;
   v_consent   uuid;
+  v_seen      boolean;
 BEGIN
   -- current_account_id() is NULL for a bank guest: guests never create.
   IF v_uid IS NULL OR v_acct IS NULL THEN
@@ -562,20 +563,30 @@ BEGIN
     v_pcontact := NULL;
     IF nullif(v_p->>'contact_id', '') IS NOT NULL THEN
       v_pcontact := (v_p->>'contact_id')::uuid;
-      IF NOT EXISTS (SELECT 1 FROM public.contacts c WHERE c.id = v_pcontact AND c.account_id = v_acct) THEN
+      -- a contact the caller cannot see is as unknown as one that does not exist
+      IF NOT EXISTS (SELECT 1 FROM public.contacts c WHERE c.id = v_pcontact AND c.account_id = v_acct
+                       AND (v_rank >= 4 OR public.can_view_contact(v_acct, c.id, c.user_id))) THEN
         RAISE EXCEPTION 'deal rooms: the contact given for % was not found', v_name USING ERRCODE = 'P0002';
       END IF;
     END IF;
-    -- Nobody who asked not to be contacted is put in a group.
-    IF EXISTS (SELECT 1 FROM public.contacts c
-                WHERE c.account_id = v_acct
-                  AND (c.phone_normalized = v_phone OR c.id = v_pcontact)
-                  AND (c.opted_out_at IS NOT NULL OR c.do_not_contact_at IS NOT NULL)) THEN
+    -- Nobody who asked not to be contacted is put in a group. Whether a
+    -- contact the caller cannot see opted out is not theirs to learn, so
+    -- that refusal reads as an unknown contact (bool_or: NULL = no match).
+    SELECT bool_or(v_rank >= 4 OR public.can_view_contact(v_acct, c.id, c.user_id)) INTO v_seen
+      FROM public.contacts c
+     WHERE c.account_id = v_acct
+       AND (c.phone_normalized = v_phone OR c.id = v_pcontact)
+       AND (c.opted_out_at IS NOT NULL OR c.do_not_contact_at IS NOT NULL);
+    IF v_seen THEN
       RAISE EXCEPTION 'deal rooms: % has opted out or is marked do-not-contact', v_name USING ERRCODE = '22023';
+    ELSIF NOT v_seen THEN
+      RAISE EXCEPTION 'deal rooms: the contact given for % was not found', v_name USING ERRCODE = 'P0002';
     END IF;
+    -- linked by phone only to a contact the caller can see (phone_normalized is unique per account)
     IF v_pcontact IS NULL THEN
       SELECT c.id INTO v_pcontact FROM public.contacts c
-       WHERE c.account_id = v_acct AND c.phone_normalized = v_phone;
+       WHERE c.account_id = v_acct AND c.phone_normalized = v_phone
+         AND (v_rank >= 4 OR public.can_view_contact(v_acct, c.id, c.user_id));
     END IF;
 
     IF v_role = 'customer' THEN
@@ -613,12 +624,15 @@ BEGIN
   VALUES (v_room, v_acct, left(coalesce(nullif(btrim(v_cfg.label), ''), 'Business'), 120), 'business',
           'invited', v_uid);
 
-  -- an agent's bank guest waits for a team leader's approval
+  -- an agent's bank guest waits for a team leader's approval; the consent
+  -- is the consented contact's own, so only the customer row with that
+  -- contact's number carries it (another customer is never invited or
+  -- let in without one: deal_room_admit_block)
   INSERT INTO public.deal_room_participants (room_id, account_id, contact_id, display_name, phone, role,
                                              bank_code, consent_id, status, created_by)
   SELECT v_room, v_acct, (x->>'contact_id')::uuid, x->>'display_name', x->>'phone', x->>'role',
          x->>'bank_code',
-         CASE WHEN x->>'role' = 'customer' THEN v_consent END,
+         CASE WHEN x->>'role' = 'customer' AND x->>'phone' = v_contact.phone_normalized THEN v_consent END,
          CASE WHEN x->>'role' = 'bank_guest' AND v_rank < 3 THEN 'pending_approval' ELSE 'invited' END,
          v_uid
     FROM jsonb_array_elements(v_rows) x;
@@ -653,6 +667,11 @@ BEGIN
     RAISE EXCEPTION 'deal rooms: % is not waiting for approval (status %)', v_p.display_name, v_p.status
       USING ERRCODE = '22023';
   END IF;
+  -- Closing or closed: nobody joins any more (the history stays readable).
+  -- A suspended room may still decide: invites go out only once it is open.
+  IF EXISTS (SELECT 1 FROM public.deal_rooms r WHERE r.id = v_p.room_id AND r.status IN ('closing','closed')) THEN
+    RAISE EXCEPTION 'deal rooms: the room is closed' USING ERRCODE = '22023';
+  END IF;
   IF p_approve AND v_p.role = 'bank_guest'
      AND NOT EXISTS (SELECT 1 FROM public.bank_guest_policies b
                       WHERE b.account_id = v_p.account_id AND b.bank_code = v_p.bank_code AND b.guests_allowed) THEN
@@ -681,6 +700,11 @@ BEGIN
   SELECT * INTO v_r FROM public.deal_rooms WHERE id = p_room;
   IF v_uid IS NULL OR NOT FOUND OR NOT public.deal_room_can_manage(p_room) THEN
     RAISE EXCEPTION 'deal rooms: only a manager of this room can add people' USING ERRCODE = '42501';
+  END IF;
+  -- Closing or closed: nobody new reads it (supervisors still see every
+  -- room). Suspended is WhatsApp's pause: Team notes still work then.
+  IF v_r.status IN ('closing','closed') THEN
+    RAISE EXCEPTION 'deal rooms: the room is closed' USING ERRCODE = '22023';
   END IF;
   FOREACH v_u IN ARRAY coalesce(p_user_ids, '{}'::uuid[]) LOOP
     IF v_u IS NULL OR NOT public.deal_room_is_staff(v_r.account_id, v_u) THEN
@@ -711,6 +735,9 @@ BEGIN
   IF v_uid IS NULL OR NOT FOUND OR v_r.account_id IS DISTINCT FROM public.current_account_id()
      OR public.current_role_rank() < 3 THEN
     RAISE EXCEPTION 'deal rooms: only a team leader or an admin can add a bank guest' USING ERRCODE = '42501';
+  END IF;
+  IF v_r.status IN ('closing','closed') THEN   -- as deal_room_add_staff
+    RAISE EXCEPTION 'deal rooms: the room is closed' USING ERRCODE = '22023';
   END IF;
   SELECT upper(btrim(p.bank_code)) INTO v_bank FROM public.profiles p
    WHERE p.account_id = v_r.account_id AND p.user_id = p_user_id
@@ -834,9 +861,49 @@ BEGIN
           jsonb_build_object('from', v_r.status, 'to', p_status, 'reason', p_reason));
 END $$;
 
+-- Why a listed person may not be invited or let in now; NULL: they may.
+-- The room is not open, they (or the number asking) opted out or are
+-- marked do-not-contact, a customer has no recorded consent, or their
+-- bank's guests were switched off. Join-request auto-approval and every
+-- invite send (lib/deal-rooms/invites.ts) ask this, so they agree.
+CREATE OR REPLACE FUNCTION public.deal_room_admit_block(p_participant uuid, p_wa_id text DEFAULT NULL)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_p public.deal_room_participants;
+  v_r public.deal_rooms;
+BEGIN
+  PERFORM public.deal_room_assert_service();
+  SELECT * INTO v_p FROM public.deal_room_participants WHERE id = p_participant;
+  IF NOT FOUND THEN
+    RETURN 'not_found';
+  END IF;
+  SELECT * INTO v_r FROM public.deal_rooms WHERE id = v_p.room_id;
+  IF v_r.status <> 'open' THEN
+    RETURN 'room_not_open';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.contacts c
+              WHERE c.account_id = v_p.account_id
+                AND (c.id = v_p.contact_id OR c.phone_normalized = v_p.phone
+                     OR c.phone_normalized = nullif(regexp_replace(coalesce(v_p.wa_id, ''), '\D', '', 'g'), '')
+                     OR c.phone_normalized = nullif(regexp_replace(coalesce(p_wa_id, ''), '\D', '', 'g'), ''))
+                AND (c.opted_out_at IS NOT NULL OR c.do_not_contact_at IS NOT NULL)) THEN
+    RETURN 'opted_out';
+  END IF;
+  IF v_p.role = 'customer' AND v_p.consent_id IS NULL THEN
+    RETURN 'no_consent';
+  END IF;
+  IF v_p.role = 'bank_guest' AND NOT EXISTS (SELECT 1 FROM public.bank_guest_policies b
+       WHERE b.account_id = v_p.account_id AND b.bank_code = v_p.bank_code AND b.guests_allowed) THEN
+    RETURN 'bank_guests_off';
+  END IF;
+  RETURN NULL;
+END $$;
+
 -- A join request: 'auto_approved' when it comes from an invited,
--- expected participant (the caller then approves it at Meta), else
--- 'pending' for a manager. A redelivery returns the stored decision.
+-- expected participant nothing blocks (deal_room_admit_block; the caller
+-- then approves it at Meta), else 'pending' for a person to decide, which
+-- on a room that is not open (closed included) is only kept for the
+-- record. A redelivery returns the stored decision.
 CREATE OR REPLACE FUNCTION public.deal_room_record_join_request(p_group_id text, p_join_request_id text, p_wa_id text)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -862,7 +929,7 @@ BEGIN
   v_pid := public.deal_room_find_participant(v_r.id, p_wa_id);
   IF v_pid IS NOT NULL THEN
     SELECT * INTO v_p FROM public.deal_room_participants WHERE id = v_pid;
-    IF v_p.status = 'invited' AND v_p.expected THEN
+    IF v_p.status = 'invited' AND v_p.expected AND public.deal_room_admit_block(v_pid, p_wa_id) IS NULL THEN
       v_decision := 'auto_approved';
     END IF;
   END IF;
@@ -933,7 +1000,12 @@ BEGIN
 END $$;
 
 -- One group message, inbound (webhook) or outbound (after the send),
--- deduplicated on wa_message_id. Inbound reopens the group's 24-hour
+-- deduplicated on wa_message_id. A closed room takes no outbound message
+-- (its transcript is written); a `system` note (an opt-out that arrived
+-- after the close) is not a send and is kept. Inbound messages and
+-- receipts that arrive after the close are stored for the record, and a
+-- room still suspended or closing records what was already sent (the
+-- sender refuses anything but open). Inbound reopens the group's 24-hour
 -- service window and resolves the sender to a participant; outbound is
 -- attributed to our number's participant row and the staff user.
 CREATE OR REPLACE FUNCTION public.deal_room_record_message(
@@ -954,6 +1026,9 @@ BEGIN
   SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'deal rooms: unknown group' USING ERRCODE = 'P0002';
+  END IF;
+  IF p_direction = 'out' AND v_r.status = 'closed' AND p_type IS DISTINCT FROM 'system' THEN
+    RAISE EXCEPTION 'deal rooms: the room is closed' USING ERRCODE = '22023';
   END IF;
   IF p_wa_message_id IS NOT NULL THEN
     SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id;
@@ -1207,7 +1282,8 @@ BEGIN
                 'deal_room_add_unlisted','deal_room_refresh_count','deal_room_create','deal_room_approve_participant',
                 'deal_room_add_staff','deal_room_add_guest_user','deal_room_mark_requested','deal_room_group_created',
                 'deal_room_set_status','deal_room_record_join_request','deal_room_participant_event',
-                'deal_room_record_message','deal_room_record_receipt','deal_files_storage_can_read')
+                'deal_room_record_message','deal_room_record_receipt','deal_files_storage_can_read',
+                'deal_room_admit_block')
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', f);
   END LOOP;
@@ -1231,5 +1307,6 @@ GRANT EXECUTE ON FUNCTION
   public.deal_room_record_join_request(text, text, text),
   public.deal_room_participant_event(text, text, text),
   public.deal_room_record_message(text, text, text, text, text, text, jsonb, text, uuid, text, text),
-  public.deal_room_record_receipt(text, text, text)
+  public.deal_room_record_receipt(text, text, text),
+  public.deal_room_admit_block(uuid, text)
   TO service_role;
