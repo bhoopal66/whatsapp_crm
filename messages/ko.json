@@ -3528,7 +3528,7 @@
       "internal": "내부 전용 — 고객에게 표시되지 않음",
       "membersButton": "멤버",
       "pinned": "고정됨 ({count})",
-      "dealRoomNote": "고객 그룹 보기는 딜 룸과 함께 제공됩니다.",
+      "dealRoomNote": "사이드바의 딜룸에서 이 딜룸을 여세요.",
       "empty": "아직 메시지가 없습니다.",
       "loadingOlder": "이전 메시지를 불러오는 중…",
       "notFound": "이 채널을 사용할 수 없습니다.",
@@ -3723,6 +3723,90 @@
       "inThread": "스레드 답글",
       "erased": "이 메시지는 영구 삭제되었습니다.",
       "noText": "첨부 파일 또는 공유된 대화"
+    },
+    "rooms": {
+      "new": "새 딜룸",
+      "back": "{name}(으)로 돌아가기",
+      "empty": "아직 딜룸이 없습니다.",
+      "subLine": "{count}/{max}명 · {phase}",
+      "phase": {
+        "creating": "생성 중",
+        "waiting": "참여 대기 중",
+        "active": "활성",
+        "suspended": "정지됨",
+        "closing": "종료 중",
+        "closed": "종료됨",
+        "failed": "생성 실패"
+      },
+      "pickTitle": "딜룸을 선택하세요",
+      "pickBody": "각 딜룸은 고객, 파트너, 그리고 초대된 경우 은행 담당자가 함께하는 WhatsApp 그룹입니다.",
+      "notFound": "이 딜룸을 사용할 수 없습니다.",
+      "loadFailed": "딜룸을 불러오지 못했습니다.",
+      "kindLine": "WhatsApp 그룹",
+      "openedBy": "개설: {name}",
+      "linkedDeal": "딜에 연결됨",
+      "tabs": {
+        "label": "룸 보기",
+        "group": "그룹 채팅",
+        "notes": "팀 메모"
+      },
+      "everyone": "<b>이 그룹의 모든 사람이 모든 메시지를 봅니다</b>. 고객과 은행 담당자도 포함됩니다. 내부 의견은 팀 메모에 남기세요.",
+      "banner": {
+        "creating": "아직 WhatsApp 그룹을 만드는 중입니다…",
+        "waiting": "아직 아무도 그룹에 참여하지 않았습니다. 누군가 참여해야 WhatsApp이 그룹 메시지를 받습니다.",
+        "suspended": "WhatsApp이 이 그룹을 정지했습니다. 해제될 때까지 보낼 수 없습니다.",
+        "closing": "이 룸은 종료 중입니다.",
+        "closed": "이 룸은 종료되었습니다. 읽을 수는 있지만 게시할 수 없습니다.",
+        "failed": "WhatsApp이 이 그룹을 만들지 못했습니다."
+      },
+      "window": {
+        "open": "응답 가능 시간 · {hours}시간 {minutes}분 남음",
+        "closed": "응답 가능 시간 종료 · 템플릿만 가능"
+      },
+      "timeline": {
+        "loading": "메시지를 불러오는 중…",
+        "loadOlder": "이전 메시지 불러오기",
+        "empty": "이 그룹에 아직 메시지가 없습니다.",
+        "unsupported": "지원되지 않는 메시지",
+        "savedToDeal": "딜 파일에 자동 저장됨",
+        "template": "템플릿 · {name}",
+        "file": "첨부 파일"
+      },
+      "tag": {
+        "customer": "고객",
+        "partner": "파트너",
+        "bank": "은행",
+        "bankOf": "은행 · {bank}"
+      },
+      "receipts": {
+        "reached": "{delivered}명에게 전달 · {read}명 읽음",
+        "sending": "보내는 중…",
+        "failed": "전달되지 않음"
+      },
+      "composer": {
+        "label": "WhatsApp으로 그룹에 메시지 보내기 · {count, plural, other {#명}}에게 전송",
+        "placeholder": "고객과 은행에 표시됩니다…",
+        "send": "그룹에 보내기",
+        "footer": "응답 가능 시간에는 무료입니다. 템플릿은 받는 멤버마다 요금이 부과됩니다. 보낸 메시지는 수정하거나 삭제할 수 없습니다.",
+        "templateFooter": "응답 가능 시간이 종료되었습니다. 지난 24시간 동안 그룹에서 아무도 메시지를 보내지 않았습니다. 누군가 보낼 때까지 승인된 템플릿만 보낼 수 있으며, 받는 멤버마다 요금이 부과됩니다. 보낸 메시지는 수정하거나 삭제할 수 없습니다.",
+        "templatePick": "승인된 템플릿 선택",
+        "noTemplates": "아직 승인된 템플릿이 없습니다.",
+        "param": "값 {n}",
+        "review": "검토 후 보내기",
+        "confirmTitle": "이 템플릿을 그룹에 보낼까요?",
+        "confirmBody": "{count, plural, other {#명}}에게 전송되며 받는 멤버마다 요금이 부과됩니다. 보낸 후에는 수정하거나 삭제할 수 없습니다.",
+        "confirm": "템플릿 보내기",
+        "cancel": "취소",
+        "errors": {
+          "window_closed": "응답 가능 시간이 방금 종료되었습니다. 승인된 템플릿을 보내세요.",
+          "room_not_open": "이 룸은 열려 있지 않습니다.",
+          "group_not_ready": "아직 아무도 그룹에 참여하지 않았습니다.",
+          "group_suspended": "WhatsApp이 이 그룹을 정지했습니다.",
+          "template_rejected": "WhatsApp이 이 템플릿을 거부했습니다.",
+          "forbidden": "이 룸에 게시할 수 없습니다.",
+          "generic": "보내지 못했습니다. 다시 시도하세요."
+        }
+      }
     }
   },
   "Workspaces": {

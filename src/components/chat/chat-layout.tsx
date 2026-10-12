@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { useParams, usePathname } from 'next/navigation';
 
+import { DealRoomsSidebar } from '@/components/deal-rooms/rooms-sidebar';
 import { useAuth } from '@/hooks/use-auth';
+import { useDealRooms } from '@/hooks/use-deal-rooms';
 import { isSavedPath } from '@/lib/chat/saved';
 import { cn } from '@/lib/utils';
 
@@ -18,26 +20,55 @@ import { NewChannelDialog } from './new-channel-dialog';
  * header has the back link). The New channel dialog and the DM picker
  * are mounted here, inside the workspace provider; never for a guest.
  */
-export function ChatLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ channelId?: string }>();
+export function ChatLayout({
+  children,
+  onCreateDealRoom,
+}: {
+  children: React.ReactNode;
+  /** The deal-room create dialog (a later job). */
+  onCreateDealRoom?: () => void;
+}) {
+  const params = useParams<{ channelId?: string; roomId?: string }>();
   const pathname = usePathname();
-  const { isBankGuest } = useAuth();
+  const { isBankGuest, accountId, account, workspaces, activeWorkspaceId } =
+    useAuth();
+  const { rooms } = useDealRooms(accountId);
   const [composeOpen, setComposeOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const activeChannelId = params?.channelId ?? null;
-  const mainOpen = activeChannelId !== null || isSavedPath(pathname);
+  const activeRoomId = params?.roomId ?? null;
+  // /chat/rooms (the drill-in list) and /chat/rooms/<id> (a room).
+  const inRooms = pathname?.startsWith('/chat/rooms') ?? false;
+  const mainOpen =
+    activeChannelId !== null || activeRoomId !== null || isSavedPath(pathname);
+  const sidebarClass = cn(
+    'w-full shrink-0 lg:w-[300px]',
+    mainOpen && 'hidden lg:flex'
+  );
   return (
     <ChatWorkspaceProvider>
       <div className="flex h-full min-h-0 w-full overflow-hidden">
-        <ChatSidebar
-          activeChannelId={activeChannelId}
-          onCompose={isBankGuest ? undefined : () => setComposeOpen(true)}
-          onNewDm={isBankGuest ? undefined : () => setDmOpen(true)}
-          className={cn(
-            'w-full shrink-0 lg:w-[300px]',
-            mainOpen && 'hidden lg:flex'
-          )}
-        />
+        {inRooms ? (
+          <DealRoomsSidebar
+            rooms={rooms}
+            activeRoomId={activeRoomId}
+            workspaceName={
+              workspaces.find((w) => w.accountId === activeWorkspaceId)?.name ??
+              account?.name ??
+              ''
+            }
+            onCreateDealRoom={isBankGuest ? undefined : onCreateDealRoom}
+            className={sidebarClass}
+          />
+        ) : (
+          <ChatSidebar
+            activeChannelId={activeChannelId}
+            rooms={rooms}
+            onCompose={isBankGuest ? undefined : () => setComposeOpen(true)}
+            onNewDm={isBankGuest ? undefined : () => setDmOpen(true)}
+            className={sidebarClass}
+          />
+        )}
         <div
           className={cn(
             'bg-background min-w-0 flex-1',

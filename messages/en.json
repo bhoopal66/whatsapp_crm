@@ -3528,7 +3528,7 @@
       "internal": "Internal — customers never see this",
       "membersButton": "Members",
       "pinned": "Pinned ({count})",
-      "dealRoomNote": "The customer group view arrives with deal rooms.",
+      "dealRoomNote": "Open this deal room from Deal rooms in the sidebar.",
       "empty": "No messages yet.",
       "loadingOlder": "Loading older messages…",
       "notFound": "This channel isn't available.",
@@ -3723,6 +3723,90 @@
       "inThread": "in a thread",
       "erased": "This message was erased.",
       "noText": "Attachment or shared conversation"
+    },
+    "rooms": {
+      "new": "New deal room",
+      "back": "Back to {name}",
+      "empty": "No deal rooms yet.",
+      "subLine": "{count} of {max} members · {phase}",
+      "phase": {
+        "creating": "creating",
+        "waiting": "waiting to join",
+        "active": "active",
+        "suspended": "suspended",
+        "closing": "closing",
+        "closed": "closed",
+        "failed": "couldn't be created"
+      },
+      "pickTitle": "Pick a deal room",
+      "pickBody": "Each deal room is a WhatsApp group with the customer, the partner and, when invited, a bank officer.",
+      "notFound": "This deal room isn't available.",
+      "loadFailed": "Couldn't load this deal room.",
+      "kindLine": "WhatsApp group",
+      "openedBy": "opened by {name}",
+      "linkedDeal": "linked to a deal",
+      "tabs": {
+        "label": "Room view",
+        "group": "Group chat",
+        "notes": "Team notes"
+      },
+      "everyone": "<b>Everyone in this group sees every message</b>, including the customer and the bank officer. Keep internal remarks in Team notes.",
+      "banner": {
+        "creating": "Still creating the WhatsApp group…",
+        "waiting": "Nobody has joined the group yet. WhatsApp accepts group messages once someone has.",
+        "suspended": "WhatsApp suspended this group. Nothing can be sent until that is cleared.",
+        "closing": "This room is closing.",
+        "closed": "This room is closed. You can read it, but not post.",
+        "failed": "WhatsApp couldn't create this group."
+      },
+      "window": {
+        "open": "Reply window open · {hours} h {minutes} min left",
+        "closed": "Reply window closed · templates only"
+      },
+      "timeline": {
+        "loading": "Loading messages…",
+        "loadOlder": "Load older messages",
+        "empty": "No messages in this group yet.",
+        "unsupported": "Unsupported message",
+        "savedToDeal": "Saved to deal file automatically",
+        "template": "Template · {name}",
+        "file": "Attachment"
+      },
+      "tag": {
+        "customer": "Customer",
+        "partner": "Partner",
+        "bank": "Bank",
+        "bankOf": "Bank · {bank}"
+      },
+      "receipts": {
+        "reached": "Delivered to {delivered} · Read by {read}",
+        "sending": "Sending…",
+        "failed": "Not delivered"
+      },
+      "composer": {
+        "label": "Message the group on WhatsApp · goes to {count, plural, =1 {# person} other {# people}}",
+        "placeholder": "Visible to the customer and the bank…",
+        "send": "Send to group",
+        "footer": "Free inside the reply window. Templates are charged per member who receives them. Sent messages can't be edited or deleted.",
+        "templateFooter": "The reply window is closed: nobody in the group has written in the last 24 hours. Until someone does, only an approved template can be sent, charged per member who receives it. Sent messages can't be edited or deleted.",
+        "templatePick": "Pick an approved template",
+        "noTemplates": "No approved templates yet.",
+        "param": "Value {n}",
+        "review": "Review and send",
+        "confirmTitle": "Send this template to the group?",
+        "confirmBody": "It goes to {count, plural, =1 {# person} other {# people}} and is charged per member who receives it. It can't be edited or deleted once sent.",
+        "confirm": "Send template",
+        "cancel": "Cancel",
+        "errors": {
+          "window_closed": "The reply window just closed. Send an approved template instead.",
+          "room_not_open": "This room isn't open.",
+          "group_not_ready": "Nobody has joined the group yet.",
+          "group_suspended": "WhatsApp suspended this group.",
+          "template_rejected": "WhatsApp refused this template.",
+          "forbidden": "You can't post in this room.",
+          "generic": "Couldn't send. Try again."
+        }
+      }
     }
   },
   "Workspaces": {
