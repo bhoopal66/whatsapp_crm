@@ -54,7 +54,8 @@
     "workspaceDeactivated": "Deactivated",
     "workspaceSwitchFailed": "Couldn't switch workspace: {reason}",
     "chat": "Team chat",
-    "unreadChat": "{count} unread team chat {count, plural, =1 {message} other {messages}}"
+    "unreadChat": "{count} unread team chat {count, plural, =1 {message} other {messages}}",
+    "journeys": "Journeys"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -2029,7 +2030,8 @@
       "ai": "AI Agents",
       "api": "API keys",
       "deals": "Deals & currency",
-      "team-chat": "Team chat"
+      "team-chat": "Team chat",
+      "journey-bot": "Journey bot"
     },
     "categories": {
       "overview": "Overview",
@@ -2812,6 +2814,79 @@
         "summary": "{messages, plural, one {# message} other {# messages}} erased, {files, plural, one {# file} other {# files}} deleted.",
         "summaryFilesOnly": "Messages erased, {files, plural, one {# file} other {# files}} deleted.",
         "filesFailed": "{count, plural, one {# file} other {# files}} could not be deleted from storage. The paths are in the server log."
+      }
+    },
+    "journeyBot": {
+      "title": "Journey bot",
+      "description": "The “Welcome to Close” journey: the bot walks a business customer on WhatsApp from the first message to a closed deal.",
+      "loadFailed": "Couldn't load the journey bot settings.",
+      "saveFailed": "Couldn't save. Try again.",
+      "saved": "Saved",
+      "bot": {
+        "title": "Bot",
+        "enabled": "Journey bot",
+        "enabledHint": "The journey bot walks a business customer on WhatsApp from the first message to a closed deal for one of three products — a POS terminal, a business account or a business loan — and hands the steps only a person can take to an advisor as decisions on the Journeys screen. While it is on, the bot answers on WhatsApp and runs its timers. Marketing templates go only to customers with a recorded marketing opt-in.",
+        "firstInbound": "Start a journey on a customer's first message",
+        "firstInboundHint": "A customer with no open journey who writes in starts one. Off: only a cold start from the CRM does."
+      },
+      "did": {
+        "title": "Taamul phone number for the Call button",
+        "description": "The number behind the Call Taamul button of the document-request, application-status and fulfilment templates. International format, such as +97141234567; leave it empty to clear it.",
+        "placeholder": "+97141234567",
+        "invalid": "Enter an international number such as +97141234567.",
+        "unset": "Not set yet.",
+        "save": "Save number"
+      },
+      "templates": {
+        "title": "Templates checklist",
+        "description": "Every MARKETING and UTILITY message is a template. On a Meta number it must be APPROVED in the WABA under exactly this name; on a Whapi number it must exist as a message template. A missing or unapproved one is skipped and opens a task.",
+        "name": "Template",
+        "category": "Category",
+        "buttons": "Buttons",
+        "meta": "Meta number",
+        "whapi": "Whapi number",
+        "callButton": "Call Taamul",
+        "categories": {
+          "MARKETING": "Marketing",
+          "UTILITY": "Utility"
+        },
+        "state": {
+          "approved": "Approved ✓",
+          "pending": "Pending",
+          "notApproved": "Not approved ({status})",
+          "missing": "Missing",
+          "present": "Present",
+          "create": "create it in Templates"
+        },
+        "noNumbers": "No WhatsApp number is connected, so no template can be sent yet.",
+        "loadFailed": "Couldn't load the account's templates.",
+        "sessionNote": "SESSION messages need no template: they go out as free-form messages inside the 24-hour service window, worded below."
+      },
+      "copy": {
+        "title": "Session copy",
+        "description": "The bot's SESSION messages are default, editable copy, sent as reply buttons, a list or text inside the service window. Leave a field empty to use the default shown in grey.",
+        "messages": {
+          "welcome_menu": "Welcome menu",
+          "pos_pitch_in_window": "POS pitch (in window)",
+          "acct_pitch_in_window": "Business account pitch (in window)",
+          "loan_pitch_in_window": "Business loan pitch (in window)",
+          "callback_ack": "Call-back acknowledgement"
+        },
+        "body": "Message",
+        "bodyFallback": "Message when no variant applies",
+        "buttonLabel": "List button label",
+        "variants": {
+          "IN_HOURS": "In hours",
+          "OUT_OF_HOURS": "Out of hours"
+        },
+        "payload": "Payload",
+        "buttonTitle": "Reply-button title",
+        "rowTitle": "List-row title",
+        "reset": "Reset to default",
+        "resetTitle": "Reset this title to default",
+        "sharedTitles": "A title is shared by every message that shows its payload. A template's quick-reply button may read as either the default title or yours.",
+        "tooLong": "{count, plural, =1 {One text is} other {# texts are}} too long for WhatsApp.",
+        "save": "Save copy"
       }
     }
   },
@@ -3710,6 +3785,204 @@
       "loginCreated": "Login created and added",
       "loginFailed": "Couldn't create the login",
       "continue": "Continue"
+    }
+  },
+  "Journeys": {
+    "title": "Journeys",
+    "subtitle": "Where each customer is in the journey bot, and what is waiting on an advisor.",
+    "states": {
+      "NEW": "Starting",
+      "S_MENU": "Menu",
+      "P_PITCH": "POS pitch",
+      "P_QUOTE_WAIT": "Waiting for quote",
+      "P_COMPARE_WAIT": "Waiting for rate comparison",
+      "P_DECIDE": "Deciding on quote",
+      "B_PITCH": "Account pitch",
+      "L_PITCH": "Loan pitch",
+      "PRESCREEN": "Eligibility prescreen",
+      "DOCS": "Documents",
+      "SUBMITTED": "Submitted to partner",
+      "REMATCH": "Re-matching partner",
+      "FULFILMENT": "Fulfilment",
+      "WON": "Won",
+      "PARKED": "Parked",
+      "RE_ENGAGE": "Re-engaging",
+      "CLOSED_NO_FIT": "Closed: no fit",
+      "CLOSED_DECLINED": "Closed: declined",
+      "CLOSED_REJECTED": "Closed: offer rejected",
+      "CLOSED_NO_RESPONSE": "Closed: no response",
+      "CLOSED_OPTED_OUT": "Closed: opted out",
+      "CLOSED_ADVISOR": "Closed by advisor"
+    },
+    "stages": {
+      "menu": "Menu",
+      "pitch": "Pitch",
+      "quote": "Quote / Prescreen",
+      "docs": "Docs",
+      "submitted": "Submitted",
+      "fulfilment": "Fulfilment",
+      "won": "Won",
+      "parked": "Parked",
+      "closed": "Closed"
+    },
+    "products": {
+      "POS": "POS terminal",
+      "ACCOUNT": "Business account",
+      "LOAN": "Business loan"
+    },
+    "entry": {
+      "INBOUND": "Inbound",
+      "COLD": "Cold"
+    },
+    "decisions": {
+      "FIT": "Fit",
+      "NO_FIT": "No fit",
+      "QUOTE_READY": "Quote ready",
+      "COMPARISON_READY": "Comparison ready",
+      "DOCS_COMPLETE": "Docs complete",
+      "SUBMITTED": "Submitted to partner",
+      "PARTNER_APPROVED": "Partner approved",
+      "PARTNER_MORE_INFO": "Partner needs more info",
+      "PARTNER_DECLINED": "Partner declined",
+      "FULFILMENT_SCHEDULED": "Fulfilment scheduled",
+      "CLOSE": "Close journey"
+    },
+    "outcomes": {
+      "WON": "Won",
+      "NOT_WON": "Not won",
+      "PARKED": "Parked"
+    },
+    "reasons": {
+      "CONVERTED": "Converted",
+      "OUTSIDE_APPETITE": "Outside appetite",
+      "DECLINED_NO_REMATCH": "Declined, no re-match",
+      "OFFER_REJECTED": "Offer rejected",
+      "NO_RESPONSE": "No response",
+      "OPT_OUT": "Opted out",
+      "NOT_NOW": "Customer said not now",
+      "NEED_TIME": "Customer needs more time",
+      "VALIDITY_LAPSED": "Quote or offer lapsed"
+    },
+    "timers": {
+      "docsReminder": "Docs reminder",
+      "nudge": "Nudge",
+      "reengage": "Re-engagement message",
+      "autoClose": "Auto-close",
+      "expiry": "Quote or offer expires",
+      "thankYou": "Thank-you message",
+      "other": "Next step"
+    },
+    "card": {
+      "title": "Journey",
+      "none": "No journey",
+      "start": "Start journey",
+      "startAgain": "Start a new journey",
+      "startHint": "Sends the opt-in welcome template (a paid marketing message), then the menu.",
+      "blocked": {
+        "optedOut": "Opted out: can't start",
+        "doNotContact": "Do not contact: can't start",
+        "noOptIn": "Record a marketing opt-in first"
+      },
+      "window": {
+        "open": "Reply window open until {time}",
+        "closed": "Reply window closed: templates only",
+        "freeEntry": "Free entry until {time}"
+      },
+      "next": "{label} {when}",
+      "outcome": "{kind}: {reason}",
+      "history": "Recent steps",
+      "reason": "Reason",
+      "chooseReason": "Choose a reason",
+      "validUntil": "Valid until (optional)",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "saved": "Journey updated",
+      "started": "Journey started",
+      "alreadyStarted": "This customer's journey is already under way",
+      "deliveryLater": "Saved, but a message could not be sent yet; it will be retried",
+      "loadError": "Couldn't load the journey"
+    },
+    "errors": {
+      "DECISION_NOT_AVAILABLE": "That decision isn't available at this step any more.",
+      "REASON_REQUIRED": "Choose a reason to close the journey.",
+      "CONFLICT": "The journey changed while saving. Try again.",
+      "DUPLICATE": "That was already done.",
+      "OPTED_OUT": "This customer has opted out.",
+      "DO_NOT_CONTACT": "This customer is marked do not contact.",
+      "NO_MARKETING_OPT_IN": "Record the customer's marketing opt-in first.",
+      "JOURNEYS_DISABLED": "The journey bot is switched off for this account.",
+      "UNKNOWN_WORKFLOW": "This journey uses a workflow this app doesn't know.",
+      "WRONG_PRODUCT": "That decision doesn't apply to this product.",
+      "NO_CONSENT": "Not sent: the customer has no marketing opt-in.",
+      "WINDOW_CLOSED": "Not sent: the reply window is closed.",
+      "CAP_REACHED": "Not sent: that message already went out.",
+      "generic": "Couldn't save. Try again."
+    },
+    "consent": {
+      "title": "Consent",
+      "optIn": "Marketing opt-in",
+      "optInAt": "{date} · {source}",
+      "none": "Not recorded",
+      "record": "Record opt-in",
+      "source": "Source",
+      "chooseSource": "Choose a source",
+      "sources": {
+        "verbal": "Verbal",
+        "written_form": "Written form",
+        "whatsapp_message": "WhatsApp message",
+        "website": "Website"
+      },
+      "dnc": "Do not contact",
+      "dncAt": "{date} · {reason}",
+      "dncNone": "Not set",
+      "setDnc": "Mark do not contact",
+      "dncReason": "Reason",
+      "clear": "Clear",
+      "clearAdminOnly": "Only an admin can clear do not contact",
+      "optedOut": "Opted out",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saved": "Consent updated",
+      "history": "Consent history",
+      "events": {
+        "marketing_opt_in": "Opt-in recorded",
+        "marketing_opt_in_withdrawn": "Opt-in withdrawn",
+        "opted_out": "Opted out",
+        "resubscribed": "Re-subscribed",
+        "do_not_contact_set": "Do not contact set",
+        "do_not_contact_cleared": "Do not contact cleared"
+      },
+      "errors": {
+        "sourceRequired": "An opt-in needs its source.",
+        "adminOnly": "Only an admin can clear do not contact.",
+        "notAllowed": "You can't change this customer's consent.",
+        "generic": "Couldn't save. Try again."
+      },
+      "withdraw": "Withdraw opt-in",
+      "withdrawTitle": "Withdraw the marketing opt-in?",
+      "withdrawBody": "Marketing templates stop going to this customer until an opt-in is recorded again. Messages about their own application still go out.",
+      "withdrawConfirm": "Withdraw"
+    },
+    "page": {
+      "funnel": "Stages",
+      "funnelNote": "Latest {count} journeys",
+      "stage": "Stage",
+      "allStages": "All stages",
+      "product": "Product",
+      "allProducts": "All products",
+      "openOnly": "Open only",
+      "columns": {
+        "customer": "Customer",
+        "state": "Step",
+        "product": "Product",
+        "entry": "Entry",
+        "outcome": "Outcome",
+        "updated": "Last change"
+      },
+      "empty": "No journeys match",
+      "loadError": "Couldn't load journeys",
+      "noChat": "No chat yet",
+      "openChat": "Open chat"
     }
   }
 }

@@ -113,6 +113,13 @@ which nothing uses yet.
 
 ### Journey bot: WhatsApp journeys from first message to closed deal
 
+In the app: each customer's panel in the inbox shows their journey —
+stage, reply window, next reminder and the advisor decisions that stage
+accepts — next to their marketing consent and do-not-contact flag; a
+**Journeys** page shows every journey by stage; and **Settings → Journey
+bot** switches the bot on, checks which templates are still missing or
+unapproved, and edits the bot's session messages and button titles.
+
 The journey bot (module 016, "Welcome to Close") now answers on
 WhatsApp for accounts whose admin switches it on (`enabled` in
 `PUT /api/journeys/settings`):
