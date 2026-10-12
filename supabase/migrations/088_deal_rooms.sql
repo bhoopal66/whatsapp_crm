@@ -26,10 +26,15 @@
 --    caller, or the service role (the Meta client and webhooks). Clients
 --    get SELECT only (bank_guest_policies and deal_room_settings: admins
 --    also write).
---  * Who sees a room (deal_room_access): team leaders and up see every
---    room of their ACTIVE account ('supervisor'); agents and viewers see
---    rooms whose channel they are a member of ('staff'); a bank guest of
---    the room's account who is a channel member sees it as 'guest'.
+--  * Who sees a room (deal_room_access): owners and admins see every
+--    room of their ACTIVE account ('supervisor'), a team leader the rooms
+--    whose contact and deal they can see (can_view_contact /
+--    can_view_deal); others there see rooms whose channel they are a
+--    member of ('staff'); a bank guest of the room's account who is a
+--    channel member sees it as 'guest' while their bank's guests are
+--    allowed and the room has an approved, not removed participant of
+--    their bank. A guest reads group messages from when they joined the
+--    channel on (deal_room_visible_since).
 --  * What a guest sees, inside their rooms only: deal_rooms and
 --    group_messages / group_message_receipts rows, and the people
 --    through the deal_room_roster view (display name, role, status —
@@ -319,19 +324,45 @@ CREATE TRIGGER deal_rooms_guard BEFORE INSERT OR UPDATE OF channel_id, whatsapp_
 
 -- ---------- 3. Access helpers ----------
 
--- The caller's access to a room: 'supervisor' (team leader and up in the
--- room's account, which is their active one), 'staff' (agent or viewer
--- there who is a member of the room's channel), 'guest' (a bank guest of
--- the room's account who is a member of the channel), else NULL.
+-- A team leader supervises a room only when the room's customer is theirs
+-- to see: its contact (can_view_contact) and its deal, if any
+-- (can_view_deal), the checks deal_room_create makes. A leader with no
+-- team sees no one else's room.
+CREATE OR REPLACE FUNCTION public.deal_room_leader_sees(p_room uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.deal_rooms r
+      JOIN public.contacts c ON c.id = r.contact_id AND c.account_id = r.account_id
+      LEFT JOIN public.deals d ON d.id = r.deal_id AND d.account_id = r.account_id
+     WHERE r.id = p_room
+       AND public.can_view_contact(r.account_id, c.id, c.user_id)
+       AND (r.deal_id IS NULL
+            OR (d.id IS NOT NULL AND public.can_view_deal(r.account_id, public.deal_owner(d.assigned_to, d.user_id)))))
+$$;
+
+-- The caller's access to a room, in the room's account (their active
+-- one): 'supervisor' (owner/admin, or a team leader who sees the room's
+-- customer: deal_room_leader_sees), 'staff' (anyone else there who is a
+-- member of the room's channel), 'guest' (a bank guest of the room's
+-- account who is a member of the channel, while their bank's guests are
+-- allowed and the room has an approved bank_guest participant of their
+-- bank that was not removed), else NULL.
 CREATE OR REPLACE FUNCTION public.deal_room_access(p_room uuid)
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT CASE
-           WHEN r.account_id = public.current_account_id() AND public.current_role_rank() >= 3 THEN 'supervisor'
+           WHEN r.account_id = public.current_account_id()
+                AND (public.current_role_rank() >= 4
+                     OR (public.current_role_rank() = 3 AND public.deal_room_leader_sees(r.id))) THEN 'supervisor'
            WHEN r.account_id = public.current_account_id() AND m.user_id IS NOT NULL THEN 'staff'
            WHEN m.user_id IS NOT NULL AND EXISTS (
                   SELECT 1 FROM public.profiles p
+                    JOIN public.bank_guest_policies b
+                      ON b.account_id = p.account_id AND b.bank_code = upper(btrim(p.bank_code)) AND b.guests_allowed
                    WHERE p.user_id = auth.uid() AND p.account_id = r.account_id
-                     AND p.account_role = 'bank_guest' AND p.deactivated_at IS NULL) THEN 'guest'
+                     AND p.account_role = 'bank_guest' AND p.deactivated_at IS NULL
+                     AND EXISTS (SELECT 1 FROM public.deal_room_participants x
+                                  WHERE x.room_id = r.id AND x.role = 'bank_guest' AND x.bank_code = b.bank_code
+                                    AND x.status NOT IN ('pending_approval','rejected','removed'))) THEN 'guest'
          END
     FROM public.deal_rooms r
     LEFT JOIN public.chat_channel_members m ON m.channel_id = r.channel_id AND m.user_id = auth.uid()
@@ -346,13 +377,15 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, p
                     AND p.deactivated_at IS NULL AND p.account_role <> 'bank_guest')
 $$;
 
--- Managers: team leaders and up of the room's account, or an agent who
--- is the room channel's admin or owns the room's contact.
+-- Managers, in the room's account: owners and admins, a team leader who
+-- sees the room's customer (deal_room_leader_sees), or an agent and up
+-- who is the room channel's admin or owns the room's contact.
 CREATE OR REPLACE FUNCTION public.deal_room_can_manage(p_room uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT coalesce((
     SELECT r.account_id = public.current_account_id()
-           AND (public.current_role_rank() >= 3
+           AND (public.current_role_rank() >= 4
+                OR (public.current_role_rank() = 3 AND public.deal_room_leader_sees(r.id))
                 OR (public.current_role_rank() >= 2
                     AND (EXISTS (SELECT 1 FROM public.chat_channel_members m
                                   WHERE m.channel_id = r.channel_id AND m.user_id = auth.uid() AND m.role = 'admin')
@@ -376,6 +409,20 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, p
            END
       FROM public.deal_rooms r
      WHERE r.id = p_room), false)
+$$;
+
+-- The oldest group message the caller may read in a room: all of them
+-- for staff, a guest's from when they joined the room's channel, none
+-- (NULL) without access.
+CREATE OR REPLACE FUNCTION public.deal_room_visible_since(p_room uuid)
+RETURNS timestamptz LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT CASE public.deal_room_access(p_room)
+           WHEN 'supervisor' THEN '-infinity'::timestamptz
+           WHEN 'staff' THEN '-infinity'::timestamptz
+           WHEN 'guest' THEN (SELECT m.joined_at FROM public.deal_rooms r
+                                JOIN public.chat_channel_members m ON m.channel_id = r.channel_id
+                               WHERE r.id = p_room AND m.user_id = auth.uid())
+         END
 $$;
 
 -- Server-only functions refuse a signed-in caller even if a grant slips.
@@ -1110,11 +1157,22 @@ END $$;
 
 -- Everyone who can open a room (a guest included) sees its people here:
 -- name, role and status, never a phone number or WhatsApp id. Runs with
--- the owner's rights, so the WHERE clause is the whole access rule.
+-- the owner's rights, so the WHERE clause is the whole access rule. A
+-- guest sees 'Unlisted number ending NN' instead of a name the system
+-- made from the phone (someone nobody listed is named '+<digits>') or one
+-- that contains the person's number.
 CREATE OR REPLACE VIEW public.deal_room_roster WITH (security_barrier = true) AS
-  SELECT p.id, p.room_id, p.display_name, p.role, p.status, p.joined_at, p.left_at
+  SELECT p.id, p.room_id,
+         CASE WHEN a.access = 'guest'
+                   AND (NOT p.expected
+                        OR (p.phone IS NOT NULL AND strpos(regexp_replace(p.display_name, '\D', '', 'g'), p.phone) > 0))
+              THEN 'Unlisted number' || coalesce(' ending ' || right(p.phone, 2), '')
+              ELSE p.display_name
+         END AS display_name,
+         p.role, p.status, p.joined_at, p.left_at
     FROM public.deal_room_participants p
-   WHERE public.deal_room_access(p.room_id) IS NOT NULL;
+   CROSS JOIN LATERAL (SELECT public.deal_room_access(p.room_id) AS access OFFSET 0) a
+   WHERE a.access IS NOT NULL;
 
 -- ---------- 7. Files: the private deal-files bucket ----------
 
@@ -1175,13 +1233,13 @@ CREATE POLICY deal_rooms_read ON public.deal_rooms
 
 DROP POLICY IF EXISTS group_messages_read ON public.group_messages;
 CREATE POLICY group_messages_read ON public.group_messages
-  FOR SELECT TO authenticated USING (public.deal_room_access(room_id) IS NOT NULL);
+  FOR SELECT TO authenticated USING (created_at >= public.deal_room_visible_since(room_id));
 
 DROP POLICY IF EXISTS group_message_receipts_read ON public.group_message_receipts;
 CREATE POLICY group_message_receipts_read ON public.group_message_receipts
   FOR SELECT TO authenticated
   USING (EXISTS (SELECT 1 FROM public.group_messages g
-                  WHERE g.id = message_id AND public.deal_room_access(g.room_id) IS NOT NULL));
+                  WHERE g.id = message_id AND g.created_at >= public.deal_room_visible_since(g.room_id)));
 
 -- a room's files: its staff; a deal's files: whoever deals RLS shows it to
 DROP POLICY IF EXISTS deal_files_read ON public.deal_files;
@@ -1277,7 +1335,7 @@ DECLARE f regprocedure;
 BEGIN
   FOR f IN SELECT p.oid::regprocedure FROM pg_proc p
             WHERE p.pronamespace = 'public'::regnamespace
-              AND p.proname IN ('deal_room_append_only','deal_rooms_guard','deal_room_access','deal_room_is_staff',
+              AND p.proname IN ('deal_room_append_only','deal_rooms_guard','deal_room_leader_sees','deal_room_access','deal_room_visible_since','deal_room_is_staff',
                 'deal_room_can_manage','deal_room_can_post','deal_room_assert_service','deal_room_find_participant',
                 'deal_room_add_unlisted','deal_room_refresh_count','deal_room_create','deal_room_approve_participant',
                 'deal_room_add_staff','deal_room_add_guest_user','deal_room_mark_requested','deal_room_group_created',
@@ -1296,7 +1354,7 @@ GRANT EXECUTE ON FUNCTION
   public.deal_room_can_manage(uuid), public.deal_room_can_post(uuid),
   public.deal_room_approve_participant(uuid, boolean),
   public.deal_room_add_staff(uuid, uuid[]), public.deal_room_add_guest_user(uuid, uuid),
-  public.deal_room_access(uuid), public.deal_files_storage_can_read(text)
+  public.deal_room_access(uuid), public.deal_room_visible_since(uuid), public.deal_files_storage_can_read(text)
   TO authenticated;
 
 -- service_role: the Meta client and the webhooks.
