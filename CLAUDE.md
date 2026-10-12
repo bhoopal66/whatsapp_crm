@@ -11,7 +11,7 @@ npm run dev            # Next dev server on :3000
 npm run build          # Production build (also typechecks)
 npm run typecheck      # tsc --noEmit — fastest correctness pass
 npm run lint           # ESLint (eslint-config-next flat config)
-npm test               # vitest run (node environment, ~8s, 1,200+ tests)
+npm test               # vitest run (node environment, ~30s, 3,400+ tests)
 npm run test:watch
 ```
 
@@ -29,12 +29,11 @@ on every PR. It does *not* run `format:check`.
   tree has never been fully formatted — a repo-wide run rewrites ~360
   files and buries your diff. Format only what you touched:
   `npx prettier --write <path>`.
-- **Lint is a gate, and it fails on `main`** (as of 2026-09-16, commit
-  `c888ed7`): `@typescript-eslint/no-explicit-any` errors in
-  `src/app/api/whatsapp/meta/webhook/route.ts`, plus ~40 warnings (mostly
-  unused `eslint-disable` directives). Verify against a clean tree
-  (`git stash` → `npm run lint` → `git stash pop`) before assuming your
-  change caused a lint error.
+- **Lint is a gate.** As of 2026-10-12 (`7c1c16f`) `main` lints with
+  0 errors and ~30 pre-existing warnings (mostly unused vars and unused
+  `eslint-disable` directives), so any *error* is yours. Don't use
+  `git stash` to compare against a clean tree — worktrees share one stash
+  stack; set your change aside as a patch file instead.
 - **The test environment is `node`, with no jsdom.** `*.test.tsx` files
   are included, but they can't mount components: they either render
   server-side (`renderToStaticMarkup`, see
@@ -504,6 +503,12 @@ identical openers in first messages, failures, response times.
 - **Tests.** The SQL behaviour is asserted in
   `supabase/ci/verify-team-activity.sql`.
 
+SQL invariants of most recent migrations are asserted by a
+`supabase/ci/verify-*.sql` file of their own (chat tags, opt-out,
+partner banks, pipeline deals, approved answers, …), each a step in
+`.github/workflows/migrations.yml`. A migration that changes one of those
+rules updates its verify file; a new verify file must be wired in there.
+
 ### Chat tags (`lib/chat-tags/*`, migrations 075–076)
 
 Admin-defined, colour-coded tags that replaced the chat header's
@@ -569,6 +574,24 @@ filter, and the public API (conversations carry `chat_tag` /
   (UUID-guarded) and re-applied client-side. A save that lands after
   the agent opened another chat must not patch it:
   `patchIfSameConversation` checks inside the state updater.
+
+### Pipelines (`lib/pipelines/*`, migration 080)
+
+Deal visibility follows the deal's **owner** (assignee, else creator),
+not its contact: admins see all, leaders their own and their team's,
+agents and viewers their own (`can_view_deal`, also the WITH CHECK on
+insert/update). `deals.assigned_to` is a `profiles.id` but
+`deals.user_id` an auth user id, so a person is carried as both
+(`deal_owner()` in SQL, `PersonIds` in `lib/pipelines/owner.ts`).
+
+A stage linked to a main chat tag (`pipeline_stages.auto_chat_tag_id`)
+gets a deal opened by the `create_deals_for_chat_tag` trigger when a
+chat *arrives* at that tag — never on a sub-tag change, never moving an
+existing deal, skipped while the contact has an open deal in that
+pipeline, and it never blocks the tag write (failures are WARNINGs).
+Automation/flow tagging fires it too. Links are written one stage at a
+time, clears before sets (`stage-tag-links.ts`), because a partial
+unique index allows one stage per tag per pipeline.
 
 ### Flows vs Automations
 
@@ -642,6 +665,30 @@ embeddings key it degrades to lexical-only rather than failing.
 - *Pauses.* `ai_paused_reason` records why the bot is paused. The `agent_reply` pause is set by a `messages` trigger, never by app code, and only that pause auto-resumes.
 - *Outcomes.* Every dispatch records one outcome (`outcomes.ts`) on the conversation and in `ai_reply_events`. That record is how "why didn't the AI reply" gets answered, so an exit path without one is a bug.
 - *Time budget.* The dispatch runs on a deadline inside the 60 s `after()`. A step that cannot fit is skipped in favour of a hand-off, never left to be killed.
+- *Partner banks (078).* `ts_account_settings.partner_banks` (`{codes, custom}`) is the account's own list for the guardrail; NULL means the built-in `PARTNER_BANK_CODES` (`lib/typesafe/banks.ts`). Parsed tolerantly by `parsePartnerBanks`.
+- *Important pin (078).* `conversations.ai_attention_at` is stamped at hand-off; the inbox pins those chats with a red "Important" label (`lib/inbox/attention.ts`). A person's reply clears it via 077's messages trigger (`ai_pause_on_agent_reply()`), whatever the AI config now says; Take over / Resume / acting on a held draft clear it too.
+- *Every number (079).* `ai_configs.reply_on_all_numbers` (default false) answers on the number the customer wrote to instead of only the `ai_reply` route; a chat pinned with `send_channel_id` is left alone.
+
+**Approved answers (migration 081, `lib/kb/*`, `docs/ai-agent.md`).**
+`ai_configs.answer_mode = 'approved'` is a bot that **never writes
+text**: it sends one admin-approved `kb_entries` row verbatim or hands
+off. Pipeline: the usual gates and triage (no router) →
+`kb_shortlist()` (SQL, ≤ 8 rows; `KB_SELECT_MAX_CANDIDATES` in
+`lib/typesafe/checks/kb-select.ts` — change one, change both) → a
+TypeSafe `kb_select` judgment → `lib/kb/select-policy.ts` (a pricing,
+legal or angry signal ≥ 0.5 → reason `kb`; best score below
+`approved_min_score` → `no_knowledge`). No TypeSafe means every message
+is handed off, never sent unjudged; the guardrail does not run on
+approved text. Invariants held in SQL: `internal_staff` rows are
+hard-coded out of `kb_shortlist`; an `approved` row cannot be blank or
+carry a `[TO CONFIRM …]` placeholder (CHECK); a trigger bumps `version`
+on any change an approval depends on, and `PATCH /api/ai/kb/[id]`
+updates only the version it displayed. Import is `kb_import()` from the
+review spreadsheet (`lib/kb/import.ts`), as the calling admin, by
+`(account_id, ref)`; a file with no Status column cannot publish an
+edit. `sensitive_data_reply` (`lib/kb/sensitive.ts` — Emirates ID,
+Luhn-checked card, checksummed IBAN) applies in **both** modes and
+short-circuits model and TypeSafe.
 
 ### TypeSafe decision layer (`lib/typesafe/*`, migrations 063–064)
 
@@ -784,6 +831,6 @@ fails if one is wired to plain `t()`.
   user-visible changes belong in `CHANGELOG.md` and self-hosting
   behaviour is documented in `docs/` — `whapi.md`, `meta-cloud-api.md`,
   `docker.md`, `public-api.md`, `mcp.md`, `campaign-journeys.md`,
-  `compass.md`, `typesafe.md`, `team-activity.md`.
+  `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
