@@ -40,6 +40,23 @@ to WhatsApp in this release.
 
 > **Migration required:** apply
 > `supabase/migrations/086_journeys.sql` (re-runnable)
+
+### Workspaces: one login, several businesses
+
+A person can now belong to more than one workspace (account) — for
+example Taamul Credit and TrafeeqPay — with a separate role in each,
+and switch between them. Each workspace keeps its own contacts, chats,
+numbers and settings apart: everything you see follows the workspace
+you are working in. Teams and number allocations survive switching.
+
+A new role, **Bank guest**, is for bank officers invited into deal
+rooms and channels: a guest sees none of the inbox, contacts, deals or
+settings.
+
+> **Migration required:** apply
+> `supabase/migrations/082_account_role_bank_guest.sql` and then
+> `supabase/migrations/083_workspaces.sql` (both re-runnable, in that
+> order, each in its own run — 082 adds an enum value that 083 uses)
 > **before** deploying the app.
 
 ### AI agent: approved answers only, and a sensitive-data warning

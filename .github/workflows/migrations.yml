@@ -178,3 +178,11 @@ jobs:
       # real Postgres can show it.
       - name: Verify journeys
         run: supabase db query --local --file supabase/ci/verify-journeys.sql
+
+      # Workspaces (082-083): one person can hold a profile row in several
+      # accounts and switch the active one; every existing policy keeps
+      # meaning "the caller's ACTIVE account", and a bank guest is closed
+      # out of all of them. Isolation is RLS plus SECURITY DEFINER
+      # helpers, so only real Postgres can show it.
+      - name: Verify workspaces
+        run: supabase db query --local --file supabase/ci/verify-workspaces.sql
