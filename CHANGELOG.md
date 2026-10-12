@@ -48,6 +48,9 @@ example Taamul Credit and TrafeeqPay — with a separate role in each,
 and switch between them. Each workspace keeps its own contacts, chats,
 numbers and settings apart: everything you see follows the workspace
 you are working in. Teams and number allocations survive switching.
+Someone in more than one workspace switches from the sidebar; the app
+reloads in the chosen workspace, and other open tabs follow. See
+`docs/workspaces.md`.
 
 A new role, **Bank guest**, is for bank officers invited into deal
 rooms and channels: a guest sees none of the inbox, contacts, deals or
