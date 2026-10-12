@@ -59,8 +59,9 @@ staff. A guest:
 
 - **New workspace:** an owner or admin creates one with
   `POST /api/workspaces` (name, and a short name of 1–4 letters or
-  digits, `create_workspace()`). The creator becomes its owner; their
-  active workspace does not change.
+  digits, `create_workspace()`). The creator becomes its owner and is
+  switched into it, so the people invited in the same request are added
+  there.
 - **Existing people:** in the new workspace, Settings → Members adds a
   person by email (`add_workspace_member()`) with a role — Bank guest
   needs a bank code. Someone who already has a login keeps it and gains

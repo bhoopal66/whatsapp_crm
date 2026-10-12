@@ -28,7 +28,7 @@ export interface OutboxItem {
 
 export type CommitResult = 'ok' | 'duplicate' | 'conflict';
 
-/** Persistence with a transactional outbox (see README_016.md, host contract). */
+/** Persistence with a transactional outbox (host contract: docs/journey-bot.md). */
 export interface JourneyStore {
   load(fileId: string): Promise<JourneyFile | null>;
   /**

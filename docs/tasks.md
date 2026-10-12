@@ -73,8 +73,10 @@ completer become empty.
 Assigning a task to someone else, on creation or later, sends them a
 `task_assigned` notification with the task's title and, when it has
 one, its due time in UTC. Assigning a task to yourself sends nothing; a
-task a module assigns always notifies. A notification that fails to
-write never undoes the task.
+task a module assigns always notifies — except the phone system's
+missed-call task when it is opened, because the call's own `call_missed`
+bell already carries it (reassigning that task later still rings). A
+notification that fails to write never undoes the task.
 
 ## REST contract
 
