@@ -337,6 +337,7 @@ export async function sendRoomMessage(
   }
 
   const { data, error } = await db.rpc('deal_room_record_message', {
+    p_account: room.account_id,
     p_group_id: access.groupId,
     p_direction: 'out',
     p_type: input.kind,
@@ -533,6 +534,7 @@ export async function removeRoomParticipant(
     return metaFailure(err);
   }
   const { error: evErr } = await db.rpc('deal_room_participant_event', {
+    p_account: room.account_id,
     p_group_id: access.groupId,
     p_wa_id: user,
     p_event: 'removed',
@@ -677,6 +679,7 @@ export async function closeRoom(
       }
       for (const user of batch) {
         const { error: evErr } = await db.rpc('deal_room_participant_event', {
+          p_account: room.account_id,
           p_group_id: access.groupId,
           p_wa_id: user,
           p_event: 'removed',

@@ -145,6 +145,7 @@ describe('lifecycle', () => {
       ],
     });
     expect(rpc).toHaveBeenCalledWith('deal_room_group_created', {
+      p_account: 'acct-1',
       p_request_id: 'req-1',
       p_group_id: GROUP,
       p_invite_link_hash: createHash('sha256').update(link).digest('hex'),
@@ -278,11 +279,13 @@ describe('participants and join requests', () => {
       ],
     });
     expect(rpc).toHaveBeenCalledWith('deal_room_participant_event', {
+      p_account: 'acct-1',
       p_group_id: GROUP,
       p_wa_id: '971501234567',
       p_event: 'joined',
     });
     expect(rpc).toHaveBeenCalledWith('deal_room_participant_event', {
+      p_account: 'acct-1',
       p_group_id: GROUP,
       p_wa_id: '971509999999',
       p_event: 'left',
@@ -432,6 +435,7 @@ describe('group messages and receipts', () => {
       [
         'deal_room_record_receipt',
         {
+          p_account: 'acct-1',
           p_wa_message_id: 'wamid.o',
           p_participant_wa_id: '971501111111',
           p_status: 'delivered',
@@ -440,6 +444,7 @@ describe('group messages and receipts', () => {
       [
         'deal_room_record_receipt',
         {
+          p_account: 'acct-1',
           p_wa_message_id: 'wamid.o',
           p_participant_wa_id: '971502222222',
           p_status: 'read',

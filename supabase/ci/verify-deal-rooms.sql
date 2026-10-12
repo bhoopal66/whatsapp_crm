@@ -324,7 +324,7 @@ BEGIN
   r := pg_temp.dr_try('service_role', NULL,
          format('SELECT ''requested'' FROM public.deal_room_mark_requested(%L, %L)', r_lead, 'dr-req-lead'))
        || ' / ' || pg_temp.dr_try('service_role', NULL,
-         format('SELECT public.deal_room_group_created(%L, %L, %L)::text', 'dr-req-lead', 'dr-grp-lead@g.us', 'dr-hash-lead'));
+         format('SELECT public.deal_room_group_created(%L, %L, %L, %L)::text', a_acct, 'dr-req-lead', 'dr-grp-lead@g.us', 'dr-hash-lead'));
   SELECT id INTO p_biz FROM deal_room_participants WHERE room_id = r_lead AND role = 'business';
   n := n + 1;
   IF r IS DISTINCT FROM ('requested / ' || r_lead::text)
@@ -338,18 +338,18 @@ BEGIN
   r := pg_temp.dr_try('service_role', NULL,
          format('SELECT ''requested'' FROM public.deal_room_mark_requested(%L, %L)', r_main, 'dr-req-main'))
        || ' / ' || pg_temp.dr_try('service_role', NULL,
-         format('SELECT public.deal_room_group_created(%L, %L, %L)::text', 'dr-req-main', 'dr-grp-main@g.us', 'dr-hash-main'))
+         format('SELECT public.deal_room_group_created(%L, %L, %L, %L)::text', a_acct, 'dr-req-main', 'dr-grp-main@g.us', 'dr-hash-main'))
        || ' / ' || pg_temp.dr_try('service_role', NULL,
-         format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text',
+         format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L, %L)::text', a_acct,
                 'dr-grp-main@g.us', 'in', 'text', 'wamid.DR3', '971500880001', 'In the admin''s room'));
   IF r NOT LIKE 'requested / ' || r_main::text || ' / ________-%' THEN
     failed := array_append(failed, ('fixture: the admin''s room did not open: ' || r)::text);
   END IF;
 
-  s := format('SELECT public.deal_room_record_join_request(%L, %L, %L)', 'dr-grp-lead@g.us', 'dr-jr-1', '971500880010');
+  s := format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct, 'dr-grp-lead@g.us', 'dr-jr-1', '971500880010');
   r := pg_temp.dr_try('service_role', NULL, s)
        || ' / ' || pg_temp.dr_try('service_role', NULL,
-         format('SELECT public.deal_room_record_join_request(%L, %L, %L)', 'dr-grp-lead@g.us', 'dr-jr-2', '971500880099'))
+         format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct, 'dr-grp-lead@g.us', 'dr-jr-2', '971500880099'))
        || ' / ' || pg_temp.dr_try('service_role', NULL, s);
   n := n + 1;
   IF r IS DISTINCT FROM 'auto_approved / pending / auto_approved'
@@ -357,7 +357,7 @@ BEGIN
     failed := array_append(failed, ('join requests (invited, stranger, redelivery): ' || r)::text);
   END IF;
 
-  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_participant_event(%L, %L, %L)',
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_participant_event(%L, %L, %L, %L)', a_acct,
          'dr-grp-lead@g.us', '971500880010', 'joined'));
   SELECT id INTO p_pat FROM deal_room_participants WHERE room_id = r_lead AND phone = '971500880010';
   n := n + 1;
@@ -367,7 +367,7 @@ BEGIN
     failed := array_append(failed, ('a joined event did not update participant_count: ' || r)::text);
   END IF;
 
-  s := format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text',
+  s := format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L, %L)::text', a_acct,
               'dr-grp-lead@g.us', 'in', 'text', 'wamid.DR1', '971500880010', 'Hello from Pat');
   r := pg_temp.dr_try('service_role', NULL, s);
   IF r ~ '^[0-9a-f]{8}-' THEN m_in := r::uuid; END IF;
@@ -384,9 +384,9 @@ BEGIN
 
   -- Outbound is attributed to our number and the sender; a receipt moves it forward once.
   r := pg_temp.dr_try('service_role', NULL,
-         format('SELECT public.deal_room_record_message(%L, %L, %L, %L, NULL, %L, NULL, NULL, %L)::text',
+         format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, NULL, %L, NULL, NULL, %L)::text', a_acct,
                 'dr-grp-lead@g.us', 'out', 'text', 'wamid.DR2', 'Hello everyone', u_lead));
-  s := format('SELECT public.deal_room_record_receipt(%L, %L, %L)::text', 'wamid.DR2', '971500880010', 'read');
+  s := format('SELECT public.deal_room_record_receipt(%L, %L, %L, %L)::text', a_acct, 'wamid.DR2', '971500880010', 'read');
   r := pg_temp.dr_try('service_role', NULL, s) || ' / ' || pg_temp.dr_try('service_role', NULL, s);
   n := n + 1;
   IF r IS DISTINCT FROM 'true / false'
@@ -397,14 +397,11 @@ BEGIN
     failed := array_append(failed, ('an outbound message and its receipt: ' || r)::text);
   END IF;
 
-  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L)::text',
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text', a_acct,
          'dr-no-such-group', 'in', 'text', 'wamid.DR9', '971500880010'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format(
-         'SELECT public.deal_room_record_join_request(%L, %L, %L)', 'dr-no-such-group', 'dr-jr-9', '971500880010'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format(
-         'SELECT public.deal_room_participant_event(%L, %L, %L)', 'dr-no-such-group', '971500880010', 'joined'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format(
-         'SELECT public.deal_room_record_receipt(%L, %L, %L)::text', 'wamid.DR9', '971500880010', 'read'));
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct, 'dr-no-such-group', 'dr-jr-9', '971500880010'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_participant_event(%L, %L, %L, %L)', a_acct, 'dr-no-such-group', '971500880010', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_receipt(%L, %L, %L, %L)::text', a_acct, 'wamid.DR9', '971500880010', 'read'));
   n := n + 1;
   IF r NOT LIKE 'ERROR P0002:% / ERROR P0002:% / ERROR P0002:% / false' THEN
     failed := array_append(failed, ('an unknown group was not P0002: ' || r)::text);
@@ -415,18 +412,18 @@ BEGIN
   t := NULL;
   FOREACH s IN ARRAY ARRAY[
     format('SELECT ''x'' FROM public.deal_room_mark_requested(%L, %L)', r_agent, 'dr-req-x'),
-    format('SELECT public.deal_room_group_created(%L, %L, %L)::text', 'dr-req-lead', 'dr-grp-lead@g.us', 'dr-hash-x'),
+    format('SELECT public.deal_room_group_created(%L, %L, %L, %L)::text', a_acct, 'dr-req-lead', 'dr-grp-lead@g.us', 'dr-hash-x'),
     format('SELECT ''x'' FROM public.deal_room_set_status(%L, %L)', r_lead, 'closed'),
-    format('SELECT public.deal_room_record_join_request(%L, %L, %L)', 'dr-grp-lead@g.us', 'dr-jr-x', '971500880098'),
-    format('SELECT public.deal_room_participant_event(%L, %L, %L)', 'dr-grp-lead@g.us', '971500880098', 'joined'),
-    format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L)::text',
+    format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct, 'dr-grp-lead@g.us', 'dr-jr-x', '971500880098'),
+    format('SELECT public.deal_room_participant_event(%L, %L, %L, %L)', a_acct, 'dr-grp-lead@g.us', '971500880098', 'joined'),
+    format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text', a_acct,
            'dr-grp-lead@g.us', 'in', 'text', 'wamid.DRX', '971500880098'),
-    format('SELECT public.deal_room_record_receipt(%L, %L, %L)::text', 'wamid.DR2', '971500880003', 'read')
+    format('SELECT public.deal_room_record_receipt(%L, %L, %L, %L)::text', a_acct, 'wamid.DR2', '971500880003', 'read')
   ] LOOP
     r := pg_temp.dr_try('authenticated', u_lead, s);
     IF r NOT LIKE 'ERROR 42501:%' THEN t := concat_ws('; ', t, s || ' -> ' || r); END IF;
   END LOOP;
-  r := pg_temp.dr_try(current_user, u_lead, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L)::text',
+  r := pg_temp.dr_try(current_user, u_lead, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text', a_acct,
          'dr-grp-lead@g.us', 'in', 'text', 'wamid.DRY', '971500880098'));
   n := n + 1;
   IF t IS NOT NULL OR r NOT LIKE 'ERROR 42501: deal rooms: server-only function%' THEN
@@ -458,7 +455,7 @@ BEGIN
   END IF;
 
   -- ---------- a guest: their rooms' roster, messages and receipts only ----------
-  r := pg_temp.dr_try('authenticated', u_guest, 'SELECT coalesce(string_agg(id::text, '',''), '''') FROM public.deal_rooms');
+  r := pg_temp.dr_try('authenticated', u_guest, 'SELECT coalesce(string_agg(id::text, '',''), '''') FROM public.deal_room_guest_rooms');
   n := n + 1;
   IF r IS DISTINCT FROM r_lead::text THEN
     failed := array_append(failed, ('the guest sees rooms other than their own: ' || r)::text);
@@ -690,14 +687,14 @@ BEGIN
   END IF;
   -- An expected, consented customer is let in; a bank guest whose bank was
   -- switched off and a partner who opted out wait for a person.
-  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct,
          'dr-grp-lead@g.us', 'dr-jr-c1', '971500880003'));
   UPDATE bank_guest_policies SET guests_allowed = false WHERE account_id = a_acct AND bank_code = 'ADCB';
   INSERT INTO contacts (account_id, user_id, phone, name, opted_out_at)
   VALUES (a_acct, u_agent, '971500880010', 'Pat as a contact', now());
-  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct,
          'dr-grp-lead@g.us', 'dr-jr-b1', '971500880021'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct,
          'dr-grp-main@g.us', 'dr-jr-o1', '971500880010'));
   UPDATE bank_guest_policies SET guests_allowed = true WHERE account_id = a_acct AND bank_code = 'ADCB';
   n := n + 1;
@@ -706,10 +703,10 @@ BEGIN
   END IF;
   -- A room that is not open lets nobody in by itself.
   r := pg_temp.dr_try('service_role', NULL, format('SELECT ''s'' FROM public.deal_room_set_status(%L, %L)', r_lead, 'suspended'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct,
          'dr-grp-lead@g.us', 'dr-jr-c2', '971500880003'))
        || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT ''c'' FROM public.deal_room_set_status(%L, %L)', r_lead, 'closed'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L)',
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)', a_acct,
          'dr-grp-lead@g.us', 'dr-jr-c3', '971500880003'));
   n := n + 1;
   IF r IS DISTINCT FROM 's / pending / c / pending' THEN
@@ -723,7 +720,7 @@ BEGIN
   IF r ~ '^[0-9a-f]{8}-' THEN r_x := r::uuid; END IF;
   SELECT id INTO p_x FROM deal_room_participants WHERE room_id = r_x AND status = 'pending_approval';
   PERFORM pg_temp.dr_try('service_role', NULL, format('SELECT ''c'' FROM public.deal_room_set_status(%L, %L)', r_x, 'closed'));
-  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, NULL, %L, NULL, NULL, %L)::text',
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, NULL, %L, NULL, NULL, %L)::text', a_acct,
          'dr-grp-lead@g.us', 'out', 'text', 'wamid.DRC1', 'After the close', u_lead))
        || ' / ' || pg_temp.dr_try('authenticated', u_lead,
          format('SELECT public.deal_room_add_staff(%L, ARRAY[%L]::uuid[])::text', r_lead, u_agent2))
@@ -739,10 +736,9 @@ BEGIN
                  WHERE d.id = r_lead AND m.user_id = u_agent2) THEN
     failed := array_append(failed, ('a closed room took an outbound message, staff, a guest or an approval: ' || r)::text);
   END IF;
-  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text',
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L, %L)::text', a_acct,
          'dr-grp-lead@g.us', 'in', 'text', 'wamid.DRC2', '971500880010', 'Late reply'))
-       || ' / ' || pg_temp.dr_try('service_role', NULL, format(
-         'SELECT public.deal_room_record_message(%L, %L, %L, NULL, NULL, %L, NULL, NULL, NULL, %L)::text',
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, NULL, NULL, %L, NULL, NULL, NULL, %L)::text', a_acct,
          'dr-grp-lead@g.us', 'out', 'system', 'Someone asked to stop', 'sent'));
   n := n + 1;
   IF r !~ '^[0-9a-f]{8}-.* / [0-9a-f]{8}-' THEN
@@ -769,6 +765,86 @@ BEGIN
                                        WHERE room_id = r::uuid AND phone = '971500880002' AND contact_id IS NOT NULL)
      OR has_function_privilege('authenticated', 'public.deal_room_admit_block(uuid, text)', 'EXECUTE') THEN
     failed := array_append(failed, ('linked by phone to a contact the agent cannot see, or admit_block is a client''s: ' || r)::text);
+  END IF;
+
+  -- Webhook-driven functions act only in the account the webhook
+  -- authenticated: another account naming this account's request, group
+  -- or message id changes nothing; the same account's receipt lands.
+  s := (SELECT wa_group_id FROM deal_rooms WHERE id = r_main);
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_group_created(%L, %L, %L, %L)::text',
+         b_acct, (SELECT create_request_id FROM deal_rooms WHERE id = r_main), s, 'dr-hash-f4c'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_join_request(%L, %L, %L, %L)',
+         b_acct, s, 'dr-jr-f4c', '971500880001'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_participant_event(%L, %L, %L, %L)',
+         b_acct, s, '971500880077', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_message(%L, %L, %L, %L, %L, %L)::text',
+         b_acct, s, 'in', 'text', 'wamid.DRF4D', '971500880001'));
+  n := n + 1;
+  IF s IS NULL OR r NOT LIKE 'ERROR P0002:% / ERROR P0002:% / ERROR P0002:% / ERROR P0002:%'
+     OR (SELECT invite_link_hash FROM deal_rooms WHERE id = r_main) IS NOT DISTINCT FROM 'dr-hash-f4c'
+     OR EXISTS (SELECT 1 FROM deal_room_join_requests WHERE join_request_id = 'dr-jr-f4c')
+     OR EXISTS (SELECT 1 FROM deal_room_participants WHERE room_id = r_main AND phone = '971500880077')
+     OR EXISTS (SELECT 1 FROM group_messages WHERE wa_message_id = 'wamid.DRF4D') THEN
+    failed := array_append(failed, ('another account reached a room by its ids: ' || coalesce(r, 'no group'))::text);
+  END IF;
+  INSERT INTO group_messages (room_id, account_id, wa_message_id, direction, type, body, status)
+  VALUES (r_main, a_acct, 'wamid.DRF4C', 'out', 'text', 'Receipt scope', 'sent');
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_receipt(%L, %L, %L, %L)::text',
+         b_acct, 'wamid.DRF4C', '971500880001', 'failed'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_receipt(%L, %L, %L, %L)::text',
+         b_acct, 'wamid.DRF4C', '971500880001', 'read'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'false / false'
+     OR (SELECT status FROM group_messages WHERE wa_message_id = 'wamid.DRF4C') IS DISTINCT FROM 'sent'
+     OR EXISTS (SELECT 1 FROM group_message_receipts g JOIN group_messages m ON m.id = g.message_id
+                 WHERE m.wa_message_id = 'wamid.DRF4C') THEN
+    failed := array_append(failed, ('a receipt from another account changed a message: ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT public.deal_room_record_receipt(%L, %L, %L, %L)::text',
+         a_acct, 'wamid.DRF4C', '971500880001', 'read'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'true'
+     OR (SELECT status FROM group_messages WHERE wa_message_id = 'wamid.DRF4C') IS DISTINCT FROM 'read'
+     OR (SELECT count(*) FROM group_message_receipts g JOIN group_messages m ON m.id = g.message_id
+          WHERE m.wa_message_id = 'wamid.DRF4C') <> 1 THEN
+    failed := array_append(failed, ('a receipt in its own account did not land: ' || r)::text);
+  END IF;
+
+  -- deal_rooms is staff-only: a guest reads no row of it (so none of
+  -- wa_group_id, contact_id, deal_id, last_error) and sees exactly their
+  -- guest rooms through deal_room_guest_rooms; staff still read it.
+  s := pg_temp.dr_try(current_user, u_guest,
+         'SELECT string_agg(id::text, '','' ORDER BY id) FROM public.deal_rooms WHERE public.deal_room_access(id) = ''guest''');
+  r := pg_temp.dr_try('authenticated', u_guest,
+         'SELECT count(*)::text FROM (SELECT wa_group_id, contact_id, deal_id, last_error FROM public.deal_rooms) x')
+       || ' / ' || pg_temp.dr_try('authenticated', u_guest,
+         'SELECT coalesce(string_agg(id::text, '','' ORDER BY id), ''none'') FROM public.deal_room_guest_rooms');
+  n := n + 1;
+  IF s IN ('ok', '') OR s LIKE 'ERROR%' OR r IS DISTINCT FROM '0 / ' || s THEN
+    failed := array_append(failed, ('a guest read deal_rooms, or the guest view is not their rooms ('
+                                    || coalesce(s, 'none') || '): ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('authenticated', u_admin, 'SELECT count(*)::text FROM public.deal_rooms');
+  n := n + 1;
+  IF r IS DISTINCT FROM (SELECT count(*)::text FROM deal_rooms WHERE account_id = a_acct) OR r = '0' THEN
+    failed := array_append(failed, ('staff no longer read deal_rooms: ' || r)::text);
+  END IF;
+  -- A guest put in the channel of a room with no approved participant of
+  -- their bank still does not see it.
+  r := (SELECT d.id::text FROM deal_rooms d
+         WHERE d.account_id = a_acct
+           AND NOT EXISTS (SELECT 1 FROM chat_channel_members m WHERE m.channel_id = d.channel_id AND m.user_id = u_guest)
+           AND NOT EXISTS (SELECT 1 FROM deal_room_participants pp
+                            WHERE pp.room_id = d.id AND pp.bank_code = 'ADCB'
+                              AND pp.status NOT IN ('pending_approval','rejected','removed'))
+         ORDER BY d.created_at LIMIT 1);
+  INSERT INTO chat_channel_members (channel_id, user_id) SELECT channel_id, u_guest FROM deal_rooms WHERE id = r::uuid;
+  s := pg_temp.dr_try('authenticated', u_guest,
+         'SELECT coalesce(string_agg(id::text, '','' ORDER BY id), ''none'') FROM public.deal_room_guest_rooms');
+  n := n + 1;
+  IF r IS NULL OR s LIKE 'ERROR%' OR position(r IN s) > 0 THEN
+    failed := array_append(failed, ('the guest view showed a room of another bank: '
+                                    || coalesce(r, 'no such room') || ' in ' || s)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

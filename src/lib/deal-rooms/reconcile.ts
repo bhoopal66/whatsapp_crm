@@ -261,6 +261,7 @@ async function open(
     });
   }
   await rpc(db, 'deal_room_group_created', {
+    p_account: room.account_id,
     p_request_id: requestId,
     p_group_id: groupId,
     p_invite_link_hash: null,
