@@ -321,6 +321,10 @@ including your number, so a room lists 1 to 7 other people.
    do-not-contact, if they are a customer without recorded consent
    (only the consented contact's own number counts), or if they are a
    bank officer whose bank's guest switch is off.
+   An invite that was started but never finished (the server stopped
+   mid-send) is released after 30 minutes and sent again, by the
+   background job under "Rooms stuck in creating" below; if that first
+   send had in fact gone out, the person gets the invite twice.
 3. **Join requests.** Groups are made with join approval on, so tapping
    the link sends a request. A request from one of the numbers on the
    room's list is **approved automatically** — only while the same
@@ -376,8 +380,17 @@ and WhatsApp ids only masked (`+971 XXXXXXX12`).
 - **A team leader approves each guest** an agent adds: the officer
   waits, is invited only once a team leader (or above) approves, and is
   never invited if rejected.
-- A bank officer sees only their own rooms, and in them only member
-  names, roles and messages, never phone numbers.
+- **What a bank officer sees** is only their own rooms: a room shows
+  while their bank's guest switch is on and the room has an approved
+  officer of their bank who has not been removed. In it they read the
+  group's messages only from when they were added to the room, and its
+  people as name, role and status, never a phone number; someone nobody
+  listed (who joined through the link) shows as _Unlisted number ending
+  12_. They get no **Team notes** tab and none of the room's internal
+  fields (the linked contact and deal, the group id, the last error):
+  they read the room through a separate view, `deal_room_guest_rooms`.
+  Room changes, such as it closing or being suspended, reach their
+  screen within a minute.
 
 ### Rooms stuck in "creating"
 
@@ -391,6 +404,9 @@ none. A room still without its group after 10 minutes is marked
 from another is never guessed. The automation cron runs it too, at most
 every 2 minutes per process, so an install that pings only that one is
 covered.
+
+The same job frees an invite that has been stuck mid-send for 30 minutes
+and runs that room's invites again.
 
 ## Groups webhooks (deal rooms)
 
