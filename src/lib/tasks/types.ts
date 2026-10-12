@@ -16,6 +16,14 @@ export const TASK_KINDS = [
 ] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
+/** The kinds a person may file (migration 085's insert policy); the
+ *  others (`missed_call`, `journey`) are written by the system only. */
+export const USER_TASK_KINDS = [
+  'manual',
+  'callback',
+  'follow_up',
+] as const satisfies readonly TaskKind[];
+
 export const TASK_STATUSES = ['open', 'done', 'cancelled'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 

@@ -11,11 +11,11 @@ import { NextResponse } from 'next/server';
 
 import { charLength } from './text';
 import {
-  TASK_KINDS,
   TASK_LIST_SCOPES,
   TASK_NOTE_MAX,
   TASK_STATUSES,
   TASK_TITLE_MAX,
+  USER_TASK_KINDS,
   USER_TASK_SOURCES,
   type NewTaskValues,
   type TaskListQuery,
@@ -124,7 +124,7 @@ function readDueAt(raw: unknown): string | null {
 /**
  * Validate a `POST /api/tasks` body (`CreateTaskBody`). `title` is
  * required; `kind` defaults to manual and `source` to manual (a member
- * may only write manual or chat tasks). `assignedTo` left out assigns
+ * may only write manual or chat tasks, of a kind a person may file). `assignedTo` left out assigns
  * the task to `callerId`; `null` leaves it unassigned. Unknown keys are
  * ignored.
  */
@@ -137,7 +137,7 @@ export function parseCreateTaskBody(
     return {
       title: readTitle(b.title),
       note: readNote(b.note),
-      kind: oneOf(b.kind ?? 'manual', TASK_KINDS, 'kind'),
+      kind: oneOf(b.kind ?? 'manual', USER_TASK_KINDS, 'kind'),
       source: oneOf(b.source ?? 'manual', USER_TASK_SOURCES, 'source'),
       contact_id: readId(b.contactId, 'contactId'),
       conversation_id: readId(b.conversationId, 'conversationId'),

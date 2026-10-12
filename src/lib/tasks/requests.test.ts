@@ -90,6 +90,14 @@ describe('parseCreateTaskBody', () => {
     ],
     [{ title: 'x', note: 5 }, 'note must be a string or null'],
     [{ title: 'x', kind: 'chore' }, 'kind must be one of'],
+    [
+      { title: 'x', kind: 'missed_call' },
+      'kind must be one of manual, callback, follow_up',
+    ],
+    [
+      { title: 'x', kind: 'journey' },
+      'kind must be one of manual, callback, follow_up',
+    ],
     [{ title: 'x', source: 'pbx' }, 'source must be one of manual, chat'],
     [{ title: 'x', contactId: 'abc' }, 'contactId must be an id or null'],
     [{ title: 'x', assignedTo: '' }, 'assignedTo must be an id or null'],
