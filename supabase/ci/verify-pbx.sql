@@ -157,6 +157,10 @@ BEGIN
     (conn, '{}', 'px-old', now() - interval '40 days', now() - interval '31 days'),
     (conn, '{}', 'px-recent', now() - interval '2 days', now() - interval '1 day'),
     (conn, '{}', 'px-pending', now() - interval '40 days', NULL);
+  INSERT INTO pbx_events_raw (connection_id, payload, hash, received_at, error, attempts) VALUES
+    (conn, '{}', 'px-dead', now() - interval '40 days', 'boom', 3),
+    (conn, '{}', 'px-retrying', now() - interval '40 days', 'boom', 2),
+    (conn, '{}', 'px-dead-recent', now() - interval '2 days', 'boom', 3);
   INSERT INTO pbx_bank_numbers (account_id, number, bank_code) VALUES (a_acct, '97142089000', 'ADCB');
 
   -- ---------- extension mapping (the processor writes, as the service role) ----------
@@ -372,6 +376,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM call_live WHERE pbx_call_id = 'px-stale')
      OR NOT EXISTS (SELECT 1 FROM call_live WHERE pbx_call_id = 'px-live') THEN
     failed := array_append(failed, ('pbx_purge drops only screen-pop rows older than a day: ' || r)::text);
+  END IF;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM pbx_events_raw WHERE hash = 'px-dead') THEN
+    failed := array_append(failed, ('pbx_purge drops a raw event that failed 3 times, after 30 days: ' || r)::text);
+  END IF;
+  n := n + 1;
+  IF (SELECT count(*) FROM pbx_events_raw WHERE hash IN ('px-retrying', 'px-dead-recent')) <> 2 THEN
+    failed := array_append(failed, ('pbx_purge keeps a failed event still retried, or failed within 30 days: ' || r)::text);
   END IF;
 
   -- ---------- anon ----------

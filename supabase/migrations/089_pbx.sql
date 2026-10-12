@@ -56,7 +56,8 @@
 -- recording under legal hold blocks the erasure.
 --
 -- pbx_purge() (service role, from a cron) drops screen-pop rows older
--- than a day and processed raw events older than 30 days. Retention of
+-- than a day, processed raw events older than 30 days, and raw events
+-- older than 30 days that failed all three retries (attempts). Retention of
 -- recordings (pbx_settings.retention_days) is an open legal decision:
 -- NULL keeps them, and nothing here deletes audio on a timer.
 --
@@ -482,6 +483,9 @@ CREATE TABLE IF NOT EXISTS public.pbx_events_raw (
   processed_at  timestamptz NULL,
   error         text NULL
 );
+-- Retries of a failed event (src/lib/pbx/housekeeping.ts): claimed by
+-- bumping this, at most 3. Appended before release; re-runnable.
+ALTER TABLE public.pbx_events_raw ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS pbx_events_raw_pending_idx
   ON public.pbx_events_raw (received_at) WHERE processed_at IS NULL;
 CREATE INDEX IF NOT EXISTS pbx_events_raw_processed_idx
@@ -739,7 +743,9 @@ DECLARE
 BEGIN
   DELETE FROM call_live WHERE updated_at < now() - interval '1 day';
   GET DIAGNOSTICS v_live = ROW_COUNT;
-  DELETE FROM pbx_events_raw WHERE processed_at < now() - interval '30 days';
+  DELETE FROM pbx_events_raw
+   WHERE processed_at < now() - interval '30 days'
+      OR (processed_at IS NULL AND attempts >= 3 AND received_at < now() - interval '30 days');
   GET DIAGNOSTICS v_events = ROW_COUNT;
   RETURN jsonb_build_object('call_live', v_live, 'events', v_events);
 END;
@@ -939,3 +945,12 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.tasks_notify_assigned() FROM PUBLIC, anon, authenticated;
+
+-- ---------- 14. Call-backs dialled by the PBX ----------
+-- dialDueCallbacks (src/lib/pbx/callbacks.ts) stores the call id the
+-- PBX returned for its dial, and the processor settles the request on
+-- that call's 30012 (done when answered, else pending again or failed
+-- at the attempt cap). Appended before release; re-runnable.
+ALTER TABLE public.callback_requests ADD COLUMN IF NOT EXISTS pbx_call_id text NULL;
+CREATE INDEX IF NOT EXISTS callback_requests_pbx_call
+  ON public.callback_requests (pbx_call_id) WHERE pbx_call_id IS NOT NULL;
