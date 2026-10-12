@@ -2031,7 +2031,8 @@
       "api": "API 키",
       "deals": "딜 & 통화",
       "team-chat": "팀 채팅",
-      "journey-bot": "여정 봇"
+      "journey-bot": "여정 봇",
+      "deal-rooms": "딜룸"
     },
     "categories": {
       "overview": "개요",
@@ -2888,6 +2889,25 @@
         "tooLong": "{count}개의 문구가 WhatsApp 글자 수 제한을 넘습니다.",
         "save": "문구 저장"
       }
+    },
+    "dealRooms": {
+      "title": "딜룸",
+      "description": "각자의 1:1 채팅으로 그룹 초대 링크를 보내는 템플릿입니다.",
+      "noMeta": "먼저 Meta Cloud API 번호를 연결하세요. WhatsApp 그룹은 Cloud API로만 만들 수 있습니다.",
+      "name": "초대 템플릿 이름",
+      "language": "언어",
+      "nameAr": "아랍어 템플릿 이름(선택)",
+      "arHelp": "아랍어를 선호하는 사람에게 언어 ar로 발송됩니다.",
+      "ready": "Meta에서 승인됨",
+      "notReady": "아직 Meta에서 승인되지 않음({status})",
+      "notFound": "동기화된 템플릿에 아직 없습니다.",
+      "notSet": "아직 초대 템플릿이 없습니다. 딜룸은 만들어지지만 설정하기 전까지 아무도 초대되지 않습니다.",
+      "help": "Meta 템플릿 라이브러리에서 그룹 초대 템플릿(주제 “Group invite link”)을 수정하지 말고 WhatsApp 비즈니스 계정으로 복사한 뒤, 승인을 기다리고 템플릿을 동기화한 다음 여기에 이름을 입력하세요.",
+      "banks": "어느 은행의 담당자를 게스트로 초대할 수 있는지는 설정 → 동의 및 보관에서 은행별로 설정합니다.",
+      "save": "저장",
+      "saved": "딜룸 설정을 저장했습니다.",
+      "saveFailed": "저장하지 못했습니다: {error}",
+      "loadFailed": "딜룸 설정을 불러오지 못했습니다."
     }
   },
   "Compass": {
@@ -3806,6 +3826,141 @@
           "forbidden": "이 룸에 게시할 수 없습니다.",
           "generic": "보내지 못했습니다. 다시 시도하세요."
         }
+      },
+      "create": {
+        "title": "새 딜룸",
+        "description": "{workspace} 번호로 고객과 함께하는 WhatsApp 그룹입니다.",
+        "link": "고객 / 딜 연결",
+        "search": "고객 검색…",
+        "noCustomers": "고객을 찾을 수 없습니다.",
+        "deal": "딜",
+        "noDeal": "딜 없음",
+        "groupName": "그룹 이름(WhatsApp에 표시)",
+        "who": "초대 링크를 받을 사람",
+        "chip": {
+          "customer": "{name} · 고객",
+          "partner": "{name} · 파트너",
+          "bank": "{name} · {bank}(은행 게스트)"
+        },
+        "remove": "{name} 삭제",
+        "add": "추가",
+        "name": "이름",
+        "phone": "전화번호",
+        "role": "역할",
+        "roles": {
+          "customer": "고객",
+          "partner": "파트너",
+          "bank_guest": "은행 게스트"
+        },
+        "bank": "은행",
+        "noBanks": "아직 게스트를 허용한 은행이 없습니다.",
+        "addConfirm": "목록에 추가",
+        "guestWaits": "에이전트가 추가한 은행 게스트는 팀 리더가 승인한 뒤에 초대가 발송됩니다.",
+        "places": "각자 자신의 1:1 채팅으로 링크를 받습니다. WhatsApp에는 조용히 추가하는 기능이 없습니다. {workspace} 번호를 포함하면 8자리 중 {places}자리입니다.",
+        "issues": {
+          "none": "최소한 고객을 추가하세요.",
+          "too_many": "최대 {max}명까지 초대할 수 있습니다.",
+          "no_customer": "고객을 추가하세요.",
+          "name": "모든 사람에게 120자 이내의 이름이 필요합니다.",
+          "phone": "{name}의 전화번호가 올바르지 않습니다.",
+          "duplicate": "{name}이(가) 두 번 등록되었습니다(같은 전화번호).",
+          "bank": "{name}의 은행은 게스트를 허용하지 않습니다."
+        },
+        "before": {
+          "title": "딜룸을 만들기 전에",
+          "phones": "멤버끼리 서로의 전화번호를 볼 수 있습니다.",
+          "max": "{workspace} 번호를 포함해 최대 8명입니다.",
+          "cost": "템플릿은 받는 멤버마다 한 번씩 요금이 부과됩니다. 일반 답장은 무료이며, 어느 멤버든 메시지를 보내면 그룹 전체에 무료 답장 창이 열립니다.",
+          "limits": "그룹에서는 버튼, 목록, 통화, 보낸 메시지 수정·삭제가 작동하지 않습니다. 텍스트, 파일, 템플릿은 작동합니다."
+        },
+        "consent": "고객이 위 사람들과의 그룹에 동의했습니다. 동의를 딜에 기록합니다.",
+        "method": "동의 방법",
+        "methods": {
+          "verbal": "구두",
+          "whatsapp": "WhatsApp",
+          "written": "서면",
+          "form": "양식"
+        },
+        "consentText": "{customer}님이 {people} 및 {workspace} 번호와 함께하는 “{group}” WhatsApp 그룹에 동의했습니다. 멤버끼리 서로의 전화번호를 볼 수 있습니다.",
+        "footer": "모든 딜룸에는 고객이 볼 수 없는 팀 메모 탭이 있습니다.",
+        "cancel": "취소",
+        "submit": "딜룸 만들고 초대 보내기",
+        "creating": "만드는 중…",
+        "failed": "딜룸을 만들지 못했습니다: {error}"
+      },
+      "members": {
+        "title": "멤버",
+        "count": "{max}명 중 {count}명",
+        "open": "멤버",
+        "close": "멤버 닫기",
+        "business": "비즈니스 번호 · {name}님이 이 번호로 게시합니다",
+        "businessPlain": "비즈니스 번호",
+        "role": {
+          "customer": "고객",
+          "partner": "공동 서명자 · 파트너",
+          "bank": "은행 담당자 · {bank}",
+          "bankUnknown": "은행 담당자",
+          "person": "멤버",
+          "business": "비즈니스 번호"
+        },
+        "badge": {
+          "consent": "동의 완료",
+          "guest": "게스트",
+          "pending": "승인 대기",
+          "invited": "초대됨",
+          "joined": "참여함",
+          "left": "나감",
+          "removed": "제거됨",
+          "rejected": "거절됨"
+        },
+        "requests": "참여 요청",
+        "requestFrom": "{phone}님이 참여를 요청했습니다",
+        "someone": "누군가",
+        "approve": "승인",
+        "reject": "거절",
+        "pendingGuests": "승인 대기 중인 은행 게스트",
+        "pendingHelp": "은행 게스트는 팀 리더나 관리자만 승인할 수 있습니다.",
+        "decideFailed": "결정을 저장하지 못했습니다: {error}",
+        "inviteLink": "초대 링크",
+        "showLink": "링크 보기",
+        "copy": "복사",
+        "copied": "초대 링크를 복사했습니다.",
+        "linkFailed": "초대 링크를 가져오지 못했습니다: {error}",
+        "approveEach": "참여 요청을 하나씩 승인",
+        "approveEachHelp": "등록된 번호는 자동으로 승인되고, 그 밖의 사람은 승인을 기다립니다.",
+        "linkHelp": "이 링크로만 참여할 수 있습니다. WhatsApp은 {workspace} 번호를 포함해 8명까지 허용합니다.",
+        "resend": "초대 다시 보내기",
+        "resent": "초대: {sent}건 발송, {failed}건 실패.",
+        "resendFailed": "초대를 보내지 못했습니다: {error}",
+        "menu": "{name} 작업",
+        "remove": "그룹에서 제거",
+        "removeTitle": "{name}님을 제거할까요?",
+        "removeBody": "그룹에서 나가게 되며 초대 링크로 다시 참여할 수 없습니다.",
+        "removed": "{name}님을 제거했습니다. 제거된 사람은 초대 링크로 다시 참여할 수 없습니다.",
+        "removeFailed": "{name}님을 제거하지 못했습니다: {error}"
+      },
+      "actions": {
+        "title": "딜룸 작업",
+        "transcript": "대화 기록을 딜 파일에 저장",
+        "transcriptSaved": "대화 기록을 {name}(으)로 저장했습니다.",
+        "transcriptFailed": "대화 기록을 저장하지 못했습니다: {error}",
+        "reset": "초대 링크 재설정",
+        "resetTitle": "초대 링크를 재설정할까요?",
+        "resetBody": "이전 링크는 즉시 작동하지 않습니다. 이미 그룹에 있는 사람은 그대로 남습니다.",
+        "resetConfirm": "링크 재설정",
+        "resetDone": "새 초대 링크가 준비되었습니다.",
+        "resetFailed": "초대 링크를 재설정하지 못했습니다: {error}",
+        "close": "계좌 개설 후 딜룸 닫기",
+        "closeTitle": "이 딜룸을 닫을까요?",
+        "closeBody": "대화 기록이 딜 파일에 저장되고, 모든 사람이 제거되며 WhatsApp 그룹이 삭제됩니다. 되돌릴 수 없습니다.",
+        "closeReason": "사유(선택)",
+        "closeConfirm": "딜룸 닫기",
+        "closed": "딜룸을 닫았습니다.",
+        "closeIncomplete": "{step} 단계에서 닫기가 멈췄습니다. 다시 시도해 마무리하세요.",
+        "retry": "다시 시도",
+        "closeFailed": "딜룸을 닫지 못했습니다: {error}",
+        "cancel": "취소",
+        "unknownError": "문제가 발생했습니다"
       }
     }
   },
