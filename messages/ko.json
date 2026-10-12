@@ -4649,6 +4649,8 @@
     "log": "통화 기록",
     "today": "오늘 {count}",
     "softphone": "소프트폰 준비됨 · 내선 {ext}",
+    "softphoneConnecting": "소프트폰 연결 중 · 내선 {ext}",
+    "softphoneError": "소프트폰 오프라인 · 내선 {ext} · 데스크 전화를 사용하세요",
     "desk": "데스크 전화 · 내선 {ext}"
   },
   "PbxCall": {

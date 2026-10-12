@@ -1,5 +1,6 @@
 import type { PresenceView } from './calls';
 import { isMissedCall } from './calls';
+import type { SoftphoneState } from './linkus-state';
 
 // The customer page, the Calls page and the chat sidebar's CALLS rows
 // (module 015). Pure: the screens read the rows, these decide what they
@@ -614,27 +615,40 @@ export interface MyPhone {
   softphoneAvailable?: boolean;
 }
 
+export type CallsLineKind =
+  'softphone' | 'softphoneConnecting' | 'softphoneError' | 'desk';
+
 /**
  * Staff only, and only with an extension of their own or a PBX in the
- * workspace. The status line needs an extension.
+ * workspace. The status line needs an extension, and says "ready" only
+ * once the browser softphone has actually registered (`softphone` is
+ * the provider's live status); a softphone that never started is the
+ * desk phone.
  */
 export function callsSidebar(input: {
   isBankGuest: boolean;
   me: MyPhone | null;
   workspaceHasPbx: boolean;
+  softphone: SoftphoneState['status'];
 }): {
   visible: boolean;
-  line: { kind: 'softphone' | 'desk'; extension: string } | null;
+  line: { kind: CallsLineKind; extension: string } | null;
 } {
   const ext = input.me?.extension ?? null;
   if (input.isBankGuest || (!ext && !input.workspaceHasPbx))
     return { visible: false, line: null };
   if (!ext) return { visible: true, line: null };
   const soft = !!(input.me?.softphoneEnabled && input.me?.softphoneAvailable);
-  return {
-    visible: true,
-    line: { kind: soft ? 'softphone' : 'desk', extension: ext },
-  };
+  const kind: CallsLineKind = !soft
+    ? 'desk'
+    : input.softphone === 'ready'
+      ? 'softphone'
+      : input.softphone === 'error'
+        ? 'softphoneError'
+        : input.softphone === 'off'
+          ? 'desk'
+          : 'softphoneConnecting';
+  return { visible: true, line: { kind, extension: ext } };
 }
 
 /** The inbox composer's one-shot prefill ("Draft WhatsApp"); never sent. */

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Circle, Phone, PhoneOff } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 import {
   alsoRinging,
   clip,
@@ -213,13 +214,29 @@ export function IncomingCallCard() {
       : (calls.names[facts.ownerId] ?? '—')
     : t('noOwner');
   const others = alsoRinging(call, calls.userId, calls.names);
+  // The softphone adapter throws when the SDK refuses (not registered,
+  // the call already gone); say so instead of an unhandled rejection.
+  const failed = (err: unknown) =>
+    toast.error(
+      t('actionFailed', {
+        message: err instanceof Error ? err.message : String(err),
+      })
+    );
   const answer = async () => {
-    if (calls.softphone) await calls.softphone.answer(ref);
-    else setHint(t('pickUpDesk'));
+    try {
+      if (calls.softphone) await calls.softphone.answer(ref);
+      else setHint(t('pickUpDesk'));
+    } catch (err) {
+      failed(err);
+    }
   };
   const decline = async () => {
-    if (calls.softphone) await calls.softphone.decline(ref);
-    else await calls.control(call.pbx_call_id, 'hangup');
+    try {
+      if (calls.softphone) await calls.softphone.decline(ref);
+      else await calls.control(call.pbx_call_id, 'hangup');
+    } catch (err) {
+      failed(err);
+    }
   };
   const fact = (label: string, value: string) => (
     <>

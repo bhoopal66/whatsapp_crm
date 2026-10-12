@@ -174,7 +174,13 @@ function Panel() {
     action: Parameters<typeof calls.control>[1]
   ) => {
     if (calls.softphone) {
-      await sp().catch((e) => toast.error(String(e)));
+      await sp().catch((e) =>
+        toast.error(
+          t('actionFailed', {
+            message: e instanceof Error ? e.message : String(e),
+          })
+        )
+      );
       return true;
     }
     return calls.control(p.pbxCallId, action);
@@ -367,7 +373,15 @@ function Panel() {
                     key={d}
                     type="button"
                     className="h-10 rounded-lg bg-white/10 text-lg"
-                    onClick={() => void calls.softphone?.dtmf(ref, d)}
+                    onClick={() =>
+                      void calls.softphone?.dtmf(ref, d).catch((e) =>
+                        toast.error(
+                          t('actionFailed', {
+                            message: e instanceof Error ? e.message : String(e),
+                          })
+                        )
+                      )
+                    }
                   >
                     {d}
                   </button>

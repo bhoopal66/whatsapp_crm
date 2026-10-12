@@ -4649,6 +4649,8 @@
     "log": "Call log",
     "today": "Today {count}",
     "softphone": "Softphone ready · ext {ext}",
+    "softphoneConnecting": "Softphone connecting · ext {ext}",
+    "softphoneError": "Softphone offline · ext {ext} · use your desk phone",
     "desk": "Desk phone · ext {ext}"
   },
   "PbxCall": {

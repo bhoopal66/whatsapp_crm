@@ -303,36 +303,49 @@ describe('calls page and sidebar', () => {
       softphoneEnabled: true,
       softphoneAvailable: true,
     };
-    expect(
-      callsSidebar({ isBankGuest: false, me, workspaceHasPbx: false })
-    ).toEqual({
+    const base = {
+      isBankGuest: false,
+      workspaceHasPbx: false,
+      softphone: 'ready' as const,
+    };
+    expect(callsSidebar({ ...base, me })).toEqual({
       visible: true,
       line: { kind: 'softphone', extension: '1012' },
     });
     expect(
       callsSidebar({
-        isBankGuest: false,
+        ...base,
         me: { ...me, softphoneAvailable: false },
         workspaceHasPbx: true,
       }).line
     ).toEqual({ kind: 'desk', extension: '1012' });
     expect(
-      callsSidebar({
-        isBankGuest: false,
-        me: { extension: null },
-        workspaceHasPbx: true,
-      })
+      callsSidebar({ ...base, me: { extension: null }, workspaceHasPbx: true })
     ).toEqual({ visible: true, line: null });
+    expect(callsSidebar({ ...base, me: { extension: null } }).visible).toBe(
+      false
+    );
     expect(
-      callsSidebar({
-        isBankGuest: false,
-        me: { extension: null },
-        workspaceHasPbx: false,
-      }).visible
+      callsSidebar({ ...base, isBankGuest: true, me, workspaceHasPbx: true })
+        .visible
     ).toBe(false);
-    expect(
-      callsSidebar({ isBankGuest: true, me, workspaceHasPbx: true }).visible
-    ).toBe(false);
+  });
+
+  it('says the softphone is ready only once it has registered', () => {
+    const me = {
+      extension: '1012',
+      softphoneEnabled: true,
+      softphoneAvailable: true,
+    };
+    const kind = (softphone: Parameters<typeof callsSidebar>[0]['softphone']) =>
+      callsSidebar({ isBankGuest: false, me, workspaceHasPbx: true, softphone })
+        .line?.kind;
+    expect(kind('ready')).toBe('softphone');
+    expect(kind('loading')).toBe('softphoneConnecting');
+    expect(kind('connecting')).toBe('softphoneConnecting');
+    expect(kind('reconnecting')).toBe('softphoneConnecting');
+    expect(kind('error')).toBe('softphoneError');
+    expect(kind('off')).toBe('desk');
   });
 
   it('hands a composer prefill over once', () => {

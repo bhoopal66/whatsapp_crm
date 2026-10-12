@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { PhoneCall, PhoneMissed } from 'lucide-react';
 
+import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -41,6 +42,7 @@ export function CallsSection({
   const t = useTranslations('ChatCalls');
   const { isBankGuest, user, activeWorkspaceId } = useAuth();
   const userId = user?.id ?? null;
+  const softphoneStatus = useCalls()?.softphoneState.status ?? 'off';
   const [state, setState] = useState<CallsState | null>(null);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export function CallsSection({
     isBankGuest,
     me: state?.me ?? null,
     workspaceHasPbx: state?.hasPbx ?? false,
+    softphone: softphoneStatus,
   });
   if (!state || !view.visible) return null;
 
@@ -113,7 +116,11 @@ export function CallsSection({
               'size-2 shrink-0 rounded-full',
               view.line.kind === 'softphone'
                 ? 'bg-emerald-400'
-                : 'border border-white/50'
+                : view.line.kind === 'softphoneConnecting'
+                  ? 'animate-pulse bg-amber-400'
+                  : view.line.kind === 'softphoneError'
+                    ? 'bg-red-400'
+                    : 'border border-white/50'
             )}
           />
           {t(view.line.kind, { ext: view.line.extension })}
