@@ -1,23 +1,33 @@
 'use client';
 
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { MessagesSquare } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-/**
- * Team chat — the one screen a bank guest may open (the dashboard shell
- * keeps a guest here). A placeholder until team chat ships.
- */
-export default function ChatPage() {
+/** No channel open: a prompt to pick one (search results arrive in a later job). */
+function ChatHome() {
   const t = useTranslations('Chat');
+  const search = useSearchParams().get('search');
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
       <MessagesSquare className="text-muted-foreground size-10" />
       <h2 className="text-foreground text-lg font-semibold">
-        {t('settingUpTitle')}
+        {search ? t('searchSoon', { q: search }) : t('pickTitle')}
       </h2>
-      <p className="text-muted-foreground max-w-sm text-sm">
-        {t('settingUpBody')}
-      </p>
+      {!search && (
+        <p className="text-muted-foreground max-w-sm text-sm">
+          {t('pickBody')}
+        </p>
+      )}
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChatHome />
+    </Suspense>
   );
 }

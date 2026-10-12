@@ -3319,7 +3319,72 @@
     }
   },
   "Chat": {
-    "settingUpTitle": "Team chat is being set up",
-    "settingUpBody": "Your workspace's team chat will appear here."
+    "title": "Team chat",
+    "searchPlaceholder": "Search people, chats, files",
+    "compose": "New channel",
+    "whatsappLine": "WhatsApp: {name} · verified",
+    "unknownPerson": "Unknown",
+    "unassigned": "Unassigned",
+    "assignedToMe": "Assigned to me",
+    "noChannels": "No channels yet.",
+    "mentions": "{count, plural, =1 {# mention} other {# mentions}}",
+    "pickTitle": "Pick a channel",
+    "pickBody": "Choose a channel or a direct message on the left.",
+    "searchSoon": "Search results for “{q}” are coming soon.",
+    "sections": {
+      "inbox": "WhatsApp inbox",
+      "channels": "Team channels",
+      "dealRooms": "Deal rooms · customer can see",
+      "dms": "Direct messages"
+    },
+    "channel": {
+      "back": "Back to channels",
+      "kind": {
+        "team": "Team channel",
+        "private": "Private",
+        "dm": "Direct message",
+        "deal_room": "Deal room"
+      },
+      "members": "{count, plural, =1 {# member} other {# members}}",
+      "internal": "Internal — customers never see this",
+      "membersButton": "Members",
+      "pinned": "Pinned ({count})",
+      "dealRoomNote": "The customer group view arrives with deal rooms.",
+      "empty": "No messages yet.",
+      "loadingOlder": "Loading older messages…",
+      "notFound": "This channel isn't available."
+    },
+    "timeline": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "edited": "(edited)",
+      "deleted": "This message was deleted.",
+      "system": "wacrm · automation",
+      "react": "React with {emoji}",
+      "replies": "{count, plural, =1 {# reply} other {# replies}} · last {time}"
+    },
+    "card": {
+      "header": "Shared from WhatsApp inbox · read-only copy",
+      "customer": "Customer",
+      "owner": "Owner: {name}",
+      "open": "Open conversation",
+      "createTask": "Create task",
+      "taskTitle": "Follow up: {name}",
+      "taskCreated": "Task created",
+      "taskFailed": "Couldn't create the task"
+    },
+    "errors": {
+      "forbidden": "You don't have access to that.",
+      "notFound": "That couldn't be found.",
+      "disabled": "Team chat is turned off for this workspace.",
+      "invalid": "That request isn't valid.",
+      "conflict": "Something changed at the same time. Try again.",
+      "unknown": "Something went wrong. Try again.",
+      "notWorkspaceMember": "You're not a member of this workspace.",
+      "notChannelMember": "You're not a member of this channel.",
+      "archived": "This channel is archived.",
+      "guestRestricted": "Bank guests can't do that.",
+      "messageDeleted": "That message was deleted."
+    }
   }
 }

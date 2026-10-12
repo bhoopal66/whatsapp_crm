@@ -3319,7 +3319,72 @@
     }
   },
   "Chat": {
-    "settingUpTitle": "팀 채팅을 준비하고 있습니다",
-    "settingUpBody": "워크스페이스의 팀 채팅이 여기에 표시됩니다."
+    "title": "팀 채팅",
+    "searchPlaceholder": "사람, 채팅, 파일 검색",
+    "compose": "새 채널",
+    "whatsappLine": "WhatsApp: {name} · 인증됨",
+    "unknownPerson": "알 수 없음",
+    "unassigned": "미배정",
+    "assignedToMe": "나에게 배정됨",
+    "noChannels": "아직 채널이 없습니다.",
+    "mentions": "멘션 {count}개",
+    "pickTitle": "채널을 선택하세요",
+    "pickBody": "왼쪽에서 채널이나 다이렉트 메시지를 선택하세요.",
+    "searchSoon": "“{q}” 검색 결과는 곧 제공됩니다.",
+    "sections": {
+      "inbox": "WhatsApp 받은편지함",
+      "channels": "팀 채널",
+      "dealRooms": "딜 룸 · 고객 공개",
+      "dms": "다이렉트 메시지"
+    },
+    "channel": {
+      "back": "채널 목록으로",
+      "kind": {
+        "team": "팀 채널",
+        "private": "비공개",
+        "dm": "다이렉트 메시지",
+        "deal_room": "딜 룸"
+      },
+      "members": "멤버 {count}명",
+      "internal": "내부 전용 — 고객에게 표시되지 않음",
+      "membersButton": "멤버",
+      "pinned": "고정됨 ({count})",
+      "dealRoomNote": "고객 그룹 보기는 딜 룸과 함께 제공됩니다.",
+      "empty": "아직 메시지가 없습니다.",
+      "loadingOlder": "이전 메시지를 불러오는 중…",
+      "notFound": "이 채널을 사용할 수 없습니다."
+    },
+    "timeline": {
+      "today": "오늘",
+      "yesterday": "어제",
+      "edited": "(수정됨)",
+      "deleted": "삭제된 메시지입니다.",
+      "system": "wacrm · 자동화",
+      "react": "{emoji}(으)로 반응",
+      "replies": "답글 {count}개 · 마지막 {time}"
+    },
+    "card": {
+      "header": "WhatsApp 받은편지함에서 공유됨 · 읽기 전용 사본",
+      "customer": "고객",
+      "owner": "담당자: {name}",
+      "open": "대화 열기",
+      "createTask": "작업 만들기",
+      "taskTitle": "후속 조치: {name}",
+      "taskCreated": "작업이 생성되었습니다",
+      "taskFailed": "작업을 만들 수 없습니다"
+    },
+    "errors": {
+      "forbidden": "접근 권한이 없습니다.",
+      "notFound": "찾을 수 없습니다.",
+      "disabled": "이 워크스페이스에서 팀 채팅이 꺼져 있습니다.",
+      "invalid": "유효하지 않은 요청입니다.",
+      "conflict": "동시에 변경이 발생했습니다. 다시 시도하세요.",
+      "unknown": "문제가 발생했습니다. 다시 시도하세요.",
+      "notWorkspaceMember": "이 워크스페이스의 멤버가 아닙니다.",
+      "notChannelMember": "이 채널의 멤버가 아닙니다.",
+      "archived": "보관된 채널입니다.",
+      "guestRestricted": "은행 게스트는 이 작업을 할 수 없습니다.",
+      "messageDeleted": "삭제된 메시지입니다."
+    }
   }
 }
