@@ -226,3 +226,54 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
 | `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
+
+## 12. Browser softphone
+
+With the softphone, agents answer and place calls in the CRM tab
+instead of on a desk phone. Everyone else keeps desk-phone mode, and
+so does anyone whose softphone cannot start: the call screens fall
+back on their own.
+
+**On the PBX**
+
+- **Ultimate Plan**, firmware **84.12.0.32** or later (Cloud;
+  Software 83.12.0.23, Appliance 37.12.0.23).
+- **Integrations › Linkus SDK**: switch it on and save, then paste its
+  **AccessID / AccessKey** into Settings › Phone system. Enabling it
+  stops Linkus Mobile push notifications on that PBX.
+- If your PBX restricts which web origins may use the SDK, allow the
+  CRM's origin (Yeastar does not document such a list; check your
+  firmware).
+
+**On the CRM host**
+
+- **Host the SDK bundle yourself.** `ys-webrtc-sdk-core` is published
+  under a "Proprietary License", so this app does not ship it. Put
+  `lib/ys-webrtc.umd.js` from the package (the build Yeastar documents
+  for a script tag) on your own HTTPS host, or under `public/`, and set
+  `NEXT_PUBLIC_LINKUS_SDK_URL` to its URL. An ES-module bundle also
+  works, but the package's `lib/index.js` imports `ms` by bare name, so
+  it must be bundled first.
+- Set **`NEXT_PUBLIC_PBX_ORIGIN`** to the PBX's address (for example
+  `https://yourcompany.ras.yeastar.com`, or `host:8088` on a Software
+  edition) so the Content-Security-Policy lets the browser reach it
+  over `https:` and `wss:`.
+- Both are **build-time** values: rebuild the app after changing
+  them. With `NEXT_PUBLIC_LINKUS_SDK_URL` unset, nothing loads.
+
+**Per person**
+
+- An admin ticks **Softphone** for the person's extension in Settings ›
+  Phone system. The SDK loads only for those people, and only on a PBX
+  with SDK credentials.
+- The CRM must be served over **HTTPS**, and the browser asks for
+  **microphone** permission on the first call.
+- The softphone signs in as the person's extension (see
+  `PBX_SDK_USERNAME_MODE` for Cloud PBXs that expect an email). It
+  signs in again by itself after a lost login, at most every 30
+  seconds. It does not when the extension signed in to the softphone
+  in another tab or browser, so two tabs never take the login from
+  each other: use one tab, or reload the one you want.
+- When the softphone is off, not ready, or the browser is closed,
+  calls ring the desk phone or the Linkus mobile app on the same
+  extension.
