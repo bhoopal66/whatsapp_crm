@@ -858,9 +858,12 @@ it.
 - **Reconcile** (`reconcileCreatingRooms`, from `GET /api/deal-rooms/cron` and
   the automations cron) takes rooms still `creating` after 2 minutes: matched
   to their group by subject, asked for once more, or failed at 10. Invites
-  claim each person (a `pending:` marker in `invite_message_id`) before the
-  send and release the claim only when the send fails; nothing releases one a
-  crash left behind. `verify-deal-rooms.sql`.
+  claim each person (a `pending:<epoch ms>:<uuid>` marker in
+  `invite_message_id`) before the send and release the claim when the send
+  fails; the reconcile also frees a claim older than 30 minutes (a crash
+  between claim and result) and re-sends that open room's invites — a send
+  that went out but was never recorded can thus be invited twice
+  (`releaseStaleInviteClaims`). `verify-deal-rooms.sql`.
 
 ### Phone system (`lib/pbx/*`, migration 089)
 
@@ -961,7 +964,7 @@ Cron / GitHub Actions / any pinger):
 - `GET /api/journeys/cron` (migration 086) — the journey tick: due
   timers and outbox items.
 - `GET /api/deal-rooms/cron` (migration 088) — rooms stuck in
-  `creating`.
+  `creating`, and stale invite claims.
 - `GET /api/pbx/cron` (migration 089) — recordings, call-backs, event
   retries, purge.
 
