@@ -70,6 +70,11 @@ to WhatsApp in this release.
 
 ### Workspaces: one login, several businesses
 
+A workspace rail at the far left of the sidebar shows every workspace
+you belong to (with unread chat badges); click one to switch, or use
+**+** (owners and admins) to create a workspace and invite its first
+people, choosing Admin, Team leader, Agent, Viewer or Bank guest.
+
 A person can now belong to more than one workspace (account) — for
 example Taamul Credit and TrafeeqPay — with a separate role in each,
 and switch between them. Each workspace keeps its own contacts, chats,
