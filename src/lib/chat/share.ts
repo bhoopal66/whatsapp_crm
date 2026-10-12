@@ -6,7 +6,12 @@
  * picker to channels a post can land in.
  */
 import { normalizeDigits } from './search-view';
-import type { ChannelWithMembership } from './types';
+import type {
+  ChannelWithMembership,
+  ChatTagRef,
+  SharedCard,
+  SharedSnapshot,
+} from './types';
 
 /** Bank guests have no inbox to share from; viewers don't post. */
 export function canShareToTeamChat(role: string | null | undefined): boolean {
@@ -49,4 +54,39 @@ export function shareTargets(
       (a, b) =>
         Number(b.joined) - Number(a.joined) || a.name.localeCompare(b.name)
     );
+}
+
+/** What a shared conversation card shows. */
+export type SharedCardView =
+  | { access: false }
+  | {
+      access: true;
+      conversationId: string;
+      /** Null: the card falls back to "Customer". */
+      name: string | null;
+      owner: string | null;
+      /** Masked phone · company. */
+      details: string;
+      lastMessages: SharedSnapshot['lastMessages'];
+      tag: ChatTagRef | null;
+    };
+
+/**
+ * The database sends a card's snapshot only to someone who may open the
+ * conversation now; everyone else learns only that a card is there.
+ * Rendering keys off `canOpen` alone, so a card without access never
+ * shows a customer field, whatever the row carried.
+ */
+export function sharedCardView(card: SharedCard): SharedCardView {
+  if (!card.canOpen || !card.conversationId) return { access: false };
+  const s = card.snapshot;
+  return {
+    access: true,
+    conversationId: card.conversationId,
+    name: s.contactName,
+    owner: s.owner,
+    details: [s.phone, s.company].filter(Boolean).join(' · '),
+    lastMessages: s.lastMessages.slice(-2),
+    tag: card.chatTag,
+  };
 }

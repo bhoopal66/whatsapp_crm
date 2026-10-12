@@ -3867,7 +3867,8 @@
       "createTask": "작업 만들기",
       "taskTitle": "후속 조치: {name}",
       "taskCreated": "작업이 생성되었습니다",
-      "taskFailed": "작업을 만들 수 없습니다"
+      "taskFailed": "작업을 만들 수 없습니다",
+      "noAccess": "이 대화를 열 권한이 없어 세부 정보가 숨겨져 있습니다."
     },
     "errors": {
       "forbidden": "접근 권한이 없습니다.",

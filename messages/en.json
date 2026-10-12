@@ -3867,7 +3867,8 @@
       "createTask": "Create task",
       "taskTitle": "Follow up: {name}",
       "taskCreated": "Task created",
-      "taskFailed": "Couldn't create the task"
+      "taskFailed": "Couldn't create the task",
+      "noAccess": "You can't open this conversation, so its details are hidden."
     },
     "errors": {
       "forbidden": "You don't have access to that.",

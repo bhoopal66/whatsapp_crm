@@ -9,11 +9,13 @@
 -- owner, admin, supervisor = team_leader, rm and rm2 = agent,
 -- agent = viewer, bank_guest. Plus 087's own additions: deal rooms
 -- (refused by chat_create_channel; a guest member sees the room, never
--- its Team notes), shared cards (snapshot for every reader, live
--- fields only for someone who can open the chat), cross-account
--- sharing, system posts (service role only, no notifications), the
--- bell row mirrored from chat_notifications, and a person active in
--- another account still reading this account's channels and badges.
+-- its Team notes), shared cards (snapshot and live fields only for
+-- someone who can open the chat now, through chat_shared_cards and a
+-- plain SELECT alike; other readers see that a card exists; no share
+-- into a channel with a bank guest), cross-account sharing, system
+-- posts (service role only, no notifications), the bell row mirrored
+-- from chat_notifications and rewritten by an edit, and a person active
+-- in another account still reading this account's channels and badges.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. Each check is a
@@ -334,6 +336,13 @@ BEGIN
   PERFORM pg_temp.ck('admin reads edit history', pg_temp.cnt(u_adm, format('public.internal_message_edits WHERE message_id = %L', m)), '2');
   PERFORM pg_temp.ck('author reads edit history', pg_temp.cnt(u_rm, format('public.internal_message_edits WHERE message_id = %L', m)), '0');
   PERFORM pg_temp.ck('supervisor reads edit history', pg_temp.cnt(u_sup, format('public.internal_message_edits WHERE message_id = %L', m)), '0');
+  -- the bell keeps a copy of the body: an edit rebuilds it from the new text
+  m := pg_temp.must(pg_temp.post(u_rm, t, format('<@%s> the vault code is 7741', u_rm2)));
+  PERFORM pg_temp.ck('bell before the edit', pg_temp.ic(u_rm2, format('SELECT string_agg(body, ''|'') FROM public.notifications WHERE meta->>''message_id'' = %L', m)), '@% the vault code is 7741');
+  PERFORM pg_temp.ck('edit away the mention text', pg_temp.ic(u_rm, format('SELECT public.chat_edit_message(%L, %L)', m, format('(removed) <@%s>', u_rm2))), 'ok');
+  PERFORM pg_temp.ck('bell after the edit has no old text',
+    pg_temp.ic(u_rm2, format('SELECT (strpos(string_agg(body, ''|''), ''7741'') = 0) || ''/'' || string_agg(body, ''|'') FROM public.notifications WHERE meta->>''message_id'' = %L', m)),
+    'true/(removed) @%');
   p := pg_temp.must(pg_temp.mk(u_rm, a, 'private', 'ed-priv'));
   m := pg_temp.must(pg_temp.post(u_rm, p, 'draft'));
   PERFORM pg_temp.ck('private edit', pg_temp.ic(u_rm, format('SELECT public.chat_edit_message(%L, %L)', m, 'final')), 'ok');
@@ -394,19 +403,38 @@ BEGIN
   VALUES (a, k1, u_rm, tg, '2026-10-01 09:00:00+00') RETURNING id INTO cv1;
   INSERT INTO conversations (account_id, contact_id, user_id) VALUES (a, k2, u_rm2) RETURNING id INTO cv2;
   INSERT INTO conversations (account_id, contact_id, user_id) VALUES (b, kb, u_mx) RETURNING id INTO cvb;
-  p := pg_temp.must(pg_temp.mk(u_sup, a, 'private', 'share', ARRAY[u_rm, u_rm2, u_g]));
+  p := pg_temp.must(pg_temp.mk(u_sup, a, 'private', 'share', ARRAY[u_rm, u_rm2]));
   m := pg_temp.must(pg_temp.post(u_rm, p, 'see this customer', NULL, cv1));
   PERFORM pg_temp.ck('owning agent shares', (SELECT conversation_id || '/' || shared_by FROM shared_conversations WHERE message_id = m), cv1 || '/' || u_rm);
   PERFORM pg_temp.ck('supervisor shares a teammate''s chat', pg_temp.post(u_sup, p, 'and this one', NULL, cv2), '________-____-____-____-____________');
   PERFORM pg_temp.ck('another agent shares', pg_temp.post(u_rm2, p, 'not mine', NULL, cv1), 'ERROR 42501:%cannot share this conversation%');
-  PERFORM pg_temp.ck('guest shares', pg_temp.post(u_g, p, 'peek', NULL, cv1), 'ERROR 42501:%cannot share this conversation%');
-  PERFORM pg_temp.ck('guest reads the share row', pg_temp.cnt(u_g, format('public.shared_conversations WHERE message_id = %L', m)), '1');
   PERFORM pg_temp.ck('share another account''s chat', pg_temp.post(u_rm, p, 'other account', NULL, cvb), 'ERROR 42501:%cannot share this conversation%');
   PERFORM pg_temp.ck('snapshot masks the phone', (SELECT (snapshot->>'phone' NOT LIKE '%500087001%')::text FROM shared_conversations WHERE message_id = m), 'true');
+  -- no share into a channel with a bank guest: a guest member, or a member now demoted to bank_guest
+  d := pg_temp.must(pg_temp.mk(u_sup, a, 'private', 'share-guest', ARRAY[u_rm, u_g]));
+  PERFORM pg_temp.ck('share into a channel with a guest', pg_temp.post(u_rm, d, 'see this customer', NULL, cv1), 'ERROR 42501:%channel with a bank guest%');
+  PERFORM pg_temp.ck('plain post beside a guest', pg_temp.post(u_rm, d, 'no card'), '________-____-____-____-____________');
+  t := pg_temp.must(pg_temp.mk(u_rm, a, 'team', 'share-demoted', ARRAY[extras[1]]));
+  UPDATE profiles SET account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = extras[1];
+  PERFORM pg_temp.ck('share into a channel with a demoted member', pg_temp.post(u_rm, t, 'see this customer', NULL, cv1), 'ERROR 42501:%channel with a bank guest%');
+  UPDATE profiles SET account_role = 'agent', bank_code = NULL WHERE user_id = extras[1];
+  -- a guest added after the share: no snapshot, by any path
+  PERFORM pg_temp.ck('supervisor adds a guest after the share', pg_temp.ic(u_sup, format('SELECT public.chat_add_members(%L, %L::uuid[])', p, ARRAY[u_g])), '1');
+  PERFORM pg_temp.ck('share once a guest is in', pg_temp.post(u_sup, p, 'again', NULL, cv2), 'ERROR 42501:%channel with a bank guest%');
+  PERFORM pg_temp.ck('guest shares', pg_temp.post(u_g, p, 'peek', NULL, cv1), 'ERROR 42501:%cannot share this conversation%');
   PERFORM pg_temp.ck('card for a viewer of the chat', pg_temp.card(u_rm, m), 'IC customer one/t/IC tag/open/2026-10-01%');
-  PERFORM pg_temp.ck('card for a reader who cannot view the chat', pg_temp.card(u_rm2, m), 'IC customer one/f/-/-/-');
-  PERFORM pg_temp.ck('card for a guest', pg_temp.card(u_g, m), 'IC customer one/f/-/-/-');
+  PERFORM pg_temp.ck('viewer reads the share row', pg_temp.ic(u_rm, format('SELECT snapshot->>''contact_name'' FROM public.shared_conversations WHERE message_id = %L', m)), 'IC customer one');
+  PERFORM pg_temp.ck('card for a reader who cannot view the chat', pg_temp.card(u_rm2, m), 'f/-/-/-');
+  PERFORM pg_temp.ck('card for a guest', pg_temp.card(u_g, m), 'f/-/-/-');
   PERFORM pg_temp.ck('card for a non-member of the channel', pg_temp.card(u_ag, m), 'ok');
+  FOREACH uu IN ARRAY ARRAY[u_rm2, u_g] LOOP
+    PERFORM pg_temp.ck('no customer field in the card ' || uu, pg_temp.ic(uu, format(
+      'SELECT (snapshot IS NULL AND conversation_id IS NULL AND NOT can_open AND chat_tag IS NULL AND status IS NULL'
+      ' AND last_message_at IS NULL AND strpos(row_to_json(c)::text, ''IC customer'') = 0)::text'
+      ' FROM public.chat_shared_cards(ARRAY[%L]::uuid[]) c', m)), 'true');
+    PERFORM pg_temp.ck('no share row from a plain SELECT ' || uu, pg_temp.ic(uu, format(
+      'SELECT count(*) || ''/'' || coalesce(string_agg(snapshot::text, ''''), ''-'') FROM public.shared_conversations WHERE message_id = %L', m)), '0/-');
+  END LOOP;
 
   -- ================= a person active in another account =================
   t := pg_temp.must(pg_temp.mk(u_rm, a, 'team', 'multi', ARRAY[u_mx]));

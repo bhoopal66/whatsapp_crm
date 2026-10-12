@@ -2,18 +2,37 @@
 
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { MessageCircle } from 'lucide-react';
+import { Lock, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import type { SharedCard } from '@/lib/chat';
+import { sharedCardView } from '@/lib/chat/share';
 import { cn } from '@/lib/utils';
 
-/** A conversation shared into chat: a read-only snapshot, live fields when the viewer may open it. */
+/**
+ * A conversation shared into chat: a read-only snapshot with live fields
+ * for a viewer who may open it; anyone else sees only that it is there.
+ */
 export function SharedConversationCard({ card }: { card: SharedCard }) {
   const t = useTranslations('Chat.card');
-  const s = card.snapshot;
-  const name = s.contactName ?? t('customer');
-  const tag = card.chatTag ?? null;
+  const view = sharedCardView(card);
+
+  if (!view.access)
+    return (
+      <div className="bg-card mt-1.5 max-w-[730px] overflow-hidden rounded-xl border">
+        <div className="bg-muted/50 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
+          <MessageCircle className="size-3.5 text-[#0E7C5A]" aria-hidden />
+          <span className="text-muted-foreground flex-1">{t('header')}</span>
+        </div>
+        <p className="text-muted-foreground flex items-center gap-2 px-3 py-2.5 text-sm">
+          <Lock className="size-3.5 shrink-0" aria-hidden />
+          {t('noAccess')}
+        </p>
+      </div>
+    );
+
+  const { conversationId, tag } = view;
+  const name = view.name ?? t('customer');
 
   async function createTask() {
     const res = await fetch('/api/tasks', {
@@ -21,7 +40,7 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title: t('taskTitle', { name }),
-        conversationId: card.conversationId,
+        conversationId,
       }),
     }).catch(() => null);
     if (res?.ok) toast.success(t('taskCreated'));
@@ -42,17 +61,15 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
       <div className="space-y-2 px-3 py-2.5">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate font-bold">{name}</span>
-          {s.owner && (
+          {view.owner && (
             <span className="text-muted-foreground shrink-0 text-xs">
-              {t('owner', { name: s.owner })}
+              {t('owner', { name: view.owner })}
             </span>
           )}
         </div>
-        <p className="text-muted-foreground text-xs">
-          {[s.phone, s.company].filter(Boolean).join(' · ')}
-        </p>
+        <p className="text-muted-foreground text-xs">{view.details}</p>
         <div className="space-y-1.5">
-          {s.lastMessages.slice(-2).map((m, i) => {
+          {view.lastMessages.map((m, i) => {
             const customer = m.senderType === 'customer';
             return (
               <div
@@ -78,14 +95,12 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
         </div>
       </div>
       <div className="flex gap-2 border-t px-3 py-2">
-        {card.canOpen && (
-          <Link
-            href={`/inbox?c=${card.conversationId}`}
-            className="rounded-md bg-[#0E7C5A] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0b6a4d]"
-          >
-            {t('open')}
-          </Link>
-        )}
+        <Link
+          href={`/inbox?c=${conversationId}`}
+          className="rounded-md bg-[#0E7C5A] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0b6a4d]"
+        >
+          {t('open')}
+        </Link>
         <button
           type="button"
           onClick={createTask}

@@ -46,9 +46,11 @@
 --    author comparison is NULL-safe (IS DISTINCT FROM): a plain <> on a
 --    NULL author would let anyone edit or delete a system post.
 --  * shared_conversations.snapshot: frozen at share time (contact name,
---    masked phone, company, chat tag, owner, last two messages).
---    chat_shared_cards() adds live fields only for a caller who can
---    open the conversation.
+--    masked phone, company, chat tag, owner, last two messages). Access
+--    is re-checked against the inbox at read time: the snapshot and the
+--    live fields reach only a caller who can open the conversation now
+--    (chat_shared_cards(), and the table's RLS); other readers see a
+--    "no access" card. No share into a channel with a bank guest.
 --  * Attachments: private bucket `chat-files` (25 MB), objects at
 --    account-<ws>/channel-<ch>/<uuid>-<name>; upload needs the right to
 --    post in that channel, download the right to read its messages.
@@ -56,8 +58,9 @@
 --  * Bell: each chat_notifications row inserts the matching
 --    notifications row (types chat_*, 085's CHECK) with
 --    notifications.meta = {channel_id, message_id, thread_root_id}.
---    Deleting a message drops its bell rows; erasure drops the person's
---    and those quoting them.
+--    Editing a message rebuilds its bell rows' body from the new text;
+--    deleting drops them; erasure drops the person's and those quoting
+--    them.
 --  * chat_people(ws) and chat_workspace_badges() for the UI.
 --
 -- Re-runnable: every statement is guarded or replaces in place.
@@ -172,6 +175,14 @@ BEGIN
   END LOOP;
   RETURN v_out;
 END $$;
+
+-- The bell's copy of a message body. Built here for both the insert
+-- (chat_notification_to_bell) and an edit (chat_edit_message), so an
+-- edit rewrites it exactly as it was first built.
+CREATE OR REPLACE FUNCTION public.chat_bell_body(p_body text, p_ws uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT left(public.chat_render_mentions(p_body, p_ws), 140)
+$$;
 
 -- ---------- 2. Tables ----------
 
@@ -449,6 +460,14 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, p
                   WHERE m.id = p_message AND public.chat_can_read_channel(m.channel_id))
 $$;
 
+-- The share row's read check (its RLS policy): the message is readable
+-- and the caller may open the conversation now. Granted for the policy,
+-- so chat_can_view_conversation itself stays internal.
+CREATE OR REPLACE FUNCTION public.chat_can_read_share(p_message uuid, p_conversation uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT public.chat_can_read_message(p_message) AND public.chat_can_view_conversation(p_conversation)
+$$;
+
 -- Write gate of the posting-type functions. Returns the channel; with
 -- p_autojoin a non-guest posting in a team channel becomes a member.
 CREATE OR REPLACE FUNCTION public.chat_assert_can_write(p_channel uuid, p_autojoin boolean)
@@ -609,6 +628,17 @@ BEGIN
                           WHERE cv.id = p_share_conversation AND cv.account_id = v_ch.account_id)) THEN
     RAISE EXCEPTION 'chat_post_message: you cannot share this conversation' USING ERRCODE = '42501';
   END IF;
+  -- A card is customer data and bank guests never see the inbox: no
+  -- share into a channel with a guest member (role guest, or a current
+  -- account role of bank_guest). Reads re-check access anyway.
+  IF p_share_conversation IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.chat_channel_members cm
+                  WHERE cm.channel_id = p_channel
+                    AND (cm.role = 'guest'
+                         OR public.chat_user_role(v_ch.account_id, cm.user_id) = 'bank_guest')) THEN
+    RAISE EXCEPTION 'chat_post_message: a conversation cannot be shared into a channel with a bank guest'
+      USING ERRCODE = '42501';
+  END IF;
 
   IF jsonb_typeof(v_atts) <> 'array' OR jsonb_array_length(v_atts) > 10 THEN
     RAISE EXCEPTION 'chat_post_message: attachments must be an array of at most 10 items' USING ERRCODE = '22023';
@@ -731,6 +761,14 @@ BEGIN
   END IF;
   PERFORM public.chat_assert_can_write(v_msg.channel_id, false);
   UPDATE public.internal_messages SET body = p_body WHERE id = p_message;
+  -- The bell rows keep a copy of the body: rebuild it from the new text,
+  -- or a recipient keeps reading what was edited away (the edit history
+  -- is owner/admin only).
+  UPDATE public.notifications
+     SET body = public.chat_bell_body(p_body, v_msg.account_id)
+   WHERE account_id = v_msg.account_id
+     AND type IN ('chat_mention','chat_dm','chat_thread_reply','chat_broadcast')
+     AND meta->>'message_id' = p_message::text;
 END $$;
 
 -- Soft delete. Also removes the message's mentions, shared cards, bell
@@ -877,14 +915,19 @@ BEGIN
   END IF;
 END $$;
 
--- Shared cards of messages the caller can read: the frozen snapshot for
--- everyone, live fields and can_open only for a caller who may open the
--- conversation itself.
+-- Shared cards of messages the caller can read. Every reader learns that
+-- a card is there; the conversation id, the frozen snapshot and the live
+-- fields go only to a caller who may open the conversation now (the
+-- inbox check, re-run at read time). Anyone else gets can_open = false
+-- and NULLs, and the card renders as "no access".
 CREATE OR REPLACE FUNCTION public.chat_shared_cards(p_message_ids uuid[])
 RETURNS TABLE (message_id uuid, conversation_id uuid, snapshot jsonb, can_open boolean,
                chat_tag jsonb, status text, last_message_at timestamptz)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
-  SELECT s.message_id, s.conversation_id, s.snapshot, v.ok,
+  SELECT s.message_id,
+         CASE WHEN v.ok THEN s.conversation_id END,
+         CASE WHEN v.ok THEN s.snapshot END,
+         v.ok,
          CASE WHEN v.ok AND t.id IS NOT NULL THEN jsonb_build_object('name', t.name, 'color', t.color) END,
          CASE WHEN v.ok THEN cv.status END,
          CASE WHEN v.ok THEN cv.last_message_at END
@@ -1213,7 +1256,7 @@ BEGIN
             WHEN 'thread_reply' THEN v_actor || ' replied to a thread in ' || v_where
             ELSE v_actor || ' notified everyone in ' || v_where
           END,
-          left(public.chat_render_mentions(v_msg.body, v_ch.account_id), 140),
+          public.chat_bell_body(v_msg.body, v_ch.account_id),
           jsonb_build_object('channel_id', v_ch.id, 'message_id', v_msg.id, 'thread_root_id', v_msg.thread_root_id));
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
@@ -1280,13 +1323,22 @@ BEGIN
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', t);
   END LOOP;
   FOREACH t IN ARRAY ARRAY['message_mentions','message_mentions_broadcast','internal_message_reactions',
-    'message_pins','message_attachments','shared_conversations']
+    'message_pins','message_attachments']
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_read', t);
     EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (public.chat_can_read_message(message_id))',
                    t || '_read', t);
   END LOOP;
 END $$;
+
+-- A share row carries the customer snapshot, so a plain SELECT needs the
+-- message to be readable AND the inbox check on the conversation (as in
+-- chat_shared_cards). Not column-level: the row as a whole is customer
+-- data, and one policy covers every client path and column.
+DROP POLICY IF EXISTS shared_conversations_read ON public.shared_conversations;
+CREATE POLICY shared_conversations_read ON public.shared_conversations
+  FOR SELECT TO authenticated
+  USING (public.chat_can_read_share(message_id, conversation_id));
 
 DROP POLICY IF EXISTS chat_channels_read ON public.chat_channels;
 CREATE POLICY chat_channels_read ON public.chat_channels
@@ -1360,9 +1412,11 @@ BEGIN
   FOR f IN SELECT p.oid::regprocedure FROM pg_proc p
             WHERE p.pronamespace = 'public'::regnamespace
               AND p.proname IN ('chat_user_role','chat_ws_role','chat_can_view_conversation','chat_normalize_digits',
-                'chat_mask_phone','chat_conversation_snapshot','chat_render_mentions','chat_message_before_insert',
+                'chat_mask_phone','chat_conversation_snapshot','chat_render_mentions','chat_bell_body',
+                'chat_message_before_insert',
                 'chat_message_before_update','chat_append_only_guard','chat_block_truncate',
                 'chat_user_can_read_channel','chat_can_see_channel','chat_can_read_channel','chat_can_read_message',
+                'chat_can_read_share',
                 'chat_assert_can_write','chat_create_channel','chat_open_dm','chat_post_message',
                 'chat_post_system_message','chat_edit_message','chat_delete_message','chat_mark_read',
                 'chat_unread_counts','chat_workspace_badges','chat_search','chat_toggle_reaction','chat_set_pin',
@@ -1377,7 +1431,7 @@ END $$;
 -- authenticated: the client API, plus the helpers RLS and storage
 -- policies call. Internal helpers and trigger functions stay revoked.
 GRANT EXECUTE ON FUNCTION
-  public.chat_ws_role(uuid),
+  public.chat_ws_role(uuid), public.chat_can_read_share(uuid, uuid),
   public.chat_can_see_channel(uuid), public.chat_can_read_channel(uuid), public.chat_can_read_message(uuid),
   public.chat_storage_can_write(text), public.chat_storage_can_read(text),
   public.chat_create_channel(uuid, text, text, text, uuid[]), public.chat_open_dm(uuid, uuid[]),
