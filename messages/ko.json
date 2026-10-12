@@ -4242,7 +4242,8 @@
     "playFailed": "녹음을 재생하지 못했습니다",
     "attachFailed": "녹음을 첨부하지 못했습니다",
     "noDeal": "첨부할 진행 중인 딜이 없습니다",
-    "openCustomerPage": "고객 페이지 열기"
+    "openCustomerPage": "고객 페이지 열기",
+    "loadMore": "더 보기"
   },
   "CallsPage": {
     "title": "통화",

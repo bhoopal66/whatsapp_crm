@@ -4242,7 +4242,8 @@
     "playFailed": "Couldn't play the recording",
     "attachFailed": "Couldn't attach the recording",
     "noDeal": "No open deal to attach to",
-    "openCustomerPage": "Open customer page"
+    "openCustomerPage": "Open customer page",
+    "loadMore": "Load more"
   },
   "CallsPage": {
     "title": "Calls",

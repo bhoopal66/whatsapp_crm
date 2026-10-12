@@ -654,3 +654,127 @@ export function takeComposerPrefill(
     return null;
   }
 }
+
+/**
+ * Leave the one-shot prefill for that chat's composer. False when the
+ * tab has no storage (private mode, blocked site data): the caller
+ * still navigates, and the composer simply opens empty.
+ */
+export function putComposerPrefill(
+  storage: Pick<Storage, 'setItem'> | null,
+  conversationId: string,
+  text: string
+): boolean {
+  if (!storage || !text) return false;
+  try {
+    storage.setItem(COMPOSER_PREFILL_PREFIX + conversationId, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The tab's sessionStorage, or null (no window, or storage refused). */
+export function sessionStore(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Customer page ----------
+
+/** The customer page when the contact is known, else their chat. */
+export function customerHref(input: {
+  contactId: string | null | undefined;
+  conversationId: string | null | undefined;
+}): string {
+  if (input.contactId) return `/contacts/${input.contactId}`;
+  if (input.conversationId) return `/inbox?c=${input.conversationId}`;
+  return '/contacts';
+}
+
+/** 'KA' for the header tile: the first letters of the first two words. */
+export function initials(text: string | null | undefined): string {
+  const words = (text ?? '').trim().split(/\s+/).filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((w) => Array.from(w)[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+/** The timeline's paged sources; the internal shares come in one read. */
+export const TIMELINE_SOURCES = [
+  'calls',
+  'messages',
+  'notes',
+  'internal',
+] as const;
+export type TimelineSource = (typeof TIMELINE_SOURCES)[number];
+
+const SOURCE_KIND: Record<TimelineSource, EntryKind> = {
+  calls: 'call',
+  messages: 'whatsapp',
+  notes: 'note',
+  internal: 'internal',
+};
+
+/** How far each source is read: its oldest row, and whether more exist. */
+export type TimelinePaging = Partial<
+  Record<TimelineSource, { oldest: string | null; more: boolean }>
+>;
+
+const feeds = (source: TimelineSource, filter: TimelineFilter) => {
+  const kinds = FILTER_KINDS[filter];
+  return !kinds || kinds.includes(SOURCE_KIND[source]);
+};
+
+/**
+ * The instant down to which the filter's sources are all read. Each
+ * source pages on its own, so below the newest of the cut-offs of the
+ * sources with more rows, one of them may still be missing entries:
+ * showing those would put a later page's rows out of order. Null when
+ * every source is read to its end.
+ */
+export function timelineHorizon(
+  paging: TimelinePaging,
+  filter: TimelineFilter
+): number | null {
+  let horizon: number | null = null;
+  for (const source of TIMELINE_SOURCES) {
+    const p = paging[source];
+    if (!p?.more || !p.oldest || !feeds(source, filter)) continue;
+    const at = time(p.oldest);
+    if (Number.isFinite(at) && (horizon === null || at > horizon)) horizon = at;
+  }
+  return horizon;
+}
+
+/** The sources to read further: the ones holding the horizon. */
+export function sourcesToPage(
+  paging: TimelinePaging,
+  filter: TimelineFilter
+): TimelineSource[] {
+  const horizon = timelineHorizon(paging, filter);
+  if (horizon === null) return [];
+  return TIMELINE_SOURCES.filter((source) => {
+    const p = paging[source];
+    return (
+      !!p?.more &&
+      !!p.oldest &&
+      feeds(source, filter) &&
+      time(p.oldest) === horizon
+    );
+  });
+}
+
+/** Entries every source is read far enough to place (see the horizon). */
+export function withinHorizon(
+  entries: TimelineEntry[],
+  horizon: number | null
+): TimelineEntry[] {
+  return horizon === null
+    ? entries
+    : entries.filter((e) => time(e.at) >= horizon);
+}
