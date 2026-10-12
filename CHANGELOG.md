@@ -41,6 +41,19 @@ presence, recordings to fetch, and a task plus bell for each missed
 call. `089_pbx.sql` gains `calls.recording_file` and `calls.meta`
 (re-runnable; re-apply it if you applied an earlier copy).
 
+### Phone system (Yeastar) — recordings, call-backs, cron
+
+`GET /api/pbx/cron` (also run by the automations cron, once a minute)
+copies pending recordings into private storage, dials due call-backs
+between 09:00 and 20:00 Dubai time from the owner's free extension,
+retries failed events (three times), and purges old rows. See
+`docs/yeastar.md` (sections 7–10).
+
+> **Migration required:** `089_pbx.sql` gained
+> `pbx_events_raw.attempts` and `callback_requests.pbx_call_id`, and
+> `pbx_purge()` now drops events that failed all retries after 30 days.
+> Re-apply the file (it is re-runnable).
+
 ### Internal team chat
 
 Slack-style chat for the team, inside each workspace: open team
