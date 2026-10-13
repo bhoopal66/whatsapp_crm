@@ -32,6 +32,7 @@ import {
   ArrowUp,
   MousePointerClick,
   List,
+  MessagesSquare,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -62,6 +63,7 @@ import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { createClient } from "@/lib/supabase/client"
 import { staffOnly } from '@/lib/account/members'
 import { useChatTags } from "@/hooks/use-chat-tags"
+import { useAuth } from "@/hooks/use-auth"
 import { chatTagColor } from "@/lib/chat-tags/style"
 import {
   childPath,
@@ -120,6 +122,7 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   condition: { label: "condition", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
   close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-l-primary" },
+  post_team_chat: { label: "post_team_chat", icon: MessagesSquare, border: "border-l-primary" },
 }
 
 const ADDABLE_STEPS: AutomationStepType[] = [
@@ -134,6 +137,7 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "wait",
   "condition",
   "send_webhook",
+  "post_team_chat",
   "close_conversation",
 ]
 
@@ -195,6 +199,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { url: "", headers: {}, body_template: "" }
     case "close_conversation":
       return {}
+    case "post_team_chat":
+      return { channel_id: "", text: "" }
     default:
       return {}
   }
@@ -216,6 +222,14 @@ interface AutomationResources {
   customFields: CustomField[]
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  chatChannels: ChatChannelOption[]
+}
+
+/** A team or private chat channel the author can see (Post to team chat). */
+interface ChatChannelOption {
+  id: string
+  kind: string
+  name: string | null
 }
 
 interface PipelineOption {
@@ -236,6 +250,7 @@ const ResourcesContext = createContext<AutomationResources>({
   customFields: [],
   pipelines: [],
   stages: [],
+  chatChannels: [],
 })
 
 function useResources(): AutomationResources {
@@ -248,6 +263,29 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
+  const [chatChannels, setChatChannels] = useState<ChatChannelOption[]>([])
+  const { accountId } = useAuth()
+
+  // Channel rows are visible across every workspace a person belongs
+  // to (migration 087), so the list is pinned to the active account:
+  // the automation posts there. DMs and deal rooms are never offered.
+  useEffect(() => {
+    if (!accountId) return
+    let cancelled = false
+    void (async () => {
+      const { data } = await createClient()
+        .from("chat_channels")
+        .select("id, kind, name")
+        .eq("account_id", accountId)
+        .in("kind", ["team", "private"])
+        .is("archived_at", null)
+        .order("name")
+      if (!cancelled) setChatChannels((data as ChatChannelOption[] | null) ?? [])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [accountId])
 
   useEffect(() => {
     let cancelled = false
@@ -300,7 +338,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 
   return (
     <ResourcesContext.Provider
-      value={{ members, templates, customFields, pipelines, stages }}
+      value={{ members, templates, customFields, pipelines, stages, chatChannels }}
     >
       {children}
     </ResourcesContext.Provider>
@@ -565,6 +603,48 @@ function AgentSelect({
         <option value={value}>{t("agents.unknown", { id: value })}</option>
       )}
     </select>
+  )
+}
+
+/** Channel picker for Post to team chat. A saved channel that is no
+ *  longer listed (archived, or private to others) stays selected as
+ *  "unknown" rather than being silently swapped. */
+function TeamChatChannelSelect({
+  value,
+  onChange,
+  t,
+}: {
+  value: string
+  onChange: (v: string) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const { chatChannels } = useResources()
+  const selected = chatChannels.find((c) => c.id === value)
+  return (
+    <>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={SELECT_CLASS}
+      >
+        <option value="">{t("config.teamChat.selectChannel")}</option>
+        {chatChannels.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.kind === "private"
+              ? t("config.teamChat.privateChannel", { name: c.name ?? "" })
+              : `# ${c.name ?? ""}`}
+          </option>
+        ))}
+        {value && !selected && (
+          <option value={value}>{t("config.teamChat.unknownChannel")}</option>
+        )}
+      </select>
+      {chatChannels.length === 0 && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t("config.teamChat.noChannels")}
+        </p>
+      )}
+    </>
   )
 }
 
@@ -1638,6 +1718,29 @@ function StepEditor({
           </FieldBlock>
         </>
       )
+    case "post_team_chat":
+      return (
+        <>
+          <FieldBlock label={t("config.teamChat.channelLabel")}>
+            <TeamChatChannelSelect
+              value={(cfg.channel_id as string) ?? ""}
+              onChange={(v) => set({ channel_id: v })}
+              t={t}
+            />
+          </FieldBlock>
+          <FieldBlock label={t("config.messageText")}>
+            <Textarea
+              value={(cfg.text as string) ?? ""}
+              onChange={(e) => set({ text: e.target.value })}
+              placeholder={t("config.teamChat.placeholderText")}
+              className="min-h-24 bg-muted text-foreground"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t.raw("config.teamChat.textHint") as string}
+            </p>
+          </FieldBlock>
+        </>
+      )
     case "close_conversation":
       return (
         <p className="text-xs text-muted-foreground">
@@ -1679,6 +1782,8 @@ function previewFor(step: BuilderStep): string {
       return `when ${step.step_config.subject ?? "?"}`
     case "send_webhook":
       return (step.step_config.url as string) || "no url"
+    case "post_team_chat":
+      return (step.step_config.text as string) || "no text yet"
     default:
       return ""
   }

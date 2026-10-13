@@ -13,6 +13,7 @@ import type {
   SendTemplateStepConfig,
   SendWebhookStepConfig,
   SetChatTagStepConfig,
+  PostTeamChatStepConfig,
   UpdateContactFieldStepConfig,
   WaitStepConfig,
   CreateDealStepConfig,
@@ -25,6 +26,11 @@ import { engineSendText, engineSendTemplate, engineSendInteractive } from './cha
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
 import { isBankGuest, type AccountRole } from '@/lib/auth/roles'
+import {
+  clipTeamChatBody,
+  describeTeamChatPostError,
+  teamChatChannelRefusal,
+} from './team-chat-post'
 
 // ------------------------------------------------------------
 // Public API
@@ -663,6 +669,37 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .eq('account_id', args.automation.account_id)
         .eq('contact_id', args.contactId)
       return 'conversation closed'
+    }
+
+    case 'post_team_chat': {
+      const cfg = step.step_config as PostTeamChatStepConfig
+      if (!cfg.channel_id) throw new Error('post_team_chat needs a channel')
+      const body = clipTeamChatBody(interpolate(cfg.text ?? '', args))
+      if (!body) throw new Error('post_team_chat has empty text')
+      // chat_post_system_message trusts its caller (service role only)
+      // and the service role bypasses RLS, so the stored channel id is
+      // confined here: this automation's account, a team or private
+      // channel, every run.
+      const { data: channel, error: channelErr } = await db
+        .from('chat_channels')
+        .select('id, kind, archived_at')
+        .eq('id', cfg.channel_id)
+        .eq('account_id', args.automation.account_id)
+        .maybeSingle()
+      if (channelErr) {
+        throw new Error(`post_team_chat: channel lookup failed: ${channelErr.message}`)
+      }
+      const refusal = teamChatChannelRefusal(
+        channel as { kind: string; archived_at: string | null } | null,
+      )
+      if (refusal) throw new Error(refusal)
+      const { data: messageId, error: postErr } = await db.rpc('chat_post_system_message', {
+        p_channel: cfg.channel_id,
+        p_body: body,
+        p_meta: { source: 'automation', automation_id: args.automation.id },
+      })
+      if (postErr) throw new Error(describeTeamChatPostError(postErr))
+      return `posted to team chat (${String(messageId ?? '')})`
     }
 
     default:

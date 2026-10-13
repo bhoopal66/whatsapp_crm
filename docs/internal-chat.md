@@ -146,6 +146,16 @@ chat rights**, and a team leader is the chat's "supervisor".
   system post as `wacrm · automation`: no author, no mentions, no
   notifications. People can react to these posts, not edit or delete
   them.
+- **Post to team chat (automation step `post_team_chat`).** An
+  automation can post into one team or private channel of its own
+  workspace; DMs and deal rooms are never offered, and the engine
+  refuses them. The message is interpolated like Send message
+  (`{{ message.text }}`, `{{ vars.* }}`), `**double asterisks**` show
+  as bold, and a body over 8000 characters is clipped. Every run
+  re-checks the saved channel: another workspace's channel, a DM or a
+  deal room, an archived channel, or team chat being off fails that
+  step in the automation's log, as any failing step does. A `<@uuid>`
+  mention is neither rendered nor notified in a system post.
 
 ## Attachments
 

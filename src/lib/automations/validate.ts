@@ -1,6 +1,7 @@
 import type { AutomationTriggerType } from '@/types'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { TRIGGER_META } from './trigger-meta'
+import { TEAM_CHAT_BODY_MAX } from './team-chat-post'
 
 // ------------------------------------------------------------
 // Pre-flight config validation for automations about to be activated.
@@ -167,6 +168,21 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       break
     case 'close_conversation':
       // No config required.
+      break
+    case 'post_team_chat':
+      // The channel's account and kind are the engine's to check, on
+      // every run; a saved id proves nothing.
+      if (!nonEmpty(c.channel_id)) {
+        issues.push({ path: `${path}.channel_id`, message: 'team chat channel is required' })
+      }
+      if (!nonEmpty(c.text)) {
+        issues.push({ path: `${path}.text`, message: 'message text is required' })
+      } else if (Array.from(String(c.text)).length > TEAM_CHAT_BODY_MAX) {
+        issues.push({
+          path: `${path}.text`,
+          message: `message text is longer than ${TEAM_CHAT_BODY_MAX} characters`,
+        })
+      }
       break
     default:
       issues.push({ path, message: `unknown step type: ${step.step_type}` })

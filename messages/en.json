@@ -1110,7 +1110,8 @@
         "wait": "Wait",
         "condition": "Condition (If/Else)",
         "send_webhook": "Send Webhook",
-        "close_conversation": "Close Conversation"
+        "close_conversation": "Close Conversation",
+        "post_team_chat": "Post to Team Chat"
       },
       "triggers": {
         "new_message_received": {
@@ -1255,7 +1256,16 @@
         "matchWord": "Whole word",
         "matchWordHint": "Matches the keyword only as a standalone word, so \"k\" no longer fires on \"thanks\". Best for short keywords in space-separated languages; use Contains for languages written without spaces.",
         "matchExact": "Exact",
-        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed."
+        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed.",
+        "teamChat": {
+          "channelLabel": "Team chat channel",
+          "selectChannel": "Select a channel",
+          "privateChannel": "{name} (private)",
+          "unknownChannel": "Unknown or archived channel",
+          "noChannels": "No team or private channel you can see. Create one in Team chat first.",
+          "placeholderText": "Triage marked this lead as ready to apply.",
+          "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make text bold; {{ message.text }} and {{ vars.x }} are filled in."
+        }
       }
     }
   },
