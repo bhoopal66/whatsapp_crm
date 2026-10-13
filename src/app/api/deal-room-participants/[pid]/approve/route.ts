@@ -11,8 +11,9 @@ export const maxDuration = 60;
 /**
  * Approve or reject a person waiting for a team leader (a bank guest an
  * agent listed): `{ approve: boolean }`. `deal_room_approve_participant`
- * runs as the caller and holds every rule (team leader and up, the
- * bank's DSA switch); its 42501 is 403, a refused state 409. An approval
+ * runs as the caller and holds every rule (team leader and up, and a
+ * manager of that room since migration 095; the bank's DSA switch); its
+ * 42501 is 403, a refused state 409. An approval
  * then sends the invite on the service role, which does nothing unless
  * the room is open. 200 `{ status: 'invited' | 'rejected', invites }`.
  */
