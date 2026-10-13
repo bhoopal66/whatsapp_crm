@@ -26,7 +26,12 @@ import {
   Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { sessionStore, takeComposerPrefill } from '@/lib/pbx/timeline';
+import {
+  COMPOSER_PREFILL_EVENT,
+  sessionStore,
+  takeComposerPrefill,
+  withPrefill,
+} from '@/lib/pbx/timeline';
 import { GatedButton } from '@/components/ui/gated-button';
 import {
   DropdownMenu,
@@ -171,10 +176,25 @@ export function MessageComposer({
 
   // "Draft WhatsApp" on the customer page leaves a one-shot text for
   // this chat: it opens in the box, editable, and is never sent by
-  // itself. Read once, when the composer mounts for the chat.
+  // itself. Read when the composer mounts for the chat, and again below.
   const [text, setText] = useState(
     () => takeComposerPrefill(sessionStore(), conversationId) ?? ''
   );
+  // The composer outlives a chat switch, so a prefill is also taken when
+  // it moves to the chat, or when one is left while the chat is open.
+  // It joins what the box holds (withPrefill): typed words stay.
+  useEffect(() => {
+    const take = () => {
+      const prefill = takeComposerPrefill(sessionStore(), conversationId);
+      if (prefill) setText((prev) => withPrefill(prev, prefill));
+    };
+    take();
+    const onPut = (e: Event) => {
+      if ((e as CustomEvent<unknown>).detail === conversationId) take();
+    };
+    window.addEventListener(COMPOSER_PREFILL_EVENT, onPut);
+    return () => window.removeEventListener(COMPOSER_PREFILL_EVENT, onPut);
+  }, [conversationId]);
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

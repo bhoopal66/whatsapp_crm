@@ -5,6 +5,7 @@ import { createSystemTask, resolveTaskOwner } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/whatsapp/phone-utils';
 
 import { settleCallbackCall } from './callbacks';
+import { missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
 import {
   contactPhoneCandidates,
@@ -677,12 +678,15 @@ interface Settings {
   exclude_bank_numbers: boolean;
   missed_call_due_minutes: number;
   store_recordings: boolean;
+  missed_call_whatsapp_draft: boolean;
 }
 
 async function settingsOf(ctx: Ctx, accountId: string): Promise<Settings> {
   const { data, error } = await ctx.db
     .from('pbx_settings')
-    .select('exclude_bank_numbers, missed_call_due_minutes, store_recordings')
+    .select(
+      'exclude_bank_numbers, missed_call_due_minutes, store_recordings, missed_call_whatsapp_draft'
+    )
     .eq('account_id', accountId)
     .maybeSingle();
   if (error) fail('pbx_settings read', error);
@@ -692,8 +696,13 @@ async function settingsOf(ctx: Ctx, accountId: string): Promise<Settings> {
     missed_call_due_minutes: s.missed_call_due_minutes ?? 30,
     // Migration 090: no row stores recordings.
     store_recordings: s.store_recordings ?? true,
+    missed_call_whatsapp_draft: s.missed_call_whatsapp_draft === true,
   };
 }
+
+/** The task note's pointer to the customer page's WhatsApp draft. */
+export const MISSED_DRAFT_HINT =
+  'A "sorry we missed you" WhatsApp draft is ready on the customer page (Draft WhatsApp), for you to review and send.';
 
 const plusSeconds = (iso: string, s: number) =>
   new Date(Date.parse(iso) + s * 1000).toISOString();
@@ -883,16 +892,28 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     }
   }
   let name = match.name;
-  if (!name && match.contactId) {
+  let contact: Row | null = null;
+  if (match.contactId && (!name || settings.missed_call_whatsapp_draft)) {
     const c = await ctx.db
       .from('contacts')
-      .select('name')
+      .select('name, do_not_contact_at, do_not_contact_reason, opted_out_at')
       .eq('account_id', ws.accountId)
       .eq('id', match.contactId)
       .maybeSingle();
     if (c.error) fail('contacts read', c.error);
-    name = str((c.data as Row | null)?.name);
+    contact = c.data as Row | null;
+    name = name || str(contact?.name);
   }
+  // The customer page offers its WhatsApp draft on the same terms: the
+  // workspace's switch, a chat to draft in, no do-not-contact, no opt-out.
+  const draftHint =
+    !!contact &&
+    !!match.conversationId &&
+    missedDraftOffer(settings.missed_call_whatsapp_draft, {
+      do_not_contact_at: str(contact.do_not_contact_at),
+      do_not_contact_reason: str(contact.do_not_contact_reason),
+      opted_out_at: str(contact.opted_out_at),
+    }).kind === 'offer';
   const who =
     name?.trim() ||
     (remote
@@ -905,7 +926,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     accountId: ws.accountId,
     kind: 'missed_call',
     title,
-    note: `Missed call (${ev.status.toLowerCase()})${ws.didNumber ? ` on ${ws.didNumber}` : ''}.`,
+    note: `Missed call (${ev.status.toLowerCase()})${ws.didNumber ? ` on ${ws.didNumber}` : ''}.${draftHint ? ` ${MISSED_DRAFT_HINT}` : ''}`,
     contactId: match.contactId,
     conversationId: match.contactId ? match.conversationId : null,
     assignedTo: owner,

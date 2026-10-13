@@ -1,3 +1,4 @@
+import type { ConsentFields } from './call-ui';
 import { isMissedCall } from './call-status';
 import type { SoftphoneState } from './linkus-state';
 
@@ -677,8 +678,63 @@ export function callsSidebar(input: {
   return { visible: true, line: { kind, extension: ext } };
 }
 
+// ---------- Missed-call WhatsApp draft ----------
+
+export type MissedDraft =
+  { kind: 'off' } | { kind: 'offer' } | { kind: 'blocked'; reason: Msg };
+
+/**
+ * A missed call's "Draft WhatsApp" (module 015): only while the
+ * workspace turned the draft on (pbx_settings.missed_call_whatsapp_draft,
+ * off by default), and never for a customer marked do-not-contact or
+ * opted out (086's register), where the strip says why instead. The
+ * draft opens in the chat's composer for a person to send; nothing
+ * sends it by itself. The PBX processor's task hint follows the same.
+ */
+export function missedDraftOffer(
+  draftOn: boolean,
+  contact: Pick<
+    ConsentFields,
+    'do_not_contact_at' | 'do_not_contact_reason' | 'opted_out_at'
+  >
+): MissedDraft {
+  if (!draftOn) return { kind: 'off' };
+  if (contact.do_not_contact_at) {
+    const reason = contact.do_not_contact_reason?.trim();
+    return {
+      kind: 'blocked',
+      reason: reason
+        ? { key: 'draftDoNotContactWhy', values: { reason } }
+        : { key: 'draftDoNotContact' },
+    };
+  }
+  if (contact.opted_out_at)
+    return { kind: 'blocked', reason: { key: 'draftOptedOut' } };
+  return { kind: 'offer' };
+}
+
+/** "Hi Khalid, sorry we missed your call …" (the name when known). */
+export function missedDraftText(name: string | null | undefined): Msg {
+  const n = name?.trim();
+  return n
+    ? { key: 'missedDraftNamed', values: { name: n } }
+    : { key: 'missedDraft' };
+}
+
 /** The inbox composer's one-shot prefill ("Draft WhatsApp"); never sent. */
 export const COMPOSER_PREFILL_PREFIX = 'wacrm:composer-prefill:';
+/**
+ * Dispatched on window (detail: the conversation id) once a prefill is
+ * left, so a composer already open on that chat takes it too.
+ */
+export const COMPOSER_PREFILL_EVENT = 'wacrm:composer-prefill';
+
+/** A prefill joins the box: typed words are never replaced. */
+export function withPrefill(current: string, prefill: string): string {
+  if (!current.trim()) return prefill;
+  if (current.includes(prefill)) return current;
+  return `${current.trimEnd()}\n\n${prefill}`;
+}
 
 export function takeComposerPrefill(
   storage: Pick<Storage, 'getItem' | 'removeItem'> | null,

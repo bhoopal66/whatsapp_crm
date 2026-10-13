@@ -360,6 +360,34 @@ describe('ingestPbxEvent', () => {
     });
   });
 
+  it('points the missed-call task at the WhatsApp draft only when the workspace offers one', async () => {
+    const hint = (i: number) =>
+      String(fake.tables.tasks[i].note).includes('WhatsApp draft');
+    // No settings row: the draft is off.
+    await ingest(end('call-1', 'NO ANSWER'));
+    expect(fake.tables.tasks[0].note).toBe(
+      'Missed call (no answer) on 97143334444.'
+    );
+    fake.tables.pbx_settings = [
+      { account_id: A2, missed_call_whatsapp_draft: true },
+    ];
+    await ingest(end('call-2', 'NO ANSWER'));
+    expect(hint(1)).toBe(true);
+    // Never for a do-not-contact or opted-out customer.
+    fake.tables.contacts[0].do_not_contact_at = '2026-10-01T09:00:00Z';
+    await ingest(end('call-3', 'NO ANSWER'));
+    expect(hint(2)).toBe(false);
+    fake.tables.contacts[0].do_not_contact_at = null;
+    fake.tables.contacts[0].opted_out_at = '2026-10-02T09:00:00Z';
+    await ingest(end('call-4', 'NO ANSWER'));
+    expect(hint(3)).toBe(false);
+    // Nor for a caller with no contact to draft to.
+    fake.tables.contacts = [];
+    await ingest(end('call-5', 'NO ANSWER'));
+    expect(hint(4)).toBe(false);
+    expect(fake.tables.tasks).toHaveLength(5);
+  });
+
   it('keeps a bank number unrecorded while the workspace excludes them', async () => {
     fake.tables.pbx_bank_numbers = [
       { account_id: A2, number: '0501234567', bank_code: 'ADCB' },

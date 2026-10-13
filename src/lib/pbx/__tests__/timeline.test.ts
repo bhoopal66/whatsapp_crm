@@ -12,6 +12,8 @@ import {
   mergeTimeline,
   recordingView,
   refusalView,
+  missedDraftOffer,
+  missedDraftText,
   missedTaskFor,
   noAudioView,
   monthSummaryParts,
@@ -24,6 +26,7 @@ import {
   takeComposerPrefill,
   taskStrip,
   teamOnCustomer,
+  withPrefill,
   type Part,
   type TimelineCall,
 } from '../timeline';
@@ -360,6 +363,53 @@ describe('calls page and sidebar', () => {
     );
     expect(takeComposerPrefill(storage, 'cv1')).toBeNull();
     expect(takeComposerPrefill(null, 'cv1')).toBeNull();
+  });
+});
+
+describe('missed-call WhatsApp draft', () => {
+  const clean = { do_not_contact_at: null, opted_out_at: null };
+  const dnc = {
+    do_not_contact_at: '2026-10-01T09:00:00Z',
+    do_not_contact_reason: ' Asked on the phone ',
+    opted_out_at: null,
+  };
+  const optedOut = { do_not_contact_at: null, opted_out_at: '2026-10-02' };
+
+  it('offers a draft only while the workspace turned it on', () => {
+    expect(missedDraftOffer(false, clean)).toEqual({ kind: 'off' });
+    // Off says nothing, whoever the customer is.
+    expect(missedDraftOffer(false, dnc)).toEqual({ kind: 'off' });
+    expect(missedDraftOffer(true, clean)).toEqual({ kind: 'offer' });
+  });
+
+  it('never offers one to a do-not-contact or opted-out customer, and says why', () => {
+    const why = (d: ReturnType<typeof missedDraftOffer>) =>
+      d.kind === 'blocked' ? say(d.reason) : d.kind;
+    expect(why(missedDraftOffer(true, dnc))).toBe(
+      'No WhatsApp draft: the customer is do-not-contact (Asked on the phone)'
+    );
+    expect(
+      why(missedDraftOffer(true, { ...dnc, do_not_contact_reason: null }))
+    ).toBe('No WhatsApp draft: the customer is do-not-contact');
+    expect(why(missedDraftOffer(true, optedOut))).toBe(
+      'No WhatsApp draft: the customer opted out of messages'
+    );
+  });
+
+  it('greets the customer by name when known', () => {
+    expect(say(missedDraftText(' Khalid '))).toBe(
+      'Hi Khalid, sorry we missed your call — how can we help?'
+    );
+    expect(say(missedDraftText(null))).toBe(
+      'Sorry we missed your call — how can we help?'
+    );
+  });
+
+  it('adds a prefill to the box without replacing typed words', () => {
+    expect(withPrefill('', 'Hi Khalid')).toBe('Hi Khalid');
+    expect(withPrefill('  ', 'Hi Khalid')).toBe('Hi Khalid');
+    expect(withPrefill('Noted. ', 'Hi Khalid')).toBe('Noted.\n\nHi Khalid');
+    expect(withPrefill('Hi Khalid', 'Hi Khalid')).toBe('Hi Khalid');
   });
 });
 

@@ -194,6 +194,15 @@ connection with no secret stored refuses every push. Optionally set
   24 s"), as profiled in the viewer's workspace. Calls from before
   this was kept name only the extension's person, if any. An erased
   call loses the list with the rest of its details.
+- **WhatsApp draft** (Settings › Phone system, off by default). While
+  it is on, a missed call on the customer page offers **Draft
+  WhatsApp**, which opens the customer's chat with "Hi {name}, sorry we
+  missed your call — how can we help?" in the composer (also when that
+  chat is already open; typed words are kept) for the person to edit
+  and send. Nothing sends it by itself. A do-not-contact or opted-out
+  customer is never offered one: the call says why instead. On the same
+  terms (a known contact with a chat, neither do-not-contact nor opted
+  out) the missed-call task's note says the draft is ready.
 - **Recordings** are marked for fetching, or kept unrecorded (_held_)
   for a bank number while **Exclude bank numbers** is on.
 - Every event is stored once (re-sends are ignored); one that cannot be
