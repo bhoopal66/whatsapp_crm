@@ -35,6 +35,18 @@ export interface ApiKeyRow {
 export async function findActiveKeyByHash(
   hash: string
 ): Promise<ApiKeyRow | null> {
+  return (await lookupKeyByHash(hash)).key;
+}
+
+/**
+ * findActiveKeyByHash, also saying whether a null `key` is a live key
+ * of an archived workspace: a real key held back until the workspace is
+ * restored, which requireApiKey does not count as a bad key.
+ */
+export async function lookupKeyByHash(
+  hash: string
+): Promise<{ key: ApiKeyRow | null; archived: boolean }> {
+  const none = { key: null, archived: false };
   const { data, error } = await supabaseAdmin()
     .from('api_keys')
     .select('id, account_id, created_by, name, scopes, expires_at, revoked_at')
@@ -43,15 +55,15 @@ export async function findActiveKeyByHash(
 
   if (error) {
     console.error('[api-keys/store] lookup error:', error.message);
-    return null;
+    return none;
   }
-  if (!data) return null;
+  if (!data) return none;
 
   // Liveness checks in JS rather than SQL so the failure modes are
   // explicit and the index stays a simple equality lookup.
-  if (data.revoked_at) return null;
+  if (data.revoked_at) return none;
   if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) {
-    return null;
+    return none;
   }
 
   // An archived workspace (migration 105) is closed to its keys too:
@@ -66,11 +78,12 @@ export async function findActiveKeyByHash(
     .maybeSingle();
   if (accountErr) {
     console.error('[api-keys/store] account lookup error:', accountErr.message);
-    return null;
+    return none;
   }
-  if (!account || account.archived_at) return null;
+  if (!account) return none;
+  if (account.archived_at) return { key: null, archived: true };
 
-  return data as ApiKeyRow;
+  return { key: data as ApiKeyRow, archived: false };
 }
 
 /**

@@ -30,7 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { findActiveKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
+import { lookupKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
 import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
 import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
@@ -101,12 +101,15 @@ export async function requireApiKey(
   const lockKey = ip ? `apikey:${ipKey(ip)}` : null;
   if (lockKey) await refuseLockedCaller(lockKey);
 
-  const row = await findActiveKeyByHash(hashApiKey(presented));
+  const { key: row, archived } = await lookupKeyByHash(hashApiKey(presented));
   if (!row) {
     // Covers unknown, revoked, and expired keys alike — we don't
     // distinguish them on the wire so a probe can't learn whether a
-    // key ever existed.
-    if (lockKey) await recordKey(lockKey, false);
+    // key ever existed. A live key of an archived workspace (105) is
+    // refused the same way but is not a bad key: an integration that
+    // serves several workspaces from one IP (Compass) would otherwise
+    // lock itself out of the live ones by retrying it.
+    if (lockKey && !archived) await recordKey(lockKey, false);
     throw unauthorized();
   }
 

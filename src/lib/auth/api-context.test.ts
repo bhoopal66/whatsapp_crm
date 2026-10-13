@@ -15,9 +15,15 @@ vi.mock('@/lib/flows/admin-client', () => ({
 // Mock the store so we control which row a hash resolves to.
 const findActiveKeyByHash =
   vi.fn<(hash: string) => Promise<ApiKeyRow | null>>();
+// A null key that is a live key of an archived workspace (105).
+const archivedKey = vi.fn<(hash: string) => boolean>(() => false);
 const touchLastUsed = vi.fn();
 vi.mock('@/lib/api-keys/store', () => ({
   findActiveKeyByHash: (hash: string) => findActiveKeyByHash(hash),
+  lookupKeyByHash: async (hash: string) => {
+    const key = await findActiveKeyByHash(hash);
+    return { key, archived: !key && archivedKey(hash) };
+  },
   touchLastUsed: (id: string) => touchLastUsed(id),
 }));
 
@@ -60,6 +66,8 @@ beforeEach(() => {
   guards.lockout = new AuthLockout(lockStore);
   __resetRateLimitForTests();
   findActiveKeyByHash.mockReset();
+  archivedKey.mockReset();
+  archivedKey.mockReturnValue(false);
   touchLastUsed.mockReset();
 });
 
@@ -180,6 +188,17 @@ describe('requireApiKey bad-key lockout', () => {
     // Another IP is not locked.
     const ctx = await requireApiKey(reqWith(`Bearer ${KEY}`, '198.51.100.9'));
     expect(ctx.keyId).toBe('key-1');
+  });
+
+  it("does not count an archived workspace's key as a bad key", async () => {
+    archivedKey.mockReturnValue(true);
+    for (let i = 0; i < 8; i++)
+      await expectApiError(bad(), 'unauthorized', 401);
+    archivedKey.mockReturnValue(false);
+    findActiveKeyByHash.mockResolvedValueOnce(row());
+    expect((await requireApiKey(reqWith(`Bearer ${KEY}`, IP))).keyId).toBe(
+      'key-1'
+    );
   });
 
   it('a good key clears the run of bad ones', async () => {
