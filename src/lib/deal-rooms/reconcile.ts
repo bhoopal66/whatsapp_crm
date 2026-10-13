@@ -45,7 +45,7 @@ import {
 } from '@/lib/whatsapp/meta-groups';
 
 import { releaseStaleInviteClaims, sendRoomInvites } from './invites';
-import { metaChannel, notifyRoomCreator } from './shared';
+import { metaChannel, notifyRoomAlert } from './shared';
 
 /** A room still `creating` this long after it was created is stuck. */
 const STUCK_AFTER_MS = 2 * 60_000;
@@ -295,12 +295,18 @@ async function open(
       p_request_id: requestId,
     });
   }
-  await rpc(db, 'deal_room_group_created', {
+  const { data: opened, error } = await db.rpc('deal_room_group_created', {
     p_account: room.account_id,
     p_request_id: requestId,
     p_group_id: groupId,
     p_invite_link_hash: null,
   });
+  if (error)
+    throw new Error(`deal_room_group_created failed: ${error.message}`);
+  // NULL: a manager cancelled the room since it was read (096). It stays
+  // failed and nobody is invited; the group, matched by subject only,
+  // is left at WhatsApp rather than deleted on a guess.
+  if (opened === null) return 'waiting';
   await audit(db, room, 'create_reconciled', { group_id: groupId });
   try {
     await sendRoomInvites(db, room.id);
@@ -379,7 +385,7 @@ async function giveUp(
     p_status: 'failed',
     p_reason: reason,
   });
-  await notifyRoomCreator(db, room, 'Deal room could not be created', {
+  await notifyRoomAlert(db, room, 'Deal room could not be created', {
     event: 'create_failed',
     reason,
   });

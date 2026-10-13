@@ -135,6 +135,18 @@ describe('reconcileCreatingRooms — matching', () => {
     expect(h.createGroup).not.toHaveBeenCalled();
   });
 
+  it('opens nothing and invites nobody when the room was cancelled meanwhile', async () => {
+    const mem = setup([room()]);
+    // 096: deal_room_group_created answers NULL for a cancelled room.
+    mem.rpc.mockImplementation(() => null);
+    groups(group('G1'));
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ waiting: 1 })
+    );
+    expect(h.sendRoomInvites).not.toHaveBeenCalled();
+    expect(mem.tables.deal_room_audit ?? []).toEqual([]);
+  });
+
   it('records a request id first when the room has none', async () => {
     const mem = setup([room({ create_request_id: null })]);
     // A minute of clock skew: stamped 60 s before the room still counts.
@@ -332,6 +344,28 @@ describe('reconcileCreatingRooms — retry', () => {
 
 describe('reconcileCreatingRooms — giving up', () => {
   const REASON = 'WhatsApp had not confirmed the group after 10 minutes.';
+
+  it('tells the live owners and admins of a failed room too, once each', async () => {
+    const mem = setup([
+      room({ created_at: minutesAgo(11), last_error: RETRY_NOTE }),
+    ]);
+    const person = (user_id: string, account_role: string, off = false) => ({
+      account_id: 'acct-1',
+      user_id,
+      account_role,
+      deactivated_at: off ? '2026-10-01T00:00:00Z' : null,
+    });
+    mem.tables.profiles = [
+      person('owner-1', 'owner'),
+      person('user-1', 'admin'),
+      person('agent-1', 'agent'),
+      person('admin-off', 'admin', true),
+    ];
+    await reconcileCreatingRooms(mem.db, NOW);
+    expect(
+      (mem.tables.notifications as { user_id: string }[]).map((n) => n.user_id)
+    ).toEqual(['user-1', 'owner-1']);
+  });
 
   it('waits on a retried room until 10 minutes', async () => {
     const mem = setup([room({ created_at: minutesAgo(9), last_error: 'x' })]);
