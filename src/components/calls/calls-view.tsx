@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { Phone, PhoneMissed } from 'lucide-react';
 
+import { CallReport } from '@/components/calls/call-report';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
+import { hasMinRole } from '@/lib/auth/roles';
 import { callBackFor } from '@/lib/pbx/call-ui';
 import {
   callHeading,
@@ -27,7 +29,7 @@ type CallRow = TimelineCall & {
   doNotContactAt: string | null;
   doNotContactReason: string | null;
 };
-type Tab = 'missed' | 'log';
+type Tab = 'missed' | 'log' | 'people';
 interface Loaded {
   tab: Tab;
   calls: CallRow[];
@@ -53,6 +55,8 @@ export function CallsView({ tab }: { tab: Tab }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
+    // The report tab loads its own figures.
+    if (tab === 'people') return;
     let cancelled = false;
     const calls =
       tab === 'missed'
@@ -172,26 +176,35 @@ export function CallsView({ tab }: { tab: Tab }) {
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
       <h1 className="text-xl font-bold">{t('title')}</h1>
       <nav className="flex gap-2" aria-label={t('title')}>
-        {(['missed', 'log'] as const).map((k) => (
-          <Link
-            key={k}
-            href={k === 'log' ? '/calls?tab=log' : '/calls'}
-            aria-current={tab === k ? 'page' : undefined}
-            className={cn(
-              'rounded-full border px-3 py-1 text-sm',
-              tab === k
-                ? 'bg-foreground text-background border-transparent'
-                : 'border-border text-muted-foreground hover:bg-muted'
-            )}
-          >
-            {t(`tabs.${k}`)}
-          </Link>
-        ))}
+        {(['missed', 'log', 'people'] as const)
+          // The report is for team leaders and up (pbx_call_report).
+          .filter(
+            (k) =>
+              k !== 'people' ||
+              (accountRole !== null && hasMinRole(accountRole, 'team_leader'))
+          )
+          .map((k) => (
+            <Link
+              key={k}
+              href={k === 'missed' ? '/calls' : `/calls?tab=${k}`}
+              aria-current={tab === k ? 'page' : undefined}
+              className={cn(
+                'rounded-full border px-3 py-1 text-sm',
+                tab === k
+                  ? 'bg-foreground text-background border-transparent'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+              )}
+            >
+              {t(`tabs.${k}`)}
+            </Link>
+          ))}
       </nav>
       {tab === 'missed' && (
         <p className="text-muted-foreground text-sm">{t('missedHint')}</p>
       )}
-      {!current ? (
+      {tab === 'people' ? (
+        <CallReport />
+      ) : !current ? (
         <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
       ) : current.failed ? (
         <p className="text-destructive text-sm">{t('loadFailed')}</p>

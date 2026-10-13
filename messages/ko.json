@@ -4749,7 +4749,8 @@
     "title": "통화",
     "tabs": {
       "missed": "부재중 전화",
-      "log": "통화 기록"
+      "log": "통화 기록",
+      "people": "담당자별"
     },
     "missedHint": "최근 7일간의 부재중 전화, 최신순",
     "today": "오늘",
@@ -4759,7 +4760,45 @@
     "unknownCaller": "알 수 없는 발신자",
     "taskOpen": "할 일 열림",
     "taskDone": "할 일 완료",
-    "loadFailed": "통화를 불러오지 못했습니다"
+    "loadFailed": "통화를 불러오지 못했습니다",
+    "report": {
+      "periods": {
+        "today": "오늘",
+        "week": "이번 주",
+        "month": "이번 달",
+        "custom": "직접 지정"
+      },
+      "from": "시작일",
+      "to": "종료일",
+      "apply": "적용",
+      "custom": {
+        "order": "종료일이 시작일보다 앞섭니다",
+        "span": "최대 92일까지 선택할 수 있습니다"
+      },
+      "pickDays": "첫날과 마지막 날을 고른 뒤 적용을 누르세요",
+      "columns": {
+        "person": "담당자",
+        "inboundAnswered": "응답",
+        "outbound": "발신",
+        "missed": "부재중",
+        "talkTotal": "통화 시간",
+        "talkAverage": "평균 통화",
+        "ringAverage": "평균 대기",
+        "outcomes": "결과"
+      },
+      "unnamed": "이름 없는 사용자",
+      "extension": "내선 {extension}",
+      "noPerson": "담당자 없음",
+      "total": "워크스페이스 합계",
+      "noOutcome": "결과 없음",
+      "empty": "이 기간에 통화가 없습니다",
+      "loadFailed": "보고서를 불러오지 못했습니다",
+      "forbidden": "팀 리더, 관리자, 소유자만 이 보고서를 볼 수 있습니다",
+      "range": "{from} – {to}, {zone} 기준 날짜, 주는 월요일부터",
+      "footnoteMissed": "부재중: 본인 내선으로 걸려 온 수신 전화를 받지 못하면 그 사람의 부재중으로 집계됩니다. 링 그룹이나 대기열로 걸려 온 전화는 여러 사람에게 동시에 울리므로, 아무도 받지 않으면 담당자가 없습니다. 이런 전화는 CRM 로그인이 없는 내선으로 걸려 온 전화와 마찬가지로 담당자 없음에 한 번만 집계됩니다.",
+      "footnoteFigures": "응답, 부재중, 대기 시간은 수신 전화 기준이며, 발신은 연결 여부와 관계없이 건 모든 전화입니다. 통화 시간과 결과 없음은 연결된 통화 기준이고, 평균 대기는 응답한 수신 전화가 울린 시간입니다. 동료 간 통화는 제외됩니다.",
+      "footnoteLeader": "내가 이끄는 팀의 구성원과 나 자신만 표시됩니다. 워크스페이스 합계는 모든 통화를 집계합니다."
+    }
   },
   "ChatCalls": {
     "section": "통화",

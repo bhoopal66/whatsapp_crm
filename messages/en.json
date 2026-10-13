@@ -4749,7 +4749,8 @@
     "title": "Calls",
     "tabs": {
       "missed": "Missed calls",
-      "log": "Call log"
+      "log": "Call log",
+      "people": "By person"
     },
     "missedHint": "Missed in the last 7 days, newest first",
     "today": "Today",
@@ -4759,7 +4760,45 @@
     "unknownCaller": "Unknown caller",
     "taskOpen": "Task open",
     "taskDone": "Task done",
-    "loadFailed": "Couldn't load calls"
+    "loadFailed": "Couldn't load calls",
+    "report": {
+      "periods": {
+        "today": "Today",
+        "week": "This week",
+        "month": "This month",
+        "custom": "Custom"
+      },
+      "from": "From",
+      "to": "To",
+      "apply": "Apply",
+      "custom": {
+        "order": "The end date is before the start date",
+        "span": "Pick at most 92 days"
+      },
+      "pickDays": "Pick the first and last day, then Apply",
+      "columns": {
+        "person": "Person",
+        "inboundAnswered": "Answered",
+        "outbound": "Outbound",
+        "missed": "Missed",
+        "talkTotal": "Talk time",
+        "talkAverage": "Avg talk",
+        "ringAverage": "Avg ring",
+        "outcomes": "Outcomes"
+      },
+      "unnamed": "Unnamed person",
+      "extension": "Ext. {extension}",
+      "noPerson": "No person",
+      "total": "Workspace total",
+      "noOutcome": "No outcome",
+      "empty": "No calls in this period",
+      "loadFailed": "Couldn't load the report",
+      "forbidden": "Only team leaders, admins and owners can see this report",
+      "range": "{from} – {to}, days in {zone}; weeks start on Monday",
+      "footnoteMissed": "Missed: an incoming call that rang someone's own extension and was not answered counts for them. A call to a ring group or queue rings several people at once, so when nobody answers it has no person: it is counted once, under No person, as is a call to an extension with no CRM login.",
+      "footnoteFigures": "Answered, missed and ring time are incoming calls; outbound counts every call placed, answered or not. Talk time and No outcome count answered calls; Avg ring is how long answered incoming calls rang. Calls between colleagues are left out.",
+      "footnoteLeader": "You see the people in the teams you lead, and yourself. The workspace total counts every call."
+    }
   },
   "ChatCalls": {
     "section": "Calls",
