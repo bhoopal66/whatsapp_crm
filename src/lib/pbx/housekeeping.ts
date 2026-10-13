@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { dialDueCallbacks, type CallbacksSummary } from './callbacks';
+import { checkPbxSilence, type SilenceSummary } from './health';
 import { processStoredPbxEvent } from './process';
 import {
   fetchPendingRecordings,
@@ -11,7 +12,7 @@ import {
 /**
  * The phone system's periodic work (GET /api/pbx/cron, and the
  * automations cron once a minute): the presence keepalive, the outcome
- * reminders, recordings, call-backs, retries of failed events,
+ * reminders, the silence alert (migration 104), recordings, call-backs, retries of failed events,
  * pbx_purge(), the retention period, then the orphaned-audio sweep.
  * `db` is the service role.
  */
@@ -211,6 +212,8 @@ export interface PbxCronSummary {
   presence?: number;
   /** call_outcome_due bells rung (097). */
   outcomeReminders?: number;
+  /** Silence alert bells rung (104). */
+  silence?: SilenceSummary;
   recordings?: RecordingsSummary;
   callbacks?: CallbacksSummary;
   retries?: RetrySummary;
@@ -259,6 +262,13 @@ export async function runPbxCron(input: {
         });
         if (error) throw new Error(error.message);
         summary.outcomeReminders = Number(data ?? 0);
+      },
+    ],
+    // The silence alert, as quick and as time-bound.
+    [
+      'silence',
+      async () => {
+        summary.silence = await checkPbxSilence({ db, now });
       },
     ],
     [

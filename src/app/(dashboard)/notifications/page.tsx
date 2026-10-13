@@ -20,7 +20,9 @@ import {
   MessageCircle,
   MessagesSquare,
   PhoneMissed,
+  PhoneOff,
   ClipboardPen,
+  PhoneCall,
   PhoneOutgoing,
   ShieldAlert,
   UserPlus,
@@ -52,6 +54,8 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   call_missed: PhoneMissed,
   callback_requested: PhoneOutgoing,
   call_outcome_due: ClipboardPen,
+  pbx_connection_silent: PhoneOff,
+  pbx_connection_restored: PhoneCall,
   deal_room_join_request: DoorOpen,
   deal_room_update: Handshake,
 };
@@ -62,6 +66,8 @@ const FULL_BODY: ReadonlySet<Notification["type"]> = new Set([
   "channel_disconnected",
   "channel_reconnected",
   "team_activity_alert",
+  "pbx_connection_silent",
+  "pbx_connection_restored",
 ]);
 
 export default function NotificationsPage() {

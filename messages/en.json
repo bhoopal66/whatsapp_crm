@@ -2971,8 +2971,15 @@
       },
       "events": {
         "title": "Events",
-        "liveLink": "Live link (webhook or gateway) · {ago}",
-        "sharedToken": "API sessions are shared: one token for the whole team"
+        "none": "No events yet",
+        "live": "Receiving events · {ago}",
+        "quiet": "Quiet · {ago}",
+        "viaWebhook": "Through Yeastar's webhook push",
+        "viaGateway": "Through the WebSocket gateway",
+        "apiTokens": "API sessions held by the CRM: {held} of {limit} · one token, shared by the whole team",
+        "ago": "{unit, select, s {{count} s} min {{count} min} h {{count} h} other {{count} d}} ago",
+        "backfill": "Last gap filled from call records: {ago}{count, plural, =0 {{failed, plural, =0 { · nothing was missing} other {}}} one { · # call added} other { · # calls added}}{failed, plural, =0 {} one { · # call could not be added} other { · # calls could not be added}}",
+        "backfillNever": "Last gap filled from call records: never"
       },
       "softphone": {
         "title": "Browser softphone",

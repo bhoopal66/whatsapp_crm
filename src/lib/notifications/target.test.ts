@@ -119,6 +119,22 @@ describe('notificationTarget', () => {
     }
   );
 
+  it.each(['pbx_connection_silent', 'pbx_connection_restored'])(
+    '%s opens Phone system settings for those who can edit settings',
+    (type) => {
+      const meta = { connection_id: CH };
+      expect(notificationTarget({ type, meta }, 'owner')).toBe(
+        '/settings?tab=phone-system'
+      );
+      expect(notificationTarget({ type, meta }, 'admin')).toBe(
+        '/settings?tab=phone-system'
+      );
+      expect(notificationTarget({ type, meta }, 'team_leader')).toBeNull();
+      expect(notificationTarget({ type, meta }, 'bank_guest')).toBeNull();
+      expect(notificationTarget({ type, meta }, null)).toBeNull();
+    }
+  );
+
   it('team_activity_alert opens Team activity for leaders and up', () => {
     const type = 'team_activity_alert';
     expect(notificationTarget({ type }, 'admin')).toBe('/team-activity');

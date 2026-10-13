@@ -286,7 +286,7 @@ export interface Conversation {
 }
 
 // ============================================================
-// Notifications (migration 027). The type list is 085's
+// Notifications (migration 027). The type list is 104's
 // notifications_type_check, the latest; change the two together.
 // ============================================================
 
@@ -321,6 +321,11 @@ export type NotificationType =
   // minutes after it ended, where outcomes are mandatory (the PBX cron,
   // once per call). meta = {call_id, contact_id}.
   | 'call_outcome_due'
+  // Phone system health (104): no PBX event for 15 minutes in working
+  // hours / events again after that alert (the PBX cron, once each).
+  // Sent to owners and admins. meta = {connection_id, last_event_at}.
+  | 'pbx_connection_silent'
+  | 'pbx_connection_restored'
   // Deal rooms (088): someone asked to join a room, or a room changed.
   // meta = {room_id, ...}.
   | 'deal_room_join_request'

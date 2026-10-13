@@ -5,7 +5,7 @@
 // like every /api/pbx route it calls; a team leader sees only the
 // mandatory-outcome switch (migration 097).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Loader2, PlugZap } from 'lucide-react';
@@ -15,7 +15,11 @@ import { canEditSettings } from '@/lib/auth/roles';
 import {
   PBX_AUTH_BACKOFF_MINUTES,
   baseUrlHost,
+  YEASTAR_TOKENS_PER_APPLICATION,
+  connectionRefreshDue,
   connectionState,
+  eventLinkHealth,
+  lastBackfillView,
   lastEventAgo,
   routedWorkspaceNames,
   type PbxConnectionView,
@@ -57,8 +61,20 @@ function AdminPanel() {
   const [testing, setTesting] = useState(false);
   const [now, setNow] = useState(() => new Date());
 
-  const apply = useCallback(
-    (res: PbxResult<{ connection: PbxConnectionView | null }>) => {
+  // Reads are numbered and only the newest counts: a poll that finishes
+  // after a save or a newer read must not put an older connection back.
+  const readSeq = useRef(0);
+  const lastReadAt = useRef(0);
+
+  const land = useCallback(
+    (
+      mine: number,
+      quiet: boolean,
+      res: PbxResult<{ connection: PbxConnectionView | null }>
+    ) => {
+      if (mine !== readSeq.current) return;
+      // A failed poll keeps what is on screen and says nothing.
+      if (!res.ok && quiet) return;
       if (res.ok) setConn(res.data.connection);
       else
         toast.error(t('loadFailed'), { description: res.error ?? undefined });
@@ -67,25 +83,58 @@ function AdminPanel() {
     },
     [t]
   );
-  const loadConnection = useCallback(
-    async () => apply(await pbxFetch('/api/pbx/connection')),
-    [apply]
+  const read = useCallback(
+    (quiet: boolean) => {
+      const mine = ++readSeq.current;
+      lastReadAt.current = Date.now();
+      return pbxFetch<{ connection: PbxConnectionView | null }>(
+        '/api/pbx/connection'
+      ).then((res) => land(mine, quiet, res));
+    },
+    [land]
   );
+  const loadConnection = useCallback(() => read(false), [read]);
 
   useEffect(() => {
-    let live = true;
-    void pbxFetch<{ connection: PbxConnectionView | null }>(
-      '/api/pbx/connection'
-    ).then((res) => {
-      if (live) apply(res);
-    });
-    // "last event 2 s ago" stays roughly true while the page is open.
-    const tick = setInterval(() => setNow(new Date()), 15_000);
+    void read(false);
     return () => {
-      live = false;
-      clearInterval(tick);
+      readSeq.current += 1; // a read still in flight is dropped
     };
-  }, [apply]);
+  }, [read]);
+
+  useEffect(() => {
+    // The Events card words its verdict from the last read, so an open tab
+    // reads again about once a minute (connectionRefreshDue) and when it
+    // comes back to the front. The connection form keeps its own draft,
+    // but no read lands while it is open: it was opened against the
+    // connection on screen.
+    const poll = () => {
+      if (
+        connectionRefreshDue({
+          lastReadAt: lastReadAt.current,
+          now: Date.now(),
+          visible: document.visibilityState === 'visible',
+          formOpen: editing,
+        })
+      )
+        void read(true);
+    };
+    // "last event 2 s ago" stays roughly true while the page is open.
+    const tick = setInterval(() => {
+      setNow(new Date());
+      poll();
+    }, 15_000);
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      setNow(new Date());
+      poll();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(tick);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [editing, read]);
 
   const shared = useMemo(
     () => routedWorkspaceNames(routes, workspaces),
@@ -127,6 +176,10 @@ function AdminPanel() {
   const agoText = ago
     ? t('connection.lastEvent', ago)
     : t('connection.noEvents');
+  const link = eventLinkHealth(conn?.lastEventAt ?? null, now);
+  const backfill = conn
+    ? lastBackfillView(conn.lastBackfillAt, conn.lastBackfill, now)
+    : null;
 
   return (
     <div className="min-w-0 space-y-6">
@@ -196,8 +249,40 @@ function AdminPanel() {
           </StatusCard>
 
           <StatusCard title={t('events.title')}>
-            <p>{t('events.liveLink', { ago: agoText })}</p>
-            <p className="text-muted-foreground">{t('events.sharedToken')}</p>
+            <p className="flex items-center gap-2 font-medium">
+              <span
+                className={cn('size-2 shrink-0 rounded-full', DOT[link.tone])}
+              />
+              {link.state === 'none'
+                ? t('events.none')
+                : t(link.state === 'live' ? 'events.live' : 'events.quiet', {
+                    ago: agoText,
+                  })}
+            </p>
+            {link.state !== 'none' && conn?.lastEventVia ? (
+              <p className="text-muted-foreground">
+                {t(
+                  conn.lastEventVia === 'gateway'
+                    ? 'events.viaGateway'
+                    : 'events.viaWebhook'
+                )}
+              </p>
+            ) : null}
+            <p className="text-muted-foreground">
+              {t('events.apiTokens', {
+                held: conn?.apiTokensHeld ?? 0,
+                limit: YEASTAR_TOKENS_PER_APPLICATION,
+              })}
+            </p>
+            <p className="text-muted-foreground">
+              {backfill
+                ? t('events.backfill', {
+                    ago: t('events.ago', backfill.ago),
+                    count: backfill.added,
+                    failed: backfill.failed,
+                  })
+                : t('events.backfillNever')}
+            </p>
           </StatusCard>
 
           <StatusCard title={t('softphone.title')}>
@@ -234,6 +319,8 @@ function AdminPanel() {
         onOpenChange={setEditing}
         connection={conn}
         onSaved={(next) => {
+          readSeq.current += 1; // a read already in flight predates this save
+          lastReadAt.current = Date.now();
           setConn(next);
           setNow(new Date());
         }}

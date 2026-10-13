@@ -105,6 +105,7 @@ describe('POST events', () => {
     expect(again).toMatchObject({ ok: true, duplicate: true });
     expect(fake.tables.pbx_events_raw).toHaveLength(1);
     expect(fake.tables.pbx_events_raw[0].connection_id).toBe('c1');
+    expect(fake.tables.pbx_connections[0].last_event_via).toBe('gateway');
   });
 
   it('503 when the frame could not be stored, so the gateway retries', async () => {
@@ -140,6 +141,36 @@ describe('POST backfill', () => {
     );
     expect(stored).toHaveLength(rows.length);
     expect(stored.every((p) => p.type === 30012)).toBe(true);
+    // Kept on the connection for Settings → Phone system.
+    const conn = fake.tables.pbx_connections[0];
+    expect(conn.last_event_via).toBe('gateway');
+    expect(Date.parse(String(conn.last_backfill_at))).not.toBeNaN();
+    expect(conn.last_backfill).toEqual({
+      from: body.from,
+      to: body.to,
+      records: rows.length,
+      ingested: body.ingested,
+      duplicates: body.duplicates,
+      failed: body.failed,
+    });
+  });
+
+  it('still answers when the backfill cannot be recorded', async () => {
+    h.searchCdr.mockResolvedValueOnce({ total: 0, records: [] });
+    fake.fail('pbx_connections', 'update', { message: 'down' });
+    const to = new Date();
+    const res = await backfill(
+      req(
+        'backfill',
+        JSON.stringify({
+          from: new Date(to.getTime() - 60_000).toISOString(),
+          to: to.toISOString(),
+        })
+      )
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).records).toBe(0);
+    expect(fake.tables.pbx_connections[0].last_backfill_at).toBeUndefined();
   });
 
   it('reads a CDR row as the same Call End event the socket would carry', () => {

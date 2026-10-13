@@ -221,6 +221,37 @@ connection with no secret stored refuses every push. Optionally set
 - Every event is stored once (re-sends are ignored); one that cannot be
   processed keeps its error on the stored event.
 
+**The Events card** in Settings states what the server recorded
+(migration `104_pbx_health.sql`):
+
+- whether events arrive: _Receiving events_ while the latest is under
+  15 minutes old, _Quiet_ after that, _No events yet_ before the first.
+  Quiet is not a fault by itself; a night without calls is quiet too.
+  An open tab reads the connection again about once a minute while it
+  is in view, so the verdict does not go stale;
+- the path that carried the latest event: Yeastar's webhook push or the
+  WebSocket gateway. A retried or late old event moves neither the time
+  nor the path. A stamp more than a minute ahead of the database's clock
+  (a wrong clock on the app server) is stored as that clock plus a
+  minute, so it cannot hold every later event back;
+- the API sessions the CRM holds: 0 or 1 of the 8 Yeastar allows an
+  API application, because one cached token serves every person and
+  process (section 1);
+- the gateway's latest call-record backfill: when, how many calls it
+  added and how many it could not. A webhook-only install never
+  backfills, so it says _never_.
+
+**The silence alert.** When no event has arrived for 15 minutes, all of
+them inside working hours (09:00–20:00 Dubai, the call-backs' window),
+the owners and admins of the workspace that owns the connection get one
+bell, _No phone system events for …_, which opens Settings → Phone
+system. When events arrive again they get one more, _Phone system events
+are arriving again_, at any hour. A connection that never received an
+event never alerts, and a quiet night does not either: at 09:15 a link
+that has said nothing since the evening does. The PBX cron checks every
+pass (section 10); `pbx_connection_silence()` moves the state and rings
+in one statement, so overlapping passes ring once.
+
 ## 7. Running the gateway
 
 Firmware without webhook push (before 84.20.0.21) relays events through
@@ -244,6 +275,11 @@ Run it one of three ways:
   `Restart=always`.
 
 Run one gateway per PBX.
+
+After a reconnect the gateway asks for the gap's call records
+(`POST /api/pbx/gateway/backfill`, the last 24 hours at most), and each
+is stored as the Call End event it would have been. The Events card
+shows the latest backfill.
 
 ## 8. Recordings
 
@@ -300,7 +336,8 @@ recording notice before the owner is connected.
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
 first keeps the red dot of anyone still on a live call (above), then
 rings the outcome reminders (where outcomes are mandatory, at most
-200 a run; see **The wrap-up** below), then
+200 a run; see **The wrap-up** below) and the silence alert (section
+6), then
 fetches pending recordings, dials due call-backs, retries events that
 failed to process (three times each), purges old rows, deletes
 recordings past the workspace's retention period (section 3; up to

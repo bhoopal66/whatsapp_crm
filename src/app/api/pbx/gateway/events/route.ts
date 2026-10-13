@@ -25,7 +25,12 @@ export async function POST(request: Request) {
     return gatewayErrorResponse(err);
   }
   const frame = await request.text();
-  const result = await ingestPbxEvent({ db, connectionId, payload: frame });
+  const result = await ingestPbxEvent({
+    db,
+    connectionId,
+    payload: frame,
+    via: 'gateway',
+  });
   if (result.error?.startsWith('event not stored')) {
     return Response.json({ error: 'Temporarily unavailable' }, { status: 503 });
   }
