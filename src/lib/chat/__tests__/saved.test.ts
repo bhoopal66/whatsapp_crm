@@ -75,6 +75,10 @@ describe('listSaved', () => {
       { op: 'limit', args: [SAVED_LIMIT] },
     ]);
     expect(SAVED_SELECT).toContain('message:internal_messages!inner(');
+    // An unnamed chat_channels embed is ambiguous (message_pins).
+    expect(SAVED_SELECT).toContain(
+      'channel:chat_channels!internal_messages_channel_id_fkey('
+    );
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       messageId: M,

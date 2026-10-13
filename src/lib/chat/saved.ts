@@ -31,7 +31,10 @@ export interface SavedItem {
   channel: Channel | null;
 }
 
-export const SAVED_SELECT = `message_id,saved_at,message:internal_messages!inner(${MESSAGE_COLUMNS},channel:chat_channels(*))`;
+// The channel embed names its foreign key: message_pins is a second
+// path between messages and channels, and an unnamed embed is ambiguous
+// to PostgREST (PGRST201), so Saved items never loaded.
+export const SAVED_SELECT = `message_id,saved_at,message:internal_messages!inner(${MESSAGE_COLUMNS},channel:chat_channels!internal_messages_channel_id_fkey(*))`;
 
 const obj = (v: unknown): Row | null =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Row) : null;

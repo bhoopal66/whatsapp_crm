@@ -796,6 +796,11 @@ only). `docs/internal-chat.md` is the contract.
   `can_view_conversation`) at read time; anyone else learns only that a card
   exists. Sharing into a channel with a guest member is refused at post time
   only, so a guest added later is held off by the read check.
+- **PostgREST embeds.** `message_pins (channel_id, message_id)` is a
+  second path between `chat_channels` and `internal_messages`, so an
+  unnamed embed between them is ambiguous (PGRST201, answered as HTTP
+  300, not a 4xx, so it is easy to miss): name
+  `!internal_messages_channel_id_fkey`.
 - **Files.** The private `chat-files` bucket is readable
   (`chat_storage_can_read`) only while a live attachment row exists; deleted
   and erased files used to stay readable. Deletes go through

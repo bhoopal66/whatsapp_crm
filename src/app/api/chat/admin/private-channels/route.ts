@@ -28,11 +28,15 @@ export async function GET() {
     const ctx = await requireRole('admin');
     const admin = supabaseAdmin();
 
+    // message_pins (channel_id, message_id) is a second path from a
+    // channel to its messages, so an unnamed internal_messages embed is
+    // ambiguous to PostgREST (PGRST201, answered as HTTP 300) and this
+    // list never loaded: name the direct foreign key.
     const [channels, people] = await Promise.all([
       admin
         .from('chat_channels')
         .select(
-          'id, kind, name, archived_at, created_at, members:chat_channel_members(user_id), internal_messages(created_at)'
+          'id, kind, name, archived_at, created_at, members:chat_channel_members(user_id), internal_messages!internal_messages_channel_id_fkey(created_at)'
         )
         .eq('account_id', ctx.accountId)
         .in('kind', ['private', 'dm', 'deal_room'])

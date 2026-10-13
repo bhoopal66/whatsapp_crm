@@ -148,6 +148,16 @@ describe('GET /api/chat/admin/private-channels', () => {
     expect(of('profiles', 'eq')[0].args).toEqual(['account_id', WS]);
   });
 
+  it('names the foreign key of the messages embed (message_pins makes it ambiguous)', async () => {
+    await GET();
+    const select = mocks.calls.find(
+      (c) => c.table === 'chat_channels' && c.op === 'select'
+    )?.args[0];
+    expect(select).toContain(
+      'internal_messages!internal_messages_channel_id_fkey(created_at)'
+    );
+  });
+
   it('lets an owner in too', async () => {
     mocks.caller.role = 'owner';
     expect((await GET()).status).toBe(200);
