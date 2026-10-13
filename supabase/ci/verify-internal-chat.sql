@@ -51,7 +51,7 @@ DECLARE
   m UUID; m1 UUID; m2 UUID; root UUID; rep UUID; gone UUID; mr UUID; sm UUID;
   ar UUID; en UUID; ad UUID; tg UUID; tm UUID;
   k1 UUID; k2 UUID; kb UUID; cv1 UUID; cv2 UUID; cvb UUID;
-  cl UUID; clb UUID; cm UUID; cd UUID;
+  cl UUID; clb UUID; cm UUID; cd UUID; k_hide UUID; cl_hide UUID; m_hide UUID; m_hide_t UUID;
   r TEXT; f1 TEXT; f2 TEXT; f3 TEXT; f4 TEXT;
   n INT := 0;
   failed TEXT[] := '{}';
@@ -572,6 +572,23 @@ BEGIN
       ' FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[]) c', cm)), 'true');
   PERFORM pg_temp.ck('103: no card row from a plain SELECT for that reader', pg_temp.cnt(u_rm2, format('public.shared_calls WHERE message_id = %L', cm)), '0');
   PERFORM pg_temp.ck('103: card for a non-member of the channel', pg_temp.ccard(u_ag, cm), 'ok');
+  -- a reader who may see the call but not its customer (the agent who
+  -- took it; a leader who does not lead the customer's owner) gets the
+  -- call without the customer's name or id, as on the Calls screen
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a, extras[4], '971500087009', 'IC hidden customer') RETURNING id INTO k_hide;
+  INSERT INTO calls (account_id, pbx_call_id, direction, remote_number, user_id, contact_id, status)
+  VALUES (a, 'ic-call-hide', 'inbound', '971500087009', u_rm, k_hide, 'answered') RETURNING id INTO cl_hide;
+  m_hide := pg_temp.must(pg_temp.share_call(u_rm, p, cl_hide));
+  FOREACH uu IN ARRAY ARRAY[u_rm, u_sup] LOOP
+    PERFORM pg_temp.ck('103: no hidden customer for ' || uu, pg_temp.ic(uu, format(
+      'SELECT (can_open AND contact_id IS NULL AND contact_name IS NULL AND phone IS NOT NULL'
+      ' AND strpos(row_to_json(c)::text, ''hidden'') = 0)::text'
+      ' FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[]) c', m_hide)), 'true');
+  END LOOP;
+  m_hide_t := pg_temp.must(pg_temp.share_call(u_rm, t, cl_hide));
+  PERFORM pg_temp.ck('103: the customer for an admin', pg_temp.ic(u_adm, format(
+      'SELECT contact_name FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[])', m_hide_t)), 'IC hidden customer');
+
   -- an erased call: no detail through any card, for anyone; no new card
   PERFORM pg_temp.ck('103: owner erases the customer''s calls', pg_temp.ic(u_own, format('SELECT public.pbx_erase_contact_calls(%L, %L)', k1, 'lawful request')), '{}');
   FOREACH uu IN ARRAY ARRAY[u_rm, u_sup] LOOP

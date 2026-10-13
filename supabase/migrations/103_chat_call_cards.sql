@@ -117,7 +117,10 @@ END $$;
 -- card is there; the call's details go only to a caller who may see the
 -- call now (pbx_can_view_call, re-run here). Anyone else gets
 -- can_open = false and NULLs. An erased call gives erased = true and no
--- details, even to someone who may see it.
+-- details, even to someone who may see it. The customer's name and id
+-- need the contact too (can_view_contact), as on the Calls screen: a
+-- leader sees every call, and an agent the calls they took, without
+-- seeing every customer; they get the masked number instead.
 CREATE OR REPLACE FUNCTION public.chat_shared_call_cards(p_message_ids uuid[])
 RETURNS TABLE (message_id uuid, can_open boolean, erased boolean, call_id uuid, direction text,
                status text, started_at timestamptz, talk_seconds integer, outcome text,
@@ -134,8 +137,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
          CASE WHEN x.show THEN c.disposition END,
          CASE WHEN x.show THEN left(c.notes, 280) END,
          CASE WHEN x.show THEN p.full_name END,
-         CASE WHEN x.show THEN ct.id END,
-         CASE WHEN x.show THEN ct.name END,
+         CASE WHEN cv.see THEN ct.id END,
+         CASE WHEN cv.see THEN ct.name END,
          CASE WHEN x.show THEN public.chat_mask_phone(c.remote_number) END
     FROM public.shared_calls s
     JOIN public.internal_messages m ON m.id = s.message_id
@@ -144,6 +147,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
     CROSS JOIN LATERAL (SELECT v.ok AND c.erased_at IS NULL AS show) x
     LEFT JOIN public.contacts ct ON ct.id = c.contact_id AND ct.account_id = c.account_id
     LEFT JOIN public.profiles p ON p.user_id = c.user_id AND p.account_id = c.account_id
+    CROSS JOIN LATERAL (SELECT x.show AND ct.id IS NOT NULL
+                          AND public.can_view_contact(ct.account_id, ct.id, ct.user_id) AS see) cv
    WHERE s.message_id = ANY (coalesce(p_message_ids, '{}'))
      AND auth.uid() IS NOT NULL
      AND public.chat_user_can_read_channel(m.channel_id, auth.uid(), true)

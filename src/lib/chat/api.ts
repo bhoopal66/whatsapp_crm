@@ -368,6 +368,25 @@ export const erasePerson = async (
     p_reason: i.reason,
   })) ?? [];
 
+/**
+ * Which of these channels have a bank guest among their members
+ * (chat_channels_with_guests, migration 102; only channels the caller
+ * can see are answered). Sharing customer details there is refused, so
+ * the share pickers leave them out.
+ */
+export async function channelsWithGuests(
+  sb: SupabaseClient,
+  ids: readonly string[]
+): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  const data = await rpc<unknown>(sb, 'chat_channels_with_guests', {
+    p_channels: ids,
+  });
+  return new Set(
+    Array.isArray(data) ? data.filter((v) => typeof v === 'string') : []
+  );
+}
+
 // ---------- table reads (RLS decides what comes back) ----------
 
 /**

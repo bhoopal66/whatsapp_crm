@@ -82,6 +82,18 @@ describe('shareTargets', () => {
     ]);
     expect(shareTargets(rooms).some((c) => c.kind === 'deal_room')).toBe(false);
   });
+
+  it("leaves out channels a bank guest reads, but not a deal room's Team notes", () => {
+    const withGuests = new Set(['t2', 'p1', 'r1']);
+    expect(shareTargets(channels, '', { withGuests }).map((c) => c.id)).toEqual(
+      ['t1']
+    );
+    expect(
+      shareTargets(channels, '', { dealRooms: true, withGuests }).map(
+        (c) => c.id
+      )
+    ).toEqual(['r1', 't1']);
+  });
 });
 
 describe('canShareCall', () => {

@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  channelsWithGuests,
   listChannels,
   postMessage,
   shareCall,
@@ -150,6 +151,9 @@ function ShareDialog({
   const [channels, setChannels] = useState<ChannelWithMembership[] | null>(
     null
   );
+  const [withGuests, setWithGuests] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
   const [comment, setComment] = useState('');
@@ -159,7 +163,19 @@ function ShareDialog({
     if (!accountId || !user?.id) return;
     let off = false;
     listChannels(sb, accountId, user.id)
-      .then((list) => !off && setChannels(list))
+      .then(async (list) => {
+        // The database refuses a share where a bank guest reads; a
+        // failed lookup only means such a channel stays offered.
+        const guests = await channelsWithGuests(
+          sb,
+          list
+            .filter((c) => c.kind === 'team' || c.kind === 'private')
+            .map((c) => c.id)
+        ).catch(() => new Set<string>());
+        if (off) return;
+        setWithGuests(guests);
+        setChannels(list);
+      })
       .catch((err) => {
         if (off) return;
         setChannels([]);
@@ -171,8 +187,8 @@ function ShareDialog({
   }, [sb, accountId, user?.id, t]);
 
   const targets = useMemo(
-    () => shareTargets(channels ?? [], query, { dealRooms }),
-    [channels, query, dealRooms]
+    () => shareTargets(channels ?? [], query, { dealRooms, withGuests }),
+    [channels, query, dealRooms, withGuests]
   );
   const target = targets.find((c) => c.id === picked) ?? null;
 
