@@ -27,7 +27,7 @@
 // reads exactly as it did before the phone was wired in.
 // ============================================================
 
-import type { PresenceRow, PresenceView, UserPresence } from './pbx/calls';
+import type { PresenceRow, PresenceView, UserPresence } from './pbx/presence';
 import type { PresenceStatus } from './presence';
 
 /** The app's three states plus what only the phone can say. */

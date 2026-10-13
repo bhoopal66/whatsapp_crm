@@ -3,7 +3,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 import { useAuth } from '@/hooks/use-auth';
-import { presenceByUser, type UserPresence } from '@/lib/pbx/calls';
+import { presenceByUser, type UserPresence } from '@/lib/pbx/presence';
 import {
   applyPhoneChange,
   mergePhoneSnapshot,
