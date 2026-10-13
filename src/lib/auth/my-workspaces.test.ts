@@ -163,6 +163,9 @@ describe('inAppPath', () => {
     'keeps the in-app path %s',
     (p) => expect(inAppPath(p)).toBe(p)
   );
+  it('returns the normalised path', () => {
+    expect(inAppPath('/chat/./rooms/../saved')).toBe('/chat/saved');
+  });
   it.each([
     'https://evil.example/x',
     'javascript:alert(1)',
@@ -172,6 +175,10 @@ describe('inAppPath', () => {
     '/\t/evil.example',
     '/\n/evil.example',
     '/ /x',
+    '/.//evil.example',
+    '/..//evil.example',
+    '/%2e//evil.example',
+    '/a/..//evil.example',
     'inbox',
     '',
     null,

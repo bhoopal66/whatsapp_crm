@@ -608,7 +608,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const failure = await requestWorkspaceSwitch(accountId);
       if (failure) throw new Error(failure);
       const target = workspaces.find((w) => w.accountId === accountId);
-      enterWorkspace(target?.role ?? null, next);
+      // Without the target's role (a stale list), `next` can't be vetted
+      // for that role — a bank guest could be sent to the inbox — so
+      // enter at the workspace's home instead.
+      enterWorkspace(target?.role ?? null, target ? next : undefined);
     },
     [workspaces, enterWorkspace],
   );

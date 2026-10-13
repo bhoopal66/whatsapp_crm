@@ -135,7 +135,12 @@ export function inAppPath(next: unknown): string | null {
   }
   try {
     const url = new URL(next, PATH_BASE);
-    return url.origin === PATH_BASE ? next : null;
+    if (url.origin !== PATH_BASE) return null;
+    // The normalised path, never the input: dot segments resolve here
+    // ("/.//evil", "/%2e//evil" become "//evil"), and a value that is
+    // only protocol-relative once normalised must not pass either.
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    return path.startsWith('//') ? null : path;
   } catch {
     return null;
   }
