@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -8,6 +9,7 @@ import {
   lastNMonthKeys,
   humanizeCategory,
   orderedCategories,
+  recordGroupMessageCosts,
   recordMetaMessageCosts,
   type MonthlyCostRow,
   type ServiceQuotaRow,
@@ -160,6 +162,68 @@ describe('recordMetaMessageCosts', () => {
     expect(billingTimezone()).toBe('Asia/Dubai');
     process.env.WHATSAPP_BILLING_TIMEZONE = '  ';
     expect(billingTimezone()).toBe('Asia/Dubai');
+  });
+});
+
+describe('recordGroupMessageCosts', () => {
+  it('feeds each group receipt to deal_room_record_cost and fails open', async () => {
+    const rpc = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({
+        data: { ok: true, data: { duplicate: true } },
+        error: null,
+      });
+    const statuses = [
+      { id: 'w1', status: 'delivered', recipient_type: 'group' },
+      { id: 'w1', status: 'delivered', recipient_type: 'group' },
+    ];
+    const out = await recordGroupMessageCosts({ rpc } as never, {
+      accountId: 'acct-1',
+      phoneNumberId: 'PN',
+      statuses,
+    });
+    expect(rpc.mock.calls.map((c) => c[0])).toEqual([
+      'deal_room_record_cost',
+      'deal_room_record_cost',
+    ]);
+    expect(rpc.mock.calls[1][1]).toMatchObject({
+      p_account: 'acct-1',
+      p_phone_number_id: 'PN',
+      p_status: statuses[1],
+    });
+    expect(out.map((r) => r.ok)).toEqual([false, true]);
+    expect(out[1].duplicate).toBe(true);
+  });
+});
+
+describe('the ledger write under either receipt key', () => {
+  // 100 widens 051's receipt key with the recipient. 051 re-run after 100
+  // replaces the function but not the table, so a conflict target naming
+  // 051's key would raise 42P10 on every receipt, and costing fails open:
+  // silently. Each version may only name the key its own file creates.
+  const conflicts = (file: string) =>
+    readFileSync(`supabase/migrations/${file}`, 'utf8').match(
+      /ON CONFLICT[^;]*?DO NOTHING\s+RETURNING \* INTO v_row/g
+    );
+  it('051 names no conflict target', () => {
+    expect(conflicts('051_whatsapp_message_costs.sql')).toEqual([
+      expect.stringMatching(/^ON CONFLICT DO NOTHING\s/),
+    ]);
+  });
+  it('100 names the key it creates', () => {
+    const sql = readFileSync(
+      'supabase/migrations/100_deal_room_costs.sql',
+      'utf8'
+    );
+    expect(sql).toContain(
+      'ON public.whatsapp_message_costs (phone_number_id, message_id, status, recipient_wa_id)'
+    );
+    expect(conflicts('100_deal_room_costs.sql')).toEqual([
+      expect.stringMatching(
+        /^ON CONFLICT \(phone_number_id, message_id, status, recipient_wa_id\) DO NOTHING\s/
+      ),
+    ]);
   });
 });
 

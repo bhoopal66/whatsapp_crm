@@ -4,8 +4,11 @@
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
 //       ringSeconds, talkSeconds, remoteNumber, extension, contactId,
 //       contactName, doNotContactAt, doNotContactReason, userId,
-//       userName, disposition, notes, recordingState, recordingDeleted,
-//       legalHold }] }
+//       userName, rangNames, disposition, notes, recordingState,
+//       recordingDeleted, legalHold }] }
+// rangNames: who an inbound call rang, first rung first
+// (calls.meta.rang_user_ids, kept by the PBX processor), named as in
+// the caller's workspace: one person holds a profile per workspace.
 // recordingDeleted: the stored audio was deleted under the retention
 // period (the recording row's erased_at, migration 093); legalHold: an
 // admin's legal hold keeps it.
@@ -47,7 +50,13 @@ interface CallRow {
   disposition: string | null;
   notes: string | null;
   recording_state: string;
+  meta: Record<string, unknown> | null;
 }
+
+const rangIds = (meta: CallRow['meta']): string[] =>
+  Array.isArray(meta?.rang_user_ids)
+    ? meta.rang_user_ids.filter((u): u is string => typeof u === 'string')
+    : [];
 
 export async function GET(request: Request) {
   try {
@@ -58,7 +67,7 @@ export async function GET(request: Request) {
     let query = ctx.supabase
       .from('calls')
       .select(
-        'id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, extension, contact_id, user_id, disposition, notes, recording_state'
+        'id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
       )
       .eq('account_id', ctx.accountId);
     if (q.contactId) query = query.eq('contact_id', q.contactId);
@@ -82,7 +91,10 @@ export async function GET(request: Request) {
     const ids = (k: 'contact_id' | 'user_id') => [
       ...new Set(rows.map((r) => r[k]).filter((v): v is string => !!v)),
     ];
-    const [contactIds, userIds] = [ids('contact_id'), ids('user_id')];
+    const contactIds = ids('contact_id');
+    const userIds = [
+      ...new Set([...ids('user_id'), ...rows.flatMap((r) => rangIds(r.meta))]),
+    ];
     const recorded = rows
       .filter((r) => r.recording_state === 'fetched')
       .map((r) => r.id);
@@ -97,6 +109,7 @@ export async function GET(request: Request) {
         ? ctx.supabase
             .from('profiles')
             .select('user_id, full_name')
+            .eq('account_id', ctx.accountId)
             .in('user_id', userIds)
         : { data: [], error: null },
       recorded.length
@@ -153,6 +166,9 @@ export async function GET(request: Request) {
           doNotContactReason: (dncAt && contact?.do_not_contact_reason) || null,
           userId: r.user_id,
           userName: (r.user_id && userName.get(r.user_id)) || null,
+          rangNames: rangIds(r.meta)
+            .map((u) => userName.get(u)?.trim())
+            .filter((name): name is string => !!name),
           disposition: r.disposition,
           notes: r.notes,
           recordingState: r.recording_state,

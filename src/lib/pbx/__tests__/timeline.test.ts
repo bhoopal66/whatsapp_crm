@@ -5,6 +5,10 @@ import en from '../../../../messages/en.json';
 import {
   callHeading,
   callsSidebar,
+  editBox,
+  EMPTY_COMPOSER_BOX,
+  placeDraft,
+  restoreBox,
   entryHeading,
   filterTimeline,
   groupByDay,
@@ -12,6 +16,8 @@ import {
   mergeTimeline,
   recordingView,
   refusalView,
+  missedDraftOffer,
+  missedDraftText,
   missedTaskFor,
   noAudioView,
   monthSummaryParts,
@@ -24,6 +30,7 @@ import {
   takeComposerPrefill,
   taskStrip,
   teamOnCustomer,
+  withPrefill,
   type Part,
   type TimelineCall,
 } from '../timeline';
@@ -154,6 +161,17 @@ describe('headings', () => {
     });
     expect(line(h)).toBe(
       'Missed call · incoming · 11:40 · rang Sara and Faisal for 24 s'
+    );
+  });
+
+  it('falls back to the one person a call names when it kept no ring list', () => {
+    const at = { timeZone: TZ, locale: 'en' };
+    const sara = { ...missed, userName: 'Sara' };
+    expect(line(callHeading(sara, { ...at, rang: [] }))).toBe(
+      'Missed call · incoming · 11:40 · rang Sara for 24 s'
+    );
+    expect(line(callHeading(sara, { ...at, rang: ['Faisal'] }))).toBe(
+      'Missed call · incoming · 11:40 · rang Faisal for 24 s'
     );
   });
 
@@ -349,6 +367,85 @@ describe('calls page and sidebar', () => {
     );
     expect(takeComposerPrefill(storage, 'cv1')).toBeNull();
     expect(takeComposerPrefill(null, 'cv1')).toBeNull();
+  });
+});
+
+describe('missed-call WhatsApp draft', () => {
+  const clean = { do_not_contact_at: null, opted_out_at: null };
+  const dnc = {
+    do_not_contact_at: '2026-10-01T09:00:00Z',
+    do_not_contact_reason: ' Asked on the phone ',
+    opted_out_at: null,
+  };
+  const optedOut = { do_not_contact_at: null, opted_out_at: '2026-10-02' };
+
+  it('offers a draft only while the workspace turned it on', () => {
+    expect(missedDraftOffer(false, clean)).toEqual({ kind: 'off' });
+    // Off says nothing, whoever the customer is.
+    expect(missedDraftOffer(false, dnc)).toEqual({ kind: 'off' });
+    expect(missedDraftOffer(true, clean)).toEqual({ kind: 'offer' });
+  });
+
+  it('never offers one to a do-not-contact or opted-out customer, and says why', () => {
+    const why = (d: ReturnType<typeof missedDraftOffer>) =>
+      d.kind === 'blocked' ? say(d.reason) : d.kind;
+    expect(why(missedDraftOffer(true, dnc))).toBe(
+      'No WhatsApp draft: the customer is do-not-contact (Asked on the phone)'
+    );
+    expect(
+      why(missedDraftOffer(true, { ...dnc, do_not_contact_reason: null }))
+    ).toBe('No WhatsApp draft: the customer is do-not-contact');
+    expect(why(missedDraftOffer(true, optedOut))).toBe(
+      'No WhatsApp draft: the customer opted out of messages'
+    );
+  });
+
+  it('greets the customer by name when known', () => {
+    expect(say(missedDraftText(' Khalid '))).toBe(
+      'Hi Khalid, sorry we missed your call — how can we help?'
+    );
+    expect(say(missedDraftText(null))).toBe(
+      'Sorry we missed your call — how can we help?'
+    );
+  });
+
+  it('adds a prefill to the box without replacing typed words', () => {
+    expect(withPrefill('', 'Hi Khalid')).toBe('Hi Khalid');
+    expect(withPrefill('  ', 'Hi Khalid')).toBe('Hi Khalid');
+    expect(withPrefill('Noted. ', 'Hi Khalid')).toBe('Noted.\n\nHi Khalid');
+    expect(withPrefill('Hi Khalid', 'Hi Khalid')).toBe('Hi Khalid');
+  });
+
+  it('marks the box as the draft until it is emptied, edits included', () => {
+    const placed = placeDraft(
+      { text: 'Noted. ', origin: null },
+      'Hi Khalid',
+      'missed_call_draft'
+    );
+    expect(placed).toEqual({
+      text: 'Noted.\n\nHi Khalid',
+      origin: 'missed_call_draft',
+    });
+    // An edited draft is still the draft: its send is consent-checked.
+    expect(editBox(placed, 'Hi Khalid, call me back').origin).toBe(
+      'missed_call_draft'
+    );
+    // Emptied (cleared, sent, or edited away entirely), it is not.
+    expect(editBox(placed, '  ')).toEqual({ text: '  ', origin: null });
+    expect(editBox(editBox(placed, ''), 'Typed')).toEqual({
+      text: 'Typed',
+      origin: null,
+    });
+    expect(editBox(EMPTY_COMPOSER_BOX, 'Typed').origin).toBeNull();
+  });
+
+  it('restores a failed send with its origin, into an empty box only', () => {
+    expect(
+      restoreBox(EMPTY_COMPOSER_BOX, 'Hi Khalid', 'missed_call_draft')
+    ).toEqual({ text: 'Hi Khalid', origin: 'missed_call_draft' });
+    const typed = { text: 'Typed since', origin: null };
+    expect(restoreBox(typed, 'Hi Khalid', 'missed_call_draft')).toBe(typed);
+    expect(restoreBox(EMPTY_COMPOSER_BOX, 'Thanks', null).origin).toBeNull();
   });
 });
 

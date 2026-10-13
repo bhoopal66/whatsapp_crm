@@ -56,7 +56,7 @@ beforeEach(() => {
   rls = createFakeDb({
     calls: [],
     contacts: [{ id: C1, name: 'Ahmed Ali' }],
-    profiles: [{ user_id: 'me', full_name: 'Sara' }],
+    profiles: [{ user_id: 'me', account_id: A, full_name: 'Sara' }],
   });
   as('viewer');
 });
@@ -107,6 +107,7 @@ describe('GET /api/pbx/calls', () => {
         doNotContactReason: null,
         userId: 'me',
         userName: 'Sara',
+        rangNames: [],
         disposition: null,
         notes: 'Wants a card',
         recordingState: 'none',
@@ -114,6 +115,27 @@ describe('GET /api/pbx/calls', () => {
         legalHold: false,
       },
     ]);
+  });
+
+  it('names everyone a missed call rang, as profiled in this workspace', async () => {
+    rls.tables.profiles.push(
+      { user_id: 'faisal', account_id: A, full_name: 'Faisal' },
+      // The same login's profile in another workspace is not this one's.
+      { user_id: 'faisal', account_id: 'elsewhere', full_name: 'F. Other' },
+      { user_id: 'omar', account_id: 'elsewhere', full_name: 'Omar' }
+    );
+    rls.tables.calls.push(
+      call({
+        status: 'no_answer',
+        user_id: null,
+        meta: { rang_user_ids: ['me', 'faisal', 'omar'] },
+      })
+    );
+    const { body } = await get();
+    expect(body.calls[0]).toMatchObject({
+      userName: null,
+      rangNames: ['Sara', 'Faisal'],
+    });
   });
 
   it('carries a visible contact’s do-not-contact stamp and reason, so Call back is disabled', async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import type { Message } from '@/types';
 import {
+  consentRefusalOf,
   forgetKeptUpload,
   isRetryableSendFailure,
   KEPT_UPLOADS_KEY,
@@ -348,5 +349,42 @@ describe('kept uploads', () => {
       expect(() => forgetKeptUpload(storage, 'account-1/a.jpg')).not.toThrow();
       expect(takeKeptUploads(storage)).toEqual([]);
     }
+  });
+});
+
+describe('consentRefusalOf', () => {
+  // The route's 409 when the consent register refuses a missed-call
+  // draft (lib/whatsapp/send-origin.ts).
+  const refused = (code: string) => ({
+    error:
+      'This customer is marked do-not-contact, so the message was not sent.',
+    code,
+    retryable: true,
+  });
+
+  it('reads the two refusals off a 409', () => {
+    expect(consentRefusalOf(409, refused('do_not_contact'))).toBe(
+      'do_not_contact'
+    );
+    expect(consentRefusalOf(409, refused('opted_out'))).toBe('opted_out');
+  });
+
+  it('is null for anything else', () => {
+    expect(consentRefusalOf(409, refused('conversation_not_yours'))).toBeNull();
+    expect(consentRefusalOf(400, refused('do_not_contact'))).toBeNull();
+    expect(consentRefusalOf(409, null)).toBeNull();
+    expect(consentRefusalOf(409, 'Conflict')).toBeNull();
+  });
+
+  it('offers no Retry and no restored text for a refusal', () => {
+    // Retried, it is refused again; restored, it would go out as an
+    // ordinary reply, which the register does not gate.
+    expect(isRetryableSendFailure(409, refused('do_not_contact'))).toBe(false);
+    expect(isRetryableSendFailure(409, refused('opted_out'))).toBe(false);
+    expect(shouldWarnMaybeSent(409, refused('opted_out'))).toBe(false);
+    // Another 409 is still a definite failure with a Retry.
+    expect(isRetryableSendFailure(409, refused('conversation_not_yours'))).toBe(
+      true
+    );
   });
 });

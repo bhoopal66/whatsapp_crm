@@ -1,3 +1,5 @@
+import type { ConsentFields } from './call-ui';
+import type { SendOrigin } from '@/lib/whatsapp/send-origin';
 import { isMissedCall } from './call-status';
 import type { SoftphoneState } from './linkus-state';
 
@@ -26,6 +28,8 @@ export interface TimelineCall {
   talkSeconds: number | null;
   userId: string | null;
   userName: string | null;
+  /** Who an inbound call rang, named (calls.meta.rang_user_ids). */
+  rangNames?: string[];
   disposition: string | null;
   notes: string | null;
   recordingState: string;
@@ -324,8 +328,9 @@ export function callHeading(
   const at = clock(call.startedAt, ctx.timeZone);
   const name = call.userName?.trim() || null;
   if (callTone(call) === 'missed') {
+    // A call from before the ring list was kept names its one person.
     const rang = rangPart(
-      ctx.rang ?? (name ? [name] : []),
+      ctx.rang?.length ? ctx.rang : name ? [name] : [],
       call.ringSeconds,
       ctx.locale
     );
@@ -674,8 +679,102 @@ export function callsSidebar(input: {
   return { visible: true, line: { kind, extension: ext } };
 }
 
+// ---------- Missed-call WhatsApp draft ----------
+
+export type MissedDraft =
+  { kind: 'off' } | { kind: 'offer' } | { kind: 'blocked'; reason: Msg };
+
+/**
+ * A missed call's "Draft WhatsApp" (module 015): only while the
+ * workspace turned the draft on (pbx_settings.missed_call_whatsapp_draft,
+ * off by default), and never for a customer marked do-not-contact or
+ * opted out (086's register), where the strip says why instead. The
+ * draft opens in the chat's composer for a person to send; nothing
+ * sends it by itself. The PBX processor's task hint follows the same.
+ */
+export function missedDraftOffer(
+  draftOn: boolean,
+  contact: Pick<
+    ConsentFields,
+    'do_not_contact_at' | 'do_not_contact_reason' | 'opted_out_at'
+  >
+): MissedDraft {
+  if (!draftOn) return { kind: 'off' };
+  if (contact.do_not_contact_at) {
+    const reason = contact.do_not_contact_reason?.trim();
+    return {
+      kind: 'blocked',
+      reason: reason
+        ? { key: 'draftDoNotContactWhy', values: { reason } }
+        : { key: 'draftDoNotContact' },
+    };
+  }
+  if (contact.opted_out_at)
+    return { kind: 'blocked', reason: { key: 'draftOptedOut' } };
+  return { kind: 'offer' };
+}
+
+/** "Hi Khalid, sorry we missed your call …" (the name when known). */
+export function missedDraftText(name: string | null | undefined): Msg {
+  const n = name?.trim();
+  return n
+    ? { key: 'missedDraftNamed', values: { name: n } }
+    : { key: 'missedDraft' };
+}
+
 /** The inbox composer's one-shot prefill ("Draft WhatsApp"); never sent. */
 export const COMPOSER_PREFILL_PREFIX = 'wacrm:composer-prefill:';
+/**
+ * Dispatched on window (detail: the conversation id) once a prefill is
+ * left, so a composer already open on that chat takes it too.
+ */
+export const COMPOSER_PREFILL_EVENT = 'wacrm:composer-prefill';
+
+/** A prefill joins the box: typed words are never replaced. */
+export function withPrefill(current: string, prefill: string): string {
+  if (!current.trim()) return prefill;
+  if (current.includes(prefill)) return current;
+  return `${current.trimEnd()}\n\n${prefill}`;
+}
+
+/**
+ * The composer's text and where it came from. `origin` marks text that
+ * began as the missed-call draft: its send carries the origin, and the
+ * server re-checks the consent register for it. Edits keep the mark (an
+ * edited draft is still the draft); sending or emptying the box drops it.
+ */
+export interface ComposerBox {
+  text: string;
+  origin: SendOrigin | null;
+}
+
+export const EMPTY_COMPOSER_BOX: ComposerBox = { text: '', origin: null };
+
+/** Any edit of the box: the mark lasts while the box holds text. */
+export function editBox(box: ComposerBox, text: string): ComposerBox {
+  return { text, origin: text.trim() ? box.origin : null };
+}
+
+/** A prefill joins the box (withPrefill) and marks it. */
+export function placeDraft(
+  box: ComposerBox,
+  prefill: string,
+  origin: SendOrigin
+): ComposerBox {
+  return { text: withPrefill(box.text, prefill), origin };
+}
+
+/**
+ * A failed send's words come back with the origin they were sent with,
+ * into an empty box only: anything typed since wins.
+ */
+export function restoreBox(
+  box: ComposerBox,
+  text: string,
+  origin: SendOrigin | null
+): ComposerBox {
+  return box.text.trim() ? box : { text, origin };
+}
 
 export function takeComposerPrefill(
   storage: Pick<Storage, 'getItem' | 'removeItem'> | null,

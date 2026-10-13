@@ -61,6 +61,10 @@ import {
   checkNewChatAllowed,
   newChatLimitMessage,
 } from '@/lib/team-activity/start-guard';
+import {
+  consentRefusal,
+  CONSENT_REFUSAL_MESSAGES,
+} from '@/lib/whatsapp/send-origin';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -182,6 +186,13 @@ export interface SendMessageParams {
    * customer out of a flow they are halfway through.
    */
   pauseActiveFlows?: boolean;
+  /**
+   * Refuse, before the gateway, a send to a contact marked
+   * do-not-contact (migration 086) or opted out (076). The dashboard
+   * sets it for the missed-call WhatsApp draft (module 015), which goes
+   * out "through the consent register"; ordinary sends leave it unset.
+   */
+  respectConsent?: boolean;
 }
 
 export interface SendMessageResult {
@@ -357,6 +368,7 @@ export async function sendMessageToConversation(
     senderUserId,
     forwarded = false,
     pauseActiveFlows = true,
+    respectConsent = false,
   } = params;
 
   if (!conversationId) {
@@ -390,6 +402,18 @@ export async function sendMessageToConversation(
   }
 
   const contact = conversation.contact;
+  // Read with the conversation just now, so a customer marked since the
+  // draft was offered is still refused. Nothing has reached a gateway.
+  if (respectConsent) {
+    const refusal = consentRefusal(contact);
+    if (refusal) {
+      throw new SendMessageError(
+        refusal,
+        CONSENT_REFUSAL_MESSAGES[refusal],
+        409
+      );
+    }
+  }
   if (!contact?.phone) {
     throw new SendMessageError(
       'bad_request',
