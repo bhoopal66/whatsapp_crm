@@ -99,11 +99,16 @@ export function AuditLogPanel() {
       : r.action.replaceAll('_', ' ');
   };
   const fact = (f: AuditFact) =>
-    f.key === 'change'
-      ? t('facts.change', { from: f.from, to: f.to })
-      : f.key === 'number'
-        ? t('facts.number', { value: f.value })
-        : t(`facts.${f.key}`, { count: f.count });
+    f.key === 'change' || f.key === 'rename'
+      ? t(`facts.${f.key}`, { from: f.from, to: f.to })
+      : f.key === 'topic'
+        ? t('facts.topic', {
+            from: f.from ?? t('facts.noTopic'),
+            to: f.to ?? t('facts.noTopic'),
+          })
+        : f.key === 'number'
+          ? t('facts.number', { value: f.value })
+          : t(`facts.${f.key}`, { count: f.count });
 
   return (
     <section className="animate-in fade-in-50 max-w-5xl space-y-5 duration-200">

@@ -4,11 +4,21 @@
  * person gets, avatar tints and the small formatting the timeline does.
  * Kept here, free of React, so the node test environment covers them.
  */
+import { hasMinRole, isAccountRole, isBankGuest } from '@/lib/auth/roles';
 import { OFFLINE_AFTER_MS } from '@/lib/presence';
 
+import {
+  CHANNEL_TOPIC_MAX,
+  channelNameProblem,
+  finalChannelName,
+  type NameProblem,
+} from './compose';
 import { ChatError, type ChatErrorKey } from './errors';
 import type {
+  Channel,
   ChannelKind,
+  ChannelMember,
+  ChannelRole,
   ChannelWithMembership,
   ChatPerson,
   UnreadCount,
@@ -118,12 +128,16 @@ export interface SidebarChannelRow {
   name: string;
   unread: number;
   mentions: number;
+  /** Muted by the viewer (091): dimmed, and only mentions stand out. */
+  muted: boolean;
 }
 
 export interface SidebarSections {
   team: SidebarChannelRow[];
   dealRooms: SidebarChannelRow[];
   dms: SidebarChannelRow[];
+  /** Archived team and private channels, under the same listing rule. */
+  archived: SidebarChannelRow[];
 }
 
 const byName = (a: SidebarChannelRow, b: SidebarChannelRow) =>
@@ -133,7 +147,9 @@ const byName = (a: SidebarChannelRow, b: SidebarChannelRow) =>
 /**
  * The sidebar's sections, each sorted by name. Team channels are listed
  * whether joined or not (RLS shows the workspace's); private channels,
- * DMs and deal rooms only when the caller is a member.
+ * DMs and deal rooms only when the caller is a member. An archived team
+ * or private channel goes to `archived` (read-only; only 091's
+ * unarchive writes to it), any other archived row nowhere.
  */
 export function sidebarSections(
   channels: readonly ChannelWithMembership[],
@@ -143,7 +159,12 @@ export function sidebarSections(
   unknownName: string
 ): SidebarSections {
   const counts = new Map(unread.map((u) => [u.channelId, u]));
-  const out: SidebarSections = { team: [], dealRooms: [], dms: [] };
+  const out: SidebarSections = {
+    team: [],
+    dealRooms: [],
+    dms: [],
+    archived: [],
+  };
   const section: Record<ChannelKind, keyof SidebarSections> = {
     team: 'team',
     private: 'team',
@@ -151,9 +172,10 @@ export function sidebarSections(
     dm: 'dms',
   };
   for (const channel of channels) {
-    if (channel.archivedAt) continue;
     if (channel.kind !== 'team' && !channel.membership) continue;
-    const key = section[channel.kind];
+    const managed = channel.kind === 'team' || channel.kind === 'private';
+    if (channel.archivedAt && !managed) continue;
+    const key = channel.archivedAt ? 'archived' : section[channel.kind];
     if (!key) continue;
     const c = counts.get(channel.id);
     out[key].push({
@@ -161,17 +183,180 @@ export function sidebarSections(
       name: channelDisplayName(channel, viewerId, people, unknownName),
       unread: c?.unread ?? 0,
       mentions: c?.mentions ?? 0,
+      // The membership row is reloaded on every mute; the counts (which
+      // leave archived channels out) only fill in where it is missing.
+      muted: channel.membership
+        ? channel.membership.muted
+        : (c?.muted ?? false),
     });
   }
   out.team.sort(byName);
   out.dealRooms.sort(byName);
   out.dms.sort(byName);
+  out.archived.sort(byName);
   return out;
 }
 
-/** The nav badge: unread messages over every channel. */
+export interface RowEmphasis {
+  /** Bold name: unread messages in a channel that is not muted. */
+  bold: boolean;
+  /** Greyed out: a muted channel, unless it is the open one. */
+  dimmed: boolean;
+  /** The mentions pill, else the plain unread count, else nothing. */
+  badge: { kind: 'mentions' | 'unread'; count: number } | null;
+}
+
+/**
+ * How a sidebar row stands out. The open channel shows no count. A
+ * muted one (091) is dimmed and never bold, its unread count as quiet
+ * as the row; its mentions pill stays as it is, since a direct @mention
+ * still rings when muted.
+ */
+export function sidebarRowEmphasis(
+  r: Pick<SidebarChannelRow, 'unread' | 'mentions' | 'muted'>,
+  active: boolean
+): RowEmphasis {
+  if (active) return { bold: false, dimmed: false, badge: null };
+  return {
+    bold: !r.muted && r.unread > 0,
+    dimmed: r.muted,
+    badge:
+      r.mentions > 0
+        ? { kind: 'mentions', count: r.mentions }
+        : r.unread > 0
+          ? { kind: 'unread', count: r.unread }
+          : null,
+  };
+}
+
+/**
+ * The header's Mute / Unmute (chat_set_muted, 091): the viewer's own
+ * switch, offered on any channel they belong to, DMs, deal rooms and
+ * archived channels included, bank guests too; nothing to a non-member.
+ */
+export function muteAction(
+  membership: Pick<ChannelMember, 'muted'> | null | undefined
+): 'mute' | 'unmute' | null {
+  if (!membership) return null;
+  return membership.muted ? 'unmute' : 'mute';
+}
+
+// ---------- channel settings (091) ----------
+
+export interface ManageCtx {
+  kind: ChannelKind;
+  archived: boolean;
+  /** The viewer's role in the channel; null when not a member. */
+  myRole: ChannelRole | null;
+  /** The viewer's workspace (account) role. */
+  accountRole: string | null;
+}
+
+/**
+ * chat_assert_can_manage_channel (091), mirrored for the UI only: the
+ * database decides. Team and private channels (DMs are fixed sets, deal
+ * rooms are 088's); never a bank guest; a channel admin, or a workspace
+ * owner/admin, who in a private channel must be a member too (D-B1:
+ * nobody manages a private channel from outside it). Archiving is the
+ * caller's to judge: of the managed writes only an unarchive passes on
+ * an archived channel.
+ */
+export function canManageChannel(c: Omit<ManageCtx, 'archived'>): boolean {
+  if (c.kind !== 'team' && c.kind !== 'private') return false;
+  if (!isAccountRole(c.accountRole) || isBankGuest(c.accountRole)) return false;
+  if (c.kind === 'private' && !c.myRole) return false;
+  return c.myRole === 'admin' || hasMinRole(c.accountRole, 'admin');
+}
+
+export interface ChannelSettingsActions {
+  /** Rename, and edit or clear the topic. */
+  edit: boolean;
+  archive: boolean;
+  unarchive: boolean;
+}
+
+/** What the channel header's settings menu offers the viewer. */
+export function channelSettingsActions(c: ManageCtx): ChannelSettingsActions {
+  const may = canManageChannel(c);
+  return {
+    edit: may && !c.archived,
+    archive: may && !c.archived,
+    unarchive: may && c.archived,
+  };
+}
+
+/** A channel's live name and topic as the settings form changes them. */
+export interface ChannelEdit {
+  /** Null keeps the name (091: NULL keeps a field). */
+  name: string | null;
+  /** Null keeps the topic; '' clears it. */
+  topic: string | null;
+}
+
+/**
+ * The updateChannel call the settings form makes, or why not. A typed
+ * name is normalised as at creation, and checked against the other
+ * channels the viewer can see, so the unique index can still refuse
+ * (errors.duplicateName); an untouched name is kept as stored, even one
+ * made before that normalisation. The topic is trimmed and capped as at
+ * creation, and a blank one clears it.
+ */
+export function channelEditInput(
+  form: { name: string; topic: string },
+  channel: Pick<Channel, 'id' | 'name' | 'topic'>,
+  channels: readonly Pick<Channel, 'id' | 'kind' | 'name' | 'archivedAt'>[]
+): ChannelEdit | NameProblem | 'unchanged' {
+  let name: string | null = null;
+  if (form.name.trim() !== (channel.name ?? '').trim()) {
+    const others = channels.filter((c) => c.id !== channel.id);
+    const problem = channelNameProblem(form.name, others);
+    if (problem) return problem;
+    name = finalChannelName(form.name);
+    if (name === channel.name) name = null;
+  }
+  const typed = form.topic.trim().slice(0, CHANNEL_TOPIC_MAX);
+  const topic = typed === (channel.topic ?? '').trim() ? null : typed;
+  return name === null && topic === null ? 'unchanged' : { name, topic };
+}
+
+export type ChannelAdminAction = 'edit' | 'archive' | 'unarchive' | 'remove';
+
+/**
+ * The Chat.* message key for a refused channel-admin write (091). The
+ * generic wording would mislead here: adminRequired means a channel
+ * admin as well as a workspace owner/admin, notChannelMember an
+ * owner/admin outside a private channel, and a name clash on unarchive
+ * means the other channel has to be renamed first.
+ */
+export function channelAdminErrorKey(
+  action: ChannelAdminAction,
+  err: unknown
+): string {
+  const key = chatErrorKey(err);
+  switch (key) {
+    case 'adminRequired':
+    case 'notChannelMember':
+    case 'archived':
+      return `settings.errors.${key}`;
+    case 'duplicateName':
+      return action === 'unarchive'
+        ? 'settings.errors.unarchiveNameTaken'
+        : 'errors.duplicateName';
+    default:
+      return `errors.${key}`;
+  }
+}
+
+/**
+ * The nav badge: unread messages over every channel, except that a
+ * muted channel counts only its mentions, as the workspace rail does
+ * (091's chat_workspace_badges): muting is what this badge must show.
+ */
 export function totalUnread(unread: readonly UnreadCount[]): number {
-  return unread.reduce((n, u) => n + Math.max(0, u.unread), 0);
+  return unread.reduce(
+    (n, u) => n + Math.max(0, u.muted ? u.mentions : u.unread),
+    0
+  );
 }
 
 /** The inbox the WHATSAPP INBOX rows open: a team leader's is the team view. */
@@ -324,6 +509,10 @@ const ERROR_KEYS: Record<ChatErrorKey, true> = {
   threadInvalid: true,
   bodyLength: true,
   duplicateName: true,
+  nameLength: true,
+  topicLength: true,
+  removeSelf: true,
+  notManageable: true,
 };
 
 /** The ChatError keys the screen has wording for (Chat.errors.*): all of them. */

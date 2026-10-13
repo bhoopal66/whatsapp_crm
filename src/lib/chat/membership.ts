@@ -10,6 +10,7 @@ import type {
   ChannelRole,
   ChatPerson,
 } from './types';
+import { canManageChannel } from './view';
 
 /** The workspace roles chat_user_role maps to owner/admin/supervisor. */
 const GUEST_ADDERS: ReadonlySet<string> = new Set([
@@ -121,9 +122,32 @@ export function roleChange(
   return { to: 'member', block: last ? 'lastAdmin' : null };
 }
 
+/**
+ * Whether the panel offers removing `target` (chat_remove_member, 091):
+ * someone else (the viewer leaves instead), from a live channel the
+ * viewer may manage (canManageChannel), and never the last admin who
+ * still counts (in the workspace, not a guest, as in SQL) — on a team
+ * channel too, unlike a role change. Hidden rather than offered
+ * disabled; the database decides.
+ */
+export function canRemoveMember(
+  target: Pick<ChannelMember, 'userId' | 'role'>,
+  c: ChannelCtx & Roster & { userId: string }
+): boolean {
+  if (c.archived || !canManageChannel(c)) return false;
+  if (target.userId.toLowerCase() === c.userId.toLowerCase()) return false;
+  return target.role !== 'admin' || otherAdmins(c, target.userId) > 0;
+}
+
 export type LeaveBlock = 'notMember' | 'lastMember' | 'lastAdmin';
 
-/** Why the viewer cannot leave; null when they can. */
+/**
+ * Why the viewer cannot leave; null when they can. Archiving blocks
+ * nothing here: chat_leave_channel (087) has no archived check, unlike
+ * adds and role changes, so leaving is the one membership change an
+ * archived channel takes (a private one cannot then be rejoined until
+ * it is unarchived).
+ */
 export function leaveBlock(
   c: Pick<ChannelCtx, 'kind' | 'myRole'> & Roster & { userId: string }
 ): LeaveBlock | null {

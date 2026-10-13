@@ -7,7 +7,7 @@ import { CreateDealRoomDialog } from '@/components/deal-rooms/create-dialog';
 import { DealRoomsSidebar } from '@/components/deal-rooms/rooms-sidebar';
 import { useAuth } from '@/hooks/use-auth';
 import { useDealRooms } from '@/hooks/use-deal-rooms';
-import { hasMinRole } from '@/lib/auth/roles';
+import { dealRoomOption } from '@/lib/chat/new-channel';
 import { isSavedPath } from '@/lib/chat/saved';
 import { cn } from '@/lib/utils';
 
@@ -39,7 +39,7 @@ export function ChatLayout({ children }: { children: React.ReactNode }) {
   const [dealRoomOpen, setDealRoomOpen] = useState(false);
   // Agents and up open deal rooms (deal_room_create refuses viewers).
   const onCreateDealRoom =
-    !isBankGuest && !!accountRole && hasMinRole(accountRole, 'agent')
+    dealRoomOption(accountRole) === 'open'
       ? () => {
           setComposeOpen(false);
           setDealRoomOpen(true);

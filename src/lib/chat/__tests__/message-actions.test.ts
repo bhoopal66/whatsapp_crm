@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { formatMention } from '../mentions';
 import {
   applyLocalPatch,
+  canViewEditHistory,
+  editHistoryRows,
   localPatch,
   messageActions,
   plainText,
@@ -101,5 +104,64 @@ describe('copy and local patches', () => {
     const echoed = msg({ body: 'newer', editedAt: 'later' });
     expect(applyLocalPatch(echoed, edit)).toBe(echoed);
     expect(applyLocalPatch(m, null)).toBe(m);
+  });
+});
+
+describe('edit history', () => {
+  const edited = msg({ editedAt: '2026-10-12T09:05:00Z' });
+  it('is offered to a workspace owner/admin on an edited post that still stands', () => {
+    expect(canViewEditHistory(edited, true)).toBe(true);
+    expect(canViewEditHistory(edited, false)).toBe(false);
+    expect(canViewEditHistory(msg(), true)).toBe(false);
+    for (const gone of [
+      { deletedAt: '2026-10-12T10:00:00Z' },
+      { erasedAt: '2026-10-12T10:00:00Z' },
+      { authorKind: 'system' as const, authorId: null },
+    ])
+      expect(canViewEditHistory({ ...edited, ...gone }, true)).toBe(false);
+  });
+
+  it('lists the earlier bodies newest first, with mentions and editors named', () => {
+    const edit = (id: string, at: string, body: string, by = ME) => ({
+      id,
+      messageId: 'm1',
+      previousBody: body,
+      editedAt: at,
+      editedBy: by,
+    });
+    const people = [
+      { userId: ME, fullName: 'Mia' },
+      { userId: YOU, fullName: null },
+    ];
+    expect(
+      editHistoryRows(
+        [
+          edit('e1', '2026-10-12T09:01:00Z', 'first'),
+          edit('e3', '2026-10-12T09:03:00Z', `hi ${formatMention(YOU)}`),
+          edit('e2', '2026-10-12T09:03:00Z', 'second', YOU.toUpperCase()),
+        ],
+        people,
+        'Someone'
+      )
+    ).toEqual([
+      {
+        id: 'e3',
+        body: 'hi @Someone',
+        editedAt: '2026-10-12T09:03:00Z',
+        editorName: 'Mia',
+      },
+      {
+        id: 'e2',
+        body: 'second',
+        editedAt: '2026-10-12T09:03:00Z',
+        editorName: 'Someone',
+      },
+      {
+        id: 'e1',
+        body: 'first',
+        editedAt: '2026-10-12T09:01:00Z',
+        editorName: 'Mia',
+      },
+    ]);
   });
 });

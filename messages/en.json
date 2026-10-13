@@ -3147,7 +3147,11 @@
           "admin_read_private": "Read a private channel",
           "erase_person": "Erased a person's messages",
           "add_members": "Added channel members",
-          "set_member_role": "Changed a channel role"
+          "set_member_role": "Changed a channel role",
+          "update_channel": "Edited a channel's name or topic",
+          "archive_channel": "Archived a channel",
+          "unarchive_channel": "Unarchived a channel",
+          "remove_member": "Removed a channel member"
         },
         "recordings": {
           "play": "Played a recording",
@@ -3179,6 +3183,9 @@
         "calls": "{count, plural, one {# call} other {# calls}}",
         "members": "{count, plural, one {# member} other {# members}}",
         "change": "{from} → {to}",
+        "rename": "Name: {from} → {to}",
+        "topic": "Topic: {from} → {to}",
+        "noTopic": "none",
         "number": "Number {value}"
       },
       "reason": "Reason: {reason}",
@@ -3833,7 +3840,8 @@
       "inbox": "WhatsApp inbox",
       "channels": "Team channels",
       "dealRooms": "Deal rooms · customer can see",
-      "dms": "Direct messages"
+      "dms": "Direct messages",
+      "archived": "Archived ({count})"
     },
     "channel": {
       "back": "Back to channels",
@@ -3900,7 +3908,11 @@
       "reasonRequired": "Give a reason of at least 5 characters.",
       "threadInvalid": "You can't reply in that thread.",
       "bodyLength": "Messages can be at most 8,000 characters.",
-      "duplicateName": "A channel with that name already exists."
+      "duplicateName": "A channel with that name already exists.",
+      "nameLength": "A channel name is 1 to 80 characters.",
+      "topicLength": "A topic can be at most 250 characters.",
+      "removeSelf": "To leave a channel yourself, use Leave channel.",
+      "notManageable": "Direct messages and deal rooms can't be managed here."
     },
     "composer": {
       "helperChannel": "Message #{name} — internal only. Type @ to mention someone.",
@@ -3939,6 +3951,7 @@
       "unsave": "Remove from saved",
       "copy": "Copy text",
       "copied": "Copied",
+      "history": "View edit history",
       "pinned": "Pinned to the channel",
       "unpinned": "Unpinned",
       "saved": "Saved for later",
@@ -3950,6 +3963,15 @@
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
       "deleteConfirm": "Delete"
+    },
+    "history": {
+      "title": "Edit history",
+      "description": "Earlier versions of this message, newest first: each is the text before an edit, with who changed it and when.",
+      "changed": "Changed by {name} · {time}",
+      "loading": "Loading…",
+      "failed": "Couldn't load the edit history.",
+      "empty": "No earlier versions you can see.",
+      "blank": "(no text)"
     },
     "thread": {
       "title": "Thread",
@@ -3986,7 +4008,13 @@
       "leaveBody": "You’ll stop getting its messages. To come back to a private channel, someone in it has to add you again.",
       "leaveConfirm": "Leave",
       "left": "You left the channel",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "remove": "Remove from channel",
+      "removeTitle": "Remove {name}?",
+      "removeBodyPrivate": "They lose access to this private channel and its messages at once. To come back, someone in it has to add them again.",
+      "removeBodyTeam": "They stop getting this channel's messages. Staff can still read a team channel, and they rejoin it by posting.",
+      "removeConfirm": "Remove",
+      "removed": "{name} was removed from the channel"
     },
     "pins": {
       "title": "Pinned messages",
@@ -4021,7 +4049,7 @@
       "privateBody": "Invited members only, e.g. one bank desk or credit review. Internal only.",
       "dealRoom": "Deal room",
       "dealRoomBody": "A real WhatsApp group with the customer (and bank, if invited). Customer can see.",
-      "dealRoomSoon": "Coming with deal rooms",
+      "dealRoomAgentsOnly": "Agents and above can open deal rooms",
       "name": "Name",
       "namePlaceholder": "e.g. credit-review",
       "nameTaken": "That name is taken",
@@ -4262,6 +4290,48 @@
         "cancel": "Cancel",
         "unknownError": "something went wrong"
       }
+    },
+    "settings": {
+      "menu": "Channel settings",
+      "edit": "Edit name and topic",
+      "archive": "Archive channel",
+      "unarchive": "Unarchive channel",
+      "archivedBadge": "Archived",
+      "showArchived": "Show archived channels",
+      "hideArchived": "Hide archived channels",
+      "editTitle": "Edit channel",
+      "editBody": "Everyone who can see the channel sees the new name and topic.",
+      "name": "Name",
+      "topic": "Topic",
+      "optional": "(optional)",
+      "topicPlaceholder": "What is this channel about?",
+      "topicHint": "Leave it blank to clear the topic.",
+      "nameEmpty": "Give the channel a name.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "saved": "Channel updated",
+      "archiveTitle": "Archive “{name}”?",
+      "archiveBody": "Posting stops: nobody can post, reply, react, pin or add people until it is unarchived. Everyone who could read it still can, under Archived in the channel list.",
+      "archiveConfirm": "Archive",
+      "archived": "Channel archived",
+      "unarchiveTitle": "Unarchive “{name}”?",
+      "unarchiveBody": "The channel goes back to the channel list, and people can post in it again.",
+      "unarchiveConfirm": "Unarchive",
+      "unarchived": "Channel unarchived",
+      "errors": {
+        "adminRequired": "Only a channel admin, or a workspace owner or admin, can manage this channel.",
+        "notChannelMember": "Only members can manage a private channel, owners and admins included.",
+        "archived": "This channel is archived. Unarchive it first.",
+        "unarchiveNameTaken": "Another channel now has this name. Rename that one first, then unarchive this one."
+      }
+    },
+    "mute": {
+      "mute": "{kind, select, dm {Mute conversation} other {Mute channel}}",
+      "unmute": "{kind, select, dm {Unmute conversation} other {Unmute channel}}",
+      "muted": "Muted. You'll still be notified when someone @mentions you.",
+      "unmuted": "Notifications are back on.",
+      "label": "Muted"
     }
   },
   "Workspaces": {

@@ -5,7 +5,11 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
+  Archive,
+  BellOff,
   Bookmark,
+  ChevronDown,
+  ChevronRight,
   Hash,
   Lock,
   MessageCircle,
@@ -24,6 +28,7 @@ import {
   dmOthers,
   inboxRows,
   presenceDot,
+  sidebarRowEmphasis,
   sidebarSections,
   type SidebarChannelRow,
 } from '@/lib/chat/view';
@@ -70,6 +75,7 @@ export function ChatSidebar({
   const numbers = useAccountNumbers(!isBankGuest);
   const inbox = useInboxCounts(!isBankGuest);
   const [q, setQ] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   // Presence dots go stale by time alone, so the clock ticks.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -97,10 +103,14 @@ export function ChatSidebar({
     [ws.channels, ws.unread, ws.userId, ws.peopleById, t]
   );
   const rows = isBankGuest ? [] : inboxRows({ role: accountRole, ...inbox });
+  // Collapsed until asked for, or while one of them is open.
+  const archivedOpen =
+    showArchived ||
+    sections.archived.some((r) => r.channel.id === activeChannelId);
 
   const channelRow = (r: SidebarChannelRow) => {
     const active = r.channel.id === activeChannelId;
-    const bold = r.unread > 0 && !active;
+    const e = sidebarRowEmphasis(r, active);
     let icon: React.ReactNode;
     if (r.channel.kind === 'dm') {
       const dots = dmOthers(r.channel.dmMemberIds, ws.userId ?? '').map((id) =>
@@ -125,20 +135,34 @@ export function ChatSidebar({
             ROW,
             active &&
               'bg-[#0E7C5A] font-semibold text-white hover:bg-[#0E7C5A]',
-            bold && 'font-semibold text-white'
+            e.bold && 'font-semibold text-white',
+            e.dimmed && 'text-white/40'
           )}
         >
           {icon}
           <span className="min-w-0 flex-1 truncate">{r.name}</span>
-          {r.mentions > 0 && !active ? (
+          {r.muted && (
+            <span className="shrink-0" title={t('mute.label')}>
+              <BellOff className="size-3 opacity-70" aria-hidden />
+              <span className="sr-only">{t('mute.label')}</span>
+            </span>
+          )}
+          {e.badge?.kind === 'mentions' ? (
             <span
               className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold text-black"
-              aria-label={t('mentions', { count: r.mentions })}
+              aria-label={t('mentions', { count: e.badge.count })}
             >
-              {r.mentions}
+              {e.badge.count}
             </span>
-          ) : bold ? (
-            <span className="text-xs text-white/70">{r.unread}</span>
+          ) : e.badge ? (
+            <span
+              className={cn(
+                'text-xs',
+                e.dimmed ? 'text-white/40' : 'text-white/70'
+              )}
+            >
+              {e.badge.count}
+            </span>
           ) : null}
         </Link>
       </li>
@@ -280,6 +304,35 @@ export function ChatSidebar({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {sections.archived.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowArchived(!archivedOpen)}
+              aria-expanded={archivedOpen}
+              aria-label={t(
+                archivedOpen ? 'settings.hideArchived' : 'settings.showArchived'
+              )}
+              className={cn(
+                SECTION_LABEL,
+                'flex w-full items-center gap-1 text-left hover:text-white/70'
+              )}
+            >
+              {archivedOpen ? (
+                <ChevronDown className="size-3" aria-hidden />
+              ) : (
+                <ChevronRight className="size-3" aria-hidden />
+              )}
+              <Archive className="size-3" aria-hidden />
+              {t('sections.archived', { count: sections.archived.length })}
+            </button>
+            {archivedOpen && (
+              <ul className="opacity-80">
+                {sections.archived.map(channelRow)}
+              </ul>
+            )}
           </div>
         )}
         {section(

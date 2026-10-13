@@ -24,6 +24,7 @@ import {
 } from '@/lib/chat/compose';
 import {
   createChannelInput,
+  dealRoomOption,
   nameTakenError,
   privateMemberCandidates,
   type NewChannelType,
@@ -76,6 +77,7 @@ function NewChannelBody({
     ws.channels ?? []
   );
   const taken = input === 'taken' || takenByServer;
+  const dealRoom = dealRoomOption(accountRole);
 
   const cards: TypeCard[] = [
     { type: 'team', title: t('team'), body: t('teamBody'), disabled: false },
@@ -85,12 +87,16 @@ function NewChannelBody({
       body: t('privateBody'),
       disabled: false,
     },
-    {
-      type: 'deal_room',
-      title: t('dealRoom'),
-      body: t('dealRoomBody'),
-      disabled: !onCreateDealRoom,
-    },
+    ...(dealRoom === 'hidden'
+      ? []
+      : [
+          {
+            type: 'deal_room' as const,
+            title: t('dealRoom'),
+            body: t('dealRoomBody'),
+            disabled: dealRoom !== 'open' || !onCreateDealRoom,
+          },
+        ]),
   ];
 
   const choose = (next: NewChannelType) => {
@@ -173,9 +179,9 @@ function NewChannelBody({
                   >
                     {c.body}
                   </span>
-                  {deal && c.disabled && (
+                  {deal && dealRoom === 'agentsOnly' && (
                     <span className="block text-xs font-semibold text-amber-700 [[data-mode=dark]_&]:text-amber-300">
-                      {t('dealRoomSoon')}
+                      {t('dealRoomAgentsOnly')}
                     </span>
                   )}
                 </span>

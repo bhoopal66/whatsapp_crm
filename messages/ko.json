@@ -3147,7 +3147,11 @@
           "admin_read_private": "비공개 채널 열람",
           "erase_person": "사용자 메시지 삭제",
           "add_members": "채널 멤버 추가",
-          "set_member_role": "채널 역할 변경"
+          "set_member_role": "채널 역할 변경",
+          "update_channel": "채널 이름 또는 주제 수정",
+          "archive_channel": "채널 보관",
+          "unarchive_channel": "채널 보관 해제",
+          "remove_member": "채널 멤버 제거"
         },
         "recordings": {
           "play": "녹음 재생",
@@ -3179,6 +3183,9 @@
         "calls": "통화 {count}건",
         "members": "멤버 {count}명",
         "change": "{from} → {to}",
+        "rename": "이름: {from} → {to}",
+        "topic": "주제: {from} → {to}",
+        "noTopic": "없음",
         "number": "번호 {value}"
       },
       "reason": "사유: {reason}",
@@ -3833,7 +3840,8 @@
       "inbox": "WhatsApp 받은편지함",
       "channels": "팀 채널",
       "dealRooms": "딜 룸 · 고객 공개",
-      "dms": "다이렉트 메시지"
+      "dms": "다이렉트 메시지",
+      "archived": "보관됨 ({count})"
     },
     "channel": {
       "back": "채널 목록으로",
@@ -3900,7 +3908,11 @@
       "reasonRequired": "사유를 5자 이상 입력하세요.",
       "threadInvalid": "이 스레드에는 답글을 달 수 없습니다.",
       "bodyLength": "메시지는 최대 8,000자까지 입력할 수 있습니다.",
-      "duplicateName": "같은 이름의 채널이 이미 있습니다."
+      "duplicateName": "같은 이름의 채널이 이미 있습니다.",
+      "nameLength": "채널 이름은 1~80자여야 합니다.",
+      "topicLength": "주제는 최대 250자까지 입력할 수 있습니다.",
+      "removeSelf": "채널에서 직접 나가려면 채널 나가기를 사용하세요.",
+      "notManageable": "다이렉트 메시지와 딜 룸은 여기에서 관리할 수 없습니다."
     },
     "composer": {
       "helperChannel": "#{name}에 메시지 — 내부 전용입니다. @를 입력해 멘션하세요.",
@@ -3939,6 +3951,7 @@
       "unsave": "저장 취소",
       "copy": "텍스트 복사",
       "copied": "복사했습니다",
+      "history": "수정 기록 보기",
       "pinned": "채널에 고정했습니다",
       "unpinned": "고정을 해제했습니다",
       "saved": "저장했습니다",
@@ -3950,6 +3963,15 @@
       "deleteTitle": "이 메시지를 삭제할까요?",
       "deleteBody": "채널의 모든 사람에게 “삭제된 메시지입니다.”로 표시됩니다. 첨부 파일도 함께 삭제됩니다.",
       "deleteConfirm": "삭제"
+    },
+    "history": {
+      "title": "수정 기록",
+      "description": "이 메시지의 이전 버전을 최신순으로 보여 줍니다. 각 항목은 수정되기 전의 텍스트이며, 누가 언제 바꿨는지 함께 표시됩니다.",
+      "changed": "{name} 님이 변경 · {time}",
+      "loading": "불러오는 중…",
+      "failed": "수정 기록을 불러오지 못했습니다.",
+      "empty": "볼 수 있는 이전 버전이 없습니다.",
+      "blank": "(텍스트 없음)"
     },
     "thread": {
       "title": "스레드",
@@ -3986,7 +4008,13 @@
       "leaveBody": "더 이상 이 채널의 메시지를 받지 않습니다. 비공개 채널에 다시 들어오려면 채널의 다른 사람이 다시 추가해야 합니다.",
       "leaveConfirm": "나가기",
       "left": "채널에서 나갔습니다",
-      "cancel": "취소"
+      "cancel": "취소",
+      "remove": "채널에서 제거",
+      "removeTitle": "{name}님을 제거할까요?",
+      "removeBodyPrivate": "이 비공개 채널과 메시지에 대한 접근 권한이 즉시 사라집니다. 다시 들어오려면 채널의 누군가가 다시 추가해야 합니다.",
+      "removeBodyTeam": "이 채널의 메시지를 더 이상 받지 않습니다. 팀 채널은 직원이 계속 읽을 수 있으며, 메시지를 올리면 다시 참여하게 됩니다.",
+      "removeConfirm": "제거",
+      "removed": "{name}님이 채널에서 제거되었습니다"
     },
     "pins": {
       "title": "고정된 메시지",
@@ -4021,7 +4049,7 @@
       "privateBody": "초대된 멤버만 참여합니다(예: 특정 은행 데스크 또는 신용 심사). 내부 전용입니다.",
       "dealRoom": "딜 룸",
       "dealRoomBody": "고객(초대한 경우 은행 포함)과 함께하는 실제 WhatsApp 그룹입니다. 고객이 볼 수 있습니다.",
-      "dealRoomSoon": "딜 룸과 함께 제공될 예정입니다",
+      "dealRoomAgentsOnly": "딜 룸은 상담원 이상만 열 수 있습니다",
       "name": "이름",
       "namePlaceholder": "예: credit-review",
       "nameTaken": "이미 사용 중인 이름입니다",
@@ -4262,6 +4290,48 @@
         "cancel": "취소",
         "unknownError": "문제가 발생했습니다"
       }
+    },
+    "settings": {
+      "menu": "채널 설정",
+      "edit": "이름 및 주제 편집",
+      "archive": "채널 보관",
+      "unarchive": "채널 보관 해제",
+      "archivedBadge": "보관됨",
+      "showArchived": "보관된 채널 표시",
+      "hideArchived": "보관된 채널 숨기기",
+      "editTitle": "채널 편집",
+      "editBody": "채널을 볼 수 있는 모든 사람에게 새 이름과 주제가 표시됩니다.",
+      "name": "이름",
+      "topic": "주제",
+      "optional": "(선택 사항)",
+      "topicPlaceholder": "이 채널은 어떤 채널인가요?",
+      "topicHint": "주제를 지우려면 비워 두세요.",
+      "nameEmpty": "채널 이름을 입력하세요.",
+      "save": "저장",
+      "saving": "저장 중…",
+      "cancel": "취소",
+      "saved": "채널이 업데이트되었습니다",
+      "archiveTitle": "“{name}” 채널을 보관할까요?",
+      "archiveBody": "메시지 게시가 중지됩니다. 보관을 해제할 때까지 아무도 메시지를 올리거나, 답글을 달거나, 반응하거나, 고정하거나, 사람을 추가할 수 없습니다. 읽을 수 있던 사람은 채널 목록의 보관됨에서 계속 읽을 수 있습니다.",
+      "archiveConfirm": "보관",
+      "archived": "채널이 보관되었습니다",
+      "unarchiveTitle": "“{name}” 채널의 보관을 해제할까요?",
+      "unarchiveBody": "채널이 채널 목록으로 돌아오고, 다시 메시지를 올릴 수 있습니다.",
+      "unarchiveConfirm": "보관 해제",
+      "unarchived": "채널 보관이 해제되었습니다",
+      "errors": {
+        "adminRequired": "채널 관리자 또는 워크스페이스 소유자나 관리자만 이 채널을 관리할 수 있습니다.",
+        "notChannelMember": "비공개 채널은 소유자와 관리자를 포함해 멤버만 관리할 수 있습니다.",
+        "archived": "보관된 채널입니다. 먼저 보관을 해제하세요.",
+        "unarchiveNameTaken": "다른 채널이 지금 이 이름을 사용하고 있습니다. 그 채널의 이름을 먼저 바꾼 다음 보관을 해제하세요."
+      }
+    },
+    "mute": {
+      "mute": "{kind, select, dm {대화 알림 끄기} other {채널 알림 끄기}}",
+      "unmute": "{kind, select, dm {대화 알림 켜기} other {채널 알림 켜기}}",
+      "muted": "알림을 껐습니다. 누군가 나를 @멘션하면 계속 알림을 받습니다.",
+      "unmuted": "알림을 다시 켰습니다.",
+      "label": "알림 꺼짐"
     }
   },
   "Workspaces": {

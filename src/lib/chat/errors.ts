@@ -46,7 +46,12 @@ export type ChatErrorKey =
   | 'reasonRequired'
   | 'threadInvalid'
   | 'bodyLength'
-  | 'duplicateName';
+  | 'duplicateName'
+  // 091's channel administration
+  | 'nameLength'
+  | 'topicLength'
+  | 'removeSelf'
+  | 'notManageable';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -113,6 +118,10 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
     [/reason of at least 5 characters/i, 'reasonRequired'],
     [/one level of threading|same channel as its root/i, 'threadInvalid'],
     [/internal_messages_body_len/i, 'bodyLength'],
+    [/chat_channels_name_check/i, 'nameLength'],
+    [/chat_channels_topic_check/i, 'topicLength'],
+    [/use chat_leave_channel/i, 'removeSelf'],
+    [/only team and private channels/i, 'notManageable'],
   ],
   CONFLICT: [[/chat_channels_name_uq/i, 'duplicateName']],
 };

@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -145,6 +148,88 @@ describe('shapeAuditRow', () => {
       item: { kind: 'deal_room', id: B },
       facts: [{ key: 'change', from: 'open', to: 'closed' }],
     });
+  });
+
+  it('reads a removal (091) like add_members: the channel and one member', () => {
+    expect(
+      shapeAuditRow('team_chat', {
+        id: 'x5',
+        actor_id: A,
+        action: 'remove_member',
+        channel_id: B,
+        at: AT,
+        detail: { user_id: C, role: 'member' },
+      })
+    ).toMatchObject({
+      item: { kind: 'channel', id: B },
+      reason: null,
+      facts: [{ key: 'members', count: 1 }],
+    });
+    expect(
+      shapeAuditRow('team_chat', {
+        id: 'x6',
+        action: 'remove_member',
+        channel_id: B,
+        at: AT,
+        detail: { user_id: 'junk' },
+      })
+    ).toMatchObject({ item: { kind: 'channel', id: B }, facts: [] });
+  });
+
+  it('reads a channel edit (091) as the old and new name and topic, where changed', () => {
+    const edit = (detail: Record<string, unknown>) =>
+      shapeAuditRow('team_chat', {
+        id: 'x7',
+        actor_id: A,
+        action: 'update_channel',
+        channel_id: B,
+        at: AT,
+        detail,
+      });
+    expect(
+      edit({ from: 'sales', to: 'sales-uae', topic_from: null, topic_to: 'Q4' })
+    ).toMatchObject({
+      item: { kind: 'channel', id: B },
+      reason: null,
+      facts: [
+        { key: 'rename', from: 'sales', to: 'sales-uae' },
+        { key: 'topic', from: null, to: 'Q4' },
+      ],
+    });
+    // A topic-only edit stores the name twice; a cleared topic is null.
+    expect(
+      edit({ from: 'sales', to: 'sales', topic_from: 'Q4', topic_to: null })
+        ?.facts
+    ).toEqual([{ key: 'topic', from: 'Q4', to: null }]);
+    expect(
+      edit({ from: 'a', to: 'b', topic_from: 'same', topic_to: 'same' })?.facts
+    ).toEqual([{ key: 'rename', from: 'a', to: 'b' }]);
+  });
+
+  it('labels every team-chat action the latest audit CHECK allows, in en and ko', () => {
+    // Whichever migration last (re)defines chat_audit_log's action
+    // CHECK, so a new action cannot ship without its label.
+    const dir = join(process.cwd(), 'supabase/migrations');
+    const re = /chat_audit_log_action_check CHECK \(action IN \(([^)]*)\)/;
+    const latest = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .flatMap((f) => {
+        const m = re.exec(readFileSync(join(dir, f), 'utf8'));
+        return m ? [{ file: f, list: m[1] }] : [];
+      })
+      .at(-1);
+    expect(Number(latest?.file.slice(0, 3))).toBeGreaterThanOrEqual(91);
+    const actions = [...(latest?.list ?? '').matchAll(/'([a-z_]+)'/g)].map(
+      (m) => m[1]
+    );
+    expect(actions).toContain('remove_member');
+    for (const lang of ['en', 'ko']) {
+      const labels = JSON.parse(
+        readFileSync(join(process.cwd(), `messages/${lang}.json`), 'utf8')
+      ).Settings.auditLog.actions.team_chat;
+      expect(actions.filter((a) => !labels[a])).toEqual([]);
+    }
   });
 
   it('drops a row with no id, time or action, and ignores junk detail', () => {
