@@ -3136,7 +3136,7 @@
     },
     "auditLog": {
       "title": "감사 로그",
-      "description": "누가 무엇을 했는지 최신순으로 표시합니다: 비공개 팀 채팅 열람과 삭제, 녹음 재생과 다운로드, 연락 금지 무시와 통화 삭제, 딜룸 변경.",
+      "description": "누가 무엇을 했는지 최신순으로 표시합니다: 멤버와 워크스페이스 변경, 비공개 팀 채팅 열람과 삭제, 녹음 재생과 다운로드, 연락 금지 무시와 통화 삭제, 딜룸 변경.",
       "filters": {
         "source": "출처",
         "all": "모든 출처",
@@ -3146,6 +3146,7 @@
         "anyone": "모든 사용자"
       },
       "sources": {
+        "workspace": "워크스페이스",
         "team_chat": "팀 채팅",
         "recordings": "녹음",
         "phone": "전화",
@@ -3161,6 +3162,19 @@
         "deal_room": "딜룸"
       },
       "actions": {
+        "workspace": {
+          "member_added": "멤버 추가",
+          "member_removed": "멤버 제거",
+          "role_changed": "역할 변경",
+          "member_deactivated": "멤버 비활성화",
+          "member_reactivated": "멤버 재활성화",
+          "bank_changed": "은행 게스트의 은행 변경",
+          "workspace_renamed": "워크스페이스 이름 변경",
+          "short_name_changed": "약칭 변경",
+          "ownership_transferred": "소유권 이전",
+          "team_chat_enabled": "팀 채팅 켜기",
+          "team_chat_disabled": "팀 채팅 끄기"
+        },
         "team_chat": {
           "admin_read_private": "비공개 채널 열람",
           "erase_person": "사용자 메시지 삭제",
@@ -3197,7 +3211,10 @@
         "calls": "통화 {count}건",
         "members": "멤버 {count}명",
         "change": "{from} → {to}",
-        "number": "번호 {value}"
+        "number": "번호 {value}",
+        "role": "역할 {role}",
+        "roleChange": "역할 {from} → {to}",
+        "bank": "은행 {value}"
       },
       "reason": "사유: {reason}",
       "loading": "불러오는 중…",

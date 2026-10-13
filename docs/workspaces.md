@@ -130,6 +130,10 @@ service role, a hand-run UPDATE. One row per change:
   workspace, an invitation redeemed by a new login) records both sides;
   when the new login's empty personal account is then deleted, only the
   joining side remains.
+- **Where:** Settings → Team → Audit log, source _Workspace_, merged
+  with the team chat, recording, phone and deal room logs. An empty
+  actor shows as _System_; a person who has since left the workspace
+  is named by the `name` the row recorded.
 - **Who reads it:** the workspace's live owners and admins, while it is
   their active workspace. Agents, viewers, bank guests and other
   workspaces' admins read nothing.

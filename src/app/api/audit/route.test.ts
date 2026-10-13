@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 
-// Admin+. The four audit tables are read with the caller's own client,
+// Admin+. The five audit tables are read with the caller's own client,
 // each filtered to the active account, then merged newest first and
-// paged by 50; actor and item names come from the account's rows.
+// paged by 50; actor and item names come from the account's rows, and a
+// removed member's from the name the workspace log recorded.
 
 const ME = '11111111-1111-4111-8111-111111111111';
 const WS = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CALL = '33333333-3333-4333-8333-333333333333';
 const CONTACT = '44444444-4444-4444-8444-444444444444';
+const GONE = '55555555-5555-4555-8555-555555555555';
+const KEPT = '66666666-6666-4666-8666-666666666666';
 
 const mocks = vi.hoisted(() => ({
   caller: { role: 'admin' as string },
@@ -80,6 +83,7 @@ beforeEach(() => {
       },
     ],
     deal_room_audit: [],
+    workspace_audit: [],
     profiles: [{ user_id: ME, full_name: 'Amina Admin' }],
     calls: [{ id: CALL, remote_number: '+971500000000', contact_id: CONTACT }],
     contacts: [{ id: CONTACT, name: 'Rashid', phone: '+971500000000' }],
@@ -115,6 +119,7 @@ describe('GET /api/audit', () => {
       'call_access_log',
       'pbx_audit',
       'deal_room_audit',
+      'workspace_audit',
     ]) {
       expect(mocks.calls).toContainEqual({
         table,
@@ -123,6 +128,68 @@ describe('GET /api/audit', () => {
       });
       expect(mocks.calls).toContainEqual({ table, op: 'limit', args: [51] });
     }
+  });
+
+  it('names a removed member from the log, a current one from the profile', async () => {
+    mocks.data.workspace_audit = [
+      {
+        id: 'w1',
+        actor_id: ME,
+        action: 'member_removed',
+        target_user_id: GONE,
+        detail: { role: 'agent', name: 'Omar Left' },
+        at: at(9),
+      },
+      {
+        id: 'w2',
+        actor_id: null,
+        action: 'member_added',
+        target_user_id: KEPT,
+        detail: { role: 'viewer', name: 'Old spelling' },
+        at: at(8),
+      },
+      {
+        id: 'w3',
+        actor_id: GONE,
+        action: 'member_removed',
+        target_user_id: GONE,
+        detail: { role: 'agent', name: '' },
+        at: at(6),
+      },
+    ];
+    mocks.data.profiles = [
+      { user_id: ME, full_name: 'Amina Admin' },
+      { user_id: KEPT, full_name: 'Kamal Kept' },
+    ];
+    const body = await (await get('?source=workspace')).json();
+    expect(
+      body.rows.map((r: Record<string, unknown>) => [
+        r.key,
+        r.actorName,
+        r.itemLabel,
+        r.facts,
+      ])
+    ).toEqual([
+      [
+        'workspace:w1',
+        'Amina Admin',
+        'Omar Left',
+        [{ key: 'role', from: null, to: 'agent' }],
+      ],
+      [
+        'workspace:w2',
+        null,
+        'Kamal Kept',
+        [{ key: 'role', from: null, to: 'viewer' }],
+      ],
+      ['workspace:w3', null, null, [{ key: 'role', from: null, to: 'agent' }]],
+    ]);
+    expect(body.rows[1].actorId).toBeNull();
+    expect(mocks.calls).toContainEqual({
+      table: 'profiles',
+      op: 'eq',
+      args: ['account_id', WS],
+    });
   });
 
   it('pages by 50 and says whether more follow', async () => {

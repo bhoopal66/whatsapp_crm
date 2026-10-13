@@ -1,12 +1,13 @@
 /**
- * Settings → Audit log: one newest-first list over the four append-only
- * audit tables of migrations 087-089. Each table's SELECT policy opens
+ * Settings → Audit log: one newest-first list over the five append-only
+ * audit tables of migrations 087-089 and 092. Each table's SELECT policy opens
  * it to owners and admins of the active account, so GET /api/audit reads
  * them with the caller's own client; these helpers shape the rows, parse
  * the filters and merge the pages, and hold no I/O.
  */
 
 export const AUDIT_SOURCES = [
+  'workspace',
   'team_chat',
   'recordings',
   'phone',
@@ -26,6 +27,13 @@ interface SourceSpec {
 }
 
 export const AUDIT_TABLES: Record<AuditSource, SourceSpec> = {
+  // 092: membership and workspace changes, written by triggers. A NULL
+  // actor is the server (provisioning, the service role).
+  workspace: {
+    table: 'workspace_audit',
+    actor: 'actor_id',
+    columns: 'id, actor_id, action, target_user_id, detail, at',
+  },
   // 087: private reads with a reason, erasures, member changes.
   team_chat: {
     table: 'chat_audit_log',
@@ -62,7 +70,10 @@ export type AuditFact =
       count: number;
     }
   | { key: 'change'; from: string; to: string }
-  | { key: 'number'; value: string };
+  | { key: 'number'; value: string }
+  /** A role id; `from` is set on a change of role. */
+  | { key: 'role'; from: string | null; to: string }
+  | { key: 'bank'; value: string };
 
 export interface AuditRow {
   /** `<source>:<id>`, unique across the sources. */
@@ -76,6 +87,12 @@ export interface AuditRow {
   /** The reason the person gave, where the source records one. */
   reason: string | null;
   facts: AuditFact[];
+  /**
+   * The person item's name as the row recorded it (092's detail.name):
+   * someone removed from the workspace has no profile here to name
+   * them by.
+   */
+  recordedName?: string;
 }
 
 export interface NamedAuditRow extends AuditRow {
@@ -113,6 +130,38 @@ function changeFact(from: unknown, to: unknown): AuditFact[] {
   return a && b ? [{ key: 'change', from: a, to: b }] : [];
 }
 
+/** A change where one side may be unset (a first bank code, a short
+ *  name never set): the missing side reads as a dash. */
+function changeFactFromNone(from: unknown, to: unknown): AuditFact[] {
+  const a = str(from);
+  const b = str(to);
+  return a || b ? [{ key: 'change', from: a ?? '—', to: b ?? '—' }] : [];
+}
+
+function workspaceFacts(action: string, d: Raw): AuditFact[] {
+  switch (action) {
+    case 'member_added':
+    case 'member_removed': {
+      const role = str(d.role);
+      const bank = str(d.bank_code);
+      return [
+        ...(role ? [{ key: 'role' as const, from: null, to: role }] : []),
+        ...(bank ? [{ key: 'bank' as const, value: bank }] : []),
+      ];
+    }
+    case 'role_changed': {
+      const to = str(d.to);
+      return to ? [{ key: 'role', from: str(d.from), to }] : [];
+    }
+    case 'bank_changed':
+    case 'workspace_renamed':
+    case 'short_name_changed':
+      return changeFactFromNone(d.from, d.to);
+    default:
+      return [];
+  }
+}
+
 function item(kind: AuditItemKind, id: unknown): AuditRow['item'] {
   const v = uuid(id);
   return v ? { kind, id: v } : null;
@@ -133,6 +182,17 @@ export function shapeAuditRow(source: AuditSource, r: Raw): AuditRow | null {
     actorId: uuid(r[AUDIT_TABLES[source].actor]),
   };
   switch (source) {
+    case 'workspace': {
+      const name = str(d.name);
+      return {
+        ...base,
+        // The member acted on; null for a workspace-level change.
+        item: item('person', r.target_user_id),
+        reason: null,
+        facts: workspaceFacts(action, d),
+        ...(name ? { recordedName: name } : {}),
+      };
+    }
     case 'team_chat': {
       if (action === 'erase_person') {
         return {
@@ -301,19 +361,29 @@ export function idsToName(rows: AuditRow[]): {
   };
 }
 
-/** Attach the people's and items' names; a missing one stays null. */
+/**
+ * Attach the people's and items' names; a missing one stays null.
+ * `people` holds the profiles of this workspace, so a person with none
+ * (removed since) falls back to the name the row recorded, also when
+ * they are the actor (someone who left of their own accord).
+ */
 export function nameAuditRows(
   rows: AuditRow[],
   people: ReadonlyMap<string, string>,
   items: ReadonlyMap<string, string>
 ): NamedAuditRow[] {
-  return rows.map((r) => ({
-    ...r,
-    actorName: r.actorId ? (people.get(r.actorId) ?? null) : null,
-    itemLabel: r.item
-      ? r.item.kind === 'person'
-        ? (people.get(r.item.id) ?? null)
-        : (items.get(`${r.item.kind}:${r.item.id}`) ?? null)
-      : null,
-  }));
+  return rows.map((r) => {
+    const target = r.item?.kind === 'person' ? r.item.id : null;
+    const personName = (id: string): string | null =>
+      people.get(id) ?? (id === target ? r.recordedName?.trim() || null : null);
+    return {
+      ...r,
+      actorName: r.actorId ? personName(r.actorId) : null,
+      itemLabel: r.item
+        ? r.item.kind === 'person'
+          ? personName(r.item.id)
+          : (items.get(`${r.item.kind}:${r.item.id}`) ?? null)
+        : null,
+    };
+  });
 }
