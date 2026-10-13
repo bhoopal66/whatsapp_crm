@@ -1,4 +1,4 @@
--- Behavioural regression suite for workspaces (migrations 082, 083).
+-- Behavioural regression suite for workspaces (migrations 082, 083, 099).
 --
 -- A person now has one profiles row per account they belong to, and
 -- exactly one of them is_active: the workspace they are working in.
@@ -16,6 +16,10 @@
 -- email. And that a person deactivated in one workspace and live in
 -- another reads none of the first's notifications, gets none of its
 -- team-activity alerts, and cannot approve or retire its AI policies.
+-- And (099) that a team leader adds agents and viewers, by email and by
+-- invite link, and nothing else: no other role, no roster change, no
+-- one else's links; that an agent adds nobody; and that a leader of
+-- another workspace writes no link into this one.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -771,6 +775,132 @@ BEGIN
     n := n + 1;
     IF r NOT LIKE 'ERROR 42501:%' OR (SELECT status FROM ts_policy WHERE id = pol_b) <> 'active' THEN
       failed := array_append(failed, ('ts_retire_policy by an admin deactivated in B: ' || r)::text);
+    END IF;
+  END;
+
+  -- ---------- 14. a team leader adds agents and viewers (099) ----------
+  -- L leads in A (active) and owns a workspace of their own, P, where T1
+  -- and T2 work: people L administers elsewhere, so add_workspace_member
+  -- may bring them in. LB leads in B; AG is an agent in A.
+  DECLARE
+    u_l   UUID := '00000000-0000-4000-8000-000000099001';  -- team leader in A (active), owner of P
+    u_t1  UUID := '00000000-0000-4000-8000-000000099002';  -- agent in P only
+    u_t2  UUID := '00000000-0000-4000-8000-000000099003';  -- agent in P only
+    u_lb  UUID := '00000000-0000-4000-8000-000000099004';  -- team leader in B (active)
+    u_ag  UUID := '00000000-0000-4000-8000-000000099005';  -- agent in A (active)
+    p_l   UUID;
+    ins   TEXT := 'INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES ';
+  BEGIN
+    INSERT INTO auth.users (id, email) VALUES
+      (u_l, 'ldinv-l@example.invalid'), (u_t1, 'ldinv-t1@example.invalid'),
+      (u_t2, 'ldinv-t2@example.invalid'), (u_lb, 'ldinv-lb@example.invalid'),
+      (u_ag, 'ldinv-ag@example.invalid');
+    SELECT account_id INTO p_l FROM profiles WHERE user_id = u_l;
+    UPDATE profiles SET is_active = false WHERE user_id = u_l;
+    INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+    VALUES (u_l, '', 'ldinv-l@example.invalid', a_acct, 'team_leader', true);
+    UPDATE profiles SET account_id = p_l, account_role = 'agent' WHERE user_id IN (u_t1, u_t2);
+    UPDATE profiles SET account_id = b_acct, account_role = 'team_leader' WHERE user_id = u_lb;
+    UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_ag;
+
+    -- Any other role is 42501, decided before the email is looked up: an
+    -- unknown address asked for as admin must not answer P0002, on which
+    -- the members API would create the login with the service role.
+    FOR i IN 1..5 LOOP
+      DECLARE
+        args TEXT := CASE i WHEN 1 THEN '''ldinv-t1@example.invalid'', ''admin'''
+                            WHEN 2 THEN '''ldinv-t1@example.invalid'', ''team_leader'''
+                            WHEN 3 THEN '''ldinv-t1@example.invalid'', ''bank_guest'', ''ADIB'''
+                            WHEN 4 THEN '''ldinv-t1@example.invalid'', ''owner'''
+                            ELSE '''ldinv-nobody@example.invalid'', ''admin''' END;
+      BEGIN
+        r := pg_temp.ws_try('authenticated', u_l, 'SELECT public.add_workspace_member(' || args || ')');
+        n := n + 1;
+        IF r NOT LIKE 'ERROR 42501:%' OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_t1 AND account_id = a_acct) THEN
+          failed := array_append(failed, ('leader add_workspace_member(' || args || '): want 42501, got ' || r)::text);
+        END IF;
+      END;
+    END LOOP;
+    r := pg_temp.ws_val(u_l, 'SELECT public.add_workspace_member(''ldinv-t1@example.invalid'', ''agent'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM u_t1::text
+       OR (SELECT account_role || '/' || is_active FROM profiles WHERE user_id = u_t1 AND account_id = a_acct)
+          IS DISTINCT FROM 'agent/false' THEN
+      failed := array_append(failed, ('leader adds an agent: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_val(u_l, 'SELECT public.add_workspace_member(''ldinv-t2@example.invalid'', ''viewer'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM u_t2::text
+       OR (SELECT account_role || '/' || is_active FROM profiles WHERE user_id = u_t2 AND account_id = a_acct)
+          IS DISTINCT FROM 'viewer/false' THEN
+      failed := array_append(failed, ('leader adds a viewer: ' || r)::text);
+    END IF;
+    -- An unknown address as an agent: P0002, so the API creates the login.
+    r := pg_temp.ws_try('authenticated', u_l, 'SELECT public.add_workspace_member(''ldinv-nobody@example.invalid'', ''agent'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR P0002:%' THEN
+      failed := array_append(failed, ('leader adds an unknown address as an agent (want P0002): ' || r)::text);
+    END IF;
+    -- The roster stays the admins': no role change, deactivation or removal.
+    r := pg_temp.ws_try('authenticated', u_l, format('SELECT public.set_member_role(%L, ''viewer'')', u_t1))
+      || ' | ' || pg_temp.ws_try('authenticated', u_l, format('SELECT public.set_member_active(%L, false)', u_t1))
+      || ' | ' || pg_temp.ws_try('authenticated', u_l, format('SELECT public.remove_account_member(%L)', u_t1));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% | ERROR 42501:% | ERROR 42501:%'
+       OR (SELECT account_role || '/' || (deactivated_at IS NULL) FROM profiles WHERE user_id = u_t1 AND account_id = a_acct)
+          IS DISTINCT FROM 'agent/true' THEN
+      failed := array_append(failed, ('leader changes a role / deactivates / removes (want 42501 x3): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_ag, 'SELECT public.add_workspace_member(''ldinv-t2@example.invalid'', ''viewer'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' THEN
+      failed := array_append(failed, ('agent adds a viewer: ' || r)::text);
+    END IF;
+
+    -- Invite links: a leader writes agent/viewer links of their active
+    -- workspace, in their own name, for at most the API's 365 days.
+    r := pg_temp.ws_try('authenticated', u_l, ins || format('(%L, ''ldinv-own'', ''viewer'', %L, now() + interval ''30 days'')', a_acct, u_l));
+    n := n + 1;
+    IF r <> 'ok' THEN
+      failed := array_append(failed, ('leader invites a viewer: ' || r)::text);
+    END IF;
+    FOR i IN 1..8 LOOP
+      DECLARE
+        who  UUID := CASE i WHEN 7 THEN u_lb WHEN 8 THEN u_ag ELSE u_l END;
+        vals TEXT := CASE i
+          WHEN 1 THEN format('(%L, ''ldinv-x'', ''admin'', %L, now() + interval ''1 day'')', a_acct, u_l)
+          WHEN 2 THEN format('(%L, ''ldinv-x'', ''team_leader'', %L, now() + interval ''1 day'')', a_acct, u_l)
+          WHEN 3 THEN format('(%L, ''ldinv-x'', ''bank_guest'', %L, now() + interval ''1 day'')', a_acct, u_l)
+          WHEN 4 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', a_acct, u_ad)
+          WHEN 5 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''400 days'')', a_acct, u_l)
+          WHEN 6 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', b_acct, u_l)
+          WHEN 7 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', a_acct, u_lb)
+          ELSE format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', a_acct, u_ag) END;
+      BEGIN
+        r := pg_temp.ws_try('authenticated', who, ins || vals);
+        n := n + 1;
+        IF r NOT LIKE 'ERROR 42501:%' THEN
+          failed := array_append(failed, ('invite link ' || i || ' ' || vals || ': want 42501, got ' || r)::text);
+        END IF;
+      END;
+    END LOOP;
+    -- Their own links only: an admin's, and its token_hash (which
+    -- redeem_invitation takes), stay out of reach. No UPDATE at all.
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES
+      (a_acct, 'ldinv-admin', 'agent', u_ad, now() + interval '1 day'),
+      (a_acct, 'ldinv-own-2', 'agent', u_l, now() + interval '1 day');
+    r := pg_temp.ws_val(u_l, 'SELECT string_agg(token_hash, '','' ORDER BY token_hash) FROM account_invitations');
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ldinv-own,ldinv-own-2' THEN
+      failed := array_append(failed, ('leader reads invite links (want only their own): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_l, 'UPDATE account_invitations SET role = ''admin''')
+      || ' | ' || pg_temp.ws_try('authenticated', u_l, 'DELETE FROM account_invitations WHERE token_hash IN (''ldinv-admin'', ''ldinv-own-2'')');
+    n := n + 1;
+    IF r <> 'ok | ok'
+       OR (SELECT string_agg(token_hash || '/' || role, ',' ORDER BY token_hash) FROM account_invitations
+            WHERE token_hash LIKE 'ldinv-%') IS DISTINCT FROM 'ldinv-admin/agent,ldinv-own/viewer' THEN
+      failed := array_append(failed, ('leader updates / revokes invite links (want only their own revoked): ' || r)::text);
     END IF;
   END;
 

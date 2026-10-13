@@ -248,6 +248,8 @@ export function CreateWorkspaceDialog({
 
   const roleCards = [
     { title: t('cardAdminTitle'), body: t('cardAdminBody'), guest: false },
+    // A team leader has no settings (099: adds agents and viewers only).
+    { title: t('cardLeaderTitle'), body: t('cardLeaderBody'), guest: false },
     { title: t('cardAgentTitle'), body: t('cardAgentBody'), guest: false },
     { title: t('cardGuestTitle'), body: t('cardGuestBody'), guest: true },
   ];
@@ -585,7 +587,7 @@ export function CreateWorkspaceDialog({
                 {t('addAnother')}
               </button>
 
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {roleCards.map((card) => (
                   <div
                     key={card.title}

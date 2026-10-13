@@ -74,6 +74,21 @@ staff. A guest:
   needs a bank code. Someone who already has a login keeps it and gains
   a membership; an unknown email gets a new login. The new membership
   does not become the person's active one unless they have no other.
+- **Who can add people (migration 099):** an owner or admin of the
+  active workspace, with any role but owner; or a **team leader** of
+  it, as an **agent or viewer** only — never admin, team leader, owner
+  or bank guest. Both the add-by-email and the invite-link paths hold
+  the same rule twice: in the API routes (`canGrantRole`) and in the
+  database (`add_workspace_member()` refuses any other role with 42501
+  before it looks the email up, and the `account_invitations` leader
+  policies admit only agent/viewer links). A team leader sees and
+  revokes only the invite links they made — a link's stored hash is
+  enough to redeem it, so other people's links stay hidden — and
+  cannot edit one, nor make one valid for more than the 365 days the
+  API allows. Changing a role, deactivating, removing, transferring
+  ownership and creating workspaces stay owner/admin only; Settings →
+  Members shows a team leader the add and invite buttons and their own
+  pending links, not the roster.
 - **Who can add an existing login:** only an owner or admin of a
   workspace where that person is an active (not deactivated) member —
   for example an owner bringing their RM from workspace A into

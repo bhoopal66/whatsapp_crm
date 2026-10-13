@@ -34,7 +34,6 @@ const ADMIN_ONLY: SettingsSection[] = [
   'fields',
   'journey-bot',
   'workspace',
-  'members',
   'teams',
   'team-chat',
   'consent-retention',
@@ -44,6 +43,10 @@ const ADMIN_ONLY: SettingsSection[] = [
   'deals',
   'phone-system',
 ];
+
+// Migration 099: a team leader adds agents and viewers from Members;
+// everything else in it (the roster) is admin-only inside the panel.
+const LEADER_AND_UP: SettingsSection[] = ['members'];
 
 const OPEN_TO_ALL: SettingsSection[] = [
   'overview',
@@ -71,6 +74,17 @@ describe('canOpenSection', () => {
     }
   });
 
+  it('opens Members to team leaders and up, not to agents or viewers', () => {
+    for (const section of LEADER_AND_UP) {
+      for (const role of ['owner', 'admin', 'team_leader'] as const) {
+        expect(canOpenSection(section, role)).toBe(true);
+      }
+      for (const role of ['agent', 'viewer', 'bank_guest'] as const) {
+        expect(canOpenSection(section, role)).toBe(false);
+      }
+    }
+  });
+
   it('leaves the personal sections open to every role', () => {
     for (const section of OPEN_TO_ALL) {
       for (const role of ['owner', 'admin', 'agent', 'viewer'] as const) {
@@ -87,7 +101,7 @@ describe('canOpenSection', () => {
   });
 
   it('covers every declared section, so a new one cannot be forgotten', () => {
-    expect([...ADMIN_ONLY, ...OPEN_TO_ALL].sort()).toEqual(
+    expect([...ADMIN_ONLY, ...LEADER_AND_UP, ...OPEN_TO_ALL].sort()).toEqual(
       [...SETTINGS_SECTIONS].sort()
     );
   });
@@ -136,7 +150,15 @@ describe('categories', () => {
     ]);
   });
 
-  it.each([null, 'team_leader', 'agent', 'viewer'] as const)(
+  it('shows a team leader Team with Members alone', () => {
+    expect(visibleCategories('team_leader')).toEqual([
+      { id: 'overview', sections: ['overview'] },
+      { id: 'account', sections: ['profile', 'security', 'appearance'] },
+      { id: 'team', sections: ['members'] },
+    ]);
+  });
+
+  it.each([null, 'agent', 'viewer'] as const)(
     'hides the categories %s has no section in',
     (role) => {
       expect(visibleCategories(role)).toEqual([

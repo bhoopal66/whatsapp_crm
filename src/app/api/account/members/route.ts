@@ -28,8 +28,17 @@ import {
   addOrCreateMember,
   isAddableRole,
 } from "@/lib/account/add-member";
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
-import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
+import {
+  getCurrentAccount,
+  requireRole,
+  toErrorResponse,
+} from "@/lib/auth/account";
+import {
+  canGrantRole,
+  canInviteMembers,
+  canManageMembers,
+  isAccountRole,
+} from "@/lib/auth/roles";
 import { serverSupabaseUrl } from "@/lib/supabase/urls";
 import type { AccountMember } from "@/types";
 
@@ -117,8 +126,12 @@ export async function GET() {
 //
 // Add a person to the caller's workspace, with their role chosen up
 // front: one of `ASSIGNABLE_ROLES`, or `bank_guest` with a `bankCode`.
-// There is no self-service signup, so an admin adding them is the ONLY
-// way in.
+// There is no self-service signup, so someone adding them is the ONLY
+// way in: an owner or admin with any of those roles, or (migration 099)
+// a team leader with an agent or viewer role (`canGrantRole`).
+// `add_workspace_member` applies the same rule before it answers
+// `no_such_user`, which is the only way on to the service-role
+// provision, so a leader cannot reach it with any other role.
 //
 // Body: { email, role, full_name?, password?, bankCode? }. Since
 // migration 083 the email decides what happens (`addOrCreateMember`):
@@ -127,8 +140,13 @@ export async function GET() {
 // ============================================================
 export async function POST(request: Request) {
   try {
-    // Same gate as the rest of the Members tab.
-    const ctx = await requireRole("admin");
+    const ctx = await getCurrentAccount();
+    if (!canInviteMembers(ctx.role)) {
+      return NextResponse.json(
+        { error: "Adding people requires the team leader role or higher" },
+        { status: 403 },
+      );
+    }
 
     const body = await request.json().catch(() => ({}));
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -144,6 +162,12 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: `Role must be one of: ${ADDABLE_ROLES.join(", ")}` },
         { status: 400 },
+      );
+    }
+    if (!canGrantRole(ctx.role, role)) {
+      return NextResponse.json(
+        { error: "A team leader can add agents and viewers only" },
+        { status: 403 },
       );
     }
 

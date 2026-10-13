@@ -77,6 +77,7 @@ describe('POST /api/account/members', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireRole.mockResolvedValue(ADMIN_CTX);
+    mocks.getCurrentAccount.mockResolvedValue(ADMIN_CTX);
     mocks.createUser.mockResolvedValue({
       data: { user: { id: 'user-2' } },
       error: null,
@@ -189,11 +190,55 @@ describe('POST /api/account/members', () => {
     expect(mocks.createUser).not.toHaveBeenCalled();
   });
 
-  it('requires the admin role', async () => {
-    mocks.requireRole.mockRejectedValue(new Error('Insufficient role'));
+  it('refuses a caller with no account context', async () => {
+    mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
     const res = await POST(request(VALID));
     expect(res.status).toBe(403);
     expect(mocks.createUser).not.toHaveBeenCalled();
+  });
+
+  // Migration 099: a team leader adds agents and viewers; agents and
+  // viewers add nobody.
+  it.each(['agent', 'viewer', 'bank_guest'])(
+    'refuses a %s caller before any RPC',
+    async (role) => {
+      mocks.getCurrentAccount.mockResolvedValue({ ...ADMIN_CTX, role });
+      const res = await POST(request(VALID));
+      expect(res.status).toBe(403);
+      expect(mocks.callerRpc).not.toHaveBeenCalled();
+      expect(mocks.createUser).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['agent', 'viewer'])('lets a team leader add a %s', async (role) => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      ...ADMIN_CTX,
+      role: 'team_leader',
+    });
+    const res = await POST(request({ ...VALID, role }));
+    expect(res.status).toBe(201);
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'provision_account_member',
+      expect.objectContaining({ p_role: role })
+    );
+  });
+
+  it.each([
+    { role: 'admin' },
+    { role: 'team_leader' },
+    { role: 'bank_guest', bankCode: 'ADCB' },
+  ])('refuses a team leader adding a $role, before any RPC', async (extra) => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      ...ADMIN_CTX,
+      role: 'team_leader',
+    });
+    const res = await POST(request({ ...VALID, ...extra }));
+    expect(res.status).toBe(403);
+    // Neither the caller's add_workspace_member nor the service-role
+    // provision: no login is created for a role the leader may not give.
+    expect(mocks.callerRpc).not.toHaveBeenCalled();
+    expect(mocks.createUser).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
   it('refuses to mint a second owner', async () => {

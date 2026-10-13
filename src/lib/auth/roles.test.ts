@@ -8,8 +8,11 @@ import {
   canLeadTeam,
   canManageTeams,
   canEditSettings,
+  canGrantRole,
+  canInviteMembers,
   canManageMembers,
   canSendMessages,
+  grantableRoles,
   canTransferOwnership,
   canViewOnly,
   hasMinRole,
@@ -183,8 +186,61 @@ describe('bank_guest (migrations 082/083)', () => {
       canTransferOwnership,
       canLeadTeam,
       canManageTeams,
+      canInviteMembers,
     ]) {
       expect(can('bank_guest'), can.name).toBe(false);
     }
+  });
+});
+
+// Module 014's matrix: a supervisor (team_leader) invites RMs/agents;
+// changing roles, removing and deactivating stay admin+ (099).
+describe('adding people (migration 099)', () => {
+  it('canInviteMembers: team leader and up', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canInviteMembers(r))).toEqual([
+      'team_leader',
+      'admin',
+      'owner',
+    ]);
+  });
+
+  it('a team leader still does not manage the roster', () => {
+    expect(canManageMembers('team_leader')).toBe(false);
+  });
+
+  it('owner and admin may grant every role but owner', () => {
+    for (const caller of ['owner', 'admin'] as const) {
+      expect(ACCOUNT_ROLES.filter((r) => canGrantRole(caller, r))).toEqual([
+        'bank_guest',
+        'viewer',
+        'agent',
+        'team_leader',
+        'admin',
+      ]);
+    }
+  });
+
+  it('a team leader may grant only agent and viewer', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canGrantRole('team_leader', r))).toEqual(
+      ['viewer', 'agent']
+    );
+  });
+
+  it('agents, viewers and bank guests may grant nothing', () => {
+    for (const caller of ['agent', 'viewer', 'bank_guest'] as const) {
+      expect(ACCOUNT_ROLES.filter((r) => canGrantRole(caller, r))).toEqual([]);
+    }
+  });
+
+  it('grantableRoles narrows a picker list, keeping its order', () => {
+    expect(grantableRoles('team_leader', ASSIGNABLE_ROLES)).toEqual([
+      'agent',
+      'viewer',
+    ]);
+    expect(grantableRoles('admin', ASSIGNABLE_ROLES)).toEqual([
+      ...ASSIGNABLE_ROLES,
+    ]);
+    expect(grantableRoles('agent', ASSIGNABLE_ROLES)).toEqual([]);
+    expect(grantableRoles(null, ASSIGNABLE_ROLES)).toEqual([]);
   });
 });
