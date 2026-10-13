@@ -29,7 +29,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
-import { listChannels, shareCall } from '@/lib/chat';
+import { channelsWithGuests, listChannels, shareCall } from '@/lib/chat';
 import {
   OUTCOMES,
   canTransferToOwner,
@@ -167,21 +167,28 @@ function Panel() {
   useEffect(() => {
     if (!accountId || !calls.userId) return;
     void listChannels(sb, accountId, calls.userId)
-      .then((cs) =>
+      .then(async (cs) => {
+        const open = cs.filter(
+          (c) =>
+            (c.kind === 'team' ||
+              c.kind === 'private' ||
+              c.kind === 'deal_room') &&
+            !c.archivedAt &&
+            c.membership &&
+            c.name
+        );
+        // A call card is refused where a bank guest reads (a deal room's
+        // Team notes excepted); a failed lookup leaves them offered.
+        const guests = await channelsWithGuests(
+          sb,
+          open.filter((c) => c.kind !== 'deal_room').map((c) => c.id)
+        ).catch(() => new Set<string>());
         setChannels(
-          cs
-            .filter(
-              (c) =>
-                (c.kind === 'team' ||
-                  c.kind === 'private' ||
-                  c.kind === 'deal_room') &&
-                !c.archivedAt &&
-                c.membership &&
-                c.name
-            )
+          open
+            .filter((c) => c.kind === 'deal_room' || !guests.has(c.id))
             .map((c) => ({ id: c.id, name: c.name as string }))
-        )
-      )
+        );
+      })
       .catch(() => setChannels([]));
   }, [sb, accountId, calls.userId]);
 

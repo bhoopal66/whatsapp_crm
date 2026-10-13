@@ -47,11 +47,17 @@ export interface ShareTarget {
  * viewer belongs to, whose name contains `query`; joined ones first,
  * then by name. DMs are left out, and deal rooms unless `dealRooms`
  * (a call card may go to the Team notes of a room the viewer is in).
+ * A channel in `withGuests` (a bank guest is a member,
+ * chat_channels_with_guests) is left out too: the share is refused there.
+ * A deal room stays: its guests never read the Team notes.
  */
 export function shareTargets(
   channels: readonly ChannelWithMembership[],
   query = '',
-  { dealRooms = false }: { dealRooms?: boolean } = {}
+  {
+    dealRooms = false,
+    withGuests,
+  }: { dealRooms?: boolean; withGuests?: ReadonlySet<string> } = {}
 ): ShareTarget[] {
   const q = normalizeDigits(query.trim()).toLowerCase().replace(/^#/, '');
   return channels
@@ -59,6 +65,7 @@ export function shareTargets(
       (c) =>
         !c.archivedAt &&
         !!c.name &&
+        (c.kind === 'deal_room' || !withGuests?.has(c.id)) &&
         (c.kind === 'team' ||
           ((c.kind === 'private' || (dealRooms && c.kind === 'deal_room')) &&
             !!c.membership))
