@@ -94,7 +94,13 @@ export async function POST(
   after(async () => {
     for (const payload of events) {
       try {
-        await ingestPbxEvent({ db, connectionId, payload, receivedAt });
+        await ingestPbxEvent({
+          db,
+          connectionId,
+          payload,
+          receivedAt,
+          via: 'webhook',
+        });
       } catch (err) {
         console.error(`[pbx] ${connectionId}: event processing failed:`, err);
       }

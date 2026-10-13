@@ -142,6 +142,47 @@ describe('RPC wrappers', () => {
     expect(await api.deleteMessage(sb, M)).toEqual([]);
   });
 
+  it('share a call through chat_share_call and read its card (103)', async () => {
+    const { sb, calls } = fakeSb(
+      ok('card-msg'),
+      ok([
+        {
+          message_id: M,
+          can_open: true,
+          erased: false,
+          call_id: 'c1',
+          direction: 'outbound',
+          status: 'answered',
+          started_at: '2026-10-02T09:00:00Z',
+          talk_seconds: 61,
+          outcome: 'call_back',
+          notes: 'later',
+          agent_name: 'Rana',
+          contact_id: 'k1',
+          contact_name: 'Sara',
+          phone: '+971 XXXXXXX01',
+        },
+      ])
+    );
+    expect(
+      await api.shareCall(sb, { channelId: CH, callId: 'c1', body: 'fyi' })
+    ).toBe('card-msg');
+    const [card] = await api.sharedCallCards(sb, [M]);
+    expect(calls.map((c) => c[0].args)).toEqual([
+      ['chat_share_call', { p_channel: CH, p_call: 'c1', p_body: 'fyi' }],
+      ['chat_shared_call_cards', { p_message_ids: [M] }],
+    ]);
+    expect(card).toMatchObject({
+      messageId: M,
+      canOpen: true,
+      erased: false,
+      direction: 'outbound',
+      talkSeconds: 61,
+      contactName: 'Sara',
+    });
+    expect(await api.sharedCallCards(sb, [])).toEqual([]);
+  });
+
   it('skip the round trip for an empty id list', async () => {
     const { sb, calls } = fakeSb();
     expect(await api.sharedCards(sb, [])).toEqual([]);

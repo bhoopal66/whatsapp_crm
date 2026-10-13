@@ -191,6 +191,17 @@ export function canPlaceLegalHold(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: the Calls screen's Unrouted view, inbound calls to a
+ * dialled number with no phone-system route (calls.meta.unrouted,
+ * module 015). The list route refuses that scope below admin. Leaders
+ * see those calls in the log too; the view is for the people who add
+ * routes (Settings → Phone system).
+ */
+export function canViewUnroutedCalls(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
  * Team leader and up: download a call recording (the recording route's
  * 403 and call_access_log's guard, migration 089). Playing is agent+.
  */

@@ -75,7 +75,17 @@ export interface IngestInput {
   /** One event frame: an object, or the JSON text of one. */
   payload: unknown;
   receivedAt?: Date | string;
+  /**
+   * The path that carried the frame, stamped as the connection's
+   * `last_event_via` (migration 104) for Settings → Phone system. The
+   * retry sweep passes none: re-running an old frame says nothing about
+   * which path is live now.
+   */
+  via?: PbxEventPath;
 }
+
+/** How events reach the app: Yeastar's push, or the WebSocket gateway. */
+export type PbxEventPath = 'webhook' | 'gateway';
 
 export interface IngestResult {
   duplicate: boolean;
@@ -170,7 +180,14 @@ export async function ingestPbxEvent(
   }
   const rawId = (data as { id: unknown }[] | null)?.[0]?.id;
   if (rawId === undefined) return { duplicate: true };
-  return processStoredPbxEvent({ db, connectionId, rawId, frame, receivedAt });
+  return processStoredPbxEvent({
+    db,
+    connectionId,
+    rawId,
+    frame,
+    receivedAt,
+    via: input.via,
+  });
 }
 
 export interface StoredEventInput {
@@ -181,6 +198,7 @@ export interface StoredEventInput {
   /** The frame as stored (pbx_events_raw.payload). */
   frame: unknown;
   receivedAt: string;
+  via?: PbxEventPath;
 }
 
 /**
@@ -192,7 +210,7 @@ export interface StoredEventInput {
 export async function processStoredPbxEvent(
   input: StoredEventInput
 ): Promise<IngestResult> {
-  const { db, connectionId, rawId, frame, receivedAt } = input;
+  const { db, connectionId, rawId, frame, receivedAt, via } = input;
   let kind: YeastarEvent['kind'] | undefined;
   let failure: string | null = null;
   let conn: { account_id: string; status: string } | null = null;
@@ -239,10 +257,13 @@ export async function processStoredPbxEvent(
     console.warn(`[pbx] event ${rawId} on ${connectionId}: ${failure}`);
   if (conn) {
     // A delivery proves the push works; a refused API login stays shown.
+    // An older stamp (a retry, a late delivery) leaves the clock and its
+    // path as they are (104's pbx_connections_event_clock trigger).
     const touch = await db
       .from('pbx_connections')
       .update({
         last_event_at: receivedAt,
+        ...(via ? { last_event_via: via } : {}),
         ...(conn.status === 'auth_failed' ? {} : { status: 'connected' }),
       })
       .eq('id', connectionId);

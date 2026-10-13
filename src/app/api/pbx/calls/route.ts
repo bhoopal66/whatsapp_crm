@@ -1,11 +1,24 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
-//   ?contactId=&scope=mine|missed|all&from=&to=&limit=
+//   ?contactId=&scope=mine|missed|all|unrouted&from=&to=&limit=
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
-//       ringSeconds, talkSeconds, remoteNumber, extension, contactId,
-//       contactName, doNotContactAt, doNotContactReason, userId,
-//       userName, rangNames, disposition, notes, recordingState,
-//       recordingDeleted, legalHold }] }
+//       ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
+//       contactId, contactName, doNotContactAt, doNotContactReason,
+//       userId, userName, rangNames, disposition, notes, recordingState,
+//       recordingDeleted, legalHold }],
+//       numbers?: [{ didNumber, calls, lastAt }] }
+// didNumber: the number the customer dialled (calls.did_number).
+// unrouted (owner/admin only, canListCallScope; 403 below): inbound
+// calls to a dialled number with no route, which the PBX processor
+// files under the connection's own workspace with calls.meta.unrouted
+// set. The flag is filtered in the query, so the limit counts those
+// calls only. `numbers` sums up every such call within the filters,
+// not only the listed page (paged past PostgREST's max-rows when the
+// list is cut short, up to SUMMARY_MAX_PAGES pages): which numbers
+// want a route, the most recently called first. With no `from` it
+// reaches back UNROUTED_SUMMARY_DAYS days; the listed page has no such
+// bound. An erased call keeps the flag and its dialled number but no
+// caller number.
 // rangNames: who an inbound call rang, first rung first
 // (calls.meta.rang_user_ids, kept by the PBX processor), named as in
 // the caller's workspace: one person holds a profile per workspace.
@@ -25,7 +38,21 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { MISSED_STATUSES, fail, parseCallListQuery } from '@/lib/pbx/calls';
+import { UNROUTED_SUMMARY_DAYS } from '@/lib/pbx/call-ui';
+import {
+  MISSED_STATUSES,
+  canListCallScope,
+  fail,
+  parseCallListQuery,
+  unroutedNumbers,
+  type UnroutedNumber,
+} from '@/lib/pbx/calls';
+
+/** PostgREST's default max-rows, so a page shorter than this is the last. */
+const PAGE = 1000;
+/** A hard stop on the unrouted numbers' reads: PAGE calls each. */
+const SUMMARY_MAX_PAGES = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface ContactRow {
   id: string;
@@ -44,6 +71,7 @@ interface CallRow {
   ring_seconds: number | null;
   talk_seconds: number | null;
   remote_number: string | null;
+  did_number: string | null;
   extension: string | null;
   contact_id: string | null;
   user_id: string | null;
@@ -63,30 +91,71 @@ export async function GET(request: Request) {
     const ctx = await requireRole('viewer');
     const q = parseCallListQuery(new URL(request.url).searchParams);
     if (typeof q === 'string') return fail(q);
+    if (!canListCallScope(ctx.role, q.scope))
+      return fail('Only an owner or admin can list unrouted calls', 403);
 
-    let query = ctx.supabase
-      .from('calls')
-      .select(
-        'id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
-      )
-      .eq('account_id', ctx.accountId);
-    if (q.contactId) query = query.eq('contact_id', q.contactId);
-    if (q.scope === 'mine')
-      query = query.or(
-        `user_id.eq.${ctx.userId},peer_user_id.eq.${ctx.userId}`
-      );
-    if (q.scope === 'missed')
-      query = query
-        .eq('direction', 'inbound')
-        .in('status', [...MISSED_STATUSES])
-        .is('answered_at', null);
-    if (q.from) query = query.gte('started_at', q.from);
-    if (q.to) query = query.lt('started_at', q.to);
-    const { data, error } = await query
+    // The list and the unrouted numbers read the same calls.
+    const scoped = (columns: string, from = q.from) => {
+      let query = ctx.supabase
+        .from('calls')
+        .select(columns)
+        .eq('account_id', ctx.accountId);
+      if (q.contactId) query = query.eq('contact_id', q.contactId);
+      if (q.scope === 'mine')
+        query = query.or(
+          `user_id.eq.${ctx.userId},peer_user_id.eq.${ctx.userId}`
+        );
+      if (q.scope === 'missed')
+        query = query
+          .eq('direction', 'inbound')
+          .in('status', [...MISSED_STATUSES])
+          .is('answered_at', null);
+      if (q.scope === 'unrouted') query = query.eq('meta->>unrouted', 'true');
+      if (from) query = query.gte('started_at', from);
+      if (q.to) query = query.lt('started_at', q.to);
+      return query;
+    };
+    const { data, error } = await scoped(
+      'id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, did_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
+    )
       .order('started_at', { ascending: false })
       .limit(q.limit);
     if (error) throw new Error(`calls read failed: ${error.message}`);
-    const rows = (data ?? []) as CallRow[];
+    const rows = (data ?? []) as unknown as CallRow[];
+
+    let numbers: UnroutedNumber[] | undefined;
+    if (q.scope === 'unrouted') {
+      // The numbers start at the request's `from`, else
+      // UNROUTED_SUMMARY_DAYS ago. Reading all history on every open
+      // made the tab slower each day, and a number fixed long ago
+      // would still head the list.
+      const since =
+        q.from ??
+        new Date(Date.now() - UNROUTED_SUMMARY_DAYS * DAY_MS).toISOString();
+      let all: Pick<CallRow, 'did_number' | 'started_at'>[];
+      if (rows.length < q.limit) {
+        // A short list is every unrouted call, the older ones included.
+        const sinceAt = Date.parse(since);
+        all = rows.filter((r) => Date.parse(r.started_at) >= sinceAt);
+      } else {
+        // A full one may not be. Newest first, so that if the cap cuts
+        // the read it is the oldest calls that go and every number keeps
+        // its latest call.
+        all = [];
+        for (let page = 0; page < SUMMARY_MAX_PAGES; page++) {
+          const res = await scoped('did_number, started_at', since)
+            .order('started_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(page * PAGE, (page + 1) * PAGE - 1);
+          if (res.error)
+            throw new Error(`calls read failed: ${res.error.message}`);
+          const chunk = (res.data ?? []) as unknown as typeof all;
+          all.push(...chunk);
+          if (chunk.length < PAGE) break;
+        }
+      }
+      numbers = unroutedNumbers(all);
+    }
 
     const ids = (k: 'contact_id' | 'user_id') => [
       ...new Set(rows.map((r) => r[k]).filter((v): v is string => !!v)),
@@ -159,6 +228,7 @@ export async function GET(request: Request) {
           ringSeconds: r.ring_seconds,
           talkSeconds: r.talk_seconds,
           remoteNumber: r.remote_number,
+          didNumber: r.did_number,
           extension: r.extension,
           contactId: r.contact_id,
           contactName: contact?.name || null,
@@ -176,6 +246,7 @@ export async function GET(request: Request) {
           legalHold: recording.get(r.id)?.legal_hold === true,
         };
       }),
+      ...(numbers && { numbers }),
     });
   } catch (err) {
     return toErrorResponse(err);

@@ -182,6 +182,16 @@ connection with no secret stored refuses every push. Optionally set
   PBX's own workspace, flagged _unrouted_ with the number kept, so an
   admin can add the route. Other calls follow their extension's
   workspace.
+- **Unrouted calls** are listed for owners and admins under Calls ›
+  Unrouted (`/calls?tab=unrouted`), newest first with the number
+  dialled; anyone else who opens that link is shown Missed calls.
+  Above them, each dialled number called in the last 30 days with its
+  count of unrouted calls and the latest one, the most recently called
+  first, and a link to the routes in Settings › Phone system. A call
+  stays flagged after its number gets a route: a number whose latest
+  call stops moving has been fixed, sinks down the list and drops off
+  it after 30 days. An erased call keeps the flag and the dialled
+  number, but not the caller's.
 - **Customer.** The caller is matched only among that workspace's
   contacts. Several matches link none; the candidates are kept on the
   call for the person to pick.
@@ -221,6 +231,37 @@ connection with no secret stored refuses every push. Optionally set
 - Every event is stored once (re-sends are ignored); one that cannot be
   processed keeps its error on the stored event.
 
+**The Events card** in Settings states what the server recorded
+(migration `104_pbx_health.sql`):
+
+- whether events arrive: _Receiving events_ while the latest is under
+  15 minutes old, _Quiet_ after that, _No events yet_ before the first.
+  Quiet is not a fault by itself; a night without calls is quiet too.
+  An open tab reads the connection again about once a minute while it
+  is in view, so the verdict does not go stale;
+- the path that carried the latest event: Yeastar's webhook push or the
+  WebSocket gateway. A retried or late old event moves neither the time
+  nor the path. A stamp more than a minute ahead of the database's clock
+  (a wrong clock on the app server) is stored as that clock plus a
+  minute, so it cannot hold every later event back;
+- the API sessions the CRM holds: 0 or 1 of the 8 Yeastar allows an
+  API application, because one cached token serves every person and
+  process (section 1);
+- the gateway's latest call-record backfill: when, how many calls it
+  added and how many it could not. A webhook-only install never
+  backfills, so it says _never_.
+
+**The silence alert.** When no event has arrived for 15 minutes, all of
+them inside working hours (09:00–20:00 Dubai, the call-backs' window),
+the owners and admins of the workspace that owns the connection get one
+bell, _No phone system events for …_, which opens Settings → Phone
+system. When events arrive again they get one more, _Phone system events
+are arriving again_, at any hour. A connection that never received an
+event never alerts, and a quiet night does not either: at 09:15 a link
+that has said nothing since the evening does. The PBX cron checks every
+pass (section 10); `pbx_connection_silence()` moves the state and rings
+in one statement, so overlapping passes ring once.
+
 ## 7. Running the gateway
 
 Firmware without webhook push (before 84.20.0.21) relays events through
@@ -244,6 +285,11 @@ Run it one of three ways:
   `Restart=always`.
 
 Run one gateway per PBX.
+
+After a reconnect the gateway asks for the gap's call records
+(`POST /api/pbx/gateway/backfill`, the last 24 hours at most), and each
+is stored as the Call End event it would have been. The Events card
+shows the latest backfill.
 
 ## 8. Recordings
 
@@ -300,7 +346,8 @@ recording notice before the owner is connected.
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
 first keeps the red dot of anyone still on a live call (above), then
 rings the outcome reminders (where outcomes are mandatory, at most
-200 a run; see **The wrap-up** below), then
+200 a run; see **The wrap-up** below) and the silence alert (section
+6), then
 fetches pending recordings, dials due call-backs, retries events that
 failed to process (three times each), purges old rows, deletes
 recordings past the workspace's retention period (section 3; up to
@@ -410,6 +457,13 @@ backing off after a refused login is skipped until the backoff ends.
   cannot be posted when the wrap-up closes by itself, it is tried three
   times, then the wrap-up closes with an error saying the card was not
   shared (the outcome and notes are saved on the call).
+- **Call cards in team chat (103).** The wrap-up's call card, and
+  **Share to chat** on the Calls screen and the customer page, post a
+  card of the call to a team or private channel or a deal room's Team
+  notes (never to the customer or a WhatsApp group). The card is read
+  from the call each time: only colleagues who can see the call see its
+  details, and an erased call's card shows nothing but that it was
+  erased. See `docs/internal-chat.md`.
 - **Recordings.** An agent or above who can see a call can play its
   recording;
   only team leaders, admins and owners can download one (**Download**
@@ -429,7 +483,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | ------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `POST /api/pbx/calls/{id}/recording` | `{ action: 'play' \| 'download' }` → `{ url, expiresAt }` (409 if held)                         |
 | `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
-| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
+| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all\|unrouted&from=&to=&limit=` → `{ calls }`; `unrouted` (owner and admin) adds `numbers: [{ didNumber, calls, lastAt }]`, over the last 30 days unless `from` is given |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
 | `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
 | `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |

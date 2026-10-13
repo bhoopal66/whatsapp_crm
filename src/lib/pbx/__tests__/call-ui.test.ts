@@ -5,14 +5,12 @@ import {
   OVERRIDE_REASON_MAX as ROUTE_OVERRIDE_MAX,
 } from '../calls';
 import {
-  CARD_NOTES_MAX,
   NOTES_MAX,
   OUTCOMES,
   OVERRIDE_REASON_MAX,
   RING_TIMER_MAX_MS,
   alsoRinging,
   canTransferToOwner,
-  callCardText,
   clip,
   consentState,
   consentText,
@@ -32,10 +30,12 @@ import {
   otherOwner,
   ringElapsedMs,
   ringFloor,
-  type CallCardLabels,
   type CallLiveRow,
   loadsPbxMe,
   callBackFor,
+  callsTab,
+  shownCallsTab,
+  visibleCallTabs,
 } from '../call-ui';
 import { ACCOUNT_ROLES } from '@/lib/auth/roles';
 
@@ -372,67 +372,11 @@ describe('alsoRinging', () => {
   });
 });
 
-describe('callCardText', () => {
-  const labels: CallCardLabels = {
-    heading: (d, who) => `${d} call with ${who}`,
-    direction: {
-      inbound: 'Inbound',
-      outbound: 'Outbound',
-      internal: 'Internal',
-    },
-    outcome: {
-      interested: 'Interested',
-      docs_requested: 'Docs requested',
-      call_back: 'Call back',
-      not_eligible: 'Not eligible',
-      wrong_number: 'Wrong number',
-    },
-    noOutcome: 'No outcome',
-    unknownCaller: 'Unknown caller',
-  };
-  const base = {
-    direction: 'inbound' as const,
-    talkSeconds: 192,
-    outcome: 'interested' as const,
-  };
-
-  it('reads as the walkthrough shows it', () => {
-    expect(
-      callCardText(
-        {
-          ...base,
-          contactName: 'Acme Trading',
-          notes: ' Wants  the card form ',
-        },
-        labels
-      )
-    ).toBe(
-      '📞 Inbound call with Acme Trading · 3:12 · Interested — Wants the card form'
-    );
-  });
-  it('says when there is no outcome and leaves out empty notes', () => {
-    expect(
-      callCardText(
-        { ...base, contactName: 'Acme', outcome: null, talkSeconds: null },
-        labels
-      )
-    ).toBe('📞 Inbound call with Acme · 0:00 · No outcome');
-  });
-  it('names an unknown customer by a masked number, never the number', () => {
-    const text = callCardText(
-      { ...base, contactName: ' ', remoteNumber: '971501234567' },
-      labels
-    );
-    expect(text).toContain('+971 ••••• 4567');
-    expect(text).not.toContain('971501234567');
-    expect(text).not.toMatch(/\d{5,}/);
-  });
-  it('falls back to "Unknown caller" and clips long notes', () => {
-    const text = callCardText({ ...base, notes: 'n'.repeat(5000) }, labels);
-    expect(text.startsWith('📞 Inbound call with Unknown caller')).toBe(true);
-    expect(text.endsWith('…')).toBe(true);
-    expect(text.length).toBeLessThan(CARD_NOTES_MAX + 80);
+describe('clip', () => {
+  it('collapses whitespace and clips by code point, with an ellipsis', () => {
+    expect(clip('  a \n b  ', 10)).toBe('a b');
     expect(clip('ab😀cd', 4)).toBe('ab😀…');
+    expect(clip(null, 4)).toBe('');
   });
 });
 
@@ -623,5 +567,45 @@ describe('callBackFor', () => {
       expect(callBackFor(known, role)).toBeNull();
       expect(callBackFor(unknown, role)).toBeNull();
     }
+  });
+});
+
+describe('the Calls screen tabs', () => {
+  it('offers By person to leaders and up, Unrouted to owners and admins', () => {
+    const tabs = Object.fromEntries(
+      ACCOUNT_ROLES.map((r) => [r, visibleCallTabs(r).join(',')])
+    );
+    expect(tabs).toEqual({
+      owner: 'missed,log,people,unrouted',
+      admin: 'missed,log,people,unrouted',
+      team_leader: 'missed,log,people',
+      agent: 'missed,log',
+      viewer: 'missed,log',
+      bank_guest: 'missed,log',
+    });
+    expect(visibleCallTabs(null)).toEqual(['missed', 'log']);
+  });
+
+  it('reads ?tab=, anything else being Missed calls', () => {
+    expect(callsTab('unrouted')).toBe('unrouted');
+    expect(callsTab('people')).toBe('people');
+    expect(callsTab(undefined)).toBe('missed');
+    expect(callsTab('team')).toBe('missed');
+  });
+
+  it('shows Missed calls when a link names a tab the role is not offered', () => {
+    expect(shownCallsTab('unrouted', 'team_leader')).toBe('missed');
+    expect(shownCallsTab('unrouted', 'agent')).toBe('missed');
+    expect(shownCallsTab('unrouted', 'viewer')).toBe('missed');
+    expect(shownCallsTab('people', 'agent')).toBe('missed');
+    expect(shownCallsTab('people', 'viewer')).toBe('missed');
+    // The tabs a role is offered stand.
+    expect(shownCallsTab('unrouted', 'admin')).toBe('unrouted');
+    expect(shownCallsTab('unrouted', 'owner')).toBe('unrouted');
+    expect(shownCallsTab('people', 'team_leader')).toBe('people');
+    expect(shownCallsTab('log', 'viewer')).toBe('log');
+    expect(shownCallsTab('missed', 'agent')).toBe('missed');
+    // Before the role is known the request stands (the API decides).
+    expect(shownCallsTab('unrouted', null)).toBe('unrouted');
   });
 });

@@ -3009,8 +3009,15 @@
       },
       "events": {
         "title": "Events",
-        "liveLink": "Live link (webhook or gateway) · {ago}",
-        "sharedToken": "API sessions are shared: one token for the whole team"
+        "none": "No events yet",
+        "live": "Receiving events · {ago}",
+        "quiet": "Quiet · {ago}",
+        "viaWebhook": "Through Yeastar's webhook push",
+        "viaGateway": "Through the WebSocket gateway",
+        "apiTokens": "API sessions held by the CRM: {held} of {limit} · one token, shared by the whole team",
+        "ago": "{unit, select, s {{count} s} min {{count} min} h {{count} h} other {{count} d}} ago",
+        "backfill": "Last gap filled from call records: {ago}{count, plural, =0 {{failed, plural, =0 { · nothing was missing} other {}}} one { · # call added} other { · # calls added}}{failed, plural, =0 {} one { · # call could not be added} other { · # calls could not be added}}",
+        "backfillNever": "Last gap filled from call records: never"
       },
       "softphone": {
         "title": "Browser softphone",
@@ -3945,7 +3952,11 @@
       "cancel": "Cancel",
       "submit": "Share",
       "done": "Shared to #{name}",
-      "open": "Open"
+      "open": "Open",
+      "callAction": "Share to chat",
+      "callTitle": "Share call to team chat",
+      "callDescription": "Posts a card of this call to a channel or a deal room's Team notes. Only colleagues who may see the call see its details. Nothing is sent to the customer.",
+      "callDefaultBody": "Shared a call"
     },
     "sections": {
       "inbox": "WhatsApp inbox",
@@ -4489,6 +4500,14 @@
       "muted": "Muted. You'll still be notified when someone @mentions you.",
       "unmuted": "Notifications are back on.",
       "label": "Muted"
+    },
+    "callCard": {
+      "header": "Phone call",
+      "noAccess": "You don't have access to this call.",
+      "erased": "This call's record was erased.",
+      "unknownCaller": "Unknown caller",
+      "agent": "Agent: {name}",
+      "openCustomer": "Open customer page"
     }
   },
   "Workspaces": {
@@ -4891,7 +4910,8 @@
     "tabs": {
       "missed": "Missed calls",
       "log": "Call log",
-      "people": "By person"
+      "people": "By person",
+      "unrouted": "Unrouted"
     },
     "missedHint": "Missed in the last 7 days, newest first",
     "today": "Today",
@@ -4902,6 +4922,15 @@
     "taskOpen": "Task open",
     "taskDone": "Task done",
     "loadFailed": "Couldn't load calls",
+    "unrouted": {
+      "hint": "Calls to a number with no route, filed under this workspace, newest first",
+      "empty": "No calls to a number without a route",
+      "numbersTitle": "Numbers called without a route",
+      "numbersWindow": "Last {days, plural, one {# day} other {# days}}",
+      "numberCalls": "{count, plural, one {# call} other {# calls}}, last {last}",
+      "addRoute": "Add a route for this number",
+      "dialled": "Dialled {number}"
+    },
     "report": {
       "periods": {
         "today": "Today",
@@ -5045,7 +5074,8 @@
     "notCallable": "This person can't be called from the room.",
     "roomClosed": "This deal room is closed.",
     "noNumber": "This person has no phone number to call.",
-    "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first."
+    "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first.",
+    "shareCardBody": "Shared a call"
   },
   "ErrorPages": {
     "retry": "Try again",

@@ -7,6 +7,7 @@ import {
   groupByDay,
   isGroupedWithPrevious,
   type ChatMessage,
+  type SharedCallCard,
   type SharedCard,
 } from '@/lib/chat';
 import { focusStep } from '@/lib/chat/compose';
@@ -17,6 +18,7 @@ import { MessageRow } from './message-row';
 export interface MessageTimelineProps {
   messages: ChatMessage[];
   cards: Record<string, SharedCard>;
+  callCards: Record<string, SharedCallCard>;
   hasMoreOlder: boolean;
   loading: boolean;
   loadingOlder: boolean;
@@ -193,6 +195,7 @@ export function MessageTimeline(p: MessageTimelineProps) {
               message={m}
               grouped={isGroupedWithPrevious(g.messages[i - 1], m)}
               card={p.cards[m.id]}
+              callCard={p.callCards[m.id]}
               actions={p.actions}
               onToggleReaction={p.onToggleReaction}
               onOpenThread={p.onOpenThread}

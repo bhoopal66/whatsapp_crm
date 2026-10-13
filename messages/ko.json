@@ -3009,8 +3009,15 @@
       },
       "events": {
         "title": "이벤트",
-        "liveLink": "실시간 연결(웹훅 또는 게이트웨이) · {ago}",
-        "sharedToken": "API 세션은 공유됩니다: 팀 전체가 토큰 하나를 사용합니다"
+        "none": "아직 이벤트 없음",
+        "live": "이벤트 수신 중 · {ago}",
+        "quiet": "조용함 · {ago}",
+        "viaWebhook": "Yeastar 웹훅 푸시로 수신",
+        "viaGateway": "WebSocket 게이트웨이로 수신",
+        "apiTokens": "CRM이 사용 중인 API 세션: {held}/{limit} · 팀 전체가 토큰 하나를 공유",
+        "ago": "{unit, select, s {{count}초} min {{count}분} h {{count}시간} other {{count}일}} 전",
+        "backfill": "통화 기록으로 마지막 공백 보충: {ago}{count, plural, =0 {{failed, plural, =0 { · 누락된 통화 없음} other {}}} other { · 통화 #건 추가}}{failed, plural, =0 {} other { · 통화 #건 추가 실패}}",
+        "backfillNever": "통화 기록으로 마지막 공백 보충: 없음"
       },
       "softphone": {
         "title": "브라우저 소프트폰",
@@ -3945,7 +3952,11 @@
       "cancel": "취소",
       "submit": "공유",
       "done": "#{name}에 공유했습니다",
-      "open": "열기"
+      "open": "열기",
+      "callAction": "채팅에 공유",
+      "callTitle": "팀 채팅에 통화 공유",
+      "callDescription": "이 통화의 카드를 채널이나 딜룸의 팀 메모에 게시합니다. 통화를 볼 수 있는 동료만 세부 내용을 볼 수 있으며, 고객에게는 아무것도 전송되지 않습니다.",
+      "callDefaultBody": "통화를 공유했습니다"
     },
     "sections": {
       "inbox": "WhatsApp 받은편지함",
@@ -4489,6 +4500,14 @@
       "muted": "알림을 껐습니다. 누군가 나를 @멘션하면 계속 알림을 받습니다.",
       "unmuted": "알림을 다시 켰습니다.",
       "label": "알림 꺼짐"
+    },
+    "callCard": {
+      "header": "전화 통화",
+      "noAccess": "이 통화에 대한 접근 권한이 없습니다.",
+      "erased": "이 통화 기록은 삭제되었습니다.",
+      "unknownCaller": "알 수 없는 발신자",
+      "agent": "상담원: {name}",
+      "openCustomer": "고객 페이지 열기"
     }
   },
   "Workspaces": {
@@ -4891,7 +4910,8 @@
     "tabs": {
       "missed": "부재중 전화",
       "log": "통화 기록",
-      "people": "담당자별"
+      "people": "담당자별",
+      "unrouted": "경로 미지정"
     },
     "missedHint": "최근 7일간의 부재중 전화, 최신순",
     "today": "오늘",
@@ -4902,6 +4922,15 @@
     "taskOpen": "할 일 열림",
     "taskDone": "할 일 완료",
     "loadFailed": "통화를 불러오지 못했습니다",
+    "unrouted": {
+      "hint": "경로가 없는 번호로 걸려 와 이 워크스페이스에 기록된 통화, 최신순",
+      "empty": "경로가 없는 번호로 걸려 온 통화가 없습니다",
+      "numbersTitle": "경로 없이 걸려 온 번호",
+      "numbersWindow": "최근 {days}일",
+      "numberCalls": "통화 {count}건, 마지막 {last}",
+      "addRoute": "이 번호의 경로 추가",
+      "dialled": "착신 번호 {number}"
+    },
     "report": {
       "periods": {
         "today": "오늘",
@@ -5045,7 +5074,8 @@
     "notCallable": "이 사람에게는 룸에서 전화할 수 없습니다.",
     "roomClosed": "이 딜룸은 종료되었습니다.",
     "noNumber": "이 사람에게는 전화할 번호가 없습니다.",
-    "bankCallsRecorded": "이 은행과의 통화는 녹음할 수 없습니다. 먼저 관리자에게 전화 시스템의 녹음 규칙에서 \"은행 번호와의 통화는 녹음하지 않음\"을 켜 달라고 요청하세요."
+    "bankCallsRecorded": "이 은행과의 통화는 녹음할 수 없습니다. 먼저 관리자에게 전화 시스템의 녹음 규칙에서 \"은행 번호와의 통화는 녹음하지 않음\"을 켜 달라고 요청하세요.",
+    "shareCardBody": "통화를 공유했습니다"
   },
   "ErrorPages": {
     "retry": "다시 시도",

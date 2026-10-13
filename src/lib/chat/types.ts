@@ -274,6 +274,52 @@ export function toAttachment(r: Row): ChatAttachment {
   };
 }
 
+/**
+ * A call card (103), read live from the call. Every field but
+ * `messageId`, `canOpen` and `erased` is null unless the caller may see
+ * the call now; an erased call has `erased` and no details at all.
+ */
+export interface SharedCallCard {
+  messageId: string;
+  canOpen: boolean;
+  erased: boolean;
+  callId: string | null;
+  direction: 'inbound' | 'outbound' | 'internal' | null;
+  status: string | null;
+  startedAt: string | null;
+  talkSeconds: number | null;
+  outcome: string | null;
+  /** An excerpt (280 characters at most). */
+  notes: string | null;
+  agentName: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  /** Masked: '+971 XXXXXXX12'. */
+  phone: string | null;
+}
+
+const DIRECTIONS = ['inbound', 'outbound', 'internal'] as const;
+
+export function toSharedCallCard(r: Row): SharedCallCard {
+  const d = DIRECTIONS.find((x) => x === r.direction) ?? null;
+  return {
+    messageId: str(r.message_id),
+    canOpen: r.can_open === true,
+    erased: r.erased === true,
+    callId: opt(r.call_id),
+    direction: d,
+    status: opt(r.status),
+    startedAt: opt(r.started_at),
+    talkSeconds: typeof r.talk_seconds === 'number' ? r.talk_seconds : null,
+    outcome: opt(r.outcome),
+    notes: opt(r.notes),
+    agentName: opt(r.agent_name),
+    contactId: opt(r.contact_id),
+    contactName: opt(r.contact_name),
+    phone: opt(r.phone),
+  };
+}
+
 function toTagRef(v: unknown): ChatTagRef | null {
   const t = obj(v);
   return typeof t.name === 'string'

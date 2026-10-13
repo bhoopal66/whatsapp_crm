@@ -10,8 +10,13 @@
 // names the customer by name or by a masked number, never the number.
 // ============================================================
 
-import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
-import type { CallDirection, Disposition } from './calls';
+import {
+  canViewUnroutedCalls,
+  hasMinRole,
+  isBankGuest,
+  type AccountRole,
+} from '@/lib/auth/roles';
+import type { Disposition } from './calls';
 
 /** calls.disposition, in the order the panel offers them. */
 export const OUTCOMES = [
@@ -27,8 +32,6 @@ export type Outcome = (typeof OUTCOMES)[number];
 export const NOTES_MAX = 4000;
 /** As the dial route limits a do-not-contact override's reason. */
 export const OVERRIDE_REASON_MAX = 500;
-/** How much of the notes a shared call card carries. */
-export const CARD_NOTES_MAX = 600;
 
 /** A call_live row as the screen pop reads it (RLS-filtered). */
 export interface CallLiveRow {
@@ -324,42 +327,6 @@ export function clip(text: string | null | undefined, max: number): string {
   const s = (text ?? '').replace(/\s+/g, ' ').trim();
   const chars = Array.from(s);
   return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : s;
-}
-
-export interface CallCardInput {
-  direction: CallDirection;
-  contactName?: string | null;
-  remoteNumber?: string | null;
-  talkSeconds: number | null;
-  outcome: Outcome | null;
-  notes?: string | null;
-}
-
-export interface CallCardLabels {
-  /** "{direction} call with {who}". */
-  heading: (direction: string, who: string) => string;
-  direction: Record<CallDirection, string>;
-  outcome: Record<Outcome, string>;
-  noOutcome: string;
-  unknownCaller: string;
-}
-
-/**
- * The internal message the panel shares to a team chat channel:
- * "📞 Inbound call with Acme · 3:12 · Interested — notes". The customer
- * is named, else shown by masked number: the card is posted for
- * colleagues, and a full number has no business in a chat log.
- */
-export function callCardText(i: CallCardInput, l: CallCardLabels): string {
-  const who =
-    i.contactName?.trim() || maskPhone(i.remoteNumber) || l.unknownCaller;
-  const parts = [
-    `📞 ${l.heading(l.direction[i.direction], who)}`,
-    formatTimer((i.talkSeconds ?? 0) * 1000),
-    i.outcome ? l.outcome[i.outcome] : l.noOutcome,
-  ];
-  const notes = clip(i.notes, CARD_NOTES_MAX);
-  return parts.join(' · ') + (notes ? ` — ${notes}` : '');
 }
 
 /** Why a deal-room participant cannot be called (lib/deal-rooms/call.ts). */
@@ -853,3 +820,53 @@ export function messageWhen(
   });
   return `${date}, ${time}`;
 }
+
+// ---------- The Calls screen's tabs ----------
+
+/** /calls?tab=…, Missed calls being the default (no tab). */
+export const CALLS_TABS = ['missed', 'log', 'people', 'unrouted'] as const;
+export type CallsTab = (typeof CALLS_TABS)[number];
+
+/** `?tab=` as the page reads it: anything else is Missed calls. */
+export const callsTab = (tab: string | undefined): CallsTab =>
+  (CALLS_TABS as readonly (string | undefined)[]).includes(tab)
+    ? (tab as CallsTab)
+    : 'missed';
+
+/**
+ * The tabs `role` is offered: By person to team leaders and up
+ * (pbx_call_report), Unrouted to owners and admins
+ * (canViewUnroutedCalls, as the list route refuses the scope below).
+ * With no role yet, the tabs everyone has.
+ */
+export function visibleCallTabs(role: AccountRole | null): CallsTab[] {
+  return CALLS_TABS.filter((k) =>
+    k === 'people'
+      ? role !== null && hasMinRole(role, 'team_leader')
+      : k === 'unrouted'
+        ? role !== null && canViewUnroutedCalls(role)
+        : true
+  );
+}
+
+/**
+ * The tab to show for `?tab=`: the one asked for, unless `role` is known
+ * and is not offered it (a direct link to Unrouted below admin, to By
+ * person below team leader), which is Missed calls like any other tab
+ * the screen does not know. With no role yet the request stands.
+ */
+export function shownCallsTab(
+  tab: CallsTab,
+  role: AccountRole | null
+): CallsTab {
+  return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
+}
+
+/**
+ * How far back the Unrouted tab's numbers reach when the request names
+ * no start. The listed calls are the newest whatever their age, but a
+ * number that was fixed long ago must not outrank one that just started
+ * failing, and each open of the tab reads this window once. The list
+ * route and the tab's own wording both read it.
+ */
+export const UNROUTED_SUMMARY_DAYS = 30;

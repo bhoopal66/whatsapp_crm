@@ -19,7 +19,9 @@
 -- nobody confirmed; the count Settings shows before saving one) and the
 -- legal hold (owner/admin, a reason of five characters, audited once
 -- per change, the call locked first); the supervisor call report
--- (pbx_call_report: who may run it, whose rows they get, exact counts).
+-- (pbx_call_report: who may run it, whose rows they get, exact counts);
+-- 104's silence alert (one bell per transition, live owners and admins
+-- only) and the event clock that only moves forward.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -1217,6 +1219,127 @@ BEGIN
   IF r <> 'ok/' || u_agent2::text || '/ok/0' THEN
     failed := array_append(failed, ('a new or deleted extension mapping left its presence row as it was: ' || r)::text);
   END IF;
+
+  -- ---------- 104: the silence alert ----------
+  -- One bell per transition to the live owners and admins of the
+  -- connection's workspace: silent once the latest event is old enough,
+  -- restored once an event arrived after the alert. The admin is
+  -- deactivated for these checks.
+  DECLARE
+    conn_h UUID;
+    q_sil  TEXT := 'SELECT pbx_connection_silence(%L, %L)::text';
+    bells  TEXT := $q$SELECT coalesce(string_agg(p.account_role::text, ',' ORDER BY p.account_role::text), '')
+                        FROM notifications x
+                        JOIN profiles p ON p.user_id = x.user_id AND p.account_id = x.account_id
+                       WHERE x.type = %L AND x.meta ->> 'connection_id' = %L$q$;
+    owners INT;
+  BEGIN
+    UPDATE profiles SET deactivated_at = now() WHERE user_id = u_admin;
+    SELECT count(*) INTO owners FROM profiles
+     WHERE account_id = a_acct AND account_role IN ('owner', 'admin') AND deactivated_at IS NULL;
+    INSERT INTO pbx_connections (account_id, label, edition, base_url)
+    VALUES (a_acct, 'PXH PBX', 'cloud', 'https://pxh.example.invalid') RETURNING id INTO conn_h;
+
+    n := n + 1;
+    IF (SELECT count(*) FROM pg_constraint k,
+              unnest(ARRAY['pbx_connection_silent', 'pbx_connection_restored', 'call_outcome_due', 'channel_disconnected']) t
+         WHERE k.conname = 'notifications_type_check' AND k.conrelid = 'public.notifications'::regclass
+           AND pg_get_constraintdef(k.oid) LIKE '%''' || t || '''%') <> 4 THEN
+      failed := array_append(failed, 'notifications_type_check lacks the silence alert types'::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, format(q_sil, conn_h, true));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' THEN
+      failed := array_append(failed, ('a signed-in owner can run the silence alert: ' || r)::text);
+    END IF;
+    -- Never an event (never set up): nothing rings.
+    r := pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, true));
+    n := n + 1;
+    IF r <> '0' OR EXISTS (SELECT 1 FROM notifications WHERE meta ->> 'connection_id' = conn_h::text)
+       OR (SELECT silence_alerted_at FROM pbx_connections WHERE id = conn_h) IS NOT NULL THEN
+      failed := array_append(failed, ('a connection that never had an event raised the silence alert: ' || r)::text);
+    END IF;
+    -- Twenty minutes quiet: one bell per live owner/admin, once.
+    UPDATE pbx_connections SET last_event_at = now() - interval '20 minutes', last_event_via = 'webhook' WHERE id = conn_h;
+    r := pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, true));
+    n := n + 1;
+    IF r <> owners::text OR owners < 1
+       OR pg_temp.px_try('postgres', NULL, format(bells, 'pbx_connection_silent', conn_h)) <> 'owner'
+       OR (SELECT count(*) FROM notifications WHERE type = 'pbx_connection_silent' AND user_id = u_owner
+             AND account_id = a_acct AND meta ->> 'connection_id' = conn_h::text
+             AND title = 'No phone system events for 20 minutes') <> 1
+       OR (SELECT silence_alerted_at FROM pbx_connections WHERE id = conn_h) IS DISTINCT FROM now() THEN
+      failed := array_append(failed, ('a silent link does not ring its live owners and admins once, or rang someone else: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, true))
+      || '/' || pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, false));
+    n := n + 1;
+    IF r <> '0/0' OR (SELECT count(*) FROM notifications WHERE meta ->> 'connection_id' = conn_h::text) <> owners
+       OR (SELECT silence_alerted_at FROM pbx_connections WHERE id = conn_h) IS NULL THEN
+      failed := array_append(failed, ('the silence alert rang twice, or was cleared with no new event: ' || r)::text);
+    END IF;
+    -- A backdated stamp (a retried old frame) moves neither the clock nor its path.
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() - interval ''1 hour'', last_event_via = ''gateway'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at = now() - interval '20 minutes' AND last_event_via = 'webhook') THEN
+      failed := array_append(failed, ('a backdated last_event_at moved the event clock or its path: ' || r)::text);
+    END IF;
+    -- A new event: restored rings once; a recent event raises nothing.
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = clock_timestamp(), last_event_via = ''gateway'' WHERE id = %L', conn_h))
+      || '/' || pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, false))
+      || '/' || pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, false))
+      || '/' || pg_temp.px_try('service_role', NULL, format(q_sil, conn_h, true));
+    n := n + 1;
+    IF r <> 'ok/' || owners || '/0/0'
+       OR pg_temp.px_try('postgres', NULL, format(bells, 'pbx_connection_restored', conn_h)) <> 'owner'
+       OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                        AND silence_alerted_at IS NULL AND last_event_via = 'gateway') THEN
+      failed := array_append(failed, ('resumed events do not ring restored once, or keep the alert: ' || r)::text);
+    END IF;
+    -- A stamp from a wrong clock cannot wedge the event clock (the cap is
+    -- the database's clock plus a minute). now() stands still inside this
+    -- statement, so a stamp can never pass the cap here: the real stamps
+    -- come first, and the 2099 stamp last.
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = NULL, last_event_via = NULL WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at IS NULL AND last_event_via IS NULL) THEN
+      failed := array_append(failed, ('the event clock cannot be reset to NULL: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() - interval ''10 minutes'', last_event_via = ''webhook'' WHERE id = %L', conn_h))
+      || '/' || pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() - interval ''5 minutes'', last_event_via = ''gateway'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok/ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                     AND last_event_at = now() - interval '5 minutes' AND last_event_via = 'gateway') THEN
+      failed := array_append(failed, ('a later real stamp does not advance the event clock: ' || r)::text);
+    END IF;
+    -- A stamp a little ahead of the database (clock skew) is kept as it came.
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() + interval ''30 seconds'', last_event_via = ''webhook'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at = now() + interval '30 seconds' AND last_event_via = 'webhook') THEN
+      failed := array_append(failed, ('a stamp within the skew allowance was changed: ' || r)::text);
+    END IF;
+    -- 2099: stored as the database's clock plus at most a minute, and still
+    -- the latest event (it moved the clock forward and took its path).
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = ''2099-01-01T00:00:00Z'', last_event_via = ''gateway'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at > now() + interval '30 seconds'
+                                  AND last_event_at <= now() + interval '1 minute'
+                                  AND last_event_via = 'gateway') THEN
+      failed := array_append(failed, ('a last_event_at in 2099 was stored as it came, or was dropped: ' || r)::text);
+    END IF;
+    UPDATE profiles SET deactivated_at = NULL WHERE user_id = u_admin;
+  END;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT089', MESSAGE = 'verify-pbx rollback';

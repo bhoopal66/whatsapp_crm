@@ -195,12 +195,40 @@ export async function backfillCdr(input: {
       db,
       connectionId,
       payload: cdrRecordToEventFrame(record),
+      via: 'gateway',
     });
     if (res.duplicate) result.duplicates++;
     else if (res.error) result.failed++;
     else result.ingested++;
   }
   return result;
+}
+
+/**
+ * Keeps the latest backfill on its connection (`last_backfill_at`,
+ * `last_backfill`, migration 104) for Settings → Phone system. An empty
+ * window is recorded too: the gap was checked and nothing was missing.
+ * Never throws: a failed write is logged, and the gateway still gets
+ * its answer.
+ */
+export async function recordBackfill(
+  db: SupabaseClient,
+  result: BackfillResult,
+  at: Date = new Date()
+): Promise<void> {
+  const { connectionId, ...summary } = result;
+  try {
+    const { error } = await db
+      .from('pbx_connections')
+      .update({ last_backfill_at: at.toISOString(), last_backfill: summary })
+      .eq('id', connectionId);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    console.error(
+      `[pbx-gateway] ${connectionId}: backfill not recorded:`,
+      err instanceof Error ? err.message : err
+    );
+  }
 }
 
 /**

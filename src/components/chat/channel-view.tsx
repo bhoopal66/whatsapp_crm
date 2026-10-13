@@ -127,6 +127,7 @@ export function ChannelView({
           <MessageTimeline
             messages={tl.messages}
             cards={tl.cards}
+            callCards={tl.callCards}
             hasMoreOlder={tl.hasMoreOlder}
             loading={tl.loading}
             loadingOlder={tl.loadingOlder}

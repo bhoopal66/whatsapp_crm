@@ -10,11 +10,13 @@ import {
   listMessages,
   mergePage,
   reactionsFor,
+  sharedCallCards,
   sharedCards,
   threadSummaries,
   toggleReaction,
   withDetails,
   type ChatMessage,
+  type SharedCallCard,
   type SharedCard,
   type TimelineState,
 } from '@/lib/chat';
@@ -33,6 +35,9 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     createTimeline(channelId)
   );
   const [cards, setCards] = useState<Record<string, SharedCard>>({});
+  const [callCards, setCallCards] = useState<Record<string, SharedCallCard>>(
+    {}
+  );
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const stateRef = useRef(state);
@@ -43,12 +48,19 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
   const withAllDetails = useCallback(
     async (messages: ChatMessage[]) => {
       const ids = messages.map((m) => m.id);
-      const [attachments, reactions, threads, shared] = await Promise.all([
-        attachmentsFor(sb, ids),
-        reactionsFor(sb, ids),
-        threadSummaries(sb, ids),
-        sharedCards(sb, ids),
-      ]);
+      const [attachments, reactions, threads, shared, calls] =
+        await Promise.all([
+          attachmentsFor(sb, ids),
+          reactionsFor(sb, ids),
+          threadSummaries(sb, ids),
+          sharedCards(sb, ids),
+          sharedCallCards(sb, ids),
+        ]);
+      setCallCards((prev) => {
+        const next = { ...prev };
+        for (const c of calls) next[c.messageId] = c;
+        return next;
+      });
       setCards((prev) => {
         const next = { ...prev };
         for (const c of shared) next[c.messageId] = c;
@@ -150,5 +162,13 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     [sb, userId, fail]
   );
 
-  return { ...state, cards, loading, loadingOlder, loadOlder, toggle };
+  return {
+    ...state,
+    cards,
+    callCards,
+    loading,
+    loadingOlder,
+    loadOlder,
+    toggle,
+  };
 }

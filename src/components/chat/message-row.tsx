@@ -10,6 +10,7 @@ import {
   type ChatAttachment,
   type ChatMessage,
   type ChatPerson,
+  type SharedCallCard,
   type SharedCard,
 } from '@/lib/chat';
 import {
@@ -29,6 +30,7 @@ import {
   useMessageEdits,
   type RowActionContext,
 } from './message-actions';
+import { SharedCallCardBox } from './shared-call-card';
 import { SharedConversationCard } from './shared-conversation-card';
 
 const CHIP =
@@ -38,6 +40,7 @@ export interface MessageRowProps {
   message: ChatMessage;
   grouped: boolean;
   card?: SharedCard;
+  callCard?: SharedCallCard;
   /** The hover toolbar's context; no toolbar without it. */
   actions?: RowActionContext;
   onToggleReaction: (messageId: string, emoji: string) => void;
@@ -97,6 +100,7 @@ export function MessageRow({
   message,
   grouped,
   card,
+  callCard,
   actions,
   onToggleReaction,
   onOpenThread,
@@ -224,6 +228,7 @@ export function MessageRow({
           </div>
         )}
         {card && !m.deletedAt && <SharedConversationCard card={card} />}
+        {callCard && !m.deletedAt && <SharedCallCardBox card={callCard} />}
         {m.reactions.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {m.reactions.map((r) => {

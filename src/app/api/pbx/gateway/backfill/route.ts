@@ -4,12 +4,14 @@ import {
   gatewayAuthError,
   gatewayConnectionId,
   gatewayErrorResponse,
+  recordBackfill,
 } from '@/lib/pbx/gateway';
 
 // POST /api/pbx/gateway/backfill { from, to } — after a reconnect, the
 // gateway asks for the gap's call records (ISO times or epoch ms). The
 // window is cut to its last 24 hours; each record is ingested as the
-// Call End event it would have been.
+// Call End event it would have been. The result is kept on the
+// connection for Settings → Phone system (migration 104).
 
 export const maxDuration = 60;
 
@@ -40,7 +42,9 @@ export async function POST(request: Request) {
   const db = pbxServiceDb();
   try {
     const connectionId = await gatewayConnectionId(db);
-    return Response.json(await backfillCdr({ db, connectionId, from, to }));
+    const result = await backfillCdr({ db, connectionId, from, to });
+    await recordBackfill(db, result);
+    return Response.json(result);
   } catch (err) {
     return gatewayErrorResponse(err);
   }
