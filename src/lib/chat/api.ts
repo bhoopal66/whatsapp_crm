@@ -20,6 +20,7 @@ import {
   toChannelMember,
   toChatMessage,
   toChatPerson,
+  toMessageEdit,
   toPin,
   toSearchHit,
   toSharedCard,
@@ -31,6 +32,7 @@ import {
   type ChatAttachment,
   type ChatMessage,
   type ChatPerson,
+  type MessageEdit,
   type MessagePage,
   type Pin,
   type ReactionSummary,
@@ -507,6 +509,26 @@ export async function savedIdsIn(
         .eq('message.channel_id', channelId)
     )
   ).map((r) => String(r.message_id));
+}
+
+/**
+ * A message's earlier versions, newest first. RLS (087) returns rows only
+ * to a workspace owner/admin, on channels they can read directly.
+ */
+export async function messageEdits(
+  sb: SupabaseClient,
+  messageId: string
+): Promise<MessageEdit[]> {
+  return (
+    await rows(
+      sb
+        .from('internal_message_edits')
+        .select('id,message_id,previous_body,edited_at,edited_by')
+        .eq('message_id', messageId)
+        .order('edited_at', { ascending: false })
+        .order('id', { ascending: false })
+    )
+  ).map(toMessageEdit);
 }
 
 export async function attachmentsFor(

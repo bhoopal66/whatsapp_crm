@@ -114,6 +114,16 @@ export interface Pin {
   message: ChatMessage | null;
 }
 
+/** One earlier version of a message (internal_message_edits, 087). */
+export interface MessageEdit {
+  id: string;
+  messageId: string;
+  /** The body as it stood before this edit. */
+  previousBody: string;
+  editedAt: string;
+  editedBy: string;
+}
+
 export interface ChatTagRef {
   name: string;
   color: string;
@@ -318,6 +328,14 @@ export const toUnreadCount = (r: Row): UnreadCount => ({
   unread: num(r.unread),
   mentions: num(r.mentions),
   muted: r.muted === true,
+});
+
+export const toMessageEdit = (r: Row): MessageEdit => ({
+  id: str(r.id),
+  messageId: str(r.message_id),
+  previousBody: str(r.previous_body),
+  editedAt: str(r.edited_at),
+  editedBy: str(r.edited_by),
 });
 
 export const toWorkspaceBadge = (r: Row): WorkspaceBadge => ({

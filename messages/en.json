@@ -3948,6 +3948,7 @@
       "unsave": "Remove from saved",
       "copy": "Copy text",
       "copied": "Copied",
+      "history": "View edit history",
       "pinned": "Pinned to the channel",
       "unpinned": "Unpinned",
       "saved": "Saved for later",
@@ -3959,6 +3960,15 @@
       "deleteTitle": "Delete this message?",
       "deleteBody": "Everyone in the channel will see “This message was deleted.” instead. Its attachments are removed too.",
       "deleteConfirm": "Delete"
+    },
+    "history": {
+      "title": "Edit history",
+      "description": "Earlier versions of this message, newest first: each is the text before an edit, with who changed it and when.",
+      "changed": "Changed by {name} · {time}",
+      "loading": "Loading…",
+      "failed": "Couldn't load the edit history.",
+      "empty": "No earlier versions you can see.",
+      "blank": "(no text)"
     },
     "thread": {
       "title": "Thread",
