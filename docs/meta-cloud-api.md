@@ -354,7 +354,11 @@ including your number, so a room lists 1 to 7 other people.
      Meta fetches it through a signed link valid for 10 minutes on the
      public Supabase URL, so that URL must be reachable from the
      internet. Meta shows no group media example: the send is the 1:1
-     media payload with `recipient_type: 'group'`.
+     media payload with `recipient_type: 'group'`. The server checks a
+     file's name and leading bytes against its type: a
+     password-protected Office file, UTF-16 text, and a .csv or .rtf
+     that Windows labels as Excel or Word pass; a renamed program does
+     not.
    - **Outside the window**, only an **approved template** can be sent.
      Meta charges a template **once per member who receives it**.
    - A group message is text or a template: **no buttons, lists or
