@@ -1522,6 +1522,23 @@
       "aiOn": "어시스턴트 켜짐 · 자동 답장 꺼짐",
       "aiAutoReply": "어시스턴트 켜짐 · 자동 답장 켜짐"
     },
+    "workspace": {
+      "title": "워크스페이스",
+      "description": "이 워크스페이스의 이름과 워크스페이스 레일 타일에 표시되는 약칭입니다. 변경 내용은 워크스페이스의 모든 사람에게 표시됩니다.",
+      "nameLabel": "워크스페이스 이름",
+      "shortNameLabel": "약칭",
+      "shortNameHint": "영문자 또는 숫자 최대 4자이며, 워크스페이스 레일에 표시됩니다.",
+      "save": "저장",
+      "saving": "저장 중...",
+      "saved": "워크스페이스가 업데이트되었습니다",
+      "saveFailed": "워크스페이스를 저장하지 못했습니다",
+      "errors": {
+        "nameRequired": "워크스페이스 이름을 입력하세요.",
+        "nameTooLong": "이름은 {max}자 이하로 입력하세요.",
+        "shortNameInvalid": "영문자 또는 숫자 1~4자를 입력하세요."
+      },
+      "loading": "불러오는 중…"
+    },
     "members": {
       "title": "팀원",
       "description": "이 계정에 접근 권한이 있는 사람들입니다. 역할에 따라 각 팀원이 할 수 있는 작업이 결정됩니다.",
@@ -2030,6 +2047,7 @@
       "chat-tags": "채팅 태그",
       "quick-replies": "빠른 답장",
       "fields": "커스텀 필드",
+      "workspace": "워크스페이스",
       "members": "멤버",
       "teams": "팀",
       "ai": "AI 에이전트",

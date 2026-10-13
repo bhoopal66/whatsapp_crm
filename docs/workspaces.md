@@ -93,9 +93,10 @@ membership and leaves the person's others alone.
 
 ## Renaming
 
-An owner or admin renames their active workspace with
-`PATCH /api/account` `{ name?, short_name? }`: the name, and the short
-name of 1–4 letters or digits shown in the sidebar and the switcher.
+An owner or admin renames their active workspace in Settings → Team →
+Workspace, which sends `PATCH /api/account` `{ name?, short_name? }`
+with only the fields that changed: the name, and the short name of 1–4
+letters or digits shown in the sidebar and the switcher.
 The write runs as the caller, so the `accounts_update` policy holds it
 to the workspace's owners and admins; for anyone else nothing changes.
 Before migration 092 the short name could not be saved at all (nor

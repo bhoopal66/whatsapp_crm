@@ -124,6 +124,13 @@ const DealsSettings = dynamic(
     import('@/components/settings/deals-settings').then((m) => m.DealsSettings),
   { loading: PanelLoading }
 );
+const WorkspacePanel = dynamic(
+  () =>
+    import('@/components/settings/workspace-panel').then(
+      (m) => m.WorkspacePanel
+    ),
+  { loading: PanelLoading }
+);
 const MembersTab = dynamic(
   () => import('@/components/settings/members-tab').then((m) => m.MembersTab),
   { loading: PanelLoading }
@@ -306,6 +313,7 @@ function SettingsPageInner() {
       <JourneyBotSettings onOpenTemplates={() => go('templates')} />
     ),
     deals: <DealsSettings />,
+    workspace: <WorkspacePanel />,
     members: <MembersTab />,
     teams: <TeamsTab />,
     'team-chat': <TeamChatSettings />,

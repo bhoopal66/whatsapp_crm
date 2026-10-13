@@ -1522,6 +1522,23 @@
       "aiOn": "Assistant on · auto-reply off",
       "aiAutoReply": "Assistant on · auto-reply on"
     },
+    "workspace": {
+      "title": "Workspace",
+      "description": "This workspace's name, and the short name on its tile in the workspace rail. Everyone in the workspace sees the change.",
+      "nameLabel": "Workspace name",
+      "shortNameLabel": "Short name",
+      "shortNameHint": "Up to 4 letters or digits, shown on the workspace rail.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Workspace updated",
+      "saveFailed": "Couldn't save the workspace",
+      "errors": {
+        "nameRequired": "Give the workspace a name.",
+        "nameTooLong": "Keep the name to {max} characters or fewer.",
+        "shortNameInvalid": "Use 1 to 4 letters or digits."
+      },
+      "loading": "Loading…"
+    },
     "members": {
       "title": "Team members",
       "description": "People with access to this account. Roles control what each teammate can do.",
@@ -2030,6 +2047,7 @@
       "chat-tags": "Chat tags",
       "quick-replies": "Quick replies",
       "fields": "Custom fields",
+      "workspace": "Workspace",
       "members": "Members",
       "teams": "Teams",
       "ai": "AI Agents",
