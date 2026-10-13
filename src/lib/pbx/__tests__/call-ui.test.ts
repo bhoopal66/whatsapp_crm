@@ -174,9 +174,16 @@ describe('formatTimer', () => {
 });
 
 describe('consent', () => {
+  it('never reads "Calls OK" for consent it could not read', () => {
+    // A contact the person's own read hides came back empty: that once
+    // read "Calls OK" for a do-not-contact customer.
+    expect(consentText({ consentKnown: false }, labels)).toBe('Unknown');
+  });
   const labels = {
     callsOk: 'Calls OK',
     doNotContact: 'Do not contact',
+    optedOut: 'Opted out',
+    unknown: 'Unknown',
     marketingOn: 'marketing on',
     marketingOff: 'marketing off',
   };
@@ -187,7 +194,7 @@ describe('consent', () => {
     const optIn = { marketing_opt_in_at: '2026-01-01' };
     expect(consentText(optIn, labels)).toBe('Calls OK · marketing on');
     expect(consentText({ ...optIn, opted_out_at: '2026-02-01' }, labels)).toBe(
-      'Calls OK · marketing off'
+      'Opted out · marketing off'
     );
   });
   it('does not call a do-not-contact customer, and carries the reason', () => {
@@ -201,7 +208,9 @@ describe('consent', () => {
       dncReason: 'Asked',
       marketing: false,
     });
-    expect(consentText(c, labels)).toBe('Do not contact · marketing off');
+    expect(consentText(c, labels)).toBe(
+      'Do not contact: Asked · marketing off'
+    );
     expect(
       consentState({ do_not_contact_at: 'x', do_not_contact_reason: ' ' })
         .dncReason

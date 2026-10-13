@@ -13,7 +13,6 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   alsoRinging,
-  clip,
   consentText,
   contactCandidates,
   factsFor,
@@ -22,104 +21,59 @@ import {
   maskPhone,
   messageWhen,
   otherOwner,
-  type ConsentFields,
   type HeldFacts,
 } from '@/lib/pbx/call-ui';
+import {
+  UNKNOWN_FACTS,
+  loadVisibleFacts,
+  parseCallFacts,
+  type CallFacts,
+} from '@/lib/pbx/call-facts';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
 import { useCalls } from './call-provider';
 
-export interface CallFacts extends ConsentFields {
-  name: string | null;
-  company: string | null;
-  phone: string | null;
-  ownerId: string | null;
-  conversationId: string | null;
-  deal: string | null;
-  last: { at: string; text: string } | null;
-}
+export type { CallFacts };
 
 /**
- * What the card and the panel show of a call's customer (RLS-filtered),
- * held with the contact it was loaded for (factsFor): the card stays
- * mounted from one call to the next.
+ * What the card and the panel show of a call's customer, held with the
+ * contact it was loaded for (factsFor): the card stays mounted from one
+ * call to the next. For a live call of mine, the facts route (a contact
+ * my own reads hide still shows its name, owner and consent); otherwise,
+ * or when the route refuses, my own reads, where a hidden contact shows
+ * nothing and its consent as unknown.
  */
-export function useCallFacts(contactId: string | null): CallFacts | null {
+export function useCallFacts(
+  contactId: string | null,
+  live: { connectionId: string; pbxCallId: string } | null = null
+): CallFacts | null {
   const [held, setHeld] = useState<HeldFacts<CallFacts> | null>(null);
+  const connectionId = live?.connectionId ?? null;
+  const pbxCallId = live?.pbxCallId ?? null;
   useEffect(() => {
     if (!contactId) return;
-    let live = true;
-    const sb = createClient();
+    let on = true;
     void (async () => {
-      const [c, d, conv] = await Promise.all([
-        sb
-          .from('contacts')
-          .select(
-            'name, company, phone, user_id, do_not_contact_at, do_not_contact_reason, marketing_opt_in_at, opted_out_at'
-          )
-          .eq('id', contactId)
-          .maybeSingle(),
-        sb
-          .from('deals')
-          .select('title, stage:pipeline_stages(name)')
-          .eq('contact_id', contactId)
-          .eq('status', 'open')
-          .order('created_at', { ascending: false })
-          .limit(1),
-        sb
-          .from('conversations')
-          .select('id')
-          .eq('contact_id', contactId)
-          .limit(1),
-      ]);
-      const row = c.data as (ConsentFields & Record<string, string>) | null;
-      const deal = (d.data?.[0] ?? null) as {
-        title: string;
-        stage: { name: string } | null;
-      } | null;
-      const convId = (conv.data?.[0] as { id: string } | undefined)?.id;
-      let last: CallFacts['last'] = null;
-      if (convId) {
-        const m = await sb
-          .from('messages')
-          .select('content_text, content_type, created_at')
-          .eq('conversation_id', convId)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        const msg = m.data?.[0] as
-          | {
-              content_text: string | null;
-              content_type: string;
-              created_at: string;
-            }
-          | undefined;
-        if (msg)
-          last = {
-            at: msg.created_at,
-            text: clip(msg.content_text || `[${msg.content_type}]`, 40),
-          };
+      let facts: CallFacts | null = null;
+      if (connectionId && pbxCallId) {
+        const res = await fetch(
+          `/api/pbx/calls/facts?${new URLSearchParams({
+            connectionId,
+            pbxCallId,
+            contactId,
+          })}`
+        ).catch(() => null);
+        if (res?.ok) facts = parseCallFacts(await res.json().catch(() => null));
       }
-      if (!live) return;
-      setHeld({
-        contactId,
-        facts: {
-          ...(row ?? {}),
-          name: row?.name || null,
-          company: row?.company || null,
-          phone: row?.phone || null,
-          ownerId: row?.user_id || null,
-          conversationId: convId ?? null,
-          deal: deal
-            ? [deal.title, deal.stage?.name].filter(Boolean).join(' · ')
-            : null,
-          last,
-        },
-      });
+      facts ??=
+        (await loadVisibleFacts(createClient(), contactId).catch(() => null)) ??
+        UNKNOWN_FACTS;
+      if (on) setHeld({ contactId, facts });
     })();
     return () => {
-      live = false;
+      on = false;
     };
-  }, [contactId]);
+  }, [contactId, connectionId, pbxCallId]);
   return factsFor(held, contactId);
 }
 
@@ -204,7 +158,12 @@ export function IncomingCallCard() {
   // Adjusted while rendering: the ring timer starts when this call shows.
   if (key && since?.key !== key) setSince({ key, at: now });
   const pickedId = key ? (calls?.picks[key] ?? null) : null;
-  const facts = useCallFacts(call?.contact_id ?? pickedId);
+  const facts = useCallFacts(
+    call?.contact_id ?? pickedId,
+    call
+      ? { connectionId: call.connection_id, pbxCallId: call.pbx_call_id }
+      : null
+  );
   const candidates = useMemo(
     () => (call ? contactCandidates(call) : []),
     [call]
@@ -222,7 +181,7 @@ export function IncomingCallCard() {
   const owner = facts?.ownerId
     ? facts.ownerId === calls.userId
       ? t('you', { name: calls.names[facts.ownerId] ?? '' })
-      : (calls.names[facts.ownerId] ?? '—')
+      : (calls.names[facts.ownerId] ?? facts.ownerName ?? '—')
     : t('noOwner');
   const ownedBy = otherOwner(facts?.ownerId, calls.userId);
   const others = alsoRinging(call, calls.userId, calls.names);
@@ -276,27 +235,37 @@ export function IncomingCallCard() {
       </p>
       {ownedBy && (
         <p className="mt-2 rounded-xl bg-sky-400/15 px-2.5 py-1.5 text-xs font-medium text-sky-100">
-          {t('ownedBy', { name: calls.names[ownedBy] ?? '—' })}
+          {t('ownedBy', {
+            name: calls.names[ownedBy] ?? facts?.ownerName ?? '—',
+          })}
         </p>
       )}
       {facts && (
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl bg-white/[0.07] p-3 text-xs">
           {fact(t('owner'), owner)}
-          {fact(t('openDeal'), facts.deal ?? t('none'))}
-          {fact(
-            t('lastWhatsApp'),
-            facts.last
-              ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
-              : t('none')
-          )}
+          {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
+          {!facts.hidden &&
+            fact(
+              t('lastWhatsApp'),
+              facts.last
+                ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
+                : t('none')
+            )}
           {fact(
             t('consent'),
             consentText(facts, {
               callsOk: t('callsOk'),
               doNotContact: t('doNotContact'),
+              optedOut: t('optedOut'),
+              unknown: t('consentUnknown'),
               marketingOn: t('marketingOn'),
               marketingOff: t('marketingOff'),
             })
+          )}
+          {facts.hidden && (
+            <p className="col-span-2 mt-1 text-white/60">
+              {t('detailsHidden')}
+            </p>
           )}
         </dl>
       )}
@@ -333,7 +302,9 @@ export function IncomingCallCard() {
       </div>
       {hint && <p className="mt-2 text-center text-xs text-white/75">{hint}</p>}
       <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-        {known ? (
+        {known && facts?.hidden ? (
+          <span />
+        ) : known ? (
           <Link
             href={customerHref({
               contactId: call.contact_id ?? pickedId,

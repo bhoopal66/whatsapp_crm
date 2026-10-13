@@ -77,7 +77,10 @@ function Panel() {
   const loaded = useRef(false);
   const ended = p.endedAt !== null;
   const now = useNow(!ended);
-  const facts = useCallFacts(row?.contact_id ?? p.contactId);
+  const facts = useCallFacts(row?.contact_id ?? p.contactId, {
+    connectionId: p.connectionId,
+    pbxCallId: p.pbxCallId,
+  });
   const ref = { pbxCallId: p.pbxCallId, remoteNumber: p.remoteNumber };
   const owner = otherOwner(facts?.ownerId, calls.userId);
   const [ownerExt, setOwnerExt] = useState<{

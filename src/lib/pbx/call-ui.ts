@@ -169,17 +169,47 @@ export function consentState(c: ConsentFields): ConsentState {
 export interface ConsentLabels {
   callsOk: string;
   doNotContact: string;
+  /** Opted out of messages (076): never "Calls OK" either. */
+  optedOut: string;
+  /** A customer whose consent this screen could not read. */
+  unknown: string;
   marketingOn: string;
   marketingOff: string;
 }
 
-/** "Calls OK · marketing off". */
-export function consentText(c: ConsentFields, l: ConsentLabels): string {
+/**
+ * "Calls OK · marketing off", "Do not contact: Asked · marketing off".
+ * Only a customer known to be neither do-not-contact nor opted out reads
+ * "Calls OK": consent that could not be read (`consentKnown: false`, a
+ * contact the person's own read hides) says so instead, because an empty
+ * row once read as "Calls OK" for a do-not-contact customer.
+ */
+export function consentText(
+  c: ConsentFields & { consentKnown?: boolean },
+  l: ConsentLabels
+): string {
+  if (c.consentKnown === false) return l.unknown;
   const s = consentState(c);
-  return `${s.callsOk ? l.callsOk : l.doNotContact} · ${
-    s.marketing ? l.marketingOn : l.marketingOff
-  }`;
+  const calls = !s.callsOk
+    ? s.dncReason
+      ? `${l.doNotContact}: ${s.dncReason}`
+      : l.doNotContact
+    : c.opted_out_at
+      ? l.optedOut
+      : l.callsOk;
+  return `${calls} · ${s.marketing ? l.marketingOn : l.marketingOff}`;
 }
+
+/** A ringing or answering party of a live call (call_live holds auth user ids). */
+export const isLiveParty = (
+  r: Pick<CallLiveRow, 'ringing_user_ids' | 'answered_by'>,
+  userId: string
+): boolean =>
+  r.answered_by === userId || (r.ringing_user_ids ?? []).includes(userId);
+
+/** The contacts a live call is about: its match, else the numbers' candidates. */
+export const callContactIds = (r: CallLiveRow): string[] =>
+  r.contact_id ? [r.contact_id, ...contactCandidates(r)] : contactCandidates(r);
 
 /**
  * The others a call is ringing for, by name: people with no known name
