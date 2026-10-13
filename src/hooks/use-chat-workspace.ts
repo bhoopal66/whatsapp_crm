@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
 import { useChatTags } from '@/hooks/use-chat-tags';
+import { usePhonePresence } from '@/hooks/use-phone-presence';
 import {
   chatPeople,
   listChannels,
@@ -36,7 +37,8 @@ const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
 
 /**
- * Everything the /chat screen shares: channels, people (presence),
+ * Everything the /chat screen shares: channels, people (presence, with
+ * the phone's live on top: usePhonePresence),
  * unread counts and ONE realtime subscription whose events the open
  * timeline (and later the thread / pins panels) receive via `listen`.
  */
@@ -51,6 +53,7 @@ export function useChatWorkspace() {
   const [people, setPeople] = useState<ChatPerson[]>([]);
   const [unread, setUnread] = useState<UnreadCount[]>([]);
   const listeners = useRef(new Set<(e: ChatEvent) => void>());
+  const phonePresence = usePhonePresence();
 
   const fail = useCallback(
     (err: unknown) => toast.error(t(`errors.${chatErrorKey(err)}`)),
@@ -152,6 +155,7 @@ export function useChatWorkspace() {
     channels,
     people,
     peopleById,
+    phonePresence,
     unread,
     refreshUnread,
     reloadChannels: loadChannels,

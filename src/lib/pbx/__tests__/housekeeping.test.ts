@@ -31,6 +31,7 @@ function fakeDb(
   opts: {
     rpcError?: string;
     failBatch?: number;
+    keepaliveError?: string;
     remindError?: string;
     expired?: string[][];
   } = {}
@@ -38,6 +39,11 @@ function fakeDb(
   const batches: string[][] = [];
   const expired = [...(opts.expired ?? [])];
   const rpc = vi.fn(async (fn: string) => {
+    if (fn === 'pbx_presence_keepalive') {
+      return opts.keepaliveError
+        ? { data: null, error: { message: opts.keepaliveError } }
+        : { data: 2, error: null };
+    }
     if (fn === 'pbx_outcome_reminders') {
       return opts.remindError
         ? { data: null, error: { message: opts.remindError } }
@@ -124,6 +130,7 @@ describe('runPbxCron', () => {
     const f = fakeDb(names(3));
     const out = await runPbxCron({ db: f.db });
     expect(f.rpc.mock.calls.map((c) => c[0])).toEqual([
+      'pbx_presence_keepalive',
       'pbx_outcome_reminders',
       'pbx_purge',
       'pbx_expire_recordings',
@@ -133,12 +140,27 @@ describe('runPbxCron', () => {
     expect(out.errors).toEqual({});
   });
 
-  it('rings the outcome reminders first, a bounded batch per run', async () => {
+  it('first refreshes the presence of people still on a live call', async () => {
     const f = fakeDb([]);
     const out = await runPbxCron({ db: f.db });
-    expect(f.rpc.mock.calls[0]).toEqual([
-      'pbx_outcome_reminders',
-      { p_limit: OUTCOME_REMINDER_LIMIT },
+    expect(f.rpc.mock.calls[0]).toEqual(['pbx_presence_keepalive']);
+    expect(out.presence).toBe(2);
+    expect(out.errors).toEqual({});
+  });
+
+  it('records a failed keepalive and runs the other steps', async () => {
+    const f = fakeDb(names(1), { keepaliveError: 'boom' });
+    const out = await runPbxCron({ db: f.db });
+    expect(out.errors).toEqual({ presence: 'boom' });
+    expect(out.orphans).toEqual({ found: 1, deleted: 1, failed: 0 });
+  });
+
+  it('rings the outcome reminders next, a bounded batch per run', async () => {
+    const f = fakeDb([]);
+    const out = await runPbxCron({ db: f.db });
+    expect(f.rpc.mock.calls.slice(0, 2)).toEqual([
+      ['pbx_presence_keepalive'],
+      ['pbx_outcome_reminders', { p_limit: OUTCOME_REMINDER_LIMIT }],
     ]);
     expect(out.outcomeReminders).toBe(2);
   });
@@ -154,7 +176,7 @@ describe('runPbxCron', () => {
   it('starts no reminder sweep once the budget is spent', async () => {
     const f = fakeDb([]);
     const out = await runPbxCron({ db: f.db, budgetMs: 0 });
-    expect(out.outOfTime[0]).toBe('outcomes');
+    expect(out.outOfTime.slice(0, 2)).toEqual(['presence', 'outcomes']);
     expect(f.rpc).not.toHaveBeenCalled();
   });
 

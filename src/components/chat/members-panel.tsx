@@ -52,6 +52,7 @@ import {
   presenceDot,
   roleLabelKey,
 } from '@/lib/chat/view';
+import { PERSON_PRESENCE_KEY } from '@/lib/person-presence';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
@@ -103,8 +104,10 @@ export function MembersPanel({
 }: MembersPanelProps) {
   const t = useTranslations('Chat');
   const tRole = useTranslations('Sidebar');
+  const tp = useTranslations('Presence');
   const ws = useChatWorkspaceContext();
   const { sb, fail, reloadChannels, people, peopleById, userId, channels } = ws;
+  const { phonePresence } = ws;
   const { accountRole } = useAuth();
   const channel = channels?.find((c) => c.id === channelId) ?? null;
   const [members, setMembers] = useState<ChannelMember[] | null>(null);
@@ -192,6 +195,11 @@ export function MembersPanel({
 
   const row = (m: ChannelMember) => {
     const person = peopleById.get(m.userId.toLowerCase());
+    const dot = presenceDot(
+      person,
+      now,
+      phonePresence[m.userId.toLowerCase()]?.state
+    );
     const mine = m.userId.toLowerCase() === me;
     const guest = m.role === 'guest' || isGuestPerson(person);
     const roleKey = roleLabelKey(person?.role);
@@ -208,7 +216,8 @@ export function MembersPanel({
         <span className="relative shrink-0">
           <Avatar person={person} userId={m.userId} />
           <PresenceDot
-            state={presenceDot(person, now)}
+            state={dot}
+            label={tp(PERSON_PRESENCE_KEY[dot])}
             className="border-muted-foreground/60 ring-background absolute -right-0.5 -bottom-0.5 ring-2"
           />
         </span>

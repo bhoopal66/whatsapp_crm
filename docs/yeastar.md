@@ -55,6 +55,22 @@ One PBX can serve several workspaces.
   the browser, and leave **Presence** on (the default) for those whose
   status the team should see.
 
+  That status colours the person's dot wherever it shows (team chat
+  DMs and member lists, the inbox assign picker and handler, a
+  customer's "Team on this customer"), live within a couple of
+  seconds: red on a call (ringing or busy), grey with a line on Do not
+  disturb, the away colour on away, lunch or business trip, grey off
+  work. Otherwise, and for anyone without a monitored extension, the
+  dot is the app's own presence (online, away, offline). Yeastar
+  reports a status only when it changes, so the one a person chose
+  holds until they choose another. A call state lapses after 10 minutes
+  without news; the phone-system cron (section 10) refreshes it while
+  the call is live, so a long call stays red. Turning **Presence** off,
+  or deleting the extension, removes the status; remapping the extension
+  moves it to the new person (migration 101). A removed status leaves
+  open screens within a minute. A workspace with no extensions does not
+  watch the phone at all.
+
 ## 3. Recording rules
 
 - **Announcement.** Configure the English/Arabic recording notice on
@@ -253,7 +269,8 @@ recording notice before the owner is connected.
 ## 10. The phone-system cron
 
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
-first rings the outcome reminders (where outcomes are mandatory, at most
+first keeps the red dot of anyone still on a live call (above), then
+rings the outcome reminders (where outcomes are mandatory, at most
 200 a run; see **The wrap-up** below), then
 fetches pending recordings, dials due call-backs, retries events that
 failed to process (three times each), purges old rows, deletes
@@ -359,7 +376,6 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
 | `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
 | `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |
-| `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
 
 ## 12. Browser softphone
 

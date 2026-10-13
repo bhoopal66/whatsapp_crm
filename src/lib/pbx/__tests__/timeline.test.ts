@@ -18,7 +18,6 @@ import {
   openMissedTasks,
   openTaskLine,
   playerClock,
-  presenceDotState,
   recentPeople,
   splitCallLog,
   startOfDay,
@@ -242,20 +241,6 @@ describe('right column', () => {
           .counts
       )
     ).toBe('1 call · 1 answered · 0 missed');
-  });
-
-  it('dots presence from the PBX first, then the app', () => {
-    expect(presenceDotState('available', 'offline')).toEqual({
-      tone: 'green',
-      key: 'presence.available',
-    });
-    expect(presenceDotState('on_call', 'online').tone).toBe('red');
-    expect(presenceDotState('off_work', 'online')).toEqual({
-      tone: 'ring',
-      key: 'presence.offWork',
-    });
-    expect(presenceDotState(undefined, 'online').tone).toBe('green');
-    expect(presenceDotState(undefined, undefined).tone).toBe('ring');
   });
 
   it('lists the owner, the assignee, then recent people once each', () => {

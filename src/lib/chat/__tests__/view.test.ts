@@ -102,13 +102,10 @@ describe('presenceDot', () => {
   it('maps fresh statuses and treats stale or missing as offline', () => {
     expect(
       presenceDot({ presenceStatus: 'online', lastSeenAt: fresh }, now)
-    ).toBe('available');
-    expect(
-      presenceDot({ presenceStatus: 'on_call', lastSeenAt: fresh }, now)
-    ).toBe('busy');
+    ).toBe('online');
     expect(
       presenceDot({ presenceStatus: 'away', lastSeenAt: fresh }, now)
-    ).toBe('offline');
+    ).toBe('away');
     expect(
       presenceDot(
         { presenceStatus: 'online', lastSeenAt: '2026-10-12T09:00:00Z' },
@@ -117,9 +114,17 @@ describe('presenceDot', () => {
     ).toBe('offline');
     expect(presenceDot(undefined, now)).toBe('offline');
   });
+  it("puts the phone's call and chosen status over the app", () => {
+    const online = { presenceStatus: 'online', lastSeenAt: fresh };
+    expect(presenceDot(online, now, 'on_call')).toBe('on_call');
+    expect(presenceDot(online, now, 'dnd')).toBe('dnd');
+    expect(presenceDot(undefined, now, 'on_call')).toBe('on_call');
+    expect(presenceDot(online, now, 'available')).toBe('online');
+    expect(presenceDot(undefined, now, 'available')).toBe('offline');
+  });
   it('combines a group DM to the liveliest member', () => {
-    expect(combinedPresence(['offline', 'busy'])).toBe('busy');
-    expect(combinedPresence(['busy', 'available'])).toBe('available');
+    expect(combinedPresence(['offline', 'on_call'])).toBe('on_call');
+    expect(combinedPresence(['on_call', 'online'])).toBe('online');
     expect(combinedPresence([])).toBe('offline');
   });
 });

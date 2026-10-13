@@ -33,6 +33,55 @@ describe('pbx call helpers', () => {
     expect(callStatusLabel('weird')).toBe('weird');
   });
 
+  it('never expires the chosen status: Yeastar sends it only when it changes', () => {
+    const old = '2026-10-10T08:00:00Z'; // two days without a change
+    expect(
+      presenceView(row({ presence: 'do_not_disturb', updated_at: old }), NOW)
+    ).toBe('dnd');
+    expect(presenceView(row({ presence: 'lunch', updated_at: old }), NOW)).toBe(
+      'away'
+    );
+    expect(
+      presenceView(row({ presence: 'business_trip', updated_at: old }), NOW)
+    ).toBe('away');
+    expect(
+      presenceView(row({ presence: 'off_work', updated_at: old }), NOW)
+    ).toBe('off_work');
+    expect(
+      presenceView(row({ presence: 'available', updated_at: old }), NOW)
+    ).toBe('available');
+  });
+
+  it('lets a call state lapse after ten minutes, to the chosen status underneath', () => {
+    const fresh = '2026-10-12T09:50:00Z'; // exactly ten minutes
+    const lapsed = '2026-10-12T09:49:59Z';
+    expect(
+      presenceView(row({ call_state: 'busy', updated_at: fresh }), NOW)
+    ).toBe('on_call');
+    expect(
+      presenceView(row({ call_state: 'ringing', updated_at: fresh }), NOW)
+    ).toBe('on_call');
+    expect(
+      presenceView(
+        row({
+          presence: 'do_not_disturb',
+          call_state: 'busy',
+          updated_at: lapsed,
+        }),
+        NOW
+      )
+    ).toBe('dnd');
+    expect(
+      presenceView(row({ call_state: 'busy', updated_at: lapsed }), NOW)
+    ).toBe('available');
+    expect(
+      presenceView(
+        row({ presence: 'away', call_state: 'busy', updated_at: 'garbage' }),
+        NOW
+      )
+    ).toBe('away');
+  });
+
   it('a missed call is an unanswered inbound one', () => {
     expect(isMissedCall({ direction: 'inbound', status: 'voicemail' })).toBe(
       true
@@ -45,10 +94,7 @@ describe('pbx call helpers', () => {
     );
   });
 
-  it('maps presence: stale, then on a call, then the chosen status', () => {
-    expect(presenceView(row({ updated_at: '2026-10-12T09:49:59Z' }), NOW)).toBe(
-      'offline'
-    );
+  it('maps presence: on a call, then the chosen status', () => {
     expect(
       presenceView(row({ presence: 'do_not_disturb', call_state: 'busy' }), NOW)
     ).toBe('on_call');

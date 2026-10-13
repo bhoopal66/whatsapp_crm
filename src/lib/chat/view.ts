@@ -5,7 +5,13 @@
  * Kept here, free of React, so the node test environment covers them.
  */
 import { hasMinRole, isAccountRole, isBankGuest } from '@/lib/auth/roles';
-import { OFFLINE_AFTER_MS } from '@/lib/presence';
+import type { PresenceView } from '@/lib/pbx/calls';
+import {
+  liveliest,
+  personPresence,
+  type PersonPresence,
+} from '@/lib/person-presence';
+import { derivePresence } from '@/lib/presence';
 
 import {
   CHANNEL_TOPIC_MAX,
@@ -69,31 +75,32 @@ export function channelDisplayName(
     : (channel.name ?? '');
 }
 
-export type PresenceDot = 'available' | 'busy' | 'offline';
-
 /**
- * Solid green = available, red = on a call / busy, hollow ring = away or
- * offline. Offline is derived from heartbeat staleness, as everywhere
+ * A person's dot (lib/person-presence.ts): the phone's call or chosen
+ * status first, for someone with a monitored extension, then the app's.
+ * The app's offline is derived from heartbeat staleness, as everywhere
  * else (lib/presence.ts): a stale 'online' is offline.
  */
 export function presenceDot(
   person: Pick<ChatPerson, 'presenceStatus' | 'lastSeenAt'> | undefined,
-  now: number
-): PresenceDot {
+  now: number,
+  phone?: PresenceView | null
+): PersonPresence {
   const status = person?.presenceStatus?.toLowerCase();
-  const seen = person?.lastSeenAt ? Date.parse(person.lastSeenAt) : NaN;
-  if (!status || Number.isNaN(seen) || now - seen > OFFLINE_AFTER_MS)
-    return 'offline';
-  if (status === 'online' || status === 'available') return 'available';
-  if (['on_call', 'call', 'busy', 'dnd'].includes(status)) return 'busy';
-  return 'offline';
+  const stored =
+    status === 'online' || status === 'available'
+      ? 'online'
+      : status === 'away'
+        ? 'away'
+        : undefined;
+  return personPresence(phone, derivePresence(stored, person?.lastSeenAt, now));
 }
 
 /** A group DM shows the liveliest of its other members. */
-export function combinedPresence(dots: readonly PresenceDot[]): PresenceDot {
-  if (dots.includes('available')) return 'available';
-  if (dots.includes('busy')) return 'busy';
-  return 'offline';
+export function combinedPresence(
+  dots: readonly PersonPresence[]
+): PersonPresence {
+  return liveliest(dots);
 }
 
 /** Pastel tile classes, light and dark (html[data-mode='dark']). */

@@ -1,5 +1,5 @@
 -- Behavioural regression suite for the phone system (migrations 089,
--- 090, 097 and 098's call report).
+-- 090, 097, 098's call report and 101's presence mapping and keepalive).
 --
 -- Who sees a call is RLS through pbx_can_view_call(): the caller's
 -- active account, and team leader or above, a party to the call (its
@@ -1138,6 +1138,85 @@ BEGIN
       failed := array_append(failed, ('pbx_recordings_kept is wrong, or open below admin: ' || r)::text);
     END IF;
   END;
+
+  -- ---------- 101: presence follows the mapping; a live call stays red ----------
+  -- Fixture rows carry an old updated_at: set_updated_at fires on UPDATE
+  -- only, and now() is this transaction's, so "refreshed" is = now().
+  -- 110 is on a live call, 111 hung up in it, 112 rings but was written
+  -- two minutes ago, 113 is idle, 101 (the agent's) is on no live call.
+  INSERT INTO pbx_presence (connection_id, extension, account_id, user_id, presence, call_state, updated_at) VALUES
+    (conn, '101', a_acct, u_agent, 'do_not_disturb', 'busy', now() - interval '20 minutes'),
+    (conn, '110', a_acct, NULL, NULL, 'busy', now() - interval '20 minutes'),
+    (conn, '111', a_acct, NULL, NULL, 'busy', now() - interval '20 minutes'),
+    (conn, '112', a_acct, NULL, NULL, 'ringing', now() - interval '2 minutes'),
+    (conn, '113', a_acct, NULL, 'away', 'idle', now() - interval '20 minutes'),
+    (conn, '120', a_acct, NULL, 'lunch', NULL, now() - interval '20 minutes'),
+    (conn, '114', a_acct, NULL, NULL, 'busy', now() - interval '20 minutes');
+  -- 114's call lost its hang-up: its last frame is five hours old.
+  INSERT INTO call_live (connection_id, pbx_call_id, account_id, members, updated_at) VALUES
+    (conn, 'px-stale', a_acct, '[{"kind":"extension","number":"114","status":"ANSWERED"}]', now() - interval '5 hours');
+  INSERT INTO call_live (connection_id, pbx_call_id, account_id, members) VALUES
+    (conn, 'px-long', a_acct, '[{"kind":"inbound","from":"971500000000","status":"ANSWERED"},
+                                {"kind":"extension","number":"110","status":"ANSWERED"},
+                                {"kind":"extension","number":"111","status":"BYE"},
+                                {"kind":"extension","number":"112","status":"RING"},
+                                {"kind":"extension","number":"113","status":"ANSWERED"}]');
+  -- Each read is a statement of its own: one in the same statement as
+  -- the write would see the snapshot from before it.
+  r := pg_temp.px_try('service_role', NULL, 'SELECT pbx_presence_keepalive()::text');
+  r := r || '/' || (SELECT coalesce(string_agg(extension, ',' ORDER BY extension), '-')
+                 FROM pbx_presence WHERE connection_id = conn AND updated_at = now());
+  n := n + 1;
+  IF r <> '1/110' THEN
+    failed := array_append(failed, ('pbx_presence_keepalive refreshes only a ringing or busy row on a live call, older than 5 minutes: ' || r)::text);
+  END IF;
+  n := n + 1;
+  IF has_function_privilege('anon', 'public.pbx_presence_keepalive()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.pbx_presence_keepalive()', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.pbx_presence_keepalive()', 'EXECUTE') THEN
+    failed := array_append(failed, 'pbx_presence_keepalive grants: not the service role''s alone');
+  END IF;
+
+  -- A remap moves the row to the new person; unmapping leaves it no one's.
+  -- Only active staff can be mapped, and the 097 section deactivated the
+  -- third agent: make them active again before mapping them.
+  UPDATE profiles SET deactivated_at = NULL WHERE user_id = u_agent3;
+  r := pg_temp.px_try('service_role', NULL, format(
+         'UPDATE pbx_extensions SET user_id = %L WHERE connection_id = %L AND extension = ''101''', u_agent3, conn));
+  r := r || '/' || (SELECT coalesce(user_id::text, 'none') || ':' || presence
+                 FROM pbx_presence WHERE connection_id = conn AND extension = '101');
+  n := n + 1;
+  IF r <> 'ok/' || u_agent3::text || ':do_not_disturb' THEN
+    failed := array_append(failed, ('a remapped extension''s presence stayed on the old person: ' || r)::text);
+  END IF;
+  r := pg_temp.px_try('service_role', NULL, format(
+         'UPDATE pbx_extensions SET user_id = NULL WHERE connection_id = %L AND extension = ''101''', conn));
+  r := r || '/' || (SELECT coalesce(user_id::text, 'none') FROM pbx_presence WHERE connection_id = conn AND extension = '101');
+  n := n + 1;
+  IF r <> 'ok/none' THEN
+    failed := array_append(failed, ('an unmapped extension''s presence kept its person: ' || r)::text);
+  END IF;
+  -- Monitoring off deletes it; a registration write leaves it alone.
+  r := pg_temp.px_try('service_role', NULL, format(
+         'UPDATE pbx_extensions SET registration_state = ''registered'' WHERE connection_id = %L AND extension = ''101''', conn));
+  r := r || '/' || (SELECT count(*)::text FROM pbx_presence WHERE connection_id = conn AND extension = '101');
+  r := r || '/' || pg_temp.px_try('service_role', NULL, format(
+         'UPDATE pbx_extensions SET presence_monitor = false WHERE connection_id = %L AND extension = ''101''', conn));
+  r := r || '/' || (SELECT count(*)::text FROM pbx_presence WHERE connection_id = conn AND extension = '101');
+  n := n + 1;
+  IF r <> 'ok/1/ok/0' THEN
+    failed := array_append(failed, ('presence monitoring turned off kept the presence row: ' || r)::text);
+  END IF;
+  -- A new mapping takes the extension's row; deleting the extension drops it.
+  r := pg_temp.px_try('service_role', NULL, format(q_ext, conn, '120', a_acct, u_agent2));
+  r := r || '/' || (SELECT coalesce(user_id::text, 'none') FROM pbx_presence WHERE connection_id = conn AND extension = '120');
+  r := r || '/' || pg_temp.px_try('service_role', NULL, format(
+         'DELETE FROM pbx_extensions WHERE connection_id = %L AND extension = ''120''', conn));
+  r := r || '/' || (SELECT count(*)::text FROM pbx_presence WHERE connection_id = conn AND extension = '120');
+  n := n + 1;
+  IF r <> 'ok/' || u_agent2::text || '/ok/0' THEN
+    failed := array_append(failed, ('a new or deleted extension mapping left its presence row as it was: ' || r)::text);
+  END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT089', MESSAGE = 'verify-pbx rollback';
