@@ -32,7 +32,7 @@ ALTER TABLE public.call_live
   ADD COLUMN IF NOT EXISTS rang_at timestamptz NOT NULL DEFAULT now();
 
 COMMENT ON COLUMN public.call_live.rang_at IS
-  'When the call last started ringing: stamped by the default on the first frame, kept by later upserts (their payload leaves it out), stamped again when answered_by goes back to NULL (call_live_rang_at_restamp). The ring timer of the incoming-call card. Migration 094.';
+  'When the call last started ringing: stamped by the default on the first frame, kept by later upserts (their payload leaves it out), stamped again whenever the call starts ringing again, from answered, on hold or in an IVR (call_live_rang_at_restamp: keyed on state, because answered_by stays NULL when a person without a CRM login answers). The ring timer of the incoming-call card. Migration 094.';
 
 CREATE OR REPLACE FUNCTION public.call_live_rang_at_restamp()
 RETURNS trigger
@@ -48,5 +48,5 @@ DROP TRIGGER IF EXISTS call_live_rang_at_restamp ON public.call_live;
 CREATE TRIGGER call_live_rang_at_restamp
   BEFORE UPDATE ON public.call_live
   FOR EACH ROW
-  WHEN (OLD.answered_by IS NOT NULL AND NEW.answered_by IS NULL)
+  WHEN (NEW.state = 'ringing' AND OLD.state IS DISTINCT FROM 'ringing')
   EXECUTE FUNCTION public.call_live_rang_at_restamp();

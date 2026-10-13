@@ -33,6 +33,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, AlertTriangle, XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
+import { keepFloatingFormOpen } from '@/lib/contacts/floating-form';
 
 interface ContactFormProps {
   open: boolean;
@@ -69,6 +70,7 @@ function FloatingContent({
     <DialogPortal>
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-floating-contact-form=""
         className={cn(
           'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-2xl ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
           className
@@ -271,7 +273,23 @@ export function ContactForm({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next, details) => {
+        const target = details.event?.target;
+        if (
+          !next &&
+          keepFloatingFormOpen({
+            floating,
+            reason: details.reason,
+            insideForm:
+              target instanceof Element &&
+              !!target.closest('[data-floating-contact-form]'),
+          })
+        ) {
+          details.cancel();
+          return;
+        }
+        onOpenChange(next);
+      }}
       modal={!floating}
       disablePointerDismissal={floating}
     >

@@ -257,8 +257,9 @@ BEGIN
     'account_id = EXCLUDED.account_id, ringing_user_ids = EXCLUDED.ringing_user_ids, '
     'answered_by = EXCLUDED.answered_by, state = EXCLUDED.state, updated_at = EXCLUDED.updated_at',
     conn, 'px-live', a_acct, ARRAY[u_agent], u_agent2, 'answered'));
+  -- A later frame of the answered call (no new ring) keeps it too.
   r := r || '/' || pg_temp.px_try('service_role', NULL,
-    'UPDATE call_live SET state = ''ringing'' WHERE pbx_call_id = ''px-live''');
+    'UPDATE call_live SET updated_at = now() WHERE pbx_call_id = ''px-live''');
   r := r || '/' || pg_temp.px_try('authenticated', u_agent2,
     'SELECT (rang_at = now() - interval ''90 seconds'')::text FROM call_live WHERE pbx_call_id = ''px-live''');
   n := n + 1;
@@ -285,6 +286,24 @@ BEGIN
   n := n + 1;
   IF r IS DISTINCT FROM 'ok/true/ok/ok/true' THEN
     failed := array_append(failed, ('a call that rings again after an answer is timed from then: ' || r)::text);
+  END IF;
+  -- Answered by someone with no CRM login (answered_by stays NULL), or
+  -- held, then ringing again: still timed from the new ring.
+  r := pg_temp.px_try('service_role', NULL,
+    'UPDATE call_live SET answered_by = NULL, state = ''answered'', rang_at = now() - interval ''90 seconds'' WHERE pbx_call_id = ''px-live''');
+  r := r || '/' || pg_temp.px_try('service_role', NULL,
+    'UPDATE call_live SET state = ''ringing'' WHERE pbx_call_id = ''px-live''');
+  r := r || '/' || pg_temp.px_try('authenticated', u_agent,
+    'SELECT (rang_at = now())::text FROM call_live WHERE pbx_call_id = ''px-live''');
+  r := r || '/' || pg_temp.px_try('service_role', NULL,
+    'UPDATE call_live SET state = ''in_progress'', rang_at = now() - interval ''90 seconds'' WHERE pbx_call_id = ''px-live''');
+  r := r || '/' || pg_temp.px_try('service_role', NULL,
+    'UPDATE call_live SET state = ''ringing'' WHERE pbx_call_id = ''px-live''');
+  r := r || '/' || pg_temp.px_try('authenticated', u_agent,
+    'SELECT (rang_at = now())::text FROM call_live WHERE pbx_call_id = ''px-live''');
+  n := n + 1;
+  IF r IS DISTINCT FROM 'ok/ok/true/ok/ok/true' THEN
+    failed := array_append(failed, ('a call that rings again after a loginless answer or a hold is timed from then: ' || r)::text);
   END IF;
   UPDATE call_live SET answered_by = u_agent2, rang_at = now() WHERE pbx_call_id = 'px-live';
   n := n + 1;
