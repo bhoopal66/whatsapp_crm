@@ -4669,6 +4669,7 @@
     "owner": "Owner",
     "you": "{name} (you)",
     "noOwner": "No owner",
+    "ownedBy": "Owned by {name}",
     "openDeal": "Open deal",
     "none": "None",
     "lastWhatsApp": "Last WhatsApp",

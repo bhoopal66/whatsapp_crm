@@ -4669,6 +4669,7 @@
     "owner": "담당자",
     "you": "{name} (나)",
     "noOwner": "담당자 없음",
+    "ownedBy": "{name}님 담당 고객",
     "openDeal": "진행 중인 거래",
     "none": "없음",
     "lastWhatsApp": "마지막 WhatsApp",

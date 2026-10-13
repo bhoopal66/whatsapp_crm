@@ -10,19 +10,23 @@ import {
   OUTCOMES,
   OVERRIDE_REASON_MAX,
   alsoRinging,
+  canTransferToOwner,
   callCardText,
   clip,
   consentState,
   consentText,
   contactCandidates,
   dialResult,
+  factsFor,
   formatTimer,
   isCustomerCall,
   liveKey,
   maskPhone,
+  messageWhen,
   myActiveCall,
   myRingingCall,
   needsOutcome,
+  otherOwner,
   type CallCardLabels,
   type CallLiveRow,
 } from '../call-ui';
@@ -314,5 +318,60 @@ describe('needsOutcome', () => {
     expect(needsOutcome(true, null)).toBe(true);
     expect(needsOutcome(true, 'call_back')).toBe(false);
     expect(needsOutcome(false, null)).toBe(false);
+  });
+});
+
+describe('factsFor', () => {
+  const sara = { contactId: 'k-a', facts: { owner: SARA } };
+  it('shows facts only for the contact they were loaded for', () => {
+    expect(factsFor(sara, 'k-a')).toEqual({ owner: SARA });
+    // The next call's customer: nothing until its own load lands.
+    expect(factsFor(sara, 'k-b')).toBeNull();
+  });
+  it('shows nothing with no contact, or before any load', () => {
+    expect(factsFor(sara, null)).toBeNull();
+    expect(factsFor(null, 'k-a')).toBeNull();
+  });
+});
+
+describe('otherOwner and canTransferToOwner', () => {
+  it('names the owner only when that is someone else', () => {
+    expect(otherOwner(SARA, ME)).toBe(SARA);
+    expect(otherOwner(ME, ME)).toBeNull();
+    expect(otherOwner(null, ME)).toBeNull();
+    expect(otherOwner(undefined, null)).toBeNull();
+  });
+  it('offers the transfer for another owner on another extension', () => {
+    expect(canTransferToOwner(SARA, ME, '102', '101')).toBe(true);
+    expect(canTransferToOwner(ME, ME, '101', '101')).toBe(false);
+    expect(canTransferToOwner(SARA, ME, null, '101')).toBe(false);
+    expect(canTransferToOwner(SARA, ME, '101', '101')).toBe(false);
+    expect(canTransferToOwner(null, ME, '102', '101')).toBe(false);
+  });
+});
+
+describe('messageWhen', () => {
+  const opts = { locale: 'en-GB', timeZone: 'Asia/Dubai' };
+  const now = Date.parse('2026-10-13T08:00:00Z'); // 12:00 in Dubai
+  it('is the time alone for a message from today', () => {
+    expect(messageWhen('2026-10-13T05:30:00Z', now, opts)).toBe('09:30');
+  });
+  it('adds the date for an earlier day', () => {
+    expect(messageWhen('2026-10-06T05:30:00Z', now, opts)).toBe('6 Oct, 09:30');
+  });
+  it('judges "today" in the printed time zone', () => {
+    // 21:30 UTC on the 12th is 01:30 on the 13th in Dubai.
+    expect(messageWhen('2026-10-12T21:30:00Z', now, opts)).toBe('01:30');
+    expect(messageWhen('2026-10-12T19:30:00Z', now, opts)).toBe(
+      '12 Oct, 23:30'
+    );
+  });
+  it('adds the year for another year', () => {
+    expect(messageWhen('2025-12-30T05:30:00Z', now, opts)).toBe(
+      '30 Dec 2025, 09:30'
+    );
+  });
+  it('is empty for an unreadable time', () => {
+    expect(messageWhen('not a time', now, opts)).toBe('');
   });
 });

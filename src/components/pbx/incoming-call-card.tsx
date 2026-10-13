@@ -16,10 +16,14 @@ import {
   clip,
   consentText,
   contactCandidates,
+  factsFor,
   formatTimer,
   liveKey,
   maskPhone,
+  messageWhen,
+  otherOwner,
   type ConsentFields,
+  type HeldFacts,
 } from '@/lib/pbx/call-ui';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
@@ -35,9 +39,13 @@ export interface CallFacts extends ConsentFields {
   last: { at: string; text: string } | null;
 }
 
-/** What the card and the panel show of a call's customer (RLS-filtered). */
+/**
+ * What the card and the panel show of a call's customer (RLS-filtered),
+ * held with the contact it was loaded for (factsFor): the card stays
+ * mounted from one call to the next.
+ */
 export function useCallFacts(contactId: string | null): CallFacts | null {
-  const [facts, setFacts] = useState<CallFacts | null>(null);
+  const [held, setHeld] = useState<HeldFacts<CallFacts> | null>(null);
   useEffect(() => {
     if (!contactId) return;
     let live = true;
@@ -92,24 +100,27 @@ export function useCallFacts(contactId: string | null): CallFacts | null {
           };
       }
       if (!live) return;
-      setFacts({
-        ...(row ?? {}),
-        name: row?.name || null,
-        company: row?.company || null,
-        phone: row?.phone || null,
-        ownerId: row?.user_id || null,
-        conversationId: convId ?? null,
-        deal: deal
-          ? [deal.title, deal.stage?.name].filter(Boolean).join(' · ')
-          : null,
-        last,
+      setHeld({
+        contactId,
+        facts: {
+          ...(row ?? {}),
+          name: row?.name || null,
+          company: row?.company || null,
+          phone: row?.phone || null,
+          ownerId: row?.user_id || null,
+          conversationId: convId ?? null,
+          deal: deal
+            ? [deal.title, deal.stage?.name].filter(Boolean).join(' · ')
+            : null,
+          last,
+        },
       });
     })();
     return () => {
       live = false;
     };
   }, [contactId]);
-  return contactId ? facts : null;
+  return factsFor(held, contactId);
 }
 
 /** "Which customer?" for a number that matched several contacts. */
@@ -213,6 +224,7 @@ export function IncomingCallCard() {
       ? t('you', { name: calls.names[facts.ownerId] ?? '' })
       : (calls.names[facts.ownerId] ?? '—')
     : t('noOwner');
+  const ownedBy = otherOwner(facts?.ownerId, calls.userId);
   const others = alsoRinging(call, calls.userId, calls.names);
   // The softphone adapter throws when the SDK refuses (not registered,
   // the call already gone); say so instead of an unhandled rejection.
@@ -262,6 +274,11 @@ export function IncomingCallCard() {
       <p className="truncate text-sm text-white/70">
         {[person, masked].filter(Boolean).join(' · ')}
       </p>
+      {ownedBy && (
+        <p className="mt-2 rounded-xl bg-sky-400/15 px-2.5 py-1.5 text-xs font-medium text-sky-100">
+          {t('ownedBy', { name: calls.names[ownedBy] ?? '—' })}
+        </p>
+      )}
       {facts && (
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl bg-white/[0.07] p-3 text-xs">
           {fact(t('owner'), owner)}
@@ -269,7 +286,7 @@ export function IncomingCallCard() {
           {fact(
             t('lastWhatsApp'),
             facts.last
-              ? `${new Date(facts.last.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — “${facts.last.text}”`
+              ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
               : t('none')
           )}
           {fact(

@@ -266,3 +266,74 @@ export function dialResult(status: number, body: unknown): DialResult {
 /** Closing the panel needs an outcome when the workspace says so. */
 export const needsOutcome = (mandatory: boolean, outcome: Outcome | null) =>
   mandatory && outcome === null;
+
+/** Customer facts as loaded, with the contact they were loaded for. */
+export interface HeldFacts<T> {
+  contactId: string;
+  facts: T;
+}
+
+/**
+ * The facts to show for `contactId`: only ones loaded for that contact.
+ * The card and the panel outlive the contact under them (the next call,
+ * a pick, a re-link), and until the new contact's load lands they show
+ * nothing rather than the previous customer's owner, deal, last message
+ * and consent.
+ */
+export function factsFor<T>(
+  held: HeldFacts<T> | null,
+  contactId: string | null
+): T | null {
+  return contactId && held?.contactId === contactId ? held.facts : null;
+}
+
+/** The customer's owner, when that is someone other than `me`. */
+export const otherOwner = (
+  ownerId: string | null | undefined,
+  me: string | null
+): string | null => (ownerId && ownerId !== me ? ownerId : null);
+
+/**
+ * "Transfer to owner": an owner other than me, on an extension other than
+ * mine (the transfer route answers 409 for a transfer to myself).
+ */
+export const canTransferToOwner = (
+  ownerId: string | null | undefined,
+  me: string | null,
+  ownerExtension: string | null | undefined,
+  myExtension: string
+): boolean =>
+  Boolean(
+    otherOwner(ownerId, me) && ownerExtension && ownerExtension !== myExtension
+  );
+
+/**
+ * When the last WhatsApp message was sent: the time alone today, else
+ * the date too (and the year when not this year), so last week's message
+ * never reads as this morning's. "Today" is judged in `timeZone` (the
+ * browser's when unset), the zone the time is printed in.
+ */
+export function messageWhen(
+  at: string,
+  now: number,
+  { locale, timeZone }: { locale?: string; timeZone?: string } = {}
+): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  // en-CA writes YYYY-MM-DD: a day key in the printed zone.
+  const day = (x: Date) => x.toLocaleDateString('en-CA', { timeZone });
+  const [mine, today] = [day(d), day(new Date(now))];
+  const time = d.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone,
+  });
+  if (mine === today) return time;
+  const date = d.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(mine.slice(0, 4) === today.slice(0, 4) ? {} : { year: 'numeric' }),
+    timeZone,
+  });
+  return `${date}, ${time}`;
+}
