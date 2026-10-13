@@ -158,6 +158,58 @@ describe('fetchPendingRecordings', () => {
     });
   });
 
+  it("marks a paused workspace's calls not stored and fetches the others", async () => {
+    fake = createFakeDb({
+      calls: [call('k1'), { ...call('k2'), account_id: 'acc-2' }],
+      pbx_settings: [
+        { account_id: A, store_recordings: false },
+        { account_id: 'acc-2', store_recordings: true },
+      ],
+    });
+    const asked: unknown[] = [];
+    const out = await fetchPendingRecordings({
+      db: fake.db,
+      apiFor: handle({
+        recordingDownloadUrl: async (ref: unknown) => {
+          asked.push(ref);
+          return 'https://pbx/dl';
+        },
+      }),
+      fetch: async () => audio(),
+    });
+    expect(out).toMatchObject({ notStored: 1, fetched: 1, failed: 0 });
+    expect(asked).toEqual([{ file: 'k2.mp3' }]);
+    expect(Object.keys(fake.objects)).toEqual([
+      'call-recordings/account-acc-2/calls/k2.mp3',
+    ]);
+    expect(fake.tables.calls.find((c) => c.id === 'k1')).toMatchObject({
+      recording_state: 'not_stored',
+      recording_file: 'k1.mp3',
+      meta: {},
+    });
+    expect(fake.tables.calls.find((c) => c.id === 'k2')!.recording_state).toBe(
+      'fetched'
+    );
+  });
+
+  it('never contacts the PBX for a paused workspace', async () => {
+    fake = createFakeDb({
+      calls: [call('k1')],
+      pbx_settings: [{ account_id: A, store_recordings: false }],
+    });
+    const apiFor = vi.fn(handle({}));
+    const fetchFn = vi.fn(async () => audio());
+    const out = await fetchPendingRecordings({
+      db: fake.db,
+      apiFor,
+      fetch: fetchFn,
+    });
+    expect(out).toMatchObject({ notStored: 1, fetched: 0, failed: 0 });
+    expect(apiFor).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(fake.tables.call_recordings ?? []).toHaveLength(0);
+  });
+
   it('skips a connection in auth backoff', async () => {
     fake = createFakeDb({ calls: [call('k1')] });
     const out = await fetchPendingRecordings({

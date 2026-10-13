@@ -7,7 +7,14 @@ import { YeastarError } from './yeastar/errors';
 /**
  * Copies each call's recording off the PBX once, into the private
  * `call-recordings` bucket (C-1, C-8). Only `recording_state = 'pending'`
- * is ever read, so a held (bank number) or erased call is never fetched.
+ * is ever read, so a held (bank number), erased or not-stored call is
+ * never fetched.
+ *
+ * Storing paused (`pbx_settings.store_recordings` false, migration 090):
+ * a pending call of that workspace is marked `not_stored` before any
+ * contact with the PBX (no token minted, nothing downloaded), and is
+ * never fetched later, also once storing is switched back on. Nothing
+ * on the PBX changes; it keeps recording.
  *
  * One download at a time: with the MP3 format the PBX serves one
  * recording download at once and answers 70651 to a second, so a busy
@@ -51,6 +58,8 @@ export interface RecordingsSummary {
   skipped: number;
   /** The PBX answered 70651: the run stopped there. */
   busy: boolean;
+  /** Marked `not_stored`: the workspace paused storing recordings. */
+  notStored: number;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -95,6 +104,7 @@ export async function fetchPendingRecordings(
     gaveUp: 0,
     skipped: 0,
     busy: false,
+    notStored: 0,
   };
 
   const { data, error } = await db
@@ -107,6 +117,7 @@ export async function fetchPendingRecordings(
 
   const handles = new Map<string, PbxHandle | null>();
   const required = new Map<string, boolean>();
+  const storing = new Map<string, boolean>();
 
   async function handleFor(connectionId: string): Promise<PbxHandle | null> {
     if (!handles.has(connectionId)) {
@@ -135,6 +146,21 @@ export async function fetchPendingRecordings(
     return required.get(accountId)!;
   }
 
+  /** pbx_settings.store_recordings (090); no row stores. */
+  async function storeRecordings(accountId: string): Promise<boolean> {
+    if (!storing.has(accountId)) {
+      const s = await db
+        .from('pbx_settings')
+        .select('store_recordings')
+        .eq('account_id', accountId)
+        .maybeSingle();
+      if (s.error) throw new Error(`pbx_settings read: ${s.error.message}`);
+      const v = (s.data as Row | null)?.store_recordings;
+      storing.set(accountId, v !== false);
+    }
+    return storing.get(accountId)!;
+  }
+
   for (const call of (data ?? []) as Row[]) {
     if (deadline !== undefined && now() >= deadline) break;
     const callId = String(call.id);
@@ -143,6 +169,17 @@ export async function fetchPendingRecordings(
     const file =
       typeof call.recording_file === 'string' ? call.recording_file : '';
     try {
+      // Paused: settle the call without contacting the PBX.
+      if (!(await storeRecordings(accountId))) {
+        const skip = await db
+          .from('calls')
+          .update({ recording_state: 'not_stored' })
+          .eq('id', callId)
+          .eq('recording_state', 'pending');
+        if (skip.error) throw new Error(`calls update: ${skip.error.message}`);
+        summary.notStored++;
+        continue;
+      }
       if (!call.connection_id) throw new Error('the call has no PBX');
       if (!file) throw new Error('no recording file name');
       const handle = await handleFor(String(call.connection_id));

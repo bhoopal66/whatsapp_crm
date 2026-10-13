@@ -65,7 +65,7 @@ function Card({
   className,
   children,
 }: {
-  title: string;
+  title: ReactNode;
   action?: ReactNode;
   className?: string;
   children: ReactNode;
@@ -537,6 +537,7 @@ export function ExtensionsCard({
 // ---------- Recording rules + Bank numbers ----------
 
 interface Rules {
+  storeRecordings: boolean;
   announcementRequired: boolean;
   excludeBankNumbers: boolean;
   retentionDays: number | null;
@@ -559,9 +560,12 @@ export function RecordingRulesCard() {
   const [banks, setBanks] = useState<BankRow[]>([]);
   const [bankIssues, setBankIssues] = useState<BankNumberRowIssues[]>([]);
   const [saving, setSaving] = useState<'rules' | 'banks' | null>(null);
+  // The saved value, not the unsaved checkbox.
+  const [paused, setPaused] = useState(false);
 
   const takeRules = (r: Rules) => {
     setRules(r);
+    setPaused(r.storeRecordings === false);
     setRetention(r.retentionDays === null ? '' : String(r.retentionDays));
     setDue(String(r.missedCallDueMinutes));
     setRuleIssue(null);
@@ -635,10 +639,25 @@ export function RecordingRulesCard() {
 
   return (
     <Card
-      title={t('rules.title')}
+      title={
+        <>
+          {t('rules.title')}
+          {paused ? (
+            <span className="bg-destructive/10 text-destructive ml-2 rounded-md px-1.5 py-0.5 align-middle text-xs font-medium">
+              {t('rules.paused')}
+            </span>
+          ) : null}
+        </>
+      }
       className="border-amber-200 bg-amber-50/70 [[data-mode=dark]_&]:border-amber-500/30 [[data-mode=dark]_&]:bg-amber-500/10"
     >
       <div className="space-y-3 text-sm">
+        <div>
+          {flag('storeRecordings', t('rules.storeRecordings'))}
+          <p className="text-muted-foreground mt-1 pl-[1.625rem] text-xs">
+            {t('rules.storeRecordingsHint')}
+          </p>
+        </div>
         {flag('announcementRequired', t('rules.announcement'))}
         {flag('excludeBankNumbers', t('rules.excludeBanks'))}
         <div className="flex flex-wrap items-center gap-2">

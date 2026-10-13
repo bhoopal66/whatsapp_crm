@@ -1,7 +1,8 @@
 // ============================================================
 // /api/pbx/settings — the active workspace's phone-system settings
-// (pbx_settings, migration 089). GET answers the defaults until the
-// first save. PUT takes any of { announcementRequired,
+// (pbx_settings, migrations 089 and 090). GET answers the defaults until the
+// first save. PUT takes any of { storeRecordings (false: the CRM stops
+// downloading recordings; the PBX keeps recording), announcementRequired,
 // excludeBankNumbers, retentionDays (null keeps recordings, else
 // 1-3650), missedCallDueMinutes (1-1440), mandatoryDisposition,
 // missedCallWhatsappDraft }; an omitted field keeps its value.
@@ -14,15 +15,17 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 
 const COLUMNS =
-  'announcement_required, exclude_bank_numbers, retention_days, missed_call_due_minutes, mandatory_disposition, missed_call_whatsapp_draft, updated_at, updated_by';
+  'store_recordings, announcement_required, exclude_bank_numbers, retention_days, missed_call_due_minutes, mandatory_disposition, missed_call_whatsapp_draft, updated_at, updated_by';
 const FLAGS = [
+  ['storeRecordings', 'store_recordings'],
   ['announcementRequired', 'announcement_required'],
   ['excludeBankNumbers', 'exclude_bank_numbers'],
   ['mandatoryDisposition', 'mandatory_disposition'],
   ['missedCallWhatsappDraft', 'missed_call_whatsapp_draft'],
 ] as const;
-/** Migration 089's column defaults. */
+/** Migrations 089 and 090's column defaults. */
 const DEFAULTS: Record<string, unknown> = {
+  store_recordings: true,
   announcement_required: true,
   exclude_bank_numbers: true,
   retention_days: null,
@@ -34,6 +37,7 @@ const DEFAULTS: Record<string, unknown> = {
 };
 
 const view = (r: Record<string, unknown>) => ({
+  storeRecordings: r.store_recordings,
   announcementRequired: r.announcement_required,
   excludeBankNumbers: r.exclude_bank_numbers,
   retentionDays: r.retention_days,

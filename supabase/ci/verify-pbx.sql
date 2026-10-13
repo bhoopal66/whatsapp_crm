@@ -595,6 +595,56 @@ BEGIN
     END IF;
   END;
 
+  -- ---------- 090: storing recordings can be paused ----------
+  DECLARE
+    c_ns UUID;   -- the customer of a call recorded while storing was paused
+    k_ns UUID;
+  BEGIN
+    INSERT INTO pbx_settings (account_id) VALUES (b_acct) ON CONFLICT (account_id) DO NOTHING;
+    r := pg_temp.px_try('service_role', NULL, format(
+      'SELECT store_recordings::text FROM pbx_settings WHERE account_id = %L', b_acct));
+    n := n + 1;
+    IF r IS DISTINCT FROM 'true' THEN
+      failed := array_append(failed, ('pbx_settings.store_recordings does not default to true: ' || r)::text);
+    END IF;
+    INSERT INTO contacts (account_id, user_id, phone, name)
+    VALUES (a_acct, u_agent, '971500089090', 'PX not stored') RETURNING id INTO c_ns;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id,
+                       contact_id, remote_number, recording_file, recording_state)
+    VALUES (a_acct, conn, 'px-ns', 'inbound', '101', u_agent, c_ns, '971500089090', 'px-ns.wav', 'pending')
+    RETURNING id INTO k_ns;
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE calls SET recording_state = %L WHERE id = %L', 'not_stored', k_ns));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM calls WHERE id = k_ns
+                                  AND recording_state = 'not_stored' AND recording_file = 'px-ns.wav') THEN
+      failed := array_append(failed, ('a call cannot be marked not_stored, keeping its file name: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE calls SET recording_state = %L WHERE id = %L', 'bogus', k_ns));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 23514:%' THEN
+      failed := array_append(failed, ('calls.recording_state took an unknown state: ' || r)::text);
+    END IF;
+    -- Even with a recording row (a fetch that raced the pause), a
+    -- not_stored call never plays and the log refuses it.
+    INSERT INTO call_recordings (call_id, account_id, storage_path, announcement_played)
+    VALUES (k_ns, a_acct, format('account-%s/px-ns.wav', a_acct), true);
+    r := pg_temp.px_try('service_role', NULL, format('SELECT pbx_recording_playable(%L)::text', k_ns));
+    r := r || '/' || pg_temp.px_try('service_role', NULL, format(q_log, k_ns, a_acct, u_agent, 'play'));
+    n := n + 1;
+    IF r NOT LIKE 'false/ERROR 55000:%' THEN
+      failed := array_append(failed, ('a not_stored call is playable: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, format('SELECT pbx_erase_contact_calls(%L, %L)', c_ns, 'PX request'));
+    n := n + 1;
+    IF r LIKE 'ERROR%' OR NOT EXISTS (SELECT 1 FROM calls WHERE id = k_ns
+         AND recording_state = 'erased' AND erased_at IS NOT NULL AND recording_file IS NULL)
+       OR EXISTS (SELECT 1 FROM call_recordings WHERE call_id = k_ns) THEN
+      failed := array_append(failed, ('erasing a not_stored call does not leave it erased: ' || r)::text);
+    END IF;
+  END;
+
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT089', MESSAGE = 'verify-pbx rollback';
   EXCEPTION WHEN SQLSTATE 'ZT089' THEN

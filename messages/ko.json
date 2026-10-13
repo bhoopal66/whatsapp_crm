@@ -3019,6 +3019,9 @@
       },
       "rules": {
         "title": "녹음 규칙",
+        "storeRecordings": "이 서버에 통화 녹음 저장",
+        "storeRecordingsHint": "끄면 일시 중지됩니다. CRM은 녹음 다운로드를 멈추고, Yeastar는 이전과 같이 통화를 계속 녹음합니다. 이 설정이 꺼져 있는 동안 끝난 통화는 나중에도 다운로드되지 않습니다.",
+        "paused": "일시 중지됨",
         "announcement": "녹음되는 모든 통화 전에 영어·아랍어 녹음 안내를 재생",
         "excludeBanks": "은행 번호와의 통화는 녹음하지 않음(각 은행의 DSA 조건을 확인할 때까지)",
         "retention": "녹음 보관 기간",
@@ -4609,6 +4612,7 @@
     "recordingHeld": "안내가 확인될 때까지 녹음이 보류됩니다",
     "recordingErased": "녹음이 삭제되었습니다",
     "recordingPending": "녹음을 가져오는 중입니다",
+    "recordingNotStored": "녹음이 CRM에 저장되지 않았습니다. PBX에는 그대로 남아 있습니다.",
     "openTasks": "열린 할 일",
     "noOpenTasks": "열린 할 일이 없습니다",
     "team": "이 고객 담당 팀",

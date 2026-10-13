@@ -8,6 +8,7 @@ vi.mock('../recordings', async (importOriginal) => ({
     failed: 0,
     gaveUp: 0,
     skipped: 0,
+    notStored: 0,
     busy: false,
   })),
 }));

@@ -3019,6 +3019,9 @@
       },
       "rules": {
         "title": "Recording rules",
+        "storeRecordings": "Store call recordings on this server",
+        "storeRecordingsHint": "Turn off to pause. The CRM stops downloading recordings; Yeastar keeps recording calls as before. Calls that end while this is off are not downloaded later.",
+        "paused": "Paused",
         "announcement": "Play the English and Arabic recording notice before every recorded call",
         "excludeBanks": "Don't record calls with bank numbers (until each bank's DSA terms are checked)",
         "retention": "Keep recordings for",
@@ -4609,6 +4612,7 @@
     "recordingHeld": "Recording held until the notice is confirmed",
     "recordingErased": "Recording erased",
     "recordingPending": "Recording on its way",
+    "recordingNotStored": "Recording not stored in the CRM. It is still on the PBX.",
     "openTasks": "Open tasks",
     "noOpenTasks": "No open tasks",
     "team": "Team on this customer",

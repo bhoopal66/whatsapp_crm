@@ -647,12 +647,13 @@ function bankCandidates(remote: RemoteNumber | null, raw: string): string[] {
 interface Settings {
   exclude_bank_numbers: boolean;
   missed_call_due_minutes: number;
+  store_recordings: boolean;
 }
 
 async function settingsOf(ctx: Ctx, accountId: string): Promise<Settings> {
   const { data, error } = await ctx.db
     .from('pbx_settings')
-    .select('exclude_bank_numbers, missed_call_due_minutes')
+    .select('exclude_bank_numbers, missed_call_due_minutes, store_recordings')
     .eq('account_id', accountId)
     .maybeSingle();
   if (error) fail('pbx_settings read', error);
@@ -660,6 +661,8 @@ async function settingsOf(ctx: Ctx, accountId: string): Promise<Settings> {
   return {
     exclude_bank_numbers: s.exclude_bank_numbers ?? true,
     missed_call_due_minutes: s.missed_call_due_minutes ?? 30,
+    // Migration 090: no row stores recordings.
+    store_recordings: s.store_recordings ?? true,
   };
 }
 
@@ -752,7 +755,13 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
       held = ((bank.data ?? []) as unknown[]).length > 0;
     }
     recording = {
-      recording_state: held ? 'held' : 'pending',
+      // Bank-held first, then the workspace's pause on storing (090),
+      // which changes nothing on the PBX: it keeps recording.
+      recording_state: held
+        ? 'held'
+        : settings.store_recordings
+          ? 'pending'
+          : 'not_stored',
       recording_file: ev.recordingFile,
     };
   }

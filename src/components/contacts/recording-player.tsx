@@ -13,7 +13,7 @@ import { Check, Loader2, Paperclip, Pause, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { playerClock, type TimelineCall } from '@/lib/pbx/timeline';
 
-type View = 'player' | 'held' | 'erased' | 'pending';
+type View = 'player' | 'held' | 'erased' | 'pending' | 'notStored';
 
 /** calls.recording_state → what the box shows; none/failed: no box. */
 const VIEW: Record<string, View> = {
@@ -21,11 +21,13 @@ const VIEW: Record<string, View> = {
   held: 'held',
   erased: 'erased',
   pending: 'pending',
+  not_stored: 'notStored',
 };
 const NOTE: Record<Exclude<View, 'player'>, string> = {
   held: 'recordingHeld',
   erased: 'recordingErased',
   pending: 'recordingPending',
+  notStored: 'recordingNotStored',
 };
 
 const post = (url: string, body: unknown) =>

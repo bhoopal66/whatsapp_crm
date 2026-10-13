@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system (Yeastar) — pause storing recordings
+
+Admins can pause the CRM's copies of call recordings, for a server
+with little disk: **Store call recordings on this server**, the first
+switch under **Recording rules** in the phone-system settings. While it
+is off the CRM stops downloading recordings; nothing on the PBX
+changes, and Yeastar keeps recording calls as before. Calls that end
+meanwhile are not downloaded later, and the customer page shows
+"Recording not stored in the CRM. It is still on the PBX." Recordings
+already stored stay. See `docs/yeastar.md`, section 8.
+
+> **Migration required:** apply
+> `supabase/migrations/090_pbx_recording_storage.sql` (re-runnable)
+> **before** deploying the app.
+
 ### Phone system (Yeastar) — browser softphone
 
 Agents whose softphone is switched on can answer, decline and control

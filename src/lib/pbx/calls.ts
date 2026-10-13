@@ -270,6 +270,8 @@ export function recordingRefusal(state: string): string {
   switch (state) {
     case 'erased':
       return 'This recording was erased';
+    case 'not_stored':
+      return 'This recording was not stored in the CRM';
     case 'fetched':
     case 'held':
       return 'Recording held until the notice is confirmed';

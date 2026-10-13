@@ -168,6 +168,18 @@ ends the run and the next run continues; any other failure is retried,
 up to five times, before the call is marked _failed_.
 
 Calls _held_ for a bank number and _erased_ calls are never fetched.
+
+**Pausing storage.** When the server's disk is short, an admin can
+turn off **Store call recordings on this server**, the first switch
+under **Recording rules**, and save. This pauses the CRM only: it stops
+downloading recordings and never contacts or changes the PBX, so
+Yeastar keeps recording calls as before and keeps its own copies. A
+call that ends while storing is off, or that was still waiting for its
+download, is marked _not stored_ and is **never downloaded later**,
+also after the switch is turned back on; the customer page says the
+recording was not stored in the CRM and is still on the PBX.
+Recordings already stored stay. While the saved setting is off, the
+section is marked _Paused_.
 Playback goes through the server, which logs every access before it
 signs a short-lived link.
 

@@ -134,6 +134,9 @@ describe('pbx call helpers', () => {
       'Recording held until the notice is confirmed'
     );
     expect(recordingRefusal('erased')).toBe('This recording was erased');
+    expect(recordingRefusal('not_stored')).toBe(
+      'This recording was not stored in the CRM'
+    );
     expect(recordingRefusal('pending')).toBe('This call has no recording yet');
   });
 

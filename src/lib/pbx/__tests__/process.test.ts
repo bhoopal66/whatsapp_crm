@@ -350,6 +350,38 @@ describe('ingestPbxEvent', () => {
     expect(fake.tables.calls[1]).toMatchObject({ recording_state: 'pending' });
   });
 
+  it('marks a recording not stored while the workspace pauses storing', async () => {
+    // No settings row: stored.
+    await ingest(end('call-1', 'ANSWERED', { recording: 'rec-1.wav' }));
+    expect(fake.tables.calls[0]).toMatchObject({
+      recording_state: 'pending',
+      recording_file: 'rec-1.wav',
+    });
+    fake.tables.pbx_settings = [
+      {
+        account_id: A2,
+        exclude_bank_numbers: true,
+        missed_call_due_minutes: 30,
+        store_recordings: false,
+      },
+    ];
+    await ingest(end('call-2', 'ANSWERED', { recording: 'rec-2.wav' }));
+    expect(fake.tables.calls[1]).toMatchObject({
+      recording_state: 'not_stored',
+      recording_file: 'rec-2.wav',
+      account_id: A2,
+    });
+    // A bank number's call is still held.
+    fake.tables.pbx_bank_numbers = [
+      { account_id: A2, number: '0501234567', bank_code: 'ADCB' },
+    ];
+    await ingest(end('call-3', 'ANSWERED', { recording: 'rec-3.wav' }));
+    expect(fake.tables.calls[2]).toMatchObject({
+      recording_state: 'held',
+      recording_file: 'rec-3.wav',
+    });
+  });
+
   it('updates presence, call state and registration from the mapping', async () => {
     await ingest({ type: 30009, msg: { extension: '1001', status: 'away' } });
     await ingest({
