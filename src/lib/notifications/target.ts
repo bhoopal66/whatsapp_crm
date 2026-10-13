@@ -1,5 +1,5 @@
 /**
- * Which screen a bell row opens. One case per type in 097's
+ * Which screen a bell row opens. One case per type in 104's
  * `notifications_type_check` (the latest list), each reading what that
  * type's writer stores:
  *
@@ -21,6 +21,9 @@
  * - `channel_disconnected` / `channel_reconnected`
  *   (`lib/whatsapp/channel-health.ts`): the WhatsApp settings tab, for
  *   those who can edit settings.
+ * - `pbx_connection_silent` / `pbx_connection_restored` (104's
+ *   `pbx_connection_silence`): the Phone system settings tab, the same
+ *   way.
  * - `team_activity_alert` (the SQL alert sweep): Team activity, for
  *   leaders and up (`TeamLeaderOnlyLayout`); the person over the limit
  *   has the whole message in the row already.
@@ -85,6 +88,11 @@ function hrefFor(
     case 'channel_disconnected':
     case 'channel_reconnected':
       return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;
+    case 'pbx_connection_silent':
+    case 'pbx_connection_restored':
+      return role && canEditSettings(role)
+        ? '/settings?tab=phone-system'
+        : null;
     case 'team_activity_alert':
       return role && canLeadTeam(role) ? '/team-activity' : null;
     case 'chat_mention':

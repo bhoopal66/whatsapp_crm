@@ -14,6 +14,16 @@ vi.mock('../recordings', async (importOriginal) => ({
 }));
 vi.mock('../callbacks', () => ({ dialDueCallbacks: vi.fn(async () => ({})) }));
 vi.mock('../process', () => ({ processStoredPbxEvent: vi.fn() }));
+const silence = vi.hoisted(() => ({
+  calls: [] as string[],
+  run: async () => ({ alerted: 1, restored: 0 }),
+}));
+vi.mock('../health', () => ({
+  checkPbxSilence: vi.fn(async () => {
+    silence.calls.push('silence');
+    return silence.run();
+  }),
+}));
 
 import {
   expireRecordings,
@@ -165,6 +175,33 @@ describe('runPbxCron', () => {
     expect(out.outcomeReminders).toBe(2);
   });
 
+  it('runs the silence alert after the reminders, before any download', async () => {
+    const f = fakeDb([]);
+    silence.calls = [];
+    const order: string[] = [];
+    f.rpc.mockImplementation(async (name: string) => {
+      order.push(name);
+      return { data: 2, error: null };
+    });
+    silence.run = async () => {
+      order.push('silence');
+      return { alerted: 1, restored: 0 };
+    };
+    const out = await runPbxCron({ db: f.db });
+    expect(order.slice(0, 3)).toEqual([
+      'pbx_presence_keepalive',
+      'pbx_outcome_reminders',
+      'silence',
+    ]);
+    expect(out.silence).toEqual({ alerted: 1, restored: 0 });
+    silence.run = async () => {
+      throw new Error('read failed');
+    };
+    const failed = await runPbxCron({ db: fakeDb([]).db });
+    expect(failed.errors.silence).toBe('read failed');
+    silence.run = async () => ({ alerted: 1, restored: 0 });
+  });
+
   it('records a failed reminder sweep and runs the other steps', async () => {
     const f = fakeDb(names(1), { remindError: 'db down' });
     const out = await runPbxCron({ db: f.db });
@@ -176,7 +213,11 @@ describe('runPbxCron', () => {
   it('starts no reminder sweep once the budget is spent', async () => {
     const f = fakeDb([]);
     const out = await runPbxCron({ db: f.db, budgetMs: 0 });
-    expect(out.outOfTime.slice(0, 2)).toEqual(['presence', 'outcomes']);
+    expect(out.outOfTime.slice(0, 3)).toEqual([
+      'presence',
+      'outcomes',
+      'silence',
+    ]);
     expect(f.rpc).not.toHaveBeenCalled();
   });
 

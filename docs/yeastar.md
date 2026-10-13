@@ -210,6 +210,17 @@ connection with no secret stored refuses every push. Optionally set
 - the gateway's latest call-record backfill: when, and how many calls it
   added. A webhook-only install never backfills, so it says _never_.
 
+**The silence alert.** When no event has arrived for 15 minutes, all of
+them inside working hours (09:00–20:00 Dubai, the call-backs' window),
+the owners and admins of the workspace that owns the connection get one
+bell, _No phone system events for …_, which opens Settings → Phone
+system. When events arrive again they get one more, _Phone system events
+are arriving again_, at any hour. A connection that never received an
+event never alerts, and a quiet night does not either: at 09:15 a link
+that has said nothing since the evening does. The PBX cron checks every
+pass (section 10); `pbx_connection_silence()` moves the state and rings
+in one statement, so overlapping passes ring once.
+
 ## 7. Running the gateway
 
 Firmware without webhook push (before 84.20.0.21) relays events through
@@ -294,7 +305,8 @@ recording notice before the owner is connected.
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
 first keeps the red dot of anyone still on a live call (above), then
 rings the outcome reminders (where outcomes are mandatory, at most
-200 a run; see **The wrap-up** below), then
+200 a run; see **The wrap-up** below) and the silence alert (section
+6), then
 fetches pending recordings, dials due call-backs, retries events that
 failed to process (three times each), purges old rows, deletes
 recordings past the workspace's retention period (section 3; up to
