@@ -3901,7 +3901,11 @@
       "cancel": "Cancel",
       "submit": "Share",
       "done": "Shared to #{name}",
-      "open": "Open"
+      "open": "Open",
+      "callAction": "Share to chat",
+      "callTitle": "Share call to team chat",
+      "callDescription": "Posts a card of this call to a channel or a deal room's Team notes. Only colleagues who may see the call see its details. Nothing is sent to the customer.",
+      "callDefaultBody": "Shared a call"
     },
     "sections": {
       "inbox": "WhatsApp inbox",
@@ -4445,6 +4449,14 @@
       "muted": "Muted. You'll still be notified when someone @mentions you.",
       "unmuted": "Notifications are back on.",
       "label": "Muted"
+    },
+    "callCard": {
+      "header": "Phone call",
+      "noAccess": "You don't have access to this call.",
+      "erased": "This call's record was erased.",
+      "unknownCaller": "Unknown caller",
+      "agent": "Agent: {name}",
+      "openCustomer": "Open customer page"
     }
   },
   "Workspaces": {
@@ -4994,7 +5006,8 @@
     "notCallable": "This person can't be called from the room.",
     "roomClosed": "This deal room is closed.",
     "noNumber": "This person has no phone number to call.",
-    "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first."
+    "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first.",
+    "shareCardBody": "Shared a call"
   },
   "ErrorPages": {
     "retry": "Try again",

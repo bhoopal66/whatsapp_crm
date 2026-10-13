@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Phone, PhoneMissed } from 'lucide-react';
 
 import { CallReport } from '@/components/calls/call-report';
+import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
@@ -151,6 +152,7 @@ export function CallsView({ tab }: { tab: Tab }) {
             label={tl('callBack')}
           />
         )}
+        <ShareCallButton callId={c.id} recordingState={c.recordingState} />
       </li>
     );
   };

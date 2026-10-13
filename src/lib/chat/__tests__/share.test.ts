@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { canShareToTeamChat, sharedCardView, shareTargets } from '../share';
-import { toSharedCard, type ChannelWithMembership } from '../types';
+import {
+  canShareCall,
+  canShareToTeamChat,
+  sharedCallCardView,
+  sharedCardView,
+  shareTargets,
+} from '../share';
+import {
+  toSharedCallCard,
+  toSharedCard,
+  type ChannelWithMembership,
+} from '../types';
 
 const ch = (
   id: string,
@@ -54,6 +64,85 @@ describe('shareTargets', () => {
     expect(shareTargets(channels, '2026').map((c) => c.id)).toEqual(['p1']);
     // 'hr' is a private channel you are not in; mashreq-desk merely contains it.
     expect(shareTargets(channels, 'hr').map((c) => c.id)).toEqual(['t2']);
+  });
+
+  it('adds the Team notes of deal rooms you are in for a call card, never DMs', () => {
+    const rooms = [
+      ...channels,
+      ch('r2', 'deal_room', 'deal FAB'),
+      ch('r3', 'deal_room', 'deal old', { member: true, archived: true }),
+    ];
+    expect(
+      shareTargets(rooms, '', { dealRooms: true }).map((c) => [c.id, c.kind])
+    ).toEqual([
+      ['r1', 'deal_room'],
+      ['p1', 'private'],
+      ['t1', 'team'],
+      ['t2', 'team'],
+    ]);
+    expect(shareTargets(rooms).some((c) => c.kind === 'deal_room')).toBe(false);
+  });
+});
+
+describe('canShareCall', () => {
+  it('follows the conversation share, and never offers an erased call', () => {
+    expect(canShareCall('agent', 'fetched')).toBe(true);
+    expect(canShareCall('team_leader', 'none')).toBe(true);
+    expect(canShareCall('agent', 'erased')).toBe(false);
+    expect(canShareCall('viewer', 'none')).toBe(false);
+    expect(canShareCall('bank_guest', 'none')).toBe(false);
+    expect(canShareCall(null, 'none')).toBe(false);
+  });
+});
+
+describe('sharedCallCardView', () => {
+  const row = {
+    message_id: 'm1',
+    can_open: true,
+    erased: false,
+    call_id: 'c1',
+    direction: 'inbound',
+    status: 'answered',
+    started_at: '2026-10-02T09:00:00Z',
+    talk_seconds: 192,
+    outcome: 'interested',
+    notes: 'wants the card',
+    agent_name: 'Rana',
+    contact_id: 'k1',
+    contact_name: '  ',
+    phone: '+971 XXXXXXX01',
+  };
+
+  it('shows the call to someone who may see it, the masked number for a blank name', () => {
+    expect(sharedCallCardView(toSharedCallCard(row))).toEqual({
+      access: true,
+      erased: false,
+      direction: 'inbound',
+      startedAt: '2026-10-02T09:00:00Z',
+      talkSeconds: 192,
+      outcome: 'interested',
+      notes: 'wants the card',
+      agentName: 'Rana',
+      contactId: 'k1',
+      who: '+971 XXXXXXX01',
+    });
+  });
+
+  it('shows nothing without access, whatever the row carried', () => {
+    expect(
+      sharedCallCardView(toSharedCallCard({ ...row, can_open: false }))
+    ).toEqual({
+      access: false,
+    });
+  });
+
+  it('shows only that an erased call was erased', () => {
+    expect(
+      sharedCallCardView(toSharedCallCard({ ...row, erased: true }))
+    ).toEqual({
+      access: true,
+      erased: true,
+    });
   });
 });
 

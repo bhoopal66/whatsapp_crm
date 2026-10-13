@@ -383,6 +383,13 @@ backing off after a refused login is skipped until the backoff ends.
   cannot be posted when the wrap-up closes by itself, it is tried three
   times, then the wrap-up closes with an error saying the card was not
   shared (the outcome and notes are saved on the call).
+- **Call cards in team chat (103).** The wrap-up's call card, and
+  **Share to chat** on the Calls screen and the customer page, post a
+  card of the call to a team or private channel or a deal room's Team
+  notes (never to the customer or a WhatsApp group). The card is read
+  from the call each time: only colleagues who can see the call see its
+  details, and an erased call's card shows nothing but that it was
+  erased. See `docs/internal-chat.md`.
 - **Recordings.** An agent or above who can see a call can play its
   recording;
   only team leaders, admins and owners can download one. Every play,

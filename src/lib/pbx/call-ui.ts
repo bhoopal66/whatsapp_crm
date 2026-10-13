@@ -11,7 +11,7 @@
 // ============================================================
 
 import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
-import type { CallDirection, Disposition } from './calls';
+import type { Disposition } from './calls';
 
 /** calls.disposition, in the order the panel offers them. */
 export const OUTCOMES = [
@@ -27,8 +27,6 @@ export type Outcome = (typeof OUTCOMES)[number];
 export const NOTES_MAX = 4000;
 /** As the dial route limits a do-not-contact override's reason. */
 export const OVERRIDE_REASON_MAX = 500;
-/** How much of the notes a shared call card carries. */
-export const CARD_NOTES_MAX = 600;
 
 /** A call_live row as the screen pop reads it (RLS-filtered). */
 export interface CallLiveRow {
@@ -324,42 +322,6 @@ export function clip(text: string | null | undefined, max: number): string {
   const s = (text ?? '').replace(/\s+/g, ' ').trim();
   const chars = Array.from(s);
   return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : s;
-}
-
-export interface CallCardInput {
-  direction: CallDirection;
-  contactName?: string | null;
-  remoteNumber?: string | null;
-  talkSeconds: number | null;
-  outcome: Outcome | null;
-  notes?: string | null;
-}
-
-export interface CallCardLabels {
-  /** "{direction} call with {who}". */
-  heading: (direction: string, who: string) => string;
-  direction: Record<CallDirection, string>;
-  outcome: Record<Outcome, string>;
-  noOutcome: string;
-  unknownCaller: string;
-}
-
-/**
- * The internal message the panel shares to a team chat channel:
- * "📞 Inbound call with Acme · 3:12 · Interested — notes". The customer
- * is named, else shown by masked number: the card is posted for
- * colleagues, and a full number has no business in a chat log.
- */
-export function callCardText(i: CallCardInput, l: CallCardLabels): string {
-  const who =
-    i.contactName?.trim() || maskPhone(i.remoteNumber) || l.unknownCaller;
-  const parts = [
-    `📞 ${l.heading(l.direction[i.direction], who)}`,
-    formatTimer((i.talkSeconds ?? 0) * 1000),
-    i.outcome ? l.outcome[i.outcome] : l.noOutcome,
-  ];
-  const notes = clip(i.notes, CARD_NOTES_MAX);
-  return parts.join(' · ') + (notes ? ` — ${notes}` : '');
 }
 
 /** Why a deal-room participant cannot be called (lib/deal-rooms/call.ts). */

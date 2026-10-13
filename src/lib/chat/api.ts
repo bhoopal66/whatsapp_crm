@@ -24,6 +24,7 @@ import {
   toPin,
   toSearchHit,
   toSharedCard,
+  toSharedCallCard,
   toUnreadCount,
   toWorkspaceBadge,
   type AttachmentInput,
@@ -38,6 +39,7 @@ import {
   type ReactionSummary,
   type SearchHit,
   type SharedCard,
+  type SharedCallCard,
   type ThreadSummary,
   type UnreadCount,
   type WorkspaceBadge,
@@ -107,6 +109,21 @@ export const postMessage = (
     p_thread_root: i.threadRootId ?? null,
     p_share_conversation: i.shareConversationId ?? null,
     p_attachments: i.attachments ?? [],
+  });
+
+/**
+ * Posts a card of a phone call (103). The body is the sharer's comment
+ * and must carry no call detail: every reader of the channel sees it,
+ * while the card's details reach only people who may see the call.
+ */
+export const shareCall = (
+  sb: SupabaseClient,
+  i: { channelId: string; callId: string; body: string }
+): Promise<string> =>
+  rpc(sb, 'chat_share_call', {
+    p_channel: i.channelId,
+    p_call: i.callId,
+    p_body: i.body,
   });
 
 export const editMessage = (
@@ -239,6 +256,18 @@ export const sharedCards = async (
           p_message_ids: messageIds,
         })) ?? []
       ).map(toSharedCard);
+
+export const sharedCallCards = async (
+  sb: SupabaseClient,
+  messageIds: string[]
+): Promise<SharedCallCard[]> =>
+  messageIds.length === 0
+    ? []
+    : (
+        (await rpc<Row[] | null>(sb, 'chat_shared_call_cards', {
+          p_message_ids: messageIds,
+        })) ?? []
+      ).map(toSharedCallCard);
 
 export const chatPeople = async (
   sb: SupabaseClient,

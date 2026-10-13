@@ -99,7 +99,7 @@ const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
       /not a member of this workspace|not an active member|no authenticated user/i,
       'notWorkspaceMember',
     ],
-    [/cannot share this conversation/i, 'cannotShare'],
+    [/cannot share this (conversation|call)/i, 'cannotShare'],
     [/only the author can edit/i, 'notAuthor'],
     [/message was deleted/i, 'messageDeleted'],
     [/bank guests?/i, 'guestRestricted'],

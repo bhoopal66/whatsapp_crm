@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Hash, Loader2, Lock, Share2 } from 'lucide-react';
+import { Handshake, Hash, Loader2, Lock, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -21,9 +21,14 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   listChannels,
   postMessage,
+  shareCall,
   type ChannelWithMembership,
 } from '@/lib/chat';
-import { canShareToTeamChat, shareTargets } from '@/lib/chat/share';
+import {
+  canShareCall,
+  canShareToTeamChat,
+  shareTargets,
+} from '@/lib/chat/share';
 import { chatErrorKey } from '@/lib/chat/view';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -55,7 +60,16 @@ export function ShareToChatButton({
       </button>
       {open && (
         <ShareDialog
-          conversationId={conversationId}
+          title={t('share.title')}
+          description={t('share.description')}
+          defaultBody={t('share.defaultBody')}
+          submit={(sb, channelId, body) =>
+            postMessage(sb, {
+              channelId,
+              body,
+              shareConversationId: conversationId,
+            })
+          }
           onClose={() => setOpen(false)}
         />
       )}
@@ -63,11 +77,70 @@ export function ShareToChatButton({
   );
 }
 
+/**
+ * "Share to chat" on a call (103): posts a card of the call, with an
+ * optional comment, to a team or private channel or a deal room's Team
+ * notes. Never to the customer, the WhatsApp chat or a deal room's group.
+ * Hidden for viewers, bank guests and an erased call; the database
+ * re-checks the rest (the sharer must see the call, no bank guest).
+ */
+export function ShareCallButton({
+  callId,
+  recordingState,
+}: {
+  callId: string;
+  recordingState: string | null | undefined;
+}) {
+  const t = useTranslations('Chat');
+  const { accountRole } = useAuth();
+  const [open, setOpen] = useState(false);
+  if (!canShareCall(accountRole, recordingState)) return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={t('share.callAction')}
+        aria-label={t('share.callAction')}
+        className="text-muted-foreground hover:bg-muted flex size-8 shrink-0 items-center justify-center rounded-full"
+      >
+        <Share2 className="size-4" />
+      </button>
+      {open && (
+        <ShareDialog
+          dealRooms
+          title={t('share.callTitle')}
+          description={t('share.callDescription')}
+          defaultBody={t('share.callDefaultBody')}
+          submit={(sb, channelId, body) =>
+            shareCall(sb, { channelId, callId, body })
+          }
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/** The channel picker both shares use. */
 function ShareDialog({
-  conversationId,
+  title,
+  description,
+  defaultBody,
+  dealRooms = false,
+  submit,
   onClose,
 }: {
-  conversationId: string;
+  title: string;
+  description: string;
+  /** Posted when the comment is blank; it must carry no customer detail. */
+  defaultBody: string;
+  dealRooms?: boolean;
+  submit: (
+    sb: ReturnType<typeof createClient>,
+    channelId: string,
+    body: string
+  ) => Promise<unknown>;
   onClose: () => void;
 }) {
   const t = useTranslations('Chat');
@@ -98,8 +171,8 @@ function ShareDialog({
   }, [sb, accountId, user?.id, t]);
 
   const targets = useMemo(
-    () => shareTargets(channels ?? [], query),
-    [channels, query]
+    () => shareTargets(channels ?? [], query, { dealRooms }),
+    [channels, query, dealRooms]
   );
   const target = targets.find((c) => c.id === picked) ?? null;
 
@@ -107,11 +180,7 @@ function ShareDialog({
     if (!target || sending) return;
     setSending(true);
     try {
-      await postMessage(sb, {
-        channelId: target.id,
-        body: comment.trim() || t('share.defaultBody'),
-        shareConversationId: conversationId,
-      });
+      await submit(sb, target.id, comment.trim() || defaultBody);
       toast.success(t('share.done', { name: target.name }), {
         action: {
           label: t('share.open'),
@@ -129,8 +198,8 @@ function ShareDialog({
     <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('share.title')}</DialogTitle>
-          <DialogDescription>{t('share.description')}</DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <Input
           value={query}
@@ -167,7 +236,9 @@ function ShareDialog({
                     : 'hover:bg-muted'
                 )}
               >
-                {c.kind === 'private' ? (
+                {c.kind === 'deal_room' ? (
+                  <Handshake className="size-3.5 shrink-0" aria-hidden />
+                ) : c.kind === 'private' ? (
                   <Lock className="size-3.5 shrink-0" aria-hidden />
                 ) : (
                   <Hash className="size-3.5 shrink-0" aria-hidden />

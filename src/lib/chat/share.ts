@@ -9,6 +9,7 @@ import { normalizeDigits } from './search-view';
 import type {
   ChannelWithMembership,
   ChatTagRef,
+  SharedCallCard,
   SharedCard,
   SharedSnapshot,
 } from './types';
@@ -22,9 +23,20 @@ export function canShareToTeamChat(role: string | null | undefined): boolean {
   return !!role && role !== 'viewer' && role !== 'bank_guest';
 }
 
+/**
+ * Who is offered Share on a call (103): as for a conversation, and never
+ * for an erased call, which has nothing left to show.
+ */
+export function canShareCall(
+  role: string | null | undefined,
+  recordingState: string | null | undefined
+): boolean {
+  return canShareToTeamChat(role) && recordingState !== 'erased';
+}
+
 export interface ShareTarget {
   id: string;
-  kind: 'team' | 'private';
+  kind: 'team' | 'private' | 'deal_room';
   name: string;
   /** Posting in a team channel you are not in joins it. */
   joined: boolean;
@@ -33,11 +45,13 @@ export interface ShareTarget {
 /**
  * Open team channels (posting joins them) and the private channels the
  * viewer belongs to, whose name contains `query`; joined ones first,
- * then by name. DMs and deal rooms are left out.
+ * then by name. DMs are left out, and deal rooms unless `dealRooms`
+ * (a call card may go to the Team notes of a room the viewer is in).
  */
 export function shareTargets(
   channels: readonly ChannelWithMembership[],
-  query = ''
+  query = '',
+  { dealRooms = false }: { dealRooms?: boolean } = {}
 ): ShareTarget[] {
   const q = normalizeDigits(query.trim()).toLowerCase().replace(/^#/, '');
   return channels
@@ -45,11 +59,13 @@ export function shareTargets(
       (c) =>
         !c.archivedAt &&
         !!c.name &&
-        (c.kind === 'team' || (c.kind === 'private' && !!c.membership))
+        (c.kind === 'team' ||
+          ((c.kind === 'private' || (dealRooms && c.kind === 'deal_room')) &&
+            !!c.membership))
     )
     .map((c) => ({
       id: c.id,
-      kind: c.kind as 'team' | 'private',
+      kind: c.kind as ShareTarget['kind'],
       name: c.name as string,
       joined: !!c.membership,
     }))
@@ -92,5 +108,45 @@ export function sharedCardView(card: SharedCard): SharedCardView {
     details: [s.phone, s.company].filter(Boolean).join(' · '),
     lastMessages: s.lastMessages.slice(-2),
     tag: card.chatTag,
+  };
+}
+
+/** What a call card shows (103). */
+export type SharedCallCardView =
+  | { access: false }
+  | { access: true; erased: true }
+  | {
+      access: true;
+      erased: false;
+      direction: NonNullable<SharedCallCard['direction']>;
+      startedAt: string | null;
+      talkSeconds: number;
+      outcome: string | null;
+      notes: string | null;
+      agentName: string | null;
+      /** The customer page, when the call has a customer. */
+      contactId: string | null;
+      /** The customer's name, else the masked number; null: "Unknown caller". */
+      who: string | null;
+    };
+
+/**
+ * Keys off `canOpen` and `erased` alone, so a card without access, or
+ * of an erased call, never shows a call field, whatever the row carried.
+ */
+export function sharedCallCardView(card: SharedCallCard): SharedCallCardView {
+  if (!card.canOpen) return { access: false };
+  if (card.erased || !card.direction) return { access: true, erased: true };
+  return {
+    access: true,
+    erased: false,
+    direction: card.direction,
+    startedAt: card.startedAt,
+    talkSeconds: card.talkSeconds ?? 0,
+    outcome: card.outcome,
+    notes: card.notes,
+    agentName: card.agentName,
+    contactId: card.contactId,
+    who: card.contactName?.trim() || card.phone || null,
   };
 }

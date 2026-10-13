@@ -14,12 +14,14 @@ import {
   listMessages,
   MESSAGE_COLUMNS,
   reactionsFor,
+  sharedCallCards,
   sharedCards,
   threadSummaries,
   toChatError,
   toChatMessage,
   toggleReaction,
   withDetails,
+  type SharedCallCard,
   type SharedCard,
   type TimelineState,
 } from '@/lib/chat';
@@ -61,6 +63,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
     createTimeline(channelId, rootId)
   );
   const [card, setCard] = useState<SharedCard | null>(null);
+  const [callCard, setCallCard] = useState<SharedCallCard | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -84,12 +87,15 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
       const all = rootRow ? [rootRow, ...page.messages] : page.messages;
       const ids = all.map((m) => m.id);
       const rootIds = rootRow ? [rootRow.id] : [];
-      const [attachments, reactions, threads, cards] = await Promise.all([
-        attachmentsFor(sb, ids),
-        reactionsFor(sb, ids),
-        threadSummaries(sb, rootIds),
-        sharedCards(sb, rootIds),
-      ]);
+      const [attachments, reactions, threads, cards, calls] = await Promise.all(
+        [
+          attachmentsFor(sb, ids),
+          reactionsFor(sb, ids),
+          threadSummaries(sb, rootIds),
+          sharedCards(sb, rootIds),
+          sharedCallCards(sb, rootIds),
+        ]
+      );
       if (off) return;
       const detailed = withDetails(all, { attachments, reactions, threads });
       setRoot({
@@ -103,6 +109,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
         hasMoreOlder: page.hasMore,
       });
       setCard(cards[0] ?? null);
+      setCallCard(calls[0] ?? null);
     })()
       .catch((err) => !off && fail(err))
       .finally(() => !off && setLoading(false));
@@ -204,6 +211,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
               message={rootMsg}
               grouped={false}
               card={card ?? undefined}
+              callCard={callCard ?? undefined}
               actions={actions}
               onToggleReaction={toggle}
             />
