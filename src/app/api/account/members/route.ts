@@ -20,33 +20,32 @@
 // this is ever reopened to more roles.
 // ============================================================
 
-import { NextResponse } from "next/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 
 import {
   ADDABLE_ROLES,
   addOrCreateMember,
   isAddableRole,
-} from "@/lib/account/add-member";
+} from '@/lib/account/add-member';
 import {
   getCurrentAccount,
   requireRole,
   toErrorResponse,
-} from "@/lib/auth/account";
+} from '@/lib/auth/account';
 import {
   canGrantRole,
   canInviteMembers,
   canManageMembers,
   isAccountRole,
-} from "@/lib/auth/roles";
+} from '@/lib/auth/roles';
 import {
   checkRateLimit,
   rateLimitResponse,
   RATE_LIMITS,
-} from "@/lib/rate-limit";
-import { serverSupabaseUrl } from "@/lib/supabase/urls";
-import type { AccountMember } from "@/types";
-
+} from '@/lib/rate-limit';
+import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import type { AccountMember } from '@/types';
 
 /**
  * Service-role client. Creating a login is an admin-API operation and
@@ -58,7 +57,7 @@ function supabaseAdmin() {
   return createAdminClient(
     serverSupabaseUrl(),
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
+    { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }
 
@@ -76,7 +75,7 @@ interface ProfileRow {
 
 export async function GET() {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole('admin');
 
     // RLS on profiles allows reading any row whose account matches
     // the caller's, so this query is naturally account-scoped; since
@@ -87,16 +86,16 @@ export async function GET() {
     // `bank_code` yet) still answers: naming a missing column fails the
     // whole select. The mapping below picks the fields that are returned.
     const { data, error } = await ctx.supabase
-      .from("profiles")
-      .select("*")
-      .eq("account_id", ctx.accountId)
-      .order("created_at", { ascending: true });
+      .from('profiles')
+      .select('*')
+      .eq('account_id', ctx.accountId)
+      .order('created_at', { ascending: true });
 
     if (error) {
-      console.error("[GET /api/account/members] fetch error:", error);
+      console.error('[GET /api/account/members] fetch error:', error);
       return NextResponse.json(
-        { error: "Failed to load members" },
-        { status: 500 },
+        { error: 'Failed to load members' },
+        { status: 500 }
       );
     }
 
@@ -110,7 +109,7 @@ export async function GET() {
       return [
         {
           user_id: row.user_id,
-          full_name: row.full_name ?? "",
+          full_name: row.full_name ?? '',
           email: canSeeEmails ? row.email : null,
           avatar_url: row.avatar_url,
           role: row.account_role,
@@ -153,8 +152,8 @@ export async function POST(request: Request) {
     const ctx = await getCurrentAccount();
     if (!canInviteMembers(ctx.role)) {
       return NextResponse.json(
-        { error: "Adding people requires the team leader role or higher" },
-        { status: 403 },
+        { error: 'Adding people requires the team leader role or higher' },
+        { status: 403 }
       );
     }
 
@@ -163,30 +162,36 @@ export async function POST(request: Request) {
     // bound.
     const limit = checkRateLimit(
       `admin:memberAdd:${ctx.userId}`,
-      RATE_LIMITS.adminAction,
+      RATE_LIMITS.adminAction
     );
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = await request.json().catch(() => ({}));
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body.password === "string" ? body.password : "";
-    const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
-    const bankCode = typeof body.bankCode === "string" ? body.bankCode.trim() : "";
+    const email =
+      typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const fullName =
+      typeof body.full_name === 'string' ? body.full_name.trim() : '';
+    const bankCode =
+      typeof body.bankCode === 'string' ? body.bankCode.trim() : '';
     const role = body.role;
 
-    if (!email || !email.includes("@")) {
-      return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
+    if (!email || !email.includes('@')) {
+      return NextResponse.json(
+        { error: 'A valid email is required' },
+        { status: 400 }
+      );
     }
     if (!isAddableRole(role)) {
       return NextResponse.json(
-        { error: `Role must be one of: ${ADDABLE_ROLES.join(", ")}` },
-        { status: 400 },
+        { error: `Role must be one of: ${ADDABLE_ROLES.join(', ')}` },
+        { status: 400 }
       );
     }
     if (!canGrantRole(ctx.role, role)) {
       return NextResponse.json(
-        { error: "A team leader can add agents and viewers only" },
-        { status: 403 },
+        { error: 'A team leader can add agents and viewers only' },
+        { status: 403 }
       );
     }
 
@@ -202,7 +207,10 @@ export async function POST(request: Request) {
       mayCreateLogin: canManageMembers(ctx.role),
     });
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status }
+      );
     }
 
     let member: AccountMember = {
@@ -213,23 +221,23 @@ export async function POST(request: Request) {
       role,
       joined_at: new Date().toISOString(),
       deactivated_at: null,
-      bank_code: role === "bank_guest" ? bankCode : null,
+      bank_code: role === 'bank_guest' ? bankCode : null,
     };
 
     if (!result.created) {
       // An existing login brings the name and avatar of its other
       // workspaces: read the row add_workspace_member just made.
       const { data: row } = await ctx.supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", result.userId)
-        .eq("account_id", ctx.accountId)
+        .from('profiles')
+        .select('*')
+        .eq('user_id', result.userId)
+        .eq('account_id', ctx.accountId)
         .maybeSingle();
       if (row) {
         const profile = row as ProfileRow;
         member = {
           ...member,
-          full_name: profile.full_name ?? "",
+          full_name: profile.full_name ?? '',
           email: profile.email ?? email,
           avatar_url: profile.avatar_url,
           joined_at: profile.created_at,
@@ -237,7 +245,10 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ member, created: result.created }, { status: 201 });
+    return NextResponse.json(
+      { member, created: result.created },
+      { status: 201 }
+    );
   } catch (err) {
     return toErrorResponse(err);
   }
