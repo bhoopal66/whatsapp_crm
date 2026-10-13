@@ -12,6 +12,76 @@ and polish.
 
 ## [Unreleased]
 
+### Team chat: channel settings, mute and edit history
+
+Channel admins, and workspace owners and admins (in a private channel
+only as members), can now rename a channel, change or clear its topic,
+archive and unarchive it from the gear menu in the channel header, and
+remove members from the members panel; every change is audited.
+Archived channels sit in a collapsed **Archived** group in the channel
+list and open read-only. Anyone can mute a channel or DM from the same
+menu: a muted chat rings the bell only for a direct @mention, is dimmed
+in the list, and its plain unread no longer counts in the Team chat or
+workspace badges. Owners and admins can view an edited message's
+earlier versions. A viewer is told that agents and above open deal
+rooms (it used to say "coming soon"), shared conversation cards open a
+team leader's team inbox, and the audit log shows a channel edit's old
+and new name and topic. See `docs/internal-chat.md`.
+
+> **Migration required:** apply
+> `supabase/migrations/091_chat_channel_admin.sql` as a superuser or
+> BYPASSRLS role (re-runnable). It changes `chat_unread_counts`'s return
+> type, so re-running 087 after it fails: re-run 091 afterwards.
+
+### Workspaces: rename, and an audit log of membership changes
+
+**Settings → Workspace** lets admins rename the workspace and change the
+short name on its rail tile; the rail and headers update without a
+reload (`PATCH /api/account` now accepts `short_name`). **Settings →
+Audit log** gains a *Workspace* source: members added, removed,
+re-roled, deactivated or reactivated, a bank guest's bank changing,
+renames, ownership transfers, and team chat switched on or off. Only the
+workspace's owners and admins can read it; it is append-only. See
+`docs/workspaces.md`.
+
+**Fixed:** Settings → Team chat's on/off switch failed with "permission
+denied" for everyone (migration 057's column grants on `accounts`
+predate the column).
+
+> **Migration required:** apply
+> `supabase/migrations/092_workspace_audit.sql` as a superuser or
+> BYPASSRLS role (re-runnable).
+
+### Notifications
+
+The notifications page now lists every workspace's notifications, as
+the sidebar badge counts them; a row from another workspace shows that
+workspace's name, and opening it switches there and opens its screen.
+Clicking a notification opens its screen for every kind: missed calls
+and tasks the customer page, deal-room events the room, channel alerts
+the WhatsApp settings (admins), team-activity alerts Team activity (team
+leaders too). Each kind has its own icon. "Mark all read" covers what
+the page lists.
+
+### Fixed
+
+- **Deal rooms:** a team leader can approve or reject a bank officer
+  only in a room they manage (any team leader could, by id); a create
+  that WhatsApp refused closes the form instead of inviting a second,
+  duplicate room; join requests show in the open room as they arrive.
+  > **Migration required:** apply
+  > `supabase/migrations/095_deal_room_approve_scope.sql` (re-runnable).
+- **Background jobs:** a once-a-minute job on the automations cron
+  (journey tick, phone system) skipped a minute whenever the pinger's
+  request landed a few milliseconds early, so it ran about every two
+  minutes.
+- **Error pages:** a crashed screen keeps the sidebar and offers *Try
+  again*; an unknown address shows a 404 page with a link home (it used
+  to be Next's bare default page).
+- **Bank guests** no longer get a 403 from `/api/pbx/me` on every page.
+- The invitation page's sign-in buttons are valid links (a button was
+  nested in a link).
+
 ### Phone system (Yeastar) — pause storing recordings
 
 Admins can pause the CRM's copies of call recordings, for a server
