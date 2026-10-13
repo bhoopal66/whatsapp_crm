@@ -30,6 +30,10 @@
 -- the subject, description and join approval mode a
 -- `group_settings_update` webhook reports onto the room of the account
 -- the webhook authenticated, renaming its Team notes channel with it.
+-- And Team notes: a trigger on deal_room_audit posts a short system
+-- note into the room's Team notes for each change of membership, a
+-- waiting join request, a STOP, a suspension or its end, and the close,
+-- once per change, fail-open.
 --
 -- 088's superuser / BYPASSRLS guard is repeated: deal_room_record_cost
 -- and deal_room_apply_settings are new SECURITY DEFINER functions
@@ -333,3 +337,99 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.deal_room_apply_settings(uuid, text, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.deal_room_apply_settings(uuid, text, jsonb) TO service_role;
+
+-- ---------- 4. Team notes ----------
+
+-- A short system note in the room's Team notes (its deal_room channel,
+-- through chat_post_system_message) when someone joins, leaves or is
+-- removed, a join request waits for a manager, a member opts out with
+-- STOP, or WhatsApp suspends or reinstates the group, and when the room
+-- closes. Each is posted from the audit row its change writes, and
+-- those rows are written only when the state actually changed
+-- (deal_room_participant_event, deal_room_record_join_request,
+-- deal_room_set_status, and the webhook's `participant_opted_out` row,
+-- written for a STOP message seen the first time), so a redelivered
+-- webhook, which changes nothing, posts nothing, whoever made the
+-- change (the webhook, or a manager's removal or close). Removals and
+-- joins while the room is closing or closed are left out: the close is
+-- the note. People are named as the guest roster names them: someone
+-- nobody listed, or whose name holds their number, is "Unlisted number
+-- ending NN"; a note never carries a whole number.
+-- Fail-open: a note that cannot be posted (internal chat off: CH001, an
+-- archived channel: 42501, no channel: P0002, anything else) is a
+-- WARNING, and never undoes the change it describes.
+CREATE OR REPLACE FUNCTION public.deal_room_audit_team_note()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_r    public.deal_rooms;
+  v_p    public.deal_room_participants;
+  v_pid  uuid;
+  v_wa   text;
+  v_who  text;
+  v_body text;
+  v_live boolean;
+BEGIN
+  IF NEW.action NOT IN ('participant_joined','participant_unlisted','participant_left','participant_removed',
+                        'join_request','participant_opted_out','status_changed') THEN
+    RETURN NULL;
+  END IF;
+  BEGIN
+    SELECT * INTO v_r FROM public.deal_rooms WHERE id = NEW.room_id;
+    v_live := v_r.status NOT IN ('closing','closed');
+    IF NEW.detail->>'participant_id' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      v_pid := (NEW.detail->>'participant_id')::uuid;
+    END IF;
+    v_wa := NEW.detail->>'wa_id';
+    IF NEW.action = 'join_request' THEN
+      SELECT j.wa_id INTO v_wa FROM public.deal_room_join_requests j
+       WHERE j.room_id = NEW.room_id AND j.join_request_id = NEW.detail->>'join_request_id';
+    END IF;
+    IF v_pid IS NULL AND v_wa IS NOT NULL THEN
+      v_pid := public.deal_room_find_participant(NEW.room_id, v_wa);
+    END IF;
+    IF v_pid IS NOT NULL THEN
+      SELECT * INTO v_p FROM public.deal_room_participants WHERE id = v_pid AND room_id = NEW.room_id;
+    END IF;
+    v_who := CASE
+      WHEN v_p.id IS NULL
+        THEN 'Unlisted number' || coalesce(' ending ' || right(nullif(regexp_replace(coalesce(v_wa, ''), '\D', '', 'g'), ''), 2), '')
+      WHEN NOT v_p.expected
+           OR (v_p.phone IS NOT NULL AND strpos(regexp_replace(v_p.display_name, '\D', '', 'g'), v_p.phone) > 0)
+        THEN 'Unlisted number' || coalesce(' ending ' || right(v_p.phone, 2), '')
+      ELSE v_p.display_name
+    END;
+    v_body := CASE
+      WHEN v_p.role = 'business' THEN NULL   -- our own number
+      WHEN NEW.action IN ('participant_joined','participant_unlisted') AND v_live
+        THEN '**' || v_who || '** joined the WhatsApp group.'
+      WHEN NEW.action = 'participant_left' AND v_live
+        THEN '**' || v_who || '** left the WhatsApp group.'
+      WHEN NEW.action = 'participant_removed' AND v_live
+        THEN '**' || v_who || '** was removed from the WhatsApp group.'
+      WHEN NEW.action = 'join_request' AND NEW.detail->>'decision' = 'pending' AND v_r.status = 'open'
+        THEN '**' || v_who || '** asked to join the WhatsApp group. A manager approves or rejects it in the room.'
+      WHEN NEW.action = 'participant_opted_out'
+        THEN '**' || v_who || '** wrote STOP and is removed from the WhatsApp group'
+             || CASE WHEN NEW.detail->'opted_out' = 'true'::jsonb THEN '; their contact is marked opted out.'
+                     ELSE '; no contact of theirs was found to mark opted out.' END
+      WHEN NEW.action = 'status_changed' AND NEW.detail->>'to' = 'suspended'
+        THEN 'WhatsApp suspended this group. Nothing can be sent until WhatsApp clears it.'
+      WHEN NEW.action = 'status_changed' AND NEW.detail->>'to' = 'open' AND NEW.detail->>'from' = 'suspended'
+        THEN 'WhatsApp cleared the suspension. The group is open again.'
+      WHEN NEW.action = 'status_changed' AND NEW.detail->>'to' = 'closed'
+        THEN 'This deal room was closed.'
+    END;
+    IF v_body IS NOT NULL THEN
+      PERFORM public.chat_post_system_message(v_r.channel_id, v_body,
+        jsonb_build_object('deal_room_event', NEW.action, 'room_id', NEW.room_id, 'audit_id', NEW.id));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'deal rooms: team note not posted (%): %', SQLSTATE, SQLERRM;
+  END;
+  RETURN NULL;
+END $$;
+
+REVOKE ALL ON FUNCTION public.deal_room_audit_team_note() FROM PUBLIC, anon, authenticated, service_role;
+DROP TRIGGER IF EXISTS deal_room_audit_team_note ON public.deal_room_audit;
+CREATE TRIGGER deal_room_audit_team_note AFTER INSERT ON public.deal_room_audit
+  FOR EACH ROW EXECUTE FUNCTION public.deal_room_audit_team_note();

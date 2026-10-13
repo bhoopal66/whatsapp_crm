@@ -546,6 +546,11 @@ export async function handleGroupWebhook(
       body = null;
     }
 
+    // A STOP seen before (a redelivery the edge screen let through)
+    // removes and stamps again, but writes no second opt-out record.
+    const stop = type === 'text' && isOptOutText(body);
+    const fresh = stop && !(await seenMessage(id));
+
     await rpc('deal_room_record_message', {
       p_account: accountId,
       p_group_id: groupId,
@@ -557,7 +562,17 @@ export async function handleGroupWebhook(
       p_media: media,
     });
 
-    if (type === 'text' && isOptOutText(body)) await optOut(r, groupId, from);
+    if (stop) await optOut(r, groupId, from, fresh);
+  }
+
+  async function seenMessage(waMessageId: string): Promise<boolean> {
+    const { data } = await db
+      .from('group_messages')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('wa_message_id', waMessageId)
+      .maybeSingle();
+    return data != null;
   }
 
   // "Saved to the deal file automatically": the bytes go to the private
@@ -619,7 +634,12 @@ export async function handleGroupWebhook(
     return media;
   }
 
-  async function optOut(r: Room, groupId: string, waId: string): Promise<void> {
+  async function optOut(
+    r: Room,
+    groupId: string,
+    waId: string,
+    fresh: boolean
+  ): Promise<void> {
     try {
       await removeParticipants({
         groupId,
@@ -656,6 +676,18 @@ export async function handleGroupWebhook(
       contactId = pickContactByPhone(rows, variants);
     }
     if (contactId) await markOptedOut(db, { accountId, contactId });
+    if (fresh) {
+      // The room's record of the STOP; its audit trigger (migration 100)
+      // posts the Team note. Fail-open: the removal and stamp stand.
+      const { error } = await db.from('deal_room_audit').insert({
+        room_id: r.id,
+        account_id: accountId,
+        actor_id: null,
+        action: 'participant_opted_out',
+        detail: { wa_id: waId, opted_out: contactId !== null },
+      });
+      if (error) console.error('[deal-rooms] opt-out record failed:', error);
+    }
     await rpc('deal_room_record_message', {
       p_account: accountId,
       p_group_id: groupId,

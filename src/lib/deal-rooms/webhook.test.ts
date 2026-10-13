@@ -615,6 +615,47 @@ describe('group messages and receipts', () => {
     });
   });
 
+  it('records a STOP once: a redelivered one removes again but adds no record', async () => {
+    const stop = {
+      messages: [
+        {
+          id: 'wamid.6',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'stop' },
+        },
+      ],
+    };
+    const first = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+      },
+    });
+    await run(first.db, stop);
+    expect(first.inserts('deal_room_audit')).toEqual([
+      {
+        room_id: 'room-1',
+        account_id: 'acct-1',
+        actor_id: null,
+        action: 'participant_opted_out',
+        detail: { wa_id: '971501234567', opted_out: true },
+      },
+    ]);
+    const again = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+        group_messages: { id: 'gm-6' },
+      },
+    });
+    await run(again.db, stop);
+    expect(removeParticipants).toHaveBeenCalledTimes(2);
+    expect(markOptedOut).toHaveBeenCalledTimes(2);
+    expect(again.inserts('deal_room_audit')).toEqual([]);
+  });
+
   it('picks the contact on the earliest number form, ignoring junk rows', () => {
     const variants = ['971501234567', '9710501234567'];
     expect(

@@ -30,7 +30,8 @@
 -- And 100's deal_room_apply_settings: a group's subject, description
 -- and join approval mode from the webhook, in its own account only;
 -- and that the group STOP's service-role opt-out stamp is recorded in
--- 086's consent history.
+-- 086's consent history; and 100's Team notes: one per change of the
+-- group, none for a redelivery, no whole number, fail-open.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -1081,6 +1082,42 @@ BEGIN
      OR EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_lead AND subject = 'Reopened') THEN
     failed := array_append(failed, ('a group settings update was not applied once, in its own account: '
                                     || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: Team notes. Each change of the group posts one system note in
+  -- the room's Team notes and a redelivery, which changes nothing, none:
+  -- a joiner nobody listed (named without their number), their leaving,
+  -- a suspension and its end, a join request waiting for a manager. With
+  -- internal chat off the change still lands, without a note.
+  s := 'SELECT public.deal_room_participant_event(%L, %L, %L, %L)';
+  t := 'SELECT ''s'' FROM public.deal_room_set_status(%L, %L)';
+  r := pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'left'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'left'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'suspended'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'suspended'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'open'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'open'));
+  t := 'SELECT public.deal_room_record_join_request(%L, %L, %L, %L)';
+  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, a_acct, 'dr-grp-shared@g.us', 'dr-jr-note', '971500880056'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, a_acct, 'dr-grp-shared@g.us', 'dr-jr-note', '971500880056'));
+  UPDATE accounts SET internal_chat_enabled = false WHERE id = a_acct;
+  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'joined'));
+  UPDATE accounts SET internal_chat_enabled = true WHERE id = a_acct;
+  n := n + 1;
+  IF r IS DISTINCT FROM 'joined / joined / left / left / s / s / s / s / pending / pending / joined'
+     OR (SELECT string_agg(m.meta->>'deal_room_event', ',' ORDER BY m.meta->>'deal_room_event', m.body)
+           FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+          WHERE d.id = r_y AND m.author_kind = 'system')
+        IS DISTINCT FROM 'join_request,participant_left,participant_unlisted,status_changed,status_changed'
+     OR NOT EXISTS (SELECT 1 FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+                     WHERE d.id = r_y AND m.body = '**Unlisted number ending 55** left the WhatsApp group.')
+     OR EXISTS (SELECT 1 FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+                 WHERE d.id = r_y AND m.body ~ '9715008800')
+     OR NOT EXISTS (SELECT 1 FROM deal_room_participants
+                     WHERE room_id = r_y AND phone = '971500880055' AND status = 'joined') THEN
+    failed := array_append(failed, ('Team notes are not one per change of the group: ' || coalesce(r, 'NULL'))::text);
   END IF;
 
   -- The group STOP (lib/deal-rooms/webhook.ts) stamps the contact as the
