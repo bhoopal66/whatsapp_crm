@@ -9,8 +9,16 @@ import { CallReport } from '@/components/calls/call-report';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
-import { hasMinRole } from '@/lib/auth/roles';
-import { callBackFor } from '@/lib/pbx/call-ui';
+import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
+import {
+  UNROUTED_SUMMARY_DAYS,
+  callBackFor,
+  messageWhen,
+  shownCallsTab,
+  visibleCallTabs,
+  type CallsTab,
+} from '@/lib/pbx/call-ui';
+import type { UnroutedNumber } from '@/lib/pbx/calls';
 import {
   callHeading,
   callTone,
@@ -29,12 +37,15 @@ type CallRow = TimelineCall & {
   remoteNumber: string | null;
   doNotContactAt: string | null;
   doNotContactReason: string | null;
+  /** The number the customer dialled (calls.did_number). */
+  didNumber?: string | null;
 };
-type Tab = 'missed' | 'log' | 'people';
 interface Loaded {
-  tab: Tab;
+  tab: CallsTab;
   calls: CallRow[];
   tasks: TimelineTask[];
+  /** Unrouted: the dialled numbers, summed over every such call. */
+  numbers: UnroutedNumber[];
   failed: boolean;
 }
 
@@ -44,11 +55,14 @@ const getJson = (url: string) =>
     return r.json();
   });
 
-export function CallsView({ tab }: { tab: Tab }) {
+export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const t = useTranslations('CallsPage');
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
   const { accountRole } = useAuth();
+  // A direct link to a tab this role is not offered (the API would
+  // refuse it) shows Missed calls, as an unknown ?tab= does.
+  const tab = shownCallsTab(requested, accountRole);
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -64,7 +78,9 @@ export function CallsView({ tab }: { tab: Tab }) {
         ? `/api/pbx/calls?scope=missed&limit=200&from=${encodeURIComponent(
             missedWindowStart(Date.now())
           )}`
-        : '/api/pbx/calls?scope=all&limit=200';
+        : tab === 'unrouted'
+          ? '/api/pbx/calls?scope=unrouted&limit=200'
+          : '/api/pbx/calls?scope=all&limit=200';
     Promise.all([
       getJson(calls),
       tab === 'missed'
@@ -79,11 +95,13 @@ export function CallsView({ tab }: { tab: Tab }) {
             tab,
             calls: c.calls ?? [],
             tasks: k.tasks ?? [],
+            numbers: c.numbers ?? [],
             failed: false,
           });
       })
       .catch(() => {
-        if (!cancelled) setLoaded({ tab, calls: [], tasks: [], failed: true });
+        if (!cancelled)
+          setLoaded({ tab, calls: [], tasks: [], numbers: [], failed: true });
       });
     return () => {
       cancelled = true;
@@ -102,6 +120,10 @@ export function CallsView({ tab }: { tab: Tab }) {
     const Icon = missed ? PhoneMissed : Phone;
     const who = c.contactName || c.remoteNumber || t('unknownCaller');
     const back = missed ? callBackFor(c, accountRole) : null;
+    const details = [say(h.label), ...h.details.map(say)];
+    // An erased call keeps the number dialled, not the caller's.
+    if (tab === 'unrouted' && c.didNumber)
+      details.push(t('unrouted.dialled', { number: c.didNumber }));
     return (
       <li
         key={c.id}
@@ -129,7 +151,7 @@ export function CallsView({ tab }: { tab: Tab }) {
             <span className="font-semibold">{who}</span>
           )}
           <p className="text-muted-foreground truncate text-sm">
-            {[say(h.label), ...h.details.map(say)].join(' · ')}
+            {details.join(' · ')}
           </p>
         </div>
         {task && (
@@ -170,39 +192,77 @@ export function CallsView({ tab }: { tab: Tab }) {
     );
 
   const split =
-    current && tab === 'log'
+    current && (tab === 'log' || tab === 'unrouted')
       ? splitCallLog(current.calls, Date.now(), timeZone)
       : null;
+
+  // Which numbers want a route, with a way to add one (admins only see
+  // this tab, and only they edit routes).
+  const numbers = tab === 'unrouted' &&
+    current &&
+    current.numbers.length > 0 && (
+      <section className="border-border bg-card overflow-hidden rounded-xl border">
+        <h2 className="border-border text-muted-foreground flex flex-wrap items-baseline justify-between gap-x-3 border-b px-4 py-2 text-xs font-semibold tracking-wide uppercase">
+          {t('unrouted.numbersTitle')}
+          <span className="font-normal tracking-normal normal-case">
+            {t('unrouted.numbersWindow', { days: UNROUTED_SUMMARY_DAYS })}
+          </span>
+        </h2>
+        <ul>
+          {current.numbers.map((n) => (
+            <li
+              key={n.didNumber}
+              className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-3 last:border-b-0"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold tabular-nums">{n.didNumber}</p>
+                <p className="text-muted-foreground text-sm">
+                  {t('unrouted.numberCalls', {
+                    count: n.calls,
+                    last: messageWhen(n.lastAt, Date.now(), {
+                      locale,
+                      timeZone,
+                    }),
+                  })}
+                </p>
+              </div>
+              <Link
+                href={PBX_ROUTES_HREF}
+                className="text-primary text-sm font-medium hover:underline"
+              >
+                {t('unrouted.addRoute')}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
       <h1 className="text-xl font-bold">{t('title')}</h1>
       <nav className="flex gap-2" aria-label={t('title')}>
-        {(['missed', 'log', 'people'] as const)
-          // The report is for team leaders and up (pbx_call_report).
-          .filter(
-            (k) =>
-              k !== 'people' ||
-              (accountRole !== null && hasMinRole(accountRole, 'team_leader'))
-          )
-          .map((k) => (
-            <Link
-              key={k}
-              href={k === 'missed' ? '/calls' : `/calls?tab=${k}`}
-              aria-current={tab === k ? 'page' : undefined}
-              className={cn(
-                'rounded-full border px-3 py-1 text-sm',
-                tab === k
-                  ? 'bg-foreground text-background border-transparent'
-                  : 'border-border text-muted-foreground hover:bg-muted'
-              )}
-            >
-              {t(`tabs.${k}`)}
-            </Link>
-          ))}
+        {visibleCallTabs(accountRole).map((k) => (
+          <Link
+            key={k}
+            href={k === 'missed' ? '/calls' : `/calls?tab=${k}`}
+            aria-current={tab === k ? 'page' : undefined}
+            className={cn(
+              'rounded-full border px-3 py-1 text-sm',
+              tab === k
+                ? 'bg-foreground text-background border-transparent'
+                : 'border-border text-muted-foreground hover:bg-muted'
+            )}
+          >
+            {t(`tabs.${k}`)}
+          </Link>
+        ))}
       </nav>
       {tab === 'missed' && (
         <p className="text-muted-foreground text-sm">{t('missedHint')}</p>
+      )}
+      {tab === 'unrouted' && (
+        <p className="text-muted-foreground text-sm">{t('unrouted.hint')}</p>
       )}
       {tab === 'people' ? (
         <CallReport />
@@ -212,10 +272,15 @@ export function CallsView({ tab }: { tab: Tab }) {
         <p className="text-destructive text-sm">{t('loadFailed')}</p>
       ) : current.calls.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          {tab === 'missed' ? t('emptyMissed') : t('emptyLog')}
+          {tab === 'missed'
+            ? t('emptyMissed')
+            : tab === 'unrouted'
+              ? t('unrouted.empty')
+              : t('emptyLog')}
         </p>
       ) : split ? (
         <>
+          {numbers}
           {list(split.today, t('today'))}
           {list(split.older, t('older'))}
         </>

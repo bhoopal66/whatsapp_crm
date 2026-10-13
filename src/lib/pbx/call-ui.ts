@@ -10,7 +10,12 @@
 // names the customer by name or by a masked number, never the number.
 // ============================================================
 
-import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
+import {
+  canViewUnroutedCalls,
+  hasMinRole,
+  isBankGuest,
+  type AccountRole,
+} from '@/lib/auth/roles';
 import type { Disposition } from './calls';
 
 /** calls.disposition, in the order the panel offers them. */
@@ -815,3 +820,53 @@ export function messageWhen(
   });
   return `${date}, ${time}`;
 }
+
+// ---------- The Calls screen's tabs ----------
+
+/** /calls?tab=…, Missed calls being the default (no tab). */
+export const CALLS_TABS = ['missed', 'log', 'people', 'unrouted'] as const;
+export type CallsTab = (typeof CALLS_TABS)[number];
+
+/** `?tab=` as the page reads it: anything else is Missed calls. */
+export const callsTab = (tab: string | undefined): CallsTab =>
+  (CALLS_TABS as readonly (string | undefined)[]).includes(tab)
+    ? (tab as CallsTab)
+    : 'missed';
+
+/**
+ * The tabs `role` is offered: By person to team leaders and up
+ * (pbx_call_report), Unrouted to owners and admins
+ * (canViewUnroutedCalls, as the list route refuses the scope below).
+ * With no role yet, the tabs everyone has.
+ */
+export function visibleCallTabs(role: AccountRole | null): CallsTab[] {
+  return CALLS_TABS.filter((k) =>
+    k === 'people'
+      ? role !== null && hasMinRole(role, 'team_leader')
+      : k === 'unrouted'
+        ? role !== null && canViewUnroutedCalls(role)
+        : true
+  );
+}
+
+/**
+ * The tab to show for `?tab=`: the one asked for, unless `role` is known
+ * and is not offered it (a direct link to Unrouted below admin, to By
+ * person below team leader), which is Missed calls like any other tab
+ * the screen does not know. With no role yet the request stands.
+ */
+export function shownCallsTab(
+  tab: CallsTab,
+  role: AccountRole | null
+): CallsTab {
+  return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
+}
+
+/**
+ * How far back the Unrouted tab's numbers reach when the request names
+ * no start. The listed calls are the newest whatever their age, but a
+ * number that was fixed long ago must not outrank one that just started
+ * failing, and each open of the tab reads this window once. The list
+ * route and the tab's own wording both read it.
+ */
+export const UNROUTED_SUMMARY_DAYS = 30;

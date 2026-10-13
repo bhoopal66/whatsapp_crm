@@ -11,6 +11,7 @@ import {
   canEditExtension,
   enforcedRetention,
   extensionState,
+  PBX_ROUTES_ANCHOR,
   parseDueMinutes,
   parseRetentionDays,
   retentionNeedsConfirm,
@@ -65,11 +66,13 @@ let nextKey = 0;
 const NONE = '__none__';
 
 function Card({
+  id,
   title,
   action,
   className,
   children,
 }: {
+  id?: string;
   title: ReactNode;
   action?: ReactNode;
   className?: string;
@@ -77,6 +80,7 @@ function Card({
 }) {
   return (
     <section
+      id={id}
       className={cn(
         'border-border bg-card min-w-0 rounded-xl border p-4',
         className
@@ -132,6 +136,15 @@ export function RoutesCard({
       '/api/pbx/routes'
     ).then((res) => {
       if (res.ok) take(res.data);
+      // Linked from the Calls screen's Unrouted view (PBX_ROUTES_HREF):
+      // this panel renders after navigation, too late for the browser's
+      // own jump to the anchor.
+      if (window.location.hash === `#${PBX_ROUTES_ANCHOR}`)
+        requestAnimationFrame(() =>
+          document
+            .getElementById(PBX_ROUTES_ANCHOR)
+            ?.scrollIntoView({ block: 'start' })
+        );
     });
   }, [take]);
 
@@ -161,7 +174,11 @@ export function RoutesCard({
   };
 
   return (
-    <Card title={t('routes.title')}>
+    <Card
+      id={PBX_ROUTES_ANCHOR}
+      title={t('routes.title')}
+      className="scroll-mt-4"
+    >
       <Table>
         <TableHeader>
           <TableRow>

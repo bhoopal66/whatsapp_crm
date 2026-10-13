@@ -4869,7 +4869,8 @@
     "tabs": {
       "missed": "부재중 전화",
       "log": "통화 기록",
-      "people": "담당자별"
+      "people": "담당자별",
+      "unrouted": "경로 미지정"
     },
     "missedHint": "최근 7일간의 부재중 전화, 최신순",
     "today": "오늘",
@@ -4880,6 +4881,15 @@
     "taskOpen": "할 일 열림",
     "taskDone": "할 일 완료",
     "loadFailed": "통화를 불러오지 못했습니다",
+    "unrouted": {
+      "hint": "경로가 없는 번호로 걸려 와 이 워크스페이스에 기록된 통화, 최신순",
+      "empty": "경로가 없는 번호로 걸려 온 통화가 없습니다",
+      "numbersTitle": "경로 없이 걸려 온 번호",
+      "numbersWindow": "최근 {days}일",
+      "numberCalls": "통화 {count}건, 마지막 {last}",
+      "addRoute": "이 번호의 경로 추가",
+      "dialled": "착신 번호 {number}"
+    },
     "report": {
       "periods": {
         "today": "오늘",

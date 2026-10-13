@@ -4869,7 +4869,8 @@
     "tabs": {
       "missed": "Missed calls",
       "log": "Call log",
-      "people": "By person"
+      "people": "By person",
+      "unrouted": "Unrouted"
     },
     "missedHint": "Missed in the last 7 days, newest first",
     "today": "Today",
@@ -4880,6 +4881,15 @@
     "taskOpen": "Task open",
     "taskDone": "Task done",
     "loadFailed": "Couldn't load calls",
+    "unrouted": {
+      "hint": "Calls to a number with no route, filed under this workspace, newest first",
+      "empty": "No calls to a number without a route",
+      "numbersTitle": "Numbers called without a route",
+      "numbersWindow": "Last {days, plural, one {# day} other {# days}}",
+      "numberCalls": "{count, plural, one {# call} other {# calls}}, last {last}",
+      "addRoute": "Add a route for this number",
+      "dialled": "Dialled {number}"
+    },
     "report": {
       "periods": {
         "today": "Today",

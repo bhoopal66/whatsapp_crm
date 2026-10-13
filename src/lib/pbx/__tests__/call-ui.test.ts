@@ -33,6 +33,9 @@ import {
   type CallLiveRow,
   loadsPbxMe,
   callBackFor,
+  callsTab,
+  shownCallsTab,
+  visibleCallTabs,
 } from '../call-ui';
 import { ACCOUNT_ROLES } from '@/lib/auth/roles';
 
@@ -564,5 +567,45 @@ describe('callBackFor', () => {
       expect(callBackFor(known, role)).toBeNull();
       expect(callBackFor(unknown, role)).toBeNull();
     }
+  });
+});
+
+describe('the Calls screen tabs', () => {
+  it('offers By person to leaders and up, Unrouted to owners and admins', () => {
+    const tabs = Object.fromEntries(
+      ACCOUNT_ROLES.map((r) => [r, visibleCallTabs(r).join(',')])
+    );
+    expect(tabs).toEqual({
+      owner: 'missed,log,people,unrouted',
+      admin: 'missed,log,people,unrouted',
+      team_leader: 'missed,log,people',
+      agent: 'missed,log',
+      viewer: 'missed,log',
+      bank_guest: 'missed,log',
+    });
+    expect(visibleCallTabs(null)).toEqual(['missed', 'log']);
+  });
+
+  it('reads ?tab=, anything else being Missed calls', () => {
+    expect(callsTab('unrouted')).toBe('unrouted');
+    expect(callsTab('people')).toBe('people');
+    expect(callsTab(undefined)).toBe('missed');
+    expect(callsTab('team')).toBe('missed');
+  });
+
+  it('shows Missed calls when a link names a tab the role is not offered', () => {
+    expect(shownCallsTab('unrouted', 'team_leader')).toBe('missed');
+    expect(shownCallsTab('unrouted', 'agent')).toBe('missed');
+    expect(shownCallsTab('unrouted', 'viewer')).toBe('missed');
+    expect(shownCallsTab('people', 'agent')).toBe('missed');
+    expect(shownCallsTab('people', 'viewer')).toBe('missed');
+    // The tabs a role is offered stand.
+    expect(shownCallsTab('unrouted', 'admin')).toBe('unrouted');
+    expect(shownCallsTab('unrouted', 'owner')).toBe('unrouted');
+    expect(shownCallsTab('people', 'team_leader')).toBe('people');
+    expect(shownCallsTab('log', 'viewer')).toBe('log');
+    expect(shownCallsTab('missed', 'agent')).toBe('missed');
+    // Before the role is known the request stands (the API decides).
+    expect(shownCallsTab('unrouted', null)).toBe('unrouted');
   });
 });

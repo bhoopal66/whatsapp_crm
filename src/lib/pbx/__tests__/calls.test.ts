@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { ACCOUNT_ROLES } from '@/lib/auth/roles';
 import {
   callDirectionLabel,
   callStatusLabel,
+  canListCallScope,
   dncDecision,
   isMissedCall,
   monthStart,
@@ -13,6 +15,7 @@ import {
   recordingRefusal,
   recordingRefusalCode,
   summarizeMonth,
+  unroutedNumbers,
   visibleCall,
 } from '../calls';
 
@@ -233,10 +236,71 @@ describe('pbx call helpers', () => {
       limit: 200,
     });
     expect(q('contactId=x')).toBe('contactId must be an id');
-    expect(q('scope=team')).toBe('scope must be one of mine, missed, all');
+    expect(q('scope=team')).toBe(
+      'scope must be one of mine, missed, all, unrouted'
+    );
+    expect(q('scope=unrouted')).toMatchObject({ scope: 'unrouted' });
     expect(q('to=yesterday')).toBe('from and to must be dates');
     for (const limit of ['0', '201', '2.5', 'ten'])
       expect(q(`limit=${limit}`)).toMatch(/^limit must be/);
+  });
+
+  it('lists unrouted calls to owners and admins only', () => {
+    for (const role of ACCOUNT_ROLES) {
+      expect(canListCallScope(role, 'unrouted')).toBe(
+        role === 'owner' || role === 'admin'
+      );
+      for (const scope of ['mine', 'missed', 'all'] as const)
+        expect(canListCallScope(role, scope)).toBe(true);
+    }
+  });
+
+  it('sums up unrouted calls by dialled number', () => {
+    const r = (did_number: string | null, started_at: string) => ({
+      did_number,
+      started_at,
+    });
+    expect(
+      unroutedNumbers([
+        r('97142000002', '2026-10-12T07:00:00Z'),
+        r('97142000001', '2026-10-12T09:00:00Z'),
+        r(null, '2026-10-12T10:00:00Z'),
+        r('97142000001', '2026-10-12T06:00:00Z'),
+        r('97142000003', '2026-10-12T08:00:00Z'),
+      ])
+    ).toEqual([
+      { didNumber: '97142000001', calls: 2, lastAt: '2026-10-12T09:00:00Z' },
+      { didNumber: '97142000003', calls: 1, lastAt: '2026-10-12T08:00:00Z' },
+      { didNumber: '97142000002', calls: 1, lastAt: '2026-10-12T07:00:00Z' },
+    ]);
+    expect(unroutedNumbers([])).toEqual([]);
+  });
+
+  it('puts the number called most recently first, whatever its count', () => {
+    const r = (did_number: string, started_at: string) => ({
+      did_number,
+      started_at,
+    });
+    // 001 took three calls and was fixed; 002 only just began to fail.
+    const numbers = unroutedNumbers([
+      r('97142000001', '2026-09-20T09:00:00Z'),
+      r('97142000001', '2026-09-20T10:00:00Z'),
+      r('97142000001', '2026-09-20T11:00:00Z'),
+      r('97142000002', '2026-10-12T07:00:00Z'),
+    ]);
+    expect(numbers.map((n) => [n.didNumber, n.calls])).toEqual([
+      ['97142000002', 1],
+      ['97142000001', 3],
+    ]);
+    // The same latest call: more calls first, then the number itself.
+    expect(
+      unroutedNumbers([
+        r('97142000003', '2026-10-12T07:00:00Z'),
+        r('97142000002', '2026-10-12T07:00:00Z'),
+        r('97142000001', '2026-10-12T07:00:00.000Z'),
+        r('97142000001', '2026-10-11T07:00:00Z'),
+      ]).map((n) => n.didNumber)
+    ).toEqual(['97142000001', '97142000002', '97142000003']);
   });
 
   it('finds the caller’s own leg only on a call that lists their extension', () => {
