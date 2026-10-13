@@ -59,7 +59,11 @@ export function useChatWorkspace() {
   const loadChannels = useCallback(async () => {
     if (!accountId || !userId) return;
     try {
-      const list = await listChannels(sb, accountId, userId);
+      // Archived ones too: the sidebar lists them apart (sidebarSections)
+      // and they open read-only, so an admin can unarchive one (091).
+      const list = await listChannels(sb, accountId, userId, {
+        includeArchived: true,
+      });
       setChannels(list);
     } catch (err) {
       setChannels((prev) => prev ?? []);

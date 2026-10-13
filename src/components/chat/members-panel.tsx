@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   ShieldCheck,
   ShieldOff,
+  UserMinus,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import {
   addMembers,
   channelMembers,
   leaveChannel,
+  removeMember,
   setMemberRole,
   type ChannelMember,
   type ChatPerson,
@@ -35,6 +37,7 @@ import {
 import { filterPeople, togglePick } from '@/lib/chat/compose';
 import {
   addRules,
+  canRemoveMember,
   isGuestPerson,
   leaveBlock,
   roleChange,
@@ -44,6 +47,7 @@ import {
 import { addPickerRows, type PickRow } from '@/lib/chat/panels';
 import {
   avatarTint,
+  channelAdminErrorKey,
   initialOf,
   presenceDot,
   roleLabelKey,
@@ -106,6 +110,7 @@ export function MembersPanel({
   const [members, setMembers] = useState<ChannelMember[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [removing, setRemoving] = useState<ChannelMember | null>(null);
   // Presence dots go stale by time alone, so the clock ticks.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -174,6 +179,17 @@ export function MembersPanel({
     }
   };
 
+  const remove = async (m: ChannelMember) => {
+    setRemoving(null);
+    try {
+      await removeMember(sb, { channelId, userId: m.userId });
+      toast.success(t('members.removed', { name: nameOf(m.userId) }));
+      void reloadChannels();
+    } catch (err) {
+      toast.error(t(channelAdminErrorKey('remove', err)));
+    }
+  };
+
   const row = (m: ChannelMember) => {
     const person = peopleById.get(m.userId.toLowerCase());
     const mine = m.userId.toLowerCase() === me;
@@ -184,6 +200,8 @@ export function MembersPanel({
       mine && ctx
         ? leaveBlock({ kind: ctx.kind, myRole, userId: me, ...roster })
         : 'notMember';
+    const removable =
+      !!ctx && canRemoveMember(m, { ...ctx, ...roster, userId: me });
     const name = person?.fullName ?? t('unknownPerson');
     return (
       <li key={m.userId} className="flex items-center gap-3 px-4 py-2">
@@ -211,7 +229,7 @@ export function MembersPanel({
             {guest ? person?.bankCode : roleKey ? tRole(roleKey) : null}
           </p>
         </div>
-        {(change || leaveWhy !== 'notMember') && (
+        {(change || removable || leaveWhy !== 'notMember') && (
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label={t('members.menu', { name })}
@@ -243,6 +261,15 @@ export function MembersPanel({
                       </span>
                     )}
                   </span>
+                </DropdownMenuItem>
+              )}
+              {removable && (
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setRemoving(m)}
+                >
+                  <UserMinus aria-hidden />
+                  <span>{t('members.remove')}</span>
                 </DropdownMenuItem>
               )}
               {leaveWhy !== 'notMember' && (
@@ -333,6 +360,22 @@ export function MembersPanel({
         cancelLabel={t('members.cancel')}
         confirmLabel={t('members.leaveConfirm')}
         onConfirm={() => void leave()}
+        destructive
+      />
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title={t('members.removeTitle', {
+          name: removing ? nameOf(removing.userId) : '',
+        })}
+        description={t(
+          channel?.kind === 'private'
+            ? 'members.removeBodyPrivate'
+            : 'members.removeBodyTeam'
+        )}
+        cancelLabel={t('members.cancel')}
+        confirmLabel={t('members.removeConfirm')}
+        onConfirm={() => removing && void remove(removing)}
         destructive
       />
     </aside>

@@ -5,7 +5,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
+  Archive,
   Bookmark,
+  ChevronDown,
+  ChevronRight,
   Hash,
   Lock,
   MessageCircle,
@@ -70,6 +73,7 @@ export function ChatSidebar({
   const numbers = useAccountNumbers(!isBankGuest);
   const inbox = useInboxCounts(!isBankGuest);
   const [q, setQ] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   // Presence dots go stale by time alone, so the clock ticks.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -97,6 +101,10 @@ export function ChatSidebar({
     [ws.channels, ws.unread, ws.userId, ws.peopleById, t]
   );
   const rows = isBankGuest ? [] : inboxRows({ role: accountRole, ...inbox });
+  // Collapsed until asked for, or while one of them is open.
+  const archivedOpen =
+    showArchived ||
+    sections.archived.some((r) => r.channel.id === activeChannelId);
 
   const channelRow = (r: SidebarChannelRow) => {
     const active = r.channel.id === activeChannelId;
@@ -280,6 +288,35 @@ export function ChatSidebar({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {sections.archived.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowArchived(!archivedOpen)}
+              aria-expanded={archivedOpen}
+              aria-label={t(
+                archivedOpen ? 'settings.hideArchived' : 'settings.showArchived'
+              )}
+              className={cn(
+                SECTION_LABEL,
+                'flex w-full items-center gap-1 text-left hover:text-white/70'
+              )}
+            >
+              {archivedOpen ? (
+                <ChevronDown className="size-3" aria-hidden />
+              ) : (
+                <ChevronRight className="size-3" aria-hidden />
+              )}
+              <Archive className="size-3" aria-hidden />
+              {t('sections.archived', { count: sections.archived.length })}
+            </button>
+            {archivedOpen && (
+              <ul className="opacity-80">
+                {sections.archived.map(channelRow)}
+              </ul>
+            )}
           </div>
         )}
         {section(

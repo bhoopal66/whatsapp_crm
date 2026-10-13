@@ -13,6 +13,8 @@ import {
 
 import type { ChannelWithMembership } from '@/lib/chat';
 
+import { ChannelSettingsMenu } from './channel-settings';
+
 export interface ChannelHeaderProps {
   channel: ChannelWithMembership;
   name: string;
@@ -36,6 +38,7 @@ export function ChannelHeader({
   onOpenPins,
 }: ChannelHeaderProps) {
   const t = useTranslations('Chat.channel');
+  const tSettings = useTranslations('Chat.settings');
   const kind = channel.kind;
   const Icon =
     kind === 'private'
@@ -65,6 +68,14 @@ export function ChannelHeader({
         </Link>
         <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
         <h2 className="min-w-0 truncate text-base font-bold">{name}</h2>
+        {channel.archivedAt && (
+          <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold">
+            {tSettings('archivedBadge')}
+          </span>
+        )}
+        <div className="ml-auto">
+          <ChannelSettingsMenu channel={channel} name={name} />
+        </div>
       </div>
       <p className="text-muted-foreground mt-0.5 truncate text-xs">
         {sub.join(' · ')}
