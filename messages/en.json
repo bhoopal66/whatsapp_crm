@@ -1262,9 +1262,13 @@
           "selectChannel": "Select a channel",
           "privateChannel": "{name} (private)",
           "unknownChannel": "Unknown or archived channel",
-          "noChannels": "No team or private channel you can see. Create one in Team chat first.",
+          "guestChannel": "{name} (has a bank guest, cannot post)",
+          "savedChannel": "Saved channel",
+          "loading": "Loading channels…",
+          "loadFailed": "Couldn't load the channel list. Reload the page to try again.",
+          "noChannels": "No team or private channel you can post to. Channels with a bank guest are left out. Create one in Team chat first.",
           "placeholderText": "Triage marked this lead as ready to apply.",
-          "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make text bold; {{ message.text }} and {{ vars.x }} are filled in."
+          "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make your text bold; {{ message.text }} and {{ vars.x }} are filled in, without bold or mentions. Everyone who can read the channel sees the post, even people who cannot see the conversation: in a team channel that is every staff member, viewers included. A channel with a bank guest is never posted to."
         }
       }
     }

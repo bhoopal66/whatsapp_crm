@@ -29,7 +29,9 @@ import { isBankGuest, type AccountRole } from '@/lib/auth/roles'
 import {
   clipTeamChatBody,
   describeTeamChatPostError,
+  neutraliseTeamChatValue,
   teamChatChannelRefusal,
+  teamChatGuestRefusal,
 } from './team-chat-post'
 
 // ------------------------------------------------------------
@@ -674,7 +676,8 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
     case 'post_team_chat': {
       const cfg = step.step_config as PostTeamChatStepConfig
       if (!cfg.channel_id) throw new Error('post_team_chat needs a channel')
-      const body = clipTeamChatBody(interpolate(cfg.text ?? '', args))
+      // Filled-in values (customer text, vars) cannot bold or mention.
+      const body = clipTeamChatBody(interpolate(cfg.text ?? '', args, neutraliseTeamChatValue))
       if (!body) throw new Error('post_team_chat has empty text')
       // chat_post_system_message trusts its caller (service role only)
       // and the service role bypasses RLS, so the stored channel id is
@@ -693,10 +696,32 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         channel as { kind: string; archived_at: string | null } | null,
       )
       if (refusal) throw new Error(refusal)
+      // A bank guest reads the channel's messages and the body can carry
+      // customer text: refused on every run, so a guest added after the
+      // automation was saved stops it (087's card test, migration 102).
+      const { data: guests, error: guestErr } = await db.rpc('chat_channels_with_guests', {
+        p_channels: [cfg.channel_id],
+      })
+      if (guestErr) {
+        throw new Error(`post_team_chat: bank guest check failed: ${guestErr.message}`)
+      }
+      const guestRefusal = teamChatGuestRefusal(guests)
+      if (guestRefusal) throw new Error(guestRefusal)
+      // The trail back to the customer whose words the post may copy,
+      // for an audit or an erasure request; a verified id, never the
+      // context's as given.
+      const conversationId = args.contactId
+        ? await resolveConversationId(args).catch(() => null)
+        : null
       const { data: messageId, error: postErr } = await db.rpc('chat_post_system_message', {
         p_channel: cfg.channel_id,
         p_body: body,
-        p_meta: { source: 'automation', automation_id: args.automation.id },
+        p_meta: {
+          source: 'automation',
+          automation_id: args.automation.id,
+          conversation_id: conversationId,
+          contact_id: args.contactId,
+        },
       })
       if (postErr) throw new Error(describeTeamChatPostError(postErr))
       return `posted to team chat (${String(messageId ?? '')})`
@@ -961,11 +986,16 @@ function waitMs(cfg: WaitStepConfig): number {
   return Math.max(1_000, cfg.amount * unitMs)
 }
 
-function interpolate(s: string, args: ExecuteArgs): string {
+/** `{{ message.text }}` / `{{ vars.x }}`; `escape` applies to each filled-in value. */
+function interpolate(
+  s: string,
+  args: ExecuteArgs,
+  escape: (value: string) => string = (value) => value,
+): string {
   return s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
     const [ns, prop] = String(key).split('.')
-    if (ns === 'message' && prop === 'text') return String(args.context.message_text ?? '')
-    if (ns === 'vars' && prop) return String(args.context.vars?.[prop] ?? '')
+    if (ns === 'message' && prop === 'text') return escape(String(args.context.message_text ?? ''))
+    if (ns === 'vars' && prop) return escape(String(args.context.vars?.[prop] ?? ''))
     return ''
   })
 }

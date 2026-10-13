@@ -150,12 +150,35 @@ chat rights**, and a team leader is the chat's "supervisor".
   automation can post into one team or private channel of its own
   workspace; DMs and deal rooms are never offered, and the engine
   refuses them. The message is interpolated like Send message
-  (`{{ message.text }}`, `{{ vars.* }}`), `**double asterisks**` show
-  as bold, and a body over 8000 characters is clipped. Every run
-  re-checks the saved channel: another workspace's channel, a DM or a
-  deal room, an archived channel, or team chat being off fails that
-  step in the automation's log, as any failing step does. A `<@uuid>`
-  mention is neither rendered nor notified in a system post.
+  (`{{ message.text }}`, `{{ vars.* }}`), `**double asterisks**` in
+  the automation's own text show as bold, and a body over 8000
+  characters is clipped. Filled-in values are defused: each `*`
+  becomes `∗`, and the `@` of `<@`, `@channel` and `@here` becomes
+  `＠`, so a customer's words cannot bold part of the post or show as
+  a mention.
+  - _Who reads it._ Everyone who can read the channel, which is not
+    the conversation's audience: a team channel is read by every staff
+    member of the workspace, viewers included, so `{{ message.text }}`
+    there reaches people whom the conversation rules (migrations
+    042, 043 and 072) would never show that chat to. Pick the channel
+    with that in mind.
+  - _Bank guests._ A channel with a bank guest (a member with the guest
+    role, or one whose role in the workspace is `bank_guest`: the test
+    087 applies before a conversation card is shared) is left out of
+    the picker and refused on every run (`chat_channels_with_guests`, migration 102),
+    so adding a guest stops the step. Posts made before the guest
+    joined stay in the channel's history, which the guest can read.
+  - _Failures._ Every run re-checks the saved channel: another
+    workspace's channel, a DM or a deal room, an archived channel, a
+    bank guest, or team chat being off fails that step in the
+    automation's log, as any failing step does.
+  - _Trail._ Each post's `meta` holds `automation_id`,
+    `conversation_id` and `contact_id` (null when the run had none),
+    so the copies of a customer's words can be found for an audit or
+    an erasure request.
+  - _Mentions._ A system post notifies nobody. The channel shows a
+    `<@uuid>`, `@channel` or `@here` in the automation's own text as
+    plain text; search results show it as a chip.
 
 ## Attachments
 

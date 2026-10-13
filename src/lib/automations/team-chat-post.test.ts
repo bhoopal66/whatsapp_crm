@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { parseMentions } from '@/lib/chat/mentions';
+import { boldSegments } from '@/lib/chat/view';
 import {
   TEAM_CHAT_BODY_MAX,
+  TEAM_CHAT_GUEST_REFUSAL,
   clipTeamChatBody,
   describeTeamChatPostError,
+  neutraliseTeamChatValue,
   teamChatChannelRefusal,
+  teamChatGuestRefusal,
 } from './team-chat-post';
 
 describe('teamChatChannelRefusal', () => {
@@ -68,6 +73,58 @@ describe('describeTeamChatPostError', () => {
   it("keeps the database's wording for anything else", () => {
     expect(describeTeamChatPostError({ code: 'XX000', message: 'boom' })).toBe(
       'post_team_chat failed: boom'
+    );
+  });
+});
+
+describe('teamChatGuestRefusal', () => {
+  it('lets a channel with no bank guest through', () => {
+    expect(teamChatGuestRefusal([])).toBeNull();
+  });
+
+  it('refuses a channel the check names', () => {
+    expect(teamChatGuestRefusal(['ch-1'])).toBe(TEAM_CHAT_GUEST_REFUSAL);
+  });
+
+  it('fails closed on an answer that is not a list', () => {
+    expect(teamChatGuestRefusal(null)).toBe(
+      'post_team_chat: could not check the channel for bank guests'
+    );
+    expect(teamChatGuestRefusal(undefined)).toBe(
+      'post_team_chat: could not check the channel for bank guests'
+    );
+  });
+});
+
+describe('neutraliseTeamChatValue', () => {
+  const uuid = '0b7e2d4c-1f3a-4e5b-8c9d-0a1b2c3d4e5f';
+
+  it("leaves a customer's **…** unrendered", () => {
+    const body = `New lead: ${neutraliseTeamChatValue('**FREE** offer')}`;
+    expect(boldSegments(body)).toEqual([{ text: body, bold: false }]);
+  });
+
+  it("keeps an unmatched ** from scrambling the template's own bold", () => {
+    const body = `${neutraliseTeamChatValue('hi **')} - **urgent**`;
+    expect(boldSegments(body)).toEqual([
+      { text: 'hi \u2217\u2217 - ', bold: false },
+      { text: 'urgent', bold: true },
+    ]);
+  });
+
+  it('leaves no user or broadcast mention to render', () => {
+    const value = neutraliseTeamChatValue(
+      `<@${uuid}> @here @Channel (@HERE). ping`
+    );
+    expect(parseMentions(value)).toEqual({ userIds: [], broadcast: [] });
+    expect(value).toBe(
+      `<\uFF20${uuid}> \uFF20here \uFF20Channel (\uFF20HERE). ping`
+    );
+  });
+
+  it('keeps e-mail addresses and words that only start like a broadcast', () => {
+    expect(neutraliseTeamChatValue('me@here.example @heresy @channels')).toBe(
+      'me@here.example @heresy @channels'
     );
   });
 });

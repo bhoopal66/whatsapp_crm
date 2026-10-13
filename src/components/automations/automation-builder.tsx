@@ -223,6 +223,7 @@ interface AutomationResources {
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
   chatChannels: ChatChannelOption[]
+  chatChannelsStatus: "loading" | "ready" | "error"
 }
 
 /** A team or private chat channel the author can see (Post to team chat). */
@@ -230,6 +231,9 @@ interface ChatChannelOption {
   id: string
   kind: string
   name: string | null
+  /** A bank guest is a member (chat_channels_with_guests, migration 102):
+   *  never offered, since the engine refuses it. */
+  hasGuest: boolean
 }
 
 interface PipelineOption {
@@ -251,6 +255,7 @@ const ResourcesContext = createContext<AutomationResources>({
   pipelines: [],
   stages: [],
   chatChannels: [],
+  chatChannelsStatus: "loading",
 })
 
 function useResources(): AutomationResources {
@@ -264,23 +269,42 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
   const [chatChannels, setChatChannels] = useState<ChatChannelOption[]>([])
+  const [chatChannelsStatus, setChatChannelsStatus] =
+    useState<AutomationResources["chatChannelsStatus"]>("loading")
   const { accountId } = useAuth()
 
   // Channel rows are visible across every workspace a person belongs
   // to (migration 087), so the list is pinned to the active account:
-  // the automation posts there. DMs and deal rooms are never offered.
+  // the automation posts there. DMs and deal rooms are never offered,
+  // nor a channel with a bank guest (the engine refuses it).
   useEffect(() => {
     if (!accountId) return
     let cancelled = false
     void (async () => {
-      const { data } = await createClient()
+      const supabase = createClient()
+      const { data, error } = await supabase
         .from("chat_channels")
         .select("id, kind, name")
         .eq("account_id", accountId)
         .in("kind", ["team", "private"])
         .is("archived_at", null)
         .order("name")
-      if (!cancelled) setChatChannels((data as ChatChannelOption[] | null) ?? [])
+      const rows = (data as Omit<ChatChannelOption, "hasGuest">[] | null) ?? []
+      const guests =
+        error || rows.length === 0
+          ? { data: [] as string[], error: null }
+          : await supabase.rpc("chat_channels_with_guests", {
+              p_channels: rows.map((c) => c.id),
+            })
+      if (cancelled) return
+      if (error || guests.error || !Array.isArray(guests.data)) {
+        setChatChannels([])
+        setChatChannelsStatus("error")
+        return
+      }
+      const withGuests = new Set(guests.data as string[])
+      setChatChannels(rows.map((c) => ({ ...c, hasGuest: withGuests.has(c.id) })))
+      setChatChannelsStatus("ready")
     })()
     return () => {
       cancelled = true
@@ -338,7 +362,15 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 
   return (
     <ResourcesContext.Provider
-      value={{ members, templates, customFields, pipelines, stages, chatChannels }}
+      value={{
+        members,
+        templates,
+        customFields,
+        pipelines,
+        stages,
+        chatChannels,
+        chatChannelsStatus,
+      }}
     >
       {children}
     </ResourcesContext.Provider>
@@ -607,8 +639,9 @@ function AgentSelect({
 }
 
 /** Channel picker for Post to team chat. A saved channel that is no
- *  longer listed (archived, or private to others) stays selected as
- *  "unknown" rather than being silently swapped. */
+ *  longer listed (archived, private to others, or joined by a bank
+ *  guest) stays selected with the reason rather than being silently
+ *  swapped. */
 function TeamChatChannelSelect({
   value,
   onChange,
@@ -618,8 +651,17 @@ function TeamChatChannelSelect({
   onChange: (v: string) => void
   t: ReturnType<typeof useTranslations>
 }) {
-  const { chatChannels } = useResources()
+  const { chatChannels, chatChannelsStatus: status } = useResources()
   const selected = chatChannels.find((c) => c.id === value)
+  const offered = chatChannels.filter((c) => !c.hasGuest)
+  const savedLabel =
+    status === "loading"
+      ? t("config.teamChat.loading")
+      : status === "error"
+        ? t("config.teamChat.savedChannel")
+        : selected
+          ? t("config.teamChat.guestChannel", { name: selected.name ?? "" })
+          : t("config.teamChat.unknownChannel")
   return (
     <>
       <select
@@ -628,18 +670,28 @@ function TeamChatChannelSelect({
         className={SELECT_CLASS}
       >
         <option value="">{t("config.teamChat.selectChannel")}</option>
-        {chatChannels.map((c) => (
+        {offered.map((c) => (
           <option key={c.id} value={c.id}>
             {c.kind === "private"
               ? t("config.teamChat.privateChannel", { name: c.name ?? "" })
               : `# ${c.name ?? ""}`}
           </option>
         ))}
-        {value && !selected && (
-          <option value={value}>{t("config.teamChat.unknownChannel")}</option>
+        {value && !offered.some((c) => c.id === value) && (
+          <option value={value}>{savedLabel}</option>
         )}
       </select>
-      {chatChannels.length === 0 && (
+      {status === "loading" && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t("config.teamChat.loading")}
+        </p>
+      )}
+      {status === "error" && (
+        <p className="mt-1 text-xs text-destructive">
+          {t("config.teamChat.loadFailed")}
+        </p>
+      )}
+      {status === "ready" && offered.length === 0 && (
         <p className="mt-1 text-xs text-muted-foreground">
           {t("config.teamChat.noChannels")}
         </p>

@@ -33,6 +33,50 @@ export function teamChatChannelRefusal(
 }
 
 /**
+ * The refusal for a channel with a bank guest (chat_channels_with_guests,
+ * migration 102: a member with the guest role, or whose role in the
+ * workspace is bank_guest). A guest reads the channel's messages, and
+ * the post can carry a customer's own words, which bank guests never
+ * see (087 refuses a conversation card there for the same reason).
+ */
+export const TEAM_CHAT_GUEST_REFUSAL =
+  'post_team_chat: the channel has a bank guest member, and customer text is never posted where a bank guest reads it';
+
+/**
+ * chat_channels_with_guests' answer for the one channel asked about:
+ * the refusal when it names a guest, or when it is not the expected
+ * list at all (fail closed), else null.
+ */
+export function teamChatGuestRefusal(answer: unknown): string | null {
+  if (!Array.isArray(answer)) {
+    return 'post_team_chat: could not check the channel for bank guests';
+  }
+  return answer.length > 0 ? TEAM_CHAT_GUEST_REFUSAL : null;
+}
+
+const ASTERISK_LOOKALIKE = '\u2217'; // ∗ ASTERISK OPERATOR
+const AT_LOOKALIKE = '\uFF20'; // ＠ FULLWIDTH COMMERCIAL AT
+/** The `@` of @channel / @here as lib/chat/mentions.ts finds them. */
+const BROADCAST_AT =
+  /(?<![\p{L}\p{N}_])@(?=(?:channel|here)(?![\p{L}\p{N}_]))/giu;
+
+/**
+ * A value filled into the post (`{{ message.text }}`, `{{ vars.x }}`)
+ * with the chat's markup defused, so a customer's text cannot bold part
+ * of a post signed "wacrm · automation", unbalance the template's own
+ * `**`, or show as a mention chip in search results. Every `*` becomes
+ * `∗` (boldSegments in lib/chat/view.ts pairs `**`), and the `@` of
+ * `<@`, `@channel` and `@here` becomes `＠`; an e-mail address keeps
+ * its `@`. The automation's own text is left alone.
+ */
+export function neutraliseTeamChatValue(value: string): string {
+  return value
+    .replace(/\*/g, ASTERISK_LOOKALIKE)
+    .replace(/<@/g, `<${AT_LOOKALIKE}`)
+    .replace(BROADCAST_AT, AT_LOOKALIKE);
+}
+
+/**
  * The body as posted: trimmed, and clipped to the column's limit in
  * characters (code points, as char_length counts them), so a long
  * `{{ message.text }}` shortens the post rather than failing the step.

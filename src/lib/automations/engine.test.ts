@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
     // chat_channels rows, and chat_post_system_message's answer.
     chatChannels: [] as Record<string, unknown>[],
     chatPostRpc: { data: "msg-1", error: null } as { data: unknown; error: unknown },
+    // chat_channels_with_guests' answer: the channels that have a bank guest.
+    chatGuestRpc: { data: [], error: null } as { data: unknown; error: unknown },
     // conversations lookup: rows keyed by id, each with its owner.
     conversations: [] as {
       id: string;
@@ -155,6 +157,9 @@ vi.mock("./admin-client", () => {
         if (fn === "chat_post_system_message") {
           return Promise.resolve(state.chatPostRpc);
         }
+        if (fn === "chat_channels_with_guests") {
+          return Promise.resolve(state.chatGuestRpc);
+        }
         return Promise.resolve({ error: null });
       },
     }),
@@ -198,6 +203,7 @@ beforeEach(() => {
   h.state.profiles = [];
   h.state.chatChannels = [];
   h.state.chatPostRpc = { data: "msg-1", error: null };
+  h.state.chatGuestRpc = { data: [], error: null };
 });
 
 describe("resolveConversationId — context.conversation_id is not trusted", () => {
@@ -1141,11 +1147,20 @@ describe("post_team_chat", () => {
     h.state.chatChannels = [
       { id: "ch-team", account_id: ACCOUNT, kind: "team", archived_at: null },
     ];
+    h.state.owned = { id: "c1" };
+    h.state.conversations = [
+      { id: "conv-1", account_id: ACCOUNT, contact_id: "c1" },
+    ];
 
     await runAutomationsForTrigger({
       accountId: ACCOUNT,
       triggerType: "new_message_received",
-      context: { message_text: "price?", vars: { source: "ads" } },
+      contactId: "c1",
+      context: {
+        message_text: "price?",
+        vars: { source: "ads" },
+        conversation_id: "conv-1",
+      },
     });
 
     expect(posts()).toEqual([
@@ -1154,7 +1169,13 @@ describe("post_team_chat", () => {
         params: {
           p_channel: "ch-team",
           p_body: "**New lead** wrote: price? (ads)",
-          p_meta: { source: "automation", automation_id: "poster" },
+          // the trail back to whose words these are
+          p_meta: {
+            source: "automation",
+            automation_id: "poster",
+            conversation_id: "conv-1",
+            contact_id: "c1",
+          },
         },
       },
     ]);
@@ -1227,6 +1248,102 @@ describe("post_team_chat", () => {
         status: "failed",
         error_message: "post_team_chat: team chat is turned off for this workspace",
       }),
+    );
+  });
+
+  const guestRefusal =
+    "post_team_chat: the channel has a bank guest member, and customer text is never posted where a bank guest reads it";
+
+  it("refuses a channel with a bank guest member and posts nothing", async () => {
+    poster({ channel_id: "ch-priv", text: "{{ message.text }}" });
+    h.state.chatChannels = [
+      { id: "ch-priv", account_id: ACCOUNT, kind: "private", archived_at: null },
+    ];
+    h.state.chatGuestRpc = { data: ["ch-priv"], error: null };
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: { message_text: "my salary is 12,000" },
+    });
+
+    expect(h.state.rpcCalls).toContainEqual({
+      fn: "chat_channels_with_guests",
+      params: { p_channels: ["ch-priv"] },
+    });
+    expect(posts()).toEqual([]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({ status: "failed", error_message: guestRefusal }),
+    );
+  });
+
+  it("refuses on the next run once a guest has joined the channel", async () => {
+    poster({ channel_id: "ch-priv", text: "{{ message.text }}" });
+    h.state.chatChannels = [
+      { id: "ch-priv", account_id: ACCOUNT, kind: "private", archived_at: null },
+    ];
+    const run = () =>
+      runAutomationsForTrigger({
+        accountId: ACCOUNT,
+        triggerType: "new_message_received",
+        context: { message_text: "hello" },
+      });
+
+    await run();
+    expect(posts()).toHaveLength(1);
+
+    h.state.chatGuestRpc = { data: ["ch-priv"], error: null };
+    await run();
+    expect(posts()).toHaveLength(1);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({ status: "failed", error_message: guestRefusal }),
+    );
+  });
+
+  it("fails closed when the bank guest check fails", async () => {
+    poster({ channel_id: "ch-team", text: "hello" });
+    h.state.chatChannels = [
+      { id: "ch-team", account_id: ACCOUNT, kind: "team", archived_at: null },
+    ];
+    h.state.chatGuestRpc = { data: null, error: { message: "timeout" } };
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {},
+    });
+
+    expect(posts()).toEqual([]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "post_team_chat: bank guest check failed: timeout",
+      }),
+    );
+  });
+
+  it("defuses bold and mentions in filled-in values, not in the automation's own text", async () => {
+    poster({
+      channel_id: "ch-team",
+      text: "**Lead** said {{ message.text }} {{ vars.note }} **urgent**",
+    });
+    h.state.chatChannels = [
+      { id: "ch-team", account_id: ACCOUNT, kind: "team", archived_at: null },
+    ];
+    const someone = "0b7e2d4c-1f3a-4e5b-8c9d-0a1b2c3d4e5f";
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {
+        message_text: `**FREE** <@${someone}> @here`,
+        vars: { note: "**" },
+      },
+    });
+
+    expect(posts()).toHaveLength(1);
+    expect((posts()[0].params as { p_body: string }).p_body).toBe(
+      `**Lead** said \u2217\u2217FREE\u2217\u2217 <\uFF20${someone}> \uFF20here \u2217\u2217 **urgent**`,
     );
   });
 });

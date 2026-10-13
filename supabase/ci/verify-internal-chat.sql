@@ -16,6 +16,8 @@
 -- posts (service role only, no notifications), the bell row mirrored
 -- from chat_notifications and rewritten by an edit, and a person active
 -- in another account still reading this account's channels and badges.
+-- Since 102, chat_channels_with_guests, which keeps the automation step
+-- Post to team chat away from channels with a bank guest.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. Each check is a
@@ -490,6 +492,28 @@ BEGIN
      AND NOT has_function_privilege('anon', 'public.chat_orphan_files(integer)', 'EXECUTE')
      AND NOT has_function_privilege('public', 'public.chat_orphan_files(integer)', 'EXECUTE')
      AND has_function_privilege('service_role', 'public.chat_orphan_files(integer)', 'EXECUTE'))::text, 'true');
+
+  -- ================= 102: automation posts never go beside a bank guest =================
+  -- chat_channels_with_guests: 087's share test (a guest member, or a
+  -- member whose account role is now bank_guest); the service role
+  -- asks about any channel, a signed-in caller only about channels they see.
+  t := pg_temp.must(pg_temp.mk(u_rm, a, 'team', 'auto-team', ARRAY[extras[2]]));
+  p := pg_temp.must(pg_temp.mk(u_sup, a, 'private', 'auto-private', ARRAY[u_rm]));
+  r := format('SELECT coalesce(string_agg(x::text, '','' ORDER BY x::text), ''-'') FROM public.chat_channels_with_guests(ARRAY[%L, %L]::uuid[]) x', t, p);
+  PERFORM pg_temp.ck('102: no guest yet (engine)', pg_temp.ic(NULL, r, 'service_role'), '-');
+  PERFORM pg_temp.ck('102: guest added to the private channel', pg_temp.ic(u_sup, format('SELECT public.chat_add_members(%L, %L::uuid[])', p, ARRAY[u_g])), '1');
+  PERFORM pg_temp.ck('102: a guest member (engine)', pg_temp.ic(NULL, r, 'service_role'), p::text);
+  PERFORM pg_temp.ck('102: a guest member (member of the channel)', pg_temp.ic(u_rm, r), p::text);
+  PERFORM pg_temp.ck('102: a channel the caller cannot see', pg_temp.ic(u_rm2, r), '-');
+  UPDATE profiles SET account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = extras[2];
+  PERFORM pg_temp.ck('102: a member now demoted to bank_guest (engine)', pg_temp.ic(NULL, r, 'service_role'),
+    (SELECT string_agg(x::text, ',' ORDER BY x::text) FROM unnest(ARRAY[t, p]) x));
+  UPDATE profiles SET account_role = 'agent', bank_code = NULL WHERE user_id = extras[2];
+  PERFORM pg_temp.ck('102: grants',
+    (has_function_privilege('service_role', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE')
+     AND has_function_privilege('authenticated', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE')
+     AND NOT has_function_privilege('anon', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE')
+     AND NOT has_function_privilege('public', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE'))::text, 'true');
 
   SELECT count(*), coalesce(array_agg(label || ': got ' || coalesce(got, 'NULL') || ', want ' || want ORDER BY id)
                               FILTER (WHERE got IS NULL OR got NOT LIKE want), '{}')
