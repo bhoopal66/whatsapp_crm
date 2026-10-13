@@ -12,8 +12,11 @@ with its own role and its own deactivation. Exactly one of a person's
 rows is **active**: the workspace they are working in. Every RLS policy
 reads the active row (through `is_account_member()`,
 `current_account_id()` and `current_role_rank()`), so everything a person
-sees and changes belongs to their active workspace. Name, email and
-avatar are kept the same on all of a person's rows.
+sees and changes belongs to their active workspace. The one exception is
+the bell: Notifications lists the person's notifications from every
+workspace where their membership is live (`my_live_account_ids()`), and
+its badge and "Mark all as read" cover them all. Name, email and avatar
+are kept the same on all of a person's rows.
 
 ## Switching
 
@@ -29,6 +32,10 @@ active workspace's short name and name; its menu lists the others
   the new workspace when one switches. A session on another device
   reads the new workspace's data straight away and shows it fully on
   its next page load.
+- A notification from another workspace carries that workspace's name.
+  Opening it switches there and opens its screen, chosen with the
+  person's role in that workspace. The address is always a path inside
+  the app, and a bank guest still lands in team chat.
 - Teams and number allocations belong to a membership and survive
   switching.
 - A deactivated membership cannot be switched to.

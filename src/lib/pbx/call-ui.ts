@@ -10,6 +10,7 @@
 // names the customer by name or by a masked number, never the number.
 // ============================================================
 
+import { isBankGuest, type AccountRole } from '@/lib/auth/roles';
 import type { CallDirection, Disposition } from './calls';
 
 /** calls.disposition, in the order the panel offers them. */
@@ -266,3 +267,17 @@ export function dialResult(status: number, body: unknown): DialResult {
 /** Closing the panel needs an outcome when the workspace says so. */
 export const needsOutcome = (mandatory: boolean, outcome: Outcome | null) =>
   mandatory && outcome === null;
+
+/**
+ * Whether the call layer asks GET /api/pbx/me for the caller's phone:
+ * once the session and the workspace are known, and never for a bank
+ * guest. The route is viewer and up, and the provider is mounted on
+ * every dashboard page, so asking for a guest drew a 403 on each one.
+ * The call_live subscription, the poll and the softphone all wait for
+ * that answer, so this one gate keeps a guest out of all of them.
+ */
+export const loadsPbxMe = (
+  userId: string | null | undefined,
+  accountId: string | null | undefined,
+  role: AccountRole | null | undefined
+): boolean => Boolean(userId && accountId) && !isBankGuest(role);

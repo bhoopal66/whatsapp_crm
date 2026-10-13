@@ -286,7 +286,8 @@ export interface Conversation {
 }
 
 // ============================================================
-// Notifications (migration 027)
+// Notifications (migration 027). The type list is 085's
+// notifications_type_check, the latest; change the two together.
 // ============================================================
 
 export type NotificationType =
@@ -299,12 +300,27 @@ export type NotificationType =
   // new-chat limit, or a Whapi number reached its own. Sent to owners,
   // admins and the person concerned, no conversation.
   | 'team_activity_alert'
+  // AI agent v2 (077): the bot handed this chat to a person.
+  | 'ai_handoff'
+  // Tasks (085): a task was assigned to you (the tasks trigger); the
+  // row carries the task's contact and conversation. task_due is
+  // reserved: nothing emits it yet.
+  | 'task_assigned'
+  | 'task_due'
   // Team chat (087): mentions, DMs, thread replies and @channel/@here.
   // meta = {channel_id, message_id, thread_root_id}.
   | 'chat_mention'
   | 'chat_dm'
   | 'chat_thread_reply'
-  | 'chat_broadcast';
+  | 'chat_broadcast'
+  // Phone system (089): a missed call (lib/pbx/process.ts), meta =
+  // {call_id, contact_id, task_id}. callback_requested is reserved.
+  | 'call_missed'
+  | 'callback_requested'
+  // Deal rooms (088): someone asked to join a room, or a room changed.
+  // meta = {room_id, ...}.
+  | 'deal_room_join_request'
+  | 'deal_room_update';
 
 export interface Notification {
   id: string;
@@ -318,7 +334,8 @@ export interface Notification {
   actor_user_id?: string;
   title: string;
   body?: string;
-  /** Type-specific details (087's chat types: channel, message, thread root). */
+  /** Type-specific details (chat: channel, message, thread root; calls
+   *  and deal rooms: their ids). */
   meta?: Record<string, unknown>;
   read_at?: string;
   created_at: string;

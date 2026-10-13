@@ -19,6 +19,7 @@ import {
   formatTimer,
   isCustomerCall,
   liveKey,
+  loadsPbxMe,
   maskPhone,
   myActiveCall,
   myRingingCall,
@@ -26,6 +27,7 @@ import {
   type CallCardLabels,
   type CallLiveRow,
 } from '../call-ui';
+import { ACCOUNT_ROLES } from '@/lib/auth/roles';
 
 const ME = 'u-me';
 const SARA = 'u-sara';
@@ -314,5 +316,23 @@ describe('needsOutcome', () => {
     expect(needsOutcome(true, null)).toBe(true);
     expect(needsOutcome(true, 'call_back')).toBe(false);
     expect(needsOutcome(false, null)).toBe(false);
+  });
+});
+
+describe('loadsPbxMe', () => {
+  it('asks for every staff role once the session and workspace are known', () => {
+    for (const role of ACCOUNT_ROLES.filter((r) => r !== 'bank_guest')) {
+      expect(loadsPbxMe(ME, 'acc', role)).toBe(true);
+    }
+  });
+
+  it('never asks for a bank guest, whom the route answers 403', () => {
+    expect(loadsPbxMe(ME, 'acc', 'bank_guest')).toBe(false);
+  });
+
+  it('waits for the session and the workspace', () => {
+    expect(loadsPbxMe(null, 'acc', 'agent')).toBe(false);
+    expect(loadsPbxMe(ME, null, 'agent')).toBe(false);
+    expect(loadsPbxMe(undefined, undefined, null)).toBe(false);
   });
 });

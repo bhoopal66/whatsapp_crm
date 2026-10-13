@@ -4271,6 +4271,10 @@
       "mentions": "{count, plural, one {# mention} other {# mentions}}",
       "unread": "Unread messages"
     },
+    "bell": {
+      "unknown": "Another workspace",
+      "switchHint": "From {name}. Opening it switches to that workspace."
+    },
     "create": {
       "title": "Create a workspace",
       "description": "A workspace is one business. Its contacts, chats, channels and permissions are kept apart from every other workspace.",
@@ -4738,5 +4742,22 @@
     "unknownCaller": "Unknown caller",
     "shareFailed": "The call card was not shared",
     "cancel": "Cancel"
+  },
+  "ErrorPages": {
+    "retry": "Try again",
+    "home": "Go to home",
+    "digest": "Error ID: {digest}",
+    "error": {
+      "title": "Something went wrong",
+      "description": "An unexpected error stopped this page from loading. Try again, or go back to the home screen."
+    },
+    "dashboard": {
+      "title": "This screen couldn’t load",
+      "description": "Something went wrong while showing this screen. The rest of the app still works: try again, or pick another screen from the sidebar."
+    },
+    "notFound": {
+      "title": "Page not found",
+      "description": "The page you’re looking for doesn’t exist or has moved."
+    }
   }
 }

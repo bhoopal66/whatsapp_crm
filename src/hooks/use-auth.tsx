@@ -25,6 +25,7 @@ import { pickActiveProfile } from "@/lib/auth/active-profile";
 import {
   fallbackWorkspace,
   parseMyWorkspaces,
+  workspaceEntryPath,
   workspaceHomePath,
   type Workspace,
 } from "@/lib/auth/my-workspaces";
@@ -155,9 +156,11 @@ interface AuthContextValue {
   /**
    * Make `accountId` the active workspace, then reload the app there
    * (a hard navigation, so realtime channels and caches restart in the
-   * new workspace). Rejects with the server's reason when refused.
+   * new workspace): on `next` when it is an in-app path the person's
+   * role there may open (`workspaceEntryPath`), else on its landing
+   * page. Rejects with the server's reason when refused.
    */
-  switchWorkspace: (accountId: string) => Promise<void>;
+  switchWorkspace: (accountId: string, next?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -243,17 +246,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Every switch lands here: drop what the old workspace cached, tell
   // this browser's other tabs (they share the active workspace, which
   // is a database flag, not per tab), and load the new workspace's
-  // landing page from scratch.
+  // landing page from scratch, or `next` once `workspaceEntryPath` has
+  // checked it is an in-app path that role may open. The other tabs
+  // go to the landing page.
   const workspaceChannelRef = useRef<BroadcastChannel | null>(null);
-  const enterWorkspace = useCallback((role: AccountRole | null) => {
-    clearClientCache();
-    try {
-      workspaceChannelRef.current?.postMessage({ type: "switched", role });
-    } catch {
-      // Closed channel: the other tabs follow on their next load.
-    }
-    window.location.assign(workspaceHomePath(role));
-  }, []);
+  const enterWorkspace = useCallback(
+    (role: AccountRole | null, next?: string) => {
+      clearClientCache();
+      try {
+        workspaceChannelRef.current?.postMessage({ type: "switched", role });
+      } catch {
+        // Closed channel: the other tabs follow on their next load.
+      }
+      window.location.assign(workspaceEntryPath(role, next));
+    },
+    [],
+  );
 
   // Shared across init, auth-state-change listener, and the exposed
   // refreshProfile() callback. Reads the current session's user id and
@@ -596,11 +604,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const switchWorkspace = useCallback(
-    async (accountId: string) => {
+    async (accountId: string, next?: string) => {
       const failure = await requestWorkspaceSwitch(accountId);
       if (failure) throw new Error(failure);
       const target = workspaces.find((w) => w.accountId === accountId);
-      enterWorkspace(target?.role ?? null);
+      // Without the target's role (a stale list), `next` can't be vetted
+      // for that role — a bank guest could be sent to the inbox — so
+      // enter at the workspace's home instead.
+      enterWorkspace(target?.role ?? null, target ? next : undefined);
     },
     [workspaces, enterWorkspace],
   );
