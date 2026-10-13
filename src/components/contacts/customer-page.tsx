@@ -23,7 +23,6 @@ import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CallButton } from '@/components/pbx/call-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { PresenceView } from '@/lib/pbx/calls';
 import type { ConsentFields } from '@/lib/pbx/call-ui';
 import {
   TIMELINE_FILTERS,
@@ -37,7 +36,6 @@ import {
   missedTaskFor,
   monthSummaryParts,
   openTaskLine,
-  presenceDotState,
   putComposerPrefill,
   recentPeople,
   sessionStore,
@@ -55,6 +53,10 @@ import {
   type TimelineSource,
   type TimelineTask,
 } from '@/lib/pbx/timeline';
+import { PresenceDot } from '@/components/presence/presence-dot';
+import { usePhonePresence } from '@/hooks/use-phone-presence';
+import { usePresence } from '@/hooks/use-presence';
+import { PERSON_PRESENCE_KEY, presenceOf } from '@/lib/person-presence';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -108,7 +110,6 @@ type Load =
 interface Side {
   tasks: TimelineTask[];
   summary: MonthTotals | null;
-  presence: Record<string, { state: PresenceView }>;
 }
 
 const getJson = (url: string) =>
@@ -208,12 +209,6 @@ const paged = (source: TimelineSource, rows: unknown[]) => ({
   more: rows.length === PAGE,
 });
 
-const DOT = {
-  green: 'bg-emerald-500',
-  red: 'bg-red-500',
-  ring: 'border-muted-foreground/60 border-2',
-};
-
 export function CustomerPage({ contactId }: { contactId: string }) {
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
@@ -226,8 +221,11 @@ export function CustomerPage({ contactId }: { contactId: string }) {
   const [side, setSide] = useState<Side>({
     tasks: [],
     summary: null,
-    presence: {},
   });
+  // Live, shared with any other dot on the page: the phone's call or
+  // chosen status over the app's (lib/person-presence.ts).
+  const phone = usePhonePresence();
+  const { getPresence } = usePresence();
   const [names, setNames] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<TimelineFilter>('all');
   const [paging, setPaging] = useState(false);
@@ -319,9 +317,8 @@ export function CustomerPage({ contactId }: { contactId: string }) {
       getJson(
         `/api/pbx/calls/summary?contactId=${contactId}&tz=${encodeURIComponent(timeZone)}`
       ).catch(() => null),
-      getJson('/api/pbx/presence').catch(() => ({})),
-    ]).then(([tasks, summary, presence]) => {
-      if (live) setSide({ tasks, summary, presence });
+    ]).then(([tasks, summary]) => {
+      if (live) setSide({ tasks, summary });
     });
     return () => {
       live = false;
@@ -735,27 +732,19 @@ export function CustomerPage({ contactId }: { contactId: string }) {
             ) : (
               <ul className="space-y-2">
                 {team.map((p) => {
-                  const dot = presenceDotState(
-                    side.presence[p.userId]?.state ?? null,
-                    null
-                  );
+                  const state = presenceOf(p.userId, phone, getPresence);
                   return (
                     <li
                       key={p.userId}
                       className="flex items-center gap-2 text-sm"
                     >
-                      <span
-                        className={cn(
-                          'size-2.5 shrink-0 rounded-full',
-                          DOT[dot.tone]
-                        )}
-                        aria-hidden
-                      />
+                      <PresenceDot status={state} className="size-2.5" />
                       <span className="min-w-0 flex-1 truncate font-medium">
                         {names[p.userId] ?? '—'}
                       </span>
                       <span className="text-muted-foreground text-xs">
-                        {tl(`roles.${p.role}`)} · {tl(dot.key as never)}
+                        {tl(`roles.${p.role}`)} ·{' '}
+                        {tl(`presence.${PERSON_PRESENCE_KEY[state]}`)}
                       </span>
                     </li>
                   );

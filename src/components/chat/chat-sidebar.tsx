@@ -33,6 +33,7 @@ import {
   type SidebarChannelRow,
 } from '@/lib/chat/view';
 import { isSavedPath, SAVED_PATH } from '@/lib/chat/saved';
+import { PERSON_PRESENCE_KEY } from '@/lib/person-presence';
 import { channelDisplayName as numberName } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
 
@@ -66,6 +67,7 @@ export function ChatSidebar({
   className,
 }: ChatSidebarProps) {
   const t = useTranslations('Chat');
+  const tp = useTranslations('Presence');
   const router = useRouter();
   const savedActive = isSavedPath(usePathname());
   const savedCount = useSavedCount();
@@ -114,9 +116,16 @@ export function ChatSidebar({
     let icon: React.ReactNode;
     if (r.channel.kind === 'dm') {
       const dots = dmOthers(r.channel.dmMemberIds, ws.userId ?? '').map((id) =>
-        presenceDot(ws.peopleById.get(id.toLowerCase()), now)
+        presenceDot(
+          ws.peopleById.get(id.toLowerCase()),
+          now,
+          ws.phonePresence[id.toLowerCase()]?.state
+        )
       );
-      icon = <PresenceDot state={combinedPresence(dots)} />;
+      const state = combinedPresence(dots);
+      icon = (
+        <PresenceDot state={state} label={tp(PERSON_PRESENCE_KEY[state])} />
+      );
     } else if (r.channel.kind === 'deal_room') {
       icon = (
         <MessageCircle className="size-4 shrink-0 text-amber-400" aria-hidden />

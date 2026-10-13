@@ -55,6 +55,15 @@ One PBX can serve several workspaces.
   the browser, and leave **Presence** on (the default) for those whose
   status the team should see.
 
+  That status colours the person's dot wherever it shows (team chat
+  DMs and member lists, the inbox assign picker and handler, a
+  customer's "Team on this customer"), live within a couple of
+  seconds: red on a call (ringing or busy), grey with a line on Do not
+  disturb, the away colour on away, lunch or business trip, grey off
+  work. Otherwise, and for anyone without a monitored extension, the
+  dot is the app's own presence (online, away, offline). A status the
+  PBX has not repeated for 10 minutes no longer counts.
+
 ## 3. Recording rules
 
 - **Announcement.** Configure the English/Arabic recording notice on

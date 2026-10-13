@@ -4642,6 +4642,14 @@
       "openChat": "채팅 열기"
     }
   },
+  "Presence": {
+    "available": "온라인",
+    "onCall": "통화 중",
+    "dnd": "방해 금지",
+    "away": "자리 비움",
+    "offWork": "퇴근",
+    "offline": "오프라인"
+  },
   "CustomerTimeline": {
     "missedCall": "부재중 전화",
     "incoming": "수신",

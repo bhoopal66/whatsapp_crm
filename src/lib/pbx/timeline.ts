@@ -1,4 +1,3 @@
-import type { PresenceView } from './calls';
 import { isMissedCall } from './call-status';
 import type { SoftphoneState } from './linkus-state';
 
@@ -448,36 +447,6 @@ export function monthSummaryParts(s: MonthTotals): { counts: Msg; talk: Msg } {
       values: { minutes: Math.round(Math.max(0, s.talkSeconds) / 60) },
     },
   };
-}
-
-export type DotTone = 'green' | 'red' | 'ring';
-export type AppPresence = 'online' | 'away' | 'offline';
-
-/**
- * The PBX's state first (a person with an extension); the app's own
- * presence only for someone the PBX has no row for.
- */
-export function presenceDotState(
-  pbx: PresenceView | null | undefined,
-  app: AppPresence | null | undefined
-): { tone: DotTone; key: string } {
-  switch (pbx) {
-    case 'available':
-      return { tone: 'green', key: 'presence.available' };
-    case 'on_call':
-      return { tone: 'red', key: 'presence.onCall' };
-    case 'dnd':
-      return { tone: 'red', key: 'presence.dnd' };
-    case 'away':
-      return { tone: 'ring', key: 'presence.away' };
-    case 'off_work':
-      return { tone: 'ring', key: 'presence.offWork' };
-    case 'offline':
-      return { tone: 'ring', key: 'presence.offline' };
-  }
-  if (app === 'online') return { tone: 'green', key: 'presence.available' };
-  if (app === 'away') return { tone: 'ring', key: 'presence.away' };
-  return { tone: 'ring', key: 'presence.offline' };
 }
 
 export type TeamRole = 'ownerRm' | 'assignee' | 'recent';

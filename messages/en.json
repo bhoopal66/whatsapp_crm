@@ -4642,6 +4642,14 @@
       "openChat": "Open chat"
     }
   },
+  "Presence": {
+    "available": "Available",
+    "onCall": "On a call",
+    "dnd": "Do not disturb",
+    "away": "Away",
+    "offWork": "Off work",
+    "offline": "Offline"
+  },
   "CustomerTimeline": {
     "missedCall": "Missed call",
     "incoming": "incoming",
