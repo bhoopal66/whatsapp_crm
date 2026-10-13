@@ -10,15 +10,20 @@ import {
 
 /**
  * The phone system's periodic work (GET /api/pbx/cron, and the
- * automations cron once a minute): recordings, call-backs, retries of
- * failed events, pbx_purge(), the retention period, then the
- * orphaned-audio sweep. `db` is the service role.
+ * automations cron once a minute): the outcome reminders, recordings,
+ * call-backs, retries of failed events, pbx_purge(), the retention
+ * period, then the orphaned-audio sweep. `db` is the service role.
  */
 
 /** Retries per failed event; pbx_purge() drops one that used them all. */
 export const MAX_EVENT_ATTEMPTS = 3;
 /** The whole run stops starting work after this, inside a 60 s route. */
 export const PBX_CRON_BUDGET_MS = 45_000;
+/**
+ * Bells per run for calls left without a mandatory outcome
+ * (pbx_outcome_reminders, 097); any beyond wait for the next run.
+ */
+export const OUTCOME_REMINDER_LIMIT = 200;
 
 type Row = Record<string, unknown>;
 const message = (err: unknown) =>
@@ -201,6 +206,8 @@ export async function expireRecordings(input: {
 }
 
 export interface PbxCronSummary {
+  /** call_outcome_due bells rung (097). */
+  outcomeReminders?: number;
   recordings?: RecordingsSummary;
   callbacks?: CallbacksSummary;
   retries?: RetrySummary;
@@ -225,6 +232,18 @@ export async function runPbxCron(input: {
   const deadline = now() + budgetMs;
   const summary: PbxCronSummary = { outOfTime: [], errors: {} };
   const steps: [string, () => Promise<void>][] = [
+    // First: one quick statement, and a reminder is only useful on time,
+    // which a slow recordings download must not eat into.
+    [
+      'outcomes',
+      async () => {
+        const { data, error } = await db.rpc('pbx_outcome_reminders', {
+          p_limit: OUTCOME_REMINDER_LIMIT,
+        });
+        if (error) throw new Error(error.message);
+        summary.outcomeReminders = Number(data ?? 0);
+      },
+    ],
     [
       'recordings',
       async () => {

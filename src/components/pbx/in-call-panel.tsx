@@ -1,12 +1,22 @@
 'use client';
 
 // The in-call panel (module 015): docked right (a full-screen sheet on
-// mobile) for the call this person answered, and kept after hang-up
-// until closed. Outcome and notes autosave to the call (PATCH, one save
-// at a time); the optional call card goes to a team chat channel when
-// the panel closes. Nothing here is ever sent to the customer.
+// mobile) for the call this person answered. After hang-up it is the
+// wrap-up (§7.3): two minutes, counted down, to add the outcome and a
+// note, then it closes by itself, unless outcomes are mandatory and none
+// is chosen (it stays; the PBX cron rings a reminder). A reload re-opens
+// it (CallProvider). Outcome and notes autosave to the call (PATCH, one
+// save at a time); the optional call card goes to a team chat channel
+// when the panel closes. Nothing here is ever sent to the customer.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ArrowRightLeft,
   Grid3x3,
@@ -27,7 +37,12 @@ import {
   formatTimer,
   needsOutcome,
   otherOwner,
+  tryTimes,
+  AUTO_SHARE_TRIES,
+  wrapUpLeftMs,
+  wrapUpPhase,
   type Outcome,
+  type WrapUpPhase,
 } from '@/lib/pbx/call-ui';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -76,7 +91,9 @@ function Panel() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loaded = useRef(false);
   const ended = p.endedAt !== null;
-  const now = useNow(!ended);
+  // Ticks after hang-up too: the wrap-up's countdown.
+  const now = useNow(true);
+  const wrapLeft = p.endedAt === null ? null : wrapUpLeftMs(p.endedAt, now);
   const facts = useCallFacts(row?.contact_id ?? p.contactId, {
     connectionId: p.connectionId,
     pbxCallId: p.pbxCallId,
@@ -235,7 +252,11 @@ function Panel() {
     !['held', 'erased'].includes(row?.recording_state ?? '');
   const name = facts?.name || facts?.company || null;
 
-  const close = async () => {
+  // `auto`: the wrap-up's own close. A ticked call card that will not
+  // post is retried, then the panel closes anyway with the error showing
+  // (the outcome and notes are on the call); a person's Close stays open
+  // on failure, to try again.
+  const close = async (auto = false) => {
     if (needsOutcome(calls.settings.mandatoryDisposition, outcome)) {
       setBlocked(true);
       return;
@@ -269,15 +290,46 @@ function Panel() {
           unknownCaller: t('unknownCaller'),
         }
       );
-      try {
-        await postMessage(sb, { channelId, body });
-      } catch {
-        toast.error(t('shareFailed'));
-        return;
+      const shared = await tryTimes(auto ? AUTO_SHARE_TRIES : 1, () =>
+        postMessage(sb, { channelId, body })
+      );
+      if (!shared) {
+        toast.error(t(auto ? 'shareFailedClosed' : 'shareFailed'));
+        if (!auto) return;
       }
     }
-    calls.closePanel();
+    calls.closePanel(p.key);
   };
+
+  // Whether an outcome is chosen decides if this wrap-up, pushed aside
+  // by a live call, is still owed when it comes back (selectPanel).
+  const { noteOutcome } = calls;
+  useEffect(() => {
+    noteOutcome(p.key, outcome !== null);
+  }, [noteOutcome, p.key, outcome]);
+
+  // The wrap-up's phase, settled during render (it only moves forward):
+  // `done` closes as Close would (pending notes saved, a ticked call
+  // card shared), once; `held` waits for an outcome and Close.
+  const [phase, setPhase] = useState<WrapUpPhase>('counting');
+  const nextPhase =
+    p.endedAt === null
+      ? phase
+      : wrapUpPhase(
+          phase,
+          p.endedAt,
+          now,
+          calls.settings.mandatoryDisposition,
+          outcome
+        );
+  if (nextPhase !== phase) setPhase(nextPhase);
+  const autoClosed = useRef(false);
+  const autoClose = useEffectEvent(() => void close(true));
+  useEffect(() => {
+    if (phase !== 'done' || autoClosed.current) return;
+    autoClosed.current = true;
+    autoClose();
+  }, [phase]);
 
   const round =
     'flex size-14 flex-col items-center justify-center gap-0.5 rounded-full bg-white/10 text-[10px] hover:bg-white/20 disabled:opacity-40';
@@ -312,6 +364,21 @@ function Panel() {
         {calls.settings.announcementRequired && (
           <p className="mt-1 text-xs text-white/55">{t('noticePlayed')}</p>
         )}
+        {wrapLeft !== null &&
+          (phase === 'counting' ||
+            needsOutcome(calls.settings.mandatoryDisposition, outcome)) && (
+            <p
+              role="status"
+              className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm tabular-nums"
+            >
+              {phase === 'counting'
+                ? t('wrapUp', {
+                    // Whole seconds up: 0:00 only once the time is up.
+                    left: formatTimer(Math.ceil(wrapLeft / 1000) * 1000),
+                  })
+                : t('wrapUpOverdue')}
+            </p>
+          )}
         {!row?.contact_id && !p.contactId && pickedId === undefined && (
           <CandidatePickerFor callKey={p.key} />
         )}

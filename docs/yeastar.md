@@ -253,6 +253,8 @@ recording notice before the owner is connected.
 ## 10. The phone-system cron
 
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
+first rings the outcome reminders (where outcomes are mandatory, at most
+200 a run; see **The wrap-up** below), then
 fetches pending recordings, dials due call-backs, retries events that
 failed to process (three times each), purges old rows, deletes
 recordings past the workspace's retention period (section 3; up to
@@ -307,6 +309,34 @@ backing off after a refused login is skipped until the backoff ends.
   call back, not eligible, wrong number) and notes, up to 4,000
   characters. Nothing is sent to the customer. A call matched to the
   wrong customer can be re-linked.
+- **The wrap-up.** When a call you answered ends, the call panel turns
+  into a two-minute wrap-up with a countdown to add the outcome and a
+  note, then closes by itself. Reloading the page within those two
+  minutes brings it back (your own calls only, in this workspace). A
+  team leader, admin or owner can make outcomes **mandatory**
+  (Settings → Phone system; leaders see only that switch, every other
+  phone setting stays with admins). Then the wrap-up cannot be closed
+  without an outcome, stays open past the two minutes, and comes back
+  after a reload for up to an hour after the call. Two minutes after
+  such a call ends with no outcome, the person on it gets **one** bell,
+  "Add the outcome for your call with …", linking to the customer page
+  (the Calls screen for an unknown caller). Only calls that ended in the
+  last hour **and after the rule was switched on** are reminded of or
+  brought back after a reload, so switching it on never reaches older
+  calls (`pbx_settings.mandatory_disposition_since`, kept by a trigger:
+  set when the switch goes on, cleared when it goes off). A change to
+  the switch reaches open screens when a wrap-up starts or the tab
+  regains focus, without a reload.
+- **A live call always has the panel.** Answering a call while a
+  wrap-up is open (or reloading mid-call) shows the live call, with its
+  hangup, hold, mute and transfer controls; the unfinished wrap-up waits
+  and re-opens once the live call is over and its own wrap-up closed.
+  Several waiting wrap-ups re-open newest first. One whose two minutes
+  ran out while it waited comes back only if its outcome is still owed
+  (mandatory, none chosen, within the hour). If a ticked call card
+  cannot be posted when the wrap-up closes by itself, it is tried three
+  times, then the wrap-up closes with an error saying the card was not
+  shared (the outcome and notes are saved on the call).
 - **Recordings.** An agent or above who can see a call can play its
   recording;
   only team leaders, admins and owners can download one. Every play,
@@ -327,6 +357,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
 | `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
+| `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
 | `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |
 | `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
 

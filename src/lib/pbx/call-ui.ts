@@ -432,6 +432,324 @@ export const needsOutcome = (mandatory: boolean, outcome: Outcome | null) =>
   mandatory && outcome === null;
 
 /**
+ * The wrap-up after a call: how long the ended panel asks for the
+ * outcome (§7.3). Migration 097's reminder sweep waits the same
+ * `interval '2 minutes'`; __tests__/wrap-up.test.ts keeps the two equal.
+ */
+export const WRAPUP_MS = 2 * 60_000;
+
+/**
+ * How far back a reload still re-opens a wrap-up whose outcome is owed
+ * (mandatory, none chosen): 097's sweep horizon, `interval '1 hour'`,
+ * so a call too old to be reminded of is not resurrected either.
+ */
+export const WRAPUP_OWED_MS = 60 * 60_000;
+
+/** The in-call panel's call: live, or ended and in its wrap-up. */
+export interface PanelCall {
+  key: string;
+  connectionId: string;
+  pbxCallId: string;
+  contactId: string | null;
+  remoteNumber: string | null;
+  inbound: boolean;
+  seenAt: number;
+  endedAt: number | null;
+  /** The panel has an outcome chosen for this call (noteOutcome). */
+  outcomeSet?: boolean;
+}
+
+/** What is left of the wrap-up of a call that ended at `endedAt`. */
+export const wrapUpLeftMs = (endedAt: number, now: number): number =>
+  Math.min(WRAPUP_MS, Math.max(0, endedAt + WRAPUP_MS - now));
+
+/**
+ * Where an ended call's wrap-up stands: `counting` through its two
+ * minutes, then `done` (it closes by itself) or, when an outcome is owed
+ * as they run out (mandatory, none chosen), `held`: it stays until the
+ * person chooses one and closes it, and the PBX cron rings once (097).
+ * Past `counting` it stays put, so an outcome chosen late does not snap
+ * the panel shut over the note still being written.
+ */
+export type WrapUpPhase = 'counting' | 'held' | 'done';
+
+export function wrapUpPhase(
+  prev: WrapUpPhase,
+  endedAt: number,
+  now: number,
+  mandatory: boolean,
+  outcome: Outcome | null
+): WrapUpPhase {
+  if (prev !== 'counting' || wrapUpLeftMs(endedAt, now) > 0) return prev;
+  return needsOutcome(mandatory, outcome) ? 'held' : 'done';
+}
+
+/** One of the caller's own calls, as GET /api/pbx/calls/wrap-up reads it. */
+export interface WrapUpRow {
+  connection_id: string | null;
+  pbx_call_id: string;
+  direction: string;
+  contact_id: string | null;
+  remote_number: string | null;
+  answered_at: string | null;
+  ended_at: string | null;
+  disposition: string | null;
+  erased_at: string | null;
+}
+
+/**
+ * The oldest end (exclusive) whose wrap-up a reload re-opens: any call
+ * still in its two minutes and, where outcomes are mandatory, one whose
+ * outcome is owed, up to WRAPUP_OWED_MS back but never from before they
+ * were made mandatory (`mandatorySince`, 097's
+ * pbx_settings.mandatory_disposition_since): the reminder sweep never
+ * rings for that history, and a reload must not resurrect it either.
+ * `mandatorySince` null: outcomes are not mandatory.
+ */
+export function wrapUpCutoff(
+  now: number,
+  mandatorySince: number | null
+): number {
+  const counting = now - WRAPUP_MS;
+  if (mandatorySince === null || Number.isNaN(mandatorySince)) return counting;
+  return Math.min(counting, Math.max(now - WRAPUP_OWED_MS, mandatorySince));
+}
+
+/**
+ * The calls whose wrap-up a reload re-opens, newest end first: answered,
+ * with a customer (not internal), not erased, no outcome, and ended
+ * after wrapUpCutoff. One without a PBX (connection removed) has no
+ * panel to open.
+ */
+export function pickWrapUps(
+  rows: WrapUpRow[],
+  now: number,
+  mandatorySince: number | null
+): WrapUpRow[] {
+  const cutoff = wrapUpCutoff(now, mandatorySince);
+  const out: { r: WrapUpRow; at: number }[] = [];
+  for (const r of rows) {
+    if (!r.connection_id || r.disposition !== null || r.erased_at) continue;
+    if (!r.answered_at || r.direction === 'internal') continue;
+    const at = Date.parse(r.ended_at ?? '');
+    if (Number.isNaN(at) || at <= cutoff) continue;
+    out.push({ r, at });
+  }
+  return out.sort((a, b) => b.at - a.at).map((x) => x.r);
+}
+
+/** The wrap-up the route hands back: the call and the server's count. */
+export interface WrapUpCall {
+  connectionId: string;
+  pbxCallId: string;
+  direction: string;
+  contactId: string | null;
+  remoteNumber: string | null;
+  leftMs: number;
+}
+
+/**
+ * The panel for a recovered wrap-up, timed on this browser's clock: the
+ * server counted `leftMs`, so a skewed browser clock neither ends the
+ * wrap-up early nor stretches it.
+ */
+export function wrapUpPanel(c: WrapUpCall, now: number): PanelCall {
+  const endedAt =
+    now - (WRAPUP_MS - Math.min(WRAPUP_MS, Math.max(0, c.leftMs)));
+  return {
+    key: liveKey({ connection_id: c.connectionId, pbx_call_id: c.pbxCallId }),
+    connectionId: c.connectionId,
+    pbxCallId: c.pbxCallId,
+    contactId: c.contactId,
+    remoteNumber: c.remoteNumber,
+    inbound: c.direction === 'inbound',
+    seenAt: endedAt,
+    endedAt,
+  };
+}
+
+/** The in-call panel and the wrap-ups waiting behind it (§7.3). */
+export interface PanelState {
+  panel: PanelCall | null;
+  /** Ended calls whose wrap-up is unfinished, newest end first. */
+  waiting: PanelCall[];
+}
+
+export const NO_PANEL: PanelState = { panel: null, waiting: [] };
+
+const livePanel = (r: CallLiveRow, now: number): PanelCall => ({
+  key: liveKey(r),
+  connectionId: r.connection_id,
+  pbxCallId: r.pbx_call_id,
+  contactId: r.contact_id,
+  remoteNumber: r.remote_number,
+  inbound: isInboundCall(r),
+  seenAt: now,
+  endedAt: null,
+});
+
+/**
+ * The waiting wrap-ups still unfinished at `now`, newest end first: in
+ * their two minutes, or past them with an outcome owed (mandatory, none
+ * chosen) and under WRAPUP_OWED_MS old. One that is not is dropped for
+ * good, as the panel closes its own (wrapUpPhase `done`): making outcomes
+ * mandatory later does not bring a finished wrap-up back.
+ */
+function unfinished(
+  waiting: PanelCall[],
+  skip: string | null,
+  now: number,
+  mandatory: boolean
+): PanelCall[] {
+  const seen = new Set(skip === null ? [] : [skip]);
+  return waiting
+    .filter((w) => {
+      if (w.endedAt === null || seen.has(w.key)) return false;
+      seen.add(w.key);
+      return (
+        wrapUpLeftMs(w.endedAt, now) > 0 ||
+        (mandatory && !w.outcomeSet && now - w.endedAt < WRAPUP_OWED_MS)
+      );
+    })
+    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+}
+
+/**
+ * Who has the in-call panel (§7.3). A live call of mine ALWAYS does: for
+ * a browser softphone the panel holds the only hangup, hold, mute and
+ * transfer controls. It takes the panel from an ended call's wrap-up,
+ * which waits, and keeps it until it ends (then the panel is its own
+ * wrap-up). With no live call an empty panel re-opens the newest waiting
+ * wrap-up: the call freshest in mind, whose two minutes may still run,
+ * before older ones that are only still owed. Run on every call_live
+ * change, on close (closeWrapUp) and when a reload recovers wrap-ups
+ * (recoverWrapUps), whichever of the last two lands first.
+ */
+export function selectPanel(
+  s: PanelState,
+  rows: CallLiveRow[],
+  userId: string | null,
+  now: number,
+  mandatory: boolean
+): PanelState {
+  let panel = s.panel;
+  let waiting = s.waiting;
+  if (panel && panel.endedAt === null) {
+    const key = panel.key;
+    const still = rows.find(
+      (r) => liveKey(r) === key && r.answered_by === userId
+    );
+    if (!still) panel = { ...panel, endedAt: now };
+    else if (still.contact_id !== panel.contactId)
+      panel = { ...panel, contactId: still.contact_id };
+  }
+  const active = myActiveCall(rows, userId);
+  if (active && (!panel || panel.endedAt !== null)) {
+    if (panel) waiting = [panel, ...waiting];
+    panel = livePanel(active, now);
+  }
+  waiting = unfinished(waiting, panel?.key ?? null, now, mandatory);
+  if (!panel && waiting.length > 0) [panel, ...waiting] = waiting;
+  return panel === s.panel && sameItems(waiting, s.waiting)
+    ? s
+    : { panel, waiting };
+}
+
+const sameItems = (a: PanelCall[], b: PanelCall[]) =>
+  a.length === b.length && a.every((c, i) => c === b[i]);
+
+/**
+ * The panel of `key` was closed (Close, or its wrap-up's auto-close): it
+ * leaves the panel and the queue for good, even when it lands after a
+ * live call took the panel. A live call's panel is never closed.
+ */
+export function closeWrapUp(
+  s: PanelState,
+  key: string,
+  rows: CallLiveRow[],
+  userId: string | null,
+  now: number,
+  mandatory: boolean
+): PanelState {
+  const keep = s.panel && (s.panel.key !== key || s.panel.endedAt === null);
+  return selectPanel(
+    {
+      panel: keep ? s.panel : null,
+      waiting: s.waiting.filter((w) => w.key !== key),
+    },
+    rows,
+    userId,
+    now,
+    mandatory
+  );
+}
+
+/**
+ * Wrap-ups a reload recovered (GET /api/pbx/calls/wrap-up) join the
+ * queue, so whichever of them and the first call_live load lands first,
+ * a live call still takes the panel.
+ */
+export function recoverWrapUps(
+  s: PanelState,
+  recovered: PanelCall[],
+  rows: CallLiveRow[],
+  userId: string | null,
+  now: number,
+  mandatory: boolean
+): PanelState {
+  const known = new Set(
+    [s.panel, ...s.waiting].flatMap((c) => (c ? [c.key] : []))
+  );
+  return selectPanel(
+    {
+      panel: s.panel,
+      waiting: [...s.waiting, ...recovered.filter((c) => !known.has(c.key))],
+    },
+    rows,
+    userId,
+    now,
+    mandatory
+  );
+}
+
+/** The panel reports whether an outcome is chosen for its call. */
+export function noteOutcome(
+  s: PanelState,
+  key: string,
+  chosen: boolean
+): PanelState {
+  if (!s.panel || s.panel.key !== key || !!s.panel.outcomeSet === chosen)
+    return s;
+  return { ...s, panel: { ...s.panel, outcomeSet: chosen } };
+}
+
+/**
+ * How often the wrap-up's auto-close tries to share a ticked call card
+ * before it closes anyway, with the error showing (a person's Close
+ * tries once and stays open on failure, to try again).
+ */
+export const AUTO_SHARE_TRIES = 3;
+
+/** Runs `fn` up to `tries` times, `waitMs` apart; whether one succeeded. */
+export async function tryTimes(
+  tries: number,
+  fn: () => Promise<unknown>,
+  waitMs = 2000,
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((r) => setTimeout(r, ms))
+): Promise<boolean> {
+  for (let i = 1; ; i++) {
+    try {
+      await fn();
+      return true;
+    } catch {
+      if (i >= tries) return false;
+      await sleep(waitMs);
+    }
+  }
+}
+
+/**
  * Whether the call layer asks GET /api/pbx/me for the caller's phone:
  * once the session and the workspace are known, and never for a bank
  * guest. The route is viewer and up, and the provider is mounted on

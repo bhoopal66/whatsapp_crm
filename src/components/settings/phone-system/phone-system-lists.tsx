@@ -556,6 +556,49 @@ interface BankRow {
 }
 
 /**
+ * A team leader's part of the phone settings: mandatory outcomes only
+ * (PUT /api/pbx/settings takes that one field from them, migration 097).
+ */
+export function OutcomeRuleCard() {
+  const t = useTranslations('Settings.phoneSystem');
+  const [on, setOn] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    void pbxFetch<{ settings: Rules }>('/api/pbx/settings').then((res) => {
+      if (res.ok) setOn(res.data.settings.mandatoryDisposition);
+    });
+  }, []);
+  const save = async (v: boolean) => {
+    setSaving(true);
+    const res = await pbxFetch<{ settings: Rules }>('/api/pbx/settings', {
+      method: 'PUT',
+      body: { mandatoryDisposition: v },
+    });
+    setSaving(false);
+    if (res.ok) {
+      setOn(res.data.settings.mandatoryDisposition);
+      toast.success(t('rules.saved'));
+    } else
+      toast.error(t('saveFailed'), { description: res.error ?? undefined });
+  };
+  return (
+    <Card title={t('outcomes.title')}>
+      <div className="space-y-1 text-sm">
+        <CheckRow
+          checked={on === true}
+          disabled={on === null || saving}
+          onChange={(v) => void save(v)}
+          label={t('rules.mandatory')}
+        />
+        <p className="text-muted-foreground pl-[1.625rem] text-xs">
+          {t('outcomes.hint')}
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+/**
  * What the typed period does, whether the saved one is enforced yet,
  * and what the workspace keeps now.
  */

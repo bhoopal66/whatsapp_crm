@@ -2919,6 +2919,10 @@
       }
     },
     "phoneSystem": {
+      "outcomes": {
+        "title": "통화 결과",
+        "hint": "켜면 통화 후 정리 화면은 결과를 선택해야 닫을 수 있고, 2분 동안 결과를 입력하지 않은 담당자에게 알림이 한 번 전송됩니다."
+      },
       "title": "전화 시스템",
       "subtitle": "Yeastar P-Series",
       "subtitleShared": "Yeastar P-Series · 공유 워크스페이스: {names}",
@@ -4924,6 +4928,8 @@
     "noChannels": "참여한 팀 채널이 없습니다",
     "close": "닫기",
     "outcomeRequired": "닫기 전에 결과를 선택하세요.",
+    "wrapUp": "통화 결과를 입력하세요: {left} 남음",
+    "wrapUpOverdue": "이 워크스페이스에서는 통화 결과가 필수입니다. 결과를 선택해야 닫을 수 있습니다.",
     "transferTitle": "통화 전환",
     "transferNumber": "내선 또는 번호",
     "transferTo": "전환",
@@ -4948,6 +4954,7 @@
     "noOutcome": "결과 없음",
     "unknownCaller": "알 수 없는 발신자",
     "shareFailed": "통화 카드를 공유하지 못했습니다",
+    "shareFailedClosed": "통화 카드를 공유하지 못해 카드 없이 마무리를 닫았습니다. 통화 결과와 메모는 통화 기록에 저장되어 있습니다.",
     "cancel": "취소"
   },
   "ErrorPages": {

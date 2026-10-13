@@ -2919,6 +2919,10 @@
       }
     },
     "phoneSystem": {
+      "outcomes": {
+        "title": "Call outcomes",
+        "hint": "When on, the wrap-up after a call cannot be closed without an outcome, and whoever leaves one out for two minutes gets one reminder in the bell."
+      },
       "title": "Phone system",
       "subtitle": "Yeastar P-Series",
       "subtitleShared": "Yeastar P-Series · shared by {names}",
@@ -4924,6 +4928,8 @@
     "noChannels": "You are in no team channels",
     "close": "Close",
     "outcomeRequired": "Choose an outcome before closing.",
+    "wrapUp": "Add the outcome: {left} left",
+    "wrapUpOverdue": "Outcomes are required here. Choose one to close.",
     "transferTitle": "Transfer the call",
     "transferNumber": "Extension or number",
     "transferTo": "Transfer",
@@ -4948,6 +4954,7 @@
     "noOutcome": "No outcome",
     "unknownCaller": "Unknown caller",
     "shareFailed": "The call card was not shared",
+    "shareFailedClosed": "The call card could not be shared, so the wrap-up closed without it. The outcome and notes are saved on the call.",
     "cancel": "Cancel"
   },
   "ErrorPages": {

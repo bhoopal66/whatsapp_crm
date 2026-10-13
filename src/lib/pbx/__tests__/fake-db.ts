@@ -118,6 +118,10 @@ export function createFakeDb(
       this.filters.push((r) => cmp(r[c], v) >= 0);
       return this;
     }
+    gt(c: string, v: unknown) {
+      this.filters.push((r) => cmp(r[c], v) > 0);
+      return this;
+    }
     /** PostgREST `or`: comma-separated `col.is.null` / `col.eq.v` / `col.lt.v` / `col.lte.v` terms. */
     or(expr: string) {
       const terms = expr.split(',').map((t) => {

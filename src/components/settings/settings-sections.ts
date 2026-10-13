@@ -238,12 +238,13 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     minRole: 'admin',
   },
   // The Yeastar PBX (migration 089): an outside system wired in, like
-  // the API keys. Admin+, like every /api/pbx admin route behind it.
+  // the API keys. Admin+, like every /api/pbx admin route behind it;
+  // team leaders open it for the mandatory-outcome switch alone (097).
   'phone-system': {
     id: 'phone-system',
     icon: PhoneCall,
     category: 'integrations',
-    minRole: 'admin',
+    minRole: 'team_leader',
   },
 };
 

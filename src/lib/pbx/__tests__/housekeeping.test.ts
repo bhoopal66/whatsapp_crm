@@ -19,6 +19,7 @@ import {
   expireRecordings,
   ORPHAN_GRACE,
   ORPHAN_LIMIT,
+  OUTCOME_REMINDER_LIMIT,
   RETENTION_BATCH,
   RETENTION_ROUNDS,
   runPbxCron,
@@ -27,11 +28,21 @@ import {
 
 function fakeDb(
   names: string[],
-  opts: { rpcError?: string; failBatch?: number; expired?: string[][] } = {}
+  opts: {
+    rpcError?: string;
+    failBatch?: number;
+    remindError?: string;
+    expired?: string[][];
+  } = {}
 ) {
   const batches: string[][] = [];
   const expired = [...(opts.expired ?? [])];
   const rpc = vi.fn(async (fn: string) => {
+    if (fn === 'pbx_outcome_reminders') {
+      return opts.remindError
+        ? { data: null, error: { message: opts.remindError } }
+        : { data: 2, error: null };
+    }
     if (fn === 'pbx_expire_recordings') {
       return opts.rpcError
         ? { data: null, error: { message: opts.rpcError } }
@@ -113,12 +124,38 @@ describe('runPbxCron', () => {
     const f = fakeDb(names(3));
     const out = await runPbxCron({ db: f.db });
     expect(f.rpc.mock.calls.map((c) => c[0])).toEqual([
+      'pbx_outcome_reminders',
       'pbx_purge',
       'pbx_expire_recordings',
       'pbx_orphan_recordings',
     ]);
     expect(out.orphans).toEqual({ found: 3, deleted: 3, failed: 0 });
     expect(out.errors).toEqual({});
+  });
+
+  it('rings the outcome reminders first, a bounded batch per run', async () => {
+    const f = fakeDb([]);
+    const out = await runPbxCron({ db: f.db });
+    expect(f.rpc.mock.calls[0]).toEqual([
+      'pbx_outcome_reminders',
+      { p_limit: OUTCOME_REMINDER_LIMIT },
+    ]);
+    expect(out.outcomeReminders).toBe(2);
+  });
+
+  it('records a failed reminder sweep and runs the other steps', async () => {
+    const f = fakeDb(names(1), { remindError: 'db down' });
+    const out = await runPbxCron({ db: f.db });
+    expect(out.errors.outcomes).toBe('db down');
+    expect(out.outcomeReminders).toBeUndefined();
+    expect(out.orphans).toEqual({ found: 1, deleted: 1, failed: 0 });
+  });
+
+  it('starts no reminder sweep once the budget is spent', async () => {
+    const f = fakeDb([]);
+    const out = await runPbxCron({ db: f.db, budgetMs: 0 });
+    expect(out.outOfTime[0]).toBe('outcomes');
+    expect(f.rpc).not.toHaveBeenCalled();
   });
 
   it('records a failed remove as the step error, counts kept', async () => {

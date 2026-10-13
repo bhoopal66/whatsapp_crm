@@ -317,6 +317,10 @@ export type NotificationType =
   // {call_id, contact_id, task_id}. callback_requested is reserved.
   | 'call_missed'
   | 'callback_requested'
+  // Call wrap-up (097): an answered call still has no outcome two
+  // minutes after it ended, where outcomes are mandatory (the PBX cron,
+  // once per call). meta = {call_id, contact_id}.
+  | 'call_outcome_due'
   // Deal rooms (088): someone asked to join a room, or a room changed.
   // meta = {room_id, ...}.
   | 'deal_room_join_request'

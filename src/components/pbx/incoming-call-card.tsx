@@ -277,8 +277,11 @@ export function IncomingCallCard() {
       <div
         role="alertdialog"
         aria-label={t('incoming')}
-        // Above the floating form where a narrow screen overlaps them.
-        className={`fixed top-[68px] right-4 ${creating ? 'z-[60]' : 'z-50'} w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10`}
+        // Always on top: above the call panel (an open or queued wrap-up
+        // must never cover Answer and Decline, the only controls a
+        // browser-softphone agent has for a ringing call) and above the
+        // floating Create-contact form where a narrow screen overlaps them.
+        className={`fixed top-[68px] right-4 z-[60] w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10`}
       >
         <p className="flex items-center gap-2 text-xs text-white/70">
           <span className="size-2 animate-pulse rounded-full bg-emerald-400" />

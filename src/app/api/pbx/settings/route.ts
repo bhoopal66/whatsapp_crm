@@ -20,19 +20,24 @@
 // is never shortened unasked. retentionNeedsConfirm (admin-ui.ts) is
 // the screen's side of the rule.
 //
-// Admin+, written with the caller's own client: pbx_settings has admin
-// RLS, and its trigger stamps updated_by.
+// Written with the caller's own client: pbx_settings has admin RLS, and
+// its trigger stamps updated_by. Admin+, except mandatoryDisposition,
+// which team leaders may also switch (§7.3, migration 097): a leader's
+// PUT may carry only that field, and goes through
+// pbx_set_mandatory_disposition(), which changes nothing else.
 //
 // GET answers retentionConfirmedAt (null: the period deletes nothing
 // yet) and `recordings`, what the workspace keeps now
 // (pbx_recordings_kept, migration 093): { kept, legalHold, oldestCallAt,
 // expired } by call date, or null when it cannot be read, which never
-// keeps the settings from loading.
+// keeps the settings from loading. A team leader, who may read the
+// settings, always gets null: the function is admin-only.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { canEditSettings } from '@/lib/auth/roles';
 import { fail } from '@/lib/pbx/calls';
 
 const COLUMNS =
@@ -115,7 +120,7 @@ async function kept(sb: SupabaseClient) {
 
 export async function GET() {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = await requireRole('team_leader');
     const { data, error } = await ctx.supabase
       .from('pbx_settings')
       .select(COLUMNS)
@@ -124,7 +129,7 @@ export async function GET() {
     if (error) throw new Error(`pbx_settings read failed: ${error.message}`);
     return NextResponse.json({
       settings: view((data as Record<string, unknown> | null) ?? DEFAULTS),
-      recordings: await kept(ctx.supabase),
+      recordings: canEditSettings(ctx.role) ? await kept(ctx.supabase) : null,
     });
   } catch (err) {
     return toErrorResponse(err);
@@ -133,7 +138,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const ctx = await requireRole('admin');
+    const ctx = await requireRole('team_leader');
     const body = await request.json().catch(() => null);
     if (typeof body !== 'object' || body === null || Array.isArray(body))
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
@@ -141,6 +146,30 @@ export async function PUT(request: Request) {
     const fields = parse(b);
     if (typeof fields === 'string')
       return NextResponse.json({ error: fields }, { status: 400 });
+    if (!canEditSettings(ctx.role)) {
+      if (Object.keys(fields).some((k) => k !== 'mandatory_disposition'))
+        return NextResponse.json(
+          {
+            error:
+              'Only an admin can change phone settings other than mandatory outcomes',
+          },
+          { status: 403 }
+        );
+      const set = await ctx.supabase.rpc('pbx_set_mandatory_disposition', {
+        p_on: fields.mandatory_disposition,
+      });
+      if (set.error)
+        throw new Error(`pbx_settings write failed: ${set.error.message}`);
+      const { data, error } = await ctx.supabase
+        .from('pbx_settings')
+        .select(COLUMNS)
+        .eq('account_id', ctx.accountId)
+        .maybeSingle();
+      if (error) throw new Error(`pbx_settings read failed: ${error.message}`);
+      return NextResponse.json({
+        settings: view((data as Record<string, unknown> | null) ?? DEFAULTS),
+      });
+    }
     const next = fields.retention_days;
     if (next !== undefined) {
       fields.retention_confirmed_at =
