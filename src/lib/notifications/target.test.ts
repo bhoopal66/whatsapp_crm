@@ -52,7 +52,7 @@ describe('notificationTarget', () => {
     }
   );
 
-  it.each(['call_missed', 'callback_requested'])(
+  it.each(['call_missed', 'callback_requested', 'call_outcome_due'])(
     '%s opens the customer page, else the missed-calls view',
     (type) => {
       expect(
