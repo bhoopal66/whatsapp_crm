@@ -32,7 +32,7 @@ asserted by `supabase/ci/verify-internal-chat.sql` and
 - **Private channel** (`private`): members only. Nobody adds
   themselves: an existing member adds people, and only a channel admin
   adds staff. The creator is its first channel admin. The last
-  (non-guest) admin cannot leave or be demoted.
+  (non-guest) admin cannot leave, be demoted or be removed.
 - **Direct message** (`dm`): 2 to 8 people, the opener included, so a
   group DM is the same thing as a DM. A DM has no name; it is labelled
   by the other members. The same set of people always opens the same
@@ -54,8 +54,25 @@ asserted by `supabase/ci/verify-internal-chat.sql` and
   uniqueness; the lowercase and hyphen shaping is the dialog's.
 - **Who creates.** Owners, admins, team leaders, agents and viewers can
   create team and private channels. Bank guests cannot.
-- **Archived** channels are read-only: posting, editing, reacting and
-  changing members are refused.
+- **Managing a channel** (team and private only: DMs are fixed sets
+  and deal rooms are managed from the deal). A channel admin, or a
+  workspace owner or admin, can rename it, change or clear its topic,
+  archive and unarchive it, and remove another member. In a private
+  channel the owner or admin must be a member to do any of it; from
+  outside they can only read it, through the audited admin read. Bank
+  guests manage nothing. Each change is in the audit log.
+- **Archived** channels are read-only: posting, editing, reacting,
+  pinning, uploading, renaming and changing members are refused, and
+  they leave the unread counts. Unarchiving fails if a live channel has
+  taken the name meanwhile: rename that channel first (an archived one
+  cannot be renamed).
+- **Removing a member.** Nobody removes themselves (that is leaving),
+  and the last (non-guest) channel admin cannot be removed. Someone
+  removed from a private channel loses it at once, with their bell rows
+  for it. Removed from a team channel, a staff member can still read it
+  and rejoins by posting.
+- **Mute** is each person's own switch, on any channel they are in,
+  DMs and deal rooms included, bank guests too (see _Notifications_).
 
 ## Who sees what, by role
 
@@ -191,6 +208,12 @@ characters of the message and mentions shown as `@Name`.
 - One notification per person per message, by that order of
   precedence. Never to the author, and never to someone who cannot read
   the channel's messages. Automation posts notify nobody.
+- **Muted** channels and DMs ring only for a direct `@mention`: a muted
+  member gets no `chat_broadcast`, `chat_thread_reply` or `chat_dm`. A
+  muted channel still shows its unread count in the channel list
+  (`chat_unread_counts` returns `muted`), but the workspace rail badge
+  (`chat_workspace_badges`) leaves its plain unread out; its mentions
+  still count.
 - Editing a message rebuilds the bell text from the new text. Deleting
   it removes the bell rows. A failure to write a bell row never blocks
   the post.
@@ -213,7 +236,10 @@ room can read it, but must give a reason first.
   replies indented. It does not include the edit history.
 - The log is Settings → Audit log (source Team chat), owners and admins
   only, and append-only. It also records `erase_person`, `add_members`
-  and `set_member_role` (who added or promoted whom, and where).
+  and `set_member_role` (who added or promoted whom, and where), and
+  since 091 `update_channel` (old and new name and topic),
+  `archive_channel`, `unarchive_channel` and `remove_member` (whom, and
+  their channel role).
 
 ## Retention and erasure
 
@@ -262,3 +288,23 @@ calls the `chat_*` functions directly with the user's session
 (`src/lib/chat/api.ts`); each is `SECURITY DEFINER` and re-checks the
 caller. The chat tables grant `SELECT` only, so those functions are the
 only write path.
+
+### Channel administration (091)
+
+Called directly like the rest; each returns nothing.
+
+| Function               | Arguments                                   | Notes                                                                                   |
+| ---------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `chat_update_channel`  | `p_channel uuid, p_name text, p_topic text` | `NULL` keeps a field, `''` clears the topic; name trimmed, 1–80 characters; topic ≤ 250 |
+| `chat_archive_channel` | `p_channel uuid, p_archived boolean`        | asking for the state it is already in changes nothing                                   |
+| `chat_remove_member`   | `p_channel uuid, p_user uuid`               | not yourself, not the last channel admin                                                |
+| `chat_set_muted`       | `p_channel uuid, p_muted boolean`           | your own membership only; not audited                                                   |
+
+Errors, as SQLSTATE and the `ChatError` code / key of
+`src/lib/chat/errors.ts`: `42501` forbidden (`adminRequired`;
+`notChannelMember`, also for an owner or admin outside a private
+channel; `guestRestricted`; `archived`), `P0002` channel or member not
+found, `22023` invalid (`lastAdmin`; removing yourself; a DM or deal
+room; a `NULL` switch), `23514` a name or topic of the wrong length,
+`23505` the name is taken (`duplicateName`, on unarchive too), `CH001`
+internal chat is off.

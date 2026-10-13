@@ -212,6 +212,13 @@ jobs:
       - name: Verify internal chat (admin)
         run: supabase db query --local --file supabase/ci/verify-internal-chat-admin.sql
 
+      # Team-chat channel administration (091): rename, archive and
+      # remove for channel admins and workspace owner/admin (from inside
+      # a private channel only, D-B1), a person's own mute (only a direct
+      # mention rings) and the badges that leave muted unread out.
+      - name: Verify chat channel admin
+        run: supabase db query --local --file supabase/ci/verify-chat-channel-admin.sql
+
       # Phone system (089): who sees a call is RLS through
       # pbx_can_view_call (leaders all, the call's people, whoever can
       # see its contact; guests nothing), three SECURITY DEFINER

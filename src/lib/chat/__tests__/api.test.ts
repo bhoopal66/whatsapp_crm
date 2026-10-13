@@ -127,7 +127,7 @@ describe('RPC wrappers', () => {
       ok(null)
     );
     expect(await api.unreadCounts(sb, 'ws')).toEqual([
-      { channelId: CH, unread: 2, mentions: 1 },
+      { channelId: CH, unread: 2, mentions: 1, muted: false },
     ]);
     const [card] = await api.sharedCards(sb, [M]);
     expect(card).toMatchObject({

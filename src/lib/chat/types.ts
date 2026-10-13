@@ -166,6 +166,8 @@ export interface UnreadCount {
   channelId: string;
   unread: number;
   mentions: number;
+  /** Muted by the caller (091): its unread stays out of the workspace badge. */
+  muted: boolean;
 }
 
 export interface WorkspaceBadge {
@@ -315,6 +317,7 @@ export const toUnreadCount = (r: Row): UnreadCount => ({
   channelId: str(r.channel_id),
   unread: num(r.unread),
   mentions: num(r.mentions),
+  muted: r.muted === true,
 });
 
 export const toWorkspaceBadge = (r: Row): WorkspaceBadge => ({

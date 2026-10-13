@@ -145,7 +145,7 @@ describe('sidebarSections', () => {
         ch('m1', 'dm', null, { dmMemberIds: [ME, BO] }),
         ch('m2', 'dm', null, { dmMemberIds: [ANA, ME] }),
       ],
-      [{ channelId: 'p1', unread: 3, mentions: 1 }],
+      [{ channelId: 'p1', unread: 3, mentions: 1, muted: false }],
       ME,
       people,
       '?'
@@ -158,8 +158,8 @@ describe('sidebarSections', () => {
   it('totalUnread sums', () => {
     expect(
       totalUnread([
-        { channelId: 'a', unread: 2, mentions: 0 },
-        { channelId: 'b', unread: 5, mentions: 1 },
+        { channelId: 'a', unread: 2, mentions: 0, muted: false },
+        { channelId: 'b', unread: 5, mentions: 1, muted: false },
       ])
     ).toBe(7);
   });

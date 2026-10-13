@@ -1,5 +1,6 @@
 /**
- * Typed wrappers over the chat RPCs and tables of migration 087. The
+ * Typed wrappers over the chat RPCs and tables of migration 087 (and
+ * 091's channel administration). The
  * browser calls them with the user's session: every RPC is SECURITY
  * DEFINER and re-checks the caller, RLS limits every read, so there is
  * no API route in between. Every failure is thrown as a ChatError.
@@ -267,6 +268,51 @@ export const setMemberRole = (
     p_user_id: i.userId,
     p_role: i.role,
   });
+
+/**
+ * Rename and/or re-topic a team or private channel (091). An omitted or
+ * null field is kept; `topic: ''` clears the topic. A name another live
+ * channel has is CONFLICT / duplicateName.
+ */
+export const updateChannel = (
+  sb: SupabaseClient,
+  i: { channelId: string; name?: string | null; topic?: string | null }
+): Promise<void> =>
+  rpc(sb, 'chat_update_channel', {
+    p_channel: i.channelId,
+    p_name: i.name ?? null,
+    p_topic: i.topic ?? null,
+  });
+
+/**
+ * Archive (true) or unarchive (false) a team or private channel (091).
+ * Unarchiving after a live channel took the name is CONFLICT /
+ * duplicateName: that channel has to be renamed first.
+ */
+export const setChannelArchived = (
+  sb: SupabaseClient,
+  channelId: string,
+  archived: boolean
+): Promise<void> =>
+  rpc(sb, 'chat_archive_channel', {
+    p_channel: channelId,
+    p_archived: archived,
+  });
+
+/** Remove someone else from a team or private channel (091); leaving is leaveChannel. */
+export const removeMember = (
+  sb: SupabaseClient,
+  i: { channelId: string; userId: string }
+): Promise<void> =>
+  rpc(sb, 'chat_remove_member', { p_channel: i.channelId, p_user: i.userId });
+
+/** The caller's own mute switch, on any channel they belong to (091). */
+export const setMuted = (
+  sb: SupabaseClient,
+  channelId: string,
+  muted: boolean
+): Promise<void> =>
+  rpc(sb, 'chat_set_muted', { p_channel: channelId, p_muted: muted });
 
 /** Owner/admin read of a private channel, DM or deal room; audited. Oldest first. */
 export const adminReadPrivate = async (
