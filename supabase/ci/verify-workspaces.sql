@@ -1028,6 +1028,10 @@ BEGIN
       (t_acct, 'wsarch-pend-1', 'agent', u_ow, now() + interval '1 day', NULL, NULL),
       (t_acct, 'wsarch-pend-2', 'viewer', u_ow, now() + interval '1 day', NULL, NULL),
       (t_acct, 'wsarch-used', 'agent', u_ow, now() + interval '1 day', now(), u_m1);
+    n := n + 1;
+    IF coalesce(public.chat_user_role(t_acct, u_m1), 'null') IS DISTINCT FROM 'agent' THEN
+      failed := array_append(failed, 'team chat role in T before the archive (want agent)'::text);
+    END IF;
     arch := format('SELECT public.archive_workspace(%L, true)', t_acct);
 
     -- An admin is not an owner.
@@ -1161,6 +1165,13 @@ BEGIN
       failed := array_append(failed, ('reactivating LN in archived T (want 42501, null): ' || r)::text);
     END IF;
 
+    -- Team chat closes with T: every chat gate asks chat_user_role.
+    r := coalesce(public.chat_user_role(t_acct, u_m1), 'null') || ' | ' || coalesce(public.chat_user_role(t_acct, u_ow), 'null');
+    n := n + 1;
+    IF r IS DISTINCT FROM 'null | null' THEN
+      failed := array_append(failed, ('team chat role in archived T (want null x2): ' || r)::text);
+    END IF;
+
     -- Nothing connects to T: a number, a phone system, Alpha's route and
     -- extension, or Alpha's number moved to T (a connect in flight).
     r := pg_temp.ws_try('service_role', NULL, format(
@@ -1229,6 +1240,10 @@ BEGIN
             WHERE account_id = t_acct AND action IN ('workspace_archived', 'workspace_restored'))
           IS DISTINCT FROM 'workspace_archived:' || u_ow || ',workspace_restored:' || u_ow THEN
       failed := array_append(failed, ('restore (want 42501, the owner''s result, M1 back in, links still gone): ' || r)::text);
+    END IF;
+    n := n + 1;
+    IF public.chat_user_role(t_acct, u_ow) IS NULL THEN
+      failed := array_append(failed, 'team chat role in restored T (want the owner''s)'::text);
     END IF;
   END;
 

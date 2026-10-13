@@ -671,3 +671,22 @@ CREATE TRIGGER workspace_audit_accounts_update
 REVOKE ALL ON FUNCTION public.accounts_archive_guard(), public.profiles_archived_activation_guard(),
   public.archived_workspace_connect_guard(), public.workspace_audit_accounts()
   FROM PUBLIC, anon, authenticated, service_role;
+
+-- ---------- Team chat closes with the workspace ----------
+-- 087's chat_user_role answers for any live row in the workspace, active
+-- or not, and every chat gate (posting, creating channels, the read
+-- policies, the rail's badges) asks it. Archiving keeps members' rows
+-- live and only moves the active mark, so without this an archived
+-- workspace's channels and deal-room Team notes stayed open. 087's body,
+-- plus the account's archived_at; a restore opens them again.
+CREATE OR REPLACE FUNCTION public.chat_user_role(p_ws uuid, p_user uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT CASE p.account_role::text
+           WHEN 'team_leader' THEN 'supervisor'
+           WHEN 'viewer'      THEN 'agent'
+           ELSE p.account_role::text
+         END
+    FROM public.profiles p
+    JOIN public.accounts a ON a.id = p.account_id AND a.archived_at IS NULL
+   WHERE p.account_id = p_ws AND p.user_id = p_user AND p.deactivated_at IS NULL
+$$;
