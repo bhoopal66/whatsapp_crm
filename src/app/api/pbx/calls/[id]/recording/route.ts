@@ -20,10 +20,9 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { roleRank } from '@/lib/auth/roles';
+import { canDownloadRecording } from '@/lib/auth/roles';
 import { pbxServiceDb } from '@/lib/pbx/admin';
 import {
-  RANK_LEADER,
   RECORDINGS_BUCKET,
   RECORDING_LINK_SECONDS,
   UUID,
@@ -51,7 +50,7 @@ export async function POST(
 
     const call = await visibleCall(ctx.supabase, id);
     if (!call) return fail('Call not found', 404);
-    if (action === 'download' && roleRank(ctx.role) < RANK_LEADER)
+    if (action === 'download' && !canDownloadRecording(ctx.role))
       return fail('Only a team leader or above can download a recording', 403);
 
     const service = pbxServiceDb();

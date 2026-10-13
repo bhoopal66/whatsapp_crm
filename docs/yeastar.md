@@ -190,6 +190,32 @@ connection with no secret stored refuses every push. Optionally set
   workspace's missed-call delay, for the contact's owner, else the first
   person it rang, and ring that person's bell. A ring-group call a
   colleague answered is not missed.
+- **Who it rang.** Every person an inbound call rang is kept on the
+  call (`calls.meta.rang_user_ids`, first rung first), gathered from
+  each ringing frame, so it survives the screen pop going away. The
+  customer page's timeline names them ("rang Sara and Faisal for
+  24 s"), as profiled in the viewer's workspace. Calls from before
+  this was kept name only the extension's person, if any. An erased
+  call loses the list with the rest of its details.
+- **WhatsApp draft** (Settings › Phone system, off by default). While
+  it is on, a missed call on the customer page offers **Draft
+  WhatsApp**, which opens the customer's chat with "Hi {name}, sorry we
+  missed your call — how can we help?" in the composer (also when that
+  chat is already open; typed words are kept) for the person to edit
+  and send. Nothing sends it by itself. A do-not-contact or opted-out
+  customer is never offered one: the call says why instead. On the same
+  terms (a known contact with a chat, neither do-not-contact nor opted
+  out) the missed-call task's note says the draft is ready.
+  The draft is a **human-sent message**, so the consent register is
+  checked again at both ends. The composer reads it when it picks the
+  draft up, and drops a draft left for a customer marked since, with a
+  notice. A send whose text began as the draft (edits included, until
+  the box is emptied) carries `origin: "missed_call_draft"` to
+  `POST /api/whatsapp/send`, which refuses it before the gateway with a
+  409 `do_not_contact` or `opted_out`; that refusal offers no Retry. An
+  ordinary typed reply carries no origin and is not gated by the
+  register. The TypeSafe guardrail does not apply to the draft: it
+  screens the AI bot's replies, not what a person sends.
 - **Recordings** are marked for fetching, or kept unrecorded (_held_)
   for a bank number while **Exclude bank numbers** is on.
 - Every event is stored once (re-sends are ignored); one that cannot be
@@ -346,8 +372,9 @@ backing off after a refused login is skipped until the backoff ends.
   out. **Missed-call attribution:** a call counts for the person whose
   extension the PBX reports it to. A missed call that rang someone's
   own extension is theirs. A ring group or queue rings several people
-  at once, and who it rang is not kept once the call ends, so when
-  nobody answers the call has no person: it is counted once, under
+  at once (the customer page lists them), but the report does not
+  share a missed call out among them: when nobody answers the call has
+  no person, and it is counted once, under
   _No person_ and in the total, never once per person it rang. A call
   to an extension with no CRM login is counted the same way.
 - **Outcome and notes.** After a call, the person on it (or a team
@@ -385,7 +412,8 @@ backing off after a refused login is skipped until the backoff ends.
   shared (the outcome and notes are saved on the call).
 - **Recordings.** An agent or above who can see a call can play its
   recording;
-  only team leaders, admins and owners can download one. Every play,
+  only team leaders, admins and owners can download one (**Download**
+  on the customer page's player). Every play,
   download and attach is logged (owners and admins can read the log),
   and the link the browser gets is valid for five minutes. A recording
   is held, for everyone, until the English/Arabic notice is confirmed

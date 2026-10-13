@@ -5,6 +5,7 @@ import {
   STAFF_ROLES,
   type AccountRole,
   canDeleteAccount,
+  canDownloadRecording,
   canLeadTeam,
   canManageTeams,
   canEditSettings,
@@ -187,9 +188,20 @@ describe('bank_guest (migrations 082/083)', () => {
       canLeadTeam,
       canManageTeams,
       canInviteMembers,
+      canDownloadRecording,
     ]) {
       expect(can('bank_guest'), can.name).toBe(false);
     }
+  });
+});
+
+describe('canDownloadRecording', () => {
+  it('team leader and up, as the recording route allows', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canDownloadRecording(r))).toEqual([
+      'team_leader',
+      'admin',
+      'owner',
+    ]);
   });
 });
 

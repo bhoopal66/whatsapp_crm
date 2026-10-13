@@ -1,4 +1,5 @@
 import type { Message } from '@/types';
+import type { ConsentRefusal } from '@/lib/whatsapp/send-origin';
 
 /**
  * An agent's send that failed, kept in the browser so it can be sent
@@ -63,6 +64,10 @@ export interface FailedSend extends SendAttempt {
 export function isRetryableSendFailure(status: number, body: unknown): boolean {
   if (status >= 200 && status < 300) return false;
   if (!hasRouteError(body)) return false;
+  // Certainly not sent, but final: a Retry is refused again, and the
+  // words put back in the composer would go out as an ordinary reply,
+  // which the register does not gate.
+  if (consentRefusalOf(status, body)) return false;
   if (status >= 400 && status < 500) return true;
   return status === 502 && (body as { retryable?: unknown }).retryable === true;
 }
@@ -82,6 +87,20 @@ export function shouldWarnMaybeSent(status: number, body: unknown): boolean {
   const answer = body as { code?: unknown; retryable?: unknown } | null;
   if (answer?.retryable === true) return false;
   return answer?.code !== 'db_error';
+}
+
+/**
+ * The consent register's 409 for a missed-call draft (`do_not_contact`
+ * or `opted_out`, see lib/whatsapp/send-origin.ts), or null. The inbox
+ * words it itself, in the app's language.
+ */
+export function consentRefusalOf(
+  status: number,
+  body: unknown
+): ConsentRefusal | null {
+  if (status !== 409) return null;
+  const code = (body as { code?: unknown } | null)?.code;
+  return code === 'do_not_contact' || code === 'opted_out' ? code : null;
 }
 
 /** The route's `{ error }`, or the bare status when there is none. */
