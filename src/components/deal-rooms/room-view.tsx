@@ -88,6 +88,8 @@ const SEND_ERRORS = new Set([
   'forbidden',
   'media_type',
   'media_size',
+  'media_name',
+  'media_content',
   'media_upload',
 ]);
 

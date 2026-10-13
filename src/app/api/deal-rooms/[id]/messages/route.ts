@@ -17,7 +17,9 @@ export const maxDuration = 60;
  * Send to the deal room's WhatsApp group (module 014c): `{ text }`, or
  * `{ templateName, language, params? }`, or a file as multipart form
  * data (`file`, optional `caption`: a JPEG/PNG image up to 5 MB or a
- * document up to 9 MB, 400 `media_type` / `media_size` otherwise). The
+ * document up to 9 MB, 400 `media_type` / `media_size` otherwise; its
+ * name's extension and leading bytes must match the type, 400
+ * `media_name` / `media_content` otherwise). The
  * only route that reaches a group, so everyone in the room sees what it
  * sends; nothing sent can be edited or deleted. Free text and files need
  * the group's 24-hour window open (409 `window_closed` otherwise, before

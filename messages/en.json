@@ -4204,6 +4204,8 @@
           "generic": "Couldn't send. Try again.",
           "media_type": "Only JPEG or PNG images and PDF, Word, Excel, PowerPoint or text documents can be sent.",
           "media_size": "This file is too large to send.",
+          "media_name": "The file's name must end in an extension of its type, such as .pdf for a PDF.",
+          "media_content": "This file's contents don't match its type.",
           "media_upload": "Couldn't store the file. Try again."
         },
         "attach": "Attach an image or document",

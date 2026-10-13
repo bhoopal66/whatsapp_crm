@@ -38,6 +38,7 @@ import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 import {
   ROOM_MEDIA_CAPTION_MAX,
   checkRoomMedia,
+  checkRoomMediaContent,
   roomMediaPath,
   type RoomMediaKind,
 } from './room-media';
@@ -308,7 +309,9 @@ export function parsePostBody(
 
 /**
  * A file from the composer's multipart body: `file` plus an optional
- * `caption`. The bytes are read here, after the type and size checks.
+ * `caption`. The bytes are read here, after the type and size checks,
+ * and must then bear out the type the browser named (name and leading
+ * bytes, `checkRoomMediaContent`).
  */
 export async function parseMediaForm(
   form: FormData | null
@@ -342,12 +345,27 @@ export async function parseMediaForm(
       code: 'invalid',
     };
   }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const content = checkRoomMediaContent(file, bytes);
+  if (!content.ok) {
+    return content.code === 'media_name'
+      ? {
+          ok: false,
+          error: "The file's name does not end in an extension of its type",
+          code: content.code,
+        }
+      : {
+          ok: false,
+          error: "The file's contents do not match its type",
+          code: content.code,
+        };
+  }
   return {
     ok: true,
     value: {
       kind: 'media',
       mediaKind: check.kind,
-      bytes: new Uint8Array(await file.arrayBuffer()),
+      bytes,
       mime: file.type.split(';')[0].trim().toLowerCase(),
       fileName: (file.name || 'file').slice(0, 255),
       caption: caption || null,

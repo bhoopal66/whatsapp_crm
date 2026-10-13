@@ -90,8 +90,9 @@ const postFile = (file: File, caption?: string) => {
     { params: Promise.resolve({ id: 'room-1' }) }
   );
 };
-const pdf = (bytes = 3) =>
-  new File([new Uint8Array(bytes)], 'Offer letter.pdf', {
+/** "%PDF-1.7": a PDF's leading bytes, which the route checks. */
+const pdf = (name = 'Offer letter.pdf') =>
+  new File([new TextEncoder().encode('%PDF-1.7')], name, {
     type: 'application/pdf',
   });
 
@@ -243,7 +244,7 @@ describe('POST /api/deal-rooms/[id]/messages', () => {
           storage_path: path,
           name: 'Offer letter.pdf',
           mime: 'application/pdf',
-          bytes: 3,
+          bytes: 8,
           source: 'deal_room_media',
           ref_type: 'group_message',
           ref_id: 'wamid.M',
@@ -289,6 +290,21 @@ describe('POST /api/deal-rooms/[id]/messages', () => {
       const res2 = await postFile(big);
       expect(res2.status).toBe(400);
       expect((await res2.json()).code).toBe('media_size');
+      expect(mem.uploads).toEqual([]);
+      expect(m.sendGroupMedia).not.toHaveBeenCalled();
+    });
+
+    it('refuses a file whose name or bytes do not bear out its type, storing nothing', async () => {
+      // An executable the browser was told is a PDF.
+      const exe = new File([new Uint8Array([0x4d, 0x5a, 0x90, 0])], 'a.pdf', {
+        type: 'application/pdf',
+      });
+      const res = await postFile(exe);
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe('media_content');
+      const named = await postFile(pdf('Offer letter.exe'));
+      expect(named.status).toBe(400);
+      expect((await named.json()).code).toBe('media_name');
       expect(mem.uploads).toEqual([]);
       expect(m.sendGroupMedia).not.toHaveBeenCalled();
     });

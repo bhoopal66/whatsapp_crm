@@ -4204,6 +4204,8 @@
           "generic": "보내지 못했습니다. 다시 시도하세요.",
           "media_type": "JPEG 또는 PNG 이미지와 PDF, Word, Excel, PowerPoint, 텍스트 문서만 보낼 수 있습니다.",
           "media_size": "파일이 너무 커서 보낼 수 없습니다.",
+          "media_name": "파일 이름은 형식에 맞는 확장자로 끝나야 합니다(예: PDF는 .pdf).",
+          "media_content": "파일 내용이 형식과 맞지 않습니다.",
           "media_upload": "파일을 저장하지 못했습니다. 다시 시도하세요."
         },
         "attach": "이미지 또는 문서 첨부",
