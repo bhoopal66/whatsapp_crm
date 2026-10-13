@@ -11,8 +11,10 @@ import { CallButton } from '@/components/pbx/call-button';
 import { useAuth } from '@/hooks/use-auth';
 import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
 import {
+  UNROUTED_SUMMARY_DAYS,
   callBackFor,
   messageWhen,
+  shownCallsTab,
   visibleCallTabs,
   type CallsTab,
 } from '@/lib/pbx/call-ui';
@@ -53,11 +55,14 @@ const getJson = (url: string) =>
     return r.json();
   });
 
-export function CallsView({ tab }: { tab: CallsTab }) {
+export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const t = useTranslations('CallsPage');
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
   const { accountRole } = useAuth();
+  // A direct link to a tab this role is not offered (the API would
+  // refuse it) shows Missed calls, as an unknown ?tab= does.
+  const tab = shownCallsTab(requested, accountRole);
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -197,8 +202,11 @@ export function CallsView({ tab }: { tab: CallsTab }) {
     current &&
     current.numbers.length > 0 && (
       <section className="border-border bg-card overflow-hidden rounded-xl border">
-        <h2 className="border-border text-muted-foreground border-b px-4 py-2 text-xs font-semibold tracking-wide uppercase">
+        <h2 className="border-border text-muted-foreground flex flex-wrap items-baseline justify-between gap-x-3 border-b px-4 py-2 text-xs font-semibold tracking-wide uppercase">
           {t('unrouted.numbersTitle')}
+          <span className="font-normal tracking-normal normal-case">
+            {t('unrouted.numbersWindow', { days: UNROUTED_SUMMARY_DAYS })}
+          </span>
         </h2>
         <ul>
           {current.numbers.map((n) => (

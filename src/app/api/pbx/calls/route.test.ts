@@ -71,6 +71,26 @@ const get = async (qs = '') => {
 const ids = async (qs: string) =>
   ((await get(qs)).body.calls as { id: string }[]).map((c) => c.id);
 
+/** What each `calls` select asked for: its columns and any count option. */
+function watchCallReads() {
+  const reads: { columns: string; count?: string }[] = [];
+  const from = rls.db.from.bind(rls.db);
+  vi.spyOn(rls.db, 'from').mockImplementation(((table: string) => {
+    const query = from(table);
+    if (table !== 'calls') return query;
+    const select = query.select.bind(query) as (...a: unknown[]) => unknown;
+    (query as unknown as { select: unknown }).select = (
+      columns: string,
+      options?: { count?: string }
+    ) => {
+      reads.push({ columns, count: options?.count });
+      return select(columns, options);
+    };
+    return query;
+  }) as typeof rls.db.from);
+  return reads;
+}
+
 describe('GET /api/pbx/calls', () => {
   it('lists visible calls newest first, with names and the outcome', async () => {
     rls.tables.calls.push(
@@ -261,6 +281,9 @@ describe('GET /api/pbx/calls', () => {
     const D1 = '97142000001';
     const D2 = '97142000002';
     beforeEach(() => {
+      // The numbers reach back 30 days from now: pin it.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-13T12:00:00.000Z'));
       rls.tables.calls.push(
         call({
           did_number: D1,
@@ -330,6 +353,99 @@ describe('GET /api/pbx/calls', () => {
         { didNumber: D1, calls: 1, lastAt: '2026-10-12T09:00:00.000Z' },
       ]);
       expect((await get('scope=all')).body.numbers).toBeUndefined();
+    });
+
+    const unrouted = (p: Row) => call({ meta: { unrouted: true }, ...p });
+
+    describe('the window the numbers cover', () => {
+      const D4 = '97142000004';
+      beforeEach(() => {
+        as('admin');
+        // The window opens at 12:00 on 13 September.
+        rls.tables.calls.push(
+          unrouted({ did_number: D4, started_at: '2026-08-20T08:00:00.000Z' }),
+          unrouted({ did_number: D4, started_at: '2026-08-21T08:00:00.000Z' }),
+          unrouted({ did_number: D1, started_at: '2026-09-13T11:59:59.000Z' }),
+          unrouted({ did_number: D1, started_at: '2026-09-13T12:00:00.000Z' })
+        );
+      });
+
+      it('is the last 30 days when the request names no start, whether or not the list is cut short', async () => {
+        // limit=200 lists every unrouted call; limit=1 cuts the list short
+        // and the numbers are read apart. Neither counts the older calls.
+        for (const limit of [200, 1]) {
+          expect(
+            (await get(`scope=unrouted&limit=${limit}`)).body.numbers
+          ).toEqual([
+            { didNumber: D1, calls: 3, lastAt: '2026-10-12T09:00:00.000Z' },
+            { didNumber: D2, calls: 1, lastAt: '2026-10-12T07:00:00.000Z' },
+          ]);
+        }
+        // The list itself is not bounded.
+        expect((await get('scope=unrouted&limit=200')).body.calls).toHaveLength(
+          7
+        );
+      });
+
+      it('reaches back as far as a start the request names', async () => {
+        for (const limit of [200, 1]) {
+          expect(
+            (
+              await get(
+                `scope=unrouted&limit=${limit}&from=2026-08-01T00:00:00Z`
+              )
+            ).body.numbers
+          ).toEqual([
+            { didNumber: D1, calls: 4, lastAt: '2026-10-12T09:00:00.000Z' },
+            { didNumber: D2, calls: 1, lastAt: '2026-10-12T07:00:00.000Z' },
+            { didNumber: D4, calls: 2, lastAt: '2026-08-21T08:00:00.000Z' },
+          ]);
+        }
+      });
+    });
+
+    describe('the numbers’ reads', () => {
+      beforeEach(() => {
+        as('admin');
+        rls.tables.calls.length = 0;
+      });
+
+      it('ask for no exact count, and stop at the first short page', async () => {
+        for (let i = 0; i < 1500; i++)
+          rls.tables.calls.push(
+            unrouted({ did_number: D1, started_at: '2026-10-12T08:00:00.000Z' })
+          );
+        const reads = watchCallReads();
+        const { body } = await get('scope=unrouted&limit=1');
+        expect(body.numbers).toEqual([
+          { didNumber: D1, calls: 1500, lastAt: '2026-10-12T08:00:00.000Z' },
+        ]);
+        // The list, then two pages of the numbers (1,000 and 500 calls).
+        expect(
+          reads.map((r) => r.columns === 'did_number, started_at')
+        ).toEqual([false, true, true]);
+        expect(reads.filter((r) => r.count)).toEqual([]);
+      });
+
+      it('stop at ten pages, keeping the latest calls', async () => {
+        for (let i = 0; i < 500; i++)
+          rls.tables.calls.push(
+            unrouted({ did_number: D2, started_at: '2026-10-01T08:00:00.000Z' })
+          );
+        for (let i = 0; i < 10_000; i++)
+          rls.tables.calls.push(
+            unrouted({ did_number: D1, started_at: '2026-10-12T08:00:00.000Z' })
+          );
+        const reads = watchCallReads();
+        const { body } = await get('scope=unrouted&limit=1');
+        expect(
+          reads.filter((r) => r.columns === 'did_number, started_at')
+        ).toHaveLength(10);
+        // The 500 oldest calls are the ones left unread.
+        expect(body.numbers).toEqual([
+          { didNumber: D1, calls: 10_000, lastAt: '2026-10-12T08:00:00.000Z' },
+        ]);
+      }, 30_000);
     });
   });
 });

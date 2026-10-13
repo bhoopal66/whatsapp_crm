@@ -52,7 +52,7 @@ export function createFakeDb(
     private payload: unknown;
     private filters: ((r: Row) => boolean)[] = [];
     private mode: 'many' | 'single' | 'maybe' = 'many';
-    private sort?: [string, boolean];
+    private sort: [string, boolean][] = [];
     private max?: number;
     private offset = 0;
     private counted = false;
@@ -151,8 +151,9 @@ export function createFakeDb(
       this.filters.push((r) => (r[c] ?? null) !== v);
       return this;
     }
+    /** As PostgREST: each call adds a key, the earlier ones ranking first. */
     order(c: string, o?: { ascending?: boolean }) {
-      this.sort = [c, o?.ascending !== false];
+      this.sort.push([c, o?.ascending !== false]);
       return this;
     }
     limit(n: number) {
@@ -219,13 +220,14 @@ export function createFakeDb(
         tables[this.table] = rows.filter((r) => !match(r));
       } else {
         data = rows.filter(match);
-        if (this.sort) {
-          const [c, asc] = this.sort;
-          data = [...data].sort(
-            (a, b) =>
-              String(a[c] ?? '').localeCompare(String(b[c] ?? '')) *
-              (asc ? 1 : -1)
-          );
+        if (this.sort.length) {
+          data = [...data].sort((a, b) => {
+            for (const [c, asc] of this.sort) {
+              const d = String(a[c] ?? '').localeCompare(String(b[c] ?? ''));
+              if (d) return d * (asc ? 1 : -1);
+            }
+            return 0;
+          });
         }
         // As PostgREST: the count is every matching row, whatever the page.
         const count = data.length;

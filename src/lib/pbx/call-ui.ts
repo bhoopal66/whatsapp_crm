@@ -848,3 +848,25 @@ export function visibleCallTabs(role: AccountRole | null): CallsTab[] {
         : true
   );
 }
+
+/**
+ * The tab to show for `?tab=`: the one asked for, unless `role` is known
+ * and is not offered it (a direct link to Unrouted below admin, to By
+ * person below team leader), which is Missed calls like any other tab
+ * the screen does not know. With no role yet the request stands.
+ */
+export function shownCallsTab(
+  tab: CallsTab,
+  role: AccountRole | null
+): CallsTab {
+  return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
+}
+
+/**
+ * How far back the Unrouted tab's numbers reach when the request names
+ * no start. The listed calls are the newest whatever their age, but a
+ * number that was fixed long ago must not outrank one that just started
+ * failing, and each open of the tab reads this window once. The list
+ * route and the tab's own wording both read it.
+ */
+export const UNROUTED_SUMMARY_DAYS = 30;

@@ -4878,6 +4878,7 @@
       "hint": "Calls to a number with no route, filed under this workspace, newest first",
       "empty": "No calls to a number without a route",
       "numbersTitle": "Numbers called without a route",
+      "numbersWindow": "Last {days, plural, one {# day} other {# days}}",
       "numberCalls": "{count, plural, one {# call} other {# calls}}, last {last}",
       "addRoute": "Add a route for this number",
       "dialled": "Dialled {number}"

@@ -255,7 +255,7 @@ describe('pbx call helpers', () => {
     }
   });
 
-  it('sums up unrouted calls by dialled number, most calls first', () => {
+  it('sums up unrouted calls by dialled number', () => {
     const r = (did_number: string | null, started_at: string) => ({
       did_number,
       started_at,
@@ -274,6 +274,33 @@ describe('pbx call helpers', () => {
       { didNumber: '97142000002', calls: 1, lastAt: '2026-10-12T07:00:00Z' },
     ]);
     expect(unroutedNumbers([])).toEqual([]);
+  });
+
+  it('puts the number called most recently first, whatever its count', () => {
+    const r = (did_number: string, started_at: string) => ({
+      did_number,
+      started_at,
+    });
+    // 001 took three calls and was fixed; 002 only just began to fail.
+    const numbers = unroutedNumbers([
+      r('97142000001', '2026-09-20T09:00:00Z'),
+      r('97142000001', '2026-09-20T10:00:00Z'),
+      r('97142000001', '2026-09-20T11:00:00Z'),
+      r('97142000002', '2026-10-12T07:00:00Z'),
+    ]);
+    expect(numbers.map((n) => [n.didNumber, n.calls])).toEqual([
+      ['97142000002', 1],
+      ['97142000001', 3],
+    ]);
+    // The same latest call: more calls first, then the number itself.
+    expect(
+      unroutedNumbers([
+        r('97142000003', '2026-10-12T07:00:00Z'),
+        r('97142000002', '2026-10-12T07:00:00Z'),
+        r('97142000001', '2026-10-12T07:00:00.000Z'),
+        r('97142000001', '2026-10-11T07:00:00Z'),
+      ]).map((n) => n.didNumber)
+    ).toEqual(['97142000001', '97142000002', '97142000003']);
   });
 
   it('finds the caller’s own leg only on a call that lists their extension', () => {

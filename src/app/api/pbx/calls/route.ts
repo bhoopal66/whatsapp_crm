@@ -12,10 +12,13 @@
 // calls to a dialled number with no route, which the PBX processor
 // files under the connection's own workspace with calls.meta.unrouted
 // set. The flag is filtered in the query, so the limit counts those
-// calls only. `numbers` sums up every such call within the filters
-// (paged past PostgREST's max-rows when the list is cut short), not
-// only the listed page: which numbers want a route. An erased call
-// keeps the flag and its dialled number but no caller number.
+// calls only. `numbers` sums up every such call within the filters,
+// not only the listed page (paged past PostgREST's max-rows when the
+// list is cut short, up to SUMMARY_MAX_PAGES pages): which numbers
+// want a route, the most recently called first. With no `from` it
+// reaches back UNROUTED_SUMMARY_DAYS days; the listed page has no such
+// bound. An erased call keeps the flag and its dialled number but no
+// caller number.
 // rangNames: who an inbound call rang, first rung first
 // (calls.meta.rang_user_ids, kept by the PBX processor), named as in
 // the caller's workspace: one person holds a profile per workspace.
@@ -35,6 +38,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { UNROUTED_SUMMARY_DAYS } from '@/lib/pbx/call-ui';
 import {
   MISSED_STATUSES,
   canListCallScope,
@@ -44,7 +48,11 @@ import {
   type UnroutedNumber,
 } from '@/lib/pbx/calls';
 
+/** PostgREST's default max-rows, so a page shorter than this is the last. */
 const PAGE = 1000;
+/** A hard stop on the unrouted numbers' reads: PAGE calls each. */
+const SUMMARY_MAX_PAGES = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface ContactRow {
   id: string;
@@ -87,10 +95,10 @@ export async function GET(request: Request) {
       return fail('Only an owner or admin can list unrouted calls', 403);
 
     // The list and the unrouted numbers read the same calls.
-    const scoped = (columns: string, count?: 'exact') => {
+    const scoped = (columns: string, from = q.from) => {
       let query = ctx.supabase
         .from('calls')
-        .select(columns, count ? { count } : undefined)
+        .select(columns)
         .eq('account_id', ctx.accountId);
       if (q.contactId) query = query.eq('contact_id', q.contactId);
       if (q.scope === 'mine')
@@ -103,7 +111,7 @@ export async function GET(request: Request) {
           .in('status', [...MISSED_STATUSES])
           .is('answered_at', null);
       if (q.scope === 'unrouted') query = query.eq('meta->>unrouted', 'true');
-      if (q.from) query = query.gte('started_at', q.from);
+      if (from) query = query.gte('started_at', from);
       if (q.to) query = query.lt('started_at', q.to);
       return query;
     };
@@ -117,22 +125,33 @@ export async function GET(request: Request) {
 
     let numbers: UnroutedNumber[] | undefined;
     if (q.scope === 'unrouted') {
-      // A short list is every unrouted call; a full one may not be.
-      let all: Pick<CallRow, 'did_number' | 'started_at'>[] = rows;
-      if (rows.length >= q.limit) {
+      // The numbers start at the request's `from`, else
+      // UNROUTED_SUMMARY_DAYS ago. Reading all history on every open
+      // made the tab slower each day, and a number fixed long ago
+      // would still head the list.
+      const since =
+        q.from ??
+        new Date(Date.now() - UNROUTED_SUMMARY_DAYS * DAY_MS).toISOString();
+      let all: Pick<CallRow, 'did_number' | 'started_at'>[];
+      if (rows.length < q.limit) {
+        // A short list is every unrouted call, the older ones included.
+        const sinceAt = Date.parse(since);
+        all = rows.filter((r) => Date.parse(r.started_at) >= sinceAt);
+      } else {
+        // A full one may not be. Newest first, so that if the cap cuts
+        // the read it is the oldest calls that go and every number keeps
+        // its latest call.
         all = [];
-        let total = Infinity;
-        while (all.length < total) {
-          const res = await scoped('did_number, started_at', 'exact')
-            .order('started_at', { ascending: true })
-            .order('id', { ascending: true })
-            .range(all.length, all.length + PAGE - 1);
+        for (let page = 0; page < SUMMARY_MAX_PAGES; page++) {
+          const res = await scoped('did_number, started_at', since)
+            .order('started_at', { ascending: false })
+            .order('id', { ascending: false })
+            .range(page * PAGE, (page + 1) * PAGE - 1);
           if (res.error)
             throw new Error(`calls read failed: ${res.error.message}`);
-          const page = (res.data ?? []) as unknown as typeof all;
-          all.push(...page);
-          if (!page.length) break;
-          total = res.count ?? all.length;
+          const chunk = (res.data ?? []) as unknown as typeof all;
+          all.push(...chunk);
+          if (chunk.length < PAGE) break;
         }
       }
       numbers = unroutedNumbers(all);

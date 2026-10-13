@@ -398,9 +398,10 @@ export interface UnroutedNumber {
 
 /**
  * The distinct dialled numbers among unrouted calls, with how many
- * calls each took and the latest: most calls first, then the most
- * recent. A call that kept no dialled number has nothing to route and
- * is left out.
+ * calls each took and the latest: the most recently called first, then
+ * the most calls. A number that just started failing outranks one with
+ * a bigger count from before it was fixed. A call that kept no dialled
+ * number has nothing to route and is left out.
  */
 export function unroutedNumbers(
   rows: readonly { did_number: string | null; started_at: string }[]
@@ -423,8 +424,8 @@ export function unroutedNumbers(
   }
   return [...by.values()].sort(
     (a, b) =>
-      b.calls - a.calls ||
       Date.parse(b.lastAt) - Date.parse(a.lastAt) ||
+      b.calls - a.calls ||
       a.didNumber.localeCompare(b.didNumber)
   );
 }
