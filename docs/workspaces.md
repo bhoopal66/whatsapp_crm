@@ -244,3 +244,10 @@ with them); the keys work again once it is restored. Owners still see
 it in the workspace list (`archived: true`); nobody else does. Restoring clears the archive only: members switch back
 in themselves, and revoked links stay revoked. Both are recorded in the
 audit log (`workspace_archived`, `workspace_restored`).
+
+On screen, an owner archives the workspace they are in from Settings →
+Workspace, after a confirmation that lists what happens and what to do
+first; a refusal names its reason there. The same panel, in another
+workspace where they are an admin or owner, lists the archived
+workspaces they own, each with Restore. On the rail an archived
+workspace's tile is dimmed and does not switch.

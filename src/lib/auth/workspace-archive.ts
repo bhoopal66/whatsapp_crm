@@ -9,7 +9,8 @@
 // Pure: no I/O, so it is tested without a database.
 // ============================================================
 
-import { isAccountRole, type AccountRole } from './roles';
+import type { Workspace } from './my-workspaces';
+import { canArchiveWorkspace, isAccountRole, type AccountRole } from './roles';
 
 /** What `POST /api/workspaces/archive` answers on success. */
 export interface ArchiveResult {
@@ -162,4 +163,123 @@ export function archiveErrorResponse(
         },
       };
   }
+}
+
+// ------------------------------------------------------------
+// The screens' side: Settings → Workspace and the workspace rail read
+// the route's answers through these.
+// ------------------------------------------------------------
+
+/** A key under `Settings.workspace.archive.errors`. */
+export type ArchiveMessageKey =
+  | 'forbidden'
+  | 'no_other_workspace'
+  | 'channels_connected'
+  | 'calls_routed_here'
+  | 'members_stranded'
+  | 'members_stranded_unknown'
+  | 'failed';
+
+export interface ArchiveMessage {
+  key: ArchiveMessageKey;
+  /** members_stranded: how many people have nowhere to go. */
+  count?: number;
+  /**
+   * calls_routed_here: the server's own sentence, which names the
+   * numbers and extensions still routed here (only the database knows
+   * them), shown under the translated message.
+   */
+  detail?: string;
+}
+
+function record(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * The message for a refused archive or restore, from the route's error
+ * body (`{ error, code, count? }`). The `code` decides, never the
+ * English `error`; no known code (a 400, a 401, a 500, or no body at
+ * all after a network failure) is the generic `failed`.
+ */
+export function archiveRefusalMessage(body: unknown): ArchiveMessage {
+  const b = record(body);
+  switch (b.code) {
+    case 'forbidden':
+      return { key: 'forbidden' };
+    case 'no_other_workspace':
+      return { key: 'no_other_workspace' };
+    case 'channels_connected':
+      return { key: 'channels_connected' };
+    case 'calls_routed_here': {
+      const detail = typeof b.error === 'string' ? b.error.trim() : '';
+      return detail
+        ? { key: 'calls_routed_here', detail }
+        : { key: 'calls_routed_here' };
+    }
+    case 'members_stranded': {
+      const n = count(b.count);
+      return n === null
+        ? { key: 'members_stranded_unknown' }
+        : { key: 'members_stranded', count: n };
+    }
+    default:
+      return { key: 'failed' };
+  }
+}
+
+/**
+ * What the screen does after a successful archive or restore, from the
+ * route's 200 body: reload into the workspace the caller now works in
+ * when it is not the one on screen (archiving it moved them out),
+ * else stay and refresh the workspace list. A body that does not say
+ * where the caller is reloads too: the app then lands wherever the
+ * server left them.
+ */
+export function afterArchive(
+  body: unknown,
+  currentAccountId: string | null
+): { reload: true; role: AccountRole | null } | { reload: false } {
+  const b = record(body);
+  if (
+    typeof b.activeAccountId === 'string' &&
+    b.activeAccountId === currentAccountId
+  ) {
+    return { reload: false };
+  }
+  return {
+    reload: true,
+    role: isAccountRole(b.activeRole) ? b.activeRole : null,
+  };
+}
+
+/**
+ * Can the rail switch into this workspace? `switch_account` refuses a
+ * deactivated membership and an archived workspace, so neither tile
+ * switches: both stay on the rail, dimmed, and say why.
+ */
+export function isSwitchableWorkspace(
+  w: Pick<Workspace, 'deactivated' | 'archived'>
+): boolean {
+  return !w.deactivated && !w.archived;
+}
+
+/**
+ * The archived workspaces Settings → Workspace offers to restore: those
+ * where the caller is a live owner, as the route requires.
+ * `my_workspaces()` lists an archived workspace to its owners only, but
+ * a deactivated owner's row too.
+ */
+export function restorableWorkspaces(
+  workspaces: readonly Workspace[]
+): Workspace[] {
+  return workspaces.filter(
+    (w) =>
+      w.archived &&
+      !w.deactivated &&
+      w.role !== null &&
+      canArchiveWorkspace(w.role)
+  );
 }

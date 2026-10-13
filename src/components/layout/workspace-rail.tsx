@@ -12,6 +12,9 @@
 // shows none rather than an error.
 //
 // Switching reloads the app in the chosen workspace (`switchWorkspace`).
+// A tile it cannot switch into (`isSwitchableWorkspace`: a deactivated
+// membership, or an archived workspace, which only its owners see) stays
+// dimmed and focusable, so its tooltip can say why.
 // The sidebar decides whether to render the rail (`showWorkspaceRail`).
 // ============================================================
 
@@ -28,6 +31,7 @@ import {
 import { CreateWorkspaceDialog } from '@/components/workspaces/create-workspace-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import type { Workspace } from '@/lib/auth/my-workspaces';
+import { isSwitchableWorkspace } from '@/lib/auth/workspace-archive';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import {
@@ -81,7 +85,13 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
   const [createOpen, setCreateOpen] = useState(false);
 
   const choose = async (workspace: Workspace) => {
-    if (workspace.accountId === activeWorkspaceId || switchingTo) return;
+    if (
+      workspace.accountId === activeWorkspaceId ||
+      switchingTo ||
+      !isSwitchableWorkspace(workspace)
+    ) {
+      return;
+    }
     setSwitchingTo(workspace.accountId);
     try {
       // Resolves into a page load, so the state is never reset on success.
@@ -105,11 +115,15 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
         {workspaces.map((w) => {
           const active = w.accountId === activeWorkspaceId;
           const badge = badgeFor(w.accountId, badges);
-          // switch_account() refuses a deactivated membership.
-          const disabled = w.deactivated || (!!switchingTo && !active);
+          // switch_account() refuses a deactivated membership and an
+          // archived workspace. aria-disabled, not disabled, keeps such a
+          // tile focusable, so its tooltip says why; choose() ignores it.
+          const switchable = isSwitchableWorkspace(w);
+          const disabled = !!switchingTo && !active;
           const description = [
             w.name,
             w.deactivated ? tSidebar('workspaceDeactivated') : null,
+            w.archived ? t('archived') : null,
             badge?.kind === 'mentions'
               ? t('mentions', { count: badge.count })
               : badge
@@ -127,6 +141,7 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
                       type="button"
                       aria-label={description}
                       aria-current={active ? 'true' : undefined}
+                      aria-disabled={!switchable || undefined}
                       disabled={disabled}
                       onClick={() => choose(w)}
                       className={cn(
@@ -134,8 +149,8 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
                         active
                           ? 'bg-[#00a884] ring-2 ring-[#25d366] ring-offset-2 ring-offset-[#0b1f17]'
                           : 'bg-[#2a3530] hover:bg-[#35433d]',
-                        w.deactivated && 'opacity-40',
-                        disabled && !w.deactivated && 'opacity-70'
+                        !switchable && 'cursor-not-allowed opacity-40',
+                        disabled && switchable && 'opacity-70'
                       )}
                     >
                       {switchingTo === w.accountId ? (

@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import type { Workspace } from './my-workspaces';
 import {
+  afterArchive,
   archiveErrorResponse,
+  archiveRefusalMessage,
+  isSwitchableWorkspace,
   NOT_AN_OWNER,
   parseArchiveResult,
+  restorableWorkspaces,
 } from './workspace-archive';
 
 const T = '0b6f7c1e-2f43-4a8e-9d0a-5c1b2e3f4a5b';
@@ -158,5 +163,138 @@ describe('archiveErrorResponse', () => {
       status: 500,
       body: { error: 'Could not restore the workspace' },
     });
+  });
+});
+
+describe('archiveRefusalMessage', () => {
+  it("maps each of the route's refusals to its own message", () => {
+    expect(
+      archiveRefusalMessage({ error: NOT_AN_OWNER, code: 'forbidden' })
+    ).toEqual({ key: 'forbidden' });
+    expect(
+      archiveRefusalMessage({ error: 'x', code: 'no_other_workspace' })
+    ).toEqual({ key: 'no_other_workspace' });
+    expect(
+      archiveRefusalMessage({ error: 'x', code: 'channels_connected' })
+    ).toEqual({ key: 'channels_connected' });
+  });
+
+  it('keeps the server sentence that names the numbers routed here', () => {
+    const routed =
+      "Another workspace's phone system still sends calls here (numbers 97143105001; extensions 1051); remove them in its phone settings first.";
+    expect(
+      archiveRefusalMessage({ error: ` ${routed} `, code: 'calls_routed_here' })
+    ).toEqual({ key: 'calls_routed_here', detail: routed });
+    expect(archiveRefusalMessage({ code: 'calls_routed_here' })).toEqual({
+      key: 'calls_routed_here',
+    });
+  });
+
+  it('carries the stranded count, or says "some" without one', () => {
+    expect(
+      archiveRefusalMessage({ error: 'x', code: 'members_stranded', count: 3 })
+    ).toEqual({ key: 'members_stranded', count: 3 });
+    for (const count of [undefined, '3', -1, 1.5]) {
+      expect(
+        archiveRefusalMessage({ error: 'x', code: 'members_stranded', count })
+      ).toEqual({ key: 'members_stranded_unknown' });
+    }
+  });
+
+  it('reads the code, never the English error, else a generic failure', () => {
+    for (const body of [
+      null,
+      'Unauthorized',
+      [],
+      { error: 'Unauthorized' },
+      { error: "'archived' must be true or false" },
+      { error: 'You have no other workspace to move to.', code: 'WS001' },
+    ]) {
+      expect(archiveRefusalMessage(body)).toEqual({ key: 'failed' });
+    }
+  });
+});
+
+describe('afterArchive', () => {
+  it('reloads into the workspace the caller was moved to', () => {
+    expect(
+      afterArchive(
+        {
+          accountId: T,
+          archived: true,
+          activeAccountId: H,
+          activeRole: 'admin',
+        },
+        T
+      )
+    ).toEqual({ reload: true, role: 'admin' });
+  });
+
+  it('stays, to refresh the list, when the caller is still here', () => {
+    expect(
+      afterArchive(
+        {
+          accountId: T,
+          archived: false,
+          activeAccountId: H,
+          activeRole: 'owner',
+        },
+        H
+      )
+    ).toEqual({ reload: false });
+  });
+
+  it('reloads when the body does not say where the caller is', () => {
+    expect(afterArchive(null, T)).toEqual({ reload: true, role: null });
+    expect(
+      afterArchive({ activeAccountId: null, activeRole: 'superuser' }, null)
+    ).toEqual({ reload: true, role: null });
+  });
+});
+
+function ws(overrides: Partial<Workspace>): Workspace {
+  return {
+    accountId: T,
+    name: 'Taamul',
+    shortName: null,
+    role: 'owner',
+    isActive: false,
+    deactivated: false,
+    archived: false,
+    ...overrides,
+  };
+}
+
+describe('isSwitchableWorkspace', () => {
+  it('switches only into a live membership of an open workspace', () => {
+    expect(isSwitchableWorkspace(ws({}))).toBe(true);
+    expect(isSwitchableWorkspace(ws({ archived: true }))).toBe(false);
+    expect(isSwitchableWorkspace(ws({ deactivated: true }))).toBe(false);
+    expect(
+      isSwitchableWorkspace(ws({ archived: true, deactivated: true }))
+    ).toBe(false);
+  });
+});
+
+describe('restorableWorkspaces', () => {
+  it('lists the archived workspaces the caller is a live owner of', () => {
+    const open = ws({ accountId: H, isActive: true });
+    const archived = ws({ archived: true });
+    const deactivatedOwner = ws({
+      accountId: 'a3',
+      archived: true,
+      deactivated: true,
+    });
+    const admin = ws({ accountId: 'a4', archived: true, role: 'admin' });
+    const unknownRole = ws({ accountId: 'a5', archived: true, role: null });
+    expect(
+      restorableWorkspaces([
+        open,
+        archived,
+        deactivatedOwner,
+        admin,
+        unknownRole,
+      ])
+    ).toEqual([archived]);
   });
 });

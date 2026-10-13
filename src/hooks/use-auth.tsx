@@ -161,6 +161,13 @@ interface AuthContextValue {
    * page. Rejects with the server's reason when refused.
    */
   switchWorkspace: (accountId: string, next?: string) => Promise<void>;
+  /**
+   * Reload the app in the workspace the server has already made active
+   * (archiving this one moves the caller out, migration 105), landing
+   * as a switch does: caches dropped, other tabs told, `role`'s landing
+   * page.
+   */
+  reloadIntoActiveWorkspace: (role: AccountRole | null) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -678,6 +685,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       workspaces,
       activeWorkspaceId,
       switchWorkspace,
+      reloadIntoActiveWorkspace: enterWorkspace,
     }),
     [
       user,
@@ -694,6 +702,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       workspaces,
       activeWorkspaceId,
       switchWorkspace,
+      enterWorkspace,
     ],
   );
 
@@ -739,6 +748,7 @@ export function useAuth(): AuthContextValue {
       activeWorkspaceId: null,
       isBankGuest: false,
       switchWorkspace: async () => {},
+      reloadIntoActiveWorkspace: () => {},
     };
   }
   return ctx;
