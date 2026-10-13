@@ -89,7 +89,12 @@ One PBX can serve several workspaces.
   deletions are written to the phone-system audit log
   (`recording_retention`). The section shows what is kept now: how many
   recordings, the oldest call, how many are under legal hold and how
-  many the period has deleted so far.
+  many the period has deleted so far. The cron deletes on every run
+  (usually each minute), not once a day, so saving a first or a shorter
+  period asks first and says how many recordings it deletes now,
+  counted by the run's own rule (the call's age as above, legal holds
+  left out, this workspace only); they go within minutes, and that
+  cannot be undone.
 - **Legal hold.** An owner or admin can place or lift a legal hold on a
   recording from the customer page (**Place legal hold**), with a
   reason of at least five characters. Each change is written to the

@@ -12,6 +12,7 @@ import {
   extensionState,
   parseDueMinutes,
   parseRetentionDays,
+  retentionNeedsConfirm,
   validateBankNumbers,
   validateRoutes,
   workspaceChangePatch,
@@ -607,6 +608,12 @@ export function RecordingRulesCard() {
   const [saving, setSaving] = useState<'rules' | 'banks' | null>(null);
   // The saved value, not the unsaved checkbox.
   const [paused, setPaused] = useState(false);
+  // A period that deletes recordings as soon as it is saved, counted and
+  // waiting for the admin's go-ahead; due null: it could not be counted.
+  const [confirm, setConfirm] = useState<{
+    days: number;
+    due: number | null;
+  } | null>(null);
 
   const takeRules = (r: Rules) => {
     setRules(r);
@@ -635,12 +642,32 @@ export function RecordingRulesCard() {
     });
   }, []);
 
-  const saveRules = async () => {
+  // confirmedDays: the period the admin just confirmed deleting under.
+  const saveRules = async (confirmedDays?: number) => {
     if (!rules) return;
     const days = parseRetentionDays(retention);
     const minutes = parseDueMinutes(due);
     if (!days.ok) return setRuleIssue(t('rules.retentionInvalid'));
     if (minutes === null) return setRuleIssue(t('rules.dueInvalid'));
+    // A first or shorter period deletes every older recording on the next
+    // cron run (093): count them with the run's own rule, and ask first
+    // unless that is none.
+    const period = days.value;
+    if (
+      period !== null &&
+      period !== confirmedDays &&
+      retentionNeedsConfirm(rules.retentionDays, period)
+    ) {
+      setSaving('rules');
+      const count = await pbxFetch<{ due: number }>(
+        `/api/pbx/settings/retention?days=${period}`
+      );
+      setSaving(null);
+      const n =
+        count.ok && typeof count.data.due === 'number' ? count.data.due : null;
+      if (n !== 0) return setConfirm({ days: period, due: n });
+    }
+    setConfirm(null);
     setSaving('rules');
     const res = await pbxFetch<{ settings: Rules }>('/api/pbx/settings', {
       method: 'PUT',
@@ -717,7 +744,10 @@ export function RecordingRulesCard() {
             value={retention}
             placeholder="—"
             aria-label={t('rules.retention')}
-            onChange={(e) => setRetention(e.target.value)}
+            onChange={(e) => {
+              setRetention(e.target.value);
+              setConfirm(null);
+            }}
           />
           <span className="text-muted-foreground">
             {retention.trim() ? t('rules.days') : t('rules.keep')} ·{' '}
@@ -739,16 +769,50 @@ export function RecordingRulesCard() {
         {flag('mandatoryDisposition', t('rules.mandatory'))}
         {flag('missedCallWhatsappDraft', t('rules.whatsappDraft'))}
         <Issue text={ruleIssue} />
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            onClick={saveRules}
-            disabled={!rules || saving !== null}
-          >
-            {saving === 'rules' ? <Loader2 className="animate-spin" /> : null}
-            {t('rules.save')}
-          </Button>
-        </div>
+        {confirm ? (
+          <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-md border p-3">
+            <p className="text-destructive text-xs">
+              {confirm.due === null
+                ? t('rules.confirmDeleteUnknown', { days: confirm.days })
+                : t('rules.confirmDelete', {
+                    count: confirm.due,
+                    days: confirm.days,
+                  })}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={saving !== null}
+                onClick={() => setConfirm(null)}
+              >
+                {t('rules.confirmCancel')}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={saving !== null}
+                onClick={() => void saveRules(confirm.days)}
+              >
+                {saving === 'rules' ? (
+                  <Loader2 className="animate-spin" />
+                ) : null}
+                {t('rules.confirmSave')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => void saveRules()}
+              disabled={!rules || saving !== null}
+            >
+              {saving === 'rules' ? <Loader2 className="animate-spin" /> : null}
+              {t('rules.save')}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="border-border mt-4 border-t pt-4">

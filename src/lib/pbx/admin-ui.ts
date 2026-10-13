@@ -344,6 +344,19 @@ export function parseRetentionDays(
   return n === null ? { ok: false } : { ok: true, value: n };
 }
 
+/**
+ * Saving `next` over the saved period can delete recordings at once (the
+ * cron's next run, migration 093): a first period, or a shorter one.
+ * Settings then shows how many and asks first. Longer or none deletes
+ * nothing now.
+ */
+export function retentionNeedsConfirm(
+  saved: number | null,
+  next: number | null
+): boolean {
+  return next !== null && (saved === null || next < saved);
+}
+
 /** 1 to 1440 minutes. */
 export function parseDueMinutes(raw: string): number | null {
   return wholeIn(raw, 1, 1440);

@@ -10,6 +10,7 @@ import {
   lastEventAgo,
   parseDueMinutes,
   parseRetentionDays,
+  retentionNeedsConfirm,
   routedWorkspaceNames,
   validateBankNumbers,
   validateConnectionForm,
@@ -418,5 +419,16 @@ describe('validateConnectionForm', () => {
       ok: false,
       issues: { label: 'label_required' },
     });
+  });
+});
+
+describe('retentionNeedsConfirm', () => {
+  it('asks before a first or shorter period, never a longer one or none', () => {
+    expect(retentionNeedsConfirm(null, 30)).toBe(true);
+    expect(retentionNeedsConfirm(90, 30)).toBe(true);
+    expect(retentionNeedsConfirm(30, 30)).toBe(false);
+    expect(retentionNeedsConfirm(30, 90)).toBe(false);
+    expect(retentionNeedsConfirm(30, null)).toBe(false);
+    expect(retentionNeedsConfirm(null, null)).toBe(false);
   });
 });

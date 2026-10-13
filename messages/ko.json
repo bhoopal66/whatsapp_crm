@@ -3036,12 +3036,16 @@
         "saved": "녹음 규칙을 저장했습니다",
         "retentionInvalid": "1~3650일을 입력하거나, 녹음을 보관하려면 비워 두세요.",
         "dueInvalid": "1~1440분을 입력하세요.",
-        "retentionDeletes": "{days}일이 지난 통화의 녹음은 매일 삭제됩니다. 법적 보존 중인 녹음은 제외됩니다. 통화 기록과 메모, 결과는 유지됩니다.",
+        "retentionDeletes": "{days}일이 지난 통화의 녹음은 전화 시스템 크론이 실행될 때마다(보통 1분마다) 자동으로 삭제됩니다. 법적 보존 중인 녹음은 제외됩니다. 통화 기록과 메모, 결과는 유지됩니다.",
         "retentionKeeps": "비워 두면 녹음이 자동 삭제 없이 보관됩니다.",
         "kept": "현재 보관 중: {count, plural, =0 {녹음 없음} other {녹음 #건}}",
         "keptOldest": "가장 오래된 녹음은 {date} 통화",
         "keptHeld": "법적 보존 {count}건",
-        "keptExpired": "지금까지 보관 기간에 따라 {count}건 삭제됨"
+        "keptExpired": "지금까지 보관 기간에 따라 {count}건 삭제됨",
+        "confirmDelete": "저장하면 몇 분 안에 녹음 {count}건이 삭제됩니다. 해당 통화가 {days}일보다 오래되었습니다. 법적 보존 중인 녹음은 유지됩니다. 이 작업은 되돌릴 수 없습니다.",
+        "confirmDeleteUnknown": "저장하면 몇 분 안에 {days}일보다 오래된 통화의 녹음이 모두 삭제됩니다. 삭제될 녹음 수를 확인하지 못했습니다. 법적 보존 중인 녹음은 유지됩니다. 이 작업은 되돌릴 수 없습니다.",
+        "confirmSave": "저장하고 삭제",
+        "confirmCancel": "취소"
       },
       "banks": {
         "title": "은행 번호",
