@@ -12,6 +12,83 @@ and polish.
 
 ## [Unreleased]
 
+### Automations: post to team chat
+
+A new automation step, **Post to team chat**, posts a message into a
+team or private channel as "automation", with the same `{{ … }}`
+placeholders as Send message. It never posts into a DM, a deal room, an
+archived channel, or a channel with a bank guest in it. The builder
+leaves those channels out of its picker, and every run checks again.
+Customer text copied into a post cannot add bold text or @mentions.
+Each post records which conversation and contact it came from. If team
+chat is off, the channel was archived or it no longer exists, the step
+fails and the run log says why.
+
+> **Migration required:** apply
+> `supabase/migrations/102_automation_chat_post.sql` (re-runnable).
+
+### Deal rooms: send files and call a participant
+
+The deal-room composer now sends an image (JPEG or PNG, up to 5 MB) or
+a document (up to 9 MB) to the group while its 24-hour window is open.
+The file is kept in the deal file. The server checks that the file's
+name and its first bytes match its type, which allows for
+password-protected Office files, Unicode text and the types Windows
+gives `.csv` and `.rtf`. Staff from agent up can call a participant
+from the Members panel. The call rings their own desk phone, and the
+customer's number is never sent to the browser. Do-not-contact
+customers cannot be called. A bank officer can be called only while
+that bank's guests are allowed, and the call is never recorded. The
+call is refused while the workspace records calls with bank numbers,
+unless that bank allows recording.
+
+### Deal rooms: group costs, settings from WhatsApp, Team notes
+
+- **Group costs per member.** Meta bills a group message once for each
+  member it reaches, at that member's rate. The message cost tracker
+  now records a group message per delivered member. The room's
+  transcript shows the message's category and how many deliveries were
+  billed, including receipts that arrived before the message was
+  recorded. A repeated receipt counts once.
+- **Group settings from WhatsApp.** A subject, description or
+  join-approval change made in WhatsApp is copied onto the room, and its
+  Team notes channel is renamed to match.
+- **Team notes.** The room's Team notes get a short note when someone
+  joins or leaves, a join request is waiting, the room is suspended or
+  cleared, or the room is closed.
+- **STOP in a group.** A member who writes STOP gets one Team note. It
+  says whether their contact was marked opted out, could not be marked,
+  or was not found. The contact is found however its number was saved,
+  including local forms such as `050…`. If removing the member from the
+  group fails, the transcript says so.
+
+> **Migration required:** apply
+> `supabase/migrations/100_deal_room_costs.sql` (re-runnable) as a
+> superuser or BYPASSRLS role.
+>
+> `051_whatsapp_message_costs.sql` changed too, so that a fresh replay
+> of every migration still works. Do **not** re-run it on a database
+> that already has it. If you ever do re-run 051, re-apply 100
+> afterwards.
+
+### Phone system (Yeastar): missed calls on the customer page
+
+- **Who was rung.** A missed call on the customer page names everyone
+  the call rang, not just one person. The missed-call task's fallback
+  owner comes from the same list.
+- **Missed-call draft.** The "Draft WhatsApp" offer on a missed call now
+  follows the Settings → Phone system switch, which was saved before but
+  never used. The offer is off unless switched on, and it is never shown
+  for a do-not-contact or opted-out customer.
+  - The draft greets the customer by name and opens in that chat's
+    composer for a person to send. It is never sent automatically.
+  - When the draft is sent, the server checks consent again and refuses
+    it if the customer has since been marked do-not-contact or opted
+    out.
+  - Ordinary typed replies are unchanged.
+- **Downloading recordings.** Team leaders and above can download a
+  recording from the customer page. Agents can still play recordings.
+
 ### Phone presence on every person's dot
 
 Team chat (DMs and member lists), the inbox assign picker and the
@@ -142,6 +219,11 @@ bank guests.
 - **Team chat:** Saved items and Settings → Team chat's list of private
   channels to read never loaded (an ambiguous database query: PostgREST
   refused it).
+- Settings → Phone system → Bank numbers: saving the list deletes only
+  the numbers the admin removed. Before, saving could delete numbers
+  that were added after the screen was loaded.
+- A broadcast's page now shows "Broadcast not found" for a deleted,
+  hidden or mistyped broadcast, instead of a raw database error.
 
 ### Team chat: channel settings, mute and edit history
 
