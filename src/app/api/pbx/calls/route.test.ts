@@ -103,13 +103,107 @@ describe('GET /api/pbx/calls', () => {
         extension: '201',
         contactId: C1,
         contactName: 'Ahmed Ali',
+        doNotContactAt: null,
+        doNotContactReason: null,
         userId: 'me',
         userName: 'Sara',
         disposition: null,
         notes: 'Wants a card',
         recordingState: 'none',
+        recordingDeleted: false,
+        legalHold: false,
       },
     ]);
+  });
+
+  it('carries a visible contact’s do-not-contact stamp and reason, so Call back is disabled', async () => {
+    const C3 = '00000000-0000-4000-8000-000000000003';
+    rls.tables.contacts = [
+      {
+        id: C1,
+        name: 'Ahmed Ali',
+        do_not_contact_at: '2026-10-01T09:00:00.000Z',
+        do_not_contact_reason: 'Asked on the phone',
+      },
+      // A reason left behind without a stamp is not do-not-contact.
+      {
+        id: C3,
+        name: 'Mona',
+        do_not_contact_at: null,
+        do_not_contact_reason: 'Old note',
+      },
+    ];
+    rls.tables.calls.push(
+      call({ status: 'no_answer', talk_seconds: 0 }),
+      call({ contact_id: C3, status: 'no_answer', talk_seconds: 0 }),
+      // The caller cannot see C2: nothing of its consent comes back.
+      call({ contact_id: C2, status: 'no_answer', talk_seconds: 0 }),
+      call({ contact_id: null, status: 'no_answer', talk_seconds: 0 })
+    );
+    const { status, body } = await get('scope=missed');
+    expect(status).toBe(200);
+    const pick = (c: Record<string, unknown>) => ({
+      id: c.id,
+      contactId: c.contactId,
+      doNotContactAt: c.doNotContactAt,
+      doNotContactReason: c.doNotContactReason,
+    });
+    expect((body.calls as Record<string, unknown>[]).map(pick)).toEqual([
+      {
+        id: 'call-1',
+        contactId: C1,
+        doNotContactAt: '2026-10-01T09:00:00.000Z',
+        doNotContactReason: 'Asked on the phone',
+      },
+      {
+        id: 'call-2',
+        contactId: C3,
+        doNotContactAt: null,
+        doNotContactReason: null,
+      },
+      {
+        id: 'call-3',
+        contactId: C2,
+        doNotContactAt: null,
+        doNotContactReason: null,
+      },
+      {
+        id: 'call-4',
+        contactId: null,
+        doNotContactAt: null,
+        doNotContactReason: null,
+      },
+    ]);
+  });
+
+  it("says whether a fetched call's audio was deleted or is on legal hold", async () => {
+    rls.tables.calls.push(
+      call({ id: 'k-kept', recording_state: 'fetched' }),
+      call({ id: 'k-gone', recording_state: 'fetched' }),
+      call({ id: 'k-held', recording_state: 'fetched' })
+    );
+    rls.tables.call_recordings = [
+      { call_id: 'k-kept', legal_hold: false, erased_at: null },
+      {
+        call_id: 'k-gone',
+        legal_hold: false,
+        erased_at: '2026-10-12T00:00:00Z',
+      },
+      { call_id: 'k-held', legal_hold: true, erased_at: null },
+    ];
+    as('agent');
+    const res = await list(new Request('http://x/api/pbx/calls'));
+    const byId = Object.fromEntries(
+      ((await res.json()).calls as Record<string, unknown>[]).map((c) => [
+        c.id,
+        [c.recordingDeleted, c.legalHold],
+      ])
+    );
+    expect(byId).toEqual({
+      'k-kept': [false, false],
+      'k-gone': [true, false],
+      'k-held': [false, true],
+    });
   });
 
   it('filters by scope, contact, dates and limit', async () => {

@@ -60,7 +60,9 @@
     "workspaceSwitchFailed": "Couldn't switch workspace: {reason}",
     "chat": "Team chat",
     "unreadChat": "{count} unread team chat {count, plural, =1 {message} other {messages}}",
-    "journeys": "Journeys"
+    "journeys": "Journeys",
+    "calls": "Calls",
+    "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -3057,7 +3059,18 @@
         "save": "Save rules",
         "saved": "Recording rules saved",
         "retentionInvalid": "Enter 1 to 3650 days, or leave empty to keep recordings.",
-        "dueInvalid": "Enter 1 to 1440 minutes."
+        "dueInvalid": "Enter 1 to 1440 minutes.",
+        "retentionDeletes": "Recordings of calls older than {days, plural, one {# day} other {# days}} are deleted automatically on every phone-system cron run (usually each minute), except recordings under legal hold. The calls, their notes and outcomes are kept.",
+        "retentionKeeps": "Empty: recordings are kept with no automatic deletion.",
+        "retentionNotEnforced": "Saved but not enforced yet — save it again to start deleting.",
+        "kept": "Kept now: {count, plural, =0 {no recordings} one {# recording} other {# recordings}}",
+        "keptOldest": "the oldest from a call on {date}",
+        "keptHeld": "{count} under legal hold",
+        "keptExpired": "{count, plural, one {# deleted} other {# deleted}} under the retention period so far",
+        "confirmDelete": "Saving deletes {count, plural, one {# recording} other {# recordings}} within minutes: the {count, plural, one {call is} other {calls are}} older than {days, plural, one {# day} other {# days}}. Recordings under legal hold are kept. This cannot be undone.",
+        "confirmDeleteUnknown": "Saving deletes every recording whose call is older than {days, plural, one {# day} other {# days}}, within minutes. How many could not be counted. Recordings under legal hold are kept. This cannot be undone.",
+        "confirmSave": "Save and delete",
+        "confirmCancel": "Cancel"
       },
       "banks": {
         "title": "Bank numbers",
@@ -4144,7 +4157,8 @@
         "suspended": "WhatsApp suspended this group. Nothing can be sent until that is cleared.",
         "closing": "This room is closing.",
         "closed": "This room is closed. You can read it, but not post.",
-        "failed": "WhatsApp couldn't create this group."
+        "failed": "WhatsApp couldn't create this group.",
+        "cancelled": "This room was cancelled before its WhatsApp group was created."
       },
       "window": {
         "open": "Reply window open · {hours} h {minutes} min left",
@@ -4327,7 +4341,43 @@
         "retry": "Retry",
         "closeFailed": "Couldn't close the room: {error}",
         "cancel": "Cancel",
-        "unknownError": "something went wrong"
+        "unknownError": "something went wrong",
+        "cancelRoom": "Cancel room",
+        "cancelRoomTitle": "Cancel this room?",
+        "cancelRoomBody": "WhatsApp is still creating the group. Cancelling stops it for good: if the group appears later it is deleted, and nobody is invited.",
+        "cancelRoomConfirm": "Cancel room",
+        "cancelRoomDone": "Room cancelled",
+        "cancelRoomTooLate": "This room is no longer being created: WhatsApp created the group, or gave up, in the meantime.",
+        "cancelRoomFailed": "Couldn't cancel the room: {error}"
+      },
+      "people": {
+        "title": "Add people",
+        "help": "They read this room and its Team notes. Nobody is added to the WhatsApp group.",
+        "addStaff": "Add team members",
+        "addGuest": "Add a bank officer",
+        "staffTitle": "Add team members",
+        "staffBody": "Pick people of this workspace to follow the room.",
+        "guestTitle": "Add a bank officer",
+        "guestBody": "Their bank needs an approved officer in this room, and must be allowed to join customer groups.",
+        "add": "Add",
+        "added": "{count, plural, =0 {They were already in the room} one {Added # person} other {Added # people}}",
+        "failed": "Couldn't add them: {error}",
+        "error": {
+          "not_manager": "Only a manager of this room can add people.",
+          "not_leader": "Only a team leader or an admin can add a bank officer.",
+          "room_closed": "This room is closed: nobody new can be added.",
+          "not_staff": "One of the people picked no longer works in this workspace.",
+          "not_guest": "That person is not a bank officer of this workspace.",
+          "no_bank_participant": "This room has no approved {bank} officer yet. Invite and approve one first.",
+          "bank_guests_off": "{bank} officers can't join customer groups. Allow the bank in Settings first."
+        }
+      },
+      "entry": {
+        "title": "Deal rooms",
+        "none": "No deal rooms for this customer yet.",
+        "noneForDeal": "No deal room for this deal yet.",
+        "deal": "Deal: {title}",
+        "failed": "Couldn't load the deal rooms."
       }
     },
     "settings": {
@@ -4731,10 +4781,6 @@
     "team": "Team on this customer",
     "noTeam": "No one yet",
     "thisMonth": "Calls this month",
-    "dialing": "Calling — your phone rings first",
-    "dialFailed": "Couldn't place the call",
-    "noExtension": "You have no extension in this workspace",
-    "doNotContact": "This customer is on do-not-contact",
     "noConversation": "No WhatsApp chat with this customer yet",
     "taskDone": "Task done",
     "taskFailed": "Couldn't update the task",
@@ -4742,13 +4788,25 @@
     "attachFailed": "Couldn't attach the recording",
     "noDeal": "No open deal to attach to",
     "openCustomerPage": "Open customer page",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "recordingExpired": "Recording deleted under the retention period",
+    "legalHold": "Legal hold",
+    "placeHold": "Place legal hold",
+    "liftHold": "Lift legal hold",
+    "holdReason": "Reason (at least 5 characters)",
+    "holdCancel": "Cancel",
+    "holdPlaced": "Legal hold placed: this recording is kept past the retention period",
+    "holdLifted": "Legal hold lifted",
+    "holdFailed": "Couldn't change the legal hold",
+    "liftDeletes": "This call is older than the {days, plural, one {# day} other {# days}} retention period: once the hold is lifted, its recording is deleted within minutes. This cannot be undone.",
+    "liftAndDelete": "Lift hold and delete"
   },
   "CallsPage": {
     "title": "Calls",
     "tabs": {
       "missed": "Missed calls",
-      "log": "Call log"
+      "log": "Call log",
+      "people": "By person"
     },
     "missedHint": "Missed in the last 7 days, newest first",
     "today": "Today",
@@ -4758,7 +4816,45 @@
     "unknownCaller": "Unknown caller",
     "taskOpen": "Task open",
     "taskDone": "Task done",
-    "loadFailed": "Couldn't load calls"
+    "loadFailed": "Couldn't load calls",
+    "report": {
+      "periods": {
+        "today": "Today",
+        "week": "This week",
+        "month": "This month",
+        "custom": "Custom"
+      },
+      "from": "From",
+      "to": "To",
+      "apply": "Apply",
+      "custom": {
+        "order": "The end date is before the start date",
+        "span": "Pick at most 92 days"
+      },
+      "pickDays": "Pick the first and last day, then Apply",
+      "columns": {
+        "person": "Person",
+        "inboundAnswered": "Answered",
+        "outbound": "Outbound",
+        "missed": "Missed",
+        "talkTotal": "Talk time",
+        "talkAverage": "Avg talk",
+        "ringAverage": "Avg ring",
+        "outcomes": "Outcomes"
+      },
+      "unnamed": "Unnamed person",
+      "extension": "Ext. {extension}",
+      "noPerson": "No person",
+      "total": "Workspace total",
+      "noOutcome": "No outcome",
+      "empty": "No calls in this period",
+      "loadFailed": "Couldn't load the report",
+      "forbidden": "Only team leaders, admins and owners can see this report",
+      "range": "{from} – {to}, days in {zone}; weeks start on Monday",
+      "footnoteMissed": "Missed: an incoming call that rang someone's own extension and was not answered counts for them. A call to a ring group or queue rings several people at once, so when nobody answers it has no person: it is counted once, under No person, as is a call to an extension with no CRM login.",
+      "footnoteFigures": "Answered, missed and ring time are incoming calls; outbound counts every call placed, answered or not. Talk time and No outcome count answered calls; Avg ring is how long answered incoming calls rang. Calls between colleagues are left out.",
+      "footnoteLeader": "You see the people in the teams you lead, and yourself. The workspace total counts every call."
+    }
   },
   "ChatCalls": {
     "section": "Calls",

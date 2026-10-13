@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   requireRole: vi.fn(),
   createDealRoom: vi.fn(),
+  listRooms: vi.fn(),
+  getUser: vi.fn(),
   admin: { service: true },
+  UnauthorizedError: class UnauthorizedError extends Error {},
 }));
 
 vi.mock('@/lib/auth/account', () => ({
+  UnauthorizedError: m.UnauthorizedError,
   requireRole: m.requireRole,
   toErrorResponse: vi.fn(() =>
     Response.json({ error: 'auth failed' }, { status: 403 })
@@ -20,10 +24,19 @@ vi.mock('@/lib/deal-rooms/create', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/deal-rooms/create')>()),
   createDealRoom: m.createDealRoom,
 }));
+// The real scope parser, a stubbed list; the session client is a stub.
+vi.mock('@/lib/deal-rooms/reads', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/deal-rooms/reads')>()),
+  listRooms: m.listRooms,
+}));
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({ caller: true, auth: { getUser: m.getUser } }),
+}));
 
+import { toErrorResponse } from '@/lib/auth/account';
 import { ChannelError } from '@/lib/whatsapp/channels';
 
-import { POST } from './route';
+import { GET, POST } from './route';
 
 const CTX = {
   supabase: { caller: true },
@@ -128,5 +141,55 @@ describe('POST /api/deal-rooms', () => {
     m.requireRole.mockRejectedValueOnce(new Error('no session'));
     expect((await post(BODY)).status).toBe(403);
     expect(m.createDealRoom).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/deal-rooms', () => {
+  const CONTACT = '11111111-1111-4111-8111-111111111111';
+  const DEAL = '33333333-3333-4333-8333-333333333333';
+  const get = (query = '') =>
+    GET(new Request(`http://localhost/api/deal-rooms${query}`));
+
+  beforeEach(() => {
+    m.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    m.listRooms.mockResolvedValue([{ id: 'room-1' }]);
+  });
+
+  it('lists every room the caller sees without a scope', async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rooms: [{ id: 'room-1' }] });
+    expect(m.listRooms).toHaveBeenCalledWith(
+      expect.objectContaining({ caller: true }),
+      null
+    );
+  });
+
+  it("lists one contact's or one deal's rooms", async () => {
+    await get(`?contactId=${CONTACT}`);
+    expect(m.listRooms).toHaveBeenLastCalledWith(expect.anything(), {
+      contactId: CONTACT,
+    });
+    await get(`?dealId=${DEAL}`);
+    expect(m.listRooms).toHaveBeenLastCalledWith(expect.anything(), {
+      dealId: DEAL,
+    });
+  });
+
+  it('answers 400 to a scope that is not a uuid, before reading anything', async () => {
+    const res = await get('?contactId=not-a-uuid');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'contactId must be a uuid' });
+    expect(m.listRooms).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller without a session', async () => {
+    m.getUser.mockResolvedValue({ data: { user: null } });
+    const res = await get(`?contactId=${CONTACT}`);
+    expect(res.status).toBe(403);
+    expect(vi.mocked(toErrorResponse)).toHaveBeenCalledWith(
+      expect.any(m.UnauthorizedError)
+    );
+    expect(m.listRooms).not.toHaveBeenCalled();
   });
 });

@@ -63,8 +63,12 @@ function setup(
   beforeUpdate?: (table: string, values: Record<string, unknown>) => void,
   participants: Record<string, unknown>[] = []
 ) {
-  const rpc = vi.fn((fn: string) =>
-    fn === 'deal_room_group_created' ? 'room-1' : null
+  const rpc = vi.fn((fn: string): unknown =>
+    fn === 'deal_room_group_created'
+      ? 'room-1'
+      : fn === 'deal_room_fail_creation'
+        ? true
+        : null
   );
   return {
     ...memoryDb(
@@ -133,6 +137,18 @@ describe('reconcileCreatingRooms — matching', () => {
       h.sendRoomInvites.mock.invocationCallOrder[0]
     );
     expect(h.createGroup).not.toHaveBeenCalled();
+  });
+
+  it('opens nothing and invites nobody when the room was cancelled meanwhile', async () => {
+    const mem = setup([room()]);
+    // 096: deal_room_group_created answers NULL for a cancelled room.
+    mem.rpc.mockImplementation(() => null);
+    groups(group('G1'));
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ waiting: 1 })
+    );
+    expect(h.sendRoomInvites).not.toHaveBeenCalled();
+    expect(mem.tables.deal_room_audit ?? []).toEqual([]);
   });
 
   it('records a request id first when the room has none', async () => {
@@ -250,6 +266,66 @@ describe('reconcileCreatingRooms — ambiguity', () => {
     }
   );
 
+  // 096: a cancelled room's late group is deleted by its webhook.
+  const cancelled = (over: Record<string, unknown> = {}) =>
+    room({
+      id: 'room-0',
+      channel_id: 'chan-0',
+      create_request_id: 'req-0',
+      status: 'failed',
+      created_at: minutesAgo(5),
+      cancelled_at: minutesAgo(4),
+      ...over,
+    });
+
+  it.each([
+    ['before this room was created', minutesAgo(4)],
+    ['9 minutes before it', minutesAgo(12)],
+    ['after it', minutesAgo(1)],
+  ])('neither opens nor retries beside a room cancelled %s', async (_, at) => {
+    const mem = setup([room(), cancelled({ cancelled_at: at })]);
+    groups(group('G1'));
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ waiting: 1 })
+    );
+    expect(mem.rpcCalls).toEqual([]);
+    expect(h.createGroup).not.toHaveBeenCalled();
+  });
+
+  it('matches beside a room cancelled 10 minutes or more before it, or not cancelled, or elsewhere', async () => {
+    const mem = setup([
+      room(),
+      cancelled({ created_at: minutesAgo(15), cancelled_at: minutesAgo(14) }),
+      cancelled({ id: 'room-8', cancelled_at: null }),
+      cancelled({ id: 'room-9', whatsapp_config_id: 'cfg-2' }),
+      cancelled({ id: 'room-10', subject: 'Deal 43' }),
+    ]);
+    groups(group('G1'));
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ opened: 1 })
+    );
+  });
+
+  it('gives up at 10 minutes beside a recently cancelled room', async () => {
+    const mem = setup([
+      room({ created_at: minutesAgo(10) }),
+      cancelled({ cancelled_at: minutesAgo(11) }),
+    ]);
+    groups(group('G1', { createdAt: secondsAfter(10, 5) }));
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ failed: 1 })
+    );
+    expect(mem.rpcCalls).toEqual([
+      [
+        'deal_room_fail_creation',
+        {
+          p_room: 'room-1',
+          p_reason: expect.stringContaining('could not be matched safely'),
+        },
+      ],
+    ]);
+  });
+
   it('gives up on an ambiguous room at 10 minutes', async () => {
     const mem = setup([room({ created_at: minutesAgo(10) })]);
     groups(
@@ -259,7 +335,7 @@ describe('reconcileCreatingRooms — ambiguity', () => {
     expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
       counts({ failed: 1 })
     );
-    expect(mem.rpcCalls.map(([fn]) => fn)).toEqual(['deal_room_set_status']);
+    expect(mem.rpcCalls.map(([fn]) => fn)).toEqual(['deal_room_fail_creation']);
   });
 });
 
@@ -316,10 +392,9 @@ describe('reconcileCreatingRooms — retry', () => {
     ).toEqual(counts({ failed: 1 }));
     expect(mem.rpcCalls).toEqual([
       [
-        'deal_room_set_status',
+        'deal_room_fail_creation',
         {
           p_room: 'room-1',
-          p_status: 'failed',
           p_reason:
             'WhatsApp had not confirmed the group after 10 minutes. ' +
             'Retry failed: Meta API error: 500',
@@ -332,6 +407,28 @@ describe('reconcileCreatingRooms — retry', () => {
 
 describe('reconcileCreatingRooms — giving up', () => {
   const REASON = 'WhatsApp had not confirmed the group after 10 minutes.';
+
+  it('tells the live owners and admins of a failed room too, once each', async () => {
+    const mem = setup([
+      room({ created_at: minutesAgo(11), last_error: RETRY_NOTE }),
+    ]);
+    const person = (user_id: string, account_role: string, off = false) => ({
+      account_id: 'acct-1',
+      user_id,
+      account_role,
+      deactivated_at: off ? '2026-10-01T00:00:00Z' : null,
+    });
+    mem.tables.profiles = [
+      person('owner-1', 'owner'),
+      person('user-1', 'admin'),
+      person('agent-1', 'agent'),
+      person('admin-off', 'admin', true),
+    ];
+    await reconcileCreatingRooms(mem.db, NOW);
+    expect(
+      (mem.tables.notifications as { user_id: string }[]).map((n) => n.user_id)
+    ).toEqual(['user-1', 'owner-1']);
+  });
 
   it('waits on a retried room until 10 minutes', async () => {
     const mem = setup([room({ created_at: minutesAgo(9), last_error: 'x' })]);
@@ -350,10 +447,7 @@ describe('reconcileCreatingRooms — giving up', () => {
     );
     expect(mem.tables.deal_rooms[0].last_error).toBe(REASON);
     expect(mem.rpcCalls).toEqual([
-      [
-        'deal_room_set_status',
-        { p_room: 'room-1', p_status: 'failed', p_reason: REASON },
-      ],
+      ['deal_room_fail_creation', { p_room: 'room-1', p_reason: REASON }],
     ]);
     expect(mem.tables.notifications).toEqual([
       {
@@ -388,6 +482,27 @@ describe('reconcileCreatingRooms — giving up', () => {
     expect(stored.status).toBe('open');
   });
 
+  it('tells nobody when a cancel lands between the claim and the status change', async () => {
+    const mem = setup([
+      room({ created_at: minutesAgo(11), last_error: RETRY_NOTE }),
+    ]);
+    mem.tables.profiles = [
+      {
+        account_id: 'acct-1',
+        user_id: 'owner-1',
+        account_role: 'owner',
+        deactivated_at: null,
+      },
+    ];
+    // 096: the room had left `creating` by the time it was locked.
+    mem.rpc.mockImplementation(() => false);
+    expect(await reconcileCreatingRooms(mem.db, NOW)).toEqual(
+      counts({ waiting: 1 })
+    );
+    expect(mem.rpcCalls.map(([fn]) => fn)).toEqual(['deal_room_fail_creation']);
+    expect(mem.tables.notifications).toBeUndefined();
+  });
+
   it('gives up at once when the Meta number cannot be read or is gone', async () => {
     h.metaChannel.mockRejectedValue(
       new ChannelError('channel_credentials_unreadable', 'no decrypt', 500)
@@ -398,10 +513,9 @@ describe('reconcileCreatingRooms — giving up', () => {
     );
     expect(mem.rpcCalls).toEqual([
       [
-        'deal_room_set_status',
+        'deal_room_fail_creation',
         {
           p_room: 'room-1',
-          p_status: 'failed',
           p_reason: "The Meta number's credentials could not be read.",
         },
       ],

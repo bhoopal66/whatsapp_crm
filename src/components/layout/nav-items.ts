@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   MessagesSquare,
+  Phone,
   Radio,
   Route,
   Settings,
@@ -51,6 +52,19 @@ export interface NavItem {
    * guest on /chat whatever links exist. Reserved for the team-chat row.
    */
   guestVisible?: boolean;
+  /**
+   * Shown only where the phone system is in use (module 015): the person
+   * has an extension, or the workspace has one (`callsSidebar`, the rule
+   * the chat sidebar's CALLS rows follow). Until the sidebar knows, the
+   * row is hidden, as a gated row is while the role loads.
+   */
+  needsPbx?: boolean;
+}
+
+/** What the sidebar knows beyond the role. */
+export interface NavContext {
+  /** This person can use the phone system (`callsSidebar(…).visible`). */
+  pbx?: boolean;
 }
 
 export interface NavGroup {
@@ -68,6 +82,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
       { href: '/notifications', labelKey: 'notifications', icon: Bell },
       { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
+      // Missed calls and the call log (module 015). Staff only: the
+      // route's layout turns a bank guest away; which calls come back is
+      // RLS's call (`pbx_can_view_call`).
+      { href: '/calls', labelKey: 'calls', icon: Phone, needsPbx: true },
       // Team chat (migration 087): the one row a bank guest sees too.
       {
         href: '/chat',
@@ -182,10 +200,13 @@ export const BOTTOM_NAV_ITEMS: NavItem[] = [
  * reflows the sidebar. The routes are independently guarded
  * server-side, so this is presentation, not the security boundary.
  */
-export function visibleNavGroups(role: AccountRole | null): NavGroup[] {
+export function visibleNavGroups(
+  role: AccountRole | null,
+  ctx: NavContext = {}
+): NavGroup[] {
   return NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => isNavItemVisible(item, role)),
+    items: group.items.filter((item) => isNavItemVisible(item, role, ctx)),
   })).filter((group) => group.items.length > 0);
 }
 
@@ -196,14 +217,17 @@ export function visibleBottomNavItems(role: AccountRole | null): NavItem[] {
 
 /**
  * May `role` see `item`? A bank guest sees only `guestVisible` rows;
- * staff are gated by `minRole` (none = every staff member). Null (the
- * profile still loading) shows the ungated rows, as above.
+ * staff are gated by `minRole` (none = every staff member), and a
+ * `needsPbx` row by `ctx.pbx`. Null (the profile still loading) shows
+ * the ungated rows, as above.
  */
 export function isNavItemVisible(
   item: NavItem,
-  role: AccountRole | null
+  role: AccountRole | null,
+  ctx: NavContext = {}
 ): boolean {
   if (isBankGuest(role)) return !!item.guestVisible;
+  if (item.needsPbx && !(role && ctx.pbx)) return false;
   return !item.minRole || (!!role && hasMinRole(role, item.minRole));
 }
 

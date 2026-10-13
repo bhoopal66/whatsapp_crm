@@ -70,7 +70,50 @@ One PBX can serve several workspaces.
   default), calls with those numbers are kept unrecorded. Leave it on
   until each bank's DSA terms allow its calls to be recorded.
 - **Retention.** Empty keeps recordings; otherwise 1 to 3650 days. How
-  long to keep them is an open legal decision for each workspace.
+  long to keep them is an open legal decision for each workspace. With
+  a period set, the phone-system cron (section 10) deletes the CRM's
+  copy of every recording whose **call** is more than that many days
+  old, except recordings under legal hold. A call's age runs from the
+  later of its start time as the PBX reported it and the moment the CRM
+  first recorded the call: never from the day the audio was copied, so
+  a late download never lengthens its life, and a PBX clock that is
+  wrong cannot make a fresh call look old and delete its audio at once.
+  A recording not yet copied whose call is already past the period is
+  never downloaded: the call is marked *not stored in the CRM*, and the
+  PBX keeps its own copy. Only the audio goes: the call,
+  its notes and its outcome stay, and the customer page says the
+  recording was deleted under the retention period. The PBX's own
+  copies are not touched. The recording row is marked deleted first
+  (from then on it cannot be played) and the audio removed after; audio
+  a run could not remove is taken by the orphan sweep. Each run's
+  deletions are written to the phone-system audit log
+  (`recording_retention`). The section shows what is kept now: how many
+  recordings, the oldest call, how many are under legal hold and how
+  many the period has deleted so far. The cron deletes on every run
+  (usually each minute), not once a day, so saving a first or a shorter
+  period asks first and says how many recordings it deletes now,
+  counted by the run's own rule (the call's age as above, legal holds
+  left out, this workspace only); they go within minutes, and that
+  cannot be undone. The server holds the same rule: it refuses a first
+  period, or one shorter than the period in force, unless the save
+  carries that confirmation, and the screen sends the period only when
+  it was changed. So a page opened before another admin lengthened the
+  period cannot shorten it back unasked when someone saves another
+  setting from it. A period counts only once saved through Settings
+  (migration 093 stamps it): one saved before 093, while the screen
+  stored it and nothing acted on it, deletes nothing after the upgrade
+  and does not stop downloads. Settings shows it as **saved but not
+  enforced yet**; saving it again, with the same count and
+  confirmation, starts the deletions. Clearing the period stops them.
+- **Legal hold.** An owner or admin can place or lift a legal hold on a
+  recording from the customer page (**Place legal hold**), with a
+  reason of at least five characters. Each change is written to the
+  append-only audit log with who made it and why (`legal_hold_placed`,
+  `legal_hold_lifted`). A held recording is kept past the retention
+  period and blocks the owner's erasure of that customer; a recording
+  already deleted cannot be held. Lifting the hold of a recording whose
+  call is already past the period asks first: once lifted, it is
+  deleted on the next cron run.
 - Recordings sit in a private bucket. Every play is logged, and the
   owner can erase a customer's call records on request, unless a
   recording is under legal hold. The erasure takes every call of the
@@ -213,9 +256,11 @@ recording notice before the owner is connected.
 first rings the outcome reminders (where outcomes are mandatory, at most
 200 a run; see **The wrap-up** below), then
 fetches pending recordings, dials due call-backs, retries events that
-failed to process (three times each), purges old rows, and deletes
-recording audio that no call record points to any more (left by an
-erasure, at most 500 files a run). Each run
+failed to process (three times each), purges old rows, deletes
+recordings past the workspace's retention period (section 3; up to
+1,000 a run, oldest calls first), and deletes recording audio that no
+live recording points to any more (left by an erasure or a retention
+run, at most 500 files a run). Each run
 stops starting work after 45 seconds. The automations cron also runs it,
 at most once a minute, so an install that already pings
 `/api/automations/cron` needs nothing more. A PBX connection that is
@@ -235,6 +280,30 @@ backing off after a refused login is skipped until the backoff ends.
   called, through any of their contacts or by typing the number. An
   owner or admin can override with a reason, which is logged before
   the PBX is asked.
+- **The Calls screen** (sidebar › Calls: staff only, shown once the
+  workspace has an extension) lists the last 7 days' missed calls and
+  the call log. _Call back_ on a missed call dials the customer's
+  contact or, for a caller with no contact, the number (team leader and
+  up, as for a typed number). A do-not-contact customer's _Call back_
+  is disabled with the reason; an owner or admin can still call, with
+  a reason that is logged.
+- **By person** (the Calls screen's third tab: team leaders, admins and
+  owners). For today, this week (from Monday), this month or up to 92
+  whole days, in the workspace's time zone (the one saved in Team
+  activity settings, else the viewer's): per person, incoming calls
+  answered, outgoing calls, missed incoming calls, total and average
+  talk time, average ring time of answered incoming calls, and outcomes
+  plus _no outcome_ (answered calls nobody gave one), then the
+  workspace total. Owners and admins see everyone; a team leader the
+  people of the teams they lead and themselves, with the workspace
+  total still counting every call. Calls between colleagues are left
+  out. **Missed-call attribution:** a call counts for the person whose
+  extension the PBX reports it to. A missed call that rang someone's
+  own extension is theirs. A ring group or queue rings several people
+  at once, and who it rang is not kept once the call ends, so when
+  nobody answers the call has no person: it is counted once, under
+  _No person_ and in the total, never once per person it rang. A call
+  to an extension with no CRM login is counted the same way.
 - **Outcome and notes.** After a call, the person on it (or a team
   leader and up) sets the outcome (interested, documents requested,
   call back, not eligible, wrong number) and notes, up to 4,000
@@ -289,6 +358,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
 | `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
+| `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |
 | `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
 
 ## 12. Browser softphone

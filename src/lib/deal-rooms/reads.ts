@@ -14,8 +14,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { isUuid } from '@/lib/chat/mentions';
 import { callingCodeOf } from '@/lib/contacts/phone-validation';
 
+import type { RoomScope } from './entry';
 import { isWindowOpen } from './operations';
 
 export type RoomAccess = 'supervisor' | 'staff' | 'guest';
@@ -89,6 +91,9 @@ export interface RoomSummary {
   status: string;
   participantCount: number;
   windowUntil: string | null;
+  /** Null on a bank guest's rooms: their view carries neither. */
+  contactId: string | null;
+  dealId: string | null;
   dealTitle: string | null;
   contactName: string | null;
   createdAt: string;
@@ -97,6 +102,8 @@ export interface RoomSummary {
 interface SummaryRow extends Embeds {
   id: string;
   channel_id: string;
+  contact_id?: string | null;
+  deal_id?: string | null;
   subject: string;
   status: string;
   participant_count: number;
@@ -105,33 +112,71 @@ interface SummaryRow extends Embeds {
 }
 
 /**
+ * `?contactId=` or `?dealId=` on the list: one customer's or one deal's
+ * rooms (the customer page, a pipeline deal, the inbox contact panel).
+ * Neither is the whole list; both, or one that is not a uuid, is a 400.
+ */
+export function parseRoomScope(
+  params: URLSearchParams
+): { ok: true; scope: RoomScope | null } | { ok: false; error: string } {
+  const contactId = params.get('contactId')?.trim() || null;
+  const dealId = params.get('dealId')?.trim() || null;
+  if (contactId && dealId) {
+    return { ok: false, error: 'pass contactId or dealId, not both' };
+  }
+  if (contactId) {
+    return isUuid(contactId)
+      ? { ok: true, scope: { contactId } }
+      : { ok: false, error: 'contactId must be a uuid' };
+  }
+  if (dealId) {
+    return isUuid(dealId)
+      ? { ok: true, scope: { dealId } }
+      : { ok: false, error: 'dealId must be a uuid' };
+  }
+  return { ok: true, scope: null };
+}
+
+/**
  * The newest `ROOM_LIST_MAX` rooms the caller can see, newest first:
  * staff's from `deal_rooms` (RLS), a bank guest's from
  * `deal_room_guest_rooms` (no deal or contact). Each source is empty for
- * the other kind of caller.
+ * the other kind of caller. With a scope, only that contact's or deal's
+ * rooms from `deal_rooms`: the guest view has neither column, and the
+ * screens that ask are staff screens.
  */
-export async function listRooms(db: SupabaseClient): Promise<RoomSummary[]> {
+export async function listRooms(
+  db: SupabaseClient,
+  scope: RoomScope | null = null
+): Promise<RoomSummary[]> {
+  let staffRooms = db
+    .from('deal_rooms')
+    .select(
+      `id, channel_id, contact_id, deal_id, subject, status, participant_count, window_until, created_at, ${EMBEDS}`
+    );
+  if (scope) {
+    staffRooms =
+      'dealId' in scope
+        ? staffRooms.eq('deal_id', scope.dealId)
+        : staffRooms.eq('contact_id', scope.contactId);
+  }
   const [staff, guest] = await Promise.all([
     rows<SummaryRow>(
-      db
-        .from('deal_rooms')
-        .select(
-          `id, channel_id, subject, status, participant_count, window_until, created_at, ${EMBEDS}`
-        )
-        .order('created_at', { ascending: false })
-        .limit(ROOM_LIST_MAX),
+      staffRooms.order('created_at', { ascending: false }).limit(ROOM_LIST_MAX),
       'room'
     ),
-    rows<SummaryRow>(
-      db
-        .from('deal_room_guest_rooms')
-        .select(
-          'id, channel_id, subject, status, participant_count, window_until, created_at'
-        )
-        .order('created_at', { ascending: false })
-        .limit(ROOM_LIST_MAX),
-      'guest room'
-    ),
+    scope
+      ? Promise.resolve([] as SummaryRow[])
+      : rows<SummaryRow>(
+          db
+            .from('deal_room_guest_rooms')
+            .select(
+              'id, channel_id, subject, status, participant_count, window_until, created_at'
+            )
+            .order('created_at', { ascending: false })
+            .limit(ROOM_LIST_MAX),
+          'guest room'
+        ),
   ]);
   const list = [...staff, ...guest]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -143,6 +188,8 @@ export async function listRooms(db: SupabaseClient): Promise<RoomSummary[]> {
     status: r.status,
     participantCount: r.participant_count,
     windowUntil: r.window_until,
+    contactId: r.contact_id ?? null,
+    dealId: r.deal_id ?? null,
     dealTitle: r.deal?.title ?? null,
     contactName: r.contact?.name ?? null,
     createdAt: r.created_at,
@@ -198,6 +245,8 @@ export interface RoomDetail {
     closedAt: string | null;
     closeReason: string | null;
     lastError: string | null;
+    /** A manager cancelled it while it was being created (096); null for a guest. */
+    cancelledAt: string | null;
     dealTitle: string | null;
     contactName: string | null;
     /** The CRM user who opened the room (an auth user id). */
@@ -230,6 +279,7 @@ interface DetailRow extends Partial<Embeds> {
   closed_at: string | null;
   close_reason: string | null;
   last_error: string | null;
+  cancelled_at: string | null;
   created_by: string | null;
 }
 
@@ -287,7 +337,7 @@ export async function loadRoomDetail(
       : db
           .from('deal_rooms')
           .select(
-            `${shared}, contact_id, deal_id, last_error, created_by, ${EMBEDS}`
+            `${shared}, contact_id, deal_id, last_error, cancelled_at, created_by, ${EMBEDS}`
           )
   )
     .eq('id', roomId)
@@ -299,6 +349,7 @@ export async function loadRoomDetail(
         contact_id: null,
         deal_id: null,
         last_error: null,
+        cancelled_at: null,
         created_by: null,
         ...g,
       } as DetailRow)
@@ -322,6 +373,7 @@ export async function loadRoomDetail(
       closedAt: r.closed_at,
       closeReason: r.close_reason,
       lastError: r.last_error,
+      cancelledAt: r.cancelled_at,
       dealTitle: r.deal?.title ?? null,
       contactName: r.contact?.name ?? null,
       createdBy: r.created_by,

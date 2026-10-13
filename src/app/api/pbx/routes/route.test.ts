@@ -142,7 +142,11 @@ describe('/api/pbx/settings', () => {
     ])
       expect((await PUT_SETTINGS(req(bad))).status).toBe(400);
     const res = await PUT_SETTINGS(
-      req({ retentionDays: 365, missedCallDueMinutes: 1440 })
+      req({
+        retentionDays: 365,
+        confirmRetentionDays: 365,
+        missedCallDueMinutes: 1440,
+      })
     );
     expect((await res.json()).settings).toMatchObject({
       retentionDays: 365,

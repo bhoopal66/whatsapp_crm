@@ -19,7 +19,7 @@ import {
   StickyNote,
 } from 'lucide-react';
 
-import { dialContact } from '@/components/calls/dial';
+import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CallButton } from '@/components/pbx/call-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -597,13 +597,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
                   )}
                 </span>
               )}
-              <Button
-                size="xs"
-                className="bg-emerald-600 text-white hover:bg-emerald-700"
-                onClick={() => void dialContact(contact.id, (k) => tl(k))}
-              >
-                {tl('callBack')}
-              </Button>
+              <CallButton contact={contact} label={tl('callBack')} size="xs" />
               <Button size="xs" variant="outline" onClick={draftWhatsApp}>
                 {tl('draftWhatsApp')}
               </Button>
@@ -731,6 +725,10 @@ export function CustomerPage({ contactId }: { contactId: string }) {
               </ul>
             )}
           </Card>
+          <DealRoomLinks
+            contact={contact}
+            frame={(title, body) => <Card title={title}>{body}</Card>}
+          />
           <Card title={tl('team')}>
             {team.length === 0 ? (
               <p className="text-muted-foreground text-sm">{tl('noTeam')}</p>

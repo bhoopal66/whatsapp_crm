@@ -9,6 +9,8 @@ import { useCan } from '@/hooks/use-can';
 import { assignableOwners } from '@/lib/pipelines/owner';
 import { useDealPeople } from './use-deal-people';
 import { ContactPicker, type ContactOption } from './contact-picker';
+import { DealRoomLinks } from '@/components/deal-rooms/room-links';
+import { prefillFromDeal } from '@/lib/deal-rooms/entry';
 import type { Conversation, Deal, DealStatus, PipelineStage } from '@/types';
 import {
   Sheet,
@@ -399,6 +401,21 @@ export function DealForm({
                 className="border-border bg-muted text-foreground min-h-[100px]"
               />
             </div>
+
+            {deal && (
+              <DealRoomLinks
+                contact={prefillFromDeal(deal)?.contact ?? null}
+                deal={{ id: deal.id, title: deal.title }}
+                frame={(roomsTitle, body) => (
+                  <div className="grid gap-2">
+                    <Label className="text-muted-foreground">
+                      {roomsTitle}
+                    </Label>
+                    {body}
+                  </div>
+                )}
+              />
+            )}
 
             {deal && (
               <div className="border-border bg-muted/50 space-y-2 rounded-lg border p-3">

@@ -2,10 +2,12 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { GUEST_HOME_PATH } from '@/lib/auth/my-workspaces';
 import {
   canEditSettings,
   canLeadTeam,
   canSendMessages,
+  isBankGuest,
 } from '@/lib/auth/roles';
 
 /**
@@ -94,6 +96,30 @@ export async function AgentOnlyLayout({ children }: { children: ReactNode }) {
 
   if (!signedIn) redirect('/login');
   if (!allowed) redirect('/dashboard');
+
+  return <>{children}</>;
+}
+
+/**
+ * Server-side gate for the screens every staff role may read (Calls,
+ * module 015): viewer and above, never a bank guest, who is sent to team
+ * chat, their one screen. Their API routes refuse a guest already; this
+ * keeps the page itself from them. Same shape as {@link AdminOnlyLayout},
+ * redirects outside the try.
+ */
+export async function StaffOnlyLayout({ children }: { children: ReactNode }) {
+  let signedIn = true;
+  let allowed = false;
+
+  try {
+    const ctx = await getCurrentAccount();
+    allowed = !isBankGuest(ctx.role);
+  } catch {
+    signedIn = false;
+  }
+
+  if (!signedIn) redirect('/login');
+  if (!allowed) redirect(GUEST_HOME_PATH);
 
   return <>{children}</>;
 }

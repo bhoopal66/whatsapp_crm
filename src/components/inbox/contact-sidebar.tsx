@@ -12,6 +12,7 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  Handshake,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -19,6 +20,7 @@ import { format } from 'date-fns';
 import { useTranslations } from 'next-intl';
 import { ContactAvatar } from './contact-avatar';
 import { ContactJourneySections } from '@/components/journeys/contact-journey';
+import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -210,6 +212,24 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </div>
           </section>
+
+          {/* Deal rooms (module 014c) */}
+          <DealRoomLinks
+            key={`rooms-${contact.id}`}
+            contact={{
+              id: contact.id,
+              name: contact.name ?? null,
+              phone: contact.phone ?? null,
+              company: contact.company ?? null,
+            }}
+            tone="wa"
+            frame={(title, body) => (
+              <section className="bg-wa-panel px-5 py-4">
+                <SectionTitle icon={Handshake}>{title}</SectionTitle>
+                <div className="mt-2.5">{body}</div>
+              </section>
+            )}
+          />
 
           {/* Journey + consent (module 016) */}
           <ContactJourneySections

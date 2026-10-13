@@ -145,6 +145,69 @@ export function dealOptionLabel(o: {
     .join(' · ');
 }
 
+interface PickedContact {
+  id: string;
+  name: string | null;
+  phone: string | null;
+}
+
+/** A picked contact as the list's customer invitee. */
+export function customerInvitee(c: PickedContact): Invitee {
+  return {
+    displayName: c.name ?? c.phone ?? '',
+    phone: c.phone ?? '',
+    role: 'customer',
+    contactId: c.id,
+  };
+}
+
+/**
+ * Picking a customer puts them first and drops the previously picked
+ * one; a customer typed in by hand (no contact) stays.
+ */
+export function withCustomer(
+  list: readonly Invitee[],
+  c: PickedContact
+): Invitee[] {
+  return [
+    customerInvitee(c),
+    ...list.filter((p) => p.role !== 'customer' || !p.contactId),
+  ];
+}
+
+/**
+ * The deals the picker offers: the contact's open deals, with a
+ * prefilled deal that is not among them (a won deal opened from the
+ * pipeline) first, so the select shows the deal the room will link.
+ */
+export function dealChoices<D extends { id: string }>(
+  open: readonly D[],
+  keep: D | null
+): D[] {
+  if (!keep || open.some((d) => d.id === keep.id)) return [...open];
+  return [keep, ...open];
+}
+
+/**
+ * The dialog's first state. Opened from a customer or a deal, the
+ * contact is picked (and searched for, so the list shows it), the
+ * customer is on the list and the deal is chosen; from team chat,
+ * nothing is.
+ */
+export function initialCreateState<C extends PickedContact>(seed: {
+  contact?: C | null;
+  deal?: { id: string } | null;
+}): { query: string; contact: C | null; dealId: string; invitees: Invitee[] } {
+  const contact = seed.contact ?? null;
+  if (!contact) return { query: '', contact: null, dealId: '', invitees: [] };
+  return {
+    query: contact.name ?? contact.phone ?? '',
+    contact,
+    dealId: seed.deal?.id ?? '',
+    invitees: [customerInvitee(contact)],
+  };
+}
+
 /** The `POST /api/deal-rooms` body. */
 export function createRoomBody(input: {
   contactId: string;

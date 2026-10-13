@@ -136,6 +136,15 @@ export function canEditSettings(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: place or lift a legal hold on a call recording
+ * (pbx_set_recording_hold, migration 093). A hold keeps the audio past
+ * the retention period and blocks the owner's erasure.
+ */
+export function canPlaceLegalHold(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
  * Owner / admin / agent: write operational data — send messages,
  * create contacts, move deals, run broadcasts, edit automations.
  * Viewers are read-only.

@@ -60,7 +60,9 @@
     "workspaceSwitchFailed": "워크스페이스를 전환하지 못했습니다: {reason}",
     "chat": "팀 채팅",
     "unreadChat": "읽지 않은 팀 채팅 메시지 {count}개",
-    "journeys": "여정"
+    "journeys": "여정",
+    "calls": "통화",
+    "missedCalls": "열린 부재중 전화 할 일 {count}건"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -3057,7 +3059,18 @@
         "save": "규칙 저장",
         "saved": "녹음 규칙을 저장했습니다",
         "retentionInvalid": "1~3650일을 입력하거나, 녹음을 보관하려면 비워 두세요.",
-        "dueInvalid": "1~1440분을 입력하세요."
+        "dueInvalid": "1~1440분을 입력하세요.",
+        "retentionDeletes": "{days}일이 지난 통화의 녹음은 전화 시스템 크론이 실행될 때마다(보통 1분마다) 자동으로 삭제됩니다. 법적 보존 중인 녹음은 제외됩니다. 통화 기록과 메모, 결과는 유지됩니다.",
+        "retentionKeeps": "비워 두면 녹음이 자동 삭제 없이 보관됩니다.",
+        "retentionNotEnforced": "저장되었지만 아직 적용되지 않았습니다. 삭제를 시작하려면 다시 저장하세요.",
+        "kept": "현재 보관 중: {count, plural, =0 {녹음 없음} other {녹음 #건}}",
+        "keptOldest": "가장 오래된 녹음은 {date} 통화",
+        "keptHeld": "법적 보존 {count}건",
+        "keptExpired": "지금까지 보관 기간에 따라 {count}건 삭제됨",
+        "confirmDelete": "저장하면 몇 분 안에 녹음 {count}건이 삭제됩니다. 해당 통화가 {days}일보다 오래되었습니다. 법적 보존 중인 녹음은 유지됩니다. 이 작업은 되돌릴 수 없습니다.",
+        "confirmDeleteUnknown": "저장하면 몇 분 안에 {days}일보다 오래된 통화의 녹음이 모두 삭제됩니다. 삭제될 녹음 수를 확인하지 못했습니다. 법적 보존 중인 녹음은 유지됩니다. 이 작업은 되돌릴 수 없습니다.",
+        "confirmSave": "저장하고 삭제",
+        "confirmCancel": "취소"
       },
       "banks": {
         "title": "은행 번호",
@@ -4144,7 +4157,8 @@
         "suspended": "WhatsApp이 이 그룹을 정지했습니다. 해제될 때까지 보낼 수 없습니다.",
         "closing": "이 룸은 종료 중입니다.",
         "closed": "이 룸은 종료되었습니다. 읽을 수는 있지만 게시할 수 없습니다.",
-        "failed": "WhatsApp이 이 그룹을 만들지 못했습니다."
+        "failed": "WhatsApp이 이 그룹을 만들지 못했습니다.",
+        "cancelled": "WhatsApp 그룹이 만들어지기 전에 취소된 방입니다."
       },
       "window": {
         "open": "응답 가능 시간 · {hours}시간 {minutes}분 남음",
@@ -4327,7 +4341,43 @@
         "retry": "다시 시도",
         "closeFailed": "딜룸을 닫지 못했습니다: {error}",
         "cancel": "취소",
-        "unknownError": "문제가 발생했습니다"
+        "unknownError": "문제가 발생했습니다",
+        "cancelRoom": "방 취소",
+        "cancelRoomTitle": "이 방을 취소할까요?",
+        "cancelRoomBody": "WhatsApp이 아직 그룹을 만드는 중입니다. 취소하면 완전히 중단됩니다. 나중에 그룹이 만들어지면 삭제되고 아무도 초대되지 않습니다.",
+        "cancelRoomConfirm": "방 취소",
+        "cancelRoomDone": "방을 취소했습니다",
+        "cancelRoomTooLate": "이 방은 더 이상 생성 중이 아닙니다. 그 사이 WhatsApp이 그룹을 만들었거나 생성에 실패했습니다.",
+        "cancelRoomFailed": "방을 취소하지 못했습니다: {error}"
+      },
+      "people": {
+        "title": "사람 추가",
+        "help": "추가된 사람은 이 방과 팀 메모를 볼 수 있습니다. WhatsApp 그룹에는 아무도 추가되지 않습니다.",
+        "addStaff": "팀원 추가",
+        "addGuest": "은행 담당자 추가",
+        "staffTitle": "팀원 추가",
+        "staffBody": "이 방을 함께 볼 워크스페이스 사람을 선택하세요.",
+        "guestTitle": "은행 담당자 추가",
+        "guestBody": "이 방에 해당 은행의 승인된 담당자가 있어야 하고, 은행이 고객 그룹 참여를 허용받아야 합니다.",
+        "add": "추가",
+        "added": "{count, plural, =0 {이미 방에 있는 사람입니다} other {#명을 추가했습니다}}",
+        "failed": "추가하지 못했습니다: {error}",
+        "error": {
+          "not_manager": "이 방의 관리자만 사람을 추가할 수 있습니다.",
+          "not_leader": "팀 리더나 관리자만 은행 담당자를 추가할 수 있습니다.",
+          "room_closed": "닫힌 방이라 새로 추가할 수 없습니다.",
+          "not_staff": "선택한 사람 중 이 워크스페이스에서 더 이상 일하지 않는 사람이 있습니다.",
+          "not_guest": "이 워크스페이스의 은행 담당자가 아닙니다.",
+          "no_bank_participant": "이 방에 승인된 {bank} 담당자가 아직 없습니다. 먼저 초대하고 승인하세요.",
+          "bank_guests_off": "{bank} 담당자는 고객 그룹에 참여할 수 없습니다. 먼저 설정에서 은행을 허용하세요."
+        }
+      },
+      "entry": {
+        "title": "딜룸",
+        "none": "이 고객의 딜룸이 아직 없습니다.",
+        "noneForDeal": "이 딜의 딜룸이 아직 없습니다.",
+        "deal": "딜: {title}",
+        "failed": "딜룸을 불러오지 못했습니다."
       }
     },
     "settings": {
@@ -4731,10 +4781,6 @@
     "team": "이 고객 담당 팀",
     "noTeam": "아직 없습니다",
     "thisMonth": "이번 달 통화",
-    "dialing": "전화 거는 중 — 내 전화가 먼저 울립니다",
-    "dialFailed": "전화를 걸지 못했습니다",
-    "noExtension": "이 워크스페이스에 내 내선 번호가 없습니다",
-    "doNotContact": "이 고객은 연락 금지 상태입니다",
     "noConversation": "아직 이 고객과의 WhatsApp 채팅이 없습니다",
     "taskDone": "할 일 완료",
     "taskFailed": "할 일을 업데이트하지 못했습니다",
@@ -4742,13 +4788,25 @@
     "attachFailed": "녹음을 첨부하지 못했습니다",
     "noDeal": "첨부할 진행 중인 딜이 없습니다",
     "openCustomerPage": "고객 페이지 열기",
-    "loadMore": "더 보기"
+    "loadMore": "더 보기",
+    "recordingExpired": "보관 기간이 지나 녹음이 삭제되었습니다",
+    "legalHold": "법적 보존",
+    "placeHold": "법적 보존 설정",
+    "liftHold": "법적 보존 해제",
+    "holdReason": "사유(5자 이상)",
+    "holdCancel": "취소",
+    "holdPlaced": "법적 보존이 설정되었습니다. 이 녹음은 보관 기간이 지나도 유지됩니다",
+    "holdLifted": "법적 보존이 해제되었습니다",
+    "holdFailed": "법적 보존을 변경하지 못했습니다",
+    "liftDeletes": "이 통화는 보존 기간({days}일)보다 오래되었습니다. 보존을 해제하면 몇 분 안에 녹음이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+    "liftAndDelete": "보존 해제 후 삭제"
   },
   "CallsPage": {
     "title": "통화",
     "tabs": {
       "missed": "부재중 전화",
-      "log": "통화 기록"
+      "log": "통화 기록",
+      "people": "담당자별"
     },
     "missedHint": "최근 7일간의 부재중 전화, 최신순",
     "today": "오늘",
@@ -4758,7 +4816,45 @@
     "unknownCaller": "알 수 없는 발신자",
     "taskOpen": "할 일 열림",
     "taskDone": "할 일 완료",
-    "loadFailed": "통화를 불러오지 못했습니다"
+    "loadFailed": "통화를 불러오지 못했습니다",
+    "report": {
+      "periods": {
+        "today": "오늘",
+        "week": "이번 주",
+        "month": "이번 달",
+        "custom": "직접 지정"
+      },
+      "from": "시작일",
+      "to": "종료일",
+      "apply": "적용",
+      "custom": {
+        "order": "종료일이 시작일보다 앞섭니다",
+        "span": "최대 92일까지 선택할 수 있습니다"
+      },
+      "pickDays": "첫날과 마지막 날을 고른 뒤 적용을 누르세요",
+      "columns": {
+        "person": "담당자",
+        "inboundAnswered": "응답",
+        "outbound": "발신",
+        "missed": "부재중",
+        "talkTotal": "통화 시간",
+        "talkAverage": "평균 통화",
+        "ringAverage": "평균 대기",
+        "outcomes": "결과"
+      },
+      "unnamed": "이름 없는 사용자",
+      "extension": "내선 {extension}",
+      "noPerson": "담당자 없음",
+      "total": "워크스페이스 합계",
+      "noOutcome": "결과 없음",
+      "empty": "이 기간에 통화가 없습니다",
+      "loadFailed": "보고서를 불러오지 못했습니다",
+      "forbidden": "팀 리더, 관리자, 소유자만 이 보고서를 볼 수 있습니다",
+      "range": "{from} – {to}, {zone} 기준 날짜, 주는 월요일부터",
+      "footnoteMissed": "부재중: 본인 내선으로 걸려 온 수신 전화를 받지 못하면 그 사람의 부재중으로 집계됩니다. 링 그룹이나 대기열로 걸려 온 전화는 여러 사람에게 동시에 울리므로, 아무도 받지 않으면 담당자가 없습니다. 이런 전화는 CRM 로그인이 없는 내선으로 걸려 온 전화와 마찬가지로 담당자 없음에 한 번만 집계됩니다.",
+      "footnoteFigures": "응답, 부재중, 대기 시간은 수신 전화 기준이며, 발신은 연결 여부와 관계없이 건 모든 전화입니다. 통화 시간과 결과 없음은 연결된 통화 기준이고, 평균 대기는 응답한 수신 전화가 울린 시간입니다. 동료 간 통화는 제외됩니다.",
+      "footnoteLeader": "내가 이끄는 팀의 구성원과 나 자신만 표시됩니다. 워크스페이스 합계는 모든 통화를 집계합니다."
+    }
   },
   "ChatCalls": {
     "section": "통화",
