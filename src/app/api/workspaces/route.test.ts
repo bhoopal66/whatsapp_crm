@@ -81,6 +81,7 @@ describe('GET /api/workspaces', () => {
           role: 'bank_guest',
           is_active: false,
           deactivated: false,
+          archived: true,
         },
       ],
       error: null,
@@ -96,6 +97,7 @@ describe('GET /api/workspaces', () => {
           role: 'admin',
           isActive: true,
           deactivated: true,
+          archived: false,
         },
         {
           accountId: 'b',
@@ -104,6 +106,7 @@ describe('GET /api/workspaces', () => {
           role: 'bank_guest',
           isActive: false,
           deactivated: false,
+          archived: true,
         },
       ],
     });

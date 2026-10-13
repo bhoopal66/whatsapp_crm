@@ -18,7 +18,7 @@ import { NextResponse } from 'next/server';
 import type { RateLimitResult } from '@/lib/rate-limit';
 
 export type ApiErrorCode =
-  | 'unauthorized' // missing / malformed / unknown / revoked / expired key
+  | 'unauthorized' // missing / malformed / unknown / revoked / expired / archived
   | 'forbidden' // valid key, but missing the required scope
   | 'rate_limited' // per-key budget exhausted
   | 'bad_request' // malformed input

@@ -1557,7 +1557,45 @@
         "nameTooLong": "Keep the name to {max} characters or fewer.",
         "shortNameInvalid": "Use 1 to 4 letters or digits."
       },
-      "loading": "Loading…"
+      "loading": "Loading…",
+      "archive": {
+        "title": "Archive this workspace",
+        "description": "Close this workspace without deleting anything. Nobody can open it until an owner restores it.",
+        "open": "Archive workspace…",
+        "dialogTitle": "Archive {name}?",
+        "dialogDescription": "Nothing is deleted. An owner can restore it later from Settings → Workspace in another workspace.",
+        "happensTitle": "What happens",
+        "happens": {
+          "moved": "Everyone working here, you included, is moved to another of their workspaces.",
+          "invitations": "Pending invitation links stop working, and stay revoked after a restore.",
+          "apiKeys": "Its API keys stop working until it is restored, and the integrations that use them stop with them.",
+          "closed": "Nobody can open it until an owner restores it."
+        },
+        "firstTitle": "Do these first",
+        "first": {
+          "channels": "Disconnect its WhatsApp numbers and the phone system.",
+          "routes": "Remove other workspaces' phone routes (numbers or extensions) that send calls here.",
+          "people": "Move or deactivate the people who work only in this workspace."
+        },
+        "cancel": "Cancel",
+        "confirm": "Archive workspace",
+        "archiving": "Archiving…",
+        "errors": {
+          "forbidden": "Only an owner of this workspace can archive or restore it.",
+          "no_other_workspace": "You have no other workspace to move to. Create or join another workspace first.",
+          "channels_connected": "This workspace still has a WhatsApp number or the phone system connected. Disconnect them first.",
+          "calls_routed_here": "Another workspace's phone system still sends calls here. Remove those numbers and extensions in its phone settings first.",
+          "members_stranded": "{count, plural, one {# person works} other {# people work}} only in this workspace. Move or deactivate them in Members first.",
+          "members_stranded_unknown": "Some people work only in this workspace. Move or deactivate them in Members first.",
+          "failed": "Something went wrong. Try again."
+        },
+        "archivedTitle": "Archived workspaces",
+        "archivedDescription": "Only owners see these. Restoring reopens a workspace: its members switch back in themselves, and revoked invitation links stay revoked.",
+        "restore": "Restore",
+        "restoring": "Restoring…",
+        "restored": "{name} restored",
+        "restoreFailed": "Couldn't restore {name}"
+      }
     },
     "members": {
       "title": "Team members",
@@ -3216,7 +3254,9 @@
           "short_name_changed": "Changed the short name",
           "ownership_transferred": "Transferred ownership",
           "team_chat_enabled": "Turned team chat on",
-          "team_chat_disabled": "Turned team chat off"
+          "team_chat_disabled": "Turned team chat off",
+          "workspace_archived": "Archived the workspace",
+          "workspace_restored": "Restored the workspace"
         },
         "team_chat": {
           "admin_read_private": "Read a private channel",
@@ -4475,7 +4515,8 @@
       "label": "Workspaces",
       "create": "Create a workspace",
       "mentions": "{count, plural, one {# mention} other {# mentions}}",
-      "unread": "Unread messages"
+      "unread": "Unread messages",
+      "archived": "Archived — restore it in Settings → Workspace"
     },
     "bell": {
       "unknown": "Another workspace",

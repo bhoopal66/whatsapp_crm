@@ -30,7 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { findActiveKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
+import { lookupKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
 import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
 import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
@@ -72,7 +72,8 @@ function extractKey(request: Request): string | null {
  * single scope. Throws an `ApiError` (mapped to the envelope by
  * `toApiErrorResponse`) on any failure:
  *
- *   401 unauthorized — no key, malformed, unknown, revoked, expired
+ *   401 unauthorized — no key, malformed, unknown, revoked, expired,
+ *                      or its workspace archived (migration 105)
  *   403 forbidden    — valid key without the required scope
  *   429 rate_limited — per-key budget exhausted, or this client IP is
  *                      locked out for presenting bad keys
@@ -100,12 +101,26 @@ export async function requireApiKey(
   const lockKey = ip ? `apikey:${ipKey(ip)}` : null;
   if (lockKey) await refuseLockedCaller(lockKey);
 
-  const row = await findActiveKeyByHash(hashApiKey(presented));
+  const {
+    key: row,
+    archived,
+    archivedKeyId,
+  } = await lookupKeyByHash(hashApiKey(presented));
   if (!row) {
     // Covers unknown, revoked, and expired keys alike — we don't
     // distinguish them on the wire so a probe can't learn whether a
-    // key ever existed.
-    if (lockKey) await recordKey(lockKey, false);
+    // key ever existed. A live key of an archived workspace (105) is
+    // refused the same way but is not a bad key: an integration that
+    // serves several workspaces from one IP (Compass) would otherwise
+    // lock itself out of the live ones by retrying it. It keeps its
+    // per-key rate limit instead, so holding one buys no free requests.
+    if (archived && archivedKeyId) {
+      const limit = checkRateLimit(
+        `apikey:${archivedKeyId}`,
+        RATE_LIMITS.publicApi
+      );
+      if (!limit.success) throw rateLimited(limit);
+    } else if (lockKey) await recordKey(lockKey, false);
     throw unauthorized();
   }
 

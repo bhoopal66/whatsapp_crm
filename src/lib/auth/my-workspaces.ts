@@ -27,6 +27,11 @@ export interface Workspace {
   isActive: boolean;
   /** This membership was deactivated by an admin of that workspace. */
   deactivated: boolean;
+  /**
+   * The workspace is archived (migration 105): nobody can enter it until
+   * an owner restores it. Listed to its owners only, last.
+   */
+  archived: boolean;
 }
 
 /** One row of `my_workspaces()`. */
@@ -37,6 +42,7 @@ interface MyWorkspacesRow {
   role?: unknown;
   is_active?: unknown;
   deactivated?: unknown;
+  archived?: unknown;
 }
 
 /**
@@ -62,6 +68,7 @@ export function parseMyWorkspaces(rows: unknown): Workspace[] {
       role: isAccountRole(raw.role) ? raw.role : null,
       isActive: raw.is_active === true,
       deactivated: raw.deactivated === true,
+      archived: raw.archived === true,
     });
   }
   return out;
@@ -70,7 +77,8 @@ export function parseMyWorkspaces(rows: unknown): Workspace[] {
 /**
  * Where to go when the active membership has been deactivated: the
  * first other workspace that is still open to the person, in the list's
- * order. Null when every membership is deactivated, and only then is
+ * order. An archived workspace is not open: switch_account refuses it.
+ * Null when every membership is deactivated, and only then is
  * signing out the right answer — signing out someone who still has a
  * working membership lands them back on the deactivated one at their
  * next sign-in, and out again.
@@ -81,7 +89,8 @@ export function fallbackWorkspace(
 ): Workspace | null {
   return (
     workspaces.find(
-      (w) => !w.deactivated && w.accountId !== deactivatedAccountId
+      (w) =>
+        !w.deactivated && !w.archived && w.accountId !== deactivatedAccountId
     ) ?? null
   );
 }

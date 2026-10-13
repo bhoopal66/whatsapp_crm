@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
+import { canArchiveWorkspace } from '@/lib/auth/roles';
 import { MAX_WORKSPACE_NAME, planWorkspaceRename } from '@/lib/workspaces/form';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 import { SettingsPanelHead } from './settings-panel-head';
+import {
+  ArchivedWorkspacesCard,
+  ArchiveWorkspaceCard,
+} from './workspace-archive';
 
 const ERROR_TEXT = 'text-xs text-red-600 [[data-mode=dark]_&]:text-red-400';
 
@@ -24,10 +29,14 @@ const ERROR_TEXT = 'text-xs text-red-600 [[data-mode=dark]_&]:text-red-400';
  * so a field is checked as it is typed. After a save, refreshProfile()
  * re-reads the account and my_workspaces(), so the rail and headers
  * show the new names without a reload.
+ *
+ * An owner also archives the workspace here, and restores archived
+ * ones (`workspace-archive.tsx`, migration 105).
  */
 export function WorkspacePanel() {
   const t = useTranslations('Settings.workspace');
-  const { account, accountId, workspaces, refreshProfile } = useAuth();
+  const { account, accountId, accountRole, workspaces, refreshProfile } =
+    useAuth();
   // null while untouched: the fields show what is saved.
   const [draft, setDraft] = useState<{
     name: string;
@@ -151,6 +160,10 @@ export function WorkspacePanel() {
           </form>
         </CardContent>
       </Card>
+      {accountRole && canArchiveWorkspace(accountRole) ? (
+        <ArchiveWorkspaceCard name={saved.name} />
+      ) : null}
+      <ArchivedWorkspacesCard />
     </section>
   );
 }

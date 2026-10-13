@@ -14,8 +14,9 @@ reads the active row (through `is_account_member()`,
 `current_account_id()` and `current_role_rank()`), so everything a person
 sees and changes belongs to their active workspace. The one exception is
 the bell: Notifications lists the person's notifications from every
-workspace where their membership is live (`my_live_account_ids()`), and
-its badge and "Mark all as read" cover them all. Name, email and avatar
+workspace where their membership is live and that is not archived
+(`my_live_account_ids()`), and its badge and "Mark all as read" cover
+them all. Name, email and avatar
 are kept the same on all of a person's rows.
 
 ## Switching
@@ -201,3 +202,52 @@ service role, a hand-run UPDATE. One row per change:
   it must be applied as a superuser or BYPASSRLS role.
 
 Apply 082, then 083, each in its own run. All three are re-runnable.
+
+## Archiving a workspace (migration 105)
+
+An owner can archive a workspace, and restore it later, with
+`POST /api/workspaces/archive { accountId, archived: true | false }`
+(`archive_workspace`). Nothing is deleted. The caller needs a live owner
+row in that workspace; it need not be the active one, so an archived
+workspace is restored from another.
+
+Archiving is refused, with a 409 and a `code`, while:
+
+- the owner has no other live, non-archived workspace to move to
+  (`no_other_workspace`);
+- a WhatsApp number or the phone system is still connected
+  (`channels_connected`): disconnect them first, or inbound messages and
+  calls keep landing in a workspace nobody can open;
+- another workspace's phone system still routes a number or maps an
+  extension to it (`calls_routed_here`; the error names them): its
+  calls, missed-call tasks and bells would land there too. They are that
+  workspace's settings, so they are not removed for you: remove them in
+  its phone settings first;
+- a live member, staff or bank guest, has no other workspace
+  (`members_stranded`, with `count`): deactivate or remove them first.
+
+Otherwise, in one step: the workspace's pending invite links are
+revoked, and everyone working in it is moved to the first of their
+other live workspaces by name (the switcher's order). The response says
+where the caller now is (`activeAccountId`, `activeRole`); the app
+reloads into it.
+
+While archived, nobody can switch into it or redeem a link to it, and
+nothing else makes someone active there, so no screen reads its data. A
+deactivated member left active there (they had nowhere to go) cannot be
+reactivated there either. No WhatsApp number, phone system, DID route
+or extension can be connected to it, including by a connect that was in
+flight when the archive committed. Its notifications leave every
+member's bell, and its API keys answer `401 unauthorized`, so the
+public API, the MCP server and Compass stop (and its outbound webhooks
+with them); the keys work again once it is restored. Owners still see
+it in the workspace list (`archived: true`); nobody else does. Restoring clears the archive only: members switch back
+in themselves, and revoked links stay revoked. Both are recorded in the
+audit log (`workspace_archived`, `workspace_restored`).
+
+On screen, an owner archives the workspace they are in from Settings →
+Workspace, after a confirmation that lists what happens and what to do
+first; a refusal names its reason there. The same panel, in another
+workspace where they are an admin or owner, lists the archived
+workspaces they own, each with Restore. On the rail an archived
+workspace's tile is dimmed and does not switch.
