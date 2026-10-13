@@ -153,14 +153,16 @@ export interface RetentionSummary {
 }
 
 /**
- * pbx_settings.retention_days (migration 093). pbx_expire_recordings()
- * picks the recordings of calls that started more than the workspace's
- * period ago, not under legal hold, marks them erased (the row's
- * erased_at: from that commit nothing can play them) and returns their
- * paths; the audio is removed here. Row first, audio second, as the
- * C-3 erasure does: a remove that fails leaves unplayable audio, never
- * a playable row without audio, and the orphan sweep that runs next
- * takes an erased row's object. A round is one bounded batch, started
+ * pbx_settings.retention_days (migration 093), once an admin confirmed
+ * it (retention_confirmed_at). pbx_expire_recordings() picks the
+ * recordings of calls older than the workspace's period, by the later
+ * of the PBX's start time and the CRM's first record of the call
+ * (pbx_recording_age_from), not under legal hold, marks them erased
+ * (the row's erased_at: from that commit nothing can play them) and
+ * returns their paths; the audio is removed here. Row first, audio
+ * second, as the C-3 erasure does: a remove that fails leaves
+ * unplayable audio, never a playable row without audio, and the orphan
+ * sweep that runs next takes an erased row's object. A round is one bounded batch, started
  * only before the deadline; a failed remove ends the run, so a storage
  * outage does not mark more rows than it can clear.
  */

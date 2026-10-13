@@ -7,10 +7,24 @@
 // 1-3650), missedCallDueMinutes (1-1440), mandatoryDisposition,
 // missedCallWhatsappDraft }; an omitted field keeps its value.
 //
+// The retention period deletes recordings on the next cron run (093),
+// and only once confirmed: saving a period stamps
+// retention_confirmed_at, clearing it clears both. A first period, or
+// one shorter than the period in force (a saved one never confirmed
+// counts as none), is refused with 409 { code: 'confirm_retention' }
+// unless the body carries confirmRetentionDays equal to it, which
+// Settings sends after the admin saw how many recordings it deletes.
+// The check is the write itself: without the confirmation the update
+// applies only while the period in force is still no longer than the
+// new one, so a period another admin lengthened since this page loaded
+// is never shortened unasked. retentionNeedsConfirm (admin-ui.ts) is
+// the screen's side of the rule.
+//
 // Admin+, written with the caller's own client: pbx_settings has admin
 // RLS, and its trigger stamps updated_by.
 //
-// GET also answers `recordings`, what the workspace keeps now
+// GET answers retentionConfirmedAt (null: the period deletes nothing
+// yet) and `recordings`, what the workspace keeps now
 // (pbx_recordings_kept, migration 093): { kept, legalHold, oldestCallAt,
 // expired } by call date, or null when it cannot be read, which never
 // keeps the settings from loading.
@@ -19,9 +33,10 @@
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { fail } from '@/lib/pbx/calls';
 
 const COLUMNS =
-  'store_recordings, announcement_required, exclude_bank_numbers, retention_days, missed_call_due_minutes, mandatory_disposition, missed_call_whatsapp_draft, updated_at, updated_by';
+  'store_recordings, announcement_required, exclude_bank_numbers, retention_days, retention_confirmed_at, missed_call_due_minutes, mandatory_disposition, missed_call_whatsapp_draft, updated_at, updated_by';
 const FLAGS = [
   ['storeRecordings', 'store_recordings'],
   ['announcementRequired', 'announcement_required'],
@@ -29,12 +44,13 @@ const FLAGS = [
   ['mandatoryDisposition', 'mandatory_disposition'],
   ['missedCallWhatsappDraft', 'missed_call_whatsapp_draft'],
 ] as const;
-/** Migrations 089 and 090's column defaults. */
+/** Migrations 089, 090 and 093's column defaults. */
 const DEFAULTS: Record<string, unknown> = {
   store_recordings: true,
   announcement_required: true,
   exclude_bank_numbers: true,
   retention_days: null,
+  retention_confirmed_at: null,
   missed_call_due_minutes: 30,
   mandatory_disposition: false,
   missed_call_whatsapp_draft: false,
@@ -47,6 +63,7 @@ const view = (r: Record<string, unknown>) => ({
   announcementRequired: r.announcement_required,
   excludeBankNumbers: r.exclude_bank_numbers,
   retentionDays: r.retention_days,
+  retentionConfirmedAt: r.retention_confirmed_at ?? null,
   missedCallDueMinutes: r.missed_call_due_minutes,
   mandatoryDisposition: r.mandatory_disposition,
   missedCallWhatsappDraft: r.missed_call_whatsapp_draft,
@@ -120,9 +137,36 @@ export async function PUT(request: Request) {
     const body = await request.json().catch(() => null);
     if (typeof body !== 'object' || body === null || Array.isArray(body))
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-    const fields = parse(body as Record<string, unknown>);
+    const b = body as Record<string, unknown>;
+    const fields = parse(b);
     if (typeof fields === 'string')
       return NextResponse.json({ error: fields }, { status: 400 });
+    const next = fields.retention_days;
+    if (next !== undefined) {
+      fields.retention_confirmed_at =
+        next === null ? null : new Date().toISOString();
+      if (typeof next === 'number' && b.confirmRetentionDays !== next) {
+        const { data, error } = await ctx.supabase
+          .from('pbx_settings')
+          .update(fields)
+          .eq('account_id', ctx.accountId)
+          .not('retention_confirmed_at', 'is', null)
+          .lte('retention_days', next)
+          .select(COLUMNS)
+          .maybeSingle();
+        if (error)
+          throw new Error(`pbx_settings write failed: ${error.message}`);
+        if (!data)
+          return fail(
+            'A first or shorter retention period deletes recordings: confirm it first',
+            409,
+            { code: 'confirm_retention', retentionDays: next }
+          );
+        return NextResponse.json({
+          settings: view(data as Record<string, unknown>),
+        });
+      }
+    }
     const { data, error } = await ctx.supabase
       .from('pbx_settings')
       .upsert(

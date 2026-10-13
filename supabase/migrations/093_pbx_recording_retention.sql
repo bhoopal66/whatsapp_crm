@@ -22,6 +22,18 @@
 -- saves a new or shorter period, how many recordings it would delete on
 -- the next cron run: the same predicate as pbx_expire_recordings.
 --
+-- Confirmed periods only. pbx_settings.retention_confirmed_at (new, NULL
+-- on every existing row) is when an owner or admin last saved the
+-- period through Settings, which asks first for a first or shorter
+-- period (PUT /api/pbx/settings refuses one without that confirmation:
+-- 409 confirm_retention); clearing the period clears it. The run takes
+-- nothing under a period with no confirmation: one saved before this
+-- migration, while the screen stored it and nothing acted on it, never
+-- starts deleting on the first run after deploy with nobody asked.
+-- Settings says it is saved but not enforced until it is saved again.
+-- pbx_retention_due counts as if confirmed: it answers the confirm step
+-- for the period the save is about to confirm.
+--
 -- Same state as 089, no new one: the recording row's own erased_at,
 -- which pbx_recording_playable already refuses, so from that commit no
 -- play or download is logged or signed. The call itself is not erased:
@@ -59,9 +71,14 @@
 -- pbx_recordings_kept() answers Settings → Phone system what the
 -- workspace keeps now.
 --
--- Re-runnable: CREATE OR REPLACE, CREATE INDEX IF NOT EXISTS.
+-- Re-runnable: ADD COLUMN IF NOT EXISTS, CREATE OR REPLACE, CREATE
+-- INDEX IF NOT EXISTS.
 
 SET lock_timeout = '5s';
+
+ALTER TABLE public.pbx_settings ADD COLUMN IF NOT EXISTS retention_confirmed_at timestamptz NULL;
+COMMENT ON COLUMN public.pbx_settings.retention_confirmed_at IS
+  'When an owner or admin last saved retention_days through Settings (093); NULL: the period deletes nothing.';
 
 -- The instant a call's age runs from for retention: the later of the
 -- PBX's start time and the CRM's own first record of the call. No SET
@@ -95,7 +112,7 @@ BEGIN
         ON c.id = r.call_id AND c.erased_at IS NULL
            AND pbx_recording_age_from(c.started_at, c.created_at)
                < now() - make_interval(days => s.retention_days)
-     WHERE s.retention_days IS NOT NULL
+     WHERE s.retention_days IS NOT NULL AND s.retention_confirmed_at IS NOT NULL
      ORDER BY pbx_recording_age_from(c.started_at, c.created_at), r.call_id
      LIMIT v_limit
        FOR UPDATE OF r SKIP LOCKED
@@ -184,7 +201,8 @@ BEGIN
 END;
 $$;
 
--- Owner or admin: the recordings the workspace keeps now, by call date.
+-- Owner or admin: the recordings the workspace keeps now, by call date
+-- (the call's age as retention counts it, pbx_recording_age_from).
 CREATE OR REPLACE FUNCTION public.pbx_recordings_kept()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -202,7 +220,8 @@ BEGIN
   SELECT jsonb_build_object(
            'kept', count(*) FILTER (WHERE r.erased_at IS NULL),
            'legal_hold', count(*) FILTER (WHERE r.erased_at IS NULL AND r.legal_hold),
-           'oldest_call_at', min(c.started_at) FILTER (WHERE r.erased_at IS NULL),
+           'oldest_call_at', min(pbx_recording_age_from(c.started_at, c.created_at))
+                               FILTER (WHERE r.erased_at IS NULL),
            'expired', count(*) FILTER (WHERE r.erased_at IS NOT NULL))
     INTO v_out
     FROM call_recordings r
@@ -213,8 +232,8 @@ END;
 $$;
 
 -- Owner or admin: how many recordings of the workspace a retention
--- period of p_days would delete on the next cron run. The predicate is
--- pbx_expire_recordings's: change both.
+-- period of p_days would delete on the next cron run once saved (and
+-- so confirmed). The predicate is pbx_expire_recordings's: change both.
 CREATE OR REPLACE FUNCTION public.pbx_retention_due(p_days integer)
 RETURNS integer
 LANGUAGE plpgsql

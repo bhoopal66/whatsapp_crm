@@ -3038,6 +3038,7 @@
         "dueInvalid": "1~1440분을 입력하세요.",
         "retentionDeletes": "{days}일이 지난 통화의 녹음은 전화 시스템 크론이 실행될 때마다(보통 1분마다) 자동으로 삭제됩니다. 법적 보존 중인 녹음은 제외됩니다. 통화 기록과 메모, 결과는 유지됩니다.",
         "retentionKeeps": "비워 두면 녹음이 자동 삭제 없이 보관됩니다.",
+        "retentionNotEnforced": "저장되었지만 아직 적용되지 않았습니다. 삭제를 시작하려면 다시 저장하세요.",
         "kept": "현재 보관 중: {count, plural, =0 {녹음 없음} other {녹음 #건}}",
         "keptOldest": "가장 오래된 녹음은 {date} 통화",
         "keptHeld": "법적 보존 {count}건",

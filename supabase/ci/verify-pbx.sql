@@ -14,9 +14,10 @@
 -- mapping, the token compare-and-set, pbx_purge and anon's grants;
 -- 090's paused storing; 093's retention period (audio of calls older
 -- than it by the later of the PBX's start time and the CRM's own
--- record, never a legal hold's, the call kept; the count Settings shows
--- before saving one) and the legal hold (owner/admin, a reason of five
--- characters, audited once per change, the call locked first).
+-- record, never a legal hold's, the call kept, nothing under a period
+-- nobody confirmed; the count Settings shows before saving one) and the
+-- legal hold (owner/admin, a reason of five characters, audited once
+-- per change, the call locked first).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -656,7 +657,7 @@ BEGIN
     k_oldh UUID;   -- 40 days ago, under legal hold: kept
     k_new  UUID;   -- 10 days ago: kept
     k_late UUID;   -- the call 40 days ago, its audio fetched today: due (the call's age counts)
-    k_clk  UUID;   -- the PBX says 40 days ago, the CRM heard of it today: kept (a wrong PBX clock)
+    k_clk  UUID;   -- the PBX says 50 days ago, the CRM heard of it today: kept (a wrong PBX clock)
     k_b93  UUID;   -- workspace B, 40 days ago: B sets no period, so kept
     p_old  TEXT;
     p_late TEXT;
@@ -673,7 +674,7 @@ BEGIN
     EXECUTE format(q_c93, a_acct, conn, 'px-r-late', u_agent, '40 days', NULL, NULL) INTO k_late;
     EXECUTE format(q_c93, b_acct, NULL, 'px-r-b', u_other, '40 days', NULL, NULL) INTO k_b93;
     INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, started_at, recording_state)
-    VALUES (a_acct, conn, 'px-r-clk', 'inbound', '101', u_agent, now() - interval '40 days', 'fetched')
+    VALUES (a_acct, conn, 'px-r-clk', 'inbound', '101', u_agent, now() - interval '50 days', 'fetched')
     RETURNING id INTO k_clk;
     p_old := format('account-%s/calls/%s.wav', a_acct, k_old);
     p_late := format('account-%s/calls/%s.wav', a_acct, k_late);
@@ -694,6 +695,14 @@ BEGIN
       failed := array_append(failed, ('a workspace with no retention period lost recordings: ' || r)::text);
     END IF;
     UPDATE pbx_settings SET retention_days = 30 WHERE account_id = a_acct;
+    -- A period nobody confirmed (one saved before 093 acted on it)
+    -- deletes nothing until an admin saves it again through Settings.
+    r := pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'none' THEN
+      failed := array_append(failed, ('a retention period nobody confirmed deleted recordings: ' || r)::text);
+    END IF;
+    UPDATE pbx_settings SET retention_confirmed_at = now() WHERE account_id = a_acct;
     -- What Settings shows before saving a period: the run's own count,
     -- the caller's workspace only (B's 40-day-old recording is not in it).
     r := pg_temp.px_try('authenticated', u_admin, 'SELECT pbx_retention_due(30)::text')
@@ -797,6 +806,11 @@ BEGIN
     IF r NOT LIKE '{%' OR (r::jsonb ->> 'legal_hold')::int < 1
        OR (r::jsonb ->> 'expired')::int <> 3
        OR (r::jsonb ->> 'kept')::int <> (SELECT count(*) FROM call_recordings WHERE account_id = a_acct AND erased_at IS NULL)
+       -- The oldest call by retention's own age (k_clk's PBX clock says
+       -- 50 days, the CRM heard of it today), not the PBX's start time.
+       OR (r::jsonb ->> 'oldest_call_at')::timestamptz IS DISTINCT FROM
+          (SELECT min(GREATEST(c.started_at, c.created_at)) FROM call_recordings x JOIN calls c ON c.id = x.call_id
+            WHERE x.account_id = a_acct AND x.erased_at IS NULL)
        OR pg_temp.px_try('authenticated', u_agent, 'SELECT pbx_recordings_kept()::text') NOT LIKE 'ERROR 42501:%'
        OR has_function_privilege('anon', 'public.pbx_set_recording_hold(uuid, boolean, text)', 'EXECUTE') THEN
       failed := array_append(failed, ('pbx_recordings_kept is wrong, or open below admin: ' || r)::text);

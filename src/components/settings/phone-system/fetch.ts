@@ -1,7 +1,8 @@
 import type { Tone } from '@/lib/pbx/admin-ui';
 
 export type PbxResult<T> =
-  { ok: true; data: T } | { ok: false; status: number; error: string | null };
+  | { ok: true; data: T }
+  | { ok: false; status: number; error: string | null; code?: string | null };
 
 /** JSON in and out of the /api/pbx routes; never throws. */
 export async function pbxFetch<T>(
@@ -20,11 +21,12 @@ export async function pbxFetch<T>(
     });
     const json = await res.json().catch(() => null);
     if (res.ok) return { ok: true, data: json as T };
-    const error = (json as { error?: unknown } | null)?.error;
+    const body = json as { error?: unknown; code?: unknown } | null;
     return {
       ok: false,
       status: res.status,
-      error: typeof error === 'string' ? error : null,
+      error: typeof body?.error === 'string' ? body.error : null,
+      code: typeof body?.code === 'string' ? body.code : null,
     };
   } catch {
     return { ok: false, status: 0, error: null };

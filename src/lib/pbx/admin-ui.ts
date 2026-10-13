@@ -357,6 +357,80 @@ export function retentionNeedsConfirm(
   return next !== null && (saved === null || next < saved);
 }
 
+/** The saved period, as GET /api/pbx/settings answers it. */
+export interface SavedRetention {
+  retentionDays: number | null;
+  /**
+   * When an owner or admin last saved the period through Settings
+   * (093); null: the period deletes nothing yet.
+   */
+  retentionConfirmedAt: string | null;
+}
+
+/** The recording rules card's settings (GET /api/pbx/settings). */
+export interface RecordingRules extends SavedRetention {
+  storeRecordings: boolean;
+  announcementRequired: boolean;
+  excludeBankNumbers: boolean;
+  missedCallDueMinutes: number;
+  mandatoryDisposition: boolean;
+  missedCallWhatsappDraft: boolean;
+}
+
+/**
+ * The period the retention run acts on (093). One saved but never
+ * confirmed (stored before 093 enforced it) deletes nothing, so it
+ * counts as none: saving it again is a first period.
+ */
+export function enforcedRetention(saved: SavedRetention): number | null {
+  return saved.retentionConfirmedAt ? saved.retentionDays : null;
+}
+
+/**
+ * Whether saving the rules card sends the period: only when the admin
+ * changed it from the one the page loaded, or when that one is not
+ * enforced yet (saving it again starts it). Never the loaded period
+ * unchanged: another admin may have changed it since, and resending it
+ * would quietly undo that.
+ */
+export function sendsRetention(
+  saved: SavedRetention,
+  typed: number | null
+): boolean {
+  return (
+    typed !== saved.retentionDays ||
+    (typed !== null && enforcedRetention(saved) === null)
+  );
+}
+
+/**
+ * The rules card's PUT /api/pbx/settings body. `confirmed`: the period
+ * the admin confirmed deleting under, or that the count showed deletes
+ * nothing now; the route refuses a first or shorter period without it
+ * (409 confirm_retention).
+ */
+export function rulesBody(
+  rules: RecordingRules,
+  typed: number | null,
+  minutes: number,
+  confirmed?: number
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    storeRecordings: rules.storeRecordings,
+    announcementRequired: rules.announcementRequired,
+    excludeBankNumbers: rules.excludeBankNumbers,
+    mandatoryDisposition: rules.mandatoryDisposition,
+    missedCallWhatsappDraft: rules.missedCallWhatsappDraft,
+    missedCallDueMinutes: minutes,
+  };
+  if (sendsRetention(rules, typed)) {
+    body.retentionDays = typed;
+    if (typed !== null && confirmed === typed)
+      body.confirmRetentionDays = typed;
+  }
+  return body;
+}
+
 /** 1 to 1440 minutes. */
 export function parseDueMinutes(raw: string): number | null {
   return wholeIn(raw, 1, 1440);

@@ -94,7 +94,17 @@ One PBX can serve several workspaces.
   period asks first and says how many recordings it deletes now,
   counted by the run's own rule (the call's age as above, legal holds
   left out, this workspace only); they go within minutes, and that
-  cannot be undone.
+  cannot be undone. The server holds the same rule: it refuses a first
+  period, or one shorter than the period in force, unless the save
+  carries that confirmation, and the screen sends the period only when
+  it was changed. So a page opened before another admin lengthened the
+  period cannot shorten it back unasked when someone saves another
+  setting from it. A period counts only once saved through Settings
+  (migration 093 stamps it): one saved before 093, while the screen
+  stored it and nothing acted on it, deletes nothing after the upgrade
+  and does not stop downloads. Settings shows it as **saved but not
+  enforced yet**; saving it again, with the same count and
+  confirmation, starts the deletions. Clearing the period stops them.
 - **Legal hold.** An owner or admin can place or lift a legal hold on a
   recording from the customer page (**Place legal hold**), with a
   reason of at least five characters. Each change is written to the

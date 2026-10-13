@@ -20,7 +20,9 @@ import { YeastarError } from './yeastar/errors';
  * older than its workspace's period is marked `not_stored` the same
  * way, before any contact with the PBX, because the retention run that
  * follows would delete the copy at once. The age is the SQL rule's
- * ({@link retentionAgeFrom}); the PBX keeps its own copy.
+ * ({@link retentionAgeFrom}); the PBX keeps its own copy. A period
+ * nobody confirmed (retention_confirmed_at null) is none here, as it
+ * is for the run.
  *
  * One download at a time: with the MP3 format the PBX serves one
  * recording download at once and answers 70651 to a second, so a busy
@@ -196,14 +198,14 @@ export async function fetchPendingRecordings(
   }
 
   /**
-   * pbx_settings.store_recordings (090) and retention_days (093); no
-   * row stores and keeps.
+   * pbx_settings.store_recordings (090) and retention_days (093), the
+   * period only once confirmed; no row stores and keeps.
    */
   async function storage(accountId: string) {
     if (!storing.has(accountId)) {
       const s = await db
         .from('pbx_settings')
-        .select('store_recordings, retention_days')
+        .select('store_recordings, retention_days, retention_confirmed_at')
         .eq('account_id', accountId)
         .maybeSingle();
       if (s.error) throw new Error(`pbx_settings read: ${s.error.message}`);
@@ -211,7 +213,10 @@ export async function fetchPendingRecordings(
       const days = row?.retention_days;
       storing.set(accountId, {
         store: row?.store_recordings !== false,
-        retentionDays: typeof days === 'number' && days > 0 ? days : null,
+        retentionDays:
+          typeof days === 'number' && days > 0 && row?.retention_confirmed_at
+            ? days
+            : null,
       });
     }
     return storing.get(accountId)!;

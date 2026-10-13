@@ -3038,6 +3038,7 @@
         "dueInvalid": "Enter 1 to 1440 minutes.",
         "retentionDeletes": "Recordings of calls older than {days, plural, one {# day} other {# days}} are deleted automatically on every phone-system cron run (usually each minute), except recordings under legal hold. The calls, their notes and outcomes are kept.",
         "retentionKeeps": "Empty: recordings are kept with no automatic deletion.",
+        "retentionNotEnforced": "Saved but not enforced yet — save it again to start deleting.",
         "kept": "Kept now: {count, plural, =0 {no recordings} one {# recording} other {# recordings}}",
         "keptOldest": "the oldest from a call on {date}",
         "keptHeld": "{count} under legal hold",

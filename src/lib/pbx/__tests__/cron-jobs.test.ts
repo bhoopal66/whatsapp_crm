@@ -232,7 +232,11 @@ describe('fetchPendingRecordings', () => {
         },
       ],
       pbx_settings: [
-        { account_id: A, retention_days: 30 },
+        {
+          account_id: A,
+          retention_days: 30,
+          retention_confirmed_at: '2026-10-01T00:00:00Z',
+        },
         { account_id: 'acc-2', retention_days: null },
       ],
     });
@@ -262,6 +266,25 @@ describe('fetchPendingRecordings', () => {
     expect(
       (fake.tables.call_recordings ?? []).map((r) => r.call_id).sort()
     ).toEqual(['k2', 'k3']);
+  });
+
+  it('downloads under a retention period nobody confirmed', async () => {
+    const ago = (days: number) =>
+      new Date(DAY - days * 86_400_000).toISOString();
+    fake = createFakeDb({
+      calls: [{ ...call('k1'), started_at: ago(40), created_at: ago(40) }],
+      pbx_settings: [
+        { account_id: A, retention_days: 30, retention_confirmed_at: null },
+      ],
+    });
+    const out = await fetchPendingRecordings({
+      db: fake.db,
+      now: () => DAY,
+      apiFor: handle({ recordingDownloadUrl: async () => 'https://pbx/dl' }),
+      fetch: async () => audio(),
+    });
+    expect(out).toMatchObject({ pastRetention: 0, fetched: 1 });
+    expect(fake.tables.call_recordings.map((r) => r.call_id)).toEqual(['k1']);
   });
 
   it('ages a call from the later of the PBX start and the CRM record', () => {
