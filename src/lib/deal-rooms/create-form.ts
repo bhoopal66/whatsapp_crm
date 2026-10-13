@@ -175,3 +175,31 @@ export function createRoomBody(input: {
     },
   };
 }
+
+/** What the form does with the `POST /api/deal-rooms` answer. */
+export interface CreateOutcome {
+  /** The room to open. Whenever it is set the form closes, which resets it. */
+  roomId: string | null;
+  /** What went wrong, for the toast; null once the room is created. */
+  error: string | null;
+}
+
+/**
+ * An answer that names a room closes the form, failure included: a room
+ * Meta refused (502 with its id, marked failed) still has its row,
+ * channel and consent. A form left filled in after that made the next
+ * click create a second room for the same customer under the same
+ * subject, which the reconcile's subject match cannot tell apart. Only
+ * an answer with no room keeps the form for another try.
+ */
+export function createOutcome(
+  res: { ok: boolean; status: number },
+  body: unknown
+): CreateOutcome {
+  const b = (body ?? {}) as { roomId?: unknown; error?: unknown };
+  const roomId = typeof b.roomId === 'string' && b.roomId ? b.roomId : null;
+  if (res.ok && roomId) return { roomId, error: null };
+  const error =
+    typeof b.error === 'string' && b.error ? b.error : String(res.status);
+  return { roomId, error };
+}

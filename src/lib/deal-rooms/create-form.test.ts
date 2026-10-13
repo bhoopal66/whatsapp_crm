@@ -6,6 +6,7 @@ import {
   INVITEE_MAX,
   allowedGuestBanks,
   canAddInvitee,
+  createOutcome,
   createRoomBody,
   dealOptionLabel,
   defaultGroupName,
@@ -185,6 +186,60 @@ describe('createRoomBody', () => {
       textVersion: CONSENT_TEXT_VERSION,
       consentText: 'The customer agreed.',
       method: 'verbal',
+    });
+  });
+});
+
+describe('createOutcome', () => {
+  const room = '6f1c2d3e-0000-4000-8000-000000000001';
+
+  it('opens the room it created', () => {
+    expect(
+      createOutcome(
+        { ok: true, status: 201 },
+        { roomId: room, status: 'creating' }
+      )
+    ).toEqual({ roomId: room, error: null });
+  });
+
+  it('closes the form on a refusal that names a room, so a second click cannot make another', () => {
+    // 502: the room row (channel, consent) exists, Meta refused the group.
+    expect(
+      createOutcome(
+        { ok: false, status: 502 },
+        {
+          error: 'WhatsApp could not create the group: x',
+          roomId: room,
+          status: 'failed',
+        }
+      )
+    ).toEqual({
+      roomId: room,
+      error: 'WhatsApp could not create the group: x',
+    });
+  });
+
+  it('keeps the form for another try when no room was made', () => {
+    expect(
+      createOutcome(
+        { ok: false, status: 409 },
+        { error: 'Connect the Meta number first' }
+      )
+    ).toEqual({ roomId: null, error: 'Connect the Meta number first' });
+    expect(createOutcome({ ok: false, status: 500 }, {})).toEqual({
+      roomId: null,
+      error: '500',
+    });
+    expect(createOutcome({ ok: false, status: 504 }, null)).toEqual({
+      roomId: null,
+      error: '504',
+    });
+  });
+
+  it('treats a success without a room id as a failure', () => {
+    expect(createOutcome({ ok: true, status: 201 }, { roomId: '' })).toEqual({
+      roomId: null,
+      error: '201',
     });
   });
 });
