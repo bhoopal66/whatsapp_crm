@@ -6,11 +6,21 @@
 -- (service role, from the PBX cron: src/lib/pbx/housekeeping.ts) marks
 -- a batch of recordings erased and returns their storage paths, which
 -- the cron then removes from call-recordings. A recording is due when
--- its CALL started more than retention_days ago (calls.started_at, not
--- call_recordings.fetched_at: retention of personal data runs from the
--- call that collected it, the date every screen shows, so a late or
--- retried fetch never lengthens a recording's life), it is not under
--- legal hold, and it is not erased yet.
+-- its CALL is more than retention_days old, it is not under legal hold,
+-- and it is not erased yet. The call's age runs from the later of
+-- calls.started_at (the PBX's clock) and calls.created_at (when the CRM
+-- first heard of the call): retention of personal data runs from the
+-- call that collected it, never from call_recordings.fetched_at, so a
+-- late or retried fetch never lengthens a recording's life; and a PBX
+-- whose clock is wrong, or a start time read with day and month swapped
+-- (parsePbxTime), cannot make a fresh call look months old and delete
+-- its audio at once. pbx_recording_age_from() is that rule; the fetch
+-- (src/lib/pbx/recordings.ts, retentionAgeFrom) mirrors it to skip
+-- downloading audio that is already past the period. Change both.
+--
+-- pbx_retention_due(days) answers Settings, before an owner or admin
+-- saves a new or shorter period, how many recordings it would delete on
+-- the next cron run: the same predicate as pbx_expire_recordings.
 --
 -- Same state as 089, no new one: the recording row's own erased_at,
 -- which pbx_recording_playable already refuses, so from that commit no
@@ -32,16 +42,35 @@
 --
 -- Legal hold. call_recordings.legal_hold (089) blocked erasure but
 -- nothing could set it. pbx_set_recording_hold(call, hold, reason) is
--- an owner's or admin's, on their own session: it locks the row,
--- refuses a recording already deleted, and writes each change to the
--- append-only pbx_audit with the actor and a reason
--- ('legal_hold_placed' / 'legal_hold_lifted'). A held recording is
--- skipped by retention and still blocks erasure. pbx_recordings_kept()
--- answers Settings → Phone system what the workspace keeps now.
+-- an owner's or admin's, on their own session, with a reason of at
+-- least five characters (as the route and the screen ask): it locks the
+-- CALL row, then the recording row, refuses a recording already
+-- deleted, and writes each change to the append-only pbx_audit with the
+-- actor and the reason ('legal_hold_placed' / 'legal_hold_lifted'). A
+-- held recording is skipped by retention and still blocks erasure.
+-- The call lock is what makes that true: pbx_erase_contact_calls (089)
+-- locks the contact's calls FOR UPDATE, reads legal_hold, then deletes
+-- the recordings. Locking only the recording let a hold commit between
+-- that read and the delete, which then removed the held recording. With
+-- the call locked first a hold and an erasure of the same call run one
+-- after the other: an erasure that comes second sees the hold and
+-- refuses, a hold that comes second finds no recording. Both take the
+-- call before the recording, so neither waits on the other in a cycle.
+-- pbx_recordings_kept() answers Settings → Phone system what the
+-- workspace keeps now.
 --
 -- Re-runnable: CREATE OR REPLACE, CREATE INDEX IF NOT EXISTS.
 
 SET lock_timeout = '5s';
+
+-- The instant a call's age runs from for retention: the later of the
+-- PBX's start time and the CRM's own first record of the call. No SET
+-- search_path (it names nothing), so the planner inlines it.
+CREATE OR REPLACE FUNCTION public.pbx_recording_age_from(p_started_at timestamptz, p_created_at timestamptz)
+RETURNS timestamptz
+LANGUAGE sql
+IMMUTABLE
+AS $$ SELECT GREATEST(p_started_at, p_created_at) $$;
 
 -- Live, unheld rows: what retention scans each pass.
 CREATE INDEX IF NOT EXISTS call_recordings_retention_idx
@@ -64,9 +93,10 @@ BEGIN
         ON r.account_id = s.account_id AND r.erased_at IS NULL AND NOT r.legal_hold
       JOIN calls c
         ON c.id = r.call_id AND c.erased_at IS NULL
-           AND c.started_at < now() - make_interval(days => s.retention_days)
+           AND pbx_recording_age_from(c.started_at, c.created_at)
+               < now() - make_interval(days => s.retention_days)
      WHERE s.retention_days IS NOT NULL
-     ORDER BY c.started_at, r.call_id
+     ORDER BY pbx_recording_age_from(c.started_at, c.created_at), r.call_id
      LIMIT v_limit
        FOR UPDATE OF r SKIP LOCKED
   ), gone AS (
@@ -126,9 +156,13 @@ BEGIN
   IF auth.uid() IS NULL OR v_account IS NULL OR current_role_rank() < 4 THEN
     RAISE EXCEPTION 'Only an owner or admin can place or lift a legal hold' USING ERRCODE = '42501';
   END IF;
-  IF p_hold IS NULL OR v_reason IS NULL THEN
-    RAISE EXCEPTION 'Say whether to place or lift the hold, and why' USING ERRCODE = '22023';
+  IF p_hold IS NULL OR v_reason IS NULL OR char_length(v_reason) < 5 THEN
+    RAISE EXCEPTION 'Say whether to place or lift the hold, and why (a reason of at least 5 characters)'
+      USING ERRCODE = '22023';
   END IF;
+  -- The call first, as pbx_erase_contact_calls locks it (see the header):
+  -- an erasure of this call waits for this hold, and this hold for it.
+  PERFORM 1 FROM calls WHERE id = p_call_id AND account_id = v_account FOR UPDATE;
   SELECT * INTO v_rec FROM call_recordings
    WHERE call_id = p_call_id AND account_id = v_account
      FOR UPDATE;
@@ -178,9 +212,38 @@ BEGIN
 END;
 $$;
 
+-- Owner or admin: how many recordings of the workspace a retention
+-- period of p_days would delete on the next cron run. The predicate is
+-- pbx_expire_recordings's: change both.
+CREATE OR REPLACE FUNCTION public.pbx_retention_due(p_days integer)
+RETURNS integer
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_account uuid := current_account_id();
+BEGIN
+  IF auth.uid() IS NULL OR v_account IS NULL OR current_role_rank() < 4 THEN
+    RAISE EXCEPTION 'Only an owner or admin can see what a retention period deletes' USING ERRCODE = '42501';
+  END IF;
+  IF p_days IS NULL OR p_days NOT BETWEEN 1 AND 3650 THEN
+    RAISE EXCEPTION 'A retention period is 1 to 3650 days' USING ERRCODE = '22023';
+  END IF;
+  RETURN (SELECT count(*)::integer
+            FROM call_recordings r
+            JOIN calls c ON c.id = r.call_id AND c.erased_at IS NULL
+           WHERE r.account_id = v_account AND r.erased_at IS NULL AND NOT r.legal_hold
+             AND pbx_recording_age_from(c.started_at, c.created_at)
+                 < now() - make_interval(days => p_days));
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.pbx_expire_recordings(integer), public.pbx_set_recording_hold(uuid, boolean, text),
-  public.pbx_recordings_kept()
+  public.pbx_recordings_kept(), public.pbx_retention_due(integer)
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.pbx_expire_recordings(integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.pbx_set_recording_hold(uuid, boolean, text), public.pbx_recordings_kept()
+GRANT EXECUTE ON FUNCTION public.pbx_set_recording_hold(uuid, boolean, text), public.pbx_recordings_kept(),
+  public.pbx_retention_due(integer)
   TO authenticated;

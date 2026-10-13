@@ -72,10 +72,12 @@ One PBX can serve several workspaces.
 - **Retention.** Empty keeps recordings; otherwise 1 to 3650 days. How
   long to keep them is an open legal decision for each workspace. With
   a period set, the phone-system cron (section 10) deletes the CRM's
-  copy of every recording whose **call started** more than that many
-  days ago (the call's date, as every screen shows it, not the day the
-  audio was copied, so a late download never lengthens its life),
-  except recordings under legal hold. Only the audio goes: the call,
+  copy of every recording whose **call** is more than that many days
+  old, except recordings under legal hold. A call's age runs from the
+  later of its start time as the PBX reported it and the moment the CRM
+  first recorded the call: never from the day the audio was copied, so
+  a late download never lengthens its life, and a PBX clock that is
+  wrong cannot make a fresh call look old and delete its audio at once. Only the audio goes: the call,
   its notes and its outcome stay, and the customer page says the
   recording was deleted under the retention period. The PBX's own
   copies are not touched. The recording row is marked deleted first
