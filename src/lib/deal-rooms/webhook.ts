@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { markOptedOut } from '@/lib/ai/opt-out';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api';
 import { MetaError } from '@/lib/whatsapp/meta-api';
+import { phoneVariants } from '@/lib/whatsapp/phone-utils';
 import {
   approveJoinRequests,
   deleteGroup,
@@ -180,6 +181,25 @@ export function parseGroupSettings(event: unknown): GroupSettingsChange | null {
     out.join_approval_mode = mode as GroupSettingsChange['join_approval_mode'];
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * The contact a group member's WhatsApp id belongs to, among rows read
+ * by `contacts.phone_normalized` (migration 022, digits only, so a
+ * stored "+971 50…" matches): the one on the earliest `phoneVariants`
+ * form, the exact number before its trunk-0 forms.
+ */
+export function pickContactByPhone(
+  rows: unknown,
+  variants: string[]
+): string | null {
+  let best: { id: string; rank: number } | null = null;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = str(obj(row).id);
+    const rank = variants.indexOf(str(obj(row).phone_normalized) ?? '');
+    if (id && rank >= 0 && (!best || rank < best.rank)) best = { id, rank };
+  }
+  return best?.id ?? null;
 }
 
 interface Room {
@@ -622,14 +642,18 @@ export async function handleGroupWebhook(
     let contactId =
       (p as { contact_id: string | null } | null)?.contact_id ?? null;
     if (!contactId) {
-      const { data: c } = await db
+      // Not a listed person's contact: the account's contact on this
+      // number, whatever form its phone was saved in.
+      const variants = phoneVariants(waId);
+      const { data: rows, error } = await db
         .from('contacts')
-        .select('id')
+        .select('id, phone_normalized')
         .eq('account_id', accountId)
-        .eq('phone', waId)
-        .limit(1)
-        .maybeSingle();
-      contactId = (c as { id: string } | null)?.id ?? null;
+        .in('phone_normalized', variants)
+        .limit(20);
+      if (error)
+        console.error('[deal-rooms] opt-out contact lookup failed:', error);
+      contactId = pickContactByPhone(rows, variants);
     }
     if (contactId) await markOptedOut(db, { accountId, contactId });
     await rpc('deal_room_record_message', {

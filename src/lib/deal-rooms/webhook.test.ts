@@ -46,6 +46,7 @@ import {
   isGroupChange,
   isOptOutText,
   parseGroupSettings,
+  pickContactByPhone,
 } from './webhook';
 
 const GROUP = 'HBgLMTY1MDM4Nzk0MzkVAgASGBQzQTRB';
@@ -583,6 +584,60 @@ describe('group messages and receipts', () => {
       'deal_room_record_message',
       expect.objectContaining({ p_type: 'system', p_direction: 'out' })
     );
+  });
+
+  it('opts out the contact saved under another form of the number', async () => {
+    const { db } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: null },
+        // phone_normalized of "+971 0501 234 567" and "+971 50 123 4567".
+        contacts: [
+          { id: 'contact-trunk', phone_normalized: '9710501234567' },
+          { id: 'contact-plus', phone_normalized: '971501234567' },
+        ],
+      },
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.5',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    expect(markOptedOut).toHaveBeenCalledWith(db, {
+      accountId: 'acct-1',
+      contactId: 'contact-plus',
+    });
+  });
+
+  it('picks the contact on the earliest number form, ignoring junk rows', () => {
+    const variants = ['971501234567', '9710501234567'];
+    expect(
+      pickContactByPhone(
+        [
+          null,
+          { id: 'x', phone_normalized: '1' },
+          { id: 'trunk', phone_normalized: '9710501234567' },
+          { id: 'exact', phone_normalized: '971501234567' },
+        ],
+        variants
+      )
+    ).toBe('exact');
+    expect(
+      pickContactByPhone(
+        [{ id: 'trunk', phone_normalized: '9710501234567' }],
+        variants
+      )
+    ).toBe('trunk');
+    expect(pickContactByPhone(null, variants)).toBeNull();
+    expect(
+      pickContactByPhone([{ phone_normalized: '971501234567' }], variants)
+    ).toBeNull();
   });
 
   it('records receipts per participant under either field spelling', async () => {

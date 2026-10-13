@@ -28,7 +28,9 @@
 -- cancelled room is never requested again; deal_room_fail_creation
 -- fails only a room still `creating`, once, and says whether it did.
 -- And 100's deal_room_apply_settings: a group's subject, description
--- and join approval mode from the webhook, in its own account only.
+-- and join approval mode from the webhook, in its own account only;
+-- and that the group STOP's service-role opt-out stamp is recorded in
+-- 086's consent history.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -1079,6 +1081,21 @@ BEGIN
      OR EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_lead AND subject = 'Reopened') THEN
     failed := array_append(failed, ('a group settings update was not applied once, in its own account: '
                                     || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- The group STOP (lib/deal-rooms/webhook.ts) stamps the contact as the
+  -- service role, through markOptedOut: 086's trigger must append that
+  -- stamp to the consent history, as for every other writer.
+  INSERT INTO contacts (account_id, user_id, phone, name)
+  VALUES (a_acct, u_agent, '+971 50 088 0066', 'Stop Sam') RETURNING id INTO v_pre;
+  r := pg_temp.dr_try('service_role', NULL, format('UPDATE public.contacts SET opted_out_at = now() '
+         || 'WHERE id = %L AND account_id = %L AND opted_out_at IS NULL', v_pre, a_acct));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'ok'
+     OR NOT EXISTS (SELECT 1 FROM contacts WHERE id = v_pre AND opted_out_at IS NOT NULL
+                       AND phone_normalized = '971500880066')
+     OR (SELECT count(*) FROM contact_consent_events WHERE contact_id = v_pre AND kind = 'opted_out') <> 1 THEN
+    failed := array_append(failed, ('a service-role opt-out stamp left no consent event: ' || coalesce(r, 'NULL'))::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
