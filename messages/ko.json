@@ -4326,6 +4326,13 @@
         "closeFailed": "딜룸을 닫지 못했습니다: {error}",
         "cancel": "취소",
         "unknownError": "문제가 발생했습니다"
+      },
+      "entry": {
+        "title": "딜룸",
+        "none": "이 고객의 딜룸이 아직 없습니다.",
+        "noneForDeal": "이 딜의 딜룸이 아직 없습니다.",
+        "deal": "딜: {title}",
+        "failed": "딜룸을 불러오지 못했습니다."
       }
     },
     "settings": {

@@ -1,8 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import {
+  roomScopeFilter,
+  roomScopeQuery,
+  type RoomScope,
+} from '@/lib/deal-rooms/entry';
 import type { RoomSummary } from '@/lib/deal-rooms/reads';
 import { startGuestRefresh } from '@/lib/deal-rooms/view';
 import { createClient } from '@/lib/supabase/client';
@@ -88,4 +93,60 @@ export function useDealRooms(accountId: string | null, guest = false) {
   );
   useGuestRefresh(guest, reload);
   return { rooms, reload };
+}
+
+/**
+ * One contact's or one deal's rooms (`GET /api/deal-rooms?contactId=` /
+ * `?dealId=`), for the customer page, a pipeline deal and the inbox
+ * contact panel; kept live by the realtime signal on the same rows.
+ * `scope` null asks nothing (no Meta number, a bank guest). `rooms` is
+ * null until the first answer and `failed` true when that went wrong.
+ */
+export function useScopedDealRooms(scope: RoomScope | null) {
+  const sb = useMemo<SupabaseClient>(() => createClient(), []);
+  const query = scope ? roomScopeQuery(scope) : null;
+  const filter = scope ? roomScopeFilter(scope) : null;
+  const [state, setState] = useState<{
+    query: string | null;
+    rooms: RoomSummary[] | null;
+    failed: boolean;
+  }>({ query: null, rooms: null, failed: false });
+  // The scope asked for last: a late answer for an earlier one is dropped.
+  const latest = useRef<string | null>(null);
+  useEffect(() => {
+    latest.current = query;
+  }, [query]);
+  const reload = useCallback(async () => {
+    if (!query) return;
+    let rooms: RoomSummary[] | null = null;
+    try {
+      const res = await fetch(`/api/deal-rooms?${query}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      rooms = ((await res.json()) as { rooms: RoomSummary[] }).rooms;
+    } catch {
+      rooms = null;
+    }
+    if (latest.current !== query) return;
+    setState((prev) =>
+      rooms
+        ? { query, rooms, failed: false }
+        : prev.query === query && prev.rooms
+          ? prev
+          : { query, rooms: null, failed: true }
+    );
+  }, [query]);
+  useEffect(() => {
+    // setState lands after the fetch, not in the effect body.
+    void Promise.resolve().then(reload);
+  }, [reload]);
+  useTableSignal(sb, ['deal_rooms'], () => filter, reload);
+  // An answer for another contact or deal (the inbox switched) is not shown.
+  const current = state.query === query && query !== null;
+  return {
+    rooms: current ? state.rooms : null,
+    failed: current && state.failed,
+    reload,
+  };
 }

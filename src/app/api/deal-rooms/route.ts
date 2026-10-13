@@ -7,7 +7,7 @@ import {
 } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { createDealRoom, parseCreateBody } from '@/lib/deal-rooms/create';
-import { listRooms } from '@/lib/deal-rooms/reads';
+import { listRooms, parseRoomScope } from '@/lib/deal-rooms/reads';
 import { createClient } from '@/lib/supabase/server';
 import { ChannelError } from '@/lib/whatsapp/channels';
 
@@ -70,17 +70,22 @@ export async function POST(request: Request) {
 /**
  * The deal rooms the caller can see, newest first (at most 500):
  * `{ rooms: [{ id, channelId, subject, status, participantCount,
- * windowUntil, dealTitle, contactName, createdAt }] }`. Guest-capable:
- * the session is checked here and the read runs as the caller, so RLS
- * (`deal_room_access`) picks the rooms; a deal or contact RLS hides
- * from the caller comes back null.
+ * windowUntil, contactId, dealId, dealTitle, contactName, createdAt }] }`.
+ * `?contactId=` or `?dealId=` narrows it to one customer's or one deal's
+ * rooms (`parseRoomScope`). Guest-capable: the session is checked here
+ * and the read runs as the caller, so RLS (`deal_room_access`) picks the
+ * rooms; a deal or contact RLS hides from the caller comes back null.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const parsed = parseRoomScope(new URL(request.url).searchParams);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
     const supabase = await createClient();
     const { data: auth } = await supabase.auth.getUser();
     if (!auth.user) throw new UnauthorizedError();
-    const rooms = await listRooms(supabase);
+    const rooms = await listRooms(supabase, parsed.scope);
     return NextResponse.json(
       { rooms },
       { headers: { 'Cache-Control': 'no-store' } }

@@ -233,7 +233,7 @@ describe('GET /api/deal-rooms/[id]', () => {
 
 describe('GET /api/deal-rooms', () => {
   it('lists what RLS shows the caller, with the deal title and contact name', async () => {
-    const res = await list();
+    const res = await list(new Request('http://localhost/api/deal-rooms'));
     expect(res.status).toBe(200);
     expect((await res.json()).rooms).toEqual([
       expect.objectContaining({
@@ -248,6 +248,8 @@ describe('GET /api/deal-rooms', () => {
       }),
     ]);
     m.getUser.mockResolvedValue({ data: { user: null } });
-    expect((await list()).status).toBe(401);
+    expect(
+      (await list(new Request('http://localhost/api/deal-rooms'))).status
+    ).toBe(401);
   });
 });

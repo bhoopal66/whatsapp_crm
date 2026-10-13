@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Plus, X } from 'lucide-react';
@@ -23,32 +23,39 @@ import {
   clip,
   createOutcome,
   createRoomBody,
+  dealChoices,
   dealOptionLabel,
   defaultGroupName,
   groupNameOk,
+  initialCreateState,
   inviteeIssues,
   placesTaken,
+  withCustomer,
   type ConsentMethod,
   type Invitee,
   type InviteeRole,
 } from '@/lib/deal-rooms/create-form';
+import type {
+  DealRoomContact as Contact,
+  DealRoomDeal as Deal,
+} from '@/lib/deal-rooms/entry';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
-interface Contact {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  company: string | null;
-}
-interface Deal {
-  id: string;
-  title: string | null;
-}
-
 const field = 'bg-background w-full rounded-md border px-2 py-1.5 text-sm';
 
-function CreateBody({ onDone }: { onDone: () => void }) {
+interface Prefill {
+  /** The customer the room is for: picked, and on the list. */
+  initialContact?: Contact | null;
+  /** The deal it links: chosen, even when it is no longer open. */
+  initialDeal?: Deal | null;
+}
+
+function CreateBody({
+  onDone,
+  initialContact,
+  initialDeal,
+}: { onDone: () => void } & Prefill) {
   const t = useTranslations('Chat.rooms.create');
   const router = useRouter();
   const sb = useMemo(() => createClient(), []);
@@ -57,14 +64,21 @@ function CreateBody({ onDone }: { onDone: () => void }) {
     workspaces.find((w) => w.accountId === activeWorkspaceId)?.name ??
     account?.name ??
     '';
-  const [query, setQuery] = useState('');
+  // The body mounts when the dialog opens: the prefill is read once.
+  const [seed] = useState(() =>
+    initialCreateState({ contact: initialContact, deal: initialDeal })
+  );
+  const [keepDeal] = useState(() =>
+    seed.dealId && initialDeal ? initialDeal : null
+  );
+  const [query, setQuery] = useState(seed.query);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [contact, setContact] = useState<Contact | null>(null);
+  const [contact, setContact] = useState<Contact | null>(seed.contact);
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [dealId, setDealId] = useState('');
+  const [dealId, setDealId] = useState(seed.dealId);
   const [subject, setSubject] = useState('');
   const [named, setNamed] = useState(false);
-  const [invitees, setInvitees] = useState<Invitee[]>([]);
+  const [invitees, setInvitees] = useState<Invitee[]>(seed.invitees);
   const [banks, setBanks] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<Invitee>({
@@ -98,6 +112,27 @@ function CreateBody({ onDone }: { onDone: () => void }) {
     return () => clearTimeout(id);
   }, [sb, query]);
 
+  // The contact whose deals were asked for last: a slower answer for an
+  // earlier pick is dropped.
+  const dealsFor = useRef<string | null>(null);
+  const loadDeals = useCallback(
+    async (contactId: string, keep: Deal | null) => {
+      dealsFor.current = contactId;
+      const { data } = await sb
+        .from('deals')
+        .select('id, title')
+        .eq('contact_id', contactId)
+        .eq('status', 'open')
+        .order('created_at', { ascending: false });
+      if (dealsFor.current !== contactId) return;
+      setDeals(dealChoices((data ?? []) as Deal[], keep));
+    },
+    [sb]
+  );
+  useEffect(() => {
+    if (seed.contact) void loadDeals(seed.contact.id, keepDeal);
+  }, [seed, keepDeal, loadDeals]);
+
   const deal = deals.find((d) => d.id === dealId) ?? null;
   const name = named
     ? subject
@@ -111,22 +146,8 @@ function CreateBody({ onDone }: { onDone: () => void }) {
   const pick = async (c: Contact) => {
     setContact(c);
     setDealId('');
-    setInvitees((list) => [
-      {
-        displayName: c.name ?? c.phone ?? '',
-        phone: c.phone ?? '',
-        role: 'customer',
-        contactId: c.id,
-      },
-      ...list.filter((p) => p.role !== 'customer' || !p.contactId),
-    ]);
-    const { data } = await sb
-      .from('deals')
-      .select('id, title')
-      .eq('contact_id', c.id)
-      .eq('status', 'open')
-      .order('created_at', { ascending: false });
-    setDeals((data ?? []) as Deal[]);
+    setInvitees((list) => withCustomer(list, c));
+    await loadDeals(c.id, null);
   };
   const issues = inviteeIssues(invitees, banks);
   const ready =
@@ -430,18 +451,30 @@ function CreateBody({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** "New deal room": from the New channel dialog and the rooms sidebar. */
+/**
+ * "New deal room": from the New channel dialog and the rooms sidebar,
+ * and (prefilled) from the customer page, a pipeline deal and the inbox
+ * contact panel.
+ */
 export function CreateDealRoomDialog({
   open,
   onOpenChange,
+  initialContact,
+  initialDeal,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}) {
+} & Prefill) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-[860px]">
-        {open && <CreateBody onDone={() => onOpenChange(false)} />}
+        {open && (
+          <CreateBody
+            onDone={() => onOpenChange(false)}
+            initialContact={initialContact}
+            initialDeal={initialDeal}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

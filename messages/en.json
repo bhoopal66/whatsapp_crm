@@ -4326,6 +4326,13 @@
         "closeFailed": "Couldn't close the room: {error}",
         "cancel": "Cancel",
         "unknownError": "something went wrong"
+      },
+      "entry": {
+        "title": "Deal rooms",
+        "none": "No deal rooms for this customer yet.",
+        "noneForDeal": "No deal room for this deal yet.",
+        "deal": "Deal: {title}",
+        "failed": "Couldn't load the deal rooms."
       }
     },
     "settings": {
