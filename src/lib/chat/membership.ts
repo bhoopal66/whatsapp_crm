@@ -141,7 +141,13 @@ export function canRemoveMember(
 
 export type LeaveBlock = 'notMember' | 'lastMember' | 'lastAdmin';
 
-/** Why the viewer cannot leave; null when they can. */
+/**
+ * Why the viewer cannot leave; null when they can. Archiving blocks
+ * nothing here: chat_leave_channel (087) has no archived check, unlike
+ * adds and role changes, so leaving is the one membership change an
+ * archived channel takes (a private one cannot then be rejoined until
+ * it is unarchived).
+ */
 export function leaveBlock(
   c: Pick<ChannelCtx, 'kind' | 'myRole'> & Roster & { userId: string }
 ): LeaveBlock | null {

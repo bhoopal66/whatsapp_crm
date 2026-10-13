@@ -176,6 +176,36 @@ describe('shapeAuditRow', () => {
     ).toMatchObject({ item: { kind: 'channel', id: B }, facts: [] });
   });
 
+  it('reads a channel edit (091) as the old and new name and topic, where changed', () => {
+    const edit = (detail: Record<string, unknown>) =>
+      shapeAuditRow('team_chat', {
+        id: 'x7',
+        actor_id: A,
+        action: 'update_channel',
+        channel_id: B,
+        at: AT,
+        detail,
+      });
+    expect(
+      edit({ from: 'sales', to: 'sales-uae', topic_from: null, topic_to: 'Q4' })
+    ).toMatchObject({
+      item: { kind: 'channel', id: B },
+      reason: null,
+      facts: [
+        { key: 'rename', from: 'sales', to: 'sales-uae' },
+        { key: 'topic', from: null, to: 'Q4' },
+      ],
+    });
+    // A topic-only edit stores the name twice; a cleared topic is null.
+    expect(
+      edit({ from: 'sales', to: 'sales', topic_from: 'Q4', topic_to: null })
+        ?.facts
+    ).toEqual([{ key: 'topic', from: 'Q4', to: null }]);
+    expect(
+      edit({ from: 'a', to: 'b', topic_from: 'same', topic_to: 'same' })?.facts
+    ).toEqual([{ key: 'rename', from: 'a', to: 'b' }]);
+  });
+
   it('labels every team-chat action the audit CHECK allows, in en and ko', () => {
     const sql = readFileSync(
       join(process.cwd(), 'supabase/migrations/091_chat_channel_admin.sql'),

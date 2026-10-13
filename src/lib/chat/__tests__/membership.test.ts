@@ -193,6 +193,22 @@ describe('leaveBlock', () => {
       })
     ).toBeNull();
   });
+
+  it('an archived channel can still be left, as chat_leave_channel allows (087)', () => {
+    const archived: ChannelCtx = {
+      kind: 'private',
+      archived: true,
+      myRole: 'member',
+      accountRole: 'agent',
+    };
+    expect(
+      leaveBlock({
+        ...base,
+        ...archived,
+        members: [member('me', 'member'), member('ann', 'admin')],
+      })
+    ).toBeNull();
+  });
 });
 
 it('sortMembers: admins, members, guests, by name', () => {

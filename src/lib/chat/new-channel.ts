@@ -2,6 +2,8 @@
  * The New channel dialog's rules, free of React. chat_create_channel
  * (087) decides; this only shapes the form and the call it makes.
  */
+import { hasMinRole, isAccountRole, isBankGuest } from '@/lib/auth/roles';
+
 import {
   CHANNEL_TOPIC_MAX,
   channelNameProblem,
@@ -30,6 +32,18 @@ export interface CreateChannelInput {
 }
 
 export type FormBlock = NameProblem | 'dealRoom' | 'noWorkspace';
+
+/**
+ * The New channel dialog's deal-room card. deal_room_create (088)
+ * refuses anyone below agent, so a viewer sees it disabled with why; a
+ * bank guest, who opens no channel of any kind, is not shown it.
+ */
+export function dealRoomOption(
+  accountRole: string | null
+): 'open' | 'agentsOnly' | 'hidden' {
+  if (!isAccountRole(accountRole) || isBankGuest(accountRole)) return 'hidden';
+  return hasMinRole(accountRole, 'agent') ? 'open' : 'agentsOnly';
+}
 
 /**
  * Whom a new private channel may start with. The creator becomes its

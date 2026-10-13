@@ -5,8 +5,10 @@ import { useTranslations } from 'next-intl';
 import { Lock, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useAuth } from '@/hooks/use-auth';
 import type { SharedCard } from '@/lib/chat';
 import { sharedCardView } from '@/lib/chat/share';
+import { inboxBasePath } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 
 /**
@@ -15,6 +17,8 @@ import { cn } from '@/lib/utils';
  */
 export function SharedConversationCard({ card }: { card: SharedCard }) {
   const t = useTranslations('Chat.card');
+  // A team leader's inbox list is the team view, as in the composer.
+  const { accountRole } = useAuth();
   const view = sharedCardView(card);
 
   if (!view.access)
@@ -96,7 +100,7 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
       </div>
       <div className="flex gap-2 border-t px-3 py-2">
         <Link
-          href={`/inbox?c=${conversationId}`}
+          href={`${inboxBasePath(accountRole)}?c=${conversationId}`}
           className="rounded-md bg-[#0E7C5A] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0b6a4d]"
         >
           {t('open')}

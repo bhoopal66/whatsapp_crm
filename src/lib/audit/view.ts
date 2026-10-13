@@ -62,6 +62,9 @@ export type AuditFact =
       count: number;
     }
   | { key: 'change'; from: string; to: string }
+  | { key: 'rename'; from: string; to: string }
+  /** A channel topic; null is none. */
+  | { key: 'topic'; from: string | null; to: string | null }
   | { key: 'number'; value: string };
 
 export interface AuditRow {
@@ -151,6 +154,24 @@ export function shapeAuditRow(source: AuditSource, r: Raw): AuditRow | null {
           item: item('person', d.user_id),
           reason: null,
           facts: changeFact(d.from, d.to),
+        };
+      }
+      // 091: the old and new name and topic (a null topic is none),
+      // each shown only where it changed.
+      if (action === 'update_channel') {
+        const facts: AuditFact[] = [];
+        const from = str(d.from);
+        const to = str(d.to);
+        if (from && to && from !== to) facts.push({ key: 'rename', from, to });
+        const topicFrom = str(d.topic_from);
+        const topicTo = str(d.topic_to);
+        if (topicFrom !== topicTo)
+          facts.push({ key: 'topic', from: topicFrom, to: topicTo });
+        return {
+          ...base,
+          item: item('channel', r.channel_id),
+          reason: null,
+          facts,
         };
       }
       // 091: one person per row, shown like add_members (the channel

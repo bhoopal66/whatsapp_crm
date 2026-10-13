@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ChatError } from '../errors';
 import {
   createChannelInput,
+  dealRoomOption,
   nameTakenError,
   privateMemberCandidates,
   type NewChannelForm,
@@ -102,5 +103,16 @@ describe('nameTakenError', () => {
       false
     );
     expect(nameTakenError(new Error('x'))).toBe(false);
+  });
+});
+
+describe('dealRoomOption', () => {
+  it('agents and up open a deal room, a viewer is told why not, a guest never sees it', () => {
+    for (const role of ['owner', 'admin', 'team_leader', 'agent'])
+      expect(dealRoomOption(role)).toBe('open');
+    expect(dealRoomOption('viewer')).toBe('agentsOnly');
+    expect(dealRoomOption('bank_guest')).toBe('hidden');
+    expect(dealRoomOption(null)).toBe('hidden');
+    expect(dealRoomOption('nonsense')).toBe('hidden');
   });
 });

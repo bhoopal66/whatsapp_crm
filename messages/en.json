@@ -3183,6 +3183,9 @@
         "calls": "{count, plural, one {# call} other {# calls}}",
         "members": "{count, plural, one {# member} other {# members}}",
         "change": "{from} → {to}",
+        "rename": "Name: {from} → {to}",
+        "topic": "Topic: {from} → {to}",
+        "noTopic": "none",
         "number": "Number {value}"
       },
       "reason": "Reason: {reason}",
@@ -4046,7 +4049,7 @@
       "privateBody": "Invited members only, e.g. one bank desk or credit review. Internal only.",
       "dealRoom": "Deal room",
       "dealRoomBody": "A real WhatsApp group with the customer (and bank, if invited). Customer can see.",
-      "dealRoomSoon": "Coming with deal rooms",
+      "dealRoomAgentsOnly": "Agents and above can open deal rooms",
       "name": "Name",
       "namePlaceholder": "e.g. credit-review",
       "nameTaken": "That name is taken",
