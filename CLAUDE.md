@@ -627,8 +627,8 @@ contract.
 - **Switching** is `switch_account()` (a live row there, guest rows included)
   behind `POST /api/workspaces/switch`, which authenticates by session only
   because `getCurrentAccount` 403s a deactivated active row. `is_active` and
-  `bank_code` are guarded columns: only `switch_account` and
-  `redeem_invitation` raise `app.account_switch`.
+  `bank_code` are guarded columns: only `switch_account`,
+  `redeem_invitation` and `archive_workspace` raise `app.account_switch`.
 - **Member RPCs** take the account from the caller's active row and touch only
   the target's row there. `remove_account_member`, `redeem_invitation`,
   `provision_account_member` and `add_workspace_member` take the per-person
@@ -642,12 +642,27 @@ contract.
 - **Deactivation is per workspace.** The GoTrue ban fires only when no other
   live row is left; otherwise the client moves to `fallbackWorkspace` instead
   of signing out.
-- `my_live_account_ids()` (every live row, active or not) scopes the
-  `notifications` policies, so the bell covers every workspace.
+- `my_live_account_ids()` (every live row, active or not, in a workspace
+  that is not archived) scopes the `notifications` policies, so the bell
+  covers every workspace.
   `ts_is_account_admin` needs the caller's active live row; the four-eyes
   proposer it is asked about need only be live there.
 - Staff↔guest is a removal plus `add_workspace_member`, never a role edit.
   `verify-workspaces.sql`.
+- **Archive (105).** `accounts.archived_at` is written only by
+  `archive_workspace` (a live owner there, from any of their rows, so
+  restore works from elsewhere). It refuses while a WhatsApp number or the
+  PBX is connected, while another workspace's PBX routes or extensions
+  point at it, while anyone works only there, or when the owner has
+  nowhere to go. It moves everyone active there to another live workspace
+  and revokes its invitations. Nobody becomes active in an archived
+  workspace: `switch_account`, `redeem_invitation` and
+  `remove_account_member` skip it, and a profiles trigger refuses every
+  other writer, reactivation included. Triggers refuse connecting a number,
+  PBX, route or extension to it. Its API keys answer 401 without counting
+  toward the IP lockout (the per-key rate limit still applies).
+  `chat_user_role` and `my_live_account_ids` leave it out, so its team chat
+  and bells close until restore.
 
 ### Edge security (`lib/edge/*`, migration 084)
 
@@ -796,6 +811,15 @@ only). `docs/internal-chat.md` is the contract.
   `can_view_conversation`) at read time; anyone else learns only that a card
   exists. Sharing into a channel with a guest member is refused at post time
   only, so a guest added later is held off by the read check.
+- **Call cards (103).** `chat_share_call` posts a `shared_calls` card (ids
+  only) into a team or private channel or a deal room's Team notes. The
+  sharer must pass `pbx_can_view_call`. `chat_shared_call_cards` re-checks
+  that at read time, and gives the customer's name and id only to a reader
+  who also passes `can_view_contact`. A leader sees every call but not every
+  customer.
+- **Service-role grants.** `verify-internal-chat-admin.sql` pins the exact
+  `chat_*` functions the service role may execute. A new grant updates
+  that list.
 - **PostgREST embeds.** `message_pins (channel_id, message_id)` is a
   second path between `chat_channels` and `internal_messages`, so an
   unnamed embed between them is ambiguous (PGRST201, answered as HTTP
@@ -923,6 +947,15 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
 - `runPbxCron` (recordings, call-backs, event retries, purge) runs from
   `GET /api/pbx/cron` and the automations cron, and starts no new work
   after 45 s. `verify-pbx.sql`.
+- **Link health (104).** Every ingest stamps `pbx_connections.last_event_at`
+  and `last_event_via`. A trigger keeps the clock forward-only and caps it at
+  `now() + 1 minute`. The cron's `silence` step rings owners and admins once
+  through `pbx_connection_silence()` after 15 quiet minutes inside
+  09:00–20:00 Dubai, and once more when events resume.
+- **Unrouted calls.** A call to a DID with no route is filed under the
+  connection's workspace with `calls.meta.unrouted`. Owners and admins list
+  those calls through `GET /api/pbx/calls?scope=unrouted`; its per-number
+  summary covers 30 days.
 
 ### Flows vs Automations
 

@@ -12,6 +12,98 @@ and polish.
 
 ## [Unreleased]
 
+### Calls: share a call into team chat
+
+**Share to chat** posts a call card from three places: the Calls
+screen, the customer page and the call wrap-up. It can go to a team or
+private channel, or to a deal room's Team notes. It never goes to
+WhatsApp.
+
+- **What the card shows:** direction, who took the call, when, how
+  long, the outcome, a short excerpt of the notes, and the customer with
+  a link to their page.
+- **Who sees it:**
+  - Only colleagues who can see the call get the call's details.
+  - The customer's name and link appear only to colleagues who can also
+    see that customer; anyone else sees a masked number.
+  - Everyone else sees only that a call was shared.
+  - An erased call shows nothing.
+- **Where it can't go:** a channel with a bank guest in it is never
+  offered. A deal room's Team notes are offered, because guests never
+  read them.
+- **Wrap-up posts:** the wrap-up's "share call" used to post the
+  customer's name and notes as plain text for every reader. It now posts
+  the same card.
+
+> **Migration required:** apply
+> `supabase/migrations/103_chat_call_cards.sql` (re-runnable) as a
+> superuser or BYPASSRLS role.
+
+### Calls: unrouted calls for admins
+
+A new **Calls → Unrouted** tab, for owners and admins, lists inbound
+calls to a phone number that has no phone-system route. Until now, no
+screen showed these calls.
+
+- Calls are listed newest first, with the number that was dialled.
+- Each number shows how many calls it received in the last 30 days and
+  when the latest one came in, most recent first.
+- A link opens Settings → Phone system → Routes, where a route can be
+  added for the number.
+- `GET /api/pbx/calls` takes `scope=unrouted` (refused below admin) and
+  returns `didNumber` on every call.
+
+### Phone system (Yeastar): event link health and a silence alert
+
+- **Events card.** Settings → Phone system → **Events** now shows:
+  - whether phone events are arriving: live, quiet for N minutes, or
+    none yet;
+  - whether they come by webhook or through the gateway;
+  - how many of the PBX's 8 API sessions the CRM holds (at most one per
+    credential);
+  - the last time missing calls were filled in from the PBX's call
+    records, how many were added, and how many could not be.
+
+  An open page re-reads this about once a minute, so it doesn't go
+  stale.
+- **Silence alert.** If no phone event has arrived for 15 minutes during
+  working hours (09:00–20:00 Dubai), owners and admins get one bell. They
+  get another when events resume. The earliest alert is at 09:15, and a
+  closed day gives one alert that morning.
+- **Event clock.** The "last event" time only moves forward, and a
+  timestamp in the future is capped. A retried old event, or a wrong
+  clock, can't make the link look live or silent when it isn't.
+
+> **Migration required:** apply `supabase/migrations/104_pbx_health.sql`
+> (re-runnable).
+
+### Workspaces: archive and restore
+
+An owner can archive a workspace from Settings → Workspace, and restore
+it later from the **Archived workspaces** list on the same screen.
+
+**What archiving does**
+- Moves everyone working in the workspace to another of their
+  workspaces.
+- Revokes its invitation links.
+- Stops its API keys. They work again after a restore.
+- Closes its team chat, and its notifications leave everyone's bell.
+- Nobody can open the workspace until an owner restores it. In the
+  workspace rail its tile is dimmed for owners and hidden from everyone
+  else.
+
+**When archiving is refused** (the reason is shown):
+- a WhatsApp number or the phone system is still connected;
+- another workspace's phone routes or extensions point at it;
+- someone works only in this workspace;
+- the owner has no other workspace to move to.
+
+`POST /api/workspaces/archive` does the same thing for scripts.
+
+> **Migration required:** apply
+> `supabase/migrations/105_workspace_archive.sql` (re-runnable) as a
+> superuser or BYPASSRLS role.
+
 ### Automations: post to team chat
 
 A new automation step, **Post to team chat**, posts a message into a
