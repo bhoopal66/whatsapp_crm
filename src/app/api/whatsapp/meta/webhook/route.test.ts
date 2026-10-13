@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   confirmAccepted: vi.fn(),
   clientIp: vi.fn(),
   recordMetaMessageCosts: vi.fn(),
+  recordGroupMessageCosts: vi.fn(),
   handleGroupWebhook: vi.fn(),
   afterCallbacks: [] as (() => Promise<void> | void)[],
   state: {
@@ -64,6 +65,7 @@ vi.mock('@/lib/edge', () => ({
 
 vi.mock('@/lib/whatsapp/message-costs', () => ({
   recordMetaMessageCosts: h.recordMetaMessageCosts,
+  recordGroupMessageCosts: h.recordGroupMessageCosts,
 }));
 
 vi.mock('@/lib/whatsapp/template-webhook', () => ({
@@ -226,6 +228,7 @@ beforeEach(() => {
   h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });
   h.clientIp.mockReturnValue('203.0.113.7');
   h.recordMetaMessageCosts.mockResolvedValue([]);
+  h.recordGroupMessageCosts.mockResolvedValue([]);
   process.env.META_APP_SECRET = APP_SECRET;
   delete process.env.META_VERIFY_TOKEN;
 });
@@ -1171,6 +1174,29 @@ describe('POST — deal-room group traffic', () => {
         kind: 'message',
       },
     ]);
+  });
+
+  it('costs group receipts per member, apart from the 1:1 ledger feed', async () => {
+    const groupReceipt = {
+      id: 'wamid.GS',
+      status: 'delivered',
+      recipient_type: 'group',
+      recipient_id: GROUP,
+      recipient_participant_id: '971501111111',
+    };
+    const payload = messagesBody({ statuses: [groupReceipt] });
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    expect(res.status).toBe(200);
+    await runAfterCallbacks();
+
+    expect(h.recordGroupMessageCosts).toHaveBeenCalledTimes(1);
+    expect(h.recordGroupMessageCosts.mock.calls[0][1]).toEqual({
+      accountId: 'acc-1',
+      phoneNumberId: NUMBER,
+      statuses: [groupReceipt],
+    });
+    expect(h.recordMetaMessageCosts).not.toHaveBeenCalled();
   });
 
   it("hands a groups[] lifecycle change over with the number's decrypted token", async () => {

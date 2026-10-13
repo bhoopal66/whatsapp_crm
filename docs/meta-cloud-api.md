@@ -495,10 +495,16 @@ everything else.
   is a 401), screened under the same keys
   (`msg:<phone_number_id>:<message id>`, so a redelivery is skipped),
   and processed in the same callback.
-- Receipts of group sends are **not** in the message-cost ledger yet:
-  it prices a message by its recipient's phone number, and a group
-  send's recipient is the group. Per-member group billing is a
-  follow-up.
+- **Group sends are costed per delivered member** (migration 100).
+  Meta bills a group message once for each participant it reaches, at
+  that participant's market rate, in the message's one category: a
+  free-form message inside the group's 24-hour window is `service` for
+  every member. Each receipt goes to *Message costs* keyed on the
+  member (`recipient_participant_id`), so a member's delivery is never
+  mistaken for a replay of another's, and a redelivered receipt still
+  counts once. The room's transcript row keeps the message's
+  `category` and `recipients_billed` (billable deliveries so far). A
+  receipt that names no member is recorded uncosted.
 
 ## Edge security
 

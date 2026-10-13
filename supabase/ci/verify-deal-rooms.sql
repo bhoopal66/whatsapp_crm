@@ -1,4 +1,4 @@
--- Behavioural regression suite for deal rooms (migrations 088, 095, 096).
+-- Behavioural regression suite for deal rooms (migrations 088, 095, 096, 100).
 --
 -- A deal room is a WhatsApp group on the account's Meta number, linked
 -- to a contact; inside the CRM it is a `deal_room` internal-chat
@@ -1007,6 +1007,48 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_y AND status = 'open')
      OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x2 AND last_error = 'Cancelled: duplicate') THEN
     failed := array_append(failed, ('deal_room_fail_creation did not fail only a creating room, once: ' || r)::text);
+  END IF;
+
+  -- 100: a group send is costed per delivered member, at the member's
+  -- market, in the message's one category (Meta priced it on `sent`);
+  -- a redelivered receipt counts once, a read is not billed, a delivery
+  -- naming no member is refused, another account's receipt never
+  -- touches our message, and a client cannot call it.
+  -- A field of dr_try's jsonb answer, or the error it returned.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.dr_j(p text, p_path text[])
+    RETURNS text LANGUAGE sql AS $body$
+      SELECT CASE WHEN p LIKE 'ERROR%' THEN p ELSE coalesce(p::jsonb #>> p_path, 'null') END
+    $body$
+  $fn$;
+  INSERT INTO group_messages (room_id, account_id, wa_message_id, direction, type, body, status)
+  VALUES (r_lead, a_acct, 'dr-cost-1', 'out', 'text', 'Hello', 'sent');
+  t := '{"id": "dr-cost-1", "recipient_type": "group", "recipient_id": "dr-grp-lead@g.us", "timestamp": "1793000000"';
+  s := 'SELECT public.deal_room_record_cost(%L, %L, %L::jsonb)::text';
+  r := pg_temp.dr_try('authenticated', u_admin, format(s, a_acct, 'PN-DR', t || ', "status": "sent"}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "sent", "pricing": {"category": "marketing", "pricing_model": "PMP"}}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880001"}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered", "participant_recipient_id": "966500880002", "pricing": {"category": "marketing", "billable": true}}'));
+  r := r || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880001"}')), '{data,duplicate}')
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "read", "recipient_participant_id": "971500880001"}')), '{ok}')
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered"}')), '{error,code}')
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, b_acct, 'PN-B',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880009"}')), '{ok}');
+  -- A separate statement: one sees no write its own function calls made.
+  r := r || ' / ' || coalesce((SELECT category || ':' || recipients_billed FROM group_messages WHERE wa_message_id = 'dr-cost-1'), '-')
+    || ' / ' || coalesce((SELECT string_agg(recipient_market || '=' || (cost_usd = whatsapp_resolve_rate(recipient_market,
+                          'marketing', DATE '2026-10-25'))::text, ',' ORDER BY recipient_market)
+                   FROM whatsapp_message_costs
+                  WHERE message_id = 'dr-cost-1' AND status = 'delivered' AND account_id = a_acct), '-');
+  n := n + 1;
+  IF r IS NULL OR r NOT LIKE 'ERROR 42501:% / true / true / BAD_STATUS / true / marketing:2 / AE=true,SA=true' THEN
+    failed := array_append(failed, ('a group send is not costed once per delivered member: ' || coalesce(r, 'NULL'))::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

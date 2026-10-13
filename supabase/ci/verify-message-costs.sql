@@ -297,6 +297,28 @@ BEGIN
     RAISE WARNING 'FAIL  malformed status: %', r;
   END IF;
 
+  -- 100: a group send is delivered to each member, and each delivery
+  -- is a row at the member's market, not a replay of the first.
+  r := record_whatsapp_message_cost(v_acct, 'PNG', jsonb_build_object(
+    'id', 'grp-1', 'status', 'delivered', 'recipient_type', 'group',
+    'recipient_id', 'grp-1@g.us', 'recipient_participant_id', '971501234567',
+    'timestamp', extract(epoch FROM nov)::BIGINT::TEXT,
+    'pricing', '{"category":"marketing"}'::jsonb))->'data';
+  r := record_whatsapp_message_cost(v_acct, 'PNG', jsonb_build_object(
+    'id', 'grp-1', 'status', 'delivered', 'recipient_type', 'group',
+    'recipient_id', 'grp-1@g.us', 'participant_recipient_id', '966501234567',
+    'timestamp', extract(epoch FROM nov)::BIGINT::TEXT,
+    'pricing', '{"category":"marketing"}'::jsonb))->'data';
+  n := n + 1;
+  IF r->>'recipient_market' = 'SA' AND r->>'recipient_wa_id' = '966501234567'
+     AND (SELECT count(*) FROM whatsapp_message_costs
+           WHERE phone_number_id = 'PNG' AND message_id = 'grp-1' AND billable) = 2 THEN
+    RAISE NOTICE 'PASS  a group send is costed once per member, at the member''s market';
+  ELSE
+    bad := bad + 1;
+    RAISE WARNING 'FAIL  group per-member costing: %', r;
+  END IF;
+
   -- ---------------------------------------------------------------
   -- The reporting views the settings panel reads
   -- ---------------------------------------------------------------

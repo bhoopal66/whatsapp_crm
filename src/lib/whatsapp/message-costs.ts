@@ -69,6 +69,46 @@ export async function recordMetaMessageCosts(
   db: SupabaseClient,
   args: RecordCostArgs
 ): Promise<RecordCostResult[]> {
+  return recordEach(db, args, (status, timezone) =>
+    db.rpc('record_whatsapp_message_cost', {
+      p_account_id: args.accountId,
+      p_phone_number_id: args.phoneNumberId,
+      p_status: status,
+      p_timezone: timezone,
+    })
+  );
+}
+
+/**
+ * The receipts of group sends (deal rooms, `recipient_type: 'group'`),
+ * one at a time, through `deal_room_record_cost` (migration 100): the
+ * ledger costs each member's delivery at that member's market, and only
+ * a receipt the ledger had not seen moves the message's `category` and
+ * `recipients_billed`, so a redelivery counts once. Fails open, exactly
+ * like `recordMetaMessageCosts`; the same service-role client.
+ */
+export async function recordGroupMessageCosts(
+  db: SupabaseClient,
+  args: RecordCostArgs
+): Promise<RecordCostResult[]> {
+  return recordEach(db, args, (status, timezone) =>
+    db.rpc('deal_room_record_cost', {
+      p_account: args.accountId,
+      p_phone_number_id: args.phoneNumberId,
+      p_status: status,
+      p_timezone: timezone,
+    })
+  );
+}
+
+async function recordEach(
+  db: SupabaseClient,
+  args: RecordCostArgs,
+  call: (
+    status: RawMetaStatus,
+    timezone: string
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>
+): Promise<RecordCostResult[]> {
   const results: RecordCostResult[] = [];
   if (!args.accountId || !args.phoneNumberId) return results;
 
@@ -76,12 +116,7 @@ export async function recordMetaMessageCosts(
 
   for (const status of args.statuses) {
     try {
-      const { data, error } = await db.rpc('record_whatsapp_message_cost', {
-        p_account_id: args.accountId,
-        p_phone_number_id: args.phoneNumberId,
-        p_status: status,
-        p_timezone: timezone,
-      });
+      const { data, error } = await call(status, timezone);
       if (error) {
         console.error(
           `[message-costs] ledger write failed for ${status.id}:`,

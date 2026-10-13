@@ -8,6 +8,7 @@ import {
   lastNMonthKeys,
   humanizeCategory,
   orderedCategories,
+  recordGroupMessageCosts,
   recordMetaMessageCosts,
   type MonthlyCostRow,
   type ServiceQuotaRow,
@@ -160,6 +161,38 @@ describe('recordMetaMessageCosts', () => {
     expect(billingTimezone()).toBe('Asia/Dubai');
     process.env.WHATSAPP_BILLING_TIMEZONE = '  ';
     expect(billingTimezone()).toBe('Asia/Dubai');
+  });
+});
+
+describe('recordGroupMessageCosts', () => {
+  it('feeds each group receipt to deal_room_record_cost and fails open', async () => {
+    const rpc = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({
+        data: { ok: true, data: { duplicate: true } },
+        error: null,
+      });
+    const statuses = [
+      { id: 'w1', status: 'delivered', recipient_type: 'group' },
+      { id: 'w1', status: 'delivered', recipient_type: 'group' },
+    ];
+    const out = await recordGroupMessageCosts({ rpc } as never, {
+      accountId: 'acct-1',
+      phoneNumberId: 'PN',
+      statuses,
+    });
+    expect(rpc.mock.calls.map((c) => c[0])).toEqual([
+      'deal_room_record_cost',
+      'deal_room_record_cost',
+    ]);
+    expect(rpc.mock.calls[1][1]).toMatchObject({
+      p_account: 'acct-1',
+      p_phone_number_id: 'PN',
+      p_status: statuses[1],
+    });
+    expect(out.map((r) => r.ok)).toEqual([false, true]);
+    expect(out[1].duplicate).toBe(true);
   });
 });
 
