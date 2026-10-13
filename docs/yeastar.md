@@ -70,7 +70,28 @@ One PBX can serve several workspaces.
   default), calls with those numbers are kept unrecorded. Leave it on
   until each bank's DSA terms allow its calls to be recorded.
 - **Retention.** Empty keeps recordings; otherwise 1 to 3650 days. How
-  long to keep them is an open legal decision for each workspace.
+  long to keep them is an open legal decision for each workspace. With
+  a period set, the phone-system cron (section 10) deletes the CRM's
+  copy of every recording whose **call started** more than that many
+  days ago (the call's date, as every screen shows it, not the day the
+  audio was copied, so a late download never lengthens its life),
+  except recordings under legal hold. Only the audio goes: the call,
+  its notes and its outcome stay, and the customer page says the
+  recording was deleted under the retention period. The PBX's own
+  copies are not touched. The recording row is marked deleted first
+  (from then on it cannot be played) and the audio removed after; audio
+  a run could not remove is taken by the orphan sweep. Each run's
+  deletions are written to the phone-system audit log
+  (`recording_retention`). The section shows what is kept now: how many
+  recordings, the oldest call, how many are under legal hold and how
+  many the period has deleted so far.
+- **Legal hold.** An owner or admin can place or lift a legal hold on a
+  recording from the customer page (**Place legal hold**), with a
+  reason of at least five characters. Each change is written to the
+  append-only audit log with who made it and why (`legal_hold_placed`,
+  `legal_hold_lifted`). A held recording is kept past the retention
+  period and blocks the owner's erasure of that customer; a recording
+  already deleted cannot be held.
 - Recordings sit in a private bucket. Every play is logged, and the
   owner can erase a customer's call records on request, unless a
   recording is under legal hold. The erasure takes every call of the
@@ -211,9 +232,11 @@ recording notice before the owner is connected.
 
 `GET /api/pbx/cron` (header `x-cron-secret` = `AUTOMATION_CRON_SECRET`)
 fetches pending recordings, dials due call-backs, retries events that
-failed to process (three times each), purges old rows, and deletes
-recording audio that no call record points to any more (left by an
-erasure, at most 500 files a run). Each run
+failed to process (three times each), purges old rows, deletes
+recordings past the workspace's retention period (section 3; up to
+1,000 a run, oldest calls first), and deletes recording audio that no
+live recording points to any more (left by an erasure or a retention
+run, at most 500 files a run). Each run
 stops starting work after 45 seconds. The automations cron also runs it,
 at most once a minute, so an install that already pings
 `/api/automations/cron` needs nothing more. A PBX connection that is

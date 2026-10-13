@@ -3035,7 +3035,13 @@
         "save": "Save rules",
         "saved": "Recording rules saved",
         "retentionInvalid": "Enter 1 to 3650 days, or leave empty to keep recordings.",
-        "dueInvalid": "Enter 1 to 1440 minutes."
+        "dueInvalid": "Enter 1 to 1440 minutes.",
+        "retentionDeletes": "Recordings of calls older than {days, plural, one {# day} other {# days}} are deleted daily, except recordings under legal hold. The calls, their notes and outcomes are kept.",
+        "retentionKeeps": "Empty: recordings are kept with no automatic deletion.",
+        "kept": "Kept now: {count, plural, =0 {no recordings} one {# recording} other {# recordings}}",
+        "keptOldest": "the oldest from a call on {date}",
+        "keptHeld": "{count} under legal hold",
+        "keptExpired": "{count, plural, one {# deleted} other {# deleted}} under the retention period so far"
       },
       "banks": {
         "title": "Bank numbers",
@@ -4629,7 +4635,16 @@
     "attachFailed": "Couldn't attach the recording",
     "noDeal": "No open deal to attach to",
     "openCustomerPage": "Open customer page",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "recordingExpired": "Recording deleted under the retention period",
+    "legalHold": "Legal hold",
+    "placeHold": "Place legal hold",
+    "liftHold": "Lift legal hold",
+    "holdReason": "Reason (at least 5 characters)",
+    "holdCancel": "Cancel",
+    "holdPlaced": "Legal hold placed: this recording is kept past the retention period",
+    "holdLifted": "Legal hold lifted",
+    "holdFailed": "Couldn't change the legal hold"
   },
   "CallsPage": {
     "title": "Calls",

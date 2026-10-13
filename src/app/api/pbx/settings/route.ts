@@ -9,9 +9,15 @@
 //
 // Admin+, written with the caller's own client: pbx_settings has admin
 // RLS, and its trigger stamps updated_by.
+//
+// GET also answers `recordings`, what the workspace keeps now
+// (pbx_recordings_kept, migration 093): { kept, legalHold, oldestCallAt,
+// expired } by call date, or null when it cannot be read, which never
+// keeps the settings from loading.
 // ============================================================
 
 import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 
 const COLUMNS =
@@ -71,6 +77,25 @@ function parse(b: Record<string, unknown>): Record<string, unknown> | string {
   return Object.keys(out).length ? out : 'Nothing to change';
 }
 
+async function kept(sb: SupabaseClient) {
+  const { data, error } = await sb.rpc('pbx_recordings_kept');
+  const r = data as Record<string, unknown> | null;
+  if (error || !r) {
+    console.error(
+      '[GET /api/pbx/settings] pbx_recordings_kept:',
+      error?.message
+    );
+    return null;
+  }
+  return {
+    kept: Number(r.kept ?? 0),
+    legalHold: Number(r.legal_hold ?? 0),
+    oldestCallAt:
+      typeof r.oldest_call_at === 'string' ? r.oldest_call_at : null,
+    expired: Number(r.expired ?? 0),
+  };
+}
+
 export async function GET() {
   try {
     const ctx = await requireRole('admin');
@@ -82,6 +107,7 @@ export async function GET() {
     if (error) throw new Error(`pbx_settings read failed: ${error.message}`);
     return NextResponse.json({
       settings: view((data as Record<string, unknown> | null) ?? DEFAULTS),
+      recordings: await kept(ctx.supabase),
     });
   } catch (err) {
     return toErrorResponse(err);

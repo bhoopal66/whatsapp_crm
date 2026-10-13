@@ -3035,7 +3035,13 @@
         "save": "규칙 저장",
         "saved": "녹음 규칙을 저장했습니다",
         "retentionInvalid": "1~3650일을 입력하거나, 녹음을 보관하려면 비워 두세요.",
-        "dueInvalid": "1~1440분을 입력하세요."
+        "dueInvalid": "1~1440분을 입력하세요.",
+        "retentionDeletes": "{days}일이 지난 통화의 녹음은 매일 삭제됩니다. 법적 보존 중인 녹음은 제외됩니다. 통화 기록과 메모, 결과는 유지됩니다.",
+        "retentionKeeps": "비워 두면 녹음이 자동 삭제 없이 보관됩니다.",
+        "kept": "현재 보관 중: {count, plural, =0 {녹음 없음} other {녹음 #건}}",
+        "keptOldest": "가장 오래된 녹음은 {date} 통화",
+        "keptHeld": "법적 보존 {count}건",
+        "keptExpired": "지금까지 보관 기간에 따라 {count}건 삭제됨"
       },
       "banks": {
         "title": "은행 번호",
@@ -4629,7 +4635,16 @@
     "attachFailed": "녹음을 첨부하지 못했습니다",
     "noDeal": "첨부할 진행 중인 딜이 없습니다",
     "openCustomerPage": "고객 페이지 열기",
-    "loadMore": "더 보기"
+    "loadMore": "더 보기",
+    "recordingExpired": "보관 기간이 지나 녹음이 삭제되었습니다",
+    "legalHold": "법적 보존",
+    "placeHold": "법적 보존 설정",
+    "liftHold": "법적 보존 해제",
+    "holdReason": "사유(5자 이상)",
+    "holdCancel": "취소",
+    "holdPlaced": "법적 보존이 설정되었습니다. 이 녹음은 보관 기간이 지나도 유지됩니다",
+    "holdLifted": "법적 보존이 해제되었습니다",
+    "holdFailed": "법적 보존을 변경하지 못했습니다"
   },
   "CallsPage": {
     "title": "통화",

@@ -49,6 +49,34 @@ describe('/api/pbx/settings: storing recordings', () => {
     expect((await res.json()).settings.storeRecordings).toBe(true);
   });
 
+  it('answers what is kept now, or null when that cannot be read', async () => {
+    fake = createFakeDb(
+      {},
+      {
+        pbx_recordings_kept: () => ({
+          data: {
+            kept: 12,
+            legal_hold: 2,
+            oldest_call_at: '2026-07-01T09:00:00+00:00',
+            expired: 40,
+          },
+          error: null,
+        }),
+      }
+    );
+    expect((await (await GET()).json()).recordings).toEqual({
+      kept: 12,
+      legalHold: 2,
+      oldestCallAt: '2026-07-01T09:00:00+00:00',
+      expired: 40,
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    fake = createFakeDb();
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect((await res.json()).recordings).toBeNull();
+  });
+
   it('round-trips storeRecordings', async () => {
     const res = await put({ storeRecordings: false });
     expect(res.status).toBe(200);

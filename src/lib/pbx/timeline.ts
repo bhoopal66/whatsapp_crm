@@ -30,6 +30,33 @@ export interface TimelineCall {
   disposition: string | null;
   notes: string | null;
   recordingState: string;
+  /** The audio was deleted under the retention period (093). */
+  recordingDeleted?: boolean;
+  legalHold?: boolean;
+}
+
+export type RecordingView =
+  'player' | 'held' | 'erased' | 'pending' | 'notStored' | 'expired';
+
+/** calls.recording_state → what the box shows; none/failed: no box. */
+const RECORDING_VIEW: Record<string, RecordingView> = {
+  fetched: 'player',
+  held: 'held',
+  erased: 'erased',
+  pending: 'pending',
+  not_stored: 'notStored',
+};
+
+/**
+ * The recording box of a call row. A fetched call whose audio the
+ * retention period deleted keeps its notes and state (093 erases the
+ * recording row, not the call), so the row's flag decides it.
+ */
+export function recordingView(
+  call: Pick<TimelineCall, 'recordingState' | 'recordingDeleted'>
+): RecordingView | undefined {
+  const view = RECORDING_VIEW[call.recordingState];
+  return view === 'player' && call.recordingDeleted ? 'expired' : view;
 }
 export interface TimelineMessage {
   id: string;

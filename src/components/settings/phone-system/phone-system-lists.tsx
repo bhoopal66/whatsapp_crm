@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
@@ -545,15 +545,60 @@ interface Rules {
   mandatoryDisposition: boolean;
   missedCallWhatsappDraft: boolean;
 }
+/** GET /api/pbx/settings `recordings` (pbx_recordings_kept, 093). */
+interface Kept {
+  kept: number;
+  legalHold: number;
+  oldestCallAt: string | null;
+  expired: number;
+}
 interface BankRow {
   key: number;
   number: string;
   bankCode: string;
 }
 
+/** What the typed period does, and what the workspace keeps now. */
+function RetentionNote({
+  days,
+  kept,
+}: {
+  days: ReturnType<typeof parseRetentionDays>;
+  kept: Kept | null;
+}) {
+  const t = useTranslations('Settings.phoneSystem');
+  const format = useFormatter();
+  const parts = kept
+    ? [
+        t('rules.kept', { count: kept.kept }),
+        kept.oldestCallAt &&
+          t('rules.keptOldest', {
+            date: format.dateTime(new Date(kept.oldestCallAt), {
+              dateStyle: 'medium',
+            }),
+          }),
+        kept.legalHold > 0 && t('rules.keptHeld', { count: kept.legalHold }),
+        kept.expired > 0 && t('rules.keptExpired', { count: kept.expired }),
+      ].filter((p): p is string => typeof p === 'string')
+    : [];
+  return (
+    <div className="text-muted-foreground space-y-1 text-xs">
+      {days.ok && (
+        <p>
+          {days.value === null
+            ? t('rules.retentionKeeps')
+            : t('rules.retentionDeletes', { days: days.value })}
+        </p>
+      )}
+      {parts.length > 0 && <p>{parts.join(' · ')}</p>}
+    </div>
+  );
+}
+
 export function RecordingRulesCard() {
   const t = useTranslations('Settings.phoneSystem');
   const [rules, setRules] = useState<Rules | null>(null);
+  const [kept, setKept] = useState<Kept | null>(null);
   const [retention, setRetention] = useState('');
   const [due, setDue] = useState('');
   const [ruleIssue, setRuleIssue] = useState<string | null>(null);
@@ -576,8 +621,12 @@ export function RecordingRulesCard() {
   };
 
   useEffect(() => {
-    void pbxFetch<{ settings: Rules }>('/api/pbx/settings').then((res) => {
-      if (res.ok) takeRules(res.data.settings);
+    void pbxFetch<{ settings: Rules; recordings: Kept | null }>(
+      '/api/pbx/settings'
+    ).then((res) => {
+      if (!res.ok) return;
+      takeRules(res.data.settings);
+      setKept(res.data.recordings ?? null);
     });
     void pbxFetch<{ bankNumbers: { number: string; bankCode: string }[] }>(
       '/api/pbx/bank-numbers'
@@ -675,6 +724,7 @@ export function RecordingRulesCard() {
             {t('rules.erasure')}
           </span>
         </div>
+        <RetentionNote days={parseRetentionDays(retention)} kept={kept} />
         <div className="flex flex-wrap items-center gap-2">
           <span>{t('rules.dueAfter')}</span>
           <Input

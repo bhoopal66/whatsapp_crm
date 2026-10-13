@@ -10,6 +10,7 @@ import {
   groupByDay,
   maskPhone,
   mergeTimeline,
+  recordingView,
   missedTaskFor,
   monthSummaryParts,
   openMissedTasks,
@@ -361,5 +362,18 @@ describe('calls page and sidebar', () => {
     );
     expect(takeComposerPrefill(storage, 'cv1')).toBeNull();
     expect(takeComposerPrefill(null, 'cv1')).toBeNull();
+  });
+});
+
+describe('recordingView', () => {
+  it('maps the call state, and a fetched call whose audio retention deleted', () => {
+    expect(recordingView({ recordingState: 'fetched' })).toBe('player');
+    expect(
+      recordingView({ recordingState: 'fetched', recordingDeleted: true })
+    ).toBe('expired');
+    expect(recordingView({ recordingState: 'erased' })).toBe('erased');
+    expect(recordingView({ recordingState: 'not_stored' })).toBe('notStored');
+    expect(recordingView({ recordingState: 'none' })).toBeUndefined();
+    expect(recordingView({ recordingState: 'failed' })).toBeUndefined();
   });
 });

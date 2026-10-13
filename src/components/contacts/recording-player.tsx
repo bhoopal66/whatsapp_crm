@@ -3,31 +3,33 @@
 // A call's recording on the customer page (module 015). Play asks the
 // server for a five-minute signed link, which logs the play and refuses
 // (409) a recording held until the notice is confirmed or erased; the
-// audio then plays in this element. Nothing is downloaded.
+// audio then plays in this element. Nothing is downloaded. An owner or
+// admin can place or lift a legal hold (migration 093), with a reason:
+// a held recording outlives the retention period and blocks erasure.
 
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import { Check, Loader2, Paperclip, Pause, Play } from 'lucide-react';
+import { Check, Loader2, Paperclip, Pause, Play, Scale } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { playerClock, type TimelineCall } from '@/lib/pbx/timeline';
+import { Input } from '@/components/ui/input';
+import { useAuth } from '@/hooks/use-auth';
+import { canPlaceLegalHold } from '@/lib/auth/roles';
+import { reasonOk } from '@/lib/chat/admin-tools';
+import {
+  playerClock,
+  recordingView,
+  type RecordingView,
+  type TimelineCall,
+} from '@/lib/pbx/timeline';
 
-type View = 'player' | 'held' | 'erased' | 'pending' | 'notStored';
-
-/** calls.recording_state → what the box shows; none/failed: no box. */
-const VIEW: Record<string, View> = {
-  fetched: 'player',
-  held: 'held',
-  erased: 'erased',
-  pending: 'pending',
-  not_stored: 'notStored',
-};
-const NOTE: Record<Exclude<View, 'player'>, string> = {
+const NOTE: Record<Exclude<RecordingView, 'player'>, string> = {
   held: 'recordingHeld',
   erased: 'recordingErased',
   pending: 'recordingPending',
   notStored: 'recordingNotStored',
+  expired: 'recordingExpired',
 };
 
 const post = (url: string, body: unknown) =>
@@ -53,8 +55,16 @@ export function RecordingPlayer({
   const [at, setAt] = useState(0);
   const [length, setLength] = useState<number | null>(null);
   const [attach, setAttach] = useState<'idle' | 'busy' | 'done'>('idle');
+  const { accountRole } = useAuth();
+  const canHold = !!accountRole && canPlaceLegalHold(accountRole);
+  const [hold, setHold] = useState(call.legalHold === true);
+  // null: closed; a string: the reason being typed.
+  const [holdReason, setHoldReason] = useState<string | null>(null);
+  const [holdBusy, setHoldBusy] = useState(false);
 
-  const view: View | undefined = refused ? 'held' : VIEW[call.recordingState];
+  const view: RecordingView | undefined = refused
+    ? 'held'
+    : recordingView(call);
   if (!view) return null;
   if (view !== 'player')
     return (
@@ -103,6 +113,25 @@ export function RecordingPlayer({
     toast.error(t('attachFailed'));
   };
 
+  const changeHold = async () => {
+    if (holdReason === null || !reasonOk(holdReason) || holdBusy) return;
+    setHoldBusy(true);
+    const res = await fetch(`/api/pbx/calls/${call.id}/legal-hold`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hold: !hold, reason: holdReason }),
+    }).catch(() => null);
+    setHoldBusy(false);
+    const body = res?.ok ? await res.json().catch(() => null) : null;
+    if (typeof body?.legalHold !== 'boolean') {
+      toast.error(t('holdFailed'));
+      return;
+    }
+    setHold(body.legalHold);
+    setHoldReason(null);
+    toast.success(t(body.legalHold ? 'holdPlaced' : 'holdLifted'));
+  };
+
   const total = length ?? call.talkSeconds ?? 0;
   const pct = total > 0 ? Math.min(100, (at / total) * 100) : 0;
   return (
@@ -149,7 +178,20 @@ export function RecordingPlayer({
         onError={() => setLinked(false)}
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-muted-foreground text-xs">{t('noticePlayed')}</p>
+        <p className="text-muted-foreground text-xs">
+          {t('noticePlayed')}
+          {hold && (
+            <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900 [[data-mode=dark]_&]:bg-amber-500/15 [[data-mode=dark]_&]:text-amber-200">
+              {t('legalHold')}
+            </span>
+          )}
+        </p>
+        {canHold && holdReason === null && (
+          <Button size="xs" variant="outline" onClick={() => setHoldReason('')}>
+            <Scale className="size-3.5" />
+            {hold ? t('liftHold') : t('placeHold')}
+          </Button>
+        )}
         {dealId && (
           <Button
             size="xs"
@@ -166,6 +208,33 @@ export function RecordingPlayer({
           </Button>
         )}
       </div>
+      {canHold && holdReason !== null && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Input
+            className="bg-card h-7 min-w-0 flex-1 text-xs"
+            value={holdReason}
+            placeholder={t('holdReason')}
+            aria-label={t('holdReason')}
+            onChange={(e) => setHoldReason(e.target.value)}
+          />
+          <Button
+            size="xs"
+            disabled={!reasonOk(holdReason) || holdBusy}
+            onClick={() => void changeHold()}
+          >
+            {holdBusy && <Loader2 className="size-3.5 animate-spin" />}
+            {hold ? t('liftHold') : t('placeHold')}
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={holdBusy}
+            onClick={() => setHoldReason(null)}
+          >
+            {t('holdCancel')}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
