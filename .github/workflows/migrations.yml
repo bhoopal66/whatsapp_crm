@@ -187,6 +187,15 @@ jobs:
       - name: Verify workspaces
         run: supabase db query --local --file supabase/ci/verify-workspaces.sql
 
+      # Workspace audit log (092): triggers on profiles and accounts write
+      # one row per membership or settings change, with its actor, for
+      # every writer (the RPCs, the service role, a hand-run UPDATE);
+      # nobody can rewrite or delete a row, and only the workspace's live
+      # admins read them. Also 092's accounts column grants. Triggers, RLS
+      # and grants: only real Postgres can show it.
+      - name: Verify workspace audit
+        run: supabase db query --local --file supabase/ci/verify-workspace-audit.sql
+
       # Tasks (085): who sees a task is RLS (admins all, the assignee,
       # the creator, whoever can see its contact, a leader their team),
       # and a trigger vets the assignee, freezes a task's identity and

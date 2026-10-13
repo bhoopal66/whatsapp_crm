@@ -9,6 +9,7 @@ import {
   inviteRowsToPayload,
   isNoLoginError,
   parseWorkspaceBadges,
+  planWorkspaceRename,
   shortNameError,
   showWorkspaceRail,
   suggestPassword,
@@ -64,6 +65,60 @@ describe('workspace name rules', () => {
     expect(shortNameError('TCONN')).toBe('shortNameInvalid');
     expect(shortNameError('T C')).toBe('shortNameInvalid');
     expect(shortNameError('تع')).toBe('shortNameInvalid');
+  });
+});
+
+describe('planWorkspaceRename', () => {
+  const saved = { name: 'Taamul Connect', shortName: 'TC' };
+
+  it('sends nothing while nothing changed, spaces aside', () => {
+    expect(
+      planWorkspaceRename(saved, { name: ' Taamul Connect ', shortName: 'TC ' })
+    ).toEqual({ nameError: null, shortNameError: null, payload: null });
+  });
+
+  it('sends only the changed field, trimmed', () => {
+    expect(
+      planWorkspaceRename(saved, { name: '  Taamul ', shortName: 'TC' }).payload
+    ).toEqual({ name: 'Taamul' });
+    expect(
+      planWorkspaceRename(saved, { name: 'Taamul Connect', shortName: ' tc2 ' })
+        .payload
+    ).toEqual({ short_name: 'tc2' });
+    expect(
+      planWorkspaceRename(saved, { name: 'Taamul', shortName: 'TA' }).payload
+    ).toEqual({ name: 'Taamul', short_name: 'TA' });
+  });
+
+  it('names the wrong field and sends nothing', () => {
+    expect(planWorkspaceRename(saved, { name: '  ', shortName: 'TC' })).toEqual(
+      { nameError: 'nameRequired', shortNameError: null, payload: null }
+    );
+    expect(
+      planWorkspaceRename(saved, { name: 'x'.repeat(81), shortName: 'T C' })
+    ).toEqual({
+      nameError: 'nameTooLong',
+      shortNameError: 'shortNameInvalid',
+      payload: null,
+    });
+    // Clearing a short name is not allowed: the server needs 1–4.
+    expect(
+      planWorkspaceRename(saved, { name: 'Taamul', shortName: '' })
+    ).toEqual({
+      nameError: null,
+      shortNameError: 'shortNameInvalid',
+      payload: null,
+    });
+  });
+
+  it('checks only what changed, so a missing short name does not block a rename', () => {
+    const legacy = { name: 'Old', shortName: null };
+    expect(planWorkspaceRename(legacy, { name: 'New', shortName: '' })).toEqual(
+      { nameError: null, shortNameError: null, payload: { name: 'New' } }
+    );
+    expect(
+      planWorkspaceRename(legacy, { name: 'Old', shortName: 'OL' }).payload
+    ).toEqual({ short_name: 'OL' });
   });
 });
 

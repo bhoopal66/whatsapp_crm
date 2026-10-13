@@ -232,6 +232,66 @@ describe('shapeAuditRow', () => {
     }
   });
 
+  it("reads a member joining: the person, their role, a guest's bank and name", () => {
+    expect(
+      shapeAuditRow('workspace', {
+        id: 'w1',
+        actor_id: null,
+        action: 'member_added',
+        target_user_id: B,
+        at: AT,
+        detail: { role: 'bank_guest', name: 'Nadia', bank_code: 'MASHREQ' },
+      })
+    ).toEqual({
+      key: 'workspace:w1',
+      source: 'workspace',
+      at: AT,
+      action: 'member_added',
+      actorId: null,
+      item: { kind: 'person', id: B },
+      reason: null,
+      facts: [
+        { key: 'role', from: null, to: 'bank_guest' },
+        { key: 'bank', value: 'MASHREQ' },
+      ],
+      recordedName: 'Nadia',
+    });
+  });
+
+  it('reads role, bank and name changes; a workspace change has no item', () => {
+    const shape = (action: string, detail: unknown, target: unknown = C) =>
+      shapeAuditRow('workspace', {
+        id: action,
+        actor_id: A,
+        action,
+        target_user_id: target,
+        at: AT,
+        detail,
+      });
+    expect(shape('role_changed', { from: 'agent', to: 'admin' })).toMatchObject(
+      {
+        actorId: A,
+        item: { kind: 'person', id: C },
+        facts: [{ key: 'role', from: 'agent', to: 'admin' }],
+      }
+    );
+    expect(shape('bank_changed', { from: 'ADCB', to: null })?.facts).toEqual([
+      { key: 'change', from: 'ADCB', to: '—' },
+    ]);
+    expect(
+      shape('short_name_changed', { from: null, to: 'TC' }, null)
+    ).toMatchObject({
+      item: null,
+      facts: [{ key: 'change', from: '—', to: 'TC' }],
+    });
+    const off = shape('team_chat_disabled', {}, null);
+    expect(off).toMatchObject({ item: null, facts: [] });
+    expect(off).not.toHaveProperty('recordedName');
+    expect(
+      shape('member_removed', { role: 'agent', name: '  ' })
+    ).not.toHaveProperty('recordedName');
+  });
+
   it('drops a row with no id, time or action, and ignores junk detail', () => {
     expect(shapeAuditRow('phone', { id: 1, action: 'x' })).toBeNull();
     const row = shapeAuditRow('team_chat', {
@@ -368,5 +428,45 @@ describe('naming', () => {
       ['Amina', 'Chen'],
       [null, 'Rashid · +971…'],
     ]);
+  });
+
+  it('names a removed member by the name the row recorded, a profile first', () => {
+    const removed = (actorId: string | null, recordedName?: string) => ({
+      ...row('workspace', `${actorId}:${recordedName}`, AT),
+      action: 'member_removed',
+      actorId,
+      item: { kind: 'person' as const, id: C },
+      ...(recordedName === undefined ? {} : { recordedName }),
+    });
+    const named = nameAuditRows(
+      [
+        removed(A, 'Chen Left'),
+        removed(C, 'Chen Left'),
+        removed(B, 'Chen Left'),
+        removed(A, ' '),
+        removed(A),
+      ],
+      new Map([[A, 'Amina']]),
+      new Map()
+    );
+    expect(named.map((r) => [r.actorName, r.itemLabel])).toEqual([
+      ['Amina', 'Chen Left'],
+      // They left of their own accord: the actor is the person removed.
+      ['Chen Left', 'Chen Left'],
+      // Someone else with no profile here is not given the name.
+      [null, 'Chen Left'],
+      ['Amina', null],
+      ['Amina', null],
+    ]);
+    expect(
+      nameAuditRows(
+        [removed(A, 'Chen Left')],
+        new Map([
+          [A, 'Amina'],
+          [C, 'Chen Back'],
+        ]),
+        new Map()
+      )[0].itemLabel
+    ).toBe('Chen Back');
   });
 });

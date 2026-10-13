@@ -98,6 +98,56 @@ membership and leaves the person's others alone.
 - The login itself is banned (sign-in and token refresh refused) only
   when no active membership remains; then the app signs them out.
 
+## Renaming
+
+An owner or admin renames their active workspace in Settings → Team →
+Workspace, which sends `PATCH /api/account` `{ name?, short_name? }`
+with only the fields that changed: the name, and the short name of 1–4
+letters or digits shown in the sidebar and the switcher.
+The write runs as the caller, so the `accounts_update` policy holds it
+to the workspace's owners and admins; for anyone else nothing changes.
+Before migration 092 the short name could not be saved at all (nor
+Settings → Team chat's on/off switch): the column grant on `accounts`
+predated both columns.
+
+## Audit log
+
+`workspace_audit` (migration 092) records who changed a workspace's
+people and settings. Triggers on `profiles` and `accounts` write it, so
+every writer is covered: the member RPCs, `PATCH /api/account`, the
+service role, a hand-run UPDATE. One row per change:
+
+| action                                      | when                                                           | detail                               |
+| ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------ |
+| `member_added`                              | a membership is created, or moved in from another account      | `role`, `name`, `bank_code` (guests) |
+| `member_removed`                            | a membership is deleted, or moved to another account           | `role`, `name`                       |
+| `role_changed`                              | the role changes (an ownership transfer records both people's) | `from`, `to`                         |
+| `member_deactivated` / `member_reactivated` | deactivation is set or lifted                                  | —                                    |
+| `bank_changed`                              | a guest's bank code changes                                    | `from`, `to`                         |
+| `workspace_renamed` / `short_name_changed`  | the name or short name changes                                 | `from`, `to`                         |
+| `ownership_transferred`                     | `transfer_account_ownership()`; the target is the new owner    | `from_user_id`                       |
+| `team_chat_enabled` / `team_chat_disabled`  | Team chat is switched on or off                                | —                                    |
+
+- **Actor** is the signed-in caller (`auth.uid()`), or empty for the
+  server: the service role, which also provisions new logins
+  (`provision_account_member`), and anything run without a session.
+- **Not recorded:** workspace switches (`is_active`), name, email and
+  avatar edits, and a membership that disappears with its deleted
+  account. A move between accounts (removal from someone's only
+  workspace, an invitation redeemed by a new login) records both sides;
+  when the new login's empty personal account is then deleted, only the
+  joining side remains.
+- **Where:** Settings → Team → Audit log, source _Workspace_, merged
+  with the team chat, recording, phone and deal room logs. An empty
+  actor shows as _System_; a person who has since left the workspace
+  is named by the `name` the row recorded.
+- **Who reads it:** the workspace's live owners and admins, while it is
+  their active workspace. Agents, viewers, bank guests and other
+  workspaces' admins read nothing.
+- **Append-only:** no client, not the service role and not the table
+  owner can change or delete a row (or truncate the table). Rows go
+  only when their workspace is deleted.
+
 ## Migrations
 
 - `082_account_role_bank_guest.sql` adds the `bank_guest` role. Its own
@@ -111,4 +161,9 @@ membership and leaves the person's others alone.
   RPCs (role, deactivation, ownership, removal, invitations,
   provisioning) onto one membership each.
 
-Apply 082, then 083, each in its own run. Both are re-runnable.
+- `092_workspace_audit.sql` adds the audit log above and grants
+  `UPDATE (short_name, internal_chat_enabled)` on `accounts` to signed-in
+  users (the policy still limits the write to admins). Like 087 and 088
+  it must be applied as a superuser or BYPASSRLS role.
+
+Apply 082, then 083, each in its own run. All three are re-runnable.

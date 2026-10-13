@@ -21,11 +21,12 @@ const SELECT =
 
 /**
  * Settings → Audit log (admin+): GET /api/audit's merged list of the
- * team chat, recording, phone and deal room audit tables, newest
- * first, 50 a page, filtered by source, day range and person.
+ * workspace, team chat, recording, phone and deal room audit tables,
+ * newest first, 50 a page, filtered by source, day range and person.
  */
 export function AuditLogPanel() {
   const t = useTranslations('Settings.auditLog');
+  const tRoles = useTranslations('Settings.roles');
   const format = useFormatter();
   const [source, setSource] = useState('all');
   const [from, setFrom] = useState('');
@@ -98,17 +99,30 @@ export function AuditLogPanel() {
       ? t(key as never)
       : r.action.replaceAll('_', ' ');
   };
-  const fact = (f: AuditFact) =>
-    f.key === 'change' || f.key === 'rename'
-      ? t(`facts.${f.key}`, { from: f.from, to: f.to })
-      : f.key === 'topic'
-        ? t('facts.topic', {
-            from: f.from ?? t('facts.noTopic'),
-            to: f.to ?? t('facts.noTopic'),
-          })
-        : f.key === 'number'
-          ? t('facts.number', { value: f.value })
-          : t(`facts.${f.key}`, { count: f.count });
+  const role = (id: string) =>
+    tRoles.has(id as never) ? tRoles(id as never) : id.replaceAll('_', ' ');
+  const fact = (f: AuditFact) => {
+    switch (f.key) {
+      case 'change':
+      case 'rename':
+        return t(`facts.${f.key}`, { from: f.from, to: f.to });
+      case 'topic':
+        return t('facts.topic', {
+          from: f.from ?? t('facts.noTopic'),
+          to: f.to ?? t('facts.noTopic'),
+        });
+      case 'number':
+        return t('facts.number', { value: f.value });
+      case 'bank':
+        return t('facts.bank', { value: f.value });
+      case 'role':
+        return f.from
+          ? t('facts.roleChange', { from: role(f.from), to: role(f.to) })
+          : t('facts.role', { role: role(f.to) });
+      default:
+        return t(`facts.${f.key}`, { count: f.count });
+    }
+  };
 
   return (
     <section className="animate-in fade-in-50 max-w-5xl space-y-5 duration-200">

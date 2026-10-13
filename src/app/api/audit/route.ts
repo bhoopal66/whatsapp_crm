@@ -1,14 +1,16 @@
 // ============================================================
 // GET /api/audit — Settings → Audit log (admin+). Query: source
-// (team_chat | recordings | phone | deal_rooms, default all), from / to
-// (ISO; from inclusive, to exclusive), actor (user id), page (1-20).
-// Answers `{ rows, page, hasMore }`, 50 rows newest first.
+// (workspace | team_chat | recordings | phone | deal_rooms, default
+// all), from / to (ISO; from inclusive, to exclusive), actor (user id),
+// page (1-20). Answers `{ rows, page, hasMore }`, 50 rows newest first.
 //
-// The four tables' SELECT policies already open them to owners and
+// The five tables' SELECT policies already open them to owners and
 // admins of the active account, so everything is read with the caller's
 // own client and filtered to that account. Each source returns its
 // newest page × 50 + 1 rows, which is all a merged page can draw on.
-// Names are cosmetic: a lookup that fails leaves them null.
+// Names are cosmetic: a lookup that fails leaves them null. People are
+// named from this workspace's profiles; someone removed since has none,
+// and a workspace row then falls back to the name it recorded.
 // ============================================================
 
 import { NextResponse } from 'next/server';

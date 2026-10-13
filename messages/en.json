@@ -1522,6 +1522,23 @@
       "aiOn": "Assistant on · auto-reply off",
       "aiAutoReply": "Assistant on · auto-reply on"
     },
+    "workspace": {
+      "title": "Workspace",
+      "description": "This workspace's name, and the short name on its tile in the workspace rail. Everyone in the workspace sees the change.",
+      "nameLabel": "Workspace name",
+      "shortNameLabel": "Short name",
+      "shortNameHint": "Up to 4 letters or digits, shown on the workspace rail.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Workspace updated",
+      "saveFailed": "Couldn't save the workspace",
+      "errors": {
+        "nameRequired": "Give the workspace a name.",
+        "nameTooLong": "Keep the name to {max} characters or fewer.",
+        "shortNameInvalid": "Use 1 to 4 letters or digits."
+      },
+      "loading": "Loading…"
+    },
     "members": {
       "title": "Team members",
       "description": "People with access to this account. Roles control what each teammate can do.",
@@ -2030,6 +2047,7 @@
       "chat-tags": "Chat tags",
       "quick-replies": "Quick replies",
       "fields": "Custom fields",
+      "workspace": "Workspace",
       "members": "Members",
       "teams": "Teams",
       "ai": "AI Agents",
@@ -3118,7 +3136,7 @@
     },
     "auditLog": {
       "title": "Audit log",
-      "description": "Who did what, newest first: private team chat reads and erasures, recording plays and downloads, do-not-contact overrides and call erasures, and deal room changes.",
+      "description": "Who did what, newest first: membership and workspace changes, private team chat reads and erasures, recording plays and downloads, do-not-contact overrides and call erasures, and deal room changes.",
       "filters": {
         "source": "Source",
         "all": "All sources",
@@ -3128,6 +3146,7 @@
         "anyone": "Anyone"
       },
       "sources": {
+        "workspace": "Workspace",
         "team_chat": "Team chat",
         "recordings": "Recordings",
         "phone": "Phone",
@@ -3143,6 +3162,19 @@
         "deal_room": "Deal room"
       },
       "actions": {
+        "workspace": {
+          "member_added": "Added a member",
+          "member_removed": "Removed a member",
+          "role_changed": "Changed a role",
+          "member_deactivated": "Deactivated a member",
+          "member_reactivated": "Reactivated a member",
+          "bank_changed": "Changed a bank guest's bank",
+          "workspace_renamed": "Renamed the workspace",
+          "short_name_changed": "Changed the short name",
+          "ownership_transferred": "Transferred ownership",
+          "team_chat_enabled": "Turned team chat on",
+          "team_chat_disabled": "Turned team chat off"
+        },
         "team_chat": {
           "admin_read_private": "Read a private channel",
           "erase_person": "Erased a person's messages",
@@ -3186,7 +3218,10 @@
         "rename": "Name: {from} → {to}",
         "topic": "Topic: {from} → {to}",
         "noTopic": "none",
-        "number": "Number {value}"
+        "number": "Number {value}",
+        "role": "Role {role}",
+        "roleChange": "Role {from} → {to}",
+        "bank": "Bank {value}"
       },
       "reason": "Reason: {reason}",
       "loading": "Loading…",

@@ -1,6 +1,7 @@
 import {
   Blocks,
   Bot,
+  Building2,
   CircleDollarSign,
   Coins,
   FileText,
@@ -56,6 +57,7 @@ export const SETTINGS_SECTIONS = [
   'quick-replies',
   'fields',
   'journey-bot',
+  'workspace',
   'members',
   'teams',
   'team-chat',
@@ -178,6 +180,14 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'inbox',
     minRole: 'admin',
   },
+  // The workspace's name and its rail tile's short name (PATCH
+  // /api/account, admin+), first in Team: the workspace the team is.
+  workspace: {
+    id: 'workspace',
+    icon: Building2,
+    category: 'team',
+    minRole: 'admin',
+  },
   members: {
     id: 'members',
     icon: UsersRound,
@@ -203,8 +213,9 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'team',
     minRole: 'admin',
   },
-  // One newest-first list over 087-089's four audit tables, each of
-  // which RLS opens to admins of the active account (GET /api/audit).
+  // One newest-first list over the five audit tables of 087-089 and 092,
+  // each of which RLS opens to admins of the active account (GET
+  // /api/audit).
   'audit-log': {
     id: 'audit-log',
     icon: ScrollText,

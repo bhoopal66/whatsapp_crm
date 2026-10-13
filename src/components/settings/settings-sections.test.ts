@@ -33,6 +33,7 @@ const ADMIN_ONLY: SettingsSection[] = [
   'quick-replies',
   'fields',
   'journey-bot',
+  'workspace',
   'members',
   'teams',
   'team-chat',
@@ -116,7 +117,14 @@ describe('categories', () => {
         'costs',
       ],
       inbox: ['chat-tags', 'quick-replies', 'fields', 'journey-bot'],
-      team: ['members', 'teams', 'team-chat', 'consent-retention', 'audit-log'],
+      team: [
+        'workspace',
+        'members',
+        'teams',
+        'team-chat',
+        'consent-retention',
+        'audit-log',
+      ],
       ai: ['ai'],
       integrations: ['api', 'deals', 'phone-system'],
     });

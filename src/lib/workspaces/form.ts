@@ -57,6 +57,49 @@ export function shortNameError(shortName: string): ShortNameError | null {
   return SHORT_NAME_PATTERN.test(shortName.trim()) ? null : 'shortNameInvalid';
 }
 
+/** PATCH /api/account: only the fields that change. */
+export interface WorkspaceRenamePayload {
+  name?: string;
+  short_name?: string;
+}
+
+export interface WorkspaceRenamePlan {
+  nameError: WorkspaceNameError | null;
+  shortNameError: ShortNameError | null;
+  /** What Save sends; null while nothing changed or a field is wrong. */
+  payload: WorkspaceRenamePayload | null;
+}
+
+/**
+ * Settings → Workspace: what Save would send for `draft` over `saved`.
+ * Values are compared trimmed, so stray spaces are not a change, and
+ * only a changed field is checked: a workspace whose saved short name is
+ * missing can still be renamed. The short name keeps the case typed,
+ * as create_workspace() does.
+ */
+export function planWorkspaceRename(
+  saved: { name: string; shortName: string | null },
+  draft: { name: string; shortName: string }
+): WorkspaceRenamePlan {
+  const name = draft.name.trim();
+  const shortName = draft.shortName.trim();
+  const nameChanged = name !== saved.name.trim();
+  const shortChanged = shortName !== (saved.shortName ?? '').trim();
+  const nameError = nameChanged ? workspaceNameError(name) : null;
+  const shortError = shortChanged ? shortNameError(shortName) : null;
+  const payload: WorkspaceRenamePayload = {};
+  if (nameChanged) payload.name = name;
+  if (shortChanged) payload.short_name = shortName;
+  return {
+    nameError,
+    shortNameError: shortError,
+    payload:
+      (nameChanged || shortChanged) && !nameError && !shortError
+        ? payload
+        : null,
+  };
+}
+
 /** One row of the dialog's "Invite people" list. */
 export interface InviteRow {
   /** Local key for React; never sent. */
