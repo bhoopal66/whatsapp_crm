@@ -23,7 +23,9 @@ import {
   initialOf,
   isChatPath,
   presenceDot,
+  muteAction,
   roleLabelKey,
+  sidebarRowEmphasis,
   sidebarSections,
   totalUnread,
   UI_ERROR_KEYS,
@@ -181,6 +183,78 @@ describe('sidebarSections', () => {
         { channelId: 'b', unread: 5, mentions: 1, muted: false },
       ])
     ).toBe(7);
+  });
+  it('marks a row muted from the membership, else from the counts', () => {
+    const muted = (id: string) => ({
+      membership: { ...ch(id, 'team', id).membership!, muted: true },
+    });
+    const s = sidebarSections(
+      [
+        ch('t1', 'team', 'a', muted('t1')),
+        // A stale count must not override the reloaded membership row.
+        ch('t2', 'team', 'b'),
+        ch('t3', 'team', 'c', { membership: null }),
+        ch('m1', 'dm', null, { dmMemberIds: [ME, BO], ...muted('m1') }),
+      ],
+      [
+        { channelId: 't2', unread: 1, mentions: 0, muted: true },
+        { channelId: 't3', unread: 0, mentions: 0, muted: true },
+      ],
+      ME,
+      people,
+      '?'
+    );
+    expect(s.team.map((r) => [r.channel.id, r.muted])).toEqual([
+      ['t1', true],
+      ['t2', false],
+      ['t3', true],
+    ]);
+    expect(s.dms[0].muted).toBe(true);
+  });
+  it('sidebarRowEmphasis: a muted row is dimmed, never bold, and keeps its mentions pill', () => {
+    const row = (unread: number, mentions: number, muted: boolean) => ({
+      unread,
+      mentions,
+      muted,
+    });
+    expect(sidebarRowEmphasis(row(4, 0, false), false)).toEqual({
+      bold: true,
+      dimmed: false,
+      badge: { kind: 'unread', count: 4 },
+    });
+    expect(sidebarRowEmphasis(row(4, 2, false), false)).toEqual({
+      bold: true,
+      dimmed: false,
+      badge: { kind: 'mentions', count: 2 },
+    });
+    expect(sidebarRowEmphasis(row(4, 0, true), false)).toEqual({
+      bold: false,
+      dimmed: true,
+      badge: { kind: 'unread', count: 4 },
+    });
+    expect(sidebarRowEmphasis(row(0, 0, true), false)).toEqual({
+      bold: false,
+      dimmed: true,
+      badge: null,
+    });
+    expect(sidebarRowEmphasis(row(4, 1, true), false)).toEqual({
+      bold: false,
+      dimmed: true,
+      badge: { kind: 'mentions', count: 1 },
+    });
+    // The open channel shows no count, muted or not.
+    for (const muted of [false, true])
+      expect(sidebarRowEmphasis(row(4, 1, muted), true)).toEqual({
+        bold: false,
+        dimmed: false,
+        badge: null,
+      });
+  });
+  it('muteAction: a member mutes or unmutes; a non-member gets nothing', () => {
+    expect(muteAction({ muted: false })).toBe('mute');
+    expect(muteAction({ muted: true })).toBe('unmute');
+    expect(muteAction(null)).toBeNull();
+    expect(muteAction(undefined)).toBeNull();
   });
   it('totalUnread counts a muted channel by its mentions only, as the rail does', () => {
     expect(

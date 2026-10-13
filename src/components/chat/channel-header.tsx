@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import {
   ArrowLeft,
+  BellOff,
   Hash,
   Lock,
   MessageCircle,
@@ -39,6 +40,7 @@ export function ChannelHeader({
 }: ChannelHeaderProps) {
   const t = useTranslations('Chat.channel');
   const tSettings = useTranslations('Chat.settings');
+  const tMute = useTranslations('Chat.mute');
   const kind = channel.kind;
   const Icon =
     kind === 'private'
@@ -71,6 +73,15 @@ export function ChannelHeader({
         {channel.archivedAt && (
           <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold">
             {tSettings('archivedBadge')}
+          </span>
+        )}
+        {channel.membership?.muted && (
+          <span
+            className="text-muted-foreground shrink-0"
+            title={tMute('label')}
+          >
+            <BellOff className="size-3.5" aria-hidden />
+            <span className="sr-only">{tMute('label')}</span>
           </span>
         )}
         <div className="ml-auto">

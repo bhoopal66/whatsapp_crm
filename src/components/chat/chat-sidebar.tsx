@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   Archive,
+  BellOff,
   Bookmark,
   ChevronDown,
   ChevronRight,
@@ -27,6 +28,7 @@ import {
   dmOthers,
   inboxRows,
   presenceDot,
+  sidebarRowEmphasis,
   sidebarSections,
   type SidebarChannelRow,
 } from '@/lib/chat/view';
@@ -108,7 +110,7 @@ export function ChatSidebar({
 
   const channelRow = (r: SidebarChannelRow) => {
     const active = r.channel.id === activeChannelId;
-    const bold = r.unread > 0 && !active;
+    const e = sidebarRowEmphasis(r, active);
     let icon: React.ReactNode;
     if (r.channel.kind === 'dm') {
       const dots = dmOthers(r.channel.dmMemberIds, ws.userId ?? '').map((id) =>
@@ -133,20 +135,34 @@ export function ChatSidebar({
             ROW,
             active &&
               'bg-[#0E7C5A] font-semibold text-white hover:bg-[#0E7C5A]',
-            bold && 'font-semibold text-white'
+            e.bold && 'font-semibold text-white',
+            e.dimmed && 'text-white/40'
           )}
         >
           {icon}
           <span className="min-w-0 flex-1 truncate">{r.name}</span>
-          {r.mentions > 0 && !active ? (
+          {r.muted && (
+            <span className="shrink-0" title={t('mute.label')}>
+              <BellOff className="size-3 opacity-70" aria-hidden />
+              <span className="sr-only">{t('mute.label')}</span>
+            </span>
+          )}
+          {e.badge?.kind === 'mentions' ? (
             <span
               className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold text-black"
-              aria-label={t('mentions', { count: r.mentions })}
+              aria-label={t('mentions', { count: e.badge.count })}
             >
-              {r.mentions}
+              {e.badge.count}
             </span>
-          ) : bold ? (
-            <span className="text-xs text-white/70">{r.unread}</span>
+          ) : e.badge ? (
+            <span
+              className={cn(
+                'text-xs',
+                e.dimmed ? 'text-white/40' : 'text-white/70'
+              )}
+            >
+              {e.badge.count}
+            </span>
           ) : null}
         </Link>
       </li>

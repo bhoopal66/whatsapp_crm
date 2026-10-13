@@ -4312,6 +4312,13 @@
         "archived": "This channel is archived. Unarchive it first.",
         "unarchiveNameTaken": "Another channel now has this name. Rename that one first, then unarchive this one."
       }
+    },
+    "mute": {
+      "mute": "{kind, select, dm {Mute conversation} other {Mute channel}}",
+      "unmute": "{kind, select, dm {Unmute conversation} other {Unmute channel}}",
+      "muted": "Muted. You'll still be notified when someone @mentions you.",
+      "unmuted": "Notifications are back on.",
+      "label": "Muted"
     }
   },
   "Workspaces": {

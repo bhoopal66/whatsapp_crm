@@ -73,6 +73,7 @@ asserted by `supabase/ci/verify-internal-chat.sql` and
   and rejoins by posting.
 - **Mute** is each person's own switch, on any channel they are in,
   DMs and deal rooms included, bank guests too (see _Notifications_).
+  It is in the menu of the channel header (the gear).
 
 ## Who sees what, by role
 
@@ -211,8 +212,9 @@ characters of the message and mentions shown as `@Name`.
 - **Muted** channels and DMs ring only for a direct `@mention`: a muted
   member gets no `chat_broadcast`, `chat_thread_reply` or `chat_dm`. A
   muted channel still shows its unread count in the channel list
-  (`chat_unread_counts` returns `muted`), but the workspace rail badge
-  (`chat_workspace_badges`) leaves its plain unread out; its mentions
+  (`chat_unread_counts` returns `muted`), dimmed and marked muted, but
+  the workspace rail badge (`chat_workspace_badges`) and the main
+  navigation's Team chat badge leave its plain unread out; its mentions
   still count.
 - Editing a message rebuilds the bell text from the new text. Deleting
   it removes the bell rows. A failure to write a bell row never blocks

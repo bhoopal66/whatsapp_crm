@@ -17,6 +17,7 @@ import { ChatError, type ChatErrorKey } from './errors';
 import type {
   Channel,
   ChannelKind,
+  ChannelMember,
   ChannelRole,
   ChannelWithMembership,
   ChatPerson,
@@ -127,6 +128,8 @@ export interface SidebarChannelRow {
   name: string;
   unread: number;
   mentions: number;
+  /** Muted by the viewer (091): dimmed, and only mentions stand out. */
+  muted: boolean;
 }
 
 export interface SidebarSections {
@@ -180,6 +183,11 @@ export function sidebarSections(
       name: channelDisplayName(channel, viewerId, people, unknownName),
       unread: c?.unread ?? 0,
       mentions: c?.mentions ?? 0,
+      // The membership row is reloaded on every mute; the counts (which
+      // leave archived channels out) only fill in where it is missing.
+      muted: channel.membership
+        ? channel.membership.muted
+        : (c?.muted ?? false),
     });
   }
   out.team.sort(byName);
@@ -187,6 +195,50 @@ export function sidebarSections(
   out.dms.sort(byName);
   out.archived.sort(byName);
   return out;
+}
+
+export interface RowEmphasis {
+  /** Bold name: unread messages in a channel that is not muted. */
+  bold: boolean;
+  /** Greyed out: a muted channel, unless it is the open one. */
+  dimmed: boolean;
+  /** The mentions pill, else the plain unread count, else nothing. */
+  badge: { kind: 'mentions' | 'unread'; count: number } | null;
+}
+
+/**
+ * How a sidebar row stands out. The open channel shows no count. A
+ * muted one (091) is dimmed and never bold, its unread count as quiet
+ * as the row; its mentions pill stays as it is, since a direct @mention
+ * still rings when muted.
+ */
+export function sidebarRowEmphasis(
+  r: Pick<SidebarChannelRow, 'unread' | 'mentions' | 'muted'>,
+  active: boolean
+): RowEmphasis {
+  if (active) return { bold: false, dimmed: false, badge: null };
+  return {
+    bold: !r.muted && r.unread > 0,
+    dimmed: r.muted,
+    badge:
+      r.mentions > 0
+        ? { kind: 'mentions', count: r.mentions }
+        : r.unread > 0
+          ? { kind: 'unread', count: r.unread }
+          : null,
+  };
+}
+
+/**
+ * The header's Mute / Unmute (chat_set_muted, 091): the viewer's own
+ * switch, offered on any channel they belong to, DMs, deal rooms and
+ * archived channels included, bank guests too; nothing to a non-member.
+ */
+export function muteAction(
+  membership: Pick<ChannelMember, 'muted'> | null | undefined
+): 'mute' | 'unmute' | null {
+  if (!membership) return null;
+  return membership.muted ? 'unmute' : 'mute';
 }
 
 // ---------- channel settings (091) ----------

@@ -2,7 +2,14 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Archive, ArchiveRestore, Pencil, Settings } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Bell,
+  BellOff,
+  Pencil,
+  Settings,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -18,6 +25,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -26,6 +34,7 @@ import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import {
   setChannelArchived,
+  setMuted,
   updateChannel,
   type ChannelWithMembership,
 } from '@/lib/chat';
@@ -38,16 +47,19 @@ import {
   channelAdminErrorKey,
   channelEditInput,
   channelSettingsActions,
+  chatErrorKey,
+  muteAction,
 } from '@/lib/chat/view';
 
 import { useChatWorkspaceContext } from './chat-context';
 import { GREEN_BUTTON } from './dm-picker';
 
 /**
- * The channel header's settings (091): rename and re-topic, archive and
- * unarchive, each offered only where channelSettingsActions allows; the
- * database decides. A write reloads the channel list here, and realtime
- * reloads everyone else's.
+ * The channel header's settings (091): the viewer's own Mute / Unmute on
+ * any channel or DM they belong to (muteAction), then rename and
+ * re-topic, archive and unarchive, each offered only where
+ * channelSettingsActions allows; the database decides. A write reloads
+ * the channel list here, and realtime reloads everyone else's.
  */
 export function ChannelSettingsMenu({
   channel,
@@ -67,7 +79,20 @@ export function ChannelSettingsMenu({
     myRole: channel.membership?.role ?? null,
     accountRole,
   });
-  if (!can.edit && !can.archive && !can.unarchive) return null;
+  const mute = muteAction(channel.membership);
+  const manages = can.edit || can.archive || can.unarchive;
+  if (!manages && !mute) return null;
+
+  const toggleMute = async (muted: boolean) => {
+    try {
+      await setMuted(ws.sb, channel.id, muted);
+      toast.success(t(muted ? 'mute.muted' : 'mute.unmuted'));
+      // The row's switch and the counts; realtime catches up the rest.
+      await Promise.all([ws.reloadChannels(), ws.refreshUnread()]);
+    } catch (err) {
+      toast.error(t(`errors.${chatErrorKey(err)}`));
+    }
+  };
 
   const setArchived = async (archived: boolean) => {
     setConfirm(null);
@@ -93,6 +118,13 @@ export function ChannelSettingsMenu({
           <Settings className="size-4" aria-hidden />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-52">
+          {mute && (
+            <DropdownMenuItem onClick={() => void toggleMute(mute === 'mute')}>
+              {mute === 'mute' ? <BellOff aria-hidden /> : <Bell aria-hidden />}
+              {t(`mute.${mute}`, { kind: channel.kind })}
+            </DropdownMenuItem>
+          )}
+          {mute && manages && <DropdownMenuSeparator />}
           {can.edit && (
             <DropdownMenuItem onClick={() => setEditing(true)}>
               <Pencil aria-hidden />
