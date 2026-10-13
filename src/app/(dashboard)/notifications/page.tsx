@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import type { Notification } from "@/types";
@@ -27,7 +28,10 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { notificationTarget } from "@/lib/notifications/target";
+import {
+  notificationRow,
+  type NotificationRowPlan,
+} from "@/lib/notifications/target";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -60,20 +64,33 @@ const FULL_BODY: ReadonlySet<Notification["type"]> = new Set([
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const { accountId, accountRole } = useAuth();
+  const tSidebar = useTranslations("Sidebar");
+  const tBell = useTranslations("Workspaces.bell");
+  const {
+    accountId,
+    accountRole,
+    activeWorkspaceId,
+    workspaces,
+    switchWorkspace,
+  } = useAuth();
   const [notifications, setNotifications] = useState<Notification[] | null>(
     null,
   );
   const [error, setError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
+  // A switch to another workspace is in flight (it ends in a page load).
+  const switchingRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     const supabase = createClient();
+    // Every workspace's rows, as the badge counts them: RLS shows the
+    // reader's rows in each workspace where they are live (083's
+    // my_live_account_ids()), so this list, "Mark all as read" and the
+    // realtime handler below all cover the same rows.
     const { data, error: fetchErr } = await supabase
       .from("notifications")
       .select("*")
-      .eq("account_id", accountId)
       .order("created_at", { ascending: false })
       .limit(100);
     if (fetchErr) {
@@ -152,14 +169,33 @@ export default function NotificationsPage() {
     [load],
   );
 
+  // Every type's screen, gated by the reader's role in the row's own
+  // workspace: notificationRow in lib/notifications/target.ts.
   const handleClick = useCallback(
-    (n: Notification) => {
-      if (!n.read_at) markRead(n.id);
-      // Every type's screen, gated by role: lib/notifications/target.ts.
-      const href = notificationTarget(n, accountRole);
-      if (href) router.push(href);
+    async (n: Notification, plan: NotificationRowPlan) => {
+      const { href, otherWorkspace } = plan;
+      if (!otherWorkspace || !href) {
+        if (!n.read_at) markRead(n.id);
+        if (href) router.push(href);
+        return;
+      }
+      if (switchingRef.current) return;
+      switchingRef.current = true;
+      // The switch is a full page load, which would cut the read short.
+      if (!n.read_at) await markRead(n.id);
+      try {
+        // Resolves into a page load, so the flag is never reset on success.
+        await switchWorkspace(otherWorkspace.accountId, href);
+      } catch (err) {
+        switchingRef.current = false;
+        toast.error(
+          tSidebar("workspaceSwitchFailed", {
+            reason: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
     },
-    [markRead, router, accountRole],
+    [markRead, router, switchWorkspace, tSidebar],
   );
 
   const unreadIds = notifications?.filter((n) => !n.read_at).map((n) => n.id) ?? [];
@@ -245,11 +281,19 @@ export default function NotificationsPage() {
           {notifications.map((n) => {
             const Icon = TYPE_ICON[n.type] ?? Bell;
             const isUnread = !n.read_at;
+            const plan = notificationRow(n, {
+              activeWorkspaceId,
+              activeRole: accountRole,
+              workspaces,
+            });
+            const workspaceName = plan.otherWorkspace
+              ? (plan.otherWorkspace.name ?? tBell("unknown"))
+              : null;
             return (
               <li key={n.id}>
                 <button
                   type="button"
-                  onClick={() => handleClick(n)}
+                  onClick={() => void handleClick(n, plan)}
                   className={cn(
                     "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors",
                     isUnread
@@ -281,6 +325,14 @@ export default function NotificationsPage() {
                       >
                         {n.title}
                       </span>
+                      {workspaceName && (
+                        <span
+                          title={tBell("switchHint", { name: workspaceName })}
+                          className="max-w-40 flex-shrink-0 truncate rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                        >
+                          {workspaceName}
+                        </span>
+                      )}
                       {isUnread && (
                         <span
                           aria-label="Unread"

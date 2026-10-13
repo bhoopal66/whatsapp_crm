@@ -36,13 +36,14 @@ import {
   isBankGuest,
   type AccountRole,
 } from '@/lib/auth/roles';
-import { isGuestPath } from '@/lib/auth/my-workspaces';
+import { isGuestPath, type Workspace } from '@/lib/auth/my-workspaces';
 import { chatNotificationHref } from '@/lib/chat/notification-link';
 import { isUuid } from '@/lib/chat/mentions';
 
 /** The columns of a `notifications` row this reads. */
 export interface NotificationTargetRow {
   type: unknown;
+  account_id?: unknown;
   conversation_id?: unknown;
   contact_id?: unknown;
   meta?: unknown;
@@ -102,4 +103,63 @@ export function notificationTarget(
   if (!href) return null;
   if (isBankGuest(role) && !isGuestPath(href.split('?')[0])) return null;
   return href;
+}
+
+/** Where the reader is working, as the bell page knows it. */
+export interface BellContext {
+  activeWorkspaceId: string | null;
+  /** The reader's role in the active workspace. */
+  activeRole: AccountRole | null | undefined;
+  /** Every workspace the reader belongs to (`my_workspaces()`). */
+  workspaces: readonly Pick<
+    Workspace,
+    'accountId' | 'name' | 'shortName' | 'role'
+  >[];
+}
+
+/** How the bell page shows and opens one row. */
+export interface NotificationRowPlan {
+  /** Where a click goes, or null to open nothing (it is still marked read). */
+  href: string | null;
+  /**
+   * Set for a row of another of the reader's workspaces, which the bell
+   * lists too (083's `my_live_account_ids()`): the row is labelled with
+   * that workspace, and opening it switches there first. `name` is null
+   * when the reader's workspace list does not have it (still loading, or
+   * joined since the page loaded).
+   */
+  otherWorkspace: { accountId: string; name: string | null } | null;
+}
+
+/**
+ * Plan one bell row. Its screen is chosen with the reader's role in the
+ * row's OWN workspace: an admin there may be an agent here, and the
+ * screen opens there, after the switch. A row is another workspace's
+ * only when both ids are known and differ, so a row read before the
+ * active workspace is known opens in place, as every row did before.
+ */
+export function notificationRow(
+  n: NotificationTargetRow,
+  ctx: BellContext
+): NotificationRowPlan {
+  const rowAccount =
+    typeof n.account_id === 'string' && n.account_id ? n.account_id : null;
+  if (
+    !rowAccount ||
+    !ctx.activeWorkspaceId ||
+    rowAccount === ctx.activeWorkspaceId
+  ) {
+    return {
+      href: notificationTarget(n, ctx.activeRole),
+      otherWorkspace: null,
+    };
+  }
+  const workspace = ctx.workspaces.find((w) => w.accountId === rowAccount);
+  return {
+    href: notificationTarget(n, workspace?.role ?? null),
+    otherWorkspace: {
+      accountId: rowAccount,
+      name: workspace ? workspace.name || workspace.shortName || null : null,
+    },
+  };
 }

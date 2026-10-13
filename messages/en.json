@@ -4271,6 +4271,10 @@
       "mentions": "{count, plural, one {# mention} other {# mentions}}",
       "unread": "Unread messages"
     },
+    "bell": {
+      "unknown": "Another workspace",
+      "switchHint": "From {name}. Opening it switches to that workspace."
+    },
     "create": {
       "title": "Create a workspace",
       "description": "A workspace is one business. Its contacts, chats, channels and permissions are kept apart from every other workspace.",

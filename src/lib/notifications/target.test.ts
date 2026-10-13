@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { notificationTarget } from './target';
+import {
+  notificationRow,
+  notificationTarget,
+  type BellContext,
+} from './target';
 
 const CONV = '11111111-1111-4111-8111-111111111111';
 const CONTACT = '22222222-2222-4222-8222-222222222222';
@@ -176,5 +180,113 @@ describe('notificationTarget', () => {
       )
     ).toBeNull();
     expect(notificationTarget({ type: undefined }, 'owner')).toBeNull();
+  });
+});
+
+describe('notificationRow', () => {
+  const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const G = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const UNLISTED = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  // An agent in A (active), an admin in B, a bank guest in G.
+  const ctx: BellContext = {
+    activeWorkspaceId: A,
+    activeRole: 'agent',
+    workspaces: [
+      { accountId: A, name: 'Taamul Credit', shortName: 'TC', role: 'agent' },
+      { accountId: B, name: 'TrafeeqPay', shortName: 'TP', role: 'admin' },
+      { accountId: G, name: '', shortName: 'BK', role: 'bank_guest' },
+    ],
+  };
+  const alert = { type: 'channel_disconnected' };
+
+  it('opens an active-workspace row in place, with the active role', () => {
+    expect(notificationRow({ ...alert, account_id: A }, ctx)).toEqual({
+      href: null,
+      otherWorkspace: null,
+    });
+    expect(
+      notificationRow(
+        { type: 'conversation_assigned', account_id: A, conversation_id: CONV },
+        ctx
+      )
+    ).toEqual({ href: `/inbox?c=${CONV}`, otherWorkspace: null });
+  });
+
+  it("plans another workspace's row with the role held there", () => {
+    expect(notificationRow({ ...alert, account_id: B }, ctx)).toEqual({
+      href: '/settings?tab=whatsapp',
+      otherWorkspace: { accountId: B, name: 'TrafeeqPay' },
+    });
+    // Admin here, agent there: the settings screen is not theirs there.
+    const admin: BellContext = {
+      ...ctx,
+      activeRole: 'admin',
+      workspaces: [
+        { accountId: A, name: 'Taamul Credit', shortName: 'TC', role: 'admin' },
+        { accountId: B, name: 'TrafeeqPay', shortName: 'TP', role: 'agent' },
+      ],
+    };
+    expect(notificationRow({ ...alert, account_id: A }, admin).href).toBe(
+      '/settings?tab=whatsapp'
+    );
+    expect(notificationRow({ ...alert, account_id: B }, admin)).toEqual({
+      href: null,
+      otherWorkspace: { accountId: B, name: 'TrafeeqPay' },
+    });
+  });
+
+  it('sends a bank guest only to team chat in their workspace', () => {
+    expect(
+      notificationRow(
+        {
+          type: 'chat_mention',
+          account_id: G,
+          meta: { channel_id: CH, message_id: ROW },
+        },
+        ctx
+      )
+    ).toEqual({
+      href: `/chat/${CH}`,
+      otherWorkspace: { accountId: G, name: 'BK' },
+    });
+    expect(
+      notificationRow(
+        { type: 'conversation_assigned', account_id: G, conversation_id: CONV },
+        ctx
+      )
+    ).toEqual({
+      href: null,
+      otherWorkspace: { accountId: G, name: 'BK' },
+    });
+  });
+
+  it('labels an unlisted workspace without a name and no role', () => {
+    expect(notificationRow({ ...alert, account_id: UNLISTED }, ctx)).toEqual({
+      href: null,
+      otherWorkspace: { accountId: UNLISTED, name: null },
+    });
+    expect(
+      notificationRow(
+        {
+          type: 'conversation_assigned',
+          account_id: UNLISTED,
+          conversation_id: CONV,
+        },
+        ctx
+      ).href
+    ).toBe(`/inbox?c=${CONV}`);
+  });
+
+  it('opens in place while either workspace id is unknown', () => {
+    const loading: BellContext = { ...ctx, activeWorkspaceId: null };
+    expect(notificationRow({ ...alert, account_id: B }, loading)).toEqual({
+      href: null,
+      otherWorkspace: null,
+    });
+    expect(notificationRow({ ...alert, account_id: null }, ctx)).toEqual({
+      href: null,
+      otherWorkspace: null,
+    });
   });
 });
