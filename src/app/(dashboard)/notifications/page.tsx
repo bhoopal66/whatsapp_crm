@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { chatNotificationHref } from "@/lib/chat/notification-link";
+import { notificationTarget } from "@/lib/notifications/target";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -46,7 +46,7 @@ const FULL_BODY: ReadonlySet<Notification["type"]> = new Set([
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const { accountId, canEditSettings } = useAuth();
+  const { accountId, accountRole } = useAuth();
   const [notifications, setNotifications] = useState<Notification[] | null>(
     null,
   );
@@ -141,19 +141,11 @@ export default function NotificationsPage() {
   const handleClick = useCallback(
     (n: Notification) => {
       if (!n.read_at) markRead(n.id);
-      // Team chat (087): the channel, or the thread for a reply.
-      const chatHref = chatNotificationHref(n.type, n.meta);
-      if (chatHref) {
-        router.push(chatHref);
-      } else if (n.conversation_id) {
-        router.push(`/inbox?c=${n.conversation_id}`);
-      } else if (n.type === "team_activity_alert" && canEditSettings) {
-        // Only admins can open Team activity; the person over the
-        // limit has the whole message here already.
-        router.push("/team-activity");
-      }
+      // Every type's screen, gated by role: lib/notifications/target.ts.
+      const href = notificationTarget(n, accountRole);
+      if (href) router.push(href);
     },
-    [markRead, router, canEditSettings],
+    [markRead, router, accountRole],
   );
 
   const unreadIds = notifications?.filter((n) => !n.read_at).map((n) => n.id) ?? [];
