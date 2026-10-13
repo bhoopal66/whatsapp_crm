@@ -519,7 +519,8 @@ everything else.
   `category` and `recipients_billed` (billable deliveries so far),
   including receipts that arrived before that row was written (it is
   written once Meta has answered the send). A receipt that names no
-  member is recorded uncosted.
+  member is recorded uncosted, except a delivery, which is refused:
+  it cannot be priced at a market nobody is in.
 
 ## Edge security
 

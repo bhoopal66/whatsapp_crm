@@ -83,6 +83,8 @@ function fakeDb(
       'update',
       'is',
       'in',
+      'like',
+      'order',
     ]) {
       builder[m] = (...a: unknown[]) => (entry.ops.push([m, ...a]), builder);
     }
@@ -708,6 +710,67 @@ describe('group messages and receipts', () => {
       { wa_id: '971501234567', opted_out: true, contact_found: true },
       { wa_id: '971501234567', opted_out: false, contact_found: false },
     ]);
+  });
+
+  it('opts out a STOP sender whose contact was saved in a local form', async () => {
+    const { db } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: null,
+        // Not one of the number's international forms, so only the
+        // last-8-digits fallback finds it.
+        contacts: [
+          {
+            id: 'contact-local',
+            phone: '050 123 4567',
+            phone_normalized: '0501234567',
+          },
+        ],
+      },
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.10',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    expect(markOptedOut).toHaveBeenCalledWith(db, {
+      accountId: 'acct-1',
+      contactId: 'contact-local',
+    });
+  });
+
+  it('says in the transcript when removing a STOP sender failed', async () => {
+    const { db, rpc } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+      },
+    });
+    removeParticipants.mockRejectedValueOnce(new Error('group suspended'));
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.11',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    const bodies = rpc.mock.calls
+      .filter((c) => c[0] === 'deal_room_record_message')
+      .map((c) => (c as unknown as [string, { p_body: string }])[1].p_body);
+    expect(bodies).toContain(
+      '+971501234567 asked to stop; removing them from the group failed.'
+    );
+    expect(bodies.some((b) => b.includes('was removed'))).toBe(false);
   });
 
   it('records a STOP before removing the person, so the removal adds no second note', async () => {

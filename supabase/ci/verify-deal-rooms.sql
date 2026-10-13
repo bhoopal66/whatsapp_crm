@@ -1179,7 +1179,7 @@ BEGIN
      OR (SELECT string_agg(m.body, ' | ' ORDER BY m.body)
            FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
           WHERE d.id = r_y AND m.meta->>'deal_room_event' IN ('participant_opted_out', 'participant_removed'))
-        IS DISTINCT FROM '**Unlisted number ending 55** wrote STOP and is removed from the WhatsApp group; '
+        IS DISTINCT FROM '**Unlisted number ending 55** wrote STOP and is being removed from the WhatsApp group; '
                          || 'their contact could not be marked opted out. | '
                          || '**Unlisted number ending 57** was removed from the WhatsApp group.' THEN
     failed := array_append(failed, ('a STOP and the removal it made did not post one true note: '

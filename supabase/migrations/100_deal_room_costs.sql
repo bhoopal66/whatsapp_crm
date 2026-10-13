@@ -520,7 +520,7 @@ BEGIN
       WHEN NEW.action = 'join_request' AND NEW.detail->>'decision' = 'pending' AND v_r.status = 'open'
         THEN '**' || v_who || '** asked to join the WhatsApp group. A manager approves or rejects it in the room.'
       WHEN NEW.action = 'participant_opted_out'
-        THEN '**' || v_who || '** wrote STOP and is removed from the WhatsApp group'
+        THEN '**' || v_who || '** wrote STOP and is being removed from the WhatsApp group'
              || CASE WHEN NEW.detail->'opted_out' = 'true'::jsonb THEN '; their contact is marked opted out.'
                      WHEN NEW.detail->'contact_found' = 'true'::jsonb
                        THEN '; their contact could not be marked opted out.'

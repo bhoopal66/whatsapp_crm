@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { markOptedOut } from '@/lib/ai/opt-out';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api';
 import { MetaError } from '@/lib/whatsapp/meta-api';
+import { findExistingContact } from '@/lib/contacts/dedupe';
 import { phoneVariants } from '@/lib/whatsapp/phone-utils';
 import {
   approveJoinRequests,
@@ -662,6 +663,11 @@ export async function handleGroupWebhook(
       if (error)
         console.error('[deal-rooms] opt-out contact lookup failed:', error);
       contactId = pickContactByPhone(rows, variants);
+      // Saved in a local form ("0501234567"): the inbound pipeline's
+      // own rule, a last-8-digits match with the exact form first.
+      if (!contactId && !error)
+        contactId =
+          (await findExistingContact(db, accountId, waId))?.id ?? null;
     }
     // markOptedOut answers false for a failed write and for a contact
     // stamped before alike; only the stamp itself tells them apart.
@@ -687,6 +693,7 @@ export async function handleGroupWebhook(
       });
       if (error) console.error('[deal-rooms] opt-out record failed:', error);
     }
+    let removed = true;
     try {
       await removeParticipants({
         groupId,
@@ -694,6 +701,7 @@ export async function handleGroupWebhook(
         participants: [waId],
       });
     } catch (err) {
+      removed = false;
       console.error(
         '[deal-rooms] removing an opted-out participant failed:',
         err
@@ -704,7 +712,9 @@ export async function handleGroupWebhook(
       p_group_id: groupId,
       p_direction: 'out',
       p_type: 'system',
-      p_body: `+${waId} asked to stop and was removed from the group.`,
+      p_body: removed
+        ? `+${waId} asked to stop and was removed from the group.`
+        : `+${waId} asked to stop; removing them from the group failed.`,
       p_status: 'sent',
     });
   }
