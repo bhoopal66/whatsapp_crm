@@ -19,6 +19,7 @@ function ws(accountId: string, over: Partial<Workspace> = {}): Workspace {
     role: 'agent',
     isActive: false,
     deactivated: false,
+    archived: false,
     ...over,
   };
 }
@@ -42,6 +43,7 @@ describe('parseMyWorkspaces', () => {
           role: 'bank_guest',
           is_active: false,
           deactivated: true,
+          archived: true,
         },
       ])
     ).toEqual([
@@ -52,6 +54,7 @@ describe('parseMyWorkspaces', () => {
         role: 'admin',
         isActive: true,
         deactivated: false,
+        archived: false,
       },
       {
         accountId: 'bank',
@@ -60,6 +63,7 @@ describe('parseMyWorkspaces', () => {
         role: 'bank_guest',
         isActive: false,
         deactivated: true,
+        archived: true,
       },
     ]);
   });
@@ -82,6 +86,7 @@ describe('parseMyWorkspaces', () => {
       role: null,
       isActive: false,
       deactivated: false,
+      archived: false,
     });
   });
 });
@@ -111,6 +116,15 @@ describe('fallbackWorkspace', () => {
       ws('d'),
     ];
     expect(fallbackWorkspace(list, 'credit')?.accountId).toBe('c');
+  });
+
+  it('never picks an archived workspace: switch_account refuses it', () => {
+    const list = [
+      ws('credit', { isActive: true, deactivated: true }),
+      ws('a', { role: 'owner', archived: true }),
+      ws('b'),
+    ];
+    expect(fallbackWorkspace(list, 'credit')?.accountId).toBe('b');
   });
 
   it('returns null when every membership is deactivated (sign out)', () => {

@@ -3,7 +3,8 @@
 //
 //   GET  — every workspace the caller belongs to, for the switcher:
 //          { workspaces: [{ accountId, name, shortName, role,
-//          isActive, deactivated }] }, the active one first.
+//          isActive, deactivated, archived }] }, the active one
+//          first; an archived workspace (105) only for its owners, last.
 //   POST — { name, shortName, invites?: [{ email, role, bankCode?,
 //          fullName?, password? }] }: create a workspace, switch into
 //          it, and add each invite there. Owner/admin of the active
@@ -43,6 +44,7 @@ interface WorkspaceRow {
   role: string;
   is_active: boolean;
   deactivated: boolean;
+  archived?: boolean;
 }
 
 interface Invite {
@@ -92,6 +94,7 @@ export async function GET() {
               role: row.role,
               isActive: row.is_active,
               deactivated: row.deactivated,
+              archived: row.archived === true,
             },
           ]
         : []

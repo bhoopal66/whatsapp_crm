@@ -56,7 +56,8 @@ export function registrationOf(online: ExtensionOnline): {
 
 /**
  * The workspaces where the caller is an active owner or admin — the
- * only ones a route or an extension may be pointed at. Read with the
+ * only ones a route or an extension may be pointed at. Not an archived
+ * one (migration 105): nobody could answer its calls. Read with the
  * caller's own client: my_workspaces() answers for auth.uid().
  */
 export async function adminWorkspaces(
@@ -65,7 +66,11 @@ export async function adminWorkspaces(
   const { data, error } = await supabase.rpc('my_workspaces');
   if (error) throw new Error(`my_workspaces failed: ${error.message}`);
   return parseMyWorkspaces(data).filter(
-    (w) => !w.deactivated && w.role !== null && hasMinRole(w.role, 'admin')
+    (w) =>
+      !w.deactivated &&
+      !w.archived &&
+      w.role !== null &&
+      hasMinRole(w.role, 'admin')
   );
 }
 

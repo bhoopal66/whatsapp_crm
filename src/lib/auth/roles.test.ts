@@ -15,6 +15,7 @@ import {
   canSendMessages,
   grantableRoles,
   canTransferOwnership,
+  canArchiveWorkspace,
   canViewOnly,
   hasMinRole,
   isBankGuest,
@@ -137,6 +138,19 @@ describe('capability predicates', () => {
     expect(canTransferOwnership('admin')).toBe(false);
     expect(canTransferOwnership('agent')).toBe(false);
     expect(canTransferOwnership('viewer')).toBe(false);
+  });
+
+  it('canArchiveWorkspace: owner only', () => {
+    expect(canArchiveWorkspace('owner')).toBe(true);
+    for (const role of [
+      'admin',
+      'team_leader',
+      'agent',
+      'viewer',
+      'bank_guest',
+    ] as const) {
+      expect(canArchiveWorkspace(role)).toBe(false);
+    }
   });
 });
 
