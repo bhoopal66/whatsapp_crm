@@ -5,12 +5,15 @@
 // (409) a recording held until the notice is confirmed, erased, or
 // deleted under the retention period since the page loaded; the 409's
 // `code` says which (refusalView). The audio then plays in this
-// element. Nothing is downloaded. An owner or admin can place or lift a
-// legal hold (migration 093), with a reason: a held recording outlives
-// the retention period and blocks erasure. A recording held for the
-// notice still exists, so its box keeps the legal hold controls; a hold
-// refused because the audio is gone (deleted under the period, erased,
-// not stored) shows that state instead (noAudioView). Lifting the hold
+// element. A team leader and up can also download it (Download): the
+// route logs a download and signs a five-minute link for it, refused
+// (403) below a leader and on the same 409s. An owner or admin can
+// place or lift a legal hold (migration 093), with a reason: a held
+// recording outlives the retention period and blocks erasure. A
+// recording held for the notice still exists, so its box keeps the
+// legal hold controls; a hold refused because the audio is gone
+// (deleted under the period, erased, not stored) shows that state
+// instead (noAudioView). Lifting the hold
 // of a recording already past the period deletes it on the next cron
 // run: the route refuses that (409 past_retention) until the warning
 // shown here is confirmed (confirmDelete).
@@ -18,12 +21,20 @@
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import { Check, Loader2, Paperclip, Pause, Play, Scale } from 'lucide-react';
+import {
+  Check,
+  Download,
+  Loader2,
+  Paperclip,
+  Pause,
+  Play,
+  Scale,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
-import { canPlaceLegalHold } from '@/lib/auth/roles';
+import { canDownloadRecording, canPlaceLegalHold } from '@/lib/auth/roles';
 import { reasonOk } from '@/lib/chat/admin-tools';
 import {
   noAudioView,
@@ -68,6 +79,8 @@ export function RecordingPlayer({
   const [attach, setAttach] = useState<'idle' | 'busy' | 'done'>('idle');
   const { accountRole } = useAuth();
   const canHold = !!accountRole && canPlaceLegalHold(accountRole);
+  const canDownload = !!accountRole && canDownloadRecording(accountRole);
+  const [downloading, setDownloading] = useState(false);
   const [hold, setHold] = useState(call.legalHold === true);
   // null: closed; a string: the reason being typed.
   const [holdReason, setHoldReason] = useState<string | null>(null);
@@ -110,6 +123,31 @@ export function RecordingPlayer({
       toast.error(t('playFailed'));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const download = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const res = await post(`/api/pbx/calls/${call.id}/recording`, {
+        action: 'download',
+      });
+      if (res.status === 409) {
+        const why = await res.json().catch(() => null);
+        return setRefused(refusalView(why?.code));
+      }
+      const body = res.ok ? await res.json().catch(() => null) : null;
+      if (typeof body?.url !== 'string') throw new Error('no link');
+      // Signed for download (an attachment), so the page stays put.
+      const a = document.createElement('a');
+      a.href = body.url;
+      a.rel = 'noopener';
+      a.click();
+    } catch {
+      toast.error(t('downloadFailed'));
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -234,6 +272,21 @@ export function RecordingPlayer({
           <Button size="xs" variant="outline" onClick={() => setHoldReason('')}>
             <Scale className="size-3.5" />
             {hold ? t('liftHold') : t('placeHold')}
+          </Button>
+        )}
+        {canDownload && !held && (
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={downloading}
+            onClick={() => void download()}
+          >
+            {downloading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            {t('download')}
           </Button>
         )}
         {dealId && !held && (

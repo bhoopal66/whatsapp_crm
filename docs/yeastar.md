@@ -373,7 +373,8 @@ backing off after a refused login is skipped until the backoff ends.
   shared (the outcome and notes are saved on the call).
 - **Recordings.** An agent or above who can see a call can play its
   recording;
-  only team leaders, admins and owners can download one. Every play,
+  only team leaders, admins and owners can download one (**Download**
+  on the customer page's player). Every play,
   download and attach is logged (owners and admins can read the log),
   and the link the browser gets is valid for five minutes. A recording
   is held, for everyone, until the English/Arabic notice is confirmed

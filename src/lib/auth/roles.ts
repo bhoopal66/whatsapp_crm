@@ -191,6 +191,14 @@ export function canPlaceLegalHold(role: AccountRole): boolean {
 }
 
 /**
+ * Team leader and up: download a call recording (the recording route's
+ * 403 and call_access_log's guard, migration 089). Playing is agent+.
+ */
+export function canDownloadRecording(role: AccountRole): boolean {
+  return hasMinRole(role, 'team_leader');
+}
+
+/**
  * Owner / admin / agent: write operational data — send messages,
  * create contacts, move deals, run broadcasts, edit automations.
  * Viewers are read-only.

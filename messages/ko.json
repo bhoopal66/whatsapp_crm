@@ -4801,6 +4801,8 @@
     "taskFailed": "할 일을 업데이트하지 못했습니다",
     "playFailed": "녹음을 재생하지 못했습니다",
     "attachFailed": "녹음을 첨부하지 못했습니다",
+    "download": "녹음 다운로드",
+    "downloadFailed": "녹음을 다운로드하지 못했습니다",
     "noDeal": "첨부할 진행 중인 딜이 없습니다",
     "openCustomerPage": "고객 페이지 열기",
     "loadMore": "더 보기",
