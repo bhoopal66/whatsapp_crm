@@ -182,6 +182,15 @@ describe('sidebarSections', () => {
       ])
     ).toBe(7);
   });
+  it('totalUnread counts a muted channel by its mentions only, as the rail does', () => {
+    expect(
+      totalUnread([
+        { channelId: 'a', unread: 2, mentions: 0, muted: false },
+        { channelId: 'b', unread: 5, mentions: 1, muted: true },
+        { channelId: 'c', unread: 9, mentions: 0, muted: true },
+      ])
+    ).toBe(3);
+  });
 });
 
 describe('inboxRows', () => {

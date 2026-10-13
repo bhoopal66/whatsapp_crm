@@ -11,10 +11,11 @@ import { createClient } from '@/lib/supabase/client';
 const REFRESH_DEBOUNCE_MS = 800;
 
 /**
- * Unread team-chat messages over every channel, for the nav badge. Its
- * own realtime channel (like useTotalUnread): a message or a read
- * marker (a membership UPDATE from chat_mark_read) re-reads the counts,
- * so the SQL stays the one definition of "unread".
+ * Unread team-chat messages over every channel, for the nav badge; a
+ * muted channel counts only its mentions (totalUnread). Its own
+ * realtime channel (like useTotalUnread): a message, a read marker or a
+ * mute (a membership UPDATE from chat_mark_read or chat_set_muted)
+ * re-reads the counts, so the SQL stays the one definition of "unread".
  */
 export function useChatUnreadTotal(): number {
   const { user, accountId } = useAuth();

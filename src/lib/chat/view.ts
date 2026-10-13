@@ -295,9 +295,16 @@ export function channelAdminErrorKey(
   }
 }
 
-/** The nav badge: unread messages over every channel. */
+/**
+ * The nav badge: unread messages over every channel, except that a
+ * muted channel counts only its mentions, as the workspace rail does
+ * (091's chat_workspace_badges): muting is what this badge must show.
+ */
 export function totalUnread(unread: readonly UnreadCount[]): number {
-  return unread.reduce((n, u) => n + Math.max(0, u.unread), 0);
+  return unread.reduce(
+    (n, u) => n + Math.max(0, u.muted ? u.mentions : u.unread),
+    0
+  );
 }
 
 /** The inbox the WHATSAPP INBOX rows open: a team leader's is the team view. */
