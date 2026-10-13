@@ -240,6 +240,23 @@ backing off after a refused login is skipped until the backoff ends.
   up, as for a typed number). A do-not-contact customer's _Call back_
   is disabled with the reason; an owner or admin can still call, with
   a reason that is logged.
+- **By person** (the Calls screen's third tab: team leaders, admins and
+  owners). For today, this week (from Monday), this month or up to 92
+  whole days, in the workspace's time zone (the one saved in Team
+  activity settings, else the viewer's): per person, incoming calls
+  answered, outgoing calls, missed incoming calls, total and average
+  talk time, average ring time of answered incoming calls, and outcomes
+  plus _no outcome_ (answered calls nobody gave one), then the
+  workspace total. Owners and admins see everyone; a team leader the
+  people of the teams they lead and themselves, with the workspace
+  total still counting every call. Calls between colleagues are left
+  out. **Missed-call attribution:** a call counts for the person whose
+  extension the PBX reports it to. A missed call that rang someone's
+  own extension is theirs. A ring group or queue rings several people
+  at once, and who it rang is not kept once the call ends, so when
+  nobody answers the call has no person: it is counted once, under
+  _No person_ and in the total, never once per person it rang. A call
+  to an extension with no CRM login is counted the same way.
 - **Outcome and notes.** After a call, the person on it (or a team
   leader and up) sets the outcome (interested, documents requested,
   call back, not eligible, wrong number) and notes, up to 4,000
@@ -265,6 +282,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
 | `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
+| `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |
 | `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
 
 ## 12. Browser softphone

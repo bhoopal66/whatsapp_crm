@@ -1,4 +1,5 @@
--- Behavioural regression suite for the phone system (migration 089).
+-- Behavioural regression suite for the phone system (migrations 089,
+-- 090 and 098's call report).
 --
 -- Who sees a call is RLS through pbx_can_view_call(): the caller's
 -- active account, and team leader or above, a party to the call (its
@@ -11,7 +12,9 @@
 -- announced, call_access_log refuses a row otherwise and is
 -- append-only. Secrets, the token cache and the recordings bucket are
 -- the service role's alone. This asserts those rules, extension
--- mapping, the token compare-and-set, pbx_purge and anon's grants.
+-- mapping, the token compare-and-set, pbx_purge, anon's grants and the
+-- supervisor call report (pbx_call_report: who may run it, whose rows
+-- they get, exact counts).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -728,6 +731,89 @@ BEGIN
          AND recording_state = 'erased' AND erased_at IS NOT NULL AND recording_file IS NULL)
        OR EXISTS (SELECT 1 FROM call_recordings WHERE call_id = k_ns) THEN
       failed := array_append(failed, ('erasing a not_stored call does not leave it erased: ' || r)::text);
+    END IF;
+  END;
+
+  -- ---------- 098: the supervisor call report ----------
+  -- One day, half open; the leader leads a team of the agent alone.
+  -- Signatures: kind:who:in/out/missed/talk/talk calls/ring/ring calls:
+  -- interested,docs,call back,not eligible,wrong number,none.
+  DECLARE
+    rp_from TEXT := '2025-01-06 00:00:00+00';
+    rp_to   TEXT := '2025-01-07 00:00:00+00';
+    t_team  UUID;
+    q_rep   TEXT := $q$SELECT string_agg(format('%%s:%%s:%%s/%%s/%%s/%%s/%%s/%%s/%%s:%%s,%%s,%%s,%%s,%%s,%%s',
+                     row_kind, CASE user_id WHEN %L THEN 'agent' WHEN %L THEN 'agent2'
+                                            WHEN %L THEN 'lead' WHEN %L THEN 'other'
+                                            ELSE coalesce(user_id::text, '-') END,
+                     inbound_answered, outbound, missed, talk_seconds, talk_calls, ring_seconds, ring_calls,
+                     outcomes->>'interested', outcomes->>'docs_requested', outcomes->>'call_back',
+                     outcomes->>'not_eligible', outcomes->>'wrong_number', outcomes->>'none'), ' ')
+                   FROM pbx_call_report(%L, %L)$q$;
+  BEGIN
+    INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'PX report team', u_lead)
+    RETURNING id INTO t_team;
+    INSERT INTO team_members (team_id, user_id, account_id) VALUES (t_team, u_agent, a_acct);
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, status,
+                       started_at, answered_at, talk_seconds, ring_seconds, disposition) VALUES
+      -- the agent: two answered in, two out (one answered), one missed on their extension
+      (a_acct, conn, 'rp-1', 'inbound', '101', u_agent, 'answered', '2025-01-06 08:00+00', '2025-01-06 08:00:10+00', 100, 10, 'interested'),
+      (a_acct, conn, 'rp-2', 'inbound', '101', u_agent, 'answered', '2025-01-06 09:00+00', '2025-01-06 09:00:20+00', 50, 20, NULL),
+      (a_acct, conn, 'rp-3', 'outbound', '101', u_agent, 'answered', '2025-01-06 10:00+00', '2025-01-06 10:00:05+00', 30, 5, 'call_back'),
+      (a_acct, conn, 'rp-4', 'outbound', '101', u_agent, 'no_answer', '2025-01-06 11:00+00', NULL, 0, 25, NULL),
+      (a_acct, conn, 'rp-5', 'inbound', '101', u_agent, 'no_answer', '2025-01-06 12:00+00', NULL, 0, 30, NULL),
+      -- a ring group nobody answered: no person
+      (a_acct, conn, 'rp-6', 'inbound', '6300', NULL, 'abandoned', '2025-01-06 13:00+00', NULL, 0, 40, NULL),
+      -- the other agent, outside the leader's team
+      (a_acct, conn, 'rp-7', 'inbound', '102', u_agent2, 'answered', '2025-01-06 14:00+00', '2025-01-06 14:00:06+00', 60, 6, 'wrong_number'),
+      -- the leader, no extension
+      (a_acct, conn, 'rp-8', 'outbound', NULL, u_lead, 'answered', '2025-01-06 15:00+00', '2025-01-06 15:00:03+00', 40, 3, 'docs_requested'),
+      -- left out: an internal call, and one on the period's end
+      (a_acct, conn, 'rp-9', 'internal', '101', u_agent, 'answered', '2025-01-06 16:00+00', '2025-01-06 16:00:01+00', 70, 1, NULL),
+      (a_acct, conn, 'rp-10', 'inbound', '101', u_agent, 'answered', '2025-01-07 00:00+00', '2025-01-07 00:00:01+00', 90, 1, NULL);
+    -- account B's call in the same period
+    INSERT INTO calls (account_id, pbx_call_id, direction, user_id, status, started_at, answered_at, talk_seconds, ring_seconds)
+    VALUES (b_acct, 'rp-b', 'inbound', u_other, 'answered', '2025-01-06 08:30+00', '2025-01-06 08:30:02+00', 15, 2);
+
+    r := pg_temp.px_try('authenticated', u_admin, format(q_rep, u_agent, u_agent2, u_lead, u_other, rp_from, rp_to));
+    n := n + 1;
+    IF r IS DISTINCT FROM
+       'person:lead:0/1/0/40/1/0/0:0,1,0,0,0,0 person:agent:2/2/1/180/3/30/2:1,0,1,0,0,1 '
+       'person:agent2:1/0/0/60/1/6/1:0,0,0,0,1,0 none:-:0/0/1/0/0/0/0:0,0,0,0,0,0 '
+       'total:-:3/3/2/280/5/36/3:1,1,1,0,1,1' THEN
+      failed := array_append(failed, ('pbx_call_report for an admin: ' || coalesce(r, 'NULL'))::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_lead, format(q_rep, u_agent, u_agent2, u_lead, u_other, rp_from, rp_to));
+    n := n + 1;
+    IF r IS DISTINCT FROM
+       'person:lead:0/1/0/40/1/0/0:0,1,0,0,0,0 person:agent:2/2/1/180/3/30/2:1,0,1,0,0,1 '
+       'none:-:0/0/1/0/0/0/0:0,0,0,0,0,0 total:-:3/3/2/280/5/36/3:1,1,1,0,1,1' THEN
+      failed := array_append(failed, ('pbx_call_report for a team leader is not their team plus themselves: ' || coalesce(r, 'NULL'))::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_other, format(q_rep, u_agent, u_agent2, u_lead, u_other, rp_from, rp_to));
+    n := n + 1;
+    IF r IS DISTINCT FROM
+       'person:other:1/0/0/15/1/2/1:0,0,0,0,0,1 none:-:0/0/0/0/0/0/0:0,0,0,0,0,0 '
+       'total:-:1/0/0/15/1/2/1:0,0,0,0,0,1' THEN
+      failed := array_append(failed, ('pbx_call_report crosses workspaces: ' || coalesce(r, 'NULL'))::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_agent, format('SELECT count(*)::text FROM pbx_call_report(%L, %L)', rp_from, rp_to))
+      || '/' || pg_temp.px_try('authenticated', u_viewer, format('SELECT count(*)::text FROM pbx_call_report(%L, %L)', rp_from, rp_to))
+      || '/' || pg_temp.px_try('authenticated', u_guest, format('SELECT count(*)::text FROM pbx_call_report(%L, %L)', rp_from, rp_to));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%/ERROR 42501:%/ERROR 42501:%' THEN
+      failed := array_append(failed, ('an agent, a viewer or a bank guest ran the call report: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_admin, format('SELECT count(*)::text FROM pbx_call_report(%L, %L)', rp_to, rp_from))
+      || '/' || pg_temp.px_try('authenticated', u_admin, 'SELECT count(*)::text FROM pbx_call_report(''2025-01-01'', ''2025-04-12'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 22023:%/ERROR 22023:%' THEN
+      failed := array_append(failed, ('pbx_call_report took a reversed or over-100-day period: ' || r)::text);
+    END IF;
+    n := n + 1;
+    IF has_function_privilege('anon', 'public.pbx_call_report(timestamptz, timestamptz)', 'EXECUTE')
+       OR NOT has_function_privilege('authenticated', 'public.pbx_call_report(timestamptz, timestamptz)', 'EXECUTE') THEN
+      failed := array_append(failed, 'pbx_call_report grants: anon may run it, or authenticated may not');
     END IF;
   END;
 
