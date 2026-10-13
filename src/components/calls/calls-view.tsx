@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { Phone, PhoneMissed } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { CallButton } from '@/components/pbx/call-button';
+import { useAuth } from '@/hooks/use-auth';
+import { callBackFor } from '@/lib/pbx/call-ui';
 import {
   callHeading,
   callTone,
@@ -18,12 +20,12 @@ import {
 } from '@/lib/pbx/timeline';
 import { cn } from '@/lib/utils';
 
-import { dialContact } from './dial';
-
 type CallRow = TimelineCall & {
   contactId: string | null;
   contactName: string | null;
   remoteNumber: string | null;
+  doNotContactAt: string | null;
+  doNotContactReason: string | null;
 };
 type Tab = 'missed' | 'log';
 interface Loaded {
@@ -43,6 +45,7 @@ export function CallsView({ tab }: { tab: Tab }) {
   const t = useTranslations('CallsPage');
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
+  const { accountRole } = useAuth();
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -93,6 +96,7 @@ export function CallsView({ tab }: { tab: Tab }) {
     const missed = callTone(c) === 'missed';
     const Icon = missed ? PhoneMissed : Phone;
     const who = c.contactName || c.remoteNumber || t('unknownCaller');
+    const back = missed ? callBackFor(c, accountRole) : null;
     return (
       <li
         key={c.id}
@@ -135,14 +139,13 @@ export function CallsView({ tab }: { tab: Tab }) {
             {task.status === 'open' ? t('taskOpen') : t('taskDone')}
           </span>
         )}
-        {missed && c.contactId && (
-          <Button
-            size="sm"
-            className="bg-emerald-600 text-white hover:bg-emerald-700"
-            onClick={() => dialContact(c.contactId as string, (k) => tl(k))}
-          >
-            {tl('callBack')}
-          </Button>
+        {back && (
+          <CallButton
+            {...(back.kind === 'contact'
+              ? { contact: back.contact }
+              : { number: back.number })}
+            label={tl('callBack')}
+          />
         )}
       </li>
     );

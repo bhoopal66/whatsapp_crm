@@ -60,7 +60,9 @@
     "workspaceSwitchFailed": "Couldn't switch workspace: {reason}",
     "chat": "Team chat",
     "unreadChat": "{count} unread team chat {count, plural, =1 {message} other {messages}}",
-    "journeys": "Journeys"
+    "journeys": "Journeys",
+    "calls": "Calls",
+    "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -4727,10 +4729,6 @@
     "team": "Team on this customer",
     "noTeam": "No one yet",
     "thisMonth": "Calls this month",
-    "dialing": "Calling — your phone rings first",
-    "dialFailed": "Couldn't place the call",
-    "noExtension": "You have no extension in this workspace",
-    "doNotContact": "This customer is on do-not-contact",
     "noConversation": "No WhatsApp chat with this customer yet",
     "taskDone": "Task done",
     "taskFailed": "Couldn't update the task",

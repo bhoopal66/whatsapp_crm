@@ -3,7 +3,10 @@
 // Click-to-call (module 015). Hidden for a person with no extension;
 // the server rings their OWN extension first, then the customer.
 // Disabled for a do-not-contact customer, except that an owner or admin
-// may "Call anyway" with a reason, which the dial route logs first.
+// may "Call anyway" with a reason, which the dial route logs first. A
+// number with no contact (the Calls screen's unknown caller) is dialled
+// as typed; the route checks it for do-not-contact across the workspace,
+// and its 409 disables the button the same way.
 
 import { useState } from 'react';
 import { Phone } from 'lucide-react';
@@ -35,10 +38,19 @@ import { useCalls } from './call-provider';
 
 export function CallButton({
   contact,
+  number,
   conversationId,
+  label,
+  size = 'sm',
 }: {
-  contact: ConsentFields & { id: string };
+  /** The customer; a do-not-contact stamp disables the button. */
+  contact?: ConsentFields & { id: string };
+  /** Or a number nobody's contact holds (team leader and up may dial it). */
+  number?: string;
   conversationId?: string;
+  /** In place of "Call", e.g. "Call back" on a missed call. */
+  label?: string;
+  size?: 'sm' | 'xs';
 }) {
   const calls = useCalls();
   const { accountRole } = useAuth();
@@ -49,9 +61,9 @@ export function CallButton({
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
-  if (!calls?.me) return null;
+  if (!calls?.me || (!contact && !number)) return null;
 
-  const consent = consentState(contact);
+  const consent = consentState(contact ?? {});
   const dnc = !consent.callsOk || refused !== null;
   const dncReason = refused?.reason ?? consent.dncReason;
   const admin = accountRole ? hasMinRole(accountRole, 'admin') : false;
@@ -63,7 +75,11 @@ export function CallButton({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(conversationId ? { conversationId } : { contactId: contact.id }),
+          ...(conversationId
+            ? { conversationId }
+            : contact
+              ? { contactId: contact.id }
+              : { number }),
           ...(overrideReason ? { overrideReason } : {}),
         }),
       });
@@ -85,16 +101,18 @@ export function CallButton({
 
   const green =
     'bg-emerald-600 text-white hover:bg-emerald-500 disabled:bg-emerald-600/50';
+  const icon = size === 'xs' ? 'size-3' : 'size-4';
+  const text = label ?? t('call');
   if (!dnc)
     return (
       <Button
-        size="sm"
+        size={size}
         className={green}
         disabled={busy}
         onClick={() => void dial()}
       >
-        <Phone className="size-4" />
-        {t('call')}
+        <Phone className={icon} />
+        {text}
       </Button>
     );
 
@@ -102,9 +120,9 @@ export function CallButton({
     <span className="inline-flex items-center gap-1">
       <Tooltip>
         <TooltipTrigger render={<span tabIndex={0} />}>
-          <Button size="sm" className={green} disabled>
-            <Phone className="size-4" />
-            {t('call')}
+          <Button size={size} className={green} disabled>
+            <Phone className={icon} />
+            {text}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
@@ -112,7 +130,7 @@ export function CallButton({
         </TooltipContent>
       </Tooltip>
       {admin && (
-        <Button size="sm" variant="outline" onClick={() => setAsking(true)}>
+        <Button size={size} variant="outline" onClick={() => setAsking(true)}>
           {t('callAnyway')}
         </Button>
       )}

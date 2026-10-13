@@ -10,7 +10,7 @@
 // names the customer by name or by a masked number, never the number.
 // ============================================================
 
-import { isBankGuest, type AccountRole } from '@/lib/auth/roles';
+import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 import type { CallDirection, Disposition } from './calls';
 
 /** calls.disposition, in the order the panel offers them. */
@@ -262,6 +262,50 @@ export function dialResult(status: number, body: unknown): DialResult {
     return { kind: 'do_not_contact', reason: text(b.reason) };
   if (b.code === 'no_extension') return { kind: 'no_extension' };
   return { kind: 'error', message: text(b.error) };
+}
+
+/** A row of GET /api/pbx/calls, as far as its Call back reads it. */
+export interface CallBackRow {
+  contactId: string | null;
+  remoteNumber: string | null;
+  /** The contact's do-not-contact stamp (086), when the caller can see it. */
+  doNotContactAt?: string | null;
+  doNotContactReason?: string | null;
+}
+
+export type CallBackTarget =
+  | { kind: 'contact'; contact: ConsentFields & { id: string } }
+  | { kind: 'number'; number: string };
+
+/**
+ * What a missed call's Call back dials, or null for no button: agent
+ * and up, the dial route's floor. A known caller is called through
+ * their contact, carrying the do-not-contact stamp the button disables
+ * itself on. A caller with no contact is called by number, which the
+ * dial route allows a team leader and up (an agent only a number of a
+ * customer they can see) and checks for do-not-contact across the
+ * workspace, by every stored form of the number: the button learns of
+ * one from the route's 409, and an owner or admin may still call with a
+ * logged reason.
+ */
+export function callBackFor(
+  row: CallBackRow,
+  role: AccountRole | null | undefined
+): CallBackTarget | null {
+  if (!role || !hasMinRole(role, 'agent')) return null;
+  if (row.contactId)
+    return {
+      kind: 'contact',
+      contact: {
+        id: row.contactId,
+        do_not_contact_at: row.doNotContactAt ?? null,
+        do_not_contact_reason: row.doNotContactReason ?? null,
+      },
+    };
+  const number = row.remoteNumber?.trim();
+  return number && hasMinRole(role, 'team_leader')
+    ? { kind: 'number', number }
+    : null;
 }
 
 /** Closing the panel needs an outcome when the workspace says so. */

@@ -60,7 +60,9 @@
     "workspaceSwitchFailed": "워크스페이스를 전환하지 못했습니다: {reason}",
     "chat": "팀 채팅",
     "unreadChat": "읽지 않은 팀 채팅 메시지 {count}개",
-    "journeys": "여정"
+    "journeys": "여정",
+    "calls": "통화",
+    "missedCalls": "열린 부재중 전화 할 일 {count}건"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -4727,10 +4729,6 @@
     "team": "이 고객 담당 팀",
     "noTeam": "아직 없습니다",
     "thisMonth": "이번 달 통화",
-    "dialing": "전화 거는 중 — 내 전화가 먼저 울립니다",
-    "dialFailed": "전화를 걸지 못했습니다",
-    "noExtension": "이 워크스페이스에 내 내선 번호가 없습니다",
-    "doNotContact": "이 고객은 연락 금지 상태입니다",
     "noConversation": "아직 이 고객과의 WhatsApp 채팅이 없습니다",
     "taskDone": "할 일 완료",
     "taskFailed": "할 일을 업데이트하지 못했습니다",

@@ -10,6 +10,7 @@ import {
   OUTCOMES,
   OVERRIDE_REASON_MAX,
   alsoRinging,
+  callBackFor,
   callCardText,
   clip,
   consentState,
@@ -308,6 +309,64 @@ describe('dialResult', () => {
       message: 'PBX down',
     });
     expect(dialResult(200, null)).toEqual({ kind: 'error', message: null });
+  });
+});
+
+describe('callBackFor', () => {
+  const C = '00000000-0000-4000-8000-000000000001';
+  const known = {
+    contactId: C,
+    remoteNumber: '971501234567',
+    doNotContactAt: null,
+    doNotContactReason: null,
+  };
+  const unknown = { ...known, contactId: null };
+
+  it('calls a known caller back through their contact, agent and up', () => {
+    for (const role of ['agent', 'team_leader', 'admin', 'owner'] as const)
+      expect(callBackFor(known, role)).toEqual({
+        kind: 'contact',
+        contact: {
+          id: C,
+          do_not_contact_at: null,
+          do_not_contact_reason: null,
+        },
+      });
+  });
+
+  it('carries the do-not-contact stamp, so the button is disabled with the reason', () => {
+    const back = callBackFor(
+      {
+        ...known,
+        doNotContactAt: '2026-10-01T09:00:00Z',
+        doNotContactReason: 'Asked on the phone',
+      },
+      'agent'
+    );
+    expect(back?.kind).toBe('contact');
+    const consent = consentState(back?.kind === 'contact' ? back.contact : {});
+    expect(consent).toMatchObject({
+      callsOk: false,
+      dncReason: 'Asked on the phone',
+    });
+  });
+
+  it('dials an unknown caller by number only from team leader up, as the route allows', () => {
+    expect(callBackFor(unknown, 'agent')).toBeNull();
+    for (const role of ['team_leader', 'admin', 'owner'] as const)
+      expect(callBackFor(unknown, role)).toEqual({
+        kind: 'number',
+        number: '971501234567',
+      });
+    expect(callBackFor({ ...unknown, remoteNumber: '  ' }, 'owner')).toBeNull();
+    expect(callBackFor({ ...unknown, remoteNumber: null }, 'owner')).toBeNull();
+  });
+
+  it('offers nothing below agent, or before the role is known', () => {
+    for (const role of ['viewer', 'bank_guest', null, undefined] as const) {
+      expect(callBackFor(known, role)).toBeNull();
+      expect(callBackFor(unknown, role)).toBeNull();
+    }
   });
 });
 

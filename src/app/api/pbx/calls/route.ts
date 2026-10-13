@@ -3,12 +3,15 @@
 //   ?contactId=&scope=mine|missed|all&from=&to=&limit=
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
 //       ringSeconds, talkSeconds, remoteNumber, extension, contactId,
-//       contactName, userId, userName, disposition, notes,
-//       recordingState }] }
+//       contactName, doNotContactAt, doNotContactReason, userId,
+//       userName, disposition, notes, recordingState }] }
 //
 // Read on the caller's client, so every row is one pbx_can_view_call
-// shows them, notes included; a contact's name only when they can see
-// the contact too. mine: calls they were a party to; missed: inbound
+// shows them, notes included; a contact's name and do-not-contact
+// stamp and reason (086) only when they can see the contact too, so
+// the Calls screen disables Call back for that customer. The dial route
+// still decides: it checks the number across the workspace, which this
+// list does not. mine: calls they were a party to; missed: inbound
 // calls nobody answered (as the month summary counts them). Newest
 // first; from/to bound started_at (from inclusive). Viewer+.
 // ============================================================
@@ -16,6 +19,13 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { MISSED_STATUSES, fail, parseCallListQuery } from '@/lib/pbx/calls';
+
+interface ContactRow {
+  id: string;
+  name: string | null;
+  do_not_contact_at: string | null;
+  do_not_contact_reason: string | null;
+}
 
 interface CallRow {
   id: string;
@@ -71,7 +81,10 @@ export async function GET(request: Request) {
     const [contactIds, userIds] = [ids('contact_id'), ids('user_id')];
     const [contacts, people] = await Promise.all([
       contactIds.length
-        ? ctx.supabase.from('contacts').select('id, name').in('id', contactIds)
+        ? ctx.supabase
+            .from('contacts')
+            .select('id, name, do_not_contact_at, do_not_contact_reason')
+            .in('id', contactIds)
         : { data: [], error: null },
       userIds.length
         ? ctx.supabase
@@ -84,10 +97,8 @@ export async function GET(request: Request) {
       throw new Error(`contacts read failed: ${contacts.error.message}`);
     if (people.error)
       throw new Error(`profiles read failed: ${people.error.message}`);
-    const contactName = new Map(
-      ((contacts.data ?? []) as { id: string; name: string | null }[]).map(
-        (c) => [c.id, c.name]
-      )
+    const contactById = new Map(
+      ((contacts.data ?? []) as ContactRow[]).map((c) => [c.id, c])
     );
     const userName = new Map(
       (
@@ -96,25 +107,31 @@ export async function GET(request: Request) {
     );
 
     return NextResponse.json({
-      calls: rows.map((r) => ({
-        id: r.id,
-        direction: r.direction,
-        status: r.status,
-        startedAt: r.started_at,
-        answeredAt: r.answered_at,
-        endedAt: r.ended_at,
-        ringSeconds: r.ring_seconds,
-        talkSeconds: r.talk_seconds,
-        remoteNumber: r.remote_number,
-        extension: r.extension,
-        contactId: r.contact_id,
-        contactName: (r.contact_id && contactName.get(r.contact_id)) || null,
-        userId: r.user_id,
-        userName: (r.user_id && userName.get(r.user_id)) || null,
-        disposition: r.disposition,
-        notes: r.notes,
-        recordingState: r.recording_state,
-      })),
+      calls: rows.map((r) => {
+        const contact = r.contact_id ? contactById.get(r.contact_id) : null;
+        const dncAt = contact?.do_not_contact_at ?? null;
+        return {
+          id: r.id,
+          direction: r.direction,
+          status: r.status,
+          startedAt: r.started_at,
+          answeredAt: r.answered_at,
+          endedAt: r.ended_at,
+          ringSeconds: r.ring_seconds,
+          talkSeconds: r.talk_seconds,
+          remoteNumber: r.remote_number,
+          extension: r.extension,
+          contactId: r.contact_id,
+          contactName: contact?.name || null,
+          doNotContactAt: dncAt,
+          doNotContactReason: (dncAt && contact?.do_not_contact_reason) || null,
+          userId: r.user_id,
+          userName: (r.user_id && userName.get(r.user_id)) || null,
+          disposition: r.disposition,
+          notes: r.notes,
+          recordingState: r.recording_state,
+        };
+      }),
     });
   } catch (err) {
     return toErrorResponse(err);
