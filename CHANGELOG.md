@@ -12,6 +12,51 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system (Yeastar) — incoming-call card and the Calls screen
+
+- **The incoming-call card no longer shows the wrong customer's facts.**
+  The next caller's card used to show the previous caller's owner, deal,
+  last message and consent until its own load landed, and a customer the
+  ringing agent may not see showed as "No owner · Calls OK" even when on
+  do-not-contact. Facts now belong to their customer and call; for a
+  hidden customer the card shows only the name, the owner and the
+  consent ("Do not contact" / "Opted out"), and never "Calls OK" for
+  them. The last WhatsApp time carries its date when it isn't today, and
+  the card says "Owned by …" when the customer belongs to someone else
+  ("Transfer to owner" appears only when that owner has an extension and
+  isn't you).
+- **Create contact for a new caller** opens the contact form with the
+  caller's number filled in, beside the ringing card (Answer and Decline
+  stay usable, and an Escape elsewhere doesn't close it), and links the
+  new contact to the call even if the call ended meanwhile.
+- **The ring timer** counts from when the call (last) started ringing,
+  on the database clock, so it survives a reload, a transfer and a
+  skewed browser clock.
+- **Calls** is in the sidebar for staff once the phone system has an
+  extension, with a badge for open missed-call tasks; bank guests are
+  turned away from /calls on the server. Call back (on a missed call and
+  on the customer page's task strip) is disabled for a do-not-contact
+  customer and shows the reason; owners and admins can still call with a
+  logged reason. Missed calls from numbers with no contact can be called
+  back by team leaders and up.
+
+> **Migration required:** apply
+> `supabase/migrations/094_pbx_call_live_rang_at.sql` (re-runnable).
+
+### Deal rooms from the customer, the deal and the inbox
+
+Deal rooms can now be opened from the customer page, a deal's sheet in
+Pipelines and the inbox contact panel. Each lists that customer's (or
+deal's) rooms and offers **New deal room** with the customer (and deal)
+filled in. Shown only while the workspace has a Meta number, never to
+bank guests.
+
+### Fixed
+
+- **Team chat:** Saved items and Settings → Team chat's list of private
+  channels to read never loaded (an ambiguous database query: PostgREST
+  refused it).
+
 ### Team chat: channel settings, mute and edit history
 
 Channel admins, and workspace owners and admins (in a private channel
