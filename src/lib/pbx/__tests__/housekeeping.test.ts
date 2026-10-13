@@ -24,10 +24,15 @@ import {
 
 function fakeDb(
   names: string[],
-  opts: { rpcError?: string; failBatch?: number } = {}
+  opts: { rpcError?: string; failBatch?: number; keepaliveError?: string } = {}
 ) {
   const batches: string[][] = [];
   const rpc = vi.fn(async (fn: string) => {
+    if (fn === 'pbx_presence_keepalive') {
+      return opts.keepaliveError
+        ? { data: null, error: { message: opts.keepaliveError } }
+        : { data: 2, error: null };
+    }
     if (fn !== 'pbx_orphan_recordings') {
       return { data: { call_live: 0, events: 0 }, error: null };
     }
@@ -104,11 +109,27 @@ describe('runPbxCron', () => {
     const f = fakeDb(names(3));
     const out = await runPbxCron({ db: f.db });
     expect(f.rpc.mock.calls.map((c) => c[0])).toEqual([
+      'pbx_presence_keepalive',
       'pbx_purge',
       'pbx_orphan_recordings',
     ]);
     expect(out.orphans).toEqual({ found: 3, deleted: 3, failed: 0 });
     expect(out.errors).toEqual({});
+  });
+
+  it('first refreshes the presence of people still on a live call', async () => {
+    const f = fakeDb([]);
+    const out = await runPbxCron({ db: f.db });
+    expect(f.rpc.mock.calls[0]).toEqual(['pbx_presence_keepalive']);
+    expect(out.presence).toBe(2);
+    expect(out.errors).toEqual({});
+  });
+
+  it('records a failed keepalive and runs the other steps', async () => {
+    const f = fakeDb(names(1), { keepaliveError: 'boom' });
+    const out = await runPbxCron({ db: f.db });
+    expect(out.errors).toEqual({ presence: 'boom' });
+    expect(out.orphans).toEqual({ found: 1, deleted: 1, failed: 0 });
   });
 
   it('records a failed remove as the step error, counts kept', async () => {

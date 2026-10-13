@@ -9,6 +9,7 @@ import {
   personPresence,
   presenceOf,
   samePhonePresence,
+  workspaceHasPhones,
   type PhonePresenceRow,
 } from './person-presence';
 
@@ -39,10 +40,10 @@ describe('personPresence', () => {
     expect(personPresence('off_work', 'online')).toBe('off_work');
   });
 
-  it("falls through to the app on the phone's default or a stale row", () => {
+  it("falls through to the app on the phone's default", () => {
     expect(personPresence('available', 'offline')).toBe('offline');
     expect(personPresence('available', 'away')).toBe('away');
-    expect(personPresence('offline', 'online')).toBe('online');
+    expect(personPresence('available', 'online')).toBe('online');
   });
 
   it('is the app alone without a phone row', () => {
@@ -91,23 +92,21 @@ describe('live phone rows', () => {
     ).toBe(rows);
   });
 
-  it('removes a deleted row from its key alone', () => {
+  it('leaves a delete to the poll, which drops the row', () => {
     const rows = applyPhoneChange(new Map(), {
       eventType: 'INSERT',
       new: row(),
     });
+    // The filtered feed does not deliver a DELETE; one that did would
+    // carry no account_id and is ignored rather than trusted.
     expect(
       applyPhoneChange(rows, {
         eventType: 'DELETE',
+        new: {},
         old: { connection_id: 'c1', extension: '201' },
-      }).size
-    ).toBe(0);
-    expect(
-      applyPhoneChange(rows, {
-        eventType: 'DELETE',
-        old: { connection_id: 'c2', extension: '201' },
-      })
+      } as Parameters<typeof applyPhoneChange>[1])
     ).toBe(rows);
+    expect(mergePhoneSnapshot(rows, []).size).toBe(0);
   });
 
   it('lets a read decide which rows exist, keeping a newer live row', () => {
@@ -134,5 +133,16 @@ describe('live phone rows', () => {
       samePhonePresence({ u1: phone('dnd') }, { u1: phone('on_call') })
     ).toBe(false);
     expect(samePhonePresence({}, { u1: phone('dnd') })).toBe(false);
+  });
+});
+
+describe('workspaceHasPhones', () => {
+  it('watches only a workspace with extensions, or when the read failed', () => {
+    expect(workspaceHasPhones({ count: 0, error: null })).toBe(false);
+    expect(workspaceHasPhones({ count: null, error: null })).toBe(false);
+    expect(workspaceHasPhones({ count: 3, error: null })).toBe(true);
+    expect(workspaceHasPhones({ count: null, error: { message: 'x' } })).toBe(
+      true
+    );
   });
 });

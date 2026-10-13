@@ -64,9 +64,9 @@ export function callDirectionLabel(direction: string): string {
 // ---------- Presence ----------
 
 export type PresenceView =
-  'available' | 'on_call' | 'away' | 'dnd' | 'off_work' | 'offline';
+  'available' | 'on_call' | 'away' | 'dnd' | 'off_work';
 
-/** A row the processor has not touched for this long is offline. */
+/** A call state not written for this long is a call end never reported. */
 export const PRESENCE_STALE_MS = 10 * 60_000;
 
 export interface PresenceRow {
@@ -78,16 +78,23 @@ export interface PresenceRow {
 }
 
 /**
- * Stale beats everything (a closed phone sends nothing), then a call
- * (Yeastar's per-extension `ringing` / `busy`), then the status the
- * person chose. Lunch and business trip read as away; no status yet
- * reads as available.
+ * A call (Yeastar's per-extension `ringing` / `busy`) first, then the
+ * status the person chose. Yeastar sends both only when they change, so
+ * the chosen status holds until the next one: it never expires here. A
+ * call state does: the processor writes every change and the PBX cron
+ * (pbx_presence_keepalive, migration 101) refreshes a ringing or busy
+ * row while its call is live, so one older than PRESENCE_STALE_MS is an
+ * end the PBX never reported, and the chosen status shows instead.
+ * Lunch and business trip read as away; no status yet reads as
+ * available.
  */
 export function presenceView(row: PresenceRow, now: number): PresenceView {
   const at = Date.parse(row.updated_at);
-  if (!Number.isFinite(at) || now - at > PRESENCE_STALE_MS) return 'offline';
-  if (row.call_state === 'ringing' || row.call_state === 'busy')
-    return 'on_call';
+  const onCall =
+    (row.call_state === 'ringing' || row.call_state === 'busy') &&
+    Number.isFinite(at) &&
+    now - at <= PRESENCE_STALE_MS;
+  if (onCall) return 'on_call';
   switch (row.presence) {
     case 'away':
     case 'lunch':

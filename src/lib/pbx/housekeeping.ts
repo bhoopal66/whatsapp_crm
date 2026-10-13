@@ -10,9 +10,9 @@ import {
 
 /**
  * The phone system's periodic work (GET /api/pbx/cron, and the
- * automations cron once a minute): recordings, call-backs, retries of
- * failed events, pbx_purge(), then the orphaned-audio sweep. `db` is the
- * service role.
+ * automations cron once a minute): the presence keepalive, recordings,
+ * call-backs, retries of failed events, pbx_purge(), then the
+ * orphaned-audio sweep. `db` is the service role.
  */
 
 /** Retries per failed event; pbx_purge() drops one that used them all. */
@@ -137,6 +137,8 @@ export async function sweepOrphanRecordings(input: {
 }
 
 export interface PbxCronSummary {
+  /** pbx_presence rows on a live call refreshed (migration 101). */
+  presence?: number;
   recordings?: RecordingsSummary;
   callbacks?: CallbacksSummary;
   retries?: RetrySummary;
@@ -160,6 +162,19 @@ export async function runPbxCron(input: {
   const deadline = now() + budgetMs;
   const summary: PbxCronSummary = { outOfTime: [], errors: {} };
   const steps: [string, () => Promise<void>][] = [
+    [
+      // First, being quick and on a clock: Yeastar reports a call state
+      // only when it changes, and the browser lets one lapse after
+      // PRESENCE_STALE_MS, so a call longer than that is refreshed here
+      // while it is live (call_live_select hides other people's calls
+      // from an agent's browser).
+      'presence',
+      async () => {
+        const { data, error } = await db.rpc('pbx_presence_keepalive');
+        if (error) throw new Error(error.message);
+        summary.presence = Number(data ?? 0);
+      },
+    ],
     [
       'recordings',
       async () => {

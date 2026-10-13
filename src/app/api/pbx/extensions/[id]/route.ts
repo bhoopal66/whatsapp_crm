@@ -144,17 +144,8 @@ export async function PATCH(
     if (error || !saved)
       throw new Error(`pbx_extensions update failed: ${error?.message}`);
 
-    // The presence row carries the mapping too; keep it from showing
-    // this extension to the workspace or person it has left.
-    if (remapped) {
-      const { error: presenceError } = await db
-        .from('pbx_presence')
-        .update({ account_id: target, user_id: user })
-        .eq('connection_id', conn.id)
-        .eq('extension', current.extension);
-      if (presenceError)
-        console.error('[pbx/extensions] presence remap failed:', presenceError);
-    }
+    // The presence row follows the mapping and the Presence switch in
+    // the same transaction: migration 101's pbx_presence_follow_mapping.
 
     const [view] = await extensionViews(
       db,

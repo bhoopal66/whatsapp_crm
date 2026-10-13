@@ -8,9 +8,11 @@
 //   - the phone (pbx_presence, migration 089; presenceView in
 //     lib/pbx/calls.ts): Yeastar's per-extension call state (30008) and
 //     the status the person chose (30009). A row exists only for an
-//     extension mapped to a person with presence monitoring on
-//     (process.ts deletes it otherwise), and one the processor has not
-//     touched for PRESENCE_STALE_MS reads 'offline'.
+//     extension with presence monitoring on, and carries the extension's
+//     current person (process.ts and migration 101's mapping trigger).
+//     Yeastar sends both only when they change, so the chosen status
+//     holds until the next one; a call state lapses after
+//     PRESENCE_STALE_MS unless the PBX cron refreshes it (101).
 //
 // Precedence, first match wins:
 //   1. on a call (ringing or busy)       → on_call  red
@@ -20,7 +22,7 @@
 //   5. otherwise the app                 → online / away / offline
 // The phone's 'available' falls through to the app: it is Yeastar's
 // default status and says nothing about whether the person is at work.
-// A stale phone row ('offline') falls through too. With no PBX, or for
+// A lapsed call state shows the chosen status underneath. With no PBX, or for
 // a person without a monitored extension, every dot takes step 5 and
 // reads exactly as it did before the phone was wired in.
 // ============================================================
@@ -101,24 +103,20 @@ const newer = (a: PhonePresenceRow, b: PhonePresenceRow | undefined) =>
   !b || !(Date.parse(b.updated_at) > Date.parse(a.updated_at));
 
 /**
- * One realtime change. INSERT and UPDATE carry the whole row; a DELETE
- * carries only the primary key (RLS on), which is all removal needs.
+ * One realtime change. INSERT and UPDATE carry the whole row. A DELETE
+ * is left to the poll (mergePhoneSnapshot): the subscription filters on
+ * account_id, which a delete's old record (its primary key) lacks, so
+ * the feed does not deliver one.
  */
 export function applyPhoneChange(
   rows: PhoneRows,
   change: {
     eventType: string;
     new?: Partial<PhonePresenceRow> | Record<string, unknown> | null;
-    old?: Partial<PhonePresenceRow> | Record<string, unknown> | null;
   }
 ): PhoneRows {
-  if (change.eventType === 'DELETE') {
-    const key = rowKey(change.old ?? {});
-    if (!key || !rows.has(key)) return rows;
-    const next = new Map(rows);
-    next.delete(key);
-    return next;
-  }
+  if (change.eventType !== 'INSERT' && change.eventType !== 'UPDATE')
+    return rows;
   const row = change.new as PhonePresenceRow | null | undefined;
   const key = row ? rowKey(row) : null;
   if (!row || !key || typeof row.updated_at !== 'string') return rows;
@@ -155,4 +153,16 @@ export function samePhonePresence(
   const ka = Object.keys(a);
   if (ka.length !== Object.keys(b).length) return false;
   return ka.every((k) => b[k]?.state === a[k].state);
+}
+
+/**
+ * Whether to watch the phone at all: not in a workspace the extensions
+ * read (pbx_extensions_select, the active account's) says has no PBX.
+ * A failed read watches anyway, as it did before the check.
+ */
+export function workspaceHasPhones(read: {
+  count: number | null;
+  error: unknown;
+}): boolean {
+  return !!read.error || (read.count ?? 0) > 0;
 }

@@ -21,6 +21,12 @@ const RE_DERIVE_MS = 15_000;
 
 type PresenceMap = Map<string, PresenceRow>;
 
+// Each subscription gets its own topic. supabase.channel(name) hands
+// back a channel of that name still being removed (a remount, such as
+// the customer page's per-contact key or inbox → customer page), whose
+// subscribe() then does nothing: the dots went offline 75 s later.
+let topicSeq = 0;
+
 interface UsePresenceResult {
   /** Derived status for one member (defaults to offline if unseen). */
   getPresence: (userId: string) => PresenceStatus;
@@ -81,7 +87,7 @@ export function usePresence(enabled = true): UsePresenceResult {
     // rather than replacing the map — so an event that lands while the
     // fetch is in flight isn't clobbered by a staler snapshot row.
     const channel: RealtimeChannel = supabase
-      .channel(`presence:${accountId}`)
+      .channel(`presence:${accountId}:${++topicSeq}`)
       .on(
         "postgres_changes",
         {

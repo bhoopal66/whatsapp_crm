@@ -8,6 +8,7 @@ import {
   applyPhoneChange,
   mergePhoneSnapshot,
   samePhonePresence,
+  workspaceHasPhones,
   type PhonePresenceRow,
   type PhoneRows,
 } from '@/lib/person-presence';
@@ -18,7 +19,7 @@ export type PhonePresence = Readonly<Record<string, UserPresence>>;
 
 /** The fallback read, for a realtime event the socket dropped. */
 const POLL_MS = 60_000;
-/** A row turns stale (offline) on the clock alone, with no event. */
+/** A call state lapses on the clock alone, with no event. */
 const RE_DERIVE_MS = 30_000;
 
 const EMPTY: PhonePresence = Object.freeze({});
@@ -57,22 +58,9 @@ function start(store: Store, accountId: string): () => void {
     derive();
   };
 
-  // Subscribe first, then read: the read merges, keeping any newer row
-  // an event delivered meanwhile. A fresh topic each time, because
-  // supabase.channel(name) hands back a channel still being removed.
-  const channel = sb
-    .channel(`phone-presence:${accountId}:${++topicSeq}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'pbx_presence',
-        filter: `account_id=eq.${accountId}`,
-      },
-      (payload) => publish(applyPhoneChange(store.rows, payload))
-    )
-    .subscribe();
+  let channel: ReturnType<typeof sb.channel> | null = null;
+  let poll: ReturnType<typeof setInterval> | undefined;
+  let tick: ReturnType<typeof setInterval> | undefined;
   const read = async () => {
     const { data, error } = await sb
       .from('pbx_presence')
@@ -83,14 +71,39 @@ function start(store: Store, accountId: string): () => void {
     if (error) return; // the next poll or event catches up
     publish(mergePhoneSnapshot(store.rows, (data ?? []) as PhonePresenceRow[]));
   };
-  void read();
-  const poll = setInterval(() => void read(), POLL_MS);
-  const tick = setInterval(derive, RE_DERIVE_MS);
+  const watch = async () => {
+    // A workspace without a PBX opens no channel and polls nothing.
+    const exts = await sb
+      .from('pbx_extensions')
+      .select('id', { count: 'exact', head: true });
+    if (stopped || !workspaceHasPhones(exts)) return;
+    // Subscribe first, then read: the read merges, keeping any newer row
+    // an event delivered meanwhile. A fresh topic each time, because
+    // supabase.channel(name) hands back a channel still being removed.
+    // Removals (a DELETE) arrive with the minute's poll, not the feed.
+    channel = sb
+      .channel(`phone-presence:${accountId}:${++topicSeq}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pbx_presence',
+          filter: `account_id=eq.${accountId}`,
+        },
+        (payload) => publish(applyPhoneChange(store.rows, payload))
+      )
+      .subscribe();
+    void read();
+    poll = setInterval(() => void read(), POLL_MS);
+    tick = setInterval(derive, RE_DERIVE_MS);
+  };
+  void watch().catch(() => {});
   return () => {
     stopped = true;
     clearInterval(poll);
     clearInterval(tick);
-    void sb.removeChannel(channel);
+    if (channel) void sb.removeChannel(channel);
   };
 }
 
@@ -123,8 +136,9 @@ function release(key: string) {
 /**
  * Live phone presence (pbx_presence, migration 089) for the active
  * workspace: a realtime subscription (pbx_presence_select replays RLS
- * per subscriber: the active account's rows) plus a fallback read every
- * minute. Combine it with app presence through `personPresence`.
+ * per subscriber: the active account's rows) plus a read every minute,
+ * which also drops removed rows. Nothing at all in a workspace with no
+ * extensions. Combine it with app presence through `personPresence`.
  * Off for a bank guest, whom RLS gives no rows anyway.
  */
 export function usePhonePresence(enabled = true): PhonePresence {
