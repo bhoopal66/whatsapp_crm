@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -145,6 +148,51 @@ describe('shapeAuditRow', () => {
       item: { kind: 'deal_room', id: B },
       facts: [{ key: 'change', from: 'open', to: 'closed' }],
     });
+  });
+
+  it('reads a removal (091) like add_members: the channel and one member', () => {
+    expect(
+      shapeAuditRow('team_chat', {
+        id: 'x5',
+        actor_id: A,
+        action: 'remove_member',
+        channel_id: B,
+        at: AT,
+        detail: { user_id: C, role: 'member' },
+      })
+    ).toMatchObject({
+      item: { kind: 'channel', id: B },
+      reason: null,
+      facts: [{ key: 'members', count: 1 }],
+    });
+    expect(
+      shapeAuditRow('team_chat', {
+        id: 'x6',
+        action: 'remove_member',
+        channel_id: B,
+        at: AT,
+        detail: { user_id: 'junk' },
+      })
+    ).toMatchObject({ item: { kind: 'channel', id: B }, facts: [] });
+  });
+
+  it('labels every team-chat action the audit CHECK allows, in en and ko', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/091_chat_channel_admin.sql'),
+      'utf8'
+    );
+    const check =
+      /chat_audit_log_action_check CHECK \(action IN \(([^)]*)\)/.exec(sql);
+    const actions = [...(check?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(
+      (m) => m[1]
+    );
+    expect(actions).toContain('remove_member');
+    for (const lang of ['en', 'ko']) {
+      const labels = JSON.parse(
+        readFileSync(join(process.cwd(), `messages/${lang}.json`), 'utf8')
+      ).Settings.auditLog.actions.team_chat;
+      expect(actions.filter((a) => !labels[a])).toEqual([]);
+    }
   });
 
   it('drops a row with no id, time or action, and ignores junk detail', () => {

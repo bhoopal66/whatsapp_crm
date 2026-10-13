@@ -153,6 +153,16 @@ export function shapeAuditRow(source: AuditSource, r: Raw): AuditRow | null {
           facts: changeFact(d.from, d.to),
         };
       }
+      // 091: one person per row, shown like add_members (the channel
+      // and how many people) rather than as the person.
+      if (action === 'remove_member') {
+        return {
+          ...base,
+          item: item('channel', r.channel_id),
+          reason: null,
+          facts: uuid(d.user_id) ? countFact('members', 1) : [],
+        };
+      }
       return {
         ...base,
         item: item('channel', r.channel_id),

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addCandidates,
   addRules,
+  canRemoveMember,
   canSetRoles,
   leaveBlock,
   roleChange,
@@ -205,4 +206,84 @@ it('sortMembers: admins, members, guests, by name', () => {
     byId
   ).map((m) => m.userId);
   expect(sorted).toEqual(['me', 'ann', 'bob', 'gus']);
+});
+
+describe('canRemoveMember (091)', () => {
+  const roster = (members: ChannelMember[]) => ({
+    members,
+    peopleById: byId,
+    userId: 'me',
+  });
+  const ann = member('ann', 'member');
+
+  it('lets a channel admin or workspace owner/admin remove someone else', () => {
+    const team = [member('me', 'admin'), ann];
+    expect(
+      canRemoveMember(ann, { ...ctx({ myRole: 'admin' }), ...roster(team) })
+    ).toBe(true);
+    expect(
+      canRemoveMember(ann, {
+        ...ctx({ kind: 'team', myRole: null, accountRole: 'admin' }),
+        ...roster([member('bob', 'admin'), ann]),
+      })
+    ).toBe(true);
+    // A plain member, or an owner outside a private channel: no.
+    expect(canRemoveMember(ann, { ...ctx({}), ...roster(team) })).toBe(false);
+    expect(
+      canRemoveMember(ann, {
+        ...ctx({ myRole: null, accountRole: 'owner' }),
+        ...roster([member('bob', 'admin'), ann]),
+      })
+    ).toBe(false);
+  });
+
+  it('never yourself, an archived channel, a DM, a deal room or a guest remover', () => {
+    const team = [member('me', 'admin'), member('bob', 'admin'), ann];
+    const admin = ctx({ myRole: 'admin', accountRole: 'owner' });
+    expect(
+      canRemoveMember(member('me', 'admin'), { ...admin, ...roster(team) })
+    ).toBe(false);
+    expect(
+      canRemoveMember(ann, { ...admin, archived: true, ...roster(team) })
+    ).toBe(false);
+    for (const kind of ['dm', 'deal_room'] as const)
+      expect(canRemoveMember(ann, { ...admin, kind, ...roster(team) })).toBe(
+        false
+      );
+    expect(
+      canRemoveMember(ann, {
+        ...admin,
+        accountRole: 'bank_guest',
+        ...roster(team),
+      })
+    ).toBe(false);
+  });
+
+  it('hides the last admin who counts, on team channels too', () => {
+    const admin = ctx({ kind: 'team', myRole: null, accountRole: 'admin' });
+    const bob = member('bob', 'admin');
+    expect(canRemoveMember(bob, { ...admin, ...roster([bob, ann]) })).toBe(
+      false
+    );
+    // A guest admin or someone gone from the workspace does not count.
+    expect(
+      canRemoveMember(bob, {
+        ...admin,
+        ...roster([bob, member('gus', 'admin'), member('ghost', 'admin')]),
+      })
+    ).toBe(false);
+    expect(
+      canRemoveMember(bob, {
+        ...admin,
+        ...roster([bob, member('ann', 'admin')]),
+      })
+    ).toBe(true);
+    // A guest member can be removed.
+    expect(
+      canRemoveMember(member('gus', 'guest'), {
+        ...ctx({ myRole: 'admin' }),
+        ...roster([member('me', 'admin'), member('gus', 'guest')]),
+      })
+    ).toBe(true);
+  });
 });

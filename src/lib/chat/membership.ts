@@ -10,6 +10,7 @@ import type {
   ChannelRole,
   ChatPerson,
 } from './types';
+import { canManageChannel } from './view';
 
 /** The workspace roles chat_user_role maps to owner/admin/supervisor. */
 const GUEST_ADDERS: ReadonlySet<string> = new Set([
@@ -119,6 +120,23 @@ export function roleChange(
   if (target.role === 'member') return { to: 'admin', block: null };
   const last = c.kind === 'private' && otherAdmins(c, target.userId) === 0;
   return { to: 'member', block: last ? 'lastAdmin' : null };
+}
+
+/**
+ * Whether the panel offers removing `target` (chat_remove_member, 091):
+ * someone else (the viewer leaves instead), from a live channel the
+ * viewer may manage (canManageChannel), and never the last admin who
+ * still counts (in the workspace, not a guest, as in SQL) — on a team
+ * channel too, unlike a role change. Hidden rather than offered
+ * disabled; the database decides.
+ */
+export function canRemoveMember(
+  target: Pick<ChannelMember, 'userId' | 'role'>,
+  c: ChannelCtx & Roster & { userId: string }
+): boolean {
+  if (c.archived || !canManageChannel(c)) return false;
+  if (target.userId.toLowerCase() === c.userId.toLowerCase()) return false;
+  return target.role !== 'admin' || otherAdmins(c, target.userId) > 0;
 }
 
 export type LeaveBlock = 'notMember' | 'lastMember' | 'lastAdmin';

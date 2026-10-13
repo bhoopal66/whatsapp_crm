@@ -95,6 +95,30 @@ describe('channel administration (091)', () => {
         'NOT_FOUND',
         'notFound',
       ],
+      [
+        '23514',
+        'new row for relation "chat_channels" violates check constraint "chat_channels_name_check"',
+        'INVALID',
+        'nameLength',
+      ],
+      [
+        '23514',
+        'new row for relation "chat_channels" violates check constraint "chat_channels_topic_check"',
+        'INVALID',
+        'topicLength',
+      ],
+      [
+        '22023',
+        'chat_remove_member: to leave a channel yourself use chat_leave_channel',
+        'INVALID',
+        'removeSelf',
+      ],
+      [
+        '22023',
+        'chat_update_channel: only team and private channels (DMs are fixed sets; deal rooms are managed from the deal)',
+        'INVALID',
+        'notManageable',
+      ],
     ];
     for (const [sqlState, message, code, key] of cases) {
       const { sb } = fakeSb({ data: null, error: { code: sqlState, message } });

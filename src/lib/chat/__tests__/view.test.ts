@@ -3,13 +3,17 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { ChatError, type ChatErrorKey } from '../errors';
+import { ChatError, toChatError, type ChatErrorKey } from '../errors';
 import type { ChannelWithMembership, ChatPerson } from '../types';
 import {
   AVATAR_TINTS,
   avatarTint,
   boldSegments,
+  canManageChannel,
+  channelAdminErrorKey,
   channelDisplayName,
+  channelEditInput,
+  channelSettingsActions,
   chatErrorKey,
   combinedPresence,
   dmDisplayName,
@@ -141,6 +145,19 @@ describe('sidebarSections', () => {
         ch('p1', 'private', 'beta'),
         ch('p2', 'private', 'gone', { membership: null }),
         ch('a1', 'team', 'old', { archivedAt: '2026-10-02T00:00:00Z' }),
+        ch('a2', 'private', 'Closed', { archivedAt: '2026-10-02T00:00:00Z' }),
+        ch('a3', 'private', 'hidden', {
+          archivedAt: '2026-10-02T00:00:00Z',
+          membership: null,
+        }),
+        ch('a4', 'team', 'unjoined', {
+          archivedAt: '2026-10-02T00:00:00Z',
+          membership: null,
+        }),
+        ch('a5', 'dm', null, {
+          dmMemberIds: [ME, ANA],
+          archivedAt: '2026-10-02T00:00:00Z',
+        }),
         ch('d1', 'deal_room', 'Deal B'),
         ch('m1', 'dm', null, { dmMemberIds: [ME, BO] }),
         ch('m2', 'dm', null, { dmMemberIds: [ANA, ME] }),
@@ -154,6 +171,8 @@ describe('sidebarSections', () => {
     expect(s.team[1]).toMatchObject({ unread: 3, mentions: 1 });
     expect(s.dealRooms.map((r) => r.channel.id)).toEqual(['d1']);
     expect(s.dms.map((r) => r.name)).toEqual(['Ana', 'Bo']);
+    // Archived team/private channels, under the same listing rule.
+    expect(s.archived.map((r) => r.channel.id)).toEqual(['a2', 'a1', 'a4']);
   });
   it('totalUnread sums', () => {
     expect(
@@ -253,5 +272,162 @@ describe('formatting', () => {
     const missing = UI_ERROR_KEYS.filter((k) => !en.Chat.errors[k]);
     expect(missing).toEqual([]);
     expect(UI_ERROR_KEYS).toContain('duplicateName');
+  });
+});
+
+describe('channel settings (091)', () => {
+  const m = (
+    o: Partial<Parameters<typeof channelSettingsActions>[0]> = {}
+  ): Parameters<typeof channelSettingsActions>[0] => ({
+    kind: 'team',
+    archived: false,
+    myRole: 'member',
+    accountRole: 'agent',
+    ...o,
+  });
+
+  it('mirrors chat_assert_can_manage_channel', () => {
+    // Team: a channel admin, or a workspace owner/admin member or not.
+    expect(canManageChannel(m({ myRole: 'admin' }))).toBe(true);
+    expect(canManageChannel(m())).toBe(false);
+    expect(canManageChannel(m({ myRole: null }))).toBe(false);
+    expect(canManageChannel(m({ myRole: null, accountRole: 'admin' }))).toBe(
+      true
+    );
+    expect(canManageChannel(m({ myRole: null, accountRole: 'owner' }))).toBe(
+      true
+    );
+    expect(canManageChannel(m({ accountRole: 'team_leader' }))).toBe(false);
+    // Private: the same, but only from inside it (D-B1).
+    const p = (o: Parameters<typeof m>[0]) => m({ kind: 'private', ...o });
+    expect(canManageChannel(p({ myRole: 'admin' }))).toBe(true);
+    expect(canManageChannel(p({ accountRole: 'admin' }))).toBe(true);
+    expect(canManageChannel(p({ myRole: null, accountRole: 'owner' }))).toBe(
+      false
+    );
+    expect(canManageChannel(p({}))).toBe(false);
+    // Never a DM or deal room; never a bank guest, whatever the row says.
+    for (const kind of ['dm', 'deal_room'] as const)
+      expect(
+        canManageChannel(m({ kind, myRole: 'admin', accountRole: 'owner' }))
+      ).toBe(false);
+    expect(
+      canManageChannel(p({ myRole: 'admin', accountRole: 'bank_guest' }))
+    ).toBe(false);
+    expect(canManageChannel(m({ myRole: 'admin', accountRole: null }))).toBe(
+      false
+    );
+    expect(canManageChannel(m({ myRole: 'admin', accountRole: 'boss' }))).toBe(
+      false
+    );
+  });
+
+  it('offers edit and archive on a live channel, only unarchive on an archived one', () => {
+    expect(channelSettingsActions(m({ myRole: 'admin' }))).toEqual({
+      edit: true,
+      archive: true,
+      unarchive: false,
+    });
+    expect(
+      channelSettingsActions(m({ myRole: 'admin', archived: true }))
+    ).toEqual({ edit: false, archive: false, unarchive: true });
+    expect(channelSettingsActions(m({ archived: true }))).toEqual({
+      edit: false,
+      archive: false,
+      unarchive: false,
+    });
+  });
+
+  const sales = { id: 'c1', name: 'Sales Team', topic: 'Q3 ' };
+  const others = [
+    { id: 'c1', kind: 'team' as const, name: 'Sales Team', archivedAt: null },
+    { id: 'c2', kind: 'private' as const, name: 'ops', archivedAt: null },
+    {
+      id: 'c3',
+      kind: 'team' as const,
+      name: 'old',
+      archivedAt: '2026-10-02T00:00:00Z',
+    },
+  ];
+
+  it('builds the updateChannel input: null keeps, blank topic clears', () => {
+    const edit = (name: string, topic: string) =>
+      channelEditInput({ name, topic }, sales, others);
+    expect(edit('Sales Team', 'Q3')).toBe('unchanged');
+    expect(edit(' Sales Team ', ' Q3 ')).toBe('unchanged');
+    expect(edit('Sales Team', '')).toEqual({ name: null, topic: '' });
+    expect(edit('Sales Team', ' Q4 ')).toEqual({ name: null, topic: 'Q4' });
+    expect(edit('  Big Deals ', 'Q3')).toEqual({
+      name: 'big-deals',
+      topic: null,
+    });
+    // The channel's own name is not "taken"; an archived one's is free.
+    expect(edit('sales team', 'Q3')).toEqual({
+      name: 'sales-team',
+      topic: null,
+    });
+    expect(edit('old', 'Q3')).toEqual({ name: 'old', topic: null });
+    expect(edit('OPS', 'Q3')).toBe('taken');
+    expect(edit('  ', 'Q3')).toBe('empty');
+    expect(
+      channelEditInput({ name: 'x', topic: 'y'.repeat(300) }, sales, [])
+    ).toEqual({ name: 'x', topic: 'y'.repeat(250) });
+  });
+
+  it('words a refused channel-admin write for what was tried', () => {
+    const e = (code: string, message: string) => toChatError({ code, message });
+    const admin = e(
+      '42501',
+      'chat_update_channel: only channel admins or workspace owner/admin can manage a channel'
+    );
+    expect(channelAdminErrorKey('edit', admin)).toBe(
+      'settings.errors.adminRequired'
+    );
+    expect(
+      channelAdminErrorKey(
+        'remove',
+        e(
+          '42501',
+          'chat_remove_member: not a member of this channel (owner/admin: use chat_admin_read_private to read a private channel)'
+        )
+      )
+    ).toBe('settings.errors.notChannelMember');
+    expect(
+      channelAdminErrorKey(
+        'edit',
+        e('42501', 'chat_update_channel: channel is archived')
+      )
+    ).toBe('settings.errors.archived');
+    const dup = e(
+      '23505',
+      'duplicate key value violates unique constraint "chat_channels_name_uq"'
+    );
+    expect(channelAdminErrorKey('unarchive', dup)).toBe(
+      'settings.errors.unarchiveNameTaken'
+    );
+    expect(channelAdminErrorKey('edit', dup)).toBe('errors.duplicateName');
+    expect(
+      channelAdminErrorKey(
+        'remove',
+        e(
+          '22023',
+          'chat_remove_member: the last admin of a channel cannot be removed'
+        )
+      )
+    ).toBe('errors.lastAdmin');
+    expect(channelAdminErrorKey('archive', new Error('offline'))).toBe(
+      'errors.unknown'
+    );
+    // Every key it can return has English wording.
+    const en = JSON.parse(
+      readFileSync(join(process.cwd(), 'messages/en.json'), 'utf8')
+    ).Chat;
+    for (const k of [
+      'adminRequired',
+      'notChannelMember',
+      'archived',
+      'unarchiveNameTaken',
+    ])
+      expect(en.settings.errors[k]).toBeTruthy();
   });
 });
