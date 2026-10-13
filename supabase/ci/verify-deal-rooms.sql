@@ -1,4 +1,4 @@
--- Behavioural regression suite for deal rooms (migration 088).
+-- Behavioural regression suite for deal rooms (migrations 088, 095).
 --
 -- A deal room is a WhatsApp group on the account's Meta number, linked
 -- to a contact; inside the CRM it is a `deal_room` internal-chat
@@ -10,7 +10,8 @@
 -- refusals (a viewer, a guest, a contact the agent cannot see, a Whapi
 -- number, 0 or 8 invitees, a repeated phone, an opted-out or
 -- do-not-contact person, no consent, a bank guest with no bank or whose
--- bank is off); that an agent's bank guest waits for a team leader;
+-- bank is off); that an agent's bank guest waits for a team leader,
+-- and that only a leader or admin who manages the room decides (095);
 -- who sees which room; that a guest reads only the roster, group
 -- messages and receipts of their own rooms; that no client reads a
 -- phone, a WhatsApp id or the invite link; the can_manage / can_post
@@ -53,6 +54,7 @@ DECLARE
   r_x      UUID;   -- write-path checks: a room closed with a guest awaiting approval
   p_x      UUID;
   p_guest  UUID;   -- the agent's bank guest participant
+  p_team   UUID;   -- a bank guest in the teammate's room: the leader with a team decides
   p_pat    UUID;   -- the partner in the leader's room
   p_biz    UUID;   -- our number's row in the leader's room
   m_in     UUID;
@@ -292,13 +294,26 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM deal_room_participants WHERE id = p_guest AND status = 'pending_approval') THEN
     failed := array_append(failed, ('an agent approved a bank guest: ' || r)::text);
   END IF;
-  r := pg_temp.dr_try('authenticated', u_lead, format('SELECT public.deal_room_approve_participant(%L, true)', p_guest));
+  -- 095: the approver must manage the room. The fixture's team leader has
+  -- no team yet, so the agent's customer is not theirs to see: approving
+  -- or rejecting there is refused; the admin may.
+  r := pg_temp.dr_try('authenticated', u_lead, format('SELECT public.deal_room_approve_participant(%L, true)', p_guest))
+       || ' / ' || pg_temp.dr_try('authenticated', u_lead, format('SELECT public.deal_room_approve_participant(%L, false)', p_guest));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501: deal rooms: only a manager of this room%'
+                ' / ERROR 42501: deal rooms: only a manager of this room%'
+     OR NOT EXISTS (SELECT 1 FROM deal_room_participants WHERE id = p_guest AND status = 'pending_approval')
+     OR EXISTS (SELECT 1 FROM deal_room_audit
+                 WHERE room_id = r_agent AND action IN ('participant_approved','participant_rejected')) THEN
+    failed := array_append(failed, ('a team leader decided on a bank guest in a room they cannot see: ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('authenticated', u_admin, format('SELECT public.deal_room_approve_participant(%L, true)', p_guest));
   n := n + 1;
   IF r IS DISTINCT FROM 'invited'
      OR NOT EXISTS (SELECT 1 FROM deal_room_participants WHERE id = p_guest AND status = 'invited')
      OR NOT EXISTS (SELECT 1 FROM deal_room_audit
-                     WHERE room_id = r_agent AND action = 'participant_approved' AND actor_id = u_lead) THEN
-    failed := array_append(failed, ('a team leader could not approve a bank guest: ' || r)::text);
+                     WHERE room_id = r_agent AND action = 'participant_approved' AND actor_id = u_admin) THEN
+    failed := array_append(failed, ('an admin could not approve a bank guest: ' || r)::text);
   END IF;
 
   -- The other agent's room; the leader adds the viewer and the guest login.
@@ -640,6 +655,18 @@ BEGIN
     failed := array_append(failed, ('a team leader with a team (teammate''s customer; another''s deal; '
                                     || 'the teammate''s deal): ' || r)::text);
   END IF;
+  -- ... and so decides on a bank guest waiting there (095).
+  INSERT INTO deal_room_participants (room_id, account_id, display_name, phone, role, bank_code, status)
+  VALUES (r_agent2, a_acct, 'Di Bank', '971500880024', 'bank_guest', 'ADCB', 'pending_approval')
+  RETURNING id INTO p_team;
+  r := pg_temp.dr_try('authenticated', u_lead, format('SELECT public.deal_room_approve_participant(%L, true)', p_team));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'invited'
+     OR NOT EXISTS (SELECT 1 FROM deal_room_participants WHERE id = p_team AND status = 'invited')
+     OR NOT EXISTS (SELECT 1 FROM deal_room_audit
+                     WHERE room_id = r_agent2 AND action = 'participant_approved' AND actor_id = u_lead) THEN
+    failed := array_append(failed, ('a team leader could not approve a bank guest in a room they supervise: ' || r)::text);
+  END IF;
   -- A guest loses the room when their bank's guests are switched off,
   -- and when their bank's participant is removed from the group.
   s := format('SELECT coalesce(public.deal_room_access(%L), ''none'') || '' '' || public.deal_room_can_post(%L)::text'
@@ -726,7 +753,7 @@ BEGIN
          format('SELECT public.deal_room_add_staff(%L, ARRAY[%L]::uuid[])::text', r_lead, u_agent2))
        || ' / ' || pg_temp.dr_try('authenticated', u_lead,
          format('SELECT ''added'' FROM public.deal_room_add_guest_user(%L, %L)', r_lead, u_guest))
-       || ' / ' || pg_temp.dr_try('authenticated', u_lead,
+       || ' / ' || pg_temp.dr_try('authenticated', u_admin,
          format('SELECT public.deal_room_approve_participant(%L, true)', p_x));
   n := n + 1;
   IF p_x IS NULL OR r NOT LIKE 'ERROR 22023: deal rooms: the room is closed% / ERROR 22023: deal rooms: the room is closed%'

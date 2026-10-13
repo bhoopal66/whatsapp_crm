@@ -360,8 +360,9 @@ including your number, so a room lists 1 to 7 other people.
    *closing* with the reason, and closing again carries on from there.
    A transcript can also be saved at any time without closing.
 
-A *manager* is a team leader or above, or an agent who is an admin of
-the room's channel or owns the room's contact. If WhatsApp suspends a
+A *manager* is an owner or admin, a team leader who can see the room's
+customer (and its deal, if it has one), or an agent and up who is an
+admin of the room's channel or owns the room's contact. If WhatsApp suspends a
 group, the room shows *suspended*, its managers are notified, and
 nothing can be sent until WhatsApp clears it.
 
@@ -378,8 +379,9 @@ and WhatsApp ids only masked (`+971 XXXXXXX12`).
   a bank on in Settings and the date it was checked is recorded. For any
   other bank, adding an officer is refused.
 - **A team leader approves each guest** an agent adds: the officer
-  waits, is invited only once a team leader (or above) approves, and is
-  never invited if rejected.
+  waits, is invited only once a team leader (or above) who is a manager
+  of that room approves, and is never invited if rejected. An agent
+  cannot approve, even in a room they manage.
 - **What a bank officer sees** is only their own rooms: a room shows
   while their bank's guest switch is on and the room has an approved
   officer of their bank who has not been removed. In it they read the

@@ -21,6 +21,7 @@ import {
   allowedGuestBanks,
   canAddInvitee,
   clip,
+  createOutcome,
   createRoomBody,
   dealOptionLabel,
   defaultGroupName,
@@ -153,17 +154,14 @@ function CreateBody({ onDone }: { onDone: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = (await res.json().catch(() => ({}))) as {
-        roomId?: string;
-        error?: string;
-      };
-      if (!res.ok || !json.roomId) {
-        toast.error(t('failed', { error: json.error ?? String(res.status) }));
-        if (json.roomId) router.push(`/chat/rooms/${json.roomId}`);
-        return;
+      const outcome = createOutcome(res, await res.json().catch(() => ({})));
+      if (outcome.error) {
+        toast.error(t('failed', { error: outcome.error }));
       }
-      onDone();
-      router.push(`/chat/rooms/${json.roomId}`);
+      if (outcome.roomId) {
+        onDone();
+        router.push(`/chat/rooms/${outcome.roomId}`);
+      }
     } finally {
       setBusy(false);
     }

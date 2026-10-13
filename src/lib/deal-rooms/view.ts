@@ -230,6 +230,24 @@ export function templateParamCount(body: string | null | undefined): number {
   return max;
 }
 
+/**
+ * The tables whose changes make a staff room screen re-read the room.
+ * Each must be in the `supabase_realtime` publication (088), and the
+ * viewer must be able to read the row, since realtime replays RLS per
+ * subscriber. A join request writes only `deal_room_join_requests`, so
+ * without it a manager saw a pending request only after a reload.
+ */
+export const ROOM_SIGNAL_TABLES: readonly string[] = [
+  'deal_rooms',
+  'deal_room_participants',
+  'deal_room_join_requests',
+];
+
+/** The realtime filter for one of those tables, on one room. */
+export function roomSignalFilter(table: string, roomId: string): string {
+  return table === 'deal_rooms' ? `id=eq.${roomId}` : `room_id=eq.${roomId}`;
+}
+
 /** How often a bank guest's room screens re-read, in ms. */
 export const GUEST_ROOM_REFRESH_MS = 60_000;
 
