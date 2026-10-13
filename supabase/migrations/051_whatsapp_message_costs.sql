@@ -415,7 +415,11 @@ BEGIN
     CASE WHEN v_state = 'delivered' THEN v_ts END,
     CASE WHEN v_state = 'delivered' THEN v_month END
   )
-  ON CONFLICT (phone_number_id, message_id, status) DO NOTHING
+  -- No conflict target: 100 widens the receipt key with the recipient,
+  -- and a target naming this file's key would raise 42P10 on every call
+  -- if this file is re-run after 100. The only other unique index is the
+  -- identity key, so this is the same rule under either key.
+  ON CONFLICT DO NOTHING
   RETURNING * INTO v_row;
 
   IF v_row.id IS NULL THEN

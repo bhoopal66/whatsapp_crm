@@ -16,7 +16,10 @@ import {
   countDroppedEvents,
   createDropTally,
 } from '@/lib/whatsapp/meta-drop-tally';
-import { recordMetaMessageCosts } from '@/lib/whatsapp/message-costs';
+import {
+  recordGroupMessageCosts,
+  recordMetaMessageCosts,
+} from '@/lib/whatsapp/message-costs';
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -29,6 +32,7 @@ import {
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   groupMessages,
+  groupStatuses,
   handleGroupWebhook,
   isGroupChange,
   isGroupMessage,
@@ -556,6 +560,16 @@ async function phoneNumberHalf(
             accountId: n.config.account_id,
             phoneNumberId: n.config.phone_number_id,
             statuses: n.rawStatuses,
+          });
+        }
+        // Group sends are costed per delivered member (migration 100),
+        // last and fail-open in the same way.
+        const groupReceipts = n.groups.flatMap((v) => groupStatuses(v));
+        if (groupReceipts.length > 0 && ipLimited === 0) {
+          await recordGroupMessageCosts(supabaseAdmin(), {
+            accountId: n.config.account_id,
+            phoneNumberId: n.config.phone_number_id,
+            statuses: groupReceipts,
           });
         }
       }

@@ -527,7 +527,9 @@ BEGIN
   SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO r FROM pg_proc p
    WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'chat\_%' AND p.proname <> 'chat_tags_guard'
      AND has_function_privilege('service_role', p.oid, 'EXECUTE');
-  n := n+1; failed := failed || pg_temp.ck(r = 'chat_orphan_files(integer), chat_post_system_message(uuid,text,jsonb)', 'service_role executes: ' || coalesce(r, 'nothing'));
+  -- 102: the automation engine asks chat_channels_with_guests (read-only)
+  -- before its Post to team chat step.
+  n := n+1; failed := failed || pg_temp.ck(r = 'chat_channels_with_guests(uuid[]), chat_orphan_files(integer), chat_post_system_message(uuid,text,jsonb)', 'service_role executes: ' || coalesce(r, 'nothing'));
   r := pg_temp.ic_go('anon', NULL, pg_temp.q_dm(a, ARRAY[u_rm]), false)
     || '|' || pg_temp.ic_go('service_role', NULL, format('SELECT public.chat_erase_person(%L, %L, %L)', a, u_rm, 'service purge'), false);
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR 42501: permission denied for function%|ERROR 42501: permission denied for function%',
