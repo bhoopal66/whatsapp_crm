@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { PBX_SILENCE_MINUTES } from './admin-ui';
-import { inCallbackHours } from './callbacks';
+import { CALLBACK_HOURS, inCallbackHours } from './callbacks';
 
 /**
  * The silence alert (migration 104, docs/yeastar.md): when no PBX event
@@ -25,14 +25,14 @@ export interface SilenceState {
  *
  * - `restore`: an alert went out and an event arrived after it, at any
  *   hour, so the next silence can ring again.
- * - `alert`: no alert out, an event ever (a connection never set up, or
- *   never sent anything, stays silent), the latest at least
- *   `quietMinutes` old, and that whole quiet stretch inside working
- *   hours: the call-backs' 09:00–20:00 Dubai window. A night without
- *   calls is not a fault, and the first minutes after opening are not
- *   either; at 09:15 a link that has said nothing since the evening is.
- *   (Both ends in the window means one day while `quietMinutes` is
- *   under the 13 closed hours.)
+ * - `alert`: no alert out, the latest event at least `quietMinutes`
+ *   old, that whole quiet stretch inside working hours (the call-backs'
+ *   09:00–20:00 Dubai window), and the latest event itself inside today's
+ *   working hours: a link that was delivering today and stopped. Webhook
+ *   delivery has no heartbeat, so silence before the first event of the
+ *   day cannot tell a broken link from a call centre that opens late or
+ *   is closed; that would ring every such morning. A connection that
+ *   never had an event stays silent too.
  */
 export function silenceAction(
   conn: SilenceState,
@@ -47,7 +47,20 @@ export function silenceAction(
   }
   const quietSince = now - quietMinutes * 60_000;
   if (last > quietSince) return null;
+  if (last < dubaiWorkdayStart(now)) return null;
   return inCallbackHours(now) && inCallbackHours(quietSince) ? 'alert' : null;
+}
+
+const HOUR_MS = 3_600_000;
+/** Dubai is UTC+4 all year (no daylight saving). */
+const DUBAI_OFFSET_MS = 4 * HOUR_MS;
+
+/** The start of working hours (09:00 Dubai) on `ms`'s Dubai date. */
+export function dubaiWorkdayStart(ms: number): number {
+  const day = 24 * HOUR_MS;
+  const midnight =
+    Math.floor((ms + DUBAI_OFFSET_MS) / day) * day - DUBAI_OFFSET_MS;
+  return midnight + CALLBACK_HOURS.start * HOUR_MS;
 }
 
 export interface SilenceSummary {

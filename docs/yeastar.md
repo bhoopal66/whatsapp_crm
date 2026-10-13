@@ -256,9 +256,12 @@ them inside working hours (09:00–20:00 Dubai, the call-backs' window),
 the owners and admins of the workspace that owns the connection get one
 bell, _No phone system events for …_, which opens Settings → Phone
 system. When events arrive again they get one more, _Phone system events
-are arriving again_, at any hour. A connection that never received an
-event never alerts, and a quiet night does not either: at 09:15 a link
-that has said nothing since the evening does. The PBX cron checks every
+are arriving again_, at any hour. It rings only for a link that was
+delivering earlier the same working day and then stopped: webhook
+delivery has no heartbeat, so silence before the day's first event could
+as well be a call centre that opens late or is closed, and would ring
+every such morning. A connection that never received an event never
+alerts, and a quiet night does not either. The PBX cron checks every
 pass (section 10); `pbx_connection_silence()` moves the state and rings
 in one statement, so overlapping passes ring once.
 

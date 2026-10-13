@@ -66,10 +66,12 @@ screen showed these calls.
 
   An open page re-reads this about once a minute, so it doesn't go
   stale.
-- **Silence alert.** If no phone event has arrived for 15 minutes during
-  working hours (09:00–20:00 Dubai), owners and admins get one bell. They
-  get another when events resume. The earliest alert is at 09:15, and a
-  closed day gives one alert that morning.
+- **Silence alert.** If phone events stop for 15 minutes during working
+  hours (09:00–20:00 Dubai), owners and admins get one bell. They get
+  another when events resume. It only rings when events had already
+  arrived earlier that working day. Webhooks have no heartbeat, so before
+  the day's first event a quiet link can't be told apart from a call
+  centre that opens late or is closed.
 - **Event clock.** The "last event" time only moves forward, and a
   timestamp in the future is capped. A retried old event, or a wrong
   clock, can't make the link look live or silent when it isn't.

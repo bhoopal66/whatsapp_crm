@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PBX_SILENCE_MINUTES } from '../admin-ui';
-import { checkPbxSilence, silenceAction } from '../health';
+import { checkPbxSilence, dubaiWorkdayStart, silenceAction } from '../health';
 import { createFakeDb } from './fake-db';
 
 // Dubai is UTC+4 all year: 09:00 there is 05:00Z, 20:00 is 16:00Z.
@@ -31,21 +31,56 @@ describe('silenceAction', () => {
     expect(PBX_SILENCE_MINUTES).toBe(15);
     expect(silenceAction(state(14), at(ten))).toBeNull();
     expect(silenceAction(state(15), at(ten))).toBe('alert');
-    expect(silenceAction(state(600), at(ten))).toBe('alert');
+    expect(silenceAction(state(60), at(ten))).toBe('alert'); // last at 09:00
     expect(silenceAction(state(3), at(ten), 2)).toBe('alert');
   });
 
   it('stays quiet outside 09:00-20:00 Dubai, and in the first minutes after opening', () => {
-    const evening = '2026-10-11T15:50:00Z'; // 19:50 the day before
+    const morning = '2026-10-12T05:00:00Z'; // 09:00, the day's first event
     const quiet = (now: string) =>
-      silenceAction({ lastEventAt: evening, silenceAlertedAt: null }, at(now));
-    expect(quiet('2026-10-11T17:00:00Z')).toBeNull(); // 21:00
-    expect(quiet('2026-10-12T01:00:00Z')).toBeNull(); // 05:00
-    expect(quiet('2026-10-12T05:00:00Z')).toBeNull(); // 09:00
+      silenceAction({ lastEventAt: morning, silenceAlertedAt: null }, at(now));
     expect(quiet('2026-10-12T05:14:00Z')).toBeNull(); // 09:14
     expect(quiet('2026-10-12T05:15:00Z')).toBe('alert'); // 09:15
     expect(quiet('2026-10-12T15:59:00Z')).toBe('alert'); // 19:59
     expect(quiet('2026-10-12T16:00:00Z')).toBeNull(); // 20:00
+    expect(quiet('2026-10-12T17:00:00Z')).toBeNull(); // 21:00
+    // An event at 08:58 is not "today's working hours" either.
+    expect(
+      silenceAction(
+        { lastEventAt: '2026-10-12T04:58:00Z', silenceAlertedAt: null },
+        at('2026-10-12T05:20:00Z')
+      )
+    ).toBeNull();
+  });
+
+  it('never alerts before the first event of the working day', () => {
+    // Webhooks have no heartbeat: silence since last evening could be a
+    // closed day or a late opening as well as a broken link.
+    const evening = '2026-10-11T15:50:00Z'; // 19:50 the day before
+    const quiet = (now: string) =>
+      silenceAction({ lastEventAt: evening, silenceAlertedAt: null }, at(now));
+    expect(quiet('2026-10-12T05:15:00Z')).toBeNull(); // 09:15
+    expect(quiet('2026-10-12T08:00:00Z')).toBeNull(); // 12:00
+    expect(quiet('2026-10-12T15:59:00Z')).toBeNull(); // 19:59
+  });
+
+  it("places the working day on Dubai's date", () => {
+    // 01:30 Dubai on the 12th is still 21:30 UTC on the 11th.
+    expect(
+      new Date(
+        dubaiWorkdayStart(Date.parse('2026-10-11T21:30:00Z'))
+      ).toISOString()
+    ).toBe('2026-10-12T05:00:00.000Z');
+    expect(
+      new Date(
+        dubaiWorkdayStart(Date.parse('2026-10-12T19:59:00Z'))
+      ).toISOString()
+    ).toBe('2026-10-12T05:00:00.000Z');
+    expect(
+      new Date(
+        dubaiWorkdayStart(Date.parse('2026-10-12T20:00:00Z'))
+      ).toISOString()
+    ).toBe('2026-10-13T05:00:00.000Z');
   });
 
   it('does not alert again while an alert is out', () => {

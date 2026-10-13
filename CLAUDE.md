@@ -951,7 +951,9 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   and `last_event_via`. A trigger keeps the clock forward-only and caps it at
   `now() + 1 minute`. The cron's `silence` step rings owners and admins once
   through `pbx_connection_silence()` after 15 quiet minutes inside
-  09:00–20:00 Dubai, and once more when events resume.
+  09:00–20:00 Dubai, and once more when events resume. It rings only when
+  the latest event fell in that day's working hours: webhooks have no
+  heartbeat, so earlier silence may just mean the centre isn't open yet.
 - **Unrouted calls.** A call to a DID with no route is filed under the
   connection's workspace with `calls.meta.unrouted`. Owners and admins list
   those calls through `GET /api/pbx/calls?scope=unrouted`; its per-number
