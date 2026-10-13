@@ -511,11 +511,17 @@ async function undoTransition(
 /**
  * A once-per-interval gate, per process. For piggy-backing the check on
  * a cron that fires more often than probing is worth.
+ *
+ * It allows a little slack (5 s, or a tenth of a short interval): a
+ * once-a-minute pinger's requests land a few milliseconds either side of
+ * 60 s apart, and without slack every early one skipped a 1-minute job
+ * (journey tick, phone system) until the next ping, halving its rate.
  */
 export function everyInterval(intervalMs: number): (nowMs?: number) => boolean {
+  const slack = Math.min(5_000, intervalMs / 10);
   let last = -Infinity;
   return (nowMs = Date.now()) => {
-    if (nowMs - last < intervalMs) return false;
+    if (nowMs - last < intervalMs - slack) return false;
     last = nowMs;
     return true;
   };

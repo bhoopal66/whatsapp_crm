@@ -601,8 +601,20 @@ describe('everyInterval', () => {
     const due = everyInterval(300_000);
     expect(due(1_000_000)).toBe(true);
     expect(due(1_000_000 + 60_000)).toBe(false);
-    expect(due(1_000_000 + 299_999)).toBe(false);
+    expect(due(1_000_000 + 294_999)).toBe(false);
     expect(due(1_000_000 + 300_000)).toBe(true);
     expect(due(1_000_000 + 300_001)).toBe(false);
+  });
+
+  it('does not skip a once-a-minute job when the ping lands a little early', () => {
+    const due = everyInterval(60_000);
+    expect(due(1_000_000)).toBe(true);
+    // The next ping arrives 30 ms short of a minute: still this minute's run.
+    expect(due(1_000_000 + 59_970)).toBe(true);
+    // A second ping in the same minute is still refused.
+    expect(due(1_000_000 + 59_970 + 20_000)).toBe(false);
+    // Slack is 5 s at most.
+    expect(due(1_000_000 + 59_970 + 54_999)).toBe(false);
+    expect(due(1_000_000 + 59_970 + 55_000)).toBe(true);
   });
 });

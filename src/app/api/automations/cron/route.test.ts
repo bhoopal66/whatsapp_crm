@@ -169,7 +169,7 @@ describe('GET /api/automations/cron — team activity alerts piggy-back', () => 
     await runAfter();
     expect(h.sweep).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(new Date('2026-09-29T13:04:59Z'));
+    vi.setSystemTime(new Date('2026-09-29T13:04:00Z'));
     await GET(req());
     await runAfter();
     expect(h.sweep).toHaveBeenCalledTimes(1);
@@ -203,7 +203,7 @@ describe('GET /api/automations/cron — edge store purge', () => {
     expect(h.rpc).toHaveBeenCalledTimes(1);
     expect(h.rpc).toHaveBeenCalledWith('edge_purge');
 
-    vi.setSystemTime(new Date('2026-09-29T13:14:59Z'));
+    vi.setSystemTime(new Date('2026-09-29T13:14:00Z'));
     await GET(req());
     await runAfter();
     expect(h.rpc).toHaveBeenCalledTimes(1);
@@ -265,7 +265,7 @@ describe('GET /api/automations/cron — chat file sweep', () => {
     await runAfter();
     expect(h.chatFiles).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(new Date('2026-09-29T13:14:59Z'));
+    vi.setSystemTime(new Date('2026-09-29T13:14:00Z'));
     await GET(req());
     await runAfter();
     expect(h.chatFiles).toHaveBeenCalledTimes(1);
@@ -329,7 +329,7 @@ describe('GET /api/automations/cron — journey tick', () => {
     expect(h.journeyTick).toHaveBeenCalledTimes(1);
     expect(h.journeyTick.mock.calls[0][0]).toHaveProperty('db');
 
-    vi.setSystemTime(new Date('2026-10-12T09:00:59Z'));
+    vi.setSystemTime(new Date('2026-10-12T09:00:30Z'));
     await GET(req());
     await runAfter();
     expect(h.journeyTick).toHaveBeenCalledTimes(1);
@@ -370,7 +370,7 @@ describe('GET /api/automations/cron — deal-room reconcile', () => {
     expect(h.reconcile).toHaveBeenCalledTimes(1);
     expect(h.reconcile.mock.calls[0][0]).toHaveProperty('from');
 
-    vi.setSystemTime(new Date('2026-10-12T09:01:59Z'));
+    vi.setSystemTime(new Date('2026-10-12T09:01:30Z'));
     await GET(req());
     await runAfter();
     expect(h.reconcile).toHaveBeenCalledTimes(1);
@@ -392,7 +392,7 @@ describe('GET /api/automations/cron — phone system piggy-back', () => {
     await runAfter();
     expect(h.pbx).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(new Date('2026-09-29T13:00:59Z'));
+    vi.setSystemTime(new Date('2026-09-29T13:00:30Z'));
     await GET(req());
     await runAfter();
     expect(h.pbx).toHaveBeenCalledTimes(1);
