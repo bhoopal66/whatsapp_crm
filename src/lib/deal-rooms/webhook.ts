@@ -19,12 +19,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { markOptedOut } from '@/lib/ai/opt-out';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api';
+import { MetaError } from '@/lib/whatsapp/meta-api';
 import {
   approveJoinRequests,
+  deleteGroup,
   removeParticipants,
 } from '@/lib/whatsapp/meta-groups';
 
 import { sendRoomInvites } from './invites';
+import { alertRecipients, workspaceAdminIds } from './shared';
 
 export const GROUP_WEBHOOK_FIELDS = [
   'group_lifecycle_update',
@@ -180,7 +183,7 @@ export async function handleGroupWebhook(
     title: string,
     meta: Json
   ): Promise<void> {
-    const users = [...new Set(userIds.filter((u): u is string => !!u))];
+    const users = alertRecipients(userIds);
     if (users.length === 0) return;
     const { error } = await db.from('notifications').insert(
       users.map((user_id) => ({
@@ -207,6 +210,16 @@ export async function handleGroupWebhook(
       r.created_by,
       ...((data ?? []) as { user_id: string }[]).map((m) => m.user_id),
     ];
+  }
+
+  // A late group of a cancelled room: best-effort, never retried.
+  async function discardGroup(groupId: string): Promise<void> {
+    try {
+      await deleteGroup({ groupId, accessToken: args.accessToken });
+    } catch (err) {
+      if (err instanceof MetaError && err.isGroupUnknown) return;
+      console.error('[deal-rooms] cancelled room group not deleted:', err);
+    }
   }
 
   async function each<T>(
@@ -261,6 +274,10 @@ export async function handleGroupWebhook(
         // The room is open: invite its people. Claim-then-send, so a
         // redelivered webhook invites nobody twice.
         if (typeof roomId === 'string') await sendRoomInvites(db, roomId);
+        // NULL: the room was cancelled while being created (096), and no
+        // other room holds the group (that one raises instead). The group
+        // holds only our number; delete it so it is not left over.
+        else if (roomId === null) await discardGroup(groupId);
         return;
       }
       const { data, error } = await db
@@ -272,13 +289,16 @@ export async function handleGroupWebhook(
       if (error) throw new Error(`room lookup failed: ${error.message}`);
       if (!data) throw new UnknownGroup(requestId);
       const r = data as Room;
-      await rpc('deal_room_set_status', {
+      // Fails it only while it is still `creating`, under its row lock
+      // (096). Cancelled (even after the read above), already failed or
+      // open: nothing changed, and nobody needs telling.
+      const changed = await rpc('deal_room_fail_creation', {
         p_room: r.id,
-        p_status: 'failed',
         p_reason: reason,
       });
+      if (changed !== true) return;
       await notify(
-        [r.created_by],
+        [r.created_by, ...(await workspaceAdminIds(db, accountId))],
         'deal_room_update',
         r,
         'Deal room could not be created',
@@ -381,7 +401,7 @@ export async function handleGroupWebhook(
           p_reason: suspended ? 'suspended by WhatsApp' : null,
         });
         await notify(
-          await managers(r),
+          [...(await managers(r)), ...(await workspaceAdminIds(db, accountId))],
           'deal_room_update',
           r,
           suspended

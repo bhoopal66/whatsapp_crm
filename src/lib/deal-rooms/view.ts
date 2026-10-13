@@ -44,6 +44,20 @@ export function roomPhase(status: string, participantCount: number): RoomPhase {
   }
 }
 
+/**
+ * The banner of a room that is not active: its phase, except that a
+ * failed room a manager cancelled while it was being created (096)
+ * says so rather than that WhatsApp could not create it.
+ */
+export type RoomBanner = Exclude<RoomPhase, 'active'> | 'cancelled';
+
+export function roomBanner(
+  phase: Exclude<RoomPhase, 'active'>,
+  cancelledAt: string | null | undefined
+): RoomBanner {
+  return phase === 'failed' && cancelledAt ? 'cancelled' : phase;
+}
+
 /** "<count> of <max> members · <phase>". */
 export function roomSubLine(
   room: Pick<RoomSummary, 'status' | 'participantCount'>
@@ -177,7 +191,7 @@ export function mergeRoomMessages(
 // The group composer
 // ============================================================
 
-export type ComposerDisabledReason = Exclude<RoomPhase, 'active'>;
+export type ComposerDisabledReason = RoomBanner;
 
 export type GroupComposerMode =
   | { mode: 'text' }
@@ -202,10 +216,13 @@ export function groupComposerMode(room: {
   status: string;
   participantCount: number;
   windowUntil: string | null;
+  cancelledAt?: string | null;
   now: number;
 }): GroupComposerMode {
   const phase = roomPhase(room.status, room.participantCount);
-  if (phase !== 'active') return { mode: 'disabled', reason: phase };
+  if (phase !== 'active') {
+    return { mode: 'disabled', reason: roomBanner(phase, room.cancelledAt) };
+  }
   return windowIsOpen(room.windowUntil, room.now)
     ? { mode: 'text' }
     : { mode: 'template' };
