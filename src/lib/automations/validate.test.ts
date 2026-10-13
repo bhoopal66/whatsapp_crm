@@ -245,6 +245,47 @@ describe("validateStepsForActivation", () => {
   });
 });
 
+describe("validateStepsForActivation — post_team_chat", () => {
+  it("accepts a channel and a message", () => {
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "post_team_chat",
+          step_config: { channel_id: "ch-1", text: "New lead: {{ message.text }}" },
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("needs a channel and non-blank text", () => {
+    const issues = validateStepsForActivation([
+      { step_type: "post_team_chat", step_config: {} },
+      { step_type: "post_team_chat", step_config: { channel_id: " ", text: "  " } },
+    ]);
+    expect(issues.map((i) => i.path)).toEqual([
+      "steps[0].channel_id",
+      "steps[0].text",
+      "steps[1].channel_id",
+      "steps[1].text",
+    ]);
+  });
+
+  it("refuses text the chat could never store", () => {
+    const issues = validateStepsForActivation([
+      {
+        step_type: "post_team_chat",
+        step_config: { channel_id: "ch-1", text: "é".repeat(8001) },
+      },
+    ]);
+    expect(issues).toEqual([
+      {
+        path: "steps[0].text",
+        message: "message text is longer than 8000 characters",
+      },
+    ]);
+  });
+});
+
 describe("validateTriggerForActivation", () => {
   it("accepts a valid keyword_match config", () => {
     expect(

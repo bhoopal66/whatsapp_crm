@@ -18,6 +18,11 @@ const h = vi.hoisted(() => ({
     // resolve_chat_deal_owner's answer, and the profiles it maps to.
     dealOwnerRpc: { data: null, error: null } as { data: unknown; error: unknown },
     profiles: [] as { id: string; user_id: string; account_id: string }[],
+    // chat_channels rows, and chat_post_system_message's answer.
+    chatChannels: [] as Record<string, unknown>[],
+    chatPostRpc: { data: "msg-1", error: null } as { data: unknown; error: unknown },
+    // chat_channels_with_guests' answer: the channels that have a bank guest.
+    chatGuestRpc: { data: [], error: null } as { data: unknown; error: unknown },
     // conversations lookup: rows keyed by id, each with its owner.
     conversations: [] as {
       id: string;
@@ -92,6 +97,10 @@ vi.mock("./admin-client", () => {
       state.dealInserts.push(ops.payload as Record<string, unknown>);
       return { data: null, error: null };
     }
+    if (table === "chat_channels") {
+      const row = state.chatChannels.find((c) => matchesEq(c, ops.filters));
+      return { data: row ?? null, error: null };
+    }
     if (table === "profiles") {
       const row = state.profiles.find((p) => matchesEq(p, ops.filters));
       return { data: row ?? null, error: null };
@@ -145,6 +154,12 @@ vi.mock("./admin-client", () => {
         if (fn === "resolve_chat_deal_owner") {
           return Promise.resolve(state.dealOwnerRpc);
         }
+        if (fn === "chat_post_system_message") {
+          return Promise.resolve(state.chatPostRpc);
+        }
+        if (fn === "chat_channels_with_guests") {
+          return Promise.resolve(state.chatGuestRpc);
+        }
         return Promise.resolve({ error: null });
       },
     }),
@@ -186,6 +201,9 @@ beforeEach(() => {
   h.state.rpcCalls = [];
   h.state.dealOwnerRpc = { data: null, error: null };
   h.state.profiles = [];
+  h.state.chatChannels = [];
+  h.state.chatPostRpc = { data: "msg-1", error: null };
+  h.state.chatGuestRpc = { data: [], error: null };
 });
 
 describe("resolveConversationId — context.conversation_id is not trusted", () => {
@@ -1101,5 +1119,231 @@ describe("triggerMatches — keyword_match", () => {
   it("ignores empty keywords and empty messages in `word` mode", () => {
     expect(on(automation({ keywords: [""], match_type: "word" }), "anything")).toBe(false);
     expect(on(automation({ keywords: ["hi"], match_type: "word" }), "")).toBe(false);
+  });
+});
+
+describe("post_team_chat", () => {
+  function poster(config: Record<string, unknown>) {
+    h.state.automations = [{ ...automationWithUpdateStep(), id: "poster" }];
+    h.state.steps = [
+      {
+        id: "step-poster",
+        automation_id: "poster",
+        step_type: "post_team_chat",
+        position: 0,
+        parent_step_id: null,
+        step_config: config,
+      },
+    ];
+  }
+  const posts = () =>
+    h.state.rpcCalls.filter((c) => c.fn === "chat_post_system_message");
+
+  it("posts the interpolated text into the account's channel as the automation", async () => {
+    poster({
+      channel_id: "ch-team",
+      text: "**New lead** wrote: {{ message.text }} ({{ vars.source }})",
+    });
+    h.state.chatChannels = [
+      { id: "ch-team", account_id: ACCOUNT, kind: "team", archived_at: null },
+    ];
+    h.state.owned = { id: "c1" };
+    h.state.conversations = [
+      { id: "conv-1", account_id: ACCOUNT, contact_id: "c1" },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {
+        message_text: "price?",
+        vars: { source: "ads" },
+        conversation_id: "conv-1",
+      },
+    });
+
+    expect(posts()).toEqual([
+      {
+        fn: "chat_post_system_message",
+        params: {
+          p_channel: "ch-team",
+          p_body: "**New lead** wrote: price? (ads)",
+          // the trail back to whose words these are
+          p_meta: {
+            source: "automation",
+            automation_id: "poster",
+            conversation_id: "conv-1",
+            contact_id: "c1",
+          },
+        },
+      },
+    ]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({ status: "success" }),
+    );
+  });
+
+  it("refuses a channel of another account and posts nothing", async () => {
+    poster({ channel_id: "ch-foreign", text: "hello" });
+    h.state.chatChannels = [
+      { id: "ch-foreign", account_id: "acct-2", kind: "team", archived_at: null },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {},
+    });
+
+    expect(posts()).toEqual([]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "post_team_chat: channel not found in this workspace",
+      }),
+    );
+  });
+
+  it("refuses a DM of the account", async () => {
+    poster({ channel_id: "ch-dm", text: "hello" });
+    h.state.chatChannels = [
+      { id: "ch-dm", account_id: ACCOUNT, kind: "dm", archived_at: null },
+    ];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {},
+    });
+
+    expect(posts()).toEqual([]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "post_team_chat: cannot post to a dm channel",
+      }),
+    );
+  });
+
+  it("records team chat being off as the step's failure", async () => {
+    poster({ channel_id: "ch-team", text: "hello" });
+    h.state.chatChannels = [
+      { id: "ch-team", account_id: ACCOUNT, kind: "private", archived_at: null },
+    ];
+    h.state.chatPostRpc = {
+      data: null,
+      error: { code: "CH001", message: "internal chat is disabled" },
+    };
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {},
+    });
+
+    expect(posts()).toHaveLength(1);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "post_team_chat: team chat is turned off for this workspace",
+      }),
+    );
+  });
+
+  const guestRefusal =
+    "post_team_chat: the channel has a bank guest member, and customer text is never posted where a bank guest reads it";
+
+  it("refuses a channel with a bank guest member and posts nothing", async () => {
+    poster({ channel_id: "ch-priv", text: "{{ message.text }}" });
+    h.state.chatChannels = [
+      { id: "ch-priv", account_id: ACCOUNT, kind: "private", archived_at: null },
+    ];
+    h.state.chatGuestRpc = { data: ["ch-priv"], error: null };
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: { message_text: "my salary is 12,000" },
+    });
+
+    expect(h.state.rpcCalls).toContainEqual({
+      fn: "chat_channels_with_guests",
+      params: { p_channels: ["ch-priv"] },
+    });
+    expect(posts()).toEqual([]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({ status: "failed", error_message: guestRefusal }),
+    );
+  });
+
+  it("refuses on the next run once a guest has joined the channel", async () => {
+    poster({ channel_id: "ch-priv", text: "{{ message.text }}" });
+    h.state.chatChannels = [
+      { id: "ch-priv", account_id: ACCOUNT, kind: "private", archived_at: null },
+    ];
+    const run = () =>
+      runAutomationsForTrigger({
+        accountId: ACCOUNT,
+        triggerType: "new_message_received",
+        context: { message_text: "hello" },
+      });
+
+    await run();
+    expect(posts()).toHaveLength(1);
+
+    h.state.chatGuestRpc = { data: ["ch-priv"], error: null };
+    await run();
+    expect(posts()).toHaveLength(1);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({ status: "failed", error_message: guestRefusal }),
+    );
+  });
+
+  it("fails closed when the bank guest check fails", async () => {
+    poster({ channel_id: "ch-team", text: "hello" });
+    h.state.chatChannels = [
+      { id: "ch-team", account_id: ACCOUNT, kind: "team", archived_at: null },
+    ];
+    h.state.chatGuestRpc = { data: null, error: { message: "timeout" } };
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {},
+    });
+
+    expect(posts()).toEqual([]);
+    expect(h.state.logUpdates).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        error_message: "post_team_chat: bank guest check failed: timeout",
+      }),
+    );
+  });
+
+  it("defuses bold and mentions in filled-in values, not in the automation's own text", async () => {
+    poster({
+      channel_id: "ch-team",
+      text: "**Lead** said {{ message.text }} {{ vars.note }} **urgent**",
+    });
+    h.state.chatChannels = [
+      { id: "ch-team", account_id: ACCOUNT, kind: "team", archived_at: null },
+    ];
+    const someone = "0b7e2d4c-1f3a-4e5b-8c9d-0a1b2c3d4e5f";
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      context: {
+        message_text: `**FREE** <@${someone}> @here`,
+        vars: { note: "**" },
+      },
+    });
+
+    expect(posts()).toHaveLength(1);
+    expect((posts()[0].params as { p_body: string }).p_body).toBe(
+      `**Lead** said \u2217\u2217FREE\u2217\u2217 <\uFF20${someone}> \uFF20here \u2217\u2217 **urgent**`,
+    );
   });
 });

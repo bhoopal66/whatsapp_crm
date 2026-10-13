@@ -1110,7 +1110,8 @@
         "wait": "Wait",
         "condition": "Condition (If/Else)",
         "send_webhook": "Send Webhook",
-        "close_conversation": "Close Conversation"
+        "close_conversation": "Close Conversation",
+        "post_team_chat": "Post to Team Chat"
       },
       "triggers": {
         "new_message_received": {
@@ -1255,7 +1256,20 @@
         "matchWord": "Whole word",
         "matchWordHint": "Matches the keyword only as a standalone word, so \"k\" no longer fires on \"thanks\". Best for short keywords in space-separated languages; use Contains for languages written without spaces.",
         "matchExact": "Exact",
-        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed."
+        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed.",
+        "teamChat": {
+          "channelLabel": "Team chat channel",
+          "selectChannel": "Select a channel",
+          "privateChannel": "{name} (private)",
+          "unknownChannel": "Unknown or archived channel",
+          "guestChannel": "{name} (has a bank guest, cannot post)",
+          "savedChannel": "Saved channel",
+          "loading": "Loading channels…",
+          "loadFailed": "Couldn't load the channel list. Reload the page to try again.",
+          "noChannels": "No team or private channel you can post to. Channels with a bank guest are left out. Create one in Team chat first.",
+          "placeholderText": "Triage marked this lead as ready to apply.",
+          "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make your text bold; {{ message.text }} and {{ vars.x }} are filled in, without bold or mentions. Everyone who can read the channel sees the post, even people who cannot see the conversation: in a team channel that is every staff member, viewers included. A channel with a bank guest is never posted to."
+        }
       }
     }
   },

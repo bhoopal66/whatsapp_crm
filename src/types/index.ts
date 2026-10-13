@@ -655,7 +655,9 @@ export type AutomationStepType =
   | 'wait'
   | 'condition'
   | 'send_webhook'
-  | 'close_conversation';
+  | 'close_conversation'
+  /** Post into a team chat channel as "wacrm · automation". */
+  | 'post_team_chat';
 
 export type AutomationLogStatus = 'success' | 'partial' | 'failed';
 
@@ -732,6 +734,17 @@ export interface SetChatTagStepConfig {
   chat_sub_tag_id?: string | null;
 }
 
+/**
+ * `post_team_chat` posts `text` (interpolated like `send_message`) into
+ * a team or private channel of the automation's own workspace, through
+ * chat_post_system_message (migration 087). The engine re-checks the
+ * channel's account and kind on every run.
+ */
+export interface PostTeamChatStepConfig {
+  channel_id: string;
+  text: string;
+}
+
 export interface AssignConversationStepConfig {
   mode: 'specific' | 'round_robin';
   agent_id?: string;
@@ -796,6 +809,7 @@ export type AutomationStepConfig =
   | WaitStepConfig
   | ConditionStepConfig
   | SendWebhookStepConfig
+  | PostTeamChatStepConfig
   | Record<string, never>
   | Record<string, unknown>;
 
