@@ -16,7 +16,7 @@ const DEBOUNCE_MS = 600;
  */
 export function useTableSignal(
   sb: SupabaseClient,
-  tables: string[],
+  tables: readonly string[],
   filter: (table: string) => string | null,
   onChange: () => void
 ) {

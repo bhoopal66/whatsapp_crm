@@ -35,12 +35,14 @@ import type {
   RoomMessage,
 } from '@/lib/deal-rooms/reads';
 import {
+  ROOM_SIGNAL_TABLES,
   bubbleOf,
   groupAudience,
   groupComposerMode,
   mergeRoomMessages,
   receiptLine,
   roomPhase,
+  roomSignalFilter,
   roomTitle,
   templateParamCount,
   windowCountdown,
@@ -120,9 +122,8 @@ export function DealRoomView({
   }, [reload]);
   useTableSignal(
     ws.sb,
-    ['deal_rooms', 'deal_room_participants'],
-    (table) =>
-      table === 'deal_rooms' ? `id=eq.${roomId}` : `room_id=eq.${roomId}`,
+    ROOM_SIGNAL_TABLES,
+    (table) => roomSignalFilter(table, roomId),
     reload
   );
   // A guest cannot read `deal_rooms`, so that signal never reaches them.

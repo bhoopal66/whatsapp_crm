@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GROUP_MAX_PARTICIPANTS } from '@/lib/whatsapp/meta-groups';
@@ -6,6 +8,7 @@ import type { RoomMessage } from './reads';
 import {
   GUEST_ROOM_REFRESH_MS,
   ROOM_MEMBER_MAX,
+  ROOM_SIGNAL_TABLES,
   bubbleOf,
   groupAudience,
   groupComposerMode,
@@ -13,6 +16,7 @@ import {
   receiptLine,
   startGuestRefresh,
   roomPhase,
+  roomSignalFilter,
   roomSubLine,
   roomTitle,
   templateParamCount,
@@ -279,5 +283,35 @@ describe('startGuestRefresh', () => {
 
   it('is 60 seconds', () => {
     expect(GUEST_ROOM_REFRESH_MS).toBe(60_000);
+  });
+});
+
+describe("the room screen's realtime signal", () => {
+  it('re-reads on a join request, which writes only its own table', () => {
+    expect(ROOM_SIGNAL_TABLES).toContain('deal_room_join_requests');
+    expect(ROOM_SIGNAL_TABLES).toContain('deal_room_participants');
+    expect(ROOM_SIGNAL_TABLES).toContain('deal_rooms');
+  });
+
+  it('listens only to tables 088 publishes to realtime', () => {
+    const sql = readFileSync('supabase/migrations/088_deal_rooms.sql', 'utf8');
+    const realtime = sql.slice(
+      sql.indexOf('-- ---------- 9. Realtime'),
+      sql.indexOf('-- ---------- 10. Privileges')
+    );
+    expect(realtime).toContain('ALTER PUBLICATION supabase_realtime');
+    for (const table of ROOM_SIGNAL_TABLES) {
+      expect(realtime).toContain(`'${table}'`);
+    }
+  });
+
+  it('filters the room by its id and the rest by room_id', () => {
+    expect(roomSignalFilter('deal_rooms', 'r1')).toBe('id=eq.r1');
+    expect(roomSignalFilter('deal_room_participants', 'r1')).toBe(
+      'room_id=eq.r1'
+    );
+    expect(roomSignalFilter('deal_room_join_requests', 'r1')).toBe(
+      'room_id=eq.r1'
+    );
   });
 });
