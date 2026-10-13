@@ -39,6 +39,7 @@ import {
   bubbleOf,
   groupAudience,
   groupComposerMode,
+  roomBanner,
   mergeRoomMessages,
   receiptLine,
   roomPhase,
@@ -251,7 +252,7 @@ export function DealRoomView({
                 role="status"
                 className="bg-muted text-foreground mx-4 mt-2 rounded-md px-3 py-2 text-xs"
               >
-                {t(`rooms.banner.${phase}`)}
+                {t(`rooms.banner.${roomBanner(phase, room.cancelledAt)}`)}
               </p>
             )}
             <GroupTimeline roomId={roomId} />

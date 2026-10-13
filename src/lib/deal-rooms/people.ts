@@ -49,21 +49,10 @@ export function parseAddPeopleBody(body: unknown): AddPeopleInput | string {
   return { kind: 'staff', userIds: [...new Set(ids)] };
 }
 
-/** The codes the panel words itself; `bank` rides along where it matters. */
-export const ADD_PEOPLE_ERRORS = [
-  'not_manager',
-  'not_leader',
-  'room_closed',
-  'not_staff',
-  'not_guest',
-  'no_bank_participant',
-  'bank_guests_off',
-] as const;
-export type AddPeopleError = (typeof ADD_PEOPLE_ERRORS)[number];
-
 /**
  * A refusal of the two functions as a response, by their wording (each
- * raises one fixed message per rule). Anything else is rethrown.
+ * raises one fixed message per rule). Anything else is rethrown. The
+ * panel words the codes listed in ADD_PEOPLE_ERRORS (people-ui.ts).
  */
 export function addPeopleFailure(err: {
   code?: string;

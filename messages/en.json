@@ -4140,7 +4140,8 @@
         "suspended": "WhatsApp suspended this group. Nothing can be sent until that is cleared.",
         "closing": "This room is closing.",
         "closed": "This room is closed. You can read it, but not post.",
-        "failed": "WhatsApp couldn't create this group."
+        "failed": "WhatsApp couldn't create this group.",
+        "cancelled": "This room was cancelled before its WhatsApp group was created."
       },
       "window": {
         "open": "Reply window open · {hours} h {minutes} min left",
@@ -4323,7 +4324,36 @@
         "retry": "Retry",
         "closeFailed": "Couldn't close the room: {error}",
         "cancel": "Cancel",
-        "unknownError": "something went wrong"
+        "unknownError": "something went wrong",
+        "cancelRoom": "Cancel room",
+        "cancelRoomTitle": "Cancel this room?",
+        "cancelRoomBody": "WhatsApp is still creating the group. Cancelling stops it for good: if the group appears later it is deleted, and nobody is invited.",
+        "cancelRoomConfirm": "Cancel room",
+        "cancelRoomDone": "Room cancelled",
+        "cancelRoomTooLate": "This room is no longer being created: WhatsApp created the group, or gave up, in the meantime.",
+        "cancelRoomFailed": "Couldn't cancel the room: {error}"
+      },
+      "people": {
+        "title": "Add people",
+        "help": "They read this room and its Team notes. Nobody is added to the WhatsApp group.",
+        "addStaff": "Add team members",
+        "addGuest": "Add a bank officer",
+        "staffTitle": "Add team members",
+        "staffBody": "Pick people of this workspace to follow the room.",
+        "guestTitle": "Add a bank officer",
+        "guestBody": "Their bank needs an approved officer in this room, and must be allowed to join customer groups.",
+        "add": "Add",
+        "added": "{count, plural, =0 {They were already in the room} one {Added # person} other {Added # people}}",
+        "failed": "Couldn't add them: {error}",
+        "error": {
+          "not_manager": "Only a manager of this room can add people.",
+          "not_leader": "Only a team leader or an admin can add a bank officer.",
+          "room_closed": "This room is closed: nobody new can be added.",
+          "not_staff": "One of the people picked no longer works in this workspace.",
+          "not_guest": "That person is not a bank officer of this workspace.",
+          "no_bank_participant": "This room has no approved {bank} officer yet. Invite and approve one first.",
+          "bank_guests_off": "{bank} officers can't join customer groups. Allow the bank in Settings first."
+        }
       }
     },
     "settings": {

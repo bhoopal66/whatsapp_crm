@@ -312,7 +312,9 @@ including your number, so a room lists 1 to 7 other people.
    marked do-not-contact are refused. The room shows as *creating*:
    Meta answers at once and sends the group id in a `group_create`
    webhook, which opens the room. If Meta refuses, the room is marked
-   failed straight away and its creator is told.
+   failed straight away, and its creator and the workspace's owners and
+   admins are told. A manager can cancel it while it is still
+   *creating* (see "Cancelling a room" below).
 2. **Each person gets the invite link in their own 1:1 chat**, sent
    from your Meta number as the template above. A person is invited
    once; sending the invites again only reaches those not yet invited.
@@ -363,8 +365,20 @@ including your number, so a room lists 1 to 7 other people.
 A *manager* is an owner or admin, a team leader who can see the room's
 customer (and its deal, if it has one), or an agent and up who is an
 admin of the room's channel or owns the room's contact. If WhatsApp suspends a
-group, the room shows *suspended*, its managers are notified, and
-nothing can be sent until WhatsApp clears it.
+group, the room shows *suspended*, its managers and the workspace's
+owners and admins are notified (each person once), and nothing can be
+sent until WhatsApp clears it; they are notified again when it is
+cleared.
+
+**Adding people.** A manager adds staff of the workspace to a room
+(**Add people → Add team members** in the room's members panel), and
+a manager who is a team leader or above adds a bank officer's login
+(**Add a bank officer**). They then read the room and its Team notes;
+nobody is added to the WhatsApp group. A bank officer's login is
+accepted only when their bank already has an approved officer among
+the room's people and the bank's guest switch is on. The panel offers
+this while the room is creating, open or suspended; a closing or
+closed room takes nobody.
 
 ### What never leaves the CRM
 
@@ -394,6 +408,33 @@ and WhatsApp ids only masked (`+971 XXXXXXX12`).
   Room changes, such as it closing or being suspended, reach their
   screen within a minute.
 
+### Cancelling a room
+
+While a room shows *creating*, a manager can **Cancel room** (members
+panel, with an optional reason). The server checks that the caller
+manages the room, then marks it **failed** with the reason, stamps it
+cancelled and records who cancelled it in the room's audit trail; the
+room shows *cancelled*. A cancelled room never opens:
+
+- When Meta's `group_create` webhook arrives afterwards, the room stays
+  failed, nobody is invited, the group id is recorded once in the audit
+  trail (`group_discarded`), and the group, which holds only your
+  number, is deleted at WhatsApp. A delete that fails is logged, not
+  retried. Nobody is told: the canceller already knows.
+- It is never requested again: neither a create call still waiting for
+  Meta's answer nor the background job below can put it back to
+  *creating*.
+- Once the group has arrived the room is open and cannot be cancelled
+  (the panel says so); close it instead.
+
+Two narrow races leave an empty group (only your number, nobody
+invited) at WhatsApp rather than deleting it: a cancel that lands while
+the create call is still waiting for Meta's answer (its request id is
+never recorded, so the webhook matches no room and is logged as
+unknown), and a background job that found the group by subject just
+as the room was cancelled (a group found by subject alone is never
+deleted).
+
 ### Rooms stuck in "creating"
 
 The group id can fail to arrive (a lost webhook, or one that names a
@@ -402,7 +443,8 @@ the other cron endpoints (`AUTOMATION_CRON_SECRET` in `x-cron-secret`),
 takes every room still *creating* after 2 minutes and finishes it:
 finds its group by exact subject, or asks Meta once more if there is
 none. A room still without its group after 10 minutes is marked
-**failed** and its creator is told. A group that cannot be told apart
+**failed**, and its creator and the workspace's owners and admins are
+told. A group that cannot be told apart
 from another is never guessed. The automation cron runs it too, at most
 every 2 minutes per process, so an install that pings only that one is
 covered.

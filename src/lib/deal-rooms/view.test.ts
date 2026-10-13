@@ -12,6 +12,7 @@ import {
   bubbleOf,
   groupAudience,
   groupComposerMode,
+  roomBanner,
   mergeRoomMessages,
   receiptLine,
   startGuestRefresh,
@@ -227,6 +228,26 @@ describe('groupComposerMode', () => {
         reason: status,
       });
     }
+  });
+
+  it('says a failed room was cancelled when a manager cancelled it (096)', () => {
+    const at = '2026-10-13T08:00:00Z';
+    expect(
+      groupComposerMode({ ...room, status: 'failed', cancelledAt: at })
+    ).toEqual({ mode: 'disabled', reason: 'cancelled' });
+    expect(
+      groupComposerMode({ ...room, status: 'failed', cancelledAt: null })
+    ).toEqual({ mode: 'disabled', reason: 'failed' });
+  });
+});
+
+describe('roomBanner', () => {
+  it('is the phase, except a cancelled failed room', () => {
+    expect(roomBanner('failed', '2026-10-13T08:00:00Z')).toBe('cancelled');
+    expect(roomBanner('failed', null)).toBe('failed');
+    expect(roomBanner('creating', undefined)).toBe('creating');
+    // Only a failed room can have been cancelled; the stamp alone says nothing.
+    expect(roomBanner('closed', '2026-10-13T08:00:00Z')).toBe('closed');
   });
 });
 
