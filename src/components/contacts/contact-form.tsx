@@ -15,10 +15,13 @@ import {
   validateContactPhone,
   validatePhoneToSave,
 } from '@/lib/contacts/phone-validation';
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
+  DialogPortal,
   DialogTitle,
   DialogDescription,
   DialogFooter,
@@ -27,7 +30,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, XIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useTranslations } from 'next-intl';
 
 interface ContactFormProps {
@@ -43,6 +47,49 @@ interface ContactFormProps {
   /** Open an existing contact's detail view — used by the duplicate
    *  notice to jump to the contact that already owns this number. */
   onViewExisting?: (contactId: string) => void;
+  /** Non-modal with no backdrop, and a press outside keeps it open: the
+   *  incoming-call card's form, so Answer and Decline stay clickable
+   *  beside it while what was typed stays. */
+  floating?: boolean;
+}
+
+/**
+ * DialogContent without its backdrop (keep the popup's classes in step
+ * with src/components/ui/dialog.tsx): the backdrop covers the whole page
+ * even when the dialog is not modal.
+ */
+function FloatingContent({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <DialogPortal>
+      <DialogPrimitive.Popup
+        data-slot="dialog-content"
+        className={cn(
+          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-2xl ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          className
+        )}
+      >
+        {children}
+        <DialogClose
+          render={
+            <Button
+              variant="ghost"
+              className="absolute top-2 right-2"
+              size="icon-sm"
+            />
+          }
+        >
+          <XIcon />
+          <span className="sr-only">Close</span>
+        </DialogClose>
+      </DialogPrimitive.Popup>
+    </DialogPortal>
+  );
 }
 
 export function ContactForm({
@@ -52,6 +99,7 @@ export function ContactForm({
   initialPhone,
   onSaved,
   onViewExisting,
+  floating = false,
 }: ContactFormProps) {
   const t = useTranslations('Contacts.form');
   const supabase = createClient();
@@ -219,9 +267,15 @@ export function ContactForm({
     }
   }
 
+  const Content = floating ? FloatingContent : DialogContent;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-md">
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      modal={!floating}
+      disablePointerDismissal={floating}
+    >
+      <Content className="bg-popover border-border text-popover-foreground sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">
             {isEdit ? t('editTitle') : t('addTitle')}
@@ -341,7 +395,7 @@ export function ContactForm({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </Content>
     </Dialog>
   );
 }

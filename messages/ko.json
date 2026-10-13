@@ -4664,6 +4664,7 @@
     "newCaller": "새 발신자",
     "createContact": "연락처 만들기",
     "linkFailed": "연락처는 저장했지만 이 통화에 연결하지 못했습니다.",
+    "linkSkipped": "연락처는 저장했지만 이 통화에는 연결되지 않았습니다. 이미 고객이 연결된 통화이거나 내 통화가 아닙니다.",
     "openCustomer": "고객 열기",
     "alsoRinging": "함께 울리는 중: {names}",
     "andMore": "+{count}",

@@ -4664,6 +4664,7 @@
     "newCaller": "New caller",
     "createContact": "Create contact",
     "linkFailed": "Contact saved, but it could not be linked to this call.",
+    "linkSkipped": "Contact saved, but this call was not linked to it: the call already has a customer, or it is not one of your calls.",
     "openCustomer": "Open customer",
     "alsoRinging": "Also ringing: {names}",
     "andMore": "+{count}",

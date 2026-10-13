@@ -9,7 +9,8 @@
 // GET /api/pbx/calls/facts, which answers a ringing or answering party
 // with the full facts when their own reads see the contact, and
 // otherwise only what taking the call needs (`hidden`): the name, the
-// owner and the consent flags. Without that route (no live call, or it
+// owner and the consent flags, never the free-text do-not-contact
+// reason ("Do not contact" alone). Without that route (no live call, or it
 // refused), a hidden contact shows nothing, with consent unknown.
 // ============================================================
 
@@ -33,6 +34,9 @@ export interface CallFacts extends ConsentFields {
 
 export const CONSENT_COLUMNS =
   'do_not_contact_at, do_not_contact_reason, marketing_opt_in_at, opted_out_at';
+/** The hidden read's: the flags without the free-text reason. */
+export const HIDDEN_CONSENT_COLUMNS =
+  'do_not_contact_at, marketing_opt_in_at, opted_out_at';
 
 const EMPTY = {
   company: null,
@@ -64,7 +68,7 @@ function consentOf(row: Record<string, unknown>): ConsentFields {
   };
 }
 
-/** The hidden answer: the contact's name, its owner and consent, no more. */
+/** The hidden answer: the contact's name, its owner and consent flags, no more. */
 export function hiddenFacts(
   row: Record<string, unknown>,
   ownerName: string | null
@@ -72,6 +76,7 @@ export function hiddenFacts(
   return {
     ...EMPTY,
     ...consentOf(row),
+    do_not_contact_reason: null,
     hidden: true,
     consentKnown: true,
     name: text(row.name),
@@ -171,8 +176,13 @@ export function parseCallFacts(body: unknown): CallFacts | null {
         ? { at: last.at as string, text: last.text }
         : null,
   };
-  // A hidden answer never carries more than name, owner and consent.
+  // A hidden answer never carries more than name, owner and consent flags.
   return facts.hidden
-    ? { ...facts, ...EMPTY, ownerName: facts.ownerName }
+    ? {
+        ...facts,
+        ...EMPTY,
+        ownerName: facts.ownerName,
+        do_not_contact_reason: null,
+      }
     : facts;
 }

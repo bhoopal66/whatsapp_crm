@@ -11,14 +11,17 @@
 // When they do not — another RM's customer ringing this person — the
 // service role reads, inside the call's account, only what taking the
 // call needs: the name, the owner and the consent flags (`hidden`), so
-// a do-not-contact customer never shows as "Calls OK". Agent+.
+// a do-not-contact customer never shows as "Calls OK". Not the
+// free-text reason, and only for the call's own match (call_live
+// .contact_id): a candidate the caller cannot see is a 404, so the
+// route never lists the number's other customers. Agent+.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { pbxServiceDb } from '@/lib/pbx/admin';
 import {
-  CONSENT_COLUMNS,
+  HIDDEN_CONSENT_COLUMNS,
   hiddenFacts,
   loadVisibleFacts,
 } from '@/lib/pbx/call-facts';
@@ -66,10 +69,11 @@ export async function GET(request: Request) {
 
     const visible = await loadVisibleFacts(ctx.supabase, contactId);
     if (visible) return NextResponse.json(visible);
+    if (contactId !== row.contact_id) return fail('Customer not found', 404);
 
     const c = await service
       .from('contacts')
-      .select(`name, user_id, ${CONSENT_COLUMNS}`)
+      .select(`name, user_id, ${HIDDEN_CONSENT_COLUMNS}`)
       .eq('account_id', ctx.accountId)
       .eq('id', contactId)
       .maybeSingle();

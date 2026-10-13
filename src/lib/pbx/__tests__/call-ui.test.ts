@@ -28,8 +28,10 @@ import {
   myRingingCall,
   needsOutcome,
   newContactPhone,
+  noteFrames,
   otherOwner,
   ringElapsedMs,
+  ringFloor,
   type CallCardLabels,
   type CallLiveRow,
 } from '../call-ui';
@@ -188,28 +190,120 @@ describe('newContactPhone', () => {
 describe('ringElapsedMs', () => {
   const now = Date.parse('2026-10-13T09:00:30Z');
   const shownAt = now - 4_000; // the card showed the call 4 s ago
+  const ring = (
+    rang_at: string | null | undefined,
+    updated_at = '2026-10-13T09:00:00Z'
+  ) => ({
+    rang_at,
+    updated_at,
+  });
+  // Seen 30 s ago (browser time), as it arrived, or in the first load.
+  const arrived = {
+    updatedAt: '2026-10-13T09:00:00Z',
+    at: now - 30_000,
+    live: true,
+  };
+  const loaded = { ...arrived, at: now - 4_000, live: false };
 
-  it('counts from when the call first rang, so a reload keeps the count', () => {
-    expect(ringElapsedMs('2026-10-13T09:00:00Z', shownAt, now)).toBe(30_000);
-    expect(formatTimer(ringElapsedMs('2026-10-13T09:00:00Z', now, now))).toBe(
-      '0:30'
-    );
+  it('counts on the server clocks from the frame, whatever the browser clock says', () => {
+    expect(
+      ringElapsedMs(ring('2026-10-13T09:00:00Z'), arrived, shownAt, now)
+    ).toBe(30_000);
+    // The frame came 10 s into the ring: 10 s + 30 s since it arrived.
+    expect(
+      ringElapsedMs(ring('2026-10-13T08:59:50Z'), arrived, shownAt, now)
+    ).toBe(40_000);
+    // A browser 5 minutes ahead, or 5 minutes behind: the same count.
+    for (const skew of [300_000, -300_000])
+      expect(
+        ringElapsedMs(
+          ring('2026-10-13T09:00:00Z'),
+          { ...arrived, at: arrived.at + skew },
+          shownAt + skew,
+          now + skew
+        )
+      ).toBe(30_000);
+    // A frame received just before its own row's stamp started the ring.
+    expect(
+      ringElapsedMs(ring('2026-10-13T09:00:00.050Z'), arrived, shownAt, now)
+    ).toBe(30_000);
   });
 
-  it('counts from the first render without rang_at (before 094)', () => {
+  it('keeps the count across a reload: a first-load frame of unknown age uses this clock', () => {
+    expect(
+      ringElapsedMs(ring('2026-10-13T09:00:00Z'), loaded, shownAt, now)
+    ).toBe(30_000);
+    expect(
+      formatTimer(ringElapsedMs(ring('2026-10-13T09:00:00Z'), loaded, now, now))
+    ).toBe('0:30');
+  });
+
+  it('counts from when the card showed the call without a usable rang_at', () => {
     for (const rangAt of [undefined, null, '', 'not a time'])
-      expect(ringElapsedMs(rangAt, shownAt, now)).toBe(4_000);
-  });
-
-  it('never shows a negative or absurd time when the clocks disagree', () => {
-    // Ahead of this clock: the browser is behind the database.
-    expect(ringElapsedMs('2026-10-13T09:00:40Z', shownAt, now)).toBe(4_000);
+      expect(ringElapsedMs(ring(rangAt), arrived, shownAt, now)).toBe(4_000);
     // Older than any ring: a stale row, or a clock hours out.
     const old = new Date(now - RING_TIMER_MAX_MS - 1).toISOString();
-    expect(ringElapsedMs(old, shownAt, now)).toBe(4_000);
-    // Never less than since the card showed it, so it never runs back.
-    expect(ringElapsedMs('2026-10-13T09:00:28Z', shownAt, now)).toBe(4_000);
-    expect(ringElapsedMs(null, now + 1_000, now)).toBe(0);
+    expect(
+      ringElapsedMs(ring(old, old), { ...loaded, updatedAt: old }, shownAt, now)
+    ).toBe(4_000);
+    // Ahead of this clock (behind the database) with nothing seen arrive.
+    expect(
+      ringElapsedMs(ring('2026-10-13T09:00:40Z'), null, shownAt, now)
+    ).toBe(4_000);
+    expect(ringElapsedMs(ring(null), null, now + 1_000, now)).toBe(0);
+  });
+
+  it('a call after 40 idle minutes starts at 0:00', () => {
+    // The page sat idle; the call's first frame arrives now and makes
+    // it my ringing call (the provider stamps both with this update's now).
+    const at = now;
+    const call = row({
+      rang_at: '2026-10-13T09:00:30Z',
+      updated_at: '2026-10-13T09:00:30Z',
+    });
+    const frames = noteFrames({}, [call], at, true);
+    const floor = ringFloor({ key: 'c1:p0', at: at - 40 * 60_000 }, call, at);
+    expect(floor).toEqual({ key: liveKey(call), at });
+    expect(
+      formatTimer(
+        ringElapsedMs(call, frames[liveKey(call)], floor!.at, at + 1_000)
+      )
+    ).toBe('0:01');
+  });
+});
+
+describe('noteFrames and ringFloor', () => {
+  const r1 = row({ updated_at: '2026-10-12T10:00:00Z' });
+  it('keeps when a frame was first seen until its updated_at changes', () => {
+    const first = noteFrames({}, [r1], 1_000, false);
+    expect(first).toEqual({
+      'c1:p1': { updatedAt: '2026-10-12T10:00:00Z', at: 1_000, live: false },
+    });
+    // The next poll returns the same frame: nothing moves.
+    expect(noteFrames(first, [r1], 5_000, true)['c1:p1']).toBe(first['c1:p1']);
+    const next = noteFrames(
+      first,
+      [{ ...r1, updated_at: '2026-10-12T10:00:09Z' }],
+      9_000,
+      true
+    );
+    expect(next['c1:p1']).toEqual({
+      updatedAt: '2026-10-12T10:00:09Z',
+      at: 9_000,
+      live: true,
+    });
+    // A call that ended drops out.
+    expect(noteFrames(next, [], 10_000, true)).toEqual({});
+  });
+  it('restarts the floor when the call stops ringing me and rings me again', () => {
+    const shown = ringFloor(null, r1, 1_000);
+    expect(shown).toEqual({ key: 'c1:p1', at: 1_000 });
+    expect(ringFloor(shown, r1, 9_000)).toBe(shown);
+    // Answered by someone (not ringing me), then transferred to me.
+    expect(ringFloor(ringFloor(shown, null, 60_000), r1, 300_000)).toEqual({
+      key: 'c1:p1',
+      at: 300_000,
+    });
   });
 });
 
@@ -371,15 +465,24 @@ describe('needsOutcome', () => {
 });
 
 describe('factsFor', () => {
-  const sara = { contactId: 'k-a', facts: { owner: SARA } };
+  const sara = { contactId: 'k-a', callKey: 'c1:p1', facts: { owner: SARA } };
   it('shows facts only for the contact they were loaded for', () => {
-    expect(factsFor(sara, 'k-a')).toEqual({ owner: SARA });
+    expect(factsFor(sara, 'k-a', 'c1:p1')).toEqual({ owner: SARA });
     // The next call's customer: nothing until its own load lands.
-    expect(factsFor(sara, 'k-b')).toBeNull();
+    expect(factsFor(sara, 'k-b', 'c1:p1')).toBeNull();
+  });
+  it('shows a repeat caller nothing from the last call', () => {
+    // Marked do-not-contact between the calls: the old "Calls OK" must
+    // not show on the new call while its own load is in flight.
+    expect(factsFor(sara, 'k-a', 'c1:p2')).toBeNull();
+    expect(factsFor(sara, 'k-a', null)).toBeNull();
+    expect(factsFor({ ...sara, callKey: null }, 'k-a', null)).toEqual({
+      owner: SARA,
+    });
   });
   it('shows nothing with no contact, or before any load', () => {
-    expect(factsFor(sara, null)).toBeNull();
-    expect(factsFor(null, 'k-a')).toBeNull();
+    expect(factsFor(sara, null, 'c1:p1')).toBeNull();
+    expect(factsFor(null, 'k-a', 'c1:p1')).toBeNull();
   });
 });
 

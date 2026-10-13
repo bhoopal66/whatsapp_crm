@@ -25,7 +25,10 @@ import {
   liveKey,
   myActiveCall,
   myRingingCall,
+  noteFrames,
+  ringFloor,
   type CallLiveRow,
+  type FrameSeen,
 } from '@/lib/pbx/call-ui';
 import { SOFTPHONE_OFF, type SoftphoneState } from '@/lib/pbx/linkus-state';
 import type { SoftphoneAdapter } from '@/lib/pbx/softphone';
@@ -56,6 +59,8 @@ interface CallsValue {
   me: PbxMe | null;
   userId: string | null;
   ringing: CallLiveRow | null;
+  /** The ring timer's inputs for `ringing` (ringElapsedMs). */
+  ringClock: { shownAt: number; frame: FrameSeen | null } | null;
   panel: PanelCall | null;
   closePanel: () => void;
   softphone: SoftphoneAdapter | null;
@@ -133,6 +138,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [names, setNames] = useState<Record<string, string>>({});
   const [didNames, setDidNames] = useState<Record<string, string>>({});
   const [picks, setPicks] = useState<Record<string, string>>({});
+  const [frames, setFrames] = useState<Record<string, FrameSeen>>({});
+  const [ringShown, setRingShown] = useState<{
+    key: string;
+    at: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!userId || !accountId) return;
@@ -147,17 +157,25 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [userId, accountId]);
 
   const rowsRef = useRef<CallLiveRow[]>([]);
+  // `live`: these rows' new frames arrived as they happened. The first
+  // load's were written an unknown time before (noteFrames).
+  const loadedRef = useRef(false);
   const apply = useCallback(
-    (next: CallLiveRow[]) => {
+    (next: CallLiveRow[], live: boolean) => {
+      const now = Date.now();
       rowsRef.current = next;
       setRows(next);
-      setPanel((p) => nextPanel(p, next, userId, Date.now()));
+      setFrames((f) => noteFrames(f, next, now, live));
+      setRingShown((s) => ringFloor(s, myRingingCall(next, userId), now));
+      setPanel((p) => nextPanel(p, next, userId, now));
     },
     [userId]
   );
   const reload = useCallback(async () => {
     const { data, error } = await supabase.from('call_live').select('*');
-    if (!error) apply((data ?? []) as CallLiveRow[]);
+    if (error) return;
+    apply((data ?? []) as CallLiveRow[], loadedRef.current);
+    loadedRef.current = true;
   }, [supabase, apply]);
 
   useEffect(() => {
@@ -170,14 +188,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         (p) => {
           if (p.eventType === 'DELETE') {
             const k = liveKey(p.old as CallLiveRow);
-            apply(rowsRef.current.filter((r) => liveKey(r) !== k));
+            apply(
+              rowsRef.current.filter((r) => liveKey(r) !== k),
+              true
+            );
             return;
           }
           const row = p.new as CallLiveRow;
-          apply([
-            ...rowsRef.current.filter((r) => liveKey(r) !== liveKey(row)),
-            row,
-          ]);
+          apply(
+            [
+              ...rowsRef.current.filter((r) => liveKey(r) !== liveKey(row)),
+              row,
+            ],
+            true
+          );
         }
       )
       .subscribe((status) => {
@@ -228,6 +252,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [me, accountId, userId, supabase, reload, apply]);
 
   const ringing = me ? myRingingCall(rows, userId) : null;
+  const ringKey = ringing ? liveKey(ringing) : null;
+  const ringClock = useMemo(
+    () =>
+      ringKey && ringShown?.key === ringKey
+        ? { shownAt: ringShown.at, frame: frames[ringKey] ?? null }
+        : null,
+    [ringKey, ringShown, frames]
+  );
 
   const polling = Boolean(ringing || (panel && panel.endedAt === null));
   useEffect(() => {
@@ -277,6 +309,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       me,
       userId,
       ringing,
+      ringClock,
       panel,
       closePanel: () =>
         setPanel(nextPanel(null, rowsRef.current, userId, Date.now())),
@@ -301,6 +334,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       me,
       userId,
       ringing,
+      ringClock,
       panel,
       adapter,
       adapterActive,

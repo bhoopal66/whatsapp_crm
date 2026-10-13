@@ -120,12 +120,13 @@ describe('GET /api/pbx/calls/facts', () => {
       name: 'Omar',
       ownerId: 'rm',
       ownerName: 'Rania',
-      do_not_contact_reason: 'Asked not to be called',
     });
     const line = consentText(facts!, LABELS);
-    expect(line).toBe('Do not contact: Asked not to be called · marketing off');
+    expect(line).toBe('Do not contact · marketing off');
     expect(line).not.toContain('Calls OK');
-    // Only what taking the call needs: no company, number, deal or chat.
+    // Only what taking the call needs: no reason, company, number, deal or chat.
+    expect(body.do_not_contact_reason).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('Asked not to be called');
     expect(body.company).toBeNull();
     expect(body.phone).toBeNull();
     expect(body.deal).toBeNull();
@@ -157,6 +158,14 @@ describe('GET /api/pbx/calls/facts', () => {
 
   it('never reads another workspace’s live call', async () => {
     expect((await get({ pbxCallId: 'p3' })).status).toBe(404);
+  });
+
+  it('never lists a hidden candidate of the number, only the call’s own match', async () => {
+    // p2 matched no one; its number's candidates are SEEN and HIDDEN.
+    const res = await get({ pbxCallId: 'p2', contactId: HIDDEN });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(JSON.stringify(body)).not.toMatch(/Omar|Rania|rm/);
   });
 
   it('only for the call’s own contact or its number’s candidates', async () => {

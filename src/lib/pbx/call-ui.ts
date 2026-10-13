@@ -152,23 +152,83 @@ export function formatTimer(ms: number): string {
 export const RING_TIMER_MAX_MS = 60 * 60_000;
 
 /**
- * How long the card's call has rung: since call_live.rang_at (094), so
- * a reload keeps the count, but never less than since the card first
- * showed the call. That is the whole answer when rang_at is missing
- * (094 not applied) or unreadable, ahead of this clock, or older than
- * any ring: the browser's clock is not the database's, and the card
- * never shows a negative or absurd time.
+ * When this browser first saw a call_live row's current frame (its
+ * updated_at). `live`: it saw the frame arrive (realtime, or a poll
+ * after the first load). A frame of the first load was written an
+ * unknown time before the page opened.
+ */
+export interface FrameSeen {
+  updatedAt: string;
+  at: number;
+  live: boolean;
+}
+
+/** The frames of `rows`, each kept from `prev` until its updated_at changes. */
+export function noteFrames(
+  prev: Record<string, FrameSeen>,
+  rows: CallLiveRow[],
+  now: number,
+  live: boolean
+): Record<string, FrameSeen> {
+  const next: Record<string, FrameSeen> = {};
+  for (const r of rows) {
+    const k = liveKey(r);
+    const seen = prev[k];
+    next[k] =
+      seen?.updatedAt === r.updated_at
+        ? seen
+        : { updatedAt: r.updated_at, at: now, live };
+  }
+  return next;
+}
+
+/**
+ * Since when the card has shown `ringing` (browser time), the ring
+ * timer's floor: started with the `now` of the update that first made
+ * it my ringing call, and restarted when it stops ringing me (answered,
+ * then transferred back), so an idle page or an earlier ring never
+ * counts.
+ */
+export function ringFloor(
+  prev: { key: string; at: number } | null,
+  ringing: CallLiveRow | null,
+  now: number
+): { key: string; at: number } | null {
+  if (!ringing) return null;
+  const key = liveKey(ringing);
+  return prev?.key === key ? prev : { key, at: now };
+}
+
+/**
+ * How long the card's call has rung, from call_live.rang_at (094; the
+ * database re-stamps it when an answered call rings again). Measured on
+ * the server's clocks where it can be: rung at the frame (updated_at −
+ * rang_at), plus the browser's time since it saw that frame arrive, so
+ * a browser clock minutes out changes nothing. Only a frame it did not
+ * see arrive (the first load: a reload mid-ring) falls back to this
+ * clock's now − rang_at, which keeps the count across the reload.
+ * Never less than since the card showed the call (`shownAt`), which is
+ * the whole answer without a usable rang_at; never negative or absurd.
  */
 export function ringElapsedMs(
-  rangAt: string | null | undefined,
+  row: Pick<CallLiveRow, 'rang_at' | 'updated_at'>,
+  seen: FrameSeen | null,
   shownAt: number,
   now: number
 ): number {
   const shown = Math.max(0, now - shownAt);
-  const rung = now - (typeof rangAt === 'string' ? Date.parse(rangAt) : NaN);
-  return Number.isFinite(rung) && rung >= 0 && rung <= RING_TIMER_MAX_MS
-    ? Math.max(rung, shown)
-    : shown;
+  const rang = typeof row.rang_at === 'string' ? Date.parse(row.rang_at) : NaN;
+  // A frame received just before its own row's stamp started the ring.
+  const atFrame = Math.max(0, Date.parse(row.updated_at) - rang);
+  const byFrame =
+    seen?.updatedAt === row.updated_at
+      ? atFrame + Math.max(0, now - seen.at)
+      : NaN;
+  const byClock = seen?.live ? NaN : now - rang;
+  const sane = [byFrame, byClock].filter(
+    (ms) => Number.isFinite(ms) && ms >= 0 && ms <= RING_TIMER_MAX_MS
+  );
+  return Math.max(shown, ...sane);
 }
 
 export interface ConsentFields {
@@ -326,24 +386,30 @@ export function dialResult(status: number, body: unknown): DialResult {
 export const needsOutcome = (mandatory: boolean, outcome: Outcome | null) =>
   mandatory && outcome === null;
 
-/** Customer facts as loaded, with the contact they were loaded for. */
+/** Customer facts as loaded, with the contact and the call they were loaded for. */
 export interface HeldFacts<T> {
   contactId: string;
+  /** liveKey of the call, null when loaded for no live call. */
+  callKey: string | null;
   facts: T;
 }
 
 /**
- * The facts to show for `contactId`: only ones loaded for that contact.
- * The card and the panel outlive the contact under them (the next call,
- * a pick, a re-link), and until the new contact's load lands they show
- * nothing rather than the previous customer's owner, deal, last message
- * and consent.
+ * The facts to show for `contactId` on `callKey`: only ones loaded for
+ * that contact on that call. The card and the panel outlive the contact
+ * under them (the next call, a pick, a re-link), and until the new
+ * load lands they show nothing rather than the previous customer's
+ * owner, deal, last message and consent; nor a repeat caller's facts
+ * from the last call, when they may have become do-not-contact since.
  */
 export function factsFor<T>(
   held: HeldFacts<T> | null,
-  contactId: string | null
+  contactId: string | null,
+  callKey: string | null
 ): T | null {
-  return contactId && held?.contactId === contactId ? held.facts : null;
+  return contactId && held?.contactId === contactId && held.callKey === callKey
+    ? held.facts
+    : null;
 }
 
 /** The customer's owner, when that is someone other than `me`. */

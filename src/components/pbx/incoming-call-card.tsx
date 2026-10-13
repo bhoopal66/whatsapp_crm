@@ -41,8 +41,8 @@ export type { CallFacts };
 
 /**
  * What the card and the panel show of a call's customer, held with the
- * contact it was loaded for (factsFor): the card stays mounted from one
- * call to the next. For a live call of mine, the facts route (a contact
+ * contact and the call it was loaded for (factsFor): the card stays
+ * mounted from one call to the next. For a live call of mine, the facts route (a contact
  * my own reads hide still shows its name, owner and consent); otherwise,
  * or when the route refuses, my own reads, where a hidden contact shows
  * nothing and its consent as unknown.
@@ -54,6 +54,10 @@ export function useCallFacts(
   const [held, setHeld] = useState<HeldFacts<CallFacts> | null>(null);
   const connectionId = live?.connectionId ?? null;
   const pbxCallId = live?.pbxCallId ?? null;
+  const callKey =
+    connectionId && pbxCallId
+      ? liveKey({ connection_id: connectionId, pbx_call_id: pbxCallId })
+      : null;
   useEffect(() => {
     if (!contactId) return;
     let on = true;
@@ -72,13 +76,13 @@ export function useCallFacts(
       facts ??=
         (await loadVisibleFacts(createClient(), contactId).catch(() => null)) ??
         UNKNOWN_FACTS;
-      if (on) setHeld({ contactId, facts });
+      if (on) setHeld({ contactId, callKey, facts });
     })();
     return () => {
       on = false;
     };
-  }, [contactId, connectionId, pbxCallId]);
-  return factsFor(held, contactId);
+  }, [contactId, connectionId, pbxCallId, callKey]);
+  return factsFor(held, contactId, callKey);
 }
 
 /** "Which customer?" for a number that matched several contacts. */
@@ -165,13 +169,9 @@ export function IncomingCallCard() {
   const canCreateContact = useCan('send-messages');
   const call = calls?.ringing ?? null;
   const key = call ? liveKey(call) : null;
-  const [since, setSince] = useState<{ key: string; at: number } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [creating, setCreating] = useState<NewCaller | null>(null);
   const now = useNow(Boolean(call));
-  // Adjusted while rendering: when this call first showed, the floor of
-  // the ring timer, which counts from call_live.rang_at (ringElapsedMs).
-  if (key && since?.key !== key) setSince({ key, at: now });
   const pickedId = key ? (calls?.picks[key] ?? null) : null;
   const facts = useCallFacts(
     call?.contact_id ?? pickedId,
@@ -199,12 +199,20 @@ export function IncomingCallCard() {
         contactId,
       }),
     }).catch(() => null);
-    if (!res?.ok) toast.error(t('linkFailed'));
+    if (!res?.ok) return void toast.error(t('linkFailed'));
+    // 200 { linked: false }: not a call of mine, or it has a customer.
+    const body = (await res.json().catch(() => null)) as {
+      linked?: unknown;
+    } | null;
+    if (body?.linked !== true) toast.warning(t('linkSkipped'));
   };
   // Outside the card: the call can be answered, declined or missed
   // while the form is open, and what was typed must survive that.
+  // Floating (no backdrop, non-modal, outside presses keep it open), so
+  // Answer and Decline stay clickable beside it.
   const form = (
     <ContactForm
+      floating
       open={creating !== null}
       onOpenChange={(open) => {
         if (!open) setCreating(null);
@@ -269,7 +277,8 @@ export function IncomingCallCard() {
       <div
         role="alertdialog"
         aria-label={t('incoming')}
-        className="fixed top-[68px] right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10"
+        // Above the floating form where a narrow screen overlaps them.
+        className={`fixed top-[68px] right-4 ${creating ? 'z-[60]' : 'z-50'} w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10`}
       >
         <p className="flex items-center gap-2 text-xs text-white/70">
           <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
@@ -277,8 +286,9 @@ export function IncomingCallCard() {
           <span className="tabular-nums">
             {formatTimer(
               ringElapsedMs(
-                call.rang_at,
-                since?.key === key ? since.at : now,
+                call,
+                calls.ringClock?.frame ?? null,
+                calls.ringClock?.shownAt ?? now,
                 now
               )
             )}
