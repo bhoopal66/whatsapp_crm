@@ -227,6 +227,34 @@ per message, 25 MB each.
   table reads too (RLS on `shared_conversations`).
 - Deleting the message, or erasing its author, deletes the card.
 
+## Sharing a phone call into a channel
+
+Migration `103_chat_call_cards.sql`. **Share to chat** on a call (the
+Calls screen, the customer page's call entries, and the call wrap-up's
+"share a call card" box) posts a card of the call to a team channel, a
+private channel or a deal room's Team notes. Never to the customer, the
+WhatsApp chat or a deal room's WhatsApp group.
+
+- **Who may share.** As for conversations (no viewers, no bank guests),
+  and only a call that was not erased. The database checks that the
+  sharer can see the call now (the Calls screen's rule) and that it is
+  in the channel's workspace (`chat_share_call`).
+- **No bank guests.** A call cannot be shared into a channel where a
+  bank guest reads the messages (the same guest test as for
+  conversations). A deal room is allowed: its Team notes are
+  staff-only, so its guests never read the card. DMs are not offered
+  (they never hold a guest).
+- **What the card shows**, read from the call each time (no snapshot):
+  direction, the customer's name (or masked number) linking to the
+  customer page, the agent, when, duration, outcome and a note excerpt.
+  The post's own text is the sharer's comment, or "Shared a call", and
+  never names the customer.
+- **Who sees the details.** Only someone who can see the call now;
+  anyone else sees a "no access" card. Once the call's record is erased
+  (`pbx_erase_contact_calls`), the card says only that it was erased.
+  Direct reads of `shared_calls` follow the same rule.
+- Deleting the message, or erasing its author, deletes the card.
+
 ## Notifications
 
 Chat writes to the bell (`notifications`), with a body of the first 140

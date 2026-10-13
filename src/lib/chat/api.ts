@@ -24,6 +24,7 @@ import {
   toPin,
   toSearchHit,
   toSharedCard,
+  toSharedCallCard,
   toUnreadCount,
   toWorkspaceBadge,
   type AttachmentInput,
@@ -38,6 +39,7 @@ import {
   type ReactionSummary,
   type SearchHit,
   type SharedCard,
+  type SharedCallCard,
   type ThreadSummary,
   type UnreadCount,
   type WorkspaceBadge,
@@ -107,6 +109,21 @@ export const postMessage = (
     p_thread_root: i.threadRootId ?? null,
     p_share_conversation: i.shareConversationId ?? null,
     p_attachments: i.attachments ?? [],
+  });
+
+/**
+ * Posts a card of a phone call (103). The body is the sharer's comment
+ * and must carry no call detail: every reader of the channel sees it,
+ * while the card's details reach only people who may see the call.
+ */
+export const shareCall = (
+  sb: SupabaseClient,
+  i: { channelId: string; callId: string; body: string }
+): Promise<string> =>
+  rpc(sb, 'chat_share_call', {
+    p_channel: i.channelId,
+    p_call: i.callId,
+    p_body: i.body,
   });
 
 export const editMessage = (
@@ -240,6 +257,18 @@ export const sharedCards = async (
         })) ?? []
       ).map(toSharedCard);
 
+export const sharedCallCards = async (
+  sb: SupabaseClient,
+  messageIds: string[]
+): Promise<SharedCallCard[]> =>
+  messageIds.length === 0
+    ? []
+    : (
+        (await rpc<Row[] | null>(sb, 'chat_shared_call_cards', {
+          p_message_ids: messageIds,
+        })) ?? []
+      ).map(toSharedCallCard);
+
 export const chatPeople = async (
   sb: SupabaseClient,
   accountId: string
@@ -338,6 +367,25 @@ export const erasePerson = async (
     p_user_id: i.userId,
     p_reason: i.reason,
   })) ?? [];
+
+/**
+ * Which of these channels have a bank guest among their members
+ * (chat_channels_with_guests, migration 102; only channels the caller
+ * can see are answered). Sharing customer details there is refused, so
+ * the share pickers leave them out.
+ */
+export async function channelsWithGuests(
+  sb: SupabaseClient,
+  ids: readonly string[]
+): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  const data = await rpc<unknown>(sb, 'chat_channels_with_guests', {
+    p_channels: ids,
+  });
+  return new Set(
+    Array.isArray(data) ? data.filter((v) => typeof v === 'string') : []
+  );
+}
 
 // ---------- table reads (RLS decides what comes back) ----------
 

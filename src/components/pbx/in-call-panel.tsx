@@ -29,10 +29,9 @@ import {
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
-import { listChannels, postMessage } from '@/lib/chat';
+import { channelsWithGuests, listChannels, shareCall } from '@/lib/chat';
 import {
   OUTCOMES,
-  callCardText,
   canTransferToOwner,
   formatTimer,
   needsOutcome,
@@ -168,18 +167,28 @@ function Panel() {
   useEffect(() => {
     if (!accountId || !calls.userId) return;
     void listChannels(sb, accountId, calls.userId)
-      .then((cs) =>
+      .then(async (cs) => {
+        const open = cs.filter(
+          (c) =>
+            (c.kind === 'team' ||
+              c.kind === 'private' ||
+              c.kind === 'deal_room') &&
+            !c.archivedAt &&
+            c.membership &&
+            c.name
+        );
+        // A call card is refused where a bank guest reads (a deal room's
+        // Team notes excepted); a failed lookup leaves them offered.
+        const guests = await channelsWithGuests(
+          sb,
+          open.filter((c) => c.kind !== 'deal_room').map((c) => c.id)
+        ).catch(() => new Set<string>());
         setChannels(
-          cs
-            .filter(
-              (c) =>
-                (c.kind === 'team' || c.kind === 'private') &&
-                c.membership &&
-                c.name
-            )
+          open
+            .filter((c) => c.kind === 'deal_room' || !guests.has(c.id))
             .map((c) => ({ id: c.id, name: c.name as string }))
-        )
-      )
+        );
+      })
       .catch(() => setChannels([]));
   }, [sb, accountId, calls.userId]);
 
@@ -250,7 +259,6 @@ function Panel() {
   const recording =
     calls.settings.announcementRequired &&
     !['held', 'erased'].includes(row?.recording_state ?? '');
-  const name = facts?.name || facts?.company || null;
 
   // `auto`: the wrap-up's own close. A ticked call card that will not
   // post is retried, then the panel closes anyway with the error showing
@@ -266,33 +274,15 @@ function Panel() {
       await patch({ notes });
     }
     await chain.current;
+    // A card (103): its details reach only colleagues who may see the
+    // call, so the post's own text names nothing of the customer.
+    const callId = row?.id;
     if (share && channelId) {
-      const body = callCardText(
-        {
-          direction: row?.direction ?? (p.inbound ? 'inbound' : 'outbound'),
-          contactName: name,
-          remoteNumber: p.remoteNumber,
-          talkSeconds: Math.round(talkMs / 1000),
-          outcome,
-          notes,
-        },
-        {
-          heading: (direction, who) => t('cardHeading', { direction, who }),
-          direction: {
-            inbound: t('directions.inbound'),
-            outbound: t('directions.outbound'),
-            internal: t('directions.internal'),
-          },
-          outcome: Object.fromEntries(
-            OUTCOMES.map((o) => [o, t(`outcomes.${o}`)])
-          ) as Record<Outcome, string>,
-          noOutcome: t('noOutcome'),
-          unknownCaller: t('unknownCaller'),
-        }
-      );
-      const shared = await tryTimes(auto ? AUTO_SHARE_TRIES : 1, () =>
-        postMessage(sb, { channelId, body })
-      );
+      const shared =
+        !!callId &&
+        (await tryTimes(auto ? AUTO_SHARE_TRIES : 1, () =>
+          shareCall(sb, { channelId, callId, body: t('shareCardBody') })
+        ));
       if (!shared) {
         toast.error(t(auto ? 'shareFailedClosed' : 'shareFailed'));
         if (!auto) return;

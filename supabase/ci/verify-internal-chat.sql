@@ -17,7 +17,11 @@
 -- from chat_notifications and rewritten by an edit, and a person active
 -- in another account still reading this account's channels and badges.
 -- Since 102, chat_channels_with_guests, which keeps the automation step
--- Post to team chat away from channels with a bank guest.
+-- Post to team chat away from channels with a bank guest. Since 103,
+-- call cards (chat_share_call: the sharer must see the call, no channel
+-- with a bank guest but a deal room's staff-only Team notes; details
+-- through chat_shared_call_cards and a plain SELECT only for someone who
+-- may see the call now, and none of an erased call).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. Each check is a
@@ -47,6 +51,7 @@ DECLARE
   m UUID; m1 UUID; m2 UUID; root UUID; rep UUID; gone UUID; mr UUID; sm UUID;
   ar UUID; en UUID; ad UUID; tg UUID; tm UUID;
   k1 UUID; k2 UUID; kb UUID; cv1 UUID; cv2 UUID; cvb UUID;
+  cl UUID; clb UUID; cm UUID; cd UUID; k_hide UUID; cl_hide UUID; m_hide UUID; m_hide_t UUID;
   r TEXT; f1 TEXT; f2 TEXT; f3 TEXT; f4 TEXT;
   n INT := 0;
   failed TEXT[] := '{}';
@@ -125,6 +130,16 @@ BEGIN
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.card(p_uid uuid, p_m uuid) RETURNS text LANGUAGE sql AS $b$
       SELECT pg_temp.ic(p_uid, format('SELECT concat_ws(''/'', snapshot->>''contact_name'', can_open, coalesce(chat_tag->>''name'', ''-''), coalesce(status, ''-''), coalesce(last_message_at::text, ''-'')) FROM public.chat_shared_cards(ARRAY[%L]::uuid[])', p_m)) $b$
+  $fn$;
+
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.share_call(p_uid uuid, p_ch uuid, p_call uuid) RETURNS text LANGUAGE sql AS $b$
+      SELECT pg_temp.ic(p_uid, format('SELECT public.chat_share_call(%L, %L, %L)', p_ch, p_call, 'shared a call')) $b$
+  $fn$;
+  -- A call card as p_uid reads it: can_open/erased/the details ('-' when NULL).
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.ccard(p_uid uuid, p_m uuid) RETURNS text LANGUAGE sql AS $b$
+      SELECT pg_temp.ic(p_uid, format('SELECT concat_ws(''/'', can_open, erased, coalesce(call_id::text, ''-''), coalesce(direction, ''-''), coalesce(status, ''-''), coalesce(talk_seconds::text, ''-''), coalesce(outcome, ''-''), coalesce(notes, ''-''), coalesce(contact_name, ''-''), coalesce(contact_id::text, ''-''), coalesce(phone, ''-''), coalesce(started_at::text, ''-'')) FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[])', p_m)) $b$
   $fn$;
 
   -- ---------- fixture: account A (seven roles + 8 extra agents), account B ----------
@@ -514,6 +529,86 @@ BEGIN
      AND has_function_privilege('authenticated', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE')
      AND NOT has_function_privilege('anon', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE')
      AND NOT has_function_privilege('public', 'public.chat_channels_with_guests(uuid[])', 'EXECUTE'))::text, 'true');
+
+  -- ================= 103: call cards =================
+  INSERT INTO calls (account_id, pbx_call_id, direction, remote_number, user_id, contact_id, status,
+                     started_at, answered_at, talk_seconds, disposition, notes)
+  VALUES (a, 'ic-call-1', 'inbound', '971500087001', u_rm, k1, 'answered',
+          '2026-10-02 09:00:00+00', '2026-10-02 09:00:05+00', 192, 'interested', 'IC call note')
+  RETURNING id INTO cl;
+  INSERT INTO calls (account_id, pbx_call_id, direction, remote_number, user_id, contact_id, status)
+  VALUES (b, 'ic-call-b', 'inbound', '971500087003', u_mx, kb, 'answered') RETURNING id INTO clb;
+  p := pg_temp.must(pg_temp.mk(u_sup, a, 'private', 'call-share', ARRAY[u_rm, u_rm2]));
+  cm := pg_temp.must(pg_temp.share_call(u_rm, p, cl));
+  PERFORM pg_temp.ck('103: the call''s agent shares it', (SELECT call_id || '/' || shared_by || '/' || account_id FROM shared_calls WHERE message_id = cm), cl || '/' || u_rm || '/' || a);
+  PERFORM pg_temp.ck('103: the card post carries no call detail', (SELECT body FROM internal_messages WHERE id = cm), 'shared a call');
+  PERFORM pg_temp.ck('103: a sharer who cannot see the call', pg_temp.share_call(u_rm2, p, cl), 'ERROR 42501:%cannot share this call%');
+  PERFORM pg_temp.ck('103: another account''s call', pg_temp.share_call(u_rm, p, clb), 'ERROR 42501:%cannot share this call%');
+  PERFORM pg_temp.ck('103: a guest shares', pg_temp.share_call(u_g, p, cl), 'ERROR 42501:%');
+  PERFORM pg_temp.ck('103: no card was added by a refusal', (SELECT count(*)::text FROM shared_calls WHERE call_id IN (cl, clb)), '1');
+  -- no card where a bank guest reads the messages: a guest member, or a member now demoted to bank_guest
+  d := pg_temp.must(pg_temp.mk(u_sup, a, 'private', 'call-guest', ARRAY[u_rm, u_g]));
+  PERFORM pg_temp.ck('103: share into a channel with a guest', pg_temp.share_call(u_rm, d, cl), 'ERROR 42501:%channel with a bank guest%');
+  t := pg_temp.must(pg_temp.mk(u_rm, a, 'team', 'call-demoted', ARRAY[extras[3]]));
+  UPDATE profiles SET account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = extras[3];
+  PERFORM pg_temp.ck('103: share into a channel with a demoted member', pg_temp.share_call(u_rm, t, cl), 'ERROR 42501:%channel with a bank guest%');
+  UPDATE profiles SET account_role = 'agent', bank_code = NULL WHERE user_id = extras[3];
+  PERFORM pg_temp.ck('103: share into a team channel', pg_temp.share_call(u_rm, t, cl), '________-____-____-____-____________');
+  -- a deal room's Team notes are staff-only: its guest member never reads the card
+  INSERT INTO chat_channels (account_id, kind, name, created_by) VALUES (a, 'deal_room', 'IC call deal', u_sup) RETURNING id INTO cd;
+  INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (cd, u_sup, 'admin'), (cd, u_g, 'guest');
+  m := pg_temp.must(pg_temp.share_call(u_sup, cd, cl));
+  PERFORM pg_temp.ck('103: card in Team notes, for staff', pg_temp.ccard(u_sup, m), 't/f/' || cl || '/inbound/answered/192/interested/IC call note/IC customer one/' || k1 || '/+971 XXXXXXX01/2026-10-02 09:00:00+00');
+  PERFORM pg_temp.ck('103: card in Team notes, for the guest', pg_temp.ccard(u_g, m), 'ok');
+  PERFORM pg_temp.ck('103: card row in Team notes, for the guest', pg_temp.cnt(u_g, format('public.shared_calls WHERE message_id = %L', m)), '0');
+  -- read time: details only for someone who may see the call now
+  PERFORM pg_temp.ck('103: card for the call''s agent', pg_temp.ccard(u_rm, cm), 't/f/' || cl || '/inbound/answered/192/interested/IC call note/IC customer one/%');
+  PERFORM pg_temp.ck('103: card row for the call''s agent', pg_temp.cnt(u_rm, format('public.shared_calls WHERE message_id = %L', cm)), '1');
+  PERFORM pg_temp.ck('103: card for a reader who cannot see the call', pg_temp.ccard(u_rm2, cm), 'f/f/-/-/-/-/-/-/-/-/-/-');
+  PERFORM pg_temp.ck('103: no call detail for that reader', pg_temp.ic(u_rm2, format(
+      'SELECT (NOT can_open AND NOT erased AND call_id IS NULL AND direction IS NULL AND status IS NULL AND started_at IS NULL'
+      ' AND talk_seconds IS NULL AND outcome IS NULL AND notes IS NULL AND agent_name IS NULL AND contact_id IS NULL'
+      ' AND contact_name IS NULL AND phone IS NULL AND strpos(row_to_json(c)::text, ''IC c'') = 0)::text'
+      ' FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[]) c', cm)), 'true');
+  PERFORM pg_temp.ck('103: no card row from a plain SELECT for that reader', pg_temp.cnt(u_rm2, format('public.shared_calls WHERE message_id = %L', cm)), '0');
+  PERFORM pg_temp.ck('103: card for a non-member of the channel', pg_temp.ccard(u_ag, cm), 'ok');
+  -- a reader who may see the call but not its customer (the agent who
+  -- took it; a leader who does not lead the customer's owner) gets the
+  -- call without the customer's name or id, as on the Calls screen
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a, extras[4], '971500087009', 'IC hidden customer') RETURNING id INTO k_hide;
+  INSERT INTO calls (account_id, pbx_call_id, direction, remote_number, user_id, contact_id, status)
+  VALUES (a, 'ic-call-hide', 'inbound', '971500087009', u_rm, k_hide, 'answered') RETURNING id INTO cl_hide;
+  m_hide := pg_temp.must(pg_temp.share_call(u_rm, p, cl_hide));
+  FOREACH uu IN ARRAY ARRAY[u_rm, u_sup] LOOP
+    PERFORM pg_temp.ck('103: no hidden customer for ' || uu, pg_temp.ic(uu, format(
+      'SELECT (can_open AND contact_id IS NULL AND contact_name IS NULL AND phone IS NOT NULL'
+      ' AND strpos(row_to_json(c)::text, ''hidden'') = 0)::text'
+      ' FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[]) c', m_hide)), 'true');
+  END LOOP;
+  m_hide_t := pg_temp.must(pg_temp.share_call(u_rm, t, cl_hide));
+  PERFORM pg_temp.ck('103: the customer for an admin', pg_temp.ic(u_adm, format(
+      'SELECT contact_name FROM public.chat_shared_call_cards(ARRAY[%L]::uuid[])', m_hide_t)), 'IC hidden customer');
+
+  -- an erased call: no detail through any card, for anyone; no new card
+  PERFORM pg_temp.ck('103: owner erases the customer''s calls', pg_temp.ic(u_own, format('SELECT public.pbx_erase_contact_calls(%L, %L)', k1, 'lawful request')), '{}');
+  FOREACH uu IN ARRAY ARRAY[u_rm, u_sup] LOOP
+    PERFORM pg_temp.ck('103: erased call card ' || uu, pg_temp.ccard(uu, CASE WHEN uu = u_rm THEN cm ELSE m END), 't/t/' || cl || '/-/-/-/-/-/-/-/-/-');
+    PERFORM pg_temp.ck('103: no erased detail ' || uu, pg_temp.ic(uu, format(
+      'SELECT (strpos(row_to_json(c)::text, ''IC c'') = 0 AND strpos(row_to_json(c)::text, ''XXXX'') = 0'
+      ' AND strpos(row_to_json(c)::text, ''interested'') = 0 AND agent_name IS NULL AND contact_id IS NULL)::text'
+      ' FROM public.chat_shared_call_cards(ARRAY[%L, %L]::uuid[]) c', cm, m)), 'true');
+  END LOOP;
+  PERFORM pg_temp.ck('103: share an erased call', pg_temp.share_call(u_rm, p, cl), 'ERROR 42501:%cannot share this call%');
+  -- a deleted message takes its card
+  PERFORM pg_temp.ck('103: the sharer deletes the card post', pg_temp.ic(u_rm, format('SELECT public.chat_delete_message(%L)', cm)), '{}');
+  PERFORM pg_temp.ck('103: the card row went with it', (SELECT count(*)::text FROM shared_calls WHERE message_id = cm), '0');
+  PERFORM pg_temp.ck('103: grants',
+    (has_function_privilege('authenticated', 'public.chat_share_call(uuid, uuid, text)', 'EXECUTE')
+     AND has_function_privilege('authenticated', 'public.chat_shared_call_cards(uuid[])', 'EXECUTE')
+     AND NOT has_function_privilege('anon', 'public.chat_share_call(uuid, uuid, text)', 'EXECUTE')
+     AND NOT has_function_privilege('service_role', 'public.chat_share_call(uuid, uuid, text)', 'EXECUTE')
+     AND NOT has_function_privilege('authenticated', 'public.chat_can_view_call(uuid)', 'EXECUTE')
+     AND NOT has_table_privilege('authenticated', 'public.shared_calls', 'INSERT'))::text, 'true');
 
   SELECT count(*), coalesce(array_agg(label || ': got ' || coalesce(got, 'NULL') || ', want ' || want ORDER BY id)
                               FILTER (WHERE got IS NULL OR got NOT LIKE want), '{}')

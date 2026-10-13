@@ -19,6 +19,7 @@ import {
   StickyNote,
 } from 'lucide-react';
 
+import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { CallButton } from '@/components/pbx/call-button';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -635,6 +636,12 @@ export function CustomerPage({ contactId }: { contactId: string }) {
             <RecordingPlayer call={e.call} dealId={deal?.id ?? null} />
           )}
         </div>
+        {e.kind === 'call' && (
+          <ShareCallButton
+            callId={e.call.id}
+            recordingState={e.call.recordingState}
+          />
+        )}
       </li>
     );
   };
