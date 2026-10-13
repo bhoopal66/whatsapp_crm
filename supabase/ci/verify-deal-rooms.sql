@@ -31,7 +31,10 @@
 -- and join approval mode from the webhook, in its own account only;
 -- and that the group STOP's service-role opt-out stamp is recorded in
 -- 086's consent history; and 100's Team notes: one per change of the
--- group, none for a redelivery, no whole number, fail-open.
+-- group, none for a redelivery, no whole number, fail-open; a STOP's
+-- note true to the contact's stamp, and no second note for the removal
+-- the STOP made. And that a group receipt which beat its message's row
+-- is counted on the row once it is written.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -1133,6 +1136,54 @@ BEGIN
                        AND phone_normalized = '971500880066')
      OR (SELECT count(*) FROM contact_consent_events WHERE contact_id = v_pre AND kind = 'opted_out') <> 1 THEN
     failed := array_append(failed, ('a service-role opt-out stamp left no consent event: ' || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: a receipt can beat its message's row, which is written only once
+  -- Meta has answered the send. The ledger costs it with no row to lift
+  -- it onto, and its redelivery is a ledger duplicate: the row, written
+  -- later, takes the category and billed count from the ledger, and a
+  -- receipt after it adds to them as usual.
+  s := 'SELECT public.deal_room_record_cost(%L, %L, %L::jsonb)::text';
+  t := '{"id": "dr-cost-race", "recipient_type": "group", "recipient_id": "dr-grp-shared@g.us", "timestamp": "1793000000"';
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+    t || ', "status": "sent", "pricing": {"category": "utility", "pricing_model": "PMP"}}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880001"}'));
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT (public.deal_room_record_message(%L, %L, %L, %L, %L) IS NOT NULL)::text',
+         a_acct, 'dr-grp-shared@g.us', 'out', 'text', 'dr-cost-race'))
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+         t || ', "status": "delivered", "recipient_participant_id": "971500880001"}')), '{data,duplicate}');
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+    t || ', "status": "delivered", "recipient_participant_id": "966500880002"}'));
+  r := r || ' / ' || coalesce((SELECT category || ':' || recipients_billed FROM group_messages
+                               WHERE wa_message_id = 'dr-cost-race' AND account_id = a_acct), '-');
+  n := n + 1;
+  IF r IS DISTINCT FROM 'true / true / utility:2' THEN
+    failed := array_append(failed, ('a receipt that beat its message row is not counted on it: '
+                                    || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: a STOP's note says whether the contact is now opted out, could
+  -- not be marked, or was not found; the removal that STOP made, which
+  -- Meta reports after the STOP is recorded, posts no second note, and
+  -- any other removal still posts one.
+  INSERT INTO deal_room_audit (room_id, account_id, actor_id, action, detail)
+  VALUES (r_y, a_acct, NULL, 'participant_opted_out',
+          '{"wa_id": "971500880055", "opted_out": false, "contact_found": true}');
+  s := 'SELECT public.deal_room_participant_event(%L, %L, %L, %L)';
+  r := pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'removed'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880057', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880057', 'removed'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'removed / joined / removed'
+     OR (SELECT string_agg(m.body, ' | ' ORDER BY m.body)
+           FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+          WHERE d.id = r_y AND m.meta->>'deal_room_event' IN ('participant_opted_out', 'participant_removed'))
+        IS DISTINCT FROM '**Unlisted number ending 55** wrote STOP and is removed from the WhatsApp group; '
+                         || 'their contact could not be marked opted out. | '
+                         || '**Unlisted number ending 57** was removed from the WhatsApp group.' THEN
+    failed := array_append(failed, ('a STOP and the removal it made did not post one true note: '
+                                    || coalesce(r, 'NULL'))::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

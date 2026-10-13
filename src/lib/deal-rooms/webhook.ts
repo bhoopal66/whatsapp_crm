@@ -640,18 +640,6 @@ export async function handleGroupWebhook(
     waId: string,
     fresh: boolean
   ): Promise<void> {
-    try {
-      await removeParticipants({
-        groupId,
-        accessToken: args.accessToken,
-        participants: [waId],
-      });
-    } catch (err) {
-      console.error(
-        '[deal-rooms] removing an opted-out participant failed:',
-        err
-      );
-    }
     const { data: p } = await db
       .from('deal_room_participants')
       .select('contact_id')
@@ -675,18 +663,41 @@ export async function handleGroupWebhook(
         console.error('[deal-rooms] opt-out contact lookup failed:', error);
       contactId = pickContactByPhone(rows, variants);
     }
-    if (contactId) await markOptedOut(db, { accountId, contactId });
+    // markOptedOut answers false for a failed write and for a contact
+    // stamped before alike; only the stamp itself tells them apart.
+    const optedOut =
+      contactId !== null &&
+      ((await markOptedOut(db, { accountId, contactId })) ||
+        (await hasOptedOut(contactId)));
     if (fresh) {
       // The room's record of the STOP; its audit trigger (migration 100)
-      // posts the Team note. Fail-open: the removal and stamp stand.
+      // posts the Team note. Written before the removal at Meta, so the
+      // removal's own webhook finds it and adds no second note.
+      // Fail-open: the removal and stamp stand.
       const { error } = await db.from('deal_room_audit').insert({
         room_id: r.id,
         account_id: accountId,
         actor_id: null,
         action: 'participant_opted_out',
-        detail: { wa_id: waId, opted_out: contactId !== null },
+        detail: {
+          wa_id: waId,
+          opted_out: optedOut,
+          contact_found: contactId !== null,
+        },
       });
       if (error) console.error('[deal-rooms] opt-out record failed:', error);
+    }
+    try {
+      await removeParticipants({
+        groupId,
+        accessToken: args.accessToken,
+        participants: [waId],
+      });
+    } catch (err) {
+      console.error(
+        '[deal-rooms] removing an opted-out participant failed:',
+        err
+      );
     }
     await rpc('deal_room_record_message', {
       p_account: accountId,
@@ -696,6 +707,19 @@ export async function handleGroupWebhook(
       p_body: `+${waId} asked to stop and was removed from the group.`,
       p_status: 'sent',
     });
+  }
+
+  async function hasOptedOut(contactId: string): Promise<boolean> {
+    const { data, error } = await db
+      .from('contacts')
+      .select('opted_out_at')
+      .eq('id', contactId)
+      .eq('account_id', accountId)
+      .maybeSingle();
+    if (error) console.error('[deal-rooms] opt-out stamp check failed:', error);
+    return (
+      (data as { opted_out_at: string | null } | null)?.opted_out_at != null
+    );
   }
 
   async function receipt(s: Json): Promise<void> {

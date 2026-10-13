@@ -353,7 +353,9 @@ including your number, so a room lists 1 to 7 other people.
    - **A sent message cannot be edited or deleted.**
    - A member who writes `STOP`, `UNSUBSCRIBE` or an Arabic equivalent is
      removed from the group, marked opted out (no broadcast reaches
-     them again), and a note says so in the room.
+     them again), and one note in the Team notes says so, including
+     when their contact could not be marked or none was found; the
+     removal itself adds no second note.
    - A person removed by a manager **cannot rejoin through the invite
      link**. A manager can fetch the link or reset it; a reset ends
      every earlier link. The link is never stored, only its hash.
@@ -514,8 +516,10 @@ everything else.
   member (`recipient_participant_id`), so a member's delivery is never
   mistaken for a replay of another's, and a redelivered receipt still
   counts once. The room's transcript row keeps the message's
-  `category` and `recipients_billed` (billable deliveries so far). A
-  receipt that names no member is recorded uncosted.
+  `category` and `recipients_billed` (billable deliveries so far),
+  including receipts that arrived before that row was written (it is
+  written once Meta has answered the send). A receipt that names no
+  member is recorded uncosted.
 
 ## Edge security
 

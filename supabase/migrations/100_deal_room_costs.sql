@@ -25,6 +25,16 @@
 --    (+1 for a billable delivery). The ledger's key is what makes a
 --    redelivered receipt count once. Fail-open at the call site
 --    (lib/whatsapp/message-costs.ts), like 1:1 costing.
+--  * A receipt can beat its message's row, which is written only once
+--    Meta has answered the send: deal_room_record_message, writing an
+--    outbound row, takes from the ledger what those receipts left there
+--    (deal_room_record_cost found no row to lift them onto, and their
+--    redeliveries are ledger duplicates). An advisory lock per message
+--    makes each receipt land through exactly one of the two.
+--
+-- Re-running 051 after this file puts 051's record_whatsapp_message_cost
+-- back (its table is left alone): it keeps recording, but keys a group
+-- receipt on the group. Re-apply 100 after re-running 051.
 --
 -- And a group's settings: deal_room_apply_settings (service role) takes
 -- the subject, description and join approval mode a
@@ -33,7 +43,8 @@
 -- And Team notes: a trigger on deal_room_audit posts a short system
 -- note into the room's Team notes for each change of membership, a
 -- waiting join request, a STOP, a suspension or its end, and the close,
--- once per change, fail-open.
+-- once per change, fail-open; the removal a STOP makes posts no note
+-- beside the STOP's own.
 --
 -- 088's superuser / BYPASSRLS guard is repeated: deal_room_record_cost
 -- and deal_room_apply_settings are new SECURITY DEFINER functions
@@ -242,6 +253,11 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', jsonb_build_object(
       'code', 'BAD_STATUS', 'message', 'not a group receipt', 'retryable', false));
   END IF;
+  -- One writer at a time with deal_room_record_message for this message:
+  -- a receipt racing the row's insert is lifted here (the row is
+  -- committed) or read from the ledger there (this receipt is), never
+  -- both and never neither.
+  PERFORM pg_advisory_xact_lock(hashtextextended('deal_room_cost:' || coalesce(p_status->>'id', ''), 0));
   v_res := public.record_whatsapp_message_cost(p_account, p_phone_number_id, p_status,
                                                coalesce(p_timezone, 'Asia/Dubai'));
   v_row := v_res->'data';
@@ -260,6 +276,92 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.deal_room_record_cost(uuid, text, jsonb, text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.deal_room_record_cost(uuid, text, jsonb, text) TO service_role;
+
+-- 088's deal_room_record_message, and an outbound row with a wamid takes
+-- what the ledger already holds for it (above), as deal_room_record_cost
+-- would have lifted it: the first real category (else `service`), and
+-- the billable deliveries. Nothing in the ledger: both stay NULL.
+CREATE OR REPLACE FUNCTION public.deal_room_record_message(
+  p_account uuid, p_group_id text, p_direction text, p_type text,
+  p_wa_message_id text DEFAULT NULL, p_sender_wa_id text DEFAULT NULL, p_body text DEFAULT NULL,
+  p_media jsonb DEFAULT NULL, p_template_name text DEFAULT NULL, p_staff_user_id uuid DEFAULT NULL,
+  p_status text DEFAULT NULL, p_error text DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_r      public.deal_rooms;
+  v_id     uuid;
+  v_sender uuid;
+  v_pn     text;
+BEGIN
+  PERFORM public.deal_room_assert_service();
+  IF p_direction IS NULL OR p_direction NOT IN ('in','out') THEN
+    RAISE EXCEPTION 'deal rooms: direction must be in or out' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_r FROM public.deal_rooms WHERE wa_group_id = p_group_id AND account_id = p_account;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'deal rooms: unknown group' USING ERRCODE = 'P0002';
+  END IF;
+  IF p_direction = 'out' AND v_r.status = 'closed' AND p_type IS DISTINCT FROM 'system' THEN
+    RAISE EXCEPTION 'deal rooms: the room is closed' USING ERRCODE = '22023';
+  END IF;
+  IF p_direction = 'out' AND p_wa_message_id IS NOT NULL THEN
+    -- 100: see deal_room_record_cost.
+    PERFORM pg_advisory_xact_lock(hashtextextended('deal_room_cost:' || p_wa_message_id, 0));
+  END IF;
+  IF p_wa_message_id IS NOT NULL THEN
+    SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id AND account_id = p_account;
+    IF FOUND THEN
+      RETURN v_id;   -- redelivery
+    END IF;
+  END IF;
+  IF p_direction = 'in' THEN
+    IF btrim(coalesce(p_sender_wa_id, '')) = '' THEN
+      RAISE EXCEPTION 'deal rooms: an inbound message needs its sender' USING ERRCODE = '22023';
+    END IF;
+    v_sender := coalesce(public.deal_room_find_participant(v_r.id, p_sender_wa_id),
+                         public.deal_room_add_unlisted(v_r.id, v_r.account_id, p_sender_wa_id));
+  ELSE
+    SELECT id INTO v_sender FROM public.deal_room_participants WHERE room_id = v_r.id AND role = 'business';
+  END IF;
+  INSERT INTO public.group_messages (room_id, account_id, wa_message_id, direction, sender_wa_id,
+                                     sender_participant_id, staff_user_id, type, body, media, template_name,
+                                     status, error)
+  VALUES (v_r.id, v_r.account_id, p_wa_message_id, p_direction,
+          CASE WHEN p_direction = 'in' THEN p_sender_wa_id END, v_sender,
+          CASE WHEN p_direction = 'out' THEN p_staff_user_id END,
+          p_type, p_body, p_media, p_template_name,
+          CASE WHEN p_direction = 'out'
+               THEN coalesce(p_status, CASE WHEN p_wa_message_id IS NULL THEN 'pending' ELSE 'sent' END) END,
+          p_error)
+  ON CONFLICT (wa_message_id) DO NOTHING
+  RETURNING id INTO v_id;
+  IF v_id IS NULL THEN   -- a concurrent redelivery won (NULL: the id is another account's)
+    SELECT id INTO v_id FROM public.group_messages WHERE wa_message_id = p_wa_message_id AND account_id = p_account;
+    RETURN v_id;
+  END IF;
+  IF p_direction = 'out' AND p_wa_message_id IS NOT NULL THEN
+    SELECT w.phone_number_id INTO v_pn FROM public.whatsapp_config w
+     WHERE w.id = v_r.whatsapp_config_id AND w.account_id = v_r.account_id;
+    UPDATE public.group_messages g
+       SET category = l.category, recipients_billed = l.billed
+      FROM (SELECT (array_agg(c.category ORDER BY c.category = 'service', c.id))[1] AS category,
+                   count(*) FILTER (WHERE c.status = 'delivered' AND c.billable)::integer AS billed
+              FROM public.whatsapp_message_costs c
+             WHERE c.phone_number_id = v_pn AND c.message_id = p_wa_message_id
+               AND c.account_id = v_r.account_id) l
+     WHERE g.id = v_id AND l.category IS NOT NULL;
+  END IF;
+  IF p_direction = 'in' THEN
+    UPDATE public.deal_rooms SET window_until = now() + interval '24 hours' WHERE id = v_r.id;
+    PERFORM public.deal_room_refresh_count(v_r.id);
+  END IF;
+  RETURN v_id;
+END $$;
+
+REVOKE ALL ON FUNCTION public.deal_room_record_message(uuid, text, text, text, text, text, text, jsonb, text, uuid, text, text)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.deal_room_record_message(uuid, text, text, text, text, text, text, jsonb, text, uuid, text, text)
+  TO service_role;
 
 
 -- ---------- 3. A group's settings, as WhatsApp reports them ----------
@@ -355,6 +457,9 @@ GRANT EXECUTE ON FUNCTION public.deal_room_apply_settings(uuid, text, jsonb) TO 
 -- the note. People are named as the guest roster names them: someone
 -- nobody listed, or whose name holds their number, is "Unlisted number
 -- ending NN"; a note never carries a whole number.
+-- A removal or leaving within 5 minutes of the same person's STOP is the
+-- removal that STOP made (the webhook records the STOP before asking
+-- Meta to remove them): the STOP's note says it, so it posts none.
 -- Fail-open: a note that cannot be posted (internal chat off: CH001, an
 -- archived channel: 42501, no channel: P0002, anything else) is a
 -- WARNING, and never undoes the change it describes.
@@ -400,6 +505,12 @@ BEGIN
     END;
     v_body := CASE
       WHEN v_p.role = 'business' THEN NULL   -- our own number
+      WHEN NEW.action IN ('participant_left','participant_removed') AND EXISTS (
+             SELECT 1 FROM public.deal_room_audit o
+              WHERE o.room_id = NEW.room_id AND o.action = 'participant_opted_out'
+                AND o.at > NEW.at - interval '5 minutes'
+                AND public.deal_room_find_participant(NEW.room_id, o.detail->>'wa_id') = v_p.id)
+        THEN NULL
       WHEN NEW.action IN ('participant_joined','participant_unlisted') AND v_live
         THEN '**' || v_who || '** joined the WhatsApp group.'
       WHEN NEW.action = 'participant_left' AND v_live
@@ -411,6 +522,8 @@ BEGIN
       WHEN NEW.action = 'participant_opted_out'
         THEN '**' || v_who || '** wrote STOP and is removed from the WhatsApp group'
              || CASE WHEN NEW.detail->'opted_out' = 'true'::jsonb THEN '; their contact is marked opted out.'
+                     WHEN NEW.detail->'contact_found' = 'true'::jsonb
+                       THEN '; their contact could not be marked opted out.'
                      ELSE '; no contact of theirs was found to mark opted out.' END
       WHEN NEW.action = 'status_changed' AND NEW.detail->>'to' = 'suspended'
         THEN 'WhatsApp suspended this group. Nothing can be sent until WhatsApp clears it.'

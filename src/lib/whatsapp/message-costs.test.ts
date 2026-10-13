@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -193,6 +194,36 @@ describe('recordGroupMessageCosts', () => {
     });
     expect(out.map((r) => r.ok)).toEqual([false, true]);
     expect(out[1].duplicate).toBe(true);
+  });
+});
+
+describe('the ledger write under either receipt key', () => {
+  // 100 widens 051's receipt key with the recipient. 051 re-run after 100
+  // replaces the function but not the table, so a conflict target naming
+  // 051's key would raise 42P10 on every receipt, and costing fails open:
+  // silently. Each version may only name the key its own file creates.
+  const conflicts = (file: string) =>
+    readFileSync(`supabase/migrations/${file}`, 'utf8').match(
+      /ON CONFLICT[^;]*?DO NOTHING\s+RETURNING \* INTO v_row/g
+    );
+  it('051 names no conflict target', () => {
+    expect(conflicts('051_whatsapp_message_costs.sql')).toEqual([
+      expect.stringMatching(/^ON CONFLICT DO NOTHING\s/),
+    ]);
+  });
+  it('100 names the key it creates', () => {
+    const sql = readFileSync(
+      'supabase/migrations/100_deal_room_costs.sql',
+      'utf8'
+    );
+    expect(sql).toContain(
+      'ON public.whatsapp_message_costs (phone_number_id, message_id, status, recipient_wa_id)'
+    );
+    expect(conflicts('100_deal_room_costs.sql')).toEqual([
+      expect.stringMatching(
+        /^ON CONFLICT \(phone_number_id, message_id, status, recipient_wa_id\) DO NOTHING\s/
+      ),
+    ]);
   });
 });
 

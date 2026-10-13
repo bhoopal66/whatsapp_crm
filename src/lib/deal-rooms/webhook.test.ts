@@ -640,7 +640,11 @@ describe('group messages and receipts', () => {
         account_id: 'acct-1',
         actor_id: null,
         action: 'participant_opted_out',
-        detail: { wa_id: '971501234567', opted_out: true },
+        detail: {
+          wa_id: '971501234567',
+          opted_out: true,
+          contact_found: true,
+        },
       },
     ]);
     const again = fakeDb({
@@ -654,6 +658,84 @@ describe('group messages and receipts', () => {
     expect(removeParticipants).toHaveBeenCalledTimes(2);
     expect(markOptedOut).toHaveBeenCalledTimes(2);
     expect(again.inserts('deal_room_audit')).toEqual([]);
+  });
+
+  it('says a STOP left the contact opted out only when it did', async () => {
+    const stop = (id: string) => ({
+      messages: [
+        {
+          id,
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    const detail = (db: ReturnType<typeof fakeDb>) =>
+      (db.inserts('deal_room_audit')[0] as { detail: unknown }).detail;
+    // The stamp failed: the contact is not opted out.
+    markOptedOut.mockResolvedValueOnce(false);
+    const failedWrite = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+        contacts: { opted_out_at: null },
+      },
+    });
+    await run(failedWrite.db, stop('wamid.7'));
+    // Stamped before: nothing to write, and still opted out.
+    markOptedOut.mockResolvedValueOnce(false);
+    const stampedBefore = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+        contacts: { opted_out_at: '2026-10-01T09:00:00Z' },
+      },
+    });
+    await run(stampedBefore.db, stop('wamid.8'));
+    // No contact on the number.
+    const noContact = fakeDb({
+      tables: { deal_rooms: ROOM, deal_room_participants: null, contacts: [] },
+    });
+    await run(noContact.db, stop('wamid.9'));
+    expect([
+      detail(failedWrite),
+      detail(stampedBefore),
+      detail(noContact),
+    ]).toEqual([
+      { wa_id: '971501234567', opted_out: false, contact_found: true },
+      { wa_id: '971501234567', opted_out: true, contact_found: true },
+      { wa_id: '971501234567', opted_out: false, contact_found: false },
+    ]);
+  });
+
+  it('records a STOP before removing the person, so the removal adds no second note', async () => {
+    const { db, inserts } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+      },
+    });
+    let recordedFirst: unknown[] | null = null;
+    removeParticipants.mockImplementationOnce(async () => {
+      recordedFirst = inserts('deal_room_audit');
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.10',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    expect(removeParticipants).toHaveBeenCalledTimes(1);
+    expect(recordedFirst).toEqual([
+      expect.objectContaining({ action: 'participant_opted_out' }),
+    ]);
   });
 
   it('picks the contact on the earliest number form, ignoring junk rows', () => {

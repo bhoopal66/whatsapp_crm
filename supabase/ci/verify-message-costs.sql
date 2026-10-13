@@ -11,6 +11,12 @@
 -- Runs against the clean database `supabase db reset` builds, after
 -- every migration has replayed. It writes rows; that database is
 -- thrown away.
+--
+-- Not replayed here: 051 re-run after 100. This file is one statement
+-- against the migrated stack and cannot apply 051's file again. That
+-- 051's insert names no conflict target, so it still records under
+-- 100's wider key instead of raising 42P10 on every receipt, is pinned
+-- by src/lib/whatsapp/message-costs.test.ts. Re-apply 100 after it.
 
 DO $$
 DECLARE
