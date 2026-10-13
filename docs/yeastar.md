@@ -68,7 +68,10 @@ One PBX can serve several workspaces.
 - **Bank numbers.** List the bank staff numbers (with the bank's code)
   under **Bank numbers**. While **Exclude bank numbers** is on (the
   default), calls with those numbers are kept unrecorded. Leave it on
-  until each bank's DSA terms allow its calls to be recorded.
+  until each bank's DSA terms allow its calls to be recorded. Saving
+  the list deletes only the numbers removed on that screen (the PUT
+  sends the numbers it loaded as `loaded`): a number a deal-room call
+  listed after the screen loaded (section 11) stays listed.
 - **Retention.** Empty keeps recordings; otherwise 1 to 3650 days. How
   long to keep them is an open legal decision for each workspace. With
   a period set, the phone-system cron (section 10) deletes the CRM's
@@ -147,7 +150,7 @@ workspace; errors are `{ error }`):
 | `PATCH /api/pbx/extensions/{id}`                               | `{ userId?, accountId?, softphoneEnabled?, presenceMonitor? }`          |
 | `GET/PUT /api/pbx/routes`                                      | `{ routes: [{ didNumber, nameOnPbx?, accountId }] }`, replaces the list |
 | `GET/PUT /api/pbx/settings`                                    | Recording and missed-call settings                                      |
-| `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers: [{ number, bankCode }] }`, replaces the list            |
+| `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers }`; PUT adds `loaded`, deletes only those removed        |
 
 ## 6. Live events
 

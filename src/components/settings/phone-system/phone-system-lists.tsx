@@ -611,6 +611,9 @@ export function RecordingRulesCard() {
   const [due, setDue] = useState('');
   const [ruleIssue, setRuleIssue] = useState<string | null>(null);
   const [banks, setBanks] = useState<BankRow[]>([]);
+  // The numbers the list was loaded with: a save deletes only those the
+  // admin removed, never one a deal-room call listed since.
+  const [loadedBanks, setLoadedBanks] = useState<string[]>([]);
   const [bankIssues, setBankIssues] = useState<BankNumberRowIssues[]>([]);
   const [saving, setSaving] = useState<'rules' | 'banks' | null>(null);
   // The saved value, not the unsaved checkbox.
@@ -631,6 +634,7 @@ export function RecordingRulesCard() {
   };
   const takeBanks = (list: { number: string; bankCode: string }[]) => {
     setBanks(list.map((b) => ({ key: nextKey++, ...b })));
+    setLoadedBanks(list.map((b) => b.number));
     setBankIssues([]);
   };
 
@@ -700,7 +704,7 @@ export function RecordingRulesCard() {
   };
 
   const saveBanks = async () => {
-    const checked = validateBankNumbers(banks);
+    const checked = validateBankNumbers(banks, loadedBanks);
     if (!checked.ok) return setBankIssues(checked.issues);
     setSaving('banks');
     const res = await pbxFetch<{
