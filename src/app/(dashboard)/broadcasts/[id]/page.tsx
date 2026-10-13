@@ -124,6 +124,9 @@ function FunnelChart({ steps }: { steps: FunnelStep[] }) {
  *  the full contact record) in one request — slow over the tunnel and
  *  silently capped at PostgREST's max-rows for large campaigns. */
 const RECIPIENTS_PAGE_SIZE = 100;
+/** A broadcast id; anything else is a stale or mistyped link. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Rows per request when paging through everything for the CSV export. */
 const EXPORT_CHUNK = 1000;
 /** Only the columns the table and the export read. */
@@ -209,6 +212,11 @@ export default function BroadcastDetailPage() {
   /** The broadcast (with its follow-up flow embedded) and the recipient
    *  counts the resume banner needs, all in one parallel round trip. */
   const fetchData = useCallback(async () => {
+    // Say "not found" rather than show PostgREST's uuid cast error.
+    if (!UUID_RE.test(broadcastId)) {
+      setLoading(false);
+      return;
+    }
     try {
       const supabase = createClient();
       const recipientCount = (status?: RecipientStatus) => {
@@ -225,13 +233,15 @@ export default function BroadcastDetailPage() {
           .from('broadcasts')
           .select('*, follow_up_flow:flows!follow_up_flow_id(id, name)')
           .eq('id', broadcastId)
-          .single(),
+          .maybeSingle(),
         recipientCount(),
         recipientCount('pending'),
         recipientCount('failed'),
       ]);
 
       if (bcRes.error) throw bcRes.error;
+      // Deleted, or not visible to this person: the not-found screen.
+      if (!bcRes.data) return;
       const { follow_up_flow, ...bc } = bcRes.data as Broadcast & {
         follow_up_flow?:
           { id: string; name: string } | { id: string; name: string }[] | null;
@@ -259,6 +269,10 @@ export default function BroadcastDetailPage() {
   /** One page of the recipients table, filtered server-side. */
   const fetchRecipients = useCallback(async () => {
     const seq = ++recipientsSeq.current;
+    if (!UUID_RE.test(broadcastId)) {
+      setRecipientsLoading(false);
+      return;
+    }
     const supabase = createClient();
     const from = page * RECIPIENTS_PAGE_SIZE;
     let q = supabase
