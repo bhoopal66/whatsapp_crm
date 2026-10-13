@@ -18,7 +18,11 @@
 --    finish out of order; an earlier stamp is ignored, and so is the
 --    path it names (last_event_via stays the one that carried the
 --    latest event), so a retry never makes a live link look silent.
---    NULL (a deliberate reset) is kept.
+--    NULL (a deliberate reset) is kept. The stamp comes from the app
+--    server's clock, so one set far into the future (2099) would make
+--    every later real stamp "older": the card live for good and the
+--    silence alert unable to fire. A stamp is therefore capped at the
+--    database's clock plus a minute (skew) before that comparison.
 -- 3. notifications_type_check gains 'pbx_connection_silent' and
 --    'pbx_connection_restored' (097 is the last list; every type it
 --    names is kept).
@@ -63,6 +67,11 @@ LANGUAGE plpgsql
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+  -- Cap first, then compare. NULL (a reset) is neither capped nor
+  -- compared: both tests are unknown for it.
+  IF NEW.last_event_at > now() + interval '1 minute' THEN
+    NEW.last_event_at := now() + interval '1 minute';
+  END IF;
   IF NEW.last_event_at < OLD.last_event_at THEN
     NEW.last_event_at := OLD.last_event_at;
     NEW.last_event_via := OLD.last_event_via;

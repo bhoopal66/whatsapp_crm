@@ -150,26 +150,63 @@ export function eventLinkHealth(
     : { state: 'live', tone: 'green', ago };
 }
 
+/** How old the last read of the connection may get before an open tab reads it again. */
+export const PBX_CONNECTION_REFRESH_MS = 60_000;
+
 /**
- * The gateway's latest backfill as the card states it: when, and how
- * many calls it added. Null when there was none (a webhook-only
- * install never backfills). A count that does not read as a whole
- * number is 0.
+ * Whether the open Phone system tab should read the connection again.
+ * The Events card words its verdict ("Quiet · last event 15 min ago")
+ * from what the last read held, so a tab left open re-reads about once
+ * a minute instead of stating the verdict it loaded with. Never while
+ * the page is hidden (a background tab polls nothing; the move back to
+ * the front asks again) and never while the connection form is open (it
+ * was opened against the connection on screen). A last read stamped
+ * after `now` (the clock was set back) is due, so polling cannot stall
+ * until the clock catches up. Times are epoch milliseconds.
+ */
+export function connectionRefreshDue(input: {
+  lastReadAt: number;
+  now: number;
+  visible: boolean;
+  formOpen?: boolean;
+  everyMs?: number;
+}): boolean {
+  if (!input.visible || input.formOpen) return false;
+  const age = input.now - input.lastReadAt;
+  return !(age >= 0 && age < (input.everyMs ?? PBX_CONNECTION_REFRESH_MS));
+}
+
+/**
+ * The gateway's latest backfill as the card states it: when, how many
+ * calls it added and how many it could not. Null when there was none
+ * (a webhook-only install never backfills). A count that does not read
+ * as a whole number is 0. `failed` is what keeps a run that found calls
+ * and added none from reading as "nothing was missing".
  */
 export function lastBackfillView(
   at: string | null,
   summary: unknown,
   now: Date
-): { ago: { unit: AgoUnit; count: number }; added: number } | null {
+): {
+  ago: { unit: AgoUnit; count: number };
+  added: number;
+  failed: number;
+} | null {
   const ago = lastEventAgo(at, now);
   if (!ago) return null;
-  const raw =
-    summary && typeof summary === 'object' && !Array.isArray(summary)
-      ? (summary as Record<string, unknown>).ingested
-      : undefined;
-  const added =
-    typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : 0;
-  return { ago, added };
+  return {
+    ago,
+    added: summaryCount(summary, 'ingested'),
+    failed: summaryCount(summary, 'failed'),
+  };
+}
+
+/** A positive whole number out of a backfill summary field, else 0. */
+function summaryCount(summary: unknown, key: string): number {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary))
+    return 0;
+  const raw = (summary as Record<string, unknown>)[key];
+  return typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : 0;
 }
 
 /** The host of the PBX address for the card ("pbx.example.com"). */

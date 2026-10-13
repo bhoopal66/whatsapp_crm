@@ -226,15 +226,20 @@ connection with no secret stored refuses every push. Optionally set
 
 - whether events arrive: _Receiving events_ while the latest is under
   15 minutes old, _Quiet_ after that, _No events yet_ before the first.
-  Quiet is not a fault by itself; a night without calls is quiet too;
+  Quiet is not a fault by itself; a night without calls is quiet too.
+  An open tab reads the connection again about once a minute while it
+  is in view, so the verdict does not go stale;
 - the path that carried the latest event: Yeastar's webhook push or the
   WebSocket gateway. A retried or late old event moves neither the time
-  nor the path;
+  nor the path. A stamp more than a minute ahead of the database's clock
+  (a wrong clock on the app server) is stored as that clock plus a
+  minute, so it cannot hold every later event back;
 - the API sessions the CRM holds: 0 or 1 of the 8 Yeastar allows an
   API application, because one cached token serves every person and
   process (section 1);
-- the gateway's latest call-record backfill: when, and how many calls it
-  added. A webhook-only install never backfills, so it says _never_.
+- the gateway's latest call-record backfill: when, how many calls it
+  added and how many it could not. A webhook-only install never
+  backfills, so it says _never_.
 
 **The silence alert.** When no event has arrived for 15 minutes, all of
 them inside working hours (09:00–20:00 Dubai, the call-backs' window),

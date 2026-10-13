@@ -2978,7 +2978,7 @@
         "viaGateway": "WebSocket 게이트웨이로 수신",
         "apiTokens": "CRM이 사용 중인 API 세션: {held}/{limit} · 팀 전체가 토큰 하나를 공유",
         "ago": "{unit, select, s {{count}초} min {{count}분} h {{count}시간} other {{count}일}} 전",
-        "backfill": "통화 기록으로 마지막 공백 보충: {ago} · {count, plural, =0 {누락된 통화 없음} other {통화 #건 추가}}",
+        "backfill": "통화 기록으로 마지막 공백 보충: {ago}{count, plural, =0 {{failed, plural, =0 { · 누락된 통화 없음} other {}}} other { · 통화 #건 추가}}{failed, plural, =0 {} other { · 통화 #건 추가 실패}}",
         "backfillNever": "통화 기록으로 마지막 공백 보충: 없음"
       },
       "softphone": {

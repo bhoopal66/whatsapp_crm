@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { createTranslator } from 'next-intl';
 
+import en from '../../../../messages/en.json';
+import ko from '../../../../messages/ko.json';
 import {
   PBX_AUTH_BACKOFF_MINUTES,
+  PBX_CONNECTION_REFRESH_MS,
   PBX_SILENCE_MINUTES,
   applyExtensionPatch,
   baseUrlHost,
   canEditExtension,
+  connectionRefreshDue,
   connectionState,
   extensionState,
   lastEventAgo,
@@ -164,11 +169,21 @@ describe('lastBackfillView', () => {
   it('states when, and how many calls were added', () => {
     expect(
       lastBackfillView(at, { records: 5, ingested: 3, duplicates: 2 }, now)
-    ).toEqual({ ago: { unit: 'h', count: 2 }, added: 3 });
+    ).toEqual({ ago: { unit: 'h', count: 2 }, added: 3, failed: 0 });
     expect(lastBackfillView(at, { records: 0, ingested: 0 }, now)).toEqual({
       ago: { unit: 'h', count: 2 },
       added: 0,
+      failed: 0,
     });
+  });
+
+  it('carries the calls it could not add', () => {
+    expect(
+      lastBackfillView(at, { records: 5, ingested: 0, failed: 5 }, now)
+    ).toEqual({ ago: { unit: 'h', count: 2 }, added: 0, failed: 5 });
+    expect(
+      lastBackfillView(at, { records: 6, ingested: 4, failed: 2 }, now)
+    ).toEqual({ ago: { unit: 'h', count: 2 }, added: 4, failed: 2 });
   });
 
   it('reads a malformed summary as nothing added', () => {
@@ -182,6 +197,106 @@ describe('lastBackfillView', () => {
     ]) {
       expect(lastBackfillView(at, summary, now)?.added).toBe(0);
     }
+    for (const failed of ['2', -1, 1.5, null, undefined]) {
+      expect(lastBackfillView(at, { failed }, now)?.failed).toBe(0);
+    }
+  });
+
+  describe('as the Events card words it', () => {
+    const translate = {
+      en: createTranslator({
+        locale: 'en',
+        messages: en,
+        namespace: 'Settings.phoneSystem.events',
+      }),
+      ko: createTranslator({
+        locale: 'ko',
+        messages: ko,
+        namespace: 'Settings.phoneSystem.events',
+      }),
+    };
+    const text = (locale: 'en' | 'ko', summary: unknown) => {
+      const t = translate[locale];
+      const view = lastBackfillView(at, summary, now)!;
+      return t('backfill', {
+        ago: t('ago', view.ago),
+        count: view.added,
+        failed: view.failed,
+      });
+    };
+    const head = 'Last gap filled from call records: 2 h ago';
+
+    it('says nothing was missing only when nothing was added or failed', () => {
+      expect(text('en', { records: 0, ingested: 0, failed: 0 })).toBe(
+        `${head} · nothing was missing`
+      );
+      expect(text('ko', { records: 0, ingested: 0 })).toContain(
+        '누락된 통화 없음'
+      );
+    });
+
+    it('states the calls added', () => {
+      expect(text('en', { ingested: 1 })).toBe(`${head} · 1 call added`);
+      expect(text('en', { ingested: 3, failed: 0 })).toBe(
+        `${head} · 3 calls added`
+      );
+    });
+
+    it('states the calls that could not be added, never "nothing was missing"', () => {
+      expect(text('en', { records: 5, ingested: 0, failed: 5 })).toBe(
+        `${head} · 5 calls could not be added`
+      );
+      expect(text('en', { records: 1, ingested: 0, failed: 1 })).toBe(
+        `${head} · 1 call could not be added`
+      );
+      const ko5 = text('ko', { records: 5, ingested: 0, failed: 5 });
+      expect(ko5).toContain('5');
+      expect(ko5).toContain('실패');
+      expect(ko5).not.toContain('누락된 통화 없음');
+    });
+
+    it('states both when some were added and some were not', () => {
+      expect(text('en', { records: 6, ingested: 4, failed: 2 })).toBe(
+        `${head} · 4 calls added · 2 calls could not be added`
+      );
+      const both = text('ko', { records: 6, ingested: 4, failed: 2 });
+      expect(both).toContain('4');
+      expect(both).toContain('2');
+      expect(both).toContain('실패');
+    });
+  });
+});
+
+describe('connectionRefreshDue', () => {
+  const t0 = Date.parse('2026-10-12T10:00:00Z');
+  const due = (over: Partial<Parameters<typeof connectionRefreshDue>[0]>) =>
+    connectionRefreshDue({ lastReadAt: t0, now: t0, visible: true, ...over });
+
+  it('re-reads once the last read is a minute old, not before', () => {
+    expect(PBX_CONNECTION_REFRESH_MS).toBe(60_000);
+    expect(due({ now: t0 })).toBe(false);
+    expect(due({ now: t0 + 59_999 })).toBe(false);
+    expect(due({ now: t0 + 60_000 })).toBe(true);
+    expect(due({ now: t0 + 15 * 60_000 })).toBe(true);
+  });
+
+  it('reads nothing while the page is hidden, however old the read is', () => {
+    expect(due({ now: t0 + 15 * 60_000, visible: false })).toBe(false);
+  });
+
+  it('reads nothing while the connection form is open', () => {
+    expect(due({ now: t0 + 15 * 60_000, formOpen: true })).toBe(false);
+    expect(due({ now: t0 + 15 * 60_000, formOpen: false })).toBe(true);
+  });
+
+  it('counts a read stamped after now (the clock moved back) as due', () => {
+    expect(due({ lastReadAt: t0 + 3_600_000, now: t0 })).toBe(true);
+    expect(due({ lastReadAt: Number.NaN, now: t0 })).toBe(true);
+  });
+
+  it('takes another interval', () => {
+    expect(due({ now: t0 + 29_000, everyMs: 30_000 })).toBe(false);
+    expect(due({ now: t0 + 30_000, everyMs: 30_000 })).toBe(true);
   });
 });
 

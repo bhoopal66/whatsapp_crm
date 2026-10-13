@@ -1299,6 +1299,45 @@ BEGIN
                         AND silence_alerted_at IS NULL AND last_event_via = 'gateway') THEN
       failed := array_append(failed, ('resumed events do not ring restored once, or keep the alert: ' || r)::text);
     END IF;
+    -- A stamp from a wrong clock cannot wedge the event clock (the cap is
+    -- the database's clock plus a minute). now() stands still inside this
+    -- statement, so a stamp can never pass the cap here: the real stamps
+    -- come first, and the 2099 stamp last.
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = NULL, last_event_via = NULL WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at IS NULL AND last_event_via IS NULL) THEN
+      failed := array_append(failed, ('the event clock cannot be reset to NULL: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() - interval ''10 minutes'', last_event_via = ''webhook'' WHERE id = %L', conn_h))
+      || '/' || pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() - interval ''5 minutes'', last_event_via = ''gateway'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok/ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                     AND last_event_at = now() - interval '5 minutes' AND last_event_via = 'gateway') THEN
+      failed := array_append(failed, ('a later real stamp does not advance the event clock: ' || r)::text);
+    END IF;
+    -- A stamp a little ahead of the database (clock skew) is kept as it came.
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = now() + interval ''30 seconds'', last_event_via = ''webhook'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at = now() + interval '30 seconds' AND last_event_via = 'webhook') THEN
+      failed := array_append(failed, ('a stamp within the skew allowance was changed: ' || r)::text);
+    END IF;
+    -- 2099: stored as the database's clock plus at most a minute, and still
+    -- the latest event (it moved the clock forward and took its path).
+    r := pg_temp.px_try('service_role', NULL, format(
+      'UPDATE pbx_connections SET last_event_at = ''2099-01-01T00:00:00Z'', last_event_via = ''gateway'' WHERE id = %L', conn_h));
+    n := n + 1;
+    IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_connections WHERE id = conn_h
+                                  AND last_event_at > now() + interval '30 seconds'
+                                  AND last_event_at <= now() + interval '1 minute'
+                                  AND last_event_via = 'gateway') THEN
+      failed := array_append(failed, ('a last_event_at in 2099 was stored as it came, or was dropped: ' || r)::text);
+    END IF;
     UPDATE profiles SET deactivated_at = NULL WHERE user_id = u_admin;
   END;
 
