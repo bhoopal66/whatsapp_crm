@@ -13,6 +13,9 @@
 //   - Otherwise (`P0002 'no_such_user'`): the login is created here
 //     with the admin's password and moved in by
 //     `provision_account_member`, the path every add took before 083.
+//     Only for a caller who may create logins (`mayCreateLogin`, an
+//     owner or admin): a team leader is answered `INVITE_BY_LINK`
+//     instead, and since migration 099 the RPC never says P0002 to one.
 //     The RPC adds only someone the caller already administers in
 //     another workspace and answers `no_such_user` for anyone else, so
 //     a registered address can still land here; GoTrue then refuses
@@ -66,12 +69,25 @@ export interface AddMemberInput {
   password?: string;
   /** Used only for a new login; an existing one keeps its name. */
   fullName?: string;
+  /**
+   * May the caller create a login? Owner / admin only
+   * (`canManageMembers`). Whoever creates one chooses its password and
+   * claims its address, so a team leader brings a new person in with an
+   * invite link instead (migration 099).
+   */
+  mayCreateLogin: boolean;
 }
 
 /** The one answer for an address that already has a login the caller
  *  may not add (see `add_workspace_member`, migration 083). */
 export const EMAIL_HAS_LOGIN =
   "This email already has a login. An administrator of one of that person's workspaces can add them here.";
+
+/** The answer to a caller who may not create logins, for an email that
+ *  is no login they may add: one answer for both, as 083 gives one.
+ *  `add_workspace_member` raises the same words (42501) since 099. */
+export const INVITE_BY_LINK =
+  'This email is not a login you can add. Invite them with a link instead.';
 
 export type AddMemberResult =
   | { ok: true; userId: string; created: boolean }
@@ -90,6 +106,9 @@ export async function addOrCreateMember(
   });
   if (error) {
     if (error.code === 'P0002' && error.message === 'no_such_user') {
+      if (!input.mayCreateLogin) {
+        return { ok: false, status: 403, error: INVITE_BY_LINK };
+      }
       return createLogin(input, email, bankCode);
     }
     return rpcFailure(error);

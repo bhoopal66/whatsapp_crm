@@ -17,12 +17,14 @@
 // Role-gating
 //   The section opens to team leaders and up (`minRole: 'team_leader'`
 //   in settings-sections.ts, migration 099). A team leader gets the
-//   add and invite buttons, offering only the roles they may grant
-//   (`grantableRoles`), and the links they made themselves; the roster
-//   and its role / deactivate / remove controls stay admin-only
-//   (`canManageMembers`), as does GET /api/account/members behind it.
-//   The routes, the RPCs (add_workspace_member, set_member_role,
-//   remove_account_member) and 099's RLS are the enforcement point.
+//   invite button, offering only the roles they may grant
+//   (`grantableRoles`), and the links they made themselves. "Add
+//   person", which creates a login with a password the adder chooses,
+//   the roster and its role / deactivate / remove controls stay
+//   admin-only (`canManageMembers`), as does GET /api/account/members
+//   behind it. The routes, the RPCs (add_workspace_member,
+//   set_member_role, remove_account_member) and 099's RLS are the
+//   enforcement point.
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
@@ -359,11 +361,14 @@ export function MembersTab() {
             {/* Primary: self-service signup is gone, so creating the
                   login here is the only way a new person gets in. The
                   invite link remains for someone who ALREADY has a
-                  login on another account. */}
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4" />
-              {t('createMember')}
-            </Button>
+                  login on another account. Owner / admin only: a team
+                  leader invites by link (099). */}
+            {managesRoster && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" />
+                {t('createMember')}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setInviteOpen(true)}>
               {t('inviteMember')}
             </Button>

@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   callerRpc: vi.fn(),
   maybeSingle: vi.fn(),
+  checkRateLimit: vi.fn(),
+  rateLimitResponse: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -43,7 +45,13 @@ vi.mock('@/lib/supabase/urls', () => ({
   serverSupabaseUrl: () => 'http://localhost:8000',
 }));
 
-import { EMAIL_HAS_LOGIN } from '@/lib/account/add-member';
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: mocks.checkRateLimit,
+  rateLimitResponse: mocks.rateLimitResponse,
+  RATE_LIMITS: { adminAction: { limit: 30, windowMs: 60_000 } },
+}));
+
+import { EMAIL_HAS_LOGIN, INVITE_BY_LINK } from '@/lib/account/add-member';
 import { POST } from './route';
 
 // The caller's own client: add_workspace_member, then the read of the
@@ -95,6 +103,10 @@ describe('POST /api/account/members', () => {
       error: { code: 'P0002', message: 'no_such_user' },
     });
     mocks.maybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.checkRateLimit.mockReturnValue({ success: true });
+    mocks.rateLimitResponse.mockReturnValue(
+      Response.json({ error: 'Too many requests' }, { status: 429 })
+    );
   });
 
   it('creates a confirmed login and moves it into the caller’s account', async () => {
@@ -210,17 +222,54 @@ describe('POST /api/account/members', () => {
     }
   );
 
-  it.each(['agent', 'viewer'])('lets a team leader add a %s', async (role) => {
+  it.each(['agent', 'viewer'])(
+    'lets a team leader add an existing login as a %s',
+    async (role) => {
+      mocks.getCurrentAccount.mockResolvedValue({
+        ...ADMIN_CTX,
+        role: 'team_leader',
+      });
+      mocks.callerRpc.mockResolvedValue({ data: 'user-3', error: null });
+      const res = await POST(request({ ...VALID, role }));
+      expect(res.status).toBe(201);
+      expect((await res.json()).created).toBe(false);
+      expect(mocks.callerRpc).toHaveBeenCalledWith(
+        'add_workspace_member',
+        expect.objectContaining({ p_role: role })
+      );
+      expect(mocks.createUser).not.toHaveBeenCalled();
+    }
+  );
+
+  // Whoever creates a login chooses its password and claims its
+  // address: owner / admin only. A leader invites a new person by link.
+  // The RPC no longer answers a leader P0002; this holds even if it did.
+  it('never creates a login for a team leader, password or not', async () => {
     mocks.getCurrentAccount.mockResolvedValue({
       ...ADMIN_CTX,
       role: 'team_leader',
     });
-    const res = await POST(request({ ...VALID, role }));
-    expect(res.status).toBe(201);
-    expect(mocks.rpc).toHaveBeenCalledWith(
-      'provision_account_member',
-      expect.objectContaining({ p_role: role })
+    const res = await POST(request(VALID));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe(INVITE_BY_LINK);
+    expect(mocks.createUser).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('rate-limits adding people per caller, before any RPC', async () => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      ...ADMIN_CTX,
+      role: 'team_leader',
+    });
+    mocks.checkRateLimit.mockReturnValue({ success: false });
+    const res = await POST(request(VALID));
+    expect(res.status).toBe(429);
+    expect(mocks.checkRateLimit).toHaveBeenCalledWith(
+      'admin:memberAdd:user-1',
+      { limit: 30, windowMs: 60_000 }
     );
+    expect(mocks.callerRpc).not.toHaveBeenCalled();
+    expect(mocks.createUser).not.toHaveBeenCalled();
   });
 
   it.each([

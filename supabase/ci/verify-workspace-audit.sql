@@ -408,8 +408,10 @@ BEGIN
   n := n + 1;
   IF f IS NOT NULL THEN failed := array_append(failed, f); END IF;
 
-  INSERT INTO account_invitations (account_id, token_hash, role, expires_at)
-  VALUES (a_acct, 'wa-092-invite', 'viewer', now() + interval '1 day');
+  -- The link is A's admin's: since 099 a link needs a creator who may
+  -- still grant its role.
+  INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at)
+  VALUES (a_acct, 'wa-092-invite', 'viewer', u_adm, now() + interval '1 day');
   SELECT account_id INTO home FROM profiles WHERE user_id = u_red;
   r := pg_temp.wa_val(u_red, 'SELECT public.redeem_invitation(''wa-092-invite'')::text');
   r := r || '/' || EXISTS (SELECT 1 FROM accounts WHERE id = home)

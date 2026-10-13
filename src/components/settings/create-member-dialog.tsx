@@ -44,8 +44,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ADDABLE_ROLES, type AddableRole } from '@/lib/account/add-member';
-import { useAuth } from '@/hooks/use-auth';
-import { grantableRoles } from '@/lib/auth/roles';
 import {
   MIN_PASSWORD_LENGTH,
   isNoLoginError,
@@ -66,9 +64,6 @@ export function CreateMemberDialog({
 }: CreateMemberDialogProps) {
   const t = useTranslations('Settings.createMember');
   const tRoles = useTranslations('Settings.roles');
-  // A team leader adds agents and viewers only (migration 099).
-  const { accountRole } = useAuth();
-  const roles = grantableRoles(accountRole, ADDABLE_ROLES);
 
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
@@ -188,7 +183,7 @@ export function CreateMemberDialog({
                 <SelectValue>{tRoles(role)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {roles.map((r) => (
+                {ADDABLE_ROLES.map((r) => (
                   <SelectItem key={r} value={r}>
                     {tRoles(r)}
                   </SelectItem>

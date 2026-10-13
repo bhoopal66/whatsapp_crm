@@ -39,6 +39,11 @@ import {
   canManageMembers,
   isAccountRole,
 } from "@/lib/auth/roles";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
 import { serverSupabaseUrl } from "@/lib/supabase/urls";
 import type { AccountMember } from "@/types";
 
@@ -46,7 +51,8 @@ import type { AccountMember } from "@/types";
 /**
  * Service-role client. Creating a login is an admin-API operation and
  * cannot be done with the caller's own token; `add_workspace_member`
- * authorises the caller before `addOrCreateMember` reaches for this.
+ * authorises the caller before `addOrCreateMember` reaches for this,
+ * and only an owner's or admin's call may create a login.
  */
 function supabaseAdmin() {
   return createAdminClient(
@@ -129,14 +135,18 @@ export async function GET() {
 // There is no self-service signup, so someone adding them is the ONLY
 // way in: an owner or admin with any of those roles, or (migration 099)
 // a team leader with an agent or viewer role (`canGrantRole`).
-// `add_workspace_member` applies the same rule before it answers
-// `no_such_user`, which is the only way on to the service-role
-// provision, so a leader cannot reach it with any other role.
+// `add_workspace_member` applies the same rule.
 //
 // Body: { email, role, full_name?, password?, bankCode? }. Since
 // migration 083 the email decides what happens (`addOrCreateMember`):
 // an existing login gets a row here and needs no password; a new one
 // is created with `password` and moved in. 201 { member, created }.
+//
+// Only an owner or admin creates a login (`mayCreateLogin`): whoever
+// does chooses its password and claims its address. A team leader adds
+// an existing login (083's rule: someone they administer elsewhere) and
+// invites anyone else by link; `add_workspace_member` never answers
+// them the P0002 that leads to the service-role provision (099).
 // ============================================================
 export async function POST(request: Request) {
   try {
@@ -147,6 +157,15 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
+
+    // 30/min per user, as for invite links: a script in a loop or a
+    // compromised session cannot add people, or create logins, without
+    // bound.
+    const limit = checkRateLimit(
+      `admin:memberAdd:${ctx.userId}`,
+      RATE_LIMITS.adminAction,
+    );
+    if (!limit.success) return rateLimitResponse(limit);
 
     const body = await request.json().catch(() => ({}));
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -180,6 +199,7 @@ export async function POST(request: Request) {
       bankCode: bankCode || null,
       password,
       fullName,
+      mayCreateLogin: canManageMembers(ctx.role),
     });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
