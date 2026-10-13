@@ -70,6 +70,35 @@ describe('visibleNavGroups', () => {
     expect(visibleBottomNavItems('bank_guest')).toEqual([]);
   });
 
+  it('adds Calls after the inbox for staff once the phone system is in use', () => {
+    const withCalls = (main: string[]) => [
+      ...main.slice(0, 3),
+      '/calls',
+      ...main.slice(3),
+    ];
+    expect(layout(visibleNavGroups('viewer', { pbx: true })).main).toEqual(
+      withCalls(EVERYONE)
+    );
+    for (const role of ['agent', 'team_leader', 'admin', 'owner'] as const)
+      expect(layout(visibleNavGroups(role, { pbx: true })).main, role).toEqual(
+        withCalls(STAFF)
+      );
+  });
+
+  it('hides Calls with no phone system, from a bank guest, and while the role loads', () => {
+    for (const role of [null, ...ACCOUNT_ROLES])
+      expect(
+        visibleNavGroups(role).flatMap((g) => g.items.map((i) => i.href)),
+        String(role)
+      ).not.toContain('/calls');
+    expect(layout(visibleNavGroups('bank_guest', { pbx: true }))).toEqual({
+      main: ['/chat'],
+    });
+    expect(layout(visibleNavGroups(null, { pbx: true })).main).toEqual(
+      EVERYONE
+    );
+  });
+
   it('shows a guestVisible row to a guest and to staff alike', () => {
     const chat = {
       href: '/chat',
@@ -138,7 +167,20 @@ describe('nav model', () => {
             ? 'agent'
             : undefined;
       expect(item.minRole, item.href).toBe(guard);
+      // A staff-only route turns a bank guest away: never show one its row.
+      if (source.includes('StaffOnlyLayout'))
+        expect(item.guestVisible, item.href).toBeFalsy();
     }
+  });
+
+  // /calls had no guard: a bank guest who typed the URL got the screen
+  // (its API answered 403, but the page was theirs to open).
+  it('turns a bank guest away from /calls on the server', () => {
+    const file = join(process.cwd(), 'src', 'app', '(dashboard)', 'calls');
+    const source = existsSync(join(file, 'layout.tsx'))
+      ? readFileSync(join(file, 'layout.tsx'), 'utf8')
+      : '';
+    expect(source).toContain('StaffOnlyLayout');
   });
 });
 

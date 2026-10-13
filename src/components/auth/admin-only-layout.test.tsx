@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
 vi.mock('@/lib/auth/account', () => ({ getCurrentAccount: mocks.getCurrentAccount }));
 
-import { AdminOnlyLayout } from './admin-only-layout';
+import { AdminOnlyLayout, StaffOnlyLayout } from './admin-only-layout';
 
 async function render(role: string | null) {
   if (role === null) {
@@ -59,5 +59,37 @@ describe('AdminOnlyLayout', () => {
     // and fall through to rendering the page for an agent.
     mocks.getCurrentAccount.mockResolvedValue({ role: 'agent' });
     await expect(AdminOnlyLayout({ children: 'PAGE' })).rejects.toThrow(/REDIRECT/);
+  });
+});
+
+describe('StaffOnlyLayout', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const renderStaff = async (role: string | null) => {
+    if (role === null)
+      mocks.getCurrentAccount.mockRejectedValue(new Error('Unauthorized'));
+    else
+      mocks.getCurrentAccount.mockResolvedValue({
+        role,
+        accountId: 'a1',
+        userId: 'u1',
+      });
+    return StaffOnlyLayout({ children: 'PAGE' });
+  };
+
+  it.each(['viewer', 'agent', 'team_leader', 'admin', 'owner'])(
+    'renders the page for a %s',
+    async (role) => {
+      await expect(renderStaff(role)).resolves.toBeDefined();
+      expect(mocks.redirect).not.toHaveBeenCalled();
+    }
+  );
+
+  it('sends a bank guest to team chat, their one screen', async () => {
+    await expect(renderStaff('bank_guest')).rejects.toThrow('REDIRECT:/chat');
+  });
+
+  it('sends a signed-out caller to login', async () => {
+    await expect(renderStaff(null)).rejects.toThrow('REDIRECT:/login');
   });
 });

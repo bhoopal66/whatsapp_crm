@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
+import { useCallsNav } from '@/hooks/use-calls-nav';
 import { useUnreadNotifications } from '@/hooks/use-unread-notifications';
 import {
   Crown,
@@ -108,7 +109,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const totalUnread = useTotalUnread();
   // Only what this role may open; null while the profile loads, so the
   // gated rows fail closed (see visibleNavGroups).
-  const navGroups = visibleNavGroups(profileLoading ? null : accountRole);
+  const callsNav = useCallsNav();
+  const navGroups = visibleNavGroups(profileLoading ? null : accountRole, {
+    pbx: callsNav.visible,
+  });
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();
 
@@ -172,6 +176,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     const showNotificationBadge =
       item.href === '/notifications' && unreadNotifications > 0;
     const showChatBadge = item.href === '/chat' && chatUnread > 0;
+    // Open missed-call tasks assigned to them, as the chat sidebar shows.
+    const showCallsBadge = item.href === '/calls' && callsNav.missed > 0;
 
     return (
       <li key={item.href}>
@@ -221,6 +227,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
             >
               {chatUnread > 99 ? '99+' : chatUnread}
+            </span>
+          )}
+          {showCallsBadge && (
+            <span
+              aria-label={t('missedCalls', { count: callsNav.missed })}
+              className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-semibold text-black"
+            >
+              {callsNav.missed > 99 ? '99+' : callsNav.missed}
             </span>
           )}
         </Link>

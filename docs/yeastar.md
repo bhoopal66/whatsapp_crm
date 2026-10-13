@@ -233,6 +233,13 @@ backing off after a refused login is skipped until the backoff ends.
   called, through any of their contacts or by typing the number. An
   owner or admin can override with a reason, which is logged before
   the PBX is asked.
+- **The Calls screen** (sidebar › Calls: staff only, shown once the
+  workspace has an extension) lists the last 7 days' missed calls and
+  the call log. _Call back_ on a missed call dials the customer's
+  contact or, for a caller with no contact, the number (team leader and
+  up, as for a typed number). A do-not-contact customer's _Call back_
+  is disabled with the reason; an owner or admin can still call, with
+  a reason that is logged.
 - **Outcome and notes.** After a call, the person on it (or a team
   leader and up) sets the outcome (interested, documents requested,
   call back, not eligible, wrong number) and notes, up to 4,000
