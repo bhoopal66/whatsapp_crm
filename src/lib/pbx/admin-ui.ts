@@ -11,6 +11,12 @@
 
 import { digitsOnly } from './extensions';
 
+/** The phone numbers → workspace card's anchor on Settings → Phone system. */
+export const PBX_ROUTES_ANCHOR = 'pbx-routes';
+
+/** Where a route is added: the Calls screen's Unrouted view links here. */
+export const PBX_ROUTES_HREF = `/settings?tab=phone-system#${PBX_ROUTES_ANCHOR}`;
+
 /** Mirrors PBX_AUTH_BACKOFF_MS in ./connection (server-only: it decrypts). */
 export const PBX_AUTH_BACKOFF_MINUTES = 5;
 

@@ -182,6 +182,13 @@ connection with no secret stored refuses every push. Optionally set
   PBX's own workspace, flagged _unrouted_ with the number kept, so an
   admin can add the route. Other calls follow their extension's
   workspace.
+- **Unrouted calls** are listed for owners and admins under Calls ›
+  Unrouted (`/calls?tab=unrouted`), newest first with the number
+  dialled. Above them, each dialled number with its count of unrouted
+  calls and the latest one, and a link to the routes in Settings ›
+  Phone system. A call stays flagged after its number gets a route: a
+  number whose latest call stops moving has been fixed. An erased call
+  keeps the flag and the dialled number, but not the caller's.
 - **Customer.** The caller is matched only among that workspace's
   contacts. Several matches link none; the candidates are kept on the
   call for the person to pick.
@@ -436,7 +443,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | ------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `POST /api/pbx/calls/{id}/recording` | `{ action: 'play' \| 'download' }` → `{ url, expiresAt }` (409 if held)                         |
 | `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
-| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
+| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all\|unrouted&from=&to=&limit=` → `{ calls }`; `unrouted` (owner and admin) adds `numbers: [{ didNumber, calls, lastAt }]` |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
 | `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
 | `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |

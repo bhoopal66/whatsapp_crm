@@ -256,6 +256,82 @@ describe('GET /api/pbx/calls', () => {
     as('bank_guest');
     expect((await get()).status).toBe(403);
   });
+
+  describe('scope=unrouted', () => {
+    const D1 = '97142000001';
+    const D2 = '97142000002';
+    beforeEach(() => {
+      rls.tables.calls.push(
+        call({
+          did_number: D1,
+          meta: { unrouted: true },
+          started_at: '2026-10-12T06:00:00.000Z',
+        }),
+        call({
+          did_number: D2,
+          meta: { unrouted: true, contact_candidates: [C1, C2] },
+          started_at: '2026-10-12T07:00:00.000Z',
+        }),
+        // Erased: calls_guard keeps the flag and the dialled number only.
+        call({
+          did_number: D1,
+          meta: { unrouted: true },
+          remote_number: null,
+          erased_at: '2026-10-12T09:30:00.000Z',
+          started_at: '2026-10-12T09:00:00.000Z',
+        }),
+        // Routed calls, the newest of all.
+        call({ did_number: '97142000003', started_at: '2026-10-12T10:00:00Z' }),
+        call({ meta: { unrouted: false }, started_at: '2026-10-12T11:00:00Z' })
+      );
+    });
+
+    it('is refused below admin', async () => {
+      for (const role of ['viewer', 'agent', 'team_leader'] as const) {
+        as(role);
+        expect((await get('scope=unrouted')).status).toBe(403);
+        expect((await get('scope=all')).status).toBe(200);
+      }
+      for (const role of ['admin', 'owner'] as const) {
+        as(role);
+        expect((await get('scope=unrouted')).status).toBe(200);
+      }
+    });
+
+    it('filters the flag in the query, so the limit counts unrouted calls only', async () => {
+      as('admin');
+      const { body } = await get('scope=unrouted&limit=3');
+      expect((body.calls as { id: string }[]).map((c) => c.id)).toEqual([
+        'call-3',
+        'call-2',
+        'call-1',
+      ]);
+      expect(body.calls[0]).toMatchObject({
+        remoteNumber: null,
+        didNumber: D1,
+        contactName: 'Ahmed Ali',
+      });
+      expect(await ids('scope=unrouted&limit=1')).toEqual(['call-3']);
+    });
+
+    it('sums up every unrouted call by dialled number, past the listed page', async () => {
+      as('owner');
+      const numbers = [
+        { didNumber: D1, calls: 2, lastAt: '2026-10-12T09:00:00.000Z' },
+        { didNumber: D2, calls: 1, lastAt: '2026-10-12T07:00:00.000Z' },
+      ];
+      expect((await get('scope=unrouted')).body.numbers).toEqual(numbers);
+      expect((await get('scope=unrouted&limit=1')).body.numbers).toEqual(
+        numbers
+      );
+      expect(
+        (await get('scope=unrouted&from=2026-10-12T08:00:00Z')).body.numbers
+      ).toEqual([
+        { didNumber: D1, calls: 1, lastAt: '2026-10-12T09:00:00.000Z' },
+      ]);
+      expect((await get('scope=all')).body.numbers).toBeUndefined();
+    });
+  });
 });
 
 describe('GET /api/pbx/calls/summary', () => {

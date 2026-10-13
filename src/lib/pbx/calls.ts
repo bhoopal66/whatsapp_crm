@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { canViewUnroutedCalls, type AccountRole } from '@/lib/auth/roles';
 import { PbxConnectionError } from './connection';
 import { contactPhoneCandidates, normalizeRemoteNumber } from './phone';
 import { YeastarError, type CallInfo, type CallMember } from './yeastar';
@@ -371,10 +372,62 @@ export function parseOutcome(
 
 // ---------- Call lists ----------
 
-export const CALL_SCOPES = ['mine', 'missed', 'all'] as const;
+export const CALL_SCOPES = ['mine', 'missed', 'all', 'unrouted'] as const;
 export type CallScope = (typeof CALL_SCOPES)[number];
 export const CALL_LIST_LIMIT = 50;
 export const CALL_LIST_MAX = 200;
+
+/**
+ * Whether `role` may list `scope`. unrouted (inbound calls to a dialled
+ * number with no route, calls.meta.unrouted) is owner/admin only, as
+ * canViewUnroutedCalls; every other scope is every reader's, RLS
+ * choosing the rows.
+ */
+export function canListCallScope(role: AccountRole, scope: CallScope): boolean {
+  return scope !== 'unrouted' || canViewUnroutedCalls(role);
+}
+
+/** A dialled number with no route, as the Unrouted view sums it up. */
+export interface UnroutedNumber {
+  /** As the calls kept it (calls.did_number). */
+  didNumber: string;
+  calls: number;
+  /** The latest of those calls' started_at. */
+  lastAt: string;
+}
+
+/**
+ * The distinct dialled numbers among unrouted calls, with how many
+ * calls each took and the latest: most calls first, then the most
+ * recent. A call that kept no dialled number has nothing to route and
+ * is left out.
+ */
+export function unroutedNumbers(
+  rows: readonly { did_number: string | null; started_at: string }[]
+): UnroutedNumber[] {
+  const by = new Map<string, UnroutedNumber>();
+  for (const r of rows) {
+    if (!r.did_number) continue;
+    const n = by.get(r.did_number);
+    if (!n)
+      by.set(r.did_number, {
+        didNumber: r.did_number,
+        calls: 1,
+        lastAt: r.started_at,
+      });
+    else {
+      n.calls += 1;
+      if (Date.parse(r.started_at) > Date.parse(n.lastAt))
+        n.lastAt = r.started_at;
+    }
+  }
+  return [...by.values()].sort(
+    (a, b) =>
+      b.calls - a.calls ||
+      Date.parse(b.lastAt) - Date.parse(a.lastAt) ||
+      a.didNumber.localeCompare(b.didNumber)
+  );
+}
 
 export interface CallListQuery {
   contactId: string | null;

@@ -29,6 +29,17 @@ function cmp(a: unknown, b: unknown): number {
   return String(a).localeCompare(String(b));
 }
 
+/** A column, or PostgREST's `col->>key`: the key's value as text, else null. */
+function field(r: Row, c: string): unknown {
+  const at = c.indexOf('->>');
+  if (at < 0) return r[c];
+  const doc = r[c.slice(0, at)];
+  const v =
+    doc && typeof doc === 'object' ? (doc as Row)[c.slice(at + 3)] : undefined;
+  if (v === null || v === undefined) return null;
+  return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+
 export function createFakeDb(
   tables: Record<string, Row[]> = {},
   rpcs: Record<string, Rpc> = {}
@@ -81,7 +92,7 @@ export function createFakeDb(
       return this;
     }
     eq(c: string, v: unknown) {
-      this.filters.push((r) => r[c] === v);
+      this.filters.push((r) => field(r, c) === v);
       return this;
     }
     neq(c: string, v: unknown) {

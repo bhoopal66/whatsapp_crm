@@ -16,6 +16,7 @@ import {
   grantableRoles,
   canTransferOwnership,
   canViewOnly,
+  canViewUnroutedCalls,
   hasMinRole,
   isBankGuest,
   isAccountRole,
@@ -199,6 +200,15 @@ describe('canDownloadRecording', () => {
   it('team leader and up, as the recording route allows', () => {
     expect(ACCOUNT_ROLES.filter((r) => canDownloadRecording(r))).toEqual([
       'team_leader',
+      'admin',
+      'owner',
+    ]);
+  });
+});
+
+describe('canViewUnroutedCalls', () => {
+  it('owner and admin only, the people who add phone routes', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canViewUnroutedCalls(r))).toEqual([
       'admin',
       'owner',
     ]);

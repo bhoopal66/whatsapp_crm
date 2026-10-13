@@ -23,8 +23,11 @@ import {
   type MappableWorkspace,
   type PbxExtensionView,
   type RecordingRules,
+  PBX_ROUTES_ANCHOR,
+  PBX_ROUTES_HREF,
 } from '../admin-ui';
 import { PBX_AUTH_BACKOFF_MS } from '../connection';
+import { SETTINGS_SECTIONS } from '@/components/settings/settings-sections';
 
 const WS_A = '11111111-1111-4111-8111-111111111111';
 const WS_B = '22222222-2222-4222-8222-222222222222';
@@ -513,5 +516,15 @@ describe('the recording rules save (093)', () => {
     const cleared = rulesBody(rules(30, AT), null, 30);
     expect(cleared.retentionDays).toBeNull();
     expect(cleared).not.toHaveProperty('confirmRetentionDays');
+  });
+});
+
+describe('the routes link', () => {
+  it('opens Settings → Phone system at the routes card', () => {
+    const url = new URL(PBX_ROUTES_HREF, 'https://crm.example.com');
+    expect(url.pathname).toBe('/settings');
+    expect(SETTINGS_SECTIONS).toContain(url.searchParams.get('tab'));
+    expect(url.searchParams.get('tab')).toBe('phone-system');
+    expect(url.hash).toBe(`#${PBX_ROUTES_ANCHOR}`);
   });
 });

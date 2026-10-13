@@ -10,7 +10,12 @@
 // names the customer by name or by a masked number, never the number.
 // ============================================================
 
-import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
+import {
+  canViewUnroutedCalls,
+  hasMinRole,
+  isBankGuest,
+  type AccountRole,
+} from '@/lib/auth/roles';
 import type { Disposition } from './calls';
 
 /** calls.disposition, in the order the panel offers them. */
@@ -814,4 +819,32 @@ export function messageWhen(
     timeZone,
   });
   return `${date}, ${time}`;
+}
+
+// ---------- The Calls screen's tabs ----------
+
+/** /calls?tab=…, Missed calls being the default (no tab). */
+export const CALLS_TABS = ['missed', 'log', 'people', 'unrouted'] as const;
+export type CallsTab = (typeof CALLS_TABS)[number];
+
+/** `?tab=` as the page reads it: anything else is Missed calls. */
+export const callsTab = (tab: string | undefined): CallsTab =>
+  (CALLS_TABS as readonly (string | undefined)[]).includes(tab)
+    ? (tab as CallsTab)
+    : 'missed';
+
+/**
+ * The tabs `role` is offered: By person to team leaders and up
+ * (pbx_call_report), Unrouted to owners and admins
+ * (canViewUnroutedCalls, as the list route refuses the scope below).
+ * With no role yet, the tabs everyone has.
+ */
+export function visibleCallTabs(role: AccountRole | null): CallsTab[] {
+  return CALLS_TABS.filter((k) =>
+    k === 'people'
+      ? role !== null && hasMinRole(role, 'team_leader')
+      : k === 'unrouted'
+        ? role !== null && canViewUnroutedCalls(role)
+        : true
+  );
 }
