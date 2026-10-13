@@ -42,6 +42,8 @@ export interface CallLiveRow {
   members: unknown;
   state: string | null;
   updated_at: string;
+  /** When the call first rang (094); missing before that migration. */
+  rang_at?: string | null;
 }
 
 interface LiveMember {
@@ -140,6 +142,29 @@ export function formatTimer(ms: number): string {
   const m = Math.floor((total % 3600) / 60);
   const s = String(total % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+/** Longer than any call rings: a rang_at this old is a stale row or a wrong clock. */
+export const RING_TIMER_MAX_MS = 60 * 60_000;
+
+/**
+ * How long the card's call has rung: since call_live.rang_at (094), so
+ * a reload keeps the count, but never less than since the card first
+ * showed the call. That is the whole answer when rang_at is missing
+ * (094 not applied) or unreadable, ahead of this clock, or older than
+ * any ring: the browser's clock is not the database's, and the card
+ * never shows a negative or absurd time.
+ */
+export function ringElapsedMs(
+  rangAt: string | null | undefined,
+  shownAt: number,
+  now: number
+): number {
+  const shown = Math.max(0, now - shownAt);
+  const rung = now - (typeof rangAt === 'string' ? Date.parse(rangAt) : NaN);
+  return Number.isFinite(rung) && rung >= 0 && rung <= RING_TIMER_MAX_MS
+    ? Math.max(rung, shown)
+    : shown;
 }
 
 export interface ConsentFields {

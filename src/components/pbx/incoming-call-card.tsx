@@ -21,6 +21,7 @@ import {
   maskPhone,
   messageWhen,
   otherOwner,
+  ringElapsedMs,
   type HeldFacts,
 } from '@/lib/pbx/call-ui';
 import {
@@ -155,7 +156,8 @@ export function IncomingCallCard() {
   const [since, setSince] = useState<{ key: string; at: number } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const now = useNow(Boolean(call));
-  // Adjusted while rendering: the ring timer starts when this call shows.
+  // Adjusted while rendering: when this call first showed, the floor of
+  // the ring timer, which counts from call_live.rang_at (ringElapsedMs).
   if (key && since?.key !== key) setSince({ key, at: now });
   const pickedId = key ? (calls?.picks[key] ?? null) : null;
   const facts = useCallFacts(
@@ -226,7 +228,13 @@ export function IncomingCallCard() {
         <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
         {t('incoming')} · {did} ·{' '}
         <span className="tabular-nums">
-          {formatTimer(now - (since?.key === key ? since.at : now))}
+          {formatTimer(
+            ringElapsedMs(
+              call.rang_at,
+              since?.key === key ? since.at : now,
+              now
+            )
+          )}
         </span>
       </p>
       <p className="mt-2 truncate text-xl font-bold">{title}</p>

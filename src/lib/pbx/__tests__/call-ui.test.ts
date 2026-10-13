@@ -9,6 +9,7 @@ import {
   NOTES_MAX,
   OUTCOMES,
   OVERRIDE_REASON_MAX,
+  RING_TIMER_MAX_MS,
   alsoRinging,
   canTransferToOwner,
   callCardText,
@@ -27,6 +28,7 @@ import {
   myRingingCall,
   needsOutcome,
   otherOwner,
+  ringElapsedMs,
   type CallCardLabels,
   type CallLiveRow,
 } from '../call-ui';
@@ -170,6 +172,34 @@ describe('formatTimer', () => {
     expect(formatTimer(3_723_000)).toBe('1:02:03');
     expect(formatTimer(-5)).toBe('0:00');
     expect(formatTimer(Number.NaN)).toBe('0:00');
+  });
+});
+
+describe('ringElapsedMs', () => {
+  const now = Date.parse('2026-10-13T09:00:30Z');
+  const shownAt = now - 4_000; // the card showed the call 4 s ago
+
+  it('counts from when the call first rang, so a reload keeps the count', () => {
+    expect(ringElapsedMs('2026-10-13T09:00:00Z', shownAt, now)).toBe(30_000);
+    expect(formatTimer(ringElapsedMs('2026-10-13T09:00:00Z', now, now))).toBe(
+      '0:30'
+    );
+  });
+
+  it('counts from the first render without rang_at (before 094)', () => {
+    for (const rangAt of [undefined, null, '', 'not a time'])
+      expect(ringElapsedMs(rangAt, shownAt, now)).toBe(4_000);
+  });
+
+  it('never shows a negative or absurd time when the clocks disagree', () => {
+    // Ahead of this clock: the browser is behind the database.
+    expect(ringElapsedMs('2026-10-13T09:00:40Z', shownAt, now)).toBe(4_000);
+    // Older than any ring: a stale row, or a clock hours out.
+    const old = new Date(now - RING_TIMER_MAX_MS - 1).toISOString();
+    expect(ringElapsedMs(old, shownAt, now)).toBe(4_000);
+    // Never less than since the card showed it, so it never runs back.
+    expect(ringElapsedMs('2026-10-13T09:00:28Z', shownAt, now)).toBe(4_000);
+    expect(ringElapsedMs(null, now + 1_000, now)).toBe(0);
   });
 });
 
