@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import {
   WRAPUP_MS,
   WRAPUP_OWED_MS,
-  pickWrapUp,
+  pickWrapUps,
+  wrapUpCutoff,
   wrapUpLeftMs,
   wrapUpPanel,
   wrapUpPhase,
@@ -36,6 +37,8 @@ describe('the wrap-up window', () => {
     );
     expect(sql).toMatch(/ended_at <= now\(\) - interval '2 minutes'/);
     expect(sql).toMatch(/ended_at > now\(\) - interval '1 hour'/);
+    // Never a call that ended before outcomes were made mandatory.
+    expect(sql).toMatch(/c\.ended_at > s\.mandatory_disposition_since/);
   });
 
   it('counts down from the end of the call, and never past it', () => {
@@ -70,27 +73,47 @@ describe('the wrap-up window', () => {
   });
 });
 
-describe('pickWrapUp', () => {
-  it('re-opens the newest of my calls still in its wrap-up', () => {
+// Outcomes mandatory since long before any of these calls ended.
+const LONG_AGO = NOW - 24 * WRAPUP_OWED_MS;
+
+describe('pickWrapUps', () => {
+  it('re-opens my calls still in their wrap-up, newest end first', () => {
     const older = row({ pbx_call_id: 'old', ended_at: ago(90_000) });
     const newer = row({ pbx_call_id: 'new', ended_at: ago(20_000) });
-    expect(pickWrapUp([older, newer], NOW, false)).toBe(newer);
-    expect(pickWrapUp([newer, older], NOW, false)).toBe(newer);
+    expect(pickWrapUps([older, newer], NOW, null)).toEqual([newer, older]);
+    expect(pickWrapUps([newer, older], NOW, null)).toEqual([newer, older]);
   });
 
   it('skips a call whose two minutes are up', () => {
     const late = row({ pbx_call_id: 'late', ended_at: ago(WRAPUP_MS) });
     const inTime = row({ pbx_call_id: 'in', ended_at: ago(WRAPUP_MS - 1) });
-    expect(pickWrapUp([late], NOW, false)).toBeNull();
-    expect(pickWrapUp([late, inTime], NOW, false)).toBe(inTime);
+    expect(pickWrapUps([late], NOW, null)).toEqual([]);
+    expect(pickWrapUps([late, inTime], NOW, null)).toEqual([inTime]);
   });
 
   it('keeps an owed outcome past the two minutes where outcomes are mandatory', () => {
     const owed = row({ pbx_call_id: 'owed', ended_at: ago(10 * 60_000) });
     const stale = row({ pbx_call_id: 'stale', ended_at: ago(WRAPUP_OWED_MS) });
-    expect(pickWrapUp([owed], NOW, false)).toBeNull();
-    expect(pickWrapUp([owed, stale], NOW, true)).toBe(owed);
-    expect(pickWrapUp([stale], NOW, true)).toBeNull();
+    expect(pickWrapUps([owed], NOW, null)).toEqual([]);
+    expect(pickWrapUps([owed, stale], NOW, LONG_AGO)).toEqual([owed]);
+    expect(pickWrapUps([stale], NOW, LONG_AGO)).toEqual([]);
+  });
+
+  it('owes nothing that ended before outcomes were made mandatory', () => {
+    const since = NOW - 5 * 60_000;
+    const before = row({ pbx_call_id: 'before', ended_at: ago(5 * 60_000) });
+    const after = row({ pbx_call_id: 'after', ended_at: ago(5 * 60_000 - 1) });
+    expect(pickWrapUps([before, after], NOW, since)).toEqual([after]);
+    // Switched on a moment ago: a call in its two minutes still re-opens.
+    const counting = row({ pbx_call_id: 'counting', ended_at: ago(60_000) });
+    expect(pickWrapUps([counting, before], NOW, NOW - 1000)).toEqual([
+      counting,
+    ]);
+    expect(wrapUpCutoff(NOW, null)).toBe(NOW - WRAPUP_MS);
+    expect(wrapUpCutoff(NOW, NaN)).toBe(NOW - WRAPUP_MS);
+    expect(wrapUpCutoff(NOW, NOW)).toBe(NOW - WRAPUP_MS);
+    expect(wrapUpCutoff(NOW, since)).toBe(since);
+    expect(wrapUpCutoff(NOW, LONG_AGO)).toBe(NOW - WRAPUP_OWED_MS);
   });
 
   it('skips calls with an outcome, unanswered, internal, erased or still live', () => {
@@ -103,13 +126,13 @@ describe('pickWrapUp', () => {
       { ended_at: 'not a date' },
       { connection_id: null },
     ] satisfies Partial<WrapUpRow>[]) {
-      for (const mandatory of [false, true])
-        expect(pickWrapUp([row(over)], NOW, mandatory)).toBeNull();
+      for (const since of [null, LONG_AGO])
+        expect(pickWrapUps([row(over)], NOW, since)).toEqual([]);
     }
     expect(
-      pickWrapUp([row({ direction: 'outbound' })], NOW, false)
-    ).not.toBeNull();
-    expect(pickWrapUp([], NOW, true)).toBeNull();
+      pickWrapUps([row({ direction: 'outbound' })], NOW, null)
+    ).toHaveLength(1);
+    expect(pickWrapUps([], NOW, LONG_AGO)).toEqual([]);
   });
 });
 

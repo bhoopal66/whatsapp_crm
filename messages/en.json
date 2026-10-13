@@ -4858,6 +4858,7 @@
     "noOutcome": "No outcome",
     "unknownCaller": "Unknown caller",
     "shareFailed": "The call card was not shared",
+    "shareFailedClosed": "The call card could not be shared, so the wrap-up closed without it. The outcome and notes are saved on the call.",
     "cancel": "Cancel"
   },
   "ErrorPages": {

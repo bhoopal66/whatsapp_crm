@@ -37,6 +37,8 @@ import {
   formatTimer,
   needsOutcome,
   otherOwner,
+  tryTimes,
+  AUTO_SHARE_TRIES,
   wrapUpLeftMs,
   wrapUpPhase,
   type Outcome,
@@ -250,7 +252,11 @@ function Panel() {
     !['held', 'erased'].includes(row?.recording_state ?? '');
   const name = facts?.name || facts?.company || null;
 
-  const close = async () => {
+  // `auto`: the wrap-up's own close. A ticked call card that will not
+  // post is retried, then the panel closes anyway with the error showing
+  // (the outcome and notes are on the call); a person's Close stays open
+  // on failure, to try again.
+  const close = async (auto = false) => {
     if (needsOutcome(calls.settings.mandatoryDisposition, outcome)) {
       setBlocked(true);
       return;
@@ -284,15 +290,23 @@ function Panel() {
           unknownCaller: t('unknownCaller'),
         }
       );
-      try {
-        await postMessage(sb, { channelId, body });
-      } catch {
-        toast.error(t('shareFailed'));
-        return;
+      const shared = await tryTimes(auto ? AUTO_SHARE_TRIES : 1, () =>
+        postMessage(sb, { channelId, body })
+      );
+      if (!shared) {
+        toast.error(t(auto ? 'shareFailedClosed' : 'shareFailed'));
+        if (!auto) return;
       }
     }
-    calls.closePanel();
+    calls.closePanel(p.key);
   };
+
+  // Whether an outcome is chosen decides if this wrap-up, pushed aside
+  // by a live call, is still owed when it comes back (selectPanel).
+  const { noteOutcome } = calls;
+  useEffect(() => {
+    noteOutcome(p.key, outcome !== null);
+  }, [noteOutcome, p.key, outcome]);
 
   // The wrap-up's phase, settled during render (it only moves forward):
   // `done` closes as Close would (pending notes saved, a ticked call
@@ -310,7 +324,7 @@ function Panel() {
         );
   if (nextPhase !== phase) setPhase(nextPhase);
   const autoClosed = useRef(false);
-  const autoClose = useEffectEvent(() => void close());
+  const autoClose = useEffectEvent(() => void close(true));
   useEffect(() => {
     if (phase !== 'done' || autoClosed.current) return;
     autoClosed.current = true;

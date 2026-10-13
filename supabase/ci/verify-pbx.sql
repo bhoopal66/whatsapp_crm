@@ -738,6 +738,11 @@ BEGIN
     k_soon UUID;   -- ended 30 seconds ago: still in its wrap-up
     k_old  UUID;   -- ended 2 hours ago: before the sweep's horizon
     k_b    UUID;   -- account B's: outcomes are not mandatory there
+    k_hist UUID;   -- ended 40 minutes ago: before outcomes were made mandatory
+    k_int  UUID;   -- an internal call
+    k_unan UUID;   -- never answered
+    k_eras UUID;   -- erased
+    k_dead UUID;   -- the person on it was deactivated since
     q_wrap TEXT := 'INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, '
                    'contact_id, status, started_at, answered_at, ended_at, disposition) '
                    'VALUES (%L, %L, %L, ''inbound'', ''101'', %L, %L, ''answered'', %L, %L, %L, %L) RETURNING id';
@@ -745,6 +750,16 @@ BEGIN
     INSERT INTO pbx_settings (account_id, mandatory_disposition) VALUES (a_acct, true)
       ON CONFLICT (account_id) DO UPDATE SET mandatory_disposition = true;
     INSERT INTO pbx_settings (account_id) VALUES (b_acct) ON CONFLICT (account_id) DO NOTHING;
+    n := n + 1;
+    IF (SELECT mandatory_disposition_since FROM pbx_settings WHERE account_id = a_acct) IS DISTINCT FROM now()
+       OR (SELECT mandatory_disposition_since FROM pbx_settings WHERE account_id = b_acct) IS NOT NULL THEN
+      failed := array_append(failed, 'mandatory_disposition_since is not when outcomes were made mandatory'::text);
+    END IF;
+    -- Made mandatory 30 minutes ago. now() is this transaction's start,
+    -- so the switch-on is backdated with its trigger set aside.
+    ALTER TABLE pbx_settings DISABLE TRIGGER pbx_settings_mandatory_since;
+    UPDATE pbx_settings SET mandatory_disposition_since = now() - interval '30 minutes' WHERE account_id = a_acct;
+    ALTER TABLE pbx_settings ENABLE TRIGGER pbx_settings_mandatory_since;
     EXECUTE format(q_wrap, a_acct, conn, 'px-wrap-due', u_agent, c_agent, now() - interval '6 minutes',
       now() - interval '5 minutes', now() - interval '3 minutes', NULL) INTO k_due;
     EXECUTE format(q_wrap, a_acct, conn, 'px-wrap-done', u_agent, c_agent, now() - interval '6 minutes',
@@ -755,13 +770,34 @@ BEGIN
       now() - interval '3 hours', now() - interval '2 hours', NULL) INTO k_old;
     EXECUTE format(q_wrap, b_acct, NULL, 'px-wrap-b', u_other, NULL, now() - interval '6 minutes',
       now() - interval '5 minutes', now() - interval '3 minutes', NULL) INTO k_b;
+    EXECUTE format(q_wrap, a_acct, conn, 'px-wrap-hist', u_agent, c_agent, now() - interval '45 minutes',
+      now() - interval '44 minutes', now() - interval '40 minutes', NULL) INTO k_hist;
+    EXECUTE format(q_wrap, a_acct, conn, 'px-wrap-dead', u_agent3, c_agent, now() - interval '6 minutes',
+      now() - interval '5 minutes', now() - interval '3 minutes', NULL) INTO k_dead;
+    UPDATE profiles SET deactivated_at = now() WHERE user_id = u_agent3;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id,
+                       status, started_at, answered_at, ended_at)
+      VALUES (a_acct, conn, 'px-wrap-int', 'internal', '101', u_agent, 'answered',
+              now() - interval '6 minutes', now() - interval '5 minutes', now() - interval '3 minutes')
+      RETURNING id INTO k_int;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, contact_id,
+                       status, started_at, answered_at, ended_at)
+      VALUES (a_acct, conn, 'px-wrap-unan', 'inbound', '101', u_agent, c_agent, 'no_answer',
+              now() - interval '6 minutes', NULL, now() - interval '3 minutes')
+      RETURNING id INTO k_unan;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, contact_id,
+                       status, started_at, answered_at, ended_at, recording_state, erased_at)
+      VALUES (a_acct, conn, 'px-wrap-eras', 'inbound', '101', u_agent, c_agent, 'answered',
+              now() - interval '6 minutes', now() - interval '5 minutes', now() - interval '3 minutes',
+              'erased', now() - interval '1 minute')
+      RETURNING id INTO k_eras;
 
     n := n + 1;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notifications_type_check'
-                     AND pg_get_constraintdef(oid) LIKE '%call_outcome_due%'
-                     AND pg_get_constraintdef(oid) LIKE '%call_missed%'
-                     AND pg_get_constraintdef(oid) LIKE '%deal_room_update%'
-                     AND pg_get_constraintdef(oid) LIKE '%chat_broadcast%') THEN
+    -- Every type 085 lists, plus 097's: sixteen.
+    IF (SELECT count(*) FROM pg_constraint k,
+              unnest(ARRAY['conversation_assigned', 'channel_disconnected', 'channel_reconnected', 'team_activity_alert', 'ai_handoff', 'task_assigned', 'task_due', 'chat_mention', 'chat_dm', 'chat_thread_reply', 'chat_broadcast', 'call_missed', 'callback_requested', 'deal_room_join_request', 'deal_room_update', 'call_outcome_due']) t
+         WHERE k.conname = 'notifications_type_check' AND k.conrelid = 'public.notifications'::regclass
+           AND pg_get_constraintdef(k.oid) LIKE '%''' || t || '''%') <> 16 THEN
       failed := array_append(failed, 'notifications_type_check lacks call_outcome_due or a type 085 listed'::text);
     END IF;
     r := pg_temp.px_try('authenticated', u_admin, 'SELECT pbx_outcome_reminders()::text');
@@ -784,6 +820,22 @@ BEGIN
                     AND meta ->> 'call_id' IN (k_done::text, k_soon::text, k_old::text, k_b::text)) THEN
       failed := array_append(failed, 'a call with an outcome, still in its window, too old or not mandatory was reminded'::text);
     END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM calls WHERE id = k_hist AND outcome_reminded_at IS NOT NULL)
+       OR EXISTS (SELECT 1 FROM notifications WHERE type = 'call_outcome_due' AND meta ->> 'call_id' = k_hist::text) THEN
+      failed := array_append(failed, 'a call that ended before outcomes were made mandatory was reminded'::text);
+    END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM calls WHERE id IN (k_int, k_unan, k_eras) AND outcome_reminded_at IS NOT NULL)
+       OR EXISTS (SELECT 1 FROM notifications WHERE type = 'call_outcome_due'
+                    AND meta ->> 'call_id' IN (k_int::text, k_unan::text, k_eras::text)) THEN
+      failed := array_append(failed, 'an internal, unanswered or erased call was reminded'::text);
+    END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM notifications WHERE type = 'call_outcome_due' AND meta ->> 'call_id' = k_dead::text)
+       OR NOT EXISTS (SELECT 1 FROM calls WHERE id = k_dead AND outcome_reminded_at IS NOT NULL) THEN
+      failed := array_append(failed, 'a deactivated person was reminded, or their call left to be swept again'::text);
+    END IF;
     r := pg_temp.px_try('service_role', NULL, 'SELECT pbx_outcome_reminders()::text');
     n := n + 1;
     IF r LIKE 'ERROR%' OR (SELECT count(*) FROM notifications WHERE type = 'call_outcome_due'
@@ -791,10 +843,21 @@ BEGIN
       failed := array_append(failed, ('a reminded call is reminded again: ' || r)::text);
     END IF;
 
+    -- A re-save keeps the switch-on time; a value written to it is ignored.
+    r := pg_temp.px_try('authenticated', u_admin, format(
+      'UPDATE pbx_settings SET mandatory_disposition = true, '
+      'mandatory_disposition_since = now() - interval ''2 days'' WHERE account_id = %L', a_acct))
+      || '/' || pg_temp.px_try('authenticated', u_lead, 'SELECT pbx_set_mandatory_disposition(true)');
+    n := n + 1;
+    IF r <> 'ok/ok' OR (SELECT mandatory_disposition_since FROM pbx_settings WHERE account_id = a_acct)
+                         IS DISTINCT FROM now() - interval '30 minutes' THEN
+      failed := array_append(failed, ('re-saving mandatory outcomes moved when they went on, or a writer set it: ' || r)::text);
+    END IF;
     r := pg_temp.px_try('authenticated', u_lead, 'SELECT pbx_set_mandatory_disposition(false)');
     n := n + 1;
     IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM pbx_settings WHERE account_id = a_acct
-                                  AND NOT mandatory_disposition AND updated_by = u_lead) THEN
+                                  AND NOT mandatory_disposition AND mandatory_disposition_since IS NULL
+                                  AND updated_by = u_lead) THEN
       failed := array_append(failed, ('a team leader cannot switch mandatory outcomes: ' || r)::text);
     END IF;
     r := pg_temp.px_try('authenticated', u_agent, 'SELECT pbx_set_mandatory_disposition(true)')
@@ -803,6 +866,12 @@ BEGIN
     IF r NOT LIKE 'ERROR 42501:%/ERROR 42501:%'
        OR (SELECT mandatory_disposition FROM pbx_settings WHERE account_id = a_acct) THEN
       failed := array_append(failed, ('an agent or a guest can switch mandatory outcomes: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_lead, 'SELECT pbx_set_mandatory_disposition(true)');
+    n := n + 1;
+    IF r <> 'ok' OR (SELECT mandatory_disposition_since FROM pbx_settings WHERE account_id = a_acct)
+                    IS DISTINCT FROM now() THEN
+      failed := array_append(failed, ('switching mandatory outcomes on again does not restart when: ' || r)::text);
     END IF;
     r := pg_temp.px_try('authenticated', u_lead, format(
       'UPDATE pbx_settings SET retention_days = 1234 WHERE account_id = %L', a_acct));

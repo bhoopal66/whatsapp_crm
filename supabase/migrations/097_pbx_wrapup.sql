@@ -15,14 +15,21 @@
 --    meta from what it read (callMeta in process.ts), and its upserts
 --    never name this column, so a late CDR cannot clear the stamp.
 -- 2. pbx_outcome_reminders(): the cron's sweep (service role only).
---    Only calls that ended in the last hour are considered, so making
---    outcomes mandatory never rings for the history before it. A reload
---    re-opens an owed wrap-up over the same hour (WRAPUP_OWED_MS).
+--    Only calls that ended in the last hour AND after outcomes were made
+--    mandatory (5.) are considered, so switching them on never rings for
+--    the history before it. A reload re-opens an owed wrap-up over the
+--    same window (wrapUpCutoff, WRAPUP_OWED_MS).
 -- 3. pbx_set_mandatory_disposition(): team leaders and up switch the
 --    one setting; every other phone setting stays admin-only (089's
 --    pbx_settings RLS is unchanged).
 -- 4. notifications_type_check gains 'call_outcome_due' (085 is the
 --    last list; every type it names is kept).
+-- 5. pbx_settings.mandatory_disposition_since: when outcomes were last
+--    made mandatory. A trigger keeps it for every writer (the settings
+--    route, 3., the SQL editor): set when mandatory_disposition goes on,
+--    kept while it stays on, cleared when it goes off; a value written
+--    to it is ignored. A workspace that already had them on is stamped
+--    once, now: nothing before this migration is owed.
 --
 -- Re-runnable.
 -- ============================================================
@@ -36,6 +43,40 @@ COMMENT ON COLUMN public.calls.outcome_reminded_at IS
 CREATE INDEX IF NOT EXISTS calls_outcome_due_idx ON public.calls (ended_at)
   WHERE disposition IS NULL AND outcome_reminded_at IS NULL
     AND answered_at IS NOT NULL AND user_id IS NOT NULL;
+
+-- ---------- 5. Since when outcomes are mandatory ----------
+ALTER TABLE public.pbx_settings
+  ADD COLUMN IF NOT EXISTS mandatory_disposition_since timestamptz NULL;
+COMMENT ON COLUMN public.pbx_settings.mandatory_disposition_since IS
+  'When mandatory_disposition last went on (NULL while off); set by pbx_settings_mandatory_since, never by a writer. The outcome reminder and a reload''s re-open owe nothing that ended before it. Migration 097.';
+
+CREATE OR REPLACE FUNCTION public.pbx_settings_mandatory_since()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NOT NEW.mandatory_disposition THEN
+    NEW.mandatory_disposition_since := NULL;
+  ELSIF TG_OP = 'INSERT' OR NOT OLD.mandatory_disposition
+        OR OLD.mandatory_disposition_since IS NULL THEN
+    NEW.mandatory_disposition_since := now();
+  ELSE
+    NEW.mandatory_disposition_since := OLD.mandatory_disposition_since;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.pbx_settings_mandatory_since() FROM PUBLIC, anon, authenticated, service_role;
+DROP TRIGGER IF EXISTS pbx_settings_mandatory_since ON public.pbx_settings;
+CREATE TRIGGER pbx_settings_mandatory_since
+  BEFORE INSERT OR UPDATE ON public.pbx_settings
+  FOR EACH ROW EXECUTE FUNCTION public.pbx_settings_mandatory_since();
+
+-- Already on before 097: owed from now on (the trigger stamps it).
+UPDATE public.pbx_settings
+   SET mandatory_disposition = true
+ WHERE mandatory_disposition AND mandatory_disposition_since IS NULL;
 
 -- ---------- 4. The bell ----------
 ALTER TABLE public.notifications
@@ -65,7 +106,7 @@ ALTER TABLE public.notifications
 -- A call is due when its workspace makes outcomes mandatory, the person
 -- on it answered it (user_id, answered_at), it has a customer
 -- (not internal), is not erased, has no outcome, and ended between an
--- hour and two minutes ago. Each due call is stamped and, while its
+-- hour and two minutes ago, after outcomes were made mandatory. Each due call is stamped and, while its
 -- person is still a live staff member of that workspace, gets one bell
 -- linking to the customer. SKIP LOCKED: overlapping sweeps share the
 -- work and never ring twice. Returns the bells rung.
@@ -90,6 +131,7 @@ BEGIN
        AND c.erased_at IS NULL
        AND c.ended_at <= now() - interval '2 minutes'
        AND c.ended_at > now() - interval '1 hour'
+       AND c.ended_at > s.mandatory_disposition_since
      ORDER BY c.ended_at
      LIMIT GREATEST(COALESCE(p_limit, 200), 1)
      FOR UPDATE OF c SKIP LOCKED

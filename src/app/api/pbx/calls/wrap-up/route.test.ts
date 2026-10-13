@@ -66,7 +66,12 @@ describe('GET /api/pbx/calls/wrap-up', () => {
     });
     const res = await GET();
     expect(res.status).toBe(200);
-    const { call: c } = await res.json();
+    const { calls } = await res.json();
+    expect(calls.map((x: { pbxCallId: string }) => x.pbxCallId)).toEqual([
+      'mine',
+      'older',
+    ]);
+    const [c] = calls;
     expect(c).toMatchObject({
       connectionId: 'conn',
       pbxCallId: 'mine',
@@ -85,7 +90,7 @@ describe('GET /api/pbx/calls/wrap-up', () => {
       pbx_settings: [{ account_id: 'acc', mandatory_disposition: false }],
     });
     expect(await (await GET()).json()).toEqual({
-      call: null,
+      calls: [],
       mandatory: false,
     });
   });
@@ -98,20 +103,76 @@ describe('GET /api/pbx/calls/wrap-up', () => {
       ],
       pbx_settings: [
         { account_id: 'b', mandatory_disposition: false },
-        { account_id: 'acc', mandatory_disposition: true },
+        {
+          account_id: 'acc',
+          mandatory_disposition: true,
+          mandatory_disposition_since: ago(2 * WRAPUP_OWED_MS),
+        },
       ],
     });
     const body = await (await GET()).json();
     expect(body.mandatory).toBe(true);
-    expect(body.call).toMatchObject({ pbxCallId: 'owed', leftMs: 0 });
+    expect(body.calls).toMatchObject([{ pbxCallId: 'owed', leftMs: 0 }]);
 
     fake.tables.calls = fake.tables.calls.filter(
       (c) => c.pbx_call_id === 'stale'
     );
     expect(await (await GET()).json()).toEqual({
-      call: null,
+      calls: [],
       mandatory: true,
     });
+  });
+
+  it('owes nothing from before outcomes were made mandatory', async () => {
+    fake = createFakeDb({
+      calls: [
+        // Ended before the switch: only its own two minutes re-open it.
+        call({ pbx_call_id: 'history', ended_at: ago(10 * 60_000) }),
+        call({ pbx_call_id: 'counting', ended_at: ago(90_000) }),
+        call({ pbx_call_id: 'after', ended_at: ago(3 * 60_000) }),
+      ],
+      pbx_settings: [
+        {
+          account_id: 'acc',
+          mandatory_disposition: true,
+          mandatory_disposition_since: ago(4 * 60_000),
+        },
+      ],
+    });
+    const body = await (await GET()).json();
+    expect(body.calls.map((x: { pbxCallId: string }) => x.pbxCallId)).toEqual([
+      'counting',
+      'after',
+    ]);
+
+    // Mandatory with no switch-on time on record: nothing is owed.
+    fake.tables.pbx_settings[0].mandatory_disposition_since = null;
+    const none = await (await GET()).json();
+    expect(none.calls.map((x: { pbxCallId: string }) => x.pbxCallId)).toEqual([
+      'counting',
+    ]);
+  });
+
+  it('is not crowded out by newer calls that do not qualify', async () => {
+    const noise = Array.from({ length: 24 }, (_, i) =>
+      call({
+        pbx_call_id: `noise-${i}`,
+        ended_at: ago(1000 + i),
+        ...[
+          { direction: 'internal' },
+          { answered_at: null },
+          { erased_at: ago(500) },
+          { connection_id: null },
+        ][i % 4],
+      })
+    );
+    fake = createFakeDb({
+      calls: [...noise, call({ pbx_call_id: 'owed', ended_at: ago(60_000) })],
+    });
+    const body = await (await GET()).json();
+    expect(body.calls.map((x: { pbxCallId: string }) => x.pbxCallId)).toEqual([
+      'owed',
+    ]);
   });
 
   it('refuses below agent', async () => {

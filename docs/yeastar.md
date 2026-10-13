@@ -252,8 +252,22 @@ backing off after a refused login is skipped until the backoff ends.
   such a call ends with no outcome, the person on it gets **one** bell,
   "Add the outcome for your call with …", linking to the customer page
   (the Calls screen for an unknown caller). Only calls that ended in the
-  last hour are reminded of, so switching the rule on does not ring for
-  older calls.
+  last hour **and after the rule was switched on** are reminded of or
+  brought back after a reload, so switching it on never reaches older
+  calls (`pbx_settings.mandatory_disposition_since`, kept by a trigger:
+  set when the switch goes on, cleared when it goes off). A change to
+  the switch reaches open screens when a wrap-up starts or the tab
+  regains focus, without a reload.
+- **A live call always has the panel.** Answering a call while a
+  wrap-up is open (or reloading mid-call) shows the live call, with its
+  hangup, hold, mute and transfer controls; the unfinished wrap-up waits
+  and re-opens once the live call is over and its own wrap-up closed.
+  Several waiting wrap-ups re-open newest first. One whose two minutes
+  ran out while it waited comes back only if its outcome is still owed
+  (mandatory, none chosen, within the hour). If a ticked call card
+  cannot be posted when the wrap-up closes by itself, it is tried three
+  times, then the wrap-up closes with an error saying the card was not
+  shared (the outcome and notes are saved on the call).
 - **Recordings.** An agent or above who can see a call can play its
   recording;
   only team leaders, admins and owners can download one. Every play,
@@ -274,7 +288,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
 | `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all&from=&to=&limit=` → `{ calls }`                            |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
-| `GET /api/pbx/calls/wrap-up`         | `{ call, mandatory }`: your newest call still owing its wrap-up, or `call: null`                |
+| `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
 | `GET /api/pbx/presence`              | `{ [userId]: { state, extension, updatedAt } }`; offline after 10 minutes without an update     |
 
 ## 12. Browser softphone
