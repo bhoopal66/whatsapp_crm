@@ -299,7 +299,8 @@ including your number, so a room lists 1 to 7 other people.
 4. **Settings → Deal rooms** (admins). Enter the approved template's
    name and language. The page shows whether each name is found in your
    synced templates and approved. An Arabic copy is optional; today
-   everyone gets the default copy. Until a template is configured a
+   everyone gets the default copy, because the CRM stores no language
+   for a contact to choose a copy by. Until a template is configured a
    room is still created, but nobody is invited: the creator gets an
    *Invite template not configured* notification, and a manager sends
    the invites once it is set (`POST /api/deal-rooms/{id}/invites`).
@@ -495,6 +496,16 @@ everything else.
   is a 401), screened under the same keys
   (`msg:<phone_number_id>:<message id>`, so a redelivery is skipped),
   and processed in the same callback.
+- **Settings changes** (`group_settings_update`, migration 100): a new
+  subject, description or join approval mode that WhatsApp reports is
+  copied onto the room, and the room's Team notes channel takes the new
+  subject as its name (its first 80 characters). A redelivery, a closed
+  room, a setting WhatsApp reports as failed and a value the room
+  cannot hold (a blank subject, one over 128 characters) change
+  nothing. The payload is read as Meta's pages describe it
+  (`group_subject` / `group_description` objects with `text` and
+  `update_successful`); it has not yet been seen on a live callback,
+  so any other shape is logged and ignored.
 - **Group sends are costed per delivered member** (migration 100).
   Meta bills a group message once for each participant it reaches, at
   that participant's market rate, in the message's one category: a
