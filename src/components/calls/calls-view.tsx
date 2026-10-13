@@ -16,6 +16,7 @@ import {
   messageWhen,
   shownCallsTab,
   visibleCallTabs,
+  callsListReady,
   type CallsTab,
 } from '@/lib/pbx/call-ui';
 import type { UnroutedNumber } from '@/lib/pbx/calls';
@@ -69,9 +70,10 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   );
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
+  const listReady = callsListReady(tab, accountRole);
   useEffect(() => {
-    // The report tab loads its own figures.
-    if (tab === 'people') return;
+    // The report tab loads its own figures; Unrouted waits for the role.
+    if (!listReady) return;
     let cancelled = false;
     const calls =
       tab === 'missed'
@@ -106,7 +108,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     return () => {
       cancelled = true;
     };
-  }, [tab]);
+  }, [tab, listReady]);
 
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);

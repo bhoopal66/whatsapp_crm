@@ -863,6 +863,20 @@ export function shownCallsTab(
 }
 
 /**
+ * Whether the Calls screen may load `tab`'s list now. People loads its
+ * own report, and Unrouted waits for the role: shownCallsTab keeps a
+ * linked tab until the role is known, and loading it first would ask a
+ * non-admin's browser for a list the API refuses (403).
+ */
+export function callsListReady(
+  tab: CallsTab,
+  role: AccountRole | null
+): boolean {
+  if (tab === 'people') return false;
+  return tab !== 'unrouted' || role !== null;
+}
+
+/**
  * How far back the Unrouted tab's numbers reach when the request names
  * no start. The listed calls are the newest whatever their age, but a
  * number that was fixed long ago must not outrank one that just started

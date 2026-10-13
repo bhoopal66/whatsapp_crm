@@ -35,6 +35,7 @@ import {
   callBackFor,
   callsTab,
   shownCallsTab,
+  callsListReady,
   visibleCallTabs,
 } from '../call-ui';
 import { ACCOUNT_ROLES } from '@/lib/auth/roles';
@@ -591,6 +592,14 @@ describe('the Calls screen tabs', () => {
     expect(callsTab('people')).toBe('people');
     expect(callsTab(undefined)).toBe('missed');
     expect(callsTab('team')).toBe('missed');
+  });
+
+  it('loads the Unrouted list only once the role is known', () => {
+    expect(callsListReady('unrouted', null)).toBe(false);
+    expect(callsListReady('unrouted', 'admin')).toBe(true);
+    expect(callsListReady('missed', null)).toBe(true);
+    expect(callsListReady('log', null)).toBe(true);
+    expect(callsListReady('people', 'owner')).toBe(false);
   });
 
   it('shows Missed calls when a link names a tab the role is not offered', () => {
