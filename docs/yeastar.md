@@ -187,6 +187,13 @@ connection with no secret stored refuses every push. Optionally set
   workspace's missed-call delay, for the contact's owner, else the first
   person it rang, and ring that person's bell. A ring-group call a
   colleague answered is not missed.
+- **Who it rang.** Every person an inbound call rang is kept on the
+  call (`calls.meta.rang_user_ids`, first rung first), gathered from
+  each ringing frame, so it survives the screen pop going away. The
+  customer page's timeline names them ("rang Sara and Faisal for
+  24 s"), as profiled in the viewer's workspace. Calls from before
+  this was kept name only the extension's person, if any. An erased
+  call loses the list with the rest of its details.
 - **Recordings** are marked for fetching, or kept unrecorded (_held_)
   for a bank number while **Exclude bank numbers** is on.
 - Every event is stored once (re-sends are ignored); one that cannot be
@@ -317,8 +324,9 @@ backing off after a refused login is skipped until the backoff ends.
   out. **Missed-call attribution:** a call counts for the person whose
   extension the PBX reports it to. A missed call that rang someone's
   own extension is theirs. A ring group or queue rings several people
-  at once, and who it rang is not kept once the call ends, so when
-  nobody answers the call has no person: it is counted once, under
+  at once (the customer page lists them), but the report does not
+  share a missed call out among them: when nobody answers the call has
+  no person, and it is counted once, under
   _No person_ and in the total, never once per person it rang. A call
   to an extension with no CRM login is counted the same way.
 - **Outcome and notes.** After a call, the person on it (or a team

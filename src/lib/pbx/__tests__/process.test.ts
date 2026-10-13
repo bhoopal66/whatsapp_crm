@@ -330,6 +330,36 @@ describe('ingestPbxEvent', () => {
     expect(fake.tables.notifications ?? []).toHaveLength(0);
   });
 
+  it('keeps everyone a missed call rang on the row, past the screen pop', async () => {
+    fake.tables.contacts = [];
+    // A hunt group: Faisal (1002) rings first, then Sara (1001).
+    await ingest(ring('call-1', [inbound('ALERT'), ext('1002', 'RING')]));
+    await ingest(
+      ring('call-1', [
+        inbound('ALERT'),
+        ext('1002', 'BYE'),
+        ext('1001', 'RING'),
+      ])
+    );
+    // An all-BYE frame deletes the screen pop before the 30012 lands.
+    await ingest(ring('call-1', [inbound('BYE'), ext('1001', 'BYE')]));
+    expect(fake.tables.call_live).toHaveLength(0);
+    await ingest(end('call-1', 'NO ANSWER'));
+    expect(fake.tables.calls[0]).toMatchObject({
+      status: 'no_answer',
+      meta: { rang_user_ids: ['u2', 'u1'] },
+    });
+    // The first person it rang holds the task.
+    expect(fake.tables.tasks[0]).toMatchObject({ assigned_to: 'u2' });
+  });
+
+  it('a direct-dialled missed call keeps the extension it rang', async () => {
+    await ingest(end('call-1', 'NO ANSWER', { call_to: '1003' }));
+    expect(fake.tables.calls[0].meta).toMatchObject({
+      rang_user_ids: ['u3'],
+    });
+  });
+
   it('keeps a bank number unrecorded while the workspace excludes them', async () => {
     fake.tables.pbx_bank_numbers = [
       { account_id: A2, number: '0501234567', bank_code: 'ADCB' },

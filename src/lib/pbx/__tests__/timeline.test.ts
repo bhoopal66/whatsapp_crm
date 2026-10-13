@@ -157,6 +157,17 @@ describe('headings', () => {
     );
   });
 
+  it('falls back to the one person a call names when it kept no ring list', () => {
+    const at = { timeZone: TZ, locale: 'en' };
+    const sara = { ...missed, userName: 'Sara' };
+    expect(line(callHeading(sara, { ...at, rang: [] }))).toBe(
+      'Missed call · incoming · 11:40 · rang Sara for 24 s'
+    );
+    expect(line(callHeading(sara, { ...at, rang: ['Faisal'] }))).toBe(
+      'Missed call · incoming · 11:40 · rang Faisal for 24 s'
+    );
+  });
+
   it('words an answered call with the duration and outcome', () => {
     expect(line(callHeading(call(), { timeZone: TZ, locale: 'en' }))).toBe(
       'Incoming call · answered by Sara · 10:53 · 6 min 18 s · Docs requested'

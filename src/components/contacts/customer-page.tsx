@@ -510,7 +510,12 @@ export function CustomerPage({ contactId }: { contactId: string }) {
     }).format(new Date(`${key}T12:00:00Z`));
 
   const entry = (e: TimelineEntry) => {
-    const h = entryHeading(e, { timeZone, locale, contactName: contact.name });
+    const h = entryHeading(e, {
+      timeZone,
+      locale,
+      contactName: contact.name,
+      rang: e.kind === 'call' ? e.call.rangNames : undefined,
+    });
     const missed = e.kind === 'call' && callTone(e.call) === 'missed';
     const [Icon, tone] =
       e.kind === 'call'

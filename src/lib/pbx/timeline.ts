@@ -26,6 +26,8 @@ export interface TimelineCall {
   talkSeconds: number | null;
   userId: string | null;
   userName: string | null;
+  /** Who an inbound call rang, named (calls.meta.rang_user_ids). */
+  rangNames?: string[];
   disposition: string | null;
   notes: string | null;
   recordingState: string;
@@ -324,8 +326,9 @@ export function callHeading(
   const at = clock(call.startedAt, ctx.timeZone);
   const name = call.userName?.trim() || null;
   if (callTone(call) === 'missed') {
+    // A call from before the ring list was kept names its one person.
     const rang = rangPart(
-      ctx.rang ?? (name ? [name] : []),
+      ctx.rang?.length ? ctx.rang : name ? [name] : [],
       call.ringSeconds,
       ctx.locale
     );
