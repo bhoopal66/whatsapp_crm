@@ -12,6 +12,34 @@ and polish.
 
 ## [Unreleased]
 
+### Phone presence on every person's dot
+
+Team chat (DMs and member lists), the inbox assign picker and the
+customer page now show each person's phone status live: red while on a
+call, grey with a line on Do not disturb, away on away / lunch /
+business trip, grey when off work; otherwise the app's own presence. A
+status chosen on the phone no longer fades after ten minutes, a long
+call stays red (the phone-system cron keeps it fresh), and remapping an
+extension or switching its presence monitoring off moves or clears the
+status at once. The customer page no longer shows people without a desk
+phone as offline. Workspaces without a phone system are unchanged.
+
+> **Migration required:** apply
+> `supabase/migrations/101_pbx_presence_mapping.sql` (re-runnable).
+
+### Team leaders invite agents and viewers
+
+Team leaders can invite agents and viewers to their workspace by link
+(Settings → Members) and see and revoke the links they made; adding
+someone with a password, changing roles, deactivating and removing
+people stay with owners and admins. An invitation link now stops
+working once its creator can no longer grant that role (removed,
+deactivated or demoted). The create-workspace dialog lists Admin and
+Supervisor (team leader) separately.
+
+> **Migration required:** apply
+> `supabase/migrations/099_leader_invites.sql` (re-runnable).
+
 ### Phone system (Yeastar) — call wrap-up and mandatory outcomes
 
 After a call ends, the call panel counts down two minutes to add the
