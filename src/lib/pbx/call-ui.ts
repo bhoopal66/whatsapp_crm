@@ -362,10 +362,21 @@ export function callCardText(i: CallCardInput, l: CallCardLabels): string {
   return parts.join(' · ') + (notes ? ` — ${notes}` : '');
 }
 
+/** Why a deal-room participant cannot be called (lib/deal-rooms/call.ts). */
+export const PARTICIPANT_BLOCKS = [
+  'bank_guests_off',
+  'not_callable',
+  'room_closed',
+  'no_number',
+] as const;
+export type ParticipantBlockCode = (typeof PARTICIPANT_BLOCKS)[number];
+
 export type DialResult =
   | { kind: 'ok'; pbxCallId: string }
   | { kind: 'do_not_contact'; reason: string | null }
   | { kind: 'no_extension' }
+  /** A participant the route will not call: the button stays disabled. */
+  | { kind: 'blocked'; code: ParticipantBlockCode }
   | { kind: 'error'; message: string | null };
 
 /** POST /api/pbx/calls/dial's answer, by what the button does next. */
@@ -380,6 +391,8 @@ export function dialResult(status: number, body: unknown): DialResult {
   if (b.code === 'do_not_contact')
     return { kind: 'do_not_contact', reason: text(b.reason) };
   if (b.code === 'no_extension') return { kind: 'no_extension' };
+  const block = PARTICIPANT_BLOCKS.find((c) => c === b.code);
+  if (block) return { kind: 'blocked', code: block };
   return { kind: 'error', message: text(b.error) };
 }
 

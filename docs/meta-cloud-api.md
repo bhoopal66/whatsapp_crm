@@ -345,6 +345,16 @@ including your number, so a room lists 1 to 7 other people.
    - **Free text** can be sent only inside the group's **24-hour reply
      window**. Any member's message opens it for the whole group, not
      just for the sender.
+   - **Files** follow the same window: inside it the composer's
+     paperclip sends a JPEG or PNG image (up to 5 MB) or a PDF, Word,
+     Excel, PowerPoint or text document (up to 9 MB, held below the
+     app's 10 MB request limit), with an optional caption. The file is
+     stored in the private `deal-files` bucket and kept in the deal file
+     (`deal_files`, source `deal_room_media`), as a received file is;
+     Meta fetches it through a signed link valid for 10 minutes on the
+     public Supabase URL, so that URL must be reachable from the
+     internet. Meta shows no group media example: the send is the 1:1
+     media payload with `recipient_type: 'group'`.
    - **Outside the window**, only an **approved template** can be sent.
      Meta charges a template **once per member who receives it**.
    - A group message is text or a template: **no buttons, lists or

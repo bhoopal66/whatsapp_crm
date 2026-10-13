@@ -457,6 +457,21 @@ describe('dialResult', () => {
     });
     expect(dialResult(200, null)).toEqual({ kind: 'error', message: null });
   });
+
+  it('keeps a deal-room participant the route will not call blocked', () => {
+    expect(dialResult(409, { code: 'bank_guests_off', error: 'x' })).toEqual({
+      kind: 'blocked',
+      code: 'bank_guests_off',
+    });
+    expect(dialResult(422, { code: 'no_number' })).toEqual({
+      kind: 'blocked',
+      code: 'no_number',
+    });
+    expect(dialResult(403, { code: 'forbidden', error: 'No' })).toEqual({
+      kind: 'error',
+      message: 'No',
+    });
+  });
 });
 
 describe('needsOutcome', () => {

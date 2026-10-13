@@ -8,9 +8,11 @@
  *  - Everyone in a room sees every message, so this is the only way a
  *    message reaches a group. Team notes are internal chat and never
  *    pass through it.
- *  - Free text only while the group's 24-hour window is open
+ *  - Free text and files only while the group's 24-hour window is open
  *    (`window_until`, reopened by any member's message); outside it,
  *    templates only (Meta refuses one that is not approved).
+ *  - A file sent to the group is kept in the deal file, as an inbound
+ *    one is (`deal_files`, source `deal_room_media`).
  *  - A sent group message is final: nothing here edits or deletes one.
  *  - A removed person cannot rejoin through the invite link (Meta).
  */
@@ -27,10 +29,18 @@ import {
   rejectJoinRequests,
   removeParticipants,
   resetInviteLink,
+  sendGroupMedia,
   sendGroupTemplate,
   sendGroupText,
 } from '@/lib/whatsapp/meta-groups';
+import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 
+import {
+  ROOM_MEDIA_CAPTION_MAX,
+  checkRoomMedia,
+  roomMediaPath,
+  type RoomMediaKind,
+} from './room-media';
 import { metaChannel } from './shared';
 import { saveTranscript } from './transcript';
 
@@ -222,6 +232,14 @@ function openRoom(room: LiveRoom | null): LiveRoom | Fail {
 export type PostInput =
   | { kind: 'text'; text: string }
   | {
+      kind: 'media';
+      mediaKind: RoomMediaKind;
+      bytes: Uint8Array;
+      mime: string;
+      fileName: string;
+      caption: string | null;
+    }
+  | {
       kind: 'template';
       templateName: string;
       language: string;
@@ -288,6 +306,148 @@ export function parsePostBody(
   };
 }
 
+/**
+ * A file from the composer's multipart body: `file` plus an optional
+ * `caption`. The bytes are read here, after the type and size checks.
+ */
+export async function parseMediaForm(
+  form: FormData | null
+): Promise<
+  { ok: true; value: PostInput } | { ok: false; error: string; code: string }
+> {
+  const file = form?.get('file');
+  if (!file || typeof file === 'string') {
+    return { ok: false, error: 'Attach a file', code: 'invalid' };
+  }
+  const check = checkRoomMedia(file);
+  if (!check.ok) {
+    return check.code === 'media_type'
+      ? {
+          ok: false,
+          error: 'Only images (JPEG, PNG) and documents can be sent',
+          code: check.code,
+        }
+      : {
+          ok: false,
+          error: `This file is over the ${Math.round(check.maxBytes / 1024 / 1024)} MB limit`,
+          code: check.code,
+        };
+  }
+  const raw = form?.get('caption');
+  const caption = typeof raw === 'string' ? raw.trim() : '';
+  if (caption.length > ROOM_MEDIA_CAPTION_MAX) {
+    return {
+      ok: false,
+      error: `A caption is at most ${ROOM_MEDIA_CAPTION_MAX} characters`,
+      code: 'invalid',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      kind: 'media',
+      mediaKind: check.kind,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      mime: file.type.split(';')[0].trim().toLowerCase(),
+      fileName: (file.name || 'file').slice(0, 255),
+      caption: caption || null,
+    },
+  };
+}
+
+const DEAL_FILES_BUCKET = 'deal-files';
+/** Meta fetches a linked file when the message is sent. */
+const MEDIA_LINK_SECONDS = 600;
+
+interface StagedMedia {
+  path: string;
+  link: string;
+}
+
+/**
+ * The file goes to the private deal-files bucket first, and Meta gets a
+ * short-lived signed link to it, on the public origin (the server's own
+ * Supabase URL may be an internal one Meta cannot reach). The link is a
+ * bearer URL: it is handed to Meta and never logged or stored.
+ */
+async function stageMedia(
+  db: SupabaseClient,
+  room: LiveRoom,
+  input: Extract<PostInput, { kind: 'media' }>
+): Promise<StagedMedia | Fail> {
+  const path = roomMediaPath(room.account_id, room.id, input.fileName);
+  const bucket = db.storage.from(DEAL_FILES_BUCKET);
+  const { error: upErr } = await bucket.upload(path, input.bytes, {
+    contentType: input.mime,
+    upsert: false,
+  });
+  if (upErr) {
+    console.error('[deal-rooms] media upload failed:', upErr.message);
+    return fail(502, 'media_upload', 'The file could not be stored');
+  }
+  const { data, error } = await bucket.createSignedUrl(
+    path,
+    MEDIA_LINK_SECONDS
+  );
+  if (error || !data?.signedUrl) {
+    console.error('[deal-rooms] media link failed:', error?.message);
+    await dropStaged(db, path);
+    return fail(502, 'media_upload', 'The file could not be stored');
+  }
+  return { path, link: toPublicSupabaseUrl(data.signedUrl) };
+}
+
+/** Best-effort: a file WhatsApp never received leaves nothing behind. */
+async function dropStaged(db: SupabaseClient, path: string): Promise<void> {
+  const { error } = await db.storage.from(DEAL_FILES_BUCKET).remove([path]);
+  if (error) console.error('[deal-rooms] media cleanup failed:', error.message);
+}
+
+/**
+ * The sent file as a deal_files row (as webhook.ts files an inbound one)
+ * and the message's `media`. Best-effort: the message went out, so a
+ * failure is kept on the message rather than failing the send.
+ */
+async function fileSentMedia(
+  db: SupabaseClient,
+  room: LiveRoom,
+  input: Extract<PostInput, { kind: 'media' }>,
+  staged: StagedMedia,
+  waMessageId: string,
+  userId: string
+): Promise<Record<string, unknown>> {
+  const media: Record<string, unknown> = {
+    id: null,
+    mime_type: input.mime,
+    filename: input.fileName,
+    storage_path: staged.path,
+  };
+  const { data, error } = await db
+    .from('deal_files')
+    .insert({
+      account_id: room.account_id,
+      deal_id: room.deal_id,
+      room_id: room.id,
+      storage_path: staged.path,
+      name: input.fileName,
+      mime: input.mime,
+      bytes: input.bytes.byteLength,
+      source: 'deal_room_media',
+      ref_type: 'group_message',
+      ref_id: waMessageId,
+      created_by: userId,
+    })
+    .select('id')
+    .single();
+  if (error) {
+    console.error('[deal-rooms] deal file row failed:', error.message);
+    media.error = `deal file row failed: ${error.message}`;
+  } else {
+    media.deal_file_id = (data as { id?: string } | null)?.id ?? null;
+  }
+  return media;
+}
+
 export async function sendRoomMessage(
   db: SupabaseClient,
   args: { roomId: string; userId: string; input: PostInput }
@@ -295,7 +455,8 @@ export async function sendRoomMessage(
   const room = openRoom(await loadRoom(db, args.roomId));
   if (isFail(room)) return room;
   const { input } = args;
-  if (input.kind === 'text' && !isWindowOpen(room.window_until)) {
+  // Before anything is stored: a file is free-form, like text.
+  if (input.kind !== 'template' && !isWindowOpen(room.window_until)) {
     return fail(
       409,
       'window_closed',
@@ -304,30 +465,45 @@ export async function sendRoomMessage(
   }
   const access = await groupAccess(db, room);
   if (isFail(access)) return access;
+  let staged: StagedMedia | null = null;
+  if (input.kind === 'media') {
+    const s = await stageMedia(db, room, input);
+    if (isFail(s)) return s;
+    staged = s;
+  }
 
   let waMessageId: string;
   try {
     const sent =
       input.kind === 'text'
         ? await sendGroupText({ ...access, text: input.text })
-        : await sendGroupTemplate({
-            ...access,
-            templateName: input.templateName,
-            language: input.language,
-            components: input.params.length
-              ? [
-                  {
-                    type: 'body',
-                    parameters: input.params.map((text) => ({
-                      type: 'text',
-                      text,
-                    })),
-                  },
-                ]
-              : undefined,
-          });
+        : input.kind === 'media'
+          ? await sendGroupMedia({
+              ...access,
+              kind: input.mediaKind,
+              link: staged!.link,
+              ...(input.caption ? { caption: input.caption } : {}),
+              filename: input.fileName,
+            })
+          : await sendGroupTemplate({
+              ...access,
+              templateName: input.templateName,
+              language: input.language,
+              components: input.params.length
+                ? [
+                    {
+                      type: 'body',
+                      parameters: input.params.map((text) => ({
+                        type: 'text',
+                        text,
+                      })),
+                    },
+                  ]
+                : undefined,
+            });
     waMessageId = sent.messageId;
   } catch (err) {
+    if (staged) await dropStaged(db, staged.path);
     if (err instanceof MetaError && err.isGroupSuspended) {
       await setStatus(db, room.id, 'suspended', 'suspended by WhatsApp').catch(
         (e: Error) => console.error('[deal-rooms] suspend failed:', e.message)
@@ -336,15 +512,24 @@ export async function sendRoomMessage(
     return metaFailure(err);
   }
 
+  const media =
+    input.kind === 'media'
+      ? await fileSentMedia(db, room, input, staged!, waMessageId, args.userId)
+      : null;
   const { data, error } = await db.rpc('deal_room_record_message', {
     p_account: room.account_id,
     p_group_id: access.groupId,
     p_direction: 'out',
-    p_type: input.kind,
+    p_type: input.kind === 'media' ? input.mediaKind : input.kind,
     p_wa_message_id: waMessageId,
     p_sender_wa_id: null,
-    p_body: input.kind === 'text' ? input.text : null,
-    p_media: null,
+    p_body:
+      input.kind === 'text'
+        ? input.text
+        : input.kind === 'media'
+          ? input.caption
+          : null,
+    p_media: media,
     p_template_name: input.kind === 'template' ? input.templateName : null,
     p_staff_user_id: args.userId,
     p_status: 'sent',

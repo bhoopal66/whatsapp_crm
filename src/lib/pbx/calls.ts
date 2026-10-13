@@ -689,6 +689,41 @@ export type Callee =
  * not called through a duplicate contact or a typed number either. The
  * reason is shown only for a contact the caller can see.
  */
+/**
+ * The workspace's do-not-contact contacts holding this number, on the
+ * service role: a customer the caller cannot see is protected too. Each
+ * of `alsoContactIds` (e.g. a deal-room participant's linked contact)
+ * counts as well when it carries the stamp. Ids only: the reason of a
+ * contact the caller cannot see is not theirs to read.
+ */
+export async function dncContactIds(
+  service: SupabaseClient,
+  accountId: string,
+  number: string,
+  alsoContactIds: string[] = []
+): Promise<string[]> {
+  const { data, error } = await service
+    .from('contacts')
+    .select('id, do_not_contact_reason')
+    .eq('account_id', accountId)
+    .in('phone', contactPhoneCandidates(number))
+    .not('do_not_contact_at', 'is', null);
+  if (error) throw new Error(`contacts read failed: ${error.message}`);
+  const ids = new Set(((data ?? []) as { id: string }[]).map((c) => c.id));
+  if (alsoContactIds.length) {
+    const { data: linked, error: linkedErr } = await service
+      .from('contacts')
+      .select('id')
+      .eq('account_id', accountId)
+      .in('id', alsoContactIds)
+      .not('do_not_contact_at', 'is', null);
+    if (linkedErr)
+      throw new Error(`contacts read failed: ${linkedErr.message}`);
+    for (const c of (linked ?? []) as { id: string }[]) ids.add(c.id);
+  }
+  return [...ids];
+}
+
 export async function resolveCallee(input: {
   rls: SupabaseClient;
   service: SupabaseClient;
@@ -745,16 +780,7 @@ export async function resolveCallee(input: {
       );
   }
 
-  const { data: blocked, error } = await service
-    .from('contacts')
-    .select('id, do_not_contact_reason')
-    .eq('account_id', accountId)
-    .in('phone', contactPhoneCandidates(number))
-    .not('do_not_contact_at', 'is', null);
-  if (error) throw new Error(`contacts read failed: ${error.message}`);
-  const dncIds = new Set(
-    ((blocked ?? []) as { id: string }[]).map((c) => c.id)
-  );
+  const dncIds = new Set(await dncContactIds(service, accountId, number));
   for (const c of visible) if (c.do_not_contact_at) dncIds.add(c.id);
   const shown = visible.find((c) => c.do_not_contact_at);
   return {

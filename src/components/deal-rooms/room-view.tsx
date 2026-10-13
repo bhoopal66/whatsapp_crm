@@ -10,7 +10,15 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useFormatter, useTranslations } from 'next-intl';
-import { ArrowLeft, Eye, FileText, Loader2, ShieldCheck } from 'lucide-react';
+import {
+  ArrowLeft,
+  Eye,
+  FileText,
+  Loader2,
+  Paperclip,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ChannelView } from '@/components/chat/channel-view';
@@ -49,6 +57,11 @@ import {
   windowCountdown,
   type GroupComposerMode,
 } from '@/lib/deal-rooms/view';
+import {
+  ROOM_MEDIA_ACCEPT,
+  ROOM_MEDIA_CAPTION_MAX,
+  checkRoomMedia,
+} from '@/lib/deal-rooms/room-media';
 import { rightColumn, withRightColumn } from '@/lib/chat/panels';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { cn } from '@/lib/utils';
@@ -73,6 +86,9 @@ const SEND_ERRORS = new Set([
   'group_suspended',
   'template_rejected',
   'forbidden',
+  'media_type',
+  'media_size',
+  'media_upload',
 ]);
 
 /** Re-renders every 30 s, for the window countdown and composer mode. */
@@ -541,6 +557,8 @@ function GroupComposer({
   const [picked, setPicked] = useState('');
   const [values, setValues] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const wantTemplates = mode.mode === 'template' && !!accountId;
 
   useEffect(() => {
@@ -568,14 +586,20 @@ function GroupComposer({
   const ready =
     !!template && filled.length === count && filled.every((v) => v.trim());
 
-  const send = async (body: Record<string, unknown>) => {
+  // A file goes as multipart form data, its caption the typed text.
+  const send = async (body: Record<string, unknown> | FormData) => {
     setBusy(true);
     try {
-      const res = await fetch(`/api/deal-rooms/${roomId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(
+        `/api/deal-rooms/${roomId}/messages`,
+        body instanceof FormData
+          ? { method: 'POST', body }
+          : {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            }
+      );
       if (!res.ok) {
         const { code } = (await res.json().catch(() => ({}))) as {
           code?: string;
@@ -596,6 +620,24 @@ function GroupComposer({
     }
   };
 
+  const pick = (picked: File | undefined) => {
+    if (fileInput.current) fileInput.current.value = '';
+    if (!picked) return;
+    const check = checkRoomMedia(picked);
+    if (!check.ok) {
+      toast.error(
+        check.code === 'media_type'
+          ? t('composer.errors.media_type')
+          : t('composer.fileTooBig', {
+              name: picked.name,
+              mb: Math.round(check.maxBytes / 1024 / 1024),
+            })
+      );
+      return;
+    }
+    setFile(picked);
+  };
+
   if (mode.mode === 'disabled') {
     return (
       <div className="text-muted-foreground border-t px-4 py-3 text-center text-sm">
@@ -613,21 +655,69 @@ function GroupComposer({
           className="mt-2 flex items-end gap-2"
           onSubmit={async (e) => {
             e.preventDefault();
-            if (text.trim() && (await send({ text }))) setText('');
+            if (file) {
+              const form = new FormData();
+              form.set('file', file);
+              if (text.trim()) form.set('caption', text);
+              if (await send(form)) {
+                setFile(null);
+                setText('');
+              }
+            } else if (text.trim() && (await send({ text }))) setText('');
           }}
         >
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={2}
-            maxLength={4096}
-            placeholder={t('composer.placeholder')}
-            aria-label={t('composer.placeholder')}
-            className="bg-background min-w-0 flex-1 resize-none rounded-md border px-2.5 py-1.5 text-sm outline-none"
+          <input
+            ref={fileInput}
+            type="file"
+            accept={ROOM_MEDIA_ACCEPT}
+            className="hidden"
+            onChange={(e) => pick(e.target.files?.[0])}
           />
           <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            disabled={busy}
+            aria-label={t('composer.attach')}
+            title={t('composer.attach')}
+            onClick={() => fileInput.current?.click()}
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <div className="min-w-0 flex-1 space-y-1">
+            {file && (
+              <span className="bg-background inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-0.5 text-xs">
+                <FileText className="size-3.5 shrink-0" />
+                <span className="truncate">{file.name}</span>
+                <button
+                  type="button"
+                  aria-label={t('composer.removeFile', { name: file.name })}
+                  title={t('composer.removeFile', { name: file.name })}
+                  disabled={busy}
+                  onClick={() => setFile(null)}
+                  className="text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </span>
+            )}
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={2}
+              maxLength={file ? ROOM_MEDIA_CAPTION_MAX : 4096}
+              placeholder={t(
+                file ? 'composer.captionPlaceholder' : 'composer.placeholder'
+              )}
+              aria-label={t(
+                file ? 'composer.captionPlaceholder' : 'composer.placeholder'
+              )}
+              className="bg-background block w-full resize-none rounded-md border px-2.5 py-1.5 text-sm outline-none"
+            />
+          </div>
+          <Button
             type="submit"
-            disabled={busy || !text.trim()}
+            disabled={busy || (!file && !text.trim())}
             className="bg-amber-800 text-white hover:bg-amber-900"
           >
             {t('composer.send')}

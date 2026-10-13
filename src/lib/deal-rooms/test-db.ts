@@ -2,9 +2,9 @@
  * Test-only: an in-memory stand-in for the supabase-js query builder,
  * as much of it as the deal-room tests need (eq / neq / is / in / like /
  * lt / lte / gte, order, limit, insert, update, maybeSingle, single, and
- * `storage.from(bucket).upload`). Updates mutate the stored rows; reads
- * return copies, so a run that read a row earlier holds a stale
- * snapshot, as it would against Postgres. Column lists and embeds are
+ * `storage.from(bucket)`: upload, createSignedUrl, remove). Updates
+ * mutate the stored rows; reads return copies, so a run that read a row
+ * earlier holds a stale snapshot, as it would against Postgres. Column lists and embeds are
  * not parsed: a row comes back whole, so seed an embed as a nested
  * object.
  */
@@ -42,6 +42,7 @@ export function memoryDb(
   const log: QueryLog[] = [];
   const rpcCalls: [string, Row][] = [];
   const uploads: UploadLog[] = [];
+  const removed: { bucket: string; paths: string[] }[] = [];
 
   const from = (table: string) => {
     const rows = (tables[table] ??= []);
@@ -176,6 +177,16 @@ export function memoryDb(
         uploads.push({ bucket, path, bytes, options });
         return { data: { path }, error: null };
       },
+      createSignedUrl: async (path: string, expiresIn: number) => ({
+        data: {
+          signedUrl: `http://storage.test/${bucket}/${path}?token=t&exp=${expiresIn}`,
+        },
+        error: null,
+      }),
+      remove: async (paths: string[]) => {
+        removed.push({ bucket, paths });
+        return { data: [], error: null };
+      },
     }),
   };
 
@@ -185,5 +196,6 @@ export function memoryDb(
     log,
     rpcCalls,
     uploads,
+    removed,
   };
 }

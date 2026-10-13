@@ -278,6 +278,18 @@ backing off after a refused login is skipped until the backoff ends.
   called, through any of their contacts or by typing the number. An
   owner or admin can override with a reason, which is logged before
   the PBX is asked.
+- **Calling someone in a deal room.** The room's Members panel shows
+  _Call_ beside each customer, partner and bank officer who was let
+  into the room (staff from agent up who can post in the room; never
+  to a bank guest, never our own number, nobody once the room is
+  closed). The CRM holds the number and dials it from your own
+  extension: the browser never sees it. The do-not-contact rule
+  applies to the number across the workspace and to the person's
+  linked contact. A bank officer can be called only while that bank's
+  guests are on (the bank's guest switch in the deal-room settings).
+  Dialling does not change recording: such a call is held unrecorded
+  only by the bank-number rule above, so list the officer's number
+  under **Bank numbers** with **Exclude bank numbers** on.
 - **The Calls screen** (sidebar › Calls: staff only, shown once the
   workspace has an extension) lists the last 7 days' missed calls and
   the call log. _Call back_ on a missed call dials the customer's

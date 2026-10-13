@@ -171,4 +171,106 @@ describe('POST /api/pbx/calls/dial', () => {
       callee: '971509999999',
     });
   });
+
+  describe('a deal-room participant', () => {
+    const B = '00000000-0000-4000-8000-00000000000b';
+    const R = '00000000-0000-4000-8000-0000000000a1';
+    const P = '00000000-0000-4000-8000-0000000000b1';
+    const BANK = '00000000-0000-4000-8000-0000000000b2';
+    const OTHER = '00000000-0000-4000-8000-0000000000b3';
+    const person = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      room_id: R,
+      account_id: A,
+      role: 'customer',
+      status: 'joined',
+      bank_code: null,
+      phone: '971501112222',
+      wa_id: '971501112222',
+      contact_id: null,
+      ...over,
+    });
+    let canPost: unknown[];
+
+    beforeEach(() => {
+      service.tables.deal_rooms = [{ id: R, account_id: A, status: 'open' }];
+      service.tables.deal_room_participants = [
+        person(P),
+        person(BANK, {
+          role: 'bank_guest',
+          bank_code: 'ADCB',
+          phone: '971502223333',
+        }),
+        person(OTHER, { account_id: B }),
+      ];
+      service.tables.bank_guest_policies = [
+        { account_id: A, bank_code: 'ADCB', guests_allowed: false },
+      ];
+      canPost = [];
+      rls.rpcs.deal_room_can_post = (args) => {
+        canPost.push(args);
+        return { data: true, error: null };
+      };
+    });
+
+    it('dials the number the server holds, from the caller’s own extension', async () => {
+      const res = await post({ participantId: P, extension: '999' });
+      expect(res.status).toBe(200);
+      expect(canPost).toEqual([{ p_room: R }]);
+      expect(dial).toHaveBeenCalledWith({
+        caller: '201',
+        callee: '971501112222',
+      });
+    });
+
+    it('refuses someone who cannot post in the room, and another workspace’s participant', async () => {
+      rls.rpcs.deal_room_can_post = () => ({ data: false, error: null });
+      const res = await post({ participantId: P });
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe('forbidden');
+      rls.rpcs.deal_room_can_post = () => ({ data: true, error: null });
+      const other = await post({ participantId: OTHER });
+      expect(other.status).toBe(404);
+      expect(dial).not.toHaveBeenCalled();
+    });
+
+    it('calls a bank officer only while the bank’s guests are on', async () => {
+      const res = await post({ participantId: BANK });
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('bank_guests_off');
+      expect(dial).not.toHaveBeenCalled();
+      service.tables.bank_guest_policies[0].guests_allowed = true;
+      expect((await post({ participantId: BANK })).status).toBe(200);
+      expect(dial).toHaveBeenCalledWith({
+        caller: '201',
+        callee: '971502223333',
+      });
+    });
+
+    it('refuses a do-not-contact number, never naming the hidden reason', async () => {
+      service.tables.deal_room_participants[0].phone = '971509999999';
+      const res = await post({ participantId: P });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({
+        code: 'do_not_contact',
+        reason: null,
+      });
+      service.tables.deal_room_participants[0].phone = '971501112222';
+      service.tables.deal_room_participants[0].contact_id = C2;
+      expect((await post({ participantId: P })).status).toBe(409);
+      expect(dial).not.toHaveBeenCalled();
+    });
+
+    it('refuses someone removed, a closed room, and a mixed body', async () => {
+      service.tables.deal_room_participants[0].status = 'removed';
+      expect((await post({ participantId: P })).status).toBe(409);
+      service.tables.deal_room_participants[0].status = 'joined';
+      service.tables.deal_rooms[0].status = 'closed';
+      expect((await post({ participantId: P })).status).toBe(409);
+      expect((await post({ participantId: P, contactId: C1 })).status).toBe(
+        400
+      );
+      expect(dial).not.toHaveBeenCalled();
+    });
+  });
 });
