@@ -105,7 +105,12 @@ BEGIN
     SELECT k.user_id AS who,
            k.direction AS dir,
            k.disposition AS disp,
-           (k.status = 'answered' OR k.answered_at IS NOT NULL) AS ans,
+           -- answered_at is kept from the live frames even when the final
+           -- status is no_answer / voicemail / busy (answered, then
+           -- transferred to a leg nobody took), so it only counts for a
+           -- call still in progress; else that call was answered AND missed.
+           (k.status = 'answered'
+            OR (k.status = 'in_progress' AND k.answered_at IS NOT NULL)) AS ans,
            (k.direction = 'inbound'
             AND k.status IN ('no_answer', 'busy', 'abandoned', 'voicemail')) AS miss,
            k.talk_seconds AS talk,

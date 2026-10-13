@@ -761,7 +761,8 @@ BEGIN
       (a_acct, conn, 'rp-2', 'inbound', '101', u_agent, 'answered', '2025-01-06 09:00+00', '2025-01-06 09:00:20+00', 50, 20, NULL),
       (a_acct, conn, 'rp-3', 'outbound', '101', u_agent, 'answered', '2025-01-06 10:00+00', '2025-01-06 10:00:05+00', 30, 5, 'call_back'),
       (a_acct, conn, 'rp-4', 'outbound', '101', u_agent, 'no_answer', '2025-01-06 11:00+00', NULL, 0, 25, NULL),
-      (a_acct, conn, 'rp-5', 'inbound', '101', u_agent, 'no_answer', '2025-01-06 12:00+00', NULL, 0, 30, NULL),
+      -- (answered_at set by a live frame, final status no_answer: missed, never answered)
+      (a_acct, conn, 'rp-5', 'inbound', '101', u_agent, 'no_answer', '2025-01-06 12:00+00', '2025-01-06 12:00:08+00', 0, 30, NULL),
       -- a ring group nobody answered: no person
       (a_acct, conn, 'rp-6', 'inbound', '6300', NULL, 'abandoned', '2025-01-06 13:00+00', NULL, 0, 40, NULL),
       -- the other agent, outside the leader's team
