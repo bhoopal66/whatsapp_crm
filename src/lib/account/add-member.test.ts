@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   addOrCreateMember,
   EMAIL_HAS_LOGIN,
+  INVITE_BY_LINK,
   isAddableRole,
 } from './add-member';
 
@@ -35,6 +36,7 @@ function add(overrides: Record<string, unknown> = {}) {
     accountId: 'account-1',
     email: ' Ana@Example.com ',
     role: 'agent',
+    mayCreateLogin: true,
     ...overrides,
   });
 }
@@ -180,6 +182,26 @@ describe('addOrCreateMember', () => {
       expect(deleteUser).not.toHaveBeenCalled();
     }
   );
+
+  // Migration 099: a team leader adds people but never creates a login,
+  // whose password they would choose. The RPC no longer says P0002 to a
+  // leader; this holds even if it did.
+  it('never creates a login for a caller who may not', async () => {
+    callerRpc.mockResolvedValue({ data: null, error: NO_SUCH_USER });
+    const result = await add({
+      mayCreateLogin: false,
+      password: 'correct-horse',
+    });
+    expect(result).toEqual({ ok: false, status: 403, error: INVITE_BY_LINK });
+    expect(createUser).not.toHaveBeenCalled();
+    expect(adminRpc).not.toHaveBeenCalled();
+  });
+
+  it('adds an existing login for a caller who may not create one', async () => {
+    const result = await add({ mayCreateLogin: false });
+    expect(result).toEqual({ ok: true, userId: 'ana', created: false });
+    expect(createUser).not.toHaveBeenCalled();
+  });
 
   it('asks for a password only when the login has to be created', async () => {
     callerRpc.mockResolvedValue({ data: null, error: NO_SUCH_USER });

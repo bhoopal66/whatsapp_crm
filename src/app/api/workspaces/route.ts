@@ -202,6 +202,8 @@ export async function POST(request: Request) {
           admin,
           accountId,
           ...invite,
+          // An admin, who now owns the new workspace.
+          mayCreateLogin: true,
         });
         results.push(
           result.ok

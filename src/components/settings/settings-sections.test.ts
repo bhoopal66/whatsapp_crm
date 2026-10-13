@@ -34,7 +34,6 @@ const ADMIN_ONLY: SettingsSection[] = [
   'fields',
   'journey-bot',
   'workspace',
-  'members',
   'teams',
   'team-chat',
   'consent-retention',
@@ -44,8 +43,10 @@ const ADMIN_ONLY: SettingsSection[] = [
   'deals',
 ];
 
-/** Team leader and up: the phone system's mandatory-outcome switch (097). */
-const LEADER_UP: SettingsSection[] = ['phone-system'];
+// Team leader and up: Members, to add agents and viewers (099; the
+// roster stays admin-only inside the panel), and the phone system's
+// mandatory-outcome switch (097).
+const LEADER_UP: SettingsSection[] = ['members', 'phone-system'];
 
 const OPEN_TO_ALL: SettingsSection[] = [
   'overview',
@@ -73,7 +74,7 @@ describe('canOpenSection', () => {
     }
   });
 
-  it('opens the phone system to leaders (mandatory outcomes), not below', () => {
+  it('opens Members and the phone system to leaders, not below', () => {
     for (const section of LEADER_UP) {
       for (const role of ['owner', 'admin', 'team_leader'] as const)
         expect(canOpenSection(section, role)).toBe(true);
@@ -147,10 +148,11 @@ describe('categories', () => {
     ]);
   });
 
-  it('shows a leader the phone system and the personal sections', () => {
+  it('shows a leader Members, the phone system and the personal sections', () => {
     expect(visibleCategories('team_leader')).toEqual([
       { id: 'overview', sections: ['overview'] },
       { id: 'account', sections: ['profile', 'security', 'appearance'] },
+      { id: 'team', sections: ['members'] },
       { id: 'integrations', sections: ['phone-system'] },
     ]);
   });

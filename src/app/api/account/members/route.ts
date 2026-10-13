@@ -20,30 +20,44 @@
 // this is ever reopened to more roles.
 // ============================================================
 
-import { NextResponse } from "next/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 
 import {
   ADDABLE_ROLES,
   addOrCreateMember,
   isAddableRole,
-} from "@/lib/account/add-member";
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
-import { canManageMembers, isAccountRole } from "@/lib/auth/roles";
-import { serverSupabaseUrl } from "@/lib/supabase/urls";
-import type { AccountMember } from "@/types";
-
+} from '@/lib/account/add-member';
+import {
+  getCurrentAccount,
+  requireRole,
+  toErrorResponse,
+} from '@/lib/auth/account';
+import {
+  canGrantRole,
+  canInviteMembers,
+  canManageMembers,
+  isAccountRole,
+} from '@/lib/auth/roles';
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit';
+import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import type { AccountMember } from '@/types';
 
 /**
  * Service-role client. Creating a login is an admin-API operation and
  * cannot be done with the caller's own token; `add_workspace_member`
- * authorises the caller before `addOrCreateMember` reaches for this.
+ * authorises the caller before `addOrCreateMember` reaches for this,
+ * and only an owner's or admin's call may create a login.
  */
 function supabaseAdmin() {
   return createAdminClient(
     serverSupabaseUrl(),
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
+    { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }
 
@@ -61,7 +75,7 @@ interface ProfileRow {
 
 export async function GET() {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireRole('admin');
 
     // RLS on profiles allows reading any row whose account matches
     // the caller's, so this query is naturally account-scoped; since
@@ -72,16 +86,16 @@ export async function GET() {
     // `bank_code` yet) still answers: naming a missing column fails the
     // whole select. The mapping below picks the fields that are returned.
     const { data, error } = await ctx.supabase
-      .from("profiles")
-      .select("*")
-      .eq("account_id", ctx.accountId)
-      .order("created_at", { ascending: true });
+      .from('profiles')
+      .select('*')
+      .eq('account_id', ctx.accountId)
+      .order('created_at', { ascending: true });
 
     if (error) {
-      console.error("[GET /api/account/members] fetch error:", error);
+      console.error('[GET /api/account/members] fetch error:', error);
       return NextResponse.json(
-        { error: "Failed to load members" },
-        { status: 500 },
+        { error: 'Failed to load members' },
+        { status: 500 }
       );
     }
 
@@ -95,7 +109,7 @@ export async function GET() {
       return [
         {
           user_id: row.user_id,
-          full_name: row.full_name ?? "",
+          full_name: row.full_name ?? '',
           email: canSeeEmails ? row.email : null,
           avatar_url: row.avatar_url,
           role: row.account_role,
@@ -117,33 +131,67 @@ export async function GET() {
 //
 // Add a person to the caller's workspace, with their role chosen up
 // front: one of `ASSIGNABLE_ROLES`, or `bank_guest` with a `bankCode`.
-// There is no self-service signup, so an admin adding them is the ONLY
-// way in.
+// There is no self-service signup, so someone adding them is the ONLY
+// way in: an owner or admin with any of those roles, or (migration 099)
+// a team leader with an agent or viewer role (`canGrantRole`).
+// `add_workspace_member` applies the same rule.
 //
 // Body: { email, role, full_name?, password?, bankCode? }. Since
 // migration 083 the email decides what happens (`addOrCreateMember`):
 // an existing login gets a row here and needs no password; a new one
 // is created with `password` and moved in. 201 { member, created }.
+//
+// Only an owner or admin creates a login (`mayCreateLogin`): whoever
+// does chooses its password and claims its address. A team leader adds
+// an existing login (083's rule: someone they administer elsewhere) and
+// invites anyone else by link; `add_workspace_member` never answers
+// them the P0002 that leads to the service-role provision (099).
 // ============================================================
 export async function POST(request: Request) {
   try {
-    // Same gate as the rest of the Members tab.
-    const ctx = await requireRole("admin");
+    const ctx = await getCurrentAccount();
+    if (!canInviteMembers(ctx.role)) {
+      return NextResponse.json(
+        { error: 'Adding people requires the team leader role or higher' },
+        { status: 403 }
+      );
+    }
+
+    // 30/min per user, as for invite links: a script in a loop or a
+    // compromised session cannot add people, or create logins, without
+    // bound.
+    const limit = checkRateLimit(
+      `admin:memberAdd:${ctx.userId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!limit.success) return rateLimitResponse(limit);
 
     const body = await request.json().catch(() => ({}));
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body.password === "string" ? body.password : "";
-    const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
-    const bankCode = typeof body.bankCode === "string" ? body.bankCode.trim() : "";
+    const email =
+      typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const fullName =
+      typeof body.full_name === 'string' ? body.full_name.trim() : '';
+    const bankCode =
+      typeof body.bankCode === 'string' ? body.bankCode.trim() : '';
     const role = body.role;
 
-    if (!email || !email.includes("@")) {
-      return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
+    if (!email || !email.includes('@')) {
+      return NextResponse.json(
+        { error: 'A valid email is required' },
+        { status: 400 }
+      );
     }
     if (!isAddableRole(role)) {
       return NextResponse.json(
-        { error: `Role must be one of: ${ADDABLE_ROLES.join(", ")}` },
-        { status: 400 },
+        { error: `Role must be one of: ${ADDABLE_ROLES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+    if (!canGrantRole(ctx.role, role)) {
+      return NextResponse.json(
+        { error: 'A team leader can add agents and viewers only' },
+        { status: 403 }
       );
     }
 
@@ -156,9 +204,13 @@ export async function POST(request: Request) {
       bankCode: bankCode || null,
       password,
       fullName,
+      mayCreateLogin: canManageMembers(ctx.role),
     });
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json(
+        { error: result.error },
+        { status: result.status }
+      );
     }
 
     let member: AccountMember = {
@@ -169,23 +221,23 @@ export async function POST(request: Request) {
       role,
       joined_at: new Date().toISOString(),
       deactivated_at: null,
-      bank_code: role === "bank_guest" ? bankCode : null,
+      bank_code: role === 'bank_guest' ? bankCode : null,
     };
 
     if (!result.created) {
       // An existing login brings the name and avatar of its other
       // workspaces: read the row add_workspace_member just made.
       const { data: row } = await ctx.supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", result.userId)
-        .eq("account_id", ctx.accountId)
+        .from('profiles')
+        .select('*')
+        .eq('user_id', result.userId)
+        .eq('account_id', ctx.accountId)
         .maybeSingle();
       if (row) {
         const profile = row as ProfileRow;
         member = {
           ...member,
-          full_name: profile.full_name ?? "",
+          full_name: profile.full_name ?? '',
           email: profile.email ?? email,
           avatar_url: profile.avatar_url,
           joined_at: profile.created_at,
@@ -193,7 +245,10 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ member, created: result.created }, { status: 201 });
+    return NextResponse.json(
+      { member, created: result.created },
+      { status: 201 }
+    );
   } catch (err) {
     return toErrorResponse(err);
   }

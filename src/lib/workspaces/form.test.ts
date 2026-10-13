@@ -218,6 +218,7 @@ describe('isNoLoginError', () => {
       accountId: 'acc-1',
       email: 'new@taamul.ae',
       role: 'agent',
+      mayCreateLogin: true,
     });
     expect(result.ok).toBe(false);
     expect(!result.ok && isNoLoginError(result.error)).toBe(true);

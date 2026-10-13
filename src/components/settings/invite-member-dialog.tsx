@@ -38,9 +38,15 @@ import {
 } from '@/components/ui/select';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
-import { ASSIGNABLE_ROLES, type AssignableRole } from '@/lib/auth/roles';
+import {
+  ASSIGNABLE_ROLES,
+  canGrantRole,
+  grantableRoles,
+  type AssignableRole,
+} from '@/lib/auth/roles';
 
-/** Any role but owner — the same list as creating a login. */
+/** Any role but owner — the same list as creating a login, narrowed to
+ *  what the caller may grant (a team leader: agent, viewer; 099). */
 type InviteRole = AssignableRole;
 
 interface InviteMemberDialogProps {
@@ -78,7 +84,9 @@ export function InviteMemberDialog({
 }: InviteMemberDialogProps) {
   const t = useTranslations('Settings.invite');
   const tRoles = useTranslations('Settings.roles');
-  const { account } = useAuth();
+  const { account, accountRole } = useAuth();
+  const roles = grantableRoles(accountRole, ASSIGNABLE_ROLES);
+  const mayAddGuests = !!accountRole && canGrantRole(accountRole, 'bank_guest');
   const [role, setRole] = useState<InviteRole>('agent');
   const [expiry, setExpiry] = useState<string>('7');
   const [label, setLabel] = useState('');
@@ -287,7 +295,7 @@ export function InviteMemberDialog({
                     <SelectValue>{tRoles(role)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {ASSIGNABLE_ROLES.map((r) => (
+                    {roles.map((r) => (
                       <SelectItem key={r} value={r}>
                         {tRoles(r)}
                       </SelectItem>
@@ -298,10 +306,13 @@ export function InviteMemberDialog({
                   {tRoles(`${role}Hint`)}
                 </p>
                 {/* redeem_invitation refuses a guest: a guest row needs
-                    a bank code, which an invitation does not carry. */}
-                <p className="text-muted-foreground text-xs">
-                  {t('bankGuestHint')}
-                </p>
+                    a bank code, which an invitation does not carry. A
+                    team leader adds no guests at all (099). */}
+                {mayAddGuests && (
+                  <p className="text-muted-foreground text-xs">
+                    {t('bankGuestHint')}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">

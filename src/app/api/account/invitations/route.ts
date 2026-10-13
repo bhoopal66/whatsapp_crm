@@ -4,9 +4,14 @@
 //   GET  — list outstanding (un-redeemed, non-expired) invites.
 //   POST — create a new invite link.
 //
-// Both admin+. The list endpoint is what the Members tab uses to
-// populate the "Pending invitations" section; create is what the
-// "Invite member" dialog calls.
+// Both team leader and up (migration 099). The list endpoint is what
+// the Members tab uses to populate the "Pending invitations" section;
+// create is what the "Invite member" dialog calls. An owner or admin
+// invites with any role and lists every link; a team leader invites
+// agents and viewers only (`canGrantRole`) and lists only the links
+// they made: 099's RLS policies hold both, since `redeem_invitation`
+// takes the token's hash and so a readable `token_hash` is a usable
+// link.
 //
 // IMPORTANT: the plaintext token is returned exactly ONCE — in
 // the POST response. We store only the SHA-256 hash on the row,
@@ -19,14 +24,18 @@
 
 import { NextResponse } from "next/server";
 
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
 import {
   clampExpiryDays,
   generateInviteToken,
   inviteExpiresAt,
   inviteUrl,
 } from "@/lib/auth/invitations";
-import { isAccountRole } from "@/lib/auth/roles";
+import {
+  canGrantRole,
+  canInviteMembers,
+  isAccountRole,
+} from "@/lib/auth/roles";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -142,9 +151,14 @@ function getBaseUrl(request: Request): string {
 
 const MAX_LABEL_LEN = 80;
 
+const INVITERS_ONLY = "Inviting people requires the team leader role or higher";
+
 export async function GET() {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await getCurrentAccount();
+    if (!canInviteMembers(ctx.role)) {
+      return NextResponse.json({ error: INVITERS_ONLY }, { status: 403 });
+    }
 
     const { data, error } = await ctx.supabase
       .from("account_invitations")
@@ -172,7 +186,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await getCurrentAccount();
+    if (!canInviteMembers(ctx.role)) {
+      return NextResponse.json({ error: INVITERS_ONLY }, { status: 403 });
+    }
 
     // 30/min per user. The Members tab is a clicks-only UI so any
     // legitimate admin is far below this; the cap exists to keep
@@ -196,6 +213,12 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "'role' must be one of admin, team_leader, agent, viewer" },
         { status: 400 },
+      );
+    }
+    if (!canGrantRole(ctx.role, role)) {
+      return NextResponse.json(
+        { error: "A team leader can invite agents and viewers only" },
+        { status: 403 },
       );
     }
 

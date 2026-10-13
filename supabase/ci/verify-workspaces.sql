@@ -1,4 +1,4 @@
--- Behavioural regression suite for workspaces (migrations 082, 083).
+-- Behavioural regression suite for workspaces (migrations 082, 083, 099).
 --
 -- A person now has one profiles row per account they belong to, and
 -- exactly one of them is_active: the workspace they are working in.
@@ -16,6 +16,12 @@
 -- email. And that a person deactivated in one workspace and live in
 -- another reads none of the first's notifications, gets none of its
 -- team-activity alerts, and cannot approve or retire its AI policies.
+-- And (099) that a team leader adds agents and viewers, by email and by
+-- invite link, and nothing else: no other role, no new login, no roster
+-- change, no one else's links (a DELETE with no WHERE included); that an
+-- agent adds nobody; that a leader of another workspace writes no link
+-- into this one; and that a link stops working when its creator may no
+-- longer grant its role.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -502,10 +508,11 @@ BEGIN
       END;
     END LOOP;
 
-    -- redeem_invitation by a member of B.
-    INSERT INTO account_invitations (account_id, token_hash, role, expires_at) VALUES
-      (a_acct, 'ws-083-invite-1', 'agent', now() + interval '1 day'),
-      (a_acct, 'ws-083-invite-2', 'agent', now() + interval '1 day');
+    -- redeem_invitation by a member of B. The links are A's admin's:
+    -- since 099 a link with no creator who may grant it is refused.
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES
+      (a_acct, 'ws-083-invite-1', 'agent', u_ad, now() + interval '1 day'),
+      (a_acct, 'ws-083-invite-2', 'agent', u_ad, now() + interval '1 day');
     SELECT count(*) INTO acct_n FROM accounts;
     r := pg_temp.ws_val(u_r, 'SELECT public.redeem_invitation(''ws-083-invite-1'')::text');
     n := n + 1;
@@ -771,6 +778,186 @@ BEGIN
     n := n + 1;
     IF r NOT LIKE 'ERROR 42501:%' OR (SELECT status FROM ts_policy WHERE id = pol_b) <> 'active' THEN
       failed := array_append(failed, ('ts_retire_policy by an admin deactivated in B: ' || r)::text);
+    END IF;
+  END;
+
+  -- ---------- 14. a team leader adds agents and viewers (099) ----------
+  -- L leads in A (active) and owns a workspace of their own, P, where T1
+  -- and T2 work: people L administers elsewhere, so add_workspace_member
+  -- may bring them in. LB leads in B; AG is an agent in A.
+  DECLARE
+    u_l   UUID := '00000000-0000-4000-8000-000000099001';  -- team leader in A (active), owner of P
+    u_t1  UUID := '00000000-0000-4000-8000-000000099002';  -- agent in P only
+    u_t2  UUID := '00000000-0000-4000-8000-000000099003';  -- agent in P only
+    u_lb  UUID := '00000000-0000-4000-8000-000000099004';  -- team leader in B (active)
+    u_ag  UUID := '00000000-0000-4000-8000-000000099005';  -- agent in A (active)
+    u_r1  UUID := '00000000-0000-4000-8000-000000099006';  -- new login, redeems links to A
+    u_r2  UUID := '00000000-0000-4000-8000-000000099007';  -- new login, redeems links to A
+    u_r3  UUID := '00000000-0000-4000-8000-000000099008';  -- new login, refused every link
+    p_l   UUID;
+    ins   TEXT := 'INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES ';
+  BEGIN
+    INSERT INTO auth.users (id, email) VALUES
+      (u_l, 'ldinv-l@example.invalid'), (u_t1, 'ldinv-t1@example.invalid'),
+      (u_t2, 'ldinv-t2@example.invalid'), (u_lb, 'ldinv-lb@example.invalid'),
+      (u_ag, 'ldinv-ag@example.invalid');
+    SELECT account_id INTO p_l FROM profiles WHERE user_id = u_l;
+    UPDATE profiles SET is_active = false WHERE user_id = u_l;
+    INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+    VALUES (u_l, '', 'ldinv-l@example.invalid', a_acct, 'team_leader', true);
+    UPDATE profiles SET account_id = p_l, account_role = 'agent' WHERE user_id IN (u_t1, u_t2);
+    UPDATE profiles SET account_id = b_acct, account_role = 'team_leader' WHERE user_id = u_lb;
+    UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_ag;
+
+    -- Any other role is 42501, decided before the email is looked up: an
+    -- unknown address asked for as admin must not answer P0002, on which
+    -- the members API would create the login with the service role.
+    FOR i IN 1..5 LOOP
+      DECLARE
+        args TEXT := CASE i WHEN 1 THEN '''ldinv-t1@example.invalid'', ''admin'''
+                            WHEN 2 THEN '''ldinv-t1@example.invalid'', ''team_leader'''
+                            WHEN 3 THEN '''ldinv-t1@example.invalid'', ''bank_guest'', ''ADIB'''
+                            WHEN 4 THEN '''ldinv-t1@example.invalid'', ''owner'''
+                            ELSE '''ldinv-nobody@example.invalid'', ''admin''' END;
+      BEGIN
+        r := pg_temp.ws_try('authenticated', u_l, 'SELECT public.add_workspace_member(' || args || ')');
+        n := n + 1;
+        IF r NOT LIKE 'ERROR 42501:%' OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_t1 AND account_id = a_acct) THEN
+          failed := array_append(failed, ('leader add_workspace_member(' || args || '): want 42501, got ' || r)::text);
+        END IF;
+      END;
+    END LOOP;
+    r := pg_temp.ws_val(u_l, 'SELECT public.add_workspace_member(''ldinv-t1@example.invalid'', ''agent'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM u_t1::text
+       OR (SELECT account_role || '/' || is_active FROM profiles WHERE user_id = u_t1 AND account_id = a_acct)
+          IS DISTINCT FROM 'agent/false' THEN
+      failed := array_append(failed, ('leader adds an agent: ' || r)::text);
+    END IF;
+    r := pg_temp.ws_val(u_l, 'SELECT public.add_workspace_member(''ldinv-t2@example.invalid'', ''viewer'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM u_t2::text
+       OR (SELECT account_role || '/' || is_active FROM profiles WHERE user_id = u_t2 AND account_id = a_acct)
+          IS DISTINCT FROM 'viewer/false' THEN
+      failed := array_append(failed, ('leader adds a viewer: ' || r)::text);
+    END IF;
+    -- An unknown address, or a login L does not administer anywhere, as
+    -- an agent: one 42501, never the P0002 on which the members API
+    -- creates the login with a password the caller chose.
+    r := pg_temp.ws_try('authenticated', u_l, 'SELECT public.add_workspace_member(''ldinv-nobody@example.invalid'', ''agent'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%'
+       OR r IS DISTINCT FROM pg_temp.ws_try('authenticated', u_l, 'SELECT public.add_workspace_member(''ldinv-lb@example.invalid'', ''agent'')') THEN
+      failed := array_append(failed, ('leader adds an unknown address / a login they do not administer (want one 42501, never P0002): ' || r)::text);
+    END IF;
+    -- The roster stays the admins': no role change, deactivation or removal.
+    r := pg_temp.ws_try('authenticated', u_l, format('SELECT public.set_member_role(%L, ''viewer'')', u_t1))
+      || ' | ' || pg_temp.ws_try('authenticated', u_l, format('SELECT public.set_member_active(%L, false)', u_t1))
+      || ' | ' || pg_temp.ws_try('authenticated', u_l, format('SELECT public.remove_account_member(%L)', u_t1));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% | ERROR 42501:% | ERROR 42501:%'
+       OR (SELECT account_role || '/' || (deactivated_at IS NULL) FROM profiles WHERE user_id = u_t1 AND account_id = a_acct)
+          IS DISTINCT FROM 'agent/true' THEN
+      failed := array_append(failed, ('leader changes a role / deactivates / removes (want 42501 x3): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_ag, 'SELECT public.add_workspace_member(''ldinv-t2@example.invalid'', ''viewer'')');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' THEN
+      failed := array_append(failed, ('agent adds a viewer: ' || r)::text);
+    END IF;
+
+    -- Invite links: a leader writes agent/viewer links of their active
+    -- workspace, in their own name, for at most the API's 365 days.
+    r := pg_temp.ws_try('authenticated', u_l, ins || format('(%L, ''ldinv-own'', ''viewer'', %L, now() + interval ''30 days'')', a_acct, u_l));
+    n := n + 1;
+    IF r <> 'ok' THEN
+      failed := array_append(failed, ('leader invites a viewer: ' || r)::text);
+    END IF;
+    FOR i IN 1..8 LOOP
+      DECLARE
+        who  UUID := CASE i WHEN 7 THEN u_lb WHEN 8 THEN u_ag ELSE u_l END;
+        vals TEXT := CASE i
+          WHEN 1 THEN format('(%L, ''ldinv-x'', ''admin'', %L, now() + interval ''1 day'')', a_acct, u_l)
+          WHEN 2 THEN format('(%L, ''ldinv-x'', ''team_leader'', %L, now() + interval ''1 day'')', a_acct, u_l)
+          WHEN 3 THEN format('(%L, ''ldinv-x'', ''bank_guest'', %L, now() + interval ''1 day'')', a_acct, u_l)
+          WHEN 4 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', a_acct, u_ad)
+          WHEN 5 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''400 days'')', a_acct, u_l)
+          WHEN 6 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', b_acct, u_l)
+          WHEN 7 THEN format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', a_acct, u_lb)
+          ELSE format('(%L, ''ldinv-x'', ''agent'', %L, now() + interval ''1 day'')', a_acct, u_ag) END;
+      BEGIN
+        r := pg_temp.ws_try('authenticated', who, ins || vals);
+        n := n + 1;
+        IF r NOT LIKE 'ERROR 42501:%' THEN
+          failed := array_append(failed, ('invite link ' || i || ' ' || vals || ': want 42501, got ' || r)::text);
+        END IF;
+      END;
+    END LOOP;
+    -- Their own links only: an admin's, and its token_hash (which
+    -- redeem_invitation takes), stay out of reach. No UPDATE at all.
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES
+      (a_acct, 'ldinv-admin', 'agent', u_ad, now() + interval '1 day'),
+      (a_acct, 'ldinv-own-2', 'agent', u_l, now() + interval '1 day');
+    r := pg_temp.ws_val(u_l, 'SELECT string_agg(token_hash, '','' ORDER BY token_hash) FROM account_invitations');
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ldinv-own,ldinv-own-2' THEN
+      failed := array_append(failed, ('leader reads invite links (want only their own): ' || r)::text);
+    END IF;
+    r := pg_temp.ws_try('authenticated', u_l, 'UPDATE account_invitations SET role = ''admin''')
+      || ' | ' || pg_temp.ws_try('authenticated', u_l, 'DELETE FROM account_invitations WHERE token_hash IN (''ldinv-admin'', ''ldinv-own-2'')');
+    n := n + 1;
+    IF r <> 'ok | ok'
+       OR (SELECT string_agg(token_hash || '/' || role, ',' ORDER BY token_hash) FROM account_invitations
+            WHERE token_hash LIKE 'ldinv-%') IS DISTINCT FROM 'ldinv-admin/agent,ldinv-own/viewer' THEN
+      failed := array_append(failed, ('leader updates / revokes invite links (want only their own revoked): ' || r)::text);
+    END IF;
+    -- A DELETE with no WHERE: no SELECT policy narrows it, so the DELETE
+    -- policy alone must keep it to L's own agent/viewer links of their
+    -- active workspace. Not another leader's, not L's admin link (made
+    -- while an admin, say), not L's link in a workspace they are not in.
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES
+      (a_acct, 'ldinv-del-own', 'agent', u_l, now() + interval '1 day'),
+      (a_acct, 'ldinv-del-lb', 'agent', u_lb, now() + interval '1 day'),
+      (a_acct, 'ldinv-del-adm', 'admin', u_l, now() + interval '1 day'),
+      (b_acct, 'ldinv-del-b', 'agent', u_l, now() + interval '1 day');
+    r := pg_temp.ws_try('authenticated', u_l, 'DELETE FROM account_invitations');
+    n := n + 1;
+    IF r <> 'ok'
+       OR (SELECT string_agg(token_hash, ',' ORDER BY token_hash) FROM account_invitations
+            WHERE token_hash LIKE 'ldinv-%') IS DISTINCT FROM 'ldinv-admin,ldinv-del-adm,ldinv-del-b,ldinv-del-lb' THEN
+      failed := array_append(failed, ('leader DELETE with no WHERE (want only their own agent/viewer links of A gone): ' || r)::text);
+    END IF;
+
+    -- redeem_invitation re-checks the creator. An admin's link and a
+    -- leader's agent link work; a leader's admin link, a link whose
+    -- creator has no row in A, and a demoted leader's link answer as an
+    -- expired link would, and nobody joins.
+    INSERT INTO auth.users (id, email) VALUES
+      (u_r1, 'ldinv-r1@example.invalid'), (u_r2, 'ldinv-r2@example.invalid'),
+      (u_r3, 'ldinv-r3@example.invalid');
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at) VALUES
+      (a_acct, 'ldinv-rd-l', 'agent', u_l, now() + interval '1 day'),
+      (a_acct, 'ldinv-rd-l2', 'viewer', u_l, now() + interval '1 day');
+    r := pg_temp.ws_val(u_r1, 'SELECT public.redeem_invitation(''ldinv-admin'')::text')
+      || ' | ' || pg_temp.ws_val(u_r2, 'SELECT public.redeem_invitation(''ldinv-rd-l'')::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM a_acct || ' | ' || a_acct
+       OR (SELECT string_agg(account_role::text, ',' ORDER BY user_id) FROM profiles
+            WHERE user_id IN (u_r1, u_r2) AND account_id = a_acct) IS DISTINCT FROM 'agent,agent' THEN
+      failed := array_append(failed, ('redeem an admin''s link / a leader''s agent link (want both joined): ' || r)::text);
+    END IF;
+    -- While L still leads: their admin link, and LB's link (no row in A).
+    r := pg_temp.ws_try('authenticated', u_r3, 'SELECT public.redeem_invitation(''ldinv-del-adm'')')
+      || ' | ' || pg_temp.ws_try('authenticated', u_r3, 'SELECT public.redeem_invitation(''ldinv-del-lb'')');
+    -- L demoted to agent: their viewer link, valid a moment ago, is dead.
+    UPDATE profiles SET account_role = 'agent' WHERE user_id = u_l AND account_id = a_acct;
+    r := r || ' | ' || pg_temp.ws_try('authenticated', u_r3, 'SELECT public.redeem_invitation(''ldinv-rd-l2'')');
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ERROR 22023: Invitation has expired | ERROR 22023: Invitation has expired | ERROR 22023: Invitation has expired'
+       OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_r3 AND account_id = a_acct)
+       OR EXISTS (SELECT 1 FROM account_invitations
+                   WHERE token_hash IN ('ldinv-del-adm', 'ldinv-del-lb', 'ldinv-rd-l2') AND accepted_at IS NOT NULL) THEN
+      failed := array_append(failed, ('redeem a demoted leader''s / a leader''s admin / a non-member''s link (want 22023 expired x3): ' || r)::text);
     END IF;
   END;
 
