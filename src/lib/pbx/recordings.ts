@@ -16,6 +16,12 @@ import { YeastarError } from './yeastar/errors';
  * never fetched later, also once storing is switched back on. Nothing
  * on the PBX changes; it keeps recording.
  *
+ * Past the retention period (migration 093): a pending call already
+ * older than its workspace's period is marked `not_stored` the same
+ * way, before any contact with the PBX, because the retention run that
+ * follows would delete the copy at once. The age is the SQL rule's
+ * ({@link retentionAgeFrom}); the PBX keeps its own copy.
+ *
  * One download at a time: with the MP3 format the PBX serves one
  * recording download at once and answers 70651 to a second, so a busy
  * answer ends the run and the next run retries. Any other failure
@@ -35,6 +41,41 @@ import { YeastarError } from './yeastar/errors';
 
 export const RECORDING_BUCKET = 'call-recordings';
 export const MAX_RECORDING_ATTEMPTS = 5;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Where a call's age starts for the retention period (ms): the later of
+ * its start time as the PBX reported it and the CRM's own first record
+ * of it (calls.created_at), so a wrong PBX clock cannot age a fresh
+ * call. pbx_recording_age_from() (migration 093) is the SQL rule:
+ * change both. Null when neither time reads.
+ */
+export function retentionAgeFrom(
+  startedAt: unknown,
+  createdAt: unknown
+): number | null {
+  const times = [startedAt, createdAt]
+    .map((v) => (typeof v === 'string' ? Date.parse(v) : NaN))
+    .filter(Number.isFinite);
+  return times.length ? Math.max(...times) : null;
+}
+
+/**
+ * The call is already older than a retention period of `days` (null:
+ * none): pbx_expire_recordings' test, with days of 24 hours as in the
+ * database's UTC. An unreadable age is not past: the fetch goes ahead
+ * and the retention run decides.
+ */
+export function pastRetention(
+  call: { started_at?: unknown; created_at?: unknown },
+  days: number | null,
+  nowMs: number
+): boolean {
+  if (days === null) return false;
+  const from = retentionAgeFrom(call.started_at, call.created_at);
+  return from !== null && from < nowMs - days * DAY_MS;
+}
 
 type Row = Record<string, unknown>;
 type FetchFn = (url: string) => Promise<Response>;
@@ -60,6 +101,8 @@ export interface RecordingsSummary {
   busy: boolean;
   /** Marked `not_stored`: the workspace paused storing recordings. */
   notStored: number;
+  /** Marked `not_stored` undownloaded: already past the retention period. */
+  pastRetention: number;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -105,11 +148,14 @@ export async function fetchPendingRecordings(
     skipped: 0,
     busy: false,
     notStored: 0,
+    pastRetention: 0,
   };
 
   const { data, error } = await db
     .from('calls')
-    .select('id, account_id, connection_id, recording_file, meta')
+    .select(
+      'id, account_id, connection_id, recording_file, meta, started_at, created_at'
+    )
     .eq('recording_state', 'pending')
     .order('updated_at', { ascending: true })
     .limit(limit);
@@ -117,7 +163,10 @@ export async function fetchPendingRecordings(
 
   const handles = new Map<string, PbxHandle | null>();
   const required = new Map<string, boolean>();
-  const storing = new Map<string, boolean>();
+  const storing = new Map<
+    string,
+    { store: boolean; retentionDays: number | null }
+  >();
 
   async function handleFor(connectionId: string): Promise<PbxHandle | null> {
     if (!handles.has(connectionId)) {
@@ -146,17 +195,24 @@ export async function fetchPendingRecordings(
     return required.get(accountId)!;
   }
 
-  /** pbx_settings.store_recordings (090); no row stores. */
-  async function storeRecordings(accountId: string): Promise<boolean> {
+  /**
+   * pbx_settings.store_recordings (090) and retention_days (093); no
+   * row stores and keeps.
+   */
+  async function storage(accountId: string) {
     if (!storing.has(accountId)) {
       const s = await db
         .from('pbx_settings')
-        .select('store_recordings')
+        .select('store_recordings, retention_days')
         .eq('account_id', accountId)
         .maybeSingle();
       if (s.error) throw new Error(`pbx_settings read: ${s.error.message}`);
-      const v = (s.data as Row | null)?.store_recordings;
-      storing.set(accountId, v !== false);
+      const row = s.data as Row | null;
+      const days = row?.retention_days;
+      storing.set(accountId, {
+        store: row?.store_recordings !== false,
+        retentionDays: typeof days === 'number' && days > 0 ? days : null,
+      });
     }
     return storing.get(accountId)!;
   }
@@ -169,15 +225,20 @@ export async function fetchPendingRecordings(
     const file =
       typeof call.recording_file === 'string' ? call.recording_file : '';
     try {
-      // Paused: settle the call without contacting the PBX.
-      if (!(await storeRecordings(accountId))) {
+      // Paused, or already past the retention period: settle the call
+      // without contacting the PBX.
+      const kept = await storage(accountId);
+      const tooOld =
+        kept.store && pastRetention(call, kept.retentionDays, now());
+      if (!kept.store || tooOld) {
         const skip = await db
           .from('calls')
           .update({ recording_state: 'not_stored' })
           .eq('id', callId)
           .eq('recording_state', 'pending');
         if (skip.error) throw new Error(`calls update: ${skip.error.message}`);
-        summary.notStored++;
+        if (tooOld) summary.pastRetention++;
+        else summary.notStored++;
         continue;
       }
       if (!call.connection_id) throw new Error('the call has no PBX');

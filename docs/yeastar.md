@@ -77,7 +77,10 @@ One PBX can serve several workspaces.
   later of its start time as the PBX reported it and the moment the CRM
   first recorded the call: never from the day the audio was copied, so
   a late download never lengthens its life, and a PBX clock that is
-  wrong cannot make a fresh call look old and delete its audio at once. Only the audio goes: the call,
+  wrong cannot make a fresh call look old and delete its audio at once.
+  A recording not yet copied whose call is already past the period is
+  never downloaded: the call is marked *not stored in the CRM*, and the
+  PBX keeps its own copy. Only the audio goes: the call,
   its notes and its outcome stay, and the customer page says the
   recording was deleted under the retention period. The PBX's own
   copies are not touched. The recording row is marked deleted first

@@ -10,7 +10,11 @@ import type { PbxHandle } from '../connection';
 import { PbxConnectionError } from '../connection';
 import { retryFailedPbxEvents } from '../housekeeping';
 import { ingestPbxEvent } from '../process';
-import { fetchPendingRecordings } from '../recordings';
+import {
+  fetchPendingRecordings,
+  pastRetention,
+  retentionAgeFrom,
+} from '../recordings';
 import { YeastarError } from '../yeastar/errors';
 import { createFakeDb, type FakeDb, type Row } from './fake-db';
 
@@ -208,6 +212,78 @@ describe('fetchPendingRecordings', () => {
     expect(apiFor).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
     expect(fake.tables.call_recordings ?? []).toHaveLength(0);
+  });
+
+  it('never downloads audio already past the retention period', async () => {
+    const ago = (days: number) =>
+      new Date(DAY - days * 86_400_000).toISOString();
+    fake = createFakeDb({
+      calls: [
+        // 40 days old by both clocks: past a 30-day period.
+        { ...call('k1'), started_at: ago(40), created_at: ago(40) },
+        // The PBX says 40 days, the CRM heard of it today: kept.
+        { ...call('k2'), started_at: ago(40), created_at: ago(0) },
+        // Another workspace, no period.
+        {
+          ...call('k3'),
+          account_id: 'acc-2',
+          started_at: ago(40),
+          created_at: ago(40),
+        },
+      ],
+      pbx_settings: [
+        { account_id: A, retention_days: 30 },
+        { account_id: 'acc-2', retention_days: null },
+      ],
+    });
+    const asked: unknown[] = [];
+    const out = await fetchPendingRecordings({
+      db: fake.db,
+      now: () => DAY,
+      apiFor: handle({
+        recordingDownloadUrl: async (ref: unknown) => {
+          asked.push(ref);
+          return 'https://pbx/dl';
+        },
+      }),
+      fetch: async () => audio(),
+    });
+    expect(out).toMatchObject({
+      pastRetention: 1,
+      notStored: 0,
+      fetched: 2,
+      failed: 0,
+    });
+    expect(asked).toEqual([{ file: 'k2.mp3' }, { file: 'k3.mp3' }]);
+    expect(fake.tables.calls.find((c) => c.id === 'k1')).toMatchObject({
+      recording_state: 'not_stored',
+      meta: {},
+    });
+    expect(
+      (fake.tables.call_recordings ?? []).map((r) => r.call_id).sort()
+    ).toEqual(['k2', 'k3']);
+  });
+
+  it('ages a call from the later of the PBX start and the CRM record', () => {
+    const t = (iso: string) => Date.parse(iso);
+    expect(
+      retentionAgeFrom('2026-01-02T00:00:00Z', '2026-10-12T00:00:00Z')
+    ).toBe(t('2026-10-12T00:00:00Z'));
+    expect(
+      retentionAgeFrom('2026-10-12T00:00:00Z', '2026-10-11T00:00:00Z')
+    ).toBe(t('2026-10-12T00:00:00Z'));
+    expect(retentionAgeFrom(undefined, 'x')).toBeNull();
+    const old = {
+      started_at: '2026-09-01T00:00:00Z',
+      created_at: '2026-09-01T00:00:00Z',
+    };
+    const now = t('2026-10-12T00:00:00Z');
+    expect(pastRetention(old, 30, now)).toBe(true);
+    // Exactly 41 days old: not older than 41 days (SQL's strict <).
+    expect(pastRetention(old, 40, now)).toBe(true);
+    expect(pastRetention(old, 41, now)).toBe(false);
+    expect(pastRetention(old, null, now)).toBe(false);
+    expect(pastRetention({}, 1, now)).toBe(false);
   });
 
   it('skips a connection in auth backoff', async () => {
