@@ -140,6 +140,22 @@ describe('ingestPbxEvent', () => {
       last_event_at: NOW,
       status: 'connected',
     });
+    // No path given (the retry sweep): the stored one is left alone.
+    expect(fake.tables.pbx_connections[0]).not.toHaveProperty('last_event_via');
+  });
+
+  it('stamps the path that carried the event', async () => {
+    await ingestPbxEvent({
+      db: fake.db,
+      connectionId: 'c1',
+      payload: ring('call-1', [inbound('ALERT')]),
+      receivedAt: NOW,
+      via: 'gateway',
+    });
+    expect(fake.tables.pbx_connections[0]).toMatchObject({
+      last_event_at: NOW,
+      last_event_via: 'gateway',
+    });
   });
 
   it('an inbound ring pops for the ringing people, with the routed contact', async () => {

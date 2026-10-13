@@ -2,7 +2,10 @@
 // /api/pbx/connection — the workspace's Yeastar PBX (migration 089)
 //
 //   GET — non-secret fields, which secrets are set, the webhook URL to
-//         paste into Yeastar, mapped-extension and softphone counts.
+//         paste into Yeastar, mapped-extension and softphone counts, and
+//         the Events card's facts (migration 104): the path of the
+//         latest event, the latest backfill, and how many API tokens
+//         the CRM holds (0 or 1: one cached token shared by everyone).
 //   PUT — { label, edition, baseUrl, apiPath?, clientId?, clientSecret?,
 //         sdkAccessId?, sdkAccessKey?, webhookSecret? }. Creates or
 //         updates. An omitted secret keeps the stored one, and so does
@@ -24,6 +27,7 @@ import {
   pbxWebhookUrl,
   type OwnConnectionRow,
 } from '@/lib/pbx/admin';
+import { openCachedTokens } from '@/lib/pbx/token-cache';
 import { decrypt, encrypt } from '@/lib/whatsapp/encryption';
 
 const EDITIONS = ['cloud', 'software', 'appliance'] as const;
@@ -103,7 +107,7 @@ async function describe(db: SupabaseClient, c: OwnConnectionRow, url: string) {
     db
       .from('pbx_connection_secrets')
       .select(
-        'client_secret_enc, sdk_access_id_enc, sdk_access_key_enc, webhook_secret_enc'
+        'client_secret_enc, sdk_access_id_enc, sdk_access_key_enc, webhook_secret_enc, token_cache_enc'
       )
       .eq('connection_id', c.id)
       .maybeSingle(),
@@ -121,6 +125,11 @@ async function describe(db: SupabaseClient, c: OwnConnectionRow, url: string) {
   ]);
   const set = (k: string) =>
     Boolean((s as Record<string, unknown> | null)?.[k]);
+  // Yeastar counts live access tokens (8 per API application); the CRM
+  // keeps one, shared by every process and person (token-cache.ts).
+  const cached = openCachedTokens(
+    (s as { token_cache_enc?: string | null } | null)?.token_cache_enc ?? null
+  );
   return {
     id: c.id,
     label: c.label,
@@ -131,6 +140,10 @@ async function describe(db: SupabaseClient, c: OwnConnectionRow, url: string) {
     firmware: c.firmware,
     status: c.status,
     lastEventAt: c.last_event_at,
+    lastEventVia: c.last_event_via,
+    lastBackfillAt: c.last_backfill_at,
+    lastBackfill: c.last_backfill,
+    apiTokensHeld: cached && cached.accessTokenExpiresAt > Date.now() ? 1 : 0,
     lastError: c.last_error,
     updatedAt: c.updated_at,
     webhookUrl: pbxWebhookUrl(c.webhook_path_token, url),

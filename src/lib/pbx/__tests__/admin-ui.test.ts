@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   PBX_AUTH_BACKOFF_MINUTES,
+  PBX_SILENCE_MINUTES,
   applyExtensionPatch,
   baseUrlHost,
   canEditExtension,
@@ -10,6 +11,8 @@ import {
   lastEventAgo,
   parseDueMinutes,
   enforcedRetention,
+  eventLinkHealth,
+  lastBackfillView,
   parseRetentionDays,
   retentionNeedsConfirm,
   routedWorkspaceNames,
@@ -109,6 +112,76 @@ describe('lastEventAgo', () => {
     expect(lastEventAgo(ago(-30_000), now)).toEqual({ unit: 's', count: 0 });
     expect(lastEventAgo(null, now)).toBeNull();
     expect(lastEventAgo('not a date', now)).toBeNull();
+  });
+});
+
+describe('eventLinkHealth', () => {
+  const now = new Date('2026-10-12T10:00:00Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+  const quiet = PBX_SILENCE_MINUTES * 60_000;
+
+  it('says nothing has arrived when no event ever did', () => {
+    expect(eventLinkHealth(null, now)).toEqual({
+      state: 'none',
+      tone: 'muted',
+      ago: null,
+    });
+    expect(eventLinkHealth('not a date', now).state).toBe('none');
+  });
+
+  it('is live until the silence threshold, quiet from it on', () => {
+    expect(eventLinkHealth(ago(5_000), now)).toEqual({
+      state: 'live',
+      tone: 'green',
+      ago: { unit: 's', count: 5 },
+    });
+    expect(eventLinkHealth(ago(quiet - 1_000), now).state).toBe('live');
+    expect(eventLinkHealth(ago(quiet), now)).toEqual({
+      state: 'quiet',
+      tone: 'amber',
+      ago: { unit: 'min', count: PBX_SILENCE_MINUTES },
+    });
+    expect(eventLinkHealth(ago(3 * 86_400_000), now).state).toBe('quiet');
+    // A future stamp (clock skew) is live, not quiet.
+    expect(eventLinkHealth(ago(-60_000), now).state).toBe('live');
+  });
+
+  it('takes another threshold', () => {
+    expect(eventLinkHealth(ago(120_000), now, 2).state).toBe('quiet');
+    expect(eventLinkHealth(ago(119_000), now, 2).state).toBe('live');
+  });
+});
+
+describe('lastBackfillView', () => {
+  const now = new Date('2026-10-12T10:00:00Z');
+  const at = new Date(now.getTime() - 2 * 3_600_000).toISOString();
+
+  it('is null when the gateway never filled a gap', () => {
+    expect(lastBackfillView(null, null, now)).toBeNull();
+    expect(lastBackfillView('garbage', { ingested: 3 }, now)).toBeNull();
+  });
+
+  it('states when, and how many calls were added', () => {
+    expect(
+      lastBackfillView(at, { records: 5, ingested: 3, duplicates: 2 }, now)
+    ).toEqual({ ago: { unit: 'h', count: 2 }, added: 3 });
+    expect(lastBackfillView(at, { records: 0, ingested: 0 }, now)).toEqual({
+      ago: { unit: 'h', count: 2 },
+      added: 0,
+    });
+  });
+
+  it('reads a malformed summary as nothing added', () => {
+    for (const summary of [
+      null,
+      [],
+      'x',
+      { ingested: '3' },
+      { ingested: -1 },
+      { ingested: 1.5 },
+    ]) {
+      expect(lastBackfillView(at, summary, now)?.added).toBe(0);
+    }
   });
 });
 

@@ -108,6 +108,8 @@ describe('POST /api/pbx/yeastar/events/[token]', () => {
       presence: 'away',
       call_state: 'busy',
     });
+    // Settings → Phone system names the path that carried the latest event.
+    expect(fake.tables.pbx_connections[0].last_event_via).toBe('webhook');
   });
 
   it('refuses a sender outside PBX_WEBHOOK_ALLOWED_IPS', async () => {

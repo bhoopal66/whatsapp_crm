@@ -195,6 +195,21 @@ connection with no secret stored refuses every push. Optionally set
 - Every event is stored once (re-sends are ignored); one that cannot be
   processed keeps its error on the stored event.
 
+**The Events card** in Settings states what the server recorded
+(migration `104_pbx_health.sql`):
+
+- whether events arrive: _Receiving events_ while the latest is under
+  15 minutes old, _Quiet_ after that, _No events yet_ before the first.
+  Quiet is not a fault by itself; a night without calls is quiet too;
+- the path that carried the latest event: Yeastar's webhook push or the
+  WebSocket gateway. A retried or late old event moves neither the time
+  nor the path;
+- the API sessions the CRM holds: 0 or 1 of the 8 Yeastar allows an
+  API application, because one cached token serves every person and
+  process (section 1);
+- the gateway's latest call-record backfill: when, and how many calls it
+  added. A webhook-only install never backfills, so it says _never_.
+
 ## 7. Running the gateway
 
 Firmware without webhook push (before 84.20.0.21) relays events through
@@ -218,6 +233,11 @@ Run it one of three ways:
   `Restart=always`.
 
 Run one gateway per PBX.
+
+After a reconnect the gateway asks for the gap's call records
+(`POST /api/pbx/gateway/backfill`, the last 24 hours at most), and each
+is stored as the Call End event it would have been. The Events card
+shows the latest backfill.
 
 ## 8. Recordings
 

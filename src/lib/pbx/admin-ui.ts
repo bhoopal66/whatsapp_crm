@@ -34,6 +34,14 @@ export interface PbxConnectionView {
   firmware: string | null;
   status: string;
   lastEventAt: string | null;
+  /** Migration 104: the path of the latest event (null: none, or older). */
+  lastEventVia: 'webhook' | 'gateway' | null;
+  /** The gateway's latest call-record backfill (null: never). */
+  lastBackfillAt: string | null;
+  /** That backfill's {from, to, records, ingested, duplicates, failed}. */
+  lastBackfill: unknown;
+  /** Live API access tokens the CRM holds: 0 or 1, shared by everyone. */
+  apiTokensHeld: number;
   lastError: string | null;
   updatedAt: string;
   webhookUrl: string;
@@ -105,6 +113,63 @@ export function lastEventAgo(
   if (s < 3600) return { unit: 'min', count: Math.floor(s / 60) };
   if (s < 86_400) return { unit: 'h', count: Math.floor(s / 3600) };
   return { unit: 'd', count: Math.floor(s / 86_400) };
+}
+
+// ---------- Events card (migration 104) ----------
+
+/**
+ * Minutes without an event before the link counts as quiet. The PBX
+ * cron tells owners and admins after this long in working hours
+ * (lib/pbx/health.ts); the card uses the same figure.
+ */
+export const PBX_SILENCE_MINUTES = 15;
+/** Live access tokens Yeastar allows one API application. */
+export const YEASTAR_TOKENS_PER_APPLICATION = 8;
+
+export type EventLinkState = 'none' | 'live' | 'quiet';
+
+/**
+ * The Events card's first line, from the latest event's time alone:
+ * nothing yet, live (an event within PBX_SILENCE_MINUTES) or quiet.
+ * Quiet is not a fault by itself (a night with no calls is quiet too).
+ */
+export function eventLinkHealth(
+  lastEventAt: string | null,
+  now: Date,
+  quietMinutes: number = PBX_SILENCE_MINUTES
+): {
+  state: EventLinkState;
+  tone: Tone;
+  ago: { unit: AgoUnit; count: number } | null;
+} {
+  const ago = lastEventAgo(lastEventAt, now);
+  if (!lastEventAt || !ago) return { state: 'none', tone: 'muted', ago: null };
+  const quietFor = now.getTime() - Date.parse(lastEventAt);
+  return quietFor >= quietMinutes * 60_000
+    ? { state: 'quiet', tone: 'amber', ago }
+    : { state: 'live', tone: 'green', ago };
+}
+
+/**
+ * The gateway's latest backfill as the card states it: when, and how
+ * many calls it added. Null when there was none (a webhook-only
+ * install never backfills). A count that does not read as a whole
+ * number is 0.
+ */
+export function lastBackfillView(
+  at: string | null,
+  summary: unknown,
+  now: Date
+): { ago: { unit: AgoUnit; count: number }; added: number } | null {
+  const ago = lastEventAgo(at, now);
+  if (!ago) return null;
+  const raw =
+    summary && typeof summary === 'object' && !Array.isArray(summary)
+      ? (summary as Record<string, unknown>).ingested
+      : undefined;
+  const added =
+    typeof raw === 'number' && Number.isInteger(raw) && raw > 0 ? raw : 0;
+  return { ago, added };
 }
 
 /** The host of the PBX address for the card ("pbx.example.com"). */

@@ -28,6 +28,10 @@ export interface OwnConnectionRow {
   firmware: string | null;
   status: string;
   last_event_at: string | null;
+  /** Migration 104: the path of the latest event, and the latest backfill. */
+  last_event_via: 'webhook' | 'gateway' | null;
+  last_backfill_at: string | null;
+  last_backfill: unknown;
   last_error: string | null;
   webhook_path_token: string;
   updated_at: string;
@@ -41,7 +45,7 @@ export async function ownConnection(
   const { data, error } = await db
     .from('pbx_connections')
     .select(
-      'id, account_id, label, edition, base_url, api_path, client_id_last4, firmware, status, last_event_at, last_error, webhook_path_token, updated_at'
+      'id, account_id, label, edition, base_url, api_path, client_id_last4, firmware, status, last_event_at, last_event_via, last_backfill_at, last_backfill, last_error, webhook_path_token, updated_at'
     )
     .eq('account_id', accountId)
     .order('created_at', { ascending: true })

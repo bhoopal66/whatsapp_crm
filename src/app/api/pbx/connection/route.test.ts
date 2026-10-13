@@ -116,6 +116,37 @@ describe('GET /api/pbx/connection', () => {
     });
   });
 
+  it('states the event path, the latest backfill and the API tokens held', async () => {
+    Object.assign(fake.tables.pbx_connections[0], {
+      last_event_at: '2026-10-12T09:59:00.000Z',
+      last_event_via: 'gateway',
+      last_backfill_at: '2026-10-12T08:00:00.000Z',
+      last_backfill: { records: 4, ingested: 3, duplicates: 1, failed: 0 },
+    });
+    const live = {
+      accessToken: 'tok',
+      accessTokenExpiresAt: Date.now() + 600_000,
+      refreshToken: 'ref',
+      refreshTokenExpiresAt: Date.now() + 3_600_000,
+    };
+    const secrets = fake.tables.pbx_connection_secrets[0];
+    secrets.token_cache_enc = encrypt(JSON.stringify(live));
+    const view = async () => (await (await get()).json()).connection;
+    expect(await view()).toMatchObject({
+      lastEventVia: 'gateway',
+      lastBackfillAt: '2026-10-12T08:00:00.000Z',
+      lastBackfill: { records: 4, ingested: 3 },
+      apiTokensHeld: 1,
+    });
+    // An expired (or invalidated) token is not a session held.
+    secrets.token_cache_enc = encrypt(
+      JSON.stringify({ ...live, accessTokenExpiresAt: 0 })
+    );
+    expect((await view()).apiTokensHeld).toBe(0);
+    secrets.token_cache_enc = null;
+    expect((await view()).apiTokensHeld).toBe(0);
+  });
+
   it('answers null for a workspace without a PBX', async () => {
     mocks.requireRole.mockResolvedValue({
       accountId: 'acct-2',

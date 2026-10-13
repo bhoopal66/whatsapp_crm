@@ -15,7 +15,10 @@ import { canEditSettings } from '@/lib/auth/roles';
 import {
   PBX_AUTH_BACKOFF_MINUTES,
   baseUrlHost,
+  YEASTAR_TOKENS_PER_APPLICATION,
   connectionState,
+  eventLinkHealth,
+  lastBackfillView,
   lastEventAgo,
   routedWorkspaceNames,
   type PbxConnectionView,
@@ -127,6 +130,10 @@ function AdminPanel() {
   const agoText = ago
     ? t('connection.lastEvent', ago)
     : t('connection.noEvents');
+  const link = eventLinkHealth(conn?.lastEventAt ?? null, now);
+  const backfill = conn
+    ? lastBackfillView(conn.lastBackfillAt, conn.lastBackfill, now)
+    : null;
 
   return (
     <div className="min-w-0 space-y-6">
@@ -196,8 +203,39 @@ function AdminPanel() {
           </StatusCard>
 
           <StatusCard title={t('events.title')}>
-            <p>{t('events.liveLink', { ago: agoText })}</p>
-            <p className="text-muted-foreground">{t('events.sharedToken')}</p>
+            <p className="flex items-center gap-2 font-medium">
+              <span
+                className={cn('size-2 shrink-0 rounded-full', DOT[link.tone])}
+              />
+              {link.state === 'none'
+                ? t('events.none')
+                : t(link.state === 'live' ? 'events.live' : 'events.quiet', {
+                    ago: agoText,
+                  })}
+            </p>
+            {link.state !== 'none' && conn?.lastEventVia ? (
+              <p className="text-muted-foreground">
+                {t(
+                  conn.lastEventVia === 'gateway'
+                    ? 'events.viaGateway'
+                    : 'events.viaWebhook'
+                )}
+              </p>
+            ) : null}
+            <p className="text-muted-foreground">
+              {t('events.apiTokens', {
+                held: conn?.apiTokensHeld ?? 0,
+                limit: YEASTAR_TOKENS_PER_APPLICATION,
+              })}
+            </p>
+            <p className="text-muted-foreground">
+              {backfill
+                ? t('events.backfill', {
+                    ago: t('events.ago', backfill.ago),
+                    count: backfill.added,
+                  })
+                : t('events.backfillNever')}
+            </p>
           </StatusCard>
 
           <StatusCard title={t('softphone.title')}>
