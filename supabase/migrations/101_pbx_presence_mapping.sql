@@ -80,6 +80,11 @@ BEGIN
      AND EXISTS (
        SELECT 1 FROM call_live l
         WHERE l.connection_id = p.connection_id
+          -- A call whose hang-up was lost (a gateway or webhook outage)
+          -- keeps its call_live row until pbx_purge; without this the
+          -- person stayed red for up to a day. updated_at is the last
+          -- 30011 frame, which this function never bumps.
+          AND l.updated_at > now() - interval '4 hours'
           AND jsonb_path_exists(
                 l.members,
                 '$[*] ? (@.kind == "extension" && @.number == $ext && !(@.status like_regex "^bye$" flag "i"))',

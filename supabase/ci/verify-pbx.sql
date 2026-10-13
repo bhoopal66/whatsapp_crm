@@ -829,7 +829,11 @@ BEGIN
     (conn, '111', a_acct, NULL, NULL, 'busy', now() - interval '20 minutes'),
     (conn, '112', a_acct, NULL, NULL, 'ringing', now() - interval '2 minutes'),
     (conn, '113', a_acct, NULL, 'away', 'idle', now() - interval '20 minutes'),
-    (conn, '120', a_acct, NULL, 'lunch', NULL, now() - interval '20 minutes');
+    (conn, '120', a_acct, NULL, 'lunch', NULL, now() - interval '20 minutes'),
+    (conn, '114', a_acct, NULL, NULL, 'busy', now() - interval '20 minutes');
+  -- 114's call lost its hang-up: its last frame is five hours old.
+  INSERT INTO call_live (connection_id, pbx_call_id, account_id, members, updated_at) VALUES
+    (conn, 'px-stale', a_acct, '[{"kind":"extension","number":"114","status":"ANSWERED"}]', now() - interval '5 hours');
   INSERT INTO call_live (connection_id, pbx_call_id, account_id, members) VALUES
     (conn, 'px-long', a_acct, '[{"kind":"inbound","from":"971500000000","status":"ANSWERED"},
                                 {"kind":"extension","number":"110","status":"ANSWERED"},
