@@ -33,6 +33,7 @@ export type ArchiveErrorCode =
   | 'forbidden'
   | 'no_other_workspace'
   | 'channels_connected'
+  | 'calls_routed_here'
   | 'members_stranded';
 
 export interface ArchiveErrorBody {
@@ -113,6 +114,19 @@ export function archiveErrorResponse(
         },
       };
     case 'WS002':
+      // Another workspace's phone system still routes numbers or
+      // extensions here: the RPC's message names them (DETAIL marks it).
+      if (err.details === 'routed_here') {
+        return {
+          status: 409,
+          body: {
+            error: err.message
+              ? `${err.message}.`
+              : "Another workspace's phone system still sends calls here. Remove its numbers and extensions for this workspace first.",
+            code: 'calls_routed_here',
+          },
+        };
+      }
       return {
         status: 409,
         body: {

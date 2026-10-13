@@ -72,7 +72,8 @@ function extractKey(request: Request): string | null {
  * single scope. Throws an `ApiError` (mapped to the envelope by
  * `toApiErrorResponse`) on any failure:
  *
- *   401 unauthorized — no key, malformed, unknown, revoked, expired
+ *   401 unauthorized — no key, malformed, unknown, revoked, expired,
+ *                      or its workspace archived (migration 105)
  *   403 forbidden    — valid key without the required scope
  *   429 rate_limited — per-key budget exhausted, or this client IP is
  *                      locked out for presenting bad keys

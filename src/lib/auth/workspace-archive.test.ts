@@ -96,6 +96,19 @@ describe('archiveErrorResponse', () => {
         code: 'channels_connected',
       },
     });
+    // Another workspace's phone system routing calls here: the RPC names
+    // what to remove, so its message is the error.
+    const routed =
+      "Another workspace's phone system still sends calls here (numbers 97143105001; extensions 1051); remove them in its phone settings first";
+    expect(
+      archiveErrorResponse(
+        { code: 'WS002', message: routed, details: 'routed_here' },
+        true
+      )
+    ).toEqual({
+      status: 409,
+      body: { error: `${routed}.`, code: 'calls_routed_here' },
+    });
   });
 
   it('counts the stranded members from the DETAIL, else the message', () => {

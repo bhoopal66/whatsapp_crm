@@ -26,10 +26,11 @@ export interface ApiKeyRow {
 
 /**
  * Look up an *active* key by its SHA-256 hash. Returns null if no
- * row matches, or if the matching row is revoked or expired — so
- * callers never have to re-check liveness. Uses the service-role
- * client (RLS-bypassing); the hash is the only credential, so this
- * is the moment that establishes the caller's account.
+ * row matches, or if the matching row is revoked or expired, or its
+ * workspace is archived — so callers never have to re-check liveness.
+ * Uses the service-role client (RLS-bypassing); the hash is the only
+ * credential, so this is the moment that establishes the caller's
+ * account.
  */
 export async function findActiveKeyByHash(
   hash: string
@@ -52,6 +53,22 @@ export async function findActiveKeyByHash(
   if (data.expires_at && new Date(data.expires_at).getTime() <= Date.now()) {
     return null;
   }
+
+  // An archived workspace (migration 105) is closed to its keys too:
+  // /api/v1, the MCP server and Compass stop until it is restored, and
+  // the key works again then. A point lookup by id, not an embed: see
+  // getCurrentAccount on PostgREST's schema cache (issue #294). Fails
+  // closed, like the key lookup above.
+  const { data: account, error: accountErr } = await supabaseAdmin()
+    .from('accounts')
+    .select('archived_at')
+    .eq('id', data.account_id)
+    .maybeSingle();
+  if (accountErr) {
+    console.error('[api-keys/store] account lookup error:', accountErr.message);
+    return null;
+  }
+  if (!account || account.archived_at) return null;
 
   return data as ApiKeyRow;
 }

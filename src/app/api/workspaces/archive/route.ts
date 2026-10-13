@@ -14,8 +14,10 @@
 //         reloads into it (workspaceEntryPath(activeRole)).
 //   400 a malformed body · 401 no session · 403 { error, code:
 //   'forbidden' } not a live owner there · 409 { error, code, count? }
-//   a refusal: 'no_other_workspace', 'channels_connected' or
-//   'members_stranded' (count: how many have nowhere to go).
+//   a refusal: 'no_other_workspace', 'channels_connected',
+//   'calls_routed_here' (another workspace's phone system routes numbers
+//   or extensions here; the error names them) or 'members_stranded'
+//   (count: how many have nowhere to go).
 //
 // Authenticated by the session alone, as POST /api/workspaces/switch
 // is: getCurrentAccount answers for the active workspace, which need

@@ -78,7 +78,7 @@ may be reworded.
 
 | Status | `code`         | Meaning                                          |
 | ------ | -------------- | ------------------------------------------------ |
-| 401    | `unauthorized` | Missing / malformed / unknown / revoked / expired key |
+| 401    | `unauthorized` | Missing / malformed / unknown / revoked / expired key, or its workspace is archived |
 | 403    | `forbidden`    | Valid key, but missing the required scope        |
 | 429    | `rate_limited` | Per-key rate limit exceeded                      |
 | 400    | `bad_request`  | Malformed input                                  |
@@ -93,9 +93,10 @@ Requests are limited **per key**: **120 requests per minute**. On a
 - `Retry-After` — seconds until the window resets
 - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
 
-A client IP that presents 5 unknown, revoked or expired keys in a row,
-or 20 in 10 minutes, gets the same `429 rate_limited` for 15 minutes
-(`Retry-After` says when), whatever key it sends. This needs the
+A client IP that presents 5 unknown, revoked or expired keys (or keys of
+an archived workspace) in a row, or 20 in 10 minutes, gets the same
+`429 rate_limited` for 15 minutes (`Retry-After` says when), whatever
+key it sends. This needs the
 deployment's client-IP header; see `docs/security.md`.
 
 > The limiter is in-memory and **per process**. A single-instance

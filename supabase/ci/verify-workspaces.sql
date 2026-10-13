@@ -27,7 +27,12 @@
 -- member has no other workspace; that it moves everyone active there,
 -- revokes its pending links and is audited; and that afterwards nobody
 -- reads it, switches or redeems into it, or is made active there by
--- anything else (remove_account_member's promotion included).
+-- anything else (remove_account_member's promotion included), nor
+-- made live there again (deactivated_at cleared); that another
+-- workspace's phone system routing a number or an extension there
+-- refuses the archive too; that afterwards no number, phone system,
+-- route or extension is connected to it; and that its notifications
+-- leave its members' bell.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -987,6 +992,8 @@ BEGIN
     p_ow   UUID;
     p_m1   UUID;
     p_gu   UUID;
+    pbx_al UUID;
+    bell   TEXT;
     res    JSONB;
     arch   TEXT;
   BEGIN
@@ -1016,6 +1023,7 @@ BEGIN
     -- 083's promotion order (live, then newest) would pick M1's T row.
     UPDATE profiles SET created_at = now() + interval '1 hour' WHERE user_id = u_m1 AND account_id = t_acct;
     INSERT INTO contacts (user_id, phone, account_id) VALUES (u_ow, '+971500105001', t_acct);
+    INSERT INTO notifications (account_id, user_id, title) VALUES (t_acct, u_m1, 'wsarch bell');
     INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at, accepted_at, accepted_by_user_id) VALUES
       (t_acct, 'wsarch-pend-1', 'agent', u_ow, now() + interval '1 day', NULL, NULL),
       (t_acct, 'wsarch-pend-2', 'viewer', u_ow, now() + interval '1 day', NULL, NULL),
@@ -1052,6 +1060,26 @@ BEGIN
       failed := array_append(failed, ('archive with a phone system / a number connected (want WS002 x2): ' || r)::text);
     END IF;
 
+    -- Alpha's phone system routes a number here, then maps an extension
+    -- here: refused, naming each, and Alpha's configuration left alone.
+    INSERT INTO pbx_connections (account_id, label, edition, base_url)
+    VALUES (al_acct, 'wsarch-alpha', 'cloud', 'https://pbx-alpha.example.invalid') RETURNING id INTO pbx_al;
+    INSERT INTO pbx_did_routes (connection_id, did_number, account_id) VALUES (pbx_al, '97143105001', t_acct);
+    r := pg_temp.ws_try('authenticated', u_ow, arch);
+    DELETE FROM pbx_did_routes WHERE connection_id = pbx_al;
+    INSERT INTO pbx_extensions (connection_id, extension, account_id) VALUES (pbx_al, '1051', t_acct);
+    r := r || ' | ' || pg_temp.ws_try('authenticated', u_ow, arch);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ERROR WS002: Another workspace''s phone system still sends calls here (numbers 97143105001); remove them in its phone settings first'
+         || ' | ERROR WS002: Another workspace''s phone system still sends calls here (extensions 1051); remove them in its phone settings first'
+       OR NOT EXISTS (SELECT 1 FROM pbx_extensions WHERE connection_id = pbx_al AND account_id = t_acct)
+       OR (SELECT archived_at FROM accounts WHERE id = t_acct) IS NOT NULL THEN
+      failed := array_append(failed, ('archive with another workspace''s number / extension routed here (want WS002 x2, named): ' || r)::text);
+    END IF;
+    DELETE FROM pbx_extensions WHERE connection_id = pbx_al;
+    -- Alpha's own number, for the guard below.
+    INSERT INTO pbx_did_routes (connection_id, did_number, account_id) VALUES (pbx_al, '97143105003', al_acct);
+
     -- LN, live, has no other workspace.
     r := pg_temp.ws_try('authenticated', u_ow, arch);
     n := n + 1;
@@ -1065,6 +1093,7 @@ BEGIN
     UPDATE profiles SET deactivated_at = now() WHERE user_id = u_ln;
     r := pg_temp.ws_val(u_ow, format('SELECT count(*)::text FROM public.contacts WHERE account_id = %L', t_acct))
       || pg_temp.ws_val(u_ad2, format('SELECT count(*)::text FROM public.contacts WHERE account_id = %L', t_acct));
+    bell := pg_temp.ws_val(u_m1, format('SELECT count(*)::text FROM public.notifications WHERE account_id = %L', t_acct));
     r := r || ' | ' || pg_temp.ws_val(u_ow, arch || '::text');
     n := n + 1;
     IF r NOT LIKE '11 | {%' THEN
@@ -1111,6 +1140,50 @@ BEGIN
        OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_rd AND account_id = t_acct)
        OR (SELECT count(*) FROM workspace_audit WHERE account_id = t_acct AND action = 'workspace_archived') <> 1 THEN
       failed := array_append(failed, ('archived T (want no reads, switches refused, link dead, no-op, owner-only listing): ' || r)::text);
+    END IF;
+
+    -- T's notifications leave M1's bell, though M1 is still live in T.
+    r := bell || pg_temp.ws_val(u_m1, format('SELECT count(*)::text FROM public.notifications WHERE account_id = %L', t_acct));
+    n := n + 1;
+    IF r IS DISTINCT FROM '10'
+       OR NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = u_m1 AND account_id = t_acct AND deactivated_at IS NULL) THEN
+      failed := array_append(failed, ('archived T in the bell (want 1 before, 0 after): ' || r)::text);
+    END IF;
+
+    -- LN, left active and deactivated in T, is not made live there again.
+    r := pg_temp.ws_try('service_role', NULL,
+           format('UPDATE public.profiles SET deactivated_at = NULL WHERE user_id = %L AND account_id = %L', u_ln, t_acct))
+      || ' | ' || pg_temp.ws_val(u_ln, 'SELECT public.current_account_id()::text');
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ERROR 42501: That workspace is archived | null'
+       OR NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = u_ln AND account_id = t_acct
+                        AND is_active AND deactivated_at IS NOT NULL) THEN
+      failed := array_append(failed, ('reactivating LN in archived T (want 42501, null): ' || r)::text);
+    END IF;
+
+    -- Nothing connects to T: a number, a phone system, Alpha's route and
+    -- extension, or Alpha's number moved to T (a connect in flight).
+    r := pg_temp.ws_try('service_role', NULL, format(
+           'INSERT INTO public.whatsapp_config (user_id, phone_number_id, access_token, account_id) VALUES (%L, ''wsarch-105-late'', ''x'', %L)', u_ow, t_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format(
+           'INSERT INTO public.pbx_connections (account_id, label, edition, base_url) VALUES (%L, ''wsarch-late'', ''cloud'', ''https://pbx-late.example.invalid'')', t_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format(
+           'INSERT INTO public.pbx_did_routes (connection_id, did_number, account_id) VALUES (%L, ''97143105002'', %L)', pbx_al, t_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format(
+           'INSERT INTO public.pbx_extensions (connection_id, extension, account_id) VALUES (%L, ''1052'', %L)', pbx_al, t_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format(
+           'UPDATE public.pbx_did_routes SET account_id = %L WHERE connection_id = %L', t_acct, pbx_al))
+      || ' | ' || pg_temp.ws_try('service_role', NULL, format(
+           'UPDATE public.pbx_did_routes SET name_on_pbx = ''wsarch'' WHERE connection_id = %L', pbx_al));
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ERROR 42501: That workspace is archived | ERROR 42501: That workspace is archived'
+         || ' | ERROR 42501: That workspace is archived | ERROR 42501: That workspace is archived'
+         || ' | ERROR 42501: That workspace is archived | ok'
+       OR EXISTS (SELECT 1 FROM whatsapp_config WHERE account_id = t_acct)
+       OR EXISTS (SELECT 1 FROM pbx_connections WHERE account_id = t_acct)
+       OR EXISTS (SELECT 1 FROM pbx_did_routes WHERE account_id = t_acct)
+       OR EXISTS (SELECT 1 FROM pbx_extensions WHERE account_id = t_acct) THEN
+      failed := array_append(failed, ('connect to archived T (want 42501 x5, then an unmoved route ok): ' || r)::text);
     END IF;
 
     -- Only archive_workspace writes the stamp; and no other writer makes

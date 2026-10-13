@@ -13,7 +13,12 @@
 --   WS001  the caller has no other live, non-archived workspace;
 --   WS002  a WhatsApp number (whatsapp_config) or a phone system
 --          (pbx_connections) is still connected: inbound traffic would
---          keep landing in a workspace nobody can open;
+--          keep landing in a workspace nobody can open. Also while
+--          another workspace's phone system routes a number
+--          (pbx_did_routes) or maps an extension (pbx_extensions) here:
+--          its calls, missed-call tasks and bells would land here too.
+--          Those rows are that workspace's configuration, so they are
+--          named (the DETAIL lists them), never deleted;
 --   WS003  live members (staff or bank guests) have no other live,
 --          non-archived workspace; the count is the DETAIL. The owner
 --          deactivates or removes them first.
@@ -39,7 +44,19 @@
 --   - a trigger on profiles refuses every other write that would make a
 --     row there active: provision_account_member, add_workspace_member's
 --     move of a disposable personal row, the service role, a hand-run
---     UPDATE.
+--     UPDATE. Or live: clearing deactivated_at on a row a deactivated
+--     member was left active on.
+--
+-- Nothing else acts in or through an archived workspace either:
+--   - a trigger on whatsapp_config, pbx_connections, pbx_did_routes and
+--     pbx_extensions refuses a row inserted for it, or moved to it: the
+--     connect routes check the role and then write with the service
+--     role, so a connect in flight while the archive commits would
+--     otherwise land there;
+--   - my_live_account_ids() leaves it out, so its notifications leave
+--     the bell (their screens are refused anyway);
+--   - its API keys answer 401 (lib/api-keys/store.ts reads the stamp),
+--     so /api/v1, the MCP server and Compass stop, and resume on restore.
 --
 -- Locks. An archive takes the pending invitations, then every member's
 -- profile rows in id order (the order switch_account and the member RPCs
@@ -48,7 +65,9 @@
 -- person's rows: both sides take profiles before accounts. A concurrent
 -- switch or join into the workspace either commits first, and the
 -- archive then sees that person (and moves or counts them), or waits for
--- the archive and is refused. The account row is taken FOR NO KEY
+-- the archive and is refused. The connection guard reads the account row
+-- FOR SHARE the same way, so a connect either commits first and WS002
+-- sees it, or waits and is refused. The account row is taken FOR NO KEY
 -- UPDATE, which leaves foreign-key inserts (a message, a contact) free
 -- to proceed meanwhile.
 --
@@ -106,13 +125,19 @@ CREATE TRIGGER accounts_archive_guard BEFORE UPDATE OF archived_at, archived_by 
 -- holds the row FOR NO KEY UPDATE) is waited for and its outcome read.
 -- Unconditionally: a WHERE on archived_at would skip, unlocked, a row
 -- that is not archived yet in this statement's snapshot.
+--
+-- Also on deactivated_at: a deactivated member with nowhere to go is
+-- left active there, and clearing their deactivated_at would make that
+-- row live, and current_account_id() the archived workspace.
 CREATE OR REPLACE FUNCTION public.profiles_archived_activation_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
   v_archived timestamptz;
 BEGIN
-  -- Already the active row there: not an activation.
-  IF TG_OP = 'UPDATE' AND OLD.is_active AND OLD.account_id = NEW.account_id THEN
+  -- Already the active row there, and not coming back to life: not an
+  -- activation.
+  IF TG_OP = 'UPDATE' AND OLD.is_active AND OLD.account_id = NEW.account_id
+     AND (OLD.deactivated_at IS NULL OR NEW.deactivated_at IS NOT NULL) THEN
     RETURN NEW;
   END IF;
   SELECT archived_at INTO v_archived FROM public.accounts WHERE id = NEW.account_id FOR SHARE;
@@ -123,9 +148,47 @@ BEGIN
 END $$;
 DROP TRIGGER IF EXISTS profiles_archived_activation_guard ON public.profiles;
 CREATE TRIGGER profiles_archived_activation_guard
-  BEFORE INSERT OR UPDATE OF is_active, account_id ON public.profiles
+  BEFORE INSERT OR UPDATE OF is_active, account_id, deactivated_at ON public.profiles
   FOR EACH ROW WHEN (NEW.is_active)
   EXECUTE FUNCTION public.profiles_archived_activation_guard();
+
+-- ---------- 3b. Nothing is connected to an archived workspace ----------
+-- A number, a phone system, or another workspace's DID route or
+-- extension mapping, inserted for an archived workspace or moved to one
+-- (UPDATE OF account_id). The connect routes check the caller's role and
+-- then write with the service role, so without this a connect in flight
+-- while the archive commits lands in it. The account row is read FOR
+-- SHARE, as above, so the two serialize on archive_workspace's lock.
+CREATE OR REPLACE FUNCTION public.archived_workspace_connect_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_archived timestamptz;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.account_id IS NOT DISTINCT FROM OLD.account_id THEN
+    RETURN NEW;
+  END IF;
+  SELECT archived_at INTO v_archived FROM public.accounts WHERE id = NEW.account_id FOR SHARE;
+  IF v_archived IS NOT NULL THEN
+    RAISE EXCEPTION 'That workspace is archived' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS whatsapp_config_archived_guard ON public.whatsapp_config;
+CREATE TRIGGER whatsapp_config_archived_guard
+  BEFORE INSERT OR UPDATE OF account_id ON public.whatsapp_config
+  FOR EACH ROW EXECUTE FUNCTION public.archived_workspace_connect_guard();
+DROP TRIGGER IF EXISTS pbx_connections_archived_guard ON public.pbx_connections;
+CREATE TRIGGER pbx_connections_archived_guard
+  BEFORE INSERT OR UPDATE OF account_id ON public.pbx_connections
+  FOR EACH ROW EXECUTE FUNCTION public.archived_workspace_connect_guard();
+DROP TRIGGER IF EXISTS pbx_did_routes_archived_guard ON public.pbx_did_routes;
+CREATE TRIGGER pbx_did_routes_archived_guard
+  BEFORE INSERT OR UPDATE OF account_id ON public.pbx_did_routes
+  FOR EACH ROW EXECUTE FUNCTION public.archived_workspace_connect_guard();
+DROP TRIGGER IF EXISTS pbx_extensions_archived_guard ON public.pbx_extensions;
+CREATE TRIGGER pbx_extensions_archived_guard
+  BEFORE INSERT OR UPDATE OF account_id ON public.pbx_extensions
+  FOR EACH ROW EXECUTE FUNCTION public.archived_workspace_connect_guard();
 
 -- ---------- 4. Archive and restore ----------
 CREATE OR REPLACE FUNCTION public.archive_workspace(p_account_id uuid, p_archive boolean)
@@ -142,6 +205,8 @@ DECLARE
   v_stranded int;
   v_active uuid;
   v_active_role account_role_enum;
+  v_dids text[];
+  v_exts text[];
   r record;
 BEGIN
   IF v_uid IS NULL THEN
@@ -198,6 +263,22 @@ BEGIN
          OR EXISTS (SELECT 1 FROM pbx_connections WHERE account_id = p_account_id) THEN
         RAISE EXCEPTION 'The workspace still has a WhatsApp number or phone system connected; disconnect its numbers first'
           USING ERRCODE = 'WS002';
+      END IF;
+
+      -- Its own phone system is gone, so these are another workspace's:
+      -- named, at most ten of each, and left to that workspace to remove.
+      SELECT array_agg(DISTINCT did_number ORDER BY did_number) INTO v_dids
+        FROM pbx_did_routes WHERE account_id = p_account_id;
+      SELECT array_agg(DISTINCT extension ORDER BY extension) INTO v_exts
+        FROM pbx_extensions WHERE account_id = p_account_id;
+      IF v_dids IS NOT NULL OR v_exts IS NOT NULL THEN
+        RAISE EXCEPTION 'Another workspace''s phone system still sends calls here (%); remove them in its phone settings first',
+          concat_ws('; ',
+            'numbers ' || array_to_string(v_dids[1:10], ', ')
+              || CASE WHEN cardinality(v_dids) > 10 THEN format(' and %s more', cardinality(v_dids) - 10) ELSE '' END,
+            'extensions ' || array_to_string(v_exts[1:10], ', ')
+              || CASE WHEN cardinality(v_exts) > 10 THEN format(' and %s more', cardinality(v_exts) - 10) ELSE '' END)
+          USING ERRCODE = 'WS002', DETAIL = 'routed_here';
       END IF;
 
       SELECT count(*) INTO v_stranded FROM profiles p
@@ -518,6 +599,26 @@ $$;
 REVOKE ALL ON FUNCTION public.my_workspaces() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.my_workspaces() TO authenticated, service_role;
 
+-- ---------- 8b. my_live_account_ids: 083's, without archived workspaces ----------
+-- Members keep their live rows in an archived workspace, so 083's
+-- version kept its notifications in their bell, and opening one is
+-- refused. Only the notifications policies (083) call it.
+CREATE OR REPLACE FUNCTION public.my_live_account_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT coalesce(array_agg(p.account_id), '{}')
+    FROM profiles p
+    JOIN accounts a ON a.id = p.account_id
+   WHERE p.user_id = auth.uid() AND p.deactivated_at IS NULL
+     AND a.archived_at IS NULL;
+$$;
+REVOKE ALL ON FUNCTION public.my_live_account_ids() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.my_live_account_ids() TO authenticated, service_role;
+
 -- ---------- 9. The audit log (092) ----------
 ALTER TABLE public.workspace_audit DROP CONSTRAINT IF EXISTS workspace_audit_action_check;
 ALTER TABLE public.workspace_audit ADD CONSTRAINT workspace_audit_action_check CHECK (action IN (
@@ -568,5 +669,5 @@ CREATE TRIGGER workspace_audit_accounts_update
 
 -- ---------- 10. Privileges ----------
 REVOKE ALL ON FUNCTION public.accounts_archive_guard(), public.profiles_archived_activation_guard(),
-  public.workspace_audit_accounts()
+  public.archived_workspace_connect_guard(), public.workspace_audit_accounts()
   FROM PUBLIC, anon, authenticated, service_role;
