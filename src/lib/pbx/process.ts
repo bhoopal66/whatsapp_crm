@@ -5,6 +5,7 @@ import { createSystemTask, resolveTaskOwner } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/whatsapp/phone-utils';
 
 import { settleCallbackCall } from './callbacks';
+import { missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
 import {
   contactPhoneCandidates,
@@ -510,6 +511,20 @@ function callMeta(
 
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
+/**
+ * Who an inbound call rang, first rung first (calls.meta.rang_user_ids):
+ * the customer page's "rang Sara and Faisal". call_live holds only the
+ * frame in hand and is gone once a frame says BYE, so each frame adds
+ * to the row's list and the end keeps it.
+ */
+function rangOf(meta: unknown): string[] {
+  return isRecord(meta) && Array.isArray(meta.rang_user_ids)
+    ? meta.rang_user_ids.filter((u): u is string => typeof u === 'string')
+    : [];
+}
+const withRang = (meta: Row, rang: string[]): Row =>
+  rang.length ? { ...meta, rang_user_ids: rang } : meta;
+
 /** 30011: the screen pop (call_live) and a non-final calls row. */
 async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   if (ev.members.length === 0) return;
@@ -575,6 +590,7 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
 
   const answeredBy =
     unique(answered.map((n) => exts.get(n)?.user_id))[0] ?? null;
+  const ringingUsers = unique(ringing.map((n) => exts.get(n)?.user_id));
   const live = {
     connection_id: ctx.connectionId,
     pbx_call_id: ev.callId,
@@ -582,7 +598,7 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     contact_id: match.contactId,
     remote_number: remote?.number ?? null,
     did_number: ws.didNumber,
-    ringing_user_ids: unique(ringing.map((n) => exts.get(n)?.user_id)),
+    ringing_user_ids: ringingUsers,
     answered_by: answeredBy,
     // Several matching contacts ride on the customer's leg for a person to pick.
     members: ev.members.map((m) =>
@@ -633,7 +649,10 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
           did_number: ws.didNumber,
           status,
           started_at: ctx.receivedAt,
-          meta: callMeta(null, ws, match),
+          meta: withRang(
+            callMeta(null, ws, match),
+            direction === 'inbound' ? ringingUsers : []
+          ),
           ...party,
           ...peer,
           ...answeredAt,
@@ -644,10 +663,21 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     if (ins.error) fail('calls insert', ins.error);
     if ((ins.data as unknown[] | null)?.length) return;
   }
+  // Someone new rang: add them to the row's list. Only over a row read
+  // here, so a lost insert race never overwrites that row's meta.
+  const rangBefore = rangOf(existing?.meta);
+  const rang =
+    direction === 'inbound'
+      ? unique([...rangBefore, ...ringingUsers])
+      : rangBefore;
+  const rangMeta =
+    existing && rang.length > rangBefore.length
+      ? { meta: withRang(isRecord(existing.meta) ? existing.meta : {}, rang) }
+      : {};
   // Compare-and-set on a live status: a 30012 that landed first wins.
   const upd = await ctx.db
     .from('calls')
-    .update({ status, ...party, ...peer, ...answeredAt })
+    .update({ status, ...party, ...peer, ...answeredAt, ...rangMeta })
     .eq('connection_id', ctx.connectionId)
     .eq('pbx_call_id', ev.callId)
     .in('status', LIVE);
@@ -669,12 +699,15 @@ interface Settings {
   exclude_bank_numbers: boolean;
   missed_call_due_minutes: number;
   store_recordings: boolean;
+  missed_call_whatsapp_draft: boolean;
 }
 
 async function settingsOf(ctx: Ctx, accountId: string): Promise<Settings> {
   const { data, error } = await ctx.db
     .from('pbx_settings')
-    .select('exclude_bank_numbers, missed_call_due_minutes, store_recordings')
+    .select(
+      'exclude_bank_numbers, missed_call_due_minutes, store_recordings, missed_call_whatsapp_draft'
+    )
     .eq('account_id', accountId)
     .maybeSingle();
   if (error) fail('pbx_settings read', error);
@@ -684,8 +717,13 @@ async function settingsOf(ctx: Ctx, accountId: string): Promise<Settings> {
     missed_call_due_minutes: s.missed_call_due_minutes ?? 30,
     // Migration 090: no row stores recordings.
     store_recordings: s.store_recordings ?? true,
+    missed_call_whatsapp_draft: s.missed_call_whatsapp_draft === true,
   };
 }
+
+/** The task note's pointer to the customer page's WhatsApp draft. */
+export const MISSED_DRAFT_HINT =
+  'A "sorry we missed you" WhatsApp draft is ready on the customer page (Draft WhatsApp), for you to review and send.';
 
 const plusSeconds = (iso: string, s: number) =>
   new Date(Date.parse(iso) + s * 1000).toISOString();
@@ -755,6 +793,16 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     str(existing?.started_at) ??
     plusSeconds(ctx.receivedAt, -ev.callSeconds);
   const settings = await settingsOf(ctx, ws.accountId);
+  // Everyone it rang: the frames' list, the last frame's ringing (when
+  // its live row is still here) and a direct-dialled extension's person.
+  const rang =
+    direction === 'inbound'
+      ? unique([
+          ...rangOf(existing?.meta),
+          ...(liveRow?.ringing_user_ids ?? []),
+          extension ? exts.get(extension)?.user_id : null,
+        ])
+      : [];
 
   let recording: Row = {};
   if (
@@ -818,7 +866,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
           : ctx.receivedAt,
         ring_seconds: ring,
         talk_seconds: talk,
-        meta: callMeta(existing, ws, match),
+        meta: withRang(callMeta(existing, ws, match), rang),
         ...recording,
       },
       { onConflict: 'connection_id,pbx_call_id' }
@@ -847,10 +895,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
         })
       : null;
   if (!owner) {
-    const rung = unique([
-      ...(liveRow?.ringing_user_ids ?? []),
-      extension ? exts.get(extension)?.user_id : null,
-    ]);
+    const rung = rang;
     if (rung.length) {
       const { data, error } = await ctx.db
         .from('profiles')
@@ -868,16 +913,28 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     }
   }
   let name = match.name;
-  if (!name && match.contactId) {
+  let contact: Row | null = null;
+  if (match.contactId && (!name || settings.missed_call_whatsapp_draft)) {
     const c = await ctx.db
       .from('contacts')
-      .select('name')
+      .select('name, do_not_contact_at, do_not_contact_reason, opted_out_at')
       .eq('account_id', ws.accountId)
       .eq('id', match.contactId)
       .maybeSingle();
     if (c.error) fail('contacts read', c.error);
-    name = str((c.data as Row | null)?.name);
+    contact = c.data as Row | null;
+    name = name || str(contact?.name);
   }
+  // The customer page offers its WhatsApp draft on the same terms: the
+  // workspace's switch, a chat to draft in, no do-not-contact, no opt-out.
+  const draftHint =
+    !!contact &&
+    !!match.conversationId &&
+    missedDraftOffer(settings.missed_call_whatsapp_draft, {
+      do_not_contact_at: str(contact.do_not_contact_at),
+      do_not_contact_reason: str(contact.do_not_contact_reason),
+      opted_out_at: str(contact.opted_out_at),
+    }).kind === 'offer';
   const who =
     name?.trim() ||
     (remote
@@ -890,7 +947,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     accountId: ws.accountId,
     kind: 'missed_call',
     title,
-    note: `Missed call (${ev.status.toLowerCase()})${ws.didNumber ? ` on ${ws.didNumber}` : ''}.`,
+    note: `Missed call (${ev.status.toLowerCase()})${ws.didNumber ? ` on ${ws.didNumber}` : ''}.${draftHint ? ` ${MISSED_DRAFT_HINT}` : ''}`,
     contactId: match.contactId,
     conversationId: match.contactId ? match.conversationId : null,
     assignedTo: owner,

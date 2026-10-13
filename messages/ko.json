@@ -239,7 +239,9 @@
       "retryTitle": "이 메시지를 다시 보냅니다",
       "discard": "버리기",
       "discardTitle": "보내지 못한 이 메시지를 채팅에서 지웁니다",
-      "maybeSent": "고객에게 이미 전달되었을 수 있습니다. 다시 보내기 전에 확인하세요."
+      "maybeSent": "고객에게 이미 전달되었을 수 있습니다. 다시 보내기 전에 확인하세요.",
+      "doNotContact": "연락 금지 고객이므로 부재중 전화 초안을 보내지 않았습니다.",
+      "optedOut": "고객이 메시지 수신을 거부했으므로 부재중 전화 초안을 보내지 않았습니다."
     },
     "composer": {
       "templates": "템플릿",
@@ -266,7 +268,9 @@
       "send": "보내기",
       "quickReplyNamePrompt": "이 빠른 답장의 이름을 지정하세요:",
       "quickReplySaved": "빠른 답장으로 저장되었습니다.",
-      "quickReplySaveError": "빠른 답장을 저장하지 못했습니다."
+      "quickReplySaveError": "빠른 답장을 저장하지 못했습니다.",
+      "draftDroppedDoNotContact": "부재중 전화 초안을 삭제했습니다: 이 고객은 이제 연락 금지 고객입니다.",
+      "draftDroppedOptedOut": "부재중 전화 초안을 삭제했습니다: 고객이 메시지 수신을 거부했습니다."
     },
     "bubble": {
       "photo": "사진",
@@ -4808,6 +4812,10 @@
     "callBack": "회신 전화",
     "draftWhatsApp": "WhatsApp 초안",
     "missedDraft": "전화를 받지 못해 죄송합니다. 무엇을 도와드릴까요?",
+    "missedDraftNamed": "{name}님, 전화를 받지 못해 죄송합니다. 무엇을 도와드릴까요?",
+    "draftDoNotContact": "WhatsApp 초안 없음: 연락 금지 고객입니다",
+    "draftDoNotContactWhy": "WhatsApp 초안 없음: 연락 금지 고객입니다 ({reason})",
+    "draftOptedOut": "WhatsApp 초안 없음: 고객이 메시지 수신을 거부했습니다",
     "play": "녹음 재생",
     "pause": "녹음 일시정지",
     "attach": "딜 파일에 첨부",
@@ -4827,6 +4835,8 @@
     "taskFailed": "할 일을 업데이트하지 못했습니다",
     "playFailed": "녹음을 재생하지 못했습니다",
     "attachFailed": "녹음을 첨부하지 못했습니다",
+    "download": "녹음 다운로드",
+    "downloadFailed": "녹음을 다운로드하지 못했습니다",
     "noDeal": "첨부할 진행 중인 딜이 없습니다",
     "openCustomerPage": "고객 페이지 열기",
     "loadMore": "더 보기",

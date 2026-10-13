@@ -556,9 +556,10 @@ export function normalizeMetaWebhook(
  * ledger records them uncosted, which is what makes a receipt visible
  * next to the send it belongs to.
  *
- * Receipts for group sends (`recipient_type: 'group'`) are left out: the
- * ledger keys a market on a phone `recipient_id`, and a group's is the
- * group id. Follow-up: per-member group billing.
+ * Receipts for group sends (`recipient_type: 'group'`) are left out:
+ * the Meta route costs them per member through
+ * `recordGroupMessageCosts` (migration 100), which also lifts them onto
+ * the deal room's message.
  */
 export function collectMetaStatuses(
   payload: RawMetaWebhookPayload

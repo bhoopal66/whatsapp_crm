@@ -239,7 +239,9 @@
       "retryTitle": "Send this message again",
       "discard": "Discard",
       "discardTitle": "Remove this unsent message from the chat",
-      "maybeSent": "It may still have reached the customer. Check before sending it again."
+      "maybeSent": "It may still have reached the customer. Check before sending it again.",
+      "doNotContact": "This customer is marked do-not-contact, so the missed-call draft was not sent.",
+      "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent."
     },
     "composer": {
       "templates": "Templates",
@@ -266,7 +268,9 @@
       "send": "Send",
       "quickReplyNamePrompt": "Name this quick reply:",
       "quickReplySaved": "Saved as a quick reply.",
-      "quickReplySaveError": "Couldn't save the quick reply."
+      "quickReplySaveError": "Couldn't save the quick reply.",
+      "draftDroppedDoNotContact": "Missed-call draft removed: this customer is now marked do-not-contact.",
+      "draftDroppedOptedOut": "Missed-call draft removed: this customer has opted out of messages."
     },
     "bubble": {
       "photo": "Photo",
@@ -4808,6 +4812,10 @@
     "callBack": "Call back",
     "draftWhatsApp": "Draft WhatsApp",
     "missedDraft": "Sorry we missed your call — how can we help?",
+    "missedDraftNamed": "Hi {name}, sorry we missed your call — how can we help?",
+    "draftDoNotContact": "No WhatsApp draft: the customer is do-not-contact",
+    "draftDoNotContactWhy": "No WhatsApp draft: the customer is do-not-contact ({reason})",
+    "draftOptedOut": "No WhatsApp draft: the customer opted out of messages",
     "play": "Play recording",
     "pause": "Pause recording",
     "attach": "Attach to deal file",
@@ -4827,6 +4835,8 @@
     "taskFailed": "Couldn't update the task",
     "playFailed": "Couldn't play the recording",
     "attachFailed": "Couldn't attach the recording",
+    "download": "Download recording",
+    "downloadFailed": "Couldn't download the recording",
     "noDeal": "No open deal to attach to",
     "openCustomerPage": "Open customer page",
     "loadMore": "Load more",

@@ -12,6 +12,7 @@ import {
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
 import { isWhatsAppProvider } from '@/lib/whatsapp/channels';
+import { isSendOrigin } from '@/lib/whatsapp/send-origin';
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
 // limiting, and the two ways the UI targets a thread — an existing
@@ -65,6 +66,10 @@ export async function POST(request: Request) {
       // template on Meta; the inbox composer leaves it unset and lets
       // the reply follow the customer's number.
       provider,
+      // Optional `'missed_call_draft'`: the composer's text came from
+      // the missed-call WhatsApp draft (module 015), so the consent
+      // register is re-checked before the gateway. Typed replies omit it.
+      origin,
     } = body;
 
     if ((!conversationIdInput && !contact_id) || !message_type) {
@@ -80,6 +85,13 @@ export async function POST(request: Request) {
     if (provider != null && !isWhatsAppProvider(provider)) {
       return NextResponse.json(
         { error: "provider must be 'whapi' or 'meta'" },
+        { status: 400 }
+      );
+    }
+
+    if (origin != null && !isSendOrigin(origin)) {
+      return NextResponse.json(
+        { error: "origin must be 'missed_call_draft'" },
         { status: 400 }
       );
     }
@@ -196,6 +208,7 @@ export async function POST(request: Request) {
         // themselves had no name anywhere in the UI — the Inbox header
         // now reads this back through `resolveConversationHandler`.
         senderUserId: userId,
+        respectConsent: origin === 'missed_call_draft',
       });
 
       return NextResponse.json({

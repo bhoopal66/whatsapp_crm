@@ -205,14 +205,15 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   isLegacyFormat: vi.fn(() => false),
 }));
 
-const { sendTemplateMessage } = vi.hoisted(() => ({
+const { sendTemplateMessage, sendTextMessage } = vi.hoisted(() => ({
   sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid-1' })),
+  sendTextMessage: vi.fn(async () => ({ messageId: 'wamid-text' })),
 }));
 vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
   // The real error class: a failed send is judged by `instanceof`.
   ...(await importOriginal<Record<string, unknown>>()),
   sendTemplateMessage,
-  sendTextMessage: vi.fn(),
+  sendTextMessage,
   sendMediaMessage: vi.fn(),
   // A refused 401/403 probes the number; never let that reach Whapi.
   getChannelInfo: vi.fn(async () => {
@@ -504,5 +505,97 @@ describe('POST /api/whatsapp/send — failure answers', () => {
       retryable: true,
     });
     expect(sendTemplateMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/whatsapp/send — missed-call draft origin', () => {
+  // Plan 015 §7.4: the missed-call WhatsApp draft goes out through the
+  // consent register. The customer page checks it when it offers the
+  // draft; the send must check it again, because the draft can sit in
+  // the composer (or the tab's storage) while the customer is marked.
+  const DNC = { ...CONTACT, do_not_contact_at: '2026-10-12T09:00:00Z' };
+  const OPTED_OUT = { ...CONTACT, opted_out_at: '2026-10-12T09:00:00Z' };
+
+  function useContact(contact: Record<string, unknown>) {
+    existingConversation = {
+      id: 'conv-existing',
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      contact,
+    };
+  }
+
+  function postText(overrides: Record<string, unknown> = {}) {
+    return POST(
+      new Request('http://localhost/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: 'conv-existing',
+          message_type: 'text',
+          content_text: 'Hi Khalid, sorry we missed your call',
+          ...overrides,
+        }),
+      })
+    );
+  }
+
+  beforeEach(() => {
+    conversationInserts.length = 0;
+    messageInserts.length = 0;
+    createdConversation = null;
+    contactRow = CONTACT;
+    callerRole = 'agent';
+    messageInsertError = null;
+    supabaseMock = makeSupabaseMock();
+    sendTextMessage.mockClear();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ['do-not-contact', DNC, 'do_not_contact'],
+    ['opted out', OPTED_OUT, 'opted_out'],
+  ])(
+    'refuses the draft to a %s customer with 409 before the gateway',
+    async (_, contact, code) => {
+      useContact(contact);
+
+      const res = await postText({ origin: 'missed_call_draft' });
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code, retryable: true });
+      expect(sendTextMessage).not.toHaveBeenCalled();
+      expect(messageInserts).toHaveLength(0);
+    }
+  );
+
+  it('sends the draft to a customer the register allows', async () => {
+    useContact(CONTACT);
+
+    const res = await postText({ origin: 'missed_call_draft' });
+
+    expect(res.status).toBe(200);
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an ordinary typed reply to the same customer alone', async () => {
+    useContact(DNC);
+
+    const res = await postText();
+
+    expect(res.status).toBe(200);
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('400s on an unknown origin before anything is sent', async () => {
+    useContact(CONTACT);
+
+    const res = await postText({ origin: 'campaign' });
+
+    expect(res.status).toBe(400);
+    expect(sendTextMessage).not.toHaveBeenCalled();
   });
 });

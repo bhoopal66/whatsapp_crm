@@ -25,6 +25,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { ConsentFields } from '@/lib/pbx/call-ui';
 import {
+  COMPOSER_PREFILL_EVENT,
   TIMELINE_FILTERS,
   callTone,
   entryHeading,
@@ -33,6 +34,8 @@ import {
   initials,
   maskPhone,
   mergeTimeline,
+  missedDraftOffer,
+  missedDraftText,
   missedTaskFor,
   monthSummaryParts,
   openTaskLine,
@@ -76,6 +79,8 @@ interface Basics {
   contact: Customer;
   conversation: { id: string; assignedTo: string | null } | null;
   deal: { id: string; title: string; stage: string | null } | null;
+  /** pbx_settings.missed_call_whatsapp_draft: missed calls offer a draft. */
+  draftOn: boolean;
 }
 interface RawMessage {
   id: string;
@@ -239,7 +244,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
     let live = true;
     const sb = createClient();
     void (async () => {
-      const [c, conv, deal] = await Promise.all([
+      const [c, conv, deal, pbx] = await Promise.all([
         sb
           .from('contacts')
           .select(
@@ -259,6 +264,11 @@ export function CustomerPage({ contactId }: { contactId: string }) {
           .eq('status', 'open')
           .order('created_at', { ascending: false })
           .limit(1),
+        // The active workspace's row (RLS); none or unreadable: no draft.
+        sb
+          .from('pbx_settings')
+          .select('missed_call_whatsapp_draft')
+          .maybeSingle(),
       ]);
       const contact = must(c) as Customer | null;
       if (!contact) return live && setLoad({ state: 'missing' });
@@ -289,6 +299,10 @@ export function CustomerPage({ contactId }: { contactId: string }) {
         deal: d
           ? { id: d.id, title: d.title, stage: d.stage?.name ?? null }
           : null,
+        draftOn:
+          !pbx.error &&
+          (pbx.data as { missed_call_whatsapp_draft?: unknown } | null)
+            ?.missed_call_whatsapp_draft === true,
         rows: {
           calls: calls as TimelineCall[],
           messages: messages as RawMessage[],
@@ -470,6 +484,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
     );
 
   const { contact, conversation, deal } = load;
+  const draft = missedDraftOffer(load.draftOn, contact);
   const title = contact.company || contact.name || maskPhone(contact.phone);
   const ownerName = contact.user_id ? names[contact.user_id] : null;
   const subline = [
@@ -482,7 +497,11 @@ export function CustomerPage({ contactId }: { contactId: string }) {
 
   const draftWhatsApp = () => {
     if (!conversation) return void toast.error(tl('noConversation'));
-    putComposerPrefill(sessionStore(), conversation.id, tl('missedDraft'));
+    const text = say(missedDraftText(contact.name));
+    if (putComposerPrefill(sessionStore(), conversation.id, text))
+      window.dispatchEvent(
+        new CustomEvent(COMPOSER_PREFILL_EVENT, { detail: conversation.id })
+      );
     router.push(`/inbox?c=${conversation.id}`);
   };
   const tickTask = async (task: TimelineTask) => {
@@ -510,7 +529,12 @@ export function CustomerPage({ contactId }: { contactId: string }) {
     }).format(new Date(`${key}T12:00:00Z`));
 
   const entry = (e: TimelineEntry) => {
-    const h = entryHeading(e, { timeZone, locale, contactName: contact.name });
+    const h = entryHeading(e, {
+      timeZone,
+      locale,
+      contactName: contact.name,
+      rang: e.kind === 'call' ? e.call.rangNames : undefined,
+    });
     const missed = e.kind === 'call' && callTone(e.call) === 'missed';
     const [Icon, tone] =
       e.kind === 'call'
@@ -595,9 +619,16 @@ export function CustomerPage({ contactId }: { contactId: string }) {
                 </span>
               )}
               <CallButton contact={contact} label={tl('callBack')} size="xs" />
-              <Button size="xs" variant="outline" onClick={draftWhatsApp}>
-                {tl('draftWhatsApp')}
-              </Button>
+              {draft.kind === 'offer' && (
+                <Button size="xs" variant="outline" onClick={draftWhatsApp}>
+                  {tl('draftWhatsApp')}
+                </Button>
+              )}
+              {draft.kind === 'blocked' && (
+                <span className="text-muted-foreground text-xs">
+                  {say(draft.reason)}
+                </span>
+              )}
             </div>
           )}
           {e.kind === 'call' && !missed && (

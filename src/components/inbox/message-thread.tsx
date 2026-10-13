@@ -10,6 +10,7 @@ import {
   useMemo,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { isSendOrigin, type SendOrigin } from '@/lib/whatsapp/send-origin';
 import {
   REFERENCE_CACHE_TTL_MS,
   cachedQuery,
@@ -69,6 +70,7 @@ import {
   forgetKeptUpload,
   isRetryableSendFailure,
   partitionRestoredDrafts,
+  consentRefusalOf,
   rememberKeptUpload,
   retryAttempt,
   sendFailureReason,
@@ -998,7 +1000,15 @@ export function MessageThread({
         return;
       }
 
-      const reason = sendFailureReason(res.status, payload);
+      // The consent register's refusal of a missed-call draft is
+      // worded here, in the app's language; anything else in the
+      // route's own words.
+      const refusal = consentRefusalOf(res.status, payload);
+      const reason = refusal
+        ? tFailedSend(
+            refusal === 'do_not_contact' ? 'doNotContact' : 'optedOut'
+          )
+        : sendFailureReason(res.status, payload);
       console.error(`Failed to send ${message.content_type}:`, reason);
       toast.error(
         `${toastPrefix}: ${reason}`,
@@ -1047,7 +1057,13 @@ export function MessageThread({
       // Give them back, but only in the chat they were written for: the
       // composer is shared by every chat, and the agent may have moved on.
       if (attempt.restoreText && conversationIdRef.current === conversationId) {
-        composerDraftRef.current?.restore(attempt.restoreText);
+        // With its origin: a restored missed-call draft is re-checked
+        // against the consent register when it is sent again.
+        const origin = attempt.body.origin;
+        composerDraftRef.current?.restore(
+          attempt.restoreText,
+          isSendOrigin(origin) ? origin : null
+        );
         restoredDraftsRef.current.push({
           conversationId,
           text: attempt.restoreText,
@@ -1085,7 +1101,7 @@ export function MessageThread({
   }, []);
 
   const handleSend = useCallback(
-    async (text: string, replyToId?: string) => {
+    async (text: string, replyToId?: string, origin?: SendOrigin) => {
       if (!conversation) return;
 
       // The same words sent again (usually the restored draft) replace
@@ -1116,6 +1132,8 @@ export function MessageThread({
           message_type: 'text',
           content_text: text,
           reply_to_message_id: replyToId,
+          // The missed-call draft: the route re-checks consent for it.
+          ...(origin ? { origin } : {}),
         },
         restoreText: text,
       });
