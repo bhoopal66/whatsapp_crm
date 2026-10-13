@@ -45,6 +45,7 @@ import {
   handleGroupWebhook,
   isGroupChange,
   isOptOutText,
+  parseGroupSettings,
 } from './webhook';
 
 const GROUP = 'HBgLMTY1MDM4Nzk0MzkVAgASGBQzQTRB';
@@ -306,6 +307,89 @@ describe('lifecycle', () => {
         (n) => n.user_id
       )
     ).toEqual(['user-creator', 'admin-1', 'owner-1']);
+  });
+});
+
+describe('group settings', () => {
+  it('reads the subject and description of a settings update', () => {
+    // The shape as remembered from Meta's Groups API pages (unverified).
+    expect(
+      parseGroupSettings({
+        timestamp: '1793000000',
+        group_id: GROUP,
+        type: 'group_settings_update',
+        request_id: 'req-9',
+        profile_picture: { mime_type: 'image/jpeg', update_successful: true },
+        group_subject: { text: '  Villa 7 — Palm  ', update_successful: true },
+        group_description: { text: ' ', update_successful: true },
+      })
+    ).toEqual({ subject: 'Villa 7 — Palm', description: null });
+    expect(
+      parseGroupSettings({
+        group_subject: { text: 'Kept', update_successful: false },
+        group_description: { text: 'Two bedrooms' },
+        join_approval_mode: { mode: 'auto_approve', update_successful: true },
+      })
+    ).toEqual({
+      description: 'Two bedrooms',
+      join_approval_mode: 'auto_approve',
+    });
+    expect(
+      parseGroupSettings({ join_approval_mode: 'approval_required' })
+    ).toEqual({ join_approval_mode: 'approval_required' });
+    // Characters, as Postgres counts them: 128 emoji fit the subject.
+    expect(
+      parseGroupSettings({ group_subject: { text: '😀'.repeat(128) } })
+    ).toEqual({ subject: '😀'.repeat(128) });
+  });
+
+  it('ignores junk, failed updates and values the room cannot hold, never throwing', () => {
+    for (const junk of [
+      null,
+      undefined,
+      42,
+      'group_settings_update',
+      [],
+      {},
+      { group_subject: 'Renamed' },
+      { group_subject: { text: 7 }, group_description: [] },
+      { group_subject: { text: '   ' } },
+      { group_subject: { text: 'x'.repeat(129) } },
+      { group_description: { text: 'x'.repeat(2049) } },
+      { group_subject: { text: 'Renamed' }, errors: [{ code: 131000 }] },
+      { group_subject: { text: 'Renamed', errors: [{ code: 131000 }] } },
+      { join_approval_mode: 'open' },
+      {
+        join_approval_mode: { mode: 'auto_approve', update_successful: false },
+      },
+      { join_approval_mode: 'auto_approve', errors: [{}] },
+    ]) {
+      expect(parseGroupSettings(junk)).toBeNull();
+    }
+  });
+
+  it('applies what a settings update changed to the room, in this account', async () => {
+    const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+    await run(db, {
+      groups: [
+        {
+          type: 'group_settings_update',
+          group_id: GROUP,
+          group_subject: { text: 'Villa 7', update_successful: true },
+        },
+        {
+          type: 'group_settings_update',
+          group_id: GROUP,
+          group_subject: { text: 'Refused', update_successful: false },
+        },
+      ],
+    });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('deal_room_apply_settings', {
+      p_account: 'acct-1',
+      p_group_id: GROUP,
+      p_settings: { subject: 'Villa 7' },
+    });
   });
 });
 

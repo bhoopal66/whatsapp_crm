@@ -27,6 +27,8 @@
 -- as NULL (delete it) when another room holds that group, and a
 -- cancelled room is never requested again; deal_room_fail_creation
 -- fails only a room still `creating`, once, and says whether it did.
+-- And 100's deal_room_apply_settings: a group's subject, description
+-- and join approval mode from the webhook, in its own account only.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -1049,6 +1051,34 @@ BEGIN
   n := n + 1;
   IF r IS NULL OR r NOT LIKE 'ERROR 42501:% / true / true / BAD_STATUS / true / marketing:2 / AE=true,SA=true' THEN
     failed := array_append(failed, ('a group send is not costed once per delivered member: ' || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: a group's settings, as a group_settings_update webhook reports
+  -- them, land on the room of the account the webhook authenticated,
+  -- renaming its Team notes channel; a client, another account, a
+  -- redelivery, values the room cannot hold and a closed room change
+  -- nothing, and a cleared description clears it.
+  s := 'SELECT public.deal_room_apply_settings(%L, %L, %L::jsonb)::text';
+  t := '{"subject": "  ' || repeat('Villa ', 15) || 'deal  ", "description": "Two bedrooms", '
+       || '"join_approval_mode": "auto_approve"}';
+  r := pg_temp.dr_try('authenticated', u_admin, format(s, a_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, b_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us',
+                     '{"subject": "   ", "description": 7, "join_approval_mode": "open"}'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '{"description": null}'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-lead@g.us', '{"subject": "Reopened"}'));
+  n := n + 1;
+  IF r IS NULL OR r NOT LIKE 'ERROR 42501:% / ERROR P0002:% / true / false / false / true / false'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms d JOIN chat_channels c ON c.id = d.channel_id
+                     WHERE d.id = r_y AND d.subject = btrim(repeat('Villa ', 15) || 'deal')
+                       AND c.name = left(d.subject, 80) AND d.description IS NULL
+                       AND d.join_approval_mode = 'auto_approve')
+     OR (SELECT count(*) FROM deal_room_audit WHERE room_id = r_y AND action = 'settings_changed') <> 2
+     OR EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_lead AND subject = 'Reopened') THEN
+    failed := array_append(failed, ('a group settings update was not applied once, in its own account: '
+                                    || coalesce(r, 'NULL'))::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

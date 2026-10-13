@@ -122,6 +122,66 @@ export function isOptOutText(text: unknown): boolean {
   return typeof text === 'string' && OPT_OUT_KEYWORDS.has(foldKeyword(text));
 }
 
+export interface GroupSettingsChange {
+  subject?: string;
+  /** null: the description was cleared. */
+  description?: string | null;
+  join_approval_mode?: 'approval_required' | 'auto_approve';
+}
+
+const JOIN_APPROVAL_MODES = new Set(['approval_required', 'auto_approve']);
+
+/** Postgres counts characters by code point, as this does. */
+const chars = (text: string) => [...text].length;
+
+/**
+ * What a `group_settings_update` event changed, in the room's terms
+ * (deal_room_apply_settings, migration 100), or null when it names
+ * nothing usable. Never throws.
+ *
+ * The shape is ASSUMED from Meta's Groups API pages and has not been
+ * seen on a live callback: each changed setting is an object beside
+ * `group_id` — `group_subject` and `group_description`, each with `text`
+ * and `update_successful` — and the join approval mode, if Meta sends
+ * it, is taken as `join_approval_mode`, a string or `{ mode }`. A
+ * setting counts when its update succeeded (`update_successful: true`,
+ * or no flag on an event reporting no errors). Anything else — another
+ * shape, a failed update, a subject that is blank or over 128
+ * characters, a description over 2048 — is ignored.
+ */
+export function parseGroupSettings(event: unknown): GroupSettingsChange | null {
+  const e = obj(event);
+  const hasErrors = (o: Json) => Array.isArray(o.errors) && o.errors.length > 0;
+  const succeeded = (s: Json) =>
+    s.update_successful === true ||
+    (s.update_successful === undefined && !hasErrors(e) && !hasErrors(s));
+  const out: GroupSettingsChange = {};
+
+  const subject = obj(e.group_subject);
+  if (typeof subject.text === 'string' && succeeded(subject)) {
+    const text = subject.text.trim();
+    if (chars(text) >= 1 && chars(text) <= 128) out.subject = text;
+  }
+  const description = obj(e.group_description);
+  if (typeof description.text === 'string' && succeeded(description)) {
+    const text = description.text.trim();
+    if (chars(text) <= 2048) out.description = text || null;
+  }
+  const rawMode = e.join_approval_mode;
+  const mode =
+    typeof rawMode === 'string'
+      ? hasErrors(e)
+        ? null
+        : rawMode
+      : succeeded(obj(rawMode))
+        ? str(obj(rawMode).mode)
+        : null;
+  if (mode && JOIN_APPROVAL_MODES.has(mode)) {
+    out.join_approval_mode = mode as GroupSettingsChange['join_approval_mode'];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 interface Room {
   id: string;
   channel_id: string;
@@ -411,8 +471,21 @@ export async function handleGroupWebhook(
         );
         return;
       }
+      case 'group_settings_update': {
+        const settings = parseGroupSettings(event);
+        if (!settings) {
+          console.info('[deal-rooms] group settings update: nothing to apply');
+          return;
+        }
+        await rpc('deal_room_apply_settings', {
+          p_account: accountId,
+          p_group_id: groupId,
+          p_settings: settings,
+        });
+        return;
+      }
       default:
-        // group_settings_update and anything new: logged only.
+        // Anything new: logged only.
         console.info(`[deal-rooms] group event "${type}" logged only`);
     }
   }

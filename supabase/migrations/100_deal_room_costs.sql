@@ -26,9 +26,15 @@
 --    redelivered receipt count once. Fail-open at the call site
 --    (lib/whatsapp/message-costs.ts), like 1:1 costing.
 --
+-- And a group's settings: deal_room_apply_settings (service role) takes
+-- the subject, description and join approval mode a
+-- `group_settings_update` webhook reports onto the room of the account
+-- the webhook authenticated, renaming its Team notes channel with it.
+--
 -- 088's superuser / BYPASSRLS guard is repeated: deal_room_record_cost
--- is a new SECURITY DEFINER function writing group_messages, which is
--- RLS-forced, so its owner must bypass RLS.
+-- and deal_room_apply_settings are new SECURITY DEFINER functions
+-- writing RLS-forced tables (group_messages, chat_channels), so their
+-- owner must bypass RLS.
 --
 -- Re-runnable: every statement is guarded or replaces in place.
 
@@ -250,3 +256,80 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.deal_room_record_cost(uuid, text, jsonb, text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.deal_room_record_cost(uuid, text, jsonb, text) TO service_role;
+
+
+-- ---------- 3. A group's settings, as WhatsApp reports them ----------
+
+-- A `group_settings_update` webhook, parsed by lib/deal-rooms/webhook.ts
+-- (parseGroupSettings), for the group of a room of the account the
+-- webhook authenticated. p_settings holds only what changed: `subject`,
+-- `description` (JSON null: cleared) and `join_approval_mode`; a key
+-- left out is left alone, and a value the room cannot hold (a blank or
+-- over-long subject or description, an unknown mode) is ignored rather
+-- than failing the webhook. A new subject renames the room's Team notes
+-- channel as deal_room_create names it (left(subject, 80)). A closed
+-- room is the record of a deleted group and changes no more. Returns
+-- whether anything changed; a redelivery changes nothing.
+CREATE OR REPLACE FUNCTION public.deal_room_apply_settings(p_account uuid, p_group_id text, p_settings jsonb)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_r       public.deal_rooms;
+  v_subject text;
+  v_desc    text;
+  v_mode    text;
+  v_fields  text[] := '{}';
+BEGIN
+  PERFORM public.deal_room_assert_service();
+  SELECT * INTO v_r FROM public.deal_rooms
+   WHERE wa_group_id = p_group_id AND account_id = p_account FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'deal rooms: unknown group' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_r.status = 'closed' OR p_settings IS NULL OR jsonb_typeof(p_settings) <> 'object' THEN
+    RETURN false;
+  END IF;
+  v_subject := v_r.subject;
+  v_desc    := v_r.description;
+  v_mode    := v_r.join_approval_mode;
+  IF jsonb_typeof(p_settings->'subject') = 'string'
+     AND char_length(btrim(p_settings->>'subject')) BETWEEN 1 AND 128 THEN
+    v_subject := btrim(p_settings->>'subject');
+  END IF;
+  IF jsonb_typeof(p_settings->'description') = 'null' THEN
+    v_desc := NULL;
+  ELSIF jsonb_typeof(p_settings->'description') = 'string'
+        AND char_length(btrim(p_settings->>'description')) <= 2048 THEN
+    v_desc := nullif(btrim(p_settings->>'description'), '');
+  END IF;
+  IF jsonb_typeof(p_settings->'join_approval_mode') = 'string'
+     AND p_settings->>'join_approval_mode' IN ('approval_required','auto_approve') THEN
+    v_mode := p_settings->>'join_approval_mode';
+  END IF;
+  IF v_subject IS DISTINCT FROM v_r.subject THEN
+    v_fields := v_fields || 'subject'::text;
+  END IF;
+  IF v_desc IS DISTINCT FROM v_r.description THEN
+    v_fields := v_fields || 'description'::text;
+  END IF;
+  IF v_mode IS DISTINCT FROM v_r.join_approval_mode THEN
+    v_fields := v_fields || 'join_approval_mode'::text;
+  END IF;
+  IF cardinality(v_fields) = 0 THEN
+    RETURN false;
+  END IF;
+  UPDATE public.deal_rooms
+     SET subject = v_subject, description = v_desc, join_approval_mode = v_mode
+   WHERE id = v_r.id;
+  IF v_subject IS DISTINCT FROM v_r.subject THEN
+    UPDATE public.chat_channels SET name = left(v_subject, 80) WHERE id = v_r.channel_id;
+  END IF;
+  INSERT INTO public.deal_room_audit (room_id, account_id, actor_id, action, detail)
+  VALUES (v_r.id, v_r.account_id, NULL, 'settings_changed',
+          jsonb_build_object('fields', to_jsonb(v_fields),
+                             'subject', jsonb_build_object('from', v_r.subject, 'to', v_subject),
+                             'join_approval_mode', jsonb_build_object('from', v_r.join_approval_mode, 'to', v_mode)));
+  RETURN true;
+END $$;
+
+REVOKE ALL ON FUNCTION public.deal_room_apply_settings(uuid, text, jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.deal_room_apply_settings(uuid, text, jsonb) TO service_role;
