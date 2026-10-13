@@ -239,7 +239,9 @@
       "retryTitle": "Send this message again",
       "discard": "Discard",
       "discardTitle": "Remove this unsent message from the chat",
-      "maybeSent": "It may still have reached the customer. Check before sending it again."
+      "maybeSent": "It may still have reached the customer. Check before sending it again.",
+      "doNotContact": "This customer is marked do-not-contact, so the missed-call draft was not sent.",
+      "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent."
     },
     "composer": {
       "templates": "Templates",
@@ -266,7 +268,9 @@
       "send": "Send",
       "quickReplyNamePrompt": "Name this quick reply:",
       "quickReplySaved": "Saved as a quick reply.",
-      "quickReplySaveError": "Couldn't save the quick reply."
+      "quickReplySaveError": "Couldn't save the quick reply.",
+      "draftDroppedDoNotContact": "Missed-call draft removed: this customer is now marked do-not-contact.",
+      "draftDroppedOptedOut": "Missed-call draft removed: this customer has opted out of messages."
     },
     "bubble": {
       "photo": "Photo",

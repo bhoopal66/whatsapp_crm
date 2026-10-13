@@ -8,6 +8,7 @@ import {
   useImperativeHandle,
   KeyboardEvent,
   type Ref,
+  type SetStateAction,
 } from 'react';
 import {
   Send,
@@ -28,10 +29,21 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   COMPOSER_PREFILL_EVENT,
+  EMPTY_COMPOSER_BOX,
+  editBox,
+  placeDraft,
+  putComposerPrefill,
+  restoreBox,
   sessionStore,
   takeComposerPrefill,
-  withPrefill,
+  type ComposerBox,
 } from '@/lib/pbx/timeline';
+import { createClient } from '@/lib/supabase/client';
+import {
+  consentRefusal,
+  type ConsentRefusal,
+  type SendOrigin,
+} from '@/lib/whatsapp/send-origin';
 import { GatedButton } from '@/components/ui/gated-button';
 import {
   DropdownMenu,
@@ -123,15 +135,19 @@ interface MediaDraft {
  * saved, so without this the words exist only in the failed bubble.
  */
 export interface ComposerDraftHandle {
-  /** Fill the text box with `text`, unless the agent has typed something since. */
-  restore: (text: string) => void;
+  /**
+   * Fill the text box with `text`, unless the agent has typed something
+   * since; `origin` is what the failed send carried (the missed-call
+   * draft keeps its consent re-check).
+   */
+  restore: (text: string, origin?: SendOrigin | null) => void;
   /** Empty the text box if it still holds exactly `text` (a Retry sent it). */
   clearIf: (text: string) => void;
 }
 
 interface MessageComposerProps {
   conversationId: string;
-  onSend: (text: string, replyToId?: string) => void;
+  onSend: (text: string, replyToId?: string, origin?: SendOrigin) => void;
   onSendMedia: (payload: SendMediaPayload) => void;
   onSendInteractive: (
     payload: InteractiveMessagePayload,
@@ -162,6 +178,31 @@ function formatDuration(seconds: number): string {
  *  Meta-accepted format means no server ffmpeg / transcode step. */
 const OPUS_ENCODER_PATH = '/opus/encoderWorker.min.js';
 
+/**
+ * The consent register's answer for the chat's customer, read fresh
+ * under the caller's RLS. Null when it could not be read: the prefill
+ * still opens, and the send route checks the register again.
+ */
+async function readConsentRefusal(
+  conversationId: string
+): Promise<ConsentRefusal | null> {
+  try {
+    const { data } = await createClient()
+      .from('conversations')
+      .select('contact:contacts(do_not_contact_at, opted_out_at)')
+      .eq('id', conversationId)
+      .maybeSingle();
+    const contact = (data as { contact?: unknown } | null)?.contact;
+    return consentRefusal(
+      (Array.isArray(contact) ? contact[0] : contact) as Parameters<
+        typeof consentRefusal
+      >[0]
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function MessageComposer({
   conversationId,
   onSend,
@@ -174,27 +215,56 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
 
+  // The box's text, and whether it began as the missed-call draft
+  // (ComposerBox): a send of that text carries its origin.
+  const [box, setBox] = useState<ComposerBox>(EMPTY_COMPOSER_BOX);
+  const text = box.text;
+  const setText = useCallback((next: SetStateAction<string>) => {
+    setBox((b) => editBox(b, typeof next === 'function' ? next(b.text) : next));
+  }, []);
   // "Draft WhatsApp" on the customer page leaves a one-shot text for
   // this chat: it opens in the box, editable, and is never sent by
-  // itself. Read when the composer mounts for the chat, and again below.
-  const [text, setText] = useState(
-    () => takeComposerPrefill(sessionStore(), conversationId) ?? ''
-  );
-  // The composer outlives a chat switch, so a prefill is also taken when
-  // it moves to the chat, or when one is left while the chat is open.
-  // It joins what the box holds (withPrefill): typed words stay.
+  // itself. The composer outlives a chat switch, so it is taken when the
+  // composer mounts for the chat, when it moves to the chat, or when one
+  // is left while the chat is open. It joins what the box holds: typed
+  // words stay. The consent register is read again first: a draft left
+  // for a customer since marked do-not-contact or opted out is dropped
+  // with a notice. A failed read places it; the send is re-checked.
+  const openChatRef = useRef<string | null>(null);
   useEffect(() => {
+    openChatRef.current = conversationId;
     const take = () => {
       const prefill = takeComposerPrefill(sessionStore(), conversationId);
-      if (prefill) setText((prev) => withPrefill(prev, prefill));
+      if (!prefill) return;
+      void readConsentRefusal(conversationId).then((refusal) => {
+        if (openChatRef.current !== conversationId) {
+          // Moved on before the answer: leave it for that chat again.
+          putComposerPrefill(sessionStore(), conversationId, prefill);
+          return;
+        }
+        if (refusal) {
+          toast.warning(
+            t(
+              refusal === 'do_not_contact'
+                ? 'draftDroppedDoNotContact'
+                : 'draftDroppedOptedOut'
+            )
+          );
+          return;
+        }
+        setBox((b) => placeDraft(b, prefill, 'missed_call_draft'));
+      });
     };
     take();
     const onPut = (e: Event) => {
       if ((e as CustomEvent<unknown>).detail === conversationId) take();
     };
     window.addEventListener(COMPOSER_PREFILL_EVENT, onPut);
-    return () => window.removeEventListener(COMPOSER_PREFILL_EVENT, onPut);
-  }, [conversationId]);
+    return () => {
+      openChatRef.current = null;
+      window.removeEventListener(COMPOSER_PREFILL_EVENT, onPut);
+    };
+  }, [conversationId, t]);
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -277,8 +347,8 @@ export function MessageComposer({
   useImperativeHandle(
     textControl,
     () => ({
-      restore: (restored: string) => {
-        setText((prev) => (prev.trim() ? prev : restored));
+      restore: (restored: string, origin?: SendOrigin | null) => {
+        setBox((b) => restoreBox(b, restored, origin ?? null));
         requestAnimationFrame(adjustHeight);
       },
       clearIf: (sent: string) => {
@@ -286,7 +356,7 @@ export function MessageComposer({
         requestAnimationFrame(adjustHeight);
       },
     }),
-    [adjustHeight]
+    [adjustHeight, setText]
   );
 
   const handleSend = useCallback(async () => {
@@ -295,7 +365,7 @@ export function MessageComposer({
 
     setSending(true);
     try {
-      onSend(trimmed, replyTo?.id);
+      onSend(trimmed, replyTo?.id, box.origin ?? undefined);
       setText('');
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -303,7 +373,7 @@ export function MessageComposer({
     } finally {
       setSending(false);
     }
-  }, [text, sending, onSend, replyTo?.id]);
+  }, [text, box.origin, sending, onSend, replyTo?.id, setText]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -320,7 +390,7 @@ export function MessageComposer({
       setText(e.target.value);
       adjustHeight();
     },
-    [adjustHeight]
+    [adjustHeight, setText]
   );
 
   // Ask the AI assistant for a suggested reply and drop it into the
@@ -351,7 +421,8 @@ export function MessageComposer({
         toast.error("The assistant didn't return a reply.");
         return;
       }
-      setText(draftText);
+      // It replaces the box, so a missed-call draft's mark goes with it.
+      setBox({ text: draftText, origin: null });
       // Let the textarea grow to fit and drop the cursor at the end so
       // the agent can tweak immediately.
       requestAnimationFrame(() => {
@@ -447,7 +518,7 @@ export function MessageComposer({
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight]
+    [openInteractiveBuilder, adjustHeight, setText]
   );
 
   // Upload a captured file to chat-media and stage it as a draft.

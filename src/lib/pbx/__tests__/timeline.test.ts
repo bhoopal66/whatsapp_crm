@@ -5,6 +5,10 @@ import en from '../../../../messages/en.json';
 import {
   callHeading,
   callsSidebar,
+  editBox,
+  EMPTY_COMPOSER_BOX,
+  placeDraft,
+  restoreBox,
   entryHeading,
   filterTimeline,
   groupByDay,
@@ -410,6 +414,38 @@ describe('missed-call WhatsApp draft', () => {
     expect(withPrefill('  ', 'Hi Khalid')).toBe('Hi Khalid');
     expect(withPrefill('Noted. ', 'Hi Khalid')).toBe('Noted.\n\nHi Khalid');
     expect(withPrefill('Hi Khalid', 'Hi Khalid')).toBe('Hi Khalid');
+  });
+
+  it('marks the box as the draft until it is emptied, edits included', () => {
+    const placed = placeDraft(
+      { text: 'Noted. ', origin: null },
+      'Hi Khalid',
+      'missed_call_draft'
+    );
+    expect(placed).toEqual({
+      text: 'Noted.\n\nHi Khalid',
+      origin: 'missed_call_draft',
+    });
+    // An edited draft is still the draft: its send is consent-checked.
+    expect(editBox(placed, 'Hi Khalid, call me back').origin).toBe(
+      'missed_call_draft'
+    );
+    // Emptied (cleared, sent, or edited away entirely), it is not.
+    expect(editBox(placed, '  ')).toEqual({ text: '  ', origin: null });
+    expect(editBox(editBox(placed, ''), 'Typed')).toEqual({
+      text: 'Typed',
+      origin: null,
+    });
+    expect(editBox(EMPTY_COMPOSER_BOX, 'Typed').origin).toBeNull();
+  });
+
+  it('restores a failed send with its origin, into an empty box only', () => {
+    expect(
+      restoreBox(EMPTY_COMPOSER_BOX, 'Hi Khalid', 'missed_call_draft')
+    ).toEqual({ text: 'Hi Khalid', origin: 'missed_call_draft' });
+    const typed = { text: 'Typed since', origin: null };
+    expect(restoreBox(typed, 'Hi Khalid', 'missed_call_draft')).toBe(typed);
+    expect(restoreBox(EMPTY_COMPOSER_BOX, 'Thanks', null).origin).toBeNull();
   });
 });
 

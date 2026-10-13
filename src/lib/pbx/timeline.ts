@@ -1,4 +1,5 @@
 import type { ConsentFields } from './call-ui';
+import type { SendOrigin } from '@/lib/whatsapp/send-origin';
 import { isMissedCall } from './call-status';
 import type { SoftphoneState } from './linkus-state';
 
@@ -734,6 +735,45 @@ export function withPrefill(current: string, prefill: string): string {
   if (!current.trim()) return prefill;
   if (current.includes(prefill)) return current;
   return `${current.trimEnd()}\n\n${prefill}`;
+}
+
+/**
+ * The composer's text and where it came from. `origin` marks text that
+ * began as the missed-call draft: its send carries the origin, and the
+ * server re-checks the consent register for it. Edits keep the mark (an
+ * edited draft is still the draft); sending or emptying the box drops it.
+ */
+export interface ComposerBox {
+  text: string;
+  origin: SendOrigin | null;
+}
+
+export const EMPTY_COMPOSER_BOX: ComposerBox = { text: '', origin: null };
+
+/** Any edit of the box: the mark lasts while the box holds text. */
+export function editBox(box: ComposerBox, text: string): ComposerBox {
+  return { text, origin: text.trim() ? box.origin : null };
+}
+
+/** A prefill joins the box (withPrefill) and marks it. */
+export function placeDraft(
+  box: ComposerBox,
+  prefill: string,
+  origin: SendOrigin
+): ComposerBox {
+  return { text: withPrefill(box.text, prefill), origin };
+}
+
+/**
+ * A failed send's words come back with the origin they were sent with,
+ * into an empty box only: anything typed since wins.
+ */
+export function restoreBox(
+  box: ComposerBox,
+  text: string,
+  origin: SendOrigin | null
+): ComposerBox {
+  return box.text.trim() ? box : { text, origin };
 }
 
 export function takeComposerPrefill(

@@ -203,6 +203,16 @@ connection with no secret stored refuses every push. Optionally set
   customer is never offered one: the call says why instead. On the same
   terms (a known contact with a chat, neither do-not-contact nor opted
   out) the missed-call task's note says the draft is ready.
+  The draft is a **human-sent message**, so the consent register is
+  checked again at both ends. The composer reads it when it picks the
+  draft up, and drops a draft left for a customer marked since, with a
+  notice. A send whose text began as the draft (edits included, until
+  the box is emptied) carries `origin: "missed_call_draft"` to
+  `POST /api/whatsapp/send`, which refuses it before the gateway with a
+  409 `do_not_contact` or `opted_out`; that refusal offers no Retry. An
+  ordinary typed reply carries no origin and is not gated by the
+  register. The TypeSafe guardrail does not apply to the draft: it
+  screens the AI bot's replies, not what a person sends.
 - **Recordings** are marked for fetching, or kept unrecorded (_held_)
   for a bank number while **Exclude bank numbers** is on.
 - Every event is stored once (re-sends are ignored); one that cannot be
