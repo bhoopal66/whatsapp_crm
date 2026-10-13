@@ -121,6 +121,7 @@ describe('POST /api/pbx/calls/[id]/attach', () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
       error: 'Recording held until the notice is confirmed',
+      code: 'held',
     });
     expect(service.tables.deal_files).toEqual([]);
   });

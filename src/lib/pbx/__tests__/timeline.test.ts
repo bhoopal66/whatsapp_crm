@@ -11,6 +11,7 @@ import {
   maskPhone,
   mergeTimeline,
   recordingView,
+  refusalView,
   missedTaskFor,
   monthSummaryParts,
   openMissedTasks,
@@ -375,5 +376,16 @@ describe('recordingView', () => {
     expect(recordingView({ recordingState: 'not_stored' })).toBe('notStored');
     expect(recordingView({ recordingState: 'none' })).toBeUndefined();
     expect(recordingView({ recordingState: 'failed' })).toBeUndefined();
+  });
+});
+
+describe('refusalView', () => {
+  it('shows what the server says happened to the audio', () => {
+    expect(refusalView('expired')).toBe('expired');
+    expect(refusalView('erased')).toBe('erased');
+    expect(refusalView('not_stored')).toBe('notStored');
+    expect(refusalView('held')).toBe('held');
+    expect(refusalView(undefined)).toBe('held');
+    expect(refusalView('constructor')).toBe('held');
   });
 });

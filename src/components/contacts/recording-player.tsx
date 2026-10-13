@@ -2,10 +2,13 @@
 
 // A call's recording on the customer page (module 015). Play asks the
 // server for a five-minute signed link, which logs the play and refuses
-// (409) a recording held until the notice is confirmed or erased; the
-// audio then plays in this element. Nothing is downloaded. An owner or
-// admin can place or lift a legal hold (migration 093), with a reason:
-// a held recording outlives the retention period and blocks erasure.
+// (409) a recording held until the notice is confirmed, erased, or
+// deleted under the retention period since the page loaded; the 409's
+// `code` says which (refusalView). The audio then plays in this
+// element. Nothing is downloaded. An owner or admin can place or lift a
+// legal hold (migration 093), with a reason: a held recording outlives
+// the retention period and blocks erasure. A recording held for the
+// notice still exists, so its box keeps the legal hold controls.
 
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -20,6 +23,7 @@ import { reasonOk } from '@/lib/chat/admin-tools';
 import {
   playerClock,
   recordingView,
+  refusalView,
   type RecordingView,
   type TimelineCall,
 } from '@/lib/pbx/timeline';
@@ -48,7 +52,8 @@ export function RecordingPlayer({
 }) {
   const t = useTranslations('CustomerTimeline');
   const audio = useRef<HTMLAudioElement>(null);
-  const [refused, setRefused] = useState(false);
+  // What a 409 said the recording is now; null: not refused.
+  const [refused, setRefused] = useState<RecordingView | null>(null);
   const [linked, setLinked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -62,9 +67,9 @@ export function RecordingPlayer({
   const [holdReason, setHoldReason] = useState<string | null>(null);
   const [holdBusy, setHoldBusy] = useState(false);
 
-  const view: RecordingView | undefined = refused
-    ? 'held'
-    : recordingView(call);
+  const held = refused === 'held';
+  const view: RecordingView | undefined =
+    refused && !held ? refused : recordingView(call);
   if (!view) return null;
   if (view !== 'player')
     return (
@@ -83,7 +88,10 @@ export function RecordingPlayer({
         const res = await post(`/api/pbx/calls/${call.id}/recording`, {
           action: 'play',
         });
-        if (res.status === 409) return setRefused(true);
+        if (res.status === 409) {
+          const why = await res.json().catch(() => null);
+          return setRefused(refusalView(why?.code));
+        }
         const body = res.ok ? await res.json().catch(() => null) : null;
         if (typeof body?.url !== 'string') throw new Error('no link');
         el.src = body.url;
@@ -109,7 +117,10 @@ export function RecordingPlayer({
       return;
     }
     setAttach('idle');
-    if (res?.status === 409) setRefused(true);
+    if (res?.status === 409) {
+      const why = await res.json().catch(() => null);
+      setRefused(refusalView(why?.code));
+    }
     toast.error(t('attachFailed'));
   };
 
@@ -136,31 +147,37 @@ export function RecordingPlayer({
   const pct = total > 0 ? Math.min(100, (at / total) * 100) : 0;
   return (
     <div className="border-border bg-muted/40 mt-2 rounded-lg border p-3">
-      <div className="flex items-center gap-3">
-        <Button
-          size="icon-sm"
-          variant="outline"
-          aria-label={playing ? t('pause') : t('play')}
-          onClick={() => void toggle()}
-        >
-          {busy ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : playing ? (
-            <Pause className="size-4" />
-          ) : (
-            <Play className="size-4" />
-          )}
-        </Button>
-        <div className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
-          <div
-            className="h-full rounded-full bg-emerald-600"
-            style={{ width: `${pct}%` }}
-          />
+      {held ? (
+        <p className="text-muted-foreground text-xs italic">
+          {t('recordingHeld')}
+        </p>
+      ) : (
+        <div className="flex items-center gap-3">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            aria-label={playing ? t('pause') : t('play')}
+            onClick={() => void toggle()}
+          >
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : playing ? (
+              <Pause className="size-4" />
+            ) : (
+              <Play className="size-4" />
+            )}
+          </Button>
+          <div className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
+            <div
+              className="h-full rounded-full bg-emerald-600"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="text-muted-foreground font-mono text-xs tabular-nums">
+            {playerClock(at)} / {playerClock(total)}
+          </span>
         </div>
-        <span className="text-muted-foreground font-mono text-xs tabular-nums">
-          {playerClock(at)} / {playerClock(total)}
-        </span>
-      </div>
+      )}
       {/* The src is set by Play, never rendered: the link is signed per play. */}
       <audio
         ref={audio}
@@ -179,7 +196,7 @@ export function RecordingPlayer({
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-xs">
-          {t('noticePlayed')}
+          {!held && t('noticePlayed')}
           {hold && (
             <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900 [[data-mode=dark]_&]:bg-amber-500/15 [[data-mode=dark]_&]:text-amber-200">
               {t('legalHold')}
@@ -192,7 +209,7 @@ export function RecordingPlayer({
             {hold ? t('liftHold') : t('placeHold')}
           </Button>
         )}
-        {dealId && (
+        {dealId && !held && (
           <Button
             size="xs"
             variant="outline"

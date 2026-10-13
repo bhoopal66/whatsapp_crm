@@ -58,6 +58,25 @@ export function recordingView(
   const view = RECORDING_VIEW[call.recordingState];
   return view === 'player' && call.recordingDeleted ? 'expired' : view;
 }
+
+/** A recording route's 409 `code` (calls.ts recordingRefusalCode). */
+const REFUSAL_VIEW: Record<string, RecordingView> = {
+  expired: 'expired',
+  erased: 'erased',
+  not_stored: 'notStored',
+};
+
+/**
+ * What the box shows once the server refused a play or an attach the
+ * page thought possible: the audio deleted under the retention period
+ * since the page loaded, erased, not stored; otherwise held until the
+ * notice is confirmed, where the audio still exists (and can be held).
+ */
+export function refusalView(code: unknown): RecordingView {
+  return typeof code === 'string' && Object.hasOwn(REFUSAL_VIEW, code)
+    ? REFUSAL_VIEW[code]
+    : 'held';
+}
 export interface TimelineMessage {
   id: string;
   senderType: string;

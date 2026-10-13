@@ -30,7 +30,7 @@ import {
   fail,
   jsonObject,
   logRecordingAccess,
-  recordingRefusal,
+  recordingRefused,
   visibleCall,
 } from '@/lib/pbx/calls';
 import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
@@ -60,17 +60,21 @@ export async function POST(
 
     const { data, error } = await service
       .from('call_recordings')
-      .select('storage_path')
+      .select('storage_path, erased_at')
       .eq('call_id', call.id)
       .eq('account_id', call.account_id)
-      // The retention period (093) marks the row before deleting the
-      // audio: a row marked since the log is no link.
-      .is('erased_at', null)
       .maybeSingle();
     if (error) throw new Error(`call_recordings read failed: ${error.message}`);
-    const path = (data as { storage_path: string } | null)?.storage_path;
-    // Logged as playable a moment ago: only an erasure since removes it.
-    if (!path) return fail(recordingRefusal('erased'), 409);
+    const row = data as {
+      storage_path: string;
+      erased_at: string | null;
+    } | null;
+    // Logged as playable a moment ago: an erasure since removes the row,
+    // and the retention period (093) marks it before deleting the audio,
+    // so a row marked since the log is no link either.
+    if (!row) return recordingRefused('erased');
+    if (row.erased_at) return recordingRefused('fetched', true);
+    const path = row.storage_path;
 
     const signedAt = Date.now();
     const { data: signed, error: signError } = await service.storage

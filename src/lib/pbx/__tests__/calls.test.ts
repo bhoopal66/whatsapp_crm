@@ -11,6 +11,7 @@ import {
   presenceView,
   recordingFileName,
   recordingRefusal,
+  recordingRefusalCode,
   summarizeMonth,
 } from '../calls';
 
@@ -138,6 +139,17 @@ describe('pbx call helpers', () => {
       'This recording was not stored in the CRM'
     );
     expect(recordingRefusal('pending')).toBe('This call has no recording yet');
+  });
+
+  it('says the retention period deleted the audio, whatever the call says', () => {
+    expect(recordingRefusal('fetched', true)).toBe(
+      'This recording was deleted under the retention period'
+    );
+    expect(recordingRefusalCode('fetched', true)).toBe('expired');
+    expect(recordingRefusalCode('fetched')).toBe('held');
+    expect(recordingRefusalCode('erased')).toBe('erased');
+    expect(recordingRefusalCode('not_stored')).toBe('not_stored');
+    expect(recordingRefusalCode('pending')).toBe('none');
   });
 
   it('names an attached recording by its Dubai day and who was called', () => {
