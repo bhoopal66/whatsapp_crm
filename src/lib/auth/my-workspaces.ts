@@ -115,3 +115,44 @@ export function guestRedirectPath(
 ): string | null {
   return isBankGuest(role) && !isGuestPath(pathname) ? GUEST_HOME_PATH : null;
 }
+
+/** Stands in for this origin when a path is parsed; never fetched. */
+const PATH_BASE = 'https://app.invalid';
+
+/**
+ * `next` when it is a path inside this app, else null. Only a plain
+ * absolute path on this origin passes ("/inbox?c=…"): a scheme or host
+ * ("https://evil", "javascript:"), a protocol-relative "//evil", a
+ * backslash ("/\evil", which browsers read as "//evil") or any control
+ * character or space (browsers drop tabs and newlines, so "/\t/evil"
+ * would become "//evil") is refused, so a crafted value can never be an
+ * open redirect.
+ */
+export function inAppPath(next: unknown): string | null {
+  if (typeof next !== 'string' || !next.startsWith('/')) return null;
+  if (next.startsWith('//') || /[\\\s\u0000-\u001f\u007f]/.test(next)) {
+    return null;
+  }
+  try {
+    const url = new URL(next, PATH_BASE);
+    return url.origin === PATH_BASE ? next : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where entering a workspace as `role` lands: `next` when it is an
+ * in-app path (`inAppPath`) that role may open, else the workspace's
+ * home. A bank guest's `next` still has to be team chat, as
+ * `guestRedirectPath` would otherwise bounce them there anyway.
+ */
+export function workspaceEntryPath(
+  role: AccountRole | null | undefined,
+  next?: unknown
+): string {
+  const path = inAppPath(next);
+  if (!path) return workspaceHomePath(role);
+  const { pathname } = new URL(path, PATH_BASE);
+  return guestRedirectPath(role, pathname) ?? path;
+}

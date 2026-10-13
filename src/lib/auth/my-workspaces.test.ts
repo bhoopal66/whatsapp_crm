@@ -7,6 +7,8 @@ import {
   parseMyWorkspaces,
   workspaceHomePath,
   type Workspace,
+  inAppPath,
+  workspaceEntryPath,
 } from './my-workspaces';
 
 function ws(accountId: string, over: Partial<Workspace> = {}): Workspace {
@@ -153,5 +155,47 @@ describe('guest paths', () => {
     expect(guestRedirectPath('agent', '/inbox')).toBeNull();
     expect(guestRedirectPath('viewer', '/chat')).toBeNull();
     expect(guestRedirectPath(null, '/inbox')).toBeNull();
+  });
+});
+
+describe('inAppPath', () => {
+  it.each(['/inbox?c=1', '/chat/rooms/abc', '/settings?tab=whatsapp', '/'])(
+    'keeps the in-app path %s',
+    (p) => expect(inAppPath(p)).toBe(p)
+  );
+  it.each([
+    'https://evil.example/x',
+    'javascript:alert(1)',
+    '//evil.example',
+    '/\\evil.example',
+    '\\evil.example',
+    '/\t/evil.example',
+    '/\n/evil.example',
+    '/ /x',
+    'inbox',
+    '',
+    null,
+    undefined,
+    42,
+  ])('refuses %j', (p) => expect(inAppPath(p)).toBeNull());
+});
+
+describe('workspaceEntryPath', () => {
+  it('lands on next when it is an in-app path', () => {
+    expect(workspaceEntryPath('agent', '/inbox?c=1')).toBe('/inbox?c=1');
+  });
+  it('lands on the home page without a usable next', () => {
+    expect(workspaceEntryPath('agent')).toBe('/dashboard');
+    expect(workspaceEntryPath('admin', '//evil.example')).toBe('/dashboard');
+    expect(workspaceEntryPath('bank_guest', 'https://evil.example')).toBe(
+      '/chat'
+    );
+  });
+  it('keeps a bank guest on team chat', () => {
+    expect(workspaceEntryPath('bank_guest', '/chat/rooms/r1')).toBe(
+      '/chat/rooms/r1'
+    );
+    expect(workspaceEntryPath('bank_guest', '/inbox?c=1')).toBe('/chat');
+    expect(workspaceEntryPath('bank_guest', '/chatter')).toBe('/chat');
   });
 });
