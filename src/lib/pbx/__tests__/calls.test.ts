@@ -11,7 +11,9 @@ import {
   presenceView,
   recordingFileName,
   recordingRefusal,
+  recordingRefusalCode,
   summarizeMonth,
+  visibleCall,
 } from '../calls';
 
 const NOW = Date.parse('2026-10-12T10:00:00Z');
@@ -140,6 +142,17 @@ describe('pbx call helpers', () => {
     expect(recordingRefusal('pending')).toBe('This call has no recording yet');
   });
 
+  it('says the retention period deleted the audio, whatever the call says', () => {
+    expect(recordingRefusal('fetched', true)).toBe(
+      'This recording was deleted under the retention period'
+    );
+    expect(recordingRefusalCode('fetched', true)).toBe('expired');
+    expect(recordingRefusalCode('fetched')).toBe('held');
+    expect(recordingRefusalCode('erased')).toBe('erased');
+    expect(recordingRefusalCode('not_stored')).toBe('not_stored');
+    expect(recordingRefusalCode('pending')).toBe('none');
+  });
+
   it('names an attached recording by its Dubai day and who was called', () => {
     // 22:30 UTC on the 11th is already the 12th in Dubai.
     expect(recordingFileName('2026-10-11T22:30:00Z', ' Ahmed Ali ')).toBe(
@@ -211,5 +224,44 @@ describe('pbx call helpers', () => {
     expect(myLeg(calls, 'c1', '202')).not.toBeNull();
     expect(myLeg(calls, 'c1', '203')).toBeNull();
     expect(myLeg(calls, 'c2', '201')).toBeNull();
+  });
+});
+
+describe('visibleCall', () => {
+  it('reads both clocks a call is aged by for retention', async () => {
+    // A client that answers only the columns asked for, as PostgREST does.
+    const row: Record<string, unknown> = {
+      id: 'c1',
+      account_id: 'a1',
+      recording_state: 'fetched',
+      started_at: '2026-09-01T10:00:00Z',
+      created_at: '2026-10-13T10:00:00Z',
+      contact_id: null,
+      remote_number: null,
+      recording_file: 'x.wav',
+    };
+    const rls = {
+      from: () => ({
+        select: (cols: string) => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: Object.fromEntries(
+                cols.split(',').map((c) => [c.trim(), row[c.trim()]])
+              ),
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    };
+    const call = await visibleCall(rls as never, 'c1');
+    // The later of the two is the age (093's pbx_recording_age_from):
+    // without created_at a wrong PBX clock would warn about a deletion
+    // the run never makes.
+    expect(call).toMatchObject({
+      started_at: '2026-09-01T10:00:00Z',
+      created_at: '2026-10-13T10:00:00Z',
+    });
+    expect(call).not.toHaveProperty('recording_file');
   });
 });

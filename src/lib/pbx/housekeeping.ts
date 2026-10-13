@@ -11,8 +11,8 @@ import {
 /**
  * The phone system's periodic work (GET /api/pbx/cron, and the
  * automations cron once a minute): recordings, call-backs, retries of
- * failed events, pbx_purge(), then the orphaned-audio sweep. `db` is the
- * service role.
+ * failed events, pbx_purge(), the retention period, then the
+ * orphaned-audio sweep. `db` is the service role.
  */
 
 /** Retries per failed event; pbx_purge() drops one that used them all. */
@@ -136,11 +136,76 @@ export async function sweepOrphanRecordings(input: {
   return summary;
 }
 
+/** Recordings marked expired per pbx_expire_recordings() call. */
+export const RETENTION_BATCH = 200;
+/** Calls per run: a backlog (a period just shortened) drains over runs. */
+export const RETENTION_ROUNDS = 5;
+
+export interface RetentionSummary {
+  /** Recordings past their workspace's period, marked erased this run. */
+  expired: number;
+  /** Their audio removed from call-recordings. */
+  deleted: number;
+  /** Left in storage by a failed remove, for the orphan sweep. */
+  failed: number;
+  /** The last remove error. */
+  error?: string;
+}
+
+/**
+ * pbx_settings.retention_days (migration 093), once an admin confirmed
+ * it (retention_confirmed_at). pbx_expire_recordings() picks the
+ * recordings of calls older than the workspace's period, by the later
+ * of the PBX's start time and the CRM's first record of the call
+ * (pbx_recording_age_from), not under legal hold, marks them erased
+ * (the row's erased_at: from that commit nothing can play them) and
+ * returns their paths; the audio is removed here. Row first, audio
+ * second, as the C-3 erasure does: a remove that fails leaves
+ * unplayable audio, never a playable row without audio, and the orphan
+ * sweep that runs next takes an erased row's object. A round is one bounded batch, started
+ * only before the deadline; a failed remove ends the run, so a storage
+ * outage does not mark more rows than it can clear.
+ */
+export async function expireRecordings(input: {
+  db: SupabaseClient;
+  deadline?: number;
+  now?: () => number;
+}): Promise<RetentionSummary> {
+  const { db, deadline, now = Date.now } = input;
+  const summary: RetentionSummary = { expired: 0, deleted: 0, failed: 0 };
+  const storage = db.storage.from(RECORDING_BUCKET);
+  for (let round = 0; round < RETENTION_ROUNDS; round++) {
+    if (deadline !== undefined && now() >= deadline) break;
+    const { data, error } = await db.rpc('pbx_expire_recordings', {
+      p_limit: RETENTION_BATCH,
+    });
+    if (error)
+      throw new Error(`pbx_expire_recordings failed: ${error.message}`);
+    const paths = ((data ?? []) as unknown[]).filter(
+      (p): p is string => typeof p === 'string'
+    );
+    summary.expired += paths.length;
+    for (let i = 0; i < paths.length; i += ORPHAN_BATCH) {
+      const batch = paths.slice(i, i + ORPHAN_BATCH);
+      const result = await storage.remove(batch);
+      if (result.error) {
+        summary.failed += paths.length - i;
+        summary.error = result.error.message;
+        return summary;
+      }
+      summary.deleted += result.data?.length ?? 0;
+    }
+    if (paths.length < RETENTION_BATCH) break;
+  }
+  return summary;
+}
+
 export interface PbxCronSummary {
   recordings?: RecordingsSummary;
   callbacks?: CallbacksSummary;
   retries?: RetrySummary;
   purge?: unknown;
+  retention?: RetentionSummary;
   orphans?: OrphanSweepSummary;
   /** Steps not started because the budget ran out. */
   outOfTime: string[];
@@ -188,6 +253,18 @@ export async function runPbxCron(input: {
         const { data, error } = await db.rpc('pbx_purge');
         if (error) throw new Error(error.message);
         summary.purge = data;
+      },
+    ],
+    [
+      'retention',
+      async () => {
+        const expired = await expireRecordings({ db, now, deadline });
+        summary.retention = expired;
+        if (expired.error) {
+          throw new Error(
+            `${expired.failed} expired recording(s) not removed: ${expired.error}`
+          );
+        }
       },
     ],
     [

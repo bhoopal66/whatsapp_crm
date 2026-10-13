@@ -10,7 +10,10 @@ import {
   groupByDay,
   maskPhone,
   mergeTimeline,
+  recordingView,
+  refusalView,
   missedTaskFor,
+  noAudioView,
   monthSummaryParts,
   openMissedTasks,
   openTaskLine,
@@ -361,5 +364,42 @@ describe('calls page and sidebar', () => {
     );
     expect(takeComposerPrefill(storage, 'cv1')).toBeNull();
     expect(takeComposerPrefill(null, 'cv1')).toBeNull();
+  });
+});
+
+describe('recordingView', () => {
+  it('maps the call state, and a fetched call whose audio retention deleted', () => {
+    expect(recordingView({ recordingState: 'fetched' })).toBe('player');
+    expect(
+      recordingView({ recordingState: 'fetched', recordingDeleted: true })
+    ).toBe('expired');
+    expect(recordingView({ recordingState: 'erased' })).toBe('erased');
+    expect(recordingView({ recordingState: 'not_stored' })).toBe('notStored');
+    expect(recordingView({ recordingState: 'none' })).toBeUndefined();
+    expect(recordingView({ recordingState: 'failed' })).toBeUndefined();
+  });
+});
+
+describe('refusalView', () => {
+  it('shows what the server says happened to the audio', () => {
+    expect(refusalView('expired')).toBe('expired');
+    expect(refusalView('erased')).toBe('erased');
+    expect(refusalView('not_stored')).toBe('notStored');
+    expect(refusalView('held')).toBe('held');
+    expect(refusalView(undefined)).toBe('held');
+    expect(refusalView('constructor')).toBe('held');
+  });
+});
+
+describe('noAudioView', () => {
+  it('names only a refusal that leaves no audio to hold', () => {
+    expect(noAudioView('expired')).toBe('expired');
+    expect(noAudioView('erased')).toBe('erased');
+    expect(noAudioView('not_stored')).toBe('notStored');
+    // The audio still exists: the box and its legal hold control stay.
+    expect(noAudioView('held')).toBeNull();
+    expect(noAudioView('past_retention')).toBeNull();
+    expect(noAudioView(undefined)).toBeNull();
+    expect(noAudioView('constructor')).toBeNull();
   });
 });

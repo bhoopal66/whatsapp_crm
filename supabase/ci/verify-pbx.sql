@@ -12,9 +12,14 @@
 -- announced, call_access_log refuses a row otherwise and is
 -- append-only. Secrets, the token cache and the recordings bucket are
 -- the service role's alone. This asserts those rules, extension
--- mapping, the token compare-and-set, pbx_purge, anon's grants and the
--- supervisor call report (pbx_call_report: who may run it, whose rows
--- they get, exact counts).
+-- mapping, the token compare-and-set, pbx_purge and anon's grants;
+-- 090's paused storing; 093's retention period (audio of calls older
+-- than it by the later of the PBX's start time and the CRM's own
+-- record, never a legal hold's, the call kept, nothing under a period
+-- nobody confirmed; the count Settings shows before saving one) and the
+-- legal hold (owner/admin, a reason of five characters, audited once
+-- per change, the call locked first); the supervisor call report
+-- (pbx_call_report: who may run it, whose rows they get, exact counts).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -815,6 +820,172 @@ BEGIN
     IF has_function_privilege('anon', 'public.pbx_call_report(timestamptz, timestamptz)', 'EXECUTE')
        OR NOT has_function_privilege('authenticated', 'public.pbx_call_report(timestamptz, timestamptz)', 'EXECUTE') THEN
       failed := array_append(failed, 'pbx_call_report grants: anon may run it, or authenticated may not');
+    END IF;
+  END;
+
+  -- ---------- 093: the retention period is enforced; legal hold ----------
+  DECLARE
+    k_old  UUID;   -- recorded 40 days ago: due under a 30-day period
+    k_oldh UUID;   -- 40 days ago, under legal hold: kept
+    k_new  UUID;   -- 10 days ago: kept
+    k_late UUID;   -- the call 40 days ago, its audio fetched today: due (the call's age counts)
+    k_clk  UUID;   -- the PBX says 50 days ago, the CRM heard of it today: kept (a wrong PBX clock)
+    k_b93  UUID;   -- workspace B, 40 days ago: B sets no period, so kept
+    p_old  TEXT;
+    p_late TEXT;
+    q_c93  TEXT := 'INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, '
+      'started_at, created_at, recording_state, notes, disposition) '
+      'VALUES (%L, %L, %L, ''inbound'', ''101'', %L, now() - %L::interval, now() - %5$L::interval, ''fetched'', %L, %L) '
+      'RETURNING id';
+    q_exp  TEXT := 'SELECT coalesce(string_agg(x, '','' ORDER BY x), ''none'') FROM pbx_expire_recordings(100) x';
+    q_hold TEXT := 'SELECT pbx_set_recording_hold(%L, %L, %L)::text';
+  BEGIN
+    EXECUTE format(q_c93, a_acct, conn, 'px-r-old', u_agent, '40 days', 'PX kept note', 'interested') INTO k_old;
+    EXECUTE format(q_c93, a_acct, conn, 'px-r-oldh', u_agent, '40 days', NULL, NULL) INTO k_oldh;
+    EXECUTE format(q_c93, a_acct, conn, 'px-r-new', u_agent, '10 days', NULL, NULL) INTO k_new;
+    EXECUTE format(q_c93, a_acct, conn, 'px-r-late', u_agent, '40 days', NULL, NULL) INTO k_late;
+    EXECUTE format(q_c93, b_acct, NULL, 'px-r-b', u_other, '40 days', NULL, NULL) INTO k_b93;
+    INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, started_at, recording_state)
+    VALUES (a_acct, conn, 'px-r-clk', 'inbound', '101', u_agent, now() - interval '50 days', 'fetched')
+    RETURNING id INTO k_clk;
+    p_old := format('account-%s/calls/%s.wav', a_acct, k_old);
+    p_late := format('account-%s/calls/%s.wav', a_acct, k_late);
+    INSERT INTO call_recordings (call_id, account_id, storage_path, announcement_played, legal_hold, fetched_at) VALUES
+      (k_old, a_acct, p_old, true, false, now() - interval '40 days'),
+      (k_oldh, a_acct, format('account-%s/calls/%s.wav', a_acct, k_oldh), true, true, now() - interval '40 days'),
+      (k_new, a_acct, format('account-%s/calls/%s.wav', a_acct, k_new), true, false, now() - interval '10 days'),
+      (k_late, a_acct, p_late, true, false, now()),
+      (k_clk, a_acct, format('account-%s/calls/%s.wav', a_acct, k_clk), true, false, now()),
+      (k_b93, b_acct, format('account-%s/calls/%s.wav', b_acct, k_b93), true, false, now() - interval '40 days');
+    INSERT INTO storage.objects (bucket_id, name, created_at, updated_at) VALUES
+      ('call-recordings', p_old, now() - interval '40 days', now() - interval '40 days'),
+      ('call-recordings', p_late, now(), now());
+
+    r := pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'none' THEN
+      failed := array_append(failed, ('a workspace with no retention period lost recordings: ' || r)::text);
+    END IF;
+    UPDATE pbx_settings SET retention_days = 30 WHERE account_id = a_acct;
+    -- A period nobody confirmed (one saved before 093 acted on it)
+    -- deletes nothing until an admin saves it again through Settings.
+    r := pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'none' THEN
+      failed := array_append(failed, ('a retention period nobody confirmed deleted recordings: ' || r)::text);
+    END IF;
+    UPDATE pbx_settings SET retention_confirmed_at = now() WHERE account_id = a_acct;
+    -- What Settings shows before saving a period: the run's own count,
+    -- the caller's workspace only (B's 40-day-old recording is not in it).
+    r := pg_temp.px_try('authenticated', u_admin, 'SELECT pbx_retention_due(30)::text')
+         || ' / ' || pg_temp.px_try('authenticated', u_admin, 'SELECT pbx_retention_due(0)::text')
+         || ' / ' || pg_temp.px_try('authenticated', u_agent, 'SELECT pbx_retention_due(30)::text');
+    n := n + 1;
+    IF r NOT LIKE '2 / ERROR 22023:% / ERROR 42501:%'
+       OR has_function_privilege('anon', 'public.pbx_retention_due(integer)', 'EXECUTE') THEN
+      failed := array_append(failed, ('pbx_retention_due is not the run''s count for the workspace, or open below admin: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, 'SELECT count(*)::text FROM pbx_expire_recordings(100)');
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' OR has_function_privilege('anon', 'public.pbx_expire_recordings(integer)', 'EXECUTE') THEN
+      failed := array_append(failed, ('a client can run the retention job: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM (SELECT string_agg(x, ',' ORDER BY x) FROM unnest(ARRAY[p_old, p_late]) x)
+       OR (SELECT count(*) FROM call_recordings WHERE call_id IN (k_old, k_late) AND erased_at IS NOT NULL) <> 2
+       OR EXISTS (SELECT 1 FROM call_recordings WHERE call_id IN (k_oldh, k_new, k_b93, k_clk) AND erased_at IS NOT NULL) THEN
+      failed := array_append(failed, ('retention takes exactly the recordings of calls older than the period (from the later of the PBX''s start and the CRM''s record), not held, in that workspace: ' || r)::text);
+    END IF;
+    n := n + 1;
+    IF NOT EXISTS (SELECT 1 FROM calls WHERE id = k_old AND erased_at IS NULL AND recording_state = 'fetched'
+                     AND notes = 'PX kept note' AND disposition = 'interested')
+       OR NOT EXISTS (SELECT 1 FROM pbx_audit WHERE account_id = a_acct AND action = 'recording_retention'
+                        AND actor_id IS NULL AND call_ids = ARRAY(SELECT unnest(ARRAY[k_old, k_late]) ORDER BY 1)
+                        AND (detail ->> 'retention_days')::int = 30) THEN
+      failed := array_append(failed, 'retention deletes audio only (the call keeps its notes and outcome) and is audited'::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, format('SELECT pbx_recording_playable(%L)::text', k_old))
+         || '/' || pg_temp.px_try('service_role', NULL, format(q_log, k_old, a_acct, u_agent, 'play'));
+    n := n + 1;
+    IF r NOT LIKE 'false/ERROR 55000:%' THEN
+      failed := array_append(failed, ('a recording past its retention period still plays: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'none' THEN
+      failed := array_append(failed, ('a second retention run took a recording again: ' || r)::text);
+    END IF;
+    -- A remove the run could not finish: the orphan sweep takes the
+    -- erased row's object, still not a fresh one.
+    r := pg_temp.px_try('service_role', NULL,
+      'SELECT coalesce(string_agg(x, '',''), ''none'') FROM pbx_orphan_recordings(''1 hour'', 1000) x');
+    n := n + 1;
+    IF position(p_old IN r) = 0 OR position(p_late IN r) > 0 THEN
+      failed := array_append(failed, ('the orphan sweep does not take an expired recording''s audio past the grace: ' || r)::text);
+    END IF;
+
+    -- Legal hold: an owner's or admin's, with a reason, audited.
+    r := pg_temp.px_try('authenticated', u_lead, format(q_hold, k_new, true, 'PX court order'))
+         || ' / ' || pg_temp.px_try('authenticated', u_admin, format(q_hold, k_new, true, '  '))
+         || ' / ' || pg_temp.px_try('authenticated', u_admin, format(q_hold, k_new, true, ' abcd '))
+         || ' / ' || pg_temp.px_try('authenticated', u_other, format(q_hold, k_new, true, 'PX court order'))
+         || ' / ' || pg_temp.px_try('authenticated', u_admin, format(q_hold, k_int, true, 'PX court order'))
+         || ' / ' || pg_temp.px_try('authenticated', u_admin, format(q_hold, k_old, true, 'PX court order'));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% / ERROR 22023:% / ERROR 22023:% / ERROR P0002:% / ERROR P0002:% / ERROR 55000:%'
+       OR EXISTS (SELECT 1 FROM call_recordings WHERE call_id IN (k_new, k_old) AND legal_hold) THEN
+      failed := array_append(failed, ('a legal hold was set by a leader, without a reason of 5 characters, across workspaces, or on deleted audio: ' || r)::text);
+    END IF;
+    -- The hold locks the CALL before the recording, as the erasure does
+    -- (pbx_erase_contact_calls: calls FOR UPDATE, then legal_hold, then
+    -- the delete); otherwise a hold committed between the erasure's read
+    -- and its delete lost the held recording. One session cannot watch
+    -- two transactions wait, so the order is read from the body.
+    SELECT prosrc INTO r FROM pg_proc WHERE oid = 'public.pbx_set_recording_hold(uuid, boolean, text)'::regprocedure;
+    n := n + 1;
+    IF strpos(r, 'PERFORM 1 FROM calls WHERE id = p_call_id AND account_id = v_account FOR UPDATE') = 0
+       OR strpos(r, 'PERFORM 1 FROM calls WHERE id = p_call_id AND account_id = v_account FOR UPDATE')
+          > strpos(r, 'FROM call_recordings') THEN
+      failed := array_append(failed, 'pbx_set_recording_hold does not lock the call before the recording (an erasure can delete a recording just held)'::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_admin, format(q_hold, k_new, true, 'PX court order'))
+         || '/' || pg_temp.px_try('authenticated', u_admin, format(q_hold, k_new, true, 'PX again'));
+    n := n + 1;
+    IF r IS DISTINCT FROM 'true/true'
+       OR NOT EXISTS (SELECT 1 FROM call_recordings WHERE call_id = k_new AND legal_hold)
+       OR (SELECT count(*) FROM pbx_audit WHERE action = 'legal_hold_placed' AND k_new = ANY (call_ids)
+             AND actor_id = u_admin AND reason = 'PX court order' AND account_id = a_acct) <> 1
+       OR EXISTS (SELECT 1 FROM pbx_audit WHERE action = 'legal_hold_placed' AND reason = 'PX again') THEN
+      failed := array_append(failed, ('an admin''s hold is not set, or not audited once per change: ' || r)::text);
+    END IF;
+    UPDATE calls SET started_at = now() - interval '40 days', created_at = now() - interval '40 days' WHERE id = k_new;
+    r := pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'none' THEN
+      failed := array_append(failed, ('retention took a recording under legal hold: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_owner, format(q_hold, k_new, false, 'PX case closed'))
+         || '/' || pg_temp.px_try('service_role', NULL, q_exp);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'false/' || format('account-%s/calls/%s.wav', a_acct, k_new)
+       OR NOT EXISTS (SELECT 1 FROM pbx_audit WHERE action = 'legal_hold_lifted' AND k_new = ANY (call_ids)
+                        AND actor_id = u_owner AND reason = 'PX case closed') THEN
+      failed := array_append(failed, ('a lifted hold is not audited, or the recording then outlives its period: ' || r)::text);
+    END IF;
+    r := pg_temp.px_try('authenticated', u_admin, 'SELECT pbx_recordings_kept()::text');
+    n := n + 1;
+    IF r NOT LIKE '{%' OR (r::jsonb ->> 'legal_hold')::int < 1
+       OR (r::jsonb ->> 'expired')::int <> 3
+       OR (r::jsonb ->> 'kept')::int <> (SELECT count(*) FROM call_recordings WHERE account_id = a_acct AND erased_at IS NULL)
+       -- The oldest call by retention's own age (k_clk's PBX clock says
+       -- 50 days, the CRM heard of it today), not the PBX's start time.
+       OR (r::jsonb ->> 'oldest_call_at')::timestamptz IS DISTINCT FROM
+          (SELECT min(GREATEST(c.started_at, c.created_at)) FROM call_recordings x JOIN calls c ON c.id = x.call_id
+            WHERE x.account_id = a_acct AND x.erased_at IS NULL)
+       OR pg_temp.px_try('authenticated', u_agent, 'SELECT pbx_recordings_kept()::text') NOT LIKE 'ERROR 42501:%'
+       OR has_function_privilege('anon', 'public.pbx_set_recording_hold(uuid, boolean, text)', 'EXECUTE') THEN
+      failed := array_append(failed, ('pbx_recordings_kept is wrong, or open below admin: ' || r)::text);
     END IF;
   END;
 
