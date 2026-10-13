@@ -23,6 +23,7 @@ import { cachedQuery } from '@/lib/client-cache';
 import {
   isInboundCall,
   liveKey,
+  loadsPbxMe,
   myActiveCall,
   myRingingCall,
   type CallLiveRow,
@@ -116,8 +117,9 @@ function nextPanel(
 }
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
-  const { user, accountId } = useAuth();
+  const { user, accountId, accountRole } = useAuth();
   const userId = user?.id ?? null;
+  const asksMe = loadsPbxMe(userId, accountId, accountRole);
   const supabase = useMemo(() => createClient(), []);
   const [me, setMe] = useState<PbxMe | null>(null);
   const [rows, setRows] = useState<CallLiveRow[]>([]);
@@ -135,7 +137,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [picks, setPicks] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!userId || !accountId) return;
+    // A bank guest has no phone here; me stays null, and with it the
+    // subscription, the poll and the softphone.
+    if (!asksMe) return;
     let live = true;
     fetch('/api/pbx/me')
       .then((r) => (r.ok ? r.json() : null))
@@ -144,7 +148,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     return () => {
       live = false;
     };
-  }, [userId, accountId]);
+  }, [asksMe, userId, accountId]);
 
   const rowsRef = useRef<CallLiveRow[]>([]);
   const apply = useCallback(
