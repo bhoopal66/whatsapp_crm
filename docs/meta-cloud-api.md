@@ -306,7 +306,12 @@ including your number, so a room lists 1 to 7 other people.
 
 ### How a room runs
 
-1. **Create it from the chat screen** (agents and up). The customer's
+1. **Create it** (agents and up) from the chat screen, or with *New
+   deal room* on the customer's page, on a deal in Pipelines (the deal
+   is linked) or in the inbox's contact panel, which fill in the
+   customer. Those three also list the rooms on that customer or deal,
+   each opening in team chat; they appear only while a Meta number is
+   connected, and never for bank guests. The customer's
    consent is recorded first (the wording shown, its version and how it
    was given); without it no group is made. People who opted out or are
    marked do-not-contact are refused. The room shows as *creating*:

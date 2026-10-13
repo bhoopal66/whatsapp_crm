@@ -8,12 +8,16 @@ import {
   canAddInvitee,
   createOutcome,
   createRoomBody,
+  customerInvitee,
+  dealChoices,
   dealOptionLabel,
   defaultGroupName,
   groupNameOk,
+  initialCreateState,
   inviteeIssues,
   phoneDigits,
   placesTaken,
+  withCustomer,
   type Invitee,
 } from './create-form';
 
@@ -241,5 +245,73 @@ describe('createOutcome', () => {
       roomId: null,
       error: '201',
     });
+  });
+});
+
+describe('the prefilled dialog', () => {
+  const aisha = {
+    id: 'contact-1',
+    name: 'Aisha',
+    phone: '+971500000001',
+    company: 'Acme',
+  };
+
+  it('makes a picked contact the customer invitee', () => {
+    expect(customerInvitee(aisha)).toEqual({
+      displayName: 'Aisha',
+      phone: '+971500000001',
+      role: 'customer',
+      contactId: 'contact-1',
+    });
+    expect(
+      customerInvitee({ id: 'c-2', name: null, phone: '+971500000002' })
+    ).toMatchObject({ displayName: '+971500000002', role: 'customer' });
+  });
+
+  it('swaps the picked customer, keeping a hand-typed one and the others', () => {
+    const typed: Invitee = { ...customer, contactId: null };
+    const list = withCustomer(
+      [
+        customerInvitee({ id: 'old', name: 'Old', phone: '1' }),
+        typed,
+        person(1),
+      ],
+      aisha
+    );
+    expect(list.map((p) => p.contactId ?? p.displayName)).toEqual([
+      'contact-1',
+      'Omar',
+      'Person 1',
+    ]);
+  });
+
+  it('opens from a customer or a deal with the contact picked and searched for', () => {
+    expect(initialCreateState({ contact: aisha })).toEqual({
+      query: 'Aisha',
+      contact: aisha,
+      dealId: '',
+      invitees: [customerInvitee(aisha)],
+    });
+    expect(
+      initialCreateState({ contact: aisha, deal: { id: 'deal-1' } }).dealId
+    ).toBe('deal-1');
+    expect(
+      initialCreateState({ contact: { ...aisha, name: null } }).query
+    ).toBe('+971500000001');
+  });
+
+  it('opens from team chat with nothing picked, a deal without a contact ignored', () => {
+    const empty = { query: '', contact: null, dealId: '', invitees: [] };
+    expect(initialCreateState({})).toEqual(empty);
+    expect(initialCreateState({ contact: null, deal: { id: 'd' } })).toEqual(
+      empty
+    );
+  });
+
+  it("keeps a prefilled deal in the picker when it is not one of the contact's open deals", () => {
+    const open = [{ id: 'd-1' }, { id: 'd-2' }];
+    expect(dealChoices(open, null)).toEqual(open);
+    expect(dealChoices(open, { id: 'd-2' })).toEqual(open);
+    expect(dealChoices(open, { id: 'won' })).toEqual([{ id: 'won' }, ...open]);
   });
 });
