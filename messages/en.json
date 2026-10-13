@@ -4220,8 +4220,17 @@
           "group_suspended": "WhatsApp suspended this group.",
           "template_rejected": "WhatsApp refused this template.",
           "forbidden": "You can't post in this room.",
-          "generic": "Couldn't send. Try again."
-        }
+          "generic": "Couldn't send. Try again.",
+          "media_type": "Only JPEG or PNG images and PDF, Word, Excel, PowerPoint or text documents can be sent.",
+          "media_size": "This file is too large to send.",
+          "media_name": "The file's name must end in an extension of its type, such as .pdf for a PDF.",
+          "media_content": "This file's contents don't match its type.",
+          "media_upload": "Couldn't store the file. Try again."
+        },
+        "attach": "Attach an image or document",
+        "removeFile": "Remove {name}",
+        "captionPlaceholder": "Add a caption (optional)…",
+        "fileTooBig": "{name} is over the {mb} MB limit."
       },
       "create": {
         "title": "New deal room",
@@ -4980,7 +4989,12 @@
     "unknownCaller": "Unknown caller",
     "shareFailed": "The call card was not shared",
     "shareFailedClosed": "The call card could not be shared, so the wrap-up closed without it. The outcome and notes are saved on the call.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "bankGuestsOff": "This bank's officers can't be called while its guests are off.",
+    "notCallable": "This person can't be called from the room.",
+    "roomClosed": "This deal room is closed.",
+    "noNumber": "This person has no phone number to call.",
+    "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first."
   },
   "ErrorPages": {
     "retry": "Try again",

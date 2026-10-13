@@ -302,11 +302,22 @@ export interface BankNumberRowIssues {
   bankCode?: 'bank_code_required';
 }
 
-/** The Bank numbers list, as PUT /api/pbx/bank-numbers checks it. */
-export function validateBankNumbers(rows: readonly BankNumberDraft[]):
+/**
+ * The Bank numbers list, as PUT /api/pbx/bank-numbers checks it, sent
+ * with the numbers the screen loaded (`loaded`): the route deletes only
+ * those the admin removed, never a number listed since (a deal-room call
+ * lists a bank officer's).
+ */
+export function validateBankNumbers(
+  rows: readonly BankNumberDraft[],
+  loaded: readonly string[]
+):
   | {
       ok: true;
-      payload: { bankNumbers: { number: string; bankCode: string }[] };
+      payload: {
+        bankNumbers: { number: string; bankCode: string }[];
+        loaded: string[];
+      };
     }
   | { ok: false; issues: BankNumberRowIssues[] } {
   const seen = new Map<string, number>();
@@ -323,7 +334,7 @@ export function validateBankNumbers(rows: readonly BankNumberDraft[]):
   });
   return issues.some((r) => Object.keys(r).length)
     ? { ok: false, issues }
-    : { ok: true, payload: { bankNumbers } };
+    : { ok: true, payload: { bankNumbers, loaded: [...loaded] } };
 }
 
 // ---------- Recording rules ----------

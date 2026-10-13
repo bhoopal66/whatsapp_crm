@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   admin: null as unknown,
   sendGroupText: vi.fn(),
   sendGroupTemplate: vi.fn(),
+  sendGroupMedia: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', () => {
@@ -32,6 +33,7 @@ vi.mock('@/lib/whatsapp/meta-groups', async (orig) => ({
   ...(await orig<object>()),
   sendGroupText: m.sendGroupText,
   sendGroupTemplate: m.sendGroupTemplate,
+  sendGroupMedia: m.sendGroupMedia,
 }));
 vi.mock('@/lib/deal-rooms/shared', async (orig) => ({
   ...(await orig<object>()),
@@ -76,12 +78,31 @@ const post = (body: unknown) =>
     { params: Promise.resolve({ id: 'room-1' }) }
   );
 
+const postFile = (file: File, caption?: string) => {
+  const form = new FormData();
+  form.set('file', file);
+  if (caption !== undefined) form.set('caption', caption);
+  return POST(
+    new Request('http://localhost/api/deal-rooms/room-1/messages', {
+      method: 'POST',
+      body: form,
+    }),
+    { params: Promise.resolve({ id: 'room-1' }) }
+  );
+};
+/** "%PDF-1.7": a PDF's leading bytes, which the route checks. */
+const pdf = (name = 'Offer letter.pdf') =>
+  new File([new TextEncoder().encode('%PDF-1.7')], name, {
+    type: 'application/pdf',
+  });
+
 beforeEach(() => {
   vi.clearAllMocks();
   m.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
   m.rpc.mockResolvedValue({ data: true, error: null });
   m.sendGroupText.mockResolvedValue({ messageId: 'wamid.T' });
   m.sendGroupTemplate.mockResolvedValue({ messageId: 'wamid.P' });
+  m.sendGroupMedia.mockResolvedValue({ messageId: 'wamid.M' });
   seed(new Date(Date.now() + HOUR).toISOString());
 });
 
@@ -193,5 +214,120 @@ describe('POST /api/deal-rooms/[id]/messages', () => {
     expect((await post({ text: 'Hello' })).status).toBe(409);
     expect((await post({ text: '  ' })).status).toBe(400);
     expect((await post({ text: 'a', templateName: 'b' })).status).toBe(400);
+  });
+
+  describe('a file', () => {
+    it('stores it in the deal file, sends Meta a signed link and records the message with its media', async () => {
+      const res = await postFile(pdf(), ' Signed copy ');
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ id: 'gm-1', waMessageId: 'wamid.M' });
+      expect(mem.uploads).toHaveLength(1);
+      const { bucket, path, options } = mem.uploads[0];
+      expect(bucket).toBe('deal-files');
+      expect(path).toMatch(
+        /^account-acct-1\/room-room-1\/out-\d+-Offer_letter\.pdf$/
+      );
+      expect(options).toMatchObject({ contentType: 'application/pdf' });
+      expect(m.sendGroupMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupId: 'grp-1',
+          kind: 'document',
+          link: expect.stringContaining(`deal-files/${path}?token=`),
+          caption: 'Signed copy',
+          filename: 'Offer letter.pdf',
+        })
+      );
+      expect(mem.tables.deal_files).toEqual([
+        expect.objectContaining({
+          account_id: 'acct-1',
+          room_id: 'room-1',
+          storage_path: path,
+          name: 'Offer letter.pdf',
+          mime: 'application/pdf',
+          bytes: 8,
+          source: 'deal_room_media',
+          ref_type: 'group_message',
+          ref_id: 'wamid.M',
+          created_by: 'user-1',
+        }),
+      ]);
+      expect(mem.rpcCalls).toContainEqual([
+        'deal_room_record_message',
+        expect.objectContaining({
+          p_direction: 'out',
+          p_type: 'document',
+          p_wa_message_id: 'wamid.M',
+          p_body: 'Signed copy',
+          p_staff_user_id: 'user-1',
+          p_media: expect.objectContaining({
+            mime_type: 'application/pdf',
+            filename: 'Offer letter.pdf',
+            storage_path: path,
+          }),
+        }),
+      ]);
+    });
+
+    it('refuses a file once the window has closed (409 window_closed), storing and sending nothing', async () => {
+      for (const until of [new Date(Date.now() - 1000).toISOString(), null]) {
+        seed(until);
+        const res = await postFile(pdf());
+        expect(res.status).toBe(409);
+        expect((await res.json()).code).toBe('window_closed');
+        expect(mem.uploads).toEqual([]);
+      }
+      expect(m.sendGroupMedia).not.toHaveBeenCalled();
+    });
+
+    it('refuses an unsupported type and an image over 5 MB, storing nothing', async () => {
+      const gif = new File([new Uint8Array(3)], 'a.gif', { type: 'image/gif' });
+      const res = await postFile(gif);
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe('media_type');
+      const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'a.jpg', {
+        type: 'image/jpeg',
+      });
+      const res2 = await postFile(big);
+      expect(res2.status).toBe(400);
+      expect((await res2.json()).code).toBe('media_size');
+      expect(mem.uploads).toEqual([]);
+      expect(m.sendGroupMedia).not.toHaveBeenCalled();
+    });
+
+    it('refuses a file whose name or bytes do not bear out its type, storing nothing', async () => {
+      // An executable the browser was told is a PDF.
+      const exe = new File([new Uint8Array([0x4d, 0x5a, 0x90, 0])], 'a.pdf', {
+        type: 'application/pdf',
+      });
+      const res = await postFile(exe);
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe('media_content');
+      const named = await postFile(pdf('Offer letter.exe'));
+      expect(named.status).toBe(400);
+      expect((await named.json()).code).toBe('media_name');
+      expect(mem.uploads).toEqual([]);
+      expect(m.sendGroupMedia).not.toHaveBeenCalled();
+    });
+
+    it('removes the stored file when WhatsApp refuses the send, recording nothing', async () => {
+      m.sendGroupMedia.mockRejectedValue(
+        new MetaError('not ready', 400, 131020)
+      );
+      const res = await postFile(pdf());
+      expect(res.status).toBe(409);
+      expect(mem.removed).toEqual([
+        { bucket: 'deal-files', paths: [mem.uploads[0].path] },
+      ]);
+      expect(mem.tables.deal_files ?? []).toEqual([]);
+      expect(mem.rpcCalls.map(([fn]) => fn)).not.toContain(
+        'deal_room_record_message'
+      );
+    });
+
+    it('still answers 403 to someone who cannot post, before reading the file', async () => {
+      m.rpc.mockResolvedValue({ data: false, error: null });
+      expect((await postFile(pdf())).status).toBe(403);
+      expect(mem.uploads).toEqual([]);
+    });
   });
 });

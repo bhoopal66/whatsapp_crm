@@ -6,7 +6,10 @@
 // may "Call anyway" with a reason, which the dial route logs first. A
 // number with no contact (the Calls screen's unknown caller) is dialled
 // as typed; the route checks it for do-not-contact across the workspace,
-// and its 409 disables the button the same way.
+// and its 409 disables the button the same way. A deal-room participant
+// (participantId) is dialled by the server, which alone holds the
+// number; a refusal there (a bank whose guests are off, …) disables the
+// button with its reason, and no override is offered.
 
 import { useState } from 'react';
 import { Phone } from 'lucide-react';
@@ -33,12 +36,22 @@ import {
   consentState,
   dialResult,
   type ConsentFields,
+  type ParticipantBlockCode,
 } from '@/lib/pbx/call-ui';
 import { useCalls } from './call-provider';
+
+const BLOCK_KEYS: Record<ParticipantBlockCode, string> = {
+  bank_guests_off: 'bankGuestsOff',
+  not_callable: 'notCallable',
+  room_closed: 'roomClosed',
+  no_number: 'noNumber',
+  bank_calls_recorded: 'bankCallsRecorded',
+};
 
 export function CallButton({
   contact,
   number,
+  participantId,
   conversationId,
   label,
   size = 'sm',
@@ -47,6 +60,8 @@ export function CallButton({
   contact?: ConsentFields & { id: string };
   /** Or a number nobody's contact holds (team leader and up may dial it). */
   number?: string;
+  /** Or someone in a deal room: the server resolves their number. */
+  participantId?: string;
   conversationId?: string;
   /** In place of "Call", e.g. "Call back" on a missed call. */
   label?: string;
@@ -58,10 +73,11 @@ export function CallButton({
   const [refused, setRefused] = useState<{ reason: string | null } | null>(
     null
   );
+  const [blocked, setBlocked] = useState<ParticipantBlockCode | null>(null);
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
-  if (!calls?.me || (!contact && !number)) return null;
+  if (!calls?.me || (!contact && !number && !participantId)) return null;
 
   const consent = consentState(contact ?? {});
   const dnc = !consent.callsOk || refused !== null;
@@ -75,11 +91,13 @@ export function CallButton({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(conversationId
-            ? { conversationId }
-            : contact
-              ? { contactId: contact.id }
-              : { number }),
+          ...(participantId
+            ? { participantId }
+            : conversationId
+              ? { conversationId }
+              : contact
+                ? { contactId: contact.id }
+                : { number }),
           ...(overrideReason ? { overrideReason } : {}),
         }),
       });
@@ -90,6 +108,9 @@ export function CallButton({
       } else if (r.kind === 'do_not_contact') {
         setRefused({ reason: r.reason });
         toast.error(t('dncTooltip', { reason: r.reason ?? t('dncNoReason') }));
+      } else if (r.kind === 'blocked') {
+        setBlocked(r.code);
+        toast.error(t(BLOCK_KEYS[r.code]));
       } else if (r.kind === 'no_extension') toast.error(t('noExtension'));
       else toast.error(r.message ?? t('dialFailed'));
     } catch {
@@ -103,6 +124,18 @@ export function CallButton({
     'bg-emerald-600 text-white hover:bg-emerald-500 disabled:bg-emerald-600/50';
   const icon = size === 'xs' ? 'size-3' : 'size-4';
   const text = label ?? t('call');
+  if (blocked)
+    return (
+      <Tooltip>
+        <TooltipTrigger render={<span tabIndex={0} />}>
+          <Button size={size} className={green} disabled>
+            <Phone className={icon} />
+            {text}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t(BLOCK_KEYS[blocked])}</TooltipContent>
+      </Tooltip>
+    );
   if (!dnc)
     return (
       <Button

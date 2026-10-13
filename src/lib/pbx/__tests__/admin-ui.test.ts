@@ -272,17 +272,27 @@ describe('validateRoutes', () => {
 describe('validateBankNumbers', () => {
   it('needs 3 to 20 digits, once each, and a bank code', () => {
     expect(
-      validateBankNumbers([{ number: '+971 50 111 2222', bankCode: ' ADCB ' }])
+      validateBankNumbers(
+        [{ number: '+971 50 111 2222', bankCode: ' ADCB ' }],
+        ['0501']
+      )
     ).toEqual({
       ok: true,
-      payload: { bankNumbers: [{ number: '971501112222', bankCode: 'ADCB' }] },
+      payload: {
+        bankNumbers: [{ number: '971501112222', bankCode: 'ADCB' }],
+        // The numbers the screen loaded: the route deletes only these.
+        loaded: ['0501'],
+      },
     });
     expect(
-      validateBankNumbers([
-        { number: '12', bankCode: 'ENBD' },
-        { number: '0501112222', bankCode: '' },
-        { number: '050-111-2222', bankCode: 'x'.repeat(33) },
-      ])
+      validateBankNumbers(
+        [
+          { number: '12', bankCode: 'ENBD' },
+          { number: '0501112222', bankCode: '' },
+          { number: '050-111-2222', bankCode: 'x'.repeat(33) },
+        ],
+        []
+      )
     ).toEqual({
       ok: false,
       issues: [

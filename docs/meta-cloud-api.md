@@ -345,6 +345,20 @@ including your number, so a room lists 1 to 7 other people.
    - **Free text** can be sent only inside the group's **24-hour reply
      window**. Any member's message opens it for the whole group, not
      just for the sender.
+   - **Files** follow the same window: inside it the composer's
+     paperclip sends a JPEG or PNG image (up to 5 MB) or a PDF, Word,
+     Excel, PowerPoint or text document (up to 9 MB, held below the
+     app's 10 MB request limit), with an optional caption. The file is
+     stored in the private `deal-files` bucket and kept in the deal file
+     (`deal_files`, source `deal_room_media`), as a received file is;
+     Meta fetches it through a signed link valid for 10 minutes on the
+     public Supabase URL, so that URL must be reachable from the
+     internet. Meta shows no group media example: the send is the 1:1
+     media payload with `recipient_type: 'group'`. The server checks a
+     file's name and leading bytes against its type: a
+     password-protected Office file, UTF-16 text, and a .csv or .rtf
+     that Windows labels as Excel or Word pass; a renamed program does
+     not.
    - **Outside the window**, only an **approved template** can be sent.
      Meta charges a template **once per member who receives it**.
    - A group message is text or a template: **no buttons, lists or
@@ -401,6 +415,15 @@ and WhatsApp ids only masked (`+971 XXXXXXX12`).
   waits, is invited only once a team leader (or above) who is a manager
   of that room approves, and is never invited if rejected. An agent
   cannot approve, even in a room they manage.
+- **Calling a bank officer** (the Members panel's _Call_; see
+  `docs/yeastar.md`) is allowed only while the bank's guest switch is
+  on, and the call stays unrecorded unless the bank's DSA terms allow
+  recording: the CRM lists the officer's number as a bank number
+  before dialling, so while **Exclude bank numbers** is on it never
+  downloads, keeps or plays that call's recording, and while that is
+  off it refuses the call unless the bank's recording switch is on.
+  "Unrecorded" is the CRM's side only: whether the PBX itself records
+  the call is the operator's PBX configuration.
 - **What a bank officer sees** is only their own rooms: a room shows
   while their bank's guest switch is on and the room has an approved
   officer of their bank who has not been removed. In it they read the

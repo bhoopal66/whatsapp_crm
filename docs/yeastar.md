@@ -84,7 +84,10 @@ One PBX can serve several workspaces.
 - **Bank numbers.** List the bank staff numbers (with the bank's code)
   under **Bank numbers**. While **Exclude bank numbers** is on (the
   default), calls with those numbers are kept unrecorded. Leave it on
-  until each bank's DSA terms allow its calls to be recorded.
+  until each bank's DSA terms allow its calls to be recorded. Saving
+  the list deletes only the numbers removed on that screen (the PUT
+  sends the numbers it loaded as `loaded`): a number a deal-room call
+  listed after the screen loaded (section 11) stays listed.
 - **Retention.** Empty keeps recordings; otherwise 1 to 3650 days. How
   long to keep them is an open legal decision for each workspace. With
   a period set, the phone-system cron (section 10) deletes the CRM's
@@ -163,7 +166,7 @@ workspace; errors are `{ error }`):
 | `PATCH /api/pbx/extensions/{id}`                               | `{ userId?, accountId?, softphoneEnabled?, presenceMonitor? }`          |
 | `GET/PUT /api/pbx/routes`                                      | `{ routes: [{ didNumber, nameOnPbx?, accountId }] }`, replaces the list |
 | `GET/PUT /api/pbx/settings`                                    | Recording and missed-call settings                                      |
-| `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers: [{ number, bankCode }] }`, replaces the list            |
+| `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers }`; PUT adds `loaded`, deletes only those removed        |
 
 ## 6. Live events
 
@@ -297,6 +300,32 @@ backing off after a refused login is skipped until the backoff ends.
   called, through any of their contacts or by typing the number. An
   owner or admin can override with a reason, which is logged before
   the PBX is asked.
+- **Calling someone in a deal room.** The room's Members panel shows
+  _Call_ beside each customer, partner and bank officer who was let
+  into the room (staff from agent up who can post in the room; never
+  to a bank guest, never our own number, nobody once the room is
+  closed). The request names only the person: the CRM reads their
+  number itself and dials it from your own extension, so no number
+  from the browser is dialled this way. (Room staff can still read
+  the participants' numbers, which the panel shows masked.) Someone
+  who cannot post in the room is told only that, nothing about the
+  person. The do-not-contact rule applies to the number across the
+  workspace and to the person's linked contact.
+- **Calling a bank officer from a deal room** is allowed only while
+  that bank's guests are on (the bank's guest switch), and the call is
+  a bank call. Just before dialling, the CRM lists the officer's
+  number under **Bank numbers** with the bank's code (a number already
+  listed keeps its row; removing it there leaves later calls with it
+  recordable until the next call from a room lists it again). While
+  **Exclude bank numbers** is on (the default), the call is therefore
+  unrecorded as far as the CRM goes: its recording is held, never
+  downloaded, kept or played. While it is off, the call is refused
+  (409 `bank_calls_recorded`) unless the bank's **Calls with this bank
+  may be recorded** switch is on, which says its DSA terms allow it
+  (off by default). Whether the PBX itself records the call is the
+  operator's PBX configuration: if its extension or DID rules record
+  it, the PBX keeps its own copy, so exclude bank numbers there as
+  well where a bank's DSA terms require it.
 - **The Calls screen** (sidebar › Calls: staff only, shown once the
   workspace has an extension) lists the last 7 days' missed calls and
   the call log. _Call back_ on a missed call dials the customer's

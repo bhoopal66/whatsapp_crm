@@ -169,14 +169,88 @@ describe('/api/pbx/settings', () => {
 });
 
 describe('/api/pbx/bank-numbers', () => {
-  it('replaces the list with digits-only numbers', async () => {
+  const banks = () =>
+    fake.tables.pbx_bank_numbers
+      .map((r) => `${r.number}:${r.bank_code}`)
+      .sort();
+
+  it('saves digits-only numbers and deletes the ones removed', async () => {
     const res = await PUT_BANKS(
-      req({ bankNumbers: [{ number: '+971 50 123', bankCode: ' ADCB ' }] })
+      req({
+        bankNumbers: [{ number: '+971 50 123', bankCode: ' ADCB ' }],
+        loaded: ['0501'],
+      })
     );
     expect((await res.json()).bankNumbers).toEqual([
       { number: '97150123', bankCode: 'ADCB' },
     ]);
     expect((await (await GET_BANKS()).json()).bankNumbers).toHaveLength(1);
+  });
+
+  it('keeps a number listed after the screen loaded', async () => {
+    // A deal-room call lists a bank officer's number (deal-rooms/call.ts)
+    // while an admin's screen still shows only 0501.
+    fake.tables.pbx_bank_numbers.push({
+      account_id: A1,
+      number: '0509',
+      bank_code: 'ENBD',
+    });
+    const res = await PUT_BANKS(
+      req({
+        bankNumbers: [
+          { number: '0501', bankCode: 'OLD' },
+          { number: '0777', bankCode: 'FAB' },
+        ],
+        loaded: ['0501'],
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(banks()).toEqual(['0501:OLD', '0509:ENBD', '0777:FAB']);
+  });
+
+  it('deletes a number the admin removed, and only that', async () => {
+    fake.tables.pbx_bank_numbers.push(
+      { account_id: A1, number: '0509', bank_code: 'ENBD' },
+      { account_id: A2, number: '0501', bank_code: 'OTHER' }
+    );
+    const res = await PUT_BANKS(req({ bankNumbers: [], loaded: ['0501'] }));
+    expect((await res.json()).bankNumbers).toEqual([
+      { number: '0509', bankCode: 'ENBD' },
+    ]);
+    expect(banks()).toEqual(['0501:OTHER', '0509:ENBD']);
+  });
+
+  it('refuses a save without the numbers the screen loaded', async () => {
+    for (const loaded of [undefined, '0501', ['0501', '12']])
+      expect(
+        (
+          await PUT_BANKS(
+            req({ bankNumbers: [{ number: '0777', bankCode: 'A' }], loaded })
+          )
+        ).status
+      ).toBe(400);
+    expect(banks()).toEqual(['0501:OLD']);
+  });
+
+  it('caps what the admin submits, not what the screen loaded', async () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => String(100000 + i));
+    const over = await PUT_BANKS(
+      req({
+        bankNumbers: many(1001).map((number) => ({ number, bankCode: 'A' })),
+        loaded: [],
+      })
+    );
+    expect(over.status).toBe(400);
+    // Trimming a list deal-room calls grew past the cap still saves.
+    const trimmed = await PUT_BANKS(
+      req({
+        bankNumbers: [{ number: '0501', bankCode: 'OLD' }],
+        loaded: ['0501', ...many(1200)],
+      })
+    );
+    expect(trimmed.status).toBe(200);
+    expect(banks()).toEqual(['0501:OLD']);
   });
 
   it('refuses duplicates, short numbers and empty codes', async () => {
@@ -188,7 +262,9 @@ describe('/api/pbx/bank-numbers', () => {
       [{ number: '12', bankCode: 'A' }],
       [{ number: '0502', bankCode: ' ' }],
     ])
-      expect((await PUT_BANKS(req({ bankNumbers }))).status).toBe(400);
+      expect((await PUT_BANKS(req({ bankNumbers, loaded: [] }))).status).toBe(
+        400
+      );
     expect(fake.tables.pbx_bank_numbers).toHaveLength(1);
   });
 });

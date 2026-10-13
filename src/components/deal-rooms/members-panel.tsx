@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { useChatWorkspaceContext } from '@/components/chat/chat-context';
 import { PeoplePicker } from '@/components/chat/dm-picker';
 import type { RoomContext } from '@/components/deal-rooms/room-view';
+import { CallButton } from '@/components/pbx/call-button';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,6 +21,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
 import { channelMembers } from '@/lib/chat/api';
+import { offersParticipantCall } from '@/lib/deal-rooms/call';
 import type { ChannelMember } from '@/lib/chat/types';
 import {
   listedPeople,
@@ -281,6 +283,9 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
                   ))}
                 </div>
               </div>
+              {offersParticipantCall(accountRole, p, room.status) && (
+                <CallButton participantId={p.id} size="xs" />
+              )}
               {row.removable && (
                 <Button
                   variant="ghost"

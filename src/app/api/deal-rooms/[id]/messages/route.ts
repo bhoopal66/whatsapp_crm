@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { UnauthorizedError, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
-import { parsePostBody, sendRoomMessage } from '@/lib/deal-rooms/operations';
+import {
+  parseMediaForm,
+  parsePostBody,
+  sendRoomMessage,
+} from '@/lib/deal-rooms/operations';
 import { listRoomMessages, parsePageQuery } from '@/lib/deal-rooms/reads';
 import { createClient } from '@/lib/supabase/server';
 
@@ -11,10 +15,16 @@ export const maxDuration = 60;
 
 /**
  * Send to the deal room's WhatsApp group (module 014c): `{ text }`, or
- * `{ templateName, language, params? }`. The only route that reaches a
- * group, so everyone in the room sees what it sends; nothing sent can be
- * edited or deleted. Free text needs the group's 24-hour window open
- * (409 `window_closed` otherwise); templates are allowed at any time.
+ * `{ templateName, language, params? }`, or a file as multipart form
+ * data (`file`, optional `caption`: a JPEG/PNG image up to 5 MB or a
+ * document up to 9 MB, 400 `media_type` / `media_size` otherwise; its
+ * name's extension and leading bytes must match the type, 400
+ * `media_name` / `media_content` otherwise). The
+ * only route that reaches a group, so everyone in the room sees what it
+ * sends; nothing sent can be edited or deleted. Free text and files need
+ * the group's 24-hour window open (409 `window_closed` otherwise, before
+ * the file is stored); templates are allowed at any time. A sent file is
+ * kept in the deal file (`deal_files`, source `deal_room_media`).
  *
  * Bank guests may post in their own rooms, and `requireRole` refuses
  * them, so this route authenticates the session itself and leaves the
@@ -40,16 +50,27 @@ export async function POST(
         { status: 403 }
       );
     }
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      body = null;
+    const multipart = (request.headers.get('content-type') ?? '')
+      .toLowerCase()
+      .startsWith('multipart/form-data');
+    let parsed: Awaited<ReturnType<typeof parseMediaForm>>;
+    if (multipart) {
+      parsed = await parseMediaForm(await request.formData().catch(() => null));
+    } else {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        body = null;
+      }
+      const json = parsePostBody(body);
+      parsed = json.ok
+        ? json
+        : { ok: false, error: json.error, code: 'invalid' };
     }
-    const parsed = parsePostBody(body);
     if (!parsed.ok) {
       return NextResponse.json(
-        { error: parsed.error, code: 'invalid' },
+        { error: parsed.error, code: parsed.code },
         { status: 400 }
       );
     }

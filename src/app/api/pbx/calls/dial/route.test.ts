@@ -21,6 +21,7 @@ vi.mock('@/lib/pbx/connection', async (orig) => ({
   pbxApiFor: mocks.pbxApiFor,
 }));
 
+import { PbxConnectionError } from '@/lib/pbx/connection';
 import { POST } from './route';
 
 const A = '00000000-0000-4000-8000-00000000000a';
@@ -169,6 +170,214 @@ describe('POST /api/pbx/calls/dial', () => {
     expect(dial).toHaveBeenCalledWith({
       caller: '201',
       callee: '971509999999',
+    });
+  });
+
+  it('answers the phone system’s failures rather than crashing', async () => {
+    mocks.pbxApiFor.mockRejectedValue(
+      new PbxConnectionError('no_sdk_credentials', 'no SDK')
+    );
+    const res = await post({ contactId: C1 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('no_sdk_credentials');
+  });
+
+  describe('a deal-room participant', () => {
+    const B = '00000000-0000-4000-8000-00000000000b';
+    const R = '00000000-0000-4000-8000-0000000000a1';
+    const P = '00000000-0000-4000-8000-0000000000b1';
+    const BANK = '00000000-0000-4000-8000-0000000000b2';
+    const OTHER = '00000000-0000-4000-8000-0000000000b3';
+    const person = (id: string, over: Record<string, unknown> = {}) => ({
+      id,
+      room_id: R,
+      account_id: A,
+      role: 'customer',
+      status: 'joined',
+      bank_code: null,
+      phone: '971501112222',
+      wa_id: '971501112222',
+      contact_id: null,
+      ...over,
+    });
+    let canPost: unknown[];
+
+    beforeEach(() => {
+      service.tables.deal_rooms = [{ id: R, account_id: A, status: 'open' }];
+      service.tables.deal_room_participants = [
+        person(P),
+        person(BANK, {
+          role: 'bank_guest',
+          bank_code: 'ADCB',
+          phone: '971502223333',
+        }),
+        person(OTHER, { account_id: B }),
+      ];
+      service.tables.bank_guest_policies = [
+        { account_id: A, bank_code: 'ADCB', guests_allowed: false },
+      ];
+      canPost = [];
+      rls.rpcs.deal_room_can_post = (args) => {
+        canPost.push(args);
+        return { data: true, error: null };
+      };
+    });
+
+    it('dials the number the server holds, from the caller’s own extension', async () => {
+      const res = await post({ participantId: P, extension: '999' });
+      expect(res.status).toBe(200);
+      expect(canPost).toEqual([{ p_room: R }]);
+      expect(dial).toHaveBeenCalledWith({
+        caller: '201',
+        callee: '971501112222',
+      });
+    });
+
+    it('refuses someone who cannot post in the room, and another workspace’s participant', async () => {
+      rls.rpcs.deal_room_can_post = () => ({ data: false, error: null });
+      const res = await post({ participantId: P });
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe('forbidden');
+      rls.rpcs.deal_room_can_post = () => ({ data: true, error: null });
+      const other = await post({ participantId: OTHER });
+      expect(other.status).toBe(404);
+      expect(dial).not.toHaveBeenCalled();
+    });
+
+    it('calls a bank officer only while the bank’s guests are on', async () => {
+      const res = await post({ participantId: BANK });
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('bank_guests_off');
+      expect(dial).not.toHaveBeenCalled();
+      service.tables.bank_guest_policies[0].guests_allowed = true;
+      expect((await post({ participantId: BANK })).status).toBe(200);
+      expect(dial).toHaveBeenCalledWith({
+        caller: '201',
+        callee: '971502223333',
+      });
+    });
+
+    it('tells someone who cannot post in the room nothing about the person', async () => {
+      rls.rpcs.deal_room_can_post = (args) => {
+        canPost.push(args);
+        return { data: false, error: null };
+      };
+      const self = service.tables.deal_room_participants[0];
+      for (const over of [
+        { status: 'removed' },
+        { status: 'joined', role: 'business' },
+        { role: 'customer', phone: null, wa_id: null },
+      ]) {
+        Object.assign(self, over);
+        const res = await post({ participantId: P });
+        expect(res.status).toBe(403);
+        expect((await res.json()).code).toBe('forbidden');
+      }
+      // A bank officer whose bank's guests are off: not 409 bank_guests_off.
+      const bank = await post({ participantId: BANK });
+      expect(bank.status).toBe(403);
+      expect((await bank.json()).code).toBe('forbidden');
+      expect(canPost).toEqual(Array(4).fill({ p_room: R }));
+      expect(dial).not.toHaveBeenCalled();
+    });
+
+    describe('a bank officer (C-2: unrecorded unless the bank allows it)', () => {
+      const listed = (bankCode = 'ADCB') =>
+        expect.objectContaining({
+          account_id: A,
+          number: '971502223333',
+          bank_code: bankCode,
+        });
+
+      beforeEach(() => {
+        service.tables.bank_guest_policies[0].guests_allowed = true;
+        service.tables.bank_guest_policies[0].recording_allowed = false;
+        service.tables.pbx_bank_numbers = [
+          { account_id: B, number: '971502223333', bank_code: 'OTHER' },
+        ];
+      });
+
+      it('lists the number as a bank number before dialling, while bank numbers are excluded', async () => {
+        // No settings row of its own: 089's default excludes them; another
+        // workspace's settings do not count.
+        service.tables.pbx_settings = [
+          { account_id: B, exclude_bank_numbers: false },
+        ];
+        dial.mockImplementation(async () => {
+          expect(service.tables.pbx_bank_numbers).toContainEqual(listed());
+          return { callId: 'pbx-79' };
+        });
+        expect((await post({ participantId: BANK })).status).toBe(200);
+        expect(dial).toHaveBeenCalledWith({
+          caller: '201',
+          callee: '971502223333',
+        });
+        expect(service.tables.pbx_bank_numbers).toHaveLength(2);
+
+        // An admin's own listing of the number keeps its bank code.
+        dial.mockResolvedValue({ callId: 'pbx-80' });
+        service.tables.pbx_settings = [
+          { account_id: A, exclude_bank_numbers: true },
+        ];
+        service.tables.pbx_bank_numbers = [
+          { account_id: A, number: '971502223333', bank_code: 'ADCB-HQ' },
+        ];
+        expect((await post({ participantId: BANK })).status).toBe(200);
+        expect(service.tables.pbx_bank_numbers).toEqual([listed('ADCB-HQ')]);
+      });
+
+      it('refuses while the workspace records bank numbers, unless the bank allows recording', async () => {
+        service.tables.pbx_settings = [
+          { account_id: A, exclude_bank_numbers: false },
+        ];
+        const res = await post({ participantId: BANK });
+        expect(res.status).toBe(409);
+        expect((await res.json()).code).toBe('bank_calls_recorded');
+        expect(dial).not.toHaveBeenCalled();
+        expect(service.tables.pbx_bank_numbers).toHaveLength(1);
+
+        service.tables.bank_guest_policies[0].recording_allowed = true;
+        expect((await post({ participantId: BANK })).status).toBe(200);
+        expect(service.tables.pbx_bank_numbers).toContainEqual(listed());
+      });
+
+      it('does not dial when the number cannot be listed', async () => {
+        service.fail('pbx_bank_numbers', 'upsert', { message: 'down' });
+        const res = await post({ participantId: BANK });
+        expect(res.ok).toBe(false);
+        expect(dial).not.toHaveBeenCalled();
+      });
+
+      it('lists nothing for a customer or partner', async () => {
+        expect((await post({ participantId: P })).status).toBe(200);
+        expect(service.tables.pbx_bank_numbers).toHaveLength(1);
+      });
+    });
+
+    it('refuses a do-not-contact number, never naming the hidden reason', async () => {
+      service.tables.deal_room_participants[0].phone = '971509999999';
+      const res = await post({ participantId: P });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({
+        code: 'do_not_contact',
+        reason: null,
+      });
+      service.tables.deal_room_participants[0].phone = '971501112222';
+      service.tables.deal_room_participants[0].contact_id = C2;
+      expect((await post({ participantId: P })).status).toBe(409);
+      expect(dial).not.toHaveBeenCalled();
+    });
+
+    it('refuses someone removed, a closed room, and a mixed body', async () => {
+      service.tables.deal_room_participants[0].status = 'removed';
+      expect((await post({ participantId: P })).status).toBe(409);
+      service.tables.deal_room_participants[0].status = 'joined';
+      service.tables.deal_rooms[0].status = 'closed';
+      expect((await post({ participantId: P })).status).toBe(409);
+      expect((await post({ participantId: P, contactId: C1 })).status).toBe(
+        400
+      );
+      expect(dial).not.toHaveBeenCalled();
     });
   });
 });
