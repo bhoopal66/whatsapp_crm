@@ -135,6 +135,10 @@ export function maskPhone(raw: string | null | undefined): string {
   return `${head} ${'•'.repeat(n - 7)} ${d.slice(-4)}`;
 }
 
+/** The number "Create contact" starts with: the caller's, with its +. */
+export const newContactPhone = (remote: string | null | undefined): string =>
+  remote && /^\d+$/.test(remote) ? `+${remote}` : (remote ?? '');
+
 /** m:ss, or h:mm:ss from an hour. */
 export function formatTimer(ms: number): string {
   const total = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));

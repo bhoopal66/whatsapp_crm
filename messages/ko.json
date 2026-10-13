@@ -4663,6 +4663,7 @@
     "mainLine": "대표 번호",
     "newCaller": "새 발신자",
     "createContact": "연락처 만들기",
+    "linkFailed": "연락처는 저장했지만 이 통화에 연결하지 못했습니다.",
     "openCustomer": "고객 열기",
     "alsoRinging": "함께 울리는 중: {names}",
     "andMore": "+{count}",

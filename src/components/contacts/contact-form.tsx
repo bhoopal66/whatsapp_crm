@@ -34,7 +34,12 @@ interface ContactFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contact?: Contact | null;
-  onSaved: () => void;
+  /** The number a new contact starts with (the caller's, from the
+   *  incoming-call card). Ignored when editing. */
+  initialPhone?: string | null;
+  /** After a save, with the saved contact's id (null in the unlikely
+   *  case the insert returned no row). */
+  onSaved: (contactId: string | null) => void;
   /** Open an existing contact's detail view — used by the duplicate
    *  notice to jump to the contact that already owns this number. */
   onViewExisting?: (contactId: string) => void;
@@ -44,6 +49,7 @@ export function ContactForm({
   open,
   onOpenChange,
   contact,
+  initialPhone,
   onSaved,
   onViewExisting,
 }: ContactFormProps) {
@@ -70,12 +76,12 @@ export function ContactForm({
   useEffect(() => {
     if (open) {
       setName(contact?.name ?? '');
-      setPhone(contact?.phone ?? '');
+      setPhone(contact ? (contact.phone ?? '') : (initialPhone ?? ''));
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
       setDupMatch(null);
     }
-  }, [open, contact]);
+  }, [open, contact, initialPhone]);
 
   // Look up an existing contact with this number (new contacts only).
   // Runs on blur so we don't query on every keystroke.
@@ -143,7 +149,7 @@ export function ContactForm({
       if (!user) throw new Error('Not authenticated');
       if (!accountId) throw new Error('Your profile is not linked to an account.');
 
-      const contactId = contact?.id;
+      let contactId = contact?.id ?? null;
 
       if (isEdit && contactId) {
         const { error } = await supabase
@@ -158,20 +164,25 @@ export function ContactForm({
           .eq('id', contactId);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('contacts').insert({
-          user_id: user.id,
-          account_id: accountId,
-          name: name.trim() || null,
-          phone: phoneToSave,
-          email: email.trim() || null,
-          company: company.trim() || null,
-        });
+        const { data, error } = await supabase
+          .from('contacts')
+          .insert({
+            user_id: user.id,
+            account_id: accountId,
+            name: name.trim() || null,
+            phone: phoneToSave,
+            email: email.trim() || null,
+            company: company.trim() || null,
+          })
+          .select('id')
+          .maybeSingle();
         if (error) throw error;
+        contactId = (data as { id: string } | null)?.id ?? null;
       }
 
       toast.success(isEdit ? t('toastSuccessEdit') : t('toastSuccessAdd'));
       onOpenChange(false);
-      onSaved();
+      onSaved(contactId);
     } catch (err: unknown) {
       // The unique index (migration 022) rejects a duplicate phone that
       // slipped past the on-blur check (race, or a format that

@@ -20,6 +20,7 @@ import {
   liveKey,
   maskPhone,
   messageWhen,
+  newContactPhone,
   otherOwner,
   ringElapsedMs,
   type HeldFacts,
@@ -32,6 +33,8 @@ import {
 } from '@/lib/pbx/call-facts';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
+import { ContactForm } from '@/components/contacts/contact-form';
+import { useCan } from '@/hooks/use-can';
 import { useCalls } from './call-provider';
 
 export type { CallFacts };
@@ -148,13 +151,23 @@ export function useNow(on = true): number {
   return now;
 }
 
+/** The call a "Create contact" form was opened for. */
+interface NewCaller {
+  key: string;
+  connectionId: string;
+  pbxCallId: string;
+  phone: string;
+}
+
 export function IncomingCallCard() {
   const calls = useCalls();
   const t = useTranslations('PbxCall');
+  const canCreateContact = useCan('send-messages');
   const call = calls?.ringing ?? null;
   const key = call ? liveKey(call) : null;
   const [since, setSince] = useState<{ key: string; at: number } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  const [creating, setCreating] = useState<NewCaller | null>(null);
   const now = useNow(Boolean(call));
   // Adjusted while rendering: when this call first showed, the floor of
   // the ring timer, which counts from call_live.rang_at (ringElapsedMs).
@@ -170,7 +183,39 @@ export function IncomingCallCard() {
     () => (call ? contactCandidates(call) : []),
     [call]
   );
-  if (!calls || !call || !key) return null;
+
+  // The card shows the new contact, and the in-call panel links an
+  // answered call to it (picks). A call still live is matched by its
+  // number when it ends; one that ended while the form was open was
+  // matched before the contact existed, so the route links it.
+  const linkNewCaller = async (c: NewCaller, contactId: string) => {
+    calls?.pick(c.key, contactId);
+    const res = await fetch('/api/pbx/calls/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        connectionId: c.connectionId,
+        pbxCallId: c.pbxCallId,
+        contactId,
+      }),
+    }).catch(() => null);
+    if (!res?.ok) toast.error(t('linkFailed'));
+  };
+  // Outside the card: the call can be answered, declined or missed
+  // while the form is open, and what was typed must survive that.
+  const form = (
+    <ContactForm
+      open={creating !== null}
+      onOpenChange={(open) => {
+        if (!open) setCreating(null);
+      }}
+      initialPhone={creating?.phone}
+      onSaved={(contactId) => {
+        if (creating && contactId) void linkNewCaller(creating, contactId);
+      }}
+    />
+  );
+  if (!calls || !call || !key) return form;
 
   const ref = { pbxCallId: call.pbx_call_id, remoteNumber: call.remote_number };
   const did =
@@ -219,125 +264,145 @@ export function IncomingCallCard() {
   );
 
   return (
-    <div
-      role="alertdialog"
-      aria-label={t('incoming')}
-      className="fixed top-[68px] right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10"
-    >
-      <p className="flex items-center gap-2 text-xs text-white/70">
-        <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
-        {t('incoming')} · {did} ·{' '}
-        <span className="tabular-nums">
-          {formatTimer(
-            ringElapsedMs(
-              call.rang_at,
-              since?.key === key ? since.at : now,
-              now
-            )
-          )}
-        </span>
-      </p>
-      <p className="mt-2 truncate text-xl font-bold">{title}</p>
-      <p className="truncate text-sm text-white/70">
-        {[person, masked].filter(Boolean).join(' · ')}
-      </p>
-      {ownedBy && (
-        <p className="mt-2 rounded-xl bg-sky-400/15 px-2.5 py-1.5 text-xs font-medium text-sky-100">
-          {t('ownedBy', {
-            name: calls.names[ownedBy] ?? facts?.ownerName ?? '—',
-          })}
-        </p>
-      )}
-      {facts && (
-        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl bg-white/[0.07] p-3 text-xs">
-          {fact(t('owner'), owner)}
-          {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
-          {!facts.hidden &&
-            fact(
-              t('lastWhatsApp'),
-              facts.last
-                ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
-                : t('none')
+    <>
+      {form}
+      <div
+        role="alertdialog"
+        aria-label={t('incoming')}
+        className="fixed top-[68px] right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10"
+      >
+        <p className="flex items-center gap-2 text-xs text-white/70">
+          <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
+          {t('incoming')} · {did} ·{' '}
+          <span className="tabular-nums">
+            {formatTimer(
+              ringElapsedMs(
+                call.rang_at,
+                since?.key === key ? since.at : now,
+                now
+              )
             )}
-          {fact(
-            t('consent'),
-            consentText(facts, {
-              callsOk: t('callsOk'),
-              doNotContact: t('doNotContact'),
-              optedOut: t('optedOut'),
-              unknown: t('consentUnknown'),
-              marketingOn: t('marketingOn'),
-              marketingOff: t('marketingOff'),
-            })
-          )}
-          {facts.hidden && (
-            <p className="col-span-2 mt-1 text-white/60">
-              {t('detailsHidden')}
-            </p>
-          )}
-        </dl>
-      )}
-      {!call.contact_id && candidates.length > 1 && (
-        <CandidatePicker
-          ids={candidates}
-          value={pickedId}
-          onPick={(id) => calls.pick(key, id)}
-        />
-      )}
-      {calls.settings.announcementRequired && (
-        <p className="mt-3 flex items-start gap-2 rounded-xl bg-amber-400/15 p-2.5 text-xs text-amber-200">
-          <Circle className="mt-0.5 size-3 shrink-0 fill-red-500 text-red-500" />
-          {t('recordedNotice')}
-        </p>
-      )}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => void decline()}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-medium hover:bg-red-500"
-        >
-          <PhoneOff className="size-4" />
-          {t('decline')}
-        </button>
-        <button
-          type="button"
-          onClick={() => void answer()}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-medium hover:bg-emerald-500"
-        >
-          <Phone className="size-4" />
-          {t('answer')}
-        </button>
-      </div>
-      {hint && <p className="mt-2 text-center text-xs text-white/75">{hint}</p>}
-      <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-        {known && facts?.hidden ? (
-          <span />
-        ) : known ? (
-          <Link
-            href={customerHref({
-              contactId: call.contact_id ?? pickedId,
-              conversationId: facts?.conversationId,
-            })}
-            className="text-emerald-300 hover:underline"
-          >
-            {t('openCustomer')}
-          </Link>
-        ) : (
-          <Link href="/contacts" className="text-emerald-300 hover:underline">
-            {t('createContact')}
-          </Link>
-        )}
-        {(others.names.length > 0 || others.more > 0) && (
-          <span className="truncate text-white/50">
-            {t('alsoRinging', {
-              names: [
-                ...others.names,
-                ...(others.more ? [t('andMore', { count: others.more })] : []),
-              ].join(', '),
-            })}
           </span>
+        </p>
+        <p className="mt-2 truncate text-xl font-bold">{title}</p>
+        <p className="truncate text-sm text-white/70">
+          {[person, masked].filter(Boolean).join(' · ')}
+        </p>
+        {ownedBy && (
+          <p className="mt-2 rounded-xl bg-sky-400/15 px-2.5 py-1.5 text-xs font-medium text-sky-100">
+            {t('ownedBy', {
+              name: calls.names[ownedBy] ?? facts?.ownerName ?? '—',
+            })}
+          </p>
         )}
+        {facts && (
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl bg-white/[0.07] p-3 text-xs">
+            {fact(t('owner'), owner)}
+            {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
+            {!facts.hidden &&
+              fact(
+                t('lastWhatsApp'),
+                facts.last
+                  ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
+                  : t('none')
+              )}
+            {fact(
+              t('consent'),
+              consentText(facts, {
+                callsOk: t('callsOk'),
+                doNotContact: t('doNotContact'),
+                optedOut: t('optedOut'),
+                unknown: t('consentUnknown'),
+                marketingOn: t('marketingOn'),
+                marketingOff: t('marketingOff'),
+              })
+            )}
+            {facts.hidden && (
+              <p className="col-span-2 mt-1 text-white/60">
+                {t('detailsHidden')}
+              </p>
+            )}
+          </dl>
+        )}
+        {!call.contact_id && candidates.length > 1 && (
+          <CandidatePicker
+            ids={candidates}
+            value={pickedId}
+            onPick={(id) => calls.pick(key, id)}
+          />
+        )}
+        {calls.settings.announcementRequired && (
+          <p className="mt-3 flex items-start gap-2 rounded-xl bg-amber-400/15 p-2.5 text-xs text-amber-200">
+            <Circle className="mt-0.5 size-3 shrink-0 fill-red-500 text-red-500" />
+            {t('recordedNotice')}
+          </p>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void decline()}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-medium hover:bg-red-500"
+          >
+            <PhoneOff className="size-4" />
+            {t('decline')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void answer()}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-medium hover:bg-emerald-500"
+          >
+            <Phone className="size-4" />
+            {t('answer')}
+          </button>
+        </div>
+        {hint && (
+          <p className="mt-2 text-center text-xs text-white/75">{hint}</p>
+        )}
+        <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+          {known && facts?.hidden ? (
+            <span />
+          ) : known ? (
+            <Link
+              href={customerHref({
+                contactId: call.contact_id ?? pickedId,
+                conversationId: facts?.conversationId,
+              })}
+              className="text-emerald-300 hover:underline"
+            >
+              {t('openCustomer')}
+            </Link>
+          ) : canCreateContact ? (
+            <button
+              type="button"
+              onClick={() =>
+                setCreating({
+                  key,
+                  connectionId: call.connection_id,
+                  pbxCallId: call.pbx_call_id,
+                  phone: newContactPhone(call.remote_number),
+                })
+              }
+              className="text-emerald-300 hover:underline"
+            >
+              {t('createContact')}
+            </button>
+          ) : (
+            <span />
+          )}
+          {(others.names.length > 0 || others.more > 0) && (
+            <span className="truncate text-white/50">
+              {t('alsoRinging', {
+                names: [
+                  ...others.names,
+                  ...(others.more
+                    ? [t('andMore', { count: others.more })]
+                    : []),
+                ].join(', '),
+              })}
+            </span>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -4663,6 +4663,7 @@
     "mainLine": "Main line",
     "newCaller": "New caller",
     "createContact": "Create contact",
+    "linkFailed": "Contact saved, but it could not be linked to this call.",
     "openCustomer": "Open customer",
     "alsoRinging": "Also ringing: {names}",
     "andMore": "+{count}",

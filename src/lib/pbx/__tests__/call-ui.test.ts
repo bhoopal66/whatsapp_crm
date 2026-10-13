@@ -27,6 +27,7 @@ import {
   myActiveCall,
   myRingingCall,
   needsOutcome,
+  newContactPhone,
   otherOwner,
   ringElapsedMs,
   type CallCardLabels,
@@ -172,6 +173,15 @@ describe('formatTimer', () => {
     expect(formatTimer(3_723_000)).toBe('1:02:03');
     expect(formatTimer(-5)).toBe('0:00');
     expect(formatTimer(Number.NaN)).toBe('0:00');
+  });
+});
+
+describe('newContactPhone', () => {
+  it("starts a new contact with the caller's number, international", () => {
+    expect(newContactPhone('971501234567')).toBe('+971501234567');
+    expect(newContactPhone('+971501234567')).toBe('+971501234567');
+    expect(newContactPhone(null)).toBe('');
+    expect(newContactPhone(undefined)).toBe('');
   });
 });
 
