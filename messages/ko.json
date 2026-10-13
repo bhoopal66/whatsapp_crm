@@ -3209,7 +3209,9 @@
           "short_name_changed": "약칭 변경",
           "ownership_transferred": "소유권 이전",
           "team_chat_enabled": "팀 채팅 켜기",
-          "team_chat_disabled": "팀 채팅 끄기"
+          "team_chat_disabled": "팀 채팅 끄기",
+          "workspace_archived": "워크스페이스 보관",
+          "workspace_restored": "워크스페이스 복원"
         },
         "team_chat": {
           "admin_read_private": "비공개 채널 열람",

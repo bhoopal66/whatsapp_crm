@@ -1,4 +1,4 @@
--- Behavioural regression suite for workspaces (migrations 082, 083, 099).
+-- Behavioural regression suite for workspaces (migrations 082, 083, 099, 105).
 --
 -- A person now has one profiles row per account they belong to, and
 -- exactly one of them is_active: the workspace they are working in.
@@ -21,7 +21,13 @@
 -- change, no one else's links (a DELETE with no WHERE included); that an
 -- agent adds nobody; that a leader of another workspace writes no link
 -- into this one; and that a link stops working when its creator may no
--- longer grant its role.
+-- longer grant its role. And (105) that only a live owner archives or
+-- restores a workspace; that archiving refuses while the owner has
+-- nowhere else to go, a number or phone system is connected, or a live
+-- member has no other workspace; that it moves everyone active there,
+-- revokes its pending links and is audited; and that afterwards nobody
+-- reads it, switches or redeems into it, or is made active there by
+-- anything else (remove_account_member's promotion included).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -958,6 +964,198 @@ BEGIN
        OR EXISTS (SELECT 1 FROM account_invitations
                    WHERE token_hash IN ('ldinv-del-adm', 'ldinv-del-lb', 'ldinv-rd-l2') AND accepted_at IS NOT NULL) THEN
       failed := array_append(failed, ('redeem a demoted leader''s / a leader''s admin / a non-member''s link (want 22023 expired x3): ' || r)::text);
+    END IF;
+  END;
+
+  -- ---------- 15. archiving a workspace (105) ----------
+  -- OW owns T (active there), Alpha and Aardvark. Active in T: M1 (agent;
+  -- also a viewer in Alpha, a deactivated agent in Aardvark, which sorts
+  -- first, and owner of a personal workspace renamed Zulu), GU (bank
+  -- guest; a personal workspace), AD (admin; a personal workspace), M4
+  -- (agent; Alpha is their only other row) and LN (T is their only row).
+  DECLARE
+    u_ow   UUID := '00000000-0000-4000-8000-000000105001';
+    u_m1   UUID := '00000000-0000-4000-8000-000000105002';
+    u_m4   UUID := '00000000-0000-4000-8000-000000105003';
+    u_gu   UUID := '00000000-0000-4000-8000-000000105004';
+    u_ad2  UUID := '00000000-0000-4000-8000-000000105005';
+    u_ln   UUID := '00000000-0000-4000-8000-000000105006';
+    u_rd   UUID := '00000000-0000-4000-8000-000000105007';
+    t_acct UUID;
+    al_acct UUID;
+    aa_acct UUID;
+    p_ow   UUID;
+    p_m1   UUID;
+    p_gu   UUID;
+    res    JSONB;
+    arch   TEXT;
+  BEGIN
+    INSERT INTO auth.users (id, email) VALUES
+      (u_ow, 'wsarch-ow@example.invalid'), (u_m1, 'wsarch-m1@example.invalid'),
+      (u_m4, 'wsarch-m4@example.invalid'), (u_gu, 'wsarch-gu@example.invalid'),
+      (u_ad2, 'wsarch-ad@example.invalid'), (u_ln, 'wsarch-ln@example.invalid'),
+      (u_rd, 'wsarch-rd@example.invalid');
+    SELECT account_id INTO p_ow FROM profiles WHERE user_id = u_ow;
+    SELECT account_id INTO p_m1 FROM profiles WHERE user_id = u_m1;
+    SELECT account_id INTO p_gu FROM profiles WHERE user_id = u_gu;
+    UPDATE accounts SET name = 'WSARCH Zulu ' || id WHERE id IN (p_ow, p_m1);
+    INSERT INTO accounts (name, owner_user_id) VALUES ('WSARCH T', u_ow) RETURNING id INTO t_acct;
+    INSERT INTO accounts (name, owner_user_id) VALUES ('WSARCH Alpha', u_ow) RETURNING id INTO al_acct;
+    INSERT INTO accounts (name, owner_user_id) VALUES ('WSARCH Aardvark', u_ow) RETURNING id INTO aa_acct;
+    UPDATE profiles SET is_active = false WHERE user_id IN (u_ow, u_m1, u_gu, u_ad2);
+    INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active, bank_code, deactivated_at) VALUES
+      (u_ow,  '', 'wsarch-ow@example.invalid', t_acct,  'owner',      true,  NULL,   NULL),
+      (u_m1,  '', 'wsarch-m1@example.invalid', t_acct,  'agent',      true,  NULL,   NULL),
+      (u_gu,  '', 'wsarch-gu@example.invalid', t_acct,  'bank_guest', true,  'ADCB', NULL),
+      (u_ad2, '', 'wsarch-ad@example.invalid', t_acct,  'admin',      true,  NULL,   NULL),
+      (u_ow,  '', 'wsarch-ow@example.invalid', al_acct, 'owner',      false, NULL,   NULL),
+      (u_m1,  '', 'wsarch-m1@example.invalid', al_acct, 'viewer',     false, NULL,   NULL),
+      (u_m4,  '', 'wsarch-m4@example.invalid', al_acct, 'agent',      false, NULL,   NULL),
+      (u_m1,  '', 'wsarch-m1@example.invalid', aa_acct, 'agent',      false, NULL,   now());
+    UPDATE profiles SET account_id = t_acct, account_role = 'agent' WHERE user_id IN (u_m4, u_ln) AND is_active;
+    -- 083's promotion order (live, then newest) would pick M1's T row.
+    UPDATE profiles SET created_at = now() + interval '1 hour' WHERE user_id = u_m1 AND account_id = t_acct;
+    INSERT INTO contacts (user_id, phone, account_id) VALUES (u_ow, '+971500105001', t_acct);
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at, accepted_at, accepted_by_user_id) VALUES
+      (t_acct, 'wsarch-pend-1', 'agent', u_ow, now() + interval '1 day', NULL, NULL),
+      (t_acct, 'wsarch-pend-2', 'viewer', u_ow, now() + interval '1 day', NULL, NULL),
+      (t_acct, 'wsarch-used', 'agent', u_ow, now() + interval '1 day', now(), u_m1);
+    arch := format('SELECT public.archive_workspace(%L, true)', t_acct);
+
+    -- An admin is not an owner.
+    r := pg_temp.ws_try('authenticated', u_ad2, arch);
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:%' OR (SELECT archived_at FROM accounts WHERE id = t_acct) IS NOT NULL THEN
+      failed := array_append(failed, ('archive by an admin (want 42501): ' || r)::text);
+    END IF;
+
+    -- The owner's other workspaces are all archived: nowhere to land.
+    UPDATE accounts SET archived_at = now() WHERE id IN (p_ow, al_acct);
+    r := pg_temp.ws_try('authenticated', u_ow, arch);
+    UPDATE accounts SET archived_at = NULL WHERE id IN (p_ow, al_acct);
+    n := n + 1;
+    IF r NOT LIKE 'ERROR WS001:%' THEN
+      failed := array_append(failed, ('archive with no other workspace for the owner (want WS001): ' || r)::text);
+    END IF;
+
+    -- A phone system, then a WhatsApp number, still connected.
+    INSERT INTO pbx_connections (account_id, label, edition, base_url)
+    VALUES (t_acct, 'wsarch', 'cloud', 'https://pbx.example.invalid');
+    r := pg_temp.ws_try('authenticated', u_ow, arch);
+    DELETE FROM pbx_connections WHERE account_id = t_acct;
+    INSERT INTO whatsapp_config (user_id, phone_number_id, access_token, account_id)
+    VALUES (u_ow, 'wsarch-105', 'x', t_acct);
+    r := r || ' | ' || pg_temp.ws_try('authenticated', u_ow, arch);
+    DELETE FROM whatsapp_config WHERE account_id = t_acct;
+    n := n + 1;
+    IF r NOT LIKE 'ERROR WS002:% | ERROR WS002:%' THEN
+      failed := array_append(failed, ('archive with a phone system / a number connected (want WS002 x2): ' || r)::text);
+    END IF;
+
+    -- LN, live, has no other workspace.
+    r := pg_temp.ws_try('authenticated', u_ow, arch);
+    n := n + 1;
+    IF r IS DISTINCT FROM 'ERROR WS003: 1 member(s) have no other workspace to move to; deactivate or remove them first'
+       OR (SELECT archived_at FROM accounts WHERE id = t_acct) IS NOT NULL
+       OR NOT EXISTS (SELECT 1 FROM account_invitations WHERE token_hash = 'wsarch-pend-1') THEN
+      failed := array_append(failed, ('archive with a stranded member (want WS003, 1, nothing changed): ' || r)::text);
+    END IF;
+
+    -- Deactivated, LN no longer counts. Before: the owner and the admin read T's customer.
+    UPDATE profiles SET deactivated_at = now() WHERE user_id = u_ln;
+    r := pg_temp.ws_val(u_ow, format('SELECT count(*)::text FROM public.contacts WHERE account_id = %L', t_acct))
+      || pg_temp.ws_val(u_ad2, format('SELECT count(*)::text FROM public.contacts WHERE account_id = %L', t_acct));
+    r := r || ' | ' || pg_temp.ws_val(u_ow, arch || '::text');
+    n := n + 1;
+    IF r NOT LIKE '11 | {%' THEN
+      failed := array_append(failed, ('archive (want reads 11, then a result): ' || r)::text);
+    ELSE
+      res := split_part(r, ' | ', 2)::jsonb;
+      IF res IS DISTINCT FROM jsonb_build_object('account_id', t_acct, 'archived', true,
+           'active_account_id', al_acct, 'active_role', 'owner', 'moved', 5, 'invitations_revoked', 2) THEN
+        failed := array_append(failed, ('archive result: ' || res::text)::text);
+      END IF;
+    END IF;
+    -- Everyone live moved out, M1 to Alpha (by name; Aardvark's row is
+    -- deactivated), GU to their own; LN stays, deactivated; the pending
+    -- links are gone, the redeemed one kept; one audit row.
+    n := n + 1;
+    IF (SELECT archived_by FROM accounts WHERE id = t_acct AND archived_at IS NOT NULL) IS DISTINCT FROM u_ow
+       OR EXISTS (SELECT 1 FROM profiles WHERE account_id = t_acct AND is_active AND deactivated_at IS NULL)
+       OR (SELECT account_id FROM profiles WHERE user_id = u_m1 AND is_active) IS DISTINCT FROM al_acct
+       OR (SELECT account_id FROM profiles WHERE user_id = u_gu AND is_active) IS DISTINCT FROM p_gu
+       OR (SELECT account_id FROM profiles WHERE user_id = u_ln AND is_active) IS DISTINCT FROM t_acct
+       OR (SELECT string_agg(token_hash, ',' ORDER BY token_hash) FROM account_invitations
+            WHERE account_id = t_acct) IS DISTINCT FROM 'wsarch-used'
+       OR (SELECT string_agg(action || ':' || coalesce(actor_id::text, 'null'), ',') FROM workspace_audit
+            WHERE account_id = t_acct AND action IN ('workspace_archived', 'workspace_restored'))
+          IS DISTINCT FROM 'workspace_archived:' || u_ow THEN
+      failed := array_append(failed, 'archive: stamp, moves, revoked links or audit row wrong'::text);
+    END IF;
+
+    -- Afterwards: no reads of T, no way back in, a dead link, archiving
+    -- again changes nothing, and only the owner lists T.
+    INSERT INTO account_invitations (account_id, token_hash, role, created_by_user_id, expires_at)
+    VALUES (t_acct, 'wsarch-late', 'agent', u_ow, now() + interval '1 day');
+    r := pg_temp.ws_val(u_ow, format('SELECT count(*)::text FROM public.contacts WHERE account_id = %L', t_acct))
+      || pg_temp.ws_val(u_ad2, format('SELECT count(*)::text FROM public.contacts WHERE account_id = %L', t_acct))
+      || ' | ' || pg_temp.ws_try('authenticated', u_m1, format('SELECT public.switch_account(%L)', t_acct))
+      || ' | ' || pg_temp.ws_try('authenticated', u_ow, format('SELECT public.switch_account(%L)', t_acct))
+      || ' | ' || pg_temp.ws_try('authenticated', u_rd, 'SELECT public.redeem_invitation(''wsarch-late'')')
+      || ' | ' || pg_temp.ws_val(u_ow, format('SELECT (public.archive_workspace(%L, true)->>''moved'')', t_acct))
+      || ' | ' || pg_temp.ws_val(u_ow, format('SELECT archived::text FROM public.my_workspaces() WHERE account_id = %L', t_acct))
+      || ' | ' || pg_temp.ws_val(u_m1, format('SELECT archived::text FROM public.my_workspaces() WHERE account_id = %L', t_acct));
+    n := n + 1;
+    IF r IS DISTINCT FROM '00 | ERROR 42501: That workspace is archived | ERROR 42501: That workspace is archived'
+         || ' | ERROR 22023: Invitation has expired | 0 | true | null'
+       OR EXISTS (SELECT 1 FROM profiles WHERE user_id = u_rd AND account_id = t_acct)
+       OR (SELECT count(*) FROM workspace_audit WHERE account_id = t_acct AND action = 'workspace_archived') <> 1 THEN
+      failed := array_append(failed, ('archived T (want no reads, switches refused, link dead, no-op, owner-only listing): ' || r)::text);
+    END IF;
+
+    -- Only archive_workspace writes the stamp; and no other writer makes
+    -- a row in T active (the service role here).
+    UPDATE profiles SET is_active = false WHERE user_id = u_gu AND is_active;
+    r := pg_temp.ws_try('authenticated', u_ow, format('UPDATE public.accounts SET archived_at = now() WHERE id = %L', al_acct))
+      || ' | ' || pg_temp.ws_try('service_role', NULL,
+           format('UPDATE public.profiles SET is_active = true WHERE user_id = %L AND account_id = %L', u_gu, t_acct));
+    UPDATE profiles SET is_active = false WHERE user_id = u_gu AND is_active;
+    UPDATE profiles SET is_active = true WHERE user_id = u_gu AND account_id = p_gu;
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% | ERROR 42501: That workspace is archived'
+       OR (SELECT archived_at FROM accounts WHERE id = al_acct) IS NOT NULL THEN
+      failed := array_append(failed, ('client stamp / service-role activation into T (want 42501 x2): ' || r)::text);
+    END IF;
+
+    -- remove_account_member never hands the active mark to a T row: M1
+    -- falls back to their own workspace, and M4, whose only other row is
+    -- T's, gets 083's fresh account as a viewer.
+    r := pg_temp.ws_val(u_ow, format('SELECT public.remove_account_member(%L)::text', u_m1))
+      || ' | ' || pg_temp.ws_val(u_ow, format('SELECT public.remove_account_member(%L)::text', u_m4));
+    n := n + 1;
+    IF r NOT LIKE 'null | ________-%'
+       OR (SELECT account_id FROM profiles WHERE user_id = u_m1 AND is_active) IS DISTINCT FROM p_m1
+       OR (SELECT account_id::text || ':' || account_role FROM profiles WHERE user_id = u_m4 AND is_active)
+          IS DISTINCT FROM split_part(r, ' | ', 2) || ':viewer'
+       OR NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = u_m4 AND account_id = t_acct AND NOT is_active) THEN
+      failed := array_append(failed, ('remove with T rows left (want M1 home, M4 a fresh account): ' || r)::text);
+    END IF;
+
+    -- Restore: an admin may not; the owner may, staying in Alpha; members
+    -- switch back in; revoked links stay revoked; one audit row.
+    r := pg_temp.ws_try('authenticated', u_ad2, format('SELECT public.archive_workspace(%L, false)', t_acct))
+      || ' | ' || pg_temp.ws_val(u_ow, format('SELECT public.archive_workspace(%L, false)::text', t_acct))
+      || ' | ' || pg_temp.ws_val(u_m1, format('SELECT public.switch_account(%L)::text', t_acct));
+    n := n + 1;
+    IF r NOT LIKE 'ERROR 42501:% | {%} | ' || t_acct
+       OR split_part(r, ' | ', 2)::jsonb IS DISTINCT FROM jsonb_build_object('account_id', t_acct, 'archived', false,
+            'active_account_id', al_acct, 'active_role', 'owner', 'moved', 0, 'invitations_revoked', 0)
+       OR (SELECT archived_at FROM accounts WHERE id = t_acct) IS NOT NULL
+       OR EXISTS (SELECT 1 FROM account_invitations WHERE token_hash IN ('wsarch-pend-1', 'wsarch-pend-2'))
+       OR (SELECT string_agg(action || ':' || coalesce(actor_id::text, 'null'), ',' ORDER BY at, action) FROM workspace_audit
+            WHERE account_id = t_acct AND action IN ('workspace_archived', 'workspace_restored'))
+          IS DISTINCT FROM 'workspace_archived:' || u_ow || ',workspace_restored:' || u_ow THEN
+      failed := array_append(failed, ('restore (want 42501, the owner''s result, M1 back in, links still gone): ' || r)::text);
     END IF;
   END;
 

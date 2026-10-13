@@ -3209,7 +3209,9 @@
           "short_name_changed": "Changed the short name",
           "ownership_transferred": "Transferred ownership",
           "team_chat_enabled": "Turned team chat on",
-          "team_chat_disabled": "Turned team chat off"
+          "team_chat_disabled": "Turned team chat off",
+          "workspace_archived": "Archived the workspace",
+          "workspace_restored": "Restored the workspace"
         },
         "team_chat": {
           "admin_read_private": "Read a private channel",
