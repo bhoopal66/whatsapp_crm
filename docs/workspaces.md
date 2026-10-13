@@ -201,3 +201,34 @@ service role, a hand-run UPDATE. One row per change:
   it must be applied as a superuser or BYPASSRLS role.
 
 Apply 082, then 083, each in its own run. All three are re-runnable.
+
+## Archiving a workspace (migration 105)
+
+An owner can archive a workspace, and restore it later, with
+`POST /api/workspaces/archive { accountId, archived: true | false }`
+(`archive_workspace`). Nothing is deleted. The caller needs a live owner
+row in that workspace; it need not be the active one, so an archived
+workspace is restored from another.
+
+Archiving is refused, with a 409 and a `code`, while:
+
+- the owner has no other live, non-archived workspace to move to
+  (`no_other_workspace`);
+- a WhatsApp number or the phone system is still connected
+  (`channels_connected`): disconnect them first, or inbound messages and
+  calls keep landing in a workspace nobody can open;
+- a live member, staff or bank guest, has no other workspace
+  (`members_stranded`, with `count`): deactivate or remove them first.
+
+Otherwise, in one step: the workspace's pending invite links are
+revoked, and everyone working in it is moved to the first of their
+other live workspaces by name (the switcher's order). The response says
+where the caller now is (`activeAccountId`, `activeRole`); the app
+reloads into it.
+
+While archived, nobody can switch into it or redeem a link to it, and
+nothing else makes someone active there, so no screen or API reads its
+data. Owners still see it in the workspace list (`archived: true`);
+nobody else does. Restoring clears the archive only: members switch back
+in themselves, and revoked links stay revoked. Both are recorded in the
+audit log (`workspace_archived`, `workspace_restored`).
