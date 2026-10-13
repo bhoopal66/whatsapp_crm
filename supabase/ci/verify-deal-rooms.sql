@@ -1,4 +1,4 @@
--- Behavioural regression suite for deal rooms (migrations 088, 095).
+-- Behavioural regression suite for deal rooms (migrations 088, 095, 096).
 --
 -- A deal room is a WhatsApp group on the account's Meta number, linked
 -- to a contact; inside the CRM it is a `deal_room` internal-chat
@@ -11,7 +11,8 @@
 -- number, 0 or 8 invitees, a repeated phone, an opted-out or
 -- do-not-contact person, no consent, a bank guest with no bank or whose
 -- bank is off); that an agent's bank guest waits for a team leader,
--- and that only a leader or admin who manages the room decides (095);
+-- and that only a leader or admin who manages the room decides (095)
+-- or adds a bank guest login (096);
 -- who sees which room; that a guest reads only the roster, group
 -- messages and receipts of their own rooms; that no client reads a
 -- phone, a WhatsApp id or the invite link; the can_manage / can_post
@@ -20,7 +21,10 @@
 -- service window); the private bucket and anon's grants; and
 -- deal_room_settings, the account's group-invite template: an admin
 -- writes it, an agent reads it but cannot write it, another account
--- and anon cannot read it.
+-- and anon cannot read it. And 096's cancel: only the service role
+-- cancels, only a room still `creating`, once; a late group never
+-- opens a cancelled room (recorded once, NULL back) and a cancelled
+-- room is never requested again.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -314,6 +318,18 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM deal_room_audit
                      WHERE room_id = r_agent AND action = 'participant_approved' AND actor_id = u_admin) THEN
     failed := array_append(failed, ('an admin could not approve a bank guest: ' || r)::text);
+  END IF;
+
+  -- 096: adding a bank guest login needs the room's manager too. The
+  -- leader (no team yet) cannot manage the agent's room, whose ADCB
+  -- officer the admin has just approved; the guest stays out.
+  r := pg_temp.dr_try('authenticated', u_lead,
+         format('SELECT ''added'' FROM public.deal_room_add_guest_user(%L, %L)', r_agent, u_guest));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501: deal rooms: only a manager of this room%'
+     OR EXISTS (SELECT 1 FROM chat_channel_members m JOIN deal_rooms d ON d.channel_id = m.channel_id
+                 WHERE d.id = r_agent AND m.user_id = u_guest) THEN
+    failed := array_append(failed, ('a team leader added a bank guest to a room they cannot manage: ' || r)::text);
   END IF;
 
   -- The other agent's room; the leader adds the viewer and the guest login.
@@ -872,6 +888,68 @@ BEGIN
   IF r IS NULL OR s LIKE 'ERROR%' OR position(r IN s) > 0 THEN
     failed := array_append(failed, ('the guest view showed a room of another bank: '
                                     || coalesce(r, 'no such room') || ' in ' || s)::text);
+  END IF;
+
+  -- ---------- 096: cancelling a room still being created ----------
+  r := pg_temp.dr_try('authenticated', u_admin, pg_temp.dr_create(c_agent, w_meta, '[' || cara || ']', consent));
+  r_x := NULL;
+  IF r ~ '^[0-9a-f]{8}-' THEN r_x := r::uuid; END IF;
+  PERFORM pg_temp.dr_try('service_role', NULL,
+            format('SELECT ''requested'' FROM public.deal_room_mark_requested(%L, %L)', r_x, 'dr-req-cancel'));
+  -- A signed-in manager cannot call it: the route calls it on the service role.
+  r := pg_temp.dr_try('authenticated', u_admin,
+         format('SELECT public.deal_room_cancel_creation(%L, %L, %L)', r_x, u_admin, 'Cancelled: wrong customer'));
+  n := n + 1;
+  IF r_x IS NULL OR r NOT LIKE 'ERROR 42501:%'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x AND status = 'creating' AND cancelled_at IS NULL) THEN
+    failed := array_append(failed, ('a client called deal_room_cancel_creation: ' || r)::text);
+  END IF;
+  r := pg_temp.dr_try('service_role', NULL,
+         format('SELECT public.deal_room_cancel_creation(%L, %L, %L)', r_x, u_admin, 'Cancelled: wrong customer'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL,
+         format('SELECT public.deal_room_cancel_creation(%L, %L, %L)', r_x, u_admin, 'Cancelled: again'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'cancelled / cancelled'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x AND status = 'failed' AND cancelled_at IS NOT NULL
+                       AND last_error = 'Cancelled: wrong customer')
+     OR (SELECT count(*) FROM deal_room_audit WHERE room_id = r_x AND action = 'create_cancelled'
+                                                AND actor_id = u_admin) <> 1
+     OR NOT EXISTS (SELECT 1 FROM deal_room_audit WHERE room_id = r_x AND action = 'status_changed'
+                       AND detail ->> 'from' = 'creating' AND detail ->> 'to' = 'failed') THEN
+    failed := array_append(failed, ('the service role could not cancel a creating room once: ' || r)::text);
+  END IF;
+  -- The group arrives late (twice): the room stays failed and groupless,
+  -- the group is recorded once, and NULL tells the webhook nothing opened.
+  s := format('SELECT coalesce(public.deal_room_group_created(%L, %L, %L, NULL)::text, ''null'')',
+              a_acct, 'dr-req-cancel', 'dr-grp-cancel@g.us');
+  r := pg_temp.dr_try('service_role', NULL, s) || ' / ' || pg_temp.dr_try('service_role', NULL, s);
+  n := n + 1;
+  IF r IS DISTINCT FROM 'null / null'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x AND status = 'failed' AND wa_group_id IS NULL)
+     OR (SELECT count(*) FROM deal_room_audit WHERE room_id = r_x AND action = 'group_discarded'
+                                                AND detail ->> 'group_id' = 'dr-grp-cancel@g.us') <> 1
+     OR EXISTS (SELECT 1 FROM deal_room_audit WHERE room_id = r_x AND action = 'group_created') THEN
+    failed := array_append(failed, ('a late group opened a cancelled room: ' || r)::text);
+  END IF;
+  -- Nor is it asked for again (the create route or a reconcile that read it earlier).
+  r := pg_temp.dr_try('service_role', NULL,
+         format('SELECT ''requested'' FROM public.deal_room_mark_requested(%L, %L)', r_x, 'dr-req-cancel-2'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023: deal rooms: the room was cancelled%'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x AND status = 'failed'
+                       AND create_request_id = 'dr-req-cancel') THEN
+    failed := array_append(failed, ('a cancelled room was requested again: ' || r)::text);
+  END IF;
+  -- A room whose group exists is not cancelled: its status (the main
+  -- room's, whatever it is by now) comes back unchanged.
+  t := (SELECT status FROM deal_rooms WHERE id = r_main);
+  r := pg_temp.dr_try('service_role', NULL,
+         format('SELECT public.deal_room_cancel_creation(%L, %L, %L)', r_main, u_admin, 'Cancelled: too late'));
+  n := n + 1;
+  IF t IS NULL OR t = 'creating' OR r IS DISTINCT FROM t
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_main AND status = t AND cancelled_at IS NULL)
+     OR EXISTS (SELECT 1 FROM deal_room_audit WHERE room_id = r_main AND action = 'create_cancelled') THEN
+    failed := array_append(failed, ('a room with a group was cancelled: ' || r || ' (was ' || coalesce(t, 'none') || ')')::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
