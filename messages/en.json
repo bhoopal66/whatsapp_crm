@@ -2917,6 +2917,10 @@
       }
     },
     "phoneSystem": {
+      "outcomes": {
+        "title": "Call outcomes",
+        "hint": "When on, the wrap-up after a call cannot be closed without an outcome, and whoever leaves one out for two minutes gets one reminder in the bell."
+      },
       "title": "Phone system",
       "subtitle": "Yeastar P-Series",
       "subtitleShared": "Yeastar P-Series · shared by {names}",

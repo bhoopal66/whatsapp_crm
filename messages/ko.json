@@ -2917,6 +2917,10 @@
       }
     },
     "phoneSystem": {
+      "outcomes": {
+        "title": "통화 결과",
+        "hint": "켜면 통화 후 정리 화면은 결과를 선택해야 닫을 수 있고, 2분 동안 결과를 입력하지 않은 담당자에게 알림이 한 번 전송됩니다."
+      },
       "title": "전화 시스템",
       "subtitle": "Yeastar P-Series",
       "subtitleShared": "Yeastar P-Series · 공유 워크스페이스: {names}",

@@ -42,8 +42,10 @@ const ADMIN_ONLY: SettingsSection[] = [
   'ai',
   'api',
   'deals',
-  'phone-system',
 ];
+
+/** Team leader and up: the phone system's mandatory-outcome switch (097). */
+const LEADER_UP: SettingsSection[] = ['phone-system'];
 
 const OPEN_TO_ALL: SettingsSection[] = [
   'overview',
@@ -71,6 +73,15 @@ describe('canOpenSection', () => {
     }
   });
 
+  it('opens the phone system to leaders (mandatory outcomes), not below', () => {
+    for (const section of LEADER_UP) {
+      for (const role of ['owner', 'admin', 'team_leader'] as const)
+        expect(canOpenSection(section, role)).toBe(true);
+      for (const role of ['agent', 'viewer', 'bank_guest'] as const)
+        expect(canOpenSection(section, role)).toBe(false);
+    }
+  });
+
   it('leaves the personal sections open to every role', () => {
     for (const section of OPEN_TO_ALL) {
       for (const role of ['owner', 'admin', 'agent', 'viewer'] as const) {
@@ -80,14 +91,14 @@ describe('canOpenSection', () => {
   });
 
   it('fails closed while the role is unknown', () => {
-    for (const section of ADMIN_ONLY)
+    for (const section of [...ADMIN_ONLY, ...LEADER_UP])
       expect(canOpenSection(section, null)).toBe(false);
     for (const section of OPEN_TO_ALL)
       expect(canOpenSection(section, null)).toBe(true);
   });
 
   it('covers every declared section, so a new one cannot be forgotten', () => {
-    expect([...ADMIN_ONLY, ...OPEN_TO_ALL].sort()).toEqual(
+    expect([...ADMIN_ONLY, ...LEADER_UP, ...OPEN_TO_ALL].sort()).toEqual(
       [...SETTINGS_SECTIONS].sort()
     );
   });
@@ -136,7 +147,15 @@ describe('categories', () => {
     ]);
   });
 
-  it.each([null, 'team_leader', 'agent', 'viewer'] as const)(
+  it('shows a leader the phone system and the personal sections', () => {
+    expect(visibleCategories('team_leader')).toEqual([
+      { id: 'overview', sections: ['overview'] },
+      { id: 'account', sections: ['profile', 'security', 'appearance'] },
+      { id: 'integrations', sections: ['phone-system'] },
+    ]);
+  });
+
+  it.each([null, 'agent', 'viewer'] as const)(
     'hides the categories %s has no section in',
     (role) => {
       expect(visibleCategories(role)).toEqual([
