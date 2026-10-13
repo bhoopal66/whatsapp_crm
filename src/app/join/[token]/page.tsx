@@ -35,7 +35,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -52,6 +52,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 
 interface PeekOk {
   ok: true;
@@ -264,13 +265,19 @@ export default function JoinPage() {
             </>
           ) : (
             <>
-              <Link href="/login">
-                <Button
-                  variant="outline"
-                  className="w-full border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  Sign in
-                </Button>
+              {/* A link styled as a button: a <button> inside an <a> is
+                  invalid HTML, and Base UI's Button has no asChild. */}
+              <Link
+                href="/login"
+                className={cn(
+                  buttonVariants({
+                    variant: 'outline',
+                    className:
+                      'border-border text-muted-foreground hover:bg-muted hover:text-foreground w-full',
+                  })
+                )}
+              >
+                Sign in
               </Link>
             </>
           )}
@@ -407,13 +414,17 @@ export default function JoinPage() {
     <Card className="w-full max-w-md border-border bg-card">
       {inviteHeader}
       <CardContent className="flex flex-col gap-2">
-        <Link href={`/login?invite=${encodeURIComponent(token!)}`}>
-          <Button
-            variant="outline"
-            className="w-full border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            I already have an account
-          </Button>
+        <Link
+          href={`/login?invite=${encodeURIComponent(token!)}`}
+          className={cn(
+            buttonVariants({
+              variant: 'outline',
+              className:
+                'border-border text-muted-foreground hover:bg-muted hover:text-foreground w-full',
+            })
+          )}
+        >
+          I already have an account
         </Link>
       </CardContent>
     </Card>
