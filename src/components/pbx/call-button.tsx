@@ -45,6 +45,7 @@ const BLOCK_KEYS: Record<ParticipantBlockCode, string> = {
   not_callable: 'notCallable',
   room_closed: 'roomClosed',
   no_number: 'noNumber',
+  bank_calls_recorded: 'bankCallsRecorded',
 };
 
 export function CallButton({

@@ -4959,7 +4959,8 @@
     "bankGuestsOff": "This bank's officers can't be called while its guests are off.",
     "notCallable": "This person can't be called from the room.",
     "roomClosed": "This deal room is closed.",
-    "noNumber": "This person has no phone number to call."
+    "noNumber": "This person has no phone number to call.",
+    "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first."
   },
   "ErrorPages": {
     "retry": "Try again",

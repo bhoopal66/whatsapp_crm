@@ -467,6 +467,10 @@ describe('dialResult', () => {
       kind: 'blocked',
       code: 'no_number',
     });
+    expect(dialResult(409, { code: 'bank_calls_recorded' })).toEqual({
+      kind: 'blocked',
+      code: 'bank_calls_recorded',
+    });
     expect(dialResult(403, { code: 'forbidden', error: 'No' })).toEqual({
       kind: 'error',
       message: 'No',

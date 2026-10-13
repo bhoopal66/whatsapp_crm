@@ -15,11 +15,15 @@
 //
 // participantId (alone) calls someone in a deal room (plan 015 §7.2):
 // the caller must be able to post in that room (deal_room_can_post,
-// asked as the caller), the number is read on the service role inside
-// the caller's account (no client reads it), and a bank officer only
-// while their bank's guests are on (lib/deal-rooms/call.ts). The same
-// do-not-contact rule applies, to the number across the workspace and
-// to the participant's linked contact.
+// asked as the caller, before anything about the person is judged),
+// the number is read on the service role inside the caller's account
+// (never taken from the request), and a bank officer only while their
+// bank's guests are on (lib/deal-rooms/call.ts). A bank officer's call
+// is a bank call (C-2): refused (409 bank_calls_recorded) while the
+// workspace records bank numbers and the bank's DSA terms do not allow
+// it; otherwise their number is listed in pbx_bank_numbers just before
+// the PBX is asked. The same do-not-contact rule applies, to the number
+// across the workspace and to the participant's linked contact.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -41,7 +45,11 @@ import {
   type MyExtension,
 } from '@/lib/pbx/calls';
 import { pbxApiFor } from '@/lib/pbx/connection';
-import { participantCallee } from '@/lib/deal-rooms/call';
+import {
+  listBankNumber,
+  participantCallee,
+  participantRoomId,
+} from '@/lib/deal-rooms/call';
 
 const ID_FIELDS = [
   'contactId',
@@ -84,29 +92,37 @@ export async function POST(request: Request) {
     const rank = roleRank(ctx.role);
     const service = pbxServiceDb();
     if (typeof b.participantId === 'string') {
-      const person = await participantCallee(
+      const roomId = await participantRoomId(
         service,
         ctx.accountId,
         b.participantId
       );
-      if (!person.ok)
-        return fail(person.error, person.status, { code: person.code });
+      if (!roomId)
+        return fail('Participant not found', 404, { code: 'not_found' });
       const { data: canPost, error } = await ctx.supabase.rpc(
         'deal_room_can_post',
-        { p_room: person.roomId }
+        { p_room: roomId }
       );
       if (error) throw new Error(`deal_room_can_post failed: ${error.message}`);
       if (canPost !== true)
         return fail('You cannot call from this deal room', 403, {
           code: 'forbidden',
         });
+      const person = await participantCallee(
+        service,
+        ctx.accountId,
+        b.participantId,
+        roomId
+      );
+      if (!person.ok)
+        return fail(person.error, person.status, { code: person.code });
       const dnc = await dncContactIds(
         service,
         ctx.accountId,
         person.number,
         person.contactId ? [person.contactId] : []
       );
-      return placeCall({
+      return await placeCall({
         ctx,
         service,
         ext,
@@ -118,6 +134,7 @@ export async function POST(request: Request) {
           participant_id: b.participantId,
           room_id: person.roomId,
         },
+        bankCode: person.bankCode,
       });
     }
 
@@ -149,7 +166,7 @@ export async function POST(request: Request) {
       number: contactId ? undefined : (b.number as string),
     });
     if (!callee.ok) return callee.response;
-    return placeCall({
+    return await placeCall({
       ctx,
       service,
       ext,
@@ -165,8 +182,9 @@ export async function POST(request: Request) {
 
 /**
  * Do-not-contact, then the PBX: refused, or an owner's or admin's
- * override written to pbx_audit before the call; then the caller's own
- * extension rings first.
+ * override written to pbx_audit before the call; a bank officer's
+ * number listed as a bank number; then the caller's own extension rings
+ * first.
  */
 async function placeCall(args: {
   ctx: { accountId: string; userId: string };
@@ -177,6 +195,8 @@ async function placeCall(args: {
   number: string;
   dnc: { contactIds: string[]; reason: string | null } | null;
   auditDetail?: Record<string, unknown>;
+  /** A bank officer's bank: the number is listed under it first. */
+  bankCode?: string | null;
 }): Promise<NextResponse> {
   const { ctx, service, ext, number, dnc } = args;
   const decision = dncDecision({
@@ -196,6 +216,8 @@ async function placeCall(args: {
     });
     if (error) throw new Error(`pbx_audit insert failed: ${error.message}`);
   }
+  if (args.bankCode)
+    await listBankNumber(service, ctx.accountId, number, args.bankCode);
 
   const { api } = await pbxApiFor(service, ext.connectionId);
   const { callId } = await api.dial({ caller: ext.extension, callee: number });

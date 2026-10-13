@@ -368,6 +368,7 @@ export const PARTICIPANT_BLOCKS = [
   'not_callable',
   'room_closed',
   'no_number',
+  'bank_calls_recorded',
 ] as const;
 export type ParticipantBlockCode = (typeof PARTICIPANT_BLOCKS)[number];
 

@@ -680,16 +680,6 @@ export type Callee =
   | { ok: false; response: NextResponse };
 
 /**
- * The number to call and who it is. A contact is read with the caller's
- * client, so it must be one they can see. A typed number must belong to
- * a contact they can see unless they rank team leader or above, or it
- * is internal (an extension) and `allowInternal`. Do-not-contact is
- * checked across the whole workspace on the service role, by every
- * stored form of the number: a customer who asked not to be called is
- * not called through a duplicate contact or a typed number either. The
- * reason is shown only for a contact the caller can see.
- */
-/**
  * The workspace's do-not-contact contacts holding this number, on the
  * service role: a customer the caller cannot see is protected too. Each
  * of `alsoContactIds` (e.g. a deal-room participant's linked contact)
@@ -704,7 +694,7 @@ export async function dncContactIds(
 ): Promise<string[]> {
   const { data, error } = await service
     .from('contacts')
-    .select('id, do_not_contact_reason')
+    .select('id')
     .eq('account_id', accountId)
     .in('phone', contactPhoneCandidates(number))
     .not('do_not_contact_at', 'is', null);
@@ -724,6 +714,16 @@ export async function dncContactIds(
   return [...ids];
 }
 
+/**
+ * The number to call and who it is. A contact is read with the caller's
+ * client, so it must be one they can see. A typed number must belong to
+ * a contact they can see unless they rank team leader or above, or it
+ * is internal (an extension) and `allowInternal`. Do-not-contact is
+ * checked across the whole workspace on the service role, by every
+ * stored form of the number: a customer who asked not to be called is
+ * not called through a duplicate contact or a typed number either. The
+ * reason is shown only for a contact the caller can see.
+ */
 export async function resolveCallee(input: {
   rls: SupabaseClient;
   service: SupabaseClient;

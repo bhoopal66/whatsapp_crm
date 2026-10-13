@@ -411,6 +411,15 @@ and WhatsApp ids only masked (`+971 XXXXXXX12`).
   waits, is invited only once a team leader (or above) who is a manager
   of that room approves, and is never invited if rejected. An agent
   cannot approve, even in a room they manage.
+- **Calling a bank officer** (the Members panel's _Call_; see
+  `docs/yeastar.md`) is allowed only while the bank's guest switch is
+  on, and the call stays unrecorded unless the bank's DSA terms allow
+  recording: the CRM lists the officer's number as a bank number
+  before dialling, so while **Exclude bank numbers** is on it never
+  downloads, keeps or plays that call's recording, and while that is
+  off it refuses the call unless the bank's recording switch is on.
+  "Unrecorded" is the CRM's side only: whether the PBX itself records
+  the call is the operator's PBX configuration.
 - **What a bank officer sees** is only their own rooms: a room shows
   while their bank's guest switch is on and the room has an approved
   officer of their bank who has not been removed. In it they read the

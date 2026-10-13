@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { offersParticipantCall, participantCallBlock } from './call';
+import {
+  bankCallBlock,
+  offersParticipantCall,
+  participantCallBlock,
+} from './call';
 
 const base = {
   role: 'customer',
@@ -50,5 +54,22 @@ describe('offersParticipantCall', () => {
     expect(
       offersParticipantCall('admin', { ...p, role: 'business' }, 'open')
     ).toBe(false);
+  });
+});
+
+describe('bankCallBlock', () => {
+  it('dials a bank officer only when the CRM keeps the call unrecorded or the bank allows recording (C-2)', () => {
+    expect(
+      bankCallBlock({ recordingAllowed: false, excludeBankNumbers: false })
+    ).toBe('bank_calls_recorded');
+    expect(
+      bankCallBlock({ recordingAllowed: false, excludeBankNumbers: true })
+    ).toBeNull();
+    expect(
+      bankCallBlock({ recordingAllowed: true, excludeBankNumbers: false })
+    ).toBeNull();
+    expect(
+      bankCallBlock({ recordingAllowed: true, excludeBankNumbers: true })
+    ).toBeNull();
   });
 });
