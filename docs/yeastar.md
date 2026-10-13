@@ -101,7 +101,9 @@ One PBX can serve several workspaces.
   append-only audit log with who made it and why (`legal_hold_placed`,
   `legal_hold_lifted`). A held recording is kept past the retention
   period and blocks the owner's erasure of that customer; a recording
-  already deleted cannot be held.
+  already deleted cannot be held. Lifting the hold of a recording whose
+  call is already past the period asks first: once lifted, it is
+  deleted on the next cron run.
 - Recordings sit in a private bucket. Every play is logged, and the
   owner can erase a customer's call records on request, unless a
   recording is under legal hold. The erasure takes every call of the

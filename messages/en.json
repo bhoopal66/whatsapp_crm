@@ -4648,7 +4648,9 @@
     "holdCancel": "Cancel",
     "holdPlaced": "Legal hold placed: this recording is kept past the retention period",
     "holdLifted": "Legal hold lifted",
-    "holdFailed": "Couldn't change the legal hold"
+    "holdFailed": "Couldn't change the legal hold",
+    "liftDeletes": "This call is older than the {days, plural, one {# day} other {# days}} retention period: once the hold is lifted, its recording is deleted within minutes. This cannot be undone.",
+    "liftAndDelete": "Lift hold and delete"
   },
   "CallsPage": {
     "title": "Calls",

@@ -4648,7 +4648,9 @@
     "holdCancel": "취소",
     "holdPlaced": "법적 보존이 설정되었습니다. 이 녹음은 보관 기간이 지나도 유지됩니다",
     "holdLifted": "법적 보존이 해제되었습니다",
-    "holdFailed": "법적 보존을 변경하지 못했습니다"
+    "holdFailed": "법적 보존을 변경하지 못했습니다",
+    "liftDeletes": "이 통화는 보존 기간({days}일)보다 오래되었습니다. 보존을 해제하면 몇 분 안에 녹음이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+    "liftAndDelete": "보존 해제 후 삭제"
   },
   "CallsPage": {
     "title": "통화",

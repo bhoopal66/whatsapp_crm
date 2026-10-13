@@ -13,6 +13,7 @@ import {
   recordingView,
   refusalView,
   missedTaskFor,
+  noAudioView,
   monthSummaryParts,
   openMissedTasks,
   openTaskLine,
@@ -387,5 +388,18 @@ describe('refusalView', () => {
     expect(refusalView('held')).toBe('held');
     expect(refusalView(undefined)).toBe('held');
     expect(refusalView('constructor')).toBe('held');
+  });
+});
+
+describe('noAudioView', () => {
+  it('names only a refusal that leaves no audio to hold', () => {
+    expect(noAudioView('expired')).toBe('expired');
+    expect(noAudioView('erased')).toBe('erased');
+    expect(noAudioView('not_stored')).toBe('notStored');
+    // The audio still exists: the box and its legal hold control stay.
+    expect(noAudioView('held')).toBeNull();
+    expect(noAudioView('past_retention')).toBeNull();
+    expect(noAudioView(undefined)).toBeNull();
+    expect(noAudioView('constructor')).toBeNull();
   });
 });

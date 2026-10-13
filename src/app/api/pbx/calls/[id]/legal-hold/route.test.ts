@@ -85,6 +85,58 @@ describe('PUT /api/pbx/calls/[id]/legal-hold', () => {
     expect(rpcCalls()).toEqual([]);
   });
 
+  it('asks before lifting a hold on a recording already past the period', async () => {
+    as('admin');
+    const day = 86_400_000;
+    const ago = (d: number) => new Date(Date.now() - d * day).toISOString();
+    Object.assign(rls.tables.calls[0], {
+      started_at: ago(40),
+      created_at: ago(40),
+    });
+    rls.tables.pbx_settings = [{ account_id: A, retention_days: 30 }];
+    const res = await put({ hold: false, reason: 'Case closed' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'past_retention',
+      retentionDays: 30,
+    });
+    expect(rpcCalls()).toEqual([]);
+
+    const ok = await put({
+      hold: false,
+      reason: 'Case closed',
+      confirmDelete: true,
+    });
+    expect(ok.status).toBe(200);
+    expect(rpcCalls()).toHaveLength(1);
+  });
+
+  it('lifts without asking when the period would not delete it', async () => {
+    as('admin');
+    const ago = (d: number) =>
+      new Date(Date.now() - d * 86_400_000).toISOString();
+    // The PBX says 40 days, the CRM heard of the call today; then no period.
+    Object.assign(rls.tables.calls[0], {
+      started_at: ago(40),
+      created_at: ago(0),
+    });
+    rls.tables.pbx_settings = [{ account_id: A, retention_days: 30 }];
+    expect((await put({ hold: false, reason: 'Case closed' })).status).toBe(
+      200
+    );
+    rls.tables.calls[0].created_at = ago(40);
+    rls.tables.pbx_settings = [{ account_id: A, retention_days: null }];
+    expect((await put({ hold: false, reason: 'Case closed' })).status).toBe(
+      200
+    );
+    // Placing a hold never asks.
+    rls.tables.pbx_settings = [{ account_id: A, retention_days: 30 }];
+    expect((await put({ hold: true, reason: 'Court order 12' })).status).toBe(
+      200
+    );
+    expect(rpcCalls()).toHaveLength(3);
+  });
+
   it('words the function refusals: deleted audio is 409, no recording 404', async () => {
     as('admin');
     rls.rpcs.pbx_set_recording_hold = () => ({
@@ -93,8 +145,11 @@ describe('PUT /api/pbx/calls/[id]/legal-hold', () => {
     });
     const gone = await put({ hold: true, reason: 'Court order 12' });
     expect(gone.status).toBe(409);
+    // Only the retention run marks a recording row deleted: the player
+    // shows that, not a failure next to a box that still offers Play.
     expect(await gone.json()).toEqual({
-      error: 'This recording was already deleted',
+      error: 'This recording was deleted under the retention period',
+      code: 'expired',
     });
     rls.rpcs.pbx_set_recording_hold = () => ({
       data: null,
@@ -103,5 +158,12 @@ describe('PUT /api/pbx/calls/[id]/legal-hold', () => {
     expect((await put({ hold: true, reason: 'Court order 12' })).status).toBe(
       404
     );
+    // No row because the owner erased the call, or it was never stored.
+    for (const state of ['erased', 'not_stored']) {
+      rls.tables.calls[0].recording_state = state;
+      const res = await put({ hold: true, reason: 'Court order 12' });
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe(state);
+    }
   });
 });

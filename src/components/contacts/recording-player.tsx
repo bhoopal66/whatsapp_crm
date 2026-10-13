@@ -8,7 +8,12 @@
 // element. Nothing is downloaded. An owner or admin can place or lift a
 // legal hold (migration 093), with a reason: a held recording outlives
 // the retention period and blocks erasure. A recording held for the
-// notice still exists, so its box keeps the legal hold controls.
+// notice still exists, so its box keeps the legal hold controls; a hold
+// refused because the audio is gone (deleted under the period, erased,
+// not stored) shows that state instead (noAudioView). Lifting the hold
+// of a recording already past the period deletes it on the next cron
+// run: the route refuses that (409 past_retention) until the warning
+// shown here is confirmed (confirmDelete).
 
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -21,6 +26,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { canPlaceLegalHold } from '@/lib/auth/roles';
 import { reasonOk } from '@/lib/chat/admin-tools';
 import {
+  noAudioView,
   playerClock,
   recordingView,
   refusalView,
@@ -66,6 +72,8 @@ export function RecordingPlayer({
   // null: closed; a string: the reason being typed.
   const [holdReason, setHoldReason] = useState<string | null>(null);
   const [holdBusy, setHoldBusy] = useState(false);
+  // The period (days) a lift would delete under, once the route warned.
+  const [liftDeletes, setLiftDeletes] = useState<number | null>(null);
 
   const held = refused === 'held';
   const view: RecordingView | undefined =
@@ -130,16 +138,35 @@ export function RecordingPlayer({
     const res = await fetch(`/api/pbx/calls/${call.id}/legal-hold`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hold: !hold, reason: holdReason }),
+      body: JSON.stringify({
+        hold: !hold,
+        reason: holdReason,
+        ...(liftDeletes !== null ? { confirmDelete: true } : {}),
+      }),
     }).catch(() => null);
     setHoldBusy(false);
-    const body = res?.ok ? await res.json().catch(() => null) : null;
-    if (typeof body?.legalHold !== 'boolean') {
+    const body = res ? await res.json().catch(() => null) : null;
+    if (res?.status === 409 && body?.code === 'past_retention') {
+      setLiftDeletes(Number(body.retentionDays) || 0);
+      return;
+    }
+    // The audio went since the page loaded: say how, without the hold
+    // control, as a refused play does. Nothing is left to hold.
+    const gone = res?.status === 409 ? noAudioView(body?.code) : null;
+    if (gone) {
+      setHoldReason(null);
+      setLiftDeletes(null);
+      setRefused(gone);
+      toast.error(t('holdFailed'));
+      return;
+    }
+    if (!res?.ok || typeof body?.legalHold !== 'boolean') {
       toast.error(t('holdFailed'));
       return;
     }
     setHold(body.legalHold);
     setHoldReason(null);
+    setLiftDeletes(null);
     toast.success(t(body.legalHold ? 'holdPlaced' : 'holdLifted'));
   };
 
@@ -225,6 +252,11 @@ export function RecordingPlayer({
           </Button>
         )}
       </div>
+      {canHold && holdReason !== null && liftDeletes !== null && (
+        <p className="text-destructive mt-2 text-xs">
+          {t('liftDeletes', { days: liftDeletes })}
+        </p>
+      )}
       {canHold && holdReason !== null && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Input
@@ -236,17 +268,25 @@ export function RecordingPlayer({
           />
           <Button
             size="xs"
+            variant={liftDeletes !== null ? 'destructive' : 'default'}
             disabled={!reasonOk(holdReason) || holdBusy}
             onClick={() => void changeHold()}
           >
             {holdBusy && <Loader2 className="size-3.5 animate-spin" />}
-            {hold ? t('liftHold') : t('placeHold')}
+            {liftDeletes !== null
+              ? t('liftAndDelete')
+              : hold
+                ? t('liftHold')
+                : t('placeHold')}
           </Button>
           <Button
             size="xs"
             variant="ghost"
             disabled={holdBusy}
-            onClick={() => setHoldReason(null)}
+            onClick={() => {
+              setHoldReason(null);
+              setLiftDeletes(null);
+            }}
           >
             {t('holdCancel')}
           </Button>

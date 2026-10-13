@@ -267,11 +267,7 @@ export function recordingFileName(
 
 /** What a refused recording is, for the player (timeline.ts refusalView). */
 export type RecordingRefusalCode =
-  | 'expired'
-  | 'erased'
-  | 'not_stored'
-  | 'held'
-  | 'none';
+  'expired' | 'erased' | 'not_stored' | 'held' | 'none';
 
 /**
  * A refused recording, by the call's state; `expired` when the retention
@@ -520,6 +516,8 @@ export interface VisibleCall {
   account_id: string;
   recording_state: string;
   started_at: string;
+  /** When the CRM first recorded the call: retention's other clock (093). */
+  created_at?: string;
   contact_id: string | null;
   remote_number: string | null;
 }
@@ -532,7 +530,7 @@ export async function visibleCall(
   const { data, error } = await rls
     .from('calls')
     .select(
-      'id, account_id, recording_state, started_at, contact_id, remote_number'
+      'id, account_id, recording_state, started_at, created_at, contact_id, remote_number'
     )
     .eq('id', id)
     .maybeSingle();

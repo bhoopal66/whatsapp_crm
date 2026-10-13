@@ -67,15 +67,23 @@ const REFUSAL_VIEW: Record<string, RecordingView> = {
 };
 
 /**
+ * A refusal `code` that means there is no audio any more: deleted under
+ * the retention period since the page loaded, erased, or never stored.
+ * Null for any other code, where the audio still exists.
+ */
+export function noAudioView(code: unknown): RecordingView | null {
+  return typeof code === 'string' && Object.hasOwn(REFUSAL_VIEW, code)
+    ? REFUSAL_VIEW[code]
+    : null;
+}
+
+/**
  * What the box shows once the server refused a play or an attach the
- * page thought possible: the audio deleted under the retention period
- * since the page loaded, erased, not stored; otherwise held until the
+ * page thought possible: {@link noAudioView}; otherwise held until the
  * notice is confirmed, where the audio still exists (and can be held).
  */
 export function refusalView(code: unknown): RecordingView {
-  return typeof code === 'string' && Object.hasOwn(REFUSAL_VIEW, code)
-    ? REFUSAL_VIEW[code]
-    : 'held';
+  return noAudioView(code) ?? 'held';
 }
 export interface TimelineMessage {
   id: string;
