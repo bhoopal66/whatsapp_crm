@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -206,14 +206,21 @@ describe('shapeAuditRow', () => {
     ).toEqual([{ key: 'rename', from: 'a', to: 'b' }]);
   });
 
-  it('labels every team-chat action the audit CHECK allows, in en and ko', () => {
-    const sql = readFileSync(
-      join(process.cwd(), 'supabase/migrations/091_chat_channel_admin.sql'),
-      'utf8'
-    );
-    const check =
-      /chat_audit_log_action_check CHECK \(action IN \(([^)]*)\)/.exec(sql);
-    const actions = [...(check?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(
+  it('labels every team-chat action the latest audit CHECK allows, in en and ko', () => {
+    // Whichever migration last (re)defines chat_audit_log's action
+    // CHECK, so a new action cannot ship without its label.
+    const dir = join(process.cwd(), 'supabase/migrations');
+    const re = /chat_audit_log_action_check CHECK \(action IN \(([^)]*)\)/;
+    const latest = readdirSync(dir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .flatMap((f) => {
+        const m = re.exec(readFileSync(join(dir, f), 'utf8'));
+        return m ? [{ file: f, list: m[1] }] : [];
+      })
+      .at(-1);
+    expect(Number(latest?.file.slice(0, 3))).toBeGreaterThanOrEqual(91);
+    const actions = [...(latest?.list ?? '').matchAll(/'([a-z_]+)'/g)].map(
       (m) => m[1]
     );
     expect(actions).toContain('remove_member');
