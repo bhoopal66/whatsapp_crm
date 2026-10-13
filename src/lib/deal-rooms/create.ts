@@ -16,7 +16,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import { createGroup } from '@/lib/whatsapp/meta-groups';
 
-import { dbMessage, metaChannel } from './shared';
+import { dbMessage, metaChannel, notifyRoomAlert } from './shared';
 
 export interface CreateDealRoomInput {
   contactId: string;
@@ -158,7 +158,7 @@ export async function createDealRoom(args: {
   // The stored (trimmed) subject: the reconcile matches the group on it.
   const { data: room, error: roomErr } = await adminDb
     .from('deal_rooms')
-    .select('channel_id, subject, description')
+    .select('channel_id, created_by, subject, description')
     .eq('id', roomId)
     .single();
   if (roomErr || !room) {
@@ -166,14 +166,30 @@ export async function createDealRoom(args: {
     return { ok: false, status: 500, error: 'Could not create the deal room' };
   }
 
+  // Meta refused (or the number cannot be used): the room fails, and its
+  // creator and the owners and admins are told, as when the webhook or
+  // the reconcile fails it. Unless a manager cancelled it meanwhile
+  // (096): then nothing changed, and nobody is told.
   const fail = async (reason: string): Promise<CreateDealRoomResult> => {
-    const { error: statusErr } = await adminDb.rpc('deal_room_set_status', {
-      p_room: roomId,
-      p_status: 'failed',
-      p_reason: reason,
-    });
+    const { data: failed, error: statusErr } = await adminDb.rpc(
+      'deal_room_fail_creation',
+      { p_room: roomId, p_reason: reason }
+    );
     if (statusErr) {
       console.error('[deal-rooms] could not mark failed:', statusErr.message);
+    } else if (failed === true) {
+      await notifyRoomAlert(
+        adminDb,
+        {
+          id: roomId,
+          account_id: accountId,
+          channel_id: room.channel_id as string,
+          created_by: (room.created_by as string | null) ?? null,
+          subject: room.subject as string,
+        },
+        'Deal room could not be created',
+        { event: 'create_failed', reason }
+      );
     }
     return {
       ok: false,

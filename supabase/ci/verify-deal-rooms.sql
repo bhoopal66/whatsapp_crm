@@ -23,8 +23,10 @@
 -- writes it, an agent reads it but cannot write it, another account
 -- and anon cannot read it. And 096's cancel: only the service role
 -- cancels, only a room still `creating`, once; a late group never
--- opens a cancelled room (recorded once, NULL back) and a cancelled
--- room is never requested again.
+-- opens a cancelled room (recorded once, NULL back), nor is handed back
+-- as NULL (delete it) when another room holds that group, and a
+-- cancelled room is never requested again; deal_room_fail_creation
+-- fails only a room still `creating`, once, and says whether it did.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -56,6 +58,9 @@ DECLARE
   r_lead   UUID;   -- the leader's room: the guest login is in it
   r_seven  UUID;   -- 7 invitees, the most WhatsApp allows beside our number
   r_x      UUID;   -- write-path checks: a room closed with a guest awaiting approval
+  r_x2     UUID;   -- 096: a cancelled room whose late group another room holds
+  r_y      UUID;   -- 096: the room opened on that group (as the reconcile would)
+  r_z      UUID;   -- 096: a creating room deal_room_fail_creation fails
   p_x      UUID;
   p_guest  UUID;   -- the agent's bank guest participant
   p_team   UUID;   -- a bank guest in the teammate's room: the leader with a team decides
@@ -950,6 +955,58 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_main AND status = t AND cancelled_at IS NULL)
      OR EXISTS (SELECT 1 FROM deal_room_audit WHERE room_id = r_main AND action = 'create_cancelled') THEN
     failed := array_append(failed, ('a room with a group was cancelled: ' || r || ' (was ' || coalesce(t, 'none') || ')')::text);
+  END IF;
+  -- A cancelled room's late group that another room holds by now (the
+  -- reconcile matched that room to it by subject, then invited people
+  -- into it) is refused, as 088's unique wa_group_id refused it: NULL
+  -- would have the webhook delete the group with those people in it.
+  s := pg_temp.dr_try('authenticated', u_admin, pg_temp.dr_create(c_agent, w_meta, '[' || cara || ']', consent));
+  t := pg_temp.dr_try('authenticated', u_admin, pg_temp.dr_create(c_agent, w_meta, '[' || cara || ']', consent));
+  r_x2 := NULL;
+  r_y := NULL;
+  IF s ~ '^[0-9a-f]{8}-' THEN r_x2 := s::uuid; END IF;
+  IF t ~ '^[0-9a-f]{8}-' THEN r_y := t::uuid; END IF;
+  PERFORM pg_temp.dr_try('service_role', NULL,
+            format('SELECT ''requested'' FROM public.deal_room_mark_requested(%L, %L)', r_x2, 'dr-req-x2'));
+  PERFORM pg_temp.dr_try('service_role', NULL,
+            format('SELECT public.deal_room_cancel_creation(%L, %L, %L)', r_x2, u_admin, 'Cancelled: duplicate'));
+  PERFORM pg_temp.dr_try('service_role', NULL,
+            format('SELECT ''requested'' FROM public.deal_room_mark_requested(%L, %L)', r_y, 'dr-req-y2'));
+  PERFORM pg_temp.dr_try('service_role', NULL,
+            format('SELECT public.deal_room_group_created(%L, %L, %L, NULL)::text', a_acct, 'dr-req-y2', 'dr-grp-shared@g.us'));
+  r := pg_temp.dr_try('service_role', NULL,
+         format('SELECT coalesce(public.deal_room_group_created(%L, %L, %L, NULL)::text, ''null'')',
+                a_acct, 'dr-req-x2', 'dr-grp-shared@g.us'));
+  n := n + 1;
+  IF r_x2 IS NULL OR r_y IS NULL OR r NOT LIKE 'ERROR 23505:%'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_y AND status = 'open' AND wa_group_id = 'dr-grp-shared@g.us')
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x2 AND status = 'failed' AND cancelled_at IS NOT NULL
+                       AND wa_group_id IS NULL)
+     OR EXISTS (SELECT 1 FROM deal_room_audit WHERE room_id = r_x2 AND action = 'group_discarded') THEN
+    failed := array_append(failed, ('a cancelled room''s late group was given up though another room holds it: '
+                                    || r || ' (rooms ' || s || ', ' || t || ')')::text);
+  END IF;
+  -- deal_room_fail_creation (service role only) fails a room still
+  -- `creating` once and answers true; a cancelled or open room, or the
+  -- same room again, answers false and is left as it was.
+  r := pg_temp.dr_try('authenticated', u_admin, pg_temp.dr_create(c_agent, w_meta, '[' || cara || ']', consent));
+  r_z := NULL;
+  IF r ~ '^[0-9a-f]{8}-' THEN r_z := r::uuid; END IF;
+  s := format('SELECT public.deal_room_fail_creation(%L, %L)::text', r_z, 'Meta refused');
+  r := pg_temp.dr_try('authenticated', u_admin, s)
+       || ' / ' || pg_temp.dr_try('service_role', NULL, s)
+       || ' / ' || pg_temp.dr_try('service_role', NULL, s)
+       || ' / ' || pg_temp.dr_try('service_role', NULL,
+                     format('SELECT public.deal_room_fail_creation(%L, %L)::text', r_x2, 'Meta refused'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL,
+                     format('SELECT public.deal_room_fail_creation(%L, %L)::text', r_y, 'Meta refused'));
+  n := n + 1;
+  IF r_z IS NULL OR r NOT LIKE 'ERROR 42501:% / true / false / false / false'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_z AND status = 'failed' AND last_error = 'Meta refused')
+     OR (SELECT count(*) FROM deal_room_audit WHERE room_id = r_z AND action = 'status_changed') <> 1
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_y AND status = 'open')
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x2 AND last_error = 'Cancelled: duplicate') THEN
+    failed := array_append(failed, ('deal_room_fail_creation did not fail only a creating room, once: ' || r)::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

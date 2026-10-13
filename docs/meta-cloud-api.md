@@ -420,20 +420,32 @@ room shows *cancelled*. A cancelled room never opens:
   failed, nobody is invited, the group id is recorded once in the audit
   trail (`group_discarded`), and the group, which holds only your
   number, is deleted at WhatsApp. A delete that fails is logged, not
-  retried. Nobody is told: the canceller already knows.
+  retried. Nobody is told: the canceller already knows. If another room
+  holds that group by then (the background job below matches a room to
+  a group by subject alone), the group is left alone, people and all,
+  and the webhook is logged as an error.
+- Nobody is told that it "could not be created" either: a create call
+  Meta refuses, a failed `group_create` webhook or the background job
+  giving up fails only a room still *creating*, and alerts only then.
 - It is never requested again: neither a create call still waiting for
   Meta's answer nor the background job below can put it back to
   *creating*.
 - Once the group has arrived the room is open and cannot be cancelled
   (the panel says so); close it instead.
 
-Two narrow races leave an empty group (only your number, nobody
-invited) at WhatsApp rather than deleting it: a cancel that lands while
-the create call is still waiting for Meta's answer (its request id is
-never recorded, so the webhook matches no room and is logged as
-unknown), and a background job that found the group by subject just
-as the room was cancelled (a group found by subject alone is never
-deleted).
+A cancelled room's group is left at WhatsApp, empty (only your number;
+nobody was invited, so no customer is in it), rather than deleted when:
+
+- the cancel lands while the create call is still waiting for Meta's
+  answer: its request id is never recorded, so the webhook matches no
+  room and is logged as unknown;
+- the background job's retry created it: the retry's request id is
+  never recorded either, so its webhook matches no room;
+- the webhook is lost or never sent, so nothing hears of the group;
+- the background job found the group by subject just as the room was
+  cancelled: a group found by subject alone is never deleted.
+
+Delete such groups from WhatsApp by hand if they matter to you.
 
 ### Rooms stuck in "creating"
 
@@ -444,8 +456,11 @@ takes every room still *creating* after 2 minutes and finishes it:
 finds its group by exact subject, or asks Meta once more if there is
 none. A room still without its group after 10 minutes is marked
 **failed**, and its creator and the workspace's owners and admins are
-told. A group that cannot be told apart
-from another is never guessed. The automation cron runs it too, at most
+told. A group that cannot be told apart from another is never guessed:
+nor is any group found while another room of the number with the same
+subject is still being created, or was cancelled less than 10 minutes
+before this one was created (or since), because that room's group may
+still arrive, and a cancelled room's webhook deletes it. The automation cron runs it too, at most
 every 2 minutes per process, so an install that pings only that one is
 covered.
 

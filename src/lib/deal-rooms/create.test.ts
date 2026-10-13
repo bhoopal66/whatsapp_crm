@@ -24,18 +24,29 @@ if (!parsed.ok) throw new Error(parsed.error);
 const INPUT = parsed.value;
 
 function setup(
-  create: { data?: unknown; error?: { code?: string; message: string } } = {}
+  create: { data?: unknown; error?: { code?: string; message: string } } = {},
+  /** What `deal_room_fail_creation` answers: false once it was cancelled. */
+  failed = true
 ) {
-  const admin = memoryDb({
-    deal_rooms: [
-      {
-        id: 'room-1',
-        channel_id: 'chan-1',
-        subject: 'Deal 42',
-        description: null,
-      },
-    ],
-  });
+  const admin = memoryDb(
+    {
+      deal_rooms: [
+        {
+          id: 'room-1',
+          channel_id: 'chan-1',
+          created_by: 'user-1',
+          subject: 'Deal 42',
+          description: null,
+        },
+      ],
+      profiles: [
+        { account_id: 'acct-1', user_id: 'owner-1', account_role: 'owner' },
+        { account_id: 'acct-1', user_id: 'user-1', account_role: 'admin' },
+        { account_id: 'acct-1', user_id: 'agent-1', account_role: 'agent' },
+      ].map((p) => ({ ...p, deactivated_at: null })),
+    },
+    { rpc: (fn) => (fn === 'deal_room_fail_creation' ? failed : null) }
+  );
   const userRpc = vi.fn(async () =>
     create.error
       ? { data: null, error: create.error }
@@ -154,10 +165,41 @@ describe('createDealRoom', () => {
     });
     expect(admin.rpcCalls).toEqual([
       [
-        'deal_room_set_status',
-        { p_room: 'room-1', p_status: 'failed', p_reason: 'Too many groups' },
+        'deal_room_fail_creation',
+        { p_room: 'room-1', p_reason: 'Too many groups' },
       ],
     ]);
+  });
+
+  it('tells the creator and the live owners and admins, once each, when Meta refuses', async () => {
+    h.createGroup.mockRejectedValue(new Error('Too many groups'));
+    const { admin, run } = setup();
+    await run();
+    expect(admin.tables.notifications).toEqual(
+      ['user-1', 'owner-1'].map((user_id) => ({
+        account_id: 'acct-1',
+        user_id,
+        type: 'deal_room_update',
+        title: 'Deal room could not be created',
+        body: 'Deal 42',
+        meta: {
+          room_id: 'room-1',
+          channel_id: 'chan-1',
+          event: 'create_failed',
+          reason: 'Too many groups',
+        },
+      }))
+    );
+  });
+
+  it('tells nobody when a manager cancelled the room while Meta answered', async () => {
+    h.createGroup.mockRejectedValue(new Error('Too many groups'));
+    const { admin, run } = setup({}, false);
+    expect(await run()).toMatchObject({ ok: false, status: 502 });
+    expect(admin.rpcCalls.map(([fn]) => fn)).toEqual([
+      'deal_room_fail_creation',
+    ]);
+    expect(admin.tables.notifications).toBeUndefined();
   });
 
   it('refuses with 409 before any RPC when no Meta number is connected', async () => {

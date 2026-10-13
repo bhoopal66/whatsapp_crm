@@ -190,9 +190,12 @@ describe('lifecycle', () => {
     });
   });
 
-  it('leaves a cancelled room alone when Meta reports its create failed', async () => {
+  it('tells nobody when a failed create changes nothing (cancelled, even after the read)', async () => {
+    // 096: deal_room_fail_creation answers false for a room no longer
+    // `creating` under its row lock; the room read earlier looked live.
     const { db, rpc, inserts } = fakeDb({
-      tables: { deal_rooms: { ...ROOM, cancelled_at: '2026-10-13T00:00:00Z' } },
+      rpc: { deal_room_fail_creation: false },
+      tables: { deal_rooms: ROOM, profiles: [{ user_id: 'owner-1' }] },
     });
     await run(db, {
       groups: [
@@ -203,12 +206,16 @@ describe('lifecycle', () => {
         },
       ],
     });
-    expect(rpc).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith('deal_room_fail_creation', {
+      p_room: 'room-1',
+      p_reason: 'x',
+    });
     expect(inserts('notifications')).toEqual([]);
   });
 
   it('tells the workspace owners and admins of a failed create too, once each', async () => {
     const { db, inserts } = fakeDb({
+      rpc: { deal_room_fail_creation: true },
       tables: {
         deal_rooms: ROOM,
         profiles: [{ user_id: 'owner-1' }, { user_id: 'user-creator' }],
@@ -231,7 +238,10 @@ describe('lifecycle', () => {
   });
 
   it('marks a failed create failed and tells the room creator', async () => {
-    const { db, rpc, inserts } = fakeDb({ tables: { deal_rooms: ROOM } });
+    const { db, rpc, inserts } = fakeDb({
+      rpc: { deal_room_fail_creation: true },
+      tables: { deal_rooms: ROOM },
+    });
     await run(db, {
       groups: [
         {
@@ -241,9 +251,8 @@ describe('lifecycle', () => {
         },
       ],
     });
-    expect(rpc).toHaveBeenCalledWith('deal_room_set_status', {
+    expect(rpc).toHaveBeenCalledWith('deal_room_fail_creation', {
       p_room: 'room-1',
-      p_status: 'failed',
       p_reason: 'limit',
     });
     expect(inserts('notifications')[0]).toEqual([

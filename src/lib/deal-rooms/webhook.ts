@@ -274,27 +274,29 @@ export async function handleGroupWebhook(
         // The room is open: invite its people. Claim-then-send, so a
         // redelivered webhook invites nobody twice.
         if (typeof roomId === 'string') await sendRoomInvites(db, roomId);
-        // NULL: the room was cancelled while being created (096). The
-        // group holds only our number; delete it so it is not left over.
+        // NULL: the room was cancelled while being created (096), and no
+        // other room holds the group (that one raises instead). The group
+        // holds only our number; delete it so it is not left over.
         else if (roomId === null) await discardGroup(groupId);
         return;
       }
       const { data, error } = await db
         .from('deal_rooms')
-        .select('id, channel_id, deal_id, created_by, subject, cancelled_at')
+        .select('id, channel_id, deal_id, created_by, subject')
         .eq('account_id', accountId)
         .eq('create_request_id', requestId)
         .maybeSingle();
       if (error) throw new Error(`room lookup failed: ${error.message}`);
       if (!data) throw new UnknownGroup(requestId);
-      const r = data as Room & { cancelled_at?: string | null };
-      // Cancelled meanwhile: already failed, and nobody needs telling.
-      if (r.cancelled_at) return;
-      await rpc('deal_room_set_status', {
+      const r = data as Room;
+      // Fails it only while it is still `creating`, under its row lock
+      // (096). Cancelled (even after the read above), already failed or
+      // open: nothing changed, and nobody needs telling.
+      const changed = await rpc('deal_room_fail_creation', {
         p_room: r.id,
-        p_status: 'failed',
         p_reason: reason,
       });
+      if (changed !== true) return;
       await notify(
         [r.created_by, ...(await workspaceAdminIds(db, accountId))],
         'deal_room_update',

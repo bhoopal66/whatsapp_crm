@@ -16,11 +16,23 @@
 --  * deal_room_group_created returns NULL instead of opening it, and
 --    records the late group once (group_discarded). The webhook then
 --    deletes that group at WhatsApp; nobody was ever invited into it,
---    because invites go out only once a room is open.
+--    because invites go out only once a room is open. Unless another
+--    room already holds that group: the reconcile can match a room to
+--    a group by subject alone, and it may have picked the cancelled
+--    room's. That group has people in it, so the call raises (as 088's
+--    unique wa_group_id did) and nothing is deleted.
 --  * deal_room_mark_requested refuses it, so neither the create route
 --    (cancelled while Meta was still answering the create call) nor the
 --    reconcile (which read the room while it was still `creating`)
 --    can put it back to `creating`.
+--
+-- deal_room_fail_creation fails a room only while it is still
+-- `creating`, and says whether it did. The create route (Meta refused
+-- the create call), the failed group_create webhook and the reconcile
+-- giving up alert the room's creator and the owners and admins only
+-- when it did: a cancel that lands while they work must not be
+-- followed by a "could not be created" alert, and a room its group
+-- opened meanwhile is never failed.
 --
 -- deal_room_add_guest_user (088) checked the caller's account and rank
 -- (team leader and up) but never the room, as deal_room_approve_
@@ -29,7 +41,7 @@
 -- as deal_room_add_staff always did.
 --
 -- 088's superuser / BYPASSRLS guard is repeated: this adds a column to
--- deal_rooms and a new SECURITY DEFINER function that writes deal_rooms
+-- deal_rooms and new SECURITY DEFINER functions that write deal_rooms
 -- and deal_room_audit, both RLS-forced, so its owner must bypass RLS
 -- (as 088's functions' owner does). The replaced functions keep their
 -- owner and grants; their REVOKE / GRANT is restated anyway.
@@ -108,7 +120,10 @@ BEGIN
 END $$;
 
 -- As 088, plus: a cancelled room's group is recorded once and the room
--- stays failed (NULL: nothing opened, so the caller invites nobody).
+-- stays failed (NULL: nothing opened, so the caller invites nobody, and
+-- no room holds the group, so the caller deletes it). A group another
+-- room holds is refused instead: NULL would delete it with that room's
+-- people in it.
 CREATE OR REPLACE FUNCTION public.deal_room_group_created(p_account uuid, p_request_id text, p_group_id text,
                                                           p_invite_link_hash text)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -124,6 +139,10 @@ BEGIN
     RAISE EXCEPTION 'deal rooms: no room for create request %', p_request_id USING ERRCODE = 'P0002';
   END IF;
   IF v_r.cancelled_at IS NOT NULL THEN
+    -- A cancelled room never holds a group: whoever does is another room.
+    IF EXISTS (SELECT 1 FROM public.deal_rooms o WHERE o.wa_group_id = p_group_id) THEN
+      RAISE EXCEPTION 'deal rooms: the group of a cancelled room belongs to another room' USING ERRCODE = '23505';
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM public.deal_room_audit a
                     WHERE a.room_id = v_r.id AND a.action = 'group_discarded'
                       AND a.detail ->> 'group_id' = p_group_id) THEN
@@ -155,6 +174,27 @@ BEGIN
   INSERT INTO public.deal_room_audit (room_id, account_id, actor_id, action, detail)
   VALUES (v_r.id, v_r.account_id, NULL, 'group_created', jsonb_build_object('group_id', p_group_id));
   RETURN v_r.id;
+END $$;
+
+-- Fail a room still `creating` (through deal_room_set_status, so its
+-- status_changed audit row is written). TRUE when this call failed it;
+-- FALSE when it had left `creating` already (its group opened it, a
+-- manager cancelled it, another writer failed it): nothing changed, and
+-- the caller tells nobody.
+CREATE OR REPLACE FUNCTION public.deal_room_fail_creation(p_room uuid, p_reason text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_status text;
+BEGIN
+  PERFORM public.deal_room_assert_service();
+  SELECT status INTO v_status FROM public.deal_rooms WHERE id = p_room FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'deal rooms: room not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_status <> 'creating' THEN
+    RETURN false;
+  END IF;
+  PERFORM public.deal_room_set_status(p_room, 'failed', p_reason);
+  RETURN true;
 END $$;
 
 -- As 088, plus: the caller must manage the room (deal_room_can_manage),
@@ -202,14 +242,16 @@ BEGIN
   END IF;
 END $$;
 
--- Grants, as 088: the new function and the server ones for the service
+-- Grants, as 088: the new functions and the server ones for the service
 -- role only, the guest-adding one for signed-in callers.
 REVOKE ALL ON FUNCTION public.deal_room_cancel_creation(uuid, uuid, text),
+  public.deal_room_fail_creation(uuid, text),
   public.deal_room_mark_requested(uuid, text),
   public.deal_room_group_created(uuid, text, text, text),
   public.deal_room_add_guest_user(uuid, uuid)
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.deal_room_cancel_creation(uuid, uuid, text),
+  public.deal_room_fail_creation(uuid, text),
   public.deal_room_mark_requested(uuid, text),
   public.deal_room_group_created(uuid, text, text, text)
   TO service_role;

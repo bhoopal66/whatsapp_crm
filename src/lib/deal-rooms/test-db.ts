@@ -1,7 +1,7 @@
 /**
  * Test-only: an in-memory stand-in for the supabase-js query builder,
  * as much of it as the deal-room tests need (eq / neq / is / in / like /
- * lt / lte, order, limit, insert, update, maybeSingle, single, and
+ * lt / lte / gte, order, limit, insert, update, maybeSingle, single, and
  * `storage.from(bucket).upload`). Updates mutate the stored rows; reads
  * return copies, so a run that read a row earlier holds a stale
  * snapshot, as it would against Postgres. Column lists and embeds are
@@ -114,6 +114,11 @@ export function memoryDb(
       chain(() => filters.push((r) => String(r[col]) < String(v)));
     builder.lte = (col: string, v: unknown) =>
       chain(() => filters.push((r) => String(r[col]) <= String(v)));
+    // As SQL: a NULL is never greater or equal.
+    builder.gte = (col: string, v: unknown) =>
+      chain(() =>
+        filters.push((r) => r[col] != null && String(r[col]) >= String(v))
+      );
     builder.order = (col: string, o?: { ascending?: boolean }) =>
       chain(() => (order = { col, asc: o?.ascending !== false }));
     builder.limit = (n: number) => chain(() => (limit = n));
