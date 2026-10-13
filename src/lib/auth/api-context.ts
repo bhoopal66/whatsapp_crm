@@ -101,15 +101,26 @@ export async function requireApiKey(
   const lockKey = ip ? `apikey:${ipKey(ip)}` : null;
   if (lockKey) await refuseLockedCaller(lockKey);
 
-  const { key: row, archived } = await lookupKeyByHash(hashApiKey(presented));
+  const {
+    key: row,
+    archived,
+    archivedKeyId,
+  } = await lookupKeyByHash(hashApiKey(presented));
   if (!row) {
     // Covers unknown, revoked, and expired keys alike — we don't
     // distinguish them on the wire so a probe can't learn whether a
     // key ever existed. A live key of an archived workspace (105) is
     // refused the same way but is not a bad key: an integration that
     // serves several workspaces from one IP (Compass) would otherwise
-    // lock itself out of the live ones by retrying it.
-    if (lockKey && !archived) await recordKey(lockKey, false);
+    // lock itself out of the live ones by retrying it. It keeps its
+    // per-key rate limit instead, so holding one buys no free requests.
+    if (archived && archivedKeyId) {
+      const limit = checkRateLimit(
+        `apikey:${archivedKeyId}`,
+        RATE_LIMITS.publicApi
+      );
+      if (!limit.success) throw rateLimited(limit);
+    } else if (lockKey) await recordKey(lockKey, false);
     throw unauthorized();
   }
 

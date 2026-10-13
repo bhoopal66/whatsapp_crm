@@ -22,7 +22,10 @@ vi.mock('@/lib/api-keys/store', () => ({
   findActiveKeyByHash: (hash: string) => findActiveKeyByHash(hash),
   lookupKeyByHash: async (hash: string) => {
     const key = await findActiveKeyByHash(hash);
-    return { key, archived: !key && archivedKey(hash) };
+    const archived = !key && archivedKey(hash);
+    return archived
+      ? { key, archived, archivedKeyId: 'key-archived' }
+      : { key, archived };
   },
   touchLastUsed: (id: string) => touchLastUsed(id),
 }));
@@ -199,6 +202,13 @@ describe('requireApiKey bad-key lockout', () => {
     expect((await requireApiKey(reqWith(`Bearer ${KEY}`, IP))).keyId).toBe(
       'key-1'
     );
+  });
+
+  it("keeps an archived workspace's key to its per-key rate limit", async () => {
+    archivedKey.mockReturnValue(true);
+    for (let i = 0; i < RATE_LIMITS.publicApi.limit; i++)
+      await expectApiError(bad(), 'unauthorized', 401);
+    await expectApiError(bad(), 'rate_limited', 429);
   });
 
   it('a good key clears the run of bad ones', async () => {

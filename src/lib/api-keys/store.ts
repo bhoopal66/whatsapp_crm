@@ -43,9 +43,12 @@ export async function findActiveKeyByHash(
  * of an archived workspace: a real key held back until the workspace is
  * restored, which requireApiKey does not count as a bad key.
  */
-export async function lookupKeyByHash(
-  hash: string
-): Promise<{ key: ApiKeyRow | null; archived: boolean }> {
+export async function lookupKeyByHash(hash: string): Promise<{
+  key: ApiKeyRow | null;
+  archived: boolean;
+  /** The archived workspace's key id, for its per-key rate limit. */
+  archivedKeyId?: string;
+}> {
   const none = { key: null, archived: false };
   const { data, error } = await supabaseAdmin()
     .from('api_keys')
@@ -81,7 +84,8 @@ export async function lookupKeyByHash(
     return none;
   }
   if (!account) return none;
-  if (account.archived_at) return { key: null, archived: true };
+  if (account.archived_at)
+    return { key: null, archived: true, archivedKeyId: data.id };
 
   return { key: data as ApiKeyRow, archived: false };
 }
