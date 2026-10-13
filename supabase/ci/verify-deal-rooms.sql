@@ -1,4 +1,4 @@
--- Behavioural regression suite for deal rooms (migrations 088, 095, 096).
+-- Behavioural regression suite for deal rooms (migrations 088, 095, 096, 100).
 --
 -- A deal room is a WhatsApp group on the account's Meta number, linked
 -- to a contact; inside the CRM it is a `deal_room` internal-chat
@@ -27,6 +27,14 @@
 -- as NULL (delete it) when another room holds that group, and a
 -- cancelled room is never requested again; deal_room_fail_creation
 -- fails only a room still `creating`, once, and says whether it did.
+-- And 100's deal_room_apply_settings: a group's subject, description
+-- and join approval mode from the webhook, in its own account only;
+-- and that the group STOP's service-role opt-out stamp is recorded in
+-- 086's consent history; and 100's Team notes: one per change of the
+-- group, none for a redelivery, no whole number, fail-open; a STOP's
+-- note true to the contact's stamp, and no second note for the removal
+-- the STOP made. And that a group receipt which beat its message's row
+-- is counted on the row once it is written.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -1007,6 +1015,175 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_y AND status = 'open')
      OR NOT EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_x2 AND last_error = 'Cancelled: duplicate') THEN
     failed := array_append(failed, ('deal_room_fail_creation did not fail only a creating room, once: ' || r)::text);
+  END IF;
+
+  -- 100: a group send is costed per delivered member, at the member's
+  -- market, in the message's one category (Meta priced it on `sent`);
+  -- a redelivered receipt counts once, a read is not billed, a delivery
+  -- naming no member is refused, another account's receipt never
+  -- touches our message, and a client cannot call it.
+  -- A field of dr_try's jsonb answer, or the error it returned.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.dr_j(p text, p_path text[])
+    RETURNS text LANGUAGE sql AS $body$
+      SELECT CASE WHEN p LIKE 'ERROR%' THEN p ELSE coalesce(p::jsonb #>> p_path, 'null') END
+    $body$
+  $fn$;
+  INSERT INTO group_messages (room_id, account_id, wa_message_id, direction, type, body, status)
+  VALUES (r_lead, a_acct, 'dr-cost-1', 'out', 'text', 'Hello', 'sent');
+  t := '{"id": "dr-cost-1", "recipient_type": "group", "recipient_id": "dr-grp-lead@g.us", "timestamp": "1793000000"';
+  s := 'SELECT public.deal_room_record_cost(%L, %L, %L::jsonb)::text';
+  r := pg_temp.dr_try('authenticated', u_admin, format(s, a_acct, 'PN-DR', t || ', "status": "sent"}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "sent", "pricing": {"category": "marketing", "pricing_model": "PMP"}}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880001"}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered", "participant_recipient_id": "966500880002", "pricing": {"category": "marketing", "billable": true}}'));
+  r := r || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880001"}')), '{data,duplicate}')
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "read", "recipient_participant_id": "971500880001"}')), '{ok}')
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'PN-DR',
+    t || ', "status": "delivered"}')), '{error,code}')
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, b_acct, 'PN-B',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880009"}')), '{ok}');
+  -- A separate statement: one sees no write its own function calls made.
+  r := r || ' / ' || coalesce((SELECT category || ':' || recipients_billed FROM group_messages WHERE wa_message_id = 'dr-cost-1'), '-')
+    || ' / ' || coalesce((SELECT string_agg(recipient_market || '=' || (cost_usd = whatsapp_resolve_rate(recipient_market,
+                          'marketing', DATE '2026-10-25'))::text, ',' ORDER BY recipient_market)
+                   FROM whatsapp_message_costs
+                  WHERE message_id = 'dr-cost-1' AND status = 'delivered' AND account_id = a_acct), '-');
+  n := n + 1;
+  IF r IS NULL OR r NOT LIKE 'ERROR 42501:% / true / true / BAD_STATUS / true / marketing:2 / AE=true,SA=true' THEN
+    failed := array_append(failed, ('a group send is not costed once per delivered member: ' || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: a group's settings, as a group_settings_update webhook reports
+  -- them, land on the room of the account the webhook authenticated,
+  -- renaming its Team notes channel; a client, another account, a
+  -- redelivery, values the room cannot hold and a closed room change
+  -- nothing, and a cleared description clears it.
+  s := 'SELECT public.deal_room_apply_settings(%L, %L, %L::jsonb)::text';
+  t := '{"subject": "  ' || repeat('Villa ', 15) || 'deal  ", "description": "Two bedrooms", '
+       || '"join_approval_mode": "auto_approve"}';
+  r := pg_temp.dr_try('authenticated', u_admin, format(s, a_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, b_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', t))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us',
+                     '{"subject": "   ", "description": 7, "join_approval_mode": "open"}'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '{"description": null}'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-lead@g.us', '{"subject": "Reopened"}'));
+  n := n + 1;
+  IF r IS NULL OR r NOT LIKE 'ERROR 42501:% / ERROR P0002:% / true / false / false / true / false'
+     OR NOT EXISTS (SELECT 1 FROM deal_rooms d JOIN chat_channels c ON c.id = d.channel_id
+                     WHERE d.id = r_y AND d.subject = btrim(repeat('Villa ', 15) || 'deal')
+                       AND c.name = left(d.subject, 80) AND d.description IS NULL
+                       AND d.join_approval_mode = 'auto_approve')
+     OR (SELECT count(*) FROM deal_room_audit WHERE room_id = r_y AND action = 'settings_changed') <> 2
+     OR EXISTS (SELECT 1 FROM deal_rooms WHERE id = r_lead AND subject = 'Reopened') THEN
+    failed := array_append(failed, ('a group settings update was not applied once, in its own account: '
+                                    || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: Team notes. Each change of the group posts one system note in
+  -- the room's Team notes and a redelivery, which changes nothing, none:
+  -- a joiner nobody listed (named without their number), their leaving,
+  -- a suspension and its end, a join request waiting for a manager. With
+  -- internal chat off the change still lands, without a note.
+  s := 'SELECT public.deal_room_participant_event(%L, %L, %L, %L)';
+  t := 'SELECT ''s'' FROM public.deal_room_set_status(%L, %L)';
+  r := pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'left'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'left'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'suspended'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'suspended'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'open'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, r_y, 'open'));
+  t := 'SELECT public.deal_room_record_join_request(%L, %L, %L, %L)';
+  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, a_acct, 'dr-grp-shared@g.us', 'dr-jr-note', '971500880056'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(t, a_acct, 'dr-grp-shared@g.us', 'dr-jr-note', '971500880056'));
+  UPDATE accounts SET internal_chat_enabled = false WHERE id = a_acct;
+  r := r || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'joined'));
+  UPDATE accounts SET internal_chat_enabled = true WHERE id = a_acct;
+  n := n + 1;
+  IF r IS DISTINCT FROM 'joined / joined / left / left / s / s / s / s / pending / pending / joined'
+     OR (SELECT string_agg(m.meta->>'deal_room_event', ',' ORDER BY m.meta->>'deal_room_event', m.body)
+           FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+          WHERE d.id = r_y AND m.author_kind = 'system')
+        IS DISTINCT FROM 'join_request,participant_left,participant_unlisted,status_changed,status_changed'
+     OR NOT EXISTS (SELECT 1 FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+                     WHERE d.id = r_y AND m.body = '**Unlisted number ending 55** left the WhatsApp group.')
+     OR EXISTS (SELECT 1 FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+                 WHERE d.id = r_y AND m.body ~ '9715008800')
+     OR NOT EXISTS (SELECT 1 FROM deal_room_participants
+                     WHERE room_id = r_y AND phone = '971500880055' AND status = 'joined') THEN
+    failed := array_append(failed, ('Team notes are not one per change of the group: ' || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- The group STOP (lib/deal-rooms/webhook.ts) stamps the contact as the
+  -- service role, through markOptedOut: 086's trigger must append that
+  -- stamp to the consent history, as for every other writer.
+  INSERT INTO contacts (account_id, user_id, phone, name)
+  VALUES (a_acct, u_agent, '+971 50 088 0066', 'Stop Sam') RETURNING id INTO v_pre;
+  r := pg_temp.dr_try('service_role', NULL, format('UPDATE public.contacts SET opted_out_at = now() '
+         || 'WHERE id = %L AND account_id = %L AND opted_out_at IS NULL', v_pre, a_acct));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'ok'
+     OR NOT EXISTS (SELECT 1 FROM contacts WHERE id = v_pre AND opted_out_at IS NOT NULL
+                       AND phone_normalized = '971500880066')
+     OR (SELECT count(*) FROM contact_consent_events WHERE contact_id = v_pre AND kind = 'opted_out') <> 1 THEN
+    failed := array_append(failed, ('a service-role opt-out stamp left no consent event: ' || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: a receipt can beat its message's row, which is written only once
+  -- Meta has answered the send. The ledger costs it with no row to lift
+  -- it onto, and its redelivery is a ledger duplicate: the row, written
+  -- later, takes the category and billed count from the ledger, and a
+  -- receipt after it adds to them as usual.
+  s := 'SELECT public.deal_room_record_cost(%L, %L, %L::jsonb)::text';
+  t := '{"id": "dr-cost-race", "recipient_type": "group", "recipient_id": "dr-grp-shared@g.us", "timestamp": "1793000000"';
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+    t || ', "status": "sent", "pricing": {"category": "utility", "pricing_model": "PMP"}}'));
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+    t || ', "status": "delivered", "recipient_participant_id": "971500880001"}'));
+  r := pg_temp.dr_try('service_role', NULL, format('SELECT (public.deal_room_record_message(%L, %L, %L, %L, %L) IS NOT NULL)::text',
+         a_acct, 'dr-grp-shared@g.us', 'out', 'text', 'dr-cost-race'))
+    || ' / ' || pg_temp.dr_j(pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+         t || ', "status": "delivered", "recipient_participant_id": "971500880001"}')), '{data,duplicate}');
+  PERFORM pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'DR-META-1',
+    t || ', "status": "delivered", "recipient_participant_id": "966500880002"}'));
+  r := r || ' / ' || coalesce((SELECT category || ':' || recipients_billed FROM group_messages
+                               WHERE wa_message_id = 'dr-cost-race' AND account_id = a_acct), '-');
+  n := n + 1;
+  IF r IS DISTINCT FROM 'true / true / utility:2' THEN
+    failed := array_append(failed, ('a receipt that beat its message row is not counted on it: '
+                                    || coalesce(r, 'NULL'))::text);
+  END IF;
+
+  -- 100: a STOP's note says whether the contact is now opted out, could
+  -- not be marked, or was not found; the removal that STOP made, which
+  -- Meta reports after the STOP is recorded, posts no second note, and
+  -- any other removal still posts one.
+  INSERT INTO deal_room_audit (room_id, account_id, actor_id, action, detail)
+  VALUES (r_y, a_acct, NULL, 'participant_opted_out',
+          '{"wa_id": "971500880055", "opted_out": false, "contact_found": true}');
+  s := 'SELECT public.deal_room_participant_event(%L, %L, %L, %L)';
+  r := pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880055', 'removed'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880057', 'joined'))
+       || ' / ' || pg_temp.dr_try('service_role', NULL, format(s, a_acct, 'dr-grp-shared@g.us', '971500880057', 'removed'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'removed / joined / removed'
+     OR (SELECT string_agg(m.body, ' | ' ORDER BY m.body)
+           FROM internal_messages m JOIN deal_rooms d ON d.channel_id = m.channel_id
+          WHERE d.id = r_y AND m.meta->>'deal_room_event' IN ('participant_opted_out', 'participant_removed'))
+        IS DISTINCT FROM '**Unlisted number ending 55** wrote STOP and is being removed from the WhatsApp group; '
+                         || 'their contact could not be marked opted out. | '
+                         || '**Unlisted number ending 57** was removed from the WhatsApp group.' THEN
+    failed := array_append(failed, ('a STOP and the removal it made did not post one true note: '
+                                    || coalesce(r, 'NULL'))::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

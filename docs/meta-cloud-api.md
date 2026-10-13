@@ -299,7 +299,8 @@ including your number, so a room lists 1 to 7 other people.
 4. **Settings → Deal rooms** (admins). Enter the approved template's
    name and language. The page shows whether each name is found in your
    synced templates and approved. An Arabic copy is optional; today
-   everyone gets the default copy. Until a template is configured a
+   everyone gets the default copy, because the CRM stores no language
+   for a contact to choose a copy by. Until a template is configured a
    room is still created, but nobody is invited: the creator gets an
    *Invite template not configured* notification, and a manager sends
    the invites once it is set (`POST /api/deal-rooms/{id}/invites`).
@@ -366,7 +367,9 @@ including your number, so a room lists 1 to 7 other people.
    - **A sent message cannot be edited or deleted.**
    - A member who writes `STOP`, `UNSUBSCRIBE` or an Arabic equivalent is
      removed from the group, marked opted out (no broadcast reaches
-     them again), and a note says so in the room.
+     them again), and one note in the Team notes says so, including
+     when their contact could not be marked or none was found; the
+     removal itself adds no second note.
    - A person removed by a manager **cannot rejoin through the invite
      link**. A manager can fetch the link or reset it; a reset ends
      every earlier link. The link is never stored, only its hash.
@@ -518,10 +521,29 @@ everything else.
   is a 401), screened under the same keys
   (`msg:<phone_number_id>:<message id>`, so a redelivery is skipped),
   and processed in the same callback.
-- Receipts of group sends are **not** in the message-cost ledger yet:
-  it prices a message by its recipient's phone number, and a group
-  send's recipient is the group. Per-member group billing is a
-  follow-up.
+- **Settings changes** (`group_settings_update`, migration 100): a new
+  subject, description or join approval mode that WhatsApp reports is
+  copied onto the room, and the room's Team notes channel takes the new
+  subject as its name (its first 80 characters). A redelivery, a closed
+  room, a setting WhatsApp reports as failed and a value the room
+  cannot hold (a blank subject, one over 128 characters) change
+  nothing. The payload is read as Meta's pages describe it
+  (`group_subject` / `group_description` objects with `text` and
+  `update_successful`); it has not yet been seen on a live callback,
+  so any other shape is logged and ignored.
+- **Group sends are costed per delivered member** (migration 100).
+  Meta bills a group message once for each participant it reaches, at
+  that participant's market rate, in the message's one category: a
+  free-form message inside the group's 24-hour window is `service` for
+  every member. Each receipt goes to *Message costs* keyed on the
+  member (`recipient_participant_id`), so a member's delivery is never
+  mistaken for a replay of another's, and a redelivered receipt still
+  counts once. The room's transcript row keeps the message's
+  `category` and `recipients_billed` (billable deliveries so far),
+  including receipts that arrived before that row was written (it is
+  written once Meta has answered the send). A receipt that names no
+  member is recorded uncosted, except a delivery, which is refused:
+  it cannot be priced at a market nobody is in.
 
 ## Edge security
 

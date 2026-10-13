@@ -20,6 +20,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { markOptedOut } from '@/lib/ai/opt-out';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api';
 import { MetaError } from '@/lib/whatsapp/meta-api';
+import { findExistingContact } from '@/lib/contacts/dedupe';
+import { phoneVariants } from '@/lib/whatsapp/phone-utils';
 import {
   approveJoinRequests,
   deleteGroup,
@@ -120,6 +122,85 @@ const OPT_OUT_KEYWORDS = new Set(
 
 export function isOptOutText(text: unknown): boolean {
   return typeof text === 'string' && OPT_OUT_KEYWORDS.has(foldKeyword(text));
+}
+
+export interface GroupSettingsChange {
+  subject?: string;
+  /** null: the description was cleared. */
+  description?: string | null;
+  join_approval_mode?: 'approval_required' | 'auto_approve';
+}
+
+const JOIN_APPROVAL_MODES = new Set(['approval_required', 'auto_approve']);
+
+/** Postgres counts characters by code point, as this does. */
+const chars = (text: string) => [...text].length;
+
+/**
+ * What a `group_settings_update` event changed, in the room's terms
+ * (deal_room_apply_settings, migration 100), or null when it names
+ * nothing usable. Never throws.
+ *
+ * The shape is ASSUMED from Meta's Groups API pages and has not been
+ * seen on a live callback: each changed setting is an object beside
+ * `group_id` — `group_subject` and `group_description`, each with `text`
+ * and `update_successful` — and the join approval mode, if Meta sends
+ * it, is taken as `join_approval_mode`, a string or `{ mode }`. A
+ * setting counts when its update succeeded (`update_successful: true`,
+ * or no flag on an event reporting no errors). Anything else — another
+ * shape, a failed update, a subject that is blank or over 128
+ * characters, a description over 2048 — is ignored.
+ */
+export function parseGroupSettings(event: unknown): GroupSettingsChange | null {
+  const e = obj(event);
+  const hasErrors = (o: Json) => Array.isArray(o.errors) && o.errors.length > 0;
+  const succeeded = (s: Json) =>
+    s.update_successful === true ||
+    (s.update_successful === undefined && !hasErrors(e) && !hasErrors(s));
+  const out: GroupSettingsChange = {};
+
+  const subject = obj(e.group_subject);
+  if (typeof subject.text === 'string' && succeeded(subject)) {
+    const text = subject.text.trim();
+    if (chars(text) >= 1 && chars(text) <= 128) out.subject = text;
+  }
+  const description = obj(e.group_description);
+  if (typeof description.text === 'string' && succeeded(description)) {
+    const text = description.text.trim();
+    if (chars(text) <= 2048) out.description = text || null;
+  }
+  const rawMode = e.join_approval_mode;
+  const mode =
+    typeof rawMode === 'string'
+      ? hasErrors(e)
+        ? null
+        : rawMode
+      : succeeded(obj(rawMode))
+        ? str(obj(rawMode).mode)
+        : null;
+  if (mode && JOIN_APPROVAL_MODES.has(mode)) {
+    out.join_approval_mode = mode as GroupSettingsChange['join_approval_mode'];
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * The contact a group member's WhatsApp id belongs to, among rows read
+ * by `contacts.phone_normalized` (migration 022, digits only, so a
+ * stored "+971 50…" matches): the one on the earliest `phoneVariants`
+ * form, the exact number before its trunk-0 forms.
+ */
+export function pickContactByPhone(
+  rows: unknown,
+  variants: string[]
+): string | null {
+  let best: { id: string; rank: number } | null = null;
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = str(obj(row).id);
+    const rank = variants.indexOf(str(obj(row).phone_normalized) ?? '');
+    if (id && rank >= 0 && (!best || rank < best.rank)) best = { id, rank };
+  }
+  return best?.id ?? null;
 }
 
 interface Room {
@@ -411,8 +492,21 @@ export async function handleGroupWebhook(
         );
         return;
       }
+      case 'group_settings_update': {
+        const settings = parseGroupSettings(event);
+        if (!settings) {
+          console.info('[deal-rooms] group settings update: nothing to apply');
+          return;
+        }
+        await rpc('deal_room_apply_settings', {
+          p_account: accountId,
+          p_group_id: groupId,
+          p_settings: settings,
+        });
+        return;
+      }
       default:
-        // group_settings_update and anything new: logged only.
+        // Anything new: logged only.
         console.info(`[deal-rooms] group event "${type}" logged only`);
     }
   }
@@ -453,6 +547,11 @@ export async function handleGroupWebhook(
       body = null;
     }
 
+    // A STOP seen before (a redelivery the edge screen let through)
+    // removes and stamps again, but writes no second opt-out record.
+    const stop = type === 'text' && isOptOutText(body);
+    const fresh = stop && !(await seenMessage(id));
+
     await rpc('deal_room_record_message', {
       p_account: accountId,
       p_group_id: groupId,
@@ -464,7 +563,17 @@ export async function handleGroupWebhook(
       p_media: media,
     });
 
-    if (type === 'text' && isOptOutText(body)) await optOut(r, groupId, from);
+    if (stop) await optOut(r, groupId, from, fresh);
+  }
+
+  async function seenMessage(waMessageId: string): Promise<boolean> {
+    const { data } = await db
+      .from('group_messages')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('wa_message_id', waMessageId)
+      .maybeSingle();
+    return data != null;
   }
 
   // "Saved to the deal file automatically": the bytes go to the private
@@ -526,19 +635,12 @@ export async function handleGroupWebhook(
     return media;
   }
 
-  async function optOut(r: Room, groupId: string, waId: string): Promise<void> {
-    try {
-      await removeParticipants({
-        groupId,
-        accessToken: args.accessToken,
-        participants: [waId],
-      });
-    } catch (err) {
-      console.error(
-        '[deal-rooms] removing an opted-out participant failed:',
-        err
-      );
-    }
+  async function optOut(
+    r: Room,
+    groupId: string,
+    waId: string,
+    fresh: boolean
+  ): Promise<void> {
     const { data: p } = await db
       .from('deal_room_participants')
       .select('contact_id')
@@ -549,24 +651,85 @@ export async function handleGroupWebhook(
     let contactId =
       (p as { contact_id: string | null } | null)?.contact_id ?? null;
     if (!contactId) {
-      const { data: c } = await db
+      // Not a listed person's contact: the account's contact on this
+      // number, whatever form its phone was saved in.
+      const variants = phoneVariants(waId);
+      const { data: rows, error } = await db
         .from('contacts')
-        .select('id')
+        .select('id, phone_normalized')
         .eq('account_id', accountId)
-        .eq('phone', waId)
-        .limit(1)
-        .maybeSingle();
-      contactId = (c as { id: string } | null)?.id ?? null;
+        .in('phone_normalized', variants)
+        .limit(20);
+      if (error)
+        console.error('[deal-rooms] opt-out contact lookup failed:', error);
+      contactId = pickContactByPhone(rows, variants);
+      // Saved in a local form ("0501234567"): the inbound pipeline's
+      // own rule, a last-8-digits match with the exact form first.
+      if (!contactId && !error)
+        contactId =
+          (await findExistingContact(db, accountId, waId))?.id ?? null;
     }
-    if (contactId) await markOptedOut(db, { accountId, contactId });
+    // markOptedOut answers false for a failed write and for a contact
+    // stamped before alike; only the stamp itself tells them apart.
+    const optedOut =
+      contactId !== null &&
+      ((await markOptedOut(db, { accountId, contactId })) ||
+        (await hasOptedOut(contactId)));
+    if (fresh) {
+      // The room's record of the STOP; its audit trigger (migration 100)
+      // posts the Team note. Written before the removal at Meta, so the
+      // removal's own webhook finds it and adds no second note.
+      // Fail-open: the removal and stamp stand.
+      const { error } = await db.from('deal_room_audit').insert({
+        room_id: r.id,
+        account_id: accountId,
+        actor_id: null,
+        action: 'participant_opted_out',
+        detail: {
+          wa_id: waId,
+          opted_out: optedOut,
+          contact_found: contactId !== null,
+        },
+      });
+      if (error) console.error('[deal-rooms] opt-out record failed:', error);
+    }
+    let removed = true;
+    try {
+      await removeParticipants({
+        groupId,
+        accessToken: args.accessToken,
+        participants: [waId],
+      });
+    } catch (err) {
+      removed = false;
+      console.error(
+        '[deal-rooms] removing an opted-out participant failed:',
+        err
+      );
+    }
     await rpc('deal_room_record_message', {
       p_account: accountId,
       p_group_id: groupId,
       p_direction: 'out',
       p_type: 'system',
-      p_body: `+${waId} asked to stop and was removed from the group.`,
+      p_body: removed
+        ? `+${waId} asked to stop and was removed from the group.`
+        : `+${waId} asked to stop; removing them from the group failed.`,
       p_status: 'sent',
     });
+  }
+
+  async function hasOptedOut(contactId: string): Promise<boolean> {
+    const { data, error } = await db
+      .from('contacts')
+      .select('opted_out_at')
+      .eq('id', contactId)
+      .eq('account_id', accountId)
+      .maybeSingle();
+    if (error) console.error('[deal-rooms] opt-out stamp check failed:', error);
+    return (
+      (data as { opted_out_at: string | null } | null)?.opted_out_at != null
+    );
   }
 
   async function receipt(s: Json): Promise<void> {

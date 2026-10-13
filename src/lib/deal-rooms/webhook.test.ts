@@ -45,6 +45,8 @@ import {
   handleGroupWebhook,
   isGroupChange,
   isOptOutText,
+  parseGroupSettings,
+  pickContactByPhone,
 } from './webhook';
 
 const GROUP = 'HBgLMTY1MDM4Nzk0MzkVAgASGBQzQTRB';
@@ -81,6 +83,8 @@ function fakeDb(
       'update',
       'is',
       'in',
+      'like',
+      'order',
     ]) {
       builder[m] = (...a: unknown[]) => (entry.ops.push([m, ...a]), builder);
     }
@@ -309,6 +313,89 @@ describe('lifecycle', () => {
   });
 });
 
+describe('group settings', () => {
+  it('reads the subject and description of a settings update', () => {
+    // The shape as remembered from Meta's Groups API pages (unverified).
+    expect(
+      parseGroupSettings({
+        timestamp: '1793000000',
+        group_id: GROUP,
+        type: 'group_settings_update',
+        request_id: 'req-9',
+        profile_picture: { mime_type: 'image/jpeg', update_successful: true },
+        group_subject: { text: '  Villa 7 — Palm  ', update_successful: true },
+        group_description: { text: ' ', update_successful: true },
+      })
+    ).toEqual({ subject: 'Villa 7 — Palm', description: null });
+    expect(
+      parseGroupSettings({
+        group_subject: { text: 'Kept', update_successful: false },
+        group_description: { text: 'Two bedrooms' },
+        join_approval_mode: { mode: 'auto_approve', update_successful: true },
+      })
+    ).toEqual({
+      description: 'Two bedrooms',
+      join_approval_mode: 'auto_approve',
+    });
+    expect(
+      parseGroupSettings({ join_approval_mode: 'approval_required' })
+    ).toEqual({ join_approval_mode: 'approval_required' });
+    // Characters, as Postgres counts them: 128 emoji fit the subject.
+    expect(
+      parseGroupSettings({ group_subject: { text: '😀'.repeat(128) } })
+    ).toEqual({ subject: '😀'.repeat(128) });
+  });
+
+  it('ignores junk, failed updates and values the room cannot hold, never throwing', () => {
+    for (const junk of [
+      null,
+      undefined,
+      42,
+      'group_settings_update',
+      [],
+      {},
+      { group_subject: 'Renamed' },
+      { group_subject: { text: 7 }, group_description: [] },
+      { group_subject: { text: '   ' } },
+      { group_subject: { text: 'x'.repeat(129) } },
+      { group_description: { text: 'x'.repeat(2049) } },
+      { group_subject: { text: 'Renamed' }, errors: [{ code: 131000 }] },
+      { group_subject: { text: 'Renamed', errors: [{ code: 131000 }] } },
+      { join_approval_mode: 'open' },
+      {
+        join_approval_mode: { mode: 'auto_approve', update_successful: false },
+      },
+      { join_approval_mode: 'auto_approve', errors: [{}] },
+    ]) {
+      expect(parseGroupSettings(junk)).toBeNull();
+    }
+  });
+
+  it('applies what a settings update changed to the room, in this account', async () => {
+    const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+    await run(db, {
+      groups: [
+        {
+          type: 'group_settings_update',
+          group_id: GROUP,
+          group_subject: { text: 'Villa 7', update_successful: true },
+        },
+        {
+          type: 'group_settings_update',
+          group_id: GROUP,
+          group_subject: { text: 'Refused', update_successful: false },
+        },
+      ],
+    });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('deal_room_apply_settings', {
+      p_account: 'acct-1',
+      p_group_id: GROUP,
+      p_settings: { subject: 'Villa 7' },
+    });
+  });
+});
+
 describe('participants and join requests', () => {
   it('approves an auto-approved join request with Meta right away', async () => {
     const { db, inserts } = fakeDb({
@@ -499,6 +586,244 @@ describe('group messages and receipts', () => {
       'deal_room_record_message',
       expect.objectContaining({ p_type: 'system', p_direction: 'out' })
     );
+  });
+
+  it('opts out the contact saved under another form of the number', async () => {
+    const { db } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: null },
+        // phone_normalized of "+971 0501 234 567" and "+971 50 123 4567".
+        contacts: [
+          { id: 'contact-trunk', phone_normalized: '9710501234567' },
+          { id: 'contact-plus', phone_normalized: '971501234567' },
+        ],
+      },
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.5',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    expect(markOptedOut).toHaveBeenCalledWith(db, {
+      accountId: 'acct-1',
+      contactId: 'contact-plus',
+    });
+  });
+
+  it('records a STOP once: a redelivered one removes again but adds no record', async () => {
+    const stop = {
+      messages: [
+        {
+          id: 'wamid.6',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'stop' },
+        },
+      ],
+    };
+    const first = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+      },
+    });
+    await run(first.db, stop);
+    expect(first.inserts('deal_room_audit')).toEqual([
+      {
+        room_id: 'room-1',
+        account_id: 'acct-1',
+        actor_id: null,
+        action: 'participant_opted_out',
+        detail: {
+          wa_id: '971501234567',
+          opted_out: true,
+          contact_found: true,
+        },
+      },
+    ]);
+    const again = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+        group_messages: { id: 'gm-6' },
+      },
+    });
+    await run(again.db, stop);
+    expect(removeParticipants).toHaveBeenCalledTimes(2);
+    expect(markOptedOut).toHaveBeenCalledTimes(2);
+    expect(again.inserts('deal_room_audit')).toEqual([]);
+  });
+
+  it('says a STOP left the contact opted out only when it did', async () => {
+    const stop = (id: string) => ({
+      messages: [
+        {
+          id,
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    const detail = (db: ReturnType<typeof fakeDb>) =>
+      (db.inserts('deal_room_audit')[0] as { detail: unknown }).detail;
+    // The stamp failed: the contact is not opted out.
+    markOptedOut.mockResolvedValueOnce(false);
+    const failedWrite = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+        contacts: { opted_out_at: null },
+      },
+    });
+    await run(failedWrite.db, stop('wamid.7'));
+    // Stamped before: nothing to write, and still opted out.
+    markOptedOut.mockResolvedValueOnce(false);
+    const stampedBefore = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+        contacts: { opted_out_at: '2026-10-01T09:00:00Z' },
+      },
+    });
+    await run(stampedBefore.db, stop('wamid.8'));
+    // No contact on the number.
+    const noContact = fakeDb({
+      tables: { deal_rooms: ROOM, deal_room_participants: null, contacts: [] },
+    });
+    await run(noContact.db, stop('wamid.9'));
+    expect([
+      detail(failedWrite),
+      detail(stampedBefore),
+      detail(noContact),
+    ]).toEqual([
+      { wa_id: '971501234567', opted_out: false, contact_found: true },
+      { wa_id: '971501234567', opted_out: true, contact_found: true },
+      { wa_id: '971501234567', opted_out: false, contact_found: false },
+    ]);
+  });
+
+  it('opts out a STOP sender whose contact was saved in a local form', async () => {
+    const { db } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: null,
+        // Not one of the number's international forms, so only the
+        // last-8-digits fallback finds it.
+        contacts: [
+          {
+            id: 'contact-local',
+            phone: '050 123 4567',
+            phone_normalized: '0501234567',
+          },
+        ],
+      },
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.10',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    expect(markOptedOut).toHaveBeenCalledWith(db, {
+      accountId: 'acct-1',
+      contactId: 'contact-local',
+    });
+  });
+
+  it('says in the transcript when removing a STOP sender failed', async () => {
+    const { db, rpc } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+      },
+    });
+    removeParticipants.mockRejectedValueOnce(new Error('group suspended'));
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.11',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    const bodies = rpc.mock.calls
+      .filter((c) => c[0] === 'deal_room_record_message')
+      .map((c) => (c as unknown as [string, { p_body: string }])[1].p_body);
+    expect(bodies).toContain(
+      '+971501234567 asked to stop; removing them from the group failed.'
+    );
+    expect(bodies.some((b) => b.includes('was removed'))).toBe(false);
+  });
+
+  it('records a STOP before removing the person, so the removal adds no second note', async () => {
+    const { db, inserts } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        deal_room_participants: { contact_id: 'contact-9' },
+      },
+    });
+    let recordedFirst: unknown[] | null = null;
+    removeParticipants.mockImplementationOnce(async () => {
+      recordedFirst = inserts('deal_room_audit');
+    });
+    await run(db, {
+      messages: [
+        {
+          id: 'wamid.10',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: 'STOP' },
+        },
+      ],
+    });
+    expect(removeParticipants).toHaveBeenCalledTimes(1);
+    expect(recordedFirst).toEqual([
+      expect.objectContaining({ action: 'participant_opted_out' }),
+    ]);
+  });
+
+  it('picks the contact on the earliest number form, ignoring junk rows', () => {
+    const variants = ['971501234567', '9710501234567'];
+    expect(
+      pickContactByPhone(
+        [
+          null,
+          { id: 'x', phone_normalized: '1' },
+          { id: 'trunk', phone_normalized: '9710501234567' },
+          { id: 'exact', phone_normalized: '971501234567' },
+        ],
+        variants
+      )
+    ).toBe('exact');
+    expect(
+      pickContactByPhone(
+        [{ id: 'trunk', phone_normalized: '9710501234567' }],
+        variants
+      )
+    ).toBe('trunk');
+    expect(pickContactByPhone(null, variants)).toBeNull();
+    expect(
+      pickContactByPhone([{ phone_normalized: '971501234567' }], variants)
+    ).toBeNull();
   });
 
   it('records receipts per participant under either field spelling', async () => {
