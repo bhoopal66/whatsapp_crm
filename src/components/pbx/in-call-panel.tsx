@@ -23,8 +23,10 @@ import { listChannels, postMessage } from '@/lib/chat';
 import {
   OUTCOMES,
   callCardText,
+  canTransferToOwner,
   formatTimer,
   needsOutcome,
+  otherOwner,
   type Outcome,
 } from '@/lib/pbx/call-ui';
 import { createClient } from '@/lib/supabase/client';
@@ -75,8 +77,45 @@ function Panel() {
   const loaded = useRef(false);
   const ended = p.endedAt !== null;
   const now = useNow(!ended);
-  const facts = useCallFacts(row?.contact_id ?? p.contactId);
+  const facts = useCallFacts(row?.contact_id ?? p.contactId, {
+    connectionId: p.connectionId,
+    pbxCallId: p.pbxCallId,
+  });
   const ref = { pbxCallId: p.pbxCallId, remoteNumber: p.remoteNumber };
+  const owner = otherOwner(facts?.ownerId, calls.userId);
+  const [ownerExt, setOwnerExt] = useState<{
+    owner: string;
+    extension: string | null;
+  } | null>(null);
+
+  // The owner's extension on this PBX, as the transfer route looks it up.
+  useEffect(() => {
+    if (!owner) return;
+    let live = true;
+    void sb
+      .from('pbx_extensions')
+      .select('extension')
+      .eq('connection_id', me.connectionId)
+      .eq('user_id', owner)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (live)
+          setOwnerExt({
+            owner,
+            extension:
+              (data as { extension: string } | null)?.extension ?? null,
+          });
+      });
+    return () => {
+      live = false;
+    };
+  }, [sb, owner, me.connectionId]);
+  const toOwner = canTransferToOwner(
+    owner,
+    calls.userId,
+    ownerExt?.owner === owner ? ownerExt.extension : null,
+    me.extension
+  );
 
   const load = useCallback(async () => {
     const { data } = await sb
@@ -353,17 +392,19 @@ function Panel() {
                 >
                   {t('transferTo')}
                 </button>
-                <button
-                  type="button"
-                  className="h-9 rounded-lg bg-white/15 px-3 text-sm"
-                  onClick={async () =>
-                    (await calls.control(p.pbxCallId, 'transfer', {
-                      toOwner: true,
-                    })) && toast.success(t('transferred'))
-                  }
-                >
-                  {t('transferToOwner')}
-                </button>
+                {toOwner && (
+                  <button
+                    type="button"
+                    className="h-9 rounded-lg bg-white/15 px-3 text-sm"
+                    onClick={async () =>
+                      (await calls.control(p.pbxCallId, 'transfer', {
+                        toOwner: true,
+                      })) && toast.success(t('transferred'))
+                    }
+                  >
+                    {t('transferToOwner')}
+                  </button>
+                )}
               </div>
             )}
             {keypad && calls.softphone && (

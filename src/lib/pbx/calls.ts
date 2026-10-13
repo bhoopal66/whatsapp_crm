@@ -569,6 +569,50 @@ export function dbFailure(
   return status ? fail(error.message, status) : null;
 }
 
+export interface CallLink {
+  contactId: string;
+  conversationId: string | null;
+  dealId: string | null;
+}
+
+/**
+ * Links a call to a contact through pbx_link_call_contact on the
+ * caller's client, which decides who may (its refusal comes back as a
+ * response), then reads the chat and deal the call was left with: both
+ * link routes make this one link.
+ */
+export async function linkCallContact(
+  rls: SupabaseClient,
+  callId: string,
+  contactId: string
+): Promise<CallLink | NextResponse> {
+  const { error } = await rls.rpc('pbx_link_call_contact', {
+    p_call_id: callId,
+    p_contact_id: contactId,
+  });
+  if (error) {
+    const refused = dbFailure(error);
+    if (refused) return refused;
+    throw new Error(`pbx_link_call_contact failed: ${error.message}`);
+  }
+  const { data, error: readError } = await rls
+    .from('calls')
+    .select('contact_id, conversation_id, deal_id')
+    .eq('id', callId)
+    .maybeSingle();
+  if (readError) throw new Error(`calls read failed: ${readError.message}`);
+  const row = data as {
+    contact_id: string | null;
+    conversation_id: string | null;
+    deal_id: string | null;
+  } | null;
+  return {
+    contactId: row?.contact_id ?? contactId,
+    conversationId: row?.conversation_id ?? null,
+    dealId: row?.deal_id ?? null,
+  };
+}
+
 interface ContactRow {
   id: string;
   phone: string | null;

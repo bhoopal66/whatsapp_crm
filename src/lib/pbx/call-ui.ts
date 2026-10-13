@@ -43,6 +43,8 @@ export interface CallLiveRow {
   members: unknown;
   state: string | null;
   updated_at: string;
+  /** When the call first rang (094); missing before that migration. */
+  rang_at?: string | null;
 }
 
 interface LiveMember {
@@ -134,6 +136,10 @@ export function maskPhone(raw: string | null | undefined): string {
   return `${head} ${'•'.repeat(n - 7)} ${d.slice(-4)}`;
 }
 
+/** The number "Create contact" starts with: the caller's, with its +. */
+export const newContactPhone = (remote: string | null | undefined): string =>
+  remote && /^\d+$/.test(remote) ? `+${remote}` : (remote ?? '');
+
 /** m:ss, or h:mm:ss from an hour. */
 export function formatTimer(ms: number): string {
   const total = Math.max(0, Math.floor((Number.isFinite(ms) ? ms : 0) / 1000));
@@ -141,6 +147,89 @@ export function formatTimer(ms: number): string {
   const m = Math.floor((total % 3600) / 60);
   const s = String(total % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+/** Longer than any call rings: a rang_at this old is a stale row or a wrong clock. */
+export const RING_TIMER_MAX_MS = 60 * 60_000;
+
+/**
+ * When this browser first saw a call_live row's current frame (its
+ * updated_at). `live`: it saw the frame arrive (realtime, or a poll
+ * after the first load). A frame of the first load was written an
+ * unknown time before the page opened.
+ */
+export interface FrameSeen {
+  updatedAt: string;
+  at: number;
+  live: boolean;
+}
+
+/** The frames of `rows`, each kept from `prev` until its updated_at changes. */
+export function noteFrames(
+  prev: Record<string, FrameSeen>,
+  rows: CallLiveRow[],
+  now: number,
+  live: boolean
+): Record<string, FrameSeen> {
+  const next: Record<string, FrameSeen> = {};
+  for (const r of rows) {
+    const k = liveKey(r);
+    const seen = prev[k];
+    next[k] =
+      seen?.updatedAt === r.updated_at
+        ? seen
+        : { updatedAt: r.updated_at, at: now, live };
+  }
+  return next;
+}
+
+/**
+ * Since when the card has shown `ringing` (browser time), the ring
+ * timer's floor: started with the `now` of the update that first made
+ * it my ringing call, and restarted when it stops ringing me (answered,
+ * then transferred back), so an idle page or an earlier ring never
+ * counts.
+ */
+export function ringFloor(
+  prev: { key: string; at: number } | null,
+  ringing: CallLiveRow | null,
+  now: number
+): { key: string; at: number } | null {
+  if (!ringing) return null;
+  const key = liveKey(ringing);
+  return prev?.key === key ? prev : { key, at: now };
+}
+
+/**
+ * How long the card's call has rung, from call_live.rang_at (094; the
+ * database re-stamps it when an answered call rings again). Measured on
+ * the server's clocks where it can be: rung at the frame (updated_at −
+ * rang_at), plus the browser's time since it saw that frame arrive, so
+ * a browser clock minutes out changes nothing. Only a frame it did not
+ * see arrive (the first load: a reload mid-ring) falls back to this
+ * clock's now − rang_at, which keeps the count across the reload.
+ * Never less than since the card showed the call (`shownAt`), which is
+ * the whole answer without a usable rang_at; never negative or absurd.
+ */
+export function ringElapsedMs(
+  row: Pick<CallLiveRow, 'rang_at' | 'updated_at'>,
+  seen: FrameSeen | null,
+  shownAt: number,
+  now: number
+): number {
+  const shown = Math.max(0, now - shownAt);
+  const rang = typeof row.rang_at === 'string' ? Date.parse(row.rang_at) : NaN;
+  // A frame received just before its own row's stamp started the ring.
+  const atFrame = Math.max(0, Date.parse(row.updated_at) - rang);
+  const byFrame =
+    seen?.updatedAt === row.updated_at
+      ? atFrame + Math.max(0, now - seen.at)
+      : NaN;
+  const byClock = seen?.live ? NaN : now - rang;
+  const sane = [byFrame, byClock].filter(
+    (ms) => Number.isFinite(ms) && ms >= 0 && ms <= RING_TIMER_MAX_MS
+  );
+  return Math.max(shown, ...sane);
 }
 
 export interface ConsentFields {
@@ -170,17 +259,47 @@ export function consentState(c: ConsentFields): ConsentState {
 export interface ConsentLabels {
   callsOk: string;
   doNotContact: string;
+  /** Opted out of messages (076): never "Calls OK" either. */
+  optedOut: string;
+  /** A customer whose consent this screen could not read. */
+  unknown: string;
   marketingOn: string;
   marketingOff: string;
 }
 
-/** "Calls OK · marketing off". */
-export function consentText(c: ConsentFields, l: ConsentLabels): string {
+/**
+ * "Calls OK · marketing off", "Do not contact: Asked · marketing off".
+ * Only a customer known to be neither do-not-contact nor opted out reads
+ * "Calls OK": consent that could not be read (`consentKnown: false`, a
+ * contact the person's own read hides) says so instead, because an empty
+ * row once read as "Calls OK" for a do-not-contact customer.
+ */
+export function consentText(
+  c: ConsentFields & { consentKnown?: boolean },
+  l: ConsentLabels
+): string {
+  if (c.consentKnown === false) return l.unknown;
   const s = consentState(c);
-  return `${s.callsOk ? l.callsOk : l.doNotContact} · ${
-    s.marketing ? l.marketingOn : l.marketingOff
-  }`;
+  const calls = !s.callsOk
+    ? s.dncReason
+      ? `${l.doNotContact}: ${s.dncReason}`
+      : l.doNotContact
+    : c.opted_out_at
+      ? l.optedOut
+      : l.callsOk;
+  return `${calls} · ${s.marketing ? l.marketingOn : l.marketingOff}`;
 }
+
+/** A ringing or answering party of a live call (call_live holds auth user ids). */
+export const isLiveParty = (
+  r: Pick<CallLiveRow, 'ringing_user_ids' | 'answered_by'>,
+  userId: string
+): boolean =>
+  r.answered_by === userId || (r.ringing_user_ids ?? []).includes(userId);
+
+/** The contacts a live call is about: its match, else the numbers' candidates. */
+export const callContactIds = (r: CallLiveRow): string[] =>
+  r.contact_id ? [r.contact_id, ...contactCandidates(r)] : contactCandidates(r);
 
 /**
  * The others a call is ringing for, by name: people with no known name
@@ -281,3 +400,80 @@ export const loadsPbxMe = (
   accountId: string | null | undefined,
   role: AccountRole | null | undefined
 ): boolean => Boolean(userId && accountId) && !isBankGuest(role);
+
+/** Customer facts as loaded, with the contact and the call they were loaded for. */
+export interface HeldFacts<T> {
+  contactId: string;
+  /** liveKey of the call, null when loaded for no live call. */
+  callKey: string | null;
+  facts: T;
+}
+
+/**
+ * The facts to show for `contactId` on `callKey`: only ones loaded for
+ * that contact on that call. The card and the panel outlive the contact
+ * under them (the next call, a pick, a re-link), and until the new
+ * load lands they show nothing rather than the previous customer's
+ * owner, deal, last message and consent; nor a repeat caller's facts
+ * from the last call, when they may have become do-not-contact since.
+ */
+export function factsFor<T>(
+  held: HeldFacts<T> | null,
+  contactId: string | null,
+  callKey: string | null
+): T | null {
+  return contactId && held?.contactId === contactId && held.callKey === callKey
+    ? held.facts
+    : null;
+}
+
+/** The customer's owner, when that is someone other than `me`. */
+export const otherOwner = (
+  ownerId: string | null | undefined,
+  me: string | null
+): string | null => (ownerId && ownerId !== me ? ownerId : null);
+
+/**
+ * "Transfer to owner": an owner other than me, on an extension other than
+ * mine (the transfer route answers 409 for a transfer to myself).
+ */
+export const canTransferToOwner = (
+  ownerId: string | null | undefined,
+  me: string | null,
+  ownerExtension: string | null | undefined,
+  myExtension: string
+): boolean =>
+  Boolean(
+    otherOwner(ownerId, me) && ownerExtension && ownerExtension !== myExtension
+  );
+
+/**
+ * When the last WhatsApp message was sent: the time alone today, else
+ * the date too (and the year when not this year), so last week's message
+ * never reads as this morning's. "Today" is judged in `timeZone` (the
+ * browser's when unset), the zone the time is printed in.
+ */
+export function messageWhen(
+  at: string,
+  now: number,
+  { locale, timeZone }: { locale?: string; timeZone?: string } = {}
+): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  // en-CA writes YYYY-MM-DD: a day key in the printed zone.
+  const day = (x: Date) => x.toLocaleDateString('en-CA', { timeZone });
+  const [mine, today] = [day(d), day(new Date(now))];
+  const time = d.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone,
+  });
+  if (mine === today) return time;
+  const date = d.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(mine.slice(0, 4) === today.slice(0, 4) ? {} : { year: 'numeric' }),
+    timeZone,
+  });
+  return `${date}, ${time}`;
+}
