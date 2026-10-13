@@ -7,6 +7,7 @@ const {
   getMediaUrl,
   downloadMedia,
   markOptedOut,
+  deleteGroup,
 } = vi.hoisted(() => ({
   approveJoinRequests: vi.fn(async () => ({ done: [], failed: [] })),
   removeParticipants: vi.fn(async () => undefined),
@@ -20,12 +21,18 @@ const {
     contentType: 'application/pdf',
   })),
   markOptedOut: vi.fn(async () => true),
+  deleteGroup: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/whatsapp/meta-groups', () => ({
   approveJoinRequests,
   removeParticipants,
+  deleteGroup,
 }));
-vi.mock('@/lib/whatsapp/meta-api', () => ({ getMediaUrl, downloadMedia }));
+vi.mock('@/lib/whatsapp/meta-api', () => ({
+  getMediaUrl,
+  downloadMedia,
+  MetaError: class extends Error {},
+}));
 vi.mock('@/lib/ai/opt-out', () => ({ markOptedOut }));
 const { sendRoomInvites } = vi.hoisted(() => ({
   sendRoomInvites: vi.fn(async () => ({})),
@@ -65,7 +72,16 @@ function fakeDb(
     calls.push(entry);
     const result = { data: opts.tables?.[table] ?? null, error: null };
     const builder: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'or', 'limit', 'insert', 'update', 'is']) {
+    for (const m of [
+      'select',
+      'eq',
+      'or',
+      'limit',
+      'insert',
+      'update',
+      'is',
+      'in',
+    ]) {
       builder[m] = (...a: unknown[]) => (entry.ops.push([m, ...a]), builder);
     }
     builder.maybeSingle = async () => result;
@@ -161,8 +177,71 @@ describe('lifecycle', () => {
     expect(sendRoomInvites).toHaveBeenCalledWith(db, 'room-1');
   });
 
+  it('deletes, and invites nobody to, the late group of a cancelled room', async () => {
+    // 096: deal_room_group_created answers NULL for a cancelled room.
+    const { db } = fakeDb({ rpc: { deal_room_group_created: null } });
+    await run(db, {
+      groups: [{ type: 'group_create', group_id: GROUP, request_id: 'req-1' }],
+    });
+    expect(sendRoomInvites).not.toHaveBeenCalled();
+    expect(deleteGroup).toHaveBeenCalledWith({
+      groupId: GROUP,
+      accessToken: 'tok',
+    });
+  });
+
+  it('tells nobody when a failed create changes nothing (cancelled, even after the read)', async () => {
+    // 096: deal_room_fail_creation answers false for a room no longer
+    // `creating` under its row lock; the room read earlier looked live.
+    const { db, rpc, inserts } = fakeDb({
+      rpc: { deal_room_fail_creation: false },
+      tables: { deal_rooms: ROOM, profiles: [{ user_id: 'owner-1' }] },
+    });
+    await run(db, {
+      groups: [
+        {
+          type: 'group_create',
+          request_id: 'req-1',
+          errors: [{ message: 'x' }],
+        },
+      ],
+    });
+    expect(rpc).toHaveBeenCalledWith('deal_room_fail_creation', {
+      p_room: 'room-1',
+      p_reason: 'x',
+    });
+    expect(inserts('notifications')).toEqual([]);
+  });
+
+  it('tells the workspace owners and admins of a failed create too, once each', async () => {
+    const { db, inserts } = fakeDb({
+      rpc: { deal_room_fail_creation: true },
+      tables: {
+        deal_rooms: ROOM,
+        profiles: [{ user_id: 'owner-1' }, { user_id: 'user-creator' }],
+      },
+    });
+    await run(db, {
+      groups: [
+        {
+          type: 'group_create',
+          request_id: 'req-1',
+          errors: [{ message: 'x' }],
+        },
+      ],
+    });
+    expect(
+      (inserts('notifications')[0] as { user_id: string }[]).map(
+        (n) => n.user_id
+      )
+    ).toEqual(['user-creator', 'owner-1']);
+  });
+
   it('marks a failed create failed and tells the room creator', async () => {
-    const { db, rpc, inserts } = fakeDb({ tables: { deal_rooms: ROOM } });
+    const { db, rpc, inserts } = fakeDb({
+      rpc: { deal_room_fail_creation: true },
+      tables: { deal_rooms: ROOM },
+    });
     await run(db, {
       groups: [
         {
@@ -172,9 +251,8 @@ describe('lifecycle', () => {
         },
       ],
     });
-    expect(rpc).toHaveBeenCalledWith('deal_room_set_status', {
+    expect(rpc).toHaveBeenCalledWith('deal_room_fail_creation', {
       p_room: 'room-1',
-      p_status: 'failed',
       p_reason: 'limit',
     });
     expect(inserts('notifications')[0]).toEqual([
@@ -210,6 +288,24 @@ describe('lifecycle', () => {
         (n) => n.user_id
       )
     ).toEqual(['user-creator', 'admin-1']);
+  });
+
+  it('tells the workspace owners and admins of a suspension too, once each', async () => {
+    const { db, inserts } = fakeDb({
+      tables: {
+        deal_rooms: ROOM,
+        chat_channel_members: [{ user_id: 'admin-1' }],
+        profiles: [{ user_id: 'owner-1' }, { user_id: 'admin-1' }],
+      },
+    });
+    await run(db, {
+      groups: [{ type: 'group_suspend_cleared', group_id: GROUP }],
+    });
+    expect(
+      (inserts('notifications')[0] as { user_id: string }[]).map(
+        (n) => n.user_id
+      )
+    ).toEqual(['user-creator', 'admin-1', 'owner-1']);
   });
 });
 

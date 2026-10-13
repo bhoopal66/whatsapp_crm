@@ -29,6 +29,60 @@ export interface TimelineCall {
   disposition: string | null;
   notes: string | null;
   recordingState: string;
+  /** The audio was deleted under the retention period (093). */
+  recordingDeleted?: boolean;
+  legalHold?: boolean;
+}
+
+export type RecordingView =
+  'player' | 'held' | 'erased' | 'pending' | 'notStored' | 'expired';
+
+/** calls.recording_state → what the box shows; none/failed: no box. */
+const RECORDING_VIEW: Record<string, RecordingView> = {
+  fetched: 'player',
+  held: 'held',
+  erased: 'erased',
+  pending: 'pending',
+  not_stored: 'notStored',
+};
+
+/**
+ * The recording box of a call row. A fetched call whose audio the
+ * retention period deleted keeps its notes and state (093 erases the
+ * recording row, not the call), so the row's flag decides it.
+ */
+export function recordingView(
+  call: Pick<TimelineCall, 'recordingState' | 'recordingDeleted'>
+): RecordingView | undefined {
+  const view = RECORDING_VIEW[call.recordingState];
+  return view === 'player' && call.recordingDeleted ? 'expired' : view;
+}
+
+/** A recording route's 409 `code` (calls.ts recordingRefusalCode). */
+const REFUSAL_VIEW: Record<string, RecordingView> = {
+  expired: 'expired',
+  erased: 'erased',
+  not_stored: 'notStored',
+};
+
+/**
+ * A refusal `code` that means there is no audio any more: deleted under
+ * the retention period since the page loaded, erased, or never stored.
+ * Null for any other code, where the audio still exists.
+ */
+export function noAudioView(code: unknown): RecordingView | null {
+  return typeof code === 'string' && Object.hasOwn(REFUSAL_VIEW, code)
+    ? REFUSAL_VIEW[code]
+    : null;
+}
+
+/**
+ * What the box shows once the server refused a play or an attach the
+ * page thought possible: {@link noAudioView}; otherwise held until the
+ * notice is confirmed, where the audio still exists (and can be held).
+ */
+export function refusalView(code: unknown): RecordingView {
+  return noAudioView(code) ?? 'held';
 }
 export interface TimelineMessage {
   id: string;

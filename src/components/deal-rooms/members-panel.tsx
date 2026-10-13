@@ -6,6 +6,7 @@ import { UserMinus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useChatWorkspaceContext } from '@/components/chat/chat-context';
+import { PeoplePicker } from '@/components/chat/dm-picker';
 import type { RoomContext } from '@/components/deal-rooms/room-view';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,11 +19,19 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
+import { channelMembers } from '@/lib/chat/api';
+import type { ChannelMember } from '@/lib/chat/types';
 import {
   listedPeople,
   memberRow,
   type MemberBadge,
 } from '@/lib/deal-rooms/members';
+import {
+  addPeopleCandidates,
+  addPeopleErrorKey,
+  addPeopleOptions,
+  type AddPeopleKind,
+} from '@/lib/deal-rooms/people-ui';
 import type { StaffParticipant } from '@/lib/deal-rooms/reads';
 import { ROOM_MEMBER_MAX } from '@/lib/deal-rooms/view';
 import { cn } from '@/lib/utils';
@@ -55,7 +64,8 @@ const BADGE_CLASS: Record<MemberBadge, string> = {
 type Confirm =
   | { kind: 'remove'; id: string; name: string }
   | { kind: 'reset' }
-  | { kind: 'close' };
+  | { kind: 'close' }
+  | { kind: 'cancel' };
 
 /** The room's right column: members, requests, the link and its actions. */
 export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
@@ -67,6 +77,9 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [reason, setReason] = useState('');
   const [closeStep, setCloseStep] = useState<string | null>(null);
+  const [adding, setAdding] = useState<AddPeopleKind | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [inRoom, setInRoom] = useState<readonly ChannelMember[]>([]);
   const { room, canManage } = detail;
   const base = `/api/deal-rooms/${room.id}`;
   const workspace =
@@ -77,6 +90,11 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
     ? ws.peopleById.get(room.createdBy.toLowerCase())?.fullName
     : null;
   const leader = !!accountRole && hasMinRole(accountRole, 'team_leader');
+  const offer = addPeopleOptions({
+    canManage,
+    status: room.status,
+    role: accountRole,
+  });
   const open = room.status === 'open';
   const errorOf = (b: Record<string, unknown>) =>
     typeof b.error === 'string' ? b.error : t('actions.unknownError');
@@ -98,6 +116,40 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
       setBusy(false);
       void reload();
     }
+  };
+  const startAdding = (kind: AddPeopleKind) => {
+    setPicked([]);
+    setInRoom([]);
+    setAdding(kind);
+    // Best-effort: who is already in the room's channel drops out of the
+    // list; without it the server still skips them.
+    channelMembers(ws.sb, room.channelId)
+      .then(setInRoom)
+      .catch(() => setInRoom([]));
+  };
+  const candidates = adding
+    ? addPeopleCandidates(ws.people, inRoom, adding)
+    : [];
+  const addPeople = () => {
+    if (!adding || picked.length === 0) return;
+    void run(
+      `${base}/people`,
+      adding === 'staff' ? { staff: picked } : { guest: picked[0] },
+      (b) => {
+        setAdding(null);
+        toast.success(t('people.added', { count: Number(b.added ?? 0) }));
+        // The caller may have added themselves: their channel list too.
+        void ws.reloadChannels();
+      },
+      (error, b) => {
+        const code = addPeopleErrorKey(b.code);
+        toast.error(
+          code
+            ? t(`people.error.${code}`, { bank: String(b.bank ?? '') })
+            : t('people.failed', { error })
+        );
+      }
+    );
   };
   const decideFailed = (error: string) =>
     toast.error(t('members.decideFailed', { error }));
@@ -142,6 +194,20 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
           toast.success(t('actions.resetDone'));
         },
         (error) => toast.error(t('actions.resetFailed', { error }))
+      );
+      setConfirm(null);
+    } else if (confirm.kind === 'cancel') {
+      void run(
+        `${base}/cancel`,
+        { reason: reason.trim() || null },
+        () => toast.success(t('actions.cancelRoomDone')),
+        (error, b) =>
+          toast.error(
+            // The group arrived meanwhile and opened the room.
+            b.code === 'room_not_creating'
+              ? t('actions.cancelRoomTooLate')
+              : t('actions.cancelRoomFailed', { error })
+          )
       );
       setConfirm(null);
     } else {
@@ -379,6 +445,35 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
         </section>
       )}
 
+      {offer.staff && (
+        <section className="mt-4 space-y-2">
+          <h4 className="text-xs font-semibold uppercase">
+            {t('people.title')}
+          </h4>
+          <p className="text-muted-foreground text-xs">{t('people.help')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => startAdding('staff')}
+            >
+              {t('people.addStaff')}
+            </Button>
+            {offer.guest && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => startAdding('guest')}
+              >
+                {t('people.addGuest')}
+              </Button>
+            )}
+          </div>
+        </section>
+      )}
+
       {canManage && room.status !== 'closed' && (
         <section className="mt-4 space-y-2 border-t pt-4">
           <h4 className="text-xs font-semibold uppercase">
@@ -412,15 +507,27 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
           >
             {t('actions.reset')}
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-destructive text-destructive w-full"
-            disabled={busy}
-            onClick={() => setConfirm({ kind: 'close' })}
-          >
-            {t('actions.close')}
-          </Button>
+          {room.status === 'creating' ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-destructive text-destructive w-full"
+              disabled={busy}
+              onClick={() => setConfirm({ kind: 'cancel' })}
+            >
+              {t('actions.cancelRoom')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-destructive text-destructive w-full"
+              disabled={busy}
+              onClick={() => setConfirm({ kind: 'close' })}
+            >
+              {t('actions.close')}
+            </Button>
+          )}
         </section>
       )}
 
@@ -435,17 +542,21 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
                 ? t('members.removeTitle', { name: confirm.name })
                 : confirm?.kind === 'reset'
                   ? t('actions.resetTitle')
-                  : t('actions.closeTitle')}
+                  : confirm?.kind === 'cancel'
+                    ? t('actions.cancelRoomTitle')
+                    : t('actions.closeTitle')}
             </DialogTitle>
             <DialogDescription>
               {confirm?.kind === 'remove'
                 ? t('members.removeBody')
                 : confirm?.kind === 'reset'
                   ? t('actions.resetBody')
-                  : t('actions.closeBody')}
+                  : confirm?.kind === 'cancel'
+                    ? t('actions.cancelRoomBody')
+                    : t('actions.closeBody')}
             </DialogDescription>
           </DialogHeader>
-          {confirm?.kind === 'close' && (
+          {(confirm?.kind === 'close' || confirm?.kind === 'cancel') && (
             <>
               <textarea
                 aria-label={t('actions.closeReason')}
@@ -479,9 +590,50 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
                 ? t('members.remove')
                 : confirm?.kind === 'reset'
                   ? t('actions.resetConfirm')
-                  : closeStep
-                    ? t('actions.retry')
-                    : t('actions.closeConfirm')}
+                  : confirm?.kind === 'cancel'
+                    ? t('actions.cancelRoomConfirm')
+                    : closeStep
+                      ? t('actions.retry')
+                      : t('actions.closeConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={adding !== null}
+        onOpenChange={(o) => !o && !busy && setAdding(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {adding === 'guest'
+                ? t('people.guestTitle')
+                : t('people.staffTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {adding === 'guest'
+                ? t('people.guestBody')
+                : t('people.staffBody')}
+            </DialogDescription>
+          </DialogHeader>
+          <PeoplePicker
+            candidates={candidates}
+            picked={picked}
+            onChange={setPicked}
+            max={adding === 'guest' ? 1 : undefined}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => setAdding(null)}
+            >
+              {t('actions.cancel')}
+            </Button>
+            <Button disabled={busy || picked.length === 0} onClick={addPeople}>
+              {t('people.add')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -145,6 +145,7 @@ describe('POST /api/pbx/calls/[id]/recording', () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
       error: 'Recording held until the notice is confirmed',
+      code: 'held',
     });
     expect(signs()).toEqual([]);
 
@@ -152,7 +153,35 @@ describe('POST /api/pbx/calls/[id]/recording', () => {
     refuseLog();
     const erased = await post({ action: 'play' });
     expect(erased.status).toBe(409);
-    expect(await erased.json()).toEqual({ error: 'This recording was erased' });
+    expect(await erased.json()).toEqual({
+      error: 'This recording was erased',
+      code: 'erased',
+    });
+    expect(signs()).toEqual([]);
+  });
+
+  it('says the retention period deleted audio the log refuses, by the row', async () => {
+    (service.tables.call_recordings[0] as Record<string, unknown>).erased_at =
+      '2026-10-12T00:00:00.000Z';
+    refuseLog();
+    const res = await post({ action: 'play' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This recording was deleted under the retention period',
+      code: 'expired',
+    });
+    expect(signs()).toEqual([]);
+  });
+
+  it('signs nothing for a row the retention period marked erased since the log', async () => {
+    (service.tables.call_recordings[0] as Record<string, unknown>).erased_at =
+      '2026-10-12T00:00:00.000Z';
+    const res = await post({ action: 'play' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This recording was deleted under the retention period',
+      code: 'expired',
+    });
     expect(signs()).toEqual([]);
   });
 

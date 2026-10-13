@@ -711,3 +711,41 @@ export async function closeRoom(
   await setStatus(db, room.id, 'closed', args.reason);
   return { ok: true, status: 'closed', transcriptFileId };
 }
+
+// ============================================================
+// Cancelling a room still being created
+// ============================================================
+
+/** `last_error` of a room cancelled without a reason. */
+export const CANCELLED_NOTE = 'Cancelled before WhatsApp created the group';
+
+/**
+ * Stop a room still `creating` (096): `failed`, stamped cancelled, with
+ * the canceller in its audit trail. A group that arrives later is
+ * discarded, never opened. A room in any other state is left as it is:
+ * 409 `room_not_creating` with its status (a group that arrived
+ * meanwhile opened it; close it instead).
+ */
+export async function cancelCreatingRoom(
+  db: SupabaseClient,
+  args: { roomId: string; userId: string; reason: string | null }
+): Promise<{ ok: true; status: 'failed' } | Fail> {
+  const { data, error } = await db.rpc('deal_room_cancel_creation', {
+    p_room: args.roomId,
+    p_actor: args.userId,
+    p_reason: args.reason ? `Cancelled: ${args.reason}` : CANCELLED_NOTE,
+  });
+  if (error) {
+    if ((error as { code?: string }).code === 'P0002') {
+      return fail(404, 'not_found', 'Deal room not found');
+    }
+    throw new Error(`cancel failed: ${error.message}`);
+  }
+  if (data === 'cancelled') return { ok: true, status: 'failed' };
+  return fail(
+    409,
+    'room_not_creating',
+    `The deal room is ${String(data)}: only a room still being created can be cancelled`,
+    { status: data }
+  );
+}

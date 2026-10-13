@@ -1,5 +1,5 @@
 /**
- * Which screen a bell row opens. One case per type in 085's
+ * Which screen a bell row opens. One case per type in 097's
  * `notifications_type_check` (the latest list), each reading what that
  * type's writer stores:
  *
@@ -14,6 +14,8 @@
  *   `callback_requested`: `contact_id` → the customer page, which shows
  *   the call and its call-back task; an unknown caller → /calls, whose
  *   default tab is Missed calls.
+ * - `call_outcome_due` (097's `pbx_outcome_reminders`): the same, the
+ *   customer page listing the call whose outcome is owed.
  * - `deal_room_join_request` / `deal_room_update`
  *   (`lib/deal-rooms/webhook.ts`, `shared.ts`): `meta.room_id` → the room.
  * - `channel_disconnected` / `channel_reconnected`
@@ -71,6 +73,7 @@ function hrefFor(
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';
     case 'call_missed':
     case 'callback_requested':
+    case 'call_outcome_due':
       return (
         customer(n.contact_id ?? metaField(n.meta, 'contact_id')) ?? '/calls'
       );

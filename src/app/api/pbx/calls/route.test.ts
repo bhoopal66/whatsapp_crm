@@ -110,6 +110,8 @@ describe('GET /api/pbx/calls', () => {
         disposition: null,
         notes: 'Wants a card',
         recordingState: 'none',
+        recordingDeleted: false,
+        legalHold: false,
       },
     ]);
   });
@@ -172,6 +174,36 @@ describe('GET /api/pbx/calls', () => {
         doNotContactReason: null,
       },
     ]);
+  });
+
+  it("says whether a fetched call's audio was deleted or is on legal hold", async () => {
+    rls.tables.calls.push(
+      call({ id: 'k-kept', recording_state: 'fetched' }),
+      call({ id: 'k-gone', recording_state: 'fetched' }),
+      call({ id: 'k-held', recording_state: 'fetched' })
+    );
+    rls.tables.call_recordings = [
+      { call_id: 'k-kept', legal_hold: false, erased_at: null },
+      {
+        call_id: 'k-gone',
+        legal_hold: false,
+        erased_at: '2026-10-12T00:00:00Z',
+      },
+      { call_id: 'k-held', legal_hold: true, erased_at: null },
+    ];
+    as('agent');
+    const res = await list(new Request('http://x/api/pbx/calls'));
+    const byId = Object.fromEntries(
+      ((await res.json()).calls as Record<string, unknown>[]).map((c) => [
+        c.id,
+        [c.recordingDeleted, c.legalHold],
+      ])
+    );
+    expect(byId).toEqual({
+      'k-kept': [false, false],
+      'k-gone': [true, false],
+      'k-held': [false, true],
+    });
   });
 
   it('filters by scope, contact, dates and limit', async () => {

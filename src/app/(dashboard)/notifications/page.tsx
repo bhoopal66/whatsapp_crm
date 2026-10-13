@@ -20,6 +20,7 @@ import {
   MessageCircle,
   MessagesSquare,
   PhoneMissed,
+  ClipboardPen,
   PhoneOutgoing,
   ShieldAlert,
   UserPlus,
@@ -50,6 +51,7 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   chat_broadcast: Megaphone,
   call_missed: PhoneMissed,
   callback_requested: PhoneOutgoing,
+  call_outcome_due: ClipboardPen,
   deal_room_join_request: DoorOpen,
   deal_room_update: Handshake,
 };

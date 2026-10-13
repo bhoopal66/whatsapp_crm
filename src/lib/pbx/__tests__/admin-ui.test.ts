@@ -9,8 +9,12 @@ import {
   extensionState,
   lastEventAgo,
   parseDueMinutes,
+  enforcedRetention,
   parseRetentionDays,
+  retentionNeedsConfirm,
   routedWorkspaceNames,
+  rulesBody,
+  sendsRetention,
   validateBankNumbers,
   validateConnectionForm,
   validateRoutes,
@@ -18,6 +22,7 @@ import {
   type ConnectionDraft,
   type MappableWorkspace,
   type PbxExtensionView,
+  type RecordingRules,
 } from '../admin-ui';
 import { PBX_AUTH_BACKOFF_MS } from '../connection';
 
@@ -418,5 +423,85 @@ describe('validateConnectionForm', () => {
       ok: false,
       issues: { label: 'label_required' },
     });
+  });
+});
+
+describe('retentionNeedsConfirm', () => {
+  it('asks before a first or shorter period, never a longer one or none', () => {
+    expect(retentionNeedsConfirm(null, 30)).toBe(true);
+    expect(retentionNeedsConfirm(90, 30)).toBe(true);
+    expect(retentionNeedsConfirm(30, 30)).toBe(false);
+    expect(retentionNeedsConfirm(30, 90)).toBe(false);
+    expect(retentionNeedsConfirm(30, null)).toBe(false);
+    expect(retentionNeedsConfirm(null, null)).toBe(false);
+  });
+});
+
+describe('the recording rules save (093)', () => {
+  const AT = '2026-10-01T09:00:00Z';
+  const rules = (
+    retentionDays: number | null,
+    retentionConfirmedAt: string | null
+  ): RecordingRules => ({
+    storeRecordings: false,
+    announcementRequired: true,
+    excludeBankNumbers: true,
+    retentionDays,
+    retentionConfirmedAt,
+    missedCallDueMinutes: 30,
+    mandatoryDisposition: false,
+    missedCallWhatsappDraft: true,
+  });
+
+  it('counts a period nobody confirmed as none', () => {
+    expect(enforcedRetention(rules(30, AT))).toBe(30);
+    expect(enforcedRetention(rules(30, null))).toBeNull();
+    expect(enforcedRetention(rules(null, null))).toBeNull();
+  });
+
+  it('sends the period only when it changed, or to start one not enforced yet', () => {
+    expect(sendsRetention(rules(30, AT), 30)).toBe(false);
+    expect(sendsRetention(rules(null, null), null)).toBe(false);
+    expect(sendsRetention(rules(30, AT), 90)).toBe(true);
+    expect(sendsRetention(rules(30, AT), null)).toBe(true);
+    expect(sendsRetention(rules(null, null), 30)).toBe(true);
+    expect(sendsRetention(rules(30, null), 30)).toBe(true);
+  });
+
+  it('never resends the loaded period, which another admin may have changed since', () => {
+    // Loaded 30; another admin has since saved 3650; this one only
+    // switches storing back on.
+    const body = rulesBody({ ...rules(30, AT), storeRecordings: true }, 30, 45);
+    expect(body).toEqual({
+      storeRecordings: true,
+      announcementRequired: true,
+      excludeBankNumbers: true,
+      mandatoryDisposition: false,
+      missedCallWhatsappDraft: true,
+      missedCallDueMinutes: 45,
+    });
+  });
+
+  it('carries the confirmation only with the very period confirmed', () => {
+    expect(rulesBody(rules(90, AT), 30, 30)).toMatchObject({
+      retentionDays: 30,
+    });
+    expect(rulesBody(rules(90, AT), 30, 30)).not.toHaveProperty(
+      'confirmRetentionDays'
+    );
+    expect(rulesBody(rules(90, AT), 30, 30, 20)).not.toHaveProperty(
+      'confirmRetentionDays'
+    );
+    expect(rulesBody(rules(90, AT), 30, 30, 30)).toMatchObject({
+      retentionDays: 30,
+      confirmRetentionDays: 30,
+    });
+    expect(rulesBody(rules(30, null), 30, 30, 30)).toMatchObject({
+      retentionDays: 30,
+      confirmRetentionDays: 30,
+    });
+    const cleared = rulesBody(rules(30, AT), null, 30);
+    expect(cleared.retentionDays).toBeNull();
+    expect(cleared).not.toHaveProperty('confirmRetentionDays');
   });
 });

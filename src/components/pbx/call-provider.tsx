@@ -5,7 +5,9 @@
 // shows them (realtime, plus a poll while a call is on screen: a row
 // that stops being visible — answered by someone else, transferred
 // away — sends this subscriber no event), and the in-call panel's
-// snapshot, which outlives the live row until the panel is closed.
+// snapshot, which outlives the live row until the panel is closed. A
+// live call always has the panel (selectPanel); unfinished wrap-ups
+// wait behind it and re-open after.
 // Nothing here sends anything to a customer.
 
 import {
@@ -21,15 +23,22 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { cachedQuery } from '@/lib/client-cache';
 import {
-  isInboundCall,
+  NO_PANEL,
+  closeWrapUp,
   liveKey,
   loadsPbxMe,
-  myActiveCall,
   myRingingCall,
   noteFrames,
+  noteOutcome,
+  recoverWrapUps,
   ringFloor,
+  selectPanel,
+  wrapUpPanel,
   type CallLiveRow,
   type FrameSeen,
+  type PanelCall,
+  type PanelState,
+  type WrapUpCall,
 } from '@/lib/pbx/call-ui';
 import { SOFTPHONE_OFF, type SoftphoneState } from '@/lib/pbx/linkus-state';
 import type { SoftphoneAdapter } from '@/lib/pbx/softphone';
@@ -43,16 +52,7 @@ export interface PbxMe {
   pbxUrl: string;
 }
 
-export interface PanelCall {
-  key: string;
-  connectionId: string;
-  pbxCallId: string;
-  contactId: string | null;
-  remoteNumber: string | null;
-  inbound: boolean;
-  seenAt: number;
-  endedAt: number | null;
-}
+export type { PanelCall };
 
 export type CallControl = 'hangup' | 'hold' | 'unhold' | 'mute' | 'unmute';
 
@@ -63,7 +63,10 @@ interface CallsValue {
   /** The ring timer's inputs for `ringing` (ringElapsedMs). */
   ringClock: { shownAt: number; frame: FrameSeen | null } | null;
   panel: PanelCall | null;
-  closePanel: () => void;
+  /** Closes the panel of that call: never a live one (closeWrapUp). */
+  closePanel: (key: string) => void;
+  /** The panel reports whether its call has an outcome chosen. */
+  noteOutcome: (key: string, chosen: boolean) => void;
   softphone: SoftphoneAdapter | null;
   registerSoftphone: (a: SoftphoneAdapter) => () => void;
   /** The browser softphone's status (SoftphoneMount), for a status line. */
@@ -88,39 +91,6 @@ export const useCalls = () => useContext(CallsContext);
 
 const POLL_MS = 4000;
 
-/**
- * The panel follows my answered call; once I leave it, it stays (ended)
- * until closed, and only then can the next call take it.
- */
-function nextPanel(
-  prev: PanelCall | null,
-  rows: CallLiveRow[],
-  userId: string | null,
-  now: number
-): PanelCall | null {
-  if (prev && prev.endedAt === null) {
-    const still = rows.find(
-      (r) => liveKey(r) === prev.key && r.answered_by === userId
-    );
-    if (!still) return { ...prev, endedAt: now };
-    return still.contact_id !== prev.contactId
-      ? { ...prev, contactId: still.contact_id }
-      : prev;
-  }
-  const active = myActiveCall(rows, userId);
-  if (prev || !active) return prev;
-  return {
-    key: liveKey(active),
-    connectionId: active.connection_id,
-    pbxCallId: active.pbx_call_id,
-    contactId: active.contact_id,
-    remoteNumber: active.remote_number,
-    inbound: isInboundCall(active),
-    seenAt: now,
-    endedAt: null,
-  };
-}
-
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { user, accountId, accountRole } = useAuth();
   const userId = user?.id ?? null;
@@ -128,7 +98,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const [me, setMe] = useState<PbxMe | null>(null);
   const [rows, setRows] = useState<CallLiveRow[]>([]);
-  const [panel, setPanel] = useState<PanelCall | null>(null);
+  const [panels, setPanels] = useState<PanelState>(NO_PANEL);
+  const panel = panels.panel;
   const [adapter, setAdapter] = useState<SoftphoneAdapter | null>(null);
   const [adapterActive, setAdapterActive] = useState(false);
   const [softphoneState, setSoftphoneState] =
@@ -137,6 +108,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     announcementRequired: true,
     mandatoryDisposition: false,
   });
+  // For the panel selection, which runs inside state updaters.
+  const mandatoryRef = useRef(false);
+  useEffect(() => {
+    mandatoryRef.current = settings.mandatoryDisposition;
+  }, [settings.mandatoryDisposition]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [didNames, setDidNames] = useState<Record<string, string>>({});
   const [picks, setPicks] = useState<Record<string, string>>({});
@@ -161,6 +137,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [asksMe, userId, accountId]);
 
   const rowsRef = useRef<CallLiveRow[]>([]);
+
+  // A reload mid-wrap-up re-opens it (§7.3): my own calls that ended
+  // under two minutes ago with no outcome (or, where outcomes are
+  // mandatory, still owe one), newest first. They join the queue, so a
+  // live call keeps or takes the panel whichever answer lands first. The
+  // rule comes in the same answer and is applied with them, so a
+  // recovered wrap-up is never timed against the default (not
+  // mandatory) and closed before the settings load.
+  useEffect(() => {
+    if (!me) return;
+    let live = true;
+    fetch('/api/pbx/calls/wrap-up')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { calls?: WrapUpCall[]; mandatory?: boolean } | null) => {
+        if (!live || !b?.calls?.length) return;
+        const now = Date.now();
+        const recovered = b.calls.map((c) => wrapUpPanel(c, now));
+        const mandatory = b.mandatory === true;
+        mandatoryRef.current = mandatory;
+        setSettings((s) =>
+          s.mandatoryDisposition === mandatory
+            ? s
+            : { ...s, mandatoryDisposition: mandatory }
+        );
+        setPanels((s) =>
+          recoverWrapUps(s, recovered, rowsRef.current, userId, now, mandatory)
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [me, userId]);
+
   // `live`: these rows' new frames arrived as they happened. The first
   // load's were written an unknown time before (noteFrames).
   const loadedRef = useRef(false);
@@ -171,7 +181,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       setRows(next);
       setFrames((f) => noteFrames(f, next, now, live));
       setRingShown((s) => ringFloor(s, myRingingCall(next, userId), now));
-      setPanel((p) => nextPanel(p, next, userId, now));
+      setPanels((s) => selectPanel(s, next, userId, now, mandatoryRef.current));
     },
     [userId]
   );
@@ -181,6 +191,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     apply((data ?? []) as CallLiveRow[], loadedRef.current);
     loadedRef.current = true;
   }, [supabase, apply]);
+
+  const refreshSettings = useCallback(() => {
+    void supabase
+      .from('pbx_settings')
+      .select('announcement_required, mandatory_disposition')
+      .maybeSingle()
+      .then(({ data }) => {
+        const s = data as {
+          announcement_required: boolean;
+          mandatory_disposition: boolean;
+        } | null;
+        if (!s) return;
+        mandatoryRef.current = s.mandatory_disposition;
+        setSettings((cur) =>
+          cur.announcementRequired === s.announcement_required &&
+          cur.mandatoryDisposition === s.mandatory_disposition
+            ? cur
+            : {
+                announcementRequired: s.announcement_required,
+                mandatoryDisposition: s.mandatory_disposition,
+              }
+        );
+      });
+  }, [supabase]);
 
   useEffect(() => {
     if (!me || !accountId) return;
@@ -235,25 +269,24 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           .map((d) => [d.did_number, d.name_on_pbx as string])
       );
     }).then(setDidNames);
-    void supabase
-      .from('pbx_settings')
-      .select('announcement_required, mandatory_disposition')
-      .maybeSingle()
-      .then(({ data }) => {
-        const s = data as {
-          announcement_required: boolean;
-          mandatory_disposition: boolean;
-        } | null;
-        if (s)
-          setSettings({
-            announcementRequired: s.announcement_required,
-            mandatoryDisposition: s.mandatory_disposition,
-          });
-      });
+    refreshSettings();
     return () => {
       void supabase.removeChannel(ch);
     };
-  }, [me, accountId, userId, supabase, reload, apply]);
+  }, [me, accountId, userId, supabase, reload, apply, refreshSettings]);
+
+  // A setting changed mid-shift applies without a reload: read again
+  // when the tab regains focus and whenever a wrap-up starts (the rule
+  // decides whether it can close by itself).
+  const wrapping = panel && panel.endedAt !== null ? panel.key : null;
+  useEffect(() => {
+    if (!me) return;
+    window.addEventListener('focus', refreshSettings);
+    return () => window.removeEventListener('focus', refreshSettings);
+  }, [me, refreshSettings]);
+  useEffect(() => {
+    if (me && wrapping) refreshSettings();
+  }, [me, wrapping, refreshSettings]);
 
   const ringing = me ? myRingingCall(rows, userId) : null;
   const ringKey = ringing ? liveKey(ringing) : null;
@@ -278,6 +311,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     sync();
     return adapter.subscribe(sync);
   }, [adapter]);
+
+  const reportOutcome = useCallback(
+    (key: string, chosen: boolean) =>
+      setPanels((s) => noteOutcome(s, key, chosen)),
+    []
+  );
 
   const registerSoftphone = useCallback((a: SoftphoneAdapter) => {
     setAdapter(a);
@@ -315,8 +354,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ringing,
       ringClock,
       panel,
-      closePanel: () =>
-        setPanel(nextPanel(null, rowsRef.current, userId, Date.now())),
+      closePanel: (key) =>
+        setPanels((s) =>
+          closeWrapUp(
+            s,
+            key,
+            rowsRef.current,
+            userId,
+            Date.now(),
+            mandatoryRef.current
+          )
+        ),
+      noteOutcome: reportOutcome,
       softphone: adapter && adapterActive ? adapter : null,
       registerSoftphone,
       softphoneState,
@@ -340,6 +389,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       ringing,
       ringClock,
       panel,
+      reportOutcome,
       adapter,
       adapterActive,
       registerSoftphone,

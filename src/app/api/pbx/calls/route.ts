@@ -4,7 +4,11 @@
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
 //       ringSeconds, talkSeconds, remoteNumber, extension, contactId,
 //       contactName, doNotContactAt, doNotContactReason, userId,
-//       userName, disposition, notes, recordingState }] }
+//       userName, disposition, notes, recordingState, recordingDeleted,
+//       legalHold }] }
+// recordingDeleted: the stored audio was deleted under the retention
+// period (the recording row's erased_at, migration 093); legalHold: an
+// admin's legal hold keeps it.
 //
 // Read on the caller's client, so every row is one pbx_can_view_call
 // shows them, notes included; a contact's name and do-not-contact
@@ -79,7 +83,10 @@ export async function GET(request: Request) {
       ...new Set(rows.map((r) => r[k]).filter((v): v is string => !!v)),
     ];
     const [contactIds, userIds] = [ids('contact_id'), ids('user_id')];
-    const [contacts, people] = await Promise.all([
+    const recorded = rows
+      .filter((r) => r.recording_state === 'fetched')
+      .map((r) => r.id);
+    const [contacts, people, recordings] = await Promise.all([
       contactIds.length
         ? ctx.supabase
             .from('contacts')
@@ -92,7 +99,26 @@ export async function GET(request: Request) {
             .select('user_id, full_name')
             .in('user_id', userIds)
         : { data: [], error: null },
+      recorded.length
+        ? ctx.supabase
+            .from('call_recordings')
+            .select('call_id, legal_hold, erased_at')
+            .in('call_id', recorded)
+        : { data: [], error: null },
     ]);
+    if (recordings.error)
+      throw new Error(
+        `call_recordings read failed: ${recordings.error.message}`
+      );
+    const recording = new Map(
+      (
+        (recordings.data ?? []) as {
+          call_id: string;
+          legal_hold: boolean;
+          erased_at: string | null;
+        }[]
+      ).map((r) => [r.call_id, r])
+    );
     if (contacts.error)
       throw new Error(`contacts read failed: ${contacts.error.message}`);
     if (people.error)
@@ -130,6 +156,8 @@ export async function GET(request: Request) {
           disposition: r.disposition,
           notes: r.notes,
           recordingState: r.recording_state,
+          recordingDeleted: !!recording.get(r.id)?.erased_at,
+          legalHold: recording.get(r.id)?.legal_hold === true,
         };
       }),
     });

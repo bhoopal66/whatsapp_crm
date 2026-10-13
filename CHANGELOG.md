@@ -12,6 +12,64 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system (Yeastar) — call wrap-up and mandatory outcomes
+
+After a call ends, the call panel counts down two minutes to add the
+outcome (Interested, Docs requested, Call back, Not eligible, Wrong
+number) and a note, then closes by itself; it comes back after a
+reload. A live call always takes the panel, and unfinished wrap-ups
+queue behind it; the ringing card always stays on top. Team leaders
+and up can make outcomes mandatory (Settings → Phone system): the
+wrap-up then can't be closed without an outcome, and anyone who leaves
+one out gets one bell reminder linking to the customer. Only calls that
+end after the switch is turned on are owed.
+
+> **Migration required:** apply `supabase/migrations/097_pbx_wrapup.sql`
+> (re-runnable).
+
+### Deal rooms — add people, cancel a stuck room, alerts
+
+Managers of a room can add team members from the members panel (team
+leaders and up can also add a bank officer login, for a bank whose
+officers may join customer groups and that has an approved officer in
+the room). A room stuck in *creating* can be cancelled; if WhatsApp
+creates its group later, that group is deleted (never another room's).
+Owners and admins are alerted when a room can't be created (including
+when WhatsApp refuses the request) or its group is suspended or
+reinstated. **Fixed:** adding a bank officer login now requires
+managing the room.
+
+> **Migration required:** apply
+> `supabase/migrations/096_deal_room_people.sql` as a superuser or
+> BYPASSRLS role (re-runnable).
+
+### Phone system (Yeastar) — recording retention, legal hold, call report
+
+- **Recording retention is enforced.** Recordings older than the
+  workspace's retention period (Settings → Phone system → Recording
+  rules) are deleted by the phone-system cron, on every run (usually
+  each minute); the call, its notes and its outcome stay. Age is counted
+  from the later of the PBX's start time and when the CRM recorded the
+  call, so a wrong PBX clock can't make a fresh call look old. A period
+  only deletes once an admin has **confirmed** it: saving a first or
+  shorter period shows how many recordings it would delete now and asks
+  first, and the server refuses an unconfirmed shortening (so a stale
+  tab can't shorten it unasked). A period saved before this release is
+  *not* enforced until an admin saves it again.
+- **Legal hold.** Owners and admins can place or lift a legal hold on a
+  call's recording from the customer page, with a reason of at least
+  five characters; every change is audited. Held recordings are skipped
+  by retention and by the owner's erasure. Lifting a hold on a recording
+  already past the period warns that it will be deleted.
+- **Calls → By person** (team leaders and up): a per-person call report
+  for today, this week, this month or up to 92 custom days — answered,
+  outbound, missed, talk and ring time, outcomes — and a workspace
+  total. Team leaders see their teams and themselves.
+
+> **Migration required:** apply
+> `supabase/migrations/093_pbx_recording_retention.sql` and
+> `supabase/migrations/098_pbx_call_report.sql` (both re-runnable).
+
 ### Phone system (Yeastar) — incoming-call card and the Calls screen
 
 - **The incoming-call card no longer shows the wrong customer's facts.**

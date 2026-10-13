@@ -272,20 +272,54 @@ export function recordingFileName(
   return Array.from(name).slice(0, 255).join('');
 }
 
-/** Why the access log refused a recording, by the call's state. */
-export function recordingRefusal(state: string): string {
+/** What a refused recording is, for the player (timeline.ts refusalView). */
+export type RecordingRefusalCode =
+  'expired' | 'erased' | 'not_stored' | 'held' | 'none';
+
+/**
+ * A refused recording, by the call's state; `expired` when the retention
+ * period deleted the audio (the recording row's erased_at, migration
+ * 093), which leaves the call itself 'fetched'.
+ */
+export function recordingRefusalCode(
+  state: string,
+  expired = false
+): RecordingRefusalCode {
+  if (expired) return 'expired';
   switch (state) {
+    case 'erased':
+      return 'erased';
+    case 'not_stored':
+      return 'not_stored';
+    case 'fetched':
+    case 'held':
+      return 'held';
+    default:
+      return 'none';
+  }
+}
+
+/** Why the access log refused a recording: {@link recordingRefusalCode}. */
+export function recordingRefusal(state: string, expired = false): string {
+  switch (recordingRefusalCode(state, expired)) {
+    case 'expired':
+      return 'This recording was deleted under the retention period';
     case 'erased':
       return 'This recording was erased';
     case 'not_stored':
       return 'This recording was not stored in the CRM';
-    case 'fetched':
     case 'held':
       return 'Recording held until the notice is confirmed';
     default:
       return 'This call has no recording yet';
   }
 }
+
+/** The 409 for a refused recording: its wording, and `code` for the player. */
+export const recordingRefused = (state: string, expired = false) =>
+  fail(recordingRefusal(state, expired), 409, {
+    code: recordingRefusalCode(state, expired),
+  });
 
 // ---------- Call control ----------
 
@@ -489,6 +523,8 @@ export interface VisibleCall {
   account_id: string;
   recording_state: string;
   started_at: string;
+  /** When the CRM first recorded the call: retention's other clock (093). */
+  created_at?: string;
   contact_id: string | null;
   remote_number: string | null;
 }
@@ -501,7 +537,7 @@ export async function visibleCall(
   const { data, error } = await rls
     .from('calls')
     .select(
-      'id, account_id, recording_state, started_at, contact_id, remote_number'
+      'id, account_id, recording_state, started_at, created_at, contact_id, remote_number'
     )
     .eq('id', id)
     .maybeSingle();
@@ -514,7 +550,10 @@ export async function visibleCall(
  * (`authenticated` has no INSERT), before anything about the audio is
  * read or signed. The log's guard refuses the row unless
  * pbx_recording_playable() (fetched, not erased, the notice confirmed):
- * that refusal is a 409 worded by the call's state. Null when written.
+ * that refusal is a 409 worded by the call's state, or, when the
+ * recording row's erased_at is set, as deleted under the retention
+ * period (093 marks the row and leaves the call 'fetched'). Null when
+ * written.
  */
 export async function logRecordingAccess(
   service: SupabaseClient,
@@ -529,9 +568,18 @@ export async function logRecordingAccess(
     action,
   });
   if (!error) return null;
-  if (error.code === '55000')
-    return fail(recordingRefusal(call.recording_state), 409);
-  throw new Error(`call_access_log insert failed: ${error.message}`);
+  if (error.code !== '55000')
+    throw new Error(`call_access_log insert failed: ${error.message}`);
+  // Only the wording depends on this read: unread, the state words it.
+  const rec = await service
+    .from('call_recordings')
+    .select('erased_at')
+    .eq('call_id', call.id)
+    .eq('account_id', call.account_id)
+    .maybeSingle();
+  const expired = !!(rec.data as { erased_at?: string | null } | null)
+    ?.erased_at;
+  return recordingRefused(call.recording_state, expired);
 }
 
 export const noExtension = () =>

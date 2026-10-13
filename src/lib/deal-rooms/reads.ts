@@ -245,6 +245,8 @@ export interface RoomDetail {
     closedAt: string | null;
     closeReason: string | null;
     lastError: string | null;
+    /** A manager cancelled it while it was being created (096); null for a guest. */
+    cancelledAt: string | null;
     dealTitle: string | null;
     contactName: string | null;
     /** The CRM user who opened the room (an auth user id). */
@@ -277,6 +279,7 @@ interface DetailRow extends Partial<Embeds> {
   closed_at: string | null;
   close_reason: string | null;
   last_error: string | null;
+  cancelled_at: string | null;
   created_by: string | null;
 }
 
@@ -334,7 +337,7 @@ export async function loadRoomDetail(
       : db
           .from('deal_rooms')
           .select(
-            `${shared}, contact_id, deal_id, last_error, created_by, ${EMBEDS}`
+            `${shared}, contact_id, deal_id, last_error, cancelled_at, created_by, ${EMBEDS}`
           )
   )
     .eq('id', roomId)
@@ -346,6 +349,7 @@ export async function loadRoomDetail(
         contact_id: null,
         deal_id: null,
         last_error: null,
+        cancelled_at: null,
         created_by: null,
         ...g,
       } as DetailRow)
@@ -369,6 +373,7 @@ export async function loadRoomDetail(
       closedAt: r.closed_at,
       closeReason: r.close_reason,
       lastError: r.last_error,
+      cancelledAt: r.cancelled_at,
       dealTitle: r.deal?.title ?? null,
       contactName: r.contact?.name ?? null,
       createdBy: r.created_by,

@@ -2919,6 +2919,10 @@
       }
     },
     "phoneSystem": {
+      "outcomes": {
+        "title": "Call outcomes",
+        "hint": "When on, the wrap-up after a call cannot be closed without an outcome, and whoever leaves one out for two minutes gets one reminder in the bell."
+      },
       "title": "Phone system",
       "subtitle": "Yeastar P-Series",
       "subtitleShared": "Yeastar P-Series · shared by {names}",
@@ -3055,7 +3059,18 @@
         "save": "Save rules",
         "saved": "Recording rules saved",
         "retentionInvalid": "Enter 1 to 3650 days, or leave empty to keep recordings.",
-        "dueInvalid": "Enter 1 to 1440 minutes."
+        "dueInvalid": "Enter 1 to 1440 minutes.",
+        "retentionDeletes": "Recordings of calls older than {days, plural, one {# day} other {# days}} are deleted automatically on every phone-system cron run (usually each minute), except recordings under legal hold. The calls, their notes and outcomes are kept.",
+        "retentionKeeps": "Empty: recordings are kept with no automatic deletion.",
+        "retentionNotEnforced": "Saved but not enforced yet — save it again to start deleting.",
+        "kept": "Kept now: {count, plural, =0 {no recordings} one {# recording} other {# recordings}}",
+        "keptOldest": "the oldest from a call on {date}",
+        "keptHeld": "{count} under legal hold",
+        "keptExpired": "{count, plural, one {# deleted} other {# deleted}} under the retention period so far",
+        "confirmDelete": "Saving deletes {count, plural, one {# recording} other {# recordings}} within minutes: the {count, plural, one {call is} other {calls are}} older than {days, plural, one {# day} other {# days}}. Recordings under legal hold are kept. This cannot be undone.",
+        "confirmDeleteUnknown": "Saving deletes every recording whose call is older than {days, plural, one {# day} other {# days}}, within minutes. How many could not be counted. Recordings under legal hold are kept. This cannot be undone.",
+        "confirmSave": "Save and delete",
+        "confirmCancel": "Cancel"
       },
       "banks": {
         "title": "Bank numbers",
@@ -4142,7 +4157,8 @@
         "suspended": "WhatsApp suspended this group. Nothing can be sent until that is cleared.",
         "closing": "This room is closing.",
         "closed": "This room is closed. You can read it, but not post.",
-        "failed": "WhatsApp couldn't create this group."
+        "failed": "WhatsApp couldn't create this group.",
+        "cancelled": "This room was cancelled before its WhatsApp group was created."
       },
       "window": {
         "open": "Reply window open · {hours} h {minutes} min left",
@@ -4325,7 +4341,36 @@
         "retry": "Retry",
         "closeFailed": "Couldn't close the room: {error}",
         "cancel": "Cancel",
-        "unknownError": "something went wrong"
+        "unknownError": "something went wrong",
+        "cancelRoom": "Cancel room",
+        "cancelRoomTitle": "Cancel this room?",
+        "cancelRoomBody": "WhatsApp is still creating the group. Cancelling stops it for good: if the group appears later it is deleted, and nobody is invited.",
+        "cancelRoomConfirm": "Cancel room",
+        "cancelRoomDone": "Room cancelled",
+        "cancelRoomTooLate": "This room is no longer being created: WhatsApp created the group, or gave up, in the meantime.",
+        "cancelRoomFailed": "Couldn't cancel the room: {error}"
+      },
+      "people": {
+        "title": "Add people",
+        "help": "They read this room and its Team notes. Nobody is added to the WhatsApp group.",
+        "addStaff": "Add team members",
+        "addGuest": "Add a bank officer",
+        "staffTitle": "Add team members",
+        "staffBody": "Pick people of this workspace to follow the room.",
+        "guestTitle": "Add a bank officer",
+        "guestBody": "Their bank needs an approved officer in this room, and must be allowed to join customer groups.",
+        "add": "Add",
+        "added": "{count, plural, =0 {They were already in the room} one {Added # person} other {Added # people}}",
+        "failed": "Couldn't add them: {error}",
+        "error": {
+          "not_manager": "Only a manager of this room can add people.",
+          "not_leader": "Only a team leader or an admin can add a bank officer.",
+          "room_closed": "This room is closed: nobody new can be added.",
+          "not_staff": "One of the people picked no longer works in this workspace.",
+          "not_guest": "That person is not a bank officer of this workspace.",
+          "no_bank_participant": "This room has no approved {bank} officer yet. Invite and approve one first.",
+          "bank_guests_off": "{bank} officers can't join customer groups. Allow the bank in Settings first."
+        }
       },
       "entry": {
         "title": "Deal rooms",
@@ -4751,7 +4796,18 @@
     "attachFailed": "Couldn't attach the recording",
     "noDeal": "No open deal to attach to",
     "openCustomerPage": "Open customer page",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "recordingExpired": "Recording deleted under the retention period",
+    "legalHold": "Legal hold",
+    "placeHold": "Place legal hold",
+    "liftHold": "Lift legal hold",
+    "holdReason": "Reason (at least 5 characters)",
+    "holdCancel": "Cancel",
+    "holdPlaced": "Legal hold placed: this recording is kept past the retention period",
+    "holdLifted": "Legal hold lifted",
+    "holdFailed": "Couldn't change the legal hold",
+    "liftDeletes": "This call is older than the {days, plural, one {# day} other {# days}} retention period: once the hold is lifted, its recording is deleted within minutes. This cannot be undone.",
+    "liftAndDelete": "Lift hold and delete"
   },
   "CallsPage": {
     "title": "Calls",
@@ -4880,6 +4936,8 @@
     "noChannels": "You are in no team channels",
     "close": "Close",
     "outcomeRequired": "Choose an outcome before closing.",
+    "wrapUp": "Add the outcome: {left} left",
+    "wrapUpOverdue": "Outcomes are required here. Choose one to close.",
     "transferTitle": "Transfer the call",
     "transferNumber": "Extension or number",
     "transferTo": "Transfer",
@@ -4904,6 +4962,7 @@
     "noOutcome": "No outcome",
     "unknownCaller": "Unknown caller",
     "shareFailed": "The call card was not shared",
+    "shareFailedClosed": "The call card could not be shared, so the wrap-up closed without it. The outcome and notes are saved on the call.",
     "cancel": "Cancel"
   },
   "ErrorPages": {

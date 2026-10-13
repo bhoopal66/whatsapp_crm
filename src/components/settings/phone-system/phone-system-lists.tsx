@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
@@ -9,9 +9,13 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   applyExtensionPatch,
   canEditExtension,
+  enforcedRetention,
   extensionState,
   parseDueMinutes,
   parseRetentionDays,
+  retentionNeedsConfirm,
+  rulesBody,
+  sendsRetention,
   validateBankNumbers,
   validateRoutes,
   workspaceChangePatch,
@@ -19,6 +23,7 @@ import {
   type ExtensionPatch,
   type MappableWorkspace,
   type PbxExtensionView,
+  type RecordingRules,
   type RouteRowIssues,
 } from '@/lib/pbx/admin-ui';
 import { Button } from '@/components/ui/button';
@@ -536,14 +541,13 @@ export function ExtensionsCard({
 
 // ---------- Recording rules + Bank numbers ----------
 
-interface Rules {
-  storeRecordings: boolean;
-  announcementRequired: boolean;
-  excludeBankNumbers: boolean;
-  retentionDays: number | null;
-  missedCallDueMinutes: number;
-  mandatoryDisposition: boolean;
-  missedCallWhatsappDraft: boolean;
+type Rules = RecordingRules;
+/** GET /api/pbx/settings `recordings` (pbx_recordings_kept, 093). */
+interface Kept {
+  kept: number;
+  legalHold: number;
+  oldestCallAt: string | null;
+  expired: number;
 }
 interface BankRow {
   key: number;
@@ -551,9 +555,101 @@ interface BankRow {
   bankCode: string;
 }
 
+/**
+ * A team leader's part of the phone settings: mandatory outcomes only
+ * (PUT /api/pbx/settings takes that one field from them, migration 097).
+ */
+export function OutcomeRuleCard() {
+  const t = useTranslations('Settings.phoneSystem');
+  const [on, setOn] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    void pbxFetch<{ settings: Rules }>('/api/pbx/settings').then((res) => {
+      if (res.ok) setOn(res.data.settings.mandatoryDisposition);
+    });
+  }, []);
+  const save = async (v: boolean) => {
+    setSaving(true);
+    const res = await pbxFetch<{ settings: Rules }>('/api/pbx/settings', {
+      method: 'PUT',
+      body: { mandatoryDisposition: v },
+    });
+    setSaving(false);
+    if (res.ok) {
+      setOn(res.data.settings.mandatoryDisposition);
+      toast.success(t('rules.saved'));
+    } else
+      toast.error(t('saveFailed'), { description: res.error ?? undefined });
+  };
+  return (
+    <Card title={t('outcomes.title')}>
+      <div className="space-y-1 text-sm">
+        <CheckRow
+          checked={on === true}
+          disabled={on === null || saving}
+          onChange={(v) => void save(v)}
+          label={t('rules.mandatory')}
+        />
+        <p className="text-muted-foreground pl-[1.625rem] text-xs">
+          {t('outcomes.hint')}
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * What the typed period does, whether the saved one is enforced yet,
+ * and what the workspace keeps now.
+ */
+function RetentionNote({
+  days,
+  kept,
+  unenforced,
+}: {
+  days: ReturnType<typeof parseRetentionDays>;
+  kept: Kept | null;
+  /** A period is saved but deletes nothing until saved again (093). */
+  unenforced: boolean;
+}) {
+  const t = useTranslations('Settings.phoneSystem');
+  const format = useFormatter();
+  const parts = kept
+    ? [
+        t('rules.kept', { count: kept.kept }),
+        kept.oldestCallAt &&
+          t('rules.keptOldest', {
+            date: format.dateTime(new Date(kept.oldestCallAt), {
+              dateStyle: 'medium',
+            }),
+          }),
+        kept.legalHold > 0 && t('rules.keptHeld', { count: kept.legalHold }),
+        kept.expired > 0 && t('rules.keptExpired', { count: kept.expired }),
+      ].filter((p): p is string => typeof p === 'string')
+    : [];
+  return (
+    <div className="text-muted-foreground space-y-1 text-xs">
+      {days.ok && (
+        <p>
+          {days.value === null
+            ? t('rules.retentionKeeps')
+            : t('rules.retentionDeletes', { days: days.value })}
+        </p>
+      )}
+      {unenforced && (
+        <p className="font-medium text-amber-700 [[data-mode=dark]_&]:text-amber-300">
+          {t('rules.retentionNotEnforced')}
+        </p>
+      )}
+      {parts.length > 0 && <p>{parts.join(' · ')}</p>}
+    </div>
+  );
+}
+
 export function RecordingRulesCard() {
   const t = useTranslations('Settings.phoneSystem');
   const [rules, setRules] = useState<Rules | null>(null);
+  const [kept, setKept] = useState<Kept | null>(null);
   const [retention, setRetention] = useState('');
   const [due, setDue] = useState('');
   const [ruleIssue, setRuleIssue] = useState<string | null>(null);
@@ -562,6 +658,12 @@ export function RecordingRulesCard() {
   const [saving, setSaving] = useState<'rules' | 'banks' | null>(null);
   // The saved value, not the unsaved checkbox.
   const [paused, setPaused] = useState(false);
+  // A period that deletes recordings as soon as it is saved, counted and
+  // waiting for the admin's go-ahead; due null: it could not be counted.
+  const [confirm, setConfirm] = useState<{
+    days: number;
+    due: number | null;
+  } | null>(null);
 
   const takeRules = (r: Rules) => {
     setRules(r);
@@ -576,8 +678,12 @@ export function RecordingRulesCard() {
   };
 
   useEffect(() => {
-    void pbxFetch<{ settings: Rules }>('/api/pbx/settings').then((res) => {
-      if (res.ok) takeRules(res.data.settings);
+    void pbxFetch<{ settings: Rules; recordings: Kept | null }>(
+      '/api/pbx/settings'
+    ).then((res) => {
+      if (!res.ok) return;
+      takeRules(res.data.settings);
+      setKept(res.data.recordings ?? null);
     });
     void pbxFetch<{ bankNumbers: { number: string; bankCode: string }[] }>(
       '/api/pbx/bank-numbers'
@@ -586,27 +692,54 @@ export function RecordingRulesCard() {
     });
   }, []);
 
-  const saveRules = async () => {
+  // confirmedDays: the period the admin just confirmed deleting under.
+  // ask: the route refused the period unconfirmed (409
+  // confirm_retention): the period in force is not the one this page
+  // loaded, so ask whatever the loaded one was.
+  const saveRules = async (
+    confirmedDays?: number,
+    ask = false
+  ): Promise<void> => {
     if (!rules) return;
     const days = parseRetentionDays(retention);
     const minutes = parseDueMinutes(due);
     if (!days.ok) return setRuleIssue(t('rules.retentionInvalid'));
     if (minutes === null) return setRuleIssue(t('rules.dueInvalid'));
+    // A first or shorter period deletes every older recording on the next
+    // cron run (093): count them with the run's own rule, and ask first
+    // unless that is none. The period is sent only when changed, or to
+    // start one not enforced yet (sendsRetention).
+    const period = days.value;
+    let confirmed = confirmedDays === period ? confirmedDays : undefined;
+    if (
+      period !== null &&
+      confirmed === undefined &&
+      sendsRetention(rules, period) &&
+      (ask || retentionNeedsConfirm(enforcedRetention(rules), period))
+    ) {
+      setSaving('rules');
+      const count = await pbxFetch<{ due: number }>(
+        `/api/pbx/settings/retention?days=${period}`
+      );
+      setSaving(null);
+      const n =
+        count.ok && typeof count.data.due === 'number' ? count.data.due : null;
+      if (n !== 0) return setConfirm({ days: period, due: n });
+      confirmed = period;
+    }
+    setConfirm(null);
     setSaving('rules');
     const res = await pbxFetch<{ settings: Rules }>('/api/pbx/settings', {
       method: 'PUT',
-      body: {
-        ...rules,
-        retentionDays: days.value,
-        missedCallDueMinutes: minutes,
-      },
+      body: rulesBody(rules, period, minutes, confirmed),
     });
     setSaving(null);
     if (res.ok) {
       takeRules(res.data.settings);
       toast.success(t('rules.saved'));
-    } else
-      toast.error(t('saveFailed'), { description: res.error ?? undefined });
+    } else if (res.code === 'confirm_retention' && !ask)
+      return saveRules(undefined, true);
+    else toast.error(t('saveFailed'), { description: res.error ?? undefined });
   };
 
   const saveBanks = async () => {
@@ -668,13 +801,25 @@ export function RecordingRulesCard() {
             value={retention}
             placeholder="—"
             aria-label={t('rules.retention')}
-            onChange={(e) => setRetention(e.target.value)}
+            onChange={(e) => {
+              setRetention(e.target.value);
+              setConfirm(null);
+            }}
           />
           <span className="text-muted-foreground">
             {retention.trim() ? t('rules.days') : t('rules.keep')} ·{' '}
             {t('rules.erasure')}
           </span>
         </div>
+        <RetentionNote
+          days={parseRetentionDays(retention)}
+          kept={kept}
+          unenforced={
+            rules !== null &&
+            rules.retentionDays !== null &&
+            enforcedRetention(rules) === null
+          }
+        />
         <div className="flex flex-wrap items-center gap-2">
           <span>{t('rules.dueAfter')}</span>
           <Input
@@ -689,16 +834,50 @@ export function RecordingRulesCard() {
         {flag('mandatoryDisposition', t('rules.mandatory'))}
         {flag('missedCallWhatsappDraft', t('rules.whatsappDraft'))}
         <Issue text={ruleIssue} />
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            onClick={saveRules}
-            disabled={!rules || saving !== null}
-          >
-            {saving === 'rules' ? <Loader2 className="animate-spin" /> : null}
-            {t('rules.save')}
-          </Button>
-        </div>
+        {confirm ? (
+          <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-md border p-3">
+            <p className="text-destructive text-xs">
+              {confirm.due === null
+                ? t('rules.confirmDeleteUnknown', { days: confirm.days })
+                : t('rules.confirmDelete', {
+                    count: confirm.due,
+                    days: confirm.days,
+                  })}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={saving !== null}
+                onClick={() => setConfirm(null)}
+              >
+                {t('rules.confirmCancel')}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={saving !== null}
+                onClick={() => void saveRules(confirm.days)}
+              >
+                {saving === 'rules' ? (
+                  <Loader2 className="animate-spin" />
+                ) : null}
+                {t('rules.confirmSave')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => void saveRules()}
+              disabled={!rules || saving !== null}
+            >
+              {saving === 'rules' ? <Loader2 className="animate-spin" /> : null}
+              {t('rules.save')}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="border-border mt-4 border-t pt-4">

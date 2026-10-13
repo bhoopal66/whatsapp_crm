@@ -13,10 +13,14 @@
  * A group is the room's only when exactly one active group of the number
  * has the room's exact subject, was created no earlier than the room (a
  * minute of clock skew allowed) and belongs to no other room, and no
- * other room is being created on the number under the same subject.
- * Anything else is ambiguous, and an ambiguous room is never matched:
- * opening the wrong group would invite these people into another
- * customer's group. It waits for its webhook and fails after 10 minutes.
+ * other room of the number with the same subject may still get a group:
+ * one being created, or one cancelled (096) less than 10 minutes before
+ * this one was created, or since. A cancelled room's group can still
+ * arrive, and its webhook deletes it: adopted here, it would be deleted
+ * with this room's people in it. Anything else is ambiguous, and an
+ * ambiguous room is never matched: opening the wrong group would invite
+ * these people into another customer's group, or into one about to go.
+ * It waits for its webhook and fails after 10 minutes.
  *
  * A room with no group at all is asked for once more; the claim on
  * `last_error` makes that once, however many ticks overlap. The retry's
@@ -45,7 +49,7 @@ import {
 } from '@/lib/whatsapp/meta-groups';
 
 import { releaseStaleInviteClaims, sendRoomInvites } from './invites';
-import { metaChannel, notifyRoomCreator } from './shared';
+import { metaChannel, notifyRoomAlert } from './shared';
 
 /** A room still `creating` this long after it was created is stuck. */
 const STUCK_AFTER_MS = 2 * 60_000;
@@ -203,18 +207,10 @@ async function reconcileRoom(
   }
   if (!channel) return giveUp(db, room, NO_NUMBER);
 
-  // Another room waiting for a group with this subject on this number:
-  // a group found could be either's, and a retry would only add one.
-  const { data: twins, error: twinErr } = await db
-    .from('deal_rooms')
-    .select('id')
-    .eq('status', 'creating')
-    .eq('whatsapp_config_id', channel.id)
-    .eq('subject', room.subject)
-    .neq('id', room.id)
-    .limit(1);
-  if (twinErr) throw new Error(`twin room lookup failed: ${twinErr.message}`);
-  if (twins && twins.length > 0) {
+  // Another room whose group, with this subject on this number, may
+  // still come: a group found could be either's, and a retry would only
+  // add one.
+  if (await hasTwin(db, room, channel.id)) {
     return overdue ? giveUp(db, room, AMBIGUOUS) : 'waiting';
   }
 
@@ -233,6 +229,43 @@ async function reconcileRoom(
       ? `${NOT_CONFIRMED} ${room.last_error}`
       : NOT_CONFIRMED
   );
+}
+
+/**
+ * The earliest cancel that still makes a room a twin of `room`: a group
+ * can be this room's only if created after it (less the skew), and a
+ * cancelled room's group was asked for before its cancel. Meta is given
+ * as long to create it as this job waits for any group.
+ */
+function cancelledTwinSince(roomCreatedAt: string): string {
+  return new Date(Date.parse(roomCreatedAt) - GIVE_UP_AFTER_MS).toISOString();
+}
+
+/** Another room of the number, same subject, that may still get a group. */
+async function hasTwin(
+  db: SupabaseClient,
+  room: StuckRoom,
+  configId: string
+): Promise<boolean> {
+  const others = () =>
+    db
+      .from('deal_rooms')
+      .select('id')
+      .eq('whatsapp_config_id', configId)
+      .eq('subject', room.subject)
+      .neq('id', room.id);
+  const creating = await others().eq('status', 'creating').limit(1);
+  if (creating.error) {
+    throw new Error(`twin room lookup failed: ${creating.error.message}`);
+  }
+  if ((creating.data ?? []).length > 0) return true;
+  const cancelled = await others()
+    .gte('cancelled_at', cancelledTwinSince(room.created_at))
+    .limit(1);
+  if (cancelled.error) {
+    throw new Error(`twin room lookup failed: ${cancelled.error.message}`);
+  }
+  return (cancelled.data ?? []).length > 0;
 }
 
 /** The number's active groups, at most `MAX_GROUP_PAGES` pages. */
@@ -295,12 +328,18 @@ async function open(
       p_request_id: requestId,
     });
   }
-  await rpc(db, 'deal_room_group_created', {
+  const { data: opened, error } = await db.rpc('deal_room_group_created', {
     p_account: room.account_id,
     p_request_id: requestId,
     p_group_id: groupId,
     p_invite_link_hash: null,
   });
+  if (error)
+    throw new Error(`deal_room_group_created failed: ${error.message}`);
+  // NULL: a manager cancelled the room since it was read (096). It stays
+  // failed and nobody is invited; the group, matched by subject only,
+  // is left at WhatsApp rather than deleted on a guess.
+  if (opened === null) return 'waiting';
   await audit(db, room, 'create_reconciled', { group_id: groupId });
   try {
     await sendRoomInvites(db, room.id);
@@ -363,8 +402,8 @@ async function giveUp(
   room: StuckRoom,
   reason: string
 ): Promise<Outcome> {
-  // Claimed while still `creating`: `deal_room_set_status` would
-  // otherwise overwrite a room the webhook has opened since it was read.
+  // Claimed while still `creating`, so a room the webhook opened since
+  // it was read is left alone.
   const { data: claimed, error } = await db
     .from('deal_rooms')
     .update({ last_error: reason })
@@ -374,12 +413,18 @@ async function giveUp(
     .maybeSingle();
   if (error) throw new Error(`give-up claim failed: ${error.message}`);
   if (!claimed) return 'waiting';
-  await rpc(db, 'deal_room_set_status', {
-    p_room: room.id,
-    p_status: 'failed',
-    p_reason: reason,
-  });
-  await notifyRoomCreator(db, room, 'Deal room could not be created', {
+  // It fails the room only if it is still `creating` under its row lock
+  // (096): a cancel, or the webhook, can land after the claim. Then
+  // nothing changed, and nobody is told it could not be created.
+  const { data: failed, error: failErr } = await db.rpc(
+    'deal_room_fail_creation',
+    { p_room: room.id, p_reason: reason }
+  );
+  if (failErr) {
+    throw new Error(`deal_room_fail_creation failed: ${failErr.message}`);
+  }
+  if (failed !== true) return 'waiting';
+  await notifyRoomAlert(db, room, 'Deal room could not be created', {
     event: 'create_failed',
     reason,
   });

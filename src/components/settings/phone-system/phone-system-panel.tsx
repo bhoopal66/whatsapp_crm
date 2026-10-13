@@ -2,7 +2,8 @@
 
 // Settings → Phone system: the Yeastar P-Series connection, its numbers
 // and extensions, and the recording rules (docs/yeastar.md). Admin+,
-// like every /api/pbx route it calls.
+// like every /api/pbx route it calls; a team leader sees only the
+// mandatory-outcome switch (migration 097).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -10,6 +11,7 @@ import { toast } from 'sonner';
 import { Loader2, PlugZap } from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
+import { canEditSettings } from '@/lib/auth/roles';
 import {
   PBX_AUTH_BACKOFF_MINUTES,
   baseUrlHost,
@@ -26,12 +28,25 @@ import { ConnectionDialog } from './connection-dialog';
 import { DOT, pbxFetch, type PbxResult } from './fetch';
 import {
   ExtensionsCard,
+  OutcomeRuleCard,
   RecordingRulesCard,
   RoutesCard,
   type RouteView,
 } from './phone-system-lists';
 
 export function PhoneSystemPanel() {
+  const t = useTranslations('Settings.phoneSystem');
+  const { accountRole } = useAuth();
+  if (accountRole && canEditSettings(accountRole)) return <AdminPanel />;
+  return (
+    <div className="space-y-6">
+      <SettingsPanelHead title={t('title')} description={t('subtitle')} />
+      <OutcomeRuleCard />
+    </div>
+  );
+}
+
+function AdminPanel() {
   const t = useTranslations('Settings.phoneSystem');
   const { workspaces } = useAuth();
   const [conn, setConn] = useState<PbxConnectionView | null>(null);
