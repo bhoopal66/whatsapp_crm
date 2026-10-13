@@ -388,6 +388,126 @@ export const needsOutcome = (mandatory: boolean, outcome: Outcome | null) =>
   mandatory && outcome === null;
 
 /**
+ * The wrap-up after a call: how long the ended panel asks for the
+ * outcome (§7.3). Migration 097's reminder sweep waits the same
+ * `interval '2 minutes'`; __tests__/wrap-up.test.ts keeps the two equal.
+ */
+export const WRAPUP_MS = 2 * 60_000;
+
+/**
+ * How far back a reload still re-opens a wrap-up whose outcome is owed
+ * (mandatory, none chosen): 097's sweep horizon, `interval '1 hour'`,
+ * so a call too old to be reminded of is not resurrected either.
+ */
+export const WRAPUP_OWED_MS = 60 * 60_000;
+
+/** The in-call panel's call: live, or ended and in its wrap-up. */
+export interface PanelCall {
+  key: string;
+  connectionId: string;
+  pbxCallId: string;
+  contactId: string | null;
+  remoteNumber: string | null;
+  inbound: boolean;
+  seenAt: number;
+  endedAt: number | null;
+}
+
+/** What is left of the wrap-up of a call that ended at `endedAt`. */
+export const wrapUpLeftMs = (endedAt: number, now: number): number =>
+  Math.min(WRAPUP_MS, Math.max(0, endedAt + WRAPUP_MS - now));
+
+/**
+ * Where an ended call's wrap-up stands: `counting` through its two
+ * minutes, then `done` (it closes by itself) or, when an outcome is owed
+ * as they run out (mandatory, none chosen), `held`: it stays until the
+ * person chooses one and closes it, and the PBX cron rings once (097).
+ * Past `counting` it stays put, so an outcome chosen late does not snap
+ * the panel shut over the note still being written.
+ */
+export type WrapUpPhase = 'counting' | 'held' | 'done';
+
+export function wrapUpPhase(
+  prev: WrapUpPhase,
+  endedAt: number,
+  now: number,
+  mandatory: boolean,
+  outcome: Outcome | null
+): WrapUpPhase {
+  if (prev !== 'counting' || wrapUpLeftMs(endedAt, now) > 0) return prev;
+  return needsOutcome(mandatory, outcome) ? 'held' : 'done';
+}
+
+/** One of the caller's own calls, as GET /api/pbx/calls/wrap-up reads it. */
+export interface WrapUpRow {
+  connection_id: string | null;
+  pbx_call_id: string;
+  direction: string;
+  contact_id: string | null;
+  remote_number: string | null;
+  answered_at: string | null;
+  ended_at: string | null;
+  disposition: string | null;
+  erased_at: string | null;
+}
+
+/**
+ * The call whose wrap-up a reload re-opens: the newest that was
+ * answered, has a customer (not internal), is not erased, has no
+ * outcome and ended less than WRAPUP_MS before `now` or, where outcomes
+ * are mandatory, less than WRAPUP_OWED_MS (a reload must not dismiss
+ * an owed outcome). One without a PBX (connection removed) has no panel
+ * to open.
+ */
+export function pickWrapUp(
+  rows: WrapUpRow[],
+  now: number,
+  mandatory: boolean
+): WrapUpRow | null {
+  const within = mandatory ? WRAPUP_OWED_MS : WRAPUP_MS;
+  let best: WrapUpRow | null = null;
+  let bestAt = -Infinity;
+  for (const r of rows) {
+    if (!r.connection_id || r.disposition !== null || r.erased_at) continue;
+    if (!r.answered_at || r.direction === 'internal') continue;
+    const at = Date.parse(r.ended_at ?? '');
+    if (Number.isNaN(at) || at <= now - within) continue;
+    if (at > bestAt) [best, bestAt] = [r, at];
+  }
+  return best;
+}
+
+/** The wrap-up the route hands back: the call and the server's count. */
+export interface WrapUpCall {
+  connectionId: string;
+  pbxCallId: string;
+  direction: string;
+  contactId: string | null;
+  remoteNumber: string | null;
+  leftMs: number;
+}
+
+/**
+ * The panel for a recovered wrap-up, timed on this browser's clock: the
+ * server counted `leftMs`, so a skewed browser clock neither ends the
+ * wrap-up early nor stretches it.
+ */
+export function wrapUpPanel(c: WrapUpCall, now: number): PanelCall {
+  const endedAt =
+    now - (WRAPUP_MS - Math.min(WRAPUP_MS, Math.max(0, c.leftMs)));
+  return {
+    key: liveKey({ connection_id: c.connectionId, pbx_call_id: c.pbxCallId }),
+    connectionId: c.connectionId,
+    pbxCallId: c.pbxCallId,
+    contactId: c.contactId,
+    remoteNumber: c.remoteNumber,
+    inbound: c.direction === 'inbound',
+    seenAt: endedAt,
+    endedAt,
+  };
+}
+
+/**
  * Whether the call layer asks GET /api/pbx/me for the caller's phone:
  * once the session and the workspace are known, and never for a bank
  * guest. The route is viewer and up, and the provider is mounted on

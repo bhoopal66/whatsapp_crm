@@ -4832,6 +4832,8 @@
     "noChannels": "You are in no team channels",
     "close": "Close",
     "outcomeRequired": "Choose an outcome before closing.",
+    "wrapUp": "Add the outcome: {left} left",
+    "wrapUpOverdue": "Outcomes are required here. Choose one to close.",
     "transferTitle": "Transfer the call",
     "transferNumber": "Extension or number",
     "transferTo": "Transfer",

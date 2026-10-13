@@ -28,8 +28,11 @@ import {
   myRingingCall,
   noteFrames,
   ringFloor,
+  wrapUpPanel,
   type CallLiveRow,
   type FrameSeen,
+  type PanelCall,
+  type WrapUpCall,
 } from '@/lib/pbx/call-ui';
 import { SOFTPHONE_OFF, type SoftphoneState } from '@/lib/pbx/linkus-state';
 import type { SoftphoneAdapter } from '@/lib/pbx/softphone';
@@ -43,16 +46,7 @@ export interface PbxMe {
   pbxUrl: string;
 }
 
-export interface PanelCall {
-  key: string;
-  connectionId: string;
-  pbxCallId: string;
-  contactId: string | null;
-  remoteNumber: string | null;
-  inbound: boolean;
-  seenAt: number;
-  endedAt: number | null;
-}
+export type { PanelCall };
 
 export type CallControl = 'hangup' | 'hold' | 'unhold' | 'mute' | 'unmute';
 
@@ -89,8 +83,9 @@ export const useCalls = () => useContext(CallsContext);
 const POLL_MS = 4000;
 
 /**
- * The panel follows my answered call; once I leave it, it stays (ended)
- * until closed, and only then can the next call take it.
+ * The panel follows my answered call; once I leave it, it stays (ended,
+ * the wrap-up) until closed or its two minutes pass, and only then can
+ * the next call take it.
  */
 function nextPanel(
   prev: PanelCall | null,
@@ -159,6 +154,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       live = false;
     };
   }, [asksMe, userId, accountId]);
+
+  // A reload mid-wrap-up re-opens it (§7.3): the newest of my own calls
+  // that ended under two minutes ago with no outcome (or, where outcomes
+  // are mandatory, one still owed). A live call that took the panel
+  // first keeps it. The rule comes in the same answer and is set in the
+  // same render, so a recovered wrap-up is never timed against the
+  // default (not mandatory) and closed before the settings load.
+  useEffect(() => {
+    if (!me) return;
+    let live = true;
+    fetch('/api/pbx/calls/wrap-up')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { call?: WrapUpCall | null; mandatory?: boolean } | null) => {
+        if (!live || !b?.call) return;
+        const recovered = wrapUpPanel(b.call, Date.now());
+        const mandatory = b.mandatory === true;
+        setSettings((s) =>
+          s.mandatoryDisposition === mandatory
+            ? s
+            : { ...s, mandatoryDisposition: mandatory }
+        );
+        setPanel((p) => p ?? recovered);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [me]);
 
   const rowsRef = useRef<CallLiveRow[]>([]);
   // `live`: these rows' new frames arrived as they happened. The first
