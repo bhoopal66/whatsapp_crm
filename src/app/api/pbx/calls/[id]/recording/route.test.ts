@@ -156,6 +156,15 @@ describe('POST /api/pbx/calls/[id]/recording', () => {
     expect(signs()).toEqual([]);
   });
 
+  it('signs nothing for a row the retention period marked erased since the log', async () => {
+    (service.tables.call_recordings[0] as Record<string, unknown>).erased_at =
+      '2026-10-12T00:00:00.000Z';
+    const res = await post({ action: 'play' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'This recording was erased' });
+    expect(signs()).toEqual([]);
+  });
+
   it('never signs for a call the caller cannot see', async () => {
     as('admin');
     for (const action of ['play', 'download']) {

@@ -16,18 +16,27 @@ vi.mock('../callbacks', () => ({ dialDueCallbacks: vi.fn(async () => ({})) }));
 vi.mock('../process', () => ({ processStoredPbxEvent: vi.fn() }));
 
 import {
+  expireRecordings,
   ORPHAN_GRACE,
   ORPHAN_LIMIT,
+  RETENTION_BATCH,
+  RETENTION_ROUNDS,
   runPbxCron,
   sweepOrphanRecordings,
 } from '../housekeeping';
 
 function fakeDb(
   names: string[],
-  opts: { rpcError?: string; failBatch?: number } = {}
+  opts: { rpcError?: string; failBatch?: number; expired?: string[][] } = {}
 ) {
   const batches: string[][] = [];
+  const expired = [...(opts.expired ?? [])];
   const rpc = vi.fn(async (fn: string) => {
+    if (fn === 'pbx_expire_recordings') {
+      return opts.rpcError
+        ? { data: null, error: { message: opts.rpcError } }
+        : { data: expired.shift() ?? [], error: null };
+    }
     if (fn !== 'pbx_orphan_recordings') {
       return { data: { call_live: 0, events: 0 }, error: null };
     }
@@ -105,6 +114,7 @@ describe('runPbxCron', () => {
     const out = await runPbxCron({ db: f.db });
     expect(f.rpc.mock.calls.map((c) => c[0])).toEqual([
       'pbx_purge',
+      'pbx_expire_recordings',
       'pbx_orphan_recordings',
     ]);
     expect(out.orphans).toEqual({ found: 3, deleted: 3, failed: 0 });
@@ -118,5 +128,76 @@ describe('runPbxCron', () => {
     expect(out.errors.orphans).toBe(
       '3 orphaned recording(s) not removed: storage unavailable'
     );
+  });
+});
+
+describe('expireRecordings', () => {
+  const paths = (count: number, from = 0) =>
+    Array.from({ length: count }, (_, i) => `account-a/calls/r${from + i}.wav`);
+
+  it('removes the audio of every recording the batch marked erased', async () => {
+    const f = fakeDb([], { expired: [paths(150)] });
+    const out = await expireRecordings({ db: f.db });
+    expect(f.rpc).toHaveBeenCalledWith('pbx_expire_recordings', {
+      p_limit: RETENTION_BATCH,
+    });
+    expect(f.from).toHaveBeenCalledWith('call-recordings');
+    expect(f.batches.map((b) => b.length)).toEqual([100, 50]);
+    expect(out).toEqual({ expired: 150, deleted: 150, failed: 0 });
+  });
+
+  it('takes another batch while one comes back full, at most RETENTION_ROUNDS', async () => {
+    const full = Array.from({ length: RETENTION_ROUNDS + 1 }, (_, k) =>
+      paths(RETENTION_BATCH, k * RETENTION_BATCH)
+    );
+    const f = fakeDb([], { expired: full });
+    const out = await expireRecordings({ db: f.db });
+    expect(f.rpc).toHaveBeenCalledTimes(RETENTION_ROUNDS);
+    expect(out.expired).toBe(RETENTION_ROUNDS * RETENTION_BATCH);
+  });
+
+  it('stops after a short batch, and starts none after the deadline', async () => {
+    const f = fakeDb([], { expired: [paths(3), paths(3)] });
+    expect(await expireRecordings({ db: f.db })).toMatchObject({ expired: 3 });
+    expect(f.rpc).toHaveBeenCalledTimes(1);
+    const g = fakeDb([], { expired: [paths(3)] });
+    const out = await expireRecordings({ db: g.db, deadline: 0, now: () => 1 });
+    expect(g.rpc).not.toHaveBeenCalled();
+    expect(out).toEqual({ expired: 0, deleted: 0, failed: 0 });
+  });
+
+  it('ends the run at a failed remove: the rest is left for the orphan sweep', async () => {
+    const f = fakeDb([], {
+      failBatch: 1,
+      expired: [paths(RETENTION_BATCH), paths(3)],
+    });
+    const out = await expireRecordings({ db: f.db });
+    expect(f.rpc).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({
+      expired: RETENTION_BATCH,
+      deleted: 0,
+      failed: RETENTION_BATCH,
+      error: 'storage unavailable',
+    });
+  });
+
+  it('throws when the batch cannot be marked', async () => {
+    const f = fakeDb([], { rpcError: 'permission denied' });
+    await expect(expireRecordings({ db: f.db })).rejects.toThrow(
+      'pbx_expire_recordings failed: permission denied'
+    );
+  });
+
+  it('runs before the orphan sweep and reports a failed remove as its error', async () => {
+    const f = fakeDb([], { failBatch: 1, expired: [paths(2)] });
+    const out = await runPbxCron({ db: f.db });
+    expect(out.retention).toMatchObject({ expired: 2, failed: 2 });
+    expect(out.errors.retention).toBe(
+      '2 expired recording(s) not removed: storage unavailable'
+    );
+    expect(f.rpc.mock.calls.map((c) => c[0]).slice(-2)).toEqual([
+      'pbx_expire_recordings',
+      'pbx_orphan_recordings',
+    ]);
   });
 });

@@ -63,6 +63,9 @@ export async function POST(
       .select('storage_path')
       .eq('call_id', call.id)
       .eq('account_id', call.account_id)
+      // The retention period (093) marks the row before deleting the
+      // audio: a row marked since the log is no link.
+      .is('erased_at', null)
       .maybeSingle();
     if (error) throw new Error(`call_recordings read failed: ${error.message}`);
     const path = (data as { storage_path: string } | null)?.storage_path;
