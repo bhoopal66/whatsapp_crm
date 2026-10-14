@@ -11,8 +11,9 @@
 // that extension as a member still on it (myLiveLeg); otherwise 404,
 // whatever the caller's role or what call_live shows them. The action
 // is sent for the caller's channel. A blind transfer moves the party at
-// the other end (blindTransferChannel): to `number`, any extension or
-// outside number as the dial route allows it (never to a do-not-contact
+// the other end (blindTransferChannel): to `number`, any extension, or
+// an outside number held to the old rule (below team leader, only a
+// number of a contact the caller can see; never a do-not-contact
 // customer's), or with `toOwner` to the extension of the call's
 // customer's owner on the same PBX. Agent+.
 // ============================================================
@@ -20,6 +21,7 @@
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { roleRank } from '@/lib/auth/roles';
 import { pbxServiceDb } from '@/lib/pbx/admin';
 import {
   blindTransferChannel,
@@ -165,6 +167,7 @@ export async function POST(
         service,
         accountId: ctx.accountId,
         number: typed,
+        transferRank: roleRank(ctx.role),
       });
       if (!callee.ok) return callee.response;
       if (callee.dnc) return dncRefused(callee.dnc.reason);

@@ -719,7 +719,9 @@ export async function dncContactIds(
  * client, so it must be one they can see. A typed number may be any
  * extension or outside number: every agent and up dials what they type,
  * as in the Linkus app (the routes' requireRole('agent') keeps viewers
- * and guests out). Do-not-contact is
+ * and guests out). A blind transfer passes `transferRank`: below team
+ * leader, an outside number must then belong to a contact the caller
+ * can see (the user kept transfers out of the any-number rule). Do-not-contact is
  * checked across the whole workspace on the service role, by every
  * stored form of the number: a customer who asked not to be called is
  * not called through a duplicate contact or a typed number either. The
@@ -731,6 +733,7 @@ export async function resolveCallee(input: {
   accountId: string;
   contactId?: string;
   number?: string;
+  transferRank?: number;
 }): Promise<Callee> {
   const { rls, service, accountId } = input;
   const refuse = (error: string, status: number) =>
@@ -769,6 +772,15 @@ export async function resolveCallee(input: {
       .in('phone', contactPhoneCandidates(number));
     if (error) throw new Error(`contacts read failed: ${error.message}`);
     visible = (data ?? []) as ContactRow[];
+    if (
+      !visible.length &&
+      input.transferRank !== undefined &&
+      input.transferRank < RANK_LEADER
+    )
+      return refuse(
+        'You can only transfer to a number that belongs to a customer you can see',
+        403
+      );
   }
 
   const dncIds = new Set(await dncContactIds(service, accountId, number));
