@@ -716,9 +716,10 @@ export async function dncContactIds(
 
 /**
  * The number to call and who it is. A contact is read with the caller's
- * client, so it must be one they can see. A typed number must belong to
- * a contact they can see unless they rank team leader or above, or it
- * is internal (an extension) and `allowInternal`. Do-not-contact is
+ * client, so it must be one they can see. A typed number may be any
+ * extension or outside number: every agent and up dials what they type,
+ * as in the Linkus app (the routes' requireRole('agent') keeps viewers
+ * and guests out). Do-not-contact is
  * checked across the whole workspace on the service role, by every
  * stored form of the number: a customer who asked not to be called is
  * not called through a duplicate contact or a typed number either. The
@@ -728,12 +729,10 @@ export async function resolveCallee(input: {
   rls: SupabaseClient;
   service: SupabaseClient;
   accountId: string;
-  rank: number;
   contactId?: string;
   number?: string;
-  allowInternal?: boolean;
 }): Promise<Callee> {
-  const { rls, service, accountId, rank } = input;
+  const { rls, service, accountId } = input;
   const refuse = (error: string, status: number) =>
     ({ ok: false, response: fail(error, status) }) as const;
   const cols = 'id, phone, do_not_contact_at, do_not_contact_reason';
@@ -755,9 +754,7 @@ export async function resolveCallee(input: {
   } else {
     const n = normalizeRemoteNumber(input.number);
     if (!n) return refuse('Enter a phone number', 400);
-    if (n.internal) {
-      if (!input.allowInternal && rank < RANK_LEADER)
-        return refuse('Only a team leader or above can dial this number', 403);
+    if (n.internal)
       return {
         ok: true,
         number: n.number,
@@ -765,7 +762,6 @@ export async function resolveCallee(input: {
         contactId: null,
         dnc: null,
       };
-    }
     number = n.number;
     const { data, error } = await rls
       .from('contacts')
@@ -773,11 +769,6 @@ export async function resolveCallee(input: {
       .in('phone', contactPhoneCandidates(number));
     if (error) throw new Error(`contacts read failed: ${error.message}`);
     visible = (data ?? []) as ContactRow[];
-    if (!visible.length && rank < RANK_LEADER)
-      return refuse(
-        'You can only call a number that belongs to a customer you can see',
-        403
-      );
   }
 
   const dncIds = new Set(await dncContactIds(service, accountId, number));

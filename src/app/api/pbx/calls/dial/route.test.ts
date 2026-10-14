@@ -124,13 +124,22 @@ describe('POST /api/pbx/calls/dial', () => {
     });
   });
 
-  it('lets an agent type only a visible customer’s number', async () => {
+  it('lets an agent type any extension or outside number', async () => {
     expect((await post({ number: '050 123 4567' })).status).toBe(200);
-    expect((await post({ number: '+44 20 7946 0000' })).status).toBe(403);
-    expect((await post({ number: '205' })).status).toBe(403);
-    expect(dial).toHaveBeenCalledTimes(1);
-    as('team_leader');
     expect((await post({ number: '+44 20 7946 0000' })).status).toBe(200);
+    expect((await post({ number: '205' })).status).toBe(200);
+    expect(dial.mock.calls.map(([d]) => d.callee)).toEqual([
+      '971501234567',
+      '442079460000',
+      '205',
+    ]);
+  });
+
+  it('still refuses an agent’s typed number a do-not-contact customer holds', async () => {
+    const res = await post({ number: '050 999 9999' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'do_not_contact' });
+    expect(dial).not.toHaveBeenCalled();
   });
 
   it('refuses a do-not-contact customer, even one the caller cannot see', async () => {

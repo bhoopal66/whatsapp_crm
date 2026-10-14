@@ -295,21 +295,22 @@ describe('POST /api/pbx/calls/[pbxCallId]/[action]', () => {
   });
 
   it('holds an outside number to the dial rules', async () => {
-    expect(
-      (await post('pbx-1', 'transfer', { number: '+44 20 7946 0000' })).status
-    ).toBe(403);
-    expect(
-      (await post('pbx-1', 'transfer', { number: '050 333 3333' })).status
-    ).toBe(403);
-    as('team_leader');
     const dnc = await post('pbx-1', 'transfer', { number: '050 333 3333' });
     expect(dnc.status).toBe(409);
     expect((await dnc.json()).code).toBe('do_not_contact');
     expect(api.transfer).not.toHaveBeenCalled();
     expect(
-      (await post('pbx-1', 'transfer', { number: '050 123 4567' })).status
+      (await post('pbx-1', 'transfer', { number: '+44 20 7946 0000' })).status
     ).toBe(200);
     expect(api.transfer).toHaveBeenCalledWith({
+      type: 'blind',
+      channelId: 'ch-cust',
+      number: '442079460000',
+    });
+    expect(
+      (await post('pbx-1', 'transfer', { number: '050 123 4567' })).status
+    ).toBe(200);
+    expect(api.transfer).toHaveBeenLastCalledWith({
       type: 'blind',
       channelId: 'ch-cust',
       number: '971501234567',
