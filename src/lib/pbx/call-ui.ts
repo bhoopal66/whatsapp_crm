@@ -382,9 +382,9 @@ export type CallBackTarget =
  * and up, the dial route's floor. A known caller is called through
  * their contact, carrying the do-not-contact stamp the button disables
  * itself on. A caller with no contact is called by number, which the
- * dial route allows a team leader and up (an agent only a number of a
- * customer they can see) and checks for do-not-contact across the
- * workspace, by every stored form of the number: the button learns of
+ * dial route allows any agent and up (the CRM replaces the Linkus
+ * app, so any outside number may be dialled) and checks for
+ * do-not-contact across the workspace, by every stored form of the number: the button learns of
  * one from the route's 409, and an owner or admin may still call with a
  * logged reason.
  */
@@ -403,9 +403,73 @@ export function callBackFor(
       },
     };
   const number = row.remoteNumber?.trim();
-  return number && hasMinRole(role, 'team_leader')
-    ? { kind: 'number', number }
-    : null;
+  return number ? { kind: 'number', number } : null;
+}
+
+/** Who POST /api/pbx/calls/dial is asked to ring after the caller. */
+export type DialTarget =
+  | { participantId: string }
+  | { conversationId: string }
+  | { contactId: string }
+  | { number: string };
+
+/** The dial route's body: one target, plus an admin's logged reason. */
+export function dialBody(
+  target: DialTarget,
+  overrideReason?: string
+): Record<string, string> {
+  const reason = overrideReason?.trim();
+  return { ...target, ...(reason ? { overrideReason: reason } : {}) };
+}
+
+/** Arabic-Indic U+0660-0669 and Eastern Arabic-Indic U+06F0-06F9. */
+const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
+
+/**
+ * What a typed or pasted number dials: digits (Arabic-Indic ones made
+ * ASCII, as normalizeRemoteNumber reads them), `*` and `#` kept, a `+`
+ * only in front; spaces, dashes, dots and brackets dropped.
+ */
+export function cleanDialInput(raw: string): string {
+  const text = raw.replace(ARABIC_DIGITS, (c) => String(c.charCodeAt(0) & 0xf));
+  const kept = text.replace(/[^0-9*#+]/g, '');
+  const plus = kept.startsWith('+');
+  return (plus ? '+' : '') + kept.replace(/\+/g, '');
+}
+
+/** A dial target is complete: a digit, or a feature code like *72. */
+export const canDialInput = (clean: string): boolean => /[0-9]/.test(clean);
+
+/** The extension dials (≤ 6 digits) the route treats as internal. */
+export const isExtensionNumber = (clean: string): boolean =>
+  /^[0-9]{1,6}$/.test(clean);
+
+export const RECENT_DIALS_MAX = 10;
+
+/** The recent-numbers list after dialling `number`: newest first, no repeats. */
+export function pushRecentDial(
+  list: readonly string[],
+  number: string
+): string[] {
+  return [number, ...list.filter((n) => n !== number)].slice(
+    0,
+    RECENT_DIALS_MAX
+  );
+}
+
+/** A stored recent-numbers list, read defensively (localStorage is user-editable). */
+export function readRecentDials(raw: string | null): string[] {
+  try {
+    const v: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(v)) return [];
+    const clean = v
+      .filter((n): n is string => typeof n === 'string')
+      .map(cleanDialInput)
+      .filter(canDialInput);
+    return [...new Set(clean)].slice(0, RECENT_DIALS_MAX);
+  } catch {
+    return [];
+  }
 }
 
 /** Closing the panel needs an outcome when the workspace says so. */

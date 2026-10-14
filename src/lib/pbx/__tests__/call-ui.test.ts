@@ -37,6 +37,13 @@ import {
   shownCallsTab,
   callsListReady,
   visibleCallTabs,
+  dialBody,
+  cleanDialInput,
+  canDialInput,
+  isExtensionNumber,
+  pushRecentDial,
+  readRecentDials,
+  RECENT_DIALS_MAX,
 } from '../call-ui';
 import { ACCOUNT_ROLES } from '@/lib/auth/roles';
 
@@ -552,9 +559,8 @@ describe('callBackFor', () => {
     });
   });
 
-  it('dials an unknown caller by number only from team leader up, as the route allows', () => {
-    expect(callBackFor(unknown, 'agent')).toBeNull();
-    for (const role of ['team_leader', 'admin', 'owner'] as const)
+  it('dials an unknown caller by number from agent up, as the route allows', () => {
+    for (const role of ['agent', 'team_leader', 'admin', 'owner'] as const)
       expect(callBackFor(unknown, role)).toEqual({
         kind: 'number',
         number: '971501234567',
@@ -616,5 +622,55 @@ describe('the Calls screen tabs', () => {
     expect(shownCallsTab('missed', 'agent')).toBe('missed');
     // Before the role is known the request stands (the API decides).
     expect(shownCallsTab('unrouted', null)).toBe('unrouted');
+  });
+});
+
+describe('dialling from the app', () => {
+  it('sends one target, and an admin reason only when there is one', () => {
+    expect(dialBody({ number: '201' })).toEqual({ number: '201' });
+    expect(dialBody({ contactId: 'c1' }, '  asked to ')).toEqual({
+      contactId: 'c1',
+      overrideReason: 'asked to',
+    });
+    expect(dialBody({ conversationId: 'v1' }, '   ')).toEqual({
+      conversationId: 'v1',
+    });
+  });
+
+  it('cleans a pasted number: spaces, dashes and brackets out, Arabic digits in', () => {
+    expect(cleanDialInput('+971 (50) 123-4567')).toBe('+971501234567');
+    expect(cleanDialInput('٠٥٠١٢٣٤٥٦٧')).toBe('0501234567');
+    expect(cleanDialInput('۲۰۱')).toBe('201');
+    expect(cleanDialInput('*72#')).toBe('*72#');
+    expect(cleanDialInput('97+1+5')).toBe('9715');
+    expect(cleanDialInput('ext. 201')).toBe('201');
+  });
+
+  it('dials only something with a digit, and knows an extension', () => {
+    expect(canDialInput('')).toBe(false);
+    expect(canDialInput('+')).toBe(false);
+    expect(canDialInput('*72')).toBe(true);
+    expect(isExtensionNumber('201')).toBe(true);
+    expect(isExtensionNumber('123456')).toBe(true);
+    expect(isExtensionNumber('1234567')).toBe(false);
+    expect(isExtensionNumber('+201')).toBe(false);
+  });
+
+  it('keeps the recent numbers newest first, without repeats, capped', () => {
+    let list: string[] = [];
+    for (let i = 0; i < 12; i++) list = pushRecentDial(list, String(100 + i));
+    expect(list).toHaveLength(RECENT_DIALS_MAX);
+    expect(list[0]).toBe('111');
+    expect(pushRecentDial(['1', '2', '3'], '2')).toEqual(['2', '1', '3']);
+  });
+
+  it('reads a stored list defensively', () => {
+    expect(readRecentDials(null)).toEqual([]);
+    expect(readRecentDials('not json')).toEqual([]);
+    expect(readRecentDials('{"a":1}')).toEqual([]);
+    expect(readRecentDials('["201", 5, "+971 50", "201", "x"]')).toEqual([
+      '201',
+      '+97150',
+    ]);
   });
 });
