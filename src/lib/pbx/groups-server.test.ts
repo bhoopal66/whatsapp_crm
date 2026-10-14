@@ -57,4 +57,25 @@ describe('workspaceExtensions', () => {
       ['202', { userId: 'u2', name: null }],
     ]);
   });
+
+  it('leaves a deactivated person’s extension unmapped', async () => {
+    const { db } = createFakeDb({
+      pbx_extensions: [
+        { connection_id: 'c1', extension: '201', user_id: 'u1' },
+        { connection_id: 'c1', extension: '202', user_id: 'u2' },
+      ],
+      profiles: [
+        { user_id: 'u1', account_id: 'a', full_name: 'Amal' },
+        {
+          user_id: 'u2',
+          account_id: 'a',
+          full_name: 'Gone',
+          deactivated_at: '2026-10-01T00:00:00Z',
+        },
+      ],
+    });
+    const mapped = await workspaceExtensions(db, 'a', 'c1');
+    expect([...mapped.keys()]).toEqual(['201']);
+    expect(mapped.get('202')).toBeUndefined();
+  });
 });

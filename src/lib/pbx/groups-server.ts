@@ -73,7 +73,7 @@ export async function workspaceExtensions(
 
   const { data: people, error: peopleError } = await rls
     .from('profiles')
-    .select('user_id, full_name')
+    .select('user_id, full_name, deactivated_at')
     .eq('account_id', accountId)
     .in('user_id', [...new Set(rows.map((r) => r.user_id))]);
   if (peopleError)
@@ -83,11 +83,20 @@ export async function workspaceExtensions(
       (p) => [p.user_id, p.full_name?.trim() || null]
     )
   );
-  for (const r of rows)
+  // A deactivated person no longer counts as mapped: their extension
+  // is left out, so callers read it as unmapped (userId and name null).
+  const inactive = new Set(
+    ((people ?? []) as { user_id: string; deactivated_at: string | null }[])
+      .filter((p) => p.deactivated_at)
+      .map((p) => p.user_id)
+  );
+  for (const r of rows) {
+    if (inactive.has(r.user_id)) continue;
     out.set(r.extension, {
       userId: r.user_id,
       name: names.get(r.user_id) ?? null,
     });
+  }
   return out;
 }
 
