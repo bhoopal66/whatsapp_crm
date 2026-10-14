@@ -311,6 +311,7 @@ export function createYeastarApi(client: YeastarClient): YeastarApi {
   }
 
   return {
+    ...createQueueApi(client),
     async dial({ caller, callee, autoAnswer, dialPermission }) {
       const body: Record<string, string> = { caller, callee };
       if (dialPermission !== undefined) body.dial_permission = dialPermission;
@@ -566,5 +567,290 @@ function createVoicemailApi(client: YeastarClient): VoicemailApi {
       const id = refId('deleteVoicemail', ref);
       await client.request('GET', 'vm/delete', { query: { id } });
     },
+  };
+}
+
+// ---------- Ring groups, queues and agents ----------
+// One block, kept apart from the call-control methods above; the
+// interface below merges into YeastarApi. Every parameter here is one
+// the Yeastar P-Series developer guide documents. `reason` (a pause
+// reason's feature code) is never sent: on a plan below Enterprise /
+// Ultimate the PBX fails the whole request when it is present.
+
+/** A ring group member that is one extension (`type: extension`). */
+export interface RingGroupMember {
+  /** `text2`: the extension number. */
+  number: string;
+  /** `text`: the PBX's full name for it. */
+  name: string;
+}
+
+export interface RingGroup {
+  id: number;
+  number: string;
+  name: string;
+  /** ring_all, sequentially, memory_hunt or custom. */
+  strategy: string;
+  /**
+   * Extension members only: extension groups and external numbers are
+   * left out. A custom strategy nests its members in `sub_option`.
+   */
+  members: RingGroupMember[];
+}
+
+export interface QueueMember {
+  /** `value`: the PBX's extension id, which agent/* calls take. */
+  extId?: number;
+  /** `text2`: the extension number. */
+  number: string;
+  name: string;
+}
+
+export interface QueueInfo {
+  id: number;
+  number: string;
+  name: string;
+  strategy: string;
+  dynamicAgents: QueueMember[];
+  staticAgents: QueueMember[];
+}
+
+export interface QueueAgentStatus {
+  number: string;
+  name: string;
+  loggedIn: boolean;
+  paused: boolean;
+  /**
+   * 0 unknown, 1 idle, 2 in a call, 3 ringing, 4 a new call during a
+   * call, 5 on hold by the caller (an agent's own hold reads 2).
+   */
+  callStatus: number;
+  pauseReason: string;
+  /** dynamic or static; a static agent cannot log in or out. */
+  agentType: string;
+}
+
+export type AgentLoginOperation = 'login' | 'logout';
+export type AgentPauseOperation = 'pause' | 'unpause';
+
+/** agent/login and agent/pause: one agent; no queue ids means all its queues. */
+export interface AgentSelfInput<Op> {
+  extId: number;
+  operation: Op;
+  queueIds?: number[];
+}
+
+/** queue/agent_login and queue/agent_pause: agents of one queue. */
+export interface QueueAgentsInput<Op> {
+  extIds: number[];
+  queueId: number;
+  operation: Op;
+}
+
+export interface YeastarApi {
+  /** `ringgroup/list` (paged), then `ringgroup/query` for the members. */
+  listRingGroups(): Promise<RingGroup[]>;
+  /** `queue/list` (paged); it carries the agent lists itself. */
+  listQueues(): Promise<QueueInfo[]>;
+  /** `queue/agent_status?id=`. */
+  queueAgentStatus(queueId: number): Promise<QueueAgentStatus[]>;
+  /** `agent/login`: a dynamic agent logs itself in or out. */
+  agentLogin(input: AgentSelfInput<AgentLoginOperation>): Promise<void>;
+  /** `agent/pause`: an agent pauses or resumes its own queue service. */
+  agentPause(input: AgentSelfInput<AgentPauseOperation>): Promise<void>;
+  /** `queue/agent_login`: log other dynamic agents in or out of a queue. */
+  managerAgentLogin(
+    input: QueueAgentsInput<AgentLoginOperation>
+  ): Promise<void>;
+  /** `queue/agent_pause`: pause or resume other agents in a queue. */
+  managerAgentPause(
+    input: QueueAgentsInput<AgentPauseOperation>
+  ): Promise<void>;
+}
+
+/** List pages read before stopping; 100 per page. */
+const GROUP_PAGE_SIZE = 100;
+const GROUP_MAX_PAGES = 20;
+/** Ring group ids per `ringgroup/query` call. */
+const RINGGROUP_QUERY_CHUNK = 50;
+
+const intId = (v: unknown): number | undefined => {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : undefined;
+};
+
+function positiveIds(name: string, ids: readonly number[]): string {
+  if (!ids.length || !ids.every((n) => Number.isInteger(n) && n > 0)) {
+    throw new RangeError(`${name} must be positive integers`);
+  }
+  return ids.join(',');
+}
+
+function ringGroupMembers(raw: unknown, out: RingGroupMember[]): void {
+  if (!Array.isArray(raw)) return;
+  for (const m of raw) {
+    if (!isRecord(m)) continue;
+    if (Array.isArray(m.sub_option)) ringGroupMembers(m.sub_option, out);
+    const number = nonEmpty(m.text2);
+    if (m.type !== 'extension' || !number) continue;
+    if (out.some((x) => x.number === number)) continue;
+    out.push({ number, name: typeof m.text === 'string' ? m.text : '' });
+  }
+}
+
+function queueMembers(raw: unknown): QueueMember[] {
+  if (!Array.isArray(raw)) return [];
+  const out: QueueMember[] = [];
+  for (const m of raw) {
+    const number = isRecord(m) ? nonEmpty(m.text2) : undefined;
+    if (!isRecord(m) || !number) continue;
+    const extId = intId(m.value);
+    out.push({
+      ...(extId !== undefined ? { extId } : {}),
+      number,
+      name: typeof m.text === 'string' ? m.text : '',
+    });
+  }
+  return out;
+}
+
+function createQueueApi(
+  client: YeastarClient
+): Pick<
+  YeastarApi,
+  | 'listRingGroups'
+  | 'listQueues'
+  | 'queueAgentStatus'
+  | 'agentLogin'
+  | 'agentPause'
+  | 'managerAgentLogin'
+  | 'managerAgentPause'
+> {
+  /** Every row of a paged list; `key` is where its rows are. */
+  async function allPages(endpoint: string, key: string): Promise<Json[]> {
+    const rows: Json[] = [];
+    for (let page = 1; page <= GROUP_MAX_PAGES; page++) {
+      const res = await client.request('GET', endpoint, {
+        query: { page, page_size: GROUP_PAGE_SIZE },
+      });
+      const raw = res[key];
+      if (raw !== undefined && raw !== null && !Array.isArray(raw)) {
+        throw invalidResponse(endpoint, `${key} is not an array`);
+      }
+      const batch = (raw ?? []) as unknown[];
+      rows.push(...batch.filter(isRecord));
+      const total = typeof res.total_number === 'number' ? res.total_number : 0;
+      if (batch.length === 0 || page * GROUP_PAGE_SIZE >= total) break;
+    }
+    return rows;
+  }
+
+  const selfCall =
+    (endpoint: string) =>
+    async ({ extId, operation, queueIds }: AgentSelfInput<string>) => {
+      positiveIds('extId', [extId]);
+      await client.request('GET', endpoint, {
+        query: {
+          ext_id: extId,
+          operation,
+          queue_ids: queueIds?.length
+            ? positiveIds('queueIds', queueIds)
+            : undefined,
+        },
+      });
+    };
+
+  const managerCall =
+    (endpoint: string) =>
+    async ({ extIds, queueId, operation }: QueueAgentsInput<string>) => {
+      positiveIds('queueId', [queueId]);
+      await client.request('GET', endpoint, {
+        query: {
+          ext_ids: positiveIds('extIds', extIds),
+          queue_id: queueId,
+          operation,
+        },
+      });
+    };
+
+  return {
+    async listRingGroups() {
+      const list = await allPages('ringgroup/list', 'data');
+      const ids = list
+        .map((r) => intId(r.id))
+        .filter((n): n is number => n !== undefined);
+      const out: RingGroup[] = [];
+      const endpoint = 'ringgroup/query';
+      for (let i = 0; i < ids.length; i += RINGGROUP_QUERY_CHUNK) {
+        const res = await client.request('GET', endpoint, {
+          query: { ids: ids.slice(i, i + RINGGROUP_QUERY_CHUNK).join(',') },
+        });
+        for (const r of dataArray(endpoint, res)) {
+          const id = isRecord(r) ? intId(r.id) : undefined;
+          const number = isRecord(r) ? nonEmpty(r.number) : undefined;
+          if (!isRecord(r) || id === undefined || !number) continue;
+          const members: RingGroupMember[] = [];
+          ringGroupMembers(r.member_list, members);
+          out.push({
+            id,
+            number,
+            name: typeof r.name === 'string' ? r.name : '',
+            strategy:
+              typeof r.ring_strategy === 'string' ? r.ring_strategy : '',
+            members,
+          });
+        }
+      }
+      return out;
+    },
+
+    async listQueues() {
+      const out: QueueInfo[] = [];
+      for (const r of await allPages('queue/list', 'queue_list')) {
+        const id = intId(r.id);
+        const number = nonEmpty(r.number);
+        if (id === undefined || !number) continue;
+        out.push({
+          id,
+          number,
+          name: typeof r.name === 'string' ? r.name : '',
+          strategy: typeof r.ring_strategy === 'string' ? r.ring_strategy : '',
+          dynamicAgents: queueMembers(r.dynamic_agent_list),
+          staticAgents: queueMembers(r.static_agent_list),
+        });
+      }
+      return out;
+    },
+
+    async queueAgentStatus(queueId) {
+      positiveIds('queueId', [queueId]);
+      const endpoint = 'queue/agent_status';
+      const res = await client.request('GET', endpoint, {
+        query: { id: queueId },
+      });
+      const out: QueueAgentStatus[] = [];
+      for (const a of dataArray(endpoint, res)) {
+        const number = isRecord(a) ? nonEmpty(a.number) : undefined;
+        if (!isRecord(a) || !number) continue;
+        out.push({
+          number,
+          name: typeof a.name === 'string' ? a.name : '',
+          loggedIn: a.is_login === 1,
+          paused: a.is_pause === 1,
+          callStatus:
+            typeof a.call_status === 'number' && Number.isInteger(a.call_status)
+              ? a.call_status
+              : 0,
+          pauseReason: typeof a.pause_reason === 'string' ? a.pause_reason : '',
+          agentType: typeof a.agent_type === 'string' ? a.agent_type : '',
+        });
+      }
+      return out;
+    },
+
+    agentLogin: selfCall('agent/login'),
+    agentPause: selfCall('agent/pause'),
+    managerAgentLogin: managerCall('queue/agent_login'),
+    managerAgentPause: managerCall('queue/agent_pause'),
   };
 }
