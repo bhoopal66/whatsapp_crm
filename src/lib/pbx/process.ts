@@ -318,7 +318,7 @@ interface ExtensionRow {
 }
 
 async function extensionsOf(
-  ctx: Ctx,
+  ctx: Pick<Ctx, 'db' | 'connectionId'>,
   numbers: (string | null | undefined)[]
 ): Promise<Map<string, ExtensionRow>> {
   const wanted = unique(numbers);
@@ -332,8 +332,14 @@ async function extensionsOf(
   return new Map(((data ?? []) as ExtensionRow[]).map((e) => [e.extension, e]));
 }
 
-async function writePresence(
-  ctx: Ctx,
+/**
+ * The one writer of pbx_presence: the PBX's events, and a person setting
+ * their own status (PUT /api/pbx/me/presence) so open screens move before
+ * the PBX's event arrives. An extension whose presence_monitor is off
+ * keeps no row (migration 101 deletes it too).
+ */
+export async function writePresence(
+  ctx: Pick<Ctx, 'db' | 'connectionId' | 'connectionAccountId'>,
   extension: string,
   patch: { presence?: string; call_state?: string }
 ): Promise<void> {

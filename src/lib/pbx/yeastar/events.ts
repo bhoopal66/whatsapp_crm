@@ -318,7 +318,8 @@ function oneOf<T extends string>(
     : { error: `${field} ${JSON.stringify(value)} is not a documented value` };
 }
 
-const PRESENCE: readonly PresenceStatus[] = [
+/** 30009's statuses, and what `extension/update` takes as `presence_status`. */
+export const PRESENCE_STATUSES: readonly PresenceStatus[] = [
   'available',
   'away',
   'business_trip',
@@ -444,7 +445,7 @@ export function parseYeastarEvent(
       event: { kind: 'extension_call_state', type, ...base, extension, status },
     };
   }
-  const presence = oneOf('status', msg.status, PRESENCE);
+  const presence = oneOf('status', msg.status, PRESENCE_STATUSES);
   if (typeof presence === 'object')
     return fail(`event 30009: ${presence.error}`);
   return {
