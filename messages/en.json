@@ -4909,6 +4909,7 @@
     "title": "Calls",
     "tabs": {
       "keypad": "Keypad",
+      "colleagues": "Colleagues",
       "missed": "Missed calls",
       "log": "Call log",
       "people": "By person",
@@ -4976,6 +4977,28 @@
       "recent": "Recent numbers",
       "noRecent": "Numbers you dial here appear here.",
       "ringing": "Your phone rings first, then {number}"
+    },
+    "colleagues": {
+      "search": "Search by name or extension",
+      "extension": "Ext. {extension}",
+      "you": "You",
+      "unregistered": "No phone signed in",
+      "empty": "No extensions on the phone system yet",
+      "noMatch": "Nobody matches “{query}”",
+      "loadFailed": "Couldn't load your colleagues"
+    },
+    "status": {
+      "label": "My status",
+      "available": "Available",
+      "away": "Away",
+      "businessTrip": "Business trip",
+      "dnd": "Do not disturb",
+      "lunch": "Lunch break",
+      "offWork": "Off work",
+      "unknown": "Not set",
+      "saved": "Status set to {status}",
+      "failed": "Couldn't change your status",
+      "notOnPbx": "The phone system does not list your extension"
     }
   },
   "ChatCalls": {

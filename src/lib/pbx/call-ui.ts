@@ -890,6 +890,7 @@ export function messageWhen(
 /** /calls?tab=…, Missed calls being the default (no tab). */
 export const CALLS_TABS = [
   'keypad',
+  'colleagues',
   'missed',
   'log',
   'people',
@@ -907,15 +908,16 @@ export const callsTab = (tab: string | undefined): CallsTab =>
  * The tabs `role` is offered: By person to team leaders and up
  * (pbx_call_report), Unrouted to owners and admins
  * (canViewUnroutedCalls, as the list route refuses the scope below).
- * With no role yet, the tabs everyone has. Keypad to agents and up
- * (the dial route's floor) who have an extension (`hasPhone`).
+ * With no role yet, the tabs everyone has. Keypad and Colleagues to
+ * agents and up (the dial route's floor) who have an extension
+ * (`hasPhone`): both exist to place a call.
  */
 export function visibleCallTabs(
   role: AccountRole | null,
   hasPhone = false
 ): CallsTab[] {
   return CALLS_TABS.filter((k) =>
-    k === 'keypad'
+    k === 'keypad' || k === 'colleagues'
       ? hasPhone && role !== null && hasMinRole(role, 'agent')
       : k === 'people'
         ? role !== null && hasMinRole(role, 'team_leader')
@@ -935,14 +937,14 @@ export function shownCallsTab(
   tab: CallsTab,
   role: AccountRole | null
 ): CallsTab {
-  if (tab === 'keypad')
+  if (tab === 'keypad' || tab === 'colleagues')
     return role === null || hasMinRole(role, 'agent') ? tab : 'missed';
   return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
 }
 
 /**
- * Whether the Calls screen may load `tab`'s list now. People loads its
- * own report, and Unrouted waits for the role: shownCallsTab keeps a
+ * Whether the Calls screen may load `tab`'s list now. People, Keypad
+ * and Colleagues load their own, and Unrouted waits for the role: shownCallsTab keeps a
  * linked tab until the role is known, and loading it first would ask a
  * non-admin's browser for a list the API refuses (403).
  */
@@ -950,7 +952,8 @@ export function callsListReady(
   tab: CallsTab,
   role: AccountRole | null
 ): boolean {
-  if (tab === 'people' || tab === 'keypad') return false;
+  if (tab === 'people' || tab === 'keypad' || tab === 'colleagues')
+    return false;
   return tab !== 'unrouted' || role !== null;
 }
 

@@ -606,6 +606,26 @@ describe('the Calls screen tabs', () => {
     expect(shownCallsTab('keypad', null)).toBe('keypad');
   });
 
+  it('offers Colleagues after the keypad, on the same terms', () => {
+    expect(visibleCallTabs('agent', true).slice(0, 3)).toEqual([
+      'keypad',
+      'colleagues',
+      'missed',
+    ]);
+    expect(visibleCallTabs('owner', true)).toContain('colleagues');
+    expect(visibleCallTabs('viewer', true)).not.toContain('colleagues');
+    expect(visibleCallTabs('bank_guest', true)).not.toContain('colleagues');
+    expect(visibleCallTabs(null, true)).not.toContain('colleagues');
+    expect(visibleCallTabs('agent', false)).not.toContain('colleagues');
+    expect(callsTab('colleagues')).toBe('colleagues');
+    expect(callsListReady('colleagues', 'agent')).toBe(false);
+    expect(callsListReady('colleagues', null)).toBe(false);
+    expect(shownCallsTab('colleagues', 'agent')).toBe('colleagues');
+    expect(shownCallsTab('colleagues', 'viewer')).toBe('missed');
+    expect(shownCallsTab('colleagues', 'bank_guest')).toBe('missed');
+    expect(shownCallsTab('colleagues', null)).toBe('colleagues');
+  });
+
   it('reads ?tab=, anything else being Missed calls', () => {
     expect(callsTab('unrouted')).toBe('unrouted');
     expect(callsTab('people')).toBe('people');

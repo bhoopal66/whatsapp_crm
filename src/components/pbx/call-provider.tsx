@@ -21,6 +21,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { loadPbxNames } from '@/hooks/use-pbx-names';
 import { cachedQuery } from '@/lib/client-cache';
 import {
   NO_PANEL,
@@ -50,6 +51,8 @@ export interface PbxMe {
   softphoneEnabled: boolean;
   softphoneAvailable: boolean;
   pbxUrl: string;
+  /** The status the PBX last reported for the extension; null unknown. */
+  presence: string | null;
 }
 
 export type { PanelCall };
@@ -247,18 +250,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR')
           void reload();
       });
-    void cachedQuery(`pbx-names:${accountId}`, 300_000, async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('user_id, full_name')
-        .eq('account_id', accountId);
-      return Object.fromEntries(
-        ((data ?? []) as { user_id: string; full_name: string }[]).map((p) => [
-          p.user_id,
-          p.full_name,
-        ])
-      );
-    }).then(setNames);
+    void loadPbxNames(supabase, accountId).then(setNames);
     void cachedQuery(`pbx-dids:${accountId}`, 300_000, async () => {
       const { data } = await supabase
         .from('pbx_did_routes')

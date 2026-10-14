@@ -7,7 +7,9 @@ import { Phone, PhoneMissed } from 'lucide-react';
 
 import { CallReport } from '@/components/calls/call-report';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
+import { Colleagues } from '@/components/calls/colleagues';
 import { Keypad } from '@/components/calls/keypad';
+import { MyStatus } from '@/components/calls/my-status';
 import { CallButton } from '@/components/pbx/call-button';
 import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
@@ -245,7 +247,10 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
-      <h1 className="text-xl font-bold">{t('title')}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">{t('title')}</h1>
+        <MyStatus />
+      </div>
       <nav className="flex gap-2" aria-label={t('title')}>
         {visibleCallTabs(accountRole, hasPhone).map((k) => (
           <Link
@@ -271,6 +276,8 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       )}
       {tab === 'keypad' ? (
         <Keypad />
+      ) : tab === 'colleagues' ? (
+        <Colleagues />
       ) : tab === 'people' ? (
         <CallReport />
       ) : !current ? (

@@ -4909,6 +4909,7 @@
     "title": "통화",
     "tabs": {
       "keypad": "키패드",
+      "colleagues": "동료",
       "missed": "부재중 전화",
       "log": "통화 기록",
       "people": "담당자별",
@@ -4976,6 +4977,28 @@
       "recent": "최근 번호",
       "noRecent": "여기서 건 번호가 여기에 표시됩니다.",
       "ringing": "내 전화가 먼저 울린 뒤 {number}에 연결됩니다"
+    },
+    "colleagues": {
+      "search": "이름 또는 내선으로 검색",
+      "extension": "내선 {extension}",
+      "you": "나",
+      "unregistered": "로그인된 전화 없음",
+      "empty": "아직 전화 시스템에 내선이 없습니다",
+      "noMatch": "“{query}”와 일치하는 사람이 없습니다",
+      "loadFailed": "동료 목록을 불러오지 못했습니다"
+    },
+    "status": {
+      "label": "내 상태",
+      "available": "통화 가능",
+      "away": "자리 비움",
+      "businessTrip": "출장",
+      "dnd": "방해 금지",
+      "lunch": "점심시간",
+      "offWork": "퇴근",
+      "unknown": "설정 안 됨",
+      "saved": "상태를 {status}(으)로 바꿨습니다",
+      "failed": "상태를 바꾸지 못했습니다",
+      "notOnPbx": "전화 시스템에 내 내선이 없습니다"
     }
   },
   "ChatCalls": {
