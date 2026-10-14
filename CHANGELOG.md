@@ -18,9 +18,10 @@ Agents can do from the Calls screen what they did in Yeastar's Linkus
 app. No migration.
 
 - **Dialling.** Every agent and above may dial any extension or outside
-  number, including a blind transfer to one. Before, a typed number
-  needed a team leader. Do-not-contact customers stay blocked; viewers
-  and bank guests cannot dial.
+  number. Before, a typed number needed a team leader. Do-not-contact
+  customers stay blocked; viewers and bank guests cannot dial. A blind
+  transfer is unchanged: any extension, but an outside number below team
+  leader only if it belongs to a customer you can see.
 - **Keypad.** A dial pad on the Calls screen, with your recent numbers
   kept in your own browser.
 - **Colleagues.** A directory of the phone system's extensions with each

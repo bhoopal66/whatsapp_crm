@@ -391,9 +391,10 @@ backing off after a refused login is skipped until the backoff ends.
   someone who has an extension shows a _Call_ button in its header, for
   staff who have an extension themselves. Group DMs and channels have
   none. It dials through the same route.
-- **Transfer.** The in-call panel's blind transfer takes any extension
-  or outside number, under the same rule as dialling, and never to a
-  do-not-contact customer's number.
+- **Transfer.** The in-call panel's blind transfer takes any extension.
+  An outside number is narrower than dialling: below team leader it must
+  belong to a customer you can see. Never a do-not-contact customer's
+  number.
 - **Browser softphone or desk phone.** When an admin switches the
   browser softphone on for your extension (and the PBX has Linkus SDK
   credentials), the call rings in the CRM tab. Otherwise the same call
