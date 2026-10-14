@@ -46,7 +46,12 @@ export function VoicemailPanel() {
   const [deleting, setDeleting] = useState(false);
   const marking = useRef(new Set<string>());
 
+  const seq = useRef(0);
+
   const refresh = useCallback(async () => {
+    // Only the newest request may write: an older response never
+    // overwrites a newer one.
+    const n = ++seq.current;
     setLoad({ state: 'loading' });
     try {
       const res = await fetch('/api/pbx/voicemail', { cache: 'no-store' });
@@ -54,15 +59,17 @@ export function VoicemailPanel() {
         const body = (await res.json().catch(() => null)) as {
           code?: string;
         } | null;
+        if (n !== seq.current) return;
         if (body?.code === 'no_extension') {
           setLoad({ state: 'noExtension' });
           return;
         }
       }
       if (!res.ok) throw new Error(String(res.status));
-      setLoad({ state: 'ready', list: await res.json() });
+      const list = await res.json();
+      if (n === seq.current) setLoad({ state: 'ready', list });
     } catch {
-      setLoad({ state: 'error' });
+      if (n === seq.current) setLoad({ state: 'error' });
     }
   }, []);
 
