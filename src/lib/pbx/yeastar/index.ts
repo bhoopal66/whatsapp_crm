@@ -18,6 +18,10 @@ export {
   type SetPresenceInput,
   type TransferInput,
   type TransferType,
+  type VoicemailApi,
+  type VoicemailList,
+  type VoicemailMessage,
+  type VoicemailRef,
   type YeastarApi,
 } from './api';
 export {
