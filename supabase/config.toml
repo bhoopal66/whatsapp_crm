@@ -22,3 +22,19 @@ shadow_port = 54320
 # one failure mode this whole check exists to prevent. 17 is the CLI's
 # current default, not a reading of the live project.
 major_version = 17
+
+# Local dev on this box: migrations are applied by psql (autocommit), because
+# 044 adds an enum value and uses it in the same file, which the CLI's
+# per-file transaction rejects.
+[db.migrations]
+enabled = false
+
+# Kong is reachable from the internet via crm.taamul.ae/supabase, so close
+# GoTrue signup; members are created from Settings -> Members.
+[auth]
+site_url = "https://crm.taamul.ae"
+enable_signup = false
+# The CLI default secret is public; set a private one in supabase/.env (gitignored).
+jwt_secret = "env(SUPABASE_AUTH_JWT_SECRET)"
+publishable_key = "env(SUPABASE_AUTH_PUBLISHABLE_KEY)"
+secret_key = "env(SUPABASE_AUTH_SECRET_KEY)"
