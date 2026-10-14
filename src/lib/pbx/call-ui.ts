@@ -888,7 +888,13 @@ export function messageWhen(
 // ---------- The Calls screen's tabs ----------
 
 /** /calls?tab=…, Missed calls being the default (no tab). */
-export const CALLS_TABS = ['missed', 'log', 'people', 'unrouted'] as const;
+export const CALLS_TABS = [
+  'keypad',
+  'missed',
+  'log',
+  'people',
+  'unrouted',
+] as const;
 export type CallsTab = (typeof CALLS_TABS)[number];
 
 /** `?tab=` as the page reads it: anything else is Missed calls. */
@@ -901,15 +907,21 @@ export const callsTab = (tab: string | undefined): CallsTab =>
  * The tabs `role` is offered: By person to team leaders and up
  * (pbx_call_report), Unrouted to owners and admins
  * (canViewUnroutedCalls, as the list route refuses the scope below).
- * With no role yet, the tabs everyone has.
+ * With no role yet, the tabs everyone has. Keypad to agents and up
+ * (the dial route's floor) who have an extension (`hasPhone`).
  */
-export function visibleCallTabs(role: AccountRole | null): CallsTab[] {
+export function visibleCallTabs(
+  role: AccountRole | null,
+  hasPhone = false
+): CallsTab[] {
   return CALLS_TABS.filter((k) =>
-    k === 'people'
-      ? role !== null && hasMinRole(role, 'team_leader')
-      : k === 'unrouted'
-        ? role !== null && canViewUnroutedCalls(role)
-        : true
+    k === 'keypad'
+      ? hasPhone && role !== null && hasMinRole(role, 'agent')
+      : k === 'people'
+        ? role !== null && hasMinRole(role, 'team_leader')
+        : k === 'unrouted'
+          ? role !== null && canViewUnroutedCalls(role)
+          : true
   );
 }
 
@@ -923,6 +935,8 @@ export function shownCallsTab(
   tab: CallsTab,
   role: AccountRole | null
 ): CallsTab {
+  if (tab === 'keypad')
+    return role === null || hasMinRole(role, 'agent') ? tab : 'missed';
   return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
 }
 
@@ -936,7 +950,7 @@ export function callsListReady(
   tab: CallsTab,
   role: AccountRole | null
 ): boolean {
-  if (tab === 'people') return false;
+  if (tab === 'people' || tab === 'keypad') return false;
   return tab !== 'unrouted' || role !== null;
 }
 

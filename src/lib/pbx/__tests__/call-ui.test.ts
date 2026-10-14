@@ -593,6 +593,19 @@ describe('the Calls screen tabs', () => {
     expect(visibleCallTabs(null)).toEqual(['missed', 'log']);
   });
 
+  it('puts the keypad first for agents and up who have an extension', () => {
+    expect(visibleCallTabs('agent', true)[0]).toBe('keypad');
+    expect(visibleCallTabs('owner', true)[0]).toBe('keypad');
+    expect(visibleCallTabs('viewer', true)).not.toContain('keypad');
+    expect(visibleCallTabs(null, true)).not.toContain('keypad');
+    expect(visibleCallTabs('agent', false)).not.toContain('keypad');
+    expect(callsTab('keypad')).toBe('keypad');
+    expect(callsListReady('keypad', 'agent')).toBe(false);
+    expect(shownCallsTab('keypad', 'agent')).toBe('keypad');
+    expect(shownCallsTab('keypad', 'viewer')).toBe('missed');
+    expect(shownCallsTab('keypad', null)).toBe('keypad');
+  });
+
   it('reads ?tab=, anything else being Missed calls', () => {
     expect(callsTab('unrouted')).toBe('unrouted');
     expect(callsTab('people')).toBe('people');

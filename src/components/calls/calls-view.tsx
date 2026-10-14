@@ -7,7 +7,9 @@ import { Phone, PhoneMissed } from 'lucide-react';
 
 import { CallReport } from '@/components/calls/call-report';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
+import { Keypad } from '@/components/calls/keypad';
 import { CallButton } from '@/components/pbx/call-button';
+import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
 import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
 import {
@@ -61,6 +63,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
   const { accountRole } = useAuth();
+  const hasPhone = Boolean(useCalls()?.me);
   // A direct link to a tab this role is not offered (the API would
   // refuse it) shows Missed calls, as an unknown ?tab= does.
   const tab = shownCallsTab(requested, accountRole);
@@ -244,7 +247,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
       <h1 className="text-xl font-bold">{t('title')}</h1>
       <nav className="flex gap-2" aria-label={t('title')}>
-        {visibleCallTabs(accountRole).map((k) => (
+        {visibleCallTabs(accountRole, hasPhone).map((k) => (
           <Link
             key={k}
             href={k === 'missed' ? '/calls' : `/calls?tab=${k}`}
@@ -266,7 +269,9 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       {tab === 'unrouted' && (
         <p className="text-muted-foreground text-sm">{t('unrouted.hint')}</p>
       )}
-      {tab === 'people' ? (
+      {tab === 'keypad' ? (
+        <Keypad />
+      ) : tab === 'people' ? (
         <CallReport />
       ) : !current ? (
         <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
