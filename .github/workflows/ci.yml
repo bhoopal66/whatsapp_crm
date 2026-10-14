@@ -28,6 +28,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
       ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
       META_APP_SECRET: test_app_secret
+      # Matches vitest.config.ts: the dial tests run with calling on.
+      NEXT_PUBLIC_PBX_OUTBOUND_CALLS: 'on'
     steps:
       - uses: actions/checkout@v7
 

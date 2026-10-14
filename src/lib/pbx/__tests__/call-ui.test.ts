@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DISPOSITIONS,
   NOTES_MAX as ROUTE_NOTES_MAX,
@@ -594,20 +594,46 @@ describe('the Calls screen tabs', () => {
   });
 
   it('puts the keypad first for agents and up who have an extension', () => {
-    expect(visibleCallTabs('agent', true)[0]).toBe('keypad');
-    expect(visibleCallTabs('owner', true)[0]).toBe('keypad');
-    expect(visibleCallTabs('viewer', true)).not.toContain('keypad');
-    expect(visibleCallTabs(null, true)).not.toContain('keypad');
-    expect(visibleCallTabs('agent', false)).not.toContain('keypad');
+    expect(visibleCallTabs('agent', true, true)[0]).toBe('keypad');
+    expect(visibleCallTabs('owner', true, true)[0]).toBe('keypad');
+    expect(visibleCallTabs('viewer', true, true)).not.toContain('keypad');
+    expect(visibleCallTabs(null, true, true)).not.toContain('keypad');
+    expect(visibleCallTabs('agent', false, true)).not.toContain('keypad');
     expect(callsTab('keypad')).toBe('keypad');
     expect(callsListReady('keypad', 'agent')).toBe(false);
-    expect(shownCallsTab('keypad', 'agent')).toBe('keypad');
-    expect(shownCallsTab('keypad', 'viewer')).toBe('missed');
-    expect(shownCallsTab('keypad', null)).toBe('keypad');
+    expect(shownCallsTab('keypad', 'agent', true)).toBe('keypad');
+    expect(shownCallsTab('keypad', 'viewer', true)).toBe('missed');
+    expect(shownCallsTab('keypad', null, true)).toBe('keypad');
+  });
+
+  it('offers no keypad while calling from the CRM is off', () => {
+    for (const r of [...ACCOUNT_ROLES, null])
+      expect(visibleCallTabs(r, true, false)).not.toContain('keypad');
+    expect(visibleCallTabs('agent', true, false).slice(0, 2)).toEqual([
+      'colleagues',
+      'missed',
+    ]);
+    expect(shownCallsTab('keypad', 'owner', false)).toBe('missed');
+    expect(shownCallsTab('keypad', null, false)).toBe('missed');
+    expect(shownCallsTab('colleagues', 'agent', false)).toBe('colleagues');
+    expect(shownCallsTab('voicemail', 'agent', false)).toBe('voicemail');
+  });
+
+  it('follows the build switch when no flag is passed', () => {
+    vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', '');
+    try {
+      expect(visibleCallTabs('owner', true)).not.toContain('keypad');
+      expect(shownCallsTab('keypad', 'owner')).toBe('missed');
+      vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', 'on');
+      expect(visibleCallTabs('owner', true)[0]).toBe('keypad');
+      expect(shownCallsTab('keypad', 'owner')).toBe('keypad');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('offers Colleagues after the keypad, on the same terms', () => {
-    expect(visibleCallTabs('agent', true).slice(0, 3)).toEqual([
+    expect(visibleCallTabs('agent', true, true).slice(0, 3)).toEqual([
       'keypad',
       'colleagues',
       'missed',

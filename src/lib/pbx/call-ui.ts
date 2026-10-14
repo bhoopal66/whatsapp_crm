@@ -17,6 +17,7 @@ import {
   type AccountRole,
 } from '@/lib/auth/roles';
 import type { Disposition } from './calls';
+import { outboundCallsEnabled } from './outbound';
 
 /** calls.disposition, in the order the panel offers them. */
 export const OUTCOMES = [
@@ -916,14 +917,20 @@ export const callsTab = (tab: string | undefined): CallsTab =>
  * is the caller's own extension's box. Groups & queues to agents and up
  * with an extension, and to team leaders and up without one (the
  * groups route falls back to the workspace's connection for them).
+ * Keypad only while this build may place calls (`outbound`,
+ * lib/pbx/outbound.ts); Colleagues stays as a directory with live status.
  */
 export function visibleCallTabs(
   role: AccountRole | null,
-  hasPhone = false
+  hasPhone = false,
+  outbound = outboundCallsEnabled()
 ): CallsTab[] {
   return CALLS_TABS.filter((k) =>
     k === 'keypad' || k === 'colleagues' || k === 'voicemail'
-      ? hasPhone && role !== null && hasMinRole(role, 'agent')
+      ? (k !== 'keypad' || outbound) &&
+        hasPhone &&
+        role !== null &&
+        hasMinRole(role, 'agent')
       : k === 'groups'
         ? role !== null &&
           (hasMinRole(role, 'team_leader') ||
@@ -940,12 +947,16 @@ export function visibleCallTabs(
  * The tab to show for `?tab=`: the one asked for, unless `role` is known
  * and is not offered it (a direct link to Unrouted below admin, to By
  * person below team leader), which is Missed calls like any other tab
- * the screen does not know. With no role yet the request stands.
+ * the screen does not know. With no role yet the request stands. The
+ * keypad is Missed calls whatever the role while this build may not place
+ * calls (`outbound`).
  */
 export function shownCallsTab(
   tab: CallsTab,
-  role: AccountRole | null
+  role: AccountRole | null,
+  outbound = outboundCallsEnabled()
 ): CallsTab {
+  if (tab === 'keypad' && !outbound) return 'missed';
   if (
     tab === 'keypad' ||
     tab === 'colleagues' ||

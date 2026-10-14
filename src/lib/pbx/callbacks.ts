@@ -5,6 +5,7 @@ import type { SystemTaskSource } from '@/lib/tasks/types';
 
 import { pbxApiFor, PbxConnectionError, type PbxHandle } from './connection';
 import { digitsOnly } from './extensions';
+import { outboundCallsEnabled } from './outbound';
 
 /**
  * Dials the "Call me back" queue (callback_requests, migration 086).
@@ -32,6 +33,12 @@ import { digitsOnly } from './extensions';
  * trace of a call counts as one unanswered attempt. Each write re-checks
  * that the request is still `dialing` and still that old, so a late 30012
  * or an overlapping run wins.
+ *
+ * While calling from the CRM is switched off (`outboundCallsEnabled`)
+ * nothing is dialled: every due pending request is marked `skipped`
+ * (`outbound_calls_off`), at any hour, so its CALLBACK task stays with a
+ * person and nothing stale is dialled once calling is switched on.
+ * Releasing stuck requests still runs.
  */
 
 export const CALLBACK_TIME_ZONE = 'Asia/Dubai';
@@ -106,7 +113,8 @@ export async function dialDueCallbacks(
   };
   // Before the hours check: releasing a stuck request never dials.
   summary.released = await releaseStaleCallbacks(db, now);
-  if (!inCallbackHours(now())) {
+  const outbound = outboundCallsEnabled();
+  if (outbound && !inCallbackHours(now())) {
     summary.outsideHours = true;
     return summary;
   }
@@ -142,6 +150,16 @@ export async function dialDueCallbacks(
     const accountId = String(req.account_id);
     const attempts = Number(req.attempts ?? 0);
     try {
+      if (!outbound) {
+        if (
+          await update(id, 'pending', {
+            status: 'skipped',
+            last_error: 'outbound_calls_off',
+          })
+        )
+          summary.skipped++;
+        continue;
+      }
       const c = await db
         .from('contacts')
         .select('phone, do_not_contact_at, user_id')

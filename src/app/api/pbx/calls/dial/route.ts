@@ -24,6 +24,10 @@
 // it; otherwise their number is listed in pbx_bank_numbers just before
 // the PBX is asked. The same do-not-contact rule applies, to the number
 // across the workspace and to the participant's linked contact.
+//
+// Unless this build turned calling on (NEXT_PUBLIC_PBX_OUTBOUND_CALLS,
+// lib/pbx/outbound.ts) every request is refused (403 outbound_calls_off)
+// before the body, the database or the PBX is touched.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -45,6 +49,7 @@ import {
   type MyExtension,
 } from '@/lib/pbx/calls';
 import { pbxApiFor } from '@/lib/pbx/connection';
+import { outboundCallsEnabled } from '@/lib/pbx/outbound';
 import {
   listBankNumber,
   participantCallee,
@@ -61,6 +66,10 @@ const ID_FIELDS = [
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole('agent');
+    if (!outboundCallsEnabled())
+      return fail('Calling from the CRM is switched off', 403, {
+        code: 'outbound_calls_off',
+      });
     const b = (await request.json().catch(() => null)) as Record<
       string,
       unknown

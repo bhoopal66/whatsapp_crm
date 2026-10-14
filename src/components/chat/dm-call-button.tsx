@@ -8,10 +8,20 @@ import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
 import { dmCallTarget } from '@/lib/chat/dm-call';
 import { dmOthers } from '@/lib/chat/view';
+import { outboundCallsEnabled } from '@/lib/pbx/outbound';
 import { createClient } from '@/lib/supabase/client';
 
 /** Call button for a 1:1 DM whose other person has an extension. */
-export function DmCallButton({
+export function DmCallButton(props: {
+  kind: string;
+  dmMemberIds: readonly string[];
+}) {
+  // Calling from the CRM switched off: no button, and no extension query.
+  if (!outboundCallsEnabled()) return null;
+  return <DmCall {...props} />;
+}
+
+function DmCall({
   kind,
   dmMemberIds,
 }: {

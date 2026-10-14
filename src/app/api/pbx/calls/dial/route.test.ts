@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeDb, type FakeDb } from '@/lib/pbx/__tests__/fake-db';
 
 const mocks = vi.hoisted(() => ({
@@ -91,6 +91,43 @@ describe('POST /api/pbx/calls/dial', () => {
     mocks.requireRole.mockRejectedValue(new Error('no'));
     expect((await post({ contactId: C1 })).status).toBe(403);
     expect(mocks.requireRole).toHaveBeenCalledWith('agent');
+  });
+
+  describe('with calling from the CRM switched off', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('refuses every caller before the database or the PBX', async () => {
+      vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', '');
+      as('owner');
+      const myExtension = vi.fn(() => ({ data: [], error: null }));
+      rls.rpcs.pbx_my_extension = myExtension;
+      for (const body of [
+        { contactId: C1 },
+        { number: '050 123 4567' },
+        { contactId: C2, overrideReason: 'Asked us to call' },
+      ]) {
+        const res = await post(body);
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({
+          error: 'Calling from the CRM is switched off',
+          code: 'outbound_calls_off',
+        });
+      }
+      expect(myExtension).not.toHaveBeenCalled();
+      expect(mocks.pbxApiFor).not.toHaveBeenCalled();
+      expect(dial).not.toHaveBeenCalled();
+      expect(service.tables.pbx_audit).toEqual([]);
+    });
+
+    it('still needs an agent first', async () => {
+      vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', 'off');
+      mocks.requireRole.mockRejectedValue(new Error('no'));
+      const res = await post({ contactId: C1 });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'Forbidden' });
+    });
   });
 
   it('calls from the caller’s own extension only, whatever the body says', async () => {

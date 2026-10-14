@@ -365,6 +365,20 @@ backing off after a refused login is skipped until the backoff ends.
 
 ## 11. Calling from the CRM
 
+**Off unless switched on.** The CRM places no calls unless the app was
+built with `NEXT_PUBLIC_PBX_OUTBOUND_CALLS=on` (exactly `on`; it is
+inlined at build time, so changing it needs a rebuild). While it is off,
+every Call and Call back button is hidden (inbox, customer page, contact
+detail, Calls screen, Colleagues, voicemail, groups and queues, deal-room
+members, team-chat DMs), the Calls screen offers no Keypad, and
+`POST /api/pbx/calls/dial` answers 403 `outbound_calls_off`. The
+call-back dialler dials nothing: each due "Call me back" request is marked
+`skipped` (`outbound_calls_off`) and its CALLBACK task stays open for a
+person. Incoming calls, the call log, missed-call tasks, recordings,
+voicemail, presence and the controls of a call already in progress (hang
+up, hold, transfer, keypad tones) are unaffected. The rest of this
+section describes the behaviour once it is on.
+
 - **Click-to-call rings your own extension first.** The PBX rings the
   extension mapped to you in this workspace, then the customer; an
   extension cannot be chosen in the request. With no extension mapped,

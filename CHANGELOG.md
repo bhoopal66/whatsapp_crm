@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Calling from the CRM is switched off by default
+
+The CRM no longer places calls unless it is built with
+`NEXT_PUBLIC_PBX_OUTBOUND_CALLS=on`. While off, every Call / Call back
+button and the Calls screen's Keypad are hidden, `POST
+/api/pbx/calls/dial` answers 403 `outbound_calls_off`, and the call-back
+dialler marks due requests `skipped`, leaving their CALLBACK tasks to a
+person. Incoming calls, call logs, recordings, voicemail and in-call
+controls are unchanged. Set the variable and rebuild to turn calling
+back on (docs/yeastar.md §11).
+
 ### Phone: Linkus features in the CRM
 
 Agents can do from the Calls screen what they did in Yeastar's Linkus

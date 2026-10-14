@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   dialDueCallbacks,
@@ -442,6 +442,54 @@ describe('dialDueCallbacks', () => {
     expect(fake.tables.callback_requests[0]).toMatchObject({
       status: 'pending',
       attempts: 1,
+    });
+  });
+
+  describe('with calling from the CRM switched off', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('never dials: a due request is skipped, at any hour, and its task left alone', async () => {
+      vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', '');
+      for (const at of [DAY, NIGHT]) {
+        setup();
+        fake.tables.tasks = [{ id: 't1', account_id: A, status: 'open' }];
+        expect(await run(at)).toMatchObject({
+          outsideHours: false,
+          dialled: 0,
+          skipped: 1,
+        });
+        expect(fake.tables.callback_requests[0]).toMatchObject({
+          status: 'skipped',
+          attempts: 0,
+          last_error: 'outbound_calls_off',
+        });
+        expect(fake.tables.tasks[0].status).toBe('open');
+      }
+      expect(dial).not.toHaveBeenCalled();
+    });
+
+    it('leaves a request that is not due yet', async () => {
+      vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', 'off');
+      setup({ not_before: '2026-10-12T11:00:00.000Z' });
+      expect(await run()).toMatchObject({ skipped: 0, dialled: 0 });
+      expect(fake.tables.callback_requests[0].status).toBe('pending');
+    });
+
+    it('still releases a request stuck dialing, then skips it', async () => {
+      vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', '');
+      setup({ status: 'dialing', attempts: 1, updated_at: STALE_AT });
+      expect(await run()).toMatchObject({
+        released: 1,
+        skipped: 1,
+        dialled: 0,
+      });
+      expect(dial).not.toHaveBeenCalled();
+      expect(fake.tables.callback_requests[0]).toMatchObject({
+        status: 'skipped',
+        attempts: 1,
+      });
     });
   });
 

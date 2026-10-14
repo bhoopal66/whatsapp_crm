@@ -36,6 +36,7 @@ import {
   type ConsentFields,
   type ParticipantBlockCode,
 } from '@/lib/pbx/call-ui';
+import { outboundCallsEnabled } from '@/lib/pbx/outbound';
 import { useCalls } from './call-provider';
 import { BLOCK_KEYS, useDial } from './use-dial';
 
@@ -71,7 +72,14 @@ export function CallButton({
   const { busy, dial: post } = useDial();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
-  if (!calls?.me || (!contact && !number && !participantId)) return null;
+  // Calling from the CRM switched off (lib/pbx/outbound.ts): no button
+  // anywhere; the dial route refuses as well.
+  if (
+    !outboundCallsEnabled() ||
+    !calls?.me ||
+    (!contact && !number && !participantId)
+  )
+    return null;
 
   const consent = consentState(contact ?? {});
   const dnc = !consent.callsOk || refused !== null;
