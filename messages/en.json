@@ -4908,6 +4908,8 @@
   "CallsPage": {
     "title": "Calls",
     "tabs": {
+      "keypad": "Keypad",
+      "colleagues": "Colleagues",
       "missed": "Missed calls",
       "log": "Call log",
       "people": "By person",
@@ -4968,6 +4970,35 @@
       "footnoteMissed": "Missed: an incoming call that rang someone's own extension and was not answered counts for them. A call to a ring group or queue rings several people at once, so when nobody answers it has no person: it is counted once, under No person, as is a call to an extension with no CRM login.",
       "footnoteFigures": "Answered, missed and ring time are incoming calls; outbound counts every call placed, answered or not. Talk time and No outcome count answered calls; Avg ring is how long answered incoming calls rang. Calls between colleagues are left out.",
       "footnoteLeader": "You see the people in the teams you lead, and yourself. The workspace total counts every call."
+    },
+    "keypad": {
+      "number": "Number or extension",
+      "backspace": "Delete last digit",
+      "recent": "Recent numbers",
+      "noRecent": "Numbers you dial here appear here.",
+      "ringing": "Your phone rings first, then {number}"
+    },
+    "colleagues": {
+      "search": "Search by name or extension",
+      "extension": "Ext. {extension}",
+      "you": "You",
+      "unregistered": "No phone signed in",
+      "empty": "No extensions on the phone system yet",
+      "noMatch": "Nobody matches “{query}”",
+      "loadFailed": "Couldn't load your colleagues"
+    },
+    "status": {
+      "label": "My status",
+      "available": "Available",
+      "away": "Away",
+      "businessTrip": "Business trip",
+      "dnd": "Do not disturb",
+      "lunch": "Lunch break",
+      "offWork": "Off work",
+      "unknown": "Not set",
+      "saved": "Status set to {status}",
+      "failed": "Couldn't change your status",
+      "notOnPbx": "The phone system does not list your extension"
     }
   },
   "ChatCalls": {

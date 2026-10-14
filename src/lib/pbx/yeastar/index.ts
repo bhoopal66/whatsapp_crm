@@ -15,6 +15,7 @@ export {
   type ExtensionOnline,
   type ExtensionSummary,
   type RecordingRef,
+  type SetPresenceInput,
   type TransferInput,
   type TransferType,
   type YeastarApi,

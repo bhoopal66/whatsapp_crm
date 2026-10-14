@@ -6,8 +6,8 @@
 // The PBX rings the caller's OWN extension (pbx_my_extension(), on the
 // caller's client) and then the customer: an extension in the body is
 // never read (C-7). The callee is a contact the caller can see, the
-// contact of a conversation or deal they can see, or a typed number
-// (resolveCallee: a visible contact's, or any for a team leader and up).
+// contact of a conversation or deal they can see, or any typed number,
+// an extension or an outside one (resolveCallee).
 // A do-not-contact customer is refused (409, code do_not_contact)
 // unless an owner or admin sends overrideReason, which is written to
 // pbx_audit before the PBX is asked. No calls row is made here: the
@@ -161,7 +161,6 @@ export async function POST(request: Request) {
       rls: ctx.supabase,
       service,
       accountId: ctx.accountId,
-      rank,
       contactId,
       number: contactId ? undefined : (b.number as string),
     });

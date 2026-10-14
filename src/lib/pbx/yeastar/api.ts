@@ -1,5 +1,6 @@
 import { YeastarError } from './errors';
 import type { YeastarClient } from './client';
+import type { PresenceStatus } from './events';
 
 /** `cdr/search` refuses pages above this ("Maximum value: 10,000"). */
 export const CDR_MAX_PAGE_SIZE = 10_000;
@@ -77,6 +78,8 @@ export interface ExtensionOnline {
 }
 
 export interface ExtensionSummary {
+  /** The PBX's own id, which `extension/update` takes; not the number. */
+  id?: number;
   number: string;
   callerIdName: string;
   email?: string;
@@ -88,6 +91,16 @@ export interface ExtensionList {
   total: number;
   items: ExtensionSummary[];
 }
+
+export interface SetPresenceInput {
+  /** The PBX's extension id (`findExtension`), not the number. */
+  id: number;
+  status: PresenceStatus;
+}
+
+/** `extension/search` pages read before giving up on an exact number. */
+const SEARCH_PAGE_SIZE = 100;
+const SEARCH_MAX_PAGES = 20;
 
 /** A CDR row exactly as the PBX sent it; legacy and new rows differ. */
 export type CdrRecord = Record<string, unknown>;
@@ -123,6 +136,16 @@ export interface YeastarApi {
     page?: number;
     pageSize?: number;
   }): Promise<ExtensionList>;
+  /**
+   * v1 `extension/search` for one number. `search_value` is a keyword
+   * matched loosely (200 also finds 2000, names and emails), so results
+   * are paged and only an exact `number` with an id counts.
+   */
+  findExtension(
+    number: string
+  ): Promise<(ExtensionSummary & { id: number }) | null>;
+  /** v1 `extension/update` with `presence_status` only. */
+  setPresence(input: SetPresenceInput): Promise<void>;
   /**
    * v1 `cdr/search`. The window goes out as Unix seconds, the one time
    * format the docs allow that does not depend on the PBX's display format
@@ -238,7 +261,10 @@ function parseExtension(raw: unknown): ExtensionSummary | null {
   const status = isRecord(raw.online_status) ? raw.online_status : {};
   const email = nonEmpty(raw.email_addr);
   const presenceStatus = nonEmpty(raw.presence_status);
+  const id =
+    typeof raw.id === 'number' && Number.isInteger(raw.id) ? raw.id : undefined;
   return {
+    ...(id !== undefined ? { id } : {}),
     number: num,
     callerIdName:
       typeof raw.caller_id_name === 'string' ? raw.caller_id_name : '',
@@ -346,6 +372,30 @@ export function createYeastarApi(client: YeastarClient): YeastarApi {
     },
 
     listExtensions,
+
+    async findExtension(number) {
+      const endpoint = 'extension/search';
+      for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
+        const res = await client.request('GET', endpoint, {
+          query: { search_value: number, page, page_size: SEARCH_PAGE_SIZE },
+        });
+        const rows = dataArray(endpoint, res);
+        for (const e of rows.map(parseExtension)) {
+          if (e?.number === number && e.id !== undefined)
+            return { ...e, id: e.id };
+        }
+        const total =
+          typeof res.total_number === 'number' ? res.total_number : 0;
+        if (rows.length === 0 || page * SEARCH_PAGE_SIZE >= total) break;
+      }
+      return null;
+    },
+
+    async setPresence({ id, status }) {
+      await client.request('POST', 'extension/update', {
+        body: { id, presence_status: status },
+      });
+    },
 
     async searchCdr({ startTime, endTime, page, pageSize }) {
       if (page !== undefined && (!Number.isInteger(page) || page < 1)) {

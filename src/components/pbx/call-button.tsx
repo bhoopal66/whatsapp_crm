@@ -14,7 +14,6 @@
 import { useState } from 'react';
 import { Phone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -34,19 +33,11 @@ import { hasMinRole } from '@/lib/auth/roles';
 import {
   OVERRIDE_REASON_MAX,
   consentState,
-  dialResult,
   type ConsentFields,
   type ParticipantBlockCode,
 } from '@/lib/pbx/call-ui';
 import { useCalls } from './call-provider';
-
-const BLOCK_KEYS: Record<ParticipantBlockCode, string> = {
-  bank_guests_off: 'bankGuestsOff',
-  not_callable: 'notCallable',
-  room_closed: 'roomClosed',
-  no_number: 'noNumber',
-  bank_calls_recorded: 'bankCallsRecorded',
-};
+import { BLOCK_KEYS, useDial } from './use-dial';
 
 export function CallButton({
   contact,
@@ -55,10 +46,11 @@ export function CallButton({
   conversationId,
   label,
   size = 'sm',
+  success,
 }: {
   /** The customer; a do-not-contact stamp disables the button. */
   contact?: ConsentFields & { id: string };
-  /** Or a number nobody's contact holds (team leader and up may dial it). */
+  /** Or a number or extension as typed (agent and up may dial any). */
   number?: string;
   /** Or someone in a deal room: the server resolves their number. */
   participantId?: string;
@@ -66,6 +58,8 @@ export function CallButton({
   /** In place of "Call", e.g. "Call back" on a missed call. */
   label?: string;
   size?: 'sm' | 'xs';
+  /** In place of "Your phone rings first, then the customer". */
+  success?: string;
 }) {
   const calls = useCalls();
   const { accountRole } = useAuth();
@@ -74,7 +68,7 @@ export function CallButton({
     null
   );
   const [blocked, setBlocked] = useState<ParticipantBlockCode | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, dial: post } = useDial();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
   if (!calls?.me || (!contact && !number && !participantId)) return null;
@@ -85,39 +79,19 @@ export function CallButton({
   const admin = accountRole ? hasMinRole(accountRole, 'admin') : false;
 
   const dial = async (overrideReason?: string) => {
-    setBusy(true);
-    try {
-      const res = await fetch('/api/pbx/calls/dial', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(participantId
-            ? { participantId }
-            : conversationId
-              ? { conversationId }
-              : contact
-                ? { contactId: contact.id }
-                : { number }),
-          ...(overrideReason ? { overrideReason } : {}),
-        }),
-      });
-      const r = dialResult(res.status, await res.json().catch(() => null));
-      if (r.kind === 'ok') {
-        toast.success(t('ringsFirst'));
-        setAsking(false);
-      } else if (r.kind === 'do_not_contact') {
-        setRefused({ reason: r.reason });
-        toast.error(t('dncTooltip', { reason: r.reason ?? t('dncNoReason') }));
-      } else if (r.kind === 'blocked') {
-        setBlocked(r.code);
-        toast.error(t(BLOCK_KEYS[r.code]));
-      } else if (r.kind === 'no_extension') toast.error(t('noExtension'));
-      else toast.error(r.message ?? t('dialFailed'));
-    } catch {
-      toast.error(t('dialFailed'));
-    } finally {
-      setBusy(false);
-    }
+    const r = await post(
+      participantId
+        ? { participantId }
+        : conversationId
+          ? { conversationId }
+          : contact
+            ? { contactId: contact.id }
+            : { number: number as string },
+      { overrideReason, success }
+    );
+    if (r?.kind === 'ok') setAsking(false);
+    else if (r?.kind === 'do_not_contact') setRefused({ reason: r.reason });
+    else if (r?.kind === 'blocked') setBlocked(r.code);
   };
 
   const green =
