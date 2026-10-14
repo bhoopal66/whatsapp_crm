@@ -122,7 +122,7 @@ export interface CdrSearchResult {
 export type RecordingRef =
   { id: number; file?: never } | { file: string; id?: never };
 
-export interface YeastarApi {
+export interface YeastarApi extends VoicemailApi {
   /** Starts a call; the only thing the PBX returns is its `call_id`. */
   dial(input: DialInput): Promise<{ callId: string }>;
   hangup(input: ChannelInput): Promise<void>;
@@ -446,6 +446,125 @@ export function createYeastarApi(client: YeastarClient): YeastarApi {
     async testConnection() {
       const { total } = await listExtensions({ page: 1, pageSize: 1 });
       return { ok: true as const, extensionCount: total };
+    },
+
+    ...createVoicemailApi(client),
+  };
+}
+
+// ---------- Voicemail (vm/get, vm/download, vm/update, vm/delete) ----------
+
+/** One message as `vm/get` lists it; `time` is the PBX's display string. */
+export interface VoicemailMessage {
+  msgId: string;
+  /** "msg0000.wav": its extension names the audio format. */
+  fileName: string;
+  read: boolean;
+  callerName: string;
+  callerNumber: string;
+  /** Wall-clock time in the PBX's zone and display format (parsePbxTime). */
+  time: string;
+  durationSeconds: number;
+}
+
+export interface VoicemailList {
+  total: number;
+  items: VoicemailMessage[];
+}
+
+export interface VoicemailRef {
+  /** `msg_id` from `vm/get`; the other endpoints call it `id`. */
+  msgId: string;
+}
+
+export interface VoicemailApi {
+  /** v1 `vm/get` for one extension (or a shared group voicemail). */
+  listVoicemail(input: {
+    number: string;
+    /** 1-based. */
+    page?: number;
+    pageSize?: number;
+  }): Promise<VoicemailList>;
+  /**
+   * `vm/download`, joined to the base URL with a token, as
+   * {@link YeastarApi.recordingDownloadUrl}: valid 30 minutes and embeds
+   * a live token. Fetch it server-side; never send it to a browser or a
+   * log.
+   */
+  voicemailDownloadUrl(ref: VoicemailRef): Promise<string>;
+  /** `vm/update` with `vm_status: 1`, the only status the PBX accepts. */
+  markVoicemailRead(ref: VoicemailRef): Promise<void>;
+  /** `vm/delete` (a GET, `id` in the query). */
+  deleteVoicemail(ref: VoicemailRef): Promise<void>;
+}
+
+const textOf = (v: unknown): string =>
+  typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '';
+
+function parseVoicemail(raw: unknown): VoicemailMessage | null {
+  if (!isRecord(raw)) return null;
+  const msgId = nonEmpty(raw.msg_id);
+  if (!msgId) return null;
+  const duration = Number(raw.duration);
+  return {
+    msgId,
+    fileName: textOf(raw.file_name),
+    read: Number(raw.is_read) === 1,
+    callerName: textOf(raw.name),
+    callerNumber: textOf(raw.number),
+    time: textOf(raw.time),
+    durationSeconds:
+      Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 0,
+  };
+}
+
+function createVoicemailApi(client: YeastarClient): VoicemailApi {
+  const refId = (name: string, ref: VoicemailRef): string => {
+    if (!nonEmpty(ref?.msgId)) throw new TypeError(`${name} needs a msgId`);
+    return ref.msgId;
+  };
+  return {
+    async listVoicemail({ number, page, pageSize }) {
+      if (!nonEmpty(number))
+        throw new TypeError('listVoicemail needs a number');
+      const endpoint = 'vm/get';
+      const res = await client.request('GET', endpoint, {
+        query: { number, page, page_size: pageSize },
+      });
+      const items = dataArray(endpoint, res)
+        .map(parseVoicemail)
+        .filter((m): m is VoicemailMessage => m !== null);
+      // An empty box may answer without total_number.
+      const total =
+        typeof res.total_number === 'number' &&
+        Number.isFinite(res.total_number)
+          ? res.total_number
+          : items.length;
+      return { total, items };
+    },
+
+    async voicemailDownloadUrl(ref) {
+      const msgId = refId('voicemailDownloadUrl', ref);
+      const endpoint = 'vm/download';
+      const res = await client.request('GET', endpoint, {
+        query: { msg_id: msgId },
+      });
+      const path = nonEmpty(res.download_resource_url);
+      if (!path)
+        throw invalidResponse(endpoint, 'download_resource_url missing');
+      return client.resourceUrl(path);
+    },
+
+    async markVoicemailRead(ref) {
+      const id = refId('markVoicemailRead', ref);
+      await client.request('POST', 'vm/update', {
+        body: { id, vm_status: 1 },
+      });
+    },
+
+    async deleteVoicemail(ref) {
+      const id = refId('deleteVoicemail', ref);
+      await client.request('GET', 'vm/delete', { query: { id } });
     },
   };
 }

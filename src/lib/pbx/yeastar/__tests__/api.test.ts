@@ -580,3 +580,142 @@ describe('barrel', () => {
     );
   });
 });
+
+describe('voicemail', () => {
+  // The docs' vm/get example (a group box; an extension's has no
+  // group_voicemail_read_status), plus an unread message and junk.
+  const VM_LIST_OK = {
+    errcode: 0,
+    errmsg: 'SUCCESS',
+    total_number: 3,
+    data: [
+      {
+        msg_id: '1713840555-00000623',
+        file_name: 'msg0000.wav',
+        is_read: 1,
+        duration: 18,
+        size: 290604,
+        group_voicemail_read_status: null,
+        name: 'John(Customer Example)',
+        time: '2024/04/23 10:49:15',
+        number: '5503301',
+        uid: '20260120102710672A5',
+      },
+      {
+        msg_id: '1713840600-00000624',
+        file_name: 'msg0001.wav',
+        is_read: 0,
+        duration: 7,
+        name: '',
+        time: '2024/04/23 11:00:00',
+        number: '0501234567',
+      },
+      { file_name: 'no-id.wav' },
+    ],
+  };
+
+  it('lists one extension’s box with page and page_size', async () => {
+    const { api, calls } = setup(() => VM_LIST_OK);
+    const list = await api.listVoicemail({
+      number: '201',
+      page: 1,
+      pageSize: 100,
+    });
+    expect(endpointOf(calls[0])).toBe('vm/get');
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url.searchParams.get('number')).toBe('201');
+    expect(calls[0].url.searchParams.get('page')).toBe('1');
+    expect(calls[0].url.searchParams.get('page_size')).toBe('100');
+    expect(list.total).toBe(3);
+    expect(list.items).toEqual([
+      {
+        msgId: '1713840555-00000623',
+        fileName: 'msg0000.wav',
+        read: true,
+        callerName: 'John(Customer Example)',
+        callerNumber: '5503301',
+        time: '2024/04/23 10:49:15',
+        durationSeconds: 18,
+      },
+      {
+        msgId: '1713840600-00000624',
+        fileName: 'msg0001.wav',
+        read: false,
+        callerName: '',
+        callerNumber: '0501234567',
+        time: '2024/04/23 11:00:00',
+        durationSeconds: 7,
+      },
+    ]);
+  });
+
+  it('reads an empty box with no data or total', async () => {
+    const { api } = setup(() => ({ errcode: 0, errmsg: 'SUCCESS' }));
+    await expect(api.listVoicemail({ number: '201' })).resolves.toEqual({
+      total: 0,
+      items: [],
+    });
+  });
+
+  it('downloads by msg_id: base + path + token', async () => {
+    const { api, calls } = setup(() => ({
+      errcode: 0,
+      errmsg: 'SUCCESS',
+      file: 'PBX-Voicemail-download-1.wav',
+      download_resource_url: '/api/download/PBX-Voicemail-download-1.wav',
+    }));
+    const url = await api.voicemailDownloadUrl({
+      msgId: '1713033769-00000619',
+    });
+    expect(endpointOf(calls[0])).toBe('vm/download');
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url.searchParams.get('msg_id')).toBe('1713033769-00000619');
+    expect(url).toBe(
+      `${BASE}/api/download/PBX-Voicemail-download-1.wav?access_token=main-token`
+    );
+  });
+
+  it('needs a download path in the answer', async () => {
+    const { api } = setup(() => ({ errcode: 0, errmsg: 'SUCCESS' }));
+    await expect(
+      api.voicemailDownloadUrl({ msgId: 'm-1' })
+    ).rejects.toMatchObject({ errmsg: 'INVALID RESPONSE' });
+  });
+
+  it('marks read with POST vm/update { id, vm_status: 1 }', async () => {
+    const { api, calls } = setup(() => ({ errcode: 0, errmsg: 'SUCCESS' }));
+    await api.markVoicemailRead({ msgId: 'm-1' });
+    expect(endpointOf(calls[0])).toBe('vm/update');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].body).toEqual({ id: 'm-1', vm_status: 1 });
+  });
+
+  it('deletes with GET vm/delete?id=', async () => {
+    const { api, calls } = setup(() => ({ errcode: 0, errmsg: 'SUCCESS' }));
+    await api.deleteVoicemail({ msgId: 'm-1' });
+    expect(endpointOf(calls[0])).toBe('vm/delete');
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url.searchParams.get('id')).toBe('m-1');
+  });
+
+  it('refuses an empty id or number before calling the PBX', async () => {
+    const { api, calls } = setup(() => ({ errcode: 0 }));
+    await expect(api.listVoicemail({ number: '' })).rejects.toBeInstanceOf(
+      TypeError
+    );
+    for (const call of [
+      api.voicemailDownloadUrl,
+      api.markVoicemailRead,
+      api.deleteVoicemail,
+    ])
+      await expect(call({ msgId: '' })).rejects.toBeInstanceOf(TypeError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('lets a PBX refusal through as YeastarError', async () => {
+    const { api } = setup(() => ({ errcode: 10002, errmsg: 'FAILURE' }));
+    await expect(api.deleteVoicemail({ msgId: 'm-1' })).rejects.toBeInstanceOf(
+      YeastarError
+    );
+  });
+});
