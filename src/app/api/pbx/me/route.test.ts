@@ -81,9 +81,18 @@ describe('GET /api/pbx/me', () => {
       softphoneEnabled: true,
       softphoneAvailable: true,
       pbxUrl: 'https://acme.ras.yeastar.com',
+      presence: null,
     });
     for (const secret of Object.values(SECRETS).slice(1))
       expect(text).not.toContain(secret);
+  });
+
+  it('reports the caller’s own presence row', async () => {
+    service.tables.pbx_presence = [
+      { connection_id: 'conn-1', extension: '202', presence: 'away' },
+      { connection_id: 'conn-1', extension: '201', presence: 'lunch' },
+    ];
+    expect((await (await GET()).json()).presence).toBe('lunch');
   });
 
   it('says the softphone is unavailable without both SDK credentials', async () => {

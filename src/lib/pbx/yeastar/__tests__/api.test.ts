@@ -241,6 +241,7 @@ describe('listExtensions', () => {
     expect(out.total).toBe(12);
     expect(out.items).toHaveLength(4);
     expect(out.items[0]).toEqual({
+      id: 238,
       number: '2000',
       callerIdName: 'Leo Ball',
       email: 'leo@sample.com',
@@ -348,6 +349,79 @@ describe('listExtensions', () => {
     await expect(missing.api.listExtensions()).rejects.toMatchObject({
       errmsg: 'INVALID RESPONSE',
     });
+  });
+});
+
+describe('findExtension', () => {
+  const ext = (id: unknown, number: string) => ({
+    id,
+    number,
+    caller_id_name: number,
+    online_status: {},
+  });
+
+  it('GETs extension/search for the number and returns the exact match with its id', async () => {
+    const { api, calls } = setup(() => ({
+      errcode: 0,
+      errmsg: 'SUCCESS',
+      total_number: 3,
+      data: [ext(301, '1200'), ext(302, '2000'), ext(238, '200')],
+    }));
+    const out = await api.findExtension('200');
+    expect(out).toMatchObject({ id: 238, number: '200' });
+    expect(calls).toHaveLength(1);
+    expect(endpointOf(calls[0])).toBe('extension/search');
+    expect(calls[0].method).toBe('GET');
+    expect(Object.fromEntries(calls[0].url.searchParams)).toEqual({
+      search_value: '200',
+      page: '1',
+      page_size: '100',
+      access_token: 'main-token',
+    });
+  });
+
+  it('pages on until the exact number, and answers null when it is absent', async () => {
+    const page = (n: string) => ({
+      errcode: 0,
+      errmsg: 'SUCCESS',
+      total_number: 150,
+      data:
+        n === '1'
+          ? Array.from({ length: 100 }, (_, i) => ext(i + 1, `20${i}0`))
+          : [ext('7', '20'), ext(777, '20')],
+    });
+    const { api, calls } = setup((c) => page(c.url.searchParams.get('page')!));
+    // A non-integer id is no id: the second row on page 2 is the match.
+    expect(await api.findExtension('20')).toMatchObject({ id: 777 });
+    expect(calls.map((c) => c.url.searchParams.get('page'))).toEqual([
+      '1',
+      '2',
+    ]);
+    const none = setup((c) => page(c.url.searchParams.get('page')!));
+    expect(await none.api.findExtension('999')).toBeNull();
+    expect(none.calls).toHaveLength(2);
+    const empty = setup(() => ({ errcode: 0, errmsg: 'SUCCESS' }));
+    expect(await empty.api.findExtension('201')).toBeNull();
+  });
+});
+
+describe('setPresence', () => {
+  it('POSTs extension/update with the PBX id and presence_status only', async () => {
+    const { api, calls } = setup(() => ({ errcode: 0, errmsg: 'SUCCESS' }));
+    await api.setPresence({ id: 238, status: 'do_not_disturb' });
+    expect(endpointOf(calls[0])).toBe('extension/update');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].body).toEqual({
+      id: 238,
+      presence_status: 'do_not_disturb',
+    });
+  });
+
+  it('lets a PBX refusal through as YeastarError', async () => {
+    const { api } = setup(() => ({ errcode: 10002, errmsg: 'FAILURE' }));
+    await expect(
+      api.setPresence({ id: 238, status: 'away' })
+    ).rejects.toBeInstanceOf(YeastarError);
   });
 });
 
