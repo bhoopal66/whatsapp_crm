@@ -895,6 +895,8 @@ export const CALLS_TABS = [
   'log',
   'people',
   'unrouted',
+  'voicemail',
+  'groups',
 ] as const;
 export type CallsTab = (typeof CALLS_TABS)[number];
 
@@ -910,20 +912,27 @@ export const callsTab = (tab: string | undefined): CallsTab =>
  * (canViewUnroutedCalls, as the list route refuses the scope below).
  * With no role yet, the tabs everyone has. Keypad and Colleagues to
  * agents and up (the dial route's floor) who have an extension
- * (`hasPhone`): both exist to place a call.
+ * (`hasPhone`): both exist to place a call. Voicemail likewise, as it
+ * is the caller's own extension's box. Groups & queues to agents and up
+ * with an extension, and to team leaders and up without one (the
+ * groups route falls back to the workspace's connection for them).
  */
 export function visibleCallTabs(
   role: AccountRole | null,
   hasPhone = false
 ): CallsTab[] {
   return CALLS_TABS.filter((k) =>
-    k === 'keypad' || k === 'colleagues'
+    k === 'keypad' || k === 'colleagues' || k === 'voicemail'
       ? hasPhone && role !== null && hasMinRole(role, 'agent')
-      : k === 'people'
-        ? role !== null && hasMinRole(role, 'team_leader')
-        : k === 'unrouted'
-          ? role !== null && canViewUnroutedCalls(role)
-          : true
+      : k === 'groups'
+        ? role !== null &&
+          (hasMinRole(role, 'team_leader') ||
+            (hasPhone && hasMinRole(role, 'agent')))
+        : k === 'people'
+          ? role !== null && hasMinRole(role, 'team_leader')
+          : k === 'unrouted'
+            ? role !== null && canViewUnroutedCalls(role)
+            : true
   );
 }
 
@@ -937,14 +946,19 @@ export function shownCallsTab(
   tab: CallsTab,
   role: AccountRole | null
 ): CallsTab {
-  if (tab === 'keypad' || tab === 'colleagues')
+  if (
+    tab === 'keypad' ||
+    tab === 'colleagues' ||
+    tab === 'voicemail' ||
+    tab === 'groups'
+  )
     return role === null || hasMinRole(role, 'agent') ? tab : 'missed';
   return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
 }
 
 /**
- * Whether the Calls screen may load `tab`'s list now. People, Keypad
- * and Colleagues load their own, and Unrouted waits for the role: shownCallsTab keeps a
+ * Whether the Calls screen may load `tab`'s list now. People, Keypad,
+ * Colleagues, Voicemail and Groups load their own, and Unrouted waits for the role: shownCallsTab keeps a
  * linked tab until the role is known, and loading it first would ask a
  * non-admin's browser for a list the API refuses (403).
  */
@@ -952,7 +966,13 @@ export function callsListReady(
   tab: CallsTab,
   role: AccountRole | null
 ): boolean {
-  if (tab === 'people' || tab === 'keypad' || tab === 'colleagues')
+  if (
+    tab === 'people' ||
+    tab === 'keypad' ||
+    tab === 'colleagues' ||
+    tab === 'voicemail' ||
+    tab === 'groups'
+  )
     return false;
   return tab !== 'unrouted' || role !== null;
 }

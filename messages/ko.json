@@ -4910,6 +4910,8 @@
     "tabs": {
       "keypad": "키패드",
       "colleagues": "동료",
+      "voicemail": "음성사서함",
+      "groups": "그룹 및 대기열",
       "missed": "부재중 전화",
       "log": "통화 기록",
       "people": "담당자별",

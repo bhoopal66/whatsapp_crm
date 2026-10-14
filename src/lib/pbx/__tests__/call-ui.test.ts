@@ -583,9 +583,9 @@ describe('the Calls screen tabs', () => {
       ACCOUNT_ROLES.map((r) => [r, visibleCallTabs(r).join(',')])
     );
     expect(tabs).toEqual({
-      owner: 'missed,log,people,unrouted',
-      admin: 'missed,log,people,unrouted',
-      team_leader: 'missed,log,people',
+      owner: 'missed,log,people,unrouted,groups',
+      admin: 'missed,log,people,unrouted,groups',
+      team_leader: 'missed,log,people,groups',
       agent: 'missed,log',
       viewer: 'missed,log',
       bank_guest: 'missed,log',
@@ -624,6 +624,34 @@ describe('the Calls screen tabs', () => {
     expect(shownCallsTab('colleagues', 'viewer')).toBe('missed');
     expect(shownCallsTab('colleagues', 'bank_guest')).toBe('missed');
     expect(shownCallsTab('colleagues', null)).toBe('colleagues');
+  });
+
+  it('offers Voicemail to agents with an extension, last but one', () => {
+    expect(visibleCallTabs('agent', true)).toContain('voicemail');
+    expect(visibleCallTabs('owner', false)).not.toContain('voicemail');
+    expect(visibleCallTabs('viewer', true)).not.toContain('voicemail');
+    expect(visibleCallTabs('bank_guest', true)).not.toContain('voicemail');
+    expect(callsTab('voicemail')).toBe('voicemail');
+    expect(callsListReady('voicemail', 'agent')).toBe(false);
+    expect(shownCallsTab('voicemail', 'agent')).toBe('voicemail');
+    expect(shownCallsTab('voicemail', 'viewer')).toBe('missed');
+    expect(shownCallsTab('voicemail', null)).toBe('voicemail');
+  });
+
+  it('offers Groups to agents with an extension and leaders without', () => {
+    expect(visibleCallTabs('agent', true).slice(-2)).toEqual([
+      'voicemail',
+      'groups',
+    ]);
+    expect(visibleCallTabs('agent', false)).not.toContain('groups');
+    expect(visibleCallTabs('team_leader', false)).toContain('groups');
+    expect(visibleCallTabs('admin', false)).toContain('groups');
+    expect(visibleCallTabs('viewer', true)).not.toContain('groups');
+    expect(visibleCallTabs('bank_guest', true)).not.toContain('groups');
+    expect(visibleCallTabs(null, true)).not.toContain('groups');
+    expect(callsListReady('groups', 'team_leader')).toBe(false);
+    expect(shownCallsTab('groups', 'agent')).toBe('groups');
+    expect(shownCallsTab('groups', 'viewer')).toBe('missed');
   });
 
   it('reads ?tab=, anything else being Missed calls', () => {

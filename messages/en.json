@@ -4910,6 +4910,8 @@
     "tabs": {
       "keypad": "Keypad",
       "colleagues": "Colleagues",
+      "voicemail": "Voicemail",
+      "groups": "Groups & queues",
       "missed": "Missed calls",
       "log": "Call log",
       "people": "By person",

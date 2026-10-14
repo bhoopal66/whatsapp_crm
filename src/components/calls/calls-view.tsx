@@ -9,6 +9,8 @@ import { CallReport } from '@/components/calls/call-report';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { Colleagues } from '@/components/calls/colleagues';
 import { Keypad } from '@/components/calls/keypad';
+import { GroupsPanel } from '@/components/pbx/groups-panel';
+import { VoicemailPanel } from '@/components/pbx/voicemail-panel';
 import { MyStatus } from '@/components/calls/my-status';
 import { CallButton } from '@/components/pbx/call-button';
 import { useCalls } from '@/components/pbx/call-provider';
@@ -251,7 +253,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
         <h1 className="text-xl font-bold">{t('title')}</h1>
         <MyStatus />
       </div>
-      <nav className="flex gap-2" aria-label={t('title')}>
+      <nav className="flex flex-wrap gap-2" aria-label={t('title')}>
         {visibleCallTabs(accountRole, hasPhone).map((k) => (
           <Link
             key={k}
@@ -278,6 +280,10 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
         <Keypad />
       ) : tab === 'colleagues' ? (
         <Colleagues />
+      ) : tab === 'voicemail' ? (
+        <VoicemailPanel />
+      ) : tab === 'groups' ? (
+        <GroupsPanel />
       ) : tab === 'people' ? (
         <CallReport />
       ) : !current ? (
