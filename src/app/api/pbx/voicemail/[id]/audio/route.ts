@@ -18,7 +18,7 @@ const notReturned = () =>
   fail('The phone system did not return the voicemail', 502);
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -29,9 +29,16 @@ export async function GET(
       msgId: own.message.msgId,
     });
 
+    // Range is forwarded so the browser can seek; only a 206 is relayed
+    // as one, anything else is the whole file as before.
+    const range = request.headers.get('range');
     let upstream: Response;
     try {
-      upstream = await fetch(url, { cache: 'no-store', redirect: 'error' });
+      upstream = await fetch(url, {
+        cache: 'no-store',
+        redirect: 'error',
+        ...(range ? { headers: { Range: range } } : {}),
+      });
     } catch {
       // The error may carry the URL, and with it the token: not logged.
       return notReturned();
@@ -47,8 +54,18 @@ export async function GET(
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
     });
+    headers.set('Accept-Ranges', 'bytes');
+    // fetch decompresses a content-encoded body but keeps the compressed
+    // length, so Content-Length is trustworthy only without an encoding.
     const length = upstream.headers.get('content-length');
-    if (length && /^\d+$/.test(length)) headers.set('Content-Length', length);
+    const encoded = upstream.headers.get('content-encoding');
+    if (length && !encoded && /^\d+$/.test(length))
+      headers.set('Content-Length', length);
+    const contentRange = upstream.headers.get('content-range');
+    if (upstream.status === 206 && contentRange) {
+      headers.set('Content-Range', contentRange);
+      return new Response(upstream.body, { status: 206, headers });
+    }
     return new Response(upstream.body, { status: 200, headers });
   } catch (err) {
     return pbxFailure(err) ?? toErrorResponse(err);

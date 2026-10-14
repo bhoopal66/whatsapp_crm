@@ -236,6 +236,53 @@ describe('GET /api/pbx/voicemail/[id]/audio', () => {
     expect(markVoicemailRead).not.toHaveBeenCalled();
   });
 
+  it('forwards Range and relays a 206 with its Content-Range', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(new Uint8Array([73, 70]), {
+        status: 206,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': '2',
+          'content-range': 'bytes 2-3/4',
+        },
+      })
+    );
+    const res = await audio(
+      new Request('https://crm.example.com/x', {
+        headers: { range: 'bytes=2-3' },
+      }),
+      params(OWN)
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      PBX_URL,
+      expect.objectContaining({
+        redirect: 'error',
+        headers: { Range: 'bytes=2-3' },
+      })
+    );
+    expect(res.status).toBe(206);
+    expect(res.headers.get('content-range')).toBe('bytes 2-3/4');
+    expect(res.headers.get('accept-ranges')).toBe('bytes');
+    expect(res.headers.get('content-length')).toBe('2');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('sends no Content-Length when upstream is content-encoded', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(new Uint8Array([82, 73, 70, 70]), {
+        status: 200,
+        headers: {
+          'content-type': 'audio/mpeg',
+          'content-length': '3',
+          'content-encoding': 'gzip',
+        },
+      })
+    );
+    const res = await audio(req(), params(OWN));
+    expect(res.status).toBe(200);
+    expect(res.headers.has('content-length')).toBe(false);
+  });
+
   it('answers 502 on a PBX error body, and never with the link', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce(
