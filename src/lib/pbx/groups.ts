@@ -240,7 +240,9 @@ export function agentActions(
   agent: QueueAgent,
   { canManage, isMe }: { canManage: boolean; isMe: boolean }
 ): QueueAction[] {
-  if (isMe || !canManage) return [];
+  // No userId: another workspace's extension on a shared PBX, which the
+  // server refuses (404) for every manager action.
+  if (isMe || !canManage || agent.userId === null) return [];
   return actionsFor(agent);
 }
 

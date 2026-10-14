@@ -281,19 +281,31 @@ describe('myQueueState', () => {
 describe('agentActions', () => {
   it('gives a manager the same rules on someone else', () => {
     const m = { canManage: true, isMe: false };
-    expect(agentActions(agent({ loggedIn: false }), m)).toEqual(['login']);
-    expect(agentActions(agent({ paused: true }), m)).toEqual([
+    const mine = { userId: 'u1' };
+    expect(agentActions(agent({ ...mine, loggedIn: false }), m)).toEqual([
+      'login',
+    ]);
+    expect(agentActions(agent({ ...mine, paused: true }), m)).toEqual([
       'logout',
       'unpause',
     ]);
-    expect(agentActions(agent({ static: true }), m)).toEqual(['pause']);
+    expect(agentActions(agent({ ...mine, static: true }), m)).toEqual([
+      'pause',
+    ]);
+  });
+
+  it('offers a manager nothing on an extension nobody here owns', () => {
+    const m = { canManage: true, isMe: false };
+    expect(agentActions(agent({ userId: null, static: true }), m)).toEqual([]);
   });
 
   it('gives a non-manager nothing, and nobody buttons on their own row', () => {
-    expect(agentActions(agent(), { canManage: false, isMe: false })).toEqual(
-      []
-    );
-    expect(agentActions(agent(), { canManage: true, isMe: true })).toEqual([]);
+    expect(
+      agentActions(agent({ userId: 'u1' }), { canManage: false, isMe: false })
+    ).toEqual([]);
+    expect(
+      agentActions(agent({ userId: 'u1' }), { canManage: true, isMe: true })
+    ).toEqual([]);
   });
 });
 
