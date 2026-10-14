@@ -15,6 +15,7 @@ import {
 import type { ChannelWithMembership } from '@/lib/chat';
 
 import { ChannelSettingsMenu } from './channel-settings';
+import { DmCallButton } from './dm-call-button';
 
 export interface ChannelHeaderProps {
   channel: ChannelWithMembership;
@@ -84,7 +85,8 @@ export function ChannelHeader({
             <span className="sr-only">{tMute('label')}</span>
           </span>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <DmCallButton kind={kind} dmMemberIds={channel.dmMemberIds} />
           <ChannelSettingsMenu channel={channel} name={name} />
         </div>
       </div>
