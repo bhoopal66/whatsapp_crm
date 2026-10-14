@@ -10,12 +10,13 @@ admin of the workspace that owns the PBX.
 
 ## 1. What to enable on the PBX
 
-| On the PBX                                                                    | What for                                                                                                       | Needs                                                                                                                          |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **Integrations › API** — an application with **Client ID / Client Secret**    | Everything the server does: listing extensions, click-to-call, call control, call records, recording downloads | —                                                                                                                              |
-| **Linkus SDK** — **AccessID / AccessKey**                                     | The browser softphone (agents answer and place calls in the CRM)                                               | **Ultimate** plan, firmware **84.12.0.32** or later                                                                            |
-| **Webhook push** to the URL shown in Settings, with a **32-character secret** | Live call events, registration and presence                                                                    | Firmware **84.20.0.21** or later. On older firmware run the **WebSocket gateway script** instead, which relays the same events |
-| **Extension Status Monitor**                                                  | Presence, registration and per-extension call state                                                            | —                                                                                                                              |
+| On the PBX                                                                    | What for                                                                                                                                                                    | Needs                                                                                                                                                         |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Integrations › API** — an application with **Client ID / Client Secret**    | Everything the server does: listing extensions, click-to-call, call control, call records, recording downloads                                                              | —                                                                                                                                                             |
+| **Linkus SDK** — **AccessID / AccessKey**                                     | The browser softphone (agents answer and place calls in the CRM)                                                                                                            | **Ultimate** plan, firmware **84.12.0.32** or later                                                                                                           |
+| **Webhook push** to the URL shown in Settings, with a **32-character secret** | Live call events, registration and presence                                                                                                                                 | Firmware **84.20.0.21** or later. On older firmware run the **WebSocket gateway script** instead, which relays the same events                                |
+| **Extension Status Monitor**                                                  | Presence, registration and per-extension call state                                                                                                                         | —                                                                                                                                                             |
+| **API permissions** on the same application, for the Linkus-style features    | Presence (_My status_): extension read and update. Voicemail: read, download, mark read, delete. Ring groups and queues: ring group read, queue read, agent login and pause | The call, extension and recording permissions the rest of the CRM already uses stay on. Without a permission, only that feature fails, with the PBX's refusal |
 
 Paste the Client ID and Secret (and the SDK pair, if you use the
 softphone) into Settings and press **Test connection**. Secrets are
@@ -368,6 +369,31 @@ backing off after a refused login is skipped until the backoff ends.
   extension mapped to you in this workspace, then the customer; an
   extension cannot be chosen in the request. With no extension mapped,
   calling is refused.
+- **Who may dial what.** Every agent and above may dial any extension
+  or any outside number, typed in or picked from a list. Viewers and
+  bank guests cannot dial. The do-not-contact rule below applies to
+  everyone. Previously, typing a number was limited to team leaders and
+  above.
+- **Keypad.** The Calls screen's _Keypad_ tab (agents and above who have
+  an extension mapped) is a dial pad for an extension or outside number.
+  It remembers the numbers you dialled last in your own browser, not on
+  the server. It dials through the same route as every other Call
+  button. Tones during a live call are sent from the in-call panel's
+  own keypad, not this one.
+- **Colleagues.** The _Colleagues_ tab (same people as the keypad)
+  lists the extensions on your phone system, people with a known name
+  first, sorted by name, then the other extensions by number. A dot
+  shows the extension's state as the phone reports it, only for an
+  extension whose presence is monitored (section 1). Your own extension
+  has no Call button. Each row has a Call button and the list can be
+  searched.
+- **Call a colleague from team chat.** A 1:1 direct message with
+  someone who has an extension shows a _Call_ button in its header, for
+  staff who have an extension themselves. Group DMs and channels have
+  none. It dials through the same route.
+- **Transfer.** The in-call panel's blind transfer takes any extension
+  or outside number, under the same rule as dialling, and never to a
+  do-not-contact customer's number.
 - **Browser softphone or desk phone.** When an admin switches the
   browser softphone on for your extension (and the PBX has Linkus SDK
   credentials), the call rings in the CRM tab. Otherwise the same call
@@ -405,11 +431,26 @@ backing off after a refused login is skipped until the backoff ends.
 - **The Calls screen** (sidebar › Calls: staff only, shown once the
   workspace has an extension) lists the last 7 days' missed calls and
   the call log. _Call back_ on a missed call dials the customer's
-  contact or, for a caller with no contact, the number (team leader and
-  up, as for a typed number). A do-not-contact customer's _Call back_
+  contact or, for a caller with no contact, the number (any agent, as
+  for a typed number). A do-not-contact customer's _Call back_
   is disabled with the reason; an owner or admin can still call, with
   a reason that is logged.
-- **By person** (the Calls screen's third tab: team leaders, admins and
+- **Tabs on the Calls screen.** Who is offered each:
+
+  | Tab             | Who                                                                        |
+  | --------------- | -------------------------------------------------------------------------- |
+  | Keypad          | Agents and above who have an extension                                     |
+  | Colleagues      | Agents and above who have an extension                                     |
+  | Missed calls    | Everyone who can open the screen                                           |
+  | Call log        | Everyone who can open the screen                                           |
+  | By person       | Team leaders, admins and owners                                            |
+  | Unrouted        | Owners and admins                                                          |
+  | Voicemail       | Agents and above who have an extension                                     |
+  | Groups & queues | Agents and above who have an extension; team leaders and above without one |
+
+  A link to a tab you are not offered opens Missed calls.
+
+- **By person** (the Calls screen's _By person_ tab: team leaders, admins and
   owners). For today, this week (from Monday), this month or up to 92
   whole days, in the workspace's time zone (the one saved in Team
   activity settings, else the viewer's): per person, incoming calls
@@ -482,16 +523,87 @@ backing off after a refused login is skipped until the backoff ends.
 The routes (errors are `{ error }`; recordings and attach need an
 agent or above, the reads a viewer or above, never a bank guest):
 
-| Route                                | Does                                                                                            |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `POST /api/pbx/calls/{id}/recording` | `{ action: 'play' \| 'download' }` → `{ url, expiresAt }` (409 if held)                         |
-| `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                |
+| Route                                | Does                                                                                                                                                                                                      |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/pbx/calls/{id}/recording` | `{ action: 'play' \| 'download' }` → `{ url, expiresAt }` (409 if held)                                                                                                                                   |
+| `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                                                                                                                          |
 | `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all\|unrouted&from=&to=&limit=` → `{ calls }`; `unrouted` (owner and admin) adds `numbers: [{ didNumber, calls, lastAt }]`, over the last 30 days unless `from` is given |
-| `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai) |
-| `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)       |
-| `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)   |
+| `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai)                                                                                                           |
+| `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)                                                                                                                 |
+| `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)                                                                                                             |
+| `PUT /api/pbx/me/presence`           | `{ status }` → `{ status }`; your own extension's status (section 12)                                                                                                                                     |
+| `GET /api/pbx/voicemail`             | Your own voicemail box (section 13)                                                                                                                                                                       |
+| `GET /api/pbx/groups`                | Ring groups and queues (section 14)                                                                                                                                                                       |
+| `POST /api/pbx/queues/{id}/agent`    | `{ action, extension? }` (section 14)                                                                                                                                                                     |
 
-## 12. Browser softphone
+## 12. My status
+
+The Calls screen's header has a status selector, as Linkus had. It sets
+the presence of your own extension on the PBX (`PUT
+/api/pbx/me/presence`, agents and above). The values are Yeastar's six:
+available, away, business trip, do not disturb, lunch and off work.
+
+- The extension is always your own, the one mapped to you in this
+  workspace. The request cannot name another. With no extension mapped,
+  it is refused.
+- The CRM looks your extension up on the PBX and changes its presence
+  only; nothing else on the extension is touched. If the PBX does not
+  list your extension, the answer is 409 `extension_not_on_pbx`.
+- The CRM updates your presence row straight away so open screens move
+  at once. If that write fails it is only logged: the PBX has already
+  changed and its own event writes the same row.
+- The selector follows the phone, too: a status set on the desk phone
+  or the Linkus app shows up in it.
+- The dots in the Colleagues tab and elsewhere show monitored
+  extensions only (section 1).
+
+## 13. Voicemail
+
+The _Voicemail_ tab (agents and above who have an extension) is your
+own extension's box: nobody else's, and no shared group box.
+
+- **List.** The first 100 messages, newest first, with the caller's
+  number and name, the time, the length and read state. A caller's
+  number is matched to a customer you can see, and links to them. The
+  unread count covers those 100 only; the total is the PBX's count of
+  the whole box.
+- **Play, mark read, delete.** Each acts on a message id, and the CRM
+  acts on it only once your own extension's box lists it (it looks
+  through at most 1,000 messages); any other id is a 404. Playing does
+  not mark a message read; the panel does that separately.
+- **Audio goes through the CRM.** The PBX's download link carries a live
+  token, so the CRM fetches the audio itself and streams it. The link
+  never reaches the browser and is never logged or stored.
+- The PBX endpoints used are `vm/get`, `vm/download`, `vm/update` and
+  `vm/delete`. Marking read is the only status change the PBX accepts.
+
+## 14. Ring groups and queues
+
+The _Groups & queues_ tab shows the PBX's ring groups and queues, and
+each queue agent's live state, as Linkus's Groups and Queues tabs do.
+
+- **Which PBX.** The one your own extension is on. A team leader or
+  above with no extension gets the workspace's PBX.
+- **Which groups.** Only ring groups and queues that have at least one
+  member mapped to a person in this workspace. On a PBX shared between
+  workspaces the rest belong to another workspace. A group that is shown
+  still lists its unmapped members, with no name.
+- **Live status.** Read for at most 30 queues, yours first; if there are
+  more, the screen says the list was cut short.
+- **Your own queues.** Any agent can log themselves in or out of a
+  queue, and pause or resume themselves. This needs an extension.
+- **Someone else.** Team leaders and above can do the same for another
+  extension, but only one mapped to a person in this workspace (404
+  otherwise). The queue must list that extension (409 `not_in_queue`).
+- **Static agents** cannot be logged in or out (409 `static_agent`);
+  they can be paused.
+- **Pause reasons are never sent.** Below Yeastar's Enterprise and
+  Ultimate plans the PBX rejects the whole request if one is included.
+- The PBX endpoints used are `ringgroup/list`, `ringgroup/query`,
+  `queue/list`, `queue/agent_status`, `agent/login`, `agent/pause`,
+  `queue/agent_login` and `queue/agent_pause`.
+
+## 15. Browser softphone
 
 With the softphone, agents answer and place calls in the CRM tab
 instead of on a desk phone. Everyone else keeps desk-phone mode, and

@@ -12,6 +12,36 @@ and polish.
 
 ## [Unreleased]
 
+### Phone: Linkus features in the CRM
+
+Agents can do from the Calls screen what they did in Yeastar's Linkus
+app. No migration.
+
+- **Dialling.** Every agent and above may dial any extension or outside
+  number, including a blind transfer to one. Before, a typed number
+  needed a team leader. Do-not-contact customers stay blocked; viewers
+  and bank guests cannot dial.
+- **Keypad.** A dial pad on the Calls screen, with your recent numbers
+  kept in your own browser.
+- **Colleagues.** A directory of the phone system's extensions with each
+  phone's state and a Call button.
+- **Call from team chat.** A 1:1 direct message with someone who has an
+  extension has a Call button.
+- **My status.** A selector in the Calls header sets your extension's
+  status on the PBX: available, away, business trip, do not disturb,
+  lunch or off work.
+- **Voicemail.** Your own extension's box: the first 100 messages, play,
+  mark read, delete. Audio is streamed through the CRM, so the PBX's
+  link and token never reach the browser.
+- **Groups & queues.** Ring groups and queues with live agent state.
+  Agents log in, log out and pause themselves; team leaders and above
+  can do it for people in their workspace. Only groups with someone from
+  this workspace are shown, and static agents cannot be logged in or
+  out.
+- **PBX setup.** The API application needs the extension update,
+  voicemail, ring group, queue and agent permissions for these to work.
+  See `docs/yeastar.md` sections 1 and 11 to 14.
+
 ### Calls: share a call into team chat
 
 **Share to chat** posts a call card from three places: the Calls
