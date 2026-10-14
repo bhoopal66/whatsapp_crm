@@ -5010,7 +5010,8 @@
     "softphone": "Softphone ready · ext {ext}",
     "softphoneConnecting": "Softphone connecting · ext {ext}",
     "softphoneError": "Softphone offline · ext {ext} · use your desk phone",
-    "desk": "Desk phone · ext {ext}"
+    "desk": "Desk phone · ext {ext}",
+    "callPerson": "Call"
   },
   "PbxCall": {
     "incoming": "Incoming call",
