@@ -11,7 +11,9 @@ export type RoomError =
   | 'forbidden'
   | 'join_failed'
   /** ICE failed and rejoining did not bring it back. */
-  | 'connection_failed';
+  | 'connection_failed'
+  /** Our seat was closed under us: joined again from another tab. */
+  | 'seat_closed';
 
 export const NOT_CONFIGURED = 'meetings_not_configured';
 
@@ -90,7 +92,7 @@ export function parseTracksResult(body: unknown): TracksResult {
     typeof sd === 'object' &&
     (sd.type === 'offer' || sd.type === 'answer') &&
     typeof sd.sdp === 'string'
-      ? { type: sd.type, sdp: sd.sdp }
+      ? { type: sd.type as SessionDescription['type'], sdp: sd.sdp }
       : null;
   const tracks = Array.isArray(b.tracks)
     ? (b.tracks as unknown[])
