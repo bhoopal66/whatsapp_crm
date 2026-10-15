@@ -11,20 +11,28 @@ import multiMonthPlugin from '@fullcalendar/multimonth';
 import koLocale from '@fullcalendar/core/locales/ko';
 import type {
   DatesSetArg,
+  DayHeaderContentArg,
   EventApi,
   EventContentArg,
   EventDropArg,
   EventInput,
   EventSourceFuncArg,
+  NowIndicatorContentArg,
 } from '@fullcalendar/core';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  MapPin,
   PanelLeft,
   Plus,
+  Repeat,
   Search,
+  SquareCheck,
+  Users,
+  Video,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -54,6 +62,11 @@ import {
   wallDateKey,
 } from '@/lib/calendar/fc-timezone';
 import { colorVar, paletteCss } from '@/lib/calendar/ui/colors';
+import {
+  chipDetails,
+  chipLayout,
+  type ChipLayout,
+} from '@/lib/calendar/ui/event-chip';
 import {
   feedItemsToEventInputs,
   isItemHidden,
@@ -122,40 +135,81 @@ const SCOPE = '.cal-root';
 const REALTIME_DEBOUNCE_MS = 500;
 const RAIL_KEY = 'calendar.rail.v1';
 
+const EVENT_TIME_FORMAT = {
+  hour: 'numeric',
+  minute: '2-digit',
+  omitZeroMinute: true,
+  meridiem: 'short',
+} as const;
+
 const itemOf = (event: EventApi): FeedItem =>
   (event.extendedProps as CalendarEventProps).item;
 
 const CALENDAR_CSS = `${paletteCss(SCOPE)}
 ${SCOPE} .fc {
-  --fc-border-color: var(--border);
+  --fc-border-color: color-mix(in oklab, var(--border) 80%, transparent);
   --fc-page-bg-color: var(--card);
   --fc-neutral-bg-color: var(--muted);
-  --fc-today-bg-color: color-mix(in oklab, var(--primary) 7%, transparent);
-  --fc-now-indicator-color: var(--primary);
+  --fc-today-bg-color: color-mix(in oklab, var(--primary) 6%, transparent);
+  --fc-now-indicator-color: var(--destructive);
   --fc-list-event-hover-bg-color: var(--muted);
   --fc-highlight-color: color-mix(in oklab, var(--primary) 14%, transparent);
-  --fc-non-business-color: color-mix(in oklab, var(--muted) 45%, transparent);
+  --fc-non-business-color: color-mix(in oklab, var(--muted) 40%, transparent);
   font-size: 0.8125rem;
   color: var(--foreground);
 }
 ${SCOPE} .fc a { color: inherit; text-decoration: none; }
 ${SCOPE} .fc .fc-scrollgrid { border-radius: 0.5rem; overflow: hidden; }
+${SCOPE} .fc .fc-col-header-cell { vertical-align: middle; }
 ${SCOPE} .fc .fc-col-header-cell-cushion { color: var(--muted-foreground); font-weight: 500; padding: 6px 4px; }
+${SCOPE} .fc .cal-dh { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 6px; }
+${SCOPE} .fc .cal-dh__wd { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-foreground); }
+${SCOPE} .fc .cal-dh__num { display: flex; align-items: center; justify-content: center; min-width: 2rem; height: 2rem; padding: 0 6px; border-radius: 9999px; font-size: 1.25rem; font-weight: 500; line-height: 1; color: var(--foreground); }
+${SCOPE} .fc .cal-dh--today .cal-dh__wd { color: var(--primary); }
+${SCOPE} .fc .cal-dh--today .cal-dh__num { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+${SCOPE} .fc .cal-dh--past .cal-dh__num { color: var(--muted-foreground); }
 ${SCOPE} .fc .fc-daygrid-day.fc-day-sat, ${SCOPE} .fc .fc-daygrid-day.fc-day-sun { background: color-mix(in oklab, var(--muted) 35%, transparent); }
 ${SCOPE} .fc .fc-daygrid-day-number { color: var(--muted-foreground); font-weight: 500; }
 ${SCOPE} .fc .fc-day-today .fc-daygrid-day-number { background: var(--primary); color: var(--primary-foreground); border-radius: 9999px; min-width: 1.5rem; text-align: center; margin: 2px; padding: 2px 6px; }
-${SCOPE} .fc .fc-timegrid-axis, ${SCOPE} .fc .fc-timegrid-slot-label { position: sticky; left: 0; z-index: 3; background: var(--card); }
-${SCOPE} .fc .fc-timegrid-slot-label-cushion { color: var(--muted-foreground); font-size: 0.75rem; }
+${SCOPE} .fc .fc-timegrid-slot { height: 2.5rem; }
+${SCOPE} .fc .fc-timegrid-slot-label { vertical-align: top; border-color: transparent; }
+${SCOPE} .fc .fc-timegrid-slot-label-cushion { color: var(--muted-foreground); font-size: 0.6875rem; font-weight: 500; white-space: nowrap; padding: 0 8px 0 4px; transform: translateY(-50%); }
+${SCOPE} .fc .fc-timegrid-slot-label-frame { text-align: right; }
+${SCOPE} .fc .fc-timegrid-axis-cushion { color: var(--muted-foreground); font-size: 0.6875rem; font-weight: 600; }
 ${SCOPE} .fc .fc-timegrid-now-indicator-line { border-width: 2px 0 0; }
-${SCOPE} .fc .cal-ev { border-radius: 6px; border-width: 0 0 0 3px; border-style: solid; padding: 1px 4px; cursor: pointer; transition: box-shadow 0.15s, filter 0.15s; }
-${SCOPE} .fc .cal-ev:hover { filter: brightness(0.97); box-shadow: 0 1px 4px rgb(0 0 0 / 0.14); }
+${SCOPE} .fc .fc-timegrid-now-indicator-line::before { content: ''; position: absolute; left: -5px; top: -6px; width: 10px; height: 10px; border-radius: 9999px; background: var(--fc-now-indicator-color); }
+${SCOPE} .fc .fc-timegrid-now-indicator-arrow { border: 0; margin-top: -0.55rem; left: 2px; right: auto; z-index: 5; }
+${SCOPE} .fc .cal-now { display: inline-block; border-radius: 9999px; padding: 1px 5px; background: var(--fc-now-indicator-color); color: white; font-size: 0.625rem; font-weight: 600; line-height: 0.9rem; white-space: nowrap; }
+${SCOPE} .fc .fc-timegrid-event-harness-inset .fc-timegrid-event { box-shadow: 0 0 0 1px var(--card); }
+${SCOPE} .fc .cal-ev { border-radius: 6px; border-width: 0 0 0 3px; border-style: solid; cursor: pointer; transition: box-shadow 0.15s, filter 0.15s; }
+${SCOPE} .fc .fc-daygrid-event.cal-ev { margin-top: 2px; }
+${SCOPE} .fc .cal-ev:hover { filter: brightness(0.97); box-shadow: 0 2px 6px rgb(0 0 0 / 0.16); }
 ${SCOPE} .fc .fc-list-event.cal-ev { border-width: 0; }
+${SCOPE} .fc .fc-list-event-time { color: var(--muted-foreground); white-space: nowrap; }
+${SCOPE} .fc .fc-list-day-cushion { background: var(--muted); }
 ${SCOPE} .fc .cal-ev--pending { border-width: 1px 1px 1px 3px; border-style: dashed; }
 ${SCOPE} .fc .cal-ev--declined { opacity: 0.55; }
-${SCOPE} .fc .cal-ev--declined .fc-event-title, ${SCOPE} .fc .cal-ev--declined .fc-list-event-title { text-decoration: line-through; }
+${SCOPE} .fc .cal-ev--declined .cal-chip__name { text-decoration: line-through; }
 ${SCOPE} .fc .cal-ev--tentative { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in oklab, var(--card) 45%, transparent) 6px 12px); }
-${SCOPE} .fc .cal-ev--task .fc-event-title::before, ${SCOPE} .fc .cal-ev--task .fc-list-event-title a::before { content: '\\2610'; margin-right: 4px; }
 ${SCOPE} .fc .cal-ev--match { box-shadow: 0 0 0 2px var(--primary); }
+${SCOPE} .fc .cal-chip { display: flex; min-width: 0; overflow: hidden; color: var(--foreground); line-height: 1.15rem; }
+${SCOPE} .fc .cal-chip svg { flex-shrink: 0; width: 0.75rem; height: 0.75rem; }
+${SCOPE} .fc .cal-chip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+${SCOPE} .fc .cal-chip__time { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; color: color-mix(in oklab, var(--foreground) 72%, transparent); font-weight: 500; }
+${SCOPE} .fc .cal-chip__line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+${SCOPE} .fc .cal-chip__meta { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 0.6875rem; color: color-mix(in oklab, var(--foreground) 65%, transparent); }
+${SCOPE} .fc .cal-chip__meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+${SCOPE} .fc .cal-chip--full { flex-direction: column; gap: 1px; height: 100%; padding: 2px 5px; font-size: 0.75rem; line-height: 1rem; }
+${SCOPE} .fc .cal-chip--full .cal-chip__name { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+${SCOPE} .fc .cal-chip--full .cal-chip__time { flex-shrink: 1; white-space: normal; font-size: 0.6875rem; line-height: 0.875rem; }
+${SCOPE} .fc .cal-chip--compact { align-items: flex-start; gap: 4px; padding: 1px 5px 0; font-size: 0.6875rem; line-height: 1rem; height: 100%; }
+${SCOPE} .fc .cal-chip--compact svg { margin-top: 2px; }
+${SCOPE} .fc .cal-chip--compact .cal-chip__name { flex-shrink: 0; max-width: 100%; }
+${SCOPE} .fc .cal-chip--compact .cal-chip__time { flex-shrink: 1; min-width: 0; overflow: hidden; }
+${SCOPE} .fc .cal-chip--row, ${SCOPE} .fc .cal-chip--bar { align-items: center; gap: 4px; padding: 1px 5px; font-size: 0.75rem; }
+${SCOPE} .fc .cal-chip--row .cal-chip__name { font-weight: 500; }
+${SCOPE} .fc .cal-chip--list { align-items: center; gap: 8px; }
+${SCOPE} .fc .cal-chip--list .cal-chip__name { font-weight: 500; }
 `;
 
 export function CalendarView({
@@ -508,6 +562,95 @@ export function CalendarView({
       }),
     [locale]
   );
+  const formatClock = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        timeZone: zone,
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+    [locale, zone]
+  );
+  const formatOffset = useMemo(() => {
+    try {
+      return new Intl.DateTimeFormat(locale, {
+        timeZone: zone,
+        timeZoneName: 'shortOffset',
+      });
+    } catch {
+      return null;
+    }
+  }, [locale, zone]);
+  const zoneLabel =
+    formatOffset?.formatToParts(now).find((p) => p.type === 'timeZoneName')
+      ?.value ?? zone;
+  const formatHeader = useMemo(
+    () => ({
+      weekday: new Intl.DateTimeFormat(locale, {
+        timeZone: zone,
+        weekday: 'short',
+      }),
+      day: new Intl.DateTimeFormat(locale, { timeZone: zone, day: 'numeric' }),
+    }),
+    [locale, zone]
+  );
+
+  // Day and week views open an hour before now, so the present is in view.
+  const scrollTime = useMemo(() => {
+    const hour = Number(
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone: zone,
+        hour: '2-digit',
+        hourCycle: 'h23',
+      }).format(Date.now())
+    );
+    return `${String(Math.max(0, hour - 1)).padStart(2, '0')}:00:00`;
+  }, [zone]);
+
+  const renderDayHeader = (arg: DayHeaderContentArg) => {
+    // Month and year headers are weekday names only; keep FullCalendar's.
+    if (!arg.view.type.startsWith('timeGrid')) return arg.text;
+    return (
+      <span
+        className={cn(
+          'cal-dh',
+          arg.isToday && 'cal-dh--today',
+          arg.isPast && 'cal-dh--past'
+        )}
+      >
+        <span className="cal-dh__wd">
+          {formatHeader.weekday.format(arg.date)}
+        </span>
+        <span className="cal-dh__num">{formatHeader.day.format(arg.date)}</span>
+      </span>
+    );
+  };
+
+  const renderNow = (arg: NowIndicatorContentArg) =>
+    arg.isAxis ? (
+      <span className="cal-now">{formatClock.format(arg.date)}</span>
+    ) : null;
+
+  const renderEvent = (arg: EventContentArg) => {
+    const layout = chipLayout(
+      arg.view.type,
+      arg.event.allDay,
+      arg.event.start?.getTime() ?? null,
+      arg.event.end?.getTime() ?? null
+    );
+    return (
+      <EventChip
+        item={itemOf(arg.event)}
+        layout={layout}
+        timeText={arg.timeText}
+        startText={
+          arg.event.start
+            ? arg.view.calendar.formatDate(arg.event.start, EVENT_TIME_FORMAT)
+            : arg.timeText
+        }
+      />
+    );
+  };
 
   const rail = (
     <div className="flex flex-col gap-5 p-3">
@@ -659,6 +802,13 @@ export function CalendarView({
           </Button>
         </div>
         <h2 className="min-w-0 truncate text-lg font-semibold">{title}</h2>
+        <span
+          className="text-muted-foreground hidden items-center gap-1 text-xs whitespace-nowrap md:inline-flex"
+          title={zone}
+        >
+          <Clock className="size-3.5" />
+          {formatClock.format(now)} · {zoneLabel}
+        </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div
             role="radiogroup"
@@ -780,8 +930,23 @@ export function CalendarView({
             height="100%"
             firstDay={1}
             nowIndicator
+            nowIndicatorContent={renderNow}
             weekNumbers
-            scrollTime="08:00:00"
+            scrollTime={scrollTime}
+            slotLabelFormat={{
+              hour: 'numeric',
+              minute: '2-digit',
+              omitZeroMinute: true,
+              meridiem: 'short',
+            }}
+            eventTimeFormat={EVENT_TIME_FORMAT}
+            displayEventEnd
+            views={{
+              dayGridMonth: { displayEventEnd: false },
+              multiMonthYear: { displayEventEnd: false },
+            }}
+            dayHeaderContent={renderDayHeader}
+            eventContent={renderEvent}
             businessHours={{
               daysOfWeek: [1, 2, 3, 4, 5],
               startTime: '09:00',
@@ -836,6 +1001,94 @@ export function CalendarView({
         timeZone={zone}
         onSaved={() => refetch(true)}
       />
+    </div>
+  );
+}
+
+function KindIcon({ item }: { item: FeedItem }) {
+  if (item.kind === 'meeting') return <Video aria-hidden />;
+  if (item.kind === 'task') return <SquareCheck aria-hidden />;
+  return null;
+}
+
+/** One event's chip, laid out for its view (see `chipLayout`). */
+function EventChip({
+  item,
+  layout,
+  timeText,
+  startText,
+}: {
+  item: FeedItem;
+  layout: ChipLayout;
+  /** FullCalendar's text: a range in the time grid, the start elsewhere. */
+  timeText: string;
+  startText: string;
+}) {
+  const name = <span className="cal-chip__name">{item.title}</span>;
+  const details = chipDetails(item);
+
+  if (layout === 'full') {
+    return (
+      <div className="cal-chip cal-chip--full">
+        <div className="cal-chip__line">
+          <KindIcon item={item} />
+          {name}
+        </div>
+        <div className="cal-chip__line">
+          <span className="cal-chip__time">{timeText}</span>
+          {details.recurring && <Repeat aria-hidden className="opacity-70" />}
+        </div>
+        {details.location && (
+          <div className="cal-chip__meta">
+            <MapPin aria-hidden />
+            <span>{details.location}</span>
+          </div>
+        )}
+        {details.attendees > 0 && (
+          <div className="cal-chip__meta">
+            <Users aria-hidden />
+            <span>{details.attendees}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (layout === 'compact') {
+    return (
+      <div className="cal-chip cal-chip--compact">
+        <KindIcon item={item} />
+        {name}
+        <span className="cal-chip__time">{startText}</span>
+      </div>
+    );
+  }
+  if (layout === 'row') {
+    return (
+      <div className="cal-chip cal-chip--row">
+        <span className="cal-chip__time">{timeText}</span>
+        <KindIcon item={item} />
+        {name}
+      </div>
+    );
+  }
+  if (layout === 'list') {
+    return (
+      <div className="cal-chip cal-chip--list">
+        <KindIcon item={item} />
+        {name}
+        {details.location && (
+          <span className="cal-chip__meta">
+            <MapPin aria-hidden />
+            <span>{details.location}</span>
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="cal-chip cal-chip--bar">
+      <KindIcon item={item} />
+      {name}
     </div>
   );
 }

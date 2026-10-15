@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Calendar look
+
+The day and week views show their hour labels again (an overlay had
+been painting over them) and open an hour before the current time, with
+a red marker showing the time now. Event chips show the title, the time
+range, the location and the number of invitees; meetings and tasks carry
+an icon. Month cells show each item's start time before its title, day
+and week headers show the weekday above a large date, and the toolbar
+shows the current time and the calendar's time-zone offset.
+
 ### Push notifications (database side)
 
 The database now queues web push notifications: for every bell
