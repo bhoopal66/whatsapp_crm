@@ -151,6 +151,11 @@ class MeetingCallEngine {
   // attach → detach → attach; a getUserMedia from the first attach that
   // resolves after the second must stop its track, not keep the camera on.
   private epoch = 0;
+  // Bumped whenever the person stops wanting to be in the call (leave,
+  // end, a give-up, unmount). A join whose POST was in flight then — a
+  // reconnect's, typically, since Leave stays on screen while
+  // reconnecting — must give its new seat back, not go live.
+  private session = 0;
 
   // Lazily: the engine is also constructed during the server render.
   private get supabase(): SupabaseClient {
@@ -223,6 +228,7 @@ class MeetingCallEngine {
   detach() {
     this.attached = false;
     this.epoch += 1;
+    this.session += 1;
     this.leaveQuietly();
     this.teardown();
     this.stopMedia();
@@ -424,11 +430,13 @@ class MeetingCallEngine {
       phase: this.attempts > 0 ? 'reconnecting' : 'joining',
       error: null,
     });
+    const session = this.session;
     const res = await this.api('join', 'POST', {});
     const join = res.ok ? parseJoinResult(res.body) : null;
-    if (!this.attached) {
-      // Unmounted mid-POST: the server has already seated us, and nothing
-      // else knows the seat, so leave it or we show as present for 60 s.
+    if (!this.attached || session !== this.session) {
+      // Unmounted or left mid-POST: the server has already seated us, and
+      // nothing else knows the seat, so leave it or we show as present
+      // for 60 s (or, after Leave, go live again).
       if (join) this.leaveSeat(join.participantId);
       return;
     }
@@ -453,7 +461,8 @@ class MeetingCallEngine {
     // during any await below, and whoever did has dealt with the seat
     // (detach and rejoin send leave). Stop rather than start timers that
     // nobody clears.
-    const current = () => this.attached && this.pc === pc;
+    const current = () =>
+      this.attached && session === this.session && this.pc === pc;
 
     await this.subscribeRows();
     if (!current()) return;
@@ -474,6 +483,7 @@ class MeetingCallEngine {
   };
 
   leave = async () => {
+    this.session += 1;
     this.leaveQuietly();
     this.teardown();
     this.stopMedia();
@@ -489,6 +499,7 @@ class MeetingCallEngine {
   };
 
   private ended() {
+    this.session += 1;
     this.teardown();
     this.stopMedia();
     this.emit({ phase: 'ended' });
@@ -553,6 +564,7 @@ class MeetingCallEngine {
   }
 
   private connectionFailed() {
+    this.session += 1;
     this.leaveQuietly();
     this.teardown();
     this.emit({ phase: 'error', error: 'connection_failed' });

@@ -121,6 +121,10 @@ export async function GET(_request: Request, { params }: Params) {
     if (loaded.error) return readErrorResponse(loaded.error);
     if (canManage.error) return readErrorResponse(canManage.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
+    // Not an empty list: the edit dialog saves the invitees it was shown,
+    // so a failed read would PATCH every invitee away and evict them.
+    if (invitees.error) return readErrorResponse(invitees.error);
+    if (present.error) return readErrorResponse(present.error);
     return NextResponse.json({
       meeting: loaded.meeting,
       invitee_user_ids: (invitees.data ?? []).map((r) => r.user_id),
