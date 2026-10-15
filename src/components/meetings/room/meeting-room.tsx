@@ -112,7 +112,13 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
     );
   }
   if (call.phase === 'lobby' || call.phase === 'joining') {
-    return <RoomLobby call={call} title={call.meeting?.title ?? ''} />;
+    return (
+      <RoomLobby
+        call={call}
+        meetingId={meetingId}
+        title={call.meeting?.title ?? ''}
+      />
+    );
   }
   // Part 2 replaces these no-ops with its chat/people panels, the
   // settings dialog and the unread count.
