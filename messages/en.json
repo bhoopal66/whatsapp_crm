@@ -5353,6 +5353,31 @@
       "join": "Join",
       "joining": "Joining…"
     },
+    "lobbyV2": {
+      "ready": "Ready to join?",
+      "joiningAs": "Joining as {name}",
+      "join": "Join now",
+      "joining": "Joining…",
+      "cameraOff": "Camera is off",
+      "micOff": "Microphone is off",
+      "turnMicOff": "Turn off microphone",
+      "turnMicOn": "Turn on microphone",
+      "turnCameraOff": "Turn off camera",
+      "turnCameraOn": "Turn on camera",
+      "micLevel": "Microphone level",
+      "microphone": "Microphone",
+      "camera": "Camera",
+      "speaker": "Speaker",
+      "systemDefault": "System default",
+      "unnamedMicrophone": "Microphone {n}",
+      "unnamedCamera": "Camera {n}",
+      "unnamedSpeaker": "Speaker {n}",
+      "whoIsHere": "Who's already in the call",
+      "peopleInCall": "{count, plural, one {# person is in the call} other {# people are in the call}}",
+      "nobodyYet": "No one else is here yet",
+      "someone": "Someone",
+      "morePeople": "and {count} more"
+    },
     "controls": {
       "mute": "Mute",
       "unmute": "Unmute",
@@ -5368,7 +5393,17 @@
       "you": "{name} (you)",
       "screen": "{name}'s screen",
       "muted": "Muted",
-      "unknown": "Someone"
+      "unknown": "Someone",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "hostMenu": "Host options",
+      "muteThem": "Mute",
+      "lowerHand": "Lower hand",
+      "remove": "Remove from meeting",
+      "removeTitle": "Remove {name} from the meeting?",
+      "removeBody": "They leave the call at once and can't rejoin it.",
+      "handRaised": "Hand raised",
+      "moderateFailed": "That didn't work. Try again."
     },
     "devices": {
       "audio": {
@@ -5391,6 +5426,114 @@
         "in_use": "Your screen couldn't be captured.",
         "unsupported": "This browser can't share a screen.",
         "unknown": "Screen sharing couldn't be started."
+      }
+    },
+    "confirm": {
+      "cancel": "Cancel"
+    },
+    "removed": {
+      "title": "The host removed you from this meeting."
+    },
+    "quality": {
+      "good": "Good connection",
+      "fair": "Unstable connection",
+      "poor": "Poor connection",
+      "unknown": "Checking connection"
+    },
+    "stage": {
+      "prevPage": "Previous page",
+      "nextPage": "Next page",
+      "page": "{page} / {count}"
+    },
+    "topBar": {
+      "copyLink": "Copy invite link",
+      "copied": "Invite link copied",
+      "copyFailed": "Couldn't copy the link",
+      "elapsed": "Time in call",
+      "people": "People in the call"
+    },
+    "controlBar": {
+      "bar": "Call controls",
+      "withShortcut": "{label} ({key})",
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "cameraOff": "Turn camera off",
+      "cameraOn": "Turn camera on",
+      "micOptions": "Microphone and speaker",
+      "cameraOptions": "Camera",
+      "microphone": "Microphone",
+      "camera": "Camera",
+      "speaker": "Speaker",
+      "defaultDevice": "System default",
+      "unnamedMic": "Microphone {n}",
+      "unnamedCamera": "Camera {n}",
+      "unnamedSpeaker": "Speaker {n}",
+      "share": "Share screen",
+      "stopShare": "Stop sharing",
+      "raiseHand": "Raise hand",
+      "lowerHand": "Lower hand",
+      "reactions": "Send a reaction",
+      "react": "React with {emoji}",
+      "layout": "Layout",
+      "layoutAuto": "Auto",
+      "layoutSpeaker": "Speaker",
+      "chat": "Chat",
+      "chatUnread": "Chat, {count, plural, one {# unread message} other {# unread messages}}",
+      "people": "People",
+      "more": "More options",
+      "settings": "Settings",
+      "fullscreen": "Full screen",
+      "exitFullscreen": "Exit full screen",
+      "fullscreenFailed": "Couldn't switch to full screen.",
+      "pip": "Picture-in-picture",
+      "exitPip": "Exit picture-in-picture",
+      "pipNothing": "There's no video to show in picture-in-picture yet.",
+      "pipFailed": "Picture-in-picture couldn't start.",
+      "leave": "Leave",
+      "endForEveryone": "End for everyone",
+      "endConfirm": "End this meeting for everyone in it?",
+      "endBody": "Everyone is disconnected and the meeting closes.",
+      "endFailed": "Couldn't end the meeting. Try again."
+    },
+    "panels": {
+      "close": "Close panel",
+      "resize": "Resize panel",
+      "people": {
+        "title": "People",
+        "count": "{count, plural, one {# person in the call} other {# people in the call}}",
+        "micOn": "Microphone on",
+        "cameraOn": "Camera on",
+        "cameraOff": "Camera off",
+        "actions": "Options for {name}"
+      },
+      "chat": {
+        "title": "In-call messages",
+        "hint": "Messages are visible to everyone in this meeting.",
+        "empty": "No messages yet",
+        "placeholder": "Send a message",
+        "send": "Send message",
+        "sendFailed": "Your message wasn't sent. If you're sending quickly, wait a moment and try again.",
+        "you": "You",
+        "jump": "Jump to latest",
+        "counter": "{count} / {max}"
+      },
+      "settings": {
+        "title": "Settings",
+        "testSpeaker": "Speaker test",
+        "test": "Play test sound",
+        "testing": "Playing…",
+        "testFailed": "Couldn't play the test sound in this browser.",
+        "sounds": "Join and leave sounds",
+        "soundsHint": "Play a soft sound when someone joins or leaves."
+      },
+      "notices": {
+        "joined": "{name} joined",
+        "left": "{name} left",
+        "mutedByHost": "The host muted your microphone",
+        "handLoweredByHost": "The host lowered your hand",
+        "micLost": "Your microphone was disconnected",
+        "cameraLost": "Your camera was disconnected",
+        "qualityPoor": "Your connection is poor. Video quality may drop."
       }
     }
   }
