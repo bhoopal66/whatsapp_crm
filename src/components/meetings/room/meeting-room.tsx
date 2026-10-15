@@ -37,6 +37,7 @@ import { ConfirmDialog } from './confirm-dialog';
 import { DeviceNotices } from './device-notices';
 import { RoomControls } from './room-controls';
 import { RoomLobby } from './room-lobby';
+import { RoomPanels } from './room-side-panel';
 import { RoomStage } from './room-stage';
 import { QualityBars, RoomTile } from './room-tile';
 import { AudioTrack } from './video-track';
@@ -116,17 +117,11 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
       />
     );
   }
-  // Part 2 replaces these no-ops with its chat/people panels, the
-  // settings dialog and the unread count.
+  // The chat/people panels, the settings dialog and the notice toasts.
   return (
-    <LiveRoom
-      call={call}
-      meetingId={meetingId}
-      chatUnread={0}
-      onOpenPanel={() => {}}
-      onTogglePanel={() => {}}
-      onOpenSettings={() => {}}
-    />
+    <RoomPanels call={call}>
+      {(seams) => <LiveRoom call={call} meetingId={meetingId} {...seams} />}
+    </RoomPanels>
   );
 }
 

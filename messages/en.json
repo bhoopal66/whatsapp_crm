@@ -5426,6 +5426,47 @@
       "copyFailed": "Couldn't copy the link",
       "elapsed": "Time in call",
       "people": "People in the call"
+    },
+    "panels": {
+      "close": "Close panel",
+      "resize": "Resize panel",
+      "people": {
+        "title": "People",
+        "count": "{count, plural, one {# person in the call} other {# people in the call}}",
+        "micOn": "Microphone on",
+        "cameraOn": "Camera on",
+        "cameraOff": "Camera off",
+        "actions": "Options for {name}"
+      },
+      "chat": {
+        "title": "In-call messages",
+        "hint": "Messages are visible to everyone in this meeting.",
+        "empty": "No messages yet",
+        "placeholder": "Send a message",
+        "send": "Send message",
+        "sendFailed": "Your message wasn't sent. If you're sending quickly, wait a moment and try again.",
+        "you": "You",
+        "jump": "Jump to latest",
+        "counter": "{count} / {max}"
+      },
+      "settings": {
+        "title": "Settings",
+        "testSpeaker": "Speaker test",
+        "test": "Play test sound",
+        "testing": "Playing…",
+        "testFailed": "Couldn't play the test sound in this browser.",
+        "sounds": "Join and leave sounds",
+        "soundsHint": "Play a soft sound when someone joins or leaves."
+      },
+      "notices": {
+        "joined": "{name} joined",
+        "left": "{name} left",
+        "mutedByHost": "The host muted your microphone",
+        "handLoweredByHost": "The host lowered your hand",
+        "micLost": "Your microphone was disconnected",
+        "cameraLost": "Your camera was disconnected",
+        "qualityPoor": "Your connection is poor. Video quality may drop."
+      }
     }
   }
 }
