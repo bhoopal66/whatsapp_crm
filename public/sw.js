@@ -33,10 +33,20 @@ function parsePayload(event) {
   }
 }
 
+// Same-origin paths only. '//host' and '/\\host' are protocol-relative
+// (the URL parser reads a backslash as a slash), so they are refused
+// along with absolute URLs; the resolved origin is checked as well.
 function safeUrl(url) {
-  return typeof url === 'string' && url.charAt(0) === '/' && url.charAt(1) !== '/'
-    ? url
-    : '/';
+  if (typeof url !== 'string' || url.charAt(0) !== '/') return '/notifications';
+  var second = url.charAt(1);
+  if (second === '/' || second === '\\') return '/notifications';
+  try {
+    return new URL(url, self.location.origin).origin === self.location.origin
+      ? url
+      : '/notifications';
+  } catch (_e) {
+    return '/notifications';
+  }
 }
 
 // Kinds whose tag is reused per thread: a new message in the same chat

@@ -126,6 +126,20 @@ describe('buildPayload', () => {
     created_at: '2026-10-15T19:00:00Z',
   };
 
+  it('keeps only same-origin paths as the url', () => {
+    const urlOf = (url: string) =>
+      JSON.parse(buildPayload({ ...row, url })).url;
+    expect(urlOf('/inbox?c=1')).toBe('/inbox?c=1');
+    for (const bad of [
+      '/\\evil.com',
+      '//evil.com',
+      'https://evil.com',
+      'javascript:alert(1)',
+    ]) {
+      expect(urlOf(bad)).toBe('/notifications');
+    }
+  });
+
   it('carries title, body, url, tag, kind and ts', () => {
     expect(JSON.parse(buildPayload(row))).toEqual({
       title: 'Asha',
