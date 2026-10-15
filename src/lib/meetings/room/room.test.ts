@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { classifyMediaError, isShareCancelled } from './devices';
+import {
+  classifyMediaError,
+  isShareCancelled,
+  tracksToRelease,
+} from './devices';
 import { gridColumns, tileLayout, type TileSource } from './layout';
 import { clockSkewMs, isPresent, presentParticipants } from './presence';
 import { createSerialQueue } from './queue';
+import {
+  afterPullStrike,
+  needsPullRollback,
+  PULL_STRIKES_BEFORE_REJOIN,
+} from './recovery';
 import { classifyRoomFailure, parseJoinResult, parseTracksResult } from './sfu';
 import { planSubscriptions } from './subscriptions';
 import {
@@ -259,6 +268,44 @@ describe('devices', () => {
     expect(classifyMediaError('weird')).toBe('unknown');
     expect(isShareCancelled(e('NotAllowedError'))).toBe(true);
     expect(isShareCancelled(e('NotReadableError'))).toBe(false);
+  });
+
+  it('releases what a stale preview opened, never what the engine holds', () => {
+    const mic = { id: 'mic' };
+    const cam = { id: 'cam' };
+    // The mic resolved, the page was left, the camera came back null.
+    expect(tracksToRelease([mic, null], [null, null])).toEqual([mic]);
+    expect(tracksToRelease([mic, cam], [null, null])).toEqual([mic, cam]);
+    // A track reused from before the preview is still the engine's.
+    expect(tracksToRelease([mic, cam], [mic, null])).toEqual([cam]);
+    expect(tracksToRelease([null, null], [null, null])).toEqual([]);
+  });
+});
+
+describe('pull recovery', () => {
+  it('rolls back only an offer left unanswered', () => {
+    expect(needsPullRollback('have-remote-offer')).toBe(true);
+    expect(needsPullRollback('stable')).toBe(false);
+    expect(needsPullRollback('have-local-offer')).toBe(false);
+    expect(needsPullRollback('closed')).toBe(false);
+  });
+
+  it('retries one strike and rejoins on the next', () => {
+    expect(PULL_STRIKES_BEFORE_REJOIN).toBe(2);
+    const first = afterPullStrike(0, 'stable');
+    expect(first).toEqual({ strikes: 1, rejoin: false });
+    expect(afterPullStrike(first.strikes, 'stable')).toEqual({
+      strikes: 2,
+      rejoin: true,
+    });
+  });
+
+  it('rejoins at once when the rollback left the connection wedged', () => {
+    expect(afterPullStrike(0, 'have-remote-offer')).toEqual({
+      strikes: 1,
+      rejoin: true,
+    });
+    expect(afterPullStrike(0, 'closed').rejoin).toBe(true);
   });
 });
 
