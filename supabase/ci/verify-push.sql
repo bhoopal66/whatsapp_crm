@@ -10,8 +10,11 @@
 -- member who can read it but its author, a muted member only when
 -- @mentioned, a bank guest nothing from a deal room's Team notes, and
 -- nothing for a system or deleted message; WhatsApp inbound goes to the
--- assignee, else the number's allocated people, else owners and admins;
--- push_claim / push_settle / push_purge.
+-- assignee if live and able to see the chat, else the number's allocated
+-- people who can see it, else owners and admins, and never to anyone
+-- who cannot see it (can_view_conversation_for_user, which must answer
+-- as can_view_conversation does for that person); push_claim /
+-- push_settle / push_purge.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -34,6 +37,7 @@ DECLARE
   u_g     UUID := '00000000-0000-4000-8000-000000109007';   -- bank guest
   u_x     UUID := '00000000-0000-4000-8000-000000109008';   -- deactivated
   u_z     UUID := '00000000-0000-4000-8000-000000109009';   -- another workspace
+  u_l     UUID := '00000000-0000-4000-8000-000000109010';   -- team leader of u_b
   a_acct  UUID;
   b_acct  UUID;
   ch_team UUID;
@@ -42,7 +46,12 @@ DECLARE
   msg     UUID;
   root    UUID;
   k1      UUID;
+  k2      UUID;
   cv      UUID;
+  cv2     UUID;
+  t_team  UUID;
+  who     UUID;
+  chat    UUID;
   w_alloc UUID;
   w_shared UUID;
   wm      UUID;
@@ -104,7 +113,7 @@ BEGIN
     (u_owner, 'pu-owner@example.invalid'), (u_admin, 'pu-admin@example.invalid'),
     (u_a, 'pu-a@example.invalid'), (u_b, 'pu-b@example.invalid'), (u_m, 'pu-m@example.invalid'),
     (u_c, 'pu-c@example.invalid'), (u_g, 'pu-g@example.invalid'), (u_x, 'pu-x@example.invalid'),
-    (u_z, 'pu-z@example.invalid')
+    (u_z, 'pu-z@example.invalid'), (u_l, 'pu-l@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_z;
@@ -114,10 +123,11 @@ BEGIN
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_admin;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_a, u_b, u_m, u_c, u_x);
   UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_g;
+  UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id = u_l;
   UPDATE profiles SET full_name = 'PT Alice' WHERE user_id = u_a;
   INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
   SELECT u, 'https://push.example.invalid/' || u, 'k', 'a'
-    FROM unnest(ARRAY[u_owner, u_admin, u_a, u_b, u_m, u_g, u_x, u_z]) u;
+    FROM unnest(ARRAY[u_owner, u_admin, u_a, u_b, u_m, u_g, u_x, u_z, u_l]) u;
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_x;
 
   -- ---------- grants and RLS ----------
@@ -145,7 +155,10 @@ BEGIN
                  OR has_function_privilege('anon', f, 'EXECUTE')
                  OR NOT has_function_privilege('service_role', f, 'EXECUTE'))
      OR has_function_privilege('authenticated', 'public.push_eligible(uuid, uuid, text)', 'EXECUTE')
-     OR has_function_privilege('service_role', 'public.push_eligible(uuid, uuid, text)', 'EXECUTE') THEN
+     OR has_function_privilege('service_role', 'public.push_eligible(uuid, uuid, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.can_view_conversation_for_user(uuid, uuid, uuid, uuid)', 'EXECUTE') THEN
     failed := array_append(failed, 'push functions: not executable by service_role only'::text);
   END IF;
 
@@ -351,14 +364,78 @@ BEGIN
   END IF;
   DELETE FROM push_outbox;
 
+  -- u_m is allocated to w_alloc but, since 072, cannot open a chat that
+  -- is neither theirs nor assigned to them: the owners and admins hear.
   UPDATE conversations SET assigned_agent_id = NULL WHERE id = cv;
   INSERT INTO messages (conversation_id, sender_type, content_type, content_text)
   VALUES (cv, 'customer', 'image', NULL) RETURNING id INTO wm;
   i := public.push_whatsapp_inbound(wm);
   n := n + 1;
-  IF i <> 1 OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_m AND body = '📷 Photo') THEN
-    failed := array_append(failed, ('whatsapp: unassigned on an allocated number pushes its allocated people (with a device): ' || i)::text);
+  IF i <> 2 OR pg_temp.pu_n(u_m, NULL) <> 0
+     OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_owner AND body = '📷 Photo')
+     OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_admin AND body = '📷 Photo') THEN
+    failed := array_append(failed, ('whatsapp: an allocated agent who cannot see the chat is not pushed; owners and admins are: ' || i)::text);
   END IF;
+  DELETE FROM push_outbox;
+
+  -- u_l leads a team holding u_b, and is allocated to w_alloc too.
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'PT 109 team', u_l) RETURNING id INTO t_team;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (t_team, u_b, a_acct);
+  INSERT INTO whatsapp_channel_members (config_id, user_id, account_id) VALUES (w_alloc, u_l, a_acct);
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_b, '971500109002', 'PT Second') RETURNING id INTO k2;
+  INSERT INTO conversations (account_id, contact_id, user_id, channel_id) VALUES (a_acct, k2, u_b, w_alloc) RETURNING id INTO cv2;
+  DELETE FROM push_outbox;
+
+  -- The mirror: for each person and chat, the helper answers as
+  -- can_view_conversation does when that person asks it themselves.
+  UPDATE conversations SET assigned_agent_id = u_m WHERE id = cv;
+  FOREACH who IN ARRAY ARRAY[u_owner, u_admin, u_a, u_b, u_m, u_c, u_g, u_x, u_z, u_l] LOOP
+    FOREACH chat IN ARRAY ARRAY[cv, cv2] LOOP
+      SELECT pg_temp.pu_try('authenticated', who, format(
+               'SELECT can_view_conversation(%L, %L, %L, %L, %L)::text',
+               cc.account_id, cc.user_id, cc.assigned_agent_id, cc.channel_id, cc.send_channel_id)),
+             public.can_view_conversation_for_user(who, cc.account_id, cc.user_id, cc.assigned_agent_id)
+        INTO r, b
+        FROM conversations cc WHERE cc.id = chat;
+      n := n + 1;
+      IF r IS DISTINCT FROM b::text THEN
+        failed := array_append(failed, format('can_view_conversation_for_user(%s, %s) disagrees with can_view_conversation as that person (%s)', who, chat, r));
+      END IF;
+    END LOOP;
+  END LOOP;
+  UPDATE conversations SET assigned_agent_id = NULL WHERE id = cv;
+  DELETE FROM push_outbox;
+
+  INSERT INTO messages (conversation_id, sender_type, content_type, content_text)
+  VALUES (cv2, 'customer', 'text', 'PT team chat') RETURNING id INTO wm;
+  i := public.push_whatsapp_inbound(wm);
+  n := n + 1;
+  IF i <> 1 OR pg_temp.pu_n(u_l, 'whatsapp_message') <> 1 THEN
+    failed := array_append(failed, ('whatsapp: an allocated team leader who can see their member''s unassigned chat is pushed, alone: ' || i)::text);
+  END IF;
+  DELETE FROM push_outbox;
+
+  -- An assignee who is not live gets nothing; the next tier hears.
+  UPDATE conversations SET assigned_agent_id = u_x WHERE id = cv2;
+  DELETE FROM push_outbox;
+  i := public.push_whatsapp_inbound(wm);
+  n := n + 1;
+  IF i <> 1 OR pg_temp.pu_n(u_x, NULL) <> 0 OR pg_temp.pu_n(u_l, 'whatsapp_message') <> 1 THEN
+    failed := array_append(failed, ('whatsapp: a deactivated assignee falls back to the allocated people who can see the chat: ' || i)::text);
+  END IF;
+  DELETE FROM push_outbox;
+
+  UPDATE conversations SET assigned_agent_id = u_x WHERE id = cv;
+  DELETE FROM push_outbox;
+  INSERT INTO messages (conversation_id, sender_type, content_type, content_text)
+  VALUES (cv, 'customer', 'text', 'PT to nobody') RETURNING id INTO wm;
+  i := public.push_whatsapp_inbound(wm);
+  n := n + 1;
+  IF i <> 2 OR pg_temp.pu_n(u_x, NULL) + pg_temp.pu_n(u_m, NULL) + pg_temp.pu_n(u_l, NULL) <> 0
+     OR pg_temp.pu_n(u_owner, 'whatsapp_message') <> 1 OR pg_temp.pu_n(u_admin, 'whatsapp_message') <> 1 THEN
+    failed := array_append(failed, ('whatsapp: a deactivated assignee, with nobody allocated able to see the chat, falls back to owners and admins: ' || i)::text);
+  END IF;
+  UPDATE conversations SET assigned_agent_id = NULL WHERE id = cv;
   DELETE FROM push_outbox;
 
   UPDATE conversations SET channel_id = w_shared WHERE id = cv;

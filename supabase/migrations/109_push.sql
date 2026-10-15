@@ -16,9 +16,12 @@
 --    channel only when the message @mentions them (087's
 --    message_mentions). kind = chat_message.
 --  * push_whatsapp_inbound(message id), called by the inbound pipeline
---    after the persist: the conversation's assignee, else the people
---    allocated to its number (whatsapp_channel_members), else (shared or
---    unknown number) the account's live owners and admins.
+--    after the persist: the conversation's assignee if live and able to
+--    see the chat, else the people allocated to its number
+--    (whatsapp_channel_members) who are live and able to see it, else
+--    the account's live owners and admins. Allocation grants no
+--    visibility (072), so an allocated agent who cannot open the chat
+--    is never sent its customer's name and words.
 --    kind = whatsapp_message.
 --
 -- push_eligible is the one gate every writer applies: the person has a
@@ -302,6 +305,58 @@ CREATE CONSTRAINT TRIGGER push_on_chat_message AFTER INSERT ON public.internal_m
 
 -- ---------- 6. WhatsApp inbound ----------
 
+-- can_view_conversation (072, the 5-argument form behind
+-- conversations_select) asked for an explicit person instead of
+-- auth.uid(), which is NULL on the service-role path that pushes. A
+-- MIRROR of 072's CASE, branch for branch: admin/owner → everything;
+-- not a member → nothing; owner or assignee of the chat → yes; a team
+-- leader whose team holds the owner or the assignee (044's
+-- leads_teammate) → yes. Change one, change both. The one deliberate
+-- difference: is_account_member reads the person's ACTIVE row, and
+-- this reads their live (not deactivated, not bank_guest) row in
+-- p_account_id whether or not it is active, because a push reaches a
+-- person in every workspace they work in (as the bell does) and they
+-- see the chat once they switch to it. Private: no client grant.
+CREATE OR REPLACE FUNCTION public.can_view_conversation_for_user(
+  p_user_id     uuid,
+  p_account_id  uuid,
+  p_owner_id    uuid,
+  p_assigned_id uuid
+)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  WITH me AS (
+    SELECT CASE p.account_role
+             WHEN 'owner'       THEN 5
+             WHEN 'admin'       THEN 4
+             WHEN 'team_leader' THEN 3
+             WHEN 'agent'       THEN 2
+             WHEN 'viewer'      THEN 1
+           END AS rank
+      FROM public.profiles p
+     WHERE p.user_id = p_user_id
+       AND p.account_id = p_account_id
+       AND p.deactivated_at IS NULL
+       AND p.account_role <> 'bank_guest'
+  )
+  SELECT CASE
+    WHEN p_user_id IS NULL THEN FALSE
+    WHEN coalesce((SELECT rank FROM me), 0) >= 4 THEN TRUE
+    WHEN NOT EXISTS (SELECT 1 FROM me) THEN FALSE
+    WHEN coalesce(p_owner_id = p_user_id, FALSE)
+      OR coalesce(p_assigned_id = p_user_id, FALSE) THEN TRUE
+    WHEN coalesce((SELECT rank FROM me), 0) >= 3
+      AND EXISTS (
+        SELECT 1
+          FROM public.teams t
+          JOIN public.team_members tm ON tm.team_id = t.id
+         WHERE t.account_id = p_account_id
+           AND t.leader_user_id = p_user_id
+           AND tm.user_id IN (p_owner_id, p_assigned_id)
+      ) THEN TRUE
+    ELSE FALSE
+  END
+$$;
+
 -- Called by the inbound pipeline once the customer's message is stored
 -- (after the idempotency boundary, so a replay never reaches it).
 -- Returns how many pushes were queued; a message that is not a
@@ -311,7 +366,7 @@ RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_t
 DECLARE v_n integer;
 BEGIN
   WITH m AS (
-    SELECT cv.id AS conversation_id, cv.account_id, cv.assigned_agent_id, cv.channel_id,
+    SELECT cv.id AS conversation_id, cv.account_id, cv.user_id AS owner_id, cv.assigned_agent_id, cv.channel_id,
            coalesce(nullif(btrim(ct.name), ''), nullif(btrim(ct.phone), ''), 'WhatsApp') AS title,
            left(CASE
              WHEN msg.content_type IN ('image', 'video', 'audio', 'document', 'location', 'contacts') THEN
@@ -329,24 +384,36 @@ BEGIN
       JOIN public.conversations cv ON cv.id = msg.conversation_id
       LEFT JOIN public.contacts ct ON ct.id = cv.contact_id
      WHERE msg.id = p_message_id AND msg.sender_type = 'customer'
+  -- Each tier is the people who should hear of it: live in the account
+  -- and able to see the chat (can_view_conversation_for_user checks
+  -- both). Whether they have a device is push_eligible's question,
+  -- asked last, so a tier never falls through to the next for want of
+  -- one.
+  ), assignee AS (
+    SELECT m.assigned_agent_id AS user_id FROM m
+     WHERE m.assigned_agent_id IS NOT NULL
+       AND public.can_view_conversation_for_user(m.assigned_agent_id, m.account_id, m.owner_id, m.assigned_agent_id)
   ), allocated AS (
     SELECT w.user_id FROM m
       JOIN public.whatsapp_channel_members w ON w.config_id = m.channel_id AND w.account_id = m.account_id
+     WHERE NOT EXISTS (SELECT 1 FROM assignee)
+       AND public.can_view_conversation_for_user(w.user_id, m.account_id, m.owner_id, m.assigned_agent_id)
   ), r AS (
-    SELECT m.assigned_agent_id AS user_id FROM m WHERE m.assigned_agent_id IS NOT NULL
+    SELECT a.user_id FROM assignee a
     UNION
-    SELECT a.user_id FROM m, allocated a WHERE m.assigned_agent_id IS NULL
+    SELECT a.user_id FROM allocated a
     UNION
     SELECT p.user_id FROM m
       JOIN public.profiles p ON p.account_id = m.account_id
-     WHERE m.assigned_agent_id IS NULL AND NOT EXISTS (SELECT 1 FROM allocated)
+     WHERE NOT EXISTS (SELECT 1 FROM assignee) AND NOT EXISTS (SELECT 1 FROM allocated)
        AND p.account_role IN ('owner', 'admin') AND p.deactivated_at IS NULL
   )
   INSERT INTO public.push_outbox (user_id, account_id, kind, title, body, url, tag)
   SELECT r.user_id, m.account_id, 'whatsapp_message', left(m.title, 120), m.body,
          '/inbox?c=' || m.conversation_id, 'wa:' || m.conversation_id
     FROM m, r
-   WHERE public.push_eligible(r.user_id, m.account_id, 'whatsapp_message');
+   WHERE public.can_view_conversation_for_user(r.user_id, m.account_id, m.owner_id, m.assigned_agent_id)
+     AND public.push_eligible(r.user_id, m.account_id, 'whatsapp_message');
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END $$;
@@ -403,6 +470,7 @@ REVOKE ALL ON FUNCTION public.push_on_chat_message() FROM PUBLIC, anon, authenti
 REVOKE ALL ON FUNCTION public.push_chat_has_device(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_enqueue(uuid, uuid, text, text, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_whatsapp_inbound(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.can_view_conversation_for_user(uuid, uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_claim(integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_settle(bigint, boolean, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_purge() FROM PUBLIC, anon, authenticated;
