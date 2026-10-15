@@ -53,6 +53,7 @@ const OPEN_TO_ALL: SettingsSection[] = [
   'profile',
   'security',
   'appearance',
+  'notifications',
 ];
 
 const params = (tab: string | null) =>
@@ -119,7 +120,7 @@ describe('categories', () => {
       Object.fromEntries(SETTINGS_CATEGORIES.map((c) => [c, sectionsOf(c)]))
     ).toEqual({
       overview: ['overview'],
-      account: ['profile', 'security', 'appearance'],
+      account: ['profile', 'security', 'appearance', 'notifications'],
       whatsapp: [
         'whatsapp',
         'numbers',
@@ -151,7 +152,7 @@ describe('categories', () => {
   it('shows a leader Members, the phone system and the personal sections', () => {
     expect(visibleCategories('team_leader')).toEqual([
       { id: 'overview', sections: ['overview'] },
-      { id: 'account', sections: ['profile', 'security', 'appearance'] },
+      { id: 'account', sections: ['profile', 'security', 'appearance', 'notifications'] },
       { id: 'team', sections: ['members'] },
       { id: 'integrations', sections: ['phone-system'] },
     ]);
@@ -162,7 +163,7 @@ describe('categories', () => {
     (role) => {
       expect(visibleCategories(role)).toEqual([
         { id: 'overview', sections: ['overview'] },
-        { id: 'account', sections: ['profile', 'security', 'appearance'] },
+        { id: 'account', sections: ['profile', 'security', 'appearance', 'notifications'] },
       ]);
     }
   );

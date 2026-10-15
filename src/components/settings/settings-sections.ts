@@ -1,4 +1,5 @@
 import {
+  Bell,
   Blocks,
   Bot,
   Building2,
@@ -47,6 +48,7 @@ export const SETTINGS_SECTIONS = [
   'profile',
   'security',
   'appearance',
+  'notifications',
   'whatsapp',
   'numbers',
   'routing',
@@ -109,6 +111,8 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   profile: { id: 'profile', icon: User, category: 'account' },
   security: { id: 'security', icon: Shield, category: 'account' },
   appearance: { id: 'appearance', icon: Palette, category: 'account' },
+  // This device's web push and the person's push preferences: their own.
+  notifications: { id: 'notifications', icon: Bell, category: 'account' },
   whatsapp: {
     id: 'whatsapp',
     icon: PlugZap,

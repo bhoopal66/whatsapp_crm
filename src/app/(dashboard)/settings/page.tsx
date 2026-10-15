@@ -51,6 +51,13 @@ const AppearancePanel = dynamic(
     ),
   { loading: PanelLoading }
 );
+const NotificationsSettings = dynamic(
+  () =>
+    import('@/components/settings/notifications-settings').then(
+      (m) => m.NotificationsSettings
+    ),
+  { loading: PanelLoading }
+);
 const WhapiNumberPanels = dynamic(
   () =>
     import('@/components/settings/whapi-number-panels').then(
@@ -290,6 +297,7 @@ function SettingsPageInner() {
     profile: <ProfileForm />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
+    notifications: <NotificationsSettings />,
     whatsapp: (
       // The Whapi channel (one of several since 060, with a switcher)
       // and the Meta Cloud API number. Routing between them is its own

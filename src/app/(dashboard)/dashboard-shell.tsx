@@ -7,6 +7,7 @@ import { guestRedirectPath } from "@/lib/auth/my-workspaces";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
+import { PushPrompt } from "@/components/layout/push-prompt";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { isChatPath } from "@/lib/chat/view";
 import { CallProvider } from "@/components/pbx/call-provider";
@@ -85,6 +86,8 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           {/* Above every page: writes are being rejected and here's why.
               Renders nothing unless the account/role failed to resolve. */}
           <AccountAccessAlert />
+          {/* One-time offer to turn on push on this device. */}
+          <PushPrompt />
           {children}
         </main>
       </div>
