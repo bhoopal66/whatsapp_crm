@@ -19,8 +19,10 @@ import type { AttendeeResponse } from './feed';
 export const REMINDER_WINDOW_MS = 5 * 60_000;
 /** The longest reminder offset (28 days, 108's CHECK). */
 export const MAX_OFFSET_MINUTES = 40320;
-/** Series read per pass. */
-export const RECURRING_LIMIT = 2000;
+/** Series read per page (keyset on id). */
+export const RECURRING_PAGE_SIZE = 500;
+/** Series read per pass at most; hitting it is logged. */
+export const RECURRING_MAX_ROWS = 20_000;
 
 export interface ReminderEventRow {
   id: string;
@@ -128,48 +130,69 @@ export async function runRecurringReminders(
   now: Date = new Date()
 ): Promise<number> {
   const nowMs = now.getTime();
-  let rows: EventWithAttendees[];
-  try {
-    const { data, error } = await admin
-      .from('calendar_events')
-      .select(
-        'id, created_by, start_at, end_at, all_day, time_zone, rrule, exdates, reminders, status, calendar_event_attendees(user_id, response, reminders)'
-      )
-      .eq('status', 'confirmed')
-      .not('rrule', 'is', null)
-      .lte(
-        'start_at',
-        new Date(nowMs + MAX_OFFSET_MINUTES * 60_000).toISOString()
-      )
-      .limit(RECURRING_LIMIT);
-    if (error) throw error;
-    rows = (data ?? []) as EventWithAttendees[];
-  } catch (err) {
-    console.error('[calendar] recurring reminders: read failed', err);
-    return 0;
-  }
-
-  // One series at a time, so a row that will not expand costs only itself.
+  // Only series that can still ring: started no later than the longest
+  // offset ahead, and not ended before the window (series_end_at is
+  // NULL for an open-ended series). Paged by id so none is skipped.
   const due: DueReminder[] = [];
-  for (const ev of rows) {
+  let lastId: string | null = null;
+  let read = 0;
+  for (;;) {
+    let rows: EventWithAttendees[];
     try {
-      due.push(
-        ...dueRecurringReminders({
-          events: [ev],
-          attendeeRows: (ev.calendar_event_attendees ?? []).map((a) => ({
-            ...a,
-            event_id: ev.id,
-          })),
-          now: nowMs,
-        })
-      );
+      let q = admin
+        .from('calendar_events')
+        .select(
+          'id, created_by, start_at, end_at, all_day, time_zone, rrule, exdates, reminders, status, calendar_event_attendees(user_id, response, reminders)'
+        )
+        .eq('status', 'confirmed')
+        .not('rrule', 'is', null)
+        .lte(
+          'start_at',
+          new Date(nowMs + MAX_OFFSET_MINUTES * 60_000).toISOString()
+        )
+        .or(
+          `series_end_at.is.null,series_end_at.gte.${new Date(nowMs - REMINDER_WINDOW_MS).toISOString()}`
+        );
+      if (lastId) q = q.gt('id', lastId);
+      const { data, error } = await q.order('id').limit(RECURRING_PAGE_SIZE);
+      if (error) throw error;
+      rows = (data ?? []) as EventWithAttendees[];
     } catch (err) {
-      console.error(
-        '[calendar] recurring reminders: cannot expand',
-        ev.id,
-        err
-      );
+      console.error('[calendar] recurring reminders: read failed', err);
+      break;
     }
+    // One series at a time, so a row that will not expand costs only itself.
+    for (const ev of rows) {
+      try {
+        due.push(
+          ...dueRecurringReminders({
+            events: [ev],
+            attendeeRows: (ev.calendar_event_attendees ?? []).map((a) => ({
+              ...a,
+              event_id: ev.id,
+            })),
+            now: nowMs,
+          })
+        );
+      } catch (err) {
+        console.error(
+          '[calendar] recurring reminders: cannot expand',
+          ev.id,
+          err
+        );
+      }
+    }
+    read += rows.length;
+    if (rows.length < RECURRING_PAGE_SIZE) break;
+    if (read >= RECURRING_MAX_ROWS) {
+      console.error(
+        '[calendar] recurring reminders: stopped at',
+        RECURRING_MAX_ROWS,
+        'series this pass'
+      );
+      break;
+    }
+    lastId = rows[rows.length - 1].id;
   }
 
   let rung = 0;
