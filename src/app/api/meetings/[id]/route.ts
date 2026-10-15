@@ -100,14 +100,18 @@ async function evictSeatsWithoutAccess(
   await cutSeats(evicted);
 }
 
-/** GET → `{ meeting, invitee_user_ids, participants, can_manage }`. */
+/**
+ * GET → `{ meeting, invitee_user_ids, participants, can_manage,
+ * chat_count }`. `participants` are the present seats (hand_raised_at
+ * included); `chat_count` counts the chat lines (not reactions).
+ */
 export async function GET(_request: Request, { params }: Params) {
   try {
     const { supabase, accountId } = await requireMeetingsUser();
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid meeting id', 400);
 
-    const [loaded, invitees, present, canManage] = await Promise.all([
+    const [loaded, invitees, present, canManage, chat] = await Promise.all([
       loadMeeting(supabase, accountId, id),
       supabase.from('meeting_invitees').select('user_id').eq('meeting_id', id),
       supabase
@@ -117,10 +121,16 @@ export async function GET(_request: Request, { params }: Params) {
         .is('left_at', null)
         .gt('last_seen_at', presenceCutoff(Date.now())),
       rpcFlag(supabase, 'meeting_can_manage', id),
+      supabase
+        .from('meeting_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('meeting_id', id)
+        .eq('kind', 'chat'),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
     if (canManage.error) return readErrorResponse(canManage.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
+    if (chat.error) return readErrorResponse(chat.error);
     // Not an empty list: the edit dialog saves the invitees it was shown,
     // so a failed read would PATCH every invitee away and evict them.
     if (invitees.error) return readErrorResponse(invitees.error);
@@ -130,6 +140,7 @@ export async function GET(_request: Request, { params }: Params) {
       invitee_user_ids: (invitees.data ?? []).map((r) => r.user_id),
       participants: present.data ?? [],
       can_manage: canManage.allowed,
+      chat_count: chat.count ?? 0,
     });
   } catch (err) {
     return toErrorResponse(err);

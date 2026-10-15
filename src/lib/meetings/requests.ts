@@ -4,16 +4,24 @@
 // description ≤ 2000, end after start).
 // ============================================================
 
+import { MEETING_REACTIONS } from './room/contract';
 import {
   MEETING_SCOPES,
+  MESSAGE_KINDS,
+  MODERATION_ACTIONS,
   PRESENCE_WINDOW_MS,
   type MeetingRow,
   type MeetingScope,
+  type MessageKind,
+  type ModerationAction,
 } from './types';
 
 export const TITLE_MAX = 200;
 export const DESCRIPTION_MAX = 2000;
 export const INVITEES_MAX = 100;
+/** Migration 107's CHECK on a chat line (trimmed). */
+export const CHAT_MAX = 2000;
+export const MESSAGES_PAGE_MAX = 200;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -255,4 +263,117 @@ export function meetingPhase(
   if (presentCount > 0) return 'live';
   if (m.scheduled_end && Date.parse(m.scheduled_end) < now) return 'past';
   return 'upcoming';
+}
+
+// ---- v2 (migration 107): chat, hand, moderation ----
+
+export function isIsoDateTime(v: unknown): v is string {
+  return (
+    typeof v === 'string' &&
+    ISO_DATE_TIME_RE.test(v) &&
+    !Number.isNaN(Date.parse(v))
+  );
+}
+
+/** POST /api/meetings/[id]/messages body; the RPC re-checks all of it. */
+export function parseMessagePost(
+  raw: unknown
+): Parsed<{ kind: MessageKind; body: string }> {
+  if (!isObject(raw)) return { ok: false, error: 'Invalid request body' };
+  if (raw.kind === 'chat') {
+    const body = typeof raw.body === 'string' ? raw.body.trim() : '';
+    if (!body) return { ok: false, error: 'A message needs some text' };
+    if (body.length > CHAT_MAX) {
+      return {
+        ok: false,
+        error: `A message must be at most ${CHAT_MAX} characters`,
+      };
+    }
+    return { ok: true, values: { kind: 'chat', body } };
+  }
+  if (raw.kind === 'reaction') {
+    if (!(MEETING_REACTIONS as readonly unknown[]).includes(raw.body)) {
+      return { ok: false, error: 'Unknown reaction' };
+    }
+    return { ok: true, values: { kind: 'reaction', body: raw.body as string } };
+  }
+  return { ok: false, error: 'kind must be chat or reaction' };
+}
+
+/** GET /api/meetings/[id]/messages query: kind (default chat), before, limit. */
+export function parseMessageQuery(
+  q: URLSearchParams
+): Parsed<{ kind: MessageKind; before: string | null; limit: number }> {
+  const kind = q.get('kind') ?? 'chat';
+  if (!(MESSAGE_KINDS as readonly string[]).includes(kind)) {
+    return { ok: false, error: 'kind must be chat or reaction' };
+  }
+  const before = q.get('before');
+  if (before !== null && !isIsoDateTime(before)) {
+    return {
+      ok: false,
+      error: 'before must be an ISO date-time with an offset',
+    };
+  }
+  const rawLimit = q.get('limit');
+  const limit = rawLimit === null ? MESSAGES_PAGE_MAX : Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > MESSAGES_PAGE_MAX) {
+    return {
+      ok: false,
+      error: `limit must be a whole number from 1 to ${MESSAGES_PAGE_MAX}`,
+    };
+  }
+  return {
+    ok: true,
+    values: {
+      kind: kind as MessageKind,
+      before: before === null ? null : new Date(before).toISOString(),
+      limit,
+    },
+  };
+}
+
+export interface SeatState {
+  participantId: string;
+  handRaised?: boolean;
+  audioMuted?: boolean;
+  videoOff?: boolean;
+}
+
+/** POST /api/meetings/[id]/state body: at least one of the three flags. */
+export function parseSeatState(raw: unknown): Parsed<SeatState> {
+  if (!isObject(raw) || !isUuid(raw.participantId)) {
+    return { ok: false, error: 'Invalid participant id' };
+  }
+  const values: SeatState = { participantId: raw.participantId };
+  for (const key of ['handRaised', 'audioMuted', 'videoOff'] as const) {
+    if (raw[key] === undefined) continue;
+    if (typeof raw[key] !== 'boolean') {
+      return { ok: false, error: `${key} must be true or false` };
+    }
+    values[key] = raw[key];
+  }
+  if (Object.keys(values).length === 1) {
+    return {
+      ok: false,
+      error: 'Send handRaised, audioMuted or videoOff',
+    };
+  }
+  return { ok: true, values };
+}
+
+/** POST /api/meetings/[id]/moderate body. */
+export function parseModeration(
+  raw: unknown
+): Parsed<{ target: string; action: ModerationAction }> {
+  if (!isObject(raw) || !isUuid(raw.target)) {
+    return { ok: false, error: 'Invalid participant id' };
+  }
+  if (!(MODERATION_ACTIONS as readonly unknown[]).includes(raw.action)) {
+    return { ok: false, error: 'action must be mute, remove or lower_hand' };
+  }
+  return {
+    ok: true,
+    values: { target: raw.target, action: raw.action as ModerationAction },
+  };
 }

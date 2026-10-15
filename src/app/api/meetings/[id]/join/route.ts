@@ -1,5 +1,6 @@
 // ============================================================
-// POST /api/meetings/[id]/join → `{ participantId, sessionId, iceServers }`.
+// POST /api/meetings/[id]/join → `{ participantId, sessionId, iceServers }`
+// (TURN + STUN when a Cloudflare TURN key is set, else STUN; lib/meetings/turn.ts).
 // Access is `meeting_can_view` through the caller's client; only then
 // does the service role write the participant row (no client policy).
 // ============================================================
@@ -21,7 +22,7 @@ import {
   type Params,
 } from '@/lib/meetings/server';
 import { createSession } from '@/lib/meetings/sfu';
-import { MEETING_ICE_SERVERS } from '@/lib/meetings/types';
+import { meetingIceServers } from '@/lib/meetings/turn';
 
 export async function POST(_request: Request, { params }: Params) {
   try {
@@ -44,6 +45,9 @@ export async function POST(_request: Request, { params }: Params) {
       return jsonError('This meeting has ended or was cancelled', 409);
     }
 
+    // TURN credentials are minted alongside the session; meetingIceServers
+    // never throws (STUN only on any failure), so it cannot fail a join.
+    const ice = meetingIceServers();
     let sessionId: string;
     try {
       sessionId = (await createSession()).sessionId;
@@ -87,7 +91,7 @@ export async function POST(_request: Request, { params }: Params) {
     return NextResponse.json({
       participantId: data.id,
       sessionId,
-      iceServers: MEETING_ICE_SERVERS,
+      iceServers: await ice,
     });
   } catch (err) {
     return toErrorResponse(err);

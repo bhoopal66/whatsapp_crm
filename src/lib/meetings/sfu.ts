@@ -17,6 +17,8 @@ import type {
   SessionDescription,
   TracksRequest,
   TracksResponse,
+  UpdateTracksRequest,
+  UpdateTracksResponse,
 } from './types';
 
 const SFU_BASE_URL = 'https://rtc.live.cloudflare.com/v1/apps';
@@ -157,6 +159,14 @@ export function renegotiate(
   return call('PUT', `${session(sessionId)}/renegotiate`, {
     sessionDescription,
   });
+}
+
+/** PUT tracks/update — e.g. switch a pulled track's simulcast layer. */
+export function updateTracks(
+  sessionId: string,
+  request: UpdateTracksRequest
+): Promise<UpdateTracksResponse> {
+  return call('PUT', `${session(sessionId)}/tracks/update`, request);
 }
 
 export function closeTracks(

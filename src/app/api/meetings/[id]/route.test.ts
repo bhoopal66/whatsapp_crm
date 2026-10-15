@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   profiles: [] as { user_id: string; role: string }[],
   closedSeatIds: [] as unknown[],
   inviteeReadError: null as unknown,
+  chatCount: 0,
+  chatError: null as unknown,
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -84,6 +86,9 @@ function from(table: string) {
     error: null,
   });
   q.then = (resolve: (v: unknown) => void) => {
+    if (table === 'meeting_messages') {
+      return resolve({ count: mocks.chatCount, error: mocks.chatError });
+    }
     if (table === 'meeting_invitees' && op === 'select') {
       return resolve(
         mocks.inviteeReadError
@@ -200,6 +205,8 @@ describe('GET /api/meetings/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.inviteeReadError = null;
+    mocks.chatCount = 0;
+    mocks.chatError = null;
     mocks.seats = [];
     mocks.meeting = { id: M, account_id: 'acct-1', status: 'scheduled' };
     mocks.rpc.mockResolvedValue({ data: true, error: null });
@@ -215,6 +222,15 @@ describe('GET /api/meetings/[id]', () => {
     const res = await GET(new Request('http://x'), params);
     expect(res.status).toBe(200);
     expect((await res.json()).invitee_user_ids).toEqual([OLD]);
+  });
+
+  it('counts the chat lines, and answers 503 when that read fails', async () => {
+    mocks.chatCount = 12;
+    const res = await GET(new Request('http://x'), params);
+    expect((await res.json()).chat_count).toBe(12);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.chatError = { code: '57014' };
+    expect((await GET(new Request('http://x'), params)).status).toBe(503);
   });
 
   // The edit dialog saves the list it was shown: an empty list from a

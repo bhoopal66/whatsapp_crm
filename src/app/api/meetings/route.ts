@@ -23,7 +23,11 @@ import { MEETING_COLUMNS, type MeetingRow } from '@/lib/meetings/types';
 
 const LIST_LIMIT = 200;
 
-/** GET /api/meetings?scope=live|upcoming|past → `{ meetings }`. */
+/**
+ * GET /api/meetings?scope=live|upcoming|past → `{ meetings }`, each with
+ * `invitee_user_ids`, `present_count` (people, not tabs) and
+ * `participants`: the present seats as `{ user_id, hand_raised_at }`.
+ */
 export async function GET(request: Request) {
   try {
     const { supabase, accountId } = await requireMeetingsUser();
@@ -36,7 +40,7 @@ export async function GET(request: Request) {
     const presentQuery = () =>
       supabase
         .from('meeting_participants')
-        .select('meeting_id, user_id')
+        .select('meeting_id, user_id, hand_raised_at')
         .eq('account_id', accountId)
         .is('left_at', null)
         .gt('last_seen_at', cutoff);
@@ -88,10 +92,17 @@ export async function GET(request: Request) {
       inviteesOf.set(r.meeting_id, list);
     }
     const presentOf = new Map<string, Set<string>>();
+    const seatsOf = new Map<
+      string,
+      { user_id: string; hand_raised_at: string | null }[]
+    >();
     for (const r of present.data ?? []) {
       const set = presentOf.get(r.meeting_id) ?? new Set<string>();
       set.add(r.user_id);
       presentOf.set(r.meeting_id, set);
+      const seats = seatsOf.get(r.meeting_id) ?? [];
+      seats.push({ user_id: r.user_id, hand_raised_at: r.hand_raised_at });
+      seatsOf.set(r.meeting_id, seats);
     }
     return NextResponse.json({
       meetings: meetings
@@ -99,6 +110,7 @@ export async function GET(request: Request) {
           ...m,
           invitee_user_ids: inviteesOf.get(m.id) ?? [],
           present_count: presentOf.get(m.id)?.size ?? 0,
+          participants: seatsOf.get(m.id) ?? [],
         }))
         .filter((m) => meetingPhase(m, m.present_count, now) === scope),
     });
@@ -144,6 +156,7 @@ export async function POST(request: Request) {
           ...meeting,
           invitee_user_ids: inviteeUserIds,
           present_count: 0,
+          participants: [],
         },
       },
       { status: 201 }

@@ -26,7 +26,25 @@ below are enforced in Postgres (RLS and triggers) and asserted by
 4. Apply `supabase/migrations/106_meetings.sql` (superuser or
    BYPASSRLS role, as 087).
 
-Without the two variables meetings can still be scheduled, edited and
+5. Optional, recommended: a **TURN** relay, so people behind strict
+   corporate networks or UDP-blocking firewalls still connect (relayed
+   over TCP/TLS, port 443). It is free with the SFU. In the Cloudflare
+   dashboard open **Realtime → TURN**, create a key, and note its
+   **key id** and **API token**:
+
+   ```
+   CLOUDFLARE_TURN_KEY_ID=...
+   CLOUDFLARE_TURN_KEY_API_TOKEN=...
+   ```
+
+   Server only, read at request time. Each join mints 6-hour
+   credentials (`POST /v1/turn/keys/{id}/credentials/generate-ice-servers`,
+   5 s timeout, `src/lib/meetings/turn.ts`) and drops every URL on port
+   53, which browsers block. Unset, refused or slow: the seat gets STUN
+   only and the join still succeeds. Only Cloudflare's status is logged,
+   never a token or credential.
+
+Without the two SFU variables meetings can still be scheduled, edited and
 cancelled, but joining and every media route answer **503
 `meetings_not_configured`**, and the room shows a "Video meetings
 aren't set up yet" notice.
@@ -49,7 +67,7 @@ Every rule applies inside the caller's active workspace.
 - **Edits, cancels, ends:** the host, or an owner/admin.
 - **Creates:** any staff member (viewer and up), who becomes the host.
 - **Bank guests:** never. They see and write nothing here, and the API
-  answers 403.
+  answers 403 "Video meetings are for staff only".
 
 An invitee must be a live, non-guest member of the meeting's workspace.
 Inviting someone other than yourself rings their bell
@@ -107,6 +125,7 @@ and `force: true`, which stops their media without an SDP exchange).
 This happens on:
 
 - **Leave** — the caller's seat (also when it was already closed).
+- **Moderate → remove** — the removed seat (host/admin; see below).
 - **End** and **cancel** — every seat open just before the status
   change (they are read first, because entering `ended`/`cancelled`
   closes them).
@@ -132,9 +151,10 @@ Known limits:
 
 ## Network and browser requirements
 
-- **STUN only** (`stun.cloudflare.com:3478`). Very strict corporate
-  networks, or any that block UDP, may fail to connect until a TURN
-  server is added.
+- **STUN** (`stun.cloudflare.com:3478`), plus Cloudflare **TURN** when
+  `CLOUDFLARE_TURN_KEY_ID` / `CLOUDFLARE_TURN_KEY_API_TOKEN` are set
+  (see Setup). Without TURN, very strict corporate networks, or any
+  that block UDP, may fail to connect.
 - The app's `Permissions-Policy` allows `camera`, `microphone` and
   `display-capture` for `self`, and the CSP `connect-src` includes
   `https://rtc.live.cloudflare.com`. A reverse proxy that overrides
@@ -161,6 +181,51 @@ All routes are staff only (`requireMeetingsUser`). Errors are
 | `POST /api/meetings/[id]/sfu/tracks`           | Publish or pull tracks (503 if unset)                                  |
 | `PUT /api/meetings/[id]/sfu/renegotiate`       | SDP renegotiation (503 if unset)                                       |
 | `PUT /api/meetings/[id]/sfu/tracks/close`      | Close tracks (503 if unset)                                            |
+| `PUT /api/meetings/[id]/sfu/tracks/update`     | Switch a pulled track's simulcast layer (503 if unset)                 |
+| `GET /api/meetings/[id]/messages`              | Chat or reaction history                                               |
+| `POST /api/meetings/[id]/messages`             | Send a chat line or a reaction                                         |
+| `POST /api/meetings/[id]/state`                | Raise/lower the caller's hand; publish mic/camera at once              |
+| `POST /api/meetings/[id]/moderate`             | Mute, lower a hand or remove someone (host/admin)                      |
 
 A Cloudflare failure is answered 502 (refused) or 504 (no answer);
 Cloudflare's own status is never passed through.
+
+### Chat, hands and moderation (migration 107)
+
+- **Messages.** `POST /api/meetings/[id]/messages` `{ kind: 'chat' |
+'reaction', body }` → **201** `{ message: { id, user_id, kind, body,
+created_at } }`. A chat line is trimmed, 1–2000 characters; a reaction
+  is one of 👍 👏 😂 ❤️ 🎉 😮. It is written by `meeting_post_message`
+  under the caller's own client (no service role): **404** when the
+  caller can't see the meeting, **409** once it has ended or was
+  cancelled, **400** for a bad body, **429** `{ error: 'rate_limited' }`
+  past 20 messages per person per meeting per 10 s.
+  `GET …/messages?kind=chat|reaction&before=<ISO with offset>&limit=1..200`
+  (defaults `chat`, now, 200) → `{ messages: [...] }`: the latest
+  `limit` before `before`, oldest first. Nobody edits or deletes one.
+- **State.** `POST /api/meetings/[id]/state` `{ participantId,
+handRaised?, audioMuted?, videoOff? }` (at least one) on the caller's
+  own open seat → `{ ok: true, hand_raised_at }`. Raising stamps
+  `hand_raised_at` once (raising again keeps the place in the queue);
+  lowering clears it. 404 for a seat that isn't the caller's open one,
+  409 for a closed meeting.
+- **Moderate.** `POST /api/meetings/[id]/moderate` `{ target:
+participantId, action: 'mute' | 'lower_hand' | 'remove' }` → `{ ok:
+true }`, host/owner/admin only (403), on an open seat of this meeting
+  (404). `mute` stamps `mute_requested_at` (the client mutes itself; the
+  server cannot touch a browser's microphone); `lower_hand` clears the
+  hand; `remove` closes the seat (`left_at` = `removed_at`, `removed_by`
+  the caller) and cuts its Cloudflare media, so a client that ignores it
+  stops sending and receiving. Removing yourself is a 400 (use Leave).
+  A removed person can join again while they can still see the meeting.
+- **Simulcast.** A pull in `sfu/tracks` may carry `simulcast: {
+preferredRid: 'f'|'h'|'q', priorityOrdering?, ridNotAvailable? }`
+  (`none` or `asciibetical`). `PUT …/sfu/tracks/update` `{ participantId,
+request: { tracks: [{ location: 'remote', sessionId, trackName, mid,
+simulcast }], sessionDescription? } }` switches the layer on the
+  caller's own session; each track must come from someone present in
+  this meeting (403). Cloudflare's answer is returned as is.
+- **Lists.** `GET /api/meetings` gives each meeting `participants`: the
+  present seats as `{ user_id, hand_raised_at }`. `GET /api/meetings/[id]`
+  returns the present seats with `hand_raised_at` and a `chat_count`
+  (chat lines, not reactions).
