@@ -5346,7 +5346,8 @@
       "not_configured": "Video meetings aren't set up yet.",
       "meeting_closed": "This meeting has ended.",
       "forbidden": "You can't join this meeting.",
-      "retry": "Try again"
+      "retry": "Try again",
+      "removed_from_meeting": "The host removed you from this meeting."
     },
     "lobby": {
       "subtitle": "Check your camera and microphone, then join.",
@@ -5377,7 +5378,8 @@
       "peopleInCall": "{count, plural, one {# person is in the call} other {# people are in the call}}",
       "nobodyYet": "No one else is here yet",
       "someone": "Someone",
-      "morePeople": "and {count} more"
+      "morePeople": "and {count} more",
+      "removed": "The host removed you from this meeting. Ask them to let you back in."
     },
     "controls": {
       "mute": "Mute",
@@ -5536,6 +5538,11 @@
         "cameraLost": "Your camera was disconnected",
         "qualityPoor": "Your connection is poor. Video quality may drop."
       }
+    },
+    "removedPeople": {
+      "removedSection": "Removed",
+      "letBackIn": "Let back in",
+      "letBackInFailed": "Couldn't let them back in. Try again."
     }
   },
   "PushNotifications": {

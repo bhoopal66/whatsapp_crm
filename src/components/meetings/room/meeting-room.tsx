@@ -99,7 +99,8 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
       </EndScreen>
     );
   }
-  if (call.phase === 'error') {
+  // Removed by the host: the lobby says so, with Join disabled.
+  if (call.phase === 'error' && call.error !== 'removed_from_meeting') {
     return (
       <EndScreen title={t(`error.${call.error ?? 'join_failed'}`)} back={back}>
         <Button
@@ -112,7 +113,11 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
       </EndScreen>
     );
   }
-  if (call.phase === 'lobby' || call.phase === 'joining') {
+  if (
+    call.phase === 'lobby' ||
+    call.phase === 'joining' ||
+    call.phase === 'error'
+  ) {
     return (
       <RoomLobby
         call={call}

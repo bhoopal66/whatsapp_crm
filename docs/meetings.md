@@ -217,7 +217,16 @@ true }`, host/owner/admin only (403), on an open seat of this meeting
   hand; `remove` closes the seat (`left_at` = `removed_at`, `removed_by`
   the caller) and cuts its Cloudflare media, so a client that ignores it
   stops sending and receiving. Removing yourself is a 400 (use Leave).
-  A removed person can join again while they can still see the meeting.
+  A removal sticks for the rest of the meeting (migration 110): it is
+  recorded in `meeting_removed_users` before the seat is closed, and
+  while that row exists `join` answers 403 `removed_from_meeting`
+  (before any Cloudflare session is made) and chat and reactions answer
+  403 `removed_from_meeting` (`meeting_post_message` raises P0001
+  `removed`). `{ target: userId, action: 'readmit' }` (the person's
+  user id, not a seat) lets them back in: host/owner/admin only (403),
+  404 if they were not removed. `GET /api/meetings/[id]` lists
+  `removed: [{ user_id, removed_at }]` for a manager only; the room's
+  People panel shows them under **Removed** with **Let back in**.
 - **Simulcast.** A pull in `sfu/tracks` may carry `simulcast: {
 preferredRid: 'f'|'h'|'q', priorityOrdering?, ridNotAvailable? }`
   (`none` or `asciibetical`). `PUT …/sfu/tracks/update` `{ participantId,

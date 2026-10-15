@@ -31,6 +31,7 @@ export function RoomLobby({
   const { profile, user } = useAuth();
   const name = profile?.full_name?.trim() ?? '';
   const joining = call.phase === 'joining';
+  const removed = call.error === 'removed_from_meeting';
   return (
     <TooltipProvider>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 sm:p-6 lg:flex-row lg:items-center lg:gap-10">
@@ -52,11 +53,16 @@ export function RoomLobby({
           </div>
           <LobbyPeople meetingId={meetingId} />
           <DeviceNotices devices={call.devices} />
+          {removed && (
+            <p role="alert" className="text-destructive text-sm">
+              {t('removed')}
+            </p>
+          )}
           <Button
             type="button"
             size="lg"
             className="h-11 w-full rounded-full px-8 text-base sm:w-auto sm:self-start"
-            disabled={joining}
+            disabled={joining || removed}
             onClick={() => void call.join()}
           >
             {joining ? t('joining') : t('join')}

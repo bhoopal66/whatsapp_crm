@@ -370,7 +370,10 @@ export function parseModeration(
     return { ok: false, error: 'Invalid participant id' };
   }
   if (!(MODERATION_ACTIONS as readonly unknown[]).includes(raw.action)) {
-    return { ok: false, error: 'action must be mute, remove or lower_hand' };
+    return {
+      ok: false,
+      error: 'action must be mute, remove, lower_hand or readmit',
+    };
   }
   return {
     ok: true,

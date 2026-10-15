@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   cutSeats: vi.fn(),
   adminUpdate: vi.fn(),
+  adminUpsert: vi.fn(),
+  adminDelete: vi.fn(),
+  calls: [] as string[],
+  removedRows: [{ user_id: 'user-2' }] as unknown[],
   adminEq: [] as [string, unknown][],
   adminRows: [{ id: 'x' }] as unknown[],
   seatEq: [] as [string, unknown][],
@@ -20,13 +24,35 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
 }));
-vi.mock('@/lib/meetings/cut', () => ({ cutSeats: mocks.cutSeats }));
+vi.mock('@/lib/meetings/cut', () => ({
+  cutSeats: (...a: unknown[]) => (
+    mocks.calls.push('cut'),
+    mocks.cutSeats(...a)
+  ),
+}));
 vi.mock('@/lib/meetings/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/meetings/server')>()),
   supabaseAdmin: () => ({
-    from: () => {
+    from: (table: string) => {
+      if (table === 'meeting_removed_users') {
+        const r = {
+          upsert: async (v: unknown, o: unknown) => (
+            mocks.calls.push('record'),
+            mocks.adminUpsert(v, o),
+            { error: null }
+          ),
+          delete: () => (mocks.adminDelete(), r),
+          eq: (c: string, v: unknown) => (mocks.adminEq.push([c, v]), r),
+          select: async () => ({ data: mocks.removedRows, error: null }),
+        };
+        return r;
+      }
       const q = {
-        update: (v: unknown) => (mocks.adminUpdate(v), q),
+        update: (v: unknown) => (
+          mocks.calls.push('close'),
+          mocks.adminUpdate(v),
+          q
+        ),
         eq: (c: string, v: unknown) => (mocks.adminEq.push([c, v]), q),
         is: () => q,
         select: async () => ({ data: mocks.adminRows, error: null }),
@@ -72,6 +98,8 @@ describe('POST /api/meetings/[id]/moderate', () => {
     mocks.adminEq = [];
     mocks.seatEq = [];
     mocks.adminRows = [{ id: T }];
+    mocks.calls = [];
+    mocks.removedRows = [{ user_id: 'user-2' }];
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
@@ -114,6 +142,53 @@ describe('POST /api/meetings/[id]/moderate', () => {
     expect(update).toMatchObject({ removed_by: 'host-1' });
     expect(update.left_at).toBe(update.removed_at);
     expect(mocks.cutSeats).toHaveBeenCalledWith([mocks.seat]);
+  });
+
+  it('records the removal before closing the seat and cutting', async () => {
+    expect((await moderate({ target: T, action: 'remove' })).status).toBe(200);
+    expect(mocks.adminUpsert).toHaveBeenCalledWith(
+      {
+        meeting_id: M,
+        account_id: 'acct-1',
+        user_id: 'user-2',
+        removed_by: 'host-1',
+        removed_at: expect.any(String),
+      },
+      { onConflict: 'meeting_id,user_id' }
+    );
+    expect(mocks.calls).toEqual(['record', 'close', 'cut']);
+    await moderate({ target: T, action: 'mute' });
+    expect(mocks.adminUpsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a removed person back in by user id', async () => {
+    const U = '44444444-4444-4444-8444-444444444444';
+    const res = await moderate({ target: U, action: 'readmit' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mocks.adminDelete).toHaveBeenCalledTimes(1);
+    expect(mocks.adminEq).toEqual([
+      ['meeting_id', M],
+      ['user_id', U],
+    ]);
+    expect(mocks.seatEq).toEqual([]);
+    expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the person was not removed', async () => {
+    mocks.removedRows = [];
+    const res = await moderate({ target: T, action: 'readmit' });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      error: 'That person was not removed from this meeting',
+    });
+  });
+
+  it('refuses a readmit from someone who cannot manage the meeting', async () => {
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    expect((await moderate({ target: T, action: 'readmit' })).status).toBe(403);
+    expect(mocks.adminDelete).not.toHaveBeenCalled();
   });
 
   it('scopes the seat lookup and the write to this meeting', async () => {

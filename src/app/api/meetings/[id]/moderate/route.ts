@@ -7,7 +7,10 @@
 //   remove     → left_at = removed_at = now, removed_by = caller, and
 //                the seat's Cloudflare media is cut (`cutSeats`), so a
 //                client that ignores it stops sending and receiving.
-// Nobody removes themselves (that is Leave).
+// Nobody removes themselves (that is Leave). A removal sticks (110): the
+// person is recorded in meeting_removed_users first, so join and chat
+// refuse them until `readmit` (target = their user id, not a seat)
+// deletes the row; 404 when they were not removed.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -40,12 +43,14 @@ export async function POST(request: Request, { params }: Params) {
     const [loaded, canManage, seat] = await Promise.all([
       loadMeeting(supabase, accountId, id),
       rpcFlag(supabase, 'meeting_can_manage', id),
-      supabase
-        .from('meeting_participants')
-        .select(PARTICIPANT_COLUMNS)
-        .eq('id', target)
-        .eq('meeting_id', id)
-        .maybeSingle(),
+      action === 'readmit'
+        ? Promise.resolve({ data: null, error: null })
+        : supabase
+            .from('meeting_participants')
+            .select(PARTICIPANT_COLUMNS)
+            .eq('id', target)
+            .eq('meeting_id', id)
+            .maybeSingle(),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
     if (canManage.error) return readErrorResponse(canManage.error);
@@ -58,6 +63,19 @@ export async function POST(request: Request, { params }: Params) {
     }
     if (loaded.meeting.status !== 'scheduled') {
       return jsonError('This meeting has ended or was cancelled', 409);
+    }
+    if (action === 'readmit') {
+      const { data: readmitted, error } = await supabaseAdmin()
+        .from('meeting_removed_users')
+        .delete()
+        .eq('meeting_id', id)
+        .eq('user_id', target)
+        .select('user_id');
+      if (error) return meetingDbErrorResponse(error, 'Failed to moderate');
+      if (!readmitted?.length) {
+        return jsonError('That person was not removed from this meeting', 404);
+      }
+      return NextResponse.json({ ok: true });
     }
     if (seat.error) return readErrorResponse(seat.error);
     const row = seat.data as ParticipantRow | null;
@@ -72,6 +90,23 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     const now = new Date().toISOString();
+    if (action === 'remove') {
+      // Recorded before the seat closes, so a rejoin racing the close is
+      // already refused.
+      const { error } = await supabaseAdmin()
+        .from('meeting_removed_users')
+        .upsert(
+          {
+            meeting_id: id,
+            account_id: loaded.meeting.account_id,
+            user_id: row.user_id,
+            removed_by: userId,
+            removed_at: now,
+          },
+          { onConflict: 'meeting_id,user_id' }
+        );
+      if (error) return meetingDbErrorResponse(error, 'Failed to moderate');
+    }
     const update =
       action === 'mute'
         ? { mute_requested_at: now }

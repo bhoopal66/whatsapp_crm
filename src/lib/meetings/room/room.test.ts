@@ -392,6 +392,9 @@ describe('sfu answers', () => {
       'meeting_closed'
     );
     expect(classifyRoomFailure(403, null)).toBe('forbidden');
+    expect(classifyRoomFailure(403, { error: 'removed_from_meeting' })).toBe(
+      'removed_from_meeting'
+    );
     expect(classifyRoomFailure(500, 'x')).toBe('join_failed');
   });
 

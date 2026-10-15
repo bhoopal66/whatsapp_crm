@@ -2,7 +2,7 @@
 
 import { Hand, Mic, MicOff, MoreVertical, Video, VideoOff } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,11 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import type { MeetingCall } from '@/hooks/use-meeting-call';
 import type { ModerationAction } from '@/lib/meetings/room/contract';
+import {
+  parseRemovedPeople,
+  readmitRequest,
+  type RemovedPerson,
+} from '@/lib/meetings/room/removed';
 import {
   peopleForPanel,
   type PanelPerson,
@@ -46,9 +51,47 @@ export function RoomPeoplePanel({ call }: { call: MeetingCall }) {
     unknownName: t('tile.unknown'),
   });
 
+  const meetingId = call.meeting?.id ?? null;
+  const [removed, setRemoved] = useState<RemovedPerson[]>([]);
+  // Who the host removed (110): read on open and after every action.
+  const [removedTick, setRemovedTick] = useState(0);
+  const loadRemoved = () => setRemovedTick((n) => n + 1);
+  const canModerate = call.canModerate;
+  useEffect(() => {
+    if (!meetingId || !canModerate) return;
+    let live = true;
+    fetch(`/api/meetings/${meetingId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (live && body) setRemoved(parseRemovedPeople(body));
+      })
+      // Keep the last list; the next open or action reads it again.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [meetingId, canModerate, removedTick]);
+
   const moderate = async (p: PanelPerson, action: ModerationAction) => {
     if (!(await call.moderate(p.id, action)))
       toast.error(t('tile.moderateFailed'));
+    loadRemoved();
+  };
+
+  const letBackIn = async (userId: string) => {
+    let ok = false;
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}/moderate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(readmitRequest(userId)),
+      });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) toast.error(t('removedPeople.letBackInFailed'));
+    loadRemoved();
   };
 
   return (
@@ -144,6 +187,33 @@ export function RoomPeoplePanel({ call }: { call: MeetingCall }) {
           </li>
         ))}
       </ul>
+      {call.canModerate && removed.length > 0 && (
+        <div className="border-t px-2 pt-2 pb-2">
+          <p className="text-muted-foreground px-2 pb-1 text-xs">
+            {t('removedPeople.removedSection')}
+          </p>
+          <ul>
+            {removed.map((r) => (
+              <li
+                key={r.userId}
+                className="flex items-center gap-3 rounded-md px-2 py-1.5"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {nameOf(r.userId) || t('tile.unknown')}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void letBackIn(r.userId)}
+                >
+                  {t('removedPeople.letBackIn')}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ConfirmDialog
         open={!!removing}
         onOpenChange={(open) => !open && setRemoving(null)}

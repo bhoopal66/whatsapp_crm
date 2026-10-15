@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   inviteeReadError: null as unknown,
   chatCount: 0,
   chatError: null as unknown,
+  removed: [] as { user_id: string; removed_at: string }[],
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -69,7 +70,7 @@ function from(table: string) {
   const q: Record<string, unknown> = {};
   let op = 'select';
   let values: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'in', 'is', 'gt']) q[m] = () => q;
+  for (const m of ['select', 'eq', 'in', 'is', 'gt', 'order']) q[m] = () => q;
   q.update = (v: Record<string, unknown>) => (
     (op = 'update'),
     (values = v),
@@ -86,6 +87,9 @@ function from(table: string) {
     error: null,
   });
   q.then = (resolve: (v: unknown) => void) => {
+    if (table === 'meeting_removed_users') {
+      return resolve({ data: mocks.removed, error: null });
+    }
     if (table === 'meeting_messages') {
       return resolve({ count: mocks.chatCount, error: mocks.chatError });
     }
@@ -216,6 +220,16 @@ describe('GET /api/meetings/[id]', () => {
       accountId: 'acct-1',
       supabase: { from, rpc: mocks.rpc },
     });
+  });
+
+  it('lists who was removed for a manager, and nothing for anyone else', async () => {
+    mocks.removed = [{ user_id: OLD, removed_at: '2026-10-15T08:00:00Z' }];
+    const res = await GET(new Request('http://x'), params);
+    expect((await res.json()).removed).toEqual(mocks.removed);
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+    const other = await (await GET(new Request('http://x'), params)).json();
+    expect(other.can_manage).toBe(false);
+    expect('removed' in other).toBe(false);
   });
 
   it('lists the invitees', async () => {

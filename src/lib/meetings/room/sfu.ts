@@ -9,6 +9,8 @@ export type RoomError =
   | 'meeting_closed'
   /** 403/404: not invited, or not this workspace's meeting. */
   | 'forbidden'
+  /** 403 removed_from_meeting: the host removed us; they can let us back in (110). */
+  | 'removed_from_meeting'
   | 'join_failed'
   /** ICE failed and rejoining did not bring it back. */
   | 'connection_failed'
@@ -16,6 +18,7 @@ export type RoomError =
   | 'seat_closed';
 
 export const NOT_CONFIGURED = 'meetings_not_configured';
+export const REMOVED = 'removed_from_meeting';
 
 /** The room's wording for a failed join (POST /join) or SFU call. */
 export function classifyRoomFailure(status: number, body: unknown): RoomError {
@@ -25,6 +28,7 @@ export function classifyRoomFailure(status: number, body: unknown): RoomError {
       : null;
   if (status === 503 && error === NOT_CONFIGURED) return 'not_configured';
   if (status === 409) return 'meeting_closed';
+  if (status === 403 && error === REMOVED) return 'removed_from_meeting';
   if (status === 403 || status === 404) return 'forbidden';
   return 'join_failed';
 }

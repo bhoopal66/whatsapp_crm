@@ -55,6 +55,15 @@ in the server environment, never `NEXT_PUBLIC_*`, and restart. Without
 them meetings can be scheduled but joining answers 503
 `meetings_not_configured`. See docs/meetings.md.
 
+### Video meetings: a removal sticks
+
+Someone the host (or an owner or admin) removes from a meeting now stays
+out for the rest of it: rejoining and the room's chat are refused until
+the host lets them back in from **People → Removed → Let back in**.
+
+**Migration required:** apply `110_meeting_removal.sql` (as a superuser
+or BYPASSRLS role). See docs/meetings.md.
+
 ### Calling from the CRM is switched off by default
 
 The CRM no longer places calls unless it is built with
