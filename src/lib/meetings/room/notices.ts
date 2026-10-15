@@ -32,6 +32,57 @@ export function presenceNotices(
   return { users, notices };
 }
 
+/**
+ * A reconnect leaves the old seat, backs off a second or more and takes
+ * a new one; switching tabs closes one seat for another. Others would
+ * read "left" then "joined" for a person who never went anywhere, so a
+ * departure is held this long, and dropped if they come back within it.
+ */
+export const LEFT_GRACE_MS = 12_000;
+
+export interface PresenceMemo {
+  /** Who was present at the last plan (never ourselves). */
+  users: Set<string>;
+  /** Who vanished, not yet announced: user id → when they went. */
+  away: Map<string, number>;
+}
+
+/**
+ * `presenceNotices` with the departure grace. `prev` null is the first
+ * plan after the room loads, which only records who is there. A held
+ * departure is announced at the first plan `LEFT_GRACE_MS` after it; a
+ * person back within the grace is neither "left" nor "joined". The
+ * engine plans every few seconds, so a departure is announced within a
+ * plan tick of the grace. Dropping the memo (teardown) drops what is
+ * held, so nothing is left to fire after the room is gone.
+ */
+export function stepPresence(
+  prev: PresenceMemo | null,
+  present: readonly ParticipantRow[],
+  self: { userId: string | null; participantId: string | null },
+  now: number
+): { memo: PresenceMemo; notices: JoinLeaveDraft[] } {
+  const seen = presenceNotices(prev?.users ?? null, present, self);
+  if (prev === null) {
+    return { memo: { users: seen.users, away: new Map() }, notices: [] };
+  }
+  const away = new Map(prev.away);
+  const notices: JoinLeaveDraft[] = [];
+  // Expired first: someone back after the grace did leave, and rejoined.
+  for (const [userId, since] of away) {
+    if (now - since >= LEFT_GRACE_MS) {
+      away.delete(userId);
+      notices.push({ kind: 'left', userId });
+    }
+  }
+  for (const n of seen.notices) {
+    if (n.kind === 'left') away.set(n.userId, now);
+    else if (away.has(n.userId)) away.delete(n.userId);
+    else notices.push(n);
+  }
+  return { memo: { users: seen.users, away }, notices };
+}
+
 export interface SelfRowMemo {
   muteRequestedAt: string | null;
   handRaisedAt: string | null;

@@ -105,3 +105,36 @@ export function planLayerUpdates(
   }
   return out;
 }
+
+/**
+ * The layer to ask for when pulling a participant's camera, decided
+ * once, before the request: the record of the pull must hold exactly
+ * what was sent (`landedPull`).
+ */
+export function pullSimulcast(
+  sizes: Readonly<Record<ParticipantId, TileSize>>,
+  participantId: ParticipantId
+): SimulcastPreference | null {
+  return simulcastFor(tileSizeOf(sizes, participantId));
+}
+
+/**
+ * A camera pull has landed. Its record is the layer the request asked
+ * for, since that is what the SFU sends, even if the tile was resized
+ * while the request was in flight; recording the tile's current layer
+ * instead hides the drift from `planLayerUpdates` and leaves the camera
+ * on the old layer for good (a new joiner pulled at medium, then shown
+ * large, stays at half resolution). `resync` is whether the tile needs
+ * another layer (or no video) by now.
+ */
+export function landedPull(
+  sent: SimulcastPreference | null,
+  sizesNow: Readonly<Record<ParticipantId, TileSize>>,
+  participantId: ParticipantId
+): { rid: Rid | null; resync: boolean } {
+  const rid = sent?.preferredRid ?? null;
+  return {
+    rid,
+    resync: ridForTileSize(tileSizeOf(sizesNow, participantId)) !== rid,
+  };
+}
