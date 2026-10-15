@@ -7,14 +7,14 @@ import type { ReactNode } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useMeetingCall, type MeetingCall } from '@/hooks/use-meeting-call';
-import { canManageMembers } from '@/lib/auth/roles';
+import { canManageMeeting } from '@/lib/meetings/schedule';
 import { tileLayout, type Tile } from '@/lib/meetings/room/layout';
 
 import { DeviceNotices } from './device-notices';
 import { RoomControls } from './room-controls';
 import { RoomLobby } from './room-lobby';
 import { RoomTile } from './room-tile';
-import { useMemberNames } from './use-member-names';
+import { useWorkspaceMembers } from '../use-workspace-members';
 import { AudioTrack } from './video-track';
 
 /** /meetings/[id]/room: lobby, then the call, then whatever ended it. */
@@ -28,8 +28,9 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
   // meeting_can_manage). UI only; POST /end checks it again.
   const canEnd =
     !!call.meeting &&
-    (call.meeting.host_user_id === user?.id ||
-      (!!accountRole && canManageMembers(accountRole)));
+    canManageMeeting(accountRole, user?.id, {
+      hostUserId: call.meeting.host_user_id,
+    });
 
   if (call.error === 'not_configured') {
     return (
@@ -90,7 +91,7 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
 
 function LiveRoom({ call, canEnd }: { call: MeetingCall; canEnd: boolean }) {
   const t = useTranslations('MeetingRoom');
-  const nameOf = useMemberNames();
+  const { nameOf } = useWorkspaceMembers();
   const me = call.participantId;
   const rows = call.participants;
   // Ourselves even before our own row arrives over realtime.
