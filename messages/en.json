@@ -5688,7 +5688,8 @@
       "openMeeting": "Open meeting",
       "openContact": "Open contact",
       "moved": "Saved the new time",
-      "moveFailed": "Couldn't move it: {reason}"
+      "moveFailed": "Couldn't move it: {reason}",
+      "seriesRuleConflict": "Edit the series to change its repeat days"
     },
     "scope": {
       "title": {

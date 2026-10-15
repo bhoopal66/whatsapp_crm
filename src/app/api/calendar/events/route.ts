@@ -13,6 +13,7 @@ import {
   EVENT_COLUMNS,
   requireCalendarUser,
 } from '@/lib/calendar/server';
+import { seriesEndAt } from '@/lib/calendar/recurrence';
 import { parseEventInput, type EventInput } from '@/lib/calendar/validate';
 import { jsonError, readJson } from '@/lib/meetings/server';
 
@@ -43,6 +44,9 @@ export async function POST(request: Request) {
         visibility: v.visibility,
         reminders: v.reminders,
         rrule: v.rrule,
+        // NULL for a one-off or open-ended series (the reminder sweep's
+        // and the feed's bound).
+        series_end_at: seriesEndAt(v)?.toISOString() ?? null,
       })
       .select(EVENT_COLUMNS)
       .single();

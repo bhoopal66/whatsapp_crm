@@ -16,6 +16,12 @@ export interface FakeDb {
   rls?: Record<string, (row: Row) => boolean>;
   /** `table:op` → runs after that operation (a concurrent writer). */
   after?: Record<string, () => void>;
+  /** Function name → its scripted answer; an unscripted call errors. */
+  rpc?: Record<string, (args: Row) => { data?: unknown; error?: unknown }>;
+  /** Every `rpc()` call, in order (filled by the fake). */
+  rpcCalls?: [name: string, args: Row][];
+  /** `table:in` → the length of every `.in()` list on that table. */
+  inSizes?: Record<string, number[]>;
 }
 
 const JOIN: Record<string, [fk: string, pk: string]> = {
@@ -56,6 +62,7 @@ class FakeQuery {
     return this.where(col, (x) => x === v);
   }
   in(col: string, vs: unknown[]) {
+    ((this.db.inSizes ??= {})[`${this.table}:in`] ??= []).push(vs.length);
     return this.where(col, (x) => vs.includes(x));
   }
   not(col: string, _op: 'is', v: null) {
@@ -153,5 +160,16 @@ class FakeQuery {
 }
 
 export function fakeSupabase(db: FakeDb) {
-  return { from: (table: string) => new FakeQuery(db, table) };
+  return {
+    from: (table: string) => new FakeQuery(db, table),
+    async rpc(name: string, args: Row) {
+      (db.rpcCalls ??= []).push([name, args]);
+      const handler = db.rpc?.[name];
+      if (!handler) {
+        return { data: null, error: { code: 'PGRST202', message: name } };
+      }
+      const { data = null, error = null } = handler(args);
+      return { data, error };
+    },
+  };
 }

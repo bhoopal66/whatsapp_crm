@@ -5688,7 +5688,8 @@
       "openMeeting": "회의 열기",
       "openContact": "연락처 열기",
       "moved": "새 시간을 저장했습니다",
-      "moveFailed": "옮기지 못했습니다: {reason}"
+      "moveFailed": "옮기지 못했습니다: {reason}",
+      "seriesRuleConflict": "반복 요일을 바꾸려면 반복 일정 전체를 편집하세요"
     },
     "scope": {
       "title": {

@@ -283,3 +283,17 @@ export function parseEventInput(
   }
   return { ok: true, value };
 }
+
+const STAMP =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
+
+/**
+ * The `updated_at` a write expects the event to still have, exactly as
+ * the GET returned it, else null. It is passed on unchanged: Postgres
+ * stamps microseconds, and a round trip through `Date` would drop them
+ * and never match.
+ */
+export function expectedStamp(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !STAMP.test(raw)) return null;
+  return Number.isFinite(Date.parse(raw.replace(' ', 'T'))) ? raw : null;
+}

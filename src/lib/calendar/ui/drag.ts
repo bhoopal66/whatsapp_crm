@@ -28,8 +28,6 @@ export interface SeriesRow {
 export interface DragRefusal {
   error: 'series_rule_conflict';
 }
-export const SERIES_RULE_CONFLICT_MESSAGE =
-  'Edit the series to change its repeat days';
 
 export function isDragRefusal(body: unknown): body is DragRefusal {
   return (

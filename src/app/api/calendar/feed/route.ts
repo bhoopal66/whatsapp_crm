@@ -26,10 +26,13 @@ import {
   FEED_MEETING_COLUMNS,
   requireCalendarUser,
 } from '@/lib/calendar/server';
+import { chunk } from '@/lib/calendar/util';
 import { jsonError, readErrorResponse } from '@/lib/meetings/server';
 
 const ISO_START = /^\d{4}-\d{2}-\d{2}/;
 const DAY_MS = 86_400_000;
+/** Ids per `.in()` read: a long list would overflow the request URL. */
+const IN_BATCH = 100;
 
 function instant(value: string | null): number | null {
   if (!value || !ISO_START.test(value)) return null;
@@ -164,13 +167,17 @@ export async function GET(request: Request) {
     }
 
     let attendeeRows: FeedAttendeeRow[] = [];
-    if (eventsById.size > 0) {
-      const { data, error } = await supabase
-        .from('calendar_event_attendees')
-        .select('event_id, user_id, response')
-        .in('event_id', [...eventsById.keys()]);
+    const batches = (await Promise.all(
+      chunk([...eventsById.keys()], IN_BATCH).map((ids) =>
+        supabase
+          .from('calendar_event_attendees')
+          .select('event_id, user_id, response')
+          .in('event_id', ids)
+      )
+    )) as Result<FeedAttendeeRow>[];
+    for (const { data, error } of batches) {
       if (error) return readErrorResponse(error);
-      attendeeRows = (data ?? []) as FeedAttendeeRow[];
+      attendeeRows = attendeeRows.concat(data ?? []);
     }
 
     return NextResponse.json({

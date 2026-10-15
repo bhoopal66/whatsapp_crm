@@ -12,7 +12,6 @@ import {
   eventDragBody,
   isDragRefusal,
   meetingDragBody,
-  SERIES_RULE_CONFLICT_MESSAGE,
 } from '@/lib/calendar/ui/drag';
 import type { ViewKey } from '@/lib/calendar/ui/url-state';
 
@@ -93,11 +92,12 @@ export function CalendarPage({
     if (scope) openEditor({ mode: 'edit', item, scope });
   };
 
-  const deleteItem = async (item: FeedItem) => {
+  /** `expectedUpdatedAt`: the event's `updated_at` as the popover read it. */
+  const deleteItem = async (item: FeedItem, expectedUpdatedAt: string) => {
     setPopover(null);
     const scope = await ask('delete', recurring(item));
     if (!scope) return;
-    const q = new URLSearchParams({ scope });
+    const q = new URLSearchParams({ scope, expectedUpdatedAt });
     if (scope === 'this') q.set('occurrenceStart', item.occurrenceStart);
     try {
       await calendarFetch(`/api/calendar/events/${item.id}?${q}`, {
@@ -133,13 +133,15 @@ export function CalendarPage({
         if (isDragRefusal(body)) {
           revert();
           toast.error(
-            t('popover.moveFailed', { reason: SERIES_RULE_CONFLICT_MESSAGE })
+            t('popover.moveFailed', {
+              reason: t('popover.seriesRuleConflict'),
+            })
           );
           return;
         }
         await calendarFetch(`/api/calendar/events/${item.id}`, {
           method: 'PATCH',
-          body,
+          body: { ...body, expectedUpdatedAt: event.updated_at },
         });
       }
       toast.success(t('popover.moved'));

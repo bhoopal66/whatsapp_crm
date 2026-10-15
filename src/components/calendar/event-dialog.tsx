@@ -136,6 +136,8 @@ export function EventDialog({
   });
   const [initial, setInitial] = useState<EventFormValues | null>(values);
   const [organizerId, setOrganizerId] = useState<string | null>(null);
+  // The event's updated_at as loaded: a save is refused (409) if it moved.
+  const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -162,6 +164,7 @@ export function EventDialog({
         scope === 'this' ? { start: item.start, end: item.end } : undefined
       );
       setOrganizerId(ev.created_by);
+      setLoadedAt(ev.updated_at);
       setValues(form);
       setInitial(form);
       setLoadError(null);
@@ -203,7 +206,12 @@ export function EventDialog({
     try {
       await calendarFetch(
         item ? `/api/calendar/events/${item.id}` : '/api/calendar/events',
-        { method: item ? 'PATCH' : 'POST', body: result.body }
+        item
+          ? {
+              method: 'PATCH',
+              body: { ...result.body, expectedUpdatedAt: loadedAt },
+            }
+          : { method: 'POST', body: result.body }
       );
       toast.success(item ? t('form.saved') : t('form.created'));
       onSaved();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseEventInput } from './validate';
+import { expectedStamp, parseEventInput } from './validate';
 
 const ME = '11111111-1111-4111-8111-111111111111';
 const A = '22222222-2222-4222-8222-222222222222';
@@ -198,5 +198,23 @@ describe('parseEventInput: date range and rule sanity', () => {
       ok({ rrule: 'FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30' }, { partial: true })
         .rrule
     ).toBe('FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30');
+  });
+});
+
+describe('expectedStamp', () => {
+  it('passes a timestamp through unchanged, microseconds and all', () => {
+    expect(expectedStamp('2026-10-01T08:00:00.123456+00:00')).toBe(
+      '2026-10-01T08:00:00.123456+00:00'
+    );
+    expect(expectedStamp('2026-10-01T08:00:00.000Z')).toBe(
+      '2026-10-01T08:00:00.000Z'
+    );
+  });
+
+  it('refuses anything that is not a timestamp', () => {
+    for (const raw of [undefined, null, 1, '', 'yesterday', '2026-10-01']) {
+      expect(expectedStamp(raw)).toBeNull();
+    }
+    expect(expectedStamp('2026-13-45T99:00:00Z')).toBeNull();
   });
 });

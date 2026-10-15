@@ -68,6 +68,19 @@ describe('POST /api/calendar/events', () => {
     ]);
   });
 
+  it('stores the end of a bounded series, and none for a one-off', async () => {
+    expect((await create(valid)).status).toBe(201);
+    const res = await create({ ...valid, rrule: 'FREQ=DAILY;COUNT=3' });
+    expect(res.status).toBe(201);
+    expect(
+      db.tables.calendar_events.map((r) => [r.rrule, r.series_end_at])
+    ).toEqual([
+      [null, null],
+      // 10, 11 and 12 October, 09:00–10:00Z.
+      ['FREQ=DAILY;COUNT=3', '2026-10-12T10:00:00.000Z'],
+    ]);
+  });
+
   it('removes the event again when an invitee is refused', async () => {
     db.errors = {
       'calendar_event_attendees:insert': {
