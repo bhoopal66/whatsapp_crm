@@ -68,18 +68,28 @@ never stored per occurrence. When the organiser changes or deletes one
 occurrence they choose:
 
 - **This event**: a delete adds the occurrence's original start to the
-  series' exceptions (`exdates`). A change makes a standalone copy of
-  the occurrence with the change applied (same attendees, asked again
-  as `pending`) and then adds the exception; if the exception cannot be
-  written the copy is removed, so the occurrence is never lost.
+  series' exceptions (`exdates`) and rings every attendee
+  `calendar_cancelled` for that date (`calendar_cancel_occurrence`). A
+  change makes a standalone copy of the occurrence with the change
+  applied and adds the exception in one database transaction
+  (`calendar_split_occurrence`): attendees keep their answers and get
+  `calendar_update`, only newly added people get an invitation.
 - **All events**: the series row itself is changed or deleted. Moving
   the series (a new start time or time zone) moves its exceptions by
   the same wall-clock amount, so a skipped "Tuesday 09:00" stays
   skipped.
 
-Every write of the exceptions checks that the series was not saved by
-someone else in the meantime; if it was, the API answers 409 _This
-event was changed by someone else; reload_.
+Every change and delete carries the `updated_at` the browser loaded
+(`expectedUpdatedAt`); the database compares it, in the same
+transaction as the attendee changes (`calendar_update_event`), and if
+someone else saved in the meantime the API answers 409 _This event was
+changed by someone else; reload_.
+
+Limits: start and end must fall between 1970 and 2100, a repeat rule
+must produce an occurrence within ten years of its start, and moving a
+whole series to another day moves its repeat days with it (or is refused
+when that cannot be done exactly). An attendee changing their answer
+back and forth rings the organiser at most once every ten minutes.
 
 ## Time zones
 

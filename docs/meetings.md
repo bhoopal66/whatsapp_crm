@@ -64,7 +64,10 @@ Every rule applies inside the caller's active workspace.
 - **Sees and joins:** owners and admins (all meetings), the host, an
   invitee, and everyone in the workspace when **Anyone in the workspace
   can join** (`open_to_workspace`) is on.
-- **Edits:** the host (organiser) only, owners and admins included.
+- **Edits:** the host (organiser) only — owners and admins included. The
+  database enforces it too (`meetings_host_only` trigger, migration 110):
+  a title, description, time or "anyone can join" change by anyone but
+  the host is refused, and only the host adds or removes invitees.
 - **Cancels, ends:** the host, or an owner/admin.
 - **Creates:** any staff member (viewer and up), who becomes the host.
 - **Bank guests:** never. They see and write nothing here, and the API
