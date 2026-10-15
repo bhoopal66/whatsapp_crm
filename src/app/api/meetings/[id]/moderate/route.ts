@@ -78,13 +78,19 @@ export async function POST(request: Request, { params }: Params) {
         : action === 'lower_hand'
           ? { hand_raised_at: null }
           : { left_at: now, removed_at: now, removed_by: userId };
-    const { error } = await supabaseAdmin()
+    const { data: changed, error } = await supabaseAdmin()
       .from('meeting_participants')
       .update(update)
       .eq('id', row.id)
       .eq('meeting_id', id)
-      .is('left_at', null);
+      .is('left_at', null)
+      .select('id');
     if (error) return meetingDbErrorResponse(error, 'Failed to moderate');
+    // The seat closed between the lookup and the write (the person left or
+    // rejoined on a new seat): nothing changed, so cut nothing and say so.
+    if (!changed?.length) {
+      return jsonError('That person is not in this meeting', 404);
+    }
     if (action === 'remove') await cutSeats([row]);
     return NextResponse.json({ ok: true });
   } catch (err) {

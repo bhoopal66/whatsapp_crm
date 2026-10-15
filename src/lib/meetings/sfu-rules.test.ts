@@ -232,6 +232,48 @@ describe('checkTracksUpdate', () => {
     expect(checkTracksUpdate(req, present)).toEqual({ ok: true, value: req });
   });
 
+  it('forwards validated fields only, dropping unknown keys', () => {
+    const r = checkTracksUpdate(
+      {
+        tracks: [
+          track({
+            extra: 'x',
+            simulcast: {
+              preferredRid: 'h',
+              evil: 1,
+              ridNotAvailable: 'asciibetical',
+            },
+          }),
+        ],
+        sessionDescription: { type: 'answer', sdp: 'v=0', junk: true },
+        autoDiscover: false,
+        other: 1,
+      },
+      present
+    );
+    expect(r).toEqual({
+      ok: true,
+      value: {
+        tracks: [
+          {
+            location: 'remote',
+            sessionId: 'sess-b',
+            trackName: 'b:video',
+            mid: '3',
+            simulcast: { preferredRid: 'h', ridNotAvailable: 'asciibetical' },
+          },
+        ],
+        sessionDescription: { type: 'answer', sdp: 'v=0' },
+      },
+    });
+  });
+
+  it('refuses autoDiscover', () => {
+    expect(
+      checkTracksUpdate({ tracks: [track()], autoDiscover: true }, present)
+    ).toMatchObject({ ok: false, status: 400 });
+  });
+
   it('refuses local tracks, a missing mid, trackName or simulcast', () => {
     for (const t of [
       track({ location: 'local' }),

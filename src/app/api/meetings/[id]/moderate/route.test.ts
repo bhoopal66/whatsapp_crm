@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   cutSeats: vi.fn(),
   adminUpdate: vi.fn(),
+  adminEq: [] as [string, unknown][],
+  adminRows: [{ id: 'x' }] as unknown[],
+  seatEq: [] as [string, unknown][],
   meeting: null as unknown,
   seat: null as unknown,
 }));
@@ -24,8 +27,9 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
     from: () => {
       const q = {
         update: (v: unknown) => (mocks.adminUpdate(v), q),
-        eq: () => q,
-        is: async () => ({ error: null }),
+        eq: (c: string, v: unknown) => (mocks.adminEq.push([c, v]), q),
+        is: () => q,
+        select: async () => ({ data: mocks.adminRows, error: null }),
       };
       return q;
     },
@@ -40,11 +44,19 @@ const params = { params: Promise.resolve({ id: M }) };
 
 function from(table: string) {
   const q: Record<string, unknown> = {};
-  for (const m of ['select', 'eq']) q[m] = () => q;
-  q.maybeSingle = async () => ({
-    data: table === 'meetings' ? mocks.meeting : mocks.seat,
-    error: null,
-  });
+  q.select = () => q;
+  q.eq = (c: string, v: unknown) => {
+    if (table === 'meeting_participants') mocks.seatEq.push([c, v]);
+    return q;
+  };
+  q.maybeSingle = async () => {
+    if (table === 'meetings') return { data: mocks.meeting, error: null };
+    // The seat lives in `mocks.seat`, which belongs to meeting M only.
+    const forThisMeeting = mocks.seatEq.some(
+      ([c, v]) => c === 'meeting_id' && v === M
+    );
+    return { data: forThisMeeting ? mocks.seat : null, error: null };
+  };
   return q;
 }
 
@@ -57,6 +69,9 @@ const moderate = (body: unknown) =>
 describe('POST /api/meetings/[id]/moderate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.adminEq = [];
+    mocks.seatEq = [];
+    mocks.adminRows = [{ id: T }];
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
@@ -99,6 +114,50 @@ describe('POST /api/meetings/[id]/moderate', () => {
     expect(update).toMatchObject({ removed_by: 'host-1' });
     expect(update.left_at).toBe(update.removed_at);
     expect(mocks.cutSeats).toHaveBeenCalledWith([mocks.seat]);
+  });
+
+  it('scopes the seat lookup and the write to this meeting', async () => {
+    await moderate({ target: T, action: 'mute' });
+    expect(mocks.seatEq).toContainEqual(['meeting_id', M]);
+    expect(mocks.adminEq).toContainEqual(['meeting_id', M]);
+    expect(mocks.adminEq).toContainEqual(['id', T]);
+  });
+
+  it('answers 404 for a seat that belongs to another meeting', async () => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'agent',
+      userId: 'host-1',
+      accountId: 'acct-1',
+      supabase: {
+        from: (table: string) => {
+          const q = from(table) as Record<string, unknown>;
+          // Filter on a different meeting id than the route's: finds nothing.
+          q.eq = (c: string, v: unknown) => {
+            if (table === 'meeting_participants') {
+              mocks.seatEq.push([c, c === 'meeting_id' ? 'other' : v]);
+            }
+            return q;
+          };
+          return q;
+        },
+        rpc: mocks.rpc,
+      },
+    });
+    expect((await moderate({ target: T, action: 'remove' })).status).toBe(404);
+    expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 and cuts nothing when the write changed no row', async () => {
+    mocks.adminRows = [];
+    for (const action of ['remove', 'mute', 'lower_hand']) {
+      const res = await moderate({ target: T, action });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({
+        error: 'That person is not in this meeting',
+      });
+    }
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
   });
 
   it('refuses someone who cannot manage the meeting, writing nothing', async () => {

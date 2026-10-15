@@ -160,12 +160,16 @@ export function checkTracksUpdate(
   if (!isObject(raw) || !Array.isArray(raw.tracks) || !raw.tracks.length) {
     return { ok: false, status: 400, error: 'request.tracks is required' };
   }
+  if (raw.autoDiscover !== undefined && raw.autoDiscover !== false) {
+    return { ok: false, status: 400, error: 'autoDiscover is not allowed' };
+  }
   if (
     raw.sessionDescription !== undefined &&
     !isSessionDescription(raw.sessionDescription)
   ) {
     return { ok: false, status: 400, error: 'Invalid sessionDescription' };
   }
+  const tracks: UpdateTracksRequest['tracks'] = [];
   for (const t of raw.tracks as unknown[]) {
     if (
       !isObject(t) ||
@@ -193,8 +197,29 @@ export function checkTracksUpdate(
     }
     const bad = simulcastError(t.simulcast);
     if (bad) return { ok: false, status: 400, error: bad };
+    const sim = (t as { simulcast: Record<string, unknown> }).simulcast;
+    tracks.push({
+      location: 'remote',
+      mid: t.mid,
+      sessionId: t.sessionId,
+      trackName: t.trackName,
+      simulcast: {
+        preferredRid: sim.preferredRid,
+        ...(sim.priorityOrdering !== undefined && {
+          priorityOrdering: sim.priorityOrdering,
+        }),
+        ...(sim.ridNotAvailable !== undefined && {
+          ridNotAvailable: sim.ridNotAvailable,
+        }),
+      },
+    } as UpdateTracksRequest['tracks'][number]);
   }
-  return { ok: true, value: raw as unknown as UpdateTracksRequest };
+  const value: UpdateTracksRequest = { tracks };
+  if (raw.sessionDescription !== undefined) {
+    const sd = raw.sessionDescription as SessionDescription;
+    value.sessionDescription = { type: sd.type, sdp: sd.sdp };
+  }
+  return { ok: true, value };
 }
 
 /** The local tracks the SFU accepted (a per-track errorCode is a refusal). */
