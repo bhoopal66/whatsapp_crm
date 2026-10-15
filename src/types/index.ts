@@ -286,7 +286,7 @@ export interface Conversation {
 }
 
 // ============================================================
-// Notifications (migration 027). The type list is 104's
+// Notifications (migration 027). The type list is 106's
 // notifications_type_check, the latest; change the two together.
 // ============================================================
 
@@ -329,7 +329,10 @@ export type NotificationType =
   // Deal rooms (088): someone asked to join a room, or a room changed.
   // meta = {room_id, ...}.
   | 'deal_room_join_request'
-  | 'deal_room_update';
+  | 'deal_room_update'
+  // Video meetings (106): you were invited to a meeting (the invitees
+  // trigger). meta = {meeting_id}.
+  | 'meeting_invite';
 
 export interface Notification {
   id: string;

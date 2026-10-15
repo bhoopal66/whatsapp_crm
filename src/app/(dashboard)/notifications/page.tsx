@@ -26,6 +26,7 @@ import {
   PhoneOutgoing,
   ShieldAlert,
   UserPlus,
+  Video,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -58,6 +59,7 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   pbx_connection_restored: PhoneCall,
   deal_room_join_request: DoorOpen,
   deal_room_update: Handshake,
+  meeting_invite: Video,
 };
 
 // A channel alert's body is the fix (who re-pairs which phone, where),

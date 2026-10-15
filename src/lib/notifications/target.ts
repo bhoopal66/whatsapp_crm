@@ -28,6 +28,8 @@
  *   leaders and up (`TeamLeaderOnlyLayout`); the person over the limit
  *   has the whole message in the row already.
  * - Team chat (087): `chatNotificationHref`.
+ * - `meeting_invite` (106's invitees trigger): `meta.meeting_id` → the
+ *   meeting's page.
  *
  * `role` is the reader's role in the row's workspace, which is not the
  * active one for a row from another workspace. A bank guest is only
@@ -100,6 +102,10 @@ function hrefFor(
     case 'chat_thread_reply':
     case 'chat_broadcast':
       return chatNotificationHref(n.type, n.meta);
+    case 'meeting_invite': {
+      const meeting = metaField(n.meta, 'meeting_id');
+      return isUuid(meeting) ? `/meetings/${meeting}` : null;
+    }
     default:
       return null;
   }
