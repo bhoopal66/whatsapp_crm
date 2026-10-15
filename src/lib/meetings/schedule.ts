@@ -151,15 +151,17 @@ export function zonedParts(
 }
 
 /**
- * The form's starting values: the next half hour in `timeZone`, the
+ * The form's starting values: `start` when given (the calendar's
+ * selected slot), else the next half hour, read in `timeZone`; the
  * default duration, nobody invited.
  */
 export function defaultMeetingForm(
   now: Date,
-  timeZone: string
+  timeZone: string,
+  start?: Date
 ): MeetingFormValues {
   const step = 30 * 60_000;
-  const next = new Date(Math.ceil((now.getTime() + 1) / step) * step);
+  const next = start ?? new Date(Math.ceil((now.getTime() + 1) / step) * step);
   const { date, time } = zonedParts(next.toISOString(), timeZone);
   return {
     title: '',

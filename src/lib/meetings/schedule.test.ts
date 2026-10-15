@@ -194,6 +194,12 @@ describe('form defaults', () => {
     ).toBe('13:00');
   });
 
+  it('starts at a given start (the calendar slot), read in the zone', () => {
+    expect(
+      defaultMeetingForm(NOW, DUBAI, new Date('2026-10-20T05:15:00Z'))
+    ).toMatchObject({ date: '2026-10-20', time: '09:15', durationMinutes: 30 });
+  });
+
   it('fills the Edit dialog from a meeting, round-tripping its times', () => {
     const m = meeting({ inviteeUserIds: ['a'], openToWorkspace: true });
     const values = meetingToForm(m, NOW, DUBAI);
