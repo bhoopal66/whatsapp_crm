@@ -30,12 +30,16 @@ import {
 import {
   buildStageTiles,
   nextRemoteSpeaker,
+  pipTarget,
 } from '@/lib/meetings/room-ui/tiles';
 
 import { useWorkspaceMembers } from '../use-workspace-members';
-import { ConfirmDialog } from './confirm-dialog';
 import { DeviceNotices } from './device-notices';
-import { RoomControls } from './room-controls';
+import {
+  ControlBar,
+  FloatingReactions,
+  usePictureInPicture,
+} from './control-bar';
 import { RoomLobby } from './room-lobby';
 import { RoomStage } from './room-stage';
 import { QualityBars, RoomTile } from './room-tile';
@@ -141,7 +145,10 @@ export function LiveRoom({
   call,
   meetingId,
   sidePanel,
+  chatUnread,
+  onOpenPanel,
   onTogglePanel,
+  onOpenSettings,
 }: LiveRoomProps) {
   const t = useTranslations('MeetingRoom');
   const { nameOf } = useWorkspaceMembers();
@@ -149,11 +156,9 @@ export function LiveRoom({
   const me = call.participantId;
   const rows = call.participants;
   const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
-  // The Layout menu (Auto / Speaker) is still to come: see the report.
-  const [mode] = useState<LayoutMode>('auto');
+  const [mode, setMode] = useState<LayoutMode>('auto');
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [confirmEnd, setConfirmEnd] = useState(false);
   // The last remote speaker, so Speaker mode keeps them on screen while
   // we talk. State adjusted during render, not a ref: refs may not be
   // read while rendering.
@@ -181,6 +186,33 @@ export function LiveRoom({
     lastRemoteSpeakerId: remoteSpeaker,
     page,
   });
+
+  // Picture-in-picture: every drawn <video>, by tile key, read only when
+  // the button is pressed.
+  const videos = useRef(new Map<string, HTMLVideoElement>());
+  const registerVideo = useCallback(
+    (key: string, el: HTMLVideoElement | null) => {
+      if (el) videos.current.set(key, el);
+      else videos.current.delete(key);
+    },
+    []
+  );
+  const pip = usePictureInPicture();
+  const pipTile = pipTarget(arrangement, call.activeSpeakerId, remoteSpeaker);
+  const togglePip = () => {
+    if (document.pictureInPictureElement) {
+      void document.exitPictureInPicture().catch(() => {});
+      return;
+    }
+    const video = pipTile ? videos.current.get(pipTile.key) : undefined;
+    if (!video) {
+      toast.message(t('controlBar.pipNothing'));
+      return;
+    }
+    video.requestPictureInPicture().catch(() => {
+      toast.error(t('controlBar.pipFailed'));
+    });
+  };
 
   // Keyboard: M, V, S, H here; C, P and Esc belong to the panels.
   const callRef = useRef(call);
@@ -244,6 +276,7 @@ export function LiveRoom({
         onTogglePin={() =>
           setPinnedKey((k) => (k === tile.key ? null : tile.key))
         }
+        videoRef={(el) => registerVideo(tile.key, el)}
         onModerate={
           call.canModerate && !tile.isSelf && tile.kind === 'camera'
             ? (a) => void moderate(tile.participantId, a)
@@ -266,14 +299,24 @@ export function LiveRoom({
       )}
       <TopBar call={call} meetingId={meetingId} />
       <div className="flex min-h-0 flex-1 gap-2 px-2">
-        <RoomStage
-          arrangement={arrangement}
-          participantIds={rows.map((r) => r.id)}
-          selfId={me}
-          renderTile={renderTile}
-          onPage={setPage}
-          onTileSizes={call.setTileSizes}
-        />
+        <div className="relative flex min-w-0 flex-1">
+          <RoomStage
+            arrangement={arrangement}
+            participantIds={rows.map((r) => r.id)}
+            selfId={me}
+            renderTile={renderTile}
+            onPage={setPage}
+            onTileSizes={call.setTileSizes}
+          />
+          <FloatingReactions
+            reactions={call.reactions}
+            nameOf={(id) =>
+              (id === user?.id ? profile?.full_name : null) ||
+              nameOf(id) ||
+              t('tile.unknown')
+            }
+          />
+        </div>
         {sidePanel}
       </div>
       {Object.entries(call.remote).map(([pid, tracks]) =>
@@ -288,24 +331,15 @@ export function LiveRoom({
       <div className="px-4">
         <DeviceNotices devices={call.devices} />
       </div>
-      <RoomControls
-        micOn={call.micOn}
-        cameraOn={call.cameraOn}
-        sharing={call.sharing}
-        canEnd={call.canModerate}
-        onMic={() => void call.toggleMic()}
-        onCamera={() => void call.toggleCamera()}
-        onScreen={() => void call.toggleScreen()}
-        onLeave={() => void call.leave()}
-        onEnd={() => setConfirmEnd(true)}
-      />
-      <ConfirmDialog
-        open={confirmEnd}
-        onOpenChange={setConfirmEnd}
-        title={t('controls.endConfirm')}
-        confirmLabel={t('controls.endForEveryone')}
-        destructive
-        onConfirm={() => void call.end()}
+      <ControlBar
+        call={call}
+        layout={mode}
+        onLayout={setMode}
+        chatUnread={chatUnread}
+        onOpenPanel={onOpenPanel}
+        onOpenSettings={onOpenSettings}
+        pip={{ ...pip, available: !!pipTile }}
+        onPip={togglePip}
       />
     </div>
   );
