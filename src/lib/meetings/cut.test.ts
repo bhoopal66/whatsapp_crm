@@ -79,4 +79,12 @@ describe('cutSeats', () => {
     ).resolves.toBeUndefined();
     expect(mocks.closeTracks).toHaveBeenCalledTimes(2);
   });
+
+  it('logs nothing when the session is already gone (410)', async () => {
+    mocks.getSession.mockRejectedValue(
+      Object.assign(new Error('gone'), { status: 410, code: 'session_error' })
+    );
+    await cutSeats([{ cf_session_id: 's1' }]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
 });

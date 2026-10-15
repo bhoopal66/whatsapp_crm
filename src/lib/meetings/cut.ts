@@ -46,6 +46,8 @@ export async function cutSeats(seats: readonly SeatToCut[]): Promise<void> {
     sessions.map((sid) =>
       cutSession(sid).catch((err: unknown) => {
         const e = err as { status?: unknown; code?: unknown } | null;
+        // 410: the session is gone already, so there is nothing to cut.
+        if (e?.status === 410) return;
         console.error('[meetings] cutting a seat failed', e?.status, e?.code);
       })
     )

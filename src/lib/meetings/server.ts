@@ -85,6 +85,11 @@ export async function readJson(request: Request): Promise<unknown> {
  *  its 401 would read as the caller's. */
 export function sfuErrorResponse(err: unknown): NextResponse | null {
   if (!(err instanceof SfuError)) return null;
+  // 410: the Cloudflare session is gone already — the seat was cut by a
+  // leave, a removal or the end racing this call. Expected, not a fault.
+  if (err.status === 410) {
+    return jsonError('The video session has already ended', 410);
+  }
   console.error('[meetings] sfu call failed', err.status, err.code);
   if (err.code === 'not_configured') {
     return jsonError('meetings_not_configured', 503);

@@ -66,6 +66,12 @@ describe('sfuErrorResponse', () => {
     expect(await res?.json()).toEqual({ error: 'meetings_not_configured' });
   });
 
+  it('answers 410, not 502, when the Cloudflare session is already gone', async () => {
+    const res = sfuErrorResponse(new SfuError('x', 410, 'session_error'));
+    expect(res?.status).toBe(410);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it('leaves anything else to the caller', () => {
     expect(sfuErrorResponse(new Error('x'))).toBeNull();
   });
