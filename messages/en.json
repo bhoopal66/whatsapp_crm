@@ -5201,5 +5201,80 @@
       "title": "Page not found",
       "description": "The page you’re looking for doesn’t exist or has moved."
     }
+  },
+  "MeetingRoom": {
+    "loading": "Loading the meeting…",
+    "back": "Back",
+    "reconnecting": "Connection lost. Reconnecting…",
+    "notConfigured": {
+      "title": "Video meetings aren't set up yet",
+      "body": "An admin needs to add the Cloudflare keys before anyone can join a call."
+    },
+    "missing": {
+      "title": "This meeting doesn't exist, or you aren't invited to it."
+    },
+    "ended": {
+      "title": "This meeting has ended."
+    },
+    "left": {
+      "title": "You left the meeting.",
+      "elsewhere": "You joined this meeting from another tab or window, so this one was disconnected.",
+      "rejoin": "Rejoin"
+    },
+    "error": {
+      "join_failed": "Couldn't join the meeting. Check your connection and try again.",
+      "connection_failed": "The call lost its connection and couldn't reconnect.",
+      "seat_closed": "You joined this meeting from another tab or window.",
+      "not_configured": "Video meetings aren't set up yet.",
+      "meeting_closed": "This meeting has ended.",
+      "forbidden": "You can't join this meeting.",
+      "retry": "Try again"
+    },
+    "lobby": {
+      "subtitle": "Check your camera and microphone, then join.",
+      "cameraOff": "Your camera is off",
+      "join": "Join",
+      "joining": "Joining…"
+    },
+    "controls": {
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "cameraOff": "Turn camera off",
+      "cameraOn": "Turn camera on",
+      "share": "Share screen",
+      "stopShare": "Stop sharing",
+      "leave": "Leave",
+      "endForEveryone": "End for everyone",
+      "endConfirm": "End this meeting for everyone in it?"
+    },
+    "tile": {
+      "you": "{name} (you)",
+      "screen": "{name}'s screen",
+      "muted": "Muted",
+      "unknown": "Someone"
+    },
+    "devices": {
+      "audio": {
+        "permission_denied": "Microphone access is blocked. Allow it in your browser's site settings.",
+        "not_found": "No microphone was found.",
+        "in_use": "Your microphone is in use by another app.",
+        "unsupported": "This browser can't use a microphone here.",
+        "unknown": "Your microphone couldn't be started."
+      },
+      "video": {
+        "permission_denied": "Camera access is blocked. Allow it in your browser's site settings.",
+        "not_found": "No camera was found.",
+        "in_use": "Your camera is in use by another app.",
+        "unsupported": "This browser can't use a camera here.",
+        "unknown": "Your camera couldn't be started."
+      },
+      "screen": {
+        "permission_denied": "Screen sharing is blocked in this browser.",
+        "not_found": "No screen was available to share.",
+        "in_use": "Your screen couldn't be captured.",
+        "unsupported": "This browser can't share a screen.",
+        "unknown": "Screen sharing couldn't be started."
+      }
+    }
   }
 }
