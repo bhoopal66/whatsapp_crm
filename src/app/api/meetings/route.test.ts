@@ -1,0 +1,96 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Creating a meeting is the meeting plus its invitees under the caller's
+// RLS client, all or nothing.
+
+const mocks = vi.hoisted(() => ({
+  getCurrentAccount: vi.fn(),
+  insertMeeting: vi.fn(),
+  insertInvitees: vi.fn(),
+  deleteMeeting: vi.fn(),
+}));
+
+vi.mock('@/lib/auth/account', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/account')>()),
+  getCurrentAccount: mocks.getCurrentAccount,
+}));
+
+import { GET, POST } from './route';
+
+const U1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+function from(table: string) {
+  if (table === 'meetings') {
+    return {
+      insert: (row: unknown) => {
+        mocks.insertMeeting(row);
+        return {
+          select: () => ({
+            single: async () => ({
+              data: { id: 'm-1', title: 'Sync' },
+              error: null,
+            }),
+          }),
+        };
+      },
+      delete: () => ({ eq: mocks.deleteMeeting }),
+    };
+  }
+  return { insert: mocks.insertInvitees };
+}
+
+const create = (body: unknown) =>
+  POST(new Request('http://x', { method: 'POST', body: JSON.stringify(body) }));
+
+describe('POST /api/meetings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'viewer',
+      userId: 'user-1',
+      accountId: 'acct-1',
+      supabase: { from },
+    });
+    mocks.insertInvitees.mockResolvedValue({ error: null });
+  });
+
+  it('creates the meeting with the caller as host, then the invitees', async () => {
+    const res = await create({ title: ' Sync ', inviteeUserIds: [U1] });
+    expect(res.status).toBe(201);
+    expect(mocks.insertMeeting).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Sync',
+        account_id: 'acct-1',
+        host_user_id: 'user-1',
+      })
+    );
+    expect(mocks.insertInvitees).toHaveBeenCalledWith([
+      { meeting_id: 'm-1', account_id: 'acct-1', user_id: U1 },
+    ]);
+  });
+
+  it('removes the meeting again when an invitee is refused', async () => {
+    mocks.insertInvitees.mockResolvedValue({
+      error: { code: '23514', message: 'Only a live staff member…' },
+    });
+    const res = await create({ title: 'Sync', inviteeUserIds: [U1] });
+    expect(res.status).toBe(400);
+    expect(mocks.deleteMeeting).toHaveBeenCalledWith('id', 'm-1');
+  });
+
+  it('refuses an invalid body before writing', async () => {
+    expect((await create({ title: '' })).status).toBe(400);
+    expect(mocks.insertMeeting).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bank guest', async () => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'bank_guest',
+      supabase: { from },
+    });
+    expect((await create({ title: 'Sync' })).status).toBe(403);
+    expect((await GET(new Request('http://x/api/meetings'))).status).toBe(403);
+    expect(mocks.insertMeeting).not.toHaveBeenCalled();
+  });
+});

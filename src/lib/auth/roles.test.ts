@@ -15,6 +15,7 @@ import {
   canSendMessages,
   grantableRoles,
   canTransferOwnership,
+  canUseMeetings,
   canArchiveWorkspace,
   canViewOnly,
   canViewUnroutedCalls,
@@ -207,6 +208,14 @@ describe('bank_guest (migrations 082/083)', () => {
     ]) {
       expect(can('bank_guest'), can.name).toBe(false);
     }
+  });
+});
+
+describe('canUseMeetings', () => {
+  it('every staff role, never a bank guest (migration 106)', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canUseMeetings(r))).toEqual([
+      ...STAFF_ROLES,
+    ]);
   });
 });
 

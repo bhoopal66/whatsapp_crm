@@ -67,9 +67,10 @@ export function contentSecurityPolicy(env: CspEnv): string {
     "font-src 'self' data:",
     // Supabase REST + realtime (WSS), hosted or self-hosted. All Meta
     // API calls happen server-side, so graph.facebook.com does not
-    // belong here. The PBX for the browser softphone.
+    // belong here. Cloudflare Realtime for video meetings (106). The
+    // PBX for the browser softphone.
     join(
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://rtc.live.cloudflare.com",
       supabase,
       supabaseWs,
       pbx,
