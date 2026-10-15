@@ -5578,6 +5578,71 @@
     "loadFailed": "Couldn't load the calendar: {reason}",
     "loading": "Loading…",
     "shortcuts": "Shortcuts: T today, J/K previous/next, D W M Y A views, N new event, / search",
-    "task": "Task"
+    "task": "Task",
+    "popover": {
+      "close": "Close",
+      "meeting": "Meeting",
+      "loadFailed": "Couldn't load this event: {reason}",
+      "unknownPerson": "Unknown member",
+      "organiser": "Organiser",
+      "responses": {
+        "accepted": "Accepted",
+        "tentative": "Maybe",
+        "declined": "Declined",
+        "pending": "Awaiting reply"
+      },
+      "rsvpPrompt": "Going?",
+      "rsvp": {
+        "accepted": "Yes",
+        "tentative": "Maybe",
+        "declined": "No"
+      },
+      "responded": {
+        "accepted": "You accepted",
+        "tentative": "You replied maybe",
+        "declined": "You declined"
+      },
+      "notifyMe": "Notify me",
+      "saveFailed": "Couldn't save: {reason}",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleted": "Event deleted",
+      "deleteFailed": "Couldn't delete: {reason}",
+      "join": "Join",
+      "openMeeting": "Open meeting",
+      "openContact": "Open contact",
+      "moved": "Saved the new time",
+      "moveFailed": "Couldn't move it: {reason}"
+    },
+    "scope": {
+      "title": {
+        "edit": "Edit recurring event",
+        "delete": "Delete recurring event",
+        "move": "Move recurring event"
+      },
+      "this": "This event",
+      "all": "All events",
+      "cancel": "Cancel",
+      "confirmDeleteTitle": "Delete this event?",
+      "confirmDeleteBody": "Guests will no longer see it. This can't be undone.",
+      "confirmDelete": "Delete"
+    },
+    "reminders": {
+      "atStart": "At start",
+      "minutes": "{count, plural, =1 {1 minute} other {# minutes}}",
+      "hours": "{count, plural, =1 {1 hour} other {# hours}}",
+      "days": "{count, plural, =1 {1 day} other {# days}}"
+    },
+    "repeat": {
+      "daily": "{interval, plural, =1 {Every day} other {Every # days}}",
+      "weekly": "{interval, plural, =1 {Weekly on {days}} other {Every # weeks on {days}}}",
+      "monthlyDate": "{interval, plural, =1 {Monthly on day {day}} other {Every # months on day {day}}}",
+      "monthlyNth": "{interval, plural, =1 {Monthly on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}} other {Every # months on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}}}",
+      "monthlyLast": "{interval, plural, =1 {Monthly on the last {weekday}} other {Every # months on the last {weekday}}}",
+      "yearly": "{interval, plural, =1 {Every year on {date}} other {Every # years on {date}}}",
+      "custom": "Repeats on a custom schedule",
+      "endsOn": "{rule}, until {until}",
+      "endsAfter": "{rule}, {count, plural, =1 {once} other {# times}}"
+    }
   }
 }

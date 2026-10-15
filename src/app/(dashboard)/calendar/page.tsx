@@ -1,4 +1,4 @@
-import { CalendarView } from '@/components/calendar/calendar-view';
+import { CalendarPage as CalendarScreen } from '@/components/calendar/calendar-page';
 import { parseCalendarParams } from '@/lib/calendar/ui/url-state';
 
 /**
@@ -12,7 +12,7 @@ export default async function CalendarPage({
 }) {
   const state = parseCalendarParams(await searchParams);
   return (
-    <CalendarView
+    <CalendarScreen
       initialDate={state.date}
       initialView={state.view}
       initialEventId={state.eventId}

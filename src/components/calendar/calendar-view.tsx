@@ -790,6 +790,7 @@ export function CalendarView({
             selectable
             selectMirror
             editable={false}
+            eventAllow={(span, moving) => span.allDay === moving?.allDay}
             dayMaxEvents
             eventDisplay="block"
             events={fetchEvents}

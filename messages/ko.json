@@ -5578,6 +5578,71 @@
     "loadFailed": "캘린더를 불러오지 못했습니다: {reason}",
     "loading": "불러오는 중…",
     "shortcuts": "단축키: T 오늘, J/K 이전/다음, D W M Y A 보기, N 새 일정, / 검색",
-    "task": "작업"
+    "task": "작업",
+    "popover": {
+      "close": "닫기",
+      "meeting": "회의",
+      "loadFailed": "이 일정을 불러오지 못했습니다: {reason}",
+      "unknownPerson": "알 수 없는 멤버",
+      "organiser": "주최자",
+      "responses": {
+        "accepted": "수락함",
+        "tentative": "미정",
+        "declined": "거절함",
+        "pending": "응답 대기 중"
+      },
+      "rsvpPrompt": "참석하시나요?",
+      "rsvp": {
+        "accepted": "예",
+        "tentative": "미정",
+        "declined": "아니요"
+      },
+      "responded": {
+        "accepted": "참석으로 응답했습니다",
+        "tentative": "미정으로 응답했습니다",
+        "declined": "불참으로 응답했습니다"
+      },
+      "notifyMe": "알림 받기",
+      "saveFailed": "저장하지 못했습니다: {reason}",
+      "edit": "수정",
+      "delete": "삭제",
+      "deleted": "일정을 삭제했습니다",
+      "deleteFailed": "삭제하지 못했습니다: {reason}",
+      "join": "참가",
+      "openMeeting": "회의 열기",
+      "openContact": "연락처 열기",
+      "moved": "새 시간을 저장했습니다",
+      "moveFailed": "옮기지 못했습니다: {reason}"
+    },
+    "scope": {
+      "title": {
+        "edit": "반복 일정 수정",
+        "delete": "반복 일정 삭제",
+        "move": "반복 일정 이동"
+      },
+      "this": "이 일정",
+      "all": "모든 일정",
+      "cancel": "취소",
+      "confirmDeleteTitle": "이 일정을 삭제할까요?",
+      "confirmDeleteBody": "참석자에게 더 이상 표시되지 않습니다. 되돌릴 수 없습니다.",
+      "confirmDelete": "삭제"
+    },
+    "reminders": {
+      "atStart": "시작 시",
+      "minutes": "{count}분",
+      "hours": "{count}시간",
+      "days": "{count}일"
+    },
+    "repeat": {
+      "daily": "{interval, plural, =1 {매일} other {#일마다}}",
+      "weekly": "{interval, plural, =1 {매주 {days}} other {#주마다 {days}}}",
+      "monthlyDate": "{interval, plural, =1 {매월 {day}일} other {#개월마다 {day}일}}",
+      "monthlyNth": "{interval, plural, =1 {매월 {nth}번째 {weekday}} other {#개월마다 {nth}번째 {weekday}}}",
+      "monthlyLast": "{interval, plural, =1 {매월 마지막 {weekday}} other {#개월마다 마지막 {weekday}}}",
+      "yearly": "{interval, plural, =1 {매년 {date}} other {#년마다 {date}}}",
+      "custom": "사용자 지정 반복",
+      "endsOn": "{rule}, {until}까지",
+      "endsAfter": "{rule}, {count}회"
+    }
   }
 }
