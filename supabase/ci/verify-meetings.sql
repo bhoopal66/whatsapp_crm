@@ -1,4 +1,4 @@
--- Behavioural regression suite for video meetings (migrations 106-107).
+-- Behavioural regression suite for video meetings (migrations 106-107, 110).
 --
 -- Who sees a meeting is meeting_can_view: a live, non-guest member
 -- active in the meeting's workspace who is owner/admin, the host, an
@@ -17,7 +17,10 @@
 -- (meeting_messages) read as the meeting is, written only through
 -- meeting_post_message (visible, scheduled, a valid kind and body, 20
 -- posts per person per meeting per 10 s), and the seat's raised-hand
--- and moderation columns, which no client writes.
+-- and moderation columns, which no client writes. From 110: a removal
+-- (meeting_removed_users) refuses the person's posts until it is
+-- deleted; managers and the person read it, nobody else; no client
+-- writes it.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -433,6 +436,53 @@ BEGIN
   n := n + 1;
   IF r <> 'ok' THEN failed := array_append(failed, ('service role removes a seat: ' || r)::text); END IF;
 
+  -- ---------- a removal sticks (110) ----------
+  r := pg_temp.mt_try('authenticated', u_host, format('INSERT INTO meeting_removed_users (meeting_id, user_id, account_id, removed_by) VALUES (%L, %L, %L, %L)', m_open, u_out, a_acct, u_host));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a host wrote meeting_removed_users from a client: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('INSERT INTO meeting_removed_users (meeting_id, user_id, account_id, removed_by) VALUES (%L, %L, %L, %L)', m_open, u_out, a_acct, u_host));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('service role records a removal: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'back again'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0001: removed%' THEN failed := array_append(failed, ('a removed person posted to the meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'reaction', E'\U0001F44D'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0001: removed%' THEN failed := array_append(failed, ('a removed person reacted in the meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('the removed person reads their own removal: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('the host reads the meeting''s removals: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_admin, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('an admin reads the meeting''s removals: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('a participant who cannot manage reads someone else''s removal: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_guest, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('bank guest reads a meeting''s removals: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_other, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('another workspace reads A''s meeting removals: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('DELETE FROM meeting_removed_users WHERE meeting_id = %L AND user_id = %L', m_open, u_out));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a removed person let themselves back in from a client: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('DELETE FROM meeting_removed_users WHERE meeting_id = %L AND user_id = %L', m_open, u_out));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('service role lets a removed person back in: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT body FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'back again'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'back again' THEN failed := array_append(failed, ('a person let back in posts again: ' || r)::text); END IF;
+  n := n + 1;
+  IF has_table_privilege('anon', 'public.meeting_removed_users', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+     OR has_table_privilege('authenticated', 'public.meeting_removed_users', 'INSERT,UPDATE,DELETE,TRUNCATE')
+     OR NOT has_table_privilege('authenticated', 'public.meeting_removed_users', 'SELECT') THEN
+    failed := array_append(failed, 'meeting_removed_users is not read-only for authenticated and closed to anon'::text);
+  END IF;
+
   -- ---------- terminal statuses ----------
   r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meetings SET status = %L, ended_at = %L WHERE id = %L', 'ended', '2000-01-01', m_closed));
   n := n + 1;
@@ -515,7 +565,7 @@ BEGIN
   n := n + 1;
   IF EXISTS (SELECT 1 FROM pg_class
               WHERE oid IN ('public.meetings'::regclass, 'public.meeting_invitees'::regclass, 'public.meeting_participants'::regclass,
-                            'public.meeting_messages'::regclass)
+                            'public.meeting_messages'::regclass, 'public.meeting_removed_users'::regclass)
                 AND NOT (relrowsecurity AND relforcerowsecurity)) THEN
     failed := array_append(failed, 'row-level security is not forced on every meetings table'::text);
   END IF;
