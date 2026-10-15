@@ -63,7 +63,8 @@
     "journeys": "여정",
     "calls": "통화",
     "missedCalls": "열린 부재중 전화 할 일 {count}건",
-    "meetings": "회의"
+    "meetings": "회의",
+    "calendar": "캘린더"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -83,7 +84,8 @@
     "menuSignOut": "로그아웃",
     "teamActivity": "팀 활동",
     "chat": "팀 채팅",
-    "meetings": "회의"
+    "meetings": "회의",
+    "calendar": "캘린더"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -5612,5 +5614,216 @@
     "bannerBody": "이 탭이 백그라운드에 있어도 새 메시지, 회의, 작업 소식을 받으세요.",
     "bannerAction": "켜기",
     "bannerDismiss": "나중에"
+  },
+  "Calendar": {
+    "title": "캘린더",
+    "today": "오늘",
+    "prev": "이전",
+    "next": "다음",
+    "views": {
+      "day": "일",
+      "week": "주",
+      "month": "월",
+      "year": "연",
+      "agenda": "일정 목록"
+    },
+    "viewSwitcher": "캘린더 보기",
+    "searchPlaceholder": "일정 검색",
+    "searchLabel": "불러온 일정 검색",
+    "searchCount": "{count, plural, =0 {일치 항목 없음} other {#개 일치}}",
+    "create": "만들기",
+    "createMenu": "다른 만들기 옵션",
+    "createEvent": "일정",
+    "createMeeting": "회의",
+    "showRail": "사이드바 표시",
+    "hideRail": "사이드바 숨기기",
+    "openRail": "캘린더",
+    "miniPrev": "이전 달",
+    "miniNext": "다음 달",
+    "layersTitle": "캘린더",
+    "layers": {
+      "mine": "내 일정",
+      "invitations": "초대",
+      "meetings": "회의",
+      "workspaceMeetings": "워크스페이스 회의",
+      "tasks": "작업"
+    },
+    "upcomingTitle": "다가오는 일정",
+    "upcomingEmpty": "앞으로 7일 동안 일정이 없습니다",
+    "allDay": "종일",
+    "loadFailed": "캘린더를 불러오지 못했습니다: {reason}",
+    "loading": "불러오는 중…",
+    "shortcuts": "단축키: T 오늘, J/K 이전/다음, D W M Y A 보기, N 새 일정, / 검색",
+    "task": "작업",
+    "popover": {
+      "close": "닫기",
+      "meeting": "회의",
+      "loadFailed": "이 일정을 불러오지 못했습니다: {reason}",
+      "unknownPerson": "알 수 없는 멤버",
+      "organiser": "주최자",
+      "responses": {
+        "accepted": "수락함",
+        "tentative": "미정",
+        "declined": "거절함",
+        "pending": "응답 대기 중"
+      },
+      "rsvpPrompt": "참석하시나요?",
+      "rsvp": {
+        "accepted": "예",
+        "tentative": "미정",
+        "declined": "아니요"
+      },
+      "responded": {
+        "accepted": "참석으로 응답했습니다",
+        "tentative": "미정으로 응답했습니다",
+        "declined": "불참으로 응답했습니다"
+      },
+      "notifyMe": "알림 받기",
+      "saveFailed": "저장하지 못했습니다: {reason}",
+      "edit": "수정",
+      "delete": "삭제",
+      "deleted": "일정을 삭제했습니다",
+      "deleteFailed": "삭제하지 못했습니다: {reason}",
+      "join": "참가",
+      "openMeeting": "회의 열기",
+      "openContact": "연락처 열기",
+      "moved": "새 시간을 저장했습니다",
+      "moveFailed": "옮기지 못했습니다: {reason}"
+    },
+    "scope": {
+      "title": {
+        "edit": "반복 일정 수정",
+        "delete": "반복 일정 삭제",
+        "move": "반복 일정 이동"
+      },
+      "this": "이 일정",
+      "all": "모든 일정",
+      "cancel": "취소",
+      "confirmDeleteTitle": "이 일정을 삭제할까요?",
+      "confirmDeleteBody": "참석자에게 더 이상 표시되지 않습니다. 되돌릴 수 없습니다.",
+      "confirmDelete": "삭제"
+    },
+    "reminders": {
+      "atStart": "시작 시",
+      "minutes": "{count}분",
+      "hours": "{count}시간",
+      "days": "{count}일"
+    },
+    "repeat": {
+      "daily": "{interval, plural, =1 {매일} other {#일마다}}",
+      "weekly": "{interval, plural, =1 {매주 {days}} other {#주마다 {days}}}",
+      "monthlyDate": "{interval, plural, =1 {매월 {day}일} other {#개월마다 {day}일}}",
+      "monthlyNth": "{interval, plural, =1 {매월 {nth}번째 {weekday}} other {#개월마다 {nth}번째 {weekday}}}",
+      "monthlyLast": "{interval, plural, =1 {매월 마지막 {weekday}} other {#개월마다 마지막 {weekday}}}",
+      "yearly": "{interval, plural, =1 {매년 {date}} other {#년마다 {date}}}",
+      "custom": "사용자 지정 반복",
+      "endsOn": "{rule}, {until}까지",
+      "endsAfter": "{rule}, {count}회"
+    },
+    "form": {
+      "createTitle": "새 일정",
+      "editTitle": "일정 편집",
+      "title": "제목",
+      "titlePlaceholder": "제목 추가",
+      "allDay": "종일",
+      "start": "시작",
+      "end": "종료",
+      "startDate": "시작 날짜",
+      "startTime": "시작 시간",
+      "endDate": "종료 날짜(포함)",
+      "endTime": "종료 시간",
+      "timeZone": "시간대",
+      "repeat": "반복",
+      "repeatOptions": {
+        "none": "반복 안 함",
+        "daily": "매일",
+        "weekly": "매주",
+        "monthlyDate": "매월 같은 날",
+        "monthlyNth": "매월 같은 요일",
+        "monthlyLast": "매월 마지막 요일",
+        "yearly": "매년",
+        "custom": "사용자 지정 반복 규칙"
+      },
+      "repeatPreviewInvalid": "현재 설정으로는 반복을 저장할 수 없습니다.",
+      "every": "간격",
+      "intervalUnit": {
+        "days": "{count, plural, other {일마다}}",
+        "weeks": "{count, plural, other {주마다}}",
+        "months": "{count, plural, other {개월마다}}",
+        "years": "{count, plural, other {년마다}}"
+      },
+      "onDays": "반복 요일",
+      "ends": "종료",
+      "endsOptions": {
+        "never": "없음",
+        "on": "날짜",
+        "after": "횟수"
+      },
+      "untilLabel": "마지막 날짜",
+      "countLabel": "반복 횟수",
+      "occurrences": "{count, plural, other {회}}",
+      "thisOccurrenceOnly": "이 일정만 편집 중",
+      "attendees": "참석자",
+      "attendeesSearch": "사람 검색",
+      "attendeesEmpty": "일치하는 사람이 없습니다.",
+      "removeAttendee": "{name} 삭제",
+      "unknownPerson": "알 수 없는 사용자",
+      "location": "장소",
+      "locationPlaceholder": "장소 또는 링크 추가",
+      "description": "설명",
+      "descriptionPlaceholder": "세부 정보 추가(선택)",
+      "color": "색상",
+      "colors": {
+        "blue": "파랑",
+        "green": "초록",
+        "red": "빨강",
+        "amber": "호박색",
+        "violet": "보라",
+        "pink": "분홍",
+        "teal": "청록",
+        "slate": "회색"
+      },
+      "visibility": "공개 범위",
+      "visibilityOptions": {
+        "private": "비공개",
+        "attendees": "참석자",
+        "workspace": "워크스페이스"
+      },
+      "visibilityHints": {
+        "private": "나만 볼 수 있습니다.",
+        "attendees": "나와 초대한 참석자.",
+        "workspace": "이 워크스페이스의 모든 사람."
+      },
+      "reminders": "알림",
+      "reminderCustom": "직접 입력: 90, 2h, 1d",
+      "reminderAdd": "추가",
+      "reminderInvalid": "분 단위 숫자 또는 2h, 1d처럼 시간·일을 입력하세요(최대 28일).",
+      "remindersMax": "알림은 최대 {max}개입니다.",
+      "videoInstead": "대신 화상 회의",
+      "cancel": "취소",
+      "save": "저장",
+      "saving": "저장 중…",
+      "created": "일정을 만들었습니다",
+      "saved": "일정을 저장했습니다",
+      "conflict": "다른 사람이 이 일정을 변경했습니다. 최신 내용으로 다시 불러왔습니다.",
+      "saveFailed": "일정을 저장하지 못했습니다: {reason}",
+      "loading": "불러오는 중…",
+      "loadFailed": "일정을 불러오지 못했습니다: {reason}",
+      "discardTitle": "변경 사항을 버릴까요?",
+      "discardBody": "이 일정의 변경 사항이 저장되지 않습니다.",
+      "keepEditing": "계속 편집",
+      "discard": "버리기",
+      "errors": {
+        "titleRequired": "제목을 입력하세요.",
+        "titleTooLong": "제목이 너무 깁니다(최대 200자).",
+        "invalidStart": "올바른 시작을 입력하세요.",
+        "invalidEnd": "올바른 종료를 입력하세요.",
+        "endBeforeStart": "종료는 시작 이후여야 합니다.",
+        "descriptionTooLong": "설명이 너무 깁니다(최대 5,000자).",
+        "locationTooLong": "장소가 너무 깁니다(최대 300자).",
+        "repeatInvalid": "반복 설정을 확인하세요. 현재 설정으로는 저장할 수 없습니다.",
+        "tooManyReminders": "알림은 최대 5개입니다."
+      }
+    }
   }
 }

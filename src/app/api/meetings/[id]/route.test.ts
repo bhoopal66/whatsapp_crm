@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // refused invitee (23514: not a live staff member) leaves the title and
 // the current invitee list untouched. A PATCH that takes access away
 // closes and cuts the seats of the people who lost it (M1), and an RPC
-// failure is a 503, not a 403/404.
+// failure is a 503, not a 403/404. Only the host edits (PATCH); an
+// admin who is not the host is refused.
 
 const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
@@ -140,7 +141,7 @@ describe('PATCH /api/meetings/[id]', () => {
     mocks.rpc.mockResolvedValue({ data: true, error: null });
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
-      userId: 'user-1',
+      userId: HOST,
       accountId: 'acct-1',
       supabase: { from, rpc: mocks.rpc },
     });
@@ -196,12 +197,24 @@ describe('PATCH /api/meetings/[id]', () => {
     expect(mocks.cutSeats).not.toHaveBeenCalled();
   });
 
-  it('answers 503, not 403, when meeting_can_manage itself fails', async () => {
-    mocks.rpc.mockResolvedValue({ data: null, error: { code: '57014' } });
+  it('refuses a non-host admin: only the organiser edits', async () => {
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'admin',
+      userId: ADMIN,
+      accountId: 'acct-1',
+      supabase: { from, rpc: mocks.rpc },
+    });
     const res = await patch({ title: 'Renamed' });
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: 'Only the organiser can edit this meeting',
+    });
     expect(mocks.writes).toEqual([]);
+  });
+
+  it('matches the host case-insensitively', async () => {
+    mocks.meeting.host_user_id = HOST.toUpperCase();
+    expect((await patch({ title: 'Renamed' })).status).toBe(200);
   });
 });
 

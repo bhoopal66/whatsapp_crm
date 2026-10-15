@@ -9,8 +9,13 @@ import type { Notification } from "@/types";
 import {
   AtSign,
   Bell,
+  AlarmClock,
+  BellRing,
   Bot,
+  CalendarCheck,
   CalendarClock,
+  CalendarDays,
+  CalendarX,
   CheckCheck,
   DoorOpen,
   Handshake,
@@ -60,6 +65,12 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   deal_room_join_request: DoorOpen,
   deal_room_update: Handshake,
   meeting_invite: Video,
+  calendar_invite: CalendarDays,
+  calendar_update: CalendarClock,
+  calendar_cancelled: CalendarX,
+  calendar_response: CalendarCheck,
+  event_reminder: BellRing,
+  meeting_reminder: AlarmClock,
 };
 
 // A channel alert's body is the fix (who re-pairs which phone, where),

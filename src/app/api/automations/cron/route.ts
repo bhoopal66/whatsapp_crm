@@ -13,6 +13,7 @@ import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { dispatchPush } from '@/lib/push/dispatch'
+import { runRecurringReminders } from '@/lib/calendar/reminders'
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -278,6 +279,39 @@ function schedulePushDispatch() {
 }
 
 /**
+ * Calendar reminders (migration 108) ride along at most once a minute
+ * per process, inside after(): the SQL sweep rings one-off events,
+ * meetings and tasks; recurring series are expanded in TS. A failure is
+ * only logged, and one half failing still runs the other.
+ */
+const calendarDue = everyInterval(60_000)
+
+function scheduleCalendarReminders() {
+  try {
+    if (!calendarDue()) return
+    after(async () => {
+      try {
+        const admin = supabaseAdmin()
+        const { error } = await admin.rpc('calendar_reminder_sweep', {
+          p_now: new Date().toISOString(),
+        })
+        if (error) {
+          console.error('[calendar] reminder sweep failed', error.message)
+        }
+        await runRecurringReminders(admin)
+      } catch (err) {
+        console.error('[calendar] reminder sweep failed', err)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the calendar reminders:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -314,6 +348,7 @@ export async function GET(request: Request) {
     scheduleDealRoomReconcile()
     schedulePbxCron()
     schedulePushDispatch()
+    scheduleCalendarReminders()
   }
 }
 

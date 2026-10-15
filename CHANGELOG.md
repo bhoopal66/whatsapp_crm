@@ -38,6 +38,30 @@ messages are queued as they arrive, rate-limited senders included. Set
 `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (server only) and
 `VAPID_SUBJECT` to switch it on; see `docs/push.md`.
 
+### Calendar (API and reminders)
+
+Events can be read, changed and deleted by their organiser through
+`/api/calendar/events/[id]`, either one occurrence of a repeating event
+("this event") or the whole series ("all events"); a change that
+collides with someone else's is refused rather than overwriting it. The
+automations cron now rings calendar reminders once a minute (events,
+meetings 10 minutes before and at the start, tasks 15 minutes before
+due). See `docs/calendar.md`. Requires migration 108 (below).
+
+### Calendar (database)
+
+The database side of the staff calendar: events with attendees,
+recurrence (an RRULE expanded in the app), per-person reminders, and
+bell notifications for invitations, changes, cancellations and
+responses, plus reminders for events, scheduled meetings and tasks due
+in 15 minutes (`task_due`, reserved since 085, is now sent). Only an
+event's creator may edit or delete it, admins included. Bank guests
+never see the calendar.
+
+**Migration required:** apply `108_calendar.sql` (as a superuser or
+BYPASSRLS role). Reminders are rung by `calendar_reminder_sweep()` on
+the service role; nothing calls it until the app's cron does.
+
 ### Video meetings
 
 Staff can hold video meetings in the CRM at `/meetings`: schedule one

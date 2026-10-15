@@ -1,15 +1,17 @@
 /**
- * Which screen a bell row opens. One case per type in 104's
+ * Which screen a bell row opens. One case per type in 108's
  * `notifications_type_check` (the latest list), each reading what that
  * type's writer stores:
  *
  * - `conversation_assigned` (027 trigger) and `ai_handoff`
  *   (`lib/ai/auto-reply.ts`): `conversation_id` → the chat.
- * - `task_assigned` (085 trigger) and the reserved `task_due`: the
- *   task's `contact_id` / `conversation_id` columns, no meta. The
- *   customer page lists a contact's tasks; tasks have no screen of
- *   their own, so one without a contact falls back to the chat, then
- *   to /calls (the one other screen that lists tasks, missed-call ones).
+ * - `task_assigned` (085 trigger): the task's `contact_id` /
+ *   `conversation_id` columns, no meta. The customer page lists a
+ *   contact's tasks; tasks have no screen of their own, so one without
+ *   a contact falls back to the chat, then to /calls (the one other
+ *   screen that lists tasks, missed-call ones).
+ * - `task_due` (108's reminder sweep, meta {task_id}): the customer
+ *   page, else the calendar, which shows tasks by due date.
  * - `call_missed` (`lib/pbx/process.ts`) and the reserved
  *   `callback_requested`: `contact_id` → the customer page, which shows
  *   the call and its call-back task; an unknown caller → /calls, whose
@@ -28,8 +30,12 @@
  *   leaders and up (`TeamLeaderOnlyLayout`); the person over the limit
  *   has the whole message in the row already.
  * - Team chat (087): `chatNotificationHref`.
- * - `meeting_invite` (106's invitees trigger): `meta.meeting_id` → the
- *   meeting's page.
+ * - `meeting_invite` (106's invitees trigger) and `meeting_reminder`
+ *   (108's reminder sweep): `meta.meeting_id` → the meeting's page.
+ * - `calendar_invite` / `calendar_update` / `calendar_cancelled` /
+ *   `calendar_response` (108's triggers) and `event_reminder` (108's
+ *   sweep, `calendar_insert_reminder`): `meta.event_id` → the calendar
+ *   opened on that event.
  *
  * `role` is the reader's role in the row's workspace, which is not the
  * active one for a row from another workspace. A bank guest is only
@@ -74,8 +80,9 @@ function hrefFor(
     case 'ai_handoff':
       return chat(n.conversation_id);
     case 'task_assigned':
-    case 'task_due':
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';
+    case 'task_due':
+      return customer(n.contact_id) ?? '/calendar';
     case 'call_missed':
     case 'callback_requested':
     case 'call_outcome_due':
@@ -102,7 +109,16 @@ function hrefFor(
     case 'chat_thread_reply':
     case 'chat_broadcast':
       return chatNotificationHref(n.type, n.meta);
-    case 'meeting_invite': {
+    case 'calendar_invite':
+    case 'calendar_update':
+    case 'calendar_cancelled':
+    case 'calendar_response':
+    case 'event_reminder': {
+      const event = metaField(n.meta, 'event_id');
+      return isUuid(event) ? `/calendar?event=${event}` : null;
+    }
+    case 'meeting_invite':
+    case 'meeting_reminder': {
       const meeting = metaField(n.meta, 'meeting_id');
       return isUuid(meeting) ? `/meetings/${meeting}` : null;
     }

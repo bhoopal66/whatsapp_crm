@@ -269,3 +269,13 @@ jobs:
       # assignee, else the number's people, else owners and admins.
       - name: Verify push
         run: supabase db query --local --file supabase/ci/verify-push.sql
+      # Calendar (108): who sees an event is calendar_event_can_view
+      # (creator, attendees, the workspace when it is 'workspace', and
+      # owner/admin unless 'private'; a bank guest nothing), only the
+      # creator edits it (admins included), an attendee writes only their
+      # own response and reminders, the invite / update / cancel /
+      # response bells reach the right people, and the reminder sweep
+      # rings once per key and never a declined attendee.
+      # RLS, triggers and grants: only real Postgres can show it.
+      - name: Verify calendar
+        run: supabase db query --local --file supabase/ci/verify-calendar.sql

@@ -98,6 +98,7 @@ export async function middleware(request: NextRequest) {
     '/journeys',
     '/calls',
     '/meetings',
+    '/calendar',
   ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()

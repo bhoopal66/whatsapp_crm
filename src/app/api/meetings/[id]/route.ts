@@ -1,7 +1,8 @@
 // ============================================================
 // /api/meetings/[id] — one meeting: read, change, cancel (106).
 // Reads under the caller's RLS client (404 when they can't see it);
-// changes need `meeting_can_manage` (host, owner, admin). A PATCH that
+// a PATCH is the host's alone; cancelling needs `meeting_can_manage`
+// (host, owner, admin). A PATCH that
 // takes access away closes and cuts the seats of the people who lost it.
 // ============================================================
 
@@ -166,24 +167,21 @@ export async function GET(_request: Request, { params }: Params) {
 /** PATCH → `{ meeting, invitee_user_ids }`. */
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    const { supabase, accountId } = await requireMeetingsUser();
+    const { supabase, accountId, userId } = await requireMeetingsUser();
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid meeting id', 400);
     const body = await readJson(request);
 
-    const [loaded, canManage] = await Promise.all([
-      loadMeeting(supabase, accountId, id),
-      rpcFlag(supabase, 'meeting_can_manage', id),
-    ]);
+    const loaded = await loadMeeting(supabase, accountId, id);
     if (loaded.error) return readErrorResponse(loaded.error);
-    if (canManage.error) return readErrorResponse(canManage.error);
     const current = loaded.meeting;
     if (!current) return jsonError(NOT_FOUND, 404);
-    if (!canManage.allowed) {
-      return jsonError(
-        'Only the host or an admin can change this meeting',
-        403
-      );
+    // Editing is the organiser's alone, owners and admins included: a
+    // meeting is someone's invitation, and its title, time and invitee
+    // list are theirs to change. An admin still cancels (DELETE), ends
+    // and moderates through their own routes.
+    if (current.host_user_id.toLowerCase() !== userId.toLowerCase()) {
+      return jsonError('Only the organiser can edit this meeting', 403);
     }
     if (current.status !== 'scheduled') {
       return jsonError('This meeting has ended or was cancelled', 409);

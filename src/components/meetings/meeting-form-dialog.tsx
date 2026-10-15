@@ -47,6 +47,7 @@ export function MeetingFormDialog({
   onOpenChange,
   meeting,
   timeZone,
+  initialStart,
   onSaved,
 }: {
   open: boolean;
@@ -55,6 +56,8 @@ export function MeetingFormDialog({
   meeting?: MeetingSummary;
   /** The zone the date and time fields are read in (read at opening). */
   timeZone: string;
+  /** A new meeting's start (the calendar's selected slot); read at opening. */
+  initialStart?: Date;
   onSaved?: (m: MeetingSummary | null) => void;
 }) {
   const t = useTranslations('Meetings.form');
@@ -67,7 +70,7 @@ export function MeetingFormDialog({
   const [values, setValues] = useState<MeetingFormValues>(() =>
     meeting
       ? meetingToForm(meeting, new Date(), timeZone)
-      : defaultMeetingForm(new Date(), timeZone)
+      : defaultMeetingForm(new Date(), timeZone, initialStart)
   );
   const [errors, setErrors] = useState<MeetingFormError[]>([]);
   const [search, setSearch] = useState('');

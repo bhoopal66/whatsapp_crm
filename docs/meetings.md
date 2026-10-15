@@ -64,7 +64,8 @@ Every rule applies inside the caller's active workspace.
 - **Sees and joins:** owners and admins (all meetings), the host, an
   invitee, and everyone in the workspace when **Anyone in the workspace
   can join** (`open_to_workspace`) is on.
-- **Edits, cancels, ends:** the host, or an owner/admin.
+- **Edits:** the host (organiser) only, owners and admins included.
+- **Cancels, ends:** the host, or an owner/admin.
 - **Creates:** any staff member (viewer and up), who becomes the host.
 - **Bank guests:** never. They see and write nothing here, and the API
   answers 403 "Video meetings are for staff only".
@@ -172,7 +173,7 @@ All routes are staff only (`requireMeetingsUser`). Errors are
 | `GET /api/meetings?scope=live\|upcoming\|past` | List what the caller can see                                           |
 | `POST /api/meetings`                           | Schedule (or start now) a meeting, with invitees                       |
 | `GET /api/meetings/[id]`                       | One meeting                                                            |
-| `PATCH /api/meetings/[id]`                     | Edit; replaces the invitee list (host/admin, scheduled only)           |
+| `PATCH /api/meetings/[id]`                     | Edit; replaces the invitee list (host only, scheduled only)            |
 | `DELETE /api/meetings/[id]`                    | Cancel (host/admin)                                                    |
 | `POST /api/meetings/[id]/join`                 | Open a seat: `{ participantId, sessionId, iceServers }` (503 if unset) |
 | `POST /api/meetings/[id]/heartbeat`            | `{ participantId, audioMuted, videoOff }`; keeps the seat present      |

@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   pbx: vi.fn(),
   chatFiles: vi.fn(),
   push: vi.fn(),
+  recurring: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -71,16 +72,18 @@ vi.mock('@/lib/deal-rooms/reconcile', () => ({
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
 vi.mock('@/lib/chat/file-cleanup', () => ({ runChatFileSweep: h.chatFiles }));
 vi.mock('@/lib/push/dispatch', () => ({ dispatchPush: h.push }));
+vi.mock('@/lib/calendar/reminders', () => ({
+  runRecurringReminders: h.recurring,
+}));
+
+/** Calls of one RPC: the edge purge, push purge and calendar sweep share `rpc`. */
+const rpcCalls = (name: string) =>
+  h.rpc.mock.calls.filter((c) => c[0] === name);
 
 function req() {
   return new Request('http://localhost/api/automations/cron', {
     headers: { 'x-cron-secret': 's3cret' },
   });
-}
-
-/** Calls of one RPC: the push job's push_purge shares the mocked client. */
-function rpcCalls(name: string) {
-  return h.rpc.mock.calls.filter((c) => c[0] === name).length;
 }
 
 async function runAfter() {
@@ -107,6 +110,7 @@ beforeEach(() => {
     skipped: 0,
     failed: 0,
   });
+  h.recurring.mockReset().mockResolvedValue(0);
   h.chatFiles
     .mockReset()
     .mockResolvedValue({ found: 0, deleted: 0, failed: [] });
@@ -214,17 +218,17 @@ describe('GET /api/automations/cron — edge store purge', () => {
     await GET(req());
     expect(h.rpc).not.toHaveBeenCalled();
     await runAfter();
-    expect(rpcCalls('edge_purge')).toBe(1);
+    expect(rpcCalls('edge_purge')).toEqual([['edge_purge']]);
 
     vi.setSystemTime(new Date('2026-09-29T13:14:00Z'));
     await GET(req());
     await runAfter();
-    expect(rpcCalls('edge_purge')).toBe(1);
+    expect(rpcCalls('edge_purge')).toHaveLength(1);
 
     vi.setSystemTime(new Date('2026-09-29T13:15:00Z'));
     await GET(req());
     await runAfter();
-    expect(rpcCalls('edge_purge')).toBe(2);
+    expect(rpcCalls('edge_purge')).toHaveLength(2);
   });
 
   it('logs a failed purge and leaves the other jobs running', async () => {
@@ -439,7 +443,6 @@ describe('GET /api/automations/cron — phone system piggy-back', () => {
     expect(h.pbx).not.toHaveBeenCalled();
   });
 });
-
 describe('GET /api/automations/cron — web push fallback', () => {
   it('dispatches and purges after the response, at most once a minute', async () => {
     vi.resetModules();
@@ -449,7 +452,7 @@ describe('GET /api/automations/cron — web push fallback', () => {
     expect(h.push).not.toHaveBeenCalled();
     await runAfter();
     expect(h.push).toHaveBeenCalledTimes(1);
-    expect(rpcCalls('push_purge')).toBe(1);
+    expect(rpcCalls('push_purge')).toHaveLength(1);
     // The purge runs after the dispatch pass, not before it.
     expect(h.push.mock.invocationCallOrder[0]).toBeLessThan(
       h.rpc.mock.invocationCallOrder[
@@ -466,7 +469,7 @@ describe('GET /api/automations/cron — web push fallback', () => {
     await GET(req());
     await runAfter();
     expect(h.push).toHaveBeenCalledTimes(2);
-    expect(rpcCalls('push_purge')).toBe(2);
+    expect(rpcCalls('push_purge')).toHaveLength(2);
   });
 
   it('swallows a thrown dispatch and leaves the other jobs running', async () => {
@@ -490,5 +493,72 @@ describe('GET /api/automations/cron — web push fallback', () => {
     await GET(new Request('http://localhost/api/automations/cron'));
     await runAfter();
     expect(h.push).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/automations/cron — calendar reminders', () => {
+  it('runs the SQL sweep and the recurring reminders after the response, at most once a minute', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(rpcCalls('calendar_reminder_sweep')).toEqual([]);
+    expect(h.recurring).not.toHaveBeenCalled();
+    await runAfter();
+    expect(rpcCalls('calendar_reminder_sweep')).toEqual([
+      ['calendar_reminder_sweep', { p_now: '2026-09-29T13:00:00.000Z' }],
+    ]);
+    expect(h.recurring).toHaveBeenCalledTimes(1);
+    expect(h.recurring.mock.calls[0][0]).toHaveProperty('rpc', h.rpc);
+
+    vi.setSystemTime(new Date('2026-09-29T13:00:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(rpcCalls('calendar_reminder_sweep')).toHaveLength(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(rpcCalls('calendar_reminder_sweep')).toHaveLength(2);
+    expect(h.recurring).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a failed SQL sweep and still runs the recurring reminders', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await GET(req())).status).toBe(200);
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[calendar] reminder sweep failed',
+      'boom'
+    );
+    expect(h.recurring).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('swallows a thrown run and leaves the other jobs running', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.recurring.mockRejectedValue(new Error('down'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(h.pbx).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      '[calendar] reminder sweep failed',
+      expect.any(Error)
+    );
+    log.mockRestore();
+  });
+
+  it('does not run for an unauthenticated caller', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    await GET(new Request('http://localhost/api/automations/cron'));
+    await runAfter();
+    expect(rpcCalls('calendar_reminder_sweep')).toEqual([]);
+    expect(h.recurring).not.toHaveBeenCalled();
   });
 });

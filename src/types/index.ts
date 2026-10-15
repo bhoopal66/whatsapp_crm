@@ -286,7 +286,7 @@ export interface Conversation {
 }
 
 // ============================================================
-// Notifications (migration 027). The type list is 106's
+// Notifications (migration 027). The type list is 108's
 // notifications_type_check, the latest; change the two together.
 // ============================================================
 
@@ -303,8 +303,8 @@ export type NotificationType =
   // AI agent v2 (077): the bot handed this chat to a person.
   | 'ai_handoff'
   // Tasks (085): a task was assigned to you (the tasks trigger); the
-  // row carries the task's contact and conversation. task_due is
-  // reserved: nothing emits it yet.
+  // row carries the task's contact and conversation. task_due is sent
+  // 15 minutes before due by 108's reminder sweep, meta = {task_id}.
   | 'task_assigned'
   | 'task_due'
   // Team chat (087): mentions, DMs, thread replies and @channel/@here.
@@ -332,7 +332,19 @@ export type NotificationType =
   | 'deal_room_update'
   // Video meetings (106): you were invited to a meeting (the invitees
   // trigger). meta = {meeting_id}.
-  | 'meeting_invite';
+  | 'meeting_invite'
+  // Calendar (108): invited to / changed / cancelled event (to the
+  // attendees), an attendee answered (to the creator, meta adds
+  // {user_id, response}), and the reminder sweep's event reminder
+  // (meta adds {occurrence_start, offset}). meta = {event_id}.
+  | 'calendar_invite'
+  | 'calendar_update'
+  | 'calendar_cancelled'
+  | 'calendar_response'
+  | 'event_reminder'
+  // Calendar (108): a scheduled meeting starts in 10 minutes / now
+  // (the reminder sweep). meta = {meeting_id}.
+  | 'meeting_reminder';
 
 export interface Notification {
   id: string;

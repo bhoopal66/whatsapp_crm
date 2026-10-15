@@ -28,9 +28,9 @@ describe('notificationTarget', () => {
     }
   );
 
-  it.each(['task_assigned', 'task_due'])(
-    '%s opens the customer page, else the chat, else /calls',
-    (type) => {
+  it('task_assigned opens the customer page, else the chat, else /calls', () => {
+    const type = 'task_assigned';
+    {
       expect(
         notificationTarget(
           { type, contact_id: CONTACT, conversation_id: CONV },
@@ -50,7 +50,58 @@ describe('notificationTarget', () => {
         )
       ).toBe('/calls');
     }
-  );
+  });
+
+  it('task_due opens the customer page, else the calendar', () => {
+    expect(
+      notificationTarget(
+        { type: 'task_due', contact_id: CONTACT, conversation_id: CONV },
+        'agent'
+      )
+    ).toBe(`/contacts/${CONTACT}`);
+    expect(
+      notificationTarget(
+        { type: 'task_due', contact_id: null, conversation_id: CONV },
+        'agent'
+      )
+    ).toBe('/calendar');
+    expect(
+      notificationTarget({ type: 'task_due', contact_id: 'x' }, 'agent')
+    ).toBe('/calendar');
+  });
+
+  it.each([
+    'calendar_invite',
+    'calendar_update',
+    'calendar_cancelled',
+    'calendar_response',
+    'event_reminder',
+  ])('%s opens the calendar on the event', (type) => {
+    expect(
+      notificationTarget({ type, meta: { event_id: ROOM } }, 'agent')
+    ).toBe(`/calendar?event=${ROOM}`);
+    for (const meta of [null, 'x', [], { event_id: 'nope' }, {}]) {
+      expect(notificationTarget({ type, meta }, 'agent')).toBeNull();
+    }
+    expect(
+      notificationTarget({ type, meta: { event_id: ROOM } }, 'bank_guest')
+    ).toBeNull();
+  });
+
+  it('meeting_reminder opens the meeting', () => {
+    expect(
+      notificationTarget(
+        { type: 'meeting_reminder', meta: { meeting_id: ROOM } },
+        'agent'
+      )
+    ).toBe(`/meetings/${ROOM}`);
+    expect(
+      notificationTarget(
+        { type: 'meeting_reminder', meta: { meeting_id: 'nope' } },
+        'agent'
+      )
+    ).toBeNull();
+  });
 
   it.each(['call_missed', 'callback_requested', 'call_outcome_due'])(
     '%s opens the customer page, else the missed-calls view',
