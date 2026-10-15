@@ -215,6 +215,24 @@ export function LiveRoom({
     });
   };
 
+  // The room owns fullscreen and picture-in-picture: leave both when it
+  // unmounts (Leave, removed, ended, error), or the end screen stays
+  // fullscreen and the PiP window shows black.
+  useEffect(() => {
+    return () => {
+      try {
+        if (document.fullscreenElement) {
+          void document.exitFullscreen().catch(() => {});
+        }
+        if (document.pictureInPictureElement) {
+          void document.exitPictureInPicture().catch(() => {});
+        }
+      } catch {
+        // Unsupported or already exited: nothing to leave.
+      }
+    };
+  }, []);
+
   // Keyboard: M, V, S, H here; C, P and Esc belong to the panels.
   const callRef = useRef(call);
   useEffect(() => {
