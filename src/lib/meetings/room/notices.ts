@@ -76,13 +76,16 @@ export function selfRowEffects(
 export const NOTICE_LIMIT = 20;
 
 /** `drafts` appended with fresh ids, the oldest dropped past the limit. */
+/** A notice before it has an id (distributes over a union). */
+export type NoticeDraft<N> = N extends unknown ? Omit<N, 'id'> : never;
+
 export function pushNotices<N extends { id: string }>(
   list: readonly N[],
-  drafts: readonly Omit<N, 'id'>[],
+  drafts: readonly NoticeDraft<N>[],
   nextId: () => string
 ): N[] {
   if (!drafts.length) return list as N[];
-  const added = drafts.map((d) => ({ ...d, id: nextId() }) as N);
+  const added = drafts.map((d) => ({ ...d, id: nextId() }) as unknown as N);
   return [...list, ...added].slice(-NOTICE_LIMIT);
 }
 
