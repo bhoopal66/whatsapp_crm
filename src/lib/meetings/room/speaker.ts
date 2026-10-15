@@ -108,6 +108,42 @@ export function stepSpeaker(
   };
 }
 
+/**
+ * A synchronization source is listed for 10 s after its last packet,
+ * with the level of that packet: someone who stopped sending would keep
+ * their speaking ring. Older than this, a source counts as silent.
+ */
+export const SOURCE_MAX_AGE_MS = 500;
+
+export interface SourceSample {
+  audioLevel?: number;
+  timestamp: number;
+}
+
+/**
+ * One remote voice's level from its receiver's synchronization sources:
+ * the loudest fresh one, and 0 for a participant whose row says muted.
+ * `perfNow` is `performance.now()`. The spec puts `timestamp` on
+ * `timeOrigin + performance.now()` (epoch milliseconds), while older
+ * builds reported it on `performance.now()` alone; the two differ by
+ * decades, so the magnitude says which clock a value is on.
+ */
+export function remoteLevel(
+  sources: readonly SourceSample[],
+  muted: boolean,
+  perfNow: number,
+  timeOrigin: number
+): number {
+  if (muted) return 0;
+  let level = 0;
+  for (const s of sources) {
+    const now = s.timestamp > timeOrigin / 2 ? timeOrigin + perfNow : perfNow;
+    if (now - s.timestamp > SOURCE_MAX_AGE_MS) continue;
+    level = Math.max(level, s.audioLevel ?? 0);
+  }
+  return level;
+}
+
 /** Root mean square of time-domain samples (-1..1), clamped to 0..1. */
 export function rmsLevel(samples: ArrayLike<number>): number {
   if (!samples.length) return 0;

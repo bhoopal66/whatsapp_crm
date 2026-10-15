@@ -58,6 +58,43 @@ export function tracksToRelease<T>(
   return opened.filter((t): t is T => t !== null && !kept.includes(t));
 }
 
+/** Phases in which a device that just opened is still wanted. */
+const KEEP_OPENED_IN = new Set(['lobby', 'joining', 'live', 'reconnecting']);
+
+/**
+ * Whether a device that finished opening may be installed. Opening
+ * takes a permission prompt or a picker, during which the person may
+ * leave, be removed, or see the meeting end; that stops every device
+ * first, and a track installed after it keeps the camera light on
+ * behind the end screen. `at` is captured before the open: a changed
+ * session (leave, end, removal, a give-up) or epoch (unmount) refuses,
+ * as does a phase with no room or preview to show it in.
+ */
+export function keepOpenedTrack(
+  at: { session: number; epoch: number },
+  now: { session: number; epoch: number; phase: string }
+): boolean {
+  return (
+    at.session === now.session &&
+    at.epoch === now.epoch &&
+    KEEP_OPENED_IN.has(now.phase)
+  );
+}
+
+/**
+ * Switching cameras opens the new one while the old is live, which many
+ * phones and some USB cameras refuse as busy. Only these are worth one
+ * retry once the old camera is released; a refusal or a missing device
+ * would fail again.
+ */
+export function isBusyDeviceError(err: unknown): boolean {
+  const name =
+    err && typeof err === 'object' && 'name' in err
+      ? String((err as { name: unknown }).name)
+      : '';
+  return name === 'NotReadableError' || name === 'AbortError';
+}
+
 /**
  * The person dismissing the screen picker is a NotAllowedError too, and
  * is not an error worth showing: they simply chose not to share.

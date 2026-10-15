@@ -57,10 +57,11 @@ import {
 } from '@/lib/meetings/room/chat';
 import {
   dismissNotices,
-  presenceNotices,
   pushNotices,
   selfRowEffects,
+  stepPresence,
   type NoticeDraft,
+  type PresenceMemo,
   type SelfRowMemo,
 } from '@/lib/meetings/room/notices';
 import {
@@ -75,14 +76,15 @@ import {
 import {
   CAMERA_ENCODINGS,
   hiddenVideo,
+  landedPull,
   planLayerUpdates,
-  simulcastFor,
-  tileSizeOf,
+  pullSimulcast,
   type Rid,
 } from '@/lib/meetings/room/simulcast';
 import {
   INITIAL_SPEAKER_STATE,
   levelPatch,
+  remoteLevel,
   rmsLevel,
   sameRecord,
   stepSpeaker,
@@ -96,7 +98,9 @@ import {
   DEVICE_PREFS_KEY,
   deviceOptionsFrom,
   effectiveSelection,
+  isBusyDeviceError,
   isShareCancelled,
+  keepOpenedTrack,
   mediaConstraints,
   parseDevicePrefs,
   tracksToRelease,
@@ -266,8 +270,11 @@ class MeetingCallEngine {
   } | null = null;
   private lossCounters: Record<string, LossCounters> = {};
   private poor = INITIAL_POOR_TRACKER;
-  /** Who was present at the last plan; null until the initial read lands. */
-  private presenceUsers: Set<string> | null = null;
+  /**
+   * Who was present at the last plan, and departures still in their
+   * grace (notices.ts); null until the initial read lands.
+   */
+  private presenceMemo: PresenceMemo | null = null;
   private rowsLoaded = false;
   private selfMemo: { seat: string; memo: SelfRowMemo } | null = null;
   /** The hand we last asked for, so our own lowering is not the host's. */
@@ -422,17 +429,32 @@ class MeetingCallEngine {
 
   // --- devices ---------------------------------------------------------
 
+  /**
+   * `releaseBusy`, when given, frees the device the open competes with
+   * and says whether it did; a busy refusal is then retried once.
+   */
   private async open(
-    kind: 'audio' | 'video'
+    kind: 'audio' | 'video',
+    releaseBusy?: () => boolean
   ): Promise<MediaStreamTrack | null> {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
       this.setDevice(kind, 'unsupported');
       return null;
     }
     const epoch = this.epoch;
+    // Leave, removal or the end can come while the prompt is open; they
+    // stop every device first, so what opens after must not be kept.
+    const at = { session: this.session, epoch };
+    const wanted = () =>
+      this.attached &&
+      keepOpenedTrack(at, {
+        session: this.session,
+        epoch: this.epoch,
+        phase: this.snap.phase,
+      });
     const chosen = this.prefs[kind === 'audio' ? 'audioinput' : 'videoinput'];
-    try {
-      const stream = await navigator.mediaDevices
+    const get = () =>
+      navigator.mediaDevices
         .getUserMedia(mediaConstraints(kind, chosen))
         .catch((err) => {
           // The chosen device is gone (unplugged since): the default.
@@ -441,8 +463,15 @@ class MeetingCallEngine {
             mediaConstraints(kind, null)
           );
         });
+    try {
+      const stream = await get().catch((err) => {
+        // Many phones and some USB cameras open one camera at a time.
+        if (!releaseBusy || !isBusyDeviceError(err) || !wanted()) throw err;
+        if (!releaseBusy()) throw err;
+        return get();
+      });
       const track = stream.getTracks()[0] ?? null;
-      if (!this.attached || epoch !== this.epoch) {
+      if (!wanted()) {
         track?.stop();
         return null;
       }
@@ -543,6 +572,7 @@ class MeetingCallEngine {
       return;
     }
     let track: MediaStreamTrack | null = null;
+    const at = { session: this.session, epoch: this.epoch };
     this.opening.add('screen');
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -560,7 +590,14 @@ class MeetingCallEngine {
       this.opening.delete('screen');
     }
     if (!track) return;
-    if (!this.attached) {
+    if (
+      !this.attached ||
+      !keepOpenedTrack(at, {
+        session: this.session,
+        epoch: this.epoch,
+        phase: this.snap.phase,
+      })
+    ) {
       track.stop();
       return;
     }
@@ -706,7 +743,8 @@ class MeetingCallEngine {
     this.speaker = INITIAL_SPEAKER_STATE;
     this.lossCounters = {};
     this.poor = INITIAL_POOR_TRACKER;
-    this.presenceUsers = null;
+    // Departures still held are dropped with it: nothing fires later.
+    this.presenceMemo = null;
     this.rowsLoaded = false;
     this.selfMemo = null;
     this.handWanted = false;
@@ -823,7 +861,14 @@ class MeetingCallEngine {
         },
         (payload: { new: unknown }) => this.onMessage(payload.new)
       )
-      .subscribe();
+      .subscribe((status) => {
+        // A line written between join's chat read and the subscription
+        // going live reaches neither; read again once it is live (and
+        // after the channel resubscribes). Merging dedupes by id.
+        if (status === 'SUBSCRIBED' && this.channel === channel) {
+          void this.loadChat();
+        }
+      });
     this.channel = channel;
     const { data } = await this.supabase
       .from('meeting_participants')
@@ -880,11 +925,13 @@ class MeetingCallEngine {
     );
     const drafts: NoticeDraft<RoomNotice>[] = [];
     if (this.rowsLoaded) {
-      const seen = presenceNotices(this.presenceUsers, present, {
-        userId: this.viewer.userId,
-        participantId: me,
-      });
-      this.presenceUsers = seen.users;
+      const seen = stepPresence(
+        this.presenceMemo,
+        present,
+        { userId: this.viewer.userId, participantId: me },
+        Date.now()
+      );
+      this.presenceMemo = seen.memo;
       drafts.push(...seen.notices);
     }
     this.emit({
@@ -1052,14 +1099,20 @@ class MeetingCallEngine {
     let before: Set<RTCRtpTransceiver> | null = null;
     try {
       if (!pc || !me) return;
+      // Decided once: the record below must hold what was asked for.
+      const sent = new Map(
+        refs.map((r) => [
+          r.trackName,
+          r.kind === 'video'
+            ? pullSimulcast(this.tileSizes, r.participantId)
+            : null,
+        ])
+      );
       const res = await this.sfu('sfu/tracks', 'POST', {
         participantId: me,
         request: {
           tracks: refs.map((r) => {
-            const simulcast =
-              r.kind === 'video'
-                ? simulcastFor(tileSizeOf(this.tileSizes, r.participantId))
-                : null;
+            const simulcast = sent.get(r.trackName) ?? null;
             return {
               location: 'remote',
               sessionId: r.sessionId,
@@ -1080,11 +1133,21 @@ class MeetingCallEngine {
           sessionDescription: { type: 'answer', sdp: answer.sdp },
         });
       }
+      let resync = false;
       for (const t of res.tracks) {
         const ref = refs.find((r) => r.trackName === t.trackName);
         if (!ref || !t.mid || t.errorCode) continue;
         const transceiver = pc.getTransceivers().find((x) => x.mid === t.mid);
         if (!transceiver) continue;
+        const landed =
+          ref.kind === 'video'
+            ? landedPull(
+                sent.get(ref.trackName) ?? null,
+                this.tileSizes,
+                ref.participantId
+              )
+            : null;
+        if (landed?.resync) resync = true;
         this.pulled.set(ref.trackName, {
           mid: t.mid,
           participantId: ref.participantId,
@@ -1092,16 +1155,12 @@ class MeetingCallEngine {
           kind: ref.kind,
           track: transceiver.receiver.track,
           receiver: transceiver.receiver,
-          rid:
-            ref.kind === 'video'
-              ? (simulcastFor(tileSizeOf(this.tileSizes, ref.participantId))
-                  ?.preferredRid ?? null)
-              : null,
+          rid: landed?.rid ?? null,
         });
       }
       this.pullStrikes = 0;
-      // A tile resized while this pull was in flight.
-      if (refs.some((r) => r.kind === 'video')) this.scheduleLayers();
+      // A tile resized while this pull was in flight: move it now.
+      if (resync) this.scheduleLayers();
     } catch {
       if (pc && before && pc === this.pc) await this.recoverPull(pc, before);
     } finally {
@@ -1275,7 +1334,33 @@ class MeetingCallEngine {
     // Off: the choice applies the next time it is turned on.
     if (!current || this.opening.has(k)) return;
     this.opening.add(k);
-    const track = await this.open(k).finally(() => this.opening.delete(k));
+    // A camera refused as busy (the old one is still live): the old one
+    // goes, the camera reads as off, and the open is tried once more.
+    let released = false;
+    const release = () => {
+      if (this.video !== current) return false;
+      released = true;
+      this.video = null;
+      current.stop();
+      void this.videoSender?.replaceTrack(null).catch(() => {});
+      this.emit();
+      return true;
+    };
+    const track = await this.open(
+      k,
+      k === 'video' ? release : undefined
+    ).finally(() => this.opening.delete(k));
+    if (released) {
+      // The camera is off now; the new one turns it back on, or it stays
+      // off (open() showed why) and everyone sees the avatar.
+      if (track && !this.video) {
+        this.video = track;
+        this.emit();
+        await this.videoSender?.replaceTrack(track).catch(() => {});
+      } else track?.stop();
+      void this.pushState();
+      return;
+    }
     if (!track) return; // open() showed why; the old device keeps working
     if (this[k] !== current) {
       track.stop();
@@ -1403,6 +1488,7 @@ class MeetingCallEngine {
     }
     if (pc !== this.pc) return;
     if (res.requiresImmediateRenegotiation && res.sessionDescription) {
+      const before = new Set(pc.getTransceivers());
       try {
         await pc.setRemoteDescription(res.sessionDescription);
         const answer = await pc.createAnswer();
@@ -1412,9 +1498,9 @@ class MeetingCallEngine {
           sessionDescription: { type: 'answer', sdp: answer.sdp },
         });
       } catch {
-        if (pc === this.pc && needsPullRollback(pc.signalingState)) {
-          await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
-        }
+        // The SFU is left with an offer nobody answered, as after a
+        // failed pull: the same rollback, strike and rejoin budget.
+        if (pc === this.pc) await this.recoverPull(pc, before);
         return;
       }
     }
@@ -1485,14 +1571,21 @@ class MeetingCallEngine {
       const levels: Record<ParticipantId, number> = {};
       for (const p of this.snap.participants) levels[p.id] = 0;
       levels[me] = local;
+      const muted = new Set(
+        this.snap.participants.filter((p) => p.audio_muted).map((p) => p.id)
+      );
+      const perfNow = performance.now();
       for (const p of this.pulled.values()) {
         if (p.kind !== 'audio' || !(p.participantId in levels)) continue;
-        for (const src of p.receiver.getSynchronizationSources()) {
-          levels[p.participantId] = Math.max(
-            levels[p.participantId],
-            src.audioLevel ?? 0
-          );
-        }
+        levels[p.participantId] = Math.max(
+          levels[p.participantId],
+          remoteLevel(
+            p.receiver.getSynchronizationSources(),
+            muted.has(p.participantId),
+            perfNow,
+            performance.timeOrigin
+          )
+        );
       }
       const step = stepSpeaker(this.speaker, levels, now);
       this.speaker = step.state;
