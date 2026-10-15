@@ -12,6 +12,7 @@ import {
   jsonError,
   loadOwnParticipant,
   notConfiguredResponse,
+  readErrorResponse,
   readJson,
   requireMeetingsUser,
   sfuErrorResponse,
@@ -36,12 +37,14 @@ export async function PUT(request: Request, { params }: Params) {
     if (!isSessionDescription(body.sessionDescription)) {
       return jsonError('Invalid sessionDescription', 400);
     }
-    const own = await loadOwnParticipant(
+    const ownRead = await loadOwnParticipant(
       ctx.supabase,
       ctx,
       id,
       body.participantId
     );
+    if (ownRead.error) return readErrorResponse(ownRead.error);
+    const own = ownRead.participant;
     if (!own || own.left_at)
       return jsonError('You are not in this meeting', 404);
 

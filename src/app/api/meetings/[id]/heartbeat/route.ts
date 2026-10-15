@@ -14,6 +14,7 @@ import {
   loadMeeting,
   loadOwnParticipant,
   meetingDbErrorResponse,
+  readErrorResponse,
   readJson,
   requireMeetingsUser,
   supabaseAdmin,
@@ -39,10 +40,14 @@ export async function POST(request: Request, { params }: Params) {
       return jsonError('audioMuted and videoOff must be true or false', 400);
     }
 
-    const [own, loaded] = await Promise.all([
+    const [ownRead, loaded] = await Promise.all([
       loadOwnParticipant(ctx.supabase, ctx, id, body.participantId),
       loadMeeting(ctx.supabase, ctx.accountId, id),
     ]);
+    // A failed read is not "you left": the client tears down on a 404.
+    if (ownRead.error) return readErrorResponse(ownRead.error);
+    if (loaded.error) return readErrorResponse(loaded.error);
+    const own = ownRead.participant;
     if (!own || own.left_at || !loaded.meeting) {
       return jsonError('You are not in this meeting', 404);
     }

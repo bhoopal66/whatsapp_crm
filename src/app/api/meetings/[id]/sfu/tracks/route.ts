@@ -18,6 +18,7 @@ import {
   loadOwnParticipant,
   meetingDbErrorResponse,
   notConfiguredResponse,
+  readErrorResponse,
   readJson,
   requireMeetingsUser,
   sfuErrorResponse,
@@ -46,7 +47,7 @@ export async function POST(request: Request, { params }: Params) {
     }
     const participantId = body.participantId;
 
-    const [own, present] = await Promise.all([
+    const [ownRead, present] = await Promise.all([
       loadOwnParticipant(ctx.supabase, ctx, id, participantId),
       ctx.supabase
         .from('meeting_participants')
@@ -55,6 +56,8 @@ export async function POST(request: Request, { params }: Params) {
         .is('left_at', null)
         .gt('last_seen_at', presenceCutoff(Date.now())),
     ]);
+    if (ownRead.error) return readErrorResponse(ownRead.error);
+    const own = ownRead.participant;
     if (!own || own.left_at)
       return jsonError('You are not in this meeting', 404);
     if (present.error) {

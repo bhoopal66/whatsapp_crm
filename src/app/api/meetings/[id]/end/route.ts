@@ -12,6 +12,7 @@ import {
   jsonError,
   loadMeeting,
   meetingDbErrorResponse,
+  readErrorResponse,
   requireMeetingsUser,
   rpcFlag,
   type Params,
@@ -28,9 +29,7 @@ export async function POST(_request: Request, { params }: Params) {
       loadMeeting(supabase, accountId, id),
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
-    if (loaded.error) {
-      return meetingDbErrorResponse(loaded.error, 'Failed to load meeting');
-    }
+    if (loaded.error) return readErrorResponse(loaded.error);
     if (!loaded.meeting) return jsonError('Meeting not found', 404);
     if (!canManage) {
       return jsonError('Only the host or an admin can end this meeting', 403);

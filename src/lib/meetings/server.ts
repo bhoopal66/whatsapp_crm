@@ -128,13 +128,21 @@ export async function rpcFlag(
   return data === true;
 }
 
-/** The caller's own participant row in this meeting, open or not. */
+/** A read that failed (not a row that is missing): 503, so the client
+ *  keeps its seat and retries instead of reading it as "you left". */
+export function readErrorResponse(error: unknown): NextResponse {
+  console.error('[meetings] read failed', error);
+  return jsonError('temporarily_unavailable', 503);
+}
+
+/** The caller's own participant row in this meeting, open or not.
+ *  `error` is a failed read; a missing row is `participant: null`. */
 export async function loadOwnParticipant(
   supabase: Db,
   ctx: { userId: string },
   meetingId: string,
   participantId: string
-): Promise<ParticipantRow | null> {
+): Promise<{ participant: ParticipantRow | null; error: unknown }> {
   const { data, error } = await supabase
     .from('meeting_participants')
     .select(PARTICIPANT_COLUMNS)
@@ -142,6 +150,5 @@ export async function loadOwnParticipant(
     .eq('meeting_id', meetingId)
     .eq('user_id', ctx.userId)
     .maybeSingle();
-  if (error) console.error('[meetings] participant read failed', error);
-  return (data as ParticipantRow | null) ?? null;
+  return { participant: (data as ParticipantRow | null) ?? null, error };
 }
