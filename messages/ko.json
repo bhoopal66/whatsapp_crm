@@ -5293,5 +5293,80 @@
       "actionFailed": "처리하지 못했습니다. 다시 시도하세요.",
       "notFound": "이 회의가 없거나 볼 수 없습니다."
     }
+  },
+  "MeetingRoom": {
+    "loading": "회의를 불러오는 중…",
+    "back": "돌아가기",
+    "reconnecting": "연결이 끊어졌습니다. 다시 연결하는 중…",
+    "notConfigured": {
+      "title": "화상 회의가 아직 설정되지 않았습니다",
+      "body": "통화에 참여하려면 관리자가 먼저 Cloudflare 키를 추가해야 합니다."
+    },
+    "missing": {
+      "title": "존재하지 않는 회의이거나 초대받지 않은 회의입니다."
+    },
+    "ended": {
+      "title": "이 회의는 종료되었습니다."
+    },
+    "left": {
+      "title": "회의에서 나왔습니다.",
+      "elsewhere": "다른 탭이나 창에서 이 회의에 참여하여 이 창의 연결이 끊어졌습니다.",
+      "rejoin": "다시 참여"
+    },
+    "error": {
+      "join_failed": "회의에 참여하지 못했습니다. 연결을 확인한 후 다시 시도하세요.",
+      "connection_failed": "통화 연결이 끊어졌고 다시 연결하지 못했습니다.",
+      "seat_closed": "다른 탭이나 창에서 이 회의에 참여했습니다.",
+      "not_configured": "화상 회의가 아직 설정되지 않았습니다.",
+      "meeting_closed": "이 회의는 종료되었습니다.",
+      "forbidden": "이 회의에 참여할 수 없습니다.",
+      "retry": "다시 시도"
+    },
+    "lobby": {
+      "subtitle": "카메라와 마이크를 확인한 후 참여하세요.",
+      "cameraOff": "카메라가 꺼져 있습니다",
+      "join": "참여",
+      "joining": "참여하는 중…"
+    },
+    "controls": {
+      "mute": "음소거",
+      "unmute": "음소거 해제",
+      "cameraOff": "카메라 끄기",
+      "cameraOn": "카메라 켜기",
+      "share": "화면 공유",
+      "stopShare": "공유 중지",
+      "leave": "나가기",
+      "endForEveryone": "모두에게 회의 종료",
+      "endConfirm": "참여 중인 모든 사람에게 이 회의를 종료할까요?"
+    },
+    "tile": {
+      "you": "{name} (나)",
+      "screen": "{name}님의 화면",
+      "muted": "음소거됨",
+      "unknown": "참여자"
+    },
+    "devices": {
+      "audio": {
+        "permission_denied": "마이크 접근이 차단되었습니다. 브라우저의 사이트 설정에서 허용하세요.",
+        "not_found": "마이크를 찾을 수 없습니다.",
+        "in_use": "다른 앱이 마이크를 사용 중입니다.",
+        "unsupported": "이 브라우저에서는 여기서 마이크를 사용할 수 없습니다.",
+        "unknown": "마이크를 시작하지 못했습니다."
+      },
+      "video": {
+        "permission_denied": "카메라 접근이 차단되었습니다. 브라우저의 사이트 설정에서 허용하세요.",
+        "not_found": "카메라를 찾을 수 없습니다.",
+        "in_use": "다른 앱이 카메라를 사용 중입니다.",
+        "unsupported": "이 브라우저에서는 여기서 카메라를 사용할 수 없습니다.",
+        "unknown": "카메라를 시작하지 못했습니다."
+      },
+      "screen": {
+        "permission_denied": "이 브라우저에서 화면 공유가 차단되었습니다.",
+        "not_found": "공유할 화면이 없습니다.",
+        "in_use": "화면을 캡처하지 못했습니다.",
+        "unsupported": "이 브라우저에서는 화면을 공유할 수 없습니다.",
+        "unknown": "화면 공유를 시작하지 못했습니다."
+      }
+    }
   }
 }
