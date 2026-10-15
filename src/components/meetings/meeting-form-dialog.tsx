@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -16,13 +17,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
@@ -30,15 +24,16 @@ import {
   buildMeetingBody,
   defaultMeetingForm,
   DESCRIPTION_MAX,
-  MEETING_DURATIONS,
   meetingToForm,
   parseMeeting,
+  QUICK_DURATIONS,
   TITLE_MAX,
   type MeetingFormError,
   type MeetingFormValues,
   type MeetingSummary,
 } from '@/lib/meetings/schedule';
 
+import { PersonAvatar } from './person-avatars';
 import { useWorkspaceMembers } from './use-workspace-members';
 
 /**
@@ -65,7 +60,7 @@ export function MeetingFormDialog({
   const t = useTranslations('Meetings.form');
   const router = useRouter();
   const { user } = useAuth();
-  const { members } = useWorkspaceMembers();
+  const { members, nameOf, avatarOf } = useWorkspaceMembers();
   const editing = !!meeting;
 
   // Read once: the parent remounts this (a fresh `key`) per opening.
@@ -212,7 +207,7 @@ export function MeetingFormDialog({
 
           {!values.startNow && (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="meeting-date">{t('date')}</Label>
                   <Input
@@ -232,36 +227,55 @@ export function MeetingFormDialog({
                     onChange={(e) => set('time', e.target.value)}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>{t('duration')}</Label>
-                  <Select
-                    value={String(values.durationMinutes)}
-                    onValueChange={(v) =>
-                      v && set('durationMinutes', Number(v))
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue>
-                        {t('durationMinutes', {
-                          minutes: values.durationMinutes,
-                        })}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[
-                        ...new Set([
-                          ...MEETING_DURATIONS,
-                          values.durationMinutes,
-                        ]),
-                      ]
-                        .sort((a, b) => a - b)
-                        .map((m) => (
-                          <SelectItem key={m} value={String(m)}>
-                            {t('durationMinutes', { minutes: m })}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label id="meeting-duration-label">{t('duration')}</Label>
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  role="group"
+                  aria-labelledby="meeting-duration-label"
+                >
+                  {QUICK_DURATIONS.map((minutes) => {
+                    const on = values.durationMinutes === minutes;
+                    return (
+                      <Button
+                        key={minutes}
+                        type="button"
+                        size="sm"
+                        variant={on ? 'default' : 'outline'}
+                        aria-pressed={on}
+                        onClick={() => set('durationMinutes', minutes)}
+                      >
+                        {t('durationMinutes', { minutes })}
+                      </Button>
+                    );
+                  })}
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="meeting-duration-custom"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={1440}
+                      className="h-7 w-20"
+                      aria-label={t('durationCustom')}
+                      value={
+                        Number.isFinite(values.durationMinutes) &&
+                        values.durationMinutes > 0
+                          ? values.durationMinutes
+                          : ''
+                      }
+                      onChange={(e) =>
+                        set(
+                          'durationMinutes',
+                          Math.floor(Number(e.target.value))
+                        )
+                      }
+                    />
+                    <span className="text-muted-foreground text-xs">
+                      {t('minutesUnit')}
+                    </span>
+                  </div>
                 </div>
               </div>
               {fieldError([
@@ -284,13 +298,40 @@ export function MeetingFormDialog({
                 {t('invitedCount', { count: values.inviteeUserIds.length })}
               </span>
             </div>
+            {values.inviteeUserIds.length > 0 && (
+              <ul className="flex flex-wrap gap-1.5">
+                {values.inviteeUserIds.map((id) => {
+                  const name = nameOf(id) ?? t('unknownPerson');
+                  return (
+                    <li
+                      key={id}
+                      className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pr-1 pl-0.5 text-xs"
+                    >
+                      <PersonAvatar
+                        person={{ userId: id, name, avatarUrl: avatarOf(id) }}
+                        size="sm"
+                      />
+                      <span className="max-w-32 truncate">{name}</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground rounded-full p-0.5"
+                        aria-label={t('removeInvitee', { name })}
+                        onClick={() => toggleInvitee(id, false)}
+                      >
+                        <X className="size-3" aria-hidden />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             <Input
               id="meeting-invitee-search"
               value={search}
               placeholder={t('inviteesSearch')}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <ul className="border-border max-h-40 overflow-y-auto rounded-lg border">
+            <ul className="border-border max-h-48 overflow-y-auto rounded-lg border">
               {candidates.length === 0 ? (
                 <li className="text-muted-foreground px-3 py-2 text-xs">
                   {t('inviteesEmpty')}
@@ -305,8 +346,21 @@ export function MeetingFormDialog({
                           checked={checked}
                           onCheckedChange={(v) => toggleInvitee(p.user_id, !!v)}
                         />
+                        <PersonAvatar
+                          person={{
+                            userId: p.user_id,
+                            name: p.full_name || p.email,
+                            avatarUrl: p.avatar_url || null,
+                          }}
+                          size="sm"
+                        />
                         <span className="min-w-0 flex-1 truncate">
                           {p.full_name || p.email}
+                          {p.full_name && p.email && (
+                            <span className="text-muted-foreground ml-1.5 text-xs">
+                              {p.email}
+                            </span>
+                          )}
                         </span>
                       </label>
                     </li>

@@ -82,7 +82,8 @@
     "menuSettings": "설정",
     "menuSignOut": "로그아웃",
     "teamActivity": "팀 활동",
-    "chat": "팀 채팅"
+    "chat": "팀 채팅",
+    "meetings": "회의"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -5267,7 +5268,11 @@
         "durationInvalid": "회의 시간을 선택하세요.",
         "startInPast": "이미 지난 시간입니다.",
         "saveFailed": "회의를 저장하지 못했습니다."
-      }
+      },
+      "durationCustom": "직접 입력한 회의 시간(분)",
+      "minutesUnit": "분",
+      "removeInvitee": "{name} 삭제",
+      "unknownPerson": "알 수 없는 사용자"
     },
     "detail": {
       "back": "모든 회의",
@@ -5291,7 +5296,27 @@
       "cancelled": "회의를 취소했습니다",
       "ended": "회의를 종료했습니다",
       "actionFailed": "처리하지 못했습니다. 다시 시도하세요.",
-      "notFound": "이 회의가 없거나 볼 수 없습니다."
+      "notFound": "이 회의가 없거나 볼 수 없습니다.",
+      "joinNow": "지금 참여",
+      "addToCalendar": "캘린더에 추가",
+      "lasted": "이 회의는 끝났습니다. 진행 시간: {duration}.",
+      "handRaised": "손 든 상태",
+      "chat": "채팅",
+      "chatEmpty": "이 회의에서 보낸 메시지가 없습니다.",
+      "chatFailed": "채팅을 불러오지 못했습니다.",
+      "chatPartial": "메시지 {total}개 중 최근 {shown}개를 표시합니다."
+    },
+    "search": "회의 검색",
+    "noMatches": "“{query}”와(과) 일치하는 회의가 없습니다.",
+    "join": "참여",
+    "more": "+{count}",
+    "whoIsIn": "{more, plural, =0 {{names} 통화 중} other {{names} 외 #명 통화 중}}",
+    "inCallNow": "{count, plural, other {#명 통화 중}}",
+    "duration": "{hours, plural, =0 {{minutes}분} other {{minutes, plural, =0 {{hours}시간} other {{hours}시간 {minutes}분}}}}",
+    "groups": {
+      "unscheduled": "시간 미정",
+      "today": "오늘",
+      "tomorrow": "내일"
     }
   },
   "MeetingRoom": {

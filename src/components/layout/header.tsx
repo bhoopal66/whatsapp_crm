@@ -29,6 +29,7 @@ const pageTitles: Record<string, string> = {
   "/settings": "settings",
   "/team-activity": "teamActivity",
   "/chat": "chat",
+  "/meetings": "meetings",
 };
 
 function getPageTitleKey(pathname: string): string {

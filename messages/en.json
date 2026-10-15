@@ -82,7 +82,8 @@
     "menuSettings": "Settings",
     "menuSignOut": "Sign out",
     "teamActivity": "Team activity",
-    "chat": "Team chat"
+    "chat": "Team chat",
+    "meetings": "Meetings"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -5267,7 +5268,11 @@
         "durationInvalid": "Pick a duration.",
         "startInPast": "That time has already passed.",
         "saveFailed": "Couldn't save the meeting."
-      }
+      },
+      "durationCustom": "Custom duration in minutes",
+      "minutesUnit": "min",
+      "removeInvitee": "Remove {name}",
+      "unknownPerson": "Someone"
     },
     "detail": {
       "back": "All meetings",
@@ -5291,7 +5296,27 @@
       "cancelled": "Meeting cancelled",
       "ended": "Meeting ended",
       "actionFailed": "That didn't work. Try again.",
-      "notFound": "This meeting doesn't exist, or you can't see it."
+      "notFound": "This meeting doesn't exist, or you can't see it.",
+      "joinNow": "Join now",
+      "addToCalendar": "Add to calendar",
+      "lasted": "This meeting is over. It lasted {duration}.",
+      "handRaised": "Hand raised",
+      "chat": "Chat",
+      "chatEmpty": "No messages were sent in this meeting.",
+      "chatFailed": "Couldn't load the chat.",
+      "chatPartial": "Showing the latest {shown} of {total} messages."
+    },
+    "search": "Search meetings",
+    "noMatches": "No meetings match “{query}”.",
+    "join": "Join",
+    "more": "+{count}",
+    "whoIsIn": "{more, plural, =0 {{names} in the call} other {{names} and # more in the call}}",
+    "inCallNow": "{count, plural, =1 {1 person in the call} other {# people in the call}}",
+    "duration": "{hours, plural, =0 {{minutes} min} other {{minutes, plural, =0 {{hours} h} other {{hours} h {minutes} min}}}}",
+    "groups": {
+      "unscheduled": "Any time",
+      "today": "Today",
+      "tomorrow": "Tomorrow"
     }
   },
   "MeetingRoom": {
