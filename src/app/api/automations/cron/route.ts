@@ -12,6 +12,7 @@ import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
+import { dispatchPush } from '@/lib/push/dispatch'
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -237,6 +238,46 @@ function schedulePbxCron() {
 }
 
 /**
+ * Web push (docs/push.md) rides along at most once a minute per process,
+ * inside after(): one dispatch pass over the outbox, then push_purge()
+ * trims old rows. It is the fallback for the delivery loop that
+ * instrumentation.ts starts in a production server, so an install whose
+ * loop is not running still delivers within a minute or so. The outbox
+ * claim is a lease, so a pass overlapping the loop sends nothing twice.
+ * dispatchPush never throws and does nothing without VAPID keys.
+ */
+const pushDue = everyInterval(60_000)
+
+function schedulePushDispatch() {
+  try {
+    if (!pushDue()) return
+    after(async () => {
+      try {
+        const admin = supabaseAdmin()
+        const summary = await dispatchPush(admin)
+        if (summary.failed > 0) {
+          console.error('[automations-cron] push:', summary)
+        }
+        const { error } = await admin.rpc('push_purge')
+        if (error) {
+          console.error('[automations-cron] push purge failed:', error.message)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] push run failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the push run:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -272,6 +313,7 @@ export async function GET(request: Request) {
     scheduleJourneyTick()
     scheduleDealRoomReconcile()
     schedulePbxCron()
+    schedulePushDispatch()
   }
 }
 

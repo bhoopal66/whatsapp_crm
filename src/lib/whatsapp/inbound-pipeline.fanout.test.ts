@@ -20,6 +20,8 @@ type Result = { data: unknown; error: unknown };
 const h = vi.hoisted(() => ({
   calls: [] as Call[],
   rpcs: [] as string[],
+  rpcArgs: [] as unknown[],
+  upsertRows: [] as { id: string }[],
   flows: vi.fn(),
   journey: vi.fn(),
   automations: vi.fn(),
@@ -37,7 +39,7 @@ function respond(call: Call): Result {
     };
   }
   if (call.table === 'messages' && call.op === 'upsert') {
-    return { data: [{ id: 'row-1' }], error: null };
+    return { data: h.upsertRows, error: null };
   }
   if (call.table === 'messages' && call.op === 'select') {
     return { data: [{ id: 'earlier' }], error: null };
@@ -47,8 +49,9 @@ function respond(call: Call): Result {
 
 function fakeDb() {
   return {
-    rpc(fn: string) {
+    rpc(fn: string, args?: unknown) {
       h.rpcs.push(fn);
+      h.rpcArgs.push(args);
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
@@ -161,6 +164,8 @@ const message: NormalizedInboundMessage = {
 beforeEach(() => {
   h.calls = [];
   h.rpcs = [];
+  h.rpcArgs = [];
+  h.upsertRows = [{ id: 'row-1' }];
   h.flows.mockReset().mockResolvedValue({ consumed: false });
   h.journey.mockReset().mockResolvedValue({ consumed: false });
   h.automations.mockReset().mockResolvedValue(undefined);
@@ -186,7 +191,12 @@ describe('processMessage — fanOut', () => {
       content_text: 'hello',
       channel_id: 'ch-1',
     });
-    expect(h.rpcs).toEqual(['bump_conversation_on_inbound']);
+    // The push is part of the inbox, so an over-limit sender still rings.
+    expect(h.rpcs).toEqual([
+      'bump_conversation_on_inbound',
+      'push_whatsapp_inbound',
+    ]);
+    expect(h.rpcArgs[1]).toEqual({ p_message_id: 'row-1' });
     expect(h.reopen).toHaveBeenCalledTimes(1);
 
     expect(h.flows).not.toHaveBeenCalled();
@@ -200,7 +210,10 @@ describe('processMessage — fanOut', () => {
   it('by default the same message fans out', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
 
-    expect(h.rpcs).toEqual(['bump_conversation_on_inbound']);
+    expect(h.rpcs).toEqual([
+      'bump_conversation_on_inbound',
+      'push_whatsapp_inbound',
+    ]);
     expect(h.flows).toHaveBeenCalledTimes(1);
     expect(h.automations).toHaveBeenCalled();
     expect(h.ai).toHaveBeenCalledTimes(1);
@@ -211,6 +224,22 @@ describe('processMessage — fanOut', () => {
       expect.anything()
     );
     expect(h.watch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A replayed delivery (the upsert returns no row) is the idempotency
+// boundary: push_whatsapp_inbound de-dupes nothing, so reaching it on a
+// replay would ring everyone twice.
+describe('processMessage — replay', () => {
+  it('a replayed message queues no push and bumps nothing', async () => {
+    h.upsertRows = [];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    info.mockRestore();
+
+    expect(h.rpcs).not.toContain('push_whatsapp_inbound');
+    expect(h.rpcs).toEqual([]);
+    expect(h.flows).not.toHaveBeenCalled();
   });
 });
 

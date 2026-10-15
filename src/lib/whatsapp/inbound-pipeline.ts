@@ -47,6 +47,7 @@ import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
+import { enqueueInboundPush } from '@/lib/push/inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
 // replied. Webhook replays must never regress a recipient back down
@@ -834,6 +835,12 @@ export async function processMessage(
   // update above so the write can be gated on the row's CURRENT status in
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation);
+
+  // Web push for the people who work this chat (migration 109). Part of
+  // the inbox rather than the fan-out, so a sender over the rate limit
+  // (fanOut: false) still rings; after the idempotency boundary because
+  // push_whatsapp_inbound de-dupes nothing. Fail-open by contract.
+  await enqueueInboundPush(supabaseAdmin(), insertedRows[0].id);
 
   // Everything above is the inbox; everything below reacts to it.
   if (options.fanOut === false) return;
