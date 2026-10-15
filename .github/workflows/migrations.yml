@@ -245,3 +245,12 @@ jobs:
       # functions are the boundary, so only real Postgres can show it.
       - name: Verify deal rooms
         run: supabase db query --local --file supabase/ci/verify-deal-rooms.sql
+
+      # Video meetings (106): who sees a meeting is meeting_can_view
+      # (owner/admin, the host, an invitee, or the workspace when it is
+      # open; a bank guest nothing), a guard freezes host and workspace
+      # and makes ended/cancelled terminal for every writer, participant
+      # rows are service-role only, and an invitation rings the bell.
+      # RLS, triggers and grants: only real Postgres can show it.
+      - name: Verify meetings
+        run: supabase db query --local --file supabase/ci/verify-meetings.sql
