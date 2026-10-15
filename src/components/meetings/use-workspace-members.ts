@@ -23,6 +23,8 @@ export function useWorkspaceMembers(): {
   members: Profile[];
   /** auth user id → display name. */
   nameOf: (userId: string) => string | null;
+  /** auth user id → avatar picture, when they set one. */
+  avatarOf: (userId: string) => string | null;
 } {
   const { accountId } = useAuth();
   const [members, setMembers] = useState<Profile[]>([]);
@@ -63,7 +65,12 @@ export function useWorkspaceMembers(): {
     return (userId: string) => byUser.get(userId) ?? null;
   }, [members]);
 
-  return { members, nameOf };
+  const avatarOf = useMemo(() => {
+    const byUser = new Map(members.map((p) => [p.user_id, p.avatar_url]));
+    return (userId: string) => byUser.get(userId) || null;
+  }, [members]);
+
+  return { members, nameOf, avatarOf };
 }
 
 const viewerZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;

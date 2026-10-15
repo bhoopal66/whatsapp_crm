@@ -23,10 +23,16 @@ export function MeetingStatusBadge({
   return (
     <span
       className={cn(
-        'shrink-0 rounded-full px-2 py-0.5 text-xs font-medium',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
         TONE[status]
       )}
     >
+      {status === 'live' && (
+        <span className="relative flex size-2" aria-hidden>
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-75 motion-reduce:animate-none" />
+          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+        </span>
+      )}
       {t(status)}
     </span>
   );

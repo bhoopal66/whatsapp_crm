@@ -1,16 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus, Users, Video } from 'lucide-react';
+import { CalendarDays, Plus, Search, Video } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { useAuth } from '@/hooks/use-auth';
 import {
+  filterMeetings,
+  formatMeetingDay,
   formatMeetingWhen,
+  groupMeetingsByDay,
   MEETING_SCOPES,
   meetingDisplayStatus,
   parseMeetingList,
+  type MeetingDayGroup,
   type MeetingScope,
   type MeetingSummary,
 } from '@/lib/meetings/schedule';
@@ -18,6 +24,7 @@ import { cn } from '@/lib/utils';
 
 import { MeetingFormDialog } from './meeting-form-dialog';
 import { MeetingStatusBadge } from './meeting-status-badge';
+import { AvatarStack, type AvatarPerson } from './person-avatars';
 import {
   useMeetingTimeZone,
   useWorkspaceMembers,
@@ -37,8 +44,10 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
   const t = useTranslations('Meetings');
   const locale = useLocale();
   const timeZone = useMeetingTimeZone();
-  const { nameOf } = useWorkspaceMembers();
+  const { user } = useAuth();
+  const { nameOf, avatarOf } = useWorkspaceMembers();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [query, setQuery] = useState('');
   const [dialogKey, setDialogKey] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -77,8 +86,46 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
     };
   }, [load, scope]);
 
+  const nameFor = useCallback(
+    (userId: string) =>
+      userId === user?.id ? t('you') : (nameOf(userId) ?? t('unknownPerson')),
+    [user?.id, nameOf, t]
+  );
+  const personOf = useCallback(
+    (userId: string): AvatarPerson => ({
+      userId,
+      name: nameFor(userId),
+      avatarUrl: avatarOf(userId),
+    }),
+    [nameFor, avatarOf]
+  );
+
   const current = loaded?.scope === scope ? loaded : null;
+  const shown = useMemo(
+    () => (current ? filterMeetings(current.meetings, query, nameOf) : []),
+    [current, query, nameOf]
+  );
   const now = new Date();
+  const groups: MeetingDayGroup[] =
+    scope === 'upcoming'
+      ? groupMeetingsByDay(shown, now, timeZone)
+      : [{ kind: 'date', date: null, meetings: shown }];
+
+  const openNew = () => {
+    setDialogKey((k) => k + 1);
+    setDialogOpen(true);
+  };
+
+  const groupTitle = (g: MeetingDayGroup) =>
+    g.kind === 'unscheduled'
+      ? t('groups.unscheduled')
+      : g.kind === 'today'
+        ? t('groups.today')
+        : g.kind === 'tomorrow'
+          ? t('groups.tomorrow')
+          : g.date
+            ? formatMeetingDay(g.date, locale)
+            : null;
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
@@ -87,79 +134,104 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
           <h1 className="text-xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
-        <Button
-          onClick={() => {
-            setDialogKey((k) => k + 1);
-            setDialogOpen(true);
-          }}
-        >
+        <Button onClick={openNew}>
           <Plus className="size-4" aria-hidden />
           {t('newMeeting')}
         </Button>
       </div>
 
-      <nav className="flex flex-wrap gap-2" aria-label={t('title')}>
-        {MEETING_SCOPES.map((k) => (
-          <Link
-            key={k}
-            href={k === 'live' ? '/meetings' : `/meetings?scope=${k}`}
-            aria-current={scope === k ? 'page' : undefined}
-            className={cn(
-              'rounded-full border px-3 py-1 text-sm',
-              scope === k
-                ? 'bg-foreground text-background border-transparent'
-                : 'border-border text-muted-foreground hover:bg-muted'
-            )}
-          >
-            {t(`tabs.${k}`)}
-          </Link>
-        ))}
-      </nav>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex flex-wrap gap-2" aria-label={t('title')}>
+          {MEETING_SCOPES.map((k) => (
+            <Link
+              key={k}
+              href={k === 'live' ? '/meetings' : `/meetings?scope=${k}`}
+              aria-current={scope === k ? 'page' : undefined}
+              className={cn(
+                'rounded-full border px-3 py-1 text-sm',
+                scope === k
+                  ? 'bg-foreground text-background border-transparent'
+                  : 'border-border text-muted-foreground hover:bg-muted'
+              )}
+            >
+              {t(`tabs.${k}`)}
+            </Link>
+          ))}
+        </nav>
+        <div className="relative w-full sm:w-64">
+          <Search
+            className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('search')}
+            aria-label={t('search')}
+            className="pl-8"
+          />
+        </div>
+      </div>
 
       {!current ? (
-        <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
+        <div className="space-y-3" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="bg-muted h-24 animate-pulse rounded-xl" />
+          ))}
+        </div>
       ) : current.failed ? (
         <p className="text-destructive text-sm">{t('loadFailed')}</p>
       ) : current.meetings.length === 0 ? (
-        <p className="text-muted-foreground text-sm">{t(`empty.${scope}`)}</p>
+        <div className="border-border flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
+          <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
+            {scope === 'upcoming' ? (
+              <CalendarDays className="size-5" aria-hidden />
+            ) : (
+              <Video className="size-5" aria-hidden />
+            )}
+          </span>
+          <p className="text-muted-foreground text-sm">{t(`empty.${scope}`)}</p>
+          {scope !== 'past' && (
+            <Button variant="outline" onClick={openNew}>
+              <Plus className="size-4" aria-hidden />
+              {t('newMeeting')}
+            </Button>
+          )}
+        </div>
+      ) : shown.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          {t('noMatches', { query: query.trim() })}
+        </p>
       ) : (
-        <section className="border-border bg-card overflow-hidden rounded-xl border">
-          <ul>
-            {current.meetings.map((m) => {
-              const when =
-                formatMeetingWhen(m, { locale, timeZone }) ?? t('instant');
-              const host = nameOf(m.hostUserId) ?? t('unknownPerson');
-              return (
-                <li
-                  key={m.id}
-                  className="border-border flex items-center gap-3 border-b px-4 py-3 last:border-b-0"
-                >
-                  <span className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-xl">
-                    <Video className="size-4" aria-hidden />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/meetings/${m.id}`}
-                      className="font-semibold hover:underline"
-                    >
-                      {m.title}
-                    </Link>
-                    <p className="text-muted-foreground truncate text-sm">
-                      {[when, t('hostedBy', { name: host })].join(' · ')}
-                    </p>
-                  </div>
-                  {m.presentCount > 0 && (
-                    <span className="text-muted-foreground flex items-center gap-1 text-xs tabular-nums">
-                      <Users className="size-3.5" aria-hidden />
-                      {m.presentCount}
-                    </span>
-                  )}
-                  <MeetingStatusBadge status={meetingDisplayStatus(m, now)} />
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+        <div className="space-y-6">
+          {groups.map((g) => {
+            const title = groupTitle(g);
+            return (
+              <section key={g.kind + (g.date ?? '')} className="space-y-2">
+                {title && (
+                  <h2 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                    {title}
+                  </h2>
+                )}
+                <ul className="space-y-2">
+                  {g.meetings.map((m) => (
+                    <MeetingCard
+                      key={m.id}
+                      meeting={m}
+                      now={now}
+                      when={
+                        formatMeetingWhen(m, { locale, timeZone }) ??
+                        t('instant')
+                      }
+                      personOf={personOf}
+                    />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       )}
 
       <MeetingFormDialog
@@ -170,5 +242,90 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
         onSaved={() => void load()}
       />
     </div>
+  );
+}
+
+function MeetingCard({
+  meeting: m,
+  now,
+  when,
+  personOf,
+}: {
+  meeting: MeetingSummary;
+  now: Date;
+  when: string;
+  personOf: (userId: string) => AvatarPerson;
+}) {
+  const t = useTranslations('Meetings');
+  const status = meetingDisplayStatus(m, now);
+  const live = status === 'live';
+  // Join straight from the list once the meeting is on or due; earlier
+  // than that, the detail page is the way in.
+  const joinable = live || status === 'due';
+  const invitees = [m.hostUserId, ...m.inviteeUserIds].map(personOf);
+  const inCall = m.present.map((p) => personOf(p.userId));
+
+  return (
+    <li
+      className={cn(
+        'border-border bg-card flex flex-wrap items-center gap-3 rounded-xl border p-4 sm:flex-nowrap',
+        live && 'border-emerald-300 [[data-mode=dark]_&]:border-emerald-900'
+      )}
+    >
+      <span
+        className={cn(
+          'flex size-10 shrink-0 items-center justify-center rounded-xl',
+          live
+            ? 'bg-emerald-100 text-emerald-700 [[data-mode=dark]_&]:bg-emerald-950 [[data-mode=dark]_&]:text-emerald-300'
+            : 'bg-muted text-muted-foreground'
+        )}
+      >
+        <Video className="size-5" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Link
+            href={`/meetings/${m.id}`}
+            className="truncate font-semibold hover:underline"
+          >
+            {m.title}
+          </Link>
+          <MeetingStatusBadge status={status} />
+        </div>
+        <p className="text-muted-foreground truncate text-sm">
+          {[when, t('hostedBy', { name: personOf(m.hostUserId).name })].join(
+            ' · '
+          )}
+        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <AvatarStack
+            people={invitees}
+            moreLabel={(n) => t('more', { count: n })}
+          />
+          {live && (
+            <span className="text-xs text-emerald-700 [[data-mode=dark]_&]:text-emerald-300">
+              {inCall.length > 0
+                ? t('whoIsIn', {
+                    names: inCall
+                      .slice(0, 2)
+                      .map((p) => p.name)
+                      .join(', '),
+                    more: Math.max(0, inCall.length - 2),
+                  })
+                : t('inCallNow', { count: m.presentCount })}
+            </span>
+          )}
+        </div>
+      </div>
+      {joinable && (
+        <Link
+          href={`/meetings/${m.id}/room`}
+          className={cn(buttonVariants({ size: 'sm' }), 'shrink-0')}
+        >
+          <Video className="size-4" aria-hidden />
+          {t('join')}
+        </Link>
+      )}
+    </li>
   );
 }
