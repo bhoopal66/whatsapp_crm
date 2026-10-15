@@ -5,7 +5,14 @@ import {
   canJoinMeeting,
   canManageMeeting,
   defaultMeetingForm,
+  durationParts,
+  filterMeetings,
+  formatMeetingDay,
   formatMeetingWhen,
+  groupMeetingsByDay,
+  linkifyText,
+  meetingDurationMs,
+  parseChatMessages,
   meetingDisplayStatus,
   meetingScope,
   meetingScopeParam,
@@ -47,6 +54,7 @@ const meeting = (over: Partial<MeetingSummary> = {}): MeetingSummary => ({
   createdAt: '2026-10-14T08:00:00.000Z',
   inviteeUserIds: [],
   presentCount: 0,
+  present: [],
   ...over,
 });
 
@@ -386,8 +394,9 @@ describe('parsing', () => {
       canManage: true,
     });
     expect(parseMeetingDetail({ meeting: row })).toMatchObject({
-      meeting: { inviteeUserIds: [], presentCount: 0 },
+      meeting: { inviteeUserIds: [], presentCount: 0, present: [] },
       canManage: null,
+      chatCount: null,
     });
     expect(parseMeetingDetail({ error: 'Meeting not found' })).toBeNull();
     expect(parseMeetingDetail(null)).toBeNull();
@@ -405,5 +414,239 @@ describe('parsing', () => {
     expect(meetingScopeParam('past')).toBe('past');
     expect(meetingScopeParam('nope')).toBe('live');
     expect(meetingScopeParam(undefined)).toBe('live');
+  });
+});
+
+describe('v2 parsing', () => {
+  const row = { id: 'm1', title: 'Sync', host_user_id: 'u-host' };
+
+  it('lists who is in the call, one entry per person, earliest hand up', () => {
+    const detail = parseMeetingDetail({
+      meeting: row,
+      participants: [
+        { user_id: 'a', hand_raised_at: null },
+        { user_id: 'b', hand_raised_at: '2026-10-15T08:05:00Z' },
+        { user_id: 'a', hand_raised_at: '2026-10-15T08:07:00Z' },
+        { user_id: 'b', hand_raised_at: '2026-10-15T08:01:00Z' },
+        { hand_raised_at: 'x' },
+      ],
+      chat_count: 12,
+    });
+    expect(detail?.meeting.present).toEqual([
+      { userId: 'a', handRaisedAt: '2026-10-15T08:07:00Z' },
+      { userId: 'b', handRaisedAt: '2026-10-15T08:01:00Z' },
+    ]);
+    expect(detail?.meeting.presentCount).toBe(2);
+    expect(detail?.chatCount).toBe(12);
+  });
+
+  it('tolerates an API without hands, participants or chat_count', () => {
+    expect(
+      parseMeetingDetail({ meeting: row, participants: [{ user_id: 'a' }] })
+    ).toMatchObject({
+      meeting: { present: [{ userId: 'a', handRaisedAt: null }] },
+      chatCount: null,
+    });
+    expect(
+      parseMeetingDetail({ meeting: row, chat_count: -3 })?.chatCount
+    ).toBe(null);
+    // A list row with only a count keeps the count and names nobody.
+    expect(parseMeeting({ ...row, present_count: 3 })).toMatchObject({
+      presentCount: 3,
+      present: [],
+    });
+    expect(
+      parseMeeting({ ...row, participants: [{ user_id: 'z' }] })
+    ).toMatchObject({ presentCount: 1, present: [{ userId: 'z' }] });
+  });
+
+  it('reads chat lines oldest first, skipping reactions and junk', () => {
+    expect(
+      parseChatMessages({
+        messages: [
+          {
+            id: '2',
+            user_id: 'a',
+            kind: 'chat',
+            body: 'later',
+            created_at: '2026-10-15T08:02:00Z',
+          },
+          {
+            id: '1',
+            user_id: 'b',
+            kind: 'chat',
+            body: 'first',
+            created_at: '2026-10-15T08:01:00Z',
+          },
+          {
+            id: '3',
+            user_id: 'b',
+            kind: 'reaction',
+            body: '👍',
+            created_at: '2026-10-15T08:03:00Z',
+          },
+          {
+            id: '4',
+            user_id: 'b',
+            kind: 'chat',
+            created_at: '2026-10-15T08:04:00Z',
+          },
+          null,
+        ],
+      }).map((l) => l.id)
+    ).toEqual(['1', '2']);
+    expect(parseChatMessages({ error: 'Forbidden' })).toEqual([]);
+  });
+});
+
+describe('groupMeetingsByDay', () => {
+  // NOW is 12:10 on 15 Oct in Dubai.
+  const at = (id: string, start: string | null) =>
+    meeting({ id, scheduledStart: start, scheduledEnd: null });
+
+  it('puts instant meetings first, then Today, Tomorrow and dates', () => {
+    const groups = groupMeetingsByDay(
+      [
+        at('instant', null),
+        at('today', '2026-10-15T10:00:00Z'),
+        at('late-today', '2026-10-15T19:59:00Z'), // 23:59 Dubai
+        at('tomorrow', '2026-10-15T20:00:00Z'), // 00:00 on the 16th
+        at('later', '2026-10-20T06:00:00Z'),
+      ],
+      NOW,
+      DUBAI
+    );
+    expect(
+      groups.map((g) => [g.kind, g.date, g.meetings.map((m) => m.id)])
+    ).toEqual([
+      ['unscheduled', null, ['instant']],
+      ['today', '2026-10-15', ['today', 'late-today']],
+      ['tomorrow', '2026-10-16', ['tomorrow']],
+      ['date', '2026-10-20', ['later']],
+    ]);
+  });
+
+  it('reads the day in the given zone, not UTC', () => {
+    // 21:00 UTC on the 15th is already the 16th in Dubai.
+    const late = at('x', '2026-10-15T21:00:00Z');
+    expect(groupMeetingsByDay([late], NOW, DUBAI)[0].kind).toBe('tomorrow');
+    expect(groupMeetingsByDay([late], NOW, 'UTC')[0].kind).toBe('today');
+  });
+
+  it('rolls Tomorrow over a month end', () => {
+    const now = new Date('2026-10-31T10:00:00Z');
+    const g = groupMeetingsByDay(
+      [at('nov', '2026-11-01T10:00:00Z')],
+      now,
+      'UTC'
+    );
+    expect(g[0]).toMatchObject({ kind: 'tomorrow', date: '2026-11-01' });
+  });
+
+  it('formats a day heading without shifting the date', () => {
+    expect(formatMeetingDay('2026-10-20', 'en-GB')).toBe('Tuesday 20 October');
+  });
+});
+
+describe('filterMeetings', () => {
+  const names: Record<string, string> = {
+    'u-host': 'Sara Ahmed',
+    'u-ali': 'Ali Khan',
+  };
+  const nameOf = (id: string) => names[id] ?? null;
+  const list = [
+    meeting({ id: 'a', title: 'Weekly sync' }),
+    meeting({ id: 'b', title: 'Bank review', inviteeUserIds: ['u-ali'] }),
+    meeting({ id: 'c', title: 'Plan', description: 'Budget for Q4' }),
+  ];
+  const ids = (q: string) => filterMeetings(list, q, nameOf).map((m) => m.id);
+
+  it('matches title, description and people, case-insensitively', () => {
+    expect(ids('')).toEqual(['a', 'b', 'c']);
+    expect(ids('  ')).toEqual(['a', 'b', 'c']);
+    expect(ids('SYNC')).toEqual(['a']);
+    expect(ids('budget')).toEqual(['c']);
+    expect(ids('ali')).toEqual(['b']);
+    expect(ids('sara')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('needs every word to match', () => {
+    expect(ids('bank ali')).toEqual(['b']);
+    expect(ids('bank budget')).toEqual([]);
+  });
+});
+
+describe('meeting duration', () => {
+  it('measures an ended meeting from its start to its end', () => {
+    expect(
+      meetingDurationMs(
+        meeting({ status: 'ended', endedAt: '2026-10-15T10:45:00.000Z' })
+      )
+    ).toBe(45 * 60_000);
+  });
+
+  it('measures an instant meeting from its creation', () => {
+    expect(
+      meetingDurationMs(
+        meeting({
+          status: 'ended',
+          scheduledStart: null,
+          scheduledEnd: null,
+          createdAt: '2026-10-15T09:00:00.000Z',
+          endedAt: '2026-10-15T10:05:00.000Z',
+        })
+      )
+    ).toBe(65 * 60_000);
+  });
+
+  it('has none for a meeting that was not ended, or ended before it began', () => {
+    expect(meetingDurationMs(meeting({ status: 'cancelled' }))).toBeNull();
+    expect(meetingDurationMs(meeting({ status: 'scheduled' }))).toBeNull();
+    expect(
+      meetingDurationMs(
+        meeting({ status: 'ended', endedAt: '2026-10-15T09:00:00.000Z' })
+      )
+    ).toBeNull();
+  });
+
+  it('splits into hours and minutes, at least one minute', () => {
+    expect(durationParts(65 * 60_000)).toEqual({ hours: 1, minutes: 5 });
+    expect(durationParts(45 * 60_000 + 29_000)).toEqual({
+      hours: 0,
+      minutes: 45,
+    });
+    expect(durationParts(10_000)).toEqual({ hours: 0, minutes: 1 });
+    expect(durationParts(120 * 60_000)).toEqual({ hours: 2, minutes: 0 });
+  });
+});
+
+describe('linkifyText', () => {
+  it('splits http(s) links out of plain text', () => {
+    expect(linkifyText('see https://example.com/a?b=1, then go')).toEqual([
+      { kind: 'text', text: 'see ' },
+      {
+        kind: 'link',
+        text: 'https://example.com/a?b=1',
+        href: 'https://example.com/a?b=1',
+      },
+      { kind: 'text', text: ', then go' },
+    ]);
+  });
+
+  it('leaves other schemes and markup as text', () => {
+    const text = 'javascript:alert(1) <a href="x">x</a> mailto:a@b.c';
+    expect(linkifyText(text)).toEqual([{ kind: 'text', text }]);
+  });
+
+  it('drops trailing punctuation from a link', () => {
+    expect(linkifyText('(http://a.io).')).toEqual([
+      { kind: 'text', text: '(' },
+      { kind: 'link', text: 'http://a.io', href: 'http://a.io/' },
+      { kind: 'text', text: ').' },
+    ]);
+  });
+
+  it('returns nothing for empty text', () => {
+    expect(linkifyText('')).toEqual([]);
   });
 });

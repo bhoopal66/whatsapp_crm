@@ -21,6 +21,8 @@ export function meetingScopeParam(value: unknown): MeetingScope {
 
 /** The duration choices the form offers, in minutes. */
 export const MEETING_DURATIONS = [15, 30, 45, 60, 90, 120] as const;
+/** The one-tap durations above the form's custom field. */
+export const QUICK_DURATIONS = [15, 30, 45, 60, 90] as const;
 export const DEFAULT_DURATION_MINUTES = 30;
 
 /** Mirrors migration 106's CHECKs (title 1–200 trimmed, description ≤2000). */
@@ -47,6 +49,17 @@ export interface MeetingSummary {
   inviteeUserIds: string[];
   /** People in the call now (left_at NULL, heartbeat within 60 s). */
   presentCount: number;
+  /**
+   * Who is in the call, one entry per person, when the API listed the
+   * present seats (`participants`); empty when it only gave a count.
+   */
+  present: PresentPerson[];
+}
+
+/** One person in the call; `handRaisedAt` is their earliest raised hand. */
+export interface PresentPerson {
+  userId: string;
+  handRaisedAt: string | null;
 }
 
 // ---------------------------------------------------------------- form
@@ -351,6 +364,27 @@ const idList = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((i): i is string => !!str(i)) : [];
 
 /**
+ * Present seats → one entry per person (two tabs are one person), in
+ * the order they first appear; a person's hand is up if any seat's is.
+ */
+function presentPeople(v: unknown): PresentPerson[] | null {
+  if (!Array.isArray(v)) return null;
+  const byUser = new Map<string, PresentPerson>();
+  for (const p of v) {
+    const row =
+      p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+    const userId = str(row.user_id);
+    if (!userId) continue;
+    const raised = str(row.hand_raised_at);
+    const seen = byUser.get(userId);
+    if (!seen) byUser.set(userId, { userId, handRaisedAt: raised });
+    else if (raised && (!seen.handRaisedAt || raised < seen.handRaisedAt))
+      seen.handRaisedAt = raised;
+  }
+  return [...byUser.values()];
+}
+
+/**
  * One meeting from the API: a `meetings` row (column names) plus the
  * list's `invitee_user_ids` and `present_count`. Null when it is not a
  * meeting at all.
@@ -364,7 +398,8 @@ export function parseMeeting(raw: unknown): MeetingSummary | null {
   const status =
     r.status === 'ended' || r.status === 'cancelled' ? r.status : 'scheduled';
   const inviteeUserIds = idList(r.invitee_user_ids);
-  const count = Number(r.present_count ?? 0);
+  const present = presentPeople(r.participants);
+  const count = Number(r.present_count ?? present?.length ?? 0);
   return {
     id,
     title: str(r.title) ?? '',
@@ -378,6 +413,7 @@ export function parseMeeting(raw: unknown): MeetingSummary | null {
     createdAt: str(r.created_at),
     inviteeUserIds,
     presentCount: Number.isFinite(count) && count > 0 ? Math.floor(count) : 0,
+    present: present ?? [],
   };
 }
 
@@ -393,6 +429,8 @@ export interface MeetingDetailData {
   meeting: MeetingSummary;
   /** `meeting_can_manage` as the server answered it; null if absent. */
   canManage: boolean | null;
+  /** Chat messages sent in it; null from an API that predates chat. */
+  chatCount: number | null;
 }
 
 /**
@@ -407,23 +445,23 @@ export function parseMeetingDetail(json: unknown): MeetingDetailData | null {
     r.meeting && typeof r.meeting === 'object'
       ? (r.meeting as Record<string, unknown>)
       : null;
-  const people = Array.isArray(r.participants) ? r.participants : [];
-  const present = new Set(
-    people
-      .map((p) => str((p as Record<string, unknown> | null)?.user_id))
-      .filter((id): id is string => !!id)
-  );
   const meeting = parseMeeting(
     row && {
       ...row,
       invitee_user_ids: r.invitee_user_ids,
-      present_count: present.size,
+      participants: Array.isArray(r.participants) ? r.participants : [],
+      present_count: undefined,
     }
   );
   if (!meeting) return null;
+  const chat = r.chat_count;
   return {
     meeting,
     canManage: typeof r.can_manage === 'boolean' ? r.can_manage : null,
+    chatCount:
+      typeof chat === 'number' && Number.isFinite(chat) && chat >= 0
+        ? Math.floor(chat)
+        : null,
   };
 }
 
@@ -439,4 +477,182 @@ export function resolveMeetingTimeZone(
   if (typeof saved === 'string' && isValidTimeZone(saved)) return saved;
   if (viewer && isValidTimeZone(viewer)) return viewer;
   return 'UTC';
+}
+
+// --------------------------------------------------------- list views
+
+export interface MeetingDayGroup {
+  /** `unscheduled`: instant meetings, which have no day. */
+  kind: 'unscheduled' | 'today' | 'tomorrow' | 'date';
+  /** `YYYY-MM-DD` in the time zone; null for `unscheduled`. */
+  date: string | null;
+  meetings: MeetingSummary[];
+}
+
+/** The calendar day after `date` (`YYYY-MM-DD`), DST-proof. */
+function nextDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * Upcoming meetings by their start's day in `timeZone`: instant
+ * meetings first, then each day in date order. Order within a group is
+ * the input's (the API sorts by start).
+ */
+export function groupMeetingsByDay(
+  meetings: readonly MeetingSummary[],
+  now: Date,
+  timeZone: string
+): MeetingDayGroup[] {
+  const today = zonedParts(now.toISOString(), timeZone).date;
+  const tomorrow = nextDay(today);
+  const unscheduled: MeetingSummary[] = [];
+  const byDate = new Map<string, MeetingSummary[]>();
+  for (const m of meetings) {
+    if (!m.scheduledStart) {
+      unscheduled.push(m);
+      continue;
+    }
+    const date = zonedParts(m.scheduledStart, timeZone).date;
+    const list = byDate.get(date) ?? [];
+    list.push(m);
+    byDate.set(date, list);
+  }
+  const groups: MeetingDayGroup[] = [];
+  if (unscheduled.length > 0)
+    groups.push({ kind: 'unscheduled', date: null, meetings: unscheduled });
+  for (const date of [...byDate.keys()].sort()) {
+    groups.push({
+      kind: date === today ? 'today' : date === tomorrow ? 'tomorrow' : 'date',
+      date,
+      meetings: byDate.get(date)!,
+    });
+  }
+  return groups;
+}
+
+/** A `YYYY-MM-DD` day as a heading: "Friday, 16 October". */
+export function formatMeetingDay(date: string, locale: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: 'UTC',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date(Date.UTC(y, m - 1, d, 12)));
+}
+
+/**
+ * The search box: every word must appear (case-insensitive) in the
+ * title, the description, or the name of the host or an invitee.
+ */
+export function filterMeetings(
+  meetings: readonly MeetingSummary[],
+  query: string,
+  nameOf: (userId: string) => string | null
+): MeetingSummary[] {
+  const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...meetings];
+  return meetings.filter((m) => {
+    const hay = [
+      m.title,
+      m.description ?? '',
+      ...[m.hostUserId, ...m.inviteeUserIds].map((u) => nameOf(u) ?? ''),
+    ]
+      .join('\n')
+      .toLocaleLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
+/**
+ * How long a past meeting ran: from its start (the creation time of an
+ * instant meeting) to when it was ended. Null when it was not ended or
+ * the figures make no sense (ended before its scheduled start).
+ */
+export function meetingDurationMs(
+  m: Pick<MeetingSummary, 'status' | 'endedAt' | 'scheduledStart' | 'createdAt'>
+): number | null {
+  if (m.status !== 'ended' || !m.endedAt) return null;
+  const from = m.scheduledStart ?? m.createdAt;
+  if (!from) return null;
+  const ms = Date.parse(m.endedAt) - Date.parse(from);
+  return Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+
+/** A duration in whole minutes (at least 1), split for the label. */
+export function durationParts(ms: number): { hours: number; minutes: number } {
+  const total = Math.max(1, Math.round(ms / 60_000));
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
+// ---------------------------------------------------------- chat log
+
+export interface ChatLine {
+  id: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+}
+
+/** GET /api/meetings/[id]/messages → chat lines, oldest first. */
+export function parseChatMessages(json: unknown): ChatLine[] {
+  const list = (json as { messages?: unknown } | null)?.messages;
+  if (!Array.isArray(list)) return [];
+  const lines: ChatLine[] = [];
+  for (const raw of list) {
+    const r =
+      raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const id = str(r.id);
+    const userId = str(r.user_id);
+    const createdAt = str(r.created_at);
+    if (!id || !userId || !createdAt || typeof r.body !== 'string') continue;
+    if (r.kind !== undefined && r.kind !== 'chat') continue;
+    lines.push({ id, userId, body: r.body, createdAt });
+  }
+  return lines.sort(
+    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)
+  );
+}
+
+export type TextSegment =
+  { kind: 'text'; text: string } | { kind: 'link'; text: string; href: string };
+
+const URL_RE = /https?:\/\/[^\s<>"]+/gi;
+/** Sentence punctuation that ends a link rather than belonging to it. */
+const TRAILING_RE = /[.,;:!?)\]}'"]+$/;
+
+/**
+ * Chat text as plain-text and link segments, for rendering as text
+ * nodes and anchors (never HTML). Only http(s) URLs become links.
+ */
+export function linkifyText(text: string): TextSegment[] {
+  const out: TextSegment[] = [];
+  const push = (t: string) => {
+    if (!t) return;
+    const last = out[out.length - 1];
+    if (last?.kind === 'text') last.text += t;
+    else out.push({ kind: 'text', text: t });
+  };
+  let at = 0;
+  for (const match of text.matchAll(URL_RE)) {
+    const start = match.index ?? 0;
+    const raw = match[0];
+    const url = raw.replace(TRAILING_RE, '');
+    push(text.slice(at, start));
+    let href: string | null = null;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+        href = parsed.href;
+    } catch {
+      href = null;
+    }
+    if (href) out.push({ kind: 'link', text: url, href });
+    else push(url);
+    at = start + url.length;
+  }
+  push(text.slice(at));
+  return out;
 }
