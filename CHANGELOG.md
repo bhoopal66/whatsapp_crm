@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Video meetings
+
+Staff can hold video meetings in the CRM at `/meetings`: schedule one
+with invitees (each gets a bell notification) or press **Start now**,
+then talk in an in-call grid with microphone, camera and screen share.
+The host or an admin can end a meeting for everyone. Bank guests never
+see meetings. Media runs through Cloudflare Realtime SFU; a 6-person
+video meeting is roughly 15-20 GB of Cloudflare egress per hour (an
+estimate), and the first 1,000 GB a month are free.
+
+**Migration required:** apply `106_meetings.sql` (as a superuser or
+BYPASSRLS role). Set `CLOUDFLARE_CALLS_APP_ID` and
+`CLOUDFLARE_CALLS_APP_SECRET` (Cloudflare dashboard, Realtime, SFU)
+in the server environment, never `NEXT_PUBLIC_*`, and restart. Without
+them meetings can be scheduled but joining answers 503
+`meetings_not_configured`. See docs/meetings.md.
+
 ### Calling from the CRM is switched off by default
 
 The CRM no longer places calls unless it is built with

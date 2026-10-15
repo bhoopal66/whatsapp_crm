@@ -519,7 +519,7 @@ SQL invariants of most recent migrations are asserted by a
 `supabase/ci/verify-*.sql` file of their own (chat tags, opt-out,
 partner banks, pipeline deals, approved answers, and 082–089's
 workspaces, edge security, tasks, journeys, internal chat (two files),
-deal rooms and PBX), each a step in `.github/workflows/migrations.yml`
+deal rooms and PBX, then 106's meetings), each a step in `.github/workflows/migrations.yml`
 and each one statement (the pinned CLI rejects more). A migration that
 changes one of those rules updates its verify file; a new verify file must
 be wired in there.
@@ -959,6 +959,44 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   those calls through `GET /api/pbx/calls?scope=unrouted`; its per-number
   summary covers 30 days.
 
+### Video meetings (`lib/meetings/*`, migration 106)
+
+Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
+`docs/meetings.md` is the contract.
+
+- **Staff only.** `canUseMeetings` (viewer and up, never `bank_guest`) gates
+  every route through `requireMeetingsUser`; the policies go through
+  `current_account_id()`, which is NULL for a guest.
+- **Who sees / manages.** `meeting_can_view`: owner/admin, the host, an invitee,
+  or `open_to_workspace`. `meeting_can_manage`: owner/admin or the host. Both
+  wrap the shared row checks `meeting_row_visible` / `meeting_row_manageable`,
+  which the table policies call with their own columns (a STABLE function
+  would not see the row an INSERT … RETURNING is writing).
+- **Participants are service-role writes.** `meeting_participants` has no client
+  write grant; the routes check `meeting_can_view` through the caller's RLS
+  client first, then write on `supabaseAdmin()`.
+- **The SFU secret is server-only.** `CLOUDFLARE_CALLS_APP_ID` / `_SECRET` are
+  read at request time in `sfu.ts`; unset means meeting CRUD works and join and
+  the `sfu/*` routes answer 503 `meetings_not_configured`. The browser only
+  talks to `/api/meetings/[id]/sfu/*`.
+- **One Cloudflare app serves every workspace**, so `sfu-rules.ts` confines a
+  caller: local track names start `<participantId>:` + audio|video|screen, a
+  pull must name the session of a *present* participant of the same meeting,
+  `autoDiscover` is refused.
+- **Presence is derived.** "Live" is not stored: heartbeat every 20 s
+  (`HEARTBEAT_INTERVAL_MS`), present if not left and seen within 60 s
+  (`PRESENCE_WINDOW_MS`); change both ends together.
+- **Terminal statuses live in `meetings_guard`** (every writer): `ended` and
+  `cancelled` never reopen, `ended_at` is trigger-owned, and entering either
+  closes every open participant row. `account_id` and `host_user_id` are
+  frozen.
+- **Bell.** An invite inserts a `meeting_invite` notification
+  (`meeting_invitees_notify`, not for yourself); 106 rewrites
+  `notifications_type_check`, so a later type edits that list from 106.
+- **Network.** STUN only (`MEETING_ICE_SERVERS`); `Permissions-Policy` and the
+  CSP `connect-src` (`rtc.live.cloudflare.com`) carry the camera, microphone,
+  display-capture and Cloudflare origins. `verify-meetings.sql`.
+
 ### Flows vs Automations
 
 Two independent engines, deliberately kept apart:
@@ -1212,6 +1250,7 @@ fails if one is wired to plain `t()`.
   user-visible changes belong in `CHANGELOG.md` and self-hosting
   behaviour is documented in `docs/` — `whapi.md`, `meta-cloud-api.md`,
   `docker.md`, `public-api.md`, `mcp.md`, `campaign-journeys.md`,
-  `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`.
+  `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`,
+  `meetings.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
