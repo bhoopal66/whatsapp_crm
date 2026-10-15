@@ -426,7 +426,7 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
   n := n + 1;
   IF NOT EXISTS (SELECT 1 FROM calendar_reminders_sent
                   WHERE key = 'tk:' || t_open || ':' || floor(extract(epoch FROM timestamptz '2030-01-09 09:15+00'))::bigint || ':' || u_att)
-     OR NOT EXISTS (SELECT 1 FROM calendar_reminders_sent WHERE key = 'mt:' || m_one || ':0:' || u_att)
+     OR NOT EXISTS (SELECT 1 FROM calendar_reminders_sent WHERE key LIKE 'mt:' || m_one || ':%:0:' || u_att AND key ~ ('^mt:' || m_one || ':[0-9]+:0:'))
      OR NOT EXISTS (SELECT 1 FROM calendar_reminders_sent WHERE key = 'ev:' || e_main || ':1894007400:10:' || u_att) THEN
     failed := array_append(failed, 'the dedupe keys are not ev:/mt:/tk: as documented'::text);
   END IF;

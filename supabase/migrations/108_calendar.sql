@@ -151,7 +151,7 @@ CREATE INDEX IF NOT EXISTS calendar_reminders_sent_at_idx
   ON public.calendar_reminders_sent (sent_at);
 
 COMMENT ON TABLE public.calendar_reminders_sent IS
-  'Reminder dedupe: ev:<event>:<occurrence epoch s>:<offset>:<user>, mt:<meeting>:<offset>:<user>, tk:<task>:<due epoch s>:<user>. Purged after 14 days. Service role only. Migration 108.';
+  'Reminder dedupe: ev:<event>:<occurrence epoch s>:<offset>:<user>, mt:<meeting>:<start epoch s>:<offset>:<user>, tk:<task>:<due epoch s>:<user>. Purged after 14 days. Service role only. Migration 108.';
 
 -- ---------- 2. Who sees and edits an event ----------
 
@@ -585,7 +585,7 @@ BEGIN
            AND p_now < e.start_at - make_interval(mins => o.off) + interval '5 minutes'
            AND calendar_is_live_staff(r.user_id, e.account_id)
         UNION ALL
-        SELECT 'mt:' || m.id || ':' || o.off || ':' || r.user_id,
+        SELECT 'mt:' || m.id || ':' || floor(extract(epoch FROM m.scheduled_start))::bigint || ':' || o.off || ':' || r.user_id,
                r.user_id, m.account_id, 'meeting_reminder',
                m.title,
                calendar_offset_label(o.off) || ' · '
