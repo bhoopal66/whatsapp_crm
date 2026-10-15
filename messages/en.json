@@ -62,7 +62,8 @@
     "unreadChat": "{count} unread team chat {count, plural, =1 {message} other {messages}}",
     "journeys": "Journeys",
     "calls": "Calls",
-    "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}"
+    "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}",
+    "meetings": "Meetings"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -5200,6 +5201,97 @@
     "notFound": {
       "title": "Page not found",
       "description": "The page you’re looking for doesn’t exist or has moved."
+    }
+  },
+  "Meetings": {
+    "title": "Meetings",
+    "subtitle": "Video calls with your colleagues.",
+    "newMeeting": "New meeting",
+    "tabs": {
+      "live": "Live now",
+      "upcoming": "Upcoming",
+      "past": "Past"
+    },
+    "empty": {
+      "live": "No meeting is live right now.",
+      "upcoming": "Nothing is scheduled.",
+      "past": "No past meetings yet."
+    },
+    "loadFailed": "Couldn't load meetings.",
+    "instant": "Instant meeting",
+    "hostedBy": "Hosted by {name}",
+    "you": "You",
+    "unknownPerson": "Someone",
+    "inCall": "{count, plural, =0 {Nobody yet} =1 {1 person} other {# people}}",
+    "openToWorkspace": "Anyone in the workspace can join",
+    "status": {
+      "live": "Live",
+      "scheduled": "Scheduled",
+      "due": "Waiting to start",
+      "lapsed": "Not held",
+      "ended": "Ended",
+      "cancelled": "Cancelled"
+    },
+    "form": {
+      "createTitle": "New meeting",
+      "editTitle": "Edit meeting",
+      "title": "Title",
+      "titlePlaceholder": "Weekly sync",
+      "description": "Description",
+      "descriptionPlaceholder": "What is it about? (optional)",
+      "startNow": "Start now",
+      "startNowHint": "Create the meeting and join it straight away.",
+      "date": "Date",
+      "time": "Start time",
+      "duration": "Duration",
+      "durationMinutes": "{minutes} min",
+      "timeZoneNote": "Times are in {zone}.",
+      "invitees": "Invite people",
+      "inviteesSearch": "Search people",
+      "inviteesEmpty": "No one matches.",
+      "invitedCount": "{count} invited",
+      "openToWorkspace": "Anyone in the workspace can join",
+      "openToWorkspaceHint": "Otherwise only the people you invite, and owners and admins.",
+      "cancel": "Cancel",
+      "create": "Schedule",
+      "createAndJoin": "Start meeting",
+      "save": "Save",
+      "saving": "Saving…",
+      "errors": {
+        "titleRequired": "Give the meeting a title.",
+        "titleTooLong": "Keep the title to 200 characters.",
+        "descriptionTooLong": "Keep the description to 2,000 characters.",
+        "dateRequired": "Pick a date.",
+        "timeRequired": "Pick a start time.",
+        "invalidDateTime": "That date and time don't exist in this time zone.",
+        "durationInvalid": "Pick a duration.",
+        "startInPast": "That time has already passed.",
+        "saveFailed": "Couldn't save the meeting."
+      }
+    },
+    "detail": {
+      "back": "All meetings",
+      "host": "Host",
+      "inCall": "In the call now",
+      "invitees": "Invited",
+      "noInvitees": "Nobody invited.",
+      "join": "Join",
+      "over": "This meeting is over.",
+      "copyLink": "Copy link",
+      "linkCopied": "Link copied",
+      "copyFailed": "Couldn't copy the link.",
+      "edit": "Edit",
+      "cancelMeeting": "Cancel meeting",
+      "end": "End for everyone",
+      "keep": "Keep it",
+      "cancelConfirmTitle": "Cancel this meeting?",
+      "cancelConfirmBody": "Nobody will be able to join it. This can't be undone.",
+      "endConfirmTitle": "End the meeting for everyone?",
+      "endConfirmBody": "Everyone in the call is disconnected, and nobody can join again.",
+      "cancelled": "Meeting cancelled",
+      "ended": "Meeting ended",
+      "actionFailed": "That didn't work. Try again.",
+      "notFound": "This meeting doesn't exist, or you can't see it."
     }
   }
 }

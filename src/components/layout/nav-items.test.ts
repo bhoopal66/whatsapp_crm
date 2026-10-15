@@ -25,6 +25,7 @@ const EVERYONE = [
   '/notifications',
   '/inbox',
   '/chat',
+  '/meetings',
   '/contacts',
   '/pipelines',
 ];
@@ -175,13 +176,16 @@ describe('nav model', () => {
 
   // /calls had no guard: a bank guest who typed the URL got the screen
   // (its API answered 403, but the page was theirs to open).
-  it('turns a bank guest away from /calls on the server', () => {
-    const file = join(process.cwd(), 'src', 'app', '(dashboard)', 'calls');
-    const source = existsSync(join(file, 'layout.tsx'))
-      ? readFileSync(join(file, 'layout.tsx'), 'utf8')
-      : '';
-    expect(source).toContain('StaffOnlyLayout');
-  });
+  it.each(['calls', 'meetings'])(
+    'turns a bank guest away from /%s on the server',
+    (route) => {
+      const file = join(process.cwd(), 'src', 'app', '(dashboard)', route);
+      const source = existsSync(join(file, 'layout.tsx'))
+        ? readFileSync(join(file, 'layout.tsx'), 'utf8')
+        : '';
+      expect(source).toContain('StaffOnlyLayout');
+    }
+  );
 });
 
 describe('isNavItemActive', () => {
