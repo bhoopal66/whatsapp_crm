@@ -176,6 +176,14 @@ const nextConfig: NextConfig = {
         source: '/:path*',
         headers: [...SECURITY_HEADERS],
       },
+      {
+        // The push service worker (public/sw.js): browsers re-check it on
+        // every registration, and a cached copy would keep an old push
+        // handler alive after a deploy. Last so it wins over the generic
+        // page rule above.
+        source: '/sw.js',
+        headers: [{ key: 'Cache-Control', value: 'no-cache' }],
+      },
     ];
   },
 };

@@ -37,6 +37,16 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  // Installable PWA: iOS only delivers web push to a Home Screen app.
+  manifest: "/manifest.webmanifest",
+  icons: {
+    apple: [{ url: "/icons/icon-192.png", sizes: "192x192" }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Taamul",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export const viewport: Viewport = {
