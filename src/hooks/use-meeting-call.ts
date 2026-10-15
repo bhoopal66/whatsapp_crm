@@ -69,10 +69,23 @@ import {
   type RemoteTrackRef,
   type TrackKind,
 } from '@/lib/meetings/room/types';
+import {
+  V2_SNAPSHOT_DEFAULTS,
+  type CallActionsV2,
+  type CallSnapshotV2,
+} from '@/lib/meetings/room/contract';
 import { createClient } from '@/lib/supabase/client';
 
 export type CallPhase =
-  'lobby' | 'joining' | 'live' | 'reconnecting' | 'left' | 'ended' | 'error';
+  | 'lobby'
+  | 'joining'
+  | 'live'
+  | 'reconnecting'
+  | 'left'
+  /** The host removed us (v2). */
+  | 'removed'
+  | 'ended'
+  | 'error';
 
 export interface MeetingSummary {
   id: string;
@@ -81,7 +94,7 @@ export interface MeetingSummary {
   host_user_id: string;
 }
 
-export interface CallSnapshot {
+export interface CallSnapshot extends CallSnapshotV2 {
   phase: CallPhase;
   error: RoomError | null;
   /** `missing`: not found, or not visible to this person (RLS). */
@@ -164,6 +177,7 @@ class MeetingCallEngine {
 
   constructor(private readonly meetingId: string) {
     this.snap = {
+      ...V2_SNAPSHOT_DEFAULTS,
       phase: 'lobby',
       error: null,
       meetingState: 'loading',
@@ -932,7 +946,7 @@ class MeetingCallEngine {
   }
 }
 
-export interface MeetingCall extends CallSnapshot {
+export interface MeetingCall extends CallSnapshot, CallActionsV2 {
   join: () => Promise<void>;
   returnToLobby: () => Promise<void>;
   leave: () => Promise<void>;
@@ -970,5 +984,17 @@ export function useMeetingCall(meetingId: string): MeetingCall {
     toggleMic: engine.toggleMic,
     toggleCamera: engine.toggleCamera,
     toggleScreen: engine.toggleScreen,
+    ...V2_STUB_ACTIONS,
   };
 }
+
+// v2 placeholders until the engine implements the contract.
+const V2_STUB_ACTIONS: CallActionsV2 = {
+  selectDevice: async () => {},
+  toggleHand: async () => {},
+  sendChat: async () => false,
+  sendReaction: async () => {},
+  moderate: async () => false,
+  setTileSizes: () => {},
+  dismissNotices: () => {},
+};
