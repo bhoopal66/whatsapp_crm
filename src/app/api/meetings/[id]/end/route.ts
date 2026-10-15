@@ -1,12 +1,15 @@
 // ============================================================
 // POST /api/meetings/[id]/end — end for everyone (host, owner, admin).
 // Status 'ended' under the caller's RLS client; 106's guard trigger
-// stamps ended_at and closes every open participant row.
+// stamps ended_at and closes every open participant row. The open seats
+// are read first (the trigger closes them), then their Cloudflare
+// sessions are cut, so a client that ignores the 409 stops receiving.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { cutSeats } from '@/lib/meetings/cut';
 import { isUuid } from '@/lib/meetings/requests';
 import {
   jsonError,
@@ -30,8 +33,9 @@ export async function POST(_request: Request, { params }: Params) {
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
+    if (canManage.error) return readErrorResponse(canManage.error);
     if (!loaded.meeting) return jsonError('Meeting not found', 404);
-    if (!canManage) {
+    if (!canManage.allowed) {
       return jsonError('Only the host or an admin can end this meeting', 403);
     }
     if (loaded.meeting.status === 'ended') {
@@ -40,6 +44,14 @@ export async function POST(_request: Request, { params }: Params) {
     if (loaded.meeting.status !== 'scheduled') {
       return jsonError('This meeting was cancelled', 409);
     }
+    // Before the update: entering 'ended' closes these rows. A failed
+    // read changes nothing yet, so the host can simply retry.
+    const seats = await supabase
+      .from('meeting_participants')
+      .select('cf_session_id')
+      .eq('meeting_id', id)
+      .is('left_at', null);
+    if (seats.error) return readErrorResponse(seats.error);
     const { data, error } = await supabase
       .from('meetings')
       .update({ status: 'ended' })
@@ -50,6 +62,7 @@ export async function POST(_request: Request, { params }: Params) {
       .maybeSingle();
     if (error) return meetingDbErrorResponse(error, 'Failed to end meeting');
     if (!data) return jsonError('This meeting has ended or was cancelled', 409);
+    await cutSeats(seats.data ?? []);
     return NextResponse.json({ meeting: data });
   } catch (err) {
     return toErrorResponse(err);

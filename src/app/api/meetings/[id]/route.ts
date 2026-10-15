@@ -1,12 +1,16 @@
 // ============================================================
 // /api/meetings/[id] — one meeting: read, change, cancel (106).
 // Reads under the caller's RLS client (404 when they can't see it);
-// changes need `meeting_can_manage` (host, owner, admin).
+// changes need `meeting_can_manage` (host, owner, admin). A PATCH that
+// takes access away closes and cuts the seats of the people who lost it.
 // ============================================================
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { hasMinRole, isAccountRole } from '@/lib/auth/roles';
+import { cutSeats } from '@/lib/meetings/cut';
 import {
   diffInvitees,
   isUuid,
@@ -21,11 +25,80 @@ import {
   readJson,
   requireMeetingsUser,
   rpcFlag,
+  supabaseAdmin,
   type Params,
 } from '@/lib/meetings/server';
-import { MEETING_COLUMNS, PARTICIPANT_COLUMNS } from '@/lib/meetings/types';
+import {
+  MEETING_COLUMNS,
+  PARTICIPANT_COLUMNS,
+  type MeetingRow,
+} from '@/lib/meetings/types';
 
 const NOT_FOUND = 'Meeting not found';
+
+/**
+ * After a PATCH left the meeting closed to the workspace: close the open
+ * seats of everyone who can no longer see it (not the host, not an
+ * invitee, not a live owner/admin of its workspace) and cut their
+ * Cloudflare sessions. Their next heartbeat is refused by RLS anyway;
+ * this stops media a client that ignores the 404 is already pulling.
+ *
+ * Best-effort: the edit itself is committed, so a failure here is
+ * logged, never answered. Judged from the state, not the diff, so a
+ * repeated PATCH finishes what a failed one left.
+ */
+async function evictSeatsWithoutAccess(
+  supabase: SupabaseClient,
+  meeting: MeetingRow,
+  invitees: readonly string[]
+): Promise<void> {
+  const { data: open, error } = await supabase
+    .from('meeting_participants')
+    .select('id, user_id, cf_session_id')
+    .eq('meeting_id', meeting.id)
+    .is('left_at', null);
+  if (error) {
+    console.error('[meetings] reading seats to evict failed', error);
+    return;
+  }
+  const keep = new Set(
+    [meeting.host_user_id, ...invitees].map((u) => u.toLowerCase())
+  );
+  const candidates = (open ?? []).filter(
+    (s) => !keep.has(String(s.user_id).toLowerCase())
+  );
+  if (candidates.length === 0) return;
+
+  const admin = supabaseAdmin();
+  const { data: profiles, error: profErr } = await admin
+    .from('profiles')
+    .select('user_id, role')
+    .eq('account_id', meeting.account_id)
+    .in('user_id', [...new Set(candidates.map((s) => s.user_id))])
+    .is('deactivated_at', null);
+  if (profErr) {
+    console.error('[meetings] reading roles to evict failed', profErr);
+    return;
+  }
+  const admins = new Set(
+    (profiles ?? [])
+      .filter((p) => isAccountRole(p.role) && hasMinRole(p.role, 'admin'))
+      .map((p) => p.user_id as string)
+  );
+  const evicted = candidates.filter((s) => !admins.has(s.user_id));
+  if (evicted.length === 0) return;
+
+  const { error: closeErr } = await admin
+    .from('meeting_participants')
+    .update({ left_at: new Date().toISOString() })
+    .in(
+      'id',
+      evicted.map((s) => s.id)
+    )
+    .is('left_at', null);
+  if (closeErr) console.error('[meetings] closing seats failed', closeErr);
+  await cutSeats(evicted);
+}
 
 /** GET → `{ meeting, invitee_user_ids, participants, can_manage }`. */
 export async function GET(_request: Request, { params }: Params) {
@@ -46,12 +119,13 @@ export async function GET(_request: Request, { params }: Params) {
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
+    if (canManage.error) return readErrorResponse(canManage.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
     return NextResponse.json({
       meeting: loaded.meeting,
       invitee_user_ids: (invitees.data ?? []).map((r) => r.user_id),
       participants: present.data ?? [],
-      can_manage: canManage,
+      can_manage: canManage.allowed,
     });
   } catch (err) {
     return toErrorResponse(err);
@@ -71,9 +145,10 @@ export async function PATCH(request: Request, { params }: Params) {
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
+    if (canManage.error) return readErrorResponse(canManage.error);
     const current = loaded.meeting;
     if (!current) return jsonError(NOT_FOUND, 404);
-    if (!canManage) {
+    if (!canManage.allowed) {
       return jsonError(
         'Only the host or an admin can change this meeting',
         403
@@ -93,8 +168,10 @@ export async function PATCH(request: Request, { params }: Params) {
     if (invErr)
       return meetingDbErrorResponse(invErr, 'Failed to load invitees');
     let invitees = (inv ?? []).map((r) => r.user_id as string);
+    let removedInvitees = false;
     if (inviteeUserIds !== undefined) {
       const { add, remove } = diffInvitees(invitees, inviteeUserIds);
+      removedInvitees = remove.length > 0;
       // Invitee changes go first, additions before removals: a refused
       // invitee (not a live staff member: 23514) then changes nothing.
       if (add.length > 0) {
@@ -133,6 +210,12 @@ export async function PATCH(request: Request, { params }: Params) {
       if (!data) return jsonError(NOT_FOUND, 404);
       meeting = data;
     }
+    if (
+      !meeting.open_to_workspace &&
+      (removedInvitees || current.open_to_workspace)
+    ) {
+      await evictSeatsWithoutAccess(supabase, meeting, invitees);
+    }
 
     return NextResponse.json({ meeting, invitee_user_ids: invitees });
   } catch (err) {
@@ -152,8 +235,9 @@ export async function DELETE(_request: Request, { params }: Params) {
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
+    if (canManage.error) return readErrorResponse(canManage.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
-    if (!canManage) {
+    if (!canManage.allowed) {
       return jsonError(
         'Only the host or an admin can cancel this meeting',
         403
@@ -162,6 +246,13 @@ export async function DELETE(_request: Request, { params }: Params) {
     if (loaded.meeting.status !== 'scheduled') {
       return jsonError('This meeting has ended or was cancelled', 409);
     }
+    // Before the update, as in end: entering 'cancelled' closes them.
+    const seats = await supabase
+      .from('meeting_participants')
+      .select('cf_session_id')
+      .eq('meeting_id', id)
+      .is('left_at', null);
+    if (seats.error) return readErrorResponse(seats.error);
     const { data, error } = await supabase
       .from('meetings')
       .update({ status: 'cancelled' })
@@ -172,6 +263,7 @@ export async function DELETE(_request: Request, { params }: Params) {
       .maybeSingle();
     if (error) return meetingDbErrorResponse(error, 'Failed to cancel meeting');
     if (!data) return jsonError('This meeting has ended or was cancelled', 409);
+    await cutSeats(seats.data ?? []);
     return NextResponse.json({ meeting: data });
   } catch (err) {
     return toErrorResponse(err);
