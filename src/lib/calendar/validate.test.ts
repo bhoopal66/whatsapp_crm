@@ -166,3 +166,37 @@ describe('parseEventInput: patch', () => {
     expect(err({ scope: 'future' }, patch)).toMatch(/scope/);
   });
 });
+
+describe('parseEventInput: date range and rule sanity', () => {
+  it('refuses years outside 1970..2100, timed and all-day', () => {
+    expect(err({ ...base, start: '0001-01-01T09:00:00+04:00' })).toMatch(
+      /start must be between 1970 and 2100/
+    );
+    expect(err({ ...base, end: '2101-01-01T09:30:00+04:00' })).toMatch(
+      /end must be between 1970 and 2100/
+    );
+    expect(
+      err({ ...base, allDay: true, start: '1969-12-31', end: '1970-01-01' })
+    ).toMatch(/start must be between/);
+    expect(
+      ok({ ...base, allDay: true, start: '2100-12-30', end: '2100-12-31' })
+        .all_day
+    ).toBe(true);
+  });
+
+  it('refuses a rule that never produces a date', () => {
+    expect(
+      err({ ...base, rrule: 'FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30' })
+    ).toMatch(/no date within 10 years/);
+    expect(ok({ ...base, rrule: 'FREQ=WEEKLY;BYDAY=TU' }).rrule).toBe(
+      'FREQ=WEEKLY;BYDAY=TU'
+    );
+  });
+
+  it('leaves a rule-only patch to the caller', () => {
+    expect(
+      ok({ rrule: 'FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30' }, { partial: true })
+        .rrule
+    ).toBe('FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30');
+  });
+});

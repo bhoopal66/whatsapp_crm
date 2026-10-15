@@ -7,7 +7,7 @@
 // midnight in the event's zone; timed values must carry an offset.
 // ============================================================
 
-import { fromFloating, rruleError } from './recurrence';
+import { fromFloating, rruleError, rruleSanity } from './recurrence';
 
 export const EVENT_COLORS = [
   'blue',
@@ -34,6 +34,10 @@ export const LOCATION_MAX = 300;
 export const REMINDERS_MAX = 5;
 export const REMINDER_MAX_MINUTES = 40320;
 export const ATTENDEES_MAX = 100;
+/** Years an event may start or end in. Keeps a series' first date near
+ *  any window it is expanded over (rrule walks from it). */
+export const YEAR_MIN = 1970;
+export const YEAR_MAX = 2100;
 
 export interface EventInput {
   title: string;
@@ -144,6 +148,15 @@ function times(raw: Record<string, unknown>) {
   const end = raw.allDay
     ? dateInZone(raw.end, 'end', tz)
     : isoInstant(raw.end, 'end');
+  for (const [v, name] of [
+    [raw.start, 'start'],
+    [raw.end, 'end'],
+  ] as const) {
+    const year = Number(String(v).slice(0, 4));
+    if (year < YEAR_MIN || year > YEAR_MAX) {
+      fail(`${name} must be between ${YEAR_MIN} and ${YEAR_MAX}`);
+    }
+  }
   if (end <= start) return fail('The event must end after it starts');
   return {
     start_at: new Date(start).toISOString(),
@@ -254,6 +267,12 @@ export function parseEventInput(
       value.occurrenceStart = new Date(
         isoInstant(body.occurrenceStart, 'occurrenceStart')
       ).toISOString();
+    }
+    // Without times in the body (a patch of the rule alone) the caller
+    // checks the rule against the stored start with rruleSanity.
+    if (value.rrule && value.start_at) {
+      const err = rruleSanity(value.rrule, value as Required<EventInput>);
+      if (err) fail(err);
     }
     if (value.scope === 'this' && !value.occurrenceStart) {
       fail('occurrenceStart is required to change one occurrence');
