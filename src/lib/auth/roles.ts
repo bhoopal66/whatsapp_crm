@@ -202,6 +202,15 @@ export function canViewUnroutedCalls(role: AccountRole): boolean {
 }
 
 /**
+ * Every staff role, viewer included: video meetings (migration 106).
+ * Never a bank guest: `meeting_can_view` and the meetings INSERT policy
+ * refuse a guest too; this is the API's matching answer.
+ */
+export function canUseMeetings(role: AccountRole): boolean {
+  return hasMinRole(role, 'viewer');
+}
+
+/**
  * Team leader and up: download a call recording (the recording route's
  * 403 and call_access_log's guard, migration 089). Playing is agent+.
  */
