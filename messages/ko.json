@@ -63,7 +63,8 @@
     "journeys": "여정",
     "calls": "통화",
     "missedCalls": "열린 부재중 전화 할 일 {count}건",
-    "meetings": "회의"
+    "meetings": "회의",
+    "calendar": "캘린더"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -83,7 +84,8 @@
     "menuSignOut": "로그아웃",
     "teamActivity": "팀 활동",
     "chat": "팀 채팅",
-    "meetings": "회의"
+    "meetings": "회의",
+    "calendar": "캘린더"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -5536,5 +5538,46 @@
         "qualityPoor": "연결 상태가 좋지 않습니다. 영상 화질이 낮아질 수 있습니다."
       }
     }
+  },
+  "Calendar": {
+    "title": "캘린더",
+    "today": "오늘",
+    "prev": "이전",
+    "next": "다음",
+    "views": {
+      "day": "일",
+      "week": "주",
+      "month": "월",
+      "year": "연",
+      "agenda": "일정 목록"
+    },
+    "viewSwitcher": "캘린더 보기",
+    "searchPlaceholder": "일정 검색",
+    "searchLabel": "불러온 일정 검색",
+    "searchCount": "{count, plural, =0 {일치 항목 없음} other {#개 일치}}",
+    "create": "만들기",
+    "createMenu": "다른 만들기 옵션",
+    "createEvent": "일정",
+    "createMeeting": "회의",
+    "showRail": "사이드바 표시",
+    "hideRail": "사이드바 숨기기",
+    "openRail": "캘린더",
+    "miniPrev": "이전 달",
+    "miniNext": "다음 달",
+    "layersTitle": "캘린더",
+    "layers": {
+      "mine": "내 일정",
+      "invitations": "초대",
+      "meetings": "회의",
+      "workspaceMeetings": "워크스페이스 회의",
+      "tasks": "작업"
+    },
+    "upcomingTitle": "다가오는 일정",
+    "upcomingEmpty": "앞으로 7일 동안 일정이 없습니다",
+    "allDay": "종일",
+    "loadFailed": "캘린더를 불러오지 못했습니다: {reason}",
+    "loading": "불러오는 중…",
+    "shortcuts": "단축키: T 오늘, J/K 이전/다음, D W M Y A 보기, N 새 일정, / 검색",
+    "task": "작업"
   }
 }

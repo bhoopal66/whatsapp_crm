@@ -63,7 +63,8 @@
     "journeys": "Journeys",
     "calls": "Calls",
     "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}",
-    "meetings": "Meetings"
+    "meetings": "Meetings",
+    "calendar": "Calendar"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -83,7 +84,8 @@
     "menuSignOut": "Sign out",
     "teamActivity": "Team activity",
     "chat": "Team chat",
-    "meetings": "Meetings"
+    "meetings": "Meetings",
+    "calendar": "Calendar"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -5536,5 +5538,46 @@
         "qualityPoor": "Your connection is poor. Video quality may drop."
       }
     }
+  },
+  "Calendar": {
+    "title": "Calendar",
+    "today": "Today",
+    "prev": "Previous",
+    "next": "Next",
+    "views": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month",
+      "year": "Year",
+      "agenda": "Agenda"
+    },
+    "viewSwitcher": "Calendar view",
+    "searchPlaceholder": "Search events",
+    "searchLabel": "Search loaded events",
+    "searchCount": "{count, plural, =0 {No matches} =1 {1 match} other {# matches}}",
+    "create": "Create",
+    "createMenu": "More create options",
+    "createEvent": "Event",
+    "createMeeting": "Meeting",
+    "showRail": "Show sidebar",
+    "hideRail": "Hide sidebar",
+    "openRail": "Calendars",
+    "miniPrev": "Previous month",
+    "miniNext": "Next month",
+    "layersTitle": "Calendars",
+    "layers": {
+      "mine": "My events",
+      "invitations": "Invitations",
+      "meetings": "Meetings",
+      "workspaceMeetings": "Workspace meetings",
+      "tasks": "Tasks"
+    },
+    "upcomingTitle": "Upcoming",
+    "upcomingEmpty": "Nothing in the next 7 days",
+    "allDay": "All day",
+    "loadFailed": "Couldn't load the calendar: {reason}",
+    "loading": "Loading…",
+    "shortcuts": "Shortcuts: T today, J/K previous/next, D W M Y A views, N new event, / search",
+    "task": "Task"
   }
 }

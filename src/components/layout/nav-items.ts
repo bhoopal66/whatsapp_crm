@@ -13,6 +13,7 @@ import {
   Users,
   UsersRound,
   Video,
+  CalendarDays,
   Workflow,
   Zap,
   type LucideIcon,
@@ -98,6 +99,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // guest; the route's layout turns a guest away on the server, and
       // which meetings come back is RLS's call (`meeting_can_view`).
       { href: '/meetings', labelKey: 'meetings', icon: Video },
+      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays },
       { href: '/contacts', labelKey: 'contacts', icon: Users },
       // Everyone's: each member works their own deals, a team leader
       // their team's too, an admin all of them. Which deals come back
