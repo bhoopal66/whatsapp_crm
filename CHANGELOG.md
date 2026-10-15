@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Calendar (API and reminders)
+
+Events can be read, changed and deleted by their organiser through
+`/api/calendar/events/[id]`, either one occurrence of a repeating event
+("this event") or the whole series ("all events"); a change that
+collides with someone else's is refused rather than overwriting it. The
+automations cron now rings calendar reminders once a minute (events,
+meetings 10 minutes before and at the start, tasks 15 minutes before
+due). See `docs/calendar.md`. Requires migration 108 (below).
+
 ### Calendar (database)
 
 The database side of the staff calendar: events with attendees,
