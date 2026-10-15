@@ -54,7 +54,8 @@ interface EventPopoverProps {
   onClose: () => void;
   /** Organiser's Edit: the page asks for a scope, then opens the editor. */
   onEdit: (item: FeedItem) => void;
-  onDelete: (item: FeedItem) => void;
+  /** With the event's `updated_at` as loaded (the delete's guard). */
+  onDelete: (item: FeedItem, expectedUpdatedAt: string) => void;
   /** After a successful write, so the calendar refetches. */
   onChanged: () => void;
 }
@@ -442,8 +443,12 @@ function PopoverBody({
               {t('popover.join')}
             </Button>
           )}
-          {actions.remove && (
-            <Button size="sm" variant="outline" onClick={() => onDelete(item)}>
+          {actions.remove && ev && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onDelete(item, ev.updated_at)}
+            >
               <Trash2 className="size-4" />
               {t('popover.delete')}
             </Button>

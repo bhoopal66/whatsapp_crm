@@ -205,6 +205,29 @@ describe('GET /api/calendar/feed', () => {
     expect(items.filter((i) => i.id === 'series')).toHaveLength(4);
   });
 
+  it('reads the attendees of many events in batches of 100, merged', async () => {
+    const many = Array.from({ length: 250 }, (_, i) =>
+      event(`bulk-${i}`, { created_by: ME })
+    );
+    db.tables.calendar_events = many;
+    db.tables.calendar_event_attendees = many.map((e) => ({
+      event_id: e.id,
+      account_id: ACCT,
+      user_id: OTHER,
+      response: 'accepted',
+    }));
+    const res = await feed();
+    expect(res.status).toBe(200);
+    const { items } = (await res.json()) as { items: FeedItem[] };
+    const bulk = items.filter((i) => i.id.startsWith('bulk-'));
+    expect(bulk).toHaveLength(250);
+    // Every batch's rows reach the feed: one invitee each.
+    expect(bulk.every((i) => i.kind === 'event' && i.attendeeCount === 1)).toBe(
+      true
+    );
+    expect(db.inSizes?.['calendar_event_attendees:in']).toEqual([100, 100, 50]);
+  });
+
   it('adds open-to-workspace meetings only when asked', async () => {
     const res = await feed(`${RANGE}&includeWorkspaceMeetings=1`);
     const { items } = (await res.json()) as { items: FeedItem[] };
