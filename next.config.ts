@@ -1,8 +1,8 @@
-import type { NextConfig } from "next";
-import createNextIntlPlugin from "next-intl/plugin";
-import { contentSecurityPolicy } from "./src/lib/csp";
+import type { NextConfig } from 'next';
+import createNextIntlPlugin from 'next-intl/plugin';
+import { contentSecurityPolicy } from './src/lib/csp';
 
-const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 /**
  * Baseline security headers applied to every response.
@@ -22,26 +22,29 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
  */
 const SECURITY_HEADERS = [
   {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload",
+    key: 'Strict-Transport-Security',
+    value: 'max-age=63072000; includeSubDomains; preload',
   },
-  { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: "DENY" },
-  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   {
     // Microphone is allowed for same-origin (`self`) so the inbox
     // composer can record voice notes via MediaRecorder (and the
-    // browser softphone can open the microphone). Everything
-    // else stays denied — a compromised dependency can't silently grab
-    // the camera / geolocation / etc.
-    key: "Permissions-Policy",
-    value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()",
+    // browser softphone can open the microphone). Camera, microphone
+    // and display-capture are `self` for video meetings (migration 106:
+    // camera tiles, screen sharing). Same-origin only, so no embedded
+    // frame gets them; everything else stays denied — a compromised
+    // dependency can't silently grab geolocation / payment / etc.
+    key: 'Permissions-Policy',
+    value:
+      'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()',
   },
   {
     // Directives and the env-derived origins (Supabase media, the
     // Linkus SDK bundle, the PBX for the browser softphone) are built in
     // src/lib/csp.ts, which csp.test.ts pins.
-    key: "Content-Security-Policy-Report-Only",
+    key: 'Content-Security-Policy-Report-Only',
     value: contentSecurityPolicy({
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
       linkusSdkUrl: process.env.NEXT_PUBLIC_LINKUS_SDK_URL,
@@ -82,7 +85,7 @@ const nextConfig: NextConfig = {
   // Emit a self-contained server bundle (.next/standalone) so the
   // Docker image can run without node_modules or the Next CLI.
   // Harmless outside Docker: `next start` keeps working as before.
-  output: "standalone",
+  output: 'standalone',
 
   /**
    * Cross-origin dev access (Next.js 16).
@@ -100,13 +103,13 @@ const nextConfig: NextConfig = {
    * has no effect on a production build.
    */
   allowedDevOrigins: [
-    "*.ngrok-free.app",
-    "*.ngrok.app",
-    "*.ngrok.io",
-    "*.trycloudflare.com",
-    "*.loca.lt",
+    '*.ngrok-free.app',
+    '*.ngrok.app',
+    '*.ngrok.io',
+    '*.trycloudflare.com',
+    '*.loca.lt',
     ...(process.env.ALLOWED_DEV_ORIGINS
-      ? process.env.ALLOWED_DEV_ORIGINS.split(",")
+      ? process.env.ALLOWED_DEV_ORIGINS.split(',')
           .map((origin) => origin.trim())
           .filter(Boolean)
       : []),
@@ -154,15 +157,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/api/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store" }],
+        source: '/api/:path*',
+        headers: [{ key: 'Cache-Control', value: 'no-store' }],
       },
       {
-        source: "/:path((?!_next/static|_next/image|api).*)",
+        source: '/:path((?!_next/static|_next/image|api).*)',
         headers: [
           {
-            key: "Cache-Control",
-            value: "private, no-cache, max-age=0",
+            key: 'Cache-Control',
+            value: 'private, no-cache, max-age=0',
           },
         ],
       },
@@ -170,7 +173,7 @@ const nextConfig: NextConfig = {
         // Security headers on every response, including /_next/static
         // assets (nosniff matters there) and /api/* (HSTS + referrer-
         // policy don't hurt).
-        source: "/:path*",
+        source: '/:path*',
         headers: [...SECURITY_HEADERS],
       },
     ];
