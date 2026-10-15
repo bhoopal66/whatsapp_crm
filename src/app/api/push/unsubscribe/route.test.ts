@@ -51,6 +51,12 @@ describe('POST /api/push/unsubscribe', () => {
     );
   });
 
+  it('deletes every one of the caller’s rows for { all: true }', async () => {
+    const res = await unsubscribe({ all: true });
+    expect(res.status).toBe(200);
+    expect(mocks.eq.mock.calls).toEqual([['user_id', 'user-1']]);
+  });
+
   it('refuses a missing endpoint', async () => {
     expect((await unsubscribe({})).status).toBe(400);
     expect(mocks.eq).not.toHaveBeenCalled();

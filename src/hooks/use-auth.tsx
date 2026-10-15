@@ -30,6 +30,7 @@ import {
   type Workspace,
 } from "@/lib/auth/my-workspaces";
 import { clearClientCache } from "@/lib/client-cache";
+import { signOutReleasingPush } from "@/lib/push/sign-out";
 
 interface Profile {
   id: string;
@@ -387,9 +388,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // If the global sign-out is refused, still clear the local
         // session: the middleware bounces a signed-in visitor off
         // /login, which would otherwise loop back here.
-        const { error: signOutError } = await supabase.auth
-          .signOut()
-          .catch((err: unknown) => ({ error: err }));
+        const { error: signOutError } = await signOutReleasingPush(() =>
+          supabase.auth.signOut()
+        ).catch((err: unknown) => ({ error: err }));
         if (signOutError) await supabase.auth.signOut({ scope: "local" });
         window.location.href = "/login?deactivated=1";
         return;
@@ -602,7 +603,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await signOutReleasingPush(() => supabase.auth.signOut());
     setUser(null);
     setProfile(null);
     setAccount(null);
