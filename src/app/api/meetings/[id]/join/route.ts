@@ -53,27 +53,34 @@ export async function POST(_request: Request, { params }: Params) {
 
     const admin = supabaseAdmin();
     // One open seat per person: a rejoin (another tab, a reload) closes
-    // the old one.
-    const { error: closeErr } = await admin
-      .from('meeting_participants')
-      .update({ left_at: new Date().toISOString() })
-      .eq('meeting_id', id)
-      .eq('account_id', meeting.account_id)
-      .eq('user_id', userId)
-      .is('left_at', null);
-    if (closeErr) return meetingDbErrorResponse(closeErr, 'Failed to join');
-
-    const { data, error } = await admin
-      .from('meeting_participants')
-      .insert({
-        meeting_id: id,
-        account_id: meeting.account_id,
-        user_id: userId,
-        cf_session_id: sessionId,
-      })
-      .select('id')
-      .single();
-    if (error) return meetingDbErrorResponse(error, 'Failed to join');
+    // the old one. Close and insert are two writes, so two tabs at once
+    // can race; 106's partial unique index refuses the second open seat
+    // (23505) and the loser closes and inserts once more.
+    const openSeat = async () => {
+      const { error: closeErr } = await admin
+        .from('meeting_participants')
+        .update({ left_at: new Date().toISOString() })
+        .eq('meeting_id', id)
+        .eq('account_id', meeting.account_id)
+        .eq('user_id', userId)
+        .is('left_at', null);
+      if (closeErr) return { data: null, error: closeErr };
+      return admin
+        .from('meeting_participants')
+        .insert({
+          meeting_id: id,
+          account_id: meeting.account_id,
+          user_id: userId,
+          cf_session_id: sessionId,
+        })
+        .select('id')
+        .single();
+    };
+    let { data, error } = await openSeat();
+    if (error?.code === '23505') ({ data, error } = await openSeat());
+    if (error || !data) {
+      return meetingDbErrorResponse(error ?? {}, 'Failed to join');
+    }
 
     return NextResponse.json({
       participantId: data.id,

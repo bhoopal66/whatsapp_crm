@@ -29,7 +29,8 @@
 --    profile in that account (meeting_invitees_guard, every writer).
 --    Inviting someone else rings their bell: type 'meeting_invite',
 --    meta = {meeting_id}; inviting yourself does not.
---  * meeting_participants: one row per join (one Cloudflare session).
+--  * meeting_participants: one row per join (one Cloudflare session),
+--    at most one open (left_at IS NULL) per person per meeting.
 --    No client writes at all: the API routes write them on the service
 --    role after checking meeting_can_view through the caller's client.
 --  * meetings_guard binds every writer, the service role included:
@@ -138,6 +139,11 @@ CREATE INDEX IF NOT EXISTS meeting_participants_open_idx
   ON public.meeting_participants (meeting_id, last_seen_at) WHERE left_at IS NULL;
 CREATE INDEX IF NOT EXISTS meeting_participants_user_idx
   ON public.meeting_participants (user_id);
+-- One open seat per person per meeting: join closes the old seat and
+-- inserts the new one in two writes, so two tabs joining at once would
+-- otherwise both hold a seat. The loser gets 23505 and retries.
+CREATE UNIQUE INDEX IF NOT EXISTS meeting_participants_one_open_seat
+  ON public.meeting_participants (meeting_id, user_id) WHERE left_at IS NULL;
 
 COMMENT ON TABLE public.meeting_participants IS
   'One row per join (one Cloudflare session). Present = left_at IS NULL AND last_seen_at > now() - 60 s. Service role writes only. Migration 106.';

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   meeting: null as unknown,
   adminCalls: [] as string[],
+  insertResults: [] as { data: unknown; error: unknown }[],
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -35,7 +36,8 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
         q
       );
       q.select = () => q;
-      q.single = async () => ({ data: { id: 'part-1' }, error: null });
+      q.single = async () =>
+        mocks.insertResults.shift() ?? { data: { id: 'part-1' }, error: null };
       return q;
     },
   }),
@@ -59,6 +61,7 @@ describe('POST /api/meetings/[id]/join', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.adminCalls = [];
+    mocks.insertResults = [];
     mocks.configured.mockReturnValue(true);
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
@@ -86,6 +89,16 @@ describe('POST /api/meetings/[id]/join', () => {
       'close',
       `insert ${JSON.stringify({ meeting_id: M, account_id: 'acct-1', user_id: 'user-1', cf_session_id: 'sess-1' })}`,
     ]);
+  });
+
+  it('retries once when a racing tab took the open seat (23505)', async () => {
+    mocks.insertResults = [{ data: null, error: { code: '23505' } }];
+    const res = await join();
+    expect(res.status).toBe(200);
+    expect(mocks.adminCalls.filter((c) => c === 'close')).toHaveLength(2);
+    expect(mocks.adminCalls.filter((c) => c.startsWith('insert'))).toHaveLength(
+      2
+    );
   });
 
   it('answers 404 when meeting_can_view says no, writing nothing', async () => {

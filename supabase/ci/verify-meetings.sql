@@ -9,7 +9,8 @@
 -- that the meetings policy accepts INSERT … RETURNING, that
 -- meetings_guard holds for every writer (workspace and host frozen,
 -- ended/cancelled terminal, ended_at stamped, open participant rows
--- closed), that no client writes meeting_participants, that an invitee
+-- closed), that no client writes meeting_participants, that a person holds at
+-- most one open seat per meeting, that an invitee
 -- must be a live staff member of the meeting's workspace, the
 -- meeting_invite bell and its meta, the table and function grants, and
 -- the realtime publication.
@@ -306,6 +307,11 @@ BEGIN
     m_open, a_acct, u_out, 'mt-session-1'));
   n := n + 1;
   IF r NOT LIKE 'ERROR 23505:%' THEN failed := array_append(failed, ('a Cloudflare session id was recorded twice: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format(
+    'INSERT INTO meeting_participants (meeting_id, account_id, user_id, cf_session_id) VALUES (%L, %L, %L, %L)',
+    m_closed, a_acct, u_host, 'mt-session-second-tab'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23505:%' THEN failed := array_append(failed, ('a second open seat for the same person in one meeting: ' || r)::text); END IF;
 
   -- ---------- terminal statuses ----------
   r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meetings SET status = %L, ended_at = %L WHERE id = %L', 'ended', '2000-01-01', m_closed));
