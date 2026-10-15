@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { cutSeats } from '@/lib/meetings/cut';
 import { isUuid } from '@/lib/meetings/requests';
 import {
   jsonError,
@@ -95,6 +96,15 @@ export async function POST(_request: Request, { params }: Params) {
     };
     let { data, error } = await openSeat();
     if (error?.code === '23505') ({ data, error } = await openSeat());
+    // Removed after the check above (110's trigger refuses the seat): the
+    // same answer, and the session just made for them is cut.
+    if (
+      error?.code === 'P0001' &&
+      error.message?.includes('removed_from_meeting')
+    ) {
+      await cutSeats([{ cf_session_id: sessionId }]);
+      return jsonError('removed_from_meeting', 403);
+    }
     if (error || !data) {
       return meetingDbErrorResponse(error ?? {}, 'Failed to join');
     }
