@@ -994,7 +994,11 @@ class MeetingCallEngine {
     if ((data as { removed_at?: string | null } | null)?.removed_at) {
       return this.removed();
     }
+    // Same as removed(): the seat is gone, so release the camera and mic
+    // and refuse a device open still in flight (it checks the session).
+    this.session += 1;
     this.teardown();
+    this.stopMedia();
     this.emit({ phase: 'left', error: 'seat_closed' });
   }
 
