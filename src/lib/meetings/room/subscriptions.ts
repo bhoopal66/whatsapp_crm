@@ -20,12 +20,15 @@ export interface SubscriptionPlan {
 export function planSubscriptions(
   present: readonly ParticipantRow[],
   myParticipantId: string,
-  currentlyPulled: ReadonlySet<string>
+  currentlyPulled: ReadonlySet<string>,
+  /** Participants whose camera the screen does not draw (v2 'hidden'). */
+  hiddenVideo: ReadonlySet<string> = new Set()
 ): SubscriptionPlan {
   const wanted = new Map<string, RemoteTrackRef>();
   for (const row of present) {
     if (row.id === myParticipantId) continue;
     for (const t of row.tracks) {
+      if (t.kind === 'video' && hiddenVideo.has(row.id)) continue;
       wanted.set(t.trackName, {
         participantId: row.id,
         sessionId: row.cf_session_id,

@@ -20,8 +20,8 @@
 //   track. Closing and re-publishing it instead would make every other
 //   participant close and re-pull it, two renegotiations per person per
 //   toggle, and a re-publish would need a fresh track name. Peers show
-//   the avatar from the row's `video_off`, which we push with an
-//   immediate heartbeat on every toggle.
+//   the avatar from the row's `video_off`, which we push at once on
+//   every toggle (POST state, v2).
 // - The screen share is episodic, so stopping it closes its SFU track
 //   (the featured tile must go away for everyone) and the next share
 //   publishes a new generation of the name (`trackNameFor`).
@@ -32,20 +32,81 @@
 // - A publish that fails releases the track it was for (devices.ts), so
 //   the mic or camera reads as off with a device error, and turning it
 //   on again opens the device and publishes afresh.
+//
+// v2 (contract.ts): the camera is published as three simulcast layers
+// and each pulled camera asks for the layer its tile needs
+// (simulcast.ts); levels are sampled every 200 ms for the active
+// speaker and the mic meter, but the snapshot changes only when what
+// it shows changes (speaker.ts levelPatch), or the whole room
+// re-renders five times a second; getStats every 2 s grades the links
+// (quality.ts). Chat, reactions, hands and moderation go through the
+// API; what the host did to our seat arrives on our own row
+// (notices.ts). Every decision is a pure function under
+// lib/meetings/room, tested there; this file only wires them.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
+
+import { useAuth } from '@/hooks/use-auth';
+import type { AccountRole } from '@/lib/auth/roles';
+import {
+  addReaction,
+  mergeChat,
+  parseMeetingMessage,
+  pruneReactions,
+  type HeldReaction,
+} from '@/lib/meetings/room/chat';
+import {
+  dismissNotices,
+  presenceNotices,
+  pushNotices,
+  selfRowEffects,
+  type NoticeDraft,
+  type SelfRowMemo,
+} from '@/lib/meetings/room/notices';
+import {
+  classifyQuality,
+  INITIAL_POOR_TRACKER,
+  QUALITY_INTERVAL_MS,
+  stepPoorTracker,
+  summarizeStats,
+  type LossCounters,
+  type StatLike,
+} from '@/lib/meetings/room/quality';
+import {
+  CAMERA_ENCODINGS,
+  hiddenVideo,
+  planLayerUpdates,
+  simulcastFor,
+  tileSizeOf,
+  type Rid,
+} from '@/lib/meetings/room/simulcast';
+import {
+  INITIAL_SPEAKER_STATE,
+  levelPatch,
+  rmsLevel,
+  sameRecord,
+  stepSpeaker,
+} from '@/lib/meetings/room/speaker';
+import { canManageMeeting } from '@/lib/meetings/schedule';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 import {
   afterFailedPublish,
   classifyMediaError,
+  DEVICE_PREFS_KEY,
+  deviceOptionsFrom,
+  effectiveSelection,
   isShareCancelled,
+  mediaConstraints,
+  parseDevicePrefs,
   tracksToRelease,
+  type DevicePrefs,
 } from '@/lib/meetings/room/devices';
 import type { DeviceError } from '@/lib/meetings/room/devices';
 import {
   clockSkewMs,
   HEARTBEAT_INTERVAL_MS,
+  liveSince,
   presentParticipants,
 } from '@/lib/meetings/room/presence';
 import { createSerialQueue } from '@/lib/meetings/room/queue';
@@ -73,6 +134,13 @@ import {
   V2_SNAPSHOT_DEFAULTS,
   type CallActionsV2,
   type CallSnapshotV2,
+  type MediaDeviceKind,
+  type MeetingReaction,
+  type ModerationAction,
+  type ParticipantId,
+  type Quality,
+  type RoomNotice,
+  type TileSize,
 } from '@/lib/meetings/room/contract';
 import { createClient } from '@/lib/supabase/client';
 
@@ -116,12 +184,23 @@ export interface CallSnapshot extends CallSnapshotV2 {
 const RECONNECT_TRIES = 3;
 const DISCONNECTED_GRACE_MS = 15_000;
 const REPLAN_TICK_MS = 5_000;
+/** Speaker and mic-meter sampling: at most 5 snapshot changes a second. */
+const LEVEL_TICK_MS = 200;
+/** Tile sizes settle (a resize drags through many) before a layer switch. */
+const LAYER_DEBOUNCE_MS = 300;
+/** A shared screen is text: one layer, enough bits to stay legible. */
+const SCREEN_MAX_BITRATE = 2_500_000;
+const CHAT_MAX = 2000;
 
 interface Pulled {
   mid: string;
   participantId: string;
+  sessionId: string;
   kind: TrackKind;
   track: MediaStreamTrack;
+  receiver: RTCRtpReceiver;
+  /** The simulcast layer last asked for (cameras only). */
+  rid: Rid | null;
 }
 
 interface ApiAnswer {
@@ -164,6 +243,38 @@ class MeetingCallEngine {
   // attach → detach → attach; a getUserMedia from the first attach that
   // resolves after the second must stop its track, not keep the camera on.
   private epoch = 0;
+  // --- v2 state ---
+  private viewer: { userId: string | null; role: AccountRole | null } = {
+    userId: null,
+    role: null,
+  };
+  private prefs: DevicePrefs = {
+    audioinput: null,
+    videoinput: null,
+    audiooutput: null,
+  };
+  private tileSizes: Record<ParticipantId, TileSize> = {};
+  private layerTimer: ReturnType<typeof setTimeout> | null = null;
+  private levelTimer: ReturnType<typeof setInterval> | null = null;
+  private speaker = INITIAL_SPEAKER_STATE;
+  private audioCtx: AudioContext | null = null;
+  private analyser: {
+    track: MediaStreamTrack;
+    source: MediaStreamAudioSourceNode;
+    node: AnalyserNode;
+    buf: Float32Array<ArrayBuffer>;
+  } | null = null;
+  private lossCounters: Record<string, LossCounters> = {};
+  private poor = INITIAL_POOR_TRACKER;
+  /** Who was present at the last plan; null until the initial read lands. */
+  private presenceUsers: Set<string> | null = null;
+  private rowsLoaded = false;
+  private selfMemo: { seat: string; memo: SelfRowMemo } | null = null;
+  /** The hand we last asked for, so our own lowering is not the host's. */
+  private handWanted = false;
+  private reactionsHeld: HeldReaction[] = [];
+  private noticeSeq = 0;
+  private onDeviceChange = () => void this.refreshDevices();
   // Bumped whenever the person stops wanting to be in the call (leave,
   // end, a give-up, unmount). A join whose POST was in flight then — a
   // reconnect's, typically, since Leave stays on screen while
@@ -234,6 +345,18 @@ class MeetingCallEngine {
   attach() {
     this.attached = true;
     this.epoch += 1;
+    this.prefs = readDevicePrefs();
+    this.emit({
+      selectedDevices: { ...this.prefs },
+      canSelectOutput:
+        typeof HTMLMediaElement !== 'undefined' &&
+        'setSinkId' in HTMLMediaElement.prototype,
+    });
+    navigator.mediaDevices?.addEventListener?.(
+      'devicechange',
+      this.onDeviceChange
+    );
+    this.levelTimer = setInterval(() => this.sampleLevels(), LEVEL_TICK_MS);
     void this.loadMeeting();
     void this.startPreview();
   }
@@ -246,6 +369,31 @@ class MeetingCallEngine {
     this.leaveQuietly();
     this.teardown();
     this.stopMedia();
+    if (this.levelTimer) clearInterval(this.levelTimer);
+    this.levelTimer = null;
+    navigator.mediaDevices?.removeEventListener?.(
+      'devicechange',
+      this.onDeviceChange
+    );
+    this.dropAnalyser();
+    void this.audioCtx?.close().catch(() => {});
+    this.audioCtx = null;
+  }
+
+  /** The signed-in person and their role, from the auth context. */
+  setViewer(userId: string | null, role: AccountRole | null) {
+    this.viewer = { userId, role };
+    this.updateCanModerate();
+  }
+
+  private updateCanModerate() {
+    const m = this.snap.meeting;
+    const canModerate =
+      !!m &&
+      canManageMeeting(this.viewer.role, this.viewer.userId, {
+        hostUserId: m.host_user_id,
+      });
+    if (canModerate !== this.snap.canModerate) this.emit({ canModerate });
   }
 
   /** pagehide: the tab is going away; tell the server while we still can. */
@@ -269,6 +417,7 @@ class MeetingCallEngine {
         ? { meetingState: 'ready', meeting: data as MeetingSummary }
         : { meetingState: 'missing' }
     );
+    this.updateCanModerate();
   }
 
   // --- devices ---------------------------------------------------------
@@ -281,18 +430,25 @@ class MeetingCallEngine {
       return null;
     }
     const epoch = this.epoch;
+    const chosen = this.prefs[kind === 'audio' ? 'audioinput' : 'videoinput'];
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(
-        kind === 'audio'
-          ? { audio: { echoCancellation: true, noiseSuppression: true } }
-          : { video: { width: { ideal: 1280 }, height: { ideal: 720 } } }
-      );
+      const stream = await navigator.mediaDevices
+        .getUserMedia(mediaConstraints(kind, chosen))
+        .catch((err) => {
+          // The chosen device is gone (unplugged since): the default.
+          if (!chosen || classifyMediaError(err) !== 'not_found') throw err;
+          return navigator.mediaDevices.getUserMedia(
+            mediaConstraints(kind, null)
+          );
+        });
       const track = stream.getTracks()[0] ?? null;
       if (!this.attached || epoch !== this.epoch) {
         track?.stop();
         return null;
       }
       this.setDevice(kind, null);
+      // Unplugged, or revoked by the OS. stop() never fires 'ended'.
+      track?.addEventListener('ended', () => this.onTrackEnded(kind, track));
       return track;
     } catch (err) {
       if (epoch === this.epoch) this.setDevice(kind, classifyMediaError(err));
@@ -317,6 +473,8 @@ class MeetingCallEngine {
     this.audio = audio;
     this.video = video;
     this.emit();
+    // Labels and ids are only listed once a permission is granted.
+    void this.refreshDevices();
   }
 
   /** After leaving: back to the lobby, devices reopened. */
@@ -349,8 +507,9 @@ class MeetingCallEngine {
     } else {
       this.audio.enabled = !this.audio.enabled;
     }
+    void this.audioCtx?.resume().catch(() => {});
     this.emit();
-    void this.heartbeat();
+    void this.pushState();
   };
 
   toggleCamera = async () => {
@@ -373,7 +532,7 @@ class MeetingCallEngine {
         else await this.publish([{ track, kind: 'video' }]);
       }
     }
-    void this.heartbeat();
+    void this.pushState();
   };
 
   toggleScreen = async () => {
@@ -406,6 +565,8 @@ class MeetingCallEngine {
       return;
     }
     this.setDevice('screen', null);
+    // Text stays sharp; motion may drop frames instead.
+    track.contentHint = 'detail';
     this.screen = track;
     // The browser's own "Stop sharing" bar ends the track.
     track.addEventListener('ended', () => {
@@ -462,6 +623,7 @@ class MeetingCallEngine {
       return;
     }
     this.queue = createSerialQueue();
+    void this.loadChat();
     const pc = new RTCPeerConnection({
       iceServers: join.iceServers,
       bundlePolicy: 'max-bundle',
@@ -489,8 +651,10 @@ class MeetingCallEngine {
 
     this.timers.push(
       setInterval(() => void this.heartbeat(), HEARTBEAT_INTERVAL_MS),
-      setInterval(() => this.replan(), REPLAN_TICK_MS)
+      setInterval(() => this.replan(), REPLAN_TICK_MS),
+      setInterval(() => void this.sampleQuality(pc), QUALITY_INTERVAL_MS)
     );
+    void this.audioCtx?.resume().catch(() => {});
     this.emit({ phase: 'live' });
     void this.heartbeat();
     this.replan();
@@ -537,7 +701,31 @@ class MeetingCallEngine {
     this.screenPub = null;
     this.screenGeneration = 0;
     this.pullStrikes = 0;
-    this.emit({ participants: [] });
+    if (this.layerTimer) clearTimeout(this.layerTimer);
+    this.layerTimer = null;
+    this.speaker = INITIAL_SPEAKER_STATE;
+    this.lossCounters = {};
+    this.poor = INITIAL_POOR_TRACKER;
+    this.presenceUsers = null;
+    this.rowsLoaded = false;
+    this.selfMemo = null;
+    this.handWanted = false;
+    this.emit({
+      participants: [],
+      activeSpeakerId: null,
+      speaking: {},
+      quality: { self: 'unknown', remote: {} },
+      handRaised: false,
+      liveSince: null,
+    });
+  }
+
+  /** The host removed us: our seat is closed already, so no leave. */
+  private removed() {
+    this.session += 1;
+    this.teardown();
+    this.stopMedia();
+    this.emit({ phase: 'removed', error: null });
   }
 
   private onConnectionState(pc: RTCPeerConnection) {
@@ -625,6 +813,16 @@ class MeetingCallEngine {
             this.ended();
         }
       )
+      .on(
+        'postgres_changes' as never,
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'meeting_messages',
+          filter: `meeting_id=eq.${id}`,
+        },
+        (payload: { new: unknown }) => this.onMessage(payload.new)
+      )
       .subscribe();
     this.channel = channel;
     const { data } = await this.supabase
@@ -636,7 +834,10 @@ class MeetingCallEngine {
     for (const raw of data ?? []) {
       const row = parseParticipantRow(raw);
       if (row) this.onRow(row);
+      if (this.channel !== channel) return; // removed by the host
     }
+    // From here a new face is a join; before, everyone would be.
+    this.rowsLoaded = true;
   }
 
   private onRow(row: ParticipantRow) {
@@ -644,7 +845,30 @@ class MeetingCallEngine {
     // Our own row was just written by the server: calibrate its clock.
     if (row.id === this.participantId) {
       this.skew = clockSkewMs(row.last_seen_at, Date.now());
+      this.onSelfRow(row);
     }
+  }
+
+  /** What the host did to our seat: mute, lower our hand, remove us. */
+  private onSelfRow(row: ParticipantRow) {
+    const prev = this.selfMemo?.seat === row.id ? this.selfMemo.memo : null;
+    const fx = selfRowEffects(prev, row, this.handWanted);
+    this.selfMemo = { seat: row.id, memo: fx.memo };
+    if (fx.removed) return this.removed();
+    const drafts: NoticeDraft<RoomNotice>[] = [];
+    if (fx.mute) {
+      if (this.audio?.enabled) {
+        this.audio.enabled = false;
+        void this.pushState();
+      }
+      drafts.push({ kind: 'muted_by_host' });
+    }
+    if (fx.handLoweredByHost) {
+      this.handWanted = false;
+      drafts.push({ kind: 'hand_lowered_by_host' });
+      this.emit({ handRaised: false });
+    }
+    this.notice(drafts);
   }
 
   private replan() {
@@ -654,9 +878,27 @@ class MeetingCallEngine {
       this.rows.values(),
       Date.now() + this.skew
     );
-    this.emit({ participants: present });
+    const drafts: NoticeDraft<RoomNotice>[] = [];
+    if (this.rowsLoaded) {
+      const seen = presenceNotices(this.presenceUsers, present, {
+        userId: this.viewer.userId,
+        participantId: me,
+      });
+      this.presenceUsers = seen.users;
+      drafts.push(...seen.notices);
+    }
+    this.emit({
+      participants: present,
+      liveSince: liveSince(present),
+      notices: this.withNotices(drafts),
+    });
     const inFlight = new Set([...this.pulled.keys(), ...this.pending]);
-    const plan = planSubscriptions(present, me, inFlight);
+    const plan = planSubscriptions(
+      present,
+      me,
+      inFlight,
+      hiddenVideo(this.tileSizes)
+    );
     // A close of something still being pulled waits for the pull to land.
     const close = plan.close.filter((name) => this.pulled.has(name));
     if (plan.pull.length) {
@@ -675,13 +917,38 @@ class MeetingCallEngine {
       audioMuted: !(this.audio?.enabled ?? false),
       videoOff: !this.video,
     });
-    if (res.status === 409) this.ended();
-    // 404: the seat was closed under us, almost always by joining the
-    // same meeting from another tab (join closes the person's other seats).
-    else if (res.status === 404 && this.isLive()) {
-      this.teardown();
-      this.emit({ phase: 'left', error: 'seat_closed' });
+    await this.onSeatAnswer(res);
+  }
+
+  /** A toggle shows at once for everyone instead of at the next heartbeat. */
+  private async pushState() {
+    if (!this.participantId) return;
+    const res = await this.api('state', 'POST', {
+      participantId: this.participantId,
+      audioMuted: !(this.audio?.enabled ?? false),
+      videoOff: !this.video,
+    });
+    await this.onSeatAnswer(res);
+  }
+
+  private async onSeatAnswer(res: ApiAnswer) {
+    if (res.status === 409) return this.ended();
+    if (res.status !== 404 || !this.isLive()) return;
+    // 404: the seat was closed under us — by the host (removed_at), or
+    // by joining the same meeting from another tab (join closes the
+    // person's other seats). The row says which.
+    const seat = this.participantId;
+    const { data } = await this.supabase
+      .from('meeting_participants')
+      .select('removed_at')
+      .eq('id', seat ?? '')
+      .maybeSingle();
+    if (seat !== this.participantId || !this.isLive()) return;
+    if ((data as { removed_at?: string | null } | null)?.removed_at) {
+      return this.removed();
     }
+    this.teardown();
+    this.emit({ phase: 'left', error: 'seat_closed' });
   }
 
   // --- negotiation (always inside the queue) ---------------------------
@@ -704,6 +971,14 @@ class MeetingCallEngine {
           ...e,
           transceiver: conn.addTransceiver(e.track, {
             direction: 'sendonly',
+            // Three camera layers, so each puller takes what its tile
+            // needs; a screen share stays one sharp layer.
+            sendEncodings:
+              e.kind === 'video'
+                ? CAMERA_ENCODINGS.map((x) => ({ ...x }))
+                : e.kind === 'screen'
+                  ? [{ maxBitrate: SCREEN_MAX_BITRATE }]
+                  : undefined,
           }),
           name: trackNameFor(
             me,
@@ -780,11 +1055,18 @@ class MeetingCallEngine {
       const res = await this.sfu('sfu/tracks', 'POST', {
         participantId: me,
         request: {
-          tracks: refs.map((r) => ({
-            location: 'remote',
-            sessionId: r.sessionId,
-            trackName: r.trackName,
-          })),
+          tracks: refs.map((r) => {
+            const simulcast =
+              r.kind === 'video'
+                ? simulcastFor(tileSizeOf(this.tileSizes, r.participantId))
+                : null;
+            return {
+              location: 'remote',
+              sessionId: r.sessionId,
+              trackName: r.trackName,
+              ...(simulcast ? { simulcast } : {}),
+            };
+          }),
         },
       });
       if (pc !== this.pc) return;
@@ -806,11 +1088,20 @@ class MeetingCallEngine {
         this.pulled.set(ref.trackName, {
           mid: t.mid,
           participantId: ref.participantId,
+          sessionId: ref.sessionId,
           kind: ref.kind,
           track: transceiver.receiver.track,
+          receiver: transceiver.receiver,
+          rid:
+            ref.kind === 'video'
+              ? (simulcastFor(tileSizeOf(this.tileSizes, ref.participantId))
+                  ?.preferredRid ?? null)
+              : null,
         });
       }
       this.pullStrikes = 0;
+      // A tile resized while this pull was in flight.
+      if (refs.some((r) => r.kind === 'video')) this.scheduleLayers();
     } catch {
       if (pc && before && pc === this.pc) await this.recoverPull(pc, before);
     } finally {
@@ -911,6 +1202,344 @@ class MeetingCallEngine {
     }
   }
 
+  // --- v2: notices ---------------------------------------------------
+
+  private withNotices(drafts: NoticeDraft<RoomNotice>[]): RoomNotice[] {
+    return pushNotices<RoomNotice>(
+      this.snap.notices,
+      drafts,
+      () => `n${++this.noticeSeq}`
+    );
+  }
+
+  private notice(drafts: NoticeDraft<RoomNotice>[]) {
+    if (drafts.length) this.emit({ notices: this.withNotices(drafts) });
+  }
+
+  dismissNotices = (ids: string[]) => {
+    const notices = dismissNotices(this.snap.notices, ids);
+    if (notices !== this.snap.notices) this.emit({ notices });
+  };
+
+  // --- v2: devices ---------------------------------------------------
+
+  /** A mic or camera unplugged mid-call: off, and the default next time. */
+  private onTrackEnded(kind: 'audio' | 'video', track: MediaStreamTrack) {
+    if (this[kind] !== track) return; // replaced or turned off meanwhile
+    this[kind] = null;
+    const sender = kind === 'audio' ? this.audioSender : this.videoSender;
+    void sender?.replaceTrack(null).catch(() => {});
+    // In memory only: the stored choice comes back when it is plugged in.
+    const key = kind === 'audio' ? 'audioinput' : 'videoinput';
+    this.prefs = { ...this.prefs, [key]: null };
+    this.emit({
+      selectedDevices: { ...this.snap.selectedDevices, [key]: null },
+      notices: this.withNotices([{ kind: 'device_lost', device: kind }]),
+    });
+    void this.pushState();
+    void this.refreshDevices();
+  }
+
+  private async refreshDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const list = await navigator.mediaDevices
+      .enumerateDevices()
+      .catch(() => [] as MediaDeviceInfo[]);
+    if (!this.attached) return;
+    const deviceOptions = deviceOptionsFrom(list);
+    this.emit({
+      deviceOptions,
+      selectedDevices: effectiveSelection(this.prefs, deviceOptions),
+    });
+  }
+
+  selectDevice = async (kind: MediaDeviceKind, deviceId: string) => {
+    if (kind === 'audiooutput' && !this.snap.canSelectOutput) return;
+    this.prefs = { ...this.prefs, [kind]: deviceId || null };
+    try {
+      localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(this.prefs));
+    } catch {
+      // Private mode or full storage: the choice lasts this visit only.
+    }
+    // The output is applied by the screen's audio elements (setSinkId),
+    // which read it from here.
+    this.emit({
+      selectedDevices: {
+        ...this.snap.selectedDevices,
+        [kind]: deviceId || null,
+      },
+    });
+    if (kind === 'audiooutput') return;
+    const k = kind === 'audioinput' ? 'audio' : 'video';
+    const current = this[k];
+    // Off: the choice applies the next time it is turned on.
+    if (!current || this.opening.has(k)) return;
+    this.opening.add(k);
+    const track = await this.open(k).finally(() => this.opening.delete(k));
+    if (!track) return; // open() showed why; the old device keeps working
+    if (this[k] !== current) {
+      track.stop();
+      return;
+    }
+    if (k === 'audio') track.enabled = current.enabled;
+    // Same sender, new source: no renegotiation, nobody re-pulls.
+    const sender = k === 'audio' ? this.audioSender : this.videoSender;
+    if (sender) await sender.replaceTrack(track).catch(() => {});
+    if (this[k] !== current) {
+      track.stop();
+      return;
+    }
+    this[k] = track;
+    current.stop();
+    this.emit();
+  };
+
+  // --- v2: hand, chat, reactions, moderation -------------------------
+
+  toggleHand = async () => {
+    const participantId = this.participantId;
+    if (!participantId) return;
+    const want = !this.snap.handRaised;
+    this.handWanted = want;
+    const res = await this.api('state', 'POST', {
+      participantId,
+      handRaised: want,
+    });
+    if (participantId !== this.participantId) return;
+    if (res.ok) this.emit({ handRaised: want });
+    else {
+      this.handWanted = this.snap.handRaised;
+      await this.onSeatAnswer(res);
+    }
+  };
+
+  sendChat = async (body: string) => {
+    const text = body.trim();
+    if (!text || text.length > CHAT_MAX) return false;
+    const res = await this.api('messages', 'POST', {
+      kind: 'chat',
+      body: text,
+    });
+    if (res.ok) this.onMessage((res.body as { message?: unknown })?.message);
+    return res.ok;
+  };
+
+  sendReaction = async (emoji: MeetingReaction) => {
+    const res = await this.api('messages', 'POST', {
+      kind: 'reaction',
+      body: emoji,
+    });
+    if (res.ok) this.onMessage((res.body as { message?: unknown })?.message);
+  };
+
+  moderate = async (target: ParticipantId, action: ModerationAction) => {
+    const res = await this.api('moderate', 'POST', { target, action });
+    return res.ok;
+  };
+
+  private async loadChat() {
+    const res = await this.api('messages?kind=chat', 'GET', null);
+    const list = (res.body as { messages?: unknown } | null)?.messages;
+    if (!res.ok || !Array.isArray(list)) return;
+    const incoming = list
+      .map(parseMeetingMessage)
+      .flatMap((m) => (m?.kind === 'chat' ? [m.message] : []));
+    const chat = mergeChat(this.snap.chat, incoming);
+    if (chat !== this.snap.chat) this.emit({ chat });
+  }
+
+  /** One message, from realtime or our own POST (the two overlap). */
+  private onMessage(raw: unknown) {
+    const m = parseMeetingMessage(raw);
+    if (!m) return;
+    if (m.kind === 'chat') {
+      const chat = mergeChat(this.snap.chat, [m.message]);
+      if (chat !== this.snap.chat) this.emit({ chat });
+      return;
+    }
+    const held = addReaction(this.reactionsHeld, m.reaction, Date.now());
+    if (held === this.reactionsHeld) return;
+    this.reactionsHeld = held;
+    this.emit({ reactions: held.map((h) => h.event) });
+  }
+
+  // --- v2: simulcast layers ------------------------------------------
+
+  setTileSizes = (sizes: Record<ParticipantId, TileSize>) => {
+    if (sameRecord(sizes, this.tileSizes)) return;
+    this.tileSizes = { ...sizes };
+    this.scheduleLayers();
+  };
+
+  private scheduleLayers() {
+    if (this.layerTimer) clearTimeout(this.layerTimer);
+    this.layerTimer = setTimeout(() => {
+      this.layerTimer = null;
+      // Hidden tiles close their camera, shown ones pull it again …
+      this.replan();
+      // … and every pulled camera moves to its tile's layer, queued
+      // behind any negotiation in flight.
+      void this.queue.run(() => this.updateLayers()).catch(() => {});
+    }, LAYER_DEBOUNCE_MS);
+  }
+
+  private async updateLayers() {
+    const pc = this.pc;
+    const me = this.participantId;
+    if (!pc || !me) return;
+    const cameras = [...this.pulled.entries()]
+      .filter(([, p]) => p.kind === 'video')
+      .map(([trackName, p]) => ({ trackName, ...p }));
+    const updates = planLayerUpdates(this.tileSizes, cameras);
+    if (!updates.length) return;
+    let res: TracksResult;
+    try {
+      res = await this.sfu('sfu/tracks/update', 'PUT', {
+        participantId: me,
+        request: { tracks: updates },
+      });
+    } catch {
+      return; // rid stays as it was, so the next change retries
+    }
+    if (pc !== this.pc) return;
+    if (res.requiresImmediateRenegotiation && res.sessionDescription) {
+      try {
+        await pc.setRemoteDescription(res.sessionDescription);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await this.sfu('sfu/renegotiate', 'PUT', {
+          participantId: me,
+          sessionDescription: { type: 'answer', sdp: answer.sdp },
+        });
+      } catch {
+        if (pc === this.pc && needsPullRollback(pc.signalingState)) {
+          await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+        }
+        return;
+      }
+    }
+    const refused = new Set(
+      res.tracks.filter((t) => t.errorCode).map((t) => t.mid ?? t.trackName)
+    );
+    for (const u of updates) {
+      const p = this.pulled.get(u.trackName);
+      if (
+        p &&
+        p.mid === u.mid &&
+        !refused.has(u.mid) &&
+        !refused.has(u.trackName)
+      ) {
+        p.rid = u.simulcast.preferredRid;
+      }
+    }
+  }
+
+  // --- v2: levels and quality ----------------------------------------
+
+  private dropAnalyser() {
+    this.analyser?.source.disconnect();
+    this.analyser = null;
+  }
+
+  /** Our mic level, 0..1, from an AnalyserNode on the current track. */
+  private localLevel(): number {
+    const track = this.audio;
+    if (!track || !track.enabled || track.readyState !== 'live') return 0;
+    if (this.analyser?.track !== track) {
+      this.dropAnalyser();
+      const Ctx =
+        typeof window !== 'undefined'
+          ? (window.AudioContext ??
+            (window as unknown as { webkitAudioContext?: typeof AudioContext })
+              .webkitAudioContext)
+          : undefined;
+      if (!Ctx) return 0;
+      try {
+        this.audioCtx ??= new Ctx();
+        const source = this.audioCtx.createMediaStreamSource(
+          new MediaStream([track])
+        );
+        const node = this.audioCtx.createAnalyser();
+        node.fftSize = 512;
+        source.connect(node); // never to the speakers: no local echo
+        this.analyser = {
+          track,
+          source,
+          node,
+          buf: new Float32Array(node.fftSize),
+        };
+      } catch {
+        return 0;
+      }
+    }
+    this.analyser.node.getFloatTimeDomainData(this.analyser.buf);
+    return rmsLevel(this.analyser.buf);
+  }
+
+  private sampleLevels() {
+    const now = Date.now();
+    const local = this.localLevel();
+    let { activeSpeakerId, speaking } = this.snap;
+    const me = this.participantId;
+    if (me && this.pc) {
+      const levels: Record<ParticipantId, number> = {};
+      for (const p of this.snap.participants) levels[p.id] = 0;
+      levels[me] = local;
+      for (const p of this.pulled.values()) {
+        if (p.kind !== 'audio' || !(p.participantId in levels)) continue;
+        for (const src of p.receiver.getSynchronizationSources()) {
+          levels[p.participantId] = Math.max(
+            levels[p.participantId],
+            src.audioLevel ?? 0
+          );
+        }
+      }
+      const step = stepSpeaker(this.speaker, levels, now);
+      this.speaker = step.state;
+      activeSpeakerId = step.activeSpeakerId;
+      speaking = step.speaking;
+    }
+    const patch: Partial<CallSnapshot> = {
+      ...levelPatch(this.snap, {
+        activeSpeakerId,
+        speaking,
+        localAudioLevel: local,
+      }),
+    };
+    const held = pruneReactions(this.reactionsHeld, now);
+    if (held !== this.reactionsHeld) {
+      this.reactionsHeld = held;
+      patch.reactions = held.map((h) => h.event);
+    }
+    if (Object.keys(patch).length) this.emit(patch);
+  }
+
+  private async sampleQuality(pc: RTCPeerConnection) {
+    const stats = await pc.getStats().catch(() => null);
+    if (!stats || pc !== this.pc) return;
+    const byMid: Record<string, ParticipantId> = {};
+    for (const p of this.pulled.values()) byMid[p.mid] = p.participantId;
+    const reports: StatLike[] = [];
+    stats.forEach((r) => reports.push(r as StatLike));
+    const sum = summarizeStats(reports, byMid, this.lossCounters);
+    this.lossCounters = sum.counters;
+    const self = classifyQuality(sum.self);
+    const remote: Record<ParticipantId, Quality> = {};
+    for (const [id, sample] of Object.entries(sum.remote)) {
+      remote[id] = classifyQuality(sample);
+    }
+    const poor = stepPoorTracker(this.poor, self, Date.now());
+    this.poor = poor.state;
+    const patch: Partial<CallSnapshot> = {};
+    const prev = this.snap.quality;
+    if (prev.self !== self || !sameRecord(prev.remote, remote)) {
+      patch.quality = { self, remote };
+    }
+    if (poor.notify)
+      patch.notices = this.withNotices([{ kind: 'quality_poor' }]);
+    if (Object.keys(patch).length) this.emit(patch);
+  }
+
   // --- transport -------------------------------------------------------
 
   private async sfu(path: string, method: string, body: unknown) {
@@ -931,12 +1560,14 @@ class MeetingCallEngine {
     try {
       const res = await fetch(
         `/api/meetings/${encodeURIComponent(this.meetingId)}/${path}`,
-        {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          keepalive,
-        }
+        method === 'GET'
+          ? { method }
+          : {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+              keepalive,
+            }
       );
       const json: unknown = await res.json().catch(() => null);
       return { ok: res.ok, status: res.status, body: json };
@@ -959,6 +1590,11 @@ export interface MeetingCall extends CallSnapshot, CallActionsV2 {
 /** The call for one meeting, owned by the room screen (lobby and room alike). */
 export function useMeetingCall(meetingId: string): MeetingCall {
   const [engine] = useState(() => new MeetingCallEngine(meetingId));
+  const { user, accountRole } = useAuth();
+  const userId = user?.id ?? null;
+  useEffect(() => {
+    engine.setViewer(userId, accountRole);
+  }, [engine, userId, accountRole]);
   const snap = useSyncExternalStore(
     engine.subscribe,
     engine.getSnapshot,
@@ -984,17 +1620,20 @@ export function useMeetingCall(meetingId: string): MeetingCall {
     toggleMic: engine.toggleMic,
     toggleCamera: engine.toggleCamera,
     toggleScreen: engine.toggleScreen,
-    ...V2_STUB_ACTIONS,
+    selectDevice: engine.selectDevice,
+    toggleHand: engine.toggleHand,
+    sendChat: engine.sendChat,
+    sendReaction: engine.sendReaction,
+    moderate: engine.moderate,
+    setTileSizes: engine.setTileSizes,
+    dismissNotices: engine.dismissNotices,
   };
 }
 
-// v2 placeholders until the engine implements the contract.
-const V2_STUB_ACTIONS: CallActionsV2 = {
-  selectDevice: async () => {},
-  toggleHand: async () => {},
-  sendChat: async () => false,
-  sendReaction: async () => {},
-  moderate: async () => false,
-  setTileSizes: () => {},
-  dismissNotices: () => {},
-};
+function readDevicePrefs(): DevicePrefs {
+  try {
+    return parseDevicePrefs(localStorage.getItem(DEVICE_PREFS_KEY));
+  } catch {
+    return parseDevicePrefs(null);
+  }
+}
