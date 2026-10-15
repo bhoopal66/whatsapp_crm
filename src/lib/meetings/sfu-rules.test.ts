@@ -4,7 +4,9 @@ import {
   acceptedLocalTracks,
   checkCloseTracks,
   checkTracksRequest,
+  checkTracksUpdate,
   ownedTrackKind,
+  simulcastError,
   withoutTracks,
   withTracks,
 } from './sfu-rules';
@@ -164,5 +166,95 @@ describe('withTracks / withoutTracks', () => {
   it('adds once per name and removes by name', () => {
     expect(withTracks([a], [a, v])).toEqual([a, v]);
     expect(withoutTracks([a, v], [a.trackName])).toEqual([v]);
+  });
+});
+
+describe('simulcast on pulled tracks', () => {
+  const present = new Set(['sess-b']);
+  const pull = (simulcast: unknown) => ({
+    tracks: [
+      {
+        location: 'remote',
+        sessionId: 'sess-b',
+        trackName: 'b:video',
+        simulcast,
+      },
+    ],
+  });
+
+  it('accepts a layer preference on a remote track', () => {
+    const ok = checkTracksRequest(
+      pull({
+        preferredRid: 'q',
+        priorityOrdering: 'asciibetical',
+        ridNotAvailable: 'none',
+      }),
+      P,
+      present
+    );
+    expect(ok.ok).toBe(true);
+  });
+
+  it('refuses an unknown rid or fallback', () => {
+    for (const simulcast of [
+      { preferredRid: 'x' },
+      {},
+      'f',
+      { preferredRid: 'h', priorityOrdering: 'random' },
+      { preferredRid: 'h', ridNotAvailable: 'z' },
+    ]) {
+      const res = checkTracksRequest(pull(simulcast), P, present);
+      expect(res).toMatchObject({ ok: false, status: 400 });
+    }
+  });
+
+  it('names the problem', () => {
+    expect(simulcastError({ preferredRid: 'f' })).toBeNull();
+    expect(simulcastError({ preferredRid: 'F' })).toMatch(/preferredRid/);
+  });
+});
+
+describe('checkTracksUpdate', () => {
+  const present = new Set(['sess-b']);
+  const track = (over: Record<string, unknown> = {}) => ({
+    location: 'remote',
+    sessionId: 'sess-b',
+    trackName: 'b:video',
+    mid: '3',
+    simulcast: { preferredRid: 'h', priorityOrdering: 'asciibetical' },
+    ...over,
+  });
+
+  it('accepts a layer switch on a present session', () => {
+    const req = {
+      tracks: [track(), track({ mid: '4', simulcast: { preferredRid: 'f' } })],
+    };
+    expect(checkTracksUpdate(req, present)).toEqual({ ok: true, value: req });
+  });
+
+  it('refuses local tracks, a missing mid, trackName or simulcast', () => {
+    for (const t of [
+      track({ location: 'local' }),
+      track({ mid: '' }),
+      track({ mid: undefined }),
+      track({ trackName: undefined }),
+      track({ simulcast: undefined }),
+      track({ simulcast: { preferredRid: 'x' } }),
+    ]) {
+      expect(checkTracksUpdate({ tracks: [t] }, present)).toMatchObject({
+        ok: false,
+        status: 400,
+      });
+    }
+    expect(checkTracksUpdate({ tracks: [] }, present)).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+  });
+
+  it('refuses a session not present in this meeting', () => {
+    expect(
+      checkTracksUpdate({ tracks: [track({ sessionId: 'sess-z' })] }, present)
+    ).toMatchObject({ ok: false, status: 403 });
   });
 });

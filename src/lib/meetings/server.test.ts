@@ -20,6 +20,25 @@ describe('requireMeetingsUser', () => {
     await expect(requireMeetingsUser()).rejects.toBeInstanceOf(ForbiddenError);
   });
 
+  // A guest has no current_account_id(), so getCurrentAccount refuses
+  // before the role check, in wording that reads as a broken login.
+  it('words a guest’s refusal as staff only, keeping other refusals', async () => {
+    mocks.getCurrentAccount.mockRejectedValueOnce(
+      new ForbiddenError('Profile is not linked to an account')
+    );
+    await expect(requireMeetingsUser()).rejects.toThrow(
+      'Video meetings are for staff only'
+    );
+    mocks.getCurrentAccount.mockResolvedValueOnce({ role: 'bank_guest' });
+    await expect(requireMeetingsUser()).rejects.toThrow(
+      'Video meetings are for staff only'
+    );
+    mocks.getCurrentAccount.mockRejectedValueOnce(
+      new ForbiddenError('Account deactivated')
+    );
+    await expect(requireMeetingsUser()).rejects.toThrow('Account deactivated');
+  });
+
   it('lets every staff role through, viewer included', async () => {
     mocks.getCurrentAccount.mockResolvedValue({ role: 'viewer', userId: 'u' });
     await expect(requireMeetingsUser()).resolves.toMatchObject({

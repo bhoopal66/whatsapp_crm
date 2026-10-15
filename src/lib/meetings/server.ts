@@ -27,12 +27,30 @@ import {
   type ParticipantRow,
 } from './types';
 
-/** The caller's context, refused for a bank guest (staff only). */
+export const STAFF_ONLY = 'Video meetings are for staff only';
+
+/**
+ * The caller's context, refused for a bank guest (staff only). A guest
+ * usually never reaches the role check: `current_account_id()` is NULL
+ * for them, so the accounts read in `getCurrentAccount` finds nothing
+ * and it refuses with "Profile is not linked to an account", which
+ * reads as a broken login. That refusal is reworded here; every other
+ * one (deactivated, a failed read) keeps its own message.
+ */
 export async function requireMeetingsUser(): Promise<AccountContext> {
-  const ctx = await getCurrentAccount();
-  if (!canUseMeetings(ctx.role)) {
-    throw new ForbiddenError('Meetings are only for workspace staff');
+  let ctx: AccountContext;
+  try {
+    ctx = await getCurrentAccount();
+  } catch (err) {
+    if (
+      err instanceof ForbiddenError &&
+      err.message === 'Profile is not linked to an account'
+    ) {
+      throw new ForbiddenError(STAFF_ONLY);
+    }
+    throw err;
   }
+  if (!canUseMeetings(ctx.role)) throw new ForbiddenError(STAFF_ONLY);
   return ctx;
 }
 

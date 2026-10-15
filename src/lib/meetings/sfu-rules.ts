@@ -13,6 +13,8 @@
 // ============================================================
 
 import {
+  SIMULCAST_FALLBACKS,
+  SIMULCAST_RIDS,
   TRACK_KINDS,
   type CloseTracksRequest,
   type ParticipantTrack,
@@ -20,6 +22,7 @@ import {
   type TrackKind,
   type TracksRequest,
   type TracksResponse,
+  type UpdateTracksRequest,
 } from './types';
 
 export type Checked<T> =
@@ -52,6 +55,27 @@ export function isSessionDescription(v: unknown): v is SessionDescription {
     v.sdp.length > 0 &&
     (v.type === 'offer' || v.type === 'answer')
   );
+}
+
+/**
+ * A pulled track's `simulcast` preference, when given: preferredRid is
+ * one of the layers the camera publishes (f, h, q) and the two
+ * fallbacks are the schema's enum. Null when acceptable.
+ */
+export function simulcastError(v: unknown): string | null {
+  if (!isObject(v)) return 'simulcast must be an object';
+  if (!(SIMULCAST_RIDS as readonly unknown[]).includes(v.preferredRid)) {
+    return `simulcast.preferredRid must be ${SIMULCAST_RIDS.join(', ')}`;
+  }
+  for (const key of ['priorityOrdering', 'ridNotAvailable'] as const) {
+    if (
+      v[key] !== undefined &&
+      !(SIMULCAST_FALLBACKS as readonly unknown[]).includes(v[key])
+    ) {
+      return `simulcast.${key} must be ${SIMULCAST_FALLBACKS.join(' or ')}`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -108,6 +132,10 @@ export function checkTracksRequest(
           error: 'That track is not from someone in this meeting',
         };
       }
+      if (t.simulcast !== undefined) {
+        const bad = simulcastError(t.simulcast);
+        if (bad) return { ok: false, status: 400, error: bad };
+      }
     } else {
       return {
         ok: false,
@@ -117,6 +145,56 @@ export function checkTracksRequest(
     }
   }
   return { ok: true, value: { request: raw as TracksRequest, localTracks } };
+}
+
+/**
+ * A tracks/update request: only pulled tracks switching layer. Each
+ * names its transceiver (`mid`), a session present in this meeting
+ * (the update can point a transceiver at another track, so the pull
+ * rule applies again) and a simulcast preference.
+ */
+export function checkTracksUpdate(
+  raw: unknown,
+  presentSessionIds: ReadonlySet<string>
+): Checked<UpdateTracksRequest> {
+  if (!isObject(raw) || !Array.isArray(raw.tracks) || !raw.tracks.length) {
+    return { ok: false, status: 400, error: 'request.tracks is required' };
+  }
+  if (
+    raw.sessionDescription !== undefined &&
+    !isSessionDescription(raw.sessionDescription)
+  ) {
+    return { ok: false, status: 400, error: 'Invalid sessionDescription' };
+  }
+  for (const t of raw.tracks as unknown[]) {
+    if (
+      !isObject(t) ||
+      t.location !== 'remote' ||
+      typeof t.mid !== 'string' ||
+      !t.mid ||
+      typeof t.trackName !== 'string' ||
+      !t.trackName
+    ) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'Every track must be remote with a mid and a trackName',
+      };
+    }
+    if (
+      typeof t.sessionId !== 'string' ||
+      !presentSessionIds.has(t.sessionId)
+    ) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'That track is not from someone in this meeting',
+      };
+    }
+    const bad = simulcastError(t.simulcast);
+    if (bad) return { ok: false, status: 400, error: bad };
+  }
+  return { ok: true, value: raw as unknown as UpdateTracksRequest };
 }
 
 /** The local tracks the SFU accepted (a per-track errorCode is a refusal). */

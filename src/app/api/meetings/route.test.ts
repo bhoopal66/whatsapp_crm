@@ -94,3 +94,58 @@ describe('POST /api/meetings', () => {
     expect(mocks.insertMeeting).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /api/meetings', () => {
+  it('lists each meeting’s present seats with their raised hands', async () => {
+    const meeting = {
+      id: 'm-1',
+      status: 'scheduled',
+      scheduled_start: null,
+      scheduled_end: null,
+    };
+    const result = (table: string) =>
+      table === 'meetings'
+        ? [meeting]
+        : table === 'meeting_invitees'
+          ? []
+          : [
+              { meeting_id: 'm-1', user_id: 'u-1', hand_raised_at: null },
+              {
+                meeting_id: 'm-1',
+                user_id: 'u-2',
+                hand_raised_at: '2026-10-15T08:00:00Z',
+              },
+            ];
+    const list = (table: string) => {
+      const q: Record<string, unknown> = {};
+      for (const m of [
+        'select',
+        'eq',
+        'is',
+        'gt',
+        'in',
+        'or',
+        'order',
+        'limit',
+      ])
+        q[m] = () => q;
+      q.then = (ok: (v: unknown) => unknown) =>
+        Promise.resolve({ data: result(table), error: null }).then(ok);
+      return q;
+    };
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'agent',
+      userId: 'user-1',
+      accountId: 'acct-1',
+      supabase: { from: list },
+    });
+    const res = await GET(new Request('http://x/api/meetings?scope=live'));
+    expect(res.status).toBe(200);
+    const [m] = (await res.json()).meetings;
+    expect(m.present_count).toBe(2);
+    expect(m.participants).toEqual([
+      { user_id: 'u-1', hand_raised_at: null },
+      { user_id: 'u-2', hand_raised_at: '2026-10-15T08:00:00Z' },
+    ]);
+  });
+});

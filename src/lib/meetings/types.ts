@@ -35,7 +35,7 @@ export interface ParticipantTrack {
 }
 
 export const PARTICIPANT_COLUMNS =
-  'id, meeting_id, account_id, user_id, cf_session_id, joined_at, last_seen_at, left_at, tracks, audio_muted, video_off';
+  'id, meeting_id, account_id, user_id, cf_session_id, joined_at, last_seen_at, left_at, tracks, audio_muted, video_off, hand_raised_at, mute_requested_at, removed_at, removed_by';
 
 export interface ParticipantRow {
   id: string;
@@ -49,13 +49,45 @@ export interface ParticipantRow {
   tracks: ParticipantTrack[];
   audio_muted: boolean;
   video_off: boolean;
+  /** 107: set while the hand is up (the queue order), null when down. */
+  hand_raised_at: string | null;
+  /** 107: the host's latest "please mute"; the client mutes when it moves. */
+  mute_requested_at: string | null;
+  /** 107: set with left_at when a moderator removed the seat. */
+  removed_at: string | null;
+  removed_by: string | null;
 }
+
+export const MESSAGE_KINDS = ['chat', 'reaction'] as const;
+export type MessageKind = (typeof MESSAGE_KINDS)[number];
+
+/** What the API returns of a `meeting_messages` row (107). */
+export const MESSAGE_COLUMNS = 'id, user_id, kind, body, created_at';
+
+export interface MeetingMessage {
+  id: string;
+  user_id: string;
+  kind: MessageKind;
+  body: string;
+  created_at: string;
+}
+
+export const MODERATION_ACTIONS = ['mute', 'remove', 'lower_hand'] as const;
+export type ModerationAction = (typeof MODERATION_ACTIONS)[number];
 
 /** Present = not left and heard from within this window (clients beat every 20 s). */
 export const PRESENCE_WINDOW_MS = 60_000;
 
-/** STUN only for now; TURN is a later addition. */
-export const MEETING_ICE_SERVERS = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+/** STUN only: the fallback when no TURN key is configured or it fails. */
+export const MEETING_ICE_SERVERS: IceServer[] = [
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
 
 export const MEETING_SCOPES = ['live', 'upcoming', 'past'] as const;
 export type MeetingScope = (typeof MEETING_SCOPES)[number];
@@ -74,7 +106,20 @@ export interface TrackObject {
   trackName?: string;
   bidirectionalMediaStream?: boolean;
   kind?: string;
-  simulcast?: Record<string, unknown>;
+  simulcast?: Simulcast;
+}
+
+/** The layers the camera publishes (full, half, quarter resolution). */
+export const SIMULCAST_RIDS = ['f', 'h', 'q'] as const;
+export type SimulcastRid = (typeof SIMULCAST_RIDS)[number];
+export const SIMULCAST_FALLBACKS = ['none', 'asciibetical'] as const;
+export type SimulcastFallback = (typeof SIMULCAST_FALLBACKS)[number];
+
+/** A pulled track's layer preference (OpenAPI TrackObject.simulcast). */
+export interface Simulcast {
+  preferredRid?: SimulcastRid;
+  priorityOrdering?: SimulcastFallback;
+  ridNotAvailable?: SimulcastFallback;
 }
 
 export interface TracksRequest {
@@ -91,6 +136,17 @@ export interface SfuErrorFields {
 export interface TracksResponse extends SfuErrorFields {
   requiresImmediateRenegotiation?: boolean;
   sessionDescription?: SessionDescription;
+  tracks?: (TrackObject & SfuErrorFields)[];
+}
+
+/** PUT tracks/update (OpenAPI UpdateTracksRequest / Response). */
+export interface UpdateTracksRequest {
+  sessionDescription?: SessionDescription;
+  tracks: TrackObject[];
+}
+
+export interface UpdateTracksResponse extends SfuErrorFields {
+  requiresImmediateRenegotiation?: boolean;
   tracks?: (TrackObject & SfuErrorFields)[];
 }
 

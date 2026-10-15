@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   createSession: vi.fn(),
+  meetingIceServers: vi.fn(),
   configured: vi.fn(() => true),
   rpc: vi.fn(),
   meeting: null as unknown,
@@ -22,6 +23,9 @@ vi.mock('@/lib/meetings/sfu', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/meetings/sfu')>()),
   isMeetingsConfigured: mocks.configured,
   createSession: mocks.createSession,
+}));
+vi.mock('@/lib/meetings/turn', () => ({
+  meetingIceServers: mocks.meetingIceServers,
 }));
 vi.mock('@/lib/meetings/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/meetings/server')>()),
@@ -72,6 +76,21 @@ describe('POST /api/meetings/[id]/join', () => {
     mocks.rpc.mockResolvedValue({ data: true, error: null });
     mocks.meeting = { id: M, account_id: 'acct-1', status: 'scheduled' };
     mocks.createSession.mockResolvedValue({ sessionId: 'sess-1' });
+    mocks.meetingIceServers.mockResolvedValue([
+      { urls: 'stun:stun.cloudflare.com:3478' },
+    ]);
+  });
+
+  it('hands out the TURN servers lib/meetings/turn minted', async () => {
+    const turn = [
+      {
+        urls: ['turns:turn.cloudflare.com:443?transport=tcp'],
+        username: 'u',
+        credential: 'c',
+      },
+    ];
+    mocks.meetingIceServers.mockResolvedValue(turn);
+    expect((await (await join()).json()).iceServers).toEqual(turn);
   });
 
   it('opens a session, closes older seats, inserts the new one', async () => {
