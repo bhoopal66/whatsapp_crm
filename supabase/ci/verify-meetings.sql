@@ -18,8 +18,8 @@
 -- meeting_post_message (visible, scheduled, a valid kind and body, 20
 -- posts per person per meeting per 10 s), and the seat's raised-hand
 -- and moderation columns, which no client writes. From 110: a removal
--- (meeting_removed_users) refuses the person's posts until it is
--- deleted; managers and the person read it, nobody else; no client
+-- (meeting_removed_users) refuses the person's posts and any new seat
+-- until it is deleted; managers and the person read it, nobody else; no client
 -- writes it.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
@@ -443,6 +443,9 @@ BEGIN
   r := pg_temp.mt_try('service_role', NULL, format('INSERT INTO meeting_removed_users (meeting_id, user_id, account_id, removed_by) VALUES (%L, %L, %L, %L)', m_open, u_out, a_acct, u_host));
   n := n + 1;
   IF r <> 'ok' THEN failed := array_append(failed, ('service role records a removal: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('INSERT INTO meeting_participants (meeting_id, account_id, user_id, cf_session_id) VALUES (%L, %L, %L, %L)', m_open, a_acct, u_out, 'mt-session-removed'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0001: removed_from_meeting%' THEN failed := array_append(failed, ('a removed person was given a new seat: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'back again'));
   n := n + 1;
   IF r NOT LIKE 'ERROR P0001: removed%' THEN failed := array_append(failed, ('a removed person posted to the meeting: ' || r)::text); END IF;
@@ -476,6 +479,9 @@ BEGIN
   r := pg_temp.mt_try('authenticated', u_out, format('SELECT body FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'back again'));
   n := n + 1;
   IF r IS DISTINCT FROM 'back again' THEN failed := array_append(failed, ('a person let back in posts again: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('INSERT INTO meeting_participants (meeting_id, account_id, user_id, cf_session_id) VALUES (%L, %L, %L, %L)', m_open, a_acct, u_out, 'mt-session-readmitted'));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('a person let back in cannot take a seat: ' || r)::text); END IF;
   n := n + 1;
   IF has_table_privilege('anon', 'public.meeting_removed_users', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
      OR has_table_privilege('authenticated', 'public.meeting_removed_users', 'INSERT,UPDATE,DELETE,TRUNCATE')

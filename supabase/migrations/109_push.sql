@@ -30,6 +30,14 @@
 -- archived). Quiet hours are stored here but applied by the
 -- dispatcher, which knows the clock at send time.
 --
+-- Access is asked twice: at enqueue, and again by push_claim at send
+-- time (push_still_allowed), which settles a row its person may no
+-- longer have as 'skipped: access revoked' instead of handing it out.
+-- push_settle / push_release take the claimed_at push_claim returned,
+-- so a pass that outlived its 2-minute lease cannot settle a row
+-- another pass has claimed since. chat_erase_person (087) is redefined
+-- here to delete the erased person's queued chat pushes.
+--
 -- The chat trigger is a DEFERRED constraint trigger: chat_post_message
 -- inserts the message first and its mentions and attachments after, so
 -- an ordinary AFTER INSERT trigger would see none of them. Its WHEN
@@ -83,6 +91,14 @@ CREATE TABLE IF NOT EXISTS public.push_outbox (
   body       text,
   url        text NOT NULL,
   tag        text,
+  -- What push_claim re-checks at send time (a row can wait 12 h in
+  -- quiet hours, or be retried): the chat of a whatsapp_message, the
+  -- channel of a chat_message; and the chat message's author, whose
+  -- queued words chat_erase_person deletes. Plain uuids, no FK: a row
+  -- whose chat or channel is gone is skipped, not cascaded.
+  conversation_id uuid,
+  channel_id      uuid,
+  source_user_id  uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   claimed_at timestamptz,
   sent_at    timestamptz,
@@ -281,8 +297,9 @@ BEGIN
   v_url := '/chat/' || v_ch.id
            || CASE WHEN v_msg.thread_root_id IS NOT NULL THEN '?thread=' || v_msg.thread_root_id ELSE '' END;
 
-  INSERT INTO public.push_outbox (user_id, account_id, kind, title, body, url, tag)
-  SELECT cm.user_id, v_ch.account_id, 'chat_message', left(v_title, 120), v_body, v_url, 'chat:' || v_ch.id
+  INSERT INTO public.push_outbox (user_id, account_id, kind, title, body, url, tag, channel_id, source_user_id)
+  SELECT cm.user_id, v_ch.account_id, 'chat_message', left(v_title, 120), v_body, v_url, 'chat:' || v_ch.id,
+         v_ch.id, v_msg.author_id
     FROM public.chat_channel_members cm
    WHERE cm.channel_id = v_ch.id
      AND cm.user_id <> v_msg.author_id
@@ -408,9 +425,9 @@ BEGIN
      WHERE NOT EXISTS (SELECT 1 FROM assignee) AND NOT EXISTS (SELECT 1 FROM allocated)
        AND p.account_role IN ('owner', 'admin') AND p.deactivated_at IS NULL
   )
-  INSERT INTO public.push_outbox (user_id, account_id, kind, title, body, url, tag)
+  INSERT INTO public.push_outbox (user_id, account_id, kind, title, body, url, tag, conversation_id)
   SELECT r.user_id, m.account_id, 'whatsapp_message', left(m.title, 120), m.body,
-         '/inbox?c=' || m.conversation_id, 'wa:' || m.conversation_id
+         '/inbox?c=' || m.conversation_id, 'wa:' || m.conversation_id, m.conversation_id
     FROM m, r
    WHERE public.can_view_conversation_for_user(r.user_id, m.account_id, m.owner_id, m.assigned_agent_id)
      AND public.push_eligible(r.user_id, m.account_id, 'whatsapp_message');
@@ -420,9 +437,38 @@ END $$;
 
 -- ---------- 7. The dispatcher's RPCs ----------
 
+-- Would row o still be sent to its person? Asked again at claim time,
+-- because access can be lost while a row waits (quiet hours hold it up
+-- to 12 h; a failure retries it): push_eligible for every kind (live in
+-- the account, device, preferences), and on top for whatsapp_message
+-- that the person can still see the chat as it is now (its current
+-- owner and assignee), for chat_message that they are still a member
+-- of the channel and may read its messages (the chat trigger's test).
+-- A row missing its conversation or channel id fails.
+CREATE OR REPLACE FUNCTION public.push_still_allowed(o public.push_outbox)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT public.push_eligible(o.user_id, o.account_id, o.kind)
+     AND CASE o.kind
+           WHEN 'whatsapp_message' THEN EXISTS (
+             SELECT 1 FROM public.conversations cv
+              WHERE cv.id = o.conversation_id AND cv.account_id = o.account_id
+                AND public.can_view_conversation_for_user(o.user_id, o.account_id, cv.user_id, cv.assigned_agent_id))
+           WHEN 'chat_message' THEN EXISTS (
+             SELECT 1 FROM public.chat_channel_members cm
+               JOIN public.chat_channels ch ON ch.id = cm.channel_id
+              WHERE cm.channel_id = o.channel_id AND cm.user_id = o.user_id AND ch.account_id = o.account_id)
+             AND coalesce(public.chat_user_can_read_channel(o.channel_id, o.user_id, true), false)
+           ELSE true
+         END
+$$;
+
 -- Up to p_limit (1–500) unsent rows, oldest first, not claimed in the
 -- last 2 minutes and tried fewer than 5 times; each is stamped claimed
 -- and its attempts bumped. Concurrent dispatchers never share a row.
+-- A picked row whose person may no longer have it (push_still_allowed)
+-- is settled in the same statement (sent_at stamped, last_error
+-- 'skipped: access revoked') and not returned, so a batch can come
+-- back shorter than the rows it took.
 CREATE OR REPLACE FUNCTION public.push_claim(p_limit integer)
 RETURNS SETOF public.push_outbox LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   WITH c AS (
@@ -433,22 +479,49 @@ RETURNS SETOF public.push_outbox LANGUAGE sql SECURITY DEFINER SET search_path =
      ORDER BY o.created_at, o.id
      LIMIT least(greatest(coalesce(p_limit, 0), 0), 500)
      FOR UPDATE SKIP LOCKED
+  ), j AS (   -- judged only for the rows taken, not every unsent one
+    SELECT o.id, public.push_still_allowed(o) AS allowed
+      FROM public.push_outbox o JOIN c ON c.id = o.id
+  ), skipped AS (
+    UPDATE public.push_outbox o SET sent_at = now(), last_error = 'skipped: access revoked'
+      FROM j WHERE o.id = j.id AND NOT j.allowed
+    RETURNING o.id
   )
   UPDATE public.push_outbox o SET claimed_at = now(), attempts = o.attempts + 1
-    FROM c WHERE o.id = c.id
+    FROM j WHERE o.id = j.id AND j.allowed
   RETURNING o.*
 $$;
 
 -- p_ok: sent (sent_at stamped). Otherwise the error is kept and the
 -- claim left in place, so the row is retried after the 2-minute lease
--- (until its 5th attempt).
-CREATE OR REPLACE FUNCTION public.push_settle(p_id bigint, p_ok boolean, p_error text)
-RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+-- (until its 5th attempt). With p_claimed_at (the claimed_at push_claim
+-- returned) the row is settled only while that claim still holds: a
+-- pass that outlived its lease, whose row another pass has claimed
+-- since, changes nothing. True when the row was settled.
+DROP FUNCTION IF EXISTS public.push_settle(bigint, boolean, text);
+CREATE OR REPLACE FUNCTION public.push_settle(
+  p_id bigint, p_ok boolean, p_error text, p_claimed_at timestamptz DEFAULT NULL)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
   UPDATE public.push_outbox
      SET sent_at    = CASE WHEN p_ok THEN now() END,
          last_error = CASE WHEN p_ok THEN NULL ELSE left(p_error, 500) END
    WHERE id = p_id AND sent_at IS NULL
-$$;
+     AND (p_claimed_at IS NULL OR claimed_at = p_claimed_at);
+  RETURN FOUND;
+END $$;
+
+-- Hand back a claimed row a pass never reached (out of time): unclaimed
+-- and its attempt not counted, so the next pass takes it at once. Only
+-- while the claim is still the caller's. True when it was released.
+CREATE OR REPLACE FUNCTION public.push_release(p_id bigint, p_claimed_at timestamptz)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  UPDATE public.push_outbox
+     SET claimed_at = NULL, attempts = greatest(attempts - 1, 0)
+   WHERE id = p_id AND sent_at IS NULL AND claimed_at = p_claimed_at;
+  RETURN FOUND;
+END $$;
 
 -- Rows older than 2 days, sent or not. Returns how many went.
 CREATE OR REPLACE FUNCTION public.push_purge()
@@ -460,7 +533,74 @@ BEGIN
   RETURN v_n;
 END $$;
 
--- ---------- 8. Function grants ----------
+-- ---------- 8. Chat erasure reaches the outbox ----------
+
+-- 087's chat_erase_person, byte for byte, plus the push_outbox DELETE
+-- before the audit row. 109 redefines it: a later change starts from
+-- here. Replacing keeps 087's owner (the table owner, which the
+-- chat.erase history DELETE needs) and grants.
+CREATE OR REPLACE FUNCTION public.chat_erase_person(p_ws uuid, p_user_id uuid, p_reason text)
+RETURNS text[] LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_paths text[];
+  v_msgs  integer;
+BEGIN
+  IF auth.uid() IS NULL OR coalesce(public.chat_ws_role(p_ws), '') <> 'owner' THEN
+    RAISE EXCEPTION 'chat_erase_person: workspace owner role required' USING ERRCODE = '42501';
+  END IF;
+  IF p_user_id IS NULL OR char_length(btrim(coalesce(p_reason, ''))) < 5 THEN
+    RAISE EXCEPTION 'chat_erase_person: user and a reason of at least 5 characters are required' USING ERRCODE = '22023';
+  END IF;
+
+  -- Bodies FIRST: the UPDATE waits for an in-flight edit and holds the
+  -- rows to commit, so no edit slips in after it; the history DELETE
+  -- below then sees every history row committed before.
+  UPDATE public.internal_messages m SET body = '[erased]', erased_at = now()
+   WHERE m.account_id = p_ws AND m.author_id = p_user_id AND m.erased_at IS NULL;
+  GET DIAGNOSTICS v_msgs = ROW_COUNT;
+
+  SELECT coalesce(array_agg(a.storage_path ORDER BY a.storage_path), '{}') INTO v_paths
+    FROM public.message_attachments a JOIN public.internal_messages m ON m.id = a.message_id
+   WHERE m.account_id = p_ws AND m.author_id = p_user_id;
+  DELETE FROM public.message_attachments a USING public.internal_messages m
+   WHERE a.message_id = m.id AND m.account_id = p_ws AND m.author_id = p_user_id;
+  DELETE FROM public.shared_conversations s USING public.internal_messages m
+   WHERE s.message_id = m.id AND m.account_id = p_ws AND m.author_id = p_user_id;
+
+  PERFORM set_config('chat.erase', 'on', true);
+  DELETE FROM public.internal_message_edits x USING public.internal_messages m
+   WHERE x.message_id = m.id AND m.account_id = p_ws AND m.author_id = p_user_id;
+  PERFORM set_config('chat.erase', 'off', true);
+
+  DELETE FROM public.message_mentions mm USING public.internal_messages m
+   WHERE mm.message_id = m.id AND m.account_id = p_ws AND (mm.user_id = p_user_id OR m.author_id = p_user_id);
+  DELETE FROM public.message_mentions_broadcast b USING public.internal_messages m
+   WHERE b.message_id = m.id AND m.account_id = p_ws AND m.author_id = p_user_id;
+  DELETE FROM public.internal_message_reactions r USING public.internal_messages m
+   WHERE r.message_id = m.id AND m.account_id = p_ws AND r.user_id = p_user_id;
+  DELETE FROM public.saved_messages s USING public.internal_messages m
+   WHERE s.message_id = m.id AND m.account_id = p_ws AND s.user_id = p_user_id;
+  DELETE FROM public.chat_notifications WHERE account_id = p_ws AND user_id = p_user_id;
+  -- bell rows: the person's own, and everyone's that quote the person
+  DELETE FROM public.notifications
+   WHERE account_id = p_ws
+     AND type IN ('chat_mention','chat_dm','chat_thread_reply','chat_broadcast')
+     AND (user_id = p_user_id OR actor_user_id = p_user_id);
+
+  -- 109: queued team-chat pushes, sent or not, that carry the person's
+  -- words, and the person's own.
+  DELETE FROM public.push_outbox
+   WHERE account_id = p_ws AND kind = 'chat_message'
+     AND (source_user_id = p_user_id OR user_id = p_user_id);
+
+  INSERT INTO public.chat_audit_log (account_id, actor_id, action, detail)
+  VALUES (p_ws, auth.uid(), 'erase_person',
+          jsonb_build_object('user_id', p_user_id, 'reason', btrim(p_reason),
+                             'messages', v_msgs, 'attachments', cardinality(v_paths)));
+  RETURN v_paths;
+END $$;
+
+-- ---------- 9. Function grants ----------
 
 REVOKE ALL ON FUNCTION public.push_eligible(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_is_uuid(text) FROM PUBLIC, anon, authenticated;
@@ -472,10 +612,13 @@ REVOKE ALL ON FUNCTION public.push_enqueue(uuid, uuid, text, text, text, text, t
 REVOKE ALL ON FUNCTION public.push_whatsapp_inbound(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.can_view_conversation_for_user(uuid, uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_claim(integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.push_settle(bigint, boolean, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.push_still_allowed(public.push_outbox) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.push_settle(bigint, boolean, text, timestamptz) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.push_release(bigint, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.push_purge() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.push_enqueue(uuid, uuid, text, text, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.push_whatsapp_inbound(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.push_claim(integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.push_settle(bigint, boolean, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.push_settle(bigint, boolean, text, timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION public.push_release(bigint, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.push_purge() TO service_role;
