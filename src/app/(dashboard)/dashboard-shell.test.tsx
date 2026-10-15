@@ -31,6 +31,7 @@ vi.mock('@/components/layout/header', () => ({ Header: () => null }));
 vi.mock('@/components/layout/account-access-alert', () => ({
   AccountAccessAlert: () => null,
 }));
+vi.mock('@/components/layout/push-prompt', () => ({ PushPrompt: () => null }));
 vi.mock('@/components/presence/presence-heartbeat', () => ({
   PresenceHeartbeat: () => null,
 }));
