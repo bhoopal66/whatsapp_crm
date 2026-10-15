@@ -25,7 +25,10 @@ export interface EventDetail {
   canEdit: boolean;
 }
 
-/** JSON in and out; a non-2xx throws the route's `{ error }` text. */
+/**
+ * JSON in and out; a non-2xx throws the route's `{ error }` text, with
+ * the HTTP status on the error (`errorStatus`).
+ */
 export async function calendarFetch<T>(
   url: string,
   init: { method?: string; body?: unknown; signal?: AbortSignal } = {}
@@ -44,10 +47,18 @@ export async function calendarFetch<T>(
   } | null;
   if (!res.ok) {
     const error = typeof data?.error === 'string' ? data.error : null;
-    throw new Error(error ?? `HTTP ${res.status}`);
+    throw Object.assign(new Error(error ?? `HTTP ${res.status}`), {
+      status: res.status,
+    });
   }
   return data as T;
 }
 
 export const errorText = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
+
+/** The HTTP status a `calendarFetch` error carries, else null. */
+export const errorStatus = (err: unknown): number | null => {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? status : null;
+};

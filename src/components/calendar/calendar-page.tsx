@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { MeetingFormDialog } from '@/components/meetings/meeting-form-dialog';
 import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
 import { calendarTimeZone } from '@/lib/calendar/fc-timezone';
 import type { FeedItem } from '@/lib/calendar/feed';
@@ -12,6 +13,7 @@ import type { ViewKey } from '@/lib/calendar/ui/url-state';
 
 import { calendarFetch, errorText, type EventDetail } from './calendar-api';
 import { CalendarView } from './calendar-view';
+import { EventDialog } from './event-dialog';
 import { EventPopover, type PopoverTarget } from './event-popover';
 import {
   ScopeDialog,
@@ -65,9 +67,17 @@ export function CalendarPage({
     setQuestion(null);
   };
 
-  // The seam for the create/edit dialog (a later change); a no-op now.
+  // One dialog at a time; `key` remounts it so it reads each request fresh.
+  const [editor, setEditor] = useState<{
+    request: EditorRequest;
+    key: number;
+  } | null>(null);
+  const [meeting, setMeeting] = useState<{
+    start: Date | undefined;
+    key: number;
+  } | null>(null);
   const openEditor = useCallback((request: EditorRequest) => {
-    void request;
+    setEditor({ request, key: Date.now() });
   }, []);
 
   const recurring = (item: FeedItem) => item.kind === 'event' && item.recurring;
@@ -150,6 +160,31 @@ export function CalendarPage({
         onChanged={refresh}
       />
       <ScopeDialog question={question} onAnswer={answer} />
+      {editor && (
+        <EventDialog
+          key={editor.key}
+          request={editor.request}
+          zone={zone}
+          onClose={() => setEditor(null)}
+          onSaved={refresh}
+          onVideoMeeting={(start) => {
+            setEditor(null);
+            setMeeting({ start, key: Date.now() });
+          }}
+        />
+      )}
+      {meeting && (
+        <MeetingFormDialog
+          key={meeting.key}
+          open
+          onOpenChange={(open) => {
+            if (!open) setMeeting(null);
+          }}
+          timeZone={zone}
+          initialStart={meeting.start}
+          onSaved={refresh}
+        />
+      )}
     </>
   );
 }
