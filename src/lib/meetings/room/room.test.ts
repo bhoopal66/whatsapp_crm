@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  afterFailedPublish,
   classifyMediaError,
   isShareCancelled,
   tracksToRelease,
@@ -9,8 +10,11 @@ import { gridColumns, tileLayout, type TileSource } from './layout';
 import { clockSkewMs, isPresent, presentParticipants } from './presence';
 import { createSerialQueue } from './queue';
 import {
+  admitPullRejoin,
   afterPullStrike,
   needsPullRollback,
+  PULL_REJOIN_LIMIT,
+  PULL_REJOIN_WINDOW_MS,
   PULL_STRIKES_BEFORE_REJOIN,
 } from './recovery';
 import { classifyRoomFailure, parseJoinResult, parseTracksResult } from './sfu';
@@ -280,6 +284,44 @@ describe('devices', () => {
     expect(tracksToRelease([mic, cam], [mic, null])).toEqual([cam]);
     expect(tracksToRelease([null, null], [null, null])).toEqual([]);
   });
+
+  it('releases what a failed publish was for, so the toggle retries', () => {
+    const [mic, cam, scr] = ['mic', 'cam', 'scr'];
+    const held = { audio: mic, video: cam, screen: scr };
+    const failed = [
+      { track: mic, kind: 'audio' as const },
+      { track: cam, kind: 'video' as const },
+      { track: scr, kind: 'screen' as const },
+    ];
+    expect(afterFailedPublish(failed, held, new Set())).toEqual([
+      { kind: 'audio', error: 'unknown' },
+      { kind: 'video', error: 'unknown' },
+      { kind: 'screen', error: null },
+    ]);
+  });
+
+  it('keeps a track replaced meanwhile or a kind already published', () => {
+    const failed = [
+      { track: 'mic', kind: 'audio' as const },
+      { track: 'cam', kind: 'video' as const },
+    ];
+    // The camera was turned off (or reopened) while the publish ran.
+    expect(
+      afterFailedPublish(
+        failed,
+        { audio: 'mic', video: 'cam2', screen: null },
+        new Set()
+      )
+    ).toEqual([{ kind: 'audio', error: 'unknown' }]);
+    // A duplicate publish of a mic that is already being sent.
+    expect(
+      afterFailedPublish(
+        failed,
+        { audio: 'mic', video: null, screen: null },
+        new Set(['audio'])
+      )
+    ).toEqual([]);
+  });
 });
 
 describe('pull recovery', () => {
@@ -306,6 +348,33 @@ describe('pull recovery', () => {
       rejoin: true,
     });
     expect(afterPullStrike(0, 'closed').rejoin).toBe(true);
+  });
+
+  it('stops a pull that keeps failing instead of rejoining forever', () => {
+    // A rejoin reaches `connected` (which resets the ICE retry count),
+    // then two replans fail the pull again: about every 15 s.
+    let rejoins: number[] = [];
+    let admitted = 0;
+    let t = NOW;
+    for (let i = 0; i < 20; i += 1, t += 15_000) {
+      const next = admitPullRejoin(rejoins, t);
+      rejoins = next.rejoins;
+      if (!next.admit) break;
+      admitted += 1;
+    }
+    expect(PULL_REJOIN_LIMIT).toBe(3);
+    expect(admitted).toBe(PULL_REJOIN_LIMIT);
+  });
+
+  it('admits pull rejoins again once the earlier ones age out', () => {
+    const full = [NOW - 60_000, NOW - 30_000, NOW - 10_000];
+    expect(admitPullRejoin(full, NOW).admit).toBe(false);
+    const later = NOW - 60_000 + PULL_REJOIN_WINDOW_MS;
+    expect(admitPullRejoin(full, later)).toEqual({
+      rejoins: [NOW - 30_000, NOW - 10_000, later],
+      admit: true,
+    });
+    expect(admitPullRejoin([], NOW)).toEqual({ rejoins: [NOW], admit: true });
   });
 });
 

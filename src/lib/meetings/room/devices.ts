@@ -1,3 +1,5 @@
+import type { TrackKind } from './types';
+
 /**
  * Why a camera, microphone or screen could not be opened, in the terms
  * the room shows. Classified from the DOMException name that
@@ -61,4 +63,28 @@ export function tracksToRelease<T>(
  */
 export function isShareCancelled(err: unknown): boolean {
   return classifyMediaError(err) === 'permission_denied';
+}
+
+/**
+ * What a failed publish releases. A local track the SFU never received
+ * is released, so the room reads it as off and the toggle's turn-on path
+ * (open the device, publish through the queue) is the retry: the mic
+ * and camera with an `unknown` device error, since the person sees
+ * their own mic or camera as on otherwise and nobody hears or sees
+ * them; the screen silently, the share button reading "share" again.
+ * Never a track the engine has since replaced or dropped, and never a
+ * kind that already has a live publication, so a duplicate publish that
+ * fails cannot stop the track the first one is sending.
+ */
+export function afterFailedPublish<T>(
+  failed: readonly { track: T; kind: TrackKind }[],
+  held: Readonly<Record<TrackKind, T | null>>,
+  published: ReadonlySet<TrackKind>
+): { kind: TrackKind; error: DeviceError | null }[] {
+  return failed
+    .filter((f) => held[f.kind] === f.track && !published.has(f.kind))
+    .map((f) => ({
+      kind: f.kind,
+      error: f.kind === 'screen' ? null : 'unknown',
+    }));
 }

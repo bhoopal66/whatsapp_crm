@@ -15,6 +15,12 @@
  * connection still not `stable` after the rollback, rejoins from scratch
  * rather than piling up orphan transceivers every 5 s.
  *
+ * Those rejoins have a budget of their own (`admitPullRejoin`). The
+ * connection-state retry counter resets whenever ICE reaches
+ * `connected`, and a rejoin reaches `connected` before its pulls fail
+ * again, so a pull that always fails would otherwise rejoin every two
+ * replans, forever. Spending the budget ends the call as failed.
+ *
  * Signalling states are plain strings so this file needs no DOM lib.
  */
 
@@ -41,4 +47,25 @@ export function afterPullStrike(
       next >= PULL_STRIKES_BEFORE_REJOIN ||
       signalingStateAfterCleanup !== 'stable',
   };
+}
+
+/** Pull-strike rejoins allowed within `PULL_REJOIN_WINDOW_MS`. */
+export const PULL_REJOIN_LIMIT = 3;
+export const PULL_REJOIN_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Whether a pull-strike rejoin may go ahead. `earlier` holds the times
+ * of earlier pull-strike rejoins; only reaching the limit within the
+ * window refuses, and nothing but time (or a fresh join from the lobby)
+ * clears it, so a pull that keeps failing ends the call within minutes.
+ */
+export function admitPullRejoin(
+  earlier: readonly number[],
+  now: number
+): { rejoins: number[]; admit: boolean } {
+  const recent = earlier.filter((t) => now - t < PULL_REJOIN_WINDOW_MS);
+  if (recent.length >= PULL_REJOIN_LIMIT) {
+    return { rejoins: recent, admit: false };
+  }
+  return { rejoins: [...recent, now], admit: true };
 }
