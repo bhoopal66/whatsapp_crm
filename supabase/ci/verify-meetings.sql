@@ -1,4 +1,4 @@
--- Behavioural regression suite for video meetings (migration 106).
+-- Behavioural regression suite for video meetings (migrations 106-107).
 --
 -- Who sees a meeting is meeting_can_view: a live, non-guest member
 -- active in the meeting's workspace who is owner/admin, the host, an
@@ -13,7 +13,11 @@
 -- most one open seat per meeting, that an invitee
 -- must be a live staff member of the meeting's workspace, the
 -- meeting_invite bell and its meta, the table and function grants, and
--- the realtime publication.
+-- the realtime publication. From 107: the in-room chat and reactions
+-- (meeting_messages) read as the meeting is, written only through
+-- meeting_post_message (visible, scheduled, a valid kind and body, 20
+-- posts per person per meeting per 10 s), and the seat's raised-hand
+-- and moderation columns, which no client writes.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -39,6 +43,8 @@ DECLARE
   m_open   UUID;   -- the host's, open to the workspace
   m_b      UUID;   -- account B's
   p_one    UUID;
+  p_inv    UUID;
+  i        INT;
   r        TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
@@ -313,6 +319,120 @@ BEGIN
   n := n + 1;
   IF r NOT LIKE 'ERROR 23505:%' THEN failed := array_append(failed, ('a second open seat for the same person in one meeting: ' || r)::text); END IF;
 
+  -- ---------- in-room chat and reactions (107) ----------
+  r := pg_temp.mt_try('authenticated', u_host, format(
+    'SELECT body || ''|'' || kind || ''|'' || user_id || ''|'' || account_id FROM meeting_post_message(%L, %L, %L)',
+    m_closed, 'chat', E'  hello room \n'));
+  n := n + 1;
+  IF r IS DISTINCT FROM ('hello room|chat|' || u_host || '|' || a_acct) THEN
+    failed := array_append(failed, ('host posts a trimmed chat message as themselves in the meeting''s workspace: ' || r)::text);
+  END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format(
+    'SELECT body FROM meeting_post_message(%L, %L, %L)', m_closed, 'reaction', E'❤️'));
+  n := n + 1;
+  IF r IS DISTINCT FROM E'❤️' THEN failed := array_append(failed, ('invitee posts a reaction: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT count(*)::text FROM meeting_messages WHERE meeting_id = %L', m_closed));
+  n := n + 1;
+  IF r <> '2' THEN failed := array_append(failed, ('invitee reads the meeting''s messages: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT count(*)::text FROM meeting_messages WHERE meeting_id = %L', m_closed));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('agent not invited reads an invite-only meeting''s messages: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_guest, format('SELECT count(*)::text FROM meeting_messages WHERE meeting_id = %L', m_closed));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('bank guest reads a meeting''s messages: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_other, format('SELECT count(*)::text FROM meeting_messages WHERE meeting_id = %L', m_closed));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('another workspace reads A''s meeting messages: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'chat', 'let me in'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent not invited posts to an invite-only meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_guest, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'hi'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('bank guest posts to an open meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_gone, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'hi'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a deactivated member posts to an open meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_other, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'hi'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('another workspace posts to A''s open meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT body FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'open to all'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'open to all' THEN failed := array_append(failed, ('agent posts to a meeting open to the workspace: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'reaction', E'\U0001F525'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023:%' THEN failed := array_append(failed, ('a reaction outside the set was accepted: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'system', 'hi'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023:%' THEN failed := array_append(failed, ('a message kind other than chat/reaction was accepted: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'chat', E' \n\t '));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023:%' THEN failed := array_append(failed, ('a blank chat message was accepted: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'chat', repeat('x', 2001)));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023:%' THEN failed := array_append(failed, ('a 2001-character chat message was accepted: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT char_length(body)::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'chat', repeat('x', 2000)));
+  n := n + 1;
+  IF r IS DISTINCT FROM '2000' THEN failed := array_append(failed, ('a 2000-character chat message is accepted: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format(
+    'INSERT INTO meeting_messages (meeting_id, account_id, user_id, kind, body) VALUES (%L, %L, %L, %L, %L)',
+    m_closed, a_acct, u_host, 'chat', 'direct'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a client inserted a meeting message directly: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meeting_messages SET body = %L WHERE meeting_id = %L', 'edited', m_closed));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a client edited a meeting message: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_admin, format('DELETE FROM meeting_messages WHERE meeting_id = %L', m_closed));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a client deleted a meeting message: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format(
+    'INSERT INTO meeting_messages (meeting_id, account_id, user_id, kind, body) VALUES (%L, %L, %L, %L, %L)',
+    m_closed, a_acct, u_host, 'chat', 'unchecked'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('the service role inserted a meeting message around the rules: ' || r)::text); END IF;
+
+  -- The rate limit: u_inv has 1 post in m_closed; 19 more reach 20, and
+  -- the 21st is refused. Per person and per meeting: the host and
+  -- u_inv's own post elsewhere still go through.
+  FOR i IN 1..19 LOOP
+    r := pg_temp.mt_try('authenticated', u_inv, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'chat', 'msg ' || i));
+    EXIT WHEN r LIKE 'ERROR%';
+  END LOOP;
+  n := n + 1;
+  IF r LIKE 'ERROR%' THEN failed := array_append(failed, ('20 posts in 10 seconds are allowed: post ' || i || ': ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'reaction', E'\U0001F44D'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0001: rate_limited%' THEN failed := array_append(failed, ('rate limit: a 21st post within 10 seconds is refused with rate_limited: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT body FROM meeting_post_message(%L, %L, %L)', m_closed, 'reaction', E'\U0001F389'));
+  n := n + 1;
+  IF r IS DISTINCT FROM E'\U0001F389' THEN failed := array_append(failed, ('rate limit is per person: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT body FROM meeting_post_message(%L, %L, %L)', m_open, 'reaction', E'\U0001F62E'));
+  n := n + 1;
+  IF r IS DISTINCT FROM E'\U0001F62E' THEN failed := array_append(failed, ('rate limit is per meeting: ' || r)::text); END IF;
+
+  -- ---------- raised hands and moderation on a seat (107) ----------
+  SELECT id INTO p_inv FROM meeting_participants WHERE cf_session_id = 'mt-session-2';
+  r := pg_temp.mt_try('authenticated', u_inv, format('UPDATE meeting_participants SET hand_raised_at = now() WHERE id = %L', p_inv));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a client raised their hand on the participant row: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meeting_participants SET mute_requested_at = now(), removed_at = now(), removed_by = %L, left_at = now() WHERE id = %L', u_host, p_inv));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a host wrote the moderation columns from a client: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('UPDATE meeting_participants SET hand_raised_at = now(), mute_requested_at = now() WHERE id = %L', p_inv));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('service role raises a hand and requests a mute: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT (hand_raised_at IS NOT NULL AND mute_requested_at IS NOT NULL)::text FROM meeting_participants WHERE id = %L', p_inv));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'true' THEN failed := array_append(failed, ('the seat''s owner reads its hand and mute request: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('UPDATE meeting_participants SET removed_at = now(), removed_by = %L WHERE id = %L', u_host, p_inv));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514:%' THEN failed := array_append(failed, ('a seat was marked removed while still open: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('UPDATE meeting_participants SET removed_by = %L, left_at = now() WHERE id = %L', u_host, p_inv));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514:%' THEN failed := array_append(failed, ('removed_by was set without removed_at: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('UPDATE meeting_participants SET left_at = now(), removed_at = now(), removed_by = %L, hand_raised_at = NULL WHERE id = %L', u_host, p_inv));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('service role removes a seat: ' || r)::text); END IF;
+
   -- ---------- terminal statuses ----------
   r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meetings SET status = %L, ended_at = %L WHERE id = %L', 'ended', '2000-01-01', m_closed));
   n := n + 1;
@@ -324,6 +444,12 @@ BEGIN
   IF EXISTS (SELECT 1 FROM meeting_participants WHERE meeting_id = m_closed AND left_at IS NULL) THEN
     failed := array_append(failed, 'ending a meeting closes every open participant row'::text);
   END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_closed, 'chat', 'still here?'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0001: meeting_closed%' THEN failed := array_append(failed, ('an ended meeting accepted a post: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT count(*)::text FROM meeting_messages WHERE meeting_id = %L', m_closed));
+  n := n + 1;
+  IF r <> '23' THEN failed := array_append(failed, ('invitee still reads an ended meeting''s chat history: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meetings SET status = %L WHERE id = %L', 'scheduled', m_closed));
   n := n + 1;
   IF r NOT LIKE 'ERROR 23514:%' THEN failed := array_append(failed, ('host reopened an ended meeting: ' || r)::text); END IF;
@@ -335,6 +461,9 @@ BEGIN
   IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM meetings WHERE id = m_open AND status = 'cancelled' AND ended_at IS NULL) THEN
     failed := array_append(failed, ('admin cancels any meeting: ' || r)::text);
   END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'anyone?'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR P0001: meeting_closed%' THEN failed := array_append(failed, ('a cancelled meeting accepted a post: ' || r)::text); END IF;
   r := pg_temp.mt_try('service_role', NULL, format('UPDATE meetings SET status = %L WHERE id = %L', 'scheduled', m_open));
   n := n + 1;
   IF r NOT LIKE 'ERROR 23514:%' THEN failed := array_append(failed, ('service role reopened a cancelled meeting: ' || r)::text); END IF;
@@ -361,8 +490,32 @@ BEGIN
     failed := array_append(failed, 'meeting_can_view / meeting_can_manage are not SECURITY DEFINER with a pinned search_path and explicit grants'::text);
   END IF;
   n := n + 1;
+  IF has_table_privilege('anon', 'public.meeting_messages', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+     OR has_table_privilege('authenticated', 'public.meeting_messages', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+     OR has_table_privilege('service_role', 'public.meeting_messages', 'INSERT,UPDATE,DELETE,TRUNCATE')
+     OR NOT has_table_privilege('authenticated', 'public.meeting_messages', 'SELECT') THEN
+    failed := array_append(failed, 'meeting_messages grants more than SELECT (or authenticated cannot read it)'::text);
+  END IF;
+  n := n + 1;
+  IF has_column_privilege('authenticated', 'public.meeting_participants', 'hand_raised_at', 'INSERT,UPDATE')
+     OR has_column_privilege('authenticated', 'public.meeting_participants', 'mute_requested_at', 'INSERT,UPDATE')
+     OR has_column_privilege('authenticated', 'public.meeting_participants', 'removed_at', 'INSERT,UPDATE')
+     OR has_column_privilege('authenticated', 'public.meeting_participants', 'removed_by', 'INSERT,UPDATE') THEN
+    failed := array_append(failed, 'a client can write a seat''s hand or moderation columns'::text);
+  END IF;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc
+                  WHERE oid = 'public.meeting_post_message(uuid, text, text)'::regprocedure
+                    AND prosecdef AND proconfig @> ARRAY['search_path=public, pg_temp'])
+     OR has_function_privilege('anon', 'public.meeting_post_message(uuid, text, text)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.meeting_post_message(uuid, text, text)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.meeting_post_message(uuid, text, text)', 'EXECUTE') THEN
+    failed := array_append(failed, 'meeting_post_message is not SECURITY DEFINER with a pinned search_path, executable by authenticated only'::text);
+  END IF;
+  n := n + 1;
   IF EXISTS (SELECT 1 FROM pg_class
-              WHERE oid IN ('public.meetings'::regclass, 'public.meeting_invitees'::regclass, 'public.meeting_participants'::regclass)
+              WHERE oid IN ('public.meetings'::regclass, 'public.meeting_invitees'::regclass, 'public.meeting_participants'::regclass,
+                            'public.meeting_messages'::regclass)
                 AND NOT (relrowsecurity AND relforcerowsecurity)) THEN
     failed := array_append(failed, 'row-level security is not forced on every meetings table'::text);
   END IF;
@@ -376,8 +529,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
      AND (SELECT count(*) FROM pg_publication_tables
            WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
-             AND tablename IN ('meetings', 'meeting_participants')) <> 2 THEN
-    failed := array_append(failed, 'meetings and meeting_participants are not in supabase_realtime'::text);
+             AND tablename IN ('meetings', 'meeting_participants', 'meeting_messages')) <> 3 THEN
+    failed := array_append(failed, 'meetings, meeting_participants and meeting_messages are not all in supabase_realtime'::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

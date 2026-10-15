@@ -251,6 +251,10 @@ jobs:
       # open; a bank guest nothing), a guard freezes host and workspace
       # and makes ended/cancelled terminal for every writer, participant
       # rows are service-role only, and an invitation rings the bell.
+      # 107: in-room chat and reactions read as the meeting is, posted
+      # only through meeting_post_message (visible, scheduled, a valid
+      # kind and body, rate-limited), and the seat's hand and moderation
+      # columns stay service-role only.
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify meetings
         run: supabase db query --local --file supabase/ci/verify-meetings.sql
