@@ -43,3 +43,17 @@ export function clockSkewMs(serverIso: string, localNowMs: number): number {
   const server = Date.parse(serverIso);
   return Number.isNaN(server) ? 0 : server - localNowMs;
 }
+
+/** When the call went live: the earliest `joined_at` of those present. */
+export function liveSince(present: readonly ParticipantRow[]): string | null {
+  let best: string | null = null;
+  let bestMs = Infinity;
+  for (const r of present) {
+    const ms = Date.parse(r.joined_at);
+    if (!Number.isNaN(ms) && ms < bestMs) {
+      bestMs = ms;
+      best = r.joined_at;
+    }
+  }
+  return best;
+}

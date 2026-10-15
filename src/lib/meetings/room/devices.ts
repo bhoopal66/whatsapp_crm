@@ -1,3 +1,4 @@
+import type { DeviceOption, MediaDeviceKind } from './contract';
 import type { TrackKind } from './types';
 
 /**
@@ -87,4 +88,111 @@ export function afterFailedPublish<T>(
       kind: f.kind,
       error: f.kind === 'screen' ? null : 'unknown',
     }));
+}
+
+// --- device choice (v2) ------------------------------------------------
+
+export const DEVICE_PREFS_KEY = 'meetings.devices.v1';
+
+export type DevicePrefs = Record<MediaDeviceKind, string | null>;
+
+const DEVICE_KINDS: readonly MediaDeviceKind[] = [
+  'audioinput',
+  'videoinput',
+  'audiooutput',
+];
+
+/** localStorage's value, read tolerantly: anything odd is "the default". */
+export function parseDevicePrefs(raw: string | null): DevicePrefs {
+  const out: DevicePrefs = {
+    audioinput: null,
+    videoinput: null,
+    audiooutput: null,
+  };
+  if (!raw) return out;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return out;
+  }
+  if (!parsed || typeof parsed !== 'object') return out;
+  for (const kind of DEVICE_KINDS) {
+    const v = (parsed as Record<string, unknown>)[kind];
+    if (typeof v === 'string' && v && v.length <= 512) out[kind] = v;
+  }
+  return out;
+}
+
+/**
+ * enumerateDevices() grouped by kind. Chrome's `default` and
+ * `communications` entries are aliases of a real device and are left
+ * out: "the browser default" is a null choice, not an option.
+ */
+export function deviceOptionsFrom(
+  devices: readonly { kind: string; deviceId: string; label: string }[]
+): Record<MediaDeviceKind, DeviceOption[]> {
+  const out: Record<MediaDeviceKind, DeviceOption[]> = {
+    audioinput: [],
+    videoinput: [],
+    audiooutput: [],
+  };
+  for (const d of devices) {
+    if (!(DEVICE_KINDS as readonly string[]).includes(d.kind)) continue;
+    if (!d.deviceId || d.deviceId === 'default') continue;
+    if (d.deviceId === 'communications') continue;
+    const list = out[d.kind as MediaDeviceKind];
+    if (!list.some((o) => o.deviceId === d.deviceId)) {
+      list.push({ deviceId: d.deviceId, label: d.label });
+    }
+  }
+  return out;
+}
+
+/**
+ * The choice to show: a stored device that is no longer plugged in
+ * reads as the default. With no listed devices (no permission yet, so
+ * no ids) the stored choice stands.
+ */
+export function effectiveSelection(
+  prefs: DevicePrefs,
+  options: Record<MediaDeviceKind, DeviceOption[]>
+): DevicePrefs {
+  const out = { ...prefs };
+  for (const kind of DEVICE_KINDS) {
+    const id = prefs[kind];
+    if (
+      id &&
+      options[kind].length &&
+      !options[kind].some((o) => o.deviceId === id)
+    ) {
+      out[kind] = null;
+    }
+  }
+  return out;
+}
+
+/** getUserMedia constraints for the mic or camera, on a chosen device. */
+export function mediaConstraints(
+  kind: 'audio' | 'video',
+  deviceId: string | null
+): { audio?: Record<string, unknown>; video?: Record<string, unknown> } {
+  const device = deviceId ? { deviceId: { exact: deviceId } } : {};
+  return kind === 'audio'
+    ? {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          ...device,
+        },
+      }
+    : {
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+          ...device,
+        },
+      };
 }

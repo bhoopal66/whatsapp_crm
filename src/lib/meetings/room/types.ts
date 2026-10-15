@@ -25,11 +25,16 @@ export interface ParticipantRow {
   tracks: PublishedTrack[];
   audio_muted: boolean;
   video_off: boolean;
+  /** v2 (migration 107); null when unset or not yet migrated. */
+  hand_raised_at: string | null;
+  mute_requested_at: string | null;
+  removed_at: string | null;
+  removed_by: string | null;
 }
 
 /** The columns the room selects. */
 export const PARTICIPANT_COLUMNS =
-  'id, meeting_id, user_id, cf_session_id, joined_at, last_seen_at, left_at, tracks, audio_muted, video_off';
+  'id, meeting_id, user_id, cf_session_id, joined_at, last_seen_at, left_at, tracks, audio_muted, video_off, hand_raised_at, mute_requested_at, removed_at, removed_by';
 
 /** A remote track the room wants to receive (one `location: 'remote'` entry). */
 export interface RemoteTrackRef {
