@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   seats: [] as { id: string; user_id: string; cf_session_id: string }[],
   profiles: [] as { user_id: string; role: string }[],
   closedSeatIds: [] as unknown[],
+  inviteeReadError: null as unknown,
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -52,7 +53,7 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
   }),
 }));
 
-import { DELETE, PATCH } from './route';
+import { DELETE, GET, PATCH } from './route';
 
 const M = '22222222-2222-4222-8222-222222222222';
 const OLD = '44444444-4444-4444-8444-444444444444';
@@ -66,7 +67,7 @@ function from(table: string) {
   const q: Record<string, unknown> = {};
   let op = 'select';
   let values: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'in', 'is']) q[m] = () => q;
+  for (const m of ['select', 'eq', 'in', 'is', 'gt']) q[m] = () => q;
   q.update = (v: Record<string, unknown>) => (
     (op = 'update'),
     (values = v),
@@ -84,7 +85,11 @@ function from(table: string) {
   });
   q.then = (resolve: (v: unknown) => void) => {
     if (table === 'meeting_invitees' && op === 'select') {
-      return resolve({ data: [{ user_id: OLD }], error: null });
+      return resolve(
+        mocks.inviteeReadError
+          ? { data: null, error: mocks.inviteeReadError }
+          : { data: [{ user_id: OLD }], error: null }
+      );
     }
     if (table === 'meeting_participants') {
       mocks.writes.push('read seats');
@@ -188,6 +193,37 @@ describe('PATCH /api/meetings/[id]', () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
     expect(mocks.writes).toEqual([]);
+  });
+});
+
+describe('GET /api/meetings/[id]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.inviteeReadError = null;
+    mocks.seats = [];
+    mocks.meeting = { id: M, account_id: 'acct-1', status: 'scheduled' };
+    mocks.rpc.mockResolvedValue({ data: true, error: null });
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'agent',
+      userId: 'user-1',
+      accountId: 'acct-1',
+      supabase: { from, rpc: mocks.rpc },
+    });
+  });
+
+  it('lists the invitees', async () => {
+    const res = await GET(new Request('http://x'), params);
+    expect(res.status).toBe(200);
+    expect((await res.json()).invitee_user_ids).toEqual([OLD]);
+  });
+
+  // The edit dialog saves the list it was shown: an empty list from a
+  // failed read would PATCH every invitee away.
+  it('answers 503, not an empty invitee list, when that read fails', async () => {
+    mocks.inviteeReadError = { code: '57014' };
+    const res = await GET(new Request('http://x'), params);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
   });
 });
 
