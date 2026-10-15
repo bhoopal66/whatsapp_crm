@@ -23,6 +23,17 @@ import { decideQuietHours, type QuietPrefs } from './quiet-hours';
  *   was queued, no device left, too old after quiet hours) is closed
  *   as skipped: sent_at stamped, the reason in last_error.
  *
+ * - Every write back to a claimed row names the claimed_at push_claim
+ *   returned, so a pass that outlived its lease never overwrites a row
+ *   another pass has claimed since.
+ * - A pass has a time budget (PASS_BUDGET_MS, well inside the 2-minute
+ *   lease) and each send a 10 s timeout. Rows not reached when the
+ *   budget runs out are handed back with push_release (unclaimed, the
+ *   attempt refunded) for the next pass.
+ * - push_claim settles rows whose person lost access without returning
+ *   them, so a batch shorter than `limit` does not mean the queue is
+ *   empty.
+ *
  * Never throws; with no VAPID keys it does nothing at all.
  */
 export interface DispatchSummary {
@@ -31,6 +42,8 @@ export interface DispatchSummary {
   held: number;
   skipped: number;
   failed: number;
+  /** Claimed but handed back unsent because the pass ran out of time. */
+  released: number;
 }
 
 interface OutboxRow {
@@ -43,6 +56,7 @@ interface OutboxRow {
   tag: string | null;
   created_at: string;
   attempts: number;
+  claimed_at: string;
 }
 
 interface Subscription {
@@ -63,17 +77,27 @@ interface Prefs extends QuietPrefs {
 /** Consecutive failures after which a device is dropped. */
 export const MAX_DEVICE_FAILURES = 10;
 const CLAIM_LEASE_MS = 2 * 60_000;
+/** A pass stops starting rows after this; well inside the lease. */
+export const PASS_BUDGET_MS = 60_000;
+/** Per-send timeout handed to web-push. */
+export const SEND_TIMEOUT_MS = 10_000;
 
 export async function dispatchPush(
   admin: SupabaseClient,
-  { limit = 50 }: { limit?: number } = {}
+  {
+    limit = 50,
+    budgetMs = PASS_BUDGET_MS,
+    clock = Date.now,
+  }: { limit?: number; budgetMs?: number; clock?: () => number } = {}
 ): Promise<DispatchSummary> {
+  const deadline = clock() + budgetMs;
   const summary: DispatchSummary = {
     claimed: 0,
     sent: 0,
     held: 0,
     skipped: 0,
     failed: 0,
+    released: 0,
   };
   const config = pushConfig();
   if (!config) return summary;
@@ -101,7 +125,7 @@ export async function dispatchPush(
     if (subsRes.error || prefsRes.error) {
       const msg = (subsRes.error ?? prefsRes.error)!.message;
       console.error('[push] could not load devices or preferences:', msg);
-      for (const row of rows) await settle(admin, row.id, false, msg);
+      for (const row of rows) await settle(admin, row, false, msg);
       summary.failed += rows.length;
       return summary;
     }
@@ -112,7 +136,15 @@ export async function dispatchPush(
     // Devices dropped in this pass, so a later row skips them.
     const gone = new Set<string>();
 
-    for (const row of rows) {
+    for (const [i, row] of rows.entries()) {
+      if (clock() >= deadline) {
+        for (const rest of rows.slice(i)) await release(admin, rest);
+        summary.released += rows.length - i;
+        console.error(
+          `[push] pass out of time, released ${rows.length - i} row(s)`
+        );
+        break;
+      }
       try {
         const outcome = await deliverRow(
           admin,
@@ -151,7 +183,7 @@ async function deliverRow(
   gone: Set<string>
 ): Promise<'sent' | 'held' | 'skipped' | 'failed'> {
   if (prefs && (!prefs.enabled || prefs.kinds?.[row.kind] === false)) {
-    await skip(admin, row.id, 'push switched off');
+    await skip(admin, row, 'push switched off');
     return 'skipped';
   }
   const now = new Date();
@@ -162,7 +194,7 @@ async function deliverRow(
     now,
   });
   if (decision.action === 'skip') {
-    await skip(admin, row.id, decision.reason);
+    await skip(admin, row, decision.reason);
     return 'skipped';
   }
   if (decision.action === 'hold') {
@@ -177,12 +209,13 @@ async function deliverRow(
         attempts: Math.max(0, row.attempts - 1),
       })
       .eq('id', row.id)
+      .eq('claimed_at', row.claimed_at)
       .is('sent_at', null);
     if (error) console.error('[push] hold failed:', row.id, error.message);
     return 'held';
   }
   if (devices.length === 0) {
-    await skip(admin, row.id, 'no device');
+    await skip(admin, row, 'no device');
     return 'skipped';
   }
 
@@ -190,6 +223,7 @@ async function deliverRow(
   const options = {
     TTL: ttlFor(row.kind),
     urgency: urgencyFor(row.kind),
+    timeout: SEND_TIMEOUT_MS,
     vapidDetails: {
       subject: config.subject,
       publicKey: config.publicKey,
@@ -235,36 +269,55 @@ async function deliverRow(
     }
   }
   if (delivered) {
-    await settle(admin, row.id, true, null);
+    await settle(admin, row, true, null);
     return 'sent';
   }
   if (lastError === null) {
-    await skip(admin, row.id, 'no device (every subscription expired)');
+    await skip(admin, row, 'no device (every subscription expired)');
     return 'skipped';
   }
-  await settle(admin, row.id, false, lastError);
+  await settle(admin, row, false, lastError);
   return 'failed';
 }
 
 async function settle(
   admin: SupabaseClient,
-  id: number,
+  row: OutboxRow,
   ok: boolean,
   error: string | null
 ): Promise<void> {
   const { error: err } = await admin.rpc('push_settle', {
-    p_id: id,
+    p_id: row.id,
     p_ok: ok,
     p_error: error,
+    p_claimed_at: row.claimed_at,
   });
-  if (err) console.error('[push] settle failed:', id, err.message);
+  if (err) console.error('[push] settle failed:', row.id, err.message);
+}
+
+async function release(admin: SupabaseClient, row: OutboxRow): Promise<void> {
+  try {
+    const { error } = await admin.rpc('push_release', {
+      p_id: row.id,
+      p_claimed_at: row.claimed_at,
+    });
+    if (error) console.error('[push] release failed:', row.id, error.message);
+  } catch (err) {
+    // The lease still lapses on its own; the row is retried then.
+    console.error(
+      '[push] release failed:',
+      row.id,
+      err instanceof Error ? err.message : err
+    );
+  }
 }
 
 async function skip(
   admin: SupabaseClient,
-  id: number,
+  row: OutboxRow,
   reason: string
 ): Promise<void> {
+  const { id } = row;
   const { error } = await admin
     .from('push_outbox')
     .update({
@@ -272,6 +325,7 @@ async function skip(
       last_error: `skipped: ${reason}`,
     })
     .eq('id', id)
+    .eq('claimed_at', row.claimed_at)
     .is('sent_at', null);
   if (error) console.error('[push] skip failed:', id, error.message);
 }

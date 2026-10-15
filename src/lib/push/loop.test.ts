@@ -12,13 +12,20 @@ const idle: DispatchSummary = {
   sent: 0,
   held: 0,
   skipped: 0,
+  released: 0,
   failed: 0,
 };
 
 describe('nextPushDelayMs', () => {
   it('comes back quickly after a pass that touched anything', () => {
     expect(PUSH_BUSY_DELAY_MS).toBe(3_000);
-    for (const key of ['sent', 'held', 'skipped', 'failed'] as const) {
+    for (const key of [
+      'sent',
+      'held',
+      'skipped',
+      'failed',
+      'released',
+    ] as const) {
       expect(nextPushDelayMs({ ...idle, claimed: 1, [key]: 1 })).toBe(
         PUSH_BUSY_DELAY_MS
       );

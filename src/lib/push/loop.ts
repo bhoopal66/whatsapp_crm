@@ -15,7 +15,11 @@ export const PUSH_IDLE_DELAY_MS = 10_000;
 export function nextPushDelayMs(summary: DispatchSummary | null): number {
   if (!summary) return PUSH_IDLE_DELAY_MS;
   const touched =
-    summary.sent + summary.held + summary.skipped + summary.failed;
+    summary.sent +
+    summary.held +
+    summary.skipped +
+    summary.failed +
+    summary.released;
   return touched > 0 ? PUSH_BUSY_DELAY_MS : PUSH_IDLE_DELAY_MS;
 }
 
