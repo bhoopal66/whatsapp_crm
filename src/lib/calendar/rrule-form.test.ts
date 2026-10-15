@@ -7,6 +7,7 @@ import {
   describeRrule,
   formToRrule,
   rruleToForm,
+  shiftRule,
   type RepeatAnchor,
   type RepeatForm,
 } from './rrule-form';
@@ -235,5 +236,54 @@ describe('describeRrule', () => {
       key: 'custom',
       values: {},
     });
+  });
+});
+
+describe('shiftRule', () => {
+  // 5 Oct 2026 is a Monday; 13 Oct the 2nd Tuesday; 15 Oct the 15th.
+  const MON: RepeatAnchor = { date: '2026-10-05', timeZone: 'Asia/Dubai' };
+  const TUE2: RepeatAnchor = { date: '2026-10-13', timeZone: 'Asia/Dubai' };
+  it('moves weekly days', () => {
+    expect(shiftRule('FREQ=WEEKLY;BYDAY=MO', 1, MON)).toBe(
+      'FREQ=WEEKLY;BYDAY=TU'
+    );
+    expect(shiftRule('FREQ=WEEKLY;BYDAY=MO,WE', 1, MON)).toBe(
+      'FREQ=WEEKLY;BYDAY=TU,TH'
+    );
+    expect(shiftRule('FREQ=WEEKLY;BYDAY=MO,SU', -1, MON)).toBe(
+      'FREQ=WEEKLY;BYDAY=SA,SU'
+    );
+  });
+  it('moves a monthly date and nth / last weekday', () => {
+    expect(shiftRule('FREQ=MONTHLY;BYMONTHDAY=15', 1, THIRD_THU)).toBe(
+      'FREQ=MONTHLY;BYMONTHDAY=16'
+    );
+    expect(shiftRule('FREQ=MONTHLY;BYDAY=2TU', 1, TUE2)).toBe(
+      'FREQ=MONTHLY;BYDAY=2WE'
+    );
+    expect(shiftRule('FREQ=MONTHLY;BYDAY=-1FR', 1, LAST_FRI)).toBe(
+      'FREQ=MONTHLY;BYDAY=-1SA'
+    );
+  });
+  it('moves UNTIL with the series and keeps time-only moves', () => {
+    expect(
+      shiftRule('FREQ=WEEKLY;BYDAY=MO;UNTIL=20261031T195959Z', 2, MON)
+    ).toBe('FREQ=WEEKLY;BYDAY=WE;UNTIL=20261102T195959Z');
+    expect(shiftRule('FREQ=WEEKLY;BYDAY=MO', 0, MON)).toBe(
+      'FREQ=WEEKLY;BYDAY=MO'
+    );
+    expect(shiftRule('FREQ=DAILY;COUNT=5', 3, MON)).toBe('FREQ=DAILY;COUNT=5');
+  });
+  it('refuses what it cannot say exactly', () => {
+    // 2nd TU on the 13th + 2 = 15th: the 3rd Thursday.
+    expect(shiftRule('FREQ=MONTHLY;BYDAY=2TU', 2, TUE2)).toBeNull();
+    // Last FR on the 30th + 2 = 1 Nov.
+    expect(shiftRule('FREQ=MONTHLY;BYDAY=-1FR', 2, LAST_FRI)).toBeNull();
+    expect(shiftRule('FREQ=MONTHLY;BYMONTHDAY=28', 1, MON)).toBeNull();
+    expect(shiftRule('FREQ=MONTHLY;BYMONTHDAY=1', -1, MON)).toBeNull();
+    // Every other week, SU + 1 lands in the next week, MO does not.
+    expect(shiftRule('FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,SU', 1, MON)).toBeNull();
+    expect(shiftRule('FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=1', 1, MON)).toBeNull();
+    expect(shiftRule('FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1', 1, MON)).toBeNull();
   });
 });

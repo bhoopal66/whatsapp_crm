@@ -5,10 +5,13 @@
 // saved as dates read in the calendar's zone, which is where they were
 // shown. Moving a whole series shifts its first occurrence by the same
 // wall-clock change as the dragged one, so a weekly 10:00 dragged to
-// 11:00 is 11:00 on both sides of a DST change.
+// 11:00 is 11:00 on both sides of a DST change. A move that changes the
+// first date also rewrites the rule's BYDAY / BYMONTHDAY / UNTIL
+// (shiftRule), or is refused when no rewrite says it exactly.
 
 import type { FeedItem } from '../feed';
 import { fromFloating, toFloating } from '../recurrence';
+import { shiftRule } from '../rrule-form';
 import { dateKeyInZone } from './event-form';
 import { addDaysToKey } from './mini-month';
 
@@ -17,6 +20,23 @@ export interface SeriesRow {
   end_at: string;
   all_day: boolean;
   time_zone: string;
+  /** The series' rule; without it a move never rewrites the rule. */
+  rrule?: string | null;
+}
+
+/** A series move whose repeat days cannot follow it. */
+export interface DragRefusal {
+  error: 'series_rule_conflict';
+}
+export const SERIES_RULE_CONFLICT_MESSAGE =
+  'Edit the series to change its repeat days';
+
+export function isDragRefusal(body: unknown): body is DragRefusal {
+  return (
+    !!body &&
+    typeof body === 'object' &&
+    (body as { error?: unknown }).error === 'series_rule_conflict'
+  );
 }
 
 const DAY = 86_400_000;
@@ -71,7 +91,7 @@ export function eventDragBody(
   newEnd: Date | null,
   scope: 'this' | 'all',
   calendarZone: string
-): Record<string, unknown> {
+): Record<string, unknown> | DragRefusal {
   const occ = occurrenceTimes(item, newStart, newEnd, calendarZone);
   const fixed = { allDay: series.all_day, timeZone: series.time_zone };
   const recurring = item.kind === 'event' && item.recurring;
@@ -84,7 +104,20 @@ export function eventDragBody(
       occurrenceStart: item.occurrenceStart,
     };
   }
-  return { ...shiftSeries(item, occ, series), ...fixed, scope: 'all' };
+  const shifted = shiftSeries(item, occ, series);
+  const body = { ...shifted, ...fixed, scope: 'all' };
+  if (!series.rrule) return body;
+  // Whole days the first start moved, on the event zone's calendar.
+  const zone = series.time_zone;
+  const from = dateKeyInZone(Date.parse(series.start_at), zone);
+  const to = series.all_day
+    ? shifted.start
+    : dateKeyInZone(Date.parse(shifted.start), zone);
+  const delta = daysBetween(from, to);
+  if (delta === 0) return body;
+  const rule = shiftRule(series.rrule, delta, { date: from, timeZone: zone });
+  if (rule === null) return { error: 'series_rule_conflict' };
+  return rule === series.rrule ? body : { ...body, rrule: rule };
 }
 
 /** The series' new first start and end after one occurrence moved. */
