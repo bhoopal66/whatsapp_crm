@@ -161,6 +161,26 @@ describe('notificationTarget', () => {
     }
   );
 
+  it('meeting_invite opens the meeting', () => {
+    expect(
+      notificationTarget(
+        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
+        'agent'
+      )
+    ).toBe(`/meetings/${ROOM}`);
+    for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+      expect(
+        notificationTarget({ type: 'meeting_invite', meta }, 'agent')
+      ).toBeNull();
+    }
+    expect(
+      notificationTarget(
+        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
+        'bank_guest'
+      )
+    ).toBeNull();
+  });
+
   it('a bank guest is only sent to team chat', () => {
     expect(
       notificationTarget(
