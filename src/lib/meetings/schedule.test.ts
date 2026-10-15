@@ -6,13 +6,14 @@ import {
   canManageMeeting,
   defaultMeetingForm,
   formatMeetingWhen,
-  INSTANT_LAPSE_MS,
   meetingDisplayStatus,
   meetingScope,
   meetingScopeParam,
   meetingToForm,
   parseMeeting,
+  parseMeetingDetail,
   parseMeetingList,
+  resolveMeetingTimeZone,
   zonedWallTimeToInstant,
   type MeetingFormValues,
   type MeetingSummary,
@@ -247,7 +248,7 @@ describe('meetingDisplayStatus / meetingScope', () => {
       'its window gone with nobody in',
       {
         scheduledStart: '2026-10-15T07:00:00.000Z',
-        scheduledEnd: '2026-10-15T08:10:00.000Z',
+        scheduledEnd: '2026-10-15T08:05:00.000Z',
       },
       'lapsed',
       'past',
@@ -263,14 +264,15 @@ describe('meetingDisplayStatus / meetingScope', () => {
       'upcoming',
     ],
     [
-      'an instant meeting nobody used for a day',
+      // As the API's meetingPhase: it stays on Upcoming until ended.
+      'an instant meeting nobody used for a week',
       {
         scheduledStart: null,
         scheduledEnd: null,
-        createdAt: new Date(NOW.getTime() - INSTANT_LAPSE_MS).toISOString(),
+        createdAt: '2026-10-08T08:00:00.000Z',
       },
-      'lapsed',
-      'past',
+      'due',
+      'upcoming',
     ],
   ] as const)('%s', (_name, over, status, scope) => {
     const m = meeting(over as Partial<MeetingSummary>);
@@ -318,7 +320,7 @@ describe('formatMeetingWhen', () => {
 });
 
 describe('parsing', () => {
-  it('reads an API row with invitee rows and the present count', () => {
+  it('reads a list row with its invitee ids and present count', () => {
     expect(
       parseMeeting({
         id: 'm1',
@@ -331,7 +333,7 @@ describe('parsing', () => {
         status: 'scheduled',
         ended_at: null,
         created_at: '2026-10-14T08:00:00.000Z',
-        invitees: [{ user_id: 'a' }, 'b', { nope: 1 }],
+        invitee_user_ids: ['a', 'b', 5, ''],
         present_count: 3,
       })
     ).toEqual(
@@ -352,7 +354,7 @@ describe('parsing', () => {
         id: 'm1',
         host_user_id: 'h',
         status: 'odd',
-        presentCount: -1,
+        present_count: -1,
       })
     ).toMatchObject({
       status: 'scheduled',
@@ -363,6 +365,40 @@ describe('parsing', () => {
       parseMeetingList({ meetings: [{ id: 'm1', host_user_id: 'h' }, 5] })
     ).toHaveLength(1);
     expect(parseMeetingList({ error: 'x' })).toEqual([]);
+  });
+
+  it('reads the detail response, counting each person in the call once', () => {
+    const row = {
+      id: 'm1',
+      title: 'Sync',
+      host_user_id: 'u-host',
+      status: 'scheduled',
+    };
+    expect(
+      parseMeetingDetail({
+        meeting: row,
+        invitee_user_ids: ['a'],
+        participants: [{ user_id: 'a' }, { user_id: 'a' }, { user_id: 'b' }],
+        can_manage: true,
+      })
+    ).toMatchObject({
+      meeting: { id: 'm1', inviteeUserIds: ['a'], presentCount: 2 },
+      canManage: true,
+    });
+    expect(parseMeetingDetail({ meeting: row })).toMatchObject({
+      meeting: { inviteeUserIds: [], presentCount: 0 },
+      canManage: null,
+    });
+    expect(parseMeetingDetail({ error: 'Meeting not found' })).toBeNull();
+    expect(parseMeetingDetail(null)).toBeNull();
+  });
+
+  it("shows times in the saved zone, else the viewer's, else UTC", () => {
+    expect(resolveMeetingTimeZone('Asia/Dubai', 'Europe/London')).toBe(
+      'Asia/Dubai'
+    );
+    expect(resolveMeetingTimeZone(null, 'Europe/London')).toBe('Europe/London');
+    expect(resolveMeetingTimeZone('+04', 'Nowhere/Land')).toBe('UTC');
   });
 
   it('falls back to Live now for an unknown tab', () => {

@@ -6,6 +6,7 @@
 // ============================================================
 
 import { canEditSettings, type AccountRole } from '@/lib/auth/roles';
+import { isValidTimeZone } from '@/lib/team-activity/limits';
 import { zoneOffsetMs } from '@/lib/team-activity/range';
 
 export const MEETING_SCOPES = ['live', 'upcoming', 'past'] as const;
@@ -28,11 +29,6 @@ export const DESCRIPTION_MAX = 2000;
 const MAX_DURATION_MINUTES = 24 * 60;
 /** A start this far in the past still counts as "now" (a slow form). */
 const PAST_GRACE_MS = 5 * 60_000;
-/**
- * An instant meeting (no scheduled start) that nobody is in and nobody
- * ended leaves Upcoming this long after it was created.
- */
-export const INSTANT_LAPSE_MS = 24 * 60 * 60_000;
 
 export type MeetingStatus = 'scheduled' | 'ended' | 'cancelled';
 
@@ -261,8 +257,10 @@ export function buildMeetingBody(
 /**
  * What a meeting is doing now. `live` is derived from who is present,
  * never stored (migration 106). `due`: its time has come (or it is an
- * instant meeting) and nobody is in yet. `lapsed`: its time went by
- * with nobody in and nobody ended it.
+ * instant meeting) and nobody is in yet. `lapsed`: its end went by with
+ * nobody in and nobody ended it. The tab each lands on matches the
+ * API's `meetingPhase` (lib/meetings/requests.ts), which picks the list
+ * a scope returns: an instant meeting never lapses there.
  */
 export type MeetingDisplayStatus =
   'live' | 'scheduled' | 'due' | 'lapsed' | 'ended' | 'cancelled';
@@ -280,13 +278,8 @@ export function meetingDisplayStatus(
   if (m.status === 'ended') return 'ended';
   if (m.presentCount > 0) return 'live';
   const t = now.getTime();
-  if (!m.scheduledStart) {
-    const created = m.createdAt ? Date.parse(m.createdAt) : NaN;
-    return Number.isFinite(created) && t - created >= INSTANT_LAPSE_MS
-      ? 'lapsed'
-      : 'due';
-  }
-  if (m.scheduledEnd && t >= Date.parse(m.scheduledEnd)) return 'lapsed';
+  if (m.scheduledEnd && Date.parse(m.scheduledEnd) < t) return 'lapsed';
+  if (!m.scheduledStart) return 'due';
   return t >= Date.parse(m.scheduledStart) ? 'due' : 'scheduled';
 }
 
@@ -354,40 +347,35 @@ export function formatMeetingWhen(
 const str = (v: unknown): string | null =>
   typeof v === 'string' && v ? v : null;
 
+const idList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((i): i is string => !!str(i)) : [];
+
 /**
- * One meeting from the API. Reads the table's own column names (the
- * routes return rows), plus `invitees` as rows or ids and the present
- * count as `present_count` or `presentCount`. Null when it is not a
+ * One meeting from the API: a `meetings` row (column names) plus the
+ * list's `invitee_user_ids` and `present_count`. Null when it is not a
  * meeting at all.
  */
 export function parseMeeting(raw: unknown): MeetingSummary | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const id = str(r.id);
-  const hostUserId = str(r.host_user_id ?? r.hostUserId);
+  const hostUserId = str(r.host_user_id);
   if (!id || !hostUserId) return null;
   const status =
     r.status === 'ended' || r.status === 'cancelled' ? r.status : 'scheduled';
-  const inviteesRaw = Array.isArray(r.invitees) ? r.invitees : [];
-  const inviteeUserIds = inviteesRaw
-    .map((i) =>
-      typeof i === 'string'
-        ? i
-        : str((i as Record<string, unknown> | null)?.user_id)
-    )
-    .filter((i): i is string => !!i);
-  const count = Number(r.present_count ?? r.presentCount ?? 0);
+  const inviteeUserIds = idList(r.invitee_user_ids);
+  const count = Number(r.present_count ?? 0);
   return {
     id,
     title: str(r.title) ?? '',
     description: str(r.description),
-    scheduledStart: str(r.scheduled_start ?? r.scheduledStart),
-    scheduledEnd: str(r.scheduled_end ?? r.scheduledEnd),
+    scheduledStart: str(r.scheduled_start),
+    scheduledEnd: str(r.scheduled_end),
     hostUserId,
-    openToWorkspace: (r.open_to_workspace ?? r.openToWorkspace) === true,
+    openToWorkspace: r.open_to_workspace === true,
     status,
-    endedAt: str(r.ended_at ?? r.endedAt),
-    createdAt: str(r.created_at ?? r.createdAt),
+    endedAt: str(r.ended_at),
+    createdAt: str(r.created_at),
     inviteeUserIds,
     presentCount: Number.isFinite(count) && count > 0 ? Math.floor(count) : 0,
   };
@@ -398,4 +386,57 @@ export function parseMeetingList(json: unknown): MeetingSummary[] {
   const list = (json as { meetings?: unknown } | null)?.meetings;
   if (!Array.isArray(list)) return [];
   return list.map(parseMeeting).filter((m): m is MeetingSummary => m !== null);
+}
+
+/** The detail page's meeting and whether the caller may manage it. */
+export interface MeetingDetailData {
+  meeting: MeetingSummary;
+  /** `meeting_can_manage` as the server answered it; null if absent. */
+  canManage: boolean | null;
+}
+
+/**
+ * GET /api/meetings/[id] → `{ meeting, invitee_user_ids, participants,
+ * can_manage }`. The participants are the present rows; one person on
+ * two tabs counts once, as the list's `present_count` does.
+ */
+export function parseMeetingDetail(json: unknown): MeetingDetailData | null {
+  if (!json || typeof json !== 'object') return null;
+  const r = json as Record<string, unknown>;
+  const row =
+    r.meeting && typeof r.meeting === 'object'
+      ? (r.meeting as Record<string, unknown>)
+      : null;
+  const people = Array.isArray(r.participants) ? r.participants : [];
+  const present = new Set(
+    people
+      .map((p) => str((p as Record<string, unknown> | null)?.user_id))
+      .filter((id): id is string => !!id)
+  );
+  const meeting = parseMeeting(
+    row && {
+      ...row,
+      invitee_user_ids: r.invitee_user_ids,
+      present_count: present.size,
+    }
+  );
+  if (!meeting) return null;
+  return {
+    meeting,
+    canManage: typeof r.can_manage === 'boolean' ? r.can_manage : null,
+  };
+}
+
+/**
+ * The zone the screens show times in: the account's saved one
+ * (`team_activity_limits().timezone`, readable by every member), else
+ * the viewer's, else UTC.
+ */
+export function resolveMeetingTimeZone(
+  saved: unknown,
+  viewer: string | null | undefined
+): string {
+  if (typeof saved === 'string' && isValidTimeZone(saved)) return saved;
+  if (viewer && isValidTimeZone(viewer)) return viewer;
+  return 'UTC';
 }
