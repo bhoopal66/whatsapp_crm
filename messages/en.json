@@ -5343,7 +5343,17 @@
       "you": "{name} (you)",
       "screen": "{name}'s screen",
       "muted": "Muted",
-      "unknown": "Someone"
+      "unknown": "Someone",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "hostMenu": "Host options",
+      "muteThem": "Mute",
+      "lowerHand": "Lower hand",
+      "remove": "Remove from meeting",
+      "removeTitle": "Remove {name} from the meeting?",
+      "removeBody": "They leave the call at once and can't rejoin it.",
+      "handRaised": "Hand raised",
+      "moderateFailed": "That didn't work. Try again."
     },
     "devices": {
       "audio": {
@@ -5367,6 +5377,30 @@
         "unsupported": "This browser can't share a screen.",
         "unknown": "Screen sharing couldn't be started."
       }
+    },
+    "confirm": {
+      "cancel": "Cancel"
+    },
+    "removed": {
+      "title": "The host removed you from this meeting."
+    },
+    "quality": {
+      "good": "Good connection",
+      "fair": "Unstable connection",
+      "poor": "Poor connection",
+      "unknown": "Checking connection"
+    },
+    "stage": {
+      "prevPage": "Previous page",
+      "nextPage": "Next page",
+      "page": "{page} / {count}"
+    },
+    "topBar": {
+      "copyLink": "Copy invite link",
+      "copied": "Invite link copied",
+      "copyFailed": "Couldn't copy the link",
+      "elapsed": "Time in call",
+      "people": "People in the call"
     }
   }
 }

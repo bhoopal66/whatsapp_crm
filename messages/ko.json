@@ -5343,7 +5343,17 @@
       "you": "{name} (나)",
       "screen": "{name}님의 화면",
       "muted": "음소거됨",
-      "unknown": "참여자"
+      "unknown": "참여자",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "hostMenu": "호스트 옵션",
+      "muteThem": "음소거",
+      "lowerHand": "손 내리기",
+      "remove": "회의에서 내보내기",
+      "removeTitle": "{name}님을 회의에서 내보낼까요?",
+      "removeBody": "즉시 통화에서 나가게 되며 다시 참여할 수 없습니다.",
+      "handRaised": "손 들기",
+      "moderateFailed": "처리하지 못했습니다. 다시 시도하세요."
     },
     "devices": {
       "audio": {
@@ -5367,6 +5377,30 @@
         "unsupported": "이 브라우저에서는 화면을 공유할 수 없습니다.",
         "unknown": "화면 공유를 시작하지 못했습니다."
       }
+    },
+    "confirm": {
+      "cancel": "취소"
+    },
+    "removed": {
+      "title": "호스트가 회의에서 회원님을 내보냈습니다."
+    },
+    "quality": {
+      "good": "연결 상태 좋음",
+      "fair": "연결이 불안정함",
+      "poor": "연결 상태 나쁨",
+      "unknown": "연결 확인 중"
+    },
+    "stage": {
+      "prevPage": "이전 페이지",
+      "nextPage": "다음 페이지",
+      "page": "{page} / {count}"
+    },
+    "topBar": {
+      "copyLink": "초대 링크 복사",
+      "copied": "초대 링크를 복사했습니다",
+      "copyFailed": "링크를 복사하지 못했습니다",
+      "elapsed": "통화 시간",
+      "people": "통화 참여자"
     }
   }
 }

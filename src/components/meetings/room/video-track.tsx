@@ -10,14 +10,21 @@ export function VideoTrack({
   mirrored = false,
   fit = 'cover',
   className,
+  videoRef,
 }: {
   track: MediaStreamTrack;
   /** Our own camera, as a mirror shows it. Never a screen. */
   mirrored?: boolean;
   fit?: 'cover' | 'contain';
   className?: string;
+  /** Picture-in-picture needs the element. */
+  videoRef?: (el: HTMLVideoElement | null) => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    videoRef?.(ref.current);
+    return () => videoRef?.(null);
+  }, [videoRef]);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -42,8 +49,18 @@ export function VideoTrack({
   );
 }
 
-/** Plays a remote participant's microphone. Hidden. */
-export function AudioTrack({ track }: { track: MediaStreamTrack }) {
+/**
+ * Plays a remote participant's microphone. Hidden. The engine never
+ * calls setSinkId: it only stores the chosen output, which every
+ * element applies itself (null = the browser default).
+ */
+export function AudioTrack({
+  track,
+  sinkId,
+}: {
+  track: MediaStreamTrack;
+  sinkId: string | null;
+}) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -55,5 +72,11 @@ export function AudioTrack({ track }: { track: MediaStreamTrack }) {
       el.srcObject = null;
     };
   }, [track]);
+  useEffect(() => {
+    const el = ref.current as
+      (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+    if (!el || typeof el.setSinkId !== 'function') return;
+    el.setSinkId(sinkId ?? '').catch(() => {});
+  }, [sinkId]);
   return <audio ref={ref} autoPlay />;
 }
