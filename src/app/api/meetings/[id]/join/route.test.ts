@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   configured: vi.fn(() => true),
   rpc: vi.fn(),
   meeting: null as unknown,
+  removal: null as unknown,
+  removalEq: [] as [string, unknown][],
   adminCalls: [] as string[],
   insertResults: [] as { data: unknown; error: unknown }[],
 }));
@@ -52,10 +54,17 @@ import { POST } from './route';
 const M = '22222222-2222-4222-8222-222222222222';
 const params = { params: Promise.resolve({ id: M }) };
 
-function meetings() {
+function meetings(table = 'meetings') {
   const q: Record<string, unknown> = {};
-  for (const m of ['select', 'eq']) q[m] = () => q;
-  q.maybeSingle = async () => ({ data: mocks.meeting, error: null });
+  q.select = () => q;
+  q.eq = (c: string, v: unknown) => {
+    if (table === 'meeting_removed_users') mocks.removalEq.push([c, v]);
+    return q;
+  };
+  q.maybeSingle = async () => ({
+    data: table === 'meeting_removed_users' ? mocks.removal : mocks.meeting,
+    error: null,
+  });
   return q;
 }
 
@@ -65,6 +74,8 @@ describe('POST /api/meetings/[id]/join', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.adminCalls = [];
+    mocks.removal = null;
+    mocks.removalEq = [];
     mocks.insertResults = [];
     mocks.configured.mockReturnValue(true);
     mocks.getCurrentAccount.mockResolvedValue({
@@ -133,6 +144,19 @@ describe('POST /api/meetings/[id]/join', () => {
     const res = await join();
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(mocks.adminCalls).toEqual([]);
+  });
+
+  it('refuses someone the host removed, before any Cloudflare session', async () => {
+    mocks.removal = { user_id: 'user-1' };
+    const res = await join();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'removed_from_meeting' });
+    expect(mocks.removalEq).toEqual([
+      ['meeting_id', M],
+      ['user_id', 'user-1'],
+    ]);
     expect(mocks.createSession).not.toHaveBeenCalled();
     expect(mocks.adminCalls).toEqual([]);
   });

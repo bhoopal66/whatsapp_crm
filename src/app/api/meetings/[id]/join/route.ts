@@ -32,18 +32,29 @@ export async function POST(_request: Request, { params }: Params) {
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid meeting id', 400);
 
-    const [canView, loaded] = await Promise.all([
+    // The caller reads their own removal (110's policy: user_id = auth.uid()).
+    const [canView, loaded, removal] = await Promise.all([
       rpcFlag(supabase, 'meeting_can_view', id),
       loadMeeting(supabase, accountId, id),
+      supabase
+        .from('meeting_removed_users')
+        .select('user_id')
+        .eq('meeting_id', id)
+        .eq('user_id', userId)
+        .maybeSingle(),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
     if (canView.error) return readErrorResponse(canView.error);
+    if (removal.error) return readErrorResponse(removal.error);
     const meeting = loaded.meeting;
     if (!canView.allowed || !meeting)
       return jsonError('Meeting not found', 404);
     if (meeting.status !== 'scheduled') {
       return jsonError('This meeting has ended or was cancelled', 409);
     }
+    // Removed by a manager: stays out until let back in, and no Cloudflare
+    // session is made for them.
+    if (removal.data) return jsonError('removed_from_meeting', 403);
 
     // TURN credentials are minted alongside the session; meetingIceServers
     // never throws (STUN only on any failure), so it cannot fail a join.

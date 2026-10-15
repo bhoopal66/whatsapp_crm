@@ -41,6 +41,9 @@ function postErrorResponse(error: {
   if (error.code === 'P0001' && /^rate_limited\b/.test(message)) {
     return jsonError('rate_limited', 429);
   }
+  if (error.code === 'P0001' && /^removed\b/.test(message)) {
+    return jsonError('removed_from_meeting', 403);
+  }
   if (error.code === 'P0001' && /^meeting_closed\b/.test(message)) {
     return jsonError(CLOSED, 409);
   }

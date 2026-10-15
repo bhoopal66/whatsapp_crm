@@ -93,6 +93,7 @@ describe('/api/meetings/[id]/messages', () => {
     const cases: [unknown, number, string?][] = [
       [{ code: '42501', message: 'not visible' }, 404],
       [{ code: 'P0001', message: 'meeting_closed' }, 409],
+      [{ code: 'P0001', message: 'removed' }, 403, 'removed_from_meeting'],
       [{ code: '22023', message: 'bad body' }, 400],
       [{ code: 'P0001', message: 'rate_limited' }, 429, 'rate_limited'],
       [{ code: 'XX000', message: 'boom' }, 500],

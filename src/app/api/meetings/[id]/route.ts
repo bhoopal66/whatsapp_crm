@@ -102,8 +102,10 @@ async function evictSeatsWithoutAccess(
 
 /**
  * GET → `{ meeting, invitee_user_ids, participants, can_manage,
- * chat_count }`. `participants` are the present seats (hand_raised_at
- * included); `chat_count` counts the chat lines (not reactions).
+ * chat_count, removed? }`. `participants` are the present seats
+ * (hand_raised_at included); `chat_count` counts the chat lines (not
+ * reactions). `removed` (`[{ user_id, removed_at }]`, 110) is there only
+ * for a caller who can manage the meeting.
  */
 export async function GET(_request: Request, { params }: Params) {
   try {
@@ -111,22 +113,31 @@ export async function GET(_request: Request, { params }: Params) {
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid meeting id', 400);
 
-    const [loaded, invitees, present, canManage, chat] = await Promise.all([
-      loadMeeting(supabase, accountId, id),
-      supabase.from('meeting_invitees').select('user_id').eq('meeting_id', id),
-      supabase
-        .from('meeting_participants')
-        .select(PARTICIPANT_COLUMNS)
-        .eq('meeting_id', id)
-        .is('left_at', null)
-        .gt('last_seen_at', presenceCutoff(Date.now())),
-      rpcFlag(supabase, 'meeting_can_manage', id),
-      supabase
-        .from('meeting_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('meeting_id', id)
-        .eq('kind', 'chat'),
-    ]);
+    const [loaded, invitees, present, canManage, chat, removed] =
+      await Promise.all([
+        loadMeeting(supabase, accountId, id),
+        supabase
+          .from('meeting_invitees')
+          .select('user_id')
+          .eq('meeting_id', id),
+        supabase
+          .from('meeting_participants')
+          .select(PARTICIPANT_COLUMNS)
+          .eq('meeting_id', id)
+          .is('left_at', null)
+          .gt('last_seen_at', presenceCutoff(Date.now())),
+        rpcFlag(supabase, 'meeting_can_manage', id),
+        supabase
+          .from('meeting_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('meeting_id', id)
+          .eq('kind', 'chat'),
+        supabase
+          .from('meeting_removed_users')
+          .select('user_id, removed_at')
+          .eq('meeting_id', id)
+          .order('removed_at', { ascending: true }),
+      ]);
     if (loaded.error) return readErrorResponse(loaded.error);
     if (canManage.error) return readErrorResponse(canManage.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
@@ -135,12 +146,17 @@ export async function GET(_request: Request, { params }: Params) {
     // so a failed read would PATCH every invitee away and evict them.
     if (invitees.error) return readErrorResponse(invitees.error);
     if (present.error) return readErrorResponse(present.error);
+    // RLS also shows a person their own removal: only a manager gets the list.
+    if (canManage.allowed && removed.error) {
+      return readErrorResponse(removed.error);
+    }
     return NextResponse.json({
       meeting: loaded.meeting,
       invitee_user_ids: (invitees.data ?? []).map((r) => r.user_id),
       participants: present.data ?? [],
       can_manage: canManage.allowed,
       chat_count: chat.count ?? 0,
+      ...(canManage.allowed ? { removed: removed.data ?? [] } : {}),
     });
   } catch (err) {
     return toErrorResponse(err);

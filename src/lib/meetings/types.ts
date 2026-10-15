@@ -72,7 +72,13 @@ export interface MeetingMessage {
   created_at: string;
 }
 
-export const MODERATION_ACTIONS = ['mute', 'remove', 'lower_hand'] as const;
+/** `readmit` targets a person (user id), the others an open seat (110). */
+export const MODERATION_ACTIONS = [
+  'mute',
+  'remove',
+  'lower_hand',
+  'readmit',
+] as const;
 export type ModerationAction = (typeof MODERATION_ACTIONS)[number];
 
 /** Present = not left and heard from within this window (clients beat every 20 s). */
