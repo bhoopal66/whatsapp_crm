@@ -11,6 +11,7 @@ import {
   jsonError,
   loadOwnParticipant,
   meetingDbErrorResponse,
+  readErrorResponse,
   readJson,
   requireMeetingsUser,
   supabaseAdmin,
@@ -27,12 +28,14 @@ export async function POST(request: Request, { params }: Params) {
     if (!isUuid(id) || !isUuid(body?.participantId)) {
       return jsonError('Invalid meeting or participant id', 400);
     }
-    const own = await loadOwnParticipant(
+    const ownRead = await loadOwnParticipant(
       ctx.supabase,
       ctx,
       id,
       body.participantId
     );
+    if (ownRead.error) return readErrorResponse(ownRead.error);
+    const own = ownRead.participant;
     if (!own) return jsonError('You are not in this meeting', 404);
     if (own.left_at) return NextResponse.json({ ok: true });
 

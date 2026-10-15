@@ -67,7 +67,9 @@ Presence: each client sends a heartbeat every **20 s**; a participant
 is present while they have not left and their last heartbeat is within
 **60 s**. Closing the tab simply lets the seat lapse. A heartbeat on an
 ended or cancelled meeting closes the seat and answers 409, the cue for
-the client to leave. Joining again (another tab, a reload) closes the
+the client to leave. A seat that is missing or already closed answers
+404; a failed database read answers **503 `temporarily_unavailable`**
+(on every meeting route), so a blip never reads as "you left". Joining again (another tab, a reload) closes the
 person's previous seat.
 
 ## How the call works

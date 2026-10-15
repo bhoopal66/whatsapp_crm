@@ -17,6 +17,7 @@ import {
   jsonError,
   loadMeeting,
   meetingDbErrorResponse,
+  readErrorResponse,
   readJson,
   requireMeetingsUser,
   rpcFlag,
@@ -44,9 +45,7 @@ export async function GET(_request: Request, { params }: Params) {
         .gt('last_seen_at', presenceCutoff(Date.now())),
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
-    if (loaded.error) {
-      return meetingDbErrorResponse(loaded.error, 'Failed to load meeting');
-    }
+    if (loaded.error) return readErrorResponse(loaded.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
     return NextResponse.json({
       meeting: loaded.meeting,
@@ -71,9 +70,7 @@ export async function PATCH(request: Request, { params }: Params) {
       loadMeeting(supabase, accountId, id),
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
-    if (loaded.error) {
-      return meetingDbErrorResponse(loaded.error, 'Failed to load meeting');
-    }
+    if (loaded.error) return readErrorResponse(loaded.error);
     const current = loaded.meeting;
     if (!current) return jsonError(NOT_FOUND, 404);
     if (!canManage) {
@@ -152,9 +149,7 @@ export async function DELETE(_request: Request, { params }: Params) {
       loadMeeting(supabase, accountId, id),
       rpcFlag(supabase, 'meeting_can_manage', id),
     ]);
-    if (loaded.error) {
-      return meetingDbErrorResponse(loaded.error, 'Failed to load meeting');
-    }
+    if (loaded.error) return readErrorResponse(loaded.error);
     if (!loaded.meeting) return jsonError(NOT_FOUND, 404);
     if (!canManage) {
       return jsonError(

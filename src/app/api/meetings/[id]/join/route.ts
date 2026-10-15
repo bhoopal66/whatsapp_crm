@@ -13,6 +13,7 @@ import {
   loadMeeting,
   meetingDbErrorResponse,
   notConfiguredResponse,
+  readErrorResponse,
   requireMeetingsUser,
   rpcFlag,
   sfuErrorResponse,
@@ -34,9 +35,7 @@ export async function POST(_request: Request, { params }: Params) {
       rpcFlag(supabase, 'meeting_can_view', id),
       loadMeeting(supabase, accountId, id),
     ]);
-    if (loaded.error) {
-      return meetingDbErrorResponse(loaded.error, 'Failed to load meeting');
-    }
+    if (loaded.error) return readErrorResponse(loaded.error);
     const meeting = loaded.meeting;
     if (!canView || !meeting) return jsonError('Meeting not found', 404);
     if (meeting.status !== 'scheduled') {
