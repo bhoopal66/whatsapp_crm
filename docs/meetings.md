@@ -68,8 +68,10 @@ is present while they have not left and their last heartbeat is within
 **60 s**. Closing the tab simply lets the seat lapse. A heartbeat on an
 ended or cancelled meeting closes the seat and answers 409, the cue for
 the client to leave. A seat that is missing or already closed answers
-404; a failed database read answers **503 `temporarily_unavailable`**
-(on every meeting route), so a blip never reads as "you left". Joining again (another tab, a reload) closes the
+404; a failed database read, or a failed `meeting_can_view` /
+`meeting_can_manage` check, answers **503 `temporarily_unavailable`**
+(on every meeting route), so a blip never reads as "you left", "not
+found" or "not allowed". Joining again (another tab, a reload) closes the
 person's previous seat. A person holds at most one open seat per
 meeting (a partial unique index); two tabs joining at the same moment
 both succeed, and the later one's seat is the open one.
@@ -93,6 +95,40 @@ Who is in the room, and what they publish, comes from
 `meeting_participants` over realtime. The participant rows are written
 only by the API routes, on the service role, after an RLS check of
 `meeting_can_view`.
+
+### Cutting media when a seat closes
+
+Closing a seat in the database does not stop Cloudflare: the session
+keeps relaying every track it published or pulled. So whenever the
+server closes a seat it also force-closes that session's tracks
+(`src/lib/meetings/cut.ts`: `GET sessions/{id}`, then
+`PUT sessions/{id}/tracks/close` with every mid not already `inactive`
+and `force: true`, which stops their media without an SDP exchange).
+This happens on:
+
+- **Leave** — the caller's seat (also when it was already closed).
+- **End** and **cancel** — every seat open just before the status
+  change (they are read first, because entering `ended`/`cancelled`
+  closes them).
+- **PATCH** that leaves the meeting closed to the workspace while
+  removing invitees, or switching **Anyone in the workspace can join**
+  off — every open seat of someone who is not the host, not an invitee
+  and not a live owner/admin of the workspace is closed (service role)
+  and cut. Owners and admins keep their seats.
+
+The cut is best-effort and awaited: a Cloudflare failure is logged and
+the route still answers as usual; unconfigured installs skip it.
+
+Known limits:
+
+- **Deactivated members** are not cut. Their next heartbeat is refused
+  by RLS, so an honest client leaves; a client that ignores that keeps
+  receiving until its seat is closed by one of the routes above (end,
+  for example).
+- A seat opened between end's read and its status update is closed by
+  the trigger but not cut; its heartbeat answers 409.
+- Joining again closes the person's previous seat without cutting it
+  (same person, so nothing is exposed; the old tab's session lapses).
 
 ## Network and browser requirements
 

@@ -36,8 +36,10 @@ export async function POST(_request: Request, { params }: Params) {
       loadMeeting(supabase, accountId, id),
     ]);
     if (loaded.error) return readErrorResponse(loaded.error);
+    if (canView.error) return readErrorResponse(canView.error);
     const meeting = loaded.meeting;
-    if (!canView || !meeting) return jsonError('Meeting not found', 404);
+    if (!canView.allowed || !meeting)
+      return jsonError('Meeting not found', 404);
     if (meeting.status !== 'scheduled') {
       return jsonError('This meeting has ended or was cancelled', 409);
     }

@@ -1,11 +1,13 @@
 // ============================================================
 // POST /api/meetings/[id]/leave — `{ participantId }` → left_at = now().
-// Idempotent: leaving a seat already closed answers ok.
+// Idempotent: leaving a seat already closed answers ok. Either way the
+// seat's Cloudflare session is cut, so its media stops at the SFU too.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { cutSeats } from '@/lib/meetings/cut';
 import { isUuid } from '@/lib/meetings/requests';
 import {
   jsonError,
@@ -37,14 +39,15 @@ export async function POST(request: Request, { params }: Params) {
     if (ownRead.error) return readErrorResponse(ownRead.error);
     const own = ownRead.participant;
     if (!own) return jsonError('You are not in this meeting', 404);
-    if (own.left_at) return NextResponse.json({ ok: true });
-
-    const { error } = await supabaseAdmin()
-      .from('meeting_participants')
-      .update({ left_at: new Date().toISOString() })
-      .eq('id', own.id)
-      .is('left_at', null);
-    if (error) return meetingDbErrorResponse(error, 'Failed to leave');
+    if (!own.left_at) {
+      const { error } = await supabaseAdmin()
+        .from('meeting_participants')
+        .update({ left_at: new Date().toISOString() })
+        .eq('id', own.id)
+        .is('left_at', null);
+      if (error) return meetingDbErrorResponse(error, 'Failed to leave');
+    }
+    await cutSeats([own]);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return toErrorResponse(err);

@@ -115,17 +115,17 @@ export async function loadMeeting(
   return { meeting: (data as MeetingRow | null) ?? null, error };
 }
 
+/** `meeting_can_view` / `meeting_can_manage` for the caller. `error` is
+ *  a failed call, which the route answers with `readErrorResponse`: read
+ *  as `false` it became a 404 "not found" or a 403 on a blip. */
 export async function rpcFlag(
   supabase: Db,
   fn: 'meeting_can_view' | 'meeting_can_manage',
   meetingId: string
-): Promise<boolean> {
+): Promise<{ allowed: boolean; error: unknown }> {
   const { data, error } = await supabase.rpc(fn, { p_meeting: meetingId });
-  if (error) {
-    console.error(`[meetings] ${fn} failed`, error);
-    return false;
-  }
-  return data === true;
+  if (error) return { allowed: false, error };
+  return { allowed: data === true, error: null };
 }
 
 /** A read that failed (not a row that is missing): 503, so the client

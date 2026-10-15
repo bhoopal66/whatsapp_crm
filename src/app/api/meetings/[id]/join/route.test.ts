@@ -108,6 +108,16 @@ describe('POST /api/meetings/[id]/join', () => {
     expect(mocks.adminCalls).toEqual([]);
   });
 
+  it('answers 503, not 404, when meeting_can_view itself fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: '57014' } });
+    const res = await join();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'temporarily_unavailable' });
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(mocks.adminCalls).toEqual([]);
+  });
+
   it('answers 409 for an ended or cancelled meeting', async () => {
     mocks.meeting = { id: M, account_id: 'acct-1', status: 'ended' };
     expect((await join()).status).toBe(409);
