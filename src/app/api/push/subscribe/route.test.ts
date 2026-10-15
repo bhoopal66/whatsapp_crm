@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // A device registers under the caller's RLS client; an endpoint that
-// already exists is taken over by a service-role upsert (no client
-// UPDATE grant on push_subscriptions).
+// already exists is updated by the service role (no client UPDATE grant
+// on push_subscriptions), only for its own holder or the same keys.
 
 const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   insert: vi.fn(),
   upsert: vi.fn(),
+  existing: vi.fn(),
+  update: vi.fn(),
+  updateEq: vi.fn(),
+  updated: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -15,7 +19,22 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
   getCurrentAccount: mocks.getCurrentAccount,
 }));
 vi.mock('@/lib/flows/admin-client', () => ({
-  supabaseAdmin: () => ({ from: () => ({ upsert: mocks.upsert }) }),
+  supabaseAdmin: () => ({
+    from: () => ({
+      upsert: mocks.upsert,
+      select: () => ({
+        eq: () => ({ maybeSingle: () => mocks.existing() }),
+      }),
+      update: (patch: unknown) => {
+        mocks.update(patch);
+        const q = {
+          eq: (c: string, v: unknown) => (mocks.updateEq(c, v), q),
+          select: () => mocks.updated(),
+        };
+        return q;
+      },
+    }),
+  }),
 }));
 
 import { POST } from './route';
@@ -46,7 +65,16 @@ describe('POST /api/push/subscribe', () => {
     });
     mocks.insert.mockResolvedValue({ error: null });
     mocks.upsert.mockResolvedValue({ error: null });
+    mocks.existing.mockResolvedValue({ data: null, error: null });
+    mocks.updated.mockResolvedValue({ data: [{ id: 's1' }], error: null });
   });
+
+  const collide = (existing: Record<string, unknown> | null) => {
+    mocks.insert.mockResolvedValue({
+      error: { code: '23505', message: 'duplicate key' },
+    });
+    mocks.existing.mockResolvedValue({ data: existing, error: null });
+  };
 
   it('inserts the device for the caller and answers 201', async () => {
     const res = await subscribe({
@@ -66,10 +94,53 @@ describe('POST /api/push/subscribe', () => {
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
 
-  it('takes an existing endpoint over with a service-role upsert on 23505', async () => {
-    mocks.insert.mockResolvedValue({
-      error: { code: '23505', message: 'duplicate key' },
+  it('takes over another login’s row when the posted keys match it', async () => {
+    collide({ user_id: 'user-0', ...KEYS });
+    const res = await subscribe({ endpoint: ENDPOINT, keys: KEYS });
+    expect(res.status).toBe(201);
+    expect(mocks.update).toHaveBeenCalledWith({
+      user_id: 'user-1',
+      endpoint: ENDPOINT,
+      p256dh: KEYS.p256dh,
+      auth: KEYS.auth,
+      user_agent: null,
+      failure_count: 0,
     });
+    // Conditional on exactly the row that was judged.
+    expect(mocks.updateEq.mock.calls).toEqual([
+      ['endpoint', ENDPOINT],
+      ['user_id', 'user-0'],
+      ['p256dh', KEYS.p256dh],
+      ['auth', KEYS.auth],
+    ]);
+  });
+
+  it('refreshes the caller’s own row whose keys rotated', async () => {
+    collide({ user_id: 'user-1', p256dh: 'old', auth: 'old' });
+    const res = await subscribe({ endpoint: ENDPOINT, keys: KEYS });
+    expect(res.status).toBe(201);
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses someone else’s endpoint posted with different keys', async () => {
+    collide({ user_id: 'user-0', p256dh: 'other', auth: KEYS.auth });
+    const res = await subscribe({ endpoint: ENDPOINT, keys: KEYS });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/registered to someone else/);
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 when the row changed between the read and the update', async () => {
+    collide({ user_id: 'user-0', ...KEYS });
+    mocks.updated.mockResolvedValue({ data: [], error: null });
+    expect((await subscribe({ endpoint: ENDPOINT, keys: KEYS })).status).toBe(
+      409
+    );
+  });
+
+  it('upserts when the colliding row was deleted before it could be read', async () => {
+    collide(null);
     const res = await subscribe({ endpoint: ENDPOINT, keys: KEYS });
     expect(res.status).toBe(201);
     expect(mocks.upsert).toHaveBeenCalledWith(
@@ -95,8 +166,8 @@ describe('POST /api/push/subscribe', () => {
   });
 
   it('answers 500 when the takeover fails', async () => {
-    mocks.insert.mockResolvedValue({ error: { code: '23505' } });
-    mocks.upsert.mockResolvedValue({ error: { message: 'boom' } });
+    collide({ user_id: 'user-1', ...KEYS });
+    mocks.updated.mockResolvedValue({ data: null, error: { message: 'boom' } });
     expect((await subscribe({ endpoint: ENDPOINT, keys: KEYS })).status).toBe(
       500
     );
