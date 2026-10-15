@@ -34,6 +34,7 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import {
   classifyMediaError,
   isShareCancelled,
+  tracksToRelease,
 } from '@/lib/meetings/room/devices';
 import type { DeviceError } from '@/lib/meetings/room/devices';
 import {
@@ -42,6 +43,10 @@ import {
   presentParticipants,
 } from '@/lib/meetings/room/presence';
 import { createSerialQueue } from '@/lib/meetings/room/queue';
+import {
+  afterPullStrike,
+  needsPullRollback,
+} from '@/lib/meetings/room/recovery';
 import {
   classifyRoomFailure,
   parseJoinResult,
@@ -129,6 +134,8 @@ class MeetingCallEngine {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private skew = 0;
   private attempts = 0;
+  /** Consecutive pulls that failed after touching signalling. */
+  private pullStrikes = 0;
   private attached = false;
   // Bumped on every attach/detach. React's dev double-mount runs
   // attach → detach → attach; a getUserMedia from the first attach that
@@ -213,8 +220,11 @@ class MeetingCallEngine {
 
   /** pagehide: the tab is going away; tell the server while we still can. */
   leaveQuietly() {
-    if (!this.participantId) return;
-    void this.api('leave', 'POST', { participantId: this.participantId }, true);
+    if (this.participantId) this.leaveSeat(this.participantId);
+  }
+
+  private leaveSeat(participantId: string) {
+    void this.api('leave', 'POST', { participantId }, true);
   }
 
   private async loadMeeting() {
@@ -267,7 +277,13 @@ class MeetingCallEngine {
       this.audio ? this.audio : this.open('audio'),
       this.video ? this.video : this.open('video'),
     ]);
-    if (epoch !== this.epoch) return;
+    if (epoch !== this.epoch) {
+      // The page was left mid-open. open() stops only what resolves late;
+      // one that resolved first is ours to stop, or the mic stays live.
+      for (const t of tracksToRelease([audio, video], [this.audio, this.video]))
+        t.stop();
+      return;
+    }
     this.audio = audio;
     this.video = video;
     this.emit();
@@ -396,7 +412,12 @@ class MeetingCallEngine {
     });
     const res = await this.api('join', 'POST', {});
     const join = res.ok ? parseJoinResult(res.body) : null;
-    if (!this.attached) return;
+    if (!this.attached) {
+      // Unmounted mid-POST: the server has already seated us, and nothing
+      // else knows the seat, so leave it or we show as present for 60 s.
+      if (join) this.leaveSeat(join.participantId);
+      return;
+    }
     if (!join) {
       this.emit({
         phase: 'error',
@@ -414,13 +435,20 @@ class MeetingCallEngine {
     pc.addEventListener('connectionstatechange', () =>
       this.onConnectionState(pc)
     );
+    // Detach, an ended meeting or a rejoin can tear this connection down
+    // during any await below, and whoever did has dealt with the seat
+    // (detach and rejoin send leave). Stop rather than start timers that
+    // nobody clears.
+    const current = () => this.attached && this.pc === pc;
 
     await this.subscribeRows();
+    if (!current()) return;
     const local: { track: MediaStreamTrack; kind: TrackKind }[] = [];
     if (this.audio) local.push({ track: this.audio, kind: 'audio' });
     if (this.video) local.push({ track: this.video, kind: 'video' });
     if (this.screen) local.push({ track: this.screen, kind: 'screen' });
     if (local.length) await this.publish(local);
+    if (!current()) return;
 
     this.timers.push(
       setInterval(() => void this.heartbeat(), HEARTBEAT_INTERVAL_MS),
@@ -468,6 +496,7 @@ class MeetingCallEngine {
     this.videoSender = null;
     this.screenPub = null;
     this.screenGeneration = 0;
+    this.pullStrikes = 0;
     this.emit({ participants: [] });
   }
 
@@ -561,6 +590,7 @@ class MeetingCallEngine {
       .select(PARTICIPANT_COLUMNS)
       .eq('meeting_id', id)
       .is('left_at', null);
+    if (this.channel !== channel) return; // torn down while reading
     for (const raw of data ?? []) {
       const row = parseParticipantRow(raw);
       if (row) this.onRow(row);
@@ -615,14 +645,24 @@ class MeetingCallEngine {
   // --- negotiation (always inside the queue) ---------------------------
 
   private publish(entries: { track: MediaStreamTrack; kind: TrackKind }[]) {
+    let pc: RTCPeerConnection | null = null;
+    let added: {
+      track: MediaStreamTrack;
+      kind: TrackKind;
+      transceiver: RTCRtpTransceiver;
+      name: string;
+    }[] = [];
     return this.queue
       .run(async () => {
-        const pc = this.pc;
+        pc = this.pc;
         const me = this.participantId;
         if (!pc || !me) return;
-        const added = entries.map((e) => ({
+        const conn = pc;
+        added = entries.map((e) => ({
           ...e,
-          transceiver: pc.addTransceiver(e.track, { direction: 'sendonly' }),
+          transceiver: conn.addTransceiver(e.track, {
+            direction: 'sendonly',
+          }),
           name: trackNameFor(
             me,
             e.kind,
@@ -652,13 +692,34 @@ class MeetingCallEngine {
       })
       .catch(() => {
         // A failed publish leaves the person in the room without that
-        // track; the device toggle can try again.
+        // track; the device toggle can try again. Its transceivers would
+        // stay in the connection (a dead m-line in every later offer), so
+        // stop them. A share with no screenPub leaves stopShare nothing to
+        // close, so end the capture too and the button reads "share"
+        // again. Not on a connection already torn down: a rejoin
+        // re-publishes the share it still holds.
+        if (!pc || pc !== this.pc) return;
+        for (const a of added) {
+          try {
+            a.transceiver.stop();
+          } catch {
+            // Already stopped, or the connection closed meanwhile.
+          }
+          if (a.kind === 'screen' && this.screen === a.track) {
+            a.track.stop();
+            this.screen = null;
+          }
+        }
+        this.emit();
       });
   }
 
   private async pull(refs: RemoteTrackRef[]) {
     const pc = this.pc;
     const me = this.participantId;
+    // Set once the SFU's offer is about to be applied: from there a
+    // failure has touched signalling and needs recovering (recovery.ts).
+    let before: Set<RTCRtpTransceiver> | null = null;
     try {
       if (!pc || !me) return;
       const res = await this.sfu('sfu/tracks', 'POST', {
@@ -673,6 +734,7 @@ class MeetingCallEngine {
       });
       if (pc !== this.pc) return;
       if (res.requiresImmediateRenegotiation && res.sessionDescription) {
+        before = new Set(pc.getTransceivers());
         await pc.setRemoteDescription(res.sessionDescription);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -693,11 +755,39 @@ class MeetingCallEngine {
           track: transceiver.receiver.track,
         });
       }
+      this.pullStrikes = 0;
+    } catch {
+      if (pc && before && pc === this.pc) await this.recoverPull(pc, before);
     } finally {
       // Anything not pulled is retried on the next plan.
       for (const r of refs) this.pending.delete(r.trackName);
       this.emit();
     }
+  }
+
+  /** A pull failed after touching signalling: undo it, then retry or rejoin. */
+  private async recoverPull(
+    pc: RTCPeerConnection,
+    before: Set<RTCRtpTransceiver>
+  ) {
+    if (needsPullRollback(pc.signalingState)) {
+      await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+    }
+    // The rollback removes what the offer created; with the answer
+    // already applied (its PUT failed) they stay and must be stopped.
+    for (const t of pc.getTransceivers()) {
+      if (before.has(t)) continue;
+      try {
+        t.stop();
+      } catch {
+        // Already stopped, or the connection closed meanwhile.
+      }
+    }
+    if (pc !== this.pc) return;
+    const next = afterPullStrike(this.pullStrikes, pc.signalingState);
+    this.pullStrikes = next.strikes;
+    // Not awaited: this runs inside the queue, and the rejoin builds its own.
+    if (next.rejoin) void this.reconnect();
   }
 
   private async closeRemote(names: string[]) {

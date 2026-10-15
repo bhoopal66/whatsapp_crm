@@ -42,6 +42,20 @@ export function classifyMediaError(err: unknown): DeviceError {
 }
 
 /**
+ * The tracks a preview opened that nobody keeps. A preview whose page
+ * was left mid-open must stop what it already holds: getUserMedia for
+ * the mic can resolve before the camera, and a mic nobody references
+ * stays live (the browser's recording dot) until the tab closes.
+ * Tracks the engine still holds are never stopped.
+ */
+export function tracksToRelease<T>(
+  opened: readonly (T | null)[],
+  kept: readonly (T | null)[]
+): T[] {
+  return opened.filter((t): t is T => t !== null && !kept.includes(t));
+}
+
+/**
  * The person dismissing the screen picker is a NotAllowedError too, and
  * is not an error worth showing: they simply chose not to share.
  */
