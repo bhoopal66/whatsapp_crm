@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   dueRecurringReminders,
+  RECURRING_MAX_ROWS,
+  RECURRING_PAGE_SIZE,
   runRecurringReminders,
   type ReminderAttendeeRow,
   type ReminderEventRow,
@@ -116,13 +118,24 @@ describe('dueRecurringReminders', () => {
 
 function mockAdmin(opts: {
   rows?: unknown[];
+  /** Successive reads' rows (overrides rows). */
+  pages?: () => unknown[] | null;
   error?: unknown;
   rpc?: (args: Record<string, unknown>) => { data: unknown; error: unknown };
 }) {
   const query: unknown[][] = [];
   const rpcCalls: [string, Record<string, unknown>][] = [];
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'not', 'lte', 'limit']) {
+  for (const m of [
+    'select',
+    'eq',
+    'not',
+    'lte',
+    'or',
+    'gt',
+    'order',
+    'limit',
+  ]) {
     chain[m] = (...args: unknown[]) => {
       query.push([m, ...args]);
       return chain;
@@ -130,7 +143,7 @@ function mockAdmin(opts: {
   }
   chain.then = (ok: (v: unknown) => unknown, bad: (e: unknown) => unknown) =>
     Promise.resolve({
-      data: opts.rows ?? null,
+      data: opts.pages ? opts.pages() : (opts.rows ?? null),
       error: opts.error ?? null,
     }).then(ok, bad);
   const client = {
@@ -168,7 +181,13 @@ describe('runRecurringReminders', () => {
       'start_at',
       '2026-11-17T04:50:00.000Z',
     ]);
-    expect(query).toContainEqual(['limit', 2000]);
+    expect(query).toContainEqual([
+      'or',
+      'series_end_at.is.null,series_end_at.gte.2026-10-20T04:45:00.000Z',
+    ]);
+    expect(query).toContainEqual(['order', 'id']);
+    expect(query).toContainEqual(['limit', RECURRING_PAGE_SIZE]);
+    expect(query.some((q) => q[0] === 'gt')).toBe(false);
     expect(rpcCalls.map(([fn, a]) => [fn, a.p_user, a.p_offset])).toEqual([
       ['calendar_insert_reminder', ME, 10],
       ['calendar_insert_reminder', 'accepted-1', 10],
@@ -200,5 +219,51 @@ describe('runRecurringReminders', () => {
     const { admin, rpcCalls } = mockAdmin({ error: { message: 'down' } });
     await expect(runRecurringReminders(admin, now)).resolves.toBe(0);
     expect(rpcCalls).toEqual([]);
+  });
+});
+
+describe('runRecurringReminders paging', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const now = new Date('2026-10-20T04:50:00Z');
+  // A series with nothing to ring: read, never expanded.
+  const quiet = (i: number) => ({
+    ...series({ id: `id-${String(i).padStart(6, '0')}`, reminders: [] }),
+    calendar_event_attendees: [],
+  });
+  const page = (from: number, n: number) =>
+    Array.from({ length: n }, (_, i) => quiet(from + i));
+
+  it('reads page after page by id until a short page', async () => {
+    const due = { ...series(), id: 'id-zzz', calendar_event_attendees: [] };
+    const pages = [
+      page(0, RECURRING_PAGE_SIZE),
+      page(RECURRING_PAGE_SIZE, RECURRING_PAGE_SIZE),
+      [due],
+    ];
+    const { admin, query, rpcCalls } = mockAdmin({
+      pages: () => pages.shift() ?? [],
+    });
+    await expect(runRecurringReminders(admin, now)).resolves.toBe(1);
+    expect(query.filter((q) => q[0] === 'gt')).toEqual([
+      ['gt', 'id', 'id-000499'],
+      ['gt', 'id', 'id-000999'],
+    ]);
+    expect(rpcCalls).toHaveLength(1);
+    expect(pages).toEqual([]);
+  });
+
+  it('stops at RECURRING_MAX_ROWS and says so', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let reads = 0;
+    const { admin } = mockAdmin({
+      pages: () => page(reads++ * RECURRING_PAGE_SIZE, RECURRING_PAGE_SIZE),
+    });
+    await expect(runRecurringReminders(admin, now)).resolves.toBe(0);
+    expect(reads).toBe(RECURRING_MAX_ROWS / RECURRING_PAGE_SIZE);
+    expect(log).toHaveBeenCalledWith(
+      '[calendar] recurring reminders: stopped at',
+      RECURRING_MAX_ROWS,
+      'series this pass'
+    );
   });
 });

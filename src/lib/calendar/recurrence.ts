@@ -181,6 +181,74 @@ function occurrenceEnd(ev: ExpandableEvent, startFloating: number): number {
   return fromFloating(startFloating + length, ev.time_zone);
 }
 
+// rrule.js checks UNTIL (and the between() bounds) only on a matching
+// date, so a rule that matches nothing more (FREQ=DAILY;BYMONTH=2;
+// BYMONTHDAY=30) walks period by period to the year 9999: ~13 s for a
+// daily rule. Nothing in its public API stops that walk, so each walk
+// gets a period budget: every step of rrule's loop reads
+// `options.interval` (twice in 2.8.1), and a read past the budget
+// throws WalkLimit. The budget covers the walk from dtstart to the
+// walk's end with the shortest period of the frequency, so it never
+// cuts a date the walk was asked for; it only ends the search for one
+// past the end. Pinned by recurrence.test.ts ("bounded walk").
+const MIN_PERIOD_MS: Record<number, number> = {
+  [RRule.YEARLY]: 365 * DAY_MS,
+  [RRule.MONTHLY]: 28 * DAY_MS,
+  [RRule.WEEKLY]: 7 * DAY_MS,
+  [RRule.DAILY]: DAY_MS,
+};
+const READS_PER_STEP = 4;
+
+class WalkLimit extends Error {}
+
+/** An RRule on the floating clock that walks no further than `walkEnd`
+ *  (floating ms): UNTIL clamped to it, and a step budget. */
+function boundedRule(
+  opts: Partial<Options>,
+  dtstart: number,
+  walkEnd: number
+): RRule {
+  const until =
+    opts.until && opts.until.getTime() < walkEnd
+      ? opts.until
+      : new Date(walkEnd);
+  const rule = new RRule(
+    { ...opts, dtstart: new Date(dtstart), until, tzid: null },
+    true
+  );
+  const { freq, interval } = rule.options;
+  const steps =
+    Math.ceil(
+      Math.max(0, walkEnd - dtstart) /
+        ((MIN_PERIOD_MS[freq] ?? DAY_MS) * Math.max(1, interval))
+    ) + 2;
+  const budget = steps * READS_PER_STEP + 16;
+  let reads = 0;
+  rule.options = new Proxy(rule.options, {
+    get(target, key, receiver) {
+      if (key === 'interval' && ++reads > budget) throw new WalkLimit();
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  return rule;
+}
+
+/** rule.between, where hitting the walk budget is a normal end. */
+function walk(
+  rule: RRule,
+  after: number,
+  before: number,
+  each: (floating: number) => boolean
+): void {
+  try {
+    rule.between(new Date(after), new Date(before), true, (d) =>
+      each(d.getTime())
+    );
+  } catch (err) {
+    if (!(err instanceof WalkLimit)) throw err;
+  }
+}
+
 /**
  * The event's occurrences overlapping [from, to) (instants, ms), in
  * order, without exdates, at most MAX_INSTANCES. A one-off event is its
@@ -203,21 +271,21 @@ export function expandEvent(
     return { occurrences: overlaps(o) ? [o] : [], truncated: false };
   }
   const excluded = new Set((ev.exdates ?? []).map((x) => Date.parse(x)));
-  const rule = new RRule({
-    ...parseOptions(ev.rrule, ev.time_zone),
-    dtstart: new Date(startFloat),
-    tzid: null,
-  });
   const lengthMs = occurrenceEnd(ev, startFloat) - Date.parse(ev.start_at);
   // Floating bounds, padded by a day either side (zone offsets) and by
   // the event's length (an occurrence that started before `from`).
-  const after = new Date(toFloating(from, 'UTC') - lengthMs - 2 * DAY_MS);
-  const before = new Date(to + 2 * DAY_MS);
+  const after = toFloating(from, 'UTC') - lengthMs - 2 * DAY_MS;
+  const before = to + 2 * DAY_MS;
+  const rule = boundedRule(
+    parseOptions(ev.rrule, ev.time_zone),
+    startFloat,
+    before
+  );
   let truncated = false;
-  rule.between(after, before, true, (d) => {
-    const start = fromFloating(d.getTime(), ev.time_zone);
+  walk(rule, after, before, (d) => {
+    const start = fromFloating(d, ev.time_zone);
     if (excluded.has(start)) return true;
-    const o = { start, end: occurrenceEnd(ev, d.getTime()) };
+    const o = { start, end: occurrenceEnd(ev, d) };
     if (start >= to) return false;
     if (!overlaps(o)) return true;
     if (out.length >= MAX_INSTANCES) {
@@ -228,6 +296,77 @@ export function expandEvent(
     return true;
   });
   return { occurrences: out, truncated };
+}
+
+/** Years a rule may take to produce its first date (rruleSanity). */
+export const FIRST_OCCURRENCE_YEARS = 10;
+/** How far seriesEndAt looks for a bounded series' last date. */
+export const SERIES_END_HORIZON_YEARS = 100;
+
+const addYears = (floatingMs: number, years: number) => {
+  const d = new Date(floatingMs);
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  return d.getTime();
+};
+
+type SeriesAnchor = Pick<
+  ExpandableEvent,
+  'start_at' | 'end_at' | 'all_day' | 'time_zone'
+>;
+
+/**
+ * rruleError, plus: the rule must produce a date within
+ * FIRST_OCCURRENCE_YEARS of the series' start. A rule that never
+ * matches (30 February), or ends before it starts, is refused.
+ */
+export function rruleSanity(body: string, anchor: SeriesAnchor): string | null {
+  const err = rruleError(body);
+  if (err) return err;
+  const startFloat = toFloating(Date.parse(anchor.start_at), anchor.time_zone);
+  const horizon = addYears(startFloat, FIRST_OCCURRENCE_YEARS);
+  const rule = boundedRule(
+    parseOptions(body, anchor.time_zone),
+    startFloat,
+    horizon
+  );
+  let found = false;
+  walk(rule, startFloat, horizon, () => {
+    found = true;
+    return false;
+  });
+  return found
+    ? null
+    : `Repeat rule has no date within ${FIRST_OCCURRENCE_YEARS} years of the start`;
+}
+
+/**
+ * The end of a series' last occurrence when its rule is bounded by
+ * COUNT or UNTIL, else null (open-ended, or a one-off event). exdates
+ * are ignored, so the value depends only on the times and the rule; a
+ * bounded series whose end lies beyond SERIES_END_HORIZON_YEARS is
+ * null as well, which readers treat as "still running". A bounded rule
+ * with no occurrence at all ends with its first slot (end_at).
+ */
+export function seriesEndAt(ev: ExpandableEvent): Date | null {
+  if (!ev.rrule) return null;
+  const opts = parseOptions(ev.rrule, ev.time_zone);
+  const count = opts.count ?? null;
+  const until = opts.until ? opts.until.getTime() : null;
+  if (count === null && until === null) return null;
+  const startFloat = toFloating(Date.parse(ev.start_at), ev.time_zone);
+  const horizon = addYears(startFloat, SERIES_END_HORIZON_YEARS);
+  if (count === null && until! > horizon) return null;
+  const rule = boundedRule(opts, startFloat, horizon);
+  let seen = 0;
+  let last = null as number | null;
+  walk(rule, startFloat, horizon, (d) => {
+    seen++;
+    last = d;
+    return true;
+  });
+  if (count !== null && seen < count) return null;
+  if (last === null) return new Date(Date.parse(ev.end_at));
+  return new Date(occurrenceEnd(ev, last));
 }
 
 /** Whether `start` (ms) is one of the series' own occurrence starts. */

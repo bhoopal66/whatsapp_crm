@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { eventDragBody, meetingDragBody, shiftSeries } from './drag';
+import {
+  eventDragBody,
+  isDragRefusal,
+  meetingDragBody,
+  shiftSeries,
+} from './drag';
 import { descriptionParts, popoverActions } from './popover-rules';
 import {
   parseCustomReminder,
@@ -209,6 +214,51 @@ describe('drag bodies', () => {
         'Asia/Dubai'
       )
     ).toMatchObject({ start: '2026-10-17', end: '2026-10-18', allDay: true });
+  });
+
+  it('moves a weekly series to another day with its BYDAY', () => {
+    // Series Thu 1 Oct 09:00 Dubai; drag Thu 15 Oct to Fri 16 Oct.
+    const item = anEvent({
+      recurring: true,
+      start: '2026-10-15T05:00:00.000Z',
+      end: '2026-10-15T06:00:00.000Z',
+    });
+    const dubai = {
+      start_at: '2026-10-01T05:00:00.000Z',
+      end_at: '2026-10-01T06:00:00.000Z',
+      all_day: false,
+      time_zone: 'Asia/Dubai',
+      rrule: 'FREQ=WEEKLY;BYDAY=TH',
+    };
+    const moved = new Date('2026-10-16T05:00:00Z');
+    expect(
+      eventDragBody(item, dubai, moved, null, 'all', 'Asia/Dubai')
+    ).toMatchObject({
+      start: '2026-10-02T05:00:00.000Z',
+      rrule: 'FREQ=WEEKLY;BYDAY=FR',
+      scope: 'all',
+    });
+    // Same day, new time: the rule is not sent.
+    expect(
+      eventDragBody(
+        item,
+        dubai,
+        new Date('2026-10-15T07:00:00Z'),
+        null,
+        'all',
+        'Asia/Dubai'
+      )
+    ).not.toHaveProperty('rrule');
+    const refused = eventDragBody(
+      item,
+      { ...dubai, rrule: 'FREQ=MONTHLY;BYMONTHDAY=28' },
+      moved,
+      null,
+      'all',
+      'Asia/Dubai'
+    );
+    expect(refused).toEqual({ error: 'series_rule_conflict' });
+    expect(isDragRefusal(refused)).toBe(true);
   });
 
   it('keeps a meeting length when only moved', () => {

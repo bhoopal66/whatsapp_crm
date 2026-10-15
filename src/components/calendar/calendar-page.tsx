@@ -8,7 +8,12 @@ import { MeetingFormDialog } from '@/components/meetings/meeting-form-dialog';
 import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
 import { calendarTimeZone } from '@/lib/calendar/fc-timezone';
 import type { FeedItem } from '@/lib/calendar/feed';
-import { eventDragBody, meetingDragBody } from '@/lib/calendar/ui/drag';
+import {
+  eventDragBody,
+  isDragRefusal,
+  meetingDragBody,
+  SERIES_RULE_CONFLICT_MESSAGE,
+} from '@/lib/calendar/ui/drag';
 import type { ViewKey } from '@/lib/calendar/ui/url-state';
 
 import { calendarFetch, errorText, type EventDetail } from './calendar-api';
@@ -124,9 +129,17 @@ export function CalendarPage({
         );
         const scope = item.recurring ? await ask('move', true) : 'all';
         if (!scope) return revert();
+        const body = eventDragBody(item, event, newStart, newEnd, scope, zone);
+        if (isDragRefusal(body)) {
+          revert();
+          toast.error(
+            t('popover.moveFailed', { reason: SERIES_RULE_CONFLICT_MESSAGE })
+          );
+          return;
+        }
         await calendarFetch(`/api/calendar/events/${item.id}`, {
           method: 'PATCH',
-          body: eventDragBody(item, event, newStart, newEnd, scope, zone),
+          body,
         });
       }
       toast.success(t('popover.moved'));

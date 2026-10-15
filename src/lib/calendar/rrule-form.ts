@@ -10,7 +10,7 @@
 // zone, as a UTC instant (…Z), which recurrence.ts reads back exactly.
 // ============================================================
 
-import { fromFloating, wallClock } from './recurrence';
+import { fromFloating, toFloating, wallClock } from './recurrence';
 
 export const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
@@ -327,4 +327,125 @@ export function describeRrule(
       break;
   }
   return { key, values };
+}
+
+const DAY_MS = 86_400_000;
+const BYDAY_VALUE = /^([+-]?\d{1,2})?(MO|TU|WE|TH|FR|SA|SU)$/;
+
+/** An UNTIL value moved by whole days (a …Z instant on the zone's wall
+ *  clock, so a DST change between keeps its local time). */
+function shiftUntil(value: string, days: number, timeZone: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/.exec(
+    value
+  );
+  if (!m) return value;
+  const [, y, mo, d, h, mi, sec, z] = m;
+  let ms = Date.UTC(+y, +mo - 1, +d, +(h ?? 0), +(mi ?? 0), +(sec ?? 0));
+  if (z) ms = fromFloating(toFloating(ms, timeZone) + days * DAY_MS, timeZone);
+  else ms += days * DAY_MS;
+  const t = new Date(ms);
+  const date = `${t.getUTCFullYear()}${pad(t.getUTCMonth() + 1)}${pad(t.getUTCDate())}`;
+  if (h === undefined) return date;
+  return `${date}T${pad(t.getUTCHours())}${pad(t.getUTCMinutes())}${pad(t.getUTCSeconds())}${z ?? ''}`;
+}
+
+/**
+ * The rule that keeps a series on the same days after its first date
+ * (the anchor, in the event's zone) moves by `dayDelta` whole days, or
+ * null when no rule says that exactly enough to save without asking.
+ *
+ * - BYDAY weekdays move by the delta. A weekly rule with INTERVAL > 1
+ *   refuses when the days would split across a week boundary (WKST),
+ *   and a monthly plain-weekday rule needs INTERVAL=1.
+ * - A monthly nth / last weekday (2TU, -1FR) keeps its ordinal and moves
+ *   its weekday while the anchor stays inside that ordinal's 7-day block
+ *   of its month; crossing it would change the ordinal: refused.
+ * - BYMONTHDAY moves by the delta while old and new days are both ones
+ *   every month has (1..28, or -1..-28), so no month gains or loses an
+ *   occurrence.
+ * - UNTIL moves with the series so it keeps its last occurrence.
+ * - BYMONTH, BYSETPOS, BYDAY with BYMONTHDAY, and yearly BY* rules are
+ *   refused.
+ */
+export function shiftRule(
+  rrule: string,
+  dayDelta: number,
+  anchor: RepeatAnchor
+): string | null {
+  if (dayDelta === 0) return rrule;
+  const parts = rrule.split(';').map((p) => {
+    const i = p.indexOf('=');
+    return [p.slice(0, i), p.slice(i + 1)] as [string, string];
+  });
+  const get = (k: string) => parts.find(([key]) => key === k)?.[1];
+  const freq = get('FREQ');
+  const interval = Number(get('INTERVAL') ?? 1);
+  const byday = get('BYDAY');
+  const bymonthday = get('BYMONTHDAY');
+  if (get('BYMONTH') !== undefined || get('BYSETPOS') !== undefined) {
+    return null;
+  }
+  if (byday !== undefined && bymonthday !== undefined) return null;
+  if (freq === 'YEARLY' && (byday ?? bymonthday) !== undefined) return null;
+  const shiftDay = (wd: Weekday) =>
+    WEEKDAYS[(((WEEKDAYS.indexOf(wd) + dayDelta) % 7) + 7) % 7];
+
+  const moveByday = (value: string): string | null => {
+    const days = value.split(',').map((v) => BYDAY_VALUE.exec(v));
+    if (days.some((d) => !d)) return null;
+    const parsed = days.map((d) => ({
+      n: d![1] ? Number(d![1]) : null,
+      wd: d![2] as Weekday,
+    }));
+    if (parsed.some((d) => d.n !== null)) {
+      if (freq !== 'MONTHLY' || parsed.length !== 1) return null;
+      const { n, wd } = parsed[0];
+      const [y, mo, d] = ymd(anchor.date);
+      const len = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+      if (n === 0 || anchorFacts(anchor).weekday !== wd) return null;
+      const first = n! > 0 ? 7 * (n! - 1) + 1 : len + 7 * n! + 1;
+      const moved = d + dayDelta;
+      if (moved < Math.max(1, first) || moved > Math.min(len, first + 6)) {
+        return null;
+      }
+      return `${n}${shiftDay(wd)}`;
+    }
+    if (freq === 'MONTHLY' && interval !== 1) return null;
+    if (freq === 'WEEKLY' && interval !== 1) {
+      const wkst = WEEKDAYS.indexOf((get('WKST') ?? 'MO') as Weekday);
+      const weeks = new Set(
+        parsed.map((p) =>
+          Math.floor((((WEEKDAYS.indexOf(p.wd) - wkst + 7) % 7) + dayDelta) / 7)
+        )
+      );
+      if (weeks.size !== 1) return null;
+    }
+    return sortDays(parsed.map((p) => shiftDay(p.wd))).join(',');
+  };
+
+  const moveMonthday = (value: string): string | null => {
+    if (freq !== 'MONTHLY' && freq !== 'DAILY') return null;
+    const out: number[] = [];
+    for (const v of value.split(',')) {
+      const n = Number(v);
+      const m = n + dayDelta;
+      const ok =
+        n > 0 ? n <= 28 && m >= 1 && m <= 28 : n >= -28 && m <= -1 && m >= -28;
+      if (!Number.isInteger(n) || n === 0 || !ok) return null;
+      out.push(m);
+    }
+    return out.join(',');
+  };
+
+  const out: string[] = [];
+  for (const [key, value] of parts) {
+    let next: string | null = value;
+    if (key === 'BYDAY') next = moveByday(value);
+    else if (key === 'BYMONTHDAY') next = moveMonthday(value);
+    else if (key === 'UNTIL')
+      next = shiftUntil(value, dayDelta, anchor.timeZone);
+    if (next === null) return null;
+    out.push(`${key}=${next}`);
+  }
+  return out.join(';');
 }

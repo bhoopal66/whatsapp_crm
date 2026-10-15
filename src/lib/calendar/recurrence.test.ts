@@ -6,6 +6,8 @@ import {
   fromFloating,
   isOccurrence,
   rruleError,
+  rruleSanity,
+  seriesEndAt,
   toFloating,
   wallClock,
 } from './recurrence';
@@ -190,5 +192,129 @@ describe('rruleError', () => {
     ]) {
       expect(rruleError(r)).not.toBeNull();
     }
+  });
+});
+
+describe('bounded walk', () => {
+  const FEB30 = 'FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30';
+  const ev = (rrule: string, start = '2026-01-05T05:00:00Z') => ({
+    start_at: start,
+    end_at: iso(at(start) + 30 * 60_000),
+    all_day: false,
+    time_zone: 'Asia/Dubai',
+    rrule,
+    exdates: [] as string[],
+  });
+
+  it('expands a rule that never matches quickly and empty', () => {
+    const t = performance.now();
+    const out = expandEvent(
+      ev(FEB30),
+      at('2026-10-01T00:00:00Z'),
+      at('2026-11-01T00:00:00Z')
+    );
+    expect(performance.now() - t).toBeLessThan(200);
+    expect(out).toEqual({ occurrences: [], truncated: false });
+  }, 2000);
+
+  it('stops looking once the matches run out past the window', () => {
+    // Matches end in 2027 (UNTIL), the window is 2026: no walk to 9999.
+    const t = performance.now();
+    const out = expandEvent(
+      ev(
+        'FREQ=YEARLY;INTERVAL=4;BYMONTH=2;BYMONTHDAY=29',
+        '2025-01-01T05:00:00Z'
+      ),
+      at('2026-01-01T00:00:00Z'),
+      at('2026-12-31T00:00:00Z')
+    );
+    expect(performance.now() - t).toBeLessThan(200);
+    expect(out.occurrences).toEqual([]);
+  }, 2000);
+
+  it('still finds every date of a long-running series in a late window', () => {
+    const out = expandEvent(
+      ev('FREQ=DAILY', '1970-01-05T05:00:00Z'),
+      at('2026-10-01T00:00:00Z'),
+      at('2026-10-08T00:00:00Z')
+    );
+    expect(out.occurrences.map((o) => iso(o.start))).toEqual([
+      '2026-10-01T05:00:00.000Z',
+      '2026-10-02T05:00:00.000Z',
+      '2026-10-03T05:00:00.000Z',
+      '2026-10-04T05:00:00.000Z',
+      '2026-10-05T05:00:00.000Z',
+      '2026-10-06T05:00:00.000Z',
+      '2026-10-07T05:00:00.000Z',
+    ]);
+  });
+
+  it('finds a sparse monthly date late in a window', () => {
+    // 31st of each month: the window's only one is 31 Dec.
+    const out = expandEvent(
+      ev('FREQ=MONTHLY;BYMONTHDAY=31', '2026-01-31T05:00:00Z'),
+      at('2026-12-01T00:00:00Z'),
+      at('2027-01-01T00:00:00Z')
+    );
+    expect(out.occurrences.map((o) => iso(o.start))).toEqual([
+      '2026-12-31T05:00:00.000Z',
+    ]);
+  });
+});
+
+describe('rruleSanity', () => {
+  const anchor = {
+    start_at: '2026-01-05T05:00:00Z',
+    end_at: '2026-01-05T05:30:00Z',
+    all_day: false,
+    time_zone: 'Asia/Dubai',
+  };
+  it('refuses a rule with no date within 10 years, quickly', () => {
+    const t = performance.now();
+    expect(rruleSanity('FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30', anchor)).toMatch(
+      /no date within 10 years/
+    );
+    expect(rruleSanity('FREQ=DAILY;UNTIL=20250101', anchor)).toMatch(
+      /no date within/
+    );
+    expect(performance.now() - t).toBeLessThan(200);
+  }, 2000);
+  it('passes ordinary rules and reports syntax errors first', () => {
+    expect(rruleSanity('FREQ=WEEKLY;BYDAY=MO,WE', anchor)).toBeNull();
+    expect(
+      rruleSanity('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29', anchor)
+    ).toBeNull();
+    expect(rruleSanity('FREQ=HOURLY', anchor)).toBe(rruleError('FREQ=HOURLY'));
+  });
+});
+
+describe('seriesEndAt', () => {
+  const base = {
+    start_at: '2026-10-01T05:00:00Z', // 09:00 Dubai
+    end_at: '2026-10-01T05:30:00Z',
+    all_day: false,
+    time_zone: 'Asia/Dubai',
+    exdates: [] as string[],
+  };
+  it('is null for an open-ended series or a one-off', () => {
+    expect(seriesEndAt({ ...base, rrule: 'FREQ=DAILY' })).toBeNull();
+    expect(seriesEndAt({ ...base, rrule: null })).toBeNull();
+  });
+  it('ends with the last occurrence of a COUNT rule', () => {
+    expect(
+      seriesEndAt({ ...base, rrule: 'FREQ=DAILY;COUNT=3' })?.toISOString()
+    ).toBe('2026-10-03T05:30:00.000Z');
+  });
+  it('ends with the last occurrence on or before UNTIL, exdates ignored', () => {
+    expect(
+      seriesEndAt({
+        ...base,
+        rrule: 'FREQ=WEEKLY;BYDAY=TH;UNTIL=20261028',
+        exdates: ['2026-10-22T05:00:00Z'],
+      })?.toISOString()
+    ).toBe('2026-10-22T05:30:00.000Z');
+  });
+  it('is null when a COUNT runs past the horizon', () => {
+    expect(seriesEndAt({ ...base, rrule: 'FREQ=YEARLY;COUNT=500' })).toBeNull();
   });
 });
