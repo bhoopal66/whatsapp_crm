@@ -43,6 +43,10 @@ DECLARE
   e_upd   UUID;   -- updated then cancelled, attendees u_att, u_dec
   e_del   UUID;   -- deleted, attendee u_att
   e_rec   UUID;   -- recurring, attendees u_att, u_dec (declined)
+  e_u     UUID;   -- one-off, edited through calendar_update_event
+  e_s     UUID;   -- weekly series, split and cancelled one occurrence at a time
+  e_cp    UUID;   -- the split's copy
+  ts      TIMESTAMPTZ;
   m_one   UUID;
   t_open  UUID;
   r       TEXT;
@@ -463,6 +467,144 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
     'ev:' || e_rec || ':1894438800:10:' || u_crt, u_crt, e_rec, '2030-01-12 09:00+00'));
   n := n + 1;
   IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a signed-in user called calendar_insert_reminder: ' || r)::text); END IF;
+
+  -- ---------- atomic writes: calendar_update_event ----------
+  INSERT INTO calendar_events (account_id, created_by, title, description, start_at, end_at)
+  VALUES (a_acct, u_crt, 'Cal rpc', 'kept', '2030-04-01 09:00+00', '2030-04-01 10:00+00')
+  RETURNING id, updated_at INTO e_u, ts;
+  INSERT INTO calendar_event_attendees (event_id, user_id, account_id) VALUES
+    (e_u, u_att, a_acct), (e_u, u_dec, a_acct);
+  r := pg_temp.cal_try('authenticated', u_crt, format(
+    'SELECT title FROM calendar_update_event(%L, %L, %L, %L)', e_u, ts,
+    '{"title": "Cal rpc moved", "start_at": "2030-04-02 09:00+00", "end_at": "2030-04-02 10:00+00", "created_by": "00000000-0000-4000-8000-000000108006"}',
+    ARRAY[u_att, u_out]));
+  n := n + 1;
+  IF r <> 'Cal rpc moved' OR NOT EXISTS (SELECT 1 FROM calendar_events WHERE id = e_u AND created_by = u_crt
+                                           AND start_at = '2030-04-02 09:00+00' AND description = 'kept' AND color = 'blue') THEN
+    failed := array_append(failed, ('calendar_update_event sets only the patch''s allowed keys: ' || r)::text);
+  END IF;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM calendar_event_attendees WHERE event_id = e_u AND user_id = u_dec)
+     OR NOT EXISTS (SELECT 1 FROM calendar_event_attendees WHERE event_id = e_u AND user_id = u_out AND response = 'pending')
+     OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_invite' AND user_id = u_out
+                       AND meta = jsonb_build_object('event_id', e_u) AND body LIKE 'Starts 02 Apr 2030%')
+     OR EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_update' AND user_id = u_dec AND meta->>'event_id' = e_u::text)
+     OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_update' AND user_id = u_att AND meta->>'event_id' = e_u::text) THEN
+    failed := array_append(failed, 'calendar_update_event diffs attendees: newcomers invited at the new time, the removed gone and not rung'::text);
+  END IF;
+  r := pg_temp.cal_try('authenticated', u_crt, format(
+    'SELECT title FROM calendar_update_event(%L, %L, %L)', e_u, ts - interval '1 second', '{"title": "Cal rpc stale"}'));
+  n := n + 1;
+  IF r <> 'ERROR P0001: stale' OR EXISTS (SELECT 1 FROM calendar_events WHERE id = e_u AND title = 'Cal rpc stale') THEN
+    failed := array_append(failed, ('calendar_update_event on an old updated_at is stale: ' || r)::text);
+  END IF;
+  r := pg_temp.cal_try('authenticated', u_admin, format(
+    'SELECT title FROM calendar_update_event(%L, %L, %L)', e_u, ts, '{"title": "Cal rpc admin"}'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('calendar_update_event by a non-creator admin: ' || r)::text); END IF;
+  r := pg_temp.cal_try('authenticated', u_other, format(
+    'SELECT title FROM calendar_update_event(%L, %L, %L)', e_u, ts, '{"title": "Cal rpc other"}'));
+  n := n + 1;
+  IF r <> 'ERROR P0002: not_found' THEN failed := array_append(failed, ('calendar_update_event from another workspace: ' || r)::text); END IF;
+  r := pg_temp.cal_try('authenticated', u_crt, format(
+    'SELECT title FROM calendar_update_event(%L, %L, %L)', e_u, ts, '{"title": null}'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023:%' THEN failed := array_append(failed, ('calendar_update_event nulling a required column: ' || r)::text); END IF;
+
+  -- ---------- atomic writes: one occurrence of a series ----------
+  INSERT INTO calendar_events (account_id, created_by, title, start_at, end_at, rrule)
+  VALUES (a_acct, u_crt, 'Cal weekly', '2030-03-04 09:00+00', '2030-03-04 10:00+00', 'FREQ=WEEKLY')
+  RETURNING id, updated_at INTO e_s, ts;
+  INSERT INTO calendar_event_attendees (event_id, user_id, account_id, response, reminders) VALUES
+    (e_s, u_att, a_acct, 'accepted', '{5}'), (e_s, u_dec, a_acct, 'declined', NULL);
+  r := pg_temp.cal_try('authenticated', u_crt, format(
+    'SELECT id::text FROM calendar_split_occurrence(%L, %L, %L, %L, %L)', e_s, ts, '2030-03-11 09:00+00',
+    '{"start_at": "2030-03-11 11:00+00", "end_at": "2030-03-11 12:00+00", "rrule": "FREQ=DAILY"}',
+    ARRAY[u_att, u_dec, u_own5]));
+  n := n + 1;
+  IF r NOT SIMILAR TO '[0-9a-f-]{36}' THEN
+    failed := array_append(failed, ('the organiser splits an occurrence: ' || r)::text);
+  ELSE
+    e_cp := r::uuid;
+    n := n + 1;
+    IF NOT EXISTS (SELECT 1 FROM calendar_events WHERE id = e_cp AND created_by = u_crt AND title = 'Cal weekly'
+                      AND start_at = '2030-03-11 11:00+00' AND rrule IS NULL AND exdates = '{}' AND series_end_at IS NULL)
+       OR NOT EXISTS (SELECT 1 FROM calendar_events WHERE id = e_s AND exdates = ARRAY['2030-03-11 09:00+00'::timestamptz]) THEN
+      failed := array_append(failed, 'a split makes a one-off copy and adds the occurrence to the series'' exdates'::text);
+    END IF;
+    n := n + 1;
+    IF NOT EXISTS (SELECT 1 FROM calendar_event_attendees WHERE event_id = e_cp AND user_id = u_att AND response = 'accepted' AND reminders = '{5}')
+       OR NOT EXISTS (SELECT 1 FROM calendar_event_attendees WHERE event_id = e_cp AND user_id = u_dec AND response = 'declined')
+       OR NOT EXISTS (SELECT 1 FROM calendar_event_attendees WHERE event_id = e_cp AND user_id = u_own5 AND response = 'pending') THEN
+      failed := array_append(failed, 'a split carries each attendee''s answer and reminders; newcomers are pending'::text);
+    END IF;
+    n := n + 1;
+    IF EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_invite' AND meta->>'event_id' = e_cp::text AND user_id IN (u_att, u_dec))
+       OR (SELECT count(*) FROM notifications WHERE type = 'calendar_update' AND meta->>'event_id' = e_cp::text
+              AND (meta->>'occurrence_start')::timestamptz = '2030-03-11 09:00+00' AND actor_user_id = u_crt
+              AND user_id IN (u_att, u_dec)) <> 2
+       OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_invite' AND meta->>'event_id' = e_cp::text AND user_id = u_own5)
+       OR EXISTS (SELECT 1 FROM notifications WHERE type = 'calendar_update' AND meta->>'event_id' = e_cp::text AND user_id = u_own5) THEN
+      failed := array_append(failed, 'a split rings carried attendees calendar_update (not an invite) and invites newcomers'::text);
+    END IF;
+  END IF;
+  r := pg_temp.cal_try('authenticated', u_crt, format(
+    'SELECT id::text FROM calendar_split_occurrence(%L, %L, %L, %L)', e_s, ts, '2030-03-11 09:00+00', '{}'));
+  n := n + 1;
+  IF r <> 'ERROR P0001: stale' OR (SELECT count(*) FROM calendar_events WHERE title = 'Cal weekly') <> 2 THEN
+    failed := array_append(failed, ('splitting the same occurrence again is stale: ' || r)::text);
+  END IF;
+  r := pg_temp.cal_try('authenticated', u_admin, format(
+    'SELECT ''done'' FROM calendar_cancel_occurrence(%L, %L, %L)', e_s, ts, '2030-03-18 09:00+00'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a non-organiser admin cancelled an occurrence: ' || r)::text); END IF;
+  FOR i IN 1..2 LOOP
+    r := pg_temp.cal_try('authenticated', u_crt, format(
+      'SELECT ''done'' FROM calendar_cancel_occurrence(%L, %L, %L)', e_s, ts, '2030-03-18 09:00+00'));
+    n := n + 1;
+    IF r <> 'done'
+       OR (SELECT count(*) FROM notifications WHERE type = 'calendar_cancelled' AND meta->>'event_id' = e_s::text
+              AND (meta->>'occurrence_start')::timestamptz = '2030-03-18 09:00+00' AND user_id IN (u_att, u_dec)) <> 2
+       OR NOT EXISTS (SELECT 1 FROM calendar_events WHERE id = e_s AND exdates @> ARRAY['2030-03-18 09:00+00'::timestamptz]
+                         AND cardinality(exdates) = 2) THEN
+      failed := array_append(failed, ('cancelling an occurrence adds it and rings each attendee once (run ' || i || '): ' || r)::text);
+    END IF;
+  END LOOP;
+
+  -- Toggling a response rings the organiser at most once per 10 minutes.
+  FOREACH k IN ARRAY ARRAY['declined', 'accepted', 'tentative', 'declined'] LOOP
+    r := pg_temp.cal_try('authenticated', u_att, format(
+      'UPDATE calendar_event_attendees SET response = %L WHERE event_id = %L', k, e_s));
+  END LOOP;
+  n := n + 1;
+  IF (SELECT response FROM calendar_event_attendees WHERE event_id = e_s AND user_id = u_att) <> 'declined'
+     OR (SELECT count(*) FROM notifications WHERE type = 'calendar_response' AND user_id = u_crt
+            AND meta->>'event_id' = e_s::text AND meta->>'user_id' = u_att::text) <> 1 THEN
+    failed := array_append(failed, 'toggling a response rings the organiser once per 10 minutes'::text);
+  END IF;
+
+  r := pg_temp.cal_try('postgres', NULL, format(
+    'INSERT INTO calendar_events (account_id, created_by, title, start_at, end_at) VALUES (%L, %L, %L, %L, %L)',
+    a_acct, u_crt, 'Cal year one', '0001-01-01 09:00+00', '0001-01-01 10:00+00'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 23514:%' THEN failed := array_append(failed, ('an event in year 1 was stored: ' || r)::text); END IF;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'calendar_events'
+                    AND column_name = 'series_end_at' AND data_type = 'timestamp with time zone')
+     OR NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'calendar_events_series_end_idx') THEN
+    failed := array_append(failed, 'calendar_events.series_end_at and its index exist'::text);
+  END IF;
+  n := n + 1;
+  IF NOT has_function_privilege('authenticated', 'public.calendar_update_event(uuid, timestamptz, jsonb, uuid[])', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.calendar_split_occurrence(uuid, timestamptz, timestamptz, jsonb, uuid[])', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.calendar_cancel_occurrence(uuid, timestamptz, timestamptz)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.calendar_update_event(uuid, timestamptz, jsonb, uuid[])', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.calendar_split_occurrence(uuid, timestamptz, timestamptz, jsonb, uuid[])', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.calendar_cancel_occurrence(uuid, timestamptz, timestamptz)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.calendar_series_for_write(uuid)', 'EXECUTE') THEN
+    failed := array_append(failed, 'the calendar write RPCs are for signed-in users only'::text);
+  END IF;
 
   -- ---------- types, grants, RLS, realtime ----------
   FOREACH k IN ARRAY ARRAY['calendar_invite', 'calendar_update', 'calendar_cancelled', 'calendar_response',

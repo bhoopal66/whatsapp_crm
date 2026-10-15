@@ -20,7 +20,9 @@
 -- and moderation columns, which no client writes. From 110: a removal
 -- (meeting_removed_users) refuses the person's posts and any new seat
 -- until it is deleted; managers and the person read it, nobody else; no client
--- writes it.
+-- writes it. Also from 110: only the host edits a meeting's details or
+-- its invitees (an owner or admin may still end or cancel it; the
+-- service role is unaffected).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -196,7 +198,17 @@ BEGIN
   r := pg_temp.mt_try('authenticated', u_admin, format(
     'INSERT INTO meeting_invitees (meeting_id, user_id, account_id) VALUES (%L, %L, %L)', m_open, u_viewer, a_acct));
   n := n + 1;
-  IF r <> 'ok' THEN failed := array_append(failed, ('admin invites people to any meeting: ' || r)::text); END IF;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a non-host admin invited people to a meeting (110: host only): ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format(
+    'INSERT INTO meeting_invitees (meeting_id, user_id, account_id) VALUES (%L, %L, %L)', m_open, u_viewer, a_acct));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('service role invites people to a meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_admin, format(
+    'DELETE FROM meeting_invitees WHERE meeting_id = %L AND user_id = %L', m_open, u_viewer));
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM meeting_invitees WHERE meeting_id = m_open AND user_id = u_viewer) THEN
+    failed := array_append(failed, ('a non-host admin removed an invitee (110: host only): ' || r)::text);
+  END IF;
 
   -- Deactivated after the invitations: they see nothing now, and cannot be invited.
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_gone;
@@ -272,6 +284,21 @@ BEGIN
   IF r <> 'ok' OR NOT EXISTS (SELECT 1 FROM meetings WHERE id = m_closed AND title = 'MT closed, renamed') THEN
     failed := array_append(failed, ('host renames their meeting: ' || r)::text);
   END IF;
+  -- 110: an owner or admin may end or cancel a meeting, never edit it.
+  r := pg_temp.mt_try('authenticated', u_admin, format('UPDATE meetings SET title = %L WHERE id = %L', 'MT admin rename', m_closed));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' OR EXISTS (SELECT 1 FROM meetings WHERE id = m_closed AND title = 'MT admin rename') THEN
+    failed := array_append(failed, ('a non-host admin renamed a meeting: ' || r)::text);
+  END IF;
+  r := pg_temp.mt_try('authenticated', u_admin, format('UPDATE meetings SET scheduled_start = %L WHERE id = %L', '2031-01-01 09:00+00', m_closed));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('a non-host admin moved a meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_owner, format('UPDATE meetings SET open_to_workspace = NOT open_to_workspace WHERE id = %L', m_closed));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('the owner opened someone else''s meeting to the workspace: ' || r)::text); END IF;
+  r := pg_temp.mt_try('service_role', NULL, format('UPDATE meetings SET description = %L WHERE id = %L', 'set by the API', m_closed));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('the service role edits a meeting: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_host, format('UPDATE meetings SET host_user_id = %L WHERE id = %L', u_out, m_closed));
   n := n + 1;
   IF r NOT LIKE 'ERROR 23514:%' THEN failed := array_append(failed, ('host handed the meeting to someone else: ' || r)::text); END IF;

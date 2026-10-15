@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
   visibility  text NOT NULL DEFAULT 'attendees',
   reminders   integer[] NOT NULL DEFAULT '{10}',
   status      text NOT NULL DEFAULT 'confirmed',
+  series_end_at timestamptz NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT calendar_events_title_check CHECK (
@@ -73,6 +74,11 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
   -- An all-day single day may be stored with end = start (end exclusive).
   CONSTRAINT calendar_events_time_check CHECK (
     end_at > start_at OR (all_day AND end_at = start_at)),
+  -- Inside what the TS recurrence code and the date pickers handle; a
+  -- year-1 or year-9999 start would otherwise be stored and expanded.
+  CONSTRAINT calendar_events_range_check CHECK (
+    start_at BETWEEN '1970-01-01 00:00+00' AND '2101-01-01 00:00+00'
+    AND end_at BETWEEN '1970-01-01 00:00+00' AND '2101-01-01 00:00+00'),
   CONSTRAINT calendar_events_time_zone_check CHECK (
     char_length(time_zone) BETWEEN 1 AND 64),
   CONSTRAINT calendar_events_color_check CHECK (
@@ -100,6 +106,10 @@ CREATE INDEX IF NOT EXISTS calendar_events_created_by_idx
 -- The reminder sweep: confirmed one-off events by start.
 CREATE INDEX IF NOT EXISTS calendar_events_sweep_idx
   ON public.calendar_events (start_at) WHERE status = 'confirmed' AND rrule IS NULL;
+-- Recurring reminders: confirmed series that have not ended.
+CREATE INDEX IF NOT EXISTS calendar_events_series_end_idx
+  ON public.calendar_events (account_id, series_end_at)
+  WHERE rrule IS NOT NULL AND status = 'confirmed';
 
 COMMENT ON TABLE public.calendar_events IS
   'Staff calendar events. Creator-only edit; visibility via calendar_event_can_view. Migration 108; docs/calendar.md.';
@@ -109,6 +119,8 @@ COMMENT ON COLUMN public.calendar_events.rrule IS
   'RFC 5545 RRULE body (FREQ=…), expanded in TS. NULL = a one-off event.';
 COMMENT ON COLUMN public.calendar_events.exdates IS
   'Cancelled occurrences, by original start.';
+COMMENT ON COLUMN public.calendar_events.series_end_at IS
+  'End of the last occurrence of a series (seriesEndAt in src/lib/calendar/recurrence.ts); NULL = unbounded, or a one-off event.';
 COMMENT ON COLUMN public.calendar_events.reminders IS
   'Minutes before start (0..40320, at most 5) for the creator and every attendee without their own.';
 
@@ -345,8 +357,10 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
   -- Nobody answers for someone else: only the service role may seed a
-  -- response.
-  IF auth.uid() IS NOT NULL AND NEW.response <> 'pending' THEN
+  -- response, or calendar_split_occurrence carrying a person's own
+  -- answer from the series onto the copy (it names the copy in the flag).
+  IF auth.uid() IS NOT NULL AND NEW.response <> 'pending'
+     AND current_setting('app.calendar_split', true) IS DISTINCT FROM NEW.event_id::text THEN
     RAISE EXCEPTION 'A new attendee''s response is pending'
       USING ERRCODE = 'check_violation';
   END IF;
@@ -418,6 +432,11 @@ BEGIN
     IF auth.uid() IS NOT NULL AND auth.uid() = NEW.user_id THEN
       RETURN NULL;
     END IF;
+    -- Carried over by calendar_split_occurrence: already invited to the
+    -- series; the split rings them calendar_update itself.
+    IF current_setting('app.calendar_split', true) = NEW.event_id::text THEN
+      RETURN NULL;
+    END IF;
     INSERT INTO notifications (account_id, user_id, type, actor_user_id, title, body, meta)
     VALUES (NEW.account_id, NEW.user_id, 'calendar_invite', auth.uid(), v_event.title,
             'Starts ' || calendar_time_label(v_event.account_id, v_event.start_at, v_event.all_day, v_event.time_zone),
@@ -425,7 +444,16 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  -- UPDATE OF response, to accepted / tentative / declined.
+  -- UPDATE OF response, to accepted / tentative / declined. Toggling
+  -- rings the creator at most once per attendee per 10 minutes.
+  IF EXISTS (SELECT 1 FROM notifications n
+              WHERE n.user_id = v_event.created_by
+                AND n.type = 'calendar_response'
+                AND n.meta->>'event_id' = NEW.event_id::text
+                AND n.meta->>'user_id' = NEW.user_id::text
+                AND n.created_at > now() - interval '10 minutes') THEN
+    RETURN NULL;
+  END IF;
   SELECT nullif(btrim(p.full_name), '') INTO v_name
     FROM profiles p WHERE p.user_id = NEW.user_id AND p.account_id = NEW.account_id;
   INSERT INTO notifications (account_id, user_id, type, actor_user_id, title, body, meta)
@@ -520,6 +548,265 @@ DROP TRIGGER IF EXISTS calendar_events_notify_delete ON public.calendar_events;
 CREATE TRIGGER calendar_events_notify_delete
   BEFORE DELETE ON public.calendar_events
   FOR EACH ROW EXECUTE FUNCTION public.calendar_events_notify();
+
+-- ---------- 5b. Atomic writes (the routes' only edit path) ----------
+-- Every edit is checked against the updated_at the editor loaded
+-- (P0001 stale), so two editors cannot overwrite each other, and an
+-- edit with its attendee changes is one transaction. Errors: P0002
+-- not_found (not visible), 42501 (visible, not the organiser), P0001
+-- stale, 22023 bad input. Plain UPDATEs keep working beside these.
+
+-- The keys a patch may set, and those of them that may be null.
+CREATE OR REPLACE FUNCTION public.calendar_patch_filter(p_patch jsonb, p_keys text[])
+RETURNS jsonb
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v jsonb;
+BEGIN
+  IF p_patch IS NULL OR jsonb_typeof(p_patch) <> 'object' THEN
+    RAISE EXCEPTION 'invalid_patch' USING ERRCODE = '22023', DETAIL = 'The patch is a JSON object.';
+  END IF;
+  SELECT coalesce(jsonb_object_agg(key, value), '{}'::jsonb) INTO v
+    FROM jsonb_each(p_patch) WHERE key = ANY (p_keys);
+  IF EXISTS (SELECT 1 FROM jsonb_each(v)
+              WHERE value = 'null'::jsonb
+                AND key NOT IN ('description', 'location', 'rrule', 'series_end_at')) THEN
+    RAISE EXCEPTION 'invalid_patch' USING ERRCODE = '22023', DETAIL = 'Only description, location, rrule and series_end_at may be null.';
+  END IF;
+  RETURN v;
+END;
+$$;
+
+-- The series an occurrence write targets, locked: the caller must see
+-- it (else not_found), be its organiser, live staff in its workspace
+-- (else 42501), and it must repeat (else 22023).
+CREATE OR REPLACE FUNCTION public.calendar_series_for_write(p_event uuid)
+RETURNS public.calendar_events
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v calendar_events;
+BEGIN
+  SELECT * INTO v FROM calendar_events WHERE id = p_event FOR UPDATE;
+  IF NOT FOUND OR auth.uid() IS NULL
+     OR NOT calendar_event_row_visible(v.account_id, v.created_by, v.visibility, v.id) THEN
+    RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v.created_by <> auth.uid()
+     OR v.account_id IS DISTINCT FROM current_account_id()
+     OR coalesce(current_role_rank(), 0) < 1 THEN
+    RAISE EXCEPTION 'not_organiser' USING ERRCODE = '42501';
+  END IF;
+  IF v.rrule IS NULL THEN
+    RAISE EXCEPTION 'not_recurring' USING ERRCODE = '22023';
+  END IF;
+  RETURN v;
+END;
+$$;
+
+-- INVOKER: the calendar_events and attendee policies (creator only) are
+-- the permission check.
+CREATE OR REPLACE FUNCTION public.calendar_update_event(
+  p_event uuid, p_expected timestamptz, p_patch jsonb, p_attendees uuid[] DEFAULT NULL)
+RETURNS public.calendar_events
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_patch  jsonb := calendar_patch_filter(p_patch, ARRAY[
+    'title', 'description', 'location', 'start_at', 'end_at', 'all_day', 'time_zone', 'color',
+    'rrule', 'exdates', 'visibility', 'reminders', 'status', 'series_end_at']);
+  v_old    calendar_events;
+  v_new    calendar_events;
+  v_row    calendar_events;
+  v_people uuid[] := ARRAY(SELECT DISTINCT u FROM unnest(p_attendees) u WHERE u IS NOT NULL);
+BEGIN
+  SELECT * INTO v_old FROM calendar_events WHERE id = p_event;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_old.updated_at IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'stale' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT calendar_event_row_editable(v_old.account_id, v_old.created_by) THEN
+    RAISE EXCEPTION 'not_organiser' USING ERRCODE = '42501';
+  END IF;
+
+  v_new := jsonb_populate_record(v_old, v_patch);
+
+  -- Removed people first, so the change rings only those who stay.
+  IF p_attendees IS NOT NULL THEN
+    DELETE FROM calendar_event_attendees
+     WHERE event_id = p_event AND user_id <> ALL (v_people);
+  END IF;
+
+  UPDATE calendar_events
+     SET title = v_new.title, description = v_new.description, location = v_new.location,
+         start_at = v_new.start_at, end_at = v_new.end_at, all_day = v_new.all_day,
+         time_zone = v_new.time_zone, color = v_new.color, rrule = v_new.rrule,
+         exdates = v_new.exdates, visibility = v_new.visibility, reminders = v_new.reminders,
+         status = v_new.status, series_end_at = v_new.series_end_at
+   WHERE id = p_event AND updated_at = p_expected
+  RETURNING * INTO v_row;
+  IF NOT FOUND THEN
+    -- Changed or deleted since the read above.
+    IF EXISTS (SELECT 1 FROM calendar_events WHERE id = p_event) THEN
+      RAISE EXCEPTION 'stale' USING ERRCODE = 'P0001';
+    END IF;
+    RAISE EXCEPTION 'not_found' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- New people, pending; the invite trigger rings them (at the new time).
+  IF p_attendees IS NOT NULL THEN
+    INSERT INTO calendar_event_attendees (event_id, user_id, account_id)
+    SELECT p_event, u, v_row.account_id
+      FROM unnest(v_people) u
+     WHERE NOT EXISTS (SELECT 1 FROM calendar_event_attendees a
+                        WHERE a.event_id = p_event AND a.user_id = u);
+  END IF;
+  RETURN v_row;
+END;
+$$;
+COMMENT ON FUNCTION public.calendar_update_event(uuid, timestamptz, jsonb, uuid[]) IS
+  'Edit an event the caller organises, only if updated_at is still p_expected (P0001 stale), setting only the patch''s keys; p_attendees (when given) replaces the attendee list, new people pending and invited. Migration 108.';
+
+-- DEFINER: the copy carries each attendee's own answer, which the
+-- attendee guard refuses from any signed-in writer but this function
+-- (the app.calendar_split flag names the copy).
+CREATE OR REPLACE FUNCTION public.calendar_split_occurrence(
+  p_event uuid, p_expected timestamptz, p_occurrence_start timestamptz,
+  p_copy jsonb, p_attendees uuid[] DEFAULT NULL)
+RETURNS public.calendar_events
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_uid    uuid := auth.uid();
+  v_patch  jsonb := calendar_patch_filter(coalesce(p_copy, '{}'::jsonb), ARRAY[
+    'title', 'description', 'location', 'start_at', 'end_at', 'all_day', 'time_zone', 'color',
+    'visibility', 'reminders']);
+  v_series calendar_events;
+  v_src    calendar_events;
+  v_copy   calendar_events;
+  v_people uuid[];
+BEGIN
+  v_series := calendar_series_for_write(p_event);
+  IF p_occurrence_start IS NULL THEN
+    RAISE EXCEPTION 'invalid_occurrence' USING ERRCODE = '22023';
+  END IF;
+  IF p_occurrence_start = ANY (v_series.exdates)
+     OR v_series.updated_at IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'stale' USING ERRCODE = 'P0001';
+  END IF;
+
+  IF p_attendees IS NOT NULL THEN
+    v_people := ARRAY(SELECT DISTINCT u FROM unnest(p_attendees) u WHERE u IS NOT NULL);
+  ELSE
+    v_people := ARRAY(SELECT a.user_id FROM calendar_event_attendees a WHERE a.event_id = p_event);
+  END IF;
+
+  v_src := jsonb_populate_record(v_series, v_patch);
+  INSERT INTO calendar_events (account_id, created_by, title, description, location, start_at,
+                               end_at, all_day, time_zone, color, rrule, exdates, visibility,
+                               reminders, status, series_end_at)
+  VALUES (v_series.account_id, v_uid, v_src.title, v_src.description, v_src.location, v_src.start_at,
+          v_src.end_at, v_src.all_day, v_src.time_zone, v_src.color, NULL, '{}', v_src.visibility,
+          v_src.reminders, v_series.status, NULL)
+  RETURNING * INTO v_copy;
+
+  -- People already on the series keep their answer and reminders and
+  -- are not invited again (one who has since left the workspace is
+  -- dropped rather than failing the split).
+  PERFORM set_config('app.calendar_split', v_copy.id::text, true);
+  INSERT INTO calendar_event_attendees (event_id, user_id, account_id, response, reminders)
+  SELECT v_copy.id, a.user_id, v_copy.account_id, a.response, a.reminders
+    FROM calendar_event_attendees a
+   WHERE a.event_id = p_event AND a.user_id = ANY (v_people)
+     AND calendar_is_live_staff(a.user_id, v_copy.account_id);
+  PERFORM set_config('app.calendar_split', '', true);
+
+  -- They hear of the move as an update, about the copy.
+  IF v_copy.status = 'confirmed' THEN
+    BEGIN
+      INSERT INTO notifications (account_id, user_id, type, actor_user_id, title, body, meta)
+      SELECT v_copy.account_id, a.user_id, 'calendar_update', v_uid, v_copy.title,
+             'Updated · starts ' || calendar_time_label(v_copy.account_id, v_copy.start_at, v_copy.all_day, v_copy.time_zone),
+             jsonb_build_object('event_id', v_copy.id, 'occurrence_start', p_occurrence_start)
+        FROM calendar_event_attendees a
+       WHERE a.event_id = v_copy.id;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'Failed to create the calendar notification for event %: %', v_copy.id, SQLERRM;
+    END;
+  END IF;
+
+  -- Newcomers: pending, invited by the trigger as usual.
+  INSERT INTO calendar_event_attendees (event_id, user_id, account_id)
+  SELECT v_copy.id, u, v_copy.account_id
+    FROM unnest(v_people) u
+   WHERE NOT EXISTS (SELECT 1 FROM calendar_event_attendees a
+                      WHERE a.event_id = p_event AND a.user_id = u);
+
+  UPDATE calendar_events SET exdates = array_append(exdates, p_occurrence_start)
+   WHERE id = p_event;
+  RETURN v_copy;
+END;
+$$;
+COMMENT ON FUNCTION public.calendar_split_occurrence(uuid, timestamptz, timestamptz, jsonb, uuid[]) IS
+  'Move one occurrence of a series the caller organises out into a standalone copy (p_copy overrides), carrying each attendee''s answer; adds the occurrence to the series'' exdates. Carried attendees get calendar_update, newcomers calendar_invite. P0001 stale when the series changed or the occurrence is already out. Migration 108.';
+
+CREATE OR REPLACE FUNCTION public.calendar_cancel_occurrence(
+  p_event uuid, p_expected timestamptz, p_occurrence_start timestamptz)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_series calendar_events;
+BEGIN
+  v_series := calendar_series_for_write(p_event);
+  IF p_occurrence_start IS NULL THEN
+    RAISE EXCEPTION 'invalid_occurrence' USING ERRCODE = '22023';
+  END IF;
+  -- Already cancelled: nothing to do, nobody rung twice.
+  IF p_occurrence_start = ANY (v_series.exdates) THEN
+    RETURN;
+  END IF;
+  IF v_series.updated_at IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'stale' USING ERRCODE = 'P0001';
+  END IF;
+
+  UPDATE calendar_events SET exdates = array_append(exdates, p_occurrence_start)
+   WHERE id = p_event;
+
+  IF v_series.status = 'confirmed' THEN
+    BEGIN
+      INSERT INTO notifications (account_id, user_id, type, actor_user_id, title, body, meta)
+      SELECT v_series.account_id, a.user_id, 'calendar_cancelled', auth.uid(), v_series.title,
+             'Cancelled · was ' || calendar_time_label(v_series.account_id, p_occurrence_start, v_series.all_day, v_series.time_zone),
+             jsonb_build_object('event_id', v_series.id, 'occurrence_start', p_occurrence_start)
+        FROM calendar_event_attendees a
+       WHERE a.event_id = v_series.id
+         AND a.user_id IS DISTINCT FROM auth.uid();
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'Failed to create the calendar notification for event %: %', v_series.id, SQLERRM;
+    END;
+  END IF;
+END;
+$$;
+COMMENT ON FUNCTION public.calendar_cancel_occurrence(uuid, timestamptz, timestamptz) IS
+  'Cancel one occurrence of a series the caller organises (adds it to exdates) and ring calendar_cancelled to every attendee with meta {event_id, occurrence_start}. Idempotent: an occurrence already out returns quietly. Migration 108.';
 
 -- ---------- 6. Reminders (service role) ----------
 
@@ -774,6 +1061,19 @@ REVOKE ALL ON FUNCTION public.calendar_insert_reminder(text, uuid, uuid, timesta
 GRANT EXECUTE ON FUNCTION public.calendar_reminder_sweep(timestamptz),
   public.calendar_insert_reminder(text, uuid, uuid, timestamptz, integer)
   TO service_role;
+
+-- The write RPCs: signed-in users only; the helpers are internal.
+REVOKE ALL ON FUNCTION public.calendar_update_event(uuid, timestamptz, jsonb, uuid[]) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.calendar_split_occurrence(uuid, timestamptz, timestamptz, jsonb, uuid[]) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.calendar_cancel_occurrence(uuid, timestamptz, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.calendar_update_event(uuid, timestamptz, jsonb, uuid[]),
+  public.calendar_split_occurrence(uuid, timestamptz, timestamptz, jsonb, uuid[]),
+  public.calendar_cancel_occurrence(uuid, timestamptz, timestamptz)
+  TO authenticated;
+REVOKE ALL ON FUNCTION public.calendar_series_for_write(uuid) FROM PUBLIC, anon, authenticated;
+-- Called by calendar_update_event, which runs as the caller.
+REVOKE ALL ON FUNCTION public.calendar_patch_filter(jsonb, text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.calendar_patch_filter(jsonb, text[]) TO authenticated;
 
 -- Internal helpers (they read team_activity_settings and profiles).
 REVOKE ALL ON FUNCTION public.calendar_time_label(uuid, timestamptz, boolean, text) FROM PUBLIC, anon, authenticated;

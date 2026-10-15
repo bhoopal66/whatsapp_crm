@@ -18,6 +18,14 @@
 --  * A BEFORE INSERT trigger on meeting_participants refuses a seat for
 --    a removed person (P0001 removed_from_meeting), whichever writer
 --    and however late the join's own check ran.
+--  * Only the host edits a meeting's details (title, description,
+--    scheduled times, open_to_workspace): meetings_host_only refuses
+--    anyone else (42501) bar the service role. An owner or admin may
+--    still end or cancel it (status), as the meetings_update policy
+--    allows. Only the host adds or removes invitees from a client
+--    (meeting_is_host in the meeting_invitees INSERT/DELETE policies,
+--    which were 106's meeting_can_manage); the service role is
+--    unaffected.
 --
 -- The function reads RLS-forced tables, so, as 106 and 107, this must
 -- be applied by a superuser or BYPASSRLS role.
@@ -156,7 +164,48 @@ DROP TRIGGER IF EXISTS meeting_removed_users_lock ON public.meeting_removed_user
 CREATE TRIGGER meeting_removed_users_lock BEFORE INSERT ON public.meeting_removed_users
   FOR EACH ROW EXECUTE FUNCTION public.meeting_removed_users_lock();
 
+-- ---------- 2c. Only the host edits a meeting ----------
+
+CREATE OR REPLACE FUNCTION public.meetings_host_only()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL
+     AND auth.uid() IS DISTINCT FROM OLD.host_user_id
+     AND (NEW.title IS DISTINCT FROM OLD.title
+          OR NEW.description IS DISTINCT FROM OLD.description
+          OR NEW.scheduled_start IS DISTINCT FROM OLD.scheduled_start
+          OR NEW.scheduled_end IS DISTINCT FROM OLD.scheduled_end
+          OR NEW.open_to_workspace IS DISTINCT FROM OLD.open_to_workspace) THEN
+    RAISE EXCEPTION 'Only the host can change a meeting''s details'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $$;
+-- Named to run after meetings_guard, which trims title and description.
+DROP TRIGGER IF EXISTS meetings_host_only ON public.meetings;
+CREATE TRIGGER meetings_host_only BEFORE UPDATE ON public.meetings
+  FOR EACH ROW EXECUTE FUNCTION public.meetings_host_only();
+
+CREATE OR REPLACE FUNCTION public.meeting_is_host(p_meeting uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM meetings m
+     WHERE m.id = p_meeting
+       AND m.account_id = current_account_id()
+       AND m.host_user_id = auth.uid());
+$$;
+COMMENT ON FUNCTION public.meeting_is_host(uuid) IS
+  'The caller (active, live, non-guest in the meeting''s workspace) hosts it. Migration 110.';
+
 -- ---------- 3. Row-level security ----------
+
+DROP POLICY IF EXISTS meeting_invitees_insert ON public.meeting_invitees;
+CREATE POLICY meeting_invitees_insert ON public.meeting_invitees FOR INSERT TO authenticated
+  WITH CHECK (meeting_is_host(meeting_id));
+
+DROP POLICY IF EXISTS meeting_invitees_delete ON public.meeting_invitees;
+CREATE POLICY meeting_invitees_delete ON public.meeting_invitees FOR DELETE TO authenticated
+  USING (meeting_is_host(meeting_id));
 
 ALTER TABLE public.meeting_removed_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.meeting_removed_users FORCE ROW LEVEL SECURITY;
@@ -178,3 +227,6 @@ GRANT EXECUTE ON FUNCTION public.meeting_post_message(uuid, text, text) TO authe
 REVOKE ALL ON FUNCTION public.meeting_removal_lock(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.meeting_participants_refuse_removed() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.meeting_removed_users_lock() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.meetings_host_only() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.meeting_is_host(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.meeting_is_host(uuid) TO authenticated, service_role;
