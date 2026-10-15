@@ -5469,6 +5469,47 @@
       "endConfirm": "참여 중인 모든 사람에게 이 회의를 종료할까요?",
       "endBody": "모든 참여자의 연결이 끊기고 회의가 종료됩니다.",
       "endFailed": "회의를 종료하지 못했습니다. 다시 시도하세요."
+    },
+    "panels": {
+      "close": "패널 닫기",
+      "resize": "패널 크기 조절",
+      "people": {
+        "title": "참여자",
+        "count": "{count, plural, other {통화 중 #명}}",
+        "micOn": "마이크 켜짐",
+        "cameraOn": "카메라 켜짐",
+        "cameraOff": "카메라 꺼짐",
+        "actions": "{name}님 옵션"
+      },
+      "chat": {
+        "title": "통화 중 메시지",
+        "hint": "메시지는 이 회의의 모든 참여자에게 표시됩니다.",
+        "empty": "아직 메시지가 없습니다",
+        "placeholder": "메시지 보내기",
+        "send": "메시지 보내기",
+        "sendFailed": "메시지를 보내지 못했습니다. 빠르게 보내는 중이라면 잠시 후 다시 시도하세요.",
+        "you": "나",
+        "jump": "최신 메시지로 이동",
+        "counter": "{count} / {max}"
+      },
+      "settings": {
+        "title": "설정",
+        "testSpeaker": "스피커 테스트",
+        "test": "테스트 소리 재생",
+        "testing": "재생 중…",
+        "testFailed": "이 브라우저에서 테스트 소리를 재생할 수 없습니다.",
+        "sounds": "입장 및 퇴장 알림음",
+        "soundsHint": "누군가 입장하거나 퇴장하면 부드러운 소리를 재생합니다."
+      },
+      "notices": {
+        "joined": "{name}님이 참여했습니다",
+        "left": "{name}님이 나갔습니다",
+        "mutedByHost": "호스트가 내 마이크를 음소거했습니다",
+        "handLoweredByHost": "호스트가 내 손들기를 내렸습니다",
+        "micLost": "마이크 연결이 끊어졌습니다",
+        "cameraLost": "카메라 연결이 끊어졌습니다",
+        "qualityPoor": "연결 상태가 좋지 않습니다. 영상 화질이 낮아질 수 있습니다."
+      }
     }
   }
 }
