@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Push notifications (database side)
+
+The database now queues web push notifications: for every bell
+notification (except the team-chat ones), for every team-chat message
+in a channel you belong to (not your own; a muted channel only when you
+are @mentioned), and for each inbound WhatsApp message (to the
+assignee, else the people on that number, else owners and admins).
+Each person's devices and preferences (on/off, per kind, quiet hours)
+are stored per login, across workspaces.
+
+**Migration required:** apply `supabase/migrations/109_push.sql` (as a
+superuser or BYPASSRLS role: its triggers read the RLS-forced team-chat
+tables). It adds `push_subscriptions`, `push_preferences` and
+`push_outbox`, triggers on `notifications` and `internal_messages`, and
+the service-role functions `push_enqueue`, `push_whatsapp_inbound`,
+`push_claim`, `push_settle` and `push_purge`.
+
 ### Video meetings
 
 Staff can hold video meetings in the CRM at `/meetings`: schedule one

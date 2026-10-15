@@ -258,3 +258,14 @@ jobs:
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify meetings
         run: supabase db query --local --file supabase/ci/verify-meetings.sql
+
+      # Web push (109): no client reads the outbox and the dispatcher's
+      # functions are the service role's; a person manages only their own
+      # devices and preferences; every writer skips a person with no
+      # device, push or the kind switched off, or no live profile; bell
+      # rows push (never the chat_* types), team-chat messages push every
+      # reader but the author (a muted member only when @mentioned, a bank
+      # guest never from deal-room notes), WhatsApp inbound goes to the
+      # assignee, else the number's people, else owners and admins.
+      - name: Verify push
+        run: supabase db query --local --file supabase/ci/verify-push.sql
