@@ -1,8 +1,9 @@
 // Test-only: an in-memory stand-in for the caller's Supabase client,
 // enough of PostgREST's builder for the calendar routes. Filters are
 // applied to the rows, so a route that forgets one reads (or writes)
-// rows it should not. RLS is not modelled: the fake sees everything,
-// as an owner or admin does. `or()` is recorded but not applied (the
+// rows it should not. RLS is not modelled by default: the fake sees
+// everything, as an owner or admin does; `rls` narrows what a write may
+// touch, as a refusing UPDATE/DELETE policy does (0 rows, no error). `or()` is recorded but not applied (the
 // routes use it only to narrow a range buildFeed re-checks).
 
 type Row = Record<string, unknown>;
@@ -11,6 +12,10 @@ export interface FakeDb {
   tables: Record<string, Row[]>;
   /** `table:op` → the error that operation answers with. */
   errors?: Record<string, unknown>;
+  /** `table:update` / `table:delete` → the rows that write may touch. */
+  rls?: Record<string, (row: Row) => boolean>;
+  /** `table:op` → runs after that operation (a concurrent writer). */
+  after?: Record<string, () => void>;
 }
 
 const JOIN: Record<string, [fk: string, pk: string]> = {
@@ -95,11 +100,20 @@ class FakeQuery {
     const r = this.run();
     return { data: r.data?.[0] ?? null, error: r.error };
   }
+  maybeSingle() {
+    return this.single();
+  }
   then<T>(ok: (v: { data: Row[] | null; error: unknown }) => T) {
     return Promise.resolve(this.run()).then(ok);
   }
 
   private run(): { data: Row[] | null; error: unknown } {
+    const out = this.exec();
+    this.db.after?.[`${this.table}:${this.op}`]?.();
+    return out;
+  }
+
+  private exec(): { data: Row[] | null; error: unknown } {
     const error = this.db.errors?.[`${this.table}:${this.op}`];
     if (error) return { data: null, error };
     const rows = (this.db.tables[this.table] ??= []);
@@ -110,10 +124,13 @@ class FakeQuery {
       rows.push(...added);
       return { data: this.returning ? added : null, error: null };
     }
-    const match = (r: Row) => this.preds.every((p) => p(r));
+    const allowed = this.db.rls?.[`${this.table}:${this.op}`] ?? (() => true);
+    const match = (r: Row) =>
+      this.preds.every((p) => p(r)) && (this.op === 'select' || allowed(r));
     if (this.op === 'delete') {
+      const gone = rows.filter(match);
       this.db.tables[this.table] = rows.filter((r) => !match(r));
-      return { data: null, error: null };
+      return { data: this.returning ? gone : null, error: null };
     }
     if (this.op === 'update') {
       const hit = rows.filter(match);
