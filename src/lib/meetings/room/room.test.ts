@@ -46,6 +46,10 @@ function row(
     tracks: kinds.map((kind) => ({ trackName: `${id}:${kind}`, kind })),
     audio_muted: false,
     video_off: false,
+    hand_raised_at: null,
+    mute_requested_at: null,
+    removed_at: null,
+    removed_by: null,
     ...over,
   };
 }

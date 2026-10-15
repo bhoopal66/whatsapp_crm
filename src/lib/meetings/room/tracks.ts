@@ -95,5 +95,9 @@ export function parseParticipantRow(value: unknown): ParticipantRow | null {
     tracks: parseTracks(r.tracks, id),
     audio_muted: r.audio_muted === true,
     video_off: r.video_off === true,
+    hand_raised_at: str('hand_raised_at'),
+    mute_requested_at: str('mute_requested_at'),
+    removed_at: str('removed_at'),
+    removed_by: str('removed_by'),
   };
 }
