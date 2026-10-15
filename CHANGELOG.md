@@ -29,6 +29,15 @@ tables). It adds `push_subscriptions`, `push_preferences` and
 the service-role functions `push_enqueue`, `push_whatsapp_inbound`,
 `push_claim`, `push_settle` and `push_purge`.
 
+### Push notifications are delivered
+
+The server now sends those queued pushes: a loop in each production
+server process (every 3–10 s) plus a once-a-minute pass on the
+automations cron, which also purges old outbox rows. Inbound WhatsApp
+messages are queued as they arrive, rate-limited senders included. Set
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (server only) and
+`VAPID_SUBJECT` to switch it on; see `docs/push.md`.
+
 ### Video meetings
 
 Staff can hold video meetings in the CRM at `/meetings`: schedule one
