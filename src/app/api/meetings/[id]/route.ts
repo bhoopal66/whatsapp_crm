@@ -86,6 +86,39 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!parsed.ok) return jsonError(parsed.error, 400);
     const { meeting: values, inviteeUserIds } = parsed.values;
 
+    const { data: inv, error: invErr } = await supabase
+      .from('meeting_invitees')
+      .select('user_id')
+      .eq('meeting_id', id);
+    if (invErr)
+      return meetingDbErrorResponse(invErr, 'Failed to load invitees');
+    let invitees = (inv ?? []).map((r) => r.user_id as string);
+    if (inviteeUserIds !== undefined) {
+      const { add, remove } = diffInvitees(invitees, inviteeUserIds);
+      // Invitee changes go first, additions before removals: a refused
+      // invitee (not a live staff member: 23514) then changes nothing.
+      if (add.length > 0) {
+        const { error } = await supabase.from('meeting_invitees').insert(
+          add.map((user_id) => ({
+            meeting_id: id,
+            account_id: current.account_id,
+            user_id,
+          }))
+        );
+        if (error)
+          return meetingDbErrorResponse(error, 'Failed to invite people');
+      }
+      if (remove.length > 0) {
+        const { error } = await supabase
+          .from('meeting_invitees')
+          .delete()
+          .eq('meeting_id', id)
+          .in('user_id', remove);
+        if (error)
+          return meetingDbErrorResponse(error, 'Failed to update invitees');
+      }
+      invitees = inviteeUserIds;
+    }
     let meeting = current;
     if (Object.keys(values).length > 0) {
       const { data, error } = await supabase
@@ -101,37 +134,6 @@ export async function PATCH(request: Request, { params }: Params) {
       meeting = data;
     }
 
-    const { data: inv, error: invErr } = await supabase
-      .from('meeting_invitees')
-      .select('user_id')
-      .eq('meeting_id', id);
-    if (invErr)
-      return meetingDbErrorResponse(invErr, 'Failed to load invitees');
-    let invitees = (inv ?? []).map((r) => r.user_id as string);
-    if (inviteeUserIds !== undefined) {
-      const { add, remove } = diffInvitees(invitees, inviteeUserIds);
-      if (remove.length > 0) {
-        const { error } = await supabase
-          .from('meeting_invitees')
-          .delete()
-          .eq('meeting_id', id)
-          .in('user_id', remove);
-        if (error)
-          return meetingDbErrorResponse(error, 'Failed to update invitees');
-      }
-      if (add.length > 0) {
-        const { error } = await supabase.from('meeting_invitees').insert(
-          add.map((user_id) => ({
-            meeting_id: id,
-            account_id: meeting.account_id,
-            user_id,
-          }))
-        );
-        if (error)
-          return meetingDbErrorResponse(error, 'Failed to invite people');
-      }
-      invitees = inviteeUserIds;
-    }
     return NextResponse.json({ meeting, invitee_user_ids: invitees });
   } catch (err) {
     return toErrorResponse(err);
