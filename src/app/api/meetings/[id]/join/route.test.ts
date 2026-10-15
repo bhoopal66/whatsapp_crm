@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   meetingIceServers: vi.fn(),
   configured: vi.fn(() => true),
   rpc: vi.fn(),
+  cutSeats: vi.fn(),
   meeting: null as unknown,
   removal: null as unknown,
   removalEq: [] as [string, unknown][],
@@ -26,6 +27,7 @@ vi.mock('@/lib/meetings/sfu', async (importOriginal) => ({
   isMeetingsConfigured: mocks.configured,
   createSession: mocks.createSession,
 }));
+vi.mock('@/lib/meetings/cut', () => ({ cutSeats: mocks.cutSeats }));
 vi.mock('@/lib/meetings/turn', () => ({
   meetingIceServers: mocks.meetingIceServers,
 }));
@@ -159,6 +161,36 @@ describe('POST /api/meetings/[id]/join', () => {
     ]);
     expect(mocks.createSession).not.toHaveBeenCalled();
     expect(mocks.adminCalls).toEqual([]);
+  });
+
+  it('refuses a join that races a removal and cuts its new session', async () => {
+    // Not removed at the check; 110's trigger refuses the seat insert.
+    mocks.insertResults = [
+      {
+        data: null,
+        error: {
+          code: 'P0001',
+          message: 'removed_from_meeting',
+        },
+      },
+    ];
+    const res = await join();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'removed_from_meeting' });
+    expect(mocks.cutSeats).toHaveBeenCalledWith([{ cf_session_id: 'sess-1' }]);
+    expect(mocks.adminCalls.filter((c) => c.startsWith('insert'))).toHaveLength(
+      1
+    );
+  });
+
+  it('cuts nothing when the seat opens or fails for another reason', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await join()).status).toBe(200);
+    mocks.insertResults = [
+      { data: null, error: { code: 'P0001', message: 'something_else' } },
+    ];
+    expect((await join()).status).toBe(400);
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
   });
 
   it('answers 409 for an ended or cancelled meeting', async () => {

@@ -1,6 +1,8 @@
 // ============================================================
 // POST /api/push/unsubscribe — forget this browser. RLS confines the
 // delete to the caller's own rows; an unknown endpoint is a no-op.
+// `{ all: true }` forgets every device the caller registered (the
+// "sign out everywhere" path).
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -12,7 +14,22 @@ export async function POST(request: Request) {
     const { supabase, userId } = await getCurrentAccount();
     const body = (await request.json().catch(() => null)) as {
       endpoint?: unknown;
+      all?: unknown;
     } | null;
+    if (body?.all === true) {
+      const { error } = await supabase
+        .from('push_subscriptions')
+        .delete()
+        .eq('user_id', userId);
+      if (error) {
+        console.error('[push/unsubscribe] delete all failed:', error);
+        return NextResponse.json(
+          { error: 'Failed to remove subscriptions' },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
     const endpoint = body?.endpoint;
     if (typeof endpoint !== 'string' || !endpoint || endpoint.length > 2048) {
       return NextResponse.json(

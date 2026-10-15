@@ -53,6 +53,7 @@ function fakeDb(state: {
   return { db: db as unknown as SupabaseClient, rpcs, ops };
 }
 
+const CLAIMED = '2026-10-15T10:00:00.123456+00:00';
 const row = (over: Record<string, unknown> = {}) => ({
   id: 1,
   user_id: 'u1',
@@ -64,6 +65,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   tag: 'chat:c1',
   created_at: new Date().toISOString(),
   attempts: 1,
+  claimed_at: CLAIMED,
   ...over,
 });
 const sub = (id: string, failure_count = 0) => ({
@@ -115,9 +117,12 @@ describe('dispatchPush', () => {
     expect(opts).toMatchObject({
       TTL: 86_400,
       urgency: 'high',
+      timeout: 10_000,
       vapidDetails: { subject: 'https://crm.example' },
     });
-    expect(settled(f.rpcs)).toEqual([{ p_id: 1, p_ok: true, p_error: null }]);
+    expect(settled(f.rpcs)).toEqual([
+      { p_id: 1, p_ok: true, p_error: null, p_claimed_at: CLAIMED },
+    ]);
     expect(
       f.ops.filter((o) => o.op === 'update' && o.table === 'push_subscriptions')
     ).toHaveLength(2);
@@ -148,7 +153,11 @@ describe('dispatchPush', () => {
     expect(
       f.ops.filter((o) => o.op === 'delete').map((d) => d.filters)
     ).toEqual([[['id', 's2']]]);
-    expect(settled(f.rpcs)[0]).toMatchObject({ p_id: 1, p_ok: false });
+    expect(settled(f.rpcs)[0]).toMatchObject({
+      p_id: 1,
+      p_ok: false,
+      p_claimed_at: CLAIMED,
+    });
     expect(s.failed).toBe(1);
   });
 
@@ -184,9 +193,12 @@ describe('dispatchPush', () => {
     });
     expect(hold?.filters).toEqual([
       ['id', 1],
+      ['claimed_at', CLAIMED],
       ['sent_at', null],
     ]);
-    expect(settled(f.rpcs)).toEqual([{ p_id: 2, p_ok: true, p_error: null }]);
+    expect(settled(f.rpcs)).toEqual([
+      { p_id: 2, p_ok: true, p_error: null, p_claimed_at: CLAIMED },
+    ]);
     expect(s).toMatchObject({ held: 1, sent: 1 });
   });
 
@@ -216,7 +228,33 @@ describe('dispatchPush', () => {
     expect(
       skips.map((o) => (o.payload as { last_error: string }).last_error)
     ).toEqual(['skipped: push switched off', 'skipped: no device']);
+    for (const o of skips) {
+      expect(o.filters).toContainEqual(['claimed_at', CLAIMED]);
+    }
     expect(s.skipped).toBe(2);
+  });
+
+  it('releases the rows it never reached once the pass is out of time', async () => {
+    let t = 0;
+    h.send.mockImplementation(async () => {
+      t += 40_000; // each send eats 40 s of a 60 s budget
+      return { statusCode: 201 };
+    });
+    const f = fakeDb({
+      rows: [
+        row({ id: 1 }),
+        row({ id: 2, claimed_at: 'c2' }),
+        row({ id: 3, claimed_at: 'c3' }),
+      ],
+      subs: [sub('s1')],
+    });
+    const s = await dispatchPush(f.db, { budgetMs: 60_000, clock: () => t });
+    expect(h.send).toHaveBeenCalledTimes(2);
+    expect(f.rpcs.filter(([n]) => n === 'push_release')).toEqual([
+      ['push_release', { p_id: 3, p_claimed_at: 'c3' }],
+    ]);
+    expect(settled(f.rpcs).map((a) => a.p_id)).toEqual([1, 2]);
+    expect(s).toMatchObject({ claimed: 3, sent: 2, released: 1 });
   });
 
   it('never throws', async () => {

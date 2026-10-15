@@ -14,7 +14,11 @@
 -- people who can see it, else owners and admins, and never to anyone
 -- who cannot see it (can_view_conversation_for_user, which must answer
 -- as can_view_conversation does for that person); push_claim /
--- push_settle / push_purge.
+-- push_settle / push_release / push_purge; push_claim re-checks access
+-- at send time (a person deactivated, a chat reassigned away, a channel
+-- left since enqueue: settled skipped, never handed out); a settle or
+-- release with a stale claimed_at changes nothing; chat_erase_person
+-- deletes the erased person's queued chat pushes.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -56,6 +60,7 @@ DECLARE
   w_shared UUID;
   wm      UUID;
   ids     BIGINT[];
+  ids_t   TEXT[];
   r       TEXT;
   b       BOOLEAN;
   i       INT;
@@ -150,7 +155,8 @@ BEGIN
   n := n + 1;
   IF EXISTS (SELECT 1 FROM unnest(ARRAY[
                 'public.push_enqueue(uuid, uuid, text, text, text, text, text)', 'public.push_whatsapp_inbound(uuid)',
-                'public.push_claim(integer)', 'public.push_settle(bigint, boolean, text)', 'public.push_purge()']) f
+                'public.push_claim(integer)', 'public.push_settle(bigint, boolean, text, timestamptz)',
+                'public.push_release(bigint, timestamptz)', 'public.push_purge()']) f
               WHERE has_function_privilege('authenticated', f, 'EXECUTE')
                  OR has_function_privilege('anon', f, 'EXECUTE')
                  OR NOT has_function_privilege('service_role', f, 'EXECUTE'))
@@ -462,6 +468,64 @@ BEGIN
     failed := array_append(failed, ('whatsapp: our own message pushed: ' || i)::text);
   END IF;
 
+  -- ---------- chat erasure reaches the outbox ----------
+  DELETE FROM push_outbox;
+  r := pg_temp.pu_try('authenticated', u_a, format('SELECT public.chat_post_message(%L, %L)::text', ch_team, 'PT erase me'));
+  PERFORM pg_temp.pu_flush();
+  INSERT INTO push_outbox (user_id, account_id, kind, title, body, url, channel_id, source_user_id)
+  VALUES (u_a, a_acct, 'chat_message', 'PT to the erased', 'x', '/chat', ch_team, u_b),
+         (u_m, a_acct, 'chat_message', 'PT keep', 'x', '/chat', ch_team, u_b);
+  PERFORM public.push_enqueue(u_a, a_acct, 'call_missed', 'PT keep call', NULL, '/calls', NULL);
+  n := n + 1;
+  IF r LIKE 'ERROR%' OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_b AND kind = 'chat_message'
+                                       AND source_user_id = u_a AND channel_id = ch_team) THEN
+    failed := array_append(failed, ('erase fixture: a chat push carries its author and channel: ' || r)::text);
+  END IF;
+  r := pg_temp.pu_try('authenticated', u_owner, format('SELECT array_length(public.chat_erase_person(%L, %L, %L), 1)::text',
+         a_acct, u_a, 'PT erasure request'));
+  n := n + 1;
+  IF r LIKE 'ERROR%'
+     OR EXISTS (SELECT 1 FROM push_outbox WHERE kind = 'chat_message' AND (source_user_id = u_a OR user_id = u_a))
+     OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_m AND title = 'PT keep')
+     OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_a AND kind = 'call_missed') THEN
+    failed := array_append(failed, ('chat_erase_person: deletes the person''s queued chat pushes, and only those: ' || coalesce(r, 'null'))::text);
+  END IF;
+
+  -- ---------- push_claim re-checks access at send time ----------
+  DELETE FROM push_outbox;
+  UPDATE conversations SET assigned_agent_id = u_b, channel_id = NULL WHERE id = cv;
+  DELETE FROM push_outbox;   -- the assignment's own bell
+  INSERT INTO messages (conversation_id, sender_type, content_type, content_text)
+  VALUES (cv, 'customer', 'text', 'PT later') RETURNING id INTO wm;
+  i := public.push_whatsapp_inbound(wm);
+  r := pg_temp.pu_try('authenticated', u_a, format('SELECT public.chat_post_message(%L, %L)::text', ch_team, 'PT later <@' || u_m || '>'));
+  PERFORM pg_temp.pu_flush();
+  PERFORM public.push_enqueue(u_l, a_acct, 'call_missed', 'PT leader', NULL, '/calls', NULL);
+  PERFORM public.push_enqueue(u_admin, a_acct, 'call_missed', 'PT admin', NULL, '/calls', NULL);
+  n := n + 1;
+  IF i <> 1 OR r LIKE 'ERROR%'
+     OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE user_id = u_b AND kind = 'whatsapp_message' AND conversation_id = cv)
+     OR pg_temp.pu_n(u_b, 'chat_message') <> 1 OR pg_temp.pu_n(u_m, 'chat_message') <> 1
+     OR pg_temp.pu_n(u_l, NULL) <> 1 OR pg_temp.pu_n(u_admin, NULL) <> 1 THEN
+    failed := array_append(failed, ('recheck fixture: queued a chat, a WhatsApp and two call rows: ' || i || ' ' || r)::text);
+  END IF;
+  -- Since enqueue: the chat went to u_m, u_b left the channel, u_l was deactivated.
+  UPDATE conversations SET assigned_agent_id = u_m WHERE id = cv;
+  DELETE FROM push_outbox WHERE kind = 'conversation_assigned';   -- the reassignment's own bell
+  DELETE FROM chat_channel_members WHERE channel_id = ch_team AND user_id = u_b;
+  UPDATE profiles SET deactivated_at = now() WHERE user_id = u_l;
+  SELECT array_agg(o.user_id::text || '/' || o.kind ORDER BY o.user_id::text || '/' || o.kind) INTO ids_t FROM public.push_claim(50) o;
+  n := n + 1;
+  IF ids_t IS DISTINCT FROM ARRAY[u_admin::text || '/call_missed', u_m::text || '/chat_message'] THEN
+    failed := array_append(failed, ('push_claim: hands out only rows whose person still has access: ' || coalesce(array_to_string(ids_t, ','), 'none'))::text);
+  END IF;
+  n := n + 1;
+  IF (SELECT count(*) FROM push_outbox WHERE sent_at IS NOT NULL AND last_error = 'skipped: access revoked'
+         AND ((user_id = u_b AND kind IN ('whatsapp_message', 'chat_message')) OR (user_id = u_l AND kind = 'call_missed'))) <> 3
+     OR EXISTS (SELECT 1 FROM push_outbox WHERE last_error = 'skipped: access revoked' AND user_id NOT IN (u_b, u_l)) THEN
+    failed := array_append(failed, 'push_claim: a revoked row is settled skipped (deactivated, reassigned away, channel left)'::text);
+  END IF;
+
   -- ---------- claim / settle / purge ----------
   DELETE FROM push_outbox;
   FOR i IN 1..3 LOOP
@@ -485,6 +549,28 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE id = ids[2] AND sent_at IS NULL AND last_error = 'PT 500')
      OR (SELECT array_agg(id) FROM public.push_claim(10)) IS DISTINCT FROM ARRAY[ids[2]] THEN
     failed := array_append(failed, 'push_settle: a sent row is done; a failed one is retried after the lease'::text);
+  END IF;
+  -- ids[2] is claimed again (claimed_at = now()): a stale claim settles and releases nothing.
+  b := public.push_settle(ids[2], true, NULL, now() - interval '1 second');
+  n := n + 1;
+  IF b OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE id = ids[2] AND sent_at IS NULL AND last_error = 'PT 500') THEN
+    failed := array_append(failed, 'push_settle: a settle with a stale claimed_at changed the row'::text);
+  END IF;
+  b := public.push_release(ids[2], now() - interval '1 second');
+  n := n + 1;
+  IF b OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE id = ids[2] AND claimed_at = now() AND attempts = 2) THEN
+    failed := array_append(failed, 'push_release: a release with a stale claimed_at changed the row'::text);
+  END IF;
+  b := public.push_release(ids[2], now());
+  n := n + 1;
+  IF NOT b OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE id = ids[2] AND claimed_at IS NULL AND attempts = 1 AND sent_at IS NULL)
+     OR (SELECT array_agg(id) FROM public.push_claim(10)) IS DISTINCT FROM ARRAY[ids[2]] THEN
+    failed := array_append(failed, 'push_release: the caller''s claim is undone, attempt uncounted, and the row is claimable at once'::text);
+  END IF;
+  b := public.push_settle(ids[2], true, NULL, now());
+  n := n + 1;
+  IF NOT b OR NOT EXISTS (SELECT 1 FROM push_outbox WHERE id = ids[2] AND sent_at IS NOT NULL) THEN
+    failed := array_append(failed, 'push_settle: a settle with the current claimed_at settles and says so'::text);
   END IF;
   UPDATE push_outbox SET created_at = now() - interval '3 days' WHERE id = ids[1];
   i := public.push_purge();

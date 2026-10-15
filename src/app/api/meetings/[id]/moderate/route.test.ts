@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   adminEq: [] as [string, unknown][],
   adminRows: [{ id: 'x' }] as unknown[],
   seatEq: [] as [string, unknown][],
+  profileFilters: [] as unknown[][],
+  managers: { data: [] as unknown[] | null, error: null as unknown },
   meeting: null as unknown,
   seat: null as unknown,
 }));
@@ -34,6 +36,25 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/meetings/server')>()),
   supabaseAdmin: () => ({
     from: (table: string) => {
+      if (table === 'profiles') {
+        const p = {
+          select: () => p,
+          eq: (c: string, v: unknown) => (
+            mocks.profileFilters.push(['eq', c, v]),
+            p
+          ),
+          in: (c: string, v: unknown) => (
+            mocks.profileFilters.push(['in', c, v]),
+            p
+          ),
+          is: (c: string, v: unknown) => (
+            mocks.profileFilters.push(['is', c, v]),
+            p
+          ),
+          limit: async () => mocks.managers,
+        };
+        return p;
+      }
       if (table === 'meeting_removed_users') {
         const r = {
           upsert: async (v: unknown, o: unknown) => (
@@ -97,7 +118,9 @@ describe('POST /api/meetings/[id]/moderate', () => {
     vi.clearAllMocks();
     mocks.adminEq = [];
     mocks.seatEq = [];
-    mocks.adminRows = [{ id: T }];
+    mocks.adminRows = [{ id: T, cf_session_id: 'sess-2' }];
+    mocks.profileFilters = [];
+    mocks.managers = { data: [], error: null };
     mocks.calls = [];
     mocks.removedRows = [{ user_id: 'user-2' }];
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -108,7 +131,12 @@ describe('POST /api/meetings/[id]/moderate', () => {
       supabase: { from, rpc: mocks.rpc },
     });
     mocks.rpc.mockResolvedValue({ data: true, error: null });
-    mocks.meeting = { id: M, account_id: 'acct-1', status: 'scheduled' };
+    mocks.meeting = {
+      id: M,
+      account_id: 'acct-1',
+      host_user_id: 'host-1',
+      status: 'scheduled',
+    };
     mocks.seat = {
       id: T,
       user_id: 'user-2',
@@ -141,7 +169,70 @@ describe('POST /api/meetings/[id]/moderate', () => {
     const update = mocks.adminUpdate.mock.calls[0][0];
     expect(update).toMatchObject({ removed_by: 'host-1' });
     expect(update.left_at).toBe(update.removed_at);
-    expect(mocks.cutSeats).toHaveBeenCalledWith([mocks.seat]);
+    expect(mocks.cutSeats).toHaveBeenCalledWith([
+      { id: T, cf_session_id: 'sess-2' },
+    ]);
+  });
+
+  it('closes and cuts every open seat the removed person has here', async () => {
+    const other = { id: 'seat-other-tab', cf_session_id: 'sess-3' };
+    mocks.adminRows = [{ id: T, cf_session_id: 'sess-2' }, other];
+    expect((await moderate({ target: T, action: 'remove' })).status).toBe(200);
+    // The close is by person in this meeting, not by the named seat.
+    expect(mocks.adminEq).toContainEqual(['meeting_id', M]);
+    expect(mocks.adminEq).toContainEqual(['user_id', 'user-2']);
+    expect(mocks.adminEq).not.toContainEqual(['id', T]);
+    expect(mocks.cutSeats).toHaveBeenCalledWith([
+      { id: T, cf_session_id: 'sess-2' },
+      other,
+    ]);
+  });
+
+  it('refuses to remove the organiser, writing and cutting nothing', async () => {
+    // The caller is an admin; the seat is the host's.
+    mocks.meeting = { ...(mocks.meeting as object), host_user_id: 'user-2' };
+    const res = await moderate({ target: T, action: 'remove' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "You can't remove the organiser or an admin",
+    });
+    expect(mocks.adminUpsert).not.toHaveBeenCalled();
+    expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
+  });
+
+  it('refuses to remove a live owner or admin of the account', async () => {
+    mocks.managers = { data: [{ id: 'profile-2' }], error: null };
+    const res = await moderate({ target: T, action: 'remove' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "You can't remove the organiser or an admin",
+    });
+    expect(mocks.profileFilters).toEqual([
+      ['eq', 'account_id', 'acct-1'],
+      ['eq', 'user_id', 'user-2'],
+      ['in', 'role', ['owner', 'admin']],
+      ['is', 'deactivated_at', null],
+    ]);
+    expect(mocks.adminUpsert).not.toHaveBeenCalled();
+    expect(mocks.adminUpdate).not.toHaveBeenCalled();
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 and removes nothing when the admin check fails', async () => {
+    mocks.managers = { data: null, error: { code: '57014' } };
+    expect((await moderate({ target: T, action: 'remove' })).status).toBe(503);
+    expect(mocks.adminUpsert).not.toHaveBeenCalled();
+    expect(mocks.adminUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not ask who is an admin to mute or lower a hand', async () => {
+    mocks.managers = { data: [{ id: 'profile-2' }], error: null };
+    expect((await moderate({ target: T, action: 'mute' })).status).toBe(200);
+    expect((await moderate({ target: T, action: 'lower_hand' })).status).toBe(
+      200
+    );
+    expect(mocks.profileFilters).toEqual([]);
   });
 
   it('records the removal before closing the seat and cutting', async () => {
@@ -174,6 +265,22 @@ describe('POST /api/meetings/[id]/moderate', () => {
     expect(mocks.seatEq).toEqual([]);
     expect(mocks.adminUpdate).not.toHaveBeenCalled();
     expect(mocks.cutSeats).not.toHaveBeenCalled();
+  });
+
+  it('refuses to let the caller back in themselves', async () => {
+    const U = '44444444-4444-4444-8444-444444444444';
+    mocks.getCurrentAccount.mockResolvedValue({
+      role: 'admin',
+      userId: U,
+      accountId: 'acct-1',
+      supabase: { from, rpc: mocks.rpc },
+    });
+    const res = await moderate({ target: U, action: 'readmit' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "You can't let yourself back in",
+    });
+    expect(mocks.adminDelete).not.toHaveBeenCalled();
   });
 
   it('answers 404 when the person was not removed', async () => {

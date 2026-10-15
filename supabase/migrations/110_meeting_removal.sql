@@ -15,6 +15,9 @@
 --    the service role after checking meeting_can_manage.
 --  * meeting_post_message() is 107's, byte for byte, plus the removed
 --    check after the meeting_closed one.
+--  * A BEFORE INSERT trigger on meeting_participants refuses a seat for
+--    a removed person (P0001 removed_from_meeting), whichever writer
+--    and however late the join's own check ran.
 --
 -- The function reads RLS-forced tables, so, as 106 and 107, this must
 -- be applied by a superuser or BYPASSRLS role.
@@ -116,6 +119,43 @@ $$;
 COMMENT ON FUNCTION public.meeting_post_message(uuid, text, text) IS
   'Post a chat message or reaction to a meeting as auth.uid(): visible (42501), scheduled (P0001 meeting_closed), not removed from it (P0001 removed), valid kind/body (22023), at most 20 per person per meeting per 10 s (P0001 rate_limited). Migrations 107, 110.';
 
+-- ---------- 2b. A removal holds against a racing join ----------
+
+-- The join route checks meeting_removed_users and then inserts the
+-- seat; a removal landing in between would otherwise leave the removed
+-- person a fresh seat. Every seat INSERT (any writer) is refused while
+-- the person is removed. Both triggers take the same per-(meeting,
+-- person) transaction lock, so a seat and a removal in flight at once
+-- are serialised: the later one sees the earlier one committed.
+CREATE OR REPLACE FUNCTION public.meeting_removal_lock(p_meeting uuid, p_user uuid)
+RETURNS void LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT pg_advisory_xact_lock(hashtextextended('meeting_removal:' || p_meeting::text || ':' || p_user::text, 0))
+$$;
+
+CREATE OR REPLACE FUNCTION public.meeting_participants_refuse_removed()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  PERFORM meeting_removal_lock(NEW.meeting_id, NEW.user_id);
+  IF EXISTS (SELECT 1 FROM meeting_removed_users
+              WHERE meeting_id = NEW.meeting_id AND user_id = NEW.user_id) THEN
+    RAISE EXCEPTION 'removed_from_meeting' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS meeting_participants_refuse_removed ON public.meeting_participants;
+CREATE TRIGGER meeting_participants_refuse_removed BEFORE INSERT ON public.meeting_participants
+  FOR EACH ROW EXECUTE FUNCTION public.meeting_participants_refuse_removed();
+
+CREATE OR REPLACE FUNCTION public.meeting_removed_users_lock()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  PERFORM meeting_removal_lock(NEW.meeting_id, NEW.user_id);
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS meeting_removed_users_lock ON public.meeting_removed_users;
+CREATE TRIGGER meeting_removed_users_lock BEFORE INSERT ON public.meeting_removed_users
+  FOR EACH ROW EXECUTE FUNCTION public.meeting_removed_users_lock();
+
 -- ---------- 3. Row-level security ----------
 
 ALTER TABLE public.meeting_removed_users ENABLE ROW LEVEL SECURITY;
@@ -135,3 +175,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_removed_users TO service_
 
 REVOKE ALL ON FUNCTION public.meeting_post_message(uuid, text, text) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.meeting_post_message(uuid, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.meeting_removal_lock(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.meeting_participants_refuse_removed() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.meeting_removed_users_lock() FROM PUBLIC, anon, authenticated, service_role;

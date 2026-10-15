@@ -14,6 +14,26 @@ export interface PushPayload {
   ts: number;
 }
 
+const CHECK_ORIGIN = 'https://push.invalid';
+
+/**
+ * A same-origin path, else '/notifications'. '//host' and '/\\host' are
+ * protocol-relative (the URL parser reads a backslash as a slash), so a
+ * leading '/' alone is not enough; public/sw.js applies the same rule.
+ */
+export function safePushUrl(url: string): string {
+  if (!url.startsWith('/') || url[1] === '/' || url[1] === '\\') {
+    return '/notifications';
+  }
+  try {
+    return new URL(url, CHECK_ORIGIN).origin === CHECK_ORIGIN
+      ? url
+      : '/notifications';
+  } catch {
+    return '/notifications';
+  }
+}
+
 export function buildPayload(row: {
   title: string;
   body: string | null;
@@ -25,7 +45,7 @@ export function buildPayload(row: {
   const p: PushPayload = {
     title: row.title,
     body: row.body ?? '',
-    url: row.url.startsWith('/') ? row.url : '/notifications',
+    url: safePushUrl(row.url),
     tag: row.tag,
     kind: row.kind,
     ts: new Date(row.created_at).getTime(),

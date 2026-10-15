@@ -7,10 +7,14 @@
 //   remove     → left_at = removed_at = now, removed_by = caller, and
 //                the seat's Cloudflare media is cut (`cutSeats`), so a
 //                client that ignores it stops sending and receiving.
-// Nobody removes themselves (that is Leave). A removal sticks (110): the
-// person is recorded in meeting_removed_users first, so join and chat
+// Nobody removes themselves (that is Leave), and nobody removes someone
+// who could manage the meeting (the host, a live owner/admin of its
+// account): they would only readmit themselves. A removal sticks (110):
+// the person is recorded in meeting_removed_users first, so join and chat
 // refuse them until `readmit` (target = their user id, not a seat)
-// deletes the row; 404 when they were not removed.
+// deletes the row; 404 when they were not removed. Nobody readmits
+// themselves. A removal closes and cuts every open seat the person has
+// here (another tab's too), not only the one named.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -65,6 +69,9 @@ export async function POST(request: Request, { params }: Params) {
       return jsonError('This meeting has ended or was cancelled', 409);
     }
     if (action === 'readmit') {
+      if (target === userId) {
+        return jsonError("You can't let yourself back in", 403);
+      }
       const { data: readmitted, error } = await supabaseAdmin()
         .from('meeting_removed_users')
         .delete()
@@ -87,6 +94,25 @@ export async function POST(request: Request, { params }: Params) {
         "You can't remove yourself; leave the meeting instead",
         400
       );
+    }
+
+    if (action === 'remove') {
+      if (row.user_id === loaded.meeting.host_user_id) {
+        return jsonError("You can't remove the organiser or an admin", 403);
+      }
+      // Service role: the caller's RLS may not show another member's row.
+      const { data: manager, error: managerErr } = await supabaseAdmin()
+        .from('profiles')
+        .select('id')
+        .eq('account_id', loaded.meeting.account_id)
+        .eq('user_id', row.user_id)
+        .in('role', ['owner', 'admin'])
+        .is('deactivated_at', null)
+        .limit(1);
+      if (managerErr) return readErrorResponse(managerErr);
+      if (manager?.length) {
+        return jsonError("You can't remove the organiser or an admin", 403);
+      }
     }
 
     const now = new Date().toISOString();
@@ -113,20 +139,28 @@ export async function POST(request: Request, { params }: Params) {
         : action === 'lower_hand'
           ? { hand_raised_at: null }
           : { left_at: now, removed_at: now, removed_by: userId };
-    const { data: changed, error } = await supabaseAdmin()
+    // A removal closes every open seat the person has in this meeting;
+    // mute and lower_hand touch only the named seat.
+    const write = supabaseAdmin()
       .from('meeting_participants')
       .update(update)
-      .eq('id', row.id)
-      .eq('meeting_id', id)
+      .eq('meeting_id', id);
+    const scoped =
+      action === 'remove'
+        ? write.eq('user_id', row.user_id)
+        : write.eq('id', row.id);
+    const { data: changed, error } = await scoped
       .is('left_at', null)
-      .select('id');
+      .select('id, cf_session_id');
     if (error) return meetingDbErrorResponse(error, 'Failed to moderate');
     // The seat closed between the lookup and the write (the person left or
     // rejoined on a new seat): nothing changed, so cut nothing and say so.
     if (!changed?.length) {
       return jsonError('That person is not in this meeting', 404);
     }
-    if (action === 'remove') await cutSeats([row]);
+    if (action === 'remove') {
+      await cutSeats(changed as Pick<ParticipantRow, 'cf_session_id'>[]);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return toErrorResponse(err);
