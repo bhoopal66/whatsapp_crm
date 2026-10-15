@@ -27,11 +27,17 @@
 //   publishes a new generation of the name (`trackNameFor`).
 // - ICE `failed`, or `disconnected` for 15 s, rejoins from scratch: a new
 //   participant row and session, the same local tracks. Up to 3 tries.
+//   A pull that keeps failing rejoins too (recovery.ts), on a budget of
+//   its own that reaching `connected` does not reset.
+// - A publish that fails releases the track it was for (devices.ts), so
+//   the mic or camera reads as off with a device error, and turning it
+//   on again opens the device and publishes afresh.
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  afterFailedPublish,
   classifyMediaError,
   isShareCancelled,
   tracksToRelease,
@@ -44,6 +50,7 @@ import {
 } from '@/lib/meetings/room/presence';
 import { createSerialQueue } from '@/lib/meetings/room/queue';
 import {
+  admitPullRejoin,
   afterPullStrike,
   needsPullRollback,
 } from '@/lib/meetings/room/recovery';
@@ -122,6 +129,7 @@ class MeetingCallEngine {
   private audio: MediaStreamTrack | null = null;
   private video: MediaStreamTrack | null = null;
   private screen: MediaStreamTrack | null = null;
+  private audioSender: RTCRtpSender | null = null;
   private videoSender: RTCRtpSender | null = null;
   /** The published screen track, set once its publish has landed. */
   private screenPub: { transceiver: RTCRtpTransceiver; name: string } | null =
@@ -136,6 +144,8 @@ class MeetingCallEngine {
   private attempts = 0;
   /** Consecutive pulls that failed after touching signalling. */
   private pullStrikes = 0;
+  /** When pull strikes last rejoined; survives the rejoin's teardown. */
+  private pullRejoins: number[] = [];
   private attached = false;
   // Bumped on every attach/detach. React's dev double-mount runs
   // attach → detach → attach; a getUserMedia from the first attach that
@@ -293,6 +303,7 @@ class MeetingCallEngine {
   returnToLobby = async () => {
     if (this.isLive() || this.snap.phase === 'joining') return;
     this.attempts = 0;
+    this.pullRejoins = [];
     this.emit({ phase: 'lobby', error: null });
     await this.startPreview();
   };
@@ -309,8 +320,11 @@ class MeetingCallEngine {
       this.audio = await this.open('audio').finally(() =>
         this.opening.delete('audio')
       );
+      // No track means no live publication either: a failed publish
+      // released it (devices.ts), so this is also the retry.
       if (this.audio && this.isLive()) {
-        await this.publish([{ track: this.audio, kind: 'audio' }]);
+        if (this.audioSender) await this.audioSender.replaceTrack(this.audio);
+        else await this.publish([{ track: this.audio, kind: 'audio' }]);
       }
     } else {
       this.audio.enabled = !this.audio.enabled;
@@ -493,6 +507,7 @@ class MeetingCallEngine {
     this.rows.clear();
     this.pulled.clear();
     this.pending.clear();
+    this.audioSender = null;
     this.videoSender = null;
     this.screenPub = null;
     this.screenGeneration = 0;
@@ -520,12 +535,7 @@ class MeetingCallEngine {
   }
 
   private async reconnect() {
-    if (this.attempts >= RECONNECT_TRIES) {
-      this.leaveQuietly();
-      this.teardown();
-      this.emit({ phase: 'error', error: 'connection_failed' });
-      return;
-    }
+    if (this.attempts >= RECONNECT_TRIES) return this.connectionFailed();
     this.attempts += 1;
     this.leaveQuietly();
     this.teardown();
@@ -540,6 +550,12 @@ class MeetingCallEngine {
     if (after.phase === 'error' && after.error === 'join_failed') {
       void this.reconnect();
     }
+  }
+
+  private connectionFailed() {
+    this.leaveQuietly();
+    this.teardown();
+    this.emit({ phase: 'error', error: 'connection_failed' });
   }
 
   // --- participants ----------------------------------------------------
@@ -684,6 +700,7 @@ class MeetingCallEngine {
           return res;
         });
         for (const a of added) {
+          if (a.kind === 'audio') this.audioSender = a.transceiver.sender;
           if (a.kind === 'video') this.videoSender = a.transceiver.sender;
           if (a.kind === 'screen') {
             this.screenPub = { transceiver: a.transceiver, name: a.name };
@@ -692,12 +709,13 @@ class MeetingCallEngine {
       })
       .catch(() => {
         // A failed publish leaves the person in the room without that
-        // track; the device toggle can try again. Its transceivers would
-        // stay in the connection (a dead m-line in every later offer), so
-        // stop them. A share with no screenPub leaves stopShare nothing to
-        // close, so end the capture too and the button reads "share"
-        // again. Not on a connection already torn down: a rejoin
-        // re-publishes the share it still holds.
+        // track. Its transceivers would stay in the connection (a dead
+        // m-line in every later offer), so stop them, and release the
+        // track itself (afterFailedPublish): the mic or camera then reads
+        // as off with a device error, and its toggle's turn-on path opens
+        // the device and publishes again; a share reads "share" again.
+        // Not on a connection already torn down: a rejoin re-publishes
+        // the tracks it still holds.
         if (!pc || pc !== this.pc) return;
         for (const a of added) {
           try {
@@ -705,12 +723,23 @@ class MeetingCallEngine {
           } catch {
             // Already stopped, or the connection closed meanwhile.
           }
-          if (a.kind === 'screen' && this.screen === a.track) {
-            a.track.stop();
-            this.screen = null;
-          }
         }
-        this.emit();
+        const published = new Set<TrackKind>();
+        if (this.audioSender) published.add('audio');
+        if (this.videoSender) published.add('video');
+        if (this.screenPub) published.add('screen');
+        const released = afterFailedPublish(
+          added,
+          { audio: this.audio, video: this.video, screen: this.screen },
+          published
+        );
+        const devices = { ...this.snap.devices };
+        for (const { kind, error } of released) {
+          this[kind]?.stop();
+          this[kind] = null;
+          if (error) devices[kind] = error;
+        }
+        this.emit({ devices });
       });
   }
 
@@ -786,8 +815,12 @@ class MeetingCallEngine {
     if (pc !== this.pc) return;
     const next = afterPullStrike(this.pullStrikes, pc.signalingState);
     this.pullStrikes = next.strikes;
+    if (!next.rejoin) return;
+    const budget = admitPullRejoin(this.pullRejoins, Date.now());
+    this.pullRejoins = budget.rejoins;
     // Not awaited: this runs inside the queue, and the rejoin builds its own.
-    if (next.rejoin) void this.reconnect();
+    if (budget.admit) void this.reconnect();
+    else this.connectionFailed();
   }
 
   private async closeRemote(names: string[]) {
