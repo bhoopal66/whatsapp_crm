@@ -120,12 +120,27 @@ const scalarIds = (data: unknown): string[] =>
       )
     : [];
 
+/** A failed `sg_*` RPC; `code` is the Postgres SQLSTATE (e.g. 55000: group not ACTIVE). */
+export class SubmissionGroupDbError extends Error {
+  override readonly name = 'SubmissionGroupDbError';
+  constructor(
+    message: string,
+    readonly code: string | null
+  ) {
+    super(message);
+  }
+}
+
 export class SubmissionGroupStore {
   constructor(private readonly db: SupabaseClient) {}
 
   private async rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await this.db.rpc(fn, args);
-    if (error) throw new Error(`${fn}: ${error.message}`);
+    if (error)
+      throw new SubmissionGroupDbError(
+        `${fn}: ${error.message}`,
+        error.code ?? null
+      );
     return data as T;
   }
 
