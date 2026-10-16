@@ -372,12 +372,52 @@ BEGIN
   m4 := sg_send_begin(g1, u_coord, 'pre', 'C (Coordinator): pre');
   PERFORM sg_settle_send(m4, 'sent', 'wamid.sg-g1');
 
+  -- API helpers: staff by login email, the reported submission status.
+  n := n + 1;
+  SELECT string_agg(s.user_id::text || ':' || s.role || ':' || s.email, ',' ORDER BY s.user_id) INTO r
+    FROM sg_staff_by_email(a_acct, ARRAY['SG-Agent@Example.invalid', ' sg-lead@example.invalid ',
+      'sg-viewer@example.invalid', 'sg-guest@example.invalid', 'sg-gone@example.invalid',
+      'sg-other@example.invalid', 'nobody@example.invalid']) s;
+  IF r IS DISTINCT FROM format('%s:team_leader:sg-lead@example.invalid,%s:agent:sg-agent@example.invalid', u_lead, u_agent) THEN
+    failed := failed || format('sg_staff_by_email matched %s (want the live agent and leader only)', r);
+  END IF;
+  n := n + 1;
+  r := pg_temp.sg_try('service_role', NULL, format(
+    'SELECT count(*)::text FROM sg_staff_by_email(%L, ARRAY[''sg-owner@example.invalid''])', a_acct));
+  IF r IS DISTINCT FROM '1' THEN failed := failed || format('the service role cannot look staff up by email (%s)', r); END IF;
+  n := n + 1;
+  r := pg_temp.sg_try('authenticated', u_owner, format(
+    'SELECT count(*)::text FROM sg_staff_by_email(%L, ARRAY[''sg-agent@example.invalid''])', a_acct));
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := failed || format('a signed-in user ran sg_staff_by_email (%s)', r); END IF;
+  n := n + 1;
+  r := pg_temp.sg_try('authenticated', u_owner, format('SELECT sg_note_submission_status(%L, ''X'')::text', g1));
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := failed || format('a signed-in user ran sg_note_submission_status (%s)', r); END IF;
+  n := n + 1;
+  -- Two statements: in one expression the subquery (an initPlan) reads before the call writes.
+  r := sg_note_submission_status(g1, 'UNDER_REVIEW')::text;
+  IF r IS DISTINCT FROM 'true'
+     OR (SELECT submission_status FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'UNDER_REVIEW' THEN
+    failed := failed || 'sg_note_submission_status did not record the status on an ACTIVE group'::text;
+  END IF;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND (SELECT count(*) FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
+           AND tablename IN ('submission_groups', 'submission_group_messages')) <> 2 THEN
+    failed := failed || 'submission groups are not in the supabase_realtime publication'::text;
+  END IF;
+
   PERFORM sg_access_remove(g1, u_removed);
   n := n + 1;
   IF NOT sg_end(g1, 'FINAL_STATUS:APPROVED') OR sg_end(g1, 'again') THEN
     failed := failed || 'sg_end did not end an ACTIVE group exactly once'::text;
   END IF;
   SELECT ended_at, last_activity_at INTO e_at, last_at FROM submission_groups WHERE id = g1;
+  n := n + 1;
+  r := sg_note_submission_status(g1, 'LATE')::text;
+  IF r IS DISTINCT FROM 'false'
+     OR (SELECT submission_status FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'UNDER_REVIEW' THEN
+    failed := failed || 'sg_note_submission_status changed an ENDED group'::text;
+  END IF;
   n := n + 1;
   IF (SELECT count(*) FROM submission_group_access WHERE group_id = g1 AND removed_at IS NULL) <> 0
      OR (SELECT count(*) FROM submission_group_access WHERE group_id = g1 AND removed_at = e_at) <> 4
