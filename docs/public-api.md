@@ -57,6 +57,8 @@ it. Grant the minimum.
 | `compass_contacts:read` | Read customers synced from Taamul Compass |
 | `compass_contacts:write` | Sync customers from Taamul Compass      |
 | `compass_notifications:send` | Send Compass status notifications (Whapi only) |
+| `submission_groups:read` | Read a submission's WhatsApp group |
+| `submission_groups:write` | Open a submission's WhatsApp group and report its status |
 
 A key with **no scopes** still authenticates and can call
 `GET /api/v1/me` — useful for verifying a key works.
@@ -387,6 +389,105 @@ failed later, and a campaign in which every recipient failed that way
 moves to `failed`. `sent` and `failed` are final unless someone resumes
 or retries the campaign from the dashboard, which moves it back to
 `sending`. `404` for another account's broadcast.
+
+### `POST /api/v1/submission-groups`
+
+Open the WhatsApp group of a submitted case on a Whapi number. Scope:
+`submission_groups:write`. The behaviour is described in
+[submission-groups.md](submission-groups.md).
+
+```bash
+curl -X POST https://your-crm.example.com/api/v1/submission-groups \
+  -H "Authorization: Bearer taamul_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "submission_id": "SUB-10482",
+        "customer": { "phone": "+971501234567", "name": "Jane Doe" },
+        "agent_email": "agent@example.com",
+        "coordinator_email": "coord@example.com",
+        "team_lead_email": "lead@example.com",
+        "coordinator_phone": "+971507654321",
+        "subject": "Jane Doe - SUB-10482",
+        "channel_id": "3f2c…"
+      }'
+```
+
+Required: `submission_id` (1 to 128 characters), `customer.phone` (same
+rule as `phone` on `POST /api/v1/contacts`) and `agent_email`. Optional:
+`customer.name` (up to 200), `coordinator_email`, `team_lead_email`,
+`coordinator_phone` (the extra WhatsApp participant), `subject` (up to
+100; default `<name or phone> · <submission_id>`) and `channel_id` (a
+Whapi number the agent may use; default: the agent's own number). Each
+email must belong to a live agent, team leader, admin or owner of the
+key's workspace, and no person may fill two fields.
+
+The call is idempotent per `submission_id`: a repeat returns the existing
+group unchanged (`200`), finishing its WhatsApp group if still pending.
+`201` for a new group. `202` when WhatsApp could not create the group yet
+(`whatsapp.pending: true`, `whatsapp.error` set); it is retried
+automatically.
+
+```json
+{
+  "data": {
+    "id": "…",
+    "submission_id": "SUB-10482",
+    "status": "ACTIVE",
+    "submission_status": null,
+    "channel_id": "…",
+    "contact_id": "…",
+    "whatsapp": {
+      "group_id": "120363000000000000@g.us",
+      "invite_link": "https://chat.whatsapp.com/…",
+      "pending": false,
+      "refused_participants": [],
+      "invite_sent": false
+    },
+    "access": [
+      { "email": "agent@example.com", "user_id": "…", "label": "agent" },
+      { "email": "coord@example.com", "user_id": "…", "label": "coordinator" }
+    ],
+    "created_at": "2026-10-16T09:00:00.000Z",
+    "ended_at": null
+  }
+}
+```
+
+`refused_participants` lists numbers WhatsApp would not add;
+`invite_sent` is `true` when the customer was refused and the invite link
+was sent to them 1:1. Errors: `400 bad_request`; `409 consent_required`
+(the customer opted out or is do-not-contact); `422 unknown_user` (the
+message names the field), `duplicate_user`, `no_whapi_number`,
+`channel_not_allowed`.
+
+### `GET /api/v1/submission-groups/{submission_id}`
+
+The case's group, in the shape above. Scope: `submission_groups:read`.
+`404 not_found` for an unknown submission or another account's.
+
+### `PATCH /api/v1/submission-groups/{submission_id}`
+
+Report the submission's status. Scope: `submission_groups:write`.
+
+```bash
+curl -X PATCH https://your-crm.example.com/api/v1/submission-groups/SUB-10482 \
+  -H "Authorization: Bearer taamul_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{ "status": "APPROVED" }'
+```
+
+`status` is 1 to 64 characters and is stored as `submission_status`. A
+final status (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`) ends the
+group and closes its WhatsApp group. Response (200): the group, plus
+
+```json
+{ "data": { "…": "…", "ended": true, "closed": true, "close_deferred": false } }
+```
+
+`close_deferred: true` means a message was still being sent; the close is
+retried by the next call or the cron. On an already ENDED group nothing is
+recorded and the call reports its state with `ended: false`. `404` for an
+unknown submission.
 
 ### Taamul Compass endpoints
 
