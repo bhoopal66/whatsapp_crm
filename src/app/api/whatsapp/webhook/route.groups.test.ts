@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
   handleStatusUpdate: vi.fn(),
   dispatchInboundToFlows: vi.fn(),
   persistGroupSnapshot: vi.fn(),
+  rpc: vi.fn(),
 }));
 
 let seq = 0;
@@ -74,6 +75,11 @@ function query(table: string) {
       (opts = o),
       b
     ),
+    maybeSingle: () =>
+      Promise.resolve(run()).then((r) => ({
+        data: (r.data as Row[] | null)?.[0] ?? null,
+        error: r.error,
+      })),
     then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
       Promise.resolve(run()).then(res, rej),
   };
@@ -94,7 +100,7 @@ vi.mock('@supabase/supabase-js', () => ({
       h.tablesTouched.push(table);
       return query(table);
     },
-    rpc: () => Promise.resolve({ data: null, error: null }),
+    rpc: (fn: string, args: Row) => h.rpc(fn, args),
   }),
 }));
 vi.mock('@/lib/whatsapp/encryption', () => ({
@@ -234,6 +240,7 @@ beforeEach(() => {
     whatsapp_group_messages: [],
   };
   screenAs();
+  h.rpc.mockResolvedValue({ data: null, error: null });
   h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });
   h.processMessage.mockResolvedValue(undefined);
   h.handleStatusUpdate.mockResolvedValue(undefined);
@@ -324,6 +331,81 @@ describe('Whapi webhook: group messages', () => {
     await post(messages(groupText('g-6')));
     const confirmed = h.confirmAccepted.mock.calls[0][1] as { key: string }[];
     expect(confirmed.map((d) => d.key)).toEqual([]);
+  });
+});
+
+describe('Whapi webhook: submission groups (018a)', () => {
+  const SG_GROUP = '120363027777777777@g.us';
+  const sgCalls = () =>
+    h.rpc.mock.calls.filter((c) => c[0] === 'sg_record_inbound');
+
+  beforeEach(() => {
+    h.db.submission_groups = [
+      {
+        id: 'sg-1',
+        account_id: 'acc-1',
+        channel_id: 'cfg-1',
+        wa_group_id: SG_GROUP,
+        contact_id: 'contact-1',
+        submission_ref: 'S-1',
+        subject: 'S-1',
+        coordinator_phone: null,
+        status: 'ACTIVE',
+        created_at: '2026-10-16T00:00:00Z',
+        last_activity_at: '2026-10-16T00:00:00Z',
+      },
+    ];
+    h.db.contacts = [{ id: 'contact-1', phone: '+971 50 123 4567' }];
+  });
+
+  it('records a submission-group message through sg_record_inbound, not as a 114 group row', async () => {
+    h.rpc.mockResolvedValue({ data: true, error: null });
+    await post(
+      messages(groupText('g-1'), groupText('s-1', { chat_id: SG_GROUP }))
+    );
+    expect(sgCalls()).toEqual([
+      [
+        'sg_record_inbound',
+        expect.objectContaining({
+          p_group: 'sg-1',
+          p_wa_message_id: 's-1',
+          p_sender_wa_id: '971501234567',
+          p_sender_kind: 'customer',
+          p_type: 'text',
+          p_body: 'hello group',
+        }),
+      ],
+    ]);
+    expect(groupMessages().map((r) => r.wa_message_id)).toEqual(['g-1']);
+  });
+
+  it('a submission-group failure leaves the 114 path and the 1:1 pipeline untouched', async () => {
+    h.rpc.mockImplementation(async (fn: string) =>
+      fn === 'sg_record_inbound'
+        ? { data: null, error: { message: 'boom' } }
+        : { data: null, error: null }
+    );
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post(
+      messages(groupText('g-1'), groupText('s-1', { chat_id: SG_GROUP }), {
+        id: 'p-1',
+        type: 'text',
+        chat_id: '971501234567@s.whatsapp.net',
+        from: '971501234567',
+        text: { body: 'hi' },
+      })
+    );
+    err.mockRestore();
+    expect((res as unknown as { init: { status: number } }).init.status).toBe(
+      200
+    );
+    expect(sgCalls()).toHaveLength(1);
+    expect(groupMessages().map((r) => r.wa_message_id)).toEqual(['g-1']);
+    expect(h.processMessage).toHaveBeenCalledTimes(1);
+    const confirmed = h.confirmAccepted.mock.calls[0][1] as { key: string }[];
+    expect(confirmed.map((d) => d.key)).toEqual(
+      expect.arrayContaining(['whapi:group:cfg-1:g-1', 'whapi:group:cfg-1:s-1'])
+    );
   });
 });
 

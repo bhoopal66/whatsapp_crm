@@ -29,6 +29,8 @@ import {
   parseWhapiGroupEvents,
   type WhapiGroupEvent,
 } from '@/lib/whatsapp/whapi-group-events'
+import { recordSubmissionGroupInbound } from '@/lib/submission-groups/inbound'
+import { SubmissionGroupStore } from '@/lib/submission-groups/store'
 import {
   clientIp,
   confirmAccepted,
@@ -469,8 +471,9 @@ async function channelMatches(
 
 /**
  * Group traffic of one authenticated callback (migration 114): group
- * messages into `whatsapp_group_messages`, receipts onto our group
- * sends, `groups` events onto known groups of this number. Service
+ * messages into `whatsapp_group_messages` (and those of submission
+ * groups through `sg_record_inbound`), receipts onto our group sends,
+ * `groups` events onto known groups of this number. Service
  * role, confined to the row the secret resolved. Never throws; false
  * when the group messages could not be stored.
  */
@@ -493,6 +496,18 @@ async function processWhapiGroups(
   } catch (error) {
     ok = false
     console.error('[whapi-webhook] group messages failed:', error)
+  }
+  try {
+    // Submission groups (module 018a) are not in `whatsapp_groups`, so
+    // the write above counted them as unknown. Isolated, and outside
+    // `ok`: it never changes what 114 stores or confirms.
+    await recordSubmissionGroupInbound(
+      new SubmissionGroupStore(admin),
+      channel,
+      messages,
+    )
+  } catch (error) {
+    console.error('[whapi-webhook] submission group messages failed:', error)
   }
   try {
     // A 1:1 receipt matches no group row (and a group id no `messages`
