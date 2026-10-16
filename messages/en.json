@@ -5945,6 +5945,66 @@
       "resultNone": "Nobody was added yet — send the invite link from the group's Invite tab.",
       "openGroup": "Open group",
       "done": "Done"
+    },
+    "page": {
+      "back": "Groups",
+      "notFound": "Group not found, or you don't have access",
+      "loadFailed": "Couldn't load this group.",
+      "retry": "Try again",
+      "roleAdmin": "Admin",
+      "roleMember": "Member",
+      "roleLeft": "Left",
+      "members": "{count, plural, =1 {# member} other {# members}}",
+      "refresh": "Refresh from WhatsApp",
+      "refreshing": "Refreshing…",
+      "refreshFailed": "Couldn't refresh from WhatsApp.",
+      "more": "More actions",
+      "leave": "Leave group",
+      "leaveTitle": "Leave this group?",
+      "leaveBody": "Your number will leave \"{name}\". You can't send to the group or see new messages afterwards.",
+      "cancel": "Cancel",
+      "tabs": {
+        "chat": "Chat",
+        "members": "Members",
+        "settings": "Settings",
+        "invite": "Invite",
+        "requests": "Requests",
+        "managers": "Managers"
+      },
+      "chat": {
+        "loading": "Loading…",
+        "loadFailed": "Couldn't load messages.",
+        "empty": "No messages yet.",
+        "loadOlder": "Load older messages",
+        "someone": "Someone",
+        "attachment": "Attachment",
+        "placeholder": "Write a message",
+        "send": "Send"
+      },
+      "reasons": {
+        "not_allowed": "You don't have permission to do that.",
+        "not_group_admin": "Your number isn't an admin of this group, so WhatsApp won't allow this.",
+        "left": "Your number has left this group.",
+        "number_removed": "This group's WhatsApp number was removed from the workspace.",
+        "own_number": "That's our own number.",
+        "rate_limited": "You're sending too fast. Wait a minute and try again.",
+        "invalid_manager": "That person can't be made a manager.",
+        "too_large": "That file is too large.",
+        "no_icon": "This group has no picture.",
+        "not_admin": "Only admins can do that.",
+        "group_not_found": "WhatsApp can't find this group any more.",
+        "channel_disconnected": "The WhatsApp number is disconnected. Reconnect it and try again.",
+        "billing": "WhatsApp refused because the number's subscription needs attention.",
+        "gateway_unavailable": "WhatsApp isn't answering right now. Try again in a moment.",
+        "not_whapi": "Groups only work on a WhatsApp number connected through Whapi.",
+        "already_member": "They're already in this group.",
+        "invalid_request": "That request wasn't valid. Check it and try again.",
+        "request_failed": "WhatsApp couldn't do that. Try again.",
+        "not_found": "Not found.",
+        "unavailable": "Something went wrong on our side. Try again in a moment.",
+        "invalid_body": "That message couldn't be sent. Check the text and try again.",
+        "unknown": "Something went wrong. Try again."
+      }
     }
   }
 }

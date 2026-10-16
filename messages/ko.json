@@ -5945,6 +5945,66 @@
       "resultNone": "아직 아무도 추가되지 않았습니다. 그룹의 초대 탭에서 초대 링크를 보내세요.",
       "openGroup": "그룹 열기",
       "done": "완료"
+    },
+    "page": {
+      "back": "그룹",
+      "notFound": "그룹을 찾을 수 없거나 접근 권한이 없습니다",
+      "loadFailed": "이 그룹을 불러오지 못했습니다.",
+      "retry": "다시 시도",
+      "roleAdmin": "관리자",
+      "roleMember": "멤버",
+      "roleLeft": "나감",
+      "members": "{count, plural, other {멤버 #명}}",
+      "refresh": "WhatsApp에서 새로고침",
+      "refreshing": "새로고침 중…",
+      "refreshFailed": "WhatsApp에서 새로고침하지 못했습니다.",
+      "more": "더 보기",
+      "leave": "그룹 나가기",
+      "leaveTitle": "이 그룹에서 나갈까요?",
+      "leaveBody": "이 번호가 \"{name}\" 그룹에서 나갑니다. 이후에는 그룹에 메시지를 보내거나 새 메시지를 볼 수 없습니다.",
+      "cancel": "취소",
+      "tabs": {
+        "chat": "채팅",
+        "members": "멤버",
+        "settings": "설정",
+        "invite": "초대",
+        "requests": "요청",
+        "managers": "관리자"
+      },
+      "chat": {
+        "loading": "불러오는 중…",
+        "loadFailed": "메시지를 불러오지 못했습니다.",
+        "empty": "아직 메시지가 없습니다.",
+        "loadOlder": "이전 메시지 불러오기",
+        "someone": "알 수 없음",
+        "attachment": "첨부 파일",
+        "placeholder": "메시지 입력",
+        "send": "보내기"
+      },
+      "reasons": {
+        "not_allowed": "이 작업을 할 권한이 없습니다.",
+        "not_group_admin": "이 번호는 그룹 관리자가 아니어서 WhatsApp에서 허용하지 않습니다.",
+        "left": "이 번호는 이미 그룹을 나갔습니다.",
+        "number_removed": "이 그룹의 WhatsApp 번호가 워크스페이스에서 제거되었습니다.",
+        "own_number": "우리 번호 자체입니다.",
+        "rate_limited": "너무 빨리 보내고 있습니다. 잠시 후 다시 시도하세요.",
+        "invalid_manager": "이 사람은 관리자로 지정할 수 없습니다.",
+        "too_large": "파일이 너무 큽니다.",
+        "no_icon": "이 그룹에는 사진이 없습니다.",
+        "not_admin": "관리자만 할 수 있습니다.",
+        "group_not_found": "WhatsApp에서 이 그룹을 더 이상 찾을 수 없습니다.",
+        "channel_disconnected": "WhatsApp 번호의 연결이 끊어졌습니다. 다시 연결한 뒤 시도하세요.",
+        "billing": "번호의 구독에 문제가 있어 WhatsApp에서 거부했습니다.",
+        "gateway_unavailable": "WhatsApp이 지금 응답하지 않습니다. 잠시 후 다시 시도하세요.",
+        "not_whapi": "그룹은 Whapi로 연결된 WhatsApp 번호에서만 사용할 수 있습니다.",
+        "already_member": "이미 그룹에 있습니다.",
+        "invalid_request": "요청이 올바르지 않습니다. 확인 후 다시 시도하세요.",
+        "request_failed": "WhatsApp에서 처리하지 못했습니다. 다시 시도하세요.",
+        "not_found": "찾을 수 없습니다.",
+        "unavailable": "문제가 발생했습니다. 잠시 후 다시 시도하세요.",
+        "invalid_body": "메시지를 보낼 수 없습니다. 내용을 확인하고 다시 시도하세요.",
+        "unknown": "문제가 발생했습니다. 다시 시도하세요."
+      }
     }
   }
 }
