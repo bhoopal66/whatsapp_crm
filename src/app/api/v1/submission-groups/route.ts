@@ -115,22 +115,7 @@ export async function POST(request: Request) {
       emails = new Map(staff.staff.map((s) => [s.userId, s.email]));
       const agent = staff.staff.find((s) => s.label === 'agent')!;
 
-      const auditUserId = await resolveAuditUserId(db, ctx.accountId);
-      const contact = await findOrCreateContact(
-        db,
-        ctx.accountId,
-        auditUserId,
-        {
-          phone: input.customerPhone,
-          name: input.customerName ?? undefined,
-        }
-      );
-
-      const consent = await store.contactConsent(contact.id);
-      if (consent.reason === 'opted_out' || consent.reason === 'do_not_contact')
-        return fail('consent_required', CONSENT_MESSAGE, 409);
-      customerPhone = consent.phone ?? input.customerPhone;
-
+      // The number first: a refused call must not leave a new contact behind.
       const channels = await loadChannels(db, ctx.accountId);
       const whapiIds = channels
         .filter((c) => c.provider === 'whapi')
@@ -168,6 +153,22 @@ export async function POST(request: Request) {
               422
             );
       }
+
+      const auditUserId = await resolveAuditUserId(db, ctx.accountId);
+      const contact = await findOrCreateContact(
+        db,
+        ctx.accountId,
+        auditUserId,
+        {
+          phone: input.customerPhone,
+          name: input.customerName ?? undefined,
+        }
+      );
+
+      const consent = await store.contactConsent(contact.id);
+      if (consent.reason === 'opted_out' || consent.reason === 'do_not_contact')
+        return fail('consent_required', CONSENT_MESSAGE, 409);
+      customerPhone = consent.phone ?? input.customerPhone;
 
       open = {
         accountId: ctx.accountId,
