@@ -5621,7 +5621,8 @@
       "team_activity_alert": "팀 활동 알림",
       "meeting_invite": "회의 초대",
       "meeting_reminder": "회의 미리 알림",
-      "event_reminder": "캘린더 미리 알림"
+      "event_reminder": "캘린더 미리 알림",
+      "group_join_request": "WhatsApp 그룹 가입 요청"
     },
     "quietTitle": "방해 금지 시간",
     "quietDescription": "이 시간 동안에는 회의 및 캘린더 미리 알림을 제외하고 알림을 보내지 않습니다. 사용하지 않으려면 두 칸을 모두 비워 두세요.",

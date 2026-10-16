@@ -121,7 +121,7 @@ async function knownGroups(
   if (waGroupIds.length === 0) return out;
   const { data, error } = await admin
     .from('whatsapp_groups')
-    .select('id, wa_group_id, our_role, participants_count, settings')
+    .select('id, wa_group_id, name, our_role, participants_count, settings')
     .eq('account_id', channel.accountId)
     .eq('channel_id', channel.id)
     .in('wa_group_id', [...new Set(waGroupIds)]);
@@ -244,6 +244,7 @@ export async function applyGroupStatuses(
 
 type KnownGroup = {
   id: string;
+  name?: string | null;
   our_role: GroupOurRole;
   participants_count?: number;
   settings?: unknown;
@@ -315,9 +316,11 @@ async function applyParticipants(
   e: Extract<WhapiGroupEvent, { kind: 'participants' }>,
   ourWaId: string | null
 ): Promise<void> {
-  // A join request changes nothing yet. 114's notifications CHECK has
-  // no `group_join_request` type, so no bell either.
-  if (e.action === 'request') return;
+  // A join request changes nothing in the group; it rings its managers.
+  if (e.action === 'request') {
+    await notifyJoinRequest(admin, channel.accountId, group, e.waIds);
+    return;
+  }
   const table = () => admin.from('whatsapp_group_participants');
   const patch: Record<string, unknown> = {};
   let delta = 0;
@@ -386,6 +389,80 @@ async function applyParticipants(
     group.participants_count = patch.participants_count;
   }
   if (patch.our_role) group.our_role = patch.our_role as GroupOurRole;
+}
+
+/** A repeat request inside this window rings a manager only once. */
+const JOIN_REQUEST_DEDUP_MS = 10 * 60_000;
+
+/**
+ * Ring the group's managers (else the workspace's owners and admins)
+ * that someone asked to join. Failure-isolated: a bell that cannot be
+ * written is logged, never thrown, so the event still applies.
+ */
+async function notifyJoinRequest(
+  admin: SupabaseClient,
+  accountId: string,
+  group: KnownGroup,
+  waIds: readonly string[]
+): Promise<void> {
+  try {
+    const managers = await admin
+      .from('whatsapp_group_managers')
+      .select('user_id')
+      .eq('group_id', group.id)
+      .eq('account_id', accountId);
+    if (managers.error) throw managers.error;
+    let recipients = ((managers.data ?? []) as Array<{ user_id: string }>).map(
+      (r) => r.user_id
+    );
+    if (recipients.length === 0) {
+      const staff = await admin
+        .from('profiles')
+        .select('user_id')
+        .eq('account_id', accountId)
+        .in('account_role', ['owner', 'admin'])
+        .is('deactivated_at', null);
+      if (staff.error) throw staff.error;
+      recipients = ((staff.data ?? []) as Array<{ user_id: string }>).map(
+        (r) => r.user_id
+      );
+    }
+    recipients = [...new Set(recipients)];
+    if (recipients.length === 0) return;
+
+    const since = new Date(Date.now() - JOIN_REQUEST_DEDUP_MS).toISOString();
+    const recent = await admin
+      .from('notifications')
+      .select('user_id')
+      .eq('account_id', accountId)
+      .eq('type', 'group_join_request')
+      .eq('meta->>group_id', group.id)
+      .is('read_at', null)
+      .gte('created_at', since)
+      .in('user_id', recipients);
+    if (recent.error) throw recent.error;
+    const rung = new Set(
+      ((recent.data ?? []) as Array<{ user_id: string }>).map((r) => r.user_id)
+    );
+    const rows = recipients
+      .filter((id) => !rung.has(id))
+      .map((userId) => ({
+        account_id: accountId,
+        user_id: userId,
+        type: 'group_join_request',
+        title: `Join request: ${group.name?.trim() || 'a WhatsApp group'}`,
+        body:
+          waIds.length > 0
+            ? `${waIds.length} ${waIds.length === 1 ? 'person asks' : 'people ask'} to join`
+            : 'Someone asks to join',
+        meta: { group_id: group.id, wa_ids: [...waIds] },
+      }));
+    if (rows.length === 0) return;
+    const { error } = await admin.from('notifications').insert(rows);
+    if (error) throw error;
+  } catch (err) {
+    console.error('[groups-webhook] join-request bell failed', err);
+  }
 }
 
 async function applyUpdate(

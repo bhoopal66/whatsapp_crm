@@ -5621,7 +5621,8 @@
       "team_activity_alert": "Team activity alerts",
       "meeting_invite": "Meeting invitations",
       "meeting_reminder": "Meeting reminders",
-      "event_reminder": "Calendar reminders"
+      "event_reminder": "Calendar reminders",
+      "group_join_request": "WhatsApp group join requests"
     },
     "quietTitle": "Quiet hours",
     "quietDescription": "Nothing is sent between these times, except meeting and calendar reminders. Leave both empty for no quiet hours.",

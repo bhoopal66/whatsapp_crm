@@ -47,6 +47,7 @@ DECLARE
   g3       UUID;
   g4       UUID;
   g5       UUID;
+  g6       UUID;
   gb       UUID;
   r        TEXT;
   n        INT := 0;
@@ -380,6 +381,37 @@ BEGIN
            WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
              AND tablename IN ('whatsapp_groups', 'whatsapp_group_messages')) <> 2 THEN
     failed := array_append(failed, 'whatsapp_groups and whatsapp_group_messages are not both in supabase_realtime'::text);
+  END IF;
+
+  -- An unowned group may be stamped with a creator once; a set creator
+  -- never changes. The bell accepts a group_join_request.
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role)
+  VALUES (a_acct, w1, '120363000000114099@g.us', 'WG unowned', NULL, 'admin') RETURNING id INTO g6;
+  n := n + 1;
+  BEGIN
+    UPDATE whatsapp_groups SET created_by = u_maker WHERE id = g6;
+    r := 'ok';
+  EXCEPTION WHEN OTHERS THEN r := SQLSTATE; END;
+  IF r <> 'ok' OR (SELECT created_by FROM whatsapp_groups WHERE id = g6) IS DISTINCT FROM u_maker THEN
+    failed := array_append(failed, format('an unowned group could not be stamped with its creator (%s)', r));
+  END IF;
+  n := n + 1;
+  BEGIN
+    UPDATE whatsapp_groups SET created_by = u_mgr WHERE id = g6;
+    r := 'ok';
+  EXCEPTION WHEN OTHERS THEN r := SQLSTATE; END;
+  IF r <> '23514' THEN
+    failed := array_append(failed, format('a set creator was changed (%s)', r));
+  END IF;
+  n := n + 1;
+  BEGIN
+    INSERT INTO notifications (account_id, user_id, type, title, meta)
+    VALUES (a_acct, u_mgr, 'group_join_request', 'Join request: WG one',
+            jsonb_build_object('group_id', g1, 'wa_ids', jsonb_build_array('971500000009')));
+    r := 'ok';
+  EXCEPTION WHEN OTHERS THEN r := SQLSTATE; END;
+  IF r <> 'ok' THEN
+    failed := array_append(failed, format('the notifications CHECK refused group_join_request (%s)', r));
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
