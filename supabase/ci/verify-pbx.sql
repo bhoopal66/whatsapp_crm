@@ -221,6 +221,29 @@ BEGIN
   r := pg_temp.px_try('authenticated', u_lead, format('SELECT count(*)::text FROM calls WHERE id = %L', k_held));
   n := n + 1;
   IF r <> '0' THEN failed := array_append(failed, ('call visibility (113): a team leader sees a call of someone outside their teams: ' || r)::text); END IF;
+  -- 113: the calls policy reads can_view_contact as a set
+  -- (pbx_visible_contact_ids); it must name exactly the contacts
+  -- can_view_contact allows, for a leader with a team and below. The
+  -- other agent's customer is handed to the agent for the check, so
+  -- the chat-assignee path is exercised too.
+  r := '';
+  UPDATE conversations SET assigned_agent_id = u_agent WHERE id = cv_x;
+  DECLARE u UUID;
+  BEGIN
+    FOREACH u IN ARRAY ARRAY[u_lead, u_agent, u_agent2, u_viewer, u_admin] LOOP
+      PERFORM set_config('request.jwt.claim.sub', u::text, true);
+      PERFORM set_config('request.jwt.claims', json_build_object('sub', u, 'role', 'authenticated')::text, true);
+      r := r || (SELECT count(*) FROM contacts c
+                  WHERE c.account_id = a_acct
+                    AND (c.id IN (SELECT pbx_visible_contact_ids()))
+                        IS DISTINCT FROM can_view_contact(c.account_id, c.id, c.user_id))::text;
+    END LOOP;
+    PERFORM set_config('request.jwt.claim.sub', '', true);
+    PERFORM set_config('request.jwt.claims', '', true);
+  END;
+  UPDATE conversations SET assigned_agent_id = NULL WHERE id = cv_x;
+  n := n + 1;
+  IF r <> '00000' THEN failed := array_append(failed, ('call visibility (113): pbx_visible_contact_ids differs from can_view_contact (lead, agent, agent2, viewer, admin): ' || r)::text); END IF;
   DELETE FROM team_members WHERE team_id = tm_call;
   DELETE FROM teams WHERE id = tm_call;
   INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, status, meta)
