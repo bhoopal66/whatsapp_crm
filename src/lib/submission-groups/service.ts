@@ -368,8 +368,8 @@ export class SubmissionGroupService {
       throw err;
     }
     if (!attached) {
-      // Our claim expired and another caller took it (or the group ended). The idempotency key is the group row id,
-      // so the winner may hold the very group we got back: close it only if it is provably not the live one.
+      // Our claim expired and another caller took it (or the group ended). Whapi has no idempotency key, so the
+      // group we got back is ours alone unless the row stores its id: otherwise close it (the cron recreates).
       const current = await this.discardIfOrphan(
         group,
         made.waGroupId,
@@ -396,9 +396,10 @@ export class SubmissionGroupService {
   }
 
   /**
-   * After a failed attach: closes `waGroupId` only when the re-read row shows it cannot become live — another
-   * WhatsApp group is stored, or the group ENDED (or is gone) without one. A row that stores this id, or is still
-   * pending (a claimant's createGroup with the same key returns this id), keeps it open; so does a failed re-read.
+   * After a failed attach: `waGroupId` is live only when the re-read row stores exactly this id (an attach that
+   * threw after committing). Whapi's createGroup has no idempotency key, so nobody else can ever attach the group
+   * we created: a row still pending, holding another group, ENDED or gone means ours is an orphan and is closed
+   * (a pending row's group is recreated by the cron). A failed re-read keeps it open, since it may be live.
    */
   private async discardIfOrphan(
     group: SubmissionGroup,
@@ -417,10 +418,7 @@ export class SubmissionGroupService {
       });
       return null;
     }
-    const live =
-      current !== null &&
-      (current.waGroupId === waGroupId ||
-        (current.waGroupId === null && current.status === 'ACTIVE'));
+    const live = current !== null && current.waGroupId === waGroupId;
     if (!live && group.channelId !== null) {
       try {
         await this.deps.api.closeGroup(group.channelId, waGroupId);

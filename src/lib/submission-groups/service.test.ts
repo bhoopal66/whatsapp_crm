@@ -422,7 +422,7 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(closed).toHaveLength(1);
     expect(closed[0]).not.toBe('wag-winner@g.us');
 
-    // Same id stored by the winner (same idempotency key): nothing is closed.
+    // The row stores the very id we got back (an attach that landed): nothing is closed.
     const t = setup();
     t.api.fail.add('createGroup');
     await expect(t.open('S-2')).rejects.toThrow();
@@ -438,6 +438,34 @@ describe('SubmissionGroupService.openForSubmission', () => {
     };
     await t.open('S-2');
     expect(t.api.of('closeGroup')).toEqual([]);
+  });
+
+  it('orphan: a lost claim on a still-pending row closes our group (no idempotency key; the cron recreates)', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    // While A is inside createGroup, B takes the lapsed lease but has not attached anything yet.
+    s.api.hook = async () => {
+      await s.store.claimCreate(g.id, 120_000, new Date(Date.now() + 121_000));
+    };
+    const r = await s.open();
+    expect(s.store.groups.get(g.id)!.waGroupId).toBeNull();
+    expect(s.api.of('closeGroup').map((c) => c.args)).toEqual([
+      [CH, expect.any(String)],
+    ]);
+    expect(r).toMatchObject({ group: { waGroupId: null } });
+  });
+
+  it('orphan: an attach that throws on a still-pending row closes our group', async () => {
+    const s = setup();
+    s.store.attachWaGroup = async () => {
+      throw new Error('attach: connection reset');
+    };
+    await expect(s.open()).rejects.toThrow(/attach/);
+    const [g] = [...s.store.groups.values()];
+    expect(g.waGroupId).toBeNull();
+    expect(s.api.of('closeGroup')).toHaveLength(1);
   });
 
   it('retryPending finishes groups older than the threshold and reports per group', async () => {
