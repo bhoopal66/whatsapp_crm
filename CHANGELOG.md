@@ -22,6 +22,10 @@ the group's own message log, which stays out of the inbox, flows,
 automations and the AI. Owners and admins see every group; others see
 the groups they created or manage, and team leaders their team's.
 
+Routes for a group's managers (`GET`/`PUT .../managers`), its picture
+(`GET`/`PUT`/`DELETE .../icon`) and its own chat (`GET`/`POST
+.../messages`, at most 20 sends a minute per group).
+
 ### Each person sees their own calls
 
 A team leader no longer sees every call and incoming-call card of the
