@@ -2,11 +2,13 @@
 // /api/meetings — list and schedule video meetings (migration 106).
 // Staff only (`requireMeetingsUser` refuses a bank guest). Under the
 // caller's RLS client: the list is whatever `meeting_can_view` shows.
+// Creating is team leader and up (`canCreateMeetings`, migration 111).
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { toErrorResponse } from '@/lib/auth/account';
+import { canCreateMeetings } from '@/lib/auth/roles';
 import {
   meetingPhase,
   parseCreateMeeting,
@@ -15,6 +17,7 @@ import {
 } from '@/lib/meetings/requests';
 import {
   jsonError,
+  MEETING_CREATORS_ONLY,
   meetingDbErrorResponse,
   readJson,
   requireMeetingsUser,
@@ -122,7 +125,8 @@ export async function GET(request: Request) {
 /** POST /api/meetings → 201 `{ meeting }`, the caller as host. */
 export async function POST(request: Request) {
   try {
-    const { supabase, accountId, userId } = await requireMeetingsUser();
+    const { supabase, accountId, userId, role } = await requireMeetingsUser();
+    if (!canCreateMeetings(role)) return jsonError(MEETING_CREATORS_ONLY, 403);
     const parsed = parseCreateMeeting(await readJson(request));
     if (!parsed.ok) return jsonError(parsed.error, 400);
     const { meeting: values, inviteeUserIds } = parsed.values;

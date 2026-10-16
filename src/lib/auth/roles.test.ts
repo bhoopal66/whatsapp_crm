@@ -16,6 +16,7 @@ import {
   grantableRoles,
   canTransferOwnership,
   canUseMeetings,
+  canCreateMeetings,
   canArchiveWorkspace,
   canViewOnly,
   canViewUnroutedCalls,
@@ -215,6 +216,16 @@ describe('canUseMeetings', () => {
   it('every staff role, never a bank guest (migration 106)', () => {
     expect(ACCOUNT_ROLES.filter((r) => canUseMeetings(r))).toEqual([
       ...STAFF_ROLES,
+    ]);
+  });
+});
+
+describe('canCreateMeetings', () => {
+  it('team leader and up, as the meetings INSERT policy allows (111)', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canCreateMeetings(r))).toEqual([
+      'team_leader',
+      'admin',
+      'owner',
     ]);
   });
 });

@@ -15,6 +15,8 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
   getCurrentAccount: mocks.getCurrentAccount,
 }));
 
+import { MEETING_CREATORS_ONLY } from '@/lib/meetings/server';
+
 import { GET, POST } from './route';
 
 const U1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -47,7 +49,7 @@ describe('POST /api/meetings', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.getCurrentAccount.mockResolvedValue({
-      role: 'viewer',
+      role: 'team_leader',
       userId: 'user-1',
       accountId: 'acct-1',
       supabase: { from },
@@ -83,6 +85,22 @@ describe('POST /api/meetings', () => {
     expect((await create({ title: '' })).status).toBe(400);
     expect(mocks.insertMeeting).not.toHaveBeenCalled();
   });
+
+  it.each(['agent', 'viewer'])(
+    'refuses a %s: only team leaders and up create (111)',
+    async (role) => {
+      mocks.getCurrentAccount.mockResolvedValue({
+        role,
+        userId: 'user-1',
+        accountId: 'acct-1',
+        supabase: { from },
+      });
+      const res = await create({ title: 'Sync' });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: MEETING_CREATORS_ONLY });
+      expect(mocks.insertMeeting).not.toHaveBeenCalled();
+    }
+  );
 
   it('refuses a bank guest', async () => {
     mocks.getCurrentAccount.mockResolvedValue({

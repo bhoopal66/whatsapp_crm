@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Only team leaders and admins create video meetings
+
+Agents and viewers can no longer schedule or start a video meeting; they
+join the meetings they are invited to and the ones open to the whole
+workspace. The *New meeting* buttons (Meetings page, the calendar's
+Create menu and "Video meeting instead" in the event dialog) are hidden
+for them, and the API answers 403. Existing meetings keep their host.
+
+**Migration required:** `supabase/migrations/111_meeting_creators.sql`.
+
 ### Calendar look
 
 The day and week views show their hour labels again (an overlay had

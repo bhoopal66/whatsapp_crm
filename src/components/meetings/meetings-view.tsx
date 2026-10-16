@@ -8,6 +8,7 @@ import { CalendarDays, Plus, Search, Video } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import {
   filterMeetings,
   formatMeetingDay,
@@ -45,6 +46,8 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
   const locale = useLocale();
   const timeZone = useMeetingTimeZone();
   const { user } = useAuth();
+  // Agents and viewers attend; team leaders and up create (111).
+  const canCreate = useCan('create-meetings');
   const { nameOf, avatarOf } = useWorkspaceMembers();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [query, setQuery] = useState('');
@@ -134,10 +137,12 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
           <h1 className="text-xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
-        <Button onClick={openNew}>
-          <Plus className="size-4" aria-hidden />
-          {t('newMeeting')}
-        </Button>
+        {canCreate && (
+          <Button onClick={openNew}>
+            <Plus className="size-4" aria-hidden />
+            {t('newMeeting')}
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -192,7 +197,7 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
             )}
           </span>
           <p className="text-muted-foreground text-sm">{t(`empty.${scope}`)}</p>
-          {scope !== 'past' && (
+          {scope !== 'past' && canCreate && (
             <Button variant="outline" onClick={openNew}>
               <Plus className="size-4" aria-hidden />
               {t('newMeeting')}

@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { MeetingFormDialog } from '@/components/meetings/meeting-form-dialog';
+import { useCan } from '@/hooks/use-can';
 import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
 import { calendarTimeZone } from '@/lib/calendar/fc-timezone';
 import type { FeedItem } from '@/lib/calendar/feed';
@@ -49,6 +50,7 @@ export function CalendarPage({
   initialEventId?: string | null;
 }) {
   const t = useTranslations('Calendar');
+  const canCreateMeeting = useCan('create-meetings');
   const fcZone = calendarTimeZone(useMeetingTimeZone());
   const zone =
     fcZone === 'local'
@@ -182,10 +184,14 @@ export function CalendarPage({
           zone={zone}
           onClose={() => setEditor(null)}
           onSaved={refresh}
-          onVideoMeeting={(start) => {
-            setEditor(null);
-            setMeeting({ start, key: Date.now() });
-          }}
+          onVideoMeeting={
+            canCreateMeeting
+              ? (start) => {
+                  setEditor(null);
+                  setMeeting({ start, key: Date.now() });
+                }
+              : undefined
+          }
         />
       )}
       {meeting && (

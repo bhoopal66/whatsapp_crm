@@ -53,6 +53,7 @@ import {
 import { MeetingFormDialog } from '@/components/meetings/meeting-form-dialog';
 import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import type { FeedItem } from '@/lib/calendar/feed';
@@ -226,6 +227,8 @@ export function CalendarView({
   const locale = useLocale();
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  // Agents and viewers attend; team leaders and up create (111).
+  const canCreateMeeting = useCan('create-meetings');
 
   const accountZone = useMeetingTimeZone();
   const fcZone = calendarTimeZone(accountZone);
@@ -888,9 +891,11 @@ export function CalendarView({
                 <DropdownMenuItem onClick={() => callbacks.current.onCreate()}>
                   {t('createEvent')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={openMeeting}>
-                  {t('createMeeting')}
-                </DropdownMenuItem>
+                {canCreateMeeting && (
+                  <DropdownMenuItem onClick={openMeeting}>
+                    {t('createMeeting')}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

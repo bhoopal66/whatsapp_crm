@@ -211,6 +211,15 @@ export function canUseMeetings(role: AccountRole): boolean {
 }
 
 /**
+ * Team leader and up: create (host) a video meeting (migration 111's
+ * meetings INSERT policy). Agents and viewers only attend the meetings
+ * they are invited to and the ones open to the workspace.
+ */
+export function canCreateMeetings(role: AccountRole): boolean {
+  return hasMinRole(role, 'team_leader');
+}
+
+/**
  * Team leader and up: download a call recording (the recording route's
  * 403 and call_access_log's guard, migration 089). Playing is agent+.
  */

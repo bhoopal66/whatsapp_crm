@@ -114,8 +114,11 @@ export function EventDialog({
   onClose: () => void;
   /** After a successful save (the dialog closes itself). */
   onSaved: () => void;
-  /** "Video meeting instead": this dialog is closed by the parent. */
-  onVideoMeeting: (start: Date | undefined) => void;
+  /**
+   * "Video meeting instead": this dialog is closed by the parent.
+   * Omitted for someone who cannot create meetings (below team leader).
+   */
+  onVideoMeeting?: (start: Date | undefined) => void;
 }) {
   const t = useTranslations('Calendar');
   const locale = useLocale();
@@ -584,7 +587,7 @@ export function EventDialog({
       </Field>
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
-        {!editing ? (
+        {!editing && onVideoMeeting ? (
           <Button
             type="button"
             variant="ghost"

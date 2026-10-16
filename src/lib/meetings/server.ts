@@ -28,6 +28,9 @@ import {
 } from './types';
 
 export const STAFF_ONLY = 'Video meetings are for staff only';
+/** POST /api/meetings below team leader (migration 111). */
+export const MEETING_CREATORS_ONLY =
+  'Only team leaders and admins can create meetings';
 
 /**
  * The caller's context, refused for a bank guest (staff only). A guest

@@ -69,7 +69,11 @@ Every rule applies inside the caller's active workspace.
   a title, description, time or "anyone can join" change by anyone but
   the host is refused, and only the host adds or removes invitees.
 - **Cancels, ends:** the host, or an owner/admin.
-- **Creates:** any staff member (viewer and up), who becomes the host.
+- **Creates:** a team leader, admin or owner, who becomes the host
+  (migration 111; the API answers 403 "Only team leaders and admins can
+  create meetings" below that). Agents and viewers only attend: the
+  meetings they are invited to and the ones open to the workspace. The
+  *New meeting* buttons on /meetings and the calendar are hidden for them.
 - **Bank guests:** never. They see and write nothing here, and the API
   answers 403 "Video meetings are for staff only".
 

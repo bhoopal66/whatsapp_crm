@@ -1,4 +1,4 @@
--- Behavioural regression suite for video meetings (migrations 106-107, 110).
+-- Behavioural regression suite for video meetings (migrations 106-107, 110-111).
 --
 -- Who sees a meeting is meeting_can_view: a live, non-guest member
 -- active in the meeting's workspace who is owner/admin, the host, an
@@ -22,7 +22,8 @@
 -- until it is deleted; managers and the person read it, nobody else; no client
 -- writes it. Also from 110: only the host edits a meeting's details or
 -- its invitees (an owner or admin may still end or cancel it; the
--- service role is unaffected).
+-- service role is unaffected). From 111: only a team leader and up
+-- creates a meeting; agents and viewers attend.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -86,7 +87,7 @@ BEGIN
     END $body$
   $fn$;
 
-  -- Fixture: account A (owner, admin, three agents, a viewer, a bank
+  -- Fixture: account A (owner, admin, a team leader hosting, three agents, a viewer, a bank
   -- guest, an agent deactivated below), account B (owner).
   INSERT INTO auth.users (id, email) VALUES
     (u_owner,  'mt-owner@example.invalid'),
@@ -105,7 +106,8 @@ BEGIN
     RAISE EXCEPTION 'fixture: auth.users trigger did not provision separate accounts';
   END IF;
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_admin;
-  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_host, u_inv, u_out, u_gone);
+  UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id = u_host;
+  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_inv, u_out, u_gone);
   UPDATE profiles SET account_id = a_acct, account_role = 'viewer' WHERE user_id = u_viewer;
   UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
 
@@ -144,14 +146,28 @@ BEGIN
     'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', a_acct, 'MT guest', u_guest));
   n := n + 1;
   IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('bank guest created a meeting: ' || r)::text); END IF;
-  r := pg_temp.mt_try('authenticated', u_out, format(
-    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', a_acct, 'MT forged host', u_host));
+  r := pg_temp.mt_try('authenticated', u_host, format(
+    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', a_acct, 'MT forged host', u_inv));
   n := n + 1;
-  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent created a meeting hosted by someone else: ' || r)::text); END IF;
-  r := pg_temp.mt_try('authenticated', u_out, format(
-    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', b_acct, 'MT other workspace', u_out));
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('leader created a meeting hosted by someone else: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_host, format(
+    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', b_acct, 'MT other workspace', u_host));
   n := n + 1;
-  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent created a meeting in another workspace: ' || r)::text); END IF;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('leader created a meeting in another workspace: ' || r)::text); END IF;
+  -- 111: agents and viewers attend; only a team leader and up hosts.
+  r := pg_temp.mt_try('authenticated', u_out, format(
+    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', a_acct, 'MT agent host', u_out));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('agent created a meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_viewer, format(
+    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', a_acct, 'MT viewer host', u_viewer));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN failed := array_append(failed, ('viewer created a meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_admin, format(
+    'INSERT INTO meetings (account_id, title, host_user_id) VALUES (%L, %L, %L)', a_acct, 'MT admin host', u_admin));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('admin could not create a meeting: ' || r)::text); END IF;
+  DELETE FROM meetings WHERE account_id = a_acct AND title = 'MT admin host';
   r := pg_temp.mt_try('service_role', NULL, format(
     'INSERT INTO meetings (account_id, title, host_user_id, status) VALUES (%L, %L, %L, %L)', a_acct, 'MT born ended', u_host, 'ended'));
   n := n + 1;
