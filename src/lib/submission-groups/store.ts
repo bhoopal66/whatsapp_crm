@@ -216,6 +216,30 @@ export class SubmissionGroupStore {
     return ((data ?? []) as Row[]).map(toGroup);
   }
 
+  /** The access list as it stands: the open rows, or on an ENDED group the rows closed at the end. */
+  async listAccess(
+    group: Pick<SubmissionGroup, 'id' | 'status' | 'endedAt'>
+  ): Promise<{ userId: string; label: StaffLabel }[]> {
+    const { data, error } = await this.db
+      .from('submission_group_access')
+      .select('user_id, label, removed_at, added_at')
+      .eq('group_id', group.id)
+      .order('added_at', { ascending: true });
+    if (error) throw new Error(`submission_group_access: ${error.message}`);
+    const endedAt = group.endedAt?.getTime() ?? null;
+    return ((data ?? []) as Row[])
+      .filter((r) =>
+        group.status === 'ACTIVE' || endedAt === null
+          ? r.removed_at === null
+          : r.removed_at !== null &&
+            new Date(String(r.removed_at)).getTime() === endedAt
+      )
+      .map((r) => ({
+        userId: String(r.user_id),
+        label: r.label as StaffLabel,
+      }));
+  }
+
   /** The caller's open access label (the prefix label), or null when not on the list. */
   async openAccessLabel(
     groupId: string,

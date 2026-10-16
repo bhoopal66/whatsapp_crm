@@ -1101,4 +1101,75 @@ GRANT EXECUTE ON FUNCTION
   public.sg_visible_ids()
   TO authenticated;
 
+-- ---------- public API (v1) helpers ----------
+
+-- The submission application names staff by login email. Matches, case
+-- insensitively, a live staff profile (agent and up; never a viewer or a
+-- bank guest) in p_account. One row per matched email; an unknown or
+-- ineligible email has no row.
+CREATE OR REPLACE FUNCTION public.sg_staff_by_email(p_account uuid, p_emails text[])
+RETURNS TABLE (email text, user_id uuid, role text, full_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT lower(u.email::text), p.user_id, p.account_role::text, p.full_name
+    FROM auth.users u
+    JOIN public.profiles p ON p.user_id = u.id
+   WHERE p.account_id = p_account
+     AND p.deactivated_at IS NULL
+     AND p.account_role IN ('agent', 'team_leader', 'admin', 'owner')
+     AND lower(u.email::text) IN (SELECT lower(btrim(x)) FROM unnest(p_emails) AS x)
+$$;
+
+-- The submission's latest status as the submission application reported
+-- it. Recorded on an ACTIVE group only (an ENDED group is frozen); false
+-- when the group is not ACTIVE. last_activity_at is message activity and
+-- is left alone.
+CREATE OR REPLACE FUNCTION public.sg_note_submission_status(p_group uuid, p_status text)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  UPDATE public.submission_groups
+     SET submission_status = p_status
+   WHERE id = p_group AND status = 'ACTIVE';
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION
+  public.sg_staff_by_email(uuid, text[]),
+  public.sg_note_submission_status(uuid, text)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION
+  public.sg_staff_by_email(uuid, text[]),
+  public.sg_note_submission_status(uuid, text)
+  TO service_role;
+
+-- The CRM screens follow groups and their messages live. RLS is replayed
+-- per subscriber, so a subscription shows only what a query would. A
+-- database without the publication (plain Postgres) skips this.
+DO $$
+DECLARE
+  t text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    FOREACH t IN ARRAY ARRAY['submission_groups', 'submission_group_messages'] LOOP
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+         WHERE pubname = 'supabase_realtime'
+           AND schemaname = 'public' AND tablename = t
+      ) THEN
+        EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', t);
+      END IF;
+    END LOOP;
+  END IF;
+END
+$$;
+
 RESET lock_timeout;

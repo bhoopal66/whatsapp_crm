@@ -27,6 +27,10 @@ export const API_SCOPES = [
   'compass_contacts:read',
   'compass_contacts:write',
   'compass_notifications:send',
+  // Submission Groups (module 018a): the submission application opens
+  // one WhatsApp group per submitted case and reports its status.
+  'submission_groups:read',
+  'submission_groups:write',
 ] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];
@@ -44,6 +48,9 @@ export const SCOPE_DESCRIPTIONS: Record<ApiScope, string> = {
   'compass_contacts:write': 'Taamul Compass: sync customer records',
   'compass_notifications:send':
     'Taamul Compass: send status notifications (Whapi channel only)',
+  'submission_groups:read': 'Submission groups: read case groups',
+  'submission_groups:write':
+    'Submission groups: open case groups and report submission status',
 };
 
 /** Type-narrow an unknown value into a valid `ApiScope`. */
