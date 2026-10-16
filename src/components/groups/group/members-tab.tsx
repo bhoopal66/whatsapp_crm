@@ -40,7 +40,7 @@ import {
   parsePhoneList,
   type PickedContact,
 } from '@/lib/groups/ui';
-import { GROUP_ADD_POLICY } from '@/lib/whatsapp/groups';
+import { GROUP_ADD_POLICY } from '@/lib/groups/limits';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 
 import type { GroupDetail, GroupTabProps } from '../group-page';

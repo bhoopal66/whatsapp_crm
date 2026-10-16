@@ -95,20 +95,10 @@ export function normaliseParticipants(inputs: string[]): {
   return { waIds, invalid };
 }
 
-/**
- * Anti-ban pacing for adding people. Whapi warns that WhatsApp's
- * anti-spam rules refuse some adds and that mass-adding is what gets a
- * number restricted
- * (https://support.whapi.cloud/help-desk/groups/add-new-member-to-group);
- * it publishes no exact figures, so these are this CRM's conservative
- * choice: a handful per call, a pause between calls, and a ceiling per
- * operation. Anyone past the ceiling should get the invite link instead.
- */
-export const GROUP_ADD_POLICY = {
-  batchSize: 5,
-  pauseMs: 3_000,
-  maxPerOperation: 50,
-} as const;
+// GROUP_ADD_POLICY lives in the import-free limits module: the members tab
+// reads it in the browser, and this file reaches the gateway client.
+import { GROUP_ADD_POLICY } from '@/lib/groups/limits';
+export { GROUP_ADD_POLICY };
 
 export interface BatchPlan {
   batches: string[][];
