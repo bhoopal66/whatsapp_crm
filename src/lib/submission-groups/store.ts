@@ -1,0 +1,473 @@
+/**
+ * Submission Groups store (migration 115): thin wrappers over the `sg_*`
+ * RPCs on a service-role client. Every permission is decided in Postgres
+ * (the RPCs and the table triggers); this file only maps rows to camelCase.
+ * Every method throws on a database error.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import type { GroupStatus, StaffLabel } from './rules';
+
+export interface SubmissionGroup {
+  id: string;
+  accountId: string;
+  submissionRef: string;
+  contactId: string;
+  /** The Whapi `whatsapp_config` row hosting the group; frozen. */
+  channelId: string;
+  subject: string;
+  coordinatorPhone: string | null;
+  status: GroupStatus;
+  waGroupId: string | null;
+  inviteLink: string | null;
+  submissionStatus: string | null;
+  createdAt: Date;
+  lastActivityAt: Date;
+  endedAt: Date | null;
+  endReason: string | null;
+  waCreateError: string | null;
+  waClosedAt: Date | null;
+  waCloseError: string | null;
+}
+
+/** 'out' rows only (null for 'in'). Only "sent" reached the customer. */
+export type SendStatus = 'pending' | 'sent' | 'blocked' | 'failed';
+export type SenderKind = 'customer' | 'coordinator' | 'other';
+
+export interface GroupMessage {
+  id: string;
+  direction: 'in' | 'out';
+  senderUserId: string | null;
+  senderWaId: string | null;
+  senderKind: SenderKind | null;
+  type: string;
+  body: string | null;
+  prefixedBody: string | null;
+  media: unknown;
+  waMessageId: string | null;
+  sendStatus: SendStatus | null;
+  /** 'in' only: arrived after the group ended (hidden live, shown in the archive). */
+  postEnd: boolean;
+  createdAt: Date;
+  waTimestamp: Date | null;
+}
+
+export type ArchiveResult =
+  { allowed: false } | { allowed: true; messages: GroupMessage[] };
+
+export interface ConsentAnswer {
+  allowed: boolean;
+  phone: string | null;
+  reason?: 'opted_out' | 'do_not_contact';
+}
+
+const GROUP_COLUMNS =
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error';
+
+type Row = Record<string, unknown>;
+const str = (v: unknown): string | null =>
+  v === null || v === undefined ? null : String(v);
+const date = (v: unknown): Date | null =>
+  v === null || v === undefined ? null : new Date(String(v));
+
+export function toGroup(r: Row): SubmissionGroup {
+  return {
+    id: String(r.id),
+    accountId: String(r.account_id),
+    submissionRef: String(r.submission_ref),
+    contactId: String(r.contact_id),
+    channelId: String(r.channel_id),
+    subject: String(r.subject ?? ''),
+    coordinatorPhone: str(r.coordinator_phone),
+    status: r.status as GroupStatus,
+    waGroupId: str(r.wa_group_id),
+    inviteLink: str(r.invite_link),
+    submissionStatus: str(r.submission_status),
+    createdAt: date(r.created_at)!,
+    lastActivityAt: date(r.last_activity_at)!,
+    endedAt: date(r.ended_at),
+    endReason: str(r.end_reason),
+    waCreateError: str(r.wa_create_error),
+    waClosedAt: date(r.wa_closed_at),
+    waCloseError: str(r.wa_close_error),
+  };
+}
+
+export function toMessage(m: Row): GroupMessage {
+  return {
+    id: String(m.id),
+    direction: m.direction as 'in' | 'out',
+    senderUserId: str(m.sender_user_id),
+    senderWaId: str(m.sender_wa_id),
+    senderKind: (m.sender_kind as SenderKind | null) ?? null,
+    type: String(m.type ?? 'text'),
+    body: str(m.body),
+    prefixedBody: str(m.prefixed_body),
+    media: m.media ?? null,
+    waMessageId: str(m.wa_message_id),
+    sendStatus: (m.send_status as SendStatus | null) ?? null,
+    postEnd: m.post_end === true,
+    createdAt: date(m.created_at)!,
+    waTimestamp: date(m.wa_timestamp),
+  };
+}
+
+/** A `setof bigint` comes back as numbers or as one-key objects. */
+const scalarIds = (data: unknown): string[] =>
+  Array.isArray(data)
+    ? data.map((x) =>
+        String(x !== null && typeof x === 'object' ? Object.values(x)[0] : x)
+      )
+    : [];
+
+export class SubmissionGroupStore {
+  constructor(private readonly db: SupabaseClient) {}
+
+  private async rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.db.rpc(fn, args);
+    if (error) throw new Error(`${fn}: ${error.message}`);
+    return data as T;
+  }
+
+  /** Idempotent per (account, ref); an existing group is returned unchanged. */
+  async open(input: {
+    accountId: string;
+    submissionRef: string;
+    contactId: string;
+    channelId: string;
+    subject: string;
+    coordinatorPhone: string | null;
+    access: readonly { userId: string; label: StaffLabel }[];
+    keyId: string | null;
+  }): Promise<{ groupId: string; created: boolean }> {
+    const data = await this.rpc<Row[] | Row>('sg_open', {
+      p_account: input.accountId,
+      p_submission_ref: input.submissionRef,
+      p_contact: input.contactId,
+      p_channel: input.channelId,
+      p_subject: input.subject,
+      p_coordinator_phone: input.coordinatorPhone,
+      p_access: input.access.map((a) => ({
+        user_id: a.userId,
+        label: a.label,
+      })),
+      p_key: input.keyId,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('sg_open returned no row');
+    return { groupId: String(row.group_id), created: row.created === true };
+  }
+
+  async get(groupId: string): Promise<SubmissionGroup | null> {
+    const { data, error } = await this.db
+      .from('submission_groups')
+      .select(GROUP_COLUMNS)
+      .eq('id', groupId)
+      .maybeSingle();
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return data ? toGroup(data as Row) : null;
+  }
+
+  async findByRef(
+    accountId: string,
+    submissionRef: string
+  ): Promise<SubmissionGroup | null> {
+    const { data, error } = await this.db
+      .from('submission_groups')
+      .select(GROUP_COLUMNS)
+      .eq('account_id', accountId)
+      .eq('submission_ref', submissionRef)
+      .maybeSingle();
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return data ? toGroup(data as Row) : null;
+  }
+
+  /** Inbound routing: the group a `@g.us` id belongs to on this account's number. */
+  async findByWaGroupId(
+    accountId: string,
+    channelId: string,
+    waGroupId: string
+  ): Promise<SubmissionGroup | null> {
+    const { data, error } = await this.db
+      .from('submission_groups')
+      .select(GROUP_COLUMNS)
+      .eq('account_id', accountId)
+      .eq('channel_id', channelId)
+      .eq('wa_group_id', waGroupId)
+      .maybeSingle();
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return data ? toGroup(data as Row) : null;
+  }
+
+  /** ACTIVE groups still without a WhatsApp group, created before `before` (the cron's retry list). */
+  async listPendingCreates(
+    before: Date,
+    limit = 50
+  ): Promise<SubmissionGroup[]> {
+    const { data, error } = await this.db
+      .from('submission_groups')
+      .select(GROUP_COLUMNS)
+      .eq('status', 'ACTIVE')
+      .is('wa_group_id', null)
+      .lt('created_at', before.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(limit);
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return ((data ?? []) as Row[]).map(toGroup);
+  }
+
+  /** The caller's open access label (the prefix label), or null when not on the list. */
+  async openAccessLabel(
+    groupId: string,
+    userId: string
+  ): Promise<StaffLabel | null> {
+    const { data, error } = await this.db
+      .from('submission_group_access')
+      .select('label')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .is('removed_at', null)
+      .maybeSingle();
+    if (error) throw new Error(`submission_group_access: ${error.message}`);
+    return ((data as Row | null)?.label as StaffLabel | undefined) ?? null;
+  }
+
+  async resolveRole(groupId: string, userId: string): Promise<string | null> {
+    return str(
+      await this.rpc('sg_resolve_role', { p_group: groupId, p_user: userId })
+    );
+  }
+
+  async canRead(
+    groupId: string,
+    userId: string,
+    opts: { now?: Date; windowDays?: number } = {}
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_can_read', {
+        p_group: groupId,
+        p_user: userId,
+        p_now: opts.now?.toISOString() ?? null,
+        ...(opts.windowDays !== undefined
+          ? { p_window_days: opts.windowDays }
+          : {}),
+      })) === true
+    );
+  }
+
+  async canSend(groupId: string, userId: string): Promise<boolean> {
+    return (
+      (await this.rpc('sg_can_send', { p_group: groupId, p_user: userId })) ===
+      true
+    );
+  }
+
+  /** Claim token, or null (held by another caller, complete, or not ACTIVE). */
+  async claimCreate(
+    groupId: string,
+    leaseMs: number,
+    now?: Date
+  ): Promise<string | null> {
+    return str(
+      await this.rpc('sg_claim_create', {
+        p_group: groupId,
+        p_lease_ms: leaseMs,
+        p_now: now?.toISOString() ?? null,
+      })
+    );
+  }
+
+  async releaseCreateClaim(
+    groupId: string,
+    token: string,
+    error: string | null = null
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_release_create_claim', {
+        p_group: groupId,
+        p_token: token,
+        p_error: error,
+      })) === true
+    );
+  }
+
+  async attachWaGroup(
+    groupId: string,
+    waGroupId: string,
+    inviteLink: string | null,
+    token: string
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_attach_wa_group', {
+        p_group: groupId,
+        p_wa_group_id: waGroupId,
+        p_invite_link: inviteLink,
+        p_token: token,
+      })) === true
+    );
+  }
+
+  /** Writes the 'out' row as pending; null = refused (nothing may be sent). */
+  async beginSend(
+    groupId: string,
+    userId: string,
+    body: string,
+    prefixed: string
+  ): Promise<string | null> {
+    return str(
+      await this.rpc('sg_send_begin', {
+        p_group: groupId,
+        p_user: userId,
+        p_body: body,
+        p_prefixed: prefixed,
+      })
+    );
+  }
+
+  /** Settles a pending 'out' row once; false if it was not pending. */
+  async settleSend(
+    messageId: string,
+    status: Exclude<SendStatus, 'pending'>,
+    waMessageId: string | null = null
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_settle_send', {
+        p_message: messageId,
+        p_status: status,
+        p_wa_message_id: waMessageId,
+      })) === true
+    );
+  }
+
+  /** False = duplicate (already recorded). */
+  async recordInbound(input: {
+    groupId: string;
+    waMessageId: string;
+    senderWaId: string | null;
+    senderKind: SenderKind;
+    type: string;
+    body: string | null;
+    media: unknown;
+    waTimestamp: Date | null;
+  }): Promise<boolean> {
+    return (
+      (await this.rpc('sg_record_inbound', {
+        p_group: input.groupId,
+        p_wa_message_id: input.waMessageId,
+        p_sender_wa_id: input.senderWaId,
+        p_sender_kind: input.senderKind,
+        p_type: input.type,
+        p_body: input.body,
+        p_media: input.media ?? null,
+        p_wa_timestamp: input.waTimestamp?.toISOString() ?? null,
+      })) === true
+    );
+  }
+
+  /** True if this call ended the group. */
+  async end(groupId: string, reason: string): Promise<boolean> {
+    return (
+      (await this.rpc('sg_end', { p_group: groupId, p_reason: reason })) ===
+      true
+    );
+  }
+
+  async markWaClosed(groupId: string): Promise<boolean> {
+    return (await this.rpc('sg_mark_wa_closed', { p_group: groupId })) === true;
+  }
+
+  async recordWaCloseError(groupId: string, error: string): Promise<boolean> {
+    return (
+      (await this.rpc('sg_record_wa_close_error', {
+        p_group: groupId,
+        p_error: error,
+      })) === true
+    );
+  }
+
+  async countPendingOut(groupId: string): Promise<number> {
+    return Number(
+      (await this.rpc('sg_count_pending_out', { p_group: groupId })) ?? 0
+    );
+  }
+
+  async failStalePending(olderThanMs: number, now?: Date): Promise<string[]> {
+    return scalarIds(
+      await this.rpc('sg_fail_stale_pending', {
+        p_older_than_ms: olderThanMs,
+        p_now: now?.toISOString() ?? null,
+      })
+    );
+  }
+
+  /** The only archive read: audit row and messages in one statement. */
+  async readArchive(
+    groupId: string,
+    userId: string,
+    opts: { now?: Date; windowDays: number }
+  ): Promise<ArchiveResult> {
+    const data = await this.rpc<{ allowed?: boolean; messages?: Row[] } | null>(
+      'sg_read_archive',
+      {
+        p_group: groupId,
+        p_user: userId,
+        p_now: opts.now?.toISOString() ?? null,
+        p_window_days: opts.windowDays,
+      }
+    );
+    if (!data || data.allowed !== true) return { allowed: false };
+    return { allowed: true, messages: (data.messages ?? []).map(toMessage) };
+  }
+
+  async accessSet(
+    groupId: string,
+    userId: string,
+    label: StaffLabel,
+    by: string | null
+  ): Promise<void> {
+    await this.rpc('sg_access_set', {
+      p_group: groupId,
+      p_user: userId,
+      p_label: label,
+      p_by: by,
+    });
+  }
+
+  async accessRemove(groupId: string, userId: string): Promise<boolean> {
+    return (
+      (await this.rpc('sg_access_remove', {
+        p_group: groupId,
+        p_user: userId,
+      })) === true
+    );
+  }
+
+  /** Consent dep for the service: opt-out / do-not-contact stamps and the phone on record. */
+  async contactConsent(contactId: string): Promise<ConsentAnswer> {
+    const { data, error } = await this.db
+      .from('contacts')
+      .select('phone, opted_out_at, do_not_contact_at')
+      .eq('id', contactId)
+      .maybeSingle();
+    if (error) throw new Error(`contacts: ${error.message}`);
+    const row = data as Row | null;
+    if (!row) return { allowed: false, phone: null };
+    const phone = str(row.phone)?.trim() || null;
+    if (row.opted_out_at) return { allowed: false, phone, reason: 'opted_out' };
+    if (row.do_not_contact_at)
+      return { allowed: false, phone, reason: 'do_not_contact' };
+    return { allowed: phone !== null, phone };
+  }
+
+  /** Display-name dep: the person's profile in this account (one row per workspace). */
+  async displayName(userId: string, accountId: string): Promise<string | null> {
+    const { data, error } = await this.db
+      .from('profiles')
+      .select('full_name')
+      .eq('user_id', userId)
+      .eq('account_id', accountId)
+      .maybeSingle();
+    if (error) throw new Error(`profiles: ${error.message}`);
+    return str((data as Row | null)?.full_name)?.trim() || null;
+  }
+}
