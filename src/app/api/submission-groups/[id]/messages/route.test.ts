@@ -24,6 +24,7 @@ import { GROUP_SEND_LIMIT } from '@/lib/groups/member-requests';
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSentNotRecordedError,
 } from '@/lib/submission-groups/service';
 
 import { POST } from './route';
@@ -145,5 +146,17 @@ describe('POST messages', () => {
     const res = await post({ text: 'hi' });
     expect(res.status).toBe(502);
     expect(JSON.stringify(await res.json())).not.toContain('secret');
+  });
+
+  it('answers 202 sent:true when WhatsApp took the message but the row was not settled', async () => {
+    mocks.sendFromCrm.mockRejectedValue(
+      new SubmissionGroupSentNotRecordedError('m-1', 'wamid.1', new Error('x'))
+    );
+    const res = await post({ text: 'hi' });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({
+      error: 'Sent, but not recorded yet',
+      sent: true,
+    });
   });
 });

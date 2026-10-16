@@ -4,6 +4,7 @@ import type { StaffLabel } from './rules';
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
   type GroupStore,
   type GroupsApi,
@@ -544,6 +545,51 @@ describe('SubmissionGroupService.sendFromCrm', () => {
       s.svc.sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
     ).rejects.toThrow(/sendGroupText failed/);
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+
+  /** Makes the next `n` settleSend(…, 'sent') calls throw before writing. */
+  const failSentSettles = (store: FakeStore, n: number) => {
+    const real = store.settleSend.bind(store);
+    let left = n;
+    store.settleSend = async (mid, status, wa) => {
+      if (status === 'sent' && left > 0) {
+        left--;
+        throw new Error('settle: connection reset');
+      }
+      return real(mid, status, wa);
+    };
+  };
+
+  it('a settle that throws after the gateway accepted is retried once and the send succeeds', async () => {
+    const s = setup();
+    const g = await opened(s);
+    failSentSettles(s.store, 1);
+    const out = await s.svc.sendFromCrm({
+      groupId: g.id,
+      userId: 'ali',
+      text: 'x',
+    });
+    expect(s.api.of('sendGroupText')).toHaveLength(1);
+    expect(s.store.messages.map((m) => [m.sendStatus, m.waMessageId])).toEqual([
+      ['sent', out.waMessageId],
+    ]);
+  });
+
+  it('a settle that fails twice is SubmissionGroupSentNotRecordedError naming both ids, sent once', async () => {
+    const s = setup();
+    const g = await opened(s);
+    failSentSettles(s.store, 2);
+    const err = await s.svc
+      .sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSentNotRecordedError);
+    const [m] = s.store.messages;
+    expect(err).toMatchObject({ messageId: m.id });
+    expect(
+      (err as SubmissionGroupSentNotRecordedError).waMessageId
+    ).toBeTruthy();
+    expect(s.api.of('sendGroupText')).toHaveLength(1);
+    expect(m.sendStatus).toBe('pending');
   });
 });
 

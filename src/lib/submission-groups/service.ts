@@ -134,6 +134,25 @@ export class SubmissionGroupSendBlockedError extends Error {
   }
 }
 
+/**
+ * The gateway accepted the message but its row could not be settled 'sent'
+ * (the settle threw, twice). WhatsApp holds the message: callers must not
+ * invite a resend. The row stays pending until something settles it.
+ */
+export class SubmissionGroupSentNotRecordedError extends Error {
+  override readonly name = 'SubmissionGroupSentNotRecordedError';
+  constructor(
+    readonly messageId: string,
+    readonly waMessageId: string,
+    cause: unknown
+  ) {
+    super(
+      `submission group message ${messageId} (${waMessageId}) was sent but could not be recorded`,
+      { cause }
+    );
+  }
+}
+
 export type OpenResult =
   | { consentRequired: true; group: null; inviteLink: null }
   | {
@@ -492,12 +511,50 @@ export class SubmissionGroupService {
       await this.settleQuietly(messageId, 'failed');
       throw err;
     }
-    if (!(await store.settleSend(messageId, 'sent', sent.waMessageId))) {
+    if (!(await this.settleSent(messageId, sent.waMessageId))) {
       throw new Error(
         `submission group ${group.id}: message ${messageId} (${sent.waMessageId}) was sent but is no longer pending`
       );
     }
     return { messageId, prefixedBody: prefixed, waMessageId: sent.waMessageId };
+  }
+
+  /**
+   * Settles an accepted send 'sent'. A settle that throws is retried once;
+   * a second failure (a throw, or the row no longer pending because the
+   * first attempt may have landed) is SubmissionGroupSentNotRecordedError,
+   * never a generic error, because the message is already in WhatsApp.
+   */
+  private async settleSent(
+    messageId: string,
+    waMessageId: string
+  ): Promise<boolean> {
+    const { store } = this.deps;
+    try {
+      return await store.settleSend(messageId, 'sent', waMessageId);
+    } catch (first) {
+      this.log.warn('sent group message could not be settled; retrying', {
+        messageId,
+        err: errText(first),
+      });
+      let settled: boolean;
+      try {
+        settled = await store.settleSend(messageId, 'sent', waMessageId);
+      } catch (err) {
+        throw new SubmissionGroupSentNotRecordedError(
+          messageId,
+          waMessageId,
+          err
+        );
+      }
+      if (!settled)
+        throw new SubmissionGroupSentNotRecordedError(
+          messageId,
+          waMessageId,
+          first
+        );
+      return true;
+    }
   }
 
   /** Settles a row on an error path without masking the original error. */
