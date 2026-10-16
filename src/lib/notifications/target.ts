@@ -32,6 +32,8 @@
  * - Team chat (087): `chatNotificationHref`.
  * - `meeting_invite` (106's invitees trigger) and `meeting_reminder`
  *   (108's reminder sweep): `meta.meeting_id` → the meeting's page.
+ * - `group_join_request` (the Whapi groups webhook): `meta.group_id` →
+ *   the group's requests tab.
  * - `calendar_invite` / `calendar_update` / `calendar_cancelled` /
  *   `calendar_response` (108's triggers) and `event_reminder` (108's
  *   sweep, `calendar_insert_reminder`): `meta.event_id` → the calendar
@@ -116,6 +118,10 @@ function hrefFor(
     case 'event_reminder': {
       const event = metaField(n.meta, 'event_id');
       return isUuid(event) ? `/calendar?event=${event}` : null;
+    }
+    case 'group_join_request': {
+      const group = metaField(n.meta, 'group_id');
+      return isUuid(group) ? `/groups/${group}?tab=requests` : null;
     }
     case 'meeting_invite':
     case 'meeting_reminder': {

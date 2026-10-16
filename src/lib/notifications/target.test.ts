@@ -232,6 +232,21 @@ describe('notificationTarget', () => {
     ).toBeNull();
   });
 
+  it('group_join_request opens the group requests tab', () => {
+    expect(
+      notificationTarget(
+        { type: 'group_join_request', meta: { group_id: ROOM } },
+        'agent'
+      )
+    ).toBe(`/groups/${ROOM}?tab=requests`);
+    expect(
+      notificationTarget(
+        { type: 'group_join_request', meta: { group_id: 'nope' } },
+        'agent'
+      )
+    ).toBeNull();
+  });
+
   it('a bank guest is only sent to team chat', () => {
     expect(
       notificationTarget(

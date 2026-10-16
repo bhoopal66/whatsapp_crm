@@ -1,11 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { normalizeWhapiWebhook } from '@/lib/whatsapp/whapi-webhook';
 
 import {
+  applyGroupEvents,
   extractWhapiGroupMessages,
   GROUP_STATUS_PREDECESSORS,
 } from './inbound';
+import { fakeSupabase, type FakeDb } from './test-db';
 
 const GROUP = '120363025555555555@g.us';
 
@@ -149,5 +151,96 @@ describe('GROUP_STATUS_PREDECESSORS', () => {
       'delivered',
     ]);
     expect(GROUP_STATUS_PREDECESSORS.failed).toEqual(['pending', 'sent']);
+  });
+});
+
+describe('applyGroupEvents: a join request', () => {
+  const ACCT = 'acct-1';
+  const channel = { id: 'ch-1', accountId: ACCT, wabaId: '971500000000' };
+  const event = {
+    kind: 'participants',
+    groupId: GROUP,
+    action: 'request',
+    waIds: ['971501111111'],
+    unresolved: 0,
+  } as never;
+  function setup(extra: Partial<FakeDb['tables']> = {}) {
+    const db: FakeDb = {
+      writes: [],
+      tables: {
+        whatsapp_groups: [
+          {
+            id: 'g-1',
+            account_id: ACCT,
+            channel_id: 'ch-1',
+            wa_group_id: GROUP,
+            name: 'Deal team',
+            our_role: 'admin',
+          },
+        ],
+        whatsapp_group_managers: [],
+        profiles: [
+          { user_id: 'owner', account_id: ACCT, account_role: 'owner' },
+          { user_id: 'agent', account_id: ACCT, account_role: 'agent' },
+        ],
+        notifications: [],
+        ...extra,
+      },
+    };
+    return { db, admin: fakeSupabase(db) as never };
+  }
+  const bells = (db: FakeDb) =>
+    db.tables.notifications.filter((n) => n.type === 'group_join_request');
+
+  it('rings each manager, not the rest', async () => {
+    const { db, admin } = setup({
+      whatsapp_group_managers: [
+        { group_id: 'g-1', account_id: ACCT, user_id: 'm1' },
+        { group_id: 'g-1', account_id: ACCT, user_id: 'm2' },
+      ],
+    });
+    expect(await applyGroupEvents(admin, channel, [event])).toBe(0);
+    expect(bells(db).map((n) => n.user_id)).toEqual(['m1', 'm2']);
+    expect(bells(db)[0]).toMatchObject({
+      title: 'Join request: Deal team',
+      meta: { group_id: 'g-1', wa_ids: ['971501111111'] },
+    });
+  });
+
+  it('falls back to owners and admins when nobody manages it', async () => {
+    const { db, admin } = setup();
+    await applyGroupEvents(admin, channel, [event]);
+    expect(bells(db).map((n) => n.user_id)).toEqual(['owner']);
+  });
+
+  it('skips a manager with an unread bell for the group in the last 10 minutes', async () => {
+    const { db, admin } = setup({
+      whatsapp_group_managers: [
+        { group_id: 'g-1', account_id: ACCT, user_id: 'm1' },
+        { group_id: 'g-1', account_id: ACCT, user_id: 'm2' },
+      ],
+      notifications: [
+        {
+          account_id: ACCT,
+          user_id: 'm1',
+          type: 'group_join_request',
+          'meta->>group_id': 'g-1',
+          read_at: null,
+          created_at: new Date(Date.now() - 60_000).toISOString(),
+        },
+      ],
+    });
+    await applyGroupEvents(admin, channel, [event]);
+    expect(bells(db).map((n) => n.user_id)).toEqual(['m1', 'm2']);
+    expect(bells(db).filter((n) => n.title)).toHaveLength(1);
+    expect(bells(db).find((n) => n.title)?.user_id).toBe('m2');
+  });
+
+  it('never throws when the bell cannot be written', async () => {
+    const { db, admin } = setup();
+    db.errors = { 'notifications:insert': { message: 'boom' } };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await applyGroupEvents(admin, channel, [event])).toBe(0);
+    log.mockRestore();
   });
 });

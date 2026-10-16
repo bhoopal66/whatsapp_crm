@@ -344,7 +344,10 @@ export type NotificationType =
   | 'event_reminder'
   // Calendar (108): a scheduled meeting starts in 10 minutes / now
   // (the reminder sweep). meta = {meeting_id}.
-  | 'meeting_reminder';
+  | 'meeting_reminder'
+  // WhatsApp groups (114): someone asked to join a group. Sent to its
+  // managers (else owners and admins). meta = {group_id, wa_ids}.
+  | 'group_join_request';
 
 export interface Notification {
   id: string;

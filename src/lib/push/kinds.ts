@@ -29,6 +29,7 @@ export const PUSH_KINDS = [
   'meeting_invite',
   'meeting_reminder',
   'event_reminder',
+  'group_join_request',
 ] as const;
 
 export type PushKind = (typeof PUSH_KINDS)[number];

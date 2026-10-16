@@ -509,4 +509,41 @@ BEGIN
 END
 $$;
 
+-- ---------- 7. The bell ----------
+-- 108's list plus group_join_request (a join request on a group, rung to
+-- its managers by the Whapi groups webhook). A later type edits the list
+-- from here.
+ALTER TABLE public.notifications
+  DROP CONSTRAINT IF EXISTS notifications_type_check;
+ALTER TABLE public.notifications
+  ADD CONSTRAINT notifications_type_check
+  CHECK (type IN (
+    'conversation_assigned',
+    'channel_disconnected',
+    'channel_reconnected',
+    'team_activity_alert',
+    'ai_handoff',
+    'task_assigned',
+    'task_due',
+    'chat_mention',
+    'chat_dm',
+    'chat_thread_reply',
+    'chat_broadcast',
+    'call_missed',
+    'callback_requested',
+    'deal_room_join_request',
+    'deal_room_update',
+    'call_outcome_due',
+    'pbx_connection_silent',
+    'pbx_connection_restored',
+    'meeting_invite',
+    'calendar_invite',
+    'calendar_update',
+    'calendar_cancelled',
+    'calendar_response',
+    'event_reminder',
+    'meeting_reminder',
+    'group_join_request'
+  ));
+
 RESET lock_timeout;
