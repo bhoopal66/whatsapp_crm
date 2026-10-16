@@ -31,8 +31,10 @@ import {
   describeGroupFailure,
   GROUP_ADD_POLICY,
   getInviteLink,
+  groupDeadline,
   resetInviteLink,
   sendInviteLink,
+  withinBudget,
 } from '@/lib/whatsapp/groups';
 
 export const maxDuration = 60;
@@ -106,6 +108,7 @@ type SendResult = {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function POST(request: Request, { params }: Params) {
+  const budget = { deadline: groupDeadline() };
   try {
     const ctx = await getCurrentAccount();
     const { id } = await params;
@@ -158,9 +161,16 @@ export async function POST(request: Request, { params }: Params) {
 
     let stopped: string | null = null;
     for (let i = 0; i < plan.batches.length; i++) {
-      if (i > 0 && !stopped) await sleep(GROUP_ADD_POLICY.pauseMs);
+      if (i > 0 && !stopped) {
+        // Past maxDuration the function is killed mid-loop and nobody
+        // learns who got the link; stop in time and report the rest.
+        if (withinBudget(budget, GROUP_ADD_POLICY.pauseMs)) {
+          await sleep(GROUP_ADD_POLICY.pauseMs);
+        } else stopped = 'time_budget';
+      }
       for (const waId of plan.batches[i]) {
         const base = { waId, contactId: contactOf.get(waId) ?? null };
+        if (!stopped && !withinBudget(budget)) stopped = 'time_budget';
         if (stopped) {
           results.push({ ...base, status: 'not_attempted', reason: stopped });
           continue;

@@ -110,6 +110,32 @@ export const GROUP_ADD_POLICY = {
   maxPerOperation: 50,
 } as const;
 
+/**
+ * How long a paced operation may keep starting calls, from the start of
+ * the request. The routes run under `maxDuration = 60`; pauses and slow
+ * gateway calls past that get the function killed mid-loop, with nothing
+ * reported. Whatever has not started by the deadline is returned as not
+ * attempted with `time_budget`, leaving room to save and answer.
+ */
+export const GROUP_TIME_BUDGET_MS = 45_000;
+
+/** The deadline (epoch ms) for a request that started at `startedAt`. */
+export function groupDeadline(startedAt: number = Date.now()): number {
+  return startedAt + GROUP_TIME_BUDGET_MS;
+}
+
+/** A deadline plus the clock to read it by (injected in tests). */
+export interface TimeBudget {
+  deadline?: number;
+  now?: () => number;
+}
+
+/** True while `waitMs` more still ends before the deadline (or there is none). */
+export function withinBudget(budget: TimeBudget, waitMs = 0): boolean {
+  if (budget.deadline === undefined) return true;
+  return (budget.now ?? Date.now)() + waitMs < budget.deadline;
+}
+
 export interface BatchPlan {
   batches: string[][];
   /** Past `maxPerOperation`: not added in this operation. */
@@ -153,6 +179,7 @@ export type GroupFailureKey =
   | 'billing'
   | 'invalid_request'
   | 'gateway_unavailable'
+  | 'time_budget'
   | 'unknown';
 
 /**
@@ -210,10 +237,11 @@ const sleepFor = (ms: number) =>
  * large opening list does not land as one burst.
  */
 export async function createGroup(
-  input: CreateGroupInput & {
-    pauseMs?: number;
-    sleep?: (ms: number) => Promise<void>;
-  }
+  input: CreateGroupInput &
+    TimeBudget & {
+      pauseMs?: number;
+      sleep?: (ms: number) => Promise<void>;
+    }
 ): Promise<CreateGroupOutcome> {
   const token = whapiToken(input.channel);
   const name = input.name.trim();
@@ -240,6 +268,8 @@ export async function createGroup(
     batches: rest,
     pauseMs: input.pauseMs,
     sleep: input.sleep,
+    deadline: input.deadline,
+    now: input.now,
   });
   return {
     group: created.group,
@@ -251,13 +281,15 @@ export async function createGroup(
   };
 }
 
-async function addBatches(args: {
-  token: string;
-  groupId: string;
-  batches: string[][];
-  pauseMs?: number;
-  sleep?: (ms: number) => Promise<void>;
-}): Promise<Omit<AddOutcome, 'invalid'>> {
+async function addBatches(
+  args: TimeBudget & {
+    token: string;
+    groupId: string;
+    batches: string[][];
+    pauseMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  }
+): Promise<Omit<AddOutcome, 'invalid'>> {
   const pauseMs = args.pauseMs ?? GROUP_ADD_POLICY.pauseMs;
   const sleep = args.sleep ?? sleepFor;
   const out: Omit<AddOutcome, 'invalid'> = {
@@ -267,7 +299,15 @@ async function addBatches(args: {
     error: null,
   };
   for (let i = 0; i < args.batches.length; i++) {
-    if (i > 0 && pauseMs > 0) await sleep(pauseMs);
+    const wait = i > 0 ? pauseMs : 0;
+    // Checked before the pause too: sleeping past the deadline only to
+    // stop afterwards spends the time the caller needs to answer.
+    if (!withinBudget(args, wait)) {
+      out.error = 'time_budget';
+      out.notAttempted.push(...args.batches.slice(i).flat());
+      break;
+    }
+    if (wait > 0) await sleep(wait);
     try {
       const res = await whapi.addGroupParticipants({
         token: args.token,
@@ -293,13 +333,15 @@ async function addBatches(args: {
  * throws for a gateway failure mid-way: it reports who was added, who
  * WhatsApp refused, and who was never tried.
  */
-export async function addParticipants(args: {
-  channel: WhatsAppChannel;
-  groupId: string;
-  participants: string[];
-  pauseMs?: number;
-  sleep?: (ms: number) => Promise<void>;
-}): Promise<AddOutcome> {
+export async function addParticipants(
+  args: TimeBudget & {
+    channel: WhatsAppChannel;
+    groupId: string;
+    participants: string[];
+    pauseMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  }
+): Promise<AddOutcome> {
   const token = whapiToken(args.channel);
   const { waIds, invalid } = normaliseParticipants(args.participants);
   const plan = planParticipantBatches(waIds);
@@ -309,6 +351,8 @@ export async function addParticipants(args: {
     batches: plan.batches,
     pauseMs: args.pauseMs,
     sleep: args.sleep,
+    deadline: args.deadline,
+    now: args.now,
   });
   return {
     ...res,

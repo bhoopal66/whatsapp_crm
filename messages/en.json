@@ -6008,6 +6008,7 @@
       },
       "membersTab": {
         "search": "Search members",
+        "time_budget": "Stopped before the time limit. Try the rest again, or send them the invite link.",
         "searchLabel": "Search members by name or number",
         "none": "No members yet.",
         "noMatches": "Nobody matches your search.",

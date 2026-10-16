@@ -72,6 +72,8 @@ const FAILURES: Record<GroupFailureKey, [number, string]> = {
   billing: [402, "The number's Whapi plan has run out"],
   invalid_request: [400, 'WhatsApp refused the request as invalid'],
   gateway_unavailable: [502, 'WhatsApp did not respond; try again'],
+  // Never thrown by a call; listed so the map stays total.
+  time_budget: [503, 'Stopped before the time limit; try again'],
   unknown: [502, 'WhatsApp refused the request'],
 };
 
