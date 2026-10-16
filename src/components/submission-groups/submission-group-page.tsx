@@ -168,6 +168,10 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
         // A refused send is kept as a blocked/failed row: show it, and
         // give the text back unless WhatsApp may already hold it.
         if (res.status !== 502) setText(body);
+      } else if (res.status === 202) {
+        // WhatsApp has it; only the CRM copy is unrecorded (it may later
+        // show as failed). Do not resend.
+        toast.warning(t('sendErrors.sentNotRecorded'));
       }
     } catch {
       setText(body);

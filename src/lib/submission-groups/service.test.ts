@@ -619,6 +619,17 @@ describe('SubmissionGroupService.sendFromCrm', () => {
     expect(s.api.of('sendGroupText')).toHaveLength(1);
     expect(m.sendStatus).toBe('pending');
   });
+
+  it('a row no longer pending after the gateway accepted is SentNotRecorded too, never a plain failure', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.store.settleSend = async () => false;
+    const err = await s.svc
+      .sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSentNotRecordedError);
+    expect(s.api.of('sendGroupText')).toHaveLength(1);
+  });
 });
 
 describe('SubmissionGroupService.endIfDue / sweep / archive', () => {

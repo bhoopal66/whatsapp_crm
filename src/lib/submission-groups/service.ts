@@ -509,9 +509,13 @@ export class SubmissionGroupService {
       await this.settleQuietly(messageId, 'failed');
       throw err;
     }
+    // Not pending any more (swept, or settled elsewhere) but WhatsApp has
+    // it: report it as sent-not-recorded, never as a failure to resend.
     if (!(await this.settleSent(messageId, sent.waMessageId))) {
-      throw new Error(
-        `submission group ${group.id}: message ${messageId} (${sent.waMessageId}) was sent but is no longer pending`
+      throw new SubmissionGroupSentNotRecordedError(
+        messageId,
+        sent.waMessageId,
+        new Error(`message ${messageId} is no longer pending`)
       );
     }
     return { messageId, prefixedBody: prefixed, waMessageId: sent.waMessageId };

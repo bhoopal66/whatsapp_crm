@@ -6278,7 +6278,8 @@
         "rateLimited": "You are sending too fast. Wait a minute.",
         "gateway": "WhatsApp did not take the message.",
         "tooLong": "The message is empty or too long.",
-        "unknown": "The message could not be sent."
+        "unknown": "The message could not be sent.",
+        "sentNotRecorded": "Sent to WhatsApp, but the CRM could not record it yet. Do not send it again."
       },
       "endTitle": "End this group?",
       "endBody": "Group {ref} ends now: nobody can send, and its messages open only through the logged archive.",

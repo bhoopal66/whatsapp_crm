@@ -422,7 +422,8 @@ email must belong to a live agent, team leader, admin or owner of the
 key's workspace, and no person may fill two fields.
 
 The call is idempotent per `submission_id`: a repeat returns the existing
-group unchanged (`200`), finishing its WhatsApp group if still pending.
+group unchanged (`200`), finishing its WhatsApp group if still pending
+(`202` if it is still pending afterwards).
 `201` for a new group. `202` when WhatsApp could not create the group yet
 (`whatsapp.pending: true`, `whatsapp.error` set); it is retried
 automatically.

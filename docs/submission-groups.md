@@ -120,6 +120,10 @@ and the WhatsApp close is not attempted.
 
 ## Known limits
 
+- If WhatsApp accepts a staff message but the CRM fails to record that
+  twice in a row, the sender is told "sent, but not recorded"; the stored
+  copy stays pending and the cron later marks it failed, although the
+  customer has it. Reconciling against delivery receipts is not built.
 - Whapi has **no idempotency key**. If a create succeeds but its response
   is lost, a retry can leave an orphan WhatsApp group.
 - A customer's "stop" written in the group is **not watched** by the AI or
