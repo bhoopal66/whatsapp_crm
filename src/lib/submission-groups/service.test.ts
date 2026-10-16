@@ -581,6 +581,40 @@ describe('SubmissionGroupService.sendFromCrm', () => {
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
   });
 
+  it("gateway error after the echo already settled the row sent: SentNotRecorded with the echo's id, never a failure to resend", async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.sendGroupText = async () => {
+      const [m] = s.store.messages;
+      expect(await s.store.settleSend(m.id, 'sent', 'wa-echo')).toBe(true);
+      throw new Error('sendGroupText: response lost');
+    };
+    const err = await s.svc
+      .sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSentNotRecordedError);
+    expect(err).toMatchObject({
+      messageId: s.store.messages[0].id,
+      waMessageId: 'wa-echo',
+    });
+    expect(s.store.messages.map((m) => [m.sendStatus, m.waMessageId])).toEqual([
+      ['sent', 'wa-echo'],
+    ]);
+  });
+
+  it('gateway error whose re-read fails: the row is settled failed and the gateway error reaches the caller', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.fail.add('sendGroupText');
+    s.store.sendState = async () => {
+      throw new Error('read: connection reset');
+    };
+    await expect(
+      s.svc.sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+    ).rejects.toThrow(/sendGroupText failed/);
+    expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+
   /** Makes the next `n` settleSend(…, 'sent') calls throw before writing. */
   const failSentSettles = (store: FakeStore, n: number) => {
     const real = store.settleSend.bind(store);

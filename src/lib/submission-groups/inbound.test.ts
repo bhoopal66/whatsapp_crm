@@ -44,7 +44,7 @@ function fakeStore(over: Partial<InboundStore> = {}) {
     })),
     recordInbound: vi.fn(async () => true),
     hasWaMessage: vi.fn(async () => false),
-    oldestPendingOut: vi.fn(async () => '41'),
+    pendingOutMatching: vi.fn(async (): Promise<string[]> => ['41']),
     settleSend: vi.fn(async () => true),
     ...over,
   } satisfies InboundStore;
@@ -102,19 +102,21 @@ describe('recordSubmissionGroupInbound', () => {
       fromMe: true,
       senderWaId: '971500000001',
       body: 'Ali (Agent): hi',
+      sentAt: '2026-10-16T10:19:58.000Z',
       ...over,
     });
 
-  it("an echo of our own send settles the group's oldest matching pending row sent with the echo's id", async () => {
+  it("an echo of our own send settles the group's sole matching pending row sent with the echo's id", async () => {
     const store = fakeStore();
     const out = await recordSubmissionGroupInbound(store, channel, [echo()], {
       now: () => NOW,
     });
     expect(store.hasWaMessage).toHaveBeenCalledWith('sg-1', 'wa-echo');
-    expect(store.oldestPendingOut).toHaveBeenCalledWith(
+    expect(store.pendingOutMatching).toHaveBeenCalledWith(
       'sg-1',
       'Ali (Agent): hi',
-      new Date('2026-10-16T10:05:00.000Z')
+      new Date('2026-10-16T10:05:00.000Z'),
+      new Date('2026-10-16T10:19:58.999Z')
     );
     expect(store.settleSend).toHaveBeenCalledWith('41', 'sent', 'wa-echo');
     expect(store.recordInbound).not.toHaveBeenCalled();
@@ -129,14 +131,45 @@ describe('recordSubmissionGroupInbound', () => {
   it('an echo whose id is already recorded, or with no matching pending send, is ignored and never stored', async () => {
     const known = fakeStore({ hasWaMessage: vi.fn(async () => true) });
     await recordSubmissionGroupInbound(known, channel, [echo()]);
-    expect(known.oldestPendingOut).not.toHaveBeenCalled();
+    expect(known.pendingOutMatching).not.toHaveBeenCalled();
     expect(known.settleSend).not.toHaveBeenCalled();
 
-    const none = fakeStore({ oldestPendingOut: vi.fn(async () => null) });
+    const none = fakeStore({ pendingOutMatching: vi.fn(async () => []) });
     const out = await recordSubmissionGroupInbound(none, channel, [echo()]);
     expect(none.settleSend).not.toHaveBeenCalled();
     expect(none.recordInbound).not.toHaveBeenCalled();
     expect(out.reconciled).toBe(0);
+  });
+
+  it('an echo matching two pending sends is ambiguous: neither is settled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const store = fakeStore({
+      pendingOutMatching: vi.fn(async () => ['41', '42']),
+    });
+    const out = await recordSubmissionGroupInbound(store, channel, [echo()], {
+      now: () => NOW,
+    });
+    expect(store.settleSend).not.toHaveBeenCalled();
+    expect(store.recordInbound).not.toHaveBeenCalled();
+    expect(out.reconciled).toBe(0);
+    warn.mockRestore();
+  });
+
+  it('an echo without a usable timestamp is matched with no upper bound', async () => {
+    const store = fakeStore();
+    await recordSubmissionGroupInbound(
+      store,
+      channel,
+      [echo({ sentAt: 'not a date' })],
+      { now: () => NOW }
+    );
+    expect(store.pendingOutMatching).toHaveBeenCalledWith(
+      'sg-1',
+      'Ali (Agent): hi',
+      new Date('2026-10-16T10:05:00.000Z'),
+      null
+    );
+    expect(store.settleSend).toHaveBeenCalledWith('41', 'sent', 'wa-echo');
   });
 
   it('a media or empty echo, or one outside a submission group, is ignored', async () => {
@@ -146,7 +179,7 @@ describe('recordSubmissionGroupInbound', () => {
       echo({ body: null }),
       echo({ waGroupId: '120363000000000999@g.us' }),
     ]);
-    expect(store.oldestPendingOut).not.toHaveBeenCalled();
+    expect(store.pendingOutMatching).not.toHaveBeenCalled();
     expect(store.settleSend).not.toHaveBeenCalled();
     expect(store.recordInbound).not.toHaveBeenCalled();
   });

@@ -70,6 +70,9 @@ export const GROUP_COLUMNS =
   'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error';
 
 type Row = Record<string, unknown>;
+
+/** Pending 'out' rows an echo reconcile scans; a full page is treated as ambiguous. */
+export const PENDING_OUT_SCAN = 50;
 const str = (v: unknown): string | null =>
   v === null || v === undefined ? null : String(v);
 const date = (v: unknown): Date | null =>
@@ -424,31 +427,40 @@ export class SubmissionGroupStore {
   }
 
   /**
-   * Echo reconcile: the group's oldest pending 'out' row created at or
-   * after `since` whose prefixed body is exactly `prefixedBody`. The body
-   * is compared here, not in the query string, so a long text never
-   * lengthens the URL; a group has only a handful of pending rows.
+   * Echo reconcile: up to two ids of the group's pending 'out' rows created
+   * in [`since`, `until`] whose prefixed body is exactly `prefixedBody`
+   * (`until` null = no upper bound). The caller settles only a sole match:
+   * the same sender resending the same text makes identical candidates,
+   * and the echo cannot say which send it is. The body is compared here,
+   * not in the query string, so a long text never lengthens the URL; a
+   * group has only a handful of pending rows, and a full page answers no
+   * match because a twin past it cannot be ruled out.
    */
-  async oldestPendingOut(
+  async pendingOutMatching(
     groupId: string,
     prefixedBody: string,
-    since: Date
-  ): Promise<string | null> {
-    const { data, error } = await this.db
+    since: Date,
+    until: Date | null
+  ): Promise<string[]> {
+    let q = this.db
       .from('submission_group_messages')
       .select('id, prefixed_body')
       .eq('group_id', groupId)
       .eq('direction', 'out')
       .eq('send_status', 'pending')
-      .gte('created_at', since.toISOString())
+      .gte('created_at', since.toISOString());
+    if (until) q = q.lte('created_at', until.toISOString());
+    const { data, error } = await q
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
-      .limit(50);
+      .limit(PENDING_OUT_SCAN);
     if (error) throw new Error(`submission_group_messages: ${error.message}`);
-    const hit = ((data ?? []) as Row[]).find(
-      (r) => r.prefixed_body === prefixedBody
-    );
-    return hit ? String(hit.id) : null;
+    const rows = (data ?? []) as Row[];
+    if (rows.length >= PENDING_OUT_SCAN) return [];
+    return rows
+      .filter((r) => r.prefixed_body === prefixedBody)
+      .slice(0, 2)
+      .map((r) => String(r.id));
   }
 
   /** A message's send state; null if there is no such row. */

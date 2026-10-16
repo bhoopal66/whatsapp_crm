@@ -108,6 +108,18 @@ class FakeQuery {
       (r) => r[col] != null && toMicros(r[col])! < toMicros(v)!
     );
   }
+  gte(col: string, v: string) {
+    return this.where(
+      `${col}>=${v}`,
+      (r) => r[col] != null && Date.parse(String(r[col])) >= Date.parse(v)
+    );
+  }
+  lte(col: string, v: string) {
+    return this.where(
+      `${col}<=${v}`,
+      (r) => r[col] != null && Date.parse(String(r[col])) <= Date.parse(v)
+    );
+  }
   ilike(col: string, pattern: string) {
     return this.where(`${col} ilike ${pattern}`, (r) =>
       likeRe(pattern).test(String(r[col] ?? ''))

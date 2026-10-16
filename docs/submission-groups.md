@@ -127,11 +127,15 @@ and the WhatsApp close is not attempted.
   twice in a row, the sender is told "sent, but not recorded" and the
   stored copy stays pending. Whapi echoes every send back to the webhook,
   and that echo reconciles it: when no message of the group carries the
-  echo's id yet, the group's oldest pending staff message of the last 15
-  minutes with exactly the echo's text (name and label prefix included)
-  is marked sent with that id. Only when the echo never arrives does the
-  cron mark the copy failed after 10 minutes, although the customer has
-  it. An echo is never stored as a customer message; a media echo is
+  echo's id yet and exactly one pending staff message of the group,
+  written in the last 15 minutes and not after the echo, has exactly the
+  echo's text (name and label prefix included), it is marked sent with
+  that id. Two such messages (the same text sent twice) are left pending,
+  because the echo cannot say which one it is. Only when the echo never
+  settles it does the cron mark the copy failed after 10 minutes,
+  although the customer has it. If the gateway call errors after the echo
+  already marked the message sent, the sender is told "sent, but not
+  recorded", not that it failed. An echo is never stored as a customer message; a media echo is
   ignored.
 - Whapi has **no idempotency key**. If a create succeeds but its response
   is lost, a retry can leave an orphan WhatsApp group.
