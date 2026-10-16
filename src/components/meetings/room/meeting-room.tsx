@@ -75,8 +75,9 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
     return <p className="text-muted-foreground p-6 text-sm">{t('loading')}</p>;
   }
   // Before "missing": since 112 a removal hides the meeting too.
+  // Back to the list: the meeting's own page is hidden from them too.
   if (call.phase === 'removed') {
-    return <EndScreen title={t('removed.title')} back={back} />;
+    return <EndScreen title={t('removed.title')} back="/meetings" />;
   }
   if (call.meetingState === 'missing' || call.error === 'forbidden') {
     return <EndScreen title={t('missing.title')} back="/meetings" />;

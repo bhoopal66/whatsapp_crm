@@ -424,11 +424,9 @@ class MeetingCallEngine {
     } else {
       // Since 112 a removal hides the meeting: say so rather than "not found".
       const removed = !error && (await this.isRemoved(null));
-      this.emit(
-        removed
-          ? { meetingState: 'missing', phase: 'removed', error: null }
-          : { meetingState: 'missing' }
-      );
+      this.emit({ meetingState: 'missing' });
+      // removed() also releases the lobby preview's camera and mic.
+      if (removed) this.removed();
     }
     this.updateCanModerate();
   }
