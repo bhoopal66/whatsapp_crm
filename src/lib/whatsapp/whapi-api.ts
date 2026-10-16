@@ -104,6 +104,36 @@ export class WhapiError extends Error {
   get isUnknownChannel(): boolean {
     return this.status === 404
   }
+
+  /**
+   * On a group call: our number is not an admin of the group. Whapi
+   * documents 403 "You do not have permissions for this action" on
+   * every admin-only group endpoint (update, settings, participants,
+   * admins, icon, invite). Outside a group call a 403 is the ambiguous
+   * auth failure `isAuthError` covers, so only read this after one.
+   */
+  get isNotGroupAdmin(): boolean {
+    return this.status === 403
+  }
+
+  /**
+   * On a group call: the group id is unknown to this number (never a
+   * member, or removed). Same 404 as `isUnknownChannel`; Whapi cannot
+   * tell the two apart, so trust it only on a number known to be live.
+   */
+  get isGroupNotFound(): boolean {
+    return this.status === 404
+  }
+
+  /** Add participants: 409 "Specified participant already in group". */
+  get isAlreadyParticipant(): boolean {
+    return this.status === 409
+  }
+
+  /** 429 "Too many requests", documented on create group and invites. */
+  get isRateLimited(): boolean {
+    return this.status === 429
+  }
 }
 
 interface WhapiErrorBody {
@@ -146,6 +176,17 @@ interface WhapiRequestArgs {
  * a thin, typed wrapper over it.
  */
 async function whapiRequest<T = unknown>(args: WhapiRequestArgs): Promise<T> {
+  const response = await whapiFetch(args)
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+/**
+ * The transport half of `whapiRequest`: an OK `Response`, unparsed.
+ * Only for the few endpoints that answer with bytes (a group icon);
+ * everything JSON goes through `whapiRequest`.
+ */
+async function whapiFetch(args: WhapiRequestArgs): Promise<Response> {
   const { token, path, method = 'GET', body, query, timeoutMs, baseUrl } = args
 
   if (!token) {
@@ -184,8 +225,7 @@ async function whapiRequest<T = unknown>(args: WhapiRequestArgs): Promise<T> {
     await throwWhapiError(response, `Whapi API error: ${response.status}`)
   }
 
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
+  return response
 }
 
 // ============================================================
@@ -1441,4 +1481,650 @@ export async function sendTestWebhook(args: TestWebhookArgs): Promise<void> {
     method: 'POST',
     body: { ...event },
   })
+}
+
+// ============================================================
+// Groups
+// ============================================================
+//
+// https://whapi.readme.io/reference/getgroups and the pages beside it.
+// Every response is parsed defensively into the neutral shapes below:
+// the gateway's own types change with the channel's "data mode" (an
+// identity is either a chat-id string or `{ id, phone, username }`).
+//
+// Sending a message to a group needs nothing new: `sendTextMessage` /
+// `sendMediaMessage` pass a `…@g.us` recipient through untouched (see
+// `toWhapiRecipient`).
+
+/** Whapi's `GroupID` pattern. */
+const WHAPI_GROUP_ID = /^[\d-]{10,31}@g\.us$/
+
+export function isWhapiGroupId(id: unknown): id is string {
+  return typeof id === 'string' && WHAPI_GROUP_ID.test(id)
+}
+
+/** WhatsApp's invite URL for an invite code. */
+export function groupInviteLink(inviteCode: string): string {
+  return `https://chat.whatsapp.com/${inviteCode}`
+}
+
+/** `creator` is WhatsApp's superadmin. */
+export type WhapiGroupRole = 'member' | 'admin' | 'superadmin'
+export type WhapiGroupPolicy = 'anyone' | 'admins'
+export type WhapiGroupSetting =
+  | 'send_messages'
+  | 'edit_group_info'
+  | 'approve_participants'
+  | 'add_participants'
+
+export const WHAPI_GROUP_SETTINGS: readonly WhapiGroupSetting[] = [
+  'send_messages',
+  'edit_group_info',
+  'approve_participants',
+  'add_participants',
+]
+
+/**
+ * A person as Whapi names them. `waId` is the phone's digits when the
+ * payload reveals it; a privacy id (`…@lid`) with no phone beside it
+ * leaves it null, and `jid` keeps the raw id either way.
+ */
+export interface WhapiIdentity {
+  jid: string
+  waId: string | null
+}
+
+export interface WhapiGroupParticipant extends WhapiIdentity {
+  role: WhapiGroupRole
+}
+
+/** null = the payload didn't say. */
+export type WhapiGroupSettings = Record<WhapiGroupSetting, WhapiGroupPolicy | null>
+
+export interface WhapiGroup {
+  id: string
+  name: string
+  description: string | null
+  participantsCount: number
+  participants: WhapiGroupParticipant[]
+  /** Unix seconds. */
+  createdAt: number | null
+  createdBy: WhapiIdentity | null
+  /** Expiring WhatsApp CDN URL; copy the bytes, don't store the link. */
+  iconUrl: string | null
+  inviteCode: string | null
+  settings: WhapiGroupSettings
+  suspended: boolean
+  terminated: boolean
+}
+
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v ? v : null
+}
+
+function num(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/** Parse a Whapi `DataModeIdentity` (string or `{ id, phone }`). */
+export function parseWhapiIdentity(value: unknown): WhapiIdentity | null {
+  let jid: string | null = null
+  let phone: string | null = null
+  if (typeof value === 'string') {
+    jid = value
+  } else if (value && typeof value === 'object') {
+    const v = value as Record<string, unknown>
+    jid = str(v.id)
+    phone = str(v.phone)
+  }
+  if (!jid) return null
+  if (phone && /^\d{7,15}$/.test(phone)) return { jid, waId: phone }
+  const [user, domain] = jid.split('@')
+  const digits = /^\d{7,15}$/.test(user ?? '') ? user : null
+  if (domain === undefined || domain === 's.whatsapp.net' || domain === 'c.us') {
+    return { jid, waId: digits }
+  }
+  return { jid, waId: null }
+}
+
+function parseRole(rank: unknown): WhapiGroupRole {
+  if (rank === 'creator' || rank === 'superadmin') return 'superadmin'
+  if (rank === 'admin') return 'admin'
+  return 'member'
+}
+
+export function parseWhapiParticipants(value: unknown): WhapiGroupParticipant[] {
+  if (!Array.isArray(value)) return []
+  const out: WhapiGroupParticipant[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const p = item as Record<string, unknown>
+    const who = parseWhapiIdentity(p.id)
+    if (!who) continue
+    out.push({ ...who, role: parseRole(p.rank) })
+  }
+  return out
+}
+
+function policy(flag: unknown): WhapiGroupPolicy | null {
+  if (flag === true) return 'admins'
+  if (flag === false) return 'anyone'
+  return null
+}
+
+/** Parse a Whapi `Group` object; null when it has no usable group id. */
+export function parseWhapiGroup(value: unknown): WhapiGroup | null {
+  if (!value || typeof value !== 'object') return null
+  const g = value as Record<string, unknown>
+  const id = str(g.id)
+  if (!id || !isWhapiGroupId(id)) return null
+  const participants = parseWhapiParticipants(g.participants)
+  return {
+    id,
+    name: str(g.name) ?? str(g.subject) ?? '',
+    description: str(g.description),
+    participantsCount:
+      num(g.participants_count) ?? num(g.participantsCount) ?? participants.length,
+    participants,
+    createdAt: num(g.created_at),
+    createdBy: parseWhapiIdentity(g.created_by),
+    iconUrl: str(g.chat_pic),
+    inviteCode: str(g.invite_code),
+    settings: {
+      send_messages: policy(g.announcements),
+      edit_group_info: policy(g.restricted),
+      approve_participants: policy(g.joinApprovalMode),
+      add_participants: policy(g.adminAddMemberMode),
+    },
+    suspended: g.suspended === true,
+    terminated: g.terminated === true,
+  }
+}
+
+function parseIdentityList(value: unknown): WhapiIdentity[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((v) => parseWhapiIdentity(v))
+    .filter((v): v is WhapiIdentity => v !== null)
+}
+
+/**
+ * The gateway wants participants as bare digits (or a full id).
+ * Empty entries are dropped; a call with none left is a caller bug.
+ */
+function participantIds(participants: string[]): string[] {
+  const ids = participants.map((p) => toWhapiRecipient(p)).filter(Boolean)
+  if (ids.length === 0) {
+    throw new WhapiError('At least one participant is required.', 400)
+  }
+  return ids
+}
+
+function groupPath(groupId: string, suffix = ''): string {
+  if (!isWhapiGroupId(groupId)) {
+    throw new WhapiError(`Not a WhatsApp group id: ${groupId}`, 400)
+  }
+  return `/groups/${encodeURIComponent(groupId)}${suffix}`
+}
+
+function invitePath(inviteCode: string): string {
+  if (!/^[A-Za-z0-9]{14,22}$/.test(inviteCode)) {
+    throw new WhapiError('Not a WhatsApp group invite code.', 400)
+  }
+  return `/groups/link/${inviteCode}`
+}
+
+interface GroupArgs {
+  token: string
+  groupId: string
+}
+
+export interface ListGroupsArgs {
+  token: string
+  /** 1–500; Whapi's default is 100. */
+  count?: number
+  offset?: number
+}
+
+export interface WhapiGroupPage {
+  groups: WhapiGroup[]
+  /** Total groups on the number, when Whapi says. */
+  total: number | null
+  offset: number
+}
+
+/** One page of the number's groups: `GET /groups`. */
+export async function listGroups(args: ListGroupsArgs): Promise<WhapiGroupPage> {
+  const { token, count, offset = 0 } = args
+  const data = await whapiRequest<Record<string, unknown>>({
+    token,
+    path: '/groups',
+    query: {
+      count: count === undefined ? undefined : Math.min(500, Math.max(1, count)),
+      offset,
+    },
+  })
+  const raw = Array.isArray(data?.groups) ? data.groups : []
+  return {
+    groups: raw.map(parseWhapiGroup).filter((g): g is WhapiGroup => g !== null),
+    total: num(data?.total),
+    offset,
+  }
+}
+
+export interface IterateGroupsArgs {
+  token: string
+  pageSize?: number
+  /** Stop after this many groups; a sync must not walk forever. */
+  maxGroups?: number
+}
+
+/** Default cap on a full walk of a number's groups. */
+export const MAX_GROUPS_PER_SYNC = 2_000
+
+/**
+ * Walk every page of `GET /groups`, up to `maxGroups`. Stops on an empty
+ * or short page, or once `total` is reached, whichever comes first.
+ */
+export async function* iterateGroups(
+  args: IterateGroupsArgs,
+): AsyncGenerator<WhapiGroup> {
+  const { token, pageSize = 100, maxGroups = MAX_GROUPS_PER_SYNC } = args
+  const size = Math.min(500, Math.max(1, pageSize))
+  let offset = 0
+  let yielded = 0
+  while (yielded < maxGroups) {
+    const page = await listGroups({ token, count: size, offset })
+    for (const group of page.groups) {
+      if (yielded >= maxGroups) return
+      yield group
+      yielded++
+    }
+    // Advance by the page size asked for, not the rows parsed: a row
+    // dropped as unusable must not shift the next page's offset.
+    offset += size
+    if (page.groups.length < size) return
+    if (page.total !== null && offset >= page.total) return
+  }
+}
+
+export async function listAllGroups(args: IterateGroupsArgs): Promise<WhapiGroup[]> {
+  const out: WhapiGroup[] = []
+  for await (const g of iterateGroups(args)) out.push(g)
+  return out
+}
+
+export interface CreateGroupArgs {
+  token: string
+  subject: string
+  /** At least one; WhatsApp won't create an empty group. */
+  participants: string[]
+}
+
+export interface ParticipantsResult {
+  /** Accepted by WhatsApp. */
+  processed: WhapiIdentity[]
+  /**
+   * Refused. WhatsApp's anti-spam/privacy rules stop some people being
+   * added directly; the remedy is to send them the invite link.
+   * https://support.whapi.cloud/help-desk/groups/add-new-member-to-group
+   */
+  failed: WhapiIdentity[]
+}
+
+export interface CreateGroupResult extends ParticipantsResult {
+  group: WhapiGroup
+}
+
+/**
+ * `POST /groups`. The response lists the group's participants and, in
+ * `unprocessed_participants`, those WhatsApp refused to add.
+ */
+export async function createGroup(args: CreateGroupArgs): Promise<CreateGroupResult> {
+  const { token, subject } = args
+  const participants = participantIds(args.participants)
+  const data = await whapiRequest<Record<string, unknown>>({
+    token,
+    path: '/groups',
+    method: 'POST',
+    body: { subject, participants },
+  })
+  const group = parseWhapiGroup(data)
+  if (!group) {
+    throw new WhapiError('Whapi created the group but returned no group id.', 502)
+  }
+  const failed = parseIdentityList(data.unprocessed_participants)
+  const failedKeys = new Set(failed.map((f) => f.waId ?? f.jid))
+  const processed = group.participants
+    .filter((p) => !failedKeys.has(p.waId ?? p.jid))
+    .map(({ jid, waId }) => ({ jid, waId }))
+  return { group, processed, failed }
+}
+
+export interface GetGroupArgs extends GroupArgs {
+  /** Ask the channel to resync the group from WhatsApp first. */
+  resync?: boolean
+}
+
+export async function getGroup(args: GetGroupArgs): Promise<WhapiGroup> {
+  const data = await whapiRequest<unknown>({
+    token: args.token,
+    path: groupPath(args.groupId),
+    query: { resync: args.resync ? true : undefined },
+  })
+  const group = parseWhapiGroup(data)
+  if (!group) throw new WhapiError('Whapi returned no usable group.', 502)
+  return group
+}
+
+export interface UpdateGroupInfoArgs extends GroupArgs {
+  subject?: string
+  description?: string
+}
+
+/** `PUT /groups/{id}`: name and/or description. Admin only (403). */
+export async function updateGroupInfo(args: UpdateGroupInfoArgs): Promise<void> {
+  const body: Record<string, string> = {}
+  if (args.subject !== undefined) body.subject = args.subject
+  if (args.description !== undefined) body.description = args.description
+  if (Object.keys(body).length === 0) {
+    throw new WhapiError('Nothing to update.', 400)
+  }
+  await whapiRequest({ token: args.token, path: groupPath(args.groupId), method: 'PUT', body })
+}
+
+export interface UpdateGroupSettingArgs extends GroupArgs {
+  setting: WhapiGroupSetting
+  policy: WhapiGroupPolicy
+}
+
+/** `PATCH /groups/{id}`: one setting per call. Admin only (403). */
+export async function updateGroupSetting(args: UpdateGroupSettingArgs): Promise<void> {
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId),
+    method: 'PATCH',
+    body: { setting: args.setting, policy: args.policy },
+  })
+}
+
+/** `DELETE /groups/{id}`: our number leaves the group. */
+export async function leaveGroup(args: GroupArgs): Promise<void> {
+  await whapiRequest({ token: args.token, path: groupPath(args.groupId), method: 'DELETE' })
+}
+
+/** `GET /groups/{id}/invite`: the current invite code. Admin only. */
+export async function getGroupInviteCode(args: GroupArgs): Promise<string> {
+  const data = await whapiRequest<{ invite_code?: unknown }>({
+    token: args.token,
+    path: groupPath(args.groupId, '/invite'),
+  })
+  const code = str(data?.invite_code)
+  if (!code) throw new WhapiError('Whapi returned no invite code.', 502)
+  return code
+}
+
+/**
+ * `DELETE /groups/{id}/invite`: the old link stops working. WhatsApp
+ * mints a new code; read it with `getGroupInviteCode`.
+ */
+export async function revokeGroupInvite(args: GroupArgs): Promise<void> {
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId, '/invite'),
+    method: 'DELETE',
+  })
+}
+
+export interface SendGroupInviteArgs {
+  token: string
+  inviteCode: string
+  /** The person to invite, in any form `toWhapiRecipient` accepts. */
+  to: string
+  /** Message text; `%URL%` is replaced with the link. */
+  body?: string
+  /** Shown title; the group's name when unset. */
+  title?: string
+}
+
+/**
+ * `POST /groups/link/{code}`: send the invite link as a rich message.
+ * It does not join anyone; the recipient taps it. This is the remedy
+ * for people WhatsApp refused to add directly.
+ */
+export async function sendGroupInvite(args: SendGroupInviteArgs): Promise<WhapiSendResult> {
+  const body: Record<string, unknown> = { to: toWhapiRecipient(args.to) }
+  if (args.body) body.body = args.body
+  if (args.title) body.title = args.title
+  const data = await whapiRequest<WhapiSentEnvelope>({
+    token: args.token,
+    path: invitePath(args.inviteCode),
+    method: 'POST',
+    body,
+  })
+  return { messageId: readSentMessageId(data, 'group invite') }
+}
+
+export interface WhapiGroupPreview {
+  id: string | null
+  name: string
+  participantsCount: number | null
+  createdAt: number | null
+}
+
+/** `GET /groups/link/{code}`: what a code points at, without joining. */
+export async function getGroupByInviteCode(args: {
+  token: string
+  inviteCode: string
+}): Promise<WhapiGroupPreview> {
+  const data = await whapiRequest<Record<string, unknown>>({
+    token: args.token,
+    path: invitePath(args.inviteCode),
+  })
+  const id = str(data?.id)
+  return {
+    id: id && isWhapiGroupId(id) ? id : null,
+    name: str(data?.name) ?? '',
+    participantsCount: num(data?.participantsCount) ?? num(data?.participants_count),
+    createdAt: num(data?.created_at),
+  }
+}
+
+/** `PUT /groups {invite_code}`: our number joins; returns the group id. */
+export async function acceptGroupInvite(args: {
+  token: string
+  inviteCode: string
+}): Promise<string> {
+  const data = await whapiRequest<{ group_id?: unknown }>({
+    token: args.token,
+    path: '/groups',
+    method: 'PUT',
+    body: { invite_code: args.inviteCode },
+  })
+  const id = str(data?.group_id)
+  if (!id || !isWhapiGroupId(id)) {
+    throw new WhapiError('Whapi joined the group but returned no group id.', 502)
+  }
+  return id
+}
+
+export interface GroupParticipantsArgs extends GroupArgs {
+  participants: string[]
+}
+
+function parseParticipantsResult(data: unknown): ParticipantsResult {
+  const d = (data ?? {}) as Record<string, unknown>
+  return {
+    processed: parseIdentityList(d.processed),
+    failed: parseIdentityList(d.failed),
+  }
+}
+
+/**
+ * `POST /groups/{id}/participants`. Admin only (403); 409 when someone
+ * is already in. Some people are refused by WhatsApp's anti-spam rules
+ * and come back in `failed`. Batch through `groups.ts`, never one big call.
+ */
+export async function addGroupParticipants(
+  args: GroupParticipantsArgs,
+): Promise<ParticipantsResult> {
+  const data = await whapiRequest<unknown>({
+    token: args.token,
+    path: groupPath(args.groupId, '/participants'),
+    method: 'POST',
+    body: { participants: participantIds(args.participants) },
+  })
+  return parseParticipantsResult(data)
+}
+
+/** `DELETE /groups/{id}/participants`. Admin only (403). */
+export async function removeGroupParticipants(
+  args: GroupParticipantsArgs,
+): Promise<ParticipantsResult> {
+  const data = await whapiRequest<unknown>({
+    token: args.token,
+    path: groupPath(args.groupId, '/participants'),
+    method: 'DELETE',
+    body: { participants: participantIds(args.participants) },
+  })
+  return parseParticipantsResult(data)
+}
+
+/** `PATCH /groups/{id}/admins`. Admin only (403). */
+export async function promoteGroupAdmins(args: GroupParticipantsArgs): Promise<void> {
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId, '/admins'),
+    method: 'PATCH',
+    body: { participants: participantIds(args.participants) },
+  })
+}
+
+/** `DELETE /groups/{id}/admins`. Admin only (403). */
+export async function demoteGroupAdmins(args: GroupParticipantsArgs): Promise<void> {
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId, '/admins'),
+    method: 'DELETE',
+    body: { participants: participantIds(args.participants) },
+  })
+}
+
+export interface WhapiGroupIcon {
+  bytes: ArrayBuffer
+  contentType: string
+}
+
+/** `GET /groups/{id}/icon`: the image bytes, or null when none is set (204). */
+export async function getGroupIcon(args: GroupArgs): Promise<WhapiGroupIcon | null> {
+  const response = await whapiFetch({
+    token: args.token,
+    path: groupPath(args.groupId, '/icon'),
+  })
+  if (response.status === 204) return null
+  const bytes = await response.arrayBuffer()
+  if (bytes.byteLength === 0) return null
+  return { bytes, contentType: response.headers.get('content-type') || 'image/png' }
+}
+
+export interface SetGroupIconArgs extends GroupArgs {
+  /** A public URL, base64 (a `data:` URL works as for media sends), or a Whapi media id. */
+  media: string
+  mimeType?: string
+}
+
+/** `PUT /groups/{id}/icon` with the JSON `{ media, mime_type }` body. Admin only. */
+export async function setGroupIcon(args: SetGroupIconArgs): Promise<void> {
+  if (!args.media) throw new WhapiError('setGroupIcon requires media.', 400)
+  const body: Record<string, string> = { media: args.media }
+  if (args.mimeType) body.mime_type = args.mimeType
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId, '/icon'),
+    method: 'PUT',
+    body,
+  })
+}
+
+export async function deleteGroupIcon(args: GroupArgs): Promise<void> {
+  await whapiRequest({
+    token: args.token,
+    path: groupPath(args.groupId, '/icon'),
+    method: 'DELETE',
+  })
+}
+
+export interface WhapiJoinRequest extends WhapiIdentity {
+  /** e.g. `invite_link`. */
+  method: string | null
+  /** Unix seconds. */
+  requestedAt: number | null
+}
+
+export interface ListJoinRequestsArgs extends GroupArgs {
+  count?: number
+  offset?: number
+}
+
+/** `GET /groups/{id}/applications`: pending join requests. */
+export async function listGroupJoinRequests(
+  args: ListJoinRequestsArgs,
+): Promise<{ requests: WhapiJoinRequest[]; total: number | null }> {
+  const data = await whapiRequest<Record<string, unknown>>({
+    token: args.token,
+    path: groupPath(args.groupId, '/applications'),
+    query: {
+      count: args.count === undefined ? undefined : Math.min(500, Math.max(1, args.count)),
+      offset: args.offset,
+    },
+  })
+  const raw = Array.isArray(data?.applications) ? data.applications : []
+  const requests: WhapiJoinRequest[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const a = item as Record<string, unknown>
+    const who = parseWhapiIdentity(a.chatId)
+    if (!who) continue
+    requests.push({ ...who, method: str(a.request_method), requestedAt: num(a.timestamp) })
+  }
+  return { requests, total: num(data?.total) }
+}
+
+export interface JoinRequestDecisionArgs extends GroupArgs {
+  /** The applicant's chat id (or phone). One per call, per Whapi. */
+  applicant: string
+}
+
+export interface JoinRequestDecision {
+  ok: boolean
+  error: string | null
+}
+
+async function decideJoinRequest(
+  args: JoinRequestDecisionArgs,
+  method: 'POST' | 'DELETE',
+): Promise<JoinRequestDecision> {
+  const data = await whapiRequest<unknown>({
+    token: args.token,
+    path: groupPath(args.groupId, '/applications'),
+    method,
+    body: { application: phoneToChatId(args.applicant) },
+  })
+  const first = Array.isArray(data) ? (data[0] as Record<string, unknown> | undefined) : undefined
+  if (!first) return { ok: true, error: null }
+  return { ok: first.success !== false, error: str(first.error) }
+}
+
+/** `POST /groups/{id}/applications`: approve one join request. */
+export function approveGroupJoinRequest(
+  args: JoinRequestDecisionArgs,
+): Promise<JoinRequestDecision> {
+  return decideJoinRequest(args, 'POST')
+}
+
+/** `DELETE /groups/{id}/applications`: reject one join request. */
+export function rejectGroupJoinRequest(
+  args: JoinRequestDecisionArgs,
+): Promise<JoinRequestDecision> {
+  return decideJoinRequest(args, 'DELETE')
 }
