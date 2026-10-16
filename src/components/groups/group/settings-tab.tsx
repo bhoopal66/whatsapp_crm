@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { reasonKey } from '@/lib/groups/group-page';
-import { ICON_MAX_BYTES, ICON_TYPES } from '@/lib/groups/member-requests';
+import { ICON_MAX_BYTES, ICON_TYPES } from '@/lib/groups/limits';
 import {
   GROUP_DESCRIPTION_MAX,
   GROUP_NAME_MAX,

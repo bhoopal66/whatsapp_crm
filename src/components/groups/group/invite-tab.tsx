@@ -26,7 +26,7 @@ import {
   summarizeInviteSend,
   type InviteSendSummary,
 } from '@/lib/groups/group-page';
-import { INVITE_MESSAGE_MAX } from '@/lib/groups/member-requests';
+import { INVITE_MESSAGE_MAX } from '@/lib/groups/limits';
 import {
   GROUP_MEMBERS_PER_OPERATION,
   mergeMembers,

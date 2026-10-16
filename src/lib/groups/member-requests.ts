@@ -13,7 +13,16 @@ import {
   type GroupFailureKey,
 } from '@/lib/whatsapp/groups';
 
+import {
+  ICON_MAX_BYTES,
+  ICON_TYPES,
+  INVITE_MESSAGE_MAX,
+} from './limits';
 import { GroupHttpError, isUuid } from './server';
+
+// Client components import these from './limits' (this file reaches
+// server.ts, which must never enter the browser bundle).
+export { ICON_MAX_BYTES, ICON_TYPES, INVITE_MESSAGE_MAX };
 import type { WhatsappGroupRow } from './types';
 
 const bad = (message: string) =>
@@ -102,7 +111,6 @@ export function parseRoleChange(raw: unknown): {
 
 /** WhatsApp's limit on a text message. */
 export const GROUP_TEXT_MAX = 4096;
-export const INVITE_MESSAGE_MAX = 1000;
 
 export type InviteAction =
   | { action: 'reset' }
@@ -150,8 +158,6 @@ export function parseManagerSet(raw: unknown): { userIds: string[] } {
   return { userIds };
 }
 
-export const ICON_TYPES = ['image/jpeg', 'image/png'] as const;
-export const ICON_MAX_BYTES = 2 * 1024 * 1024;
 
 /** An uploaded icon's type and size, checked before Whapi sees it. */
 export function checkIconUpload(file: unknown): {
