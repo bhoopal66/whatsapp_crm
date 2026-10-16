@@ -142,6 +142,16 @@ export async function POST(request: Request, { params }: Params) {
         .eq('group_id', group.id)
         .eq('wa_message_id', sent.messageId);
       if (error) console.error('[groups] attribution failed', error);
+      // An echo stored before this insert has no status, and receipts
+      // only advance pending/sent: give it one without touching a row
+      // a receipt already moved.
+      const { error: statusError } = await admin
+        .from('whatsapp_group_messages')
+        .update({ status: 'sent' })
+        .eq('group_id', group.id)
+        .eq('wa_message_id', sent.messageId)
+        .is('status', null);
+      if (statusError) console.error('[groups] status failed', statusError);
     }
     const { data: row } = await admin
       .from('whatsapp_group_messages')

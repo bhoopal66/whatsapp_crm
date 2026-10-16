@@ -163,6 +163,7 @@ describe('POST', () => {
       direction: 'out',
       sender_user_id: null,
       sender_name: null,
+      status: null,
       created_at: new Date().toISOString(),
     });
     const res = await post({ text: 'hi' });
@@ -171,6 +172,7 @@ describe('POST', () => {
     expect(stored()[0]).toMatchObject({
       sender_user_id: 'agent-1',
       sender_name: 'Aya',
+      status: 'sent',
     });
   });
 

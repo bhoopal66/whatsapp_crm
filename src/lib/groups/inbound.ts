@@ -172,6 +172,9 @@ export async function persistGroupMessages(
       type: m.type,
       body: m.body,
       media: m.media,
+      // An echo of our own send is already sent; NULL would freeze it
+      // against receipts, which only advance pending/sent.
+      status: m.fromMe ? 'sent' : null,
       created_at: m.sentAt,
     });
   }

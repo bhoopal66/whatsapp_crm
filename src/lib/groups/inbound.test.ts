@@ -6,6 +6,7 @@ import {
   applyGroupEvents,
   extractWhapiGroupMessages,
   GROUP_STATUS_PREDECESSORS,
+  persistGroupMessages,
 } from './inbound';
 import { fakeSupabase, type FakeDb } from './test-db';
 
@@ -137,6 +138,45 @@ describe('extractWhapiGroupMessages', () => {
     });
     expect(normalizeWhapiWebhook(raw).messages).toEqual([]);
     expect(extractWhapiGroupMessages(raw)).toHaveLength(1);
+  });
+});
+
+describe('persistGroupMessages', () => {
+  it('stores our own echo as sent and a customer message with no status', async () => {
+    const db: FakeDb = {
+      writes: [],
+      tables: {
+        whatsapp_groups: [
+          {
+            id: 'g-1',
+            account_id: 'acct-1',
+            channel_id: 'ch-1',
+            wa_group_id: GROUP,
+          },
+        ],
+        whatsapp_group_messages: [],
+      },
+    };
+    const m = (id: string, fromMe: boolean) => ({
+      id,
+      waGroupId: GROUP,
+      fromMe,
+      senderWaId: '971501234567',
+      senderName: null,
+      type: 'text',
+      body: 'x',
+      media: null,
+      sentAt: new Date().toISOString(),
+    });
+    await persistGroupMessages(
+      fakeSupabase(db) as never,
+      { id: 'ch-1', accountId: 'acct-1', wabaId: null },
+      [m('out-1', true), m('in-1', false)] as never
+    );
+    const byId = (id: string) =>
+      db.tables.whatsapp_group_messages.find((r) => r.wa_message_id === id);
+    expect(byId('out-1')).toMatchObject({ direction: 'out', status: 'sent' });
+    expect(byId('in-1')).toMatchObject({ direction: 'in', status: null });
   });
 });
 
