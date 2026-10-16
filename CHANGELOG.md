@@ -16,18 +16,19 @@ and polish.
 
 **Migration required: 117** (`117_deferred_cascade_fks.sql`). It
 changes no data and no `ON DELETE` behaviour, and only rewrites catalog
-rows: each of the 17 tables it touches is locked for a moment (it gives
-up after 5 s if a long transaction holds one; just run it again).
+rows of two meeting tables (each locked for a moment; it gives up after
+5 s if a long transaction holds one — just run it again).
 
-Deleting a login, contact or account can reach a row by two paths at
-once — a cascade through its parent and a `SET NULL` on another column.
-On a database restored from `pg_dump` the foreign-key triggers fire in
-a different order than on one built from the migrations, and a delete
-in the same transaction that created the row then failed with `23503`
-(seen as `verify-calendar.sql` failing on a restored copy). 117 makes
-the 29 foreign keys involved `DEFERRABLE INITIALLY DEFERRED`, so they
-are checked at commit, after the cascade. A genuinely bad reference is
-still refused, at commit rather than at the statement.
+Deleting a meeting host's login reaches a removal or seat row by two
+paths at once — a cascade through the meeting and a `SET NULL` on
+`removed_by`. On a database restored from `pg_dump` the foreign-key
+triggers fire in a different order than on one built from the
+migrations, and a delete in the same transaction that created the row
+then failed with `23503` (seen as `verify-calendar.sql` failing on a
+restored copy; deletes in a later transaction were never affected). 117
+makes `meeting_participants_meeting_fkey` and
+`meeting_removed_users_meeting_fkey` `DEFERRABLE INITIALLY DEFERRED`, so
+they are checked at commit, after the cascade.
 
 ### Submission groups (module 018a)
 

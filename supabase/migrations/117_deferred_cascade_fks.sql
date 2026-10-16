@@ -1,5 +1,5 @@
 -- ============================================================
--- 117_deferred_cascade_fks.sql — make the foreign keys a delete
+-- 117_deferred_cascade_fks.sql — make the meeting foreign keys a delete
 -- can re-check mid-cascade order-proof (no change to any ON DELETE)
 --
 -- Deleting one row R can reach a row of table T by two paths at once:
@@ -28,21 +28,18 @@
 -- the ON DELETE action triggers, so cascades and SET NULLs still run
 -- inside the deleting statement, exactly as before.
 --
--- The list is every constraint the catalog query in the commit that
--- added this file found on a database built from 001–115 (and on a
--- restored copy of a live install), less two left immediate on purpose:
--- conversations_chat_tag_fkey and conversations_chat_sub_tag_fkey are
--- the chat-tag account wall (075), whose 23503 the chat-tag writers
--- and verify-chat-tags.sql expect at the statement. Neither can fail
--- this way: deleting an account deletes its chats (account_id, one
--- step) before any SET NULL reaches them, and deleting a tag nulls
--- chat_tag_id in an UPDATE where conversations_chat_tag_guard (075)
--- also clears the sub-tag, so nothing is left to re-check.
--- A violation of a deferred FK now surfaces at COMMIT (one request is
--- one transaction under PostgREST, so callers still see 23503).
+-- Scope: only the two meeting foreign keys of that failure, on small,
+-- low-traffic tables. A catalog walk finds ~29 other FKs with the same
+-- two-path shape (messages, conversations, tasks, notifications, …),
+-- but none can fail in real use (the re-check needs the row inserted in
+-- the deleting transaction), and deferring FKs on the busiest tables
+-- would take an ACCESS EXCLUSIVE lock on them at deploy and move a
+-- genuine violation from the statement to COMMIT, where an EXCEPTION
+-- block in a SQL function can no longer catch it. Add one here only
+-- with a reproduction.
 --
 -- ALTER CONSTRAINT rewrites catalog rows only (no table scan), but it
--- takes an ACCESS EXCLUSIVE lock on each table listed, held until the
+-- takes an ACCESS EXCLUSIVE lock on the two tables, held until the
 -- block commits — a moment, unless a long transaction already holds
 -- one of them, when lock_timeout gives up after 5 s and nothing is
 -- changed: run it again.
@@ -57,35 +54,8 @@ DECLARE
   item text[];
 BEGIN
   FOREACH item SLICE 1 IN ARRAY ARRAY[
-    ['automation_pending_executions', 'automation_pending_executions_log_id_fkey'],
-    ['automation_pending_executions', 'automation_pending_executions_parent_step_id_fkey'],
-    ['callback_requests',             'callback_requests_journey_file_id_fkey'],
-    ['callback_requests',             'callback_requests_outbox_item_id_fkey'],
-    ['calls',                         'calls_contact_fkey'],
-    ['calls',                         'calls_conversation_fkey'],
-    ['calls',                         'calls_deal_id_fkey'],
-    ['compass_notifications',         'compass_notifications_conversation_id_fkey'],
-    ['compass_notifications',         'compass_notifications_message_id_fkey'],
-    ['conversation_events',           'conversation_events_conversation_id_fkey'],
-    ['conversation_events',           'conversation_events_from_channel_id_fkey'],
-    ['conversation_events',           'conversation_events_to_channel_id_fkey'],
-    ['deal_files',                    'deal_files_room_fkey'],
-    ['deal_room_participants',        'deal_room_participants_consent_id_fkey'],
-    ['deal_room_participants',        'deal_room_participants_room_fkey'],
-    ['deal_rooms',                    'deal_rooms_deal_fkey'],
-    ['flow_runs',                     'flow_runs_conversation_id_fkey'],
-    ['flow_runs',                     'flow_runs_last_prompt_message_id_fkey'],
-    ['group_message_receipts',        'group_message_receipts_message_id_fkey'],
     ['meeting_participants',          'meeting_participants_meeting_fkey'],
-    ['meeting_removed_users',         'meeting_removed_users_meeting_fkey'],
-    ['messages',                      'messages_conversation_id_fkey'],
-    ['messages',                      'messages_reply_to_message_id_fkey'],
-    ['notifications',                 'notifications_contact_id_fkey'],
-    ['notifications',                 'notifications_conversation_id_fkey'],
-    ['tasks',                         'tasks_contact_id_fkey'],
-    ['tasks',                         'tasks_conversation_id_fkey'],
-    ['tasks',                         'tasks_deal_id_fkey'],
-    ['whatsapp_groups',               'whatsapp_groups_channel_fkey']
+    ['meeting_removed_users',         'meeting_removed_users_meeting_fkey']
   ] LOOP
     IF EXISTS (
       SELECT 1 FROM pg_constraint
