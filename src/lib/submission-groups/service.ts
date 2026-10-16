@@ -80,6 +80,7 @@ export type GroupStore = Pick<
   | 'attachWaGroup'
   | 'beginSend'
   | 'settleSend'
+  | 'sendState'
   | 'end'
   | 'markWaClosed'
   | 'recordWaCloseError'
@@ -526,36 +527,60 @@ export class SubmissionGroupService {
    * a second failure (a throw, or the row no longer pending because the
    * first attempt may have landed) is SubmissionGroupSentNotRecordedError,
    * never a generic error, because the message is already in WhatsApp.
+   * A row found no longer pending is re-read: Whapi's echo of this very
+   * send (inbound.ts) or the first attempt may already have settled it
+   * 'sent' with this id, and that is a success.
    */
   private async settleSent(
     messageId: string,
     waMessageId: string
   ): Promise<boolean> {
     const { store } = this.deps;
+    let settled: boolean;
+    let first: unknown = null;
     try {
-      return await store.settleSend(messageId, 'sent', waMessageId);
-    } catch (first) {
+      settled = await store.settleSend(messageId, 'sent', waMessageId);
+    } catch (err) {
+      first = err;
       this.log.warn('sent group message could not be settled; retrying', {
         messageId,
-        err: errText(first),
+        err: errText(err),
       });
-      let settled: boolean;
       try {
         settled = await store.settleSend(messageId, 'sent', waMessageId);
-      } catch (err) {
+      } catch (retryErr) {
         throw new SubmissionGroupSentNotRecordedError(
           messageId,
           waMessageId,
-          err
+          retryErr
         );
       }
-      if (!settled)
-        throw new SubmissionGroupSentNotRecordedError(
-          messageId,
-          waMessageId,
-          first
-        );
-      return true;
+    }
+    if (settled) return true;
+    if (await this.alreadySent(messageId, waMessageId)) return true;
+    if (first !== null)
+      throw new SubmissionGroupSentNotRecordedError(
+        messageId,
+        waMessageId,
+        first
+      );
+    return false;
+  }
+
+  /** True if the row is already 'sent' with this WhatsApp id; a failed read is false. */
+  private async alreadySent(
+    messageId: string,
+    waMessageId: string
+  ): Promise<boolean> {
+    try {
+      const state = await this.deps.store.sendState(messageId);
+      return state?.sendStatus === 'sent' && state.waMessageId === waMessageId;
+    } catch (err) {
+      this.log.warn('settled group message could not be re-read', {
+        messageId,
+        err: errText(err),
+      });
+      return false;
     }
   }
 

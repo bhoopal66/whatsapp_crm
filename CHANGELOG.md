@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups: a sent message is recorded from Whapi's echo
+
+When WhatsApp accepted a staff message but the CRM could not record it
+(the sender saw "sent, but not recorded"), the stored copy stayed pending
+and the cron marked it failed after 10 minutes although the customer had
+it. Whapi's echo of the send now settles that copy as sent, matched on
+its exact text within 15 minutes; a sender whose own record lost the race
+to the echo is no longer told it was not recorded. No migration.
+
 ### Meetings: a removed person leaves the call at once
 
 **Migration required: 116** (`116_meeting_removal_realtime.sql`, apply

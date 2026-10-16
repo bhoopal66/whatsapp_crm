@@ -405,6 +405,67 @@ export class SubmissionGroupStore {
     );
   }
 
+  /** Echo reconcile: does any row of the group already carry this WhatsApp message id? */
+  async hasWaMessage(groupId: string, waMessageId: string): Promise<boolean> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('id')
+      .eq('group_id', groupId)
+      .eq('wa_message_id', waMessageId)
+      .limit(1);
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    return ((data ?? []) as Row[]).length > 0;
+  }
+
+  /**
+   * Echo reconcile: the group's oldest pending 'out' row created at or
+   * after `since` whose prefixed body is exactly `prefixedBody`. The body
+   * is compared here, not in the query string, so a long text never
+   * lengthens the URL; a group has only a handful of pending rows.
+   */
+  async oldestPendingOut(
+    groupId: string,
+    prefixedBody: string,
+    since: Date
+  ): Promise<string | null> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('id, prefixed_body')
+      .eq('group_id', groupId)
+      .eq('direction', 'out')
+      .eq('send_status', 'pending')
+      .gte('created_at', since.toISOString())
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(50);
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    const hit = ((data ?? []) as Row[]).find(
+      (r) => r.prefixed_body === prefixedBody
+    );
+    return hit ? String(hit.id) : null;
+  }
+
+  /** A message's send state; null if there is no such row. */
+  async sendState(
+    messageId: string
+  ): Promise<{
+    sendStatus: SendStatus | null;
+    waMessageId: string | null;
+  } | null> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('send_status, wa_message_id')
+      .eq('id', messageId)
+      .maybeSingle();
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    const row = data as Row | null;
+    if (!row) return null;
+    return {
+      sendStatus: (row.send_status as SendStatus | null) ?? null,
+      waMessageId: str(row.wa_message_id),
+    };
+  }
+
   /** False = duplicate (already recorded). */
   async recordInbound(input: {
     groupId: string;

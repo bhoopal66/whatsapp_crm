@@ -121,9 +121,15 @@ and the WhatsApp close is not attempted.
 ## Known limits
 
 - If WhatsApp accepts a staff message but the CRM fails to record that
-  twice in a row, the sender is told "sent, but not recorded"; the stored
-  copy stays pending and the cron later marks it failed, although the
-  customer has it. Reconciling against delivery receipts is not built.
+  twice in a row, the sender is told "sent, but not recorded" and the
+  stored copy stays pending. Whapi echoes every send back to the webhook,
+  and that echo reconciles it: when no message of the group carries the
+  echo's id yet, the group's oldest pending staff message of the last 15
+  minutes with exactly the echo's text (name and label prefix included)
+  is marked sent with that id. Only when the echo never arrives does the
+  cron mark the copy failed after 10 minutes, although the customer has
+  it. An echo is never stored as a customer message; a media echo is
+  ignored.
 - Whapi has **no idempotency key**. If a create succeeds but its response
   is lost, a retry can leave an orphan WhatsApp group.
 - A customer's "stop" written in the group is **not watched** by the AI or
