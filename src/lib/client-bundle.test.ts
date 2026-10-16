@@ -70,6 +70,15 @@ function resolveLocal(from: string, spec: string): string | null {
   return null;
 }
 
+/**
+ * next/server, or a Node built-in (`node:dns/promises` reached through
+ * lib/whatsapp/groups.ts broke `next build` the same way while this test
+ * only looked for next/server).
+ */
+function isServerOnly(spec: string): boolean {
+  return spec === 'next/server' || spec.startsWith('node:');
+}
+
 describe('valueImports', () => {
   it('skips type-only imports and keeps value ones', () => {
     expect(
@@ -87,7 +96,7 @@ describe('valueImports', () => {
 });
 
 describe('client modules', () => {
-  it('never reach next/server', () => {
+  it('never reach next/server or a Node built-in', () => {
     const files = sourceFiles(SRC);
     const code = new Map(files.map((f) => [f, readFileSync(f, 'utf8')]));
     const roots = files.filter((f) =>
@@ -104,7 +113,7 @@ describe('client modules', () => {
       while (queue.length) {
         const file = queue.shift()!;
         const specs = valueImports(code.get(file) ?? '');
-        if (specs.includes('next/server')) {
+        if (specs.some(isServerOnly)) {
           const chain: string[] = [];
           for (let f: string | null = file; f; f = seen.get(f) ?? null)
             chain.unshift(relative(SRC, f));
@@ -121,5 +130,6 @@ describe('client modules', () => {
       }
     }
     expect(offenders).toEqual([]);
-  });
+    // Walks the whole import graph: ~5 s on the 2-core host under load.
+  }, 30_000);
 });
