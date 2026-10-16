@@ -19,6 +19,14 @@ workspace: only their own, the people of the teams they lead, and the
 customers they can see. Agents and viewers now also see a missed call
 that rang their phone. Owners and admins still see every call.
 
+A missed call's _Call back_ task and bell now go to a person the call
+rang (the chat's agent or the contact's owner first, when they were
+rung), else the chat's assigned agent, else nobody: the task waits
+unassigned for an admin. It no longer goes to whoever created or
+imported the contact, which had sent one owner every missed call. A
+caller who rings again while their task is still open adds to that
+task ("3 missed calls…") instead of opening another task and bell.
+
 **Migration required:** `supabase/migrations/113_call_visibility.sql`.
 
 ### Only team leaders and admins create video meetings

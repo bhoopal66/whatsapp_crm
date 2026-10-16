@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { missedCallOwner } from '../missed-call';
 import { ingestPbxEvent } from '../process';
 import { createFakeDb, type FakeDb, type Row } from './fake-db';
 
@@ -50,76 +51,80 @@ const ingest = (payload: unknown) =>
 
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
-  fake = createFakeDb({
-    pbx_connections: [{ id: 'c1', account_id: A1, status: 'unknown' }],
-    pbx_did_routes: [
-      { connection_id: 'c1', did_number: '97143334444', account_id: A2 },
-    ],
-    pbx_extensions: [
-      {
-        connection_id: 'c1',
-        extension: '1001',
-        account_id: A2,
-        user_id: 'u1',
-        presence_monitor: true,
-      },
-      {
-        connection_id: 'c1',
-        extension: '1002',
-        account_id: A2,
-        user_id: 'u2',
-        presence_monitor: true,
-      },
-      {
-        connection_id: 'c1',
-        extension: '1003',
-        account_id: A2,
-        user_id: 'u3',
-        presence_monitor: false,
-      },
-    ],
-    contacts: [
-      {
-        id: 'k1',
-        account_id: A2,
-        name: 'Sara',
-        phone: '971501234567',
-        phone_normalized: '971501234567',
-        user_id: 'u1',
-      },
-      {
-        id: 'kX',
-        account_id: A1,
-        name: 'Other',
-        phone: '971509999999',
-        phone_normalized: '971509999999',
-        user_id: null,
-      },
-    ],
-    conversations: [
-      {
-        id: 'cv1',
-        account_id: A2,
-        contact_id: 'k1',
-        assigned_agent_id: null,
-        created_at: '1',
-      },
-    ],
-    profiles: [
-      {
-        user_id: 'u1',
-        account_id: A2,
-        account_role: 'agent',
-        deactivated_at: null,
-      },
-      {
-        user_id: 'u2',
-        account_id: A2,
-        account_role: 'agent',
-        deactivated_at: null,
-      },
-    ],
-  });
+  fake = createFakeDb(
+    {
+      pbx_connections: [{ id: 'c1', account_id: A1, status: 'unknown' }],
+      pbx_did_routes: [
+        { connection_id: 'c1', did_number: '97143334444', account_id: A2 },
+      ],
+      pbx_extensions: [
+        {
+          connection_id: 'c1',
+          extension: '1001',
+          account_id: A2,
+          user_id: 'u1',
+          presence_monitor: true,
+        },
+        {
+          connection_id: 'c1',
+          extension: '1002',
+          account_id: A2,
+          user_id: 'u2',
+          presence_monitor: true,
+        },
+        {
+          connection_id: 'c1',
+          extension: '1003',
+          account_id: A2,
+          user_id: 'u3',
+          presence_monitor: false,
+        },
+      ],
+      contacts: [
+        {
+          id: 'k1',
+          account_id: A2,
+          name: 'Sara',
+          phone: '971501234567',
+          phone_normalized: '971501234567',
+          user_id: 'u1',
+        },
+        {
+          id: 'kX',
+          account_id: A1,
+          name: 'Other',
+          phone: '971509999999',
+          phone_normalized: '971509999999',
+          user_id: null,
+        },
+      ],
+      conversations: [
+        {
+          id: 'cv1',
+          account_id: A2,
+          contact_id: 'k1',
+          assigned_agent_id: null,
+          created_at: '1',
+        },
+      ],
+      profiles: [
+        {
+          user_id: 'u1',
+          account_id: A2,
+          account_role: 'agent',
+          deactivated_at: null,
+        },
+        {
+          user_id: 'u2',
+          account_id: A2,
+          account_role: 'agent',
+          deactivated_at: null,
+        },
+      ],
+    },
+    {},
+    { tasks: { status: 'open' } }
+  );
 });
 
 describe('ingestPbxEvent', () => {
@@ -380,28 +385,208 @@ describe('ingestPbxEvent', () => {
     const hint = (i: number) =>
       String(fake.tables.tasks[i].note).includes('WhatsApp draft');
     // No settings row: the draft is off.
-    await ingest(end('call-1', 'NO ANSWER'));
+    // Each call is called back before the next, so none folds into
+    // the one before (repeat calls fold: see below).
+    const missed = async (callId: string) => {
+      for (const t of fake.tables.tasks ?? []) t.status = 'done';
+      await ingest(end(callId, 'NO ANSWER'));
+    };
+    await missed('call-1');
     expect(fake.tables.tasks[0].note).toBe(
       'Missed call (no answer) on 97143334444.'
     );
     fake.tables.pbx_settings = [
       { account_id: A2, missed_call_whatsapp_draft: true },
     ];
-    await ingest(end('call-2', 'NO ANSWER'));
+    await missed('call-2');
     expect(hint(1)).toBe(true);
     // Never for a do-not-contact or opted-out customer.
     fake.tables.contacts[0].do_not_contact_at = '2026-10-01T09:00:00Z';
-    await ingest(end('call-3', 'NO ANSWER'));
+    await missed('call-3');
     expect(hint(2)).toBe(false);
     fake.tables.contacts[0].do_not_contact_at = null;
     fake.tables.contacts[0].opted_out_at = '2026-10-02T09:00:00Z';
-    await ingest(end('call-4', 'NO ANSWER'));
+    await missed('call-4');
     expect(hint(3)).toBe(false);
     // Nor for a caller with no contact to draft to.
     fake.tables.contacts = [];
-    await ingest(end('call-5', 'NO ANSWER'));
+    await missed('call-5');
     expect(hint(4)).toBe(false);
     expect(fake.tables.tasks).toHaveLength(5);
+  });
+
+  describe('who holds a missed call', () => {
+    // k1 was created by u1; u9 is the owner who imported it.
+    const bells = () =>
+      (fake.tables.notifications ?? []).filter((n) => n.type === 'call_missed');
+
+    it('the person it rang, not the contact creator', async () => {
+      await ingest(ring('call-1', [inbound('ALERT'), ext('1002', 'RING')]));
+      await ingest(end('call-1', 'NO ANSWER'));
+      expect(fake.tables.tasks[0]).toMatchObject({
+        assigned_to: 'u2',
+        contact_id: 'k1',
+      });
+      expect(bells().map((n) => n.user_id)).toEqual(['u2']);
+    });
+
+    it('nobody: unassigned and no bell, never the importer', async () => {
+      fake.tables.contacts[0].user_id = 'u9';
+      fake.tables.profiles.push({
+        user_id: 'u9',
+        account_id: A2,
+        account_role: 'owner',
+        deactivated_at: null,
+      });
+      await ingest(end('call-1', 'NO ANSWER'));
+      expect(fake.tables.tasks[0]).toMatchObject({
+        assigned_to: null,
+        contact_id: 'k1',
+      });
+      expect(bells()).toHaveLength(0);
+    });
+
+    it("nobody rang: the chat's assigned agent when they can hold it", async () => {
+      fake.tables.conversations[0].assigned_agent_id = 'u2';
+      await ingest(end('call-1', 'NO ANSWER'));
+      expect(fake.tables.tasks[0].assigned_to).toBe('u2');
+      fake.tables.profiles[1].deactivated_at = '2026-10-01T00:00:00Z';
+      fake.tables.tasks[0].status = 'done';
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks[1].assigned_to).toBeNull();
+    });
+
+    it('several rang: the chat agent or contact owner among them first', async () => {
+      const both = () =>
+        ring('call-1', [
+          inbound('ALERT'),
+          ext('1002', 'RING'),
+          ext('1001', 'RING'),
+        ]);
+      // u1 created the contact and was rung second.
+      await ingest(both());
+      await ingest(end('call-1', 'NO ANSWER'));
+      expect(fake.tables.tasks[0].assigned_to).toBe('u1');
+      // The chat's agent beats the contact's owner.
+      fake.tables.tasks[0].status = 'done';
+      fake.tables.conversations[0].assigned_agent_id = 'u2';
+      await ingest({ ...both(), msg: both().msg.replace('call-1', 'call-2') });
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks[1].assigned_to).toBe('u2');
+    });
+
+    it('missedCallOwner: the rule on its own', () => {
+      const holders = new Set(['a', 'b', 'c']);
+      const base = { holders, assignedAgentId: null, contactOwnerId: null };
+      expect(missedCallOwner({ ...base, rang: ['x', 'b', 'a'] })).toBe('b');
+      expect(
+        missedCallOwner({ ...base, rang: ['b', 'a'], contactOwnerId: 'a' })
+      ).toBe('a');
+      expect(
+        missedCallOwner({
+          rang: ['b', 'a', 'c'],
+          holders,
+          assignedAgentId: 'c',
+          contactOwnerId: 'a',
+        })
+      ).toBe('c');
+      // Neither preferred person was rung: the first rung.
+      expect(
+        missedCallOwner({
+          rang: ['b'],
+          holders,
+          assignedAgentId: 'c',
+          contactOwnerId: 'a',
+        })
+      ).toBe('b');
+      // Nobody rang.
+      expect(missedCallOwner({ ...base, rang: [], assignedAgentId: 'c' })).toBe(
+        'c'
+      );
+      expect(
+        missedCallOwner({ ...base, rang: [], assignedAgentId: 'x' })
+      ).toBeNull();
+      expect(
+        missedCallOwner({ ...base, rang: [], contactOwnerId: 'a' })
+      ).toBeNull();
+    });
+  });
+
+  describe('repeat missed calls', () => {
+    it('fold into the open task: one task, one bell, re-sends ignored', async () => {
+      await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+      await ingest(end('call-1', 'NO ANSWER'));
+      await ingest(end('call-2', 'BUSY'));
+      await ingest(end('call-3', 'NO ANSWER'));
+      // call-2's end again, under another hash.
+      await ingest({ ...end('call-2', 'BUSY'), sn: 'SN-again' });
+      const ids = (fake.tables.calls as Row[]).map((c) => c.id);
+      expect(ids).toHaveLength(3);
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0]).toMatchObject({
+        assigned_to: 'u1',
+        source_ref: `call:${ids[0]}`,
+        due_at: '2026-10-12T10:30:00.000Z',
+        note: '3 missed calls, the latest (no answer) on 97143334444.',
+        meta: {
+          call_id: ids[0],
+          call_ids: ids,
+          missed_count: 3,
+          remote_number: '971501234567',
+        },
+      });
+      expect(fake.tables.notifications).toHaveLength(1);
+    });
+
+    it('hands an unassigned task to the person a later call rang, without our own bell', async () => {
+      await ingest(end('call-1', 'NO ANSWER'));
+      expect(fake.tables.tasks[0].assigned_to).toBeNull();
+      await ingest(ring('call-2', [inbound('ALERT'), ext('1002', 'RING')]));
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0]).toMatchObject({
+        assigned_to: 'u2',
+        meta: { missed_count: 2 },
+      });
+      // tasks_notify_assigned rings u2 on that UPDATE (089).
+      expect(fake.tables.notifications ?? []).toHaveLength(0);
+    });
+
+    it('keeps an assigned task with its holder', async () => {
+      await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+      await ingest(end('call-1', 'NO ANSWER'));
+      await ingest(ring('call-2', [inbound('ALERT'), ext('1002', 'RING')]));
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0].assigned_to).toBe('u1');
+      expect(fake.tables.notifications).toHaveLength(1);
+    });
+
+    it('a task already dealt with is not reopened: the next call opens one', async () => {
+      await ingest(end('call-1', 'NO ANSWER'));
+      fake.tables.tasks[0].status = 'done';
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks).toHaveLength(2);
+      expect(fake.tables.tasks[1].note).toBe(
+        'Missed call (no answer) on 97143334444.'
+      );
+    });
+
+    it("with no contact, fold on the caller's number only", async () => {
+      fake.tables.contacts = [];
+      await ingest(end('call-1', 'NO ANSWER'));
+      await ingest(end('call-2', 'NO ANSWER'));
+      await ingest(end('call-3', 'NO ANSWER', { call_from: '0507777777' }));
+      expect(fake.tables.tasks).toHaveLength(2);
+      expect(fake.tables.tasks[0].meta).toMatchObject({
+        remote_number: '971501234567',
+        missed_count: 2,
+      });
+      expect(fake.tables.tasks[1].meta).toMatchObject({
+        remote_number: '971507777777',
+        missed_count: 1,
+      });
+    });
   });
 
   it('keeps a bank number unrecorded while the workspace excludes them', async () => {

@@ -198,9 +198,22 @@ connection with no secret stored refuses every push. Optionally set
   call for the person to pick.
 - **Missed calls** (an inbound call that ends unanswered, busy,
   abandoned or in voicemail) open one _Call back_ task, due after the
-  workspace's missed-call delay, for the contact's owner, else the first
-  person it rang, and ring that person's bell. A ring-group call a
+  workspace's missed-call delay, and ring its holder's bell. The task
+  goes to a person the call rang (an active owner, admin, team leader
+  or agent of the workspace): the chat's assigned agent or the
+  contact's owner when the call rang them, else the first person it
+  rang. A call that rang nobody goes to the chat's assigned agent, else
+  stays unassigned (admins see it; no bell). It never goes to whoever
+  created or imported the contact merely for that. A ring-group call a
   colleague answered is not missed.
+- **Repeat missed calls** from the same caller (the same contact, else
+  the same number) while their _Call back_ task is still open fold into
+  that task: its note counts the calls ("3 missed calls, the latest …"),
+  `meta.call_ids` lists them, the due time stays, and no second task or
+  bell is made. If the task was unassigned and the new call rang
+  someone, it is handed to them, and the assignment bell rings once.
+  Once the task is done or cancelled, the next missed call opens a new
+  one.
 - **Who it rang.** Every person an inbound call rang is kept on the
   call (`calls.meta.rang_user_ids`, first rung first), gathered from
   each ringing frame, so it survives the screen pop going away. The

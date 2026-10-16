@@ -1,6 +1,7 @@
 import type { ConsentFields } from './call-ui';
 import type { SendOrigin } from '@/lib/whatsapp/send-origin';
 import { isMissedCall } from './call-status';
+import { foldedCallIds } from './missed-call';
 import type { SoftphoneState } from './linkus-state';
 
 // The customer page, the Calls page and the chat sidebar's CALLS rows
@@ -427,7 +428,11 @@ export interface TimelineTask {
   meta: Record<string, unknown> | null;
 }
 
-/** The task the PBX opened for this missed call (source_ref call:<id>). */
+/**
+ * The task the PBX opened for this missed call (source_ref call:<id>),
+ * or the open one a repeat call from the same caller folded into
+ * (meta.call_ids).
+ */
 export function missedTaskFor<T extends TimelineTask>(
   callId: string,
   tasks: T[]
@@ -436,7 +441,9 @@ export function missedTaskFor<T extends TimelineTask>(
     tasks.find(
       (t) =>
         t.kind === 'missed_call' &&
-        (t.meta?.call_id === callId || t.source_ref === `call:${callId}`)
+        (t.meta?.call_id === callId ||
+          t.source_ref === `call:${callId}` ||
+          foldedCallIds(t.meta).includes(callId))
     ) ?? null
   );
 }

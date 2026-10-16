@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createSystemTask, resolveTaskOwner } from '@/lib/tasks/system';
+import { createSystemTask } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/whatsapp/phone-utils';
 
 import { settleCallbackCall } from './callbacks';
+import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
 import { missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
 import {
@@ -893,49 +894,60 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
 
   // Only here: a ring-group call a colleague answered is not missed.
   if (!isMissedCallEnd(ev)) return;
-  let owner =
-    match.contactId || match.conversationId
-      ? await resolveTaskOwner(ctx.db, ws.accountId, {
-          contactId: match.contactId,
-          conversationId: match.conversationId,
-        })
-      : null;
-  if (!owner) {
-    const rung = rang;
-    if (rung.length) {
-      const { data, error } = await ctx.db
-        .from('profiles')
-        .select('user_id, account_role')
-        .eq('account_id', ws.accountId)
-        .in('user_id', rung)
-        .is('deactivated_at', null);
-      if (error) fail('profiles read', error);
-      const ok = new Set(
-        ((data ?? []) as { user_id: string; account_role: string }[])
-          .filter((p) => TASK_HOLDERS.includes(p.account_role))
-          .map((p) => p.user_id)
-      );
-      owner = rung.find((u) => ok.has(u)) ?? null;
-    }
-  }
-  let name = match.name;
+  const conversationId = match.contactId ? match.conversationId : null;
   let contact: Row | null = null;
-  if (match.contactId && (!name || settings.missed_call_whatsapp_draft)) {
+  if (match.contactId) {
     const c = await ctx.db
       .from('contacts')
-      .select('name, do_not_contact_at, do_not_contact_reason, opted_out_at')
+      .select(
+        'name, user_id, do_not_contact_at, do_not_contact_reason, opted_out_at'
+      )
       .eq('account_id', ws.accountId)
       .eq('id', match.contactId)
       .maybeSingle();
     if (c.error) fail('contacts read', c.error);
     contact = c.data as Row | null;
-    name = name || str(contact?.name);
   }
+  let assignedAgentId: string | null = null;
+  if (conversationId) {
+    const cv = await ctx.db
+      .from('conversations')
+      .select('assigned_agent_id')
+      .eq('account_id', ws.accountId)
+      .eq('id', conversationId)
+      .maybeSingle();
+    if (cv.error) fail('conversations read', cv.error);
+    assignedAgentId = str((cv.data as Row | null)?.assigned_agent_id);
+  }
+  // The people it rang, never the contact's creator (missed-call.ts).
+  const asked = unique([...rang, assignedAgentId]);
+  let holders = new Set<string>();
+  if (asked.length) {
+    const { data, error } = await ctx.db
+      .from('profiles')
+      .select('user_id, account_role')
+      .eq('account_id', ws.accountId)
+      .in('user_id', asked)
+      .is('deactivated_at', null);
+    if (error) fail('profiles read', error);
+    holders = new Set(
+      ((data ?? []) as { user_id: string; account_role: string }[])
+        .filter((p) => TASK_HOLDERS.includes(p.account_role))
+        .map((p) => p.user_id)
+    );
+  }
+  const owner = missedCallOwner({
+    rang,
+    holders,
+    assignedAgentId,
+    contactOwnerId: str(contact?.user_id),
+  });
+  const name = match.name || str(contact?.name);
   // The customer page offers its WhatsApp draft on the same terms: the
   // workspace's switch, a chat to draft in, no do-not-contact, no opt-out.
   const draftHint =
     !!contact &&
-    !!match.conversationId &&
+    !!conversationId &&
     missedDraftOffer(settings.missed_call_whatsapp_draft, {
       do_not_contact_at: str(contact.do_not_contact_at),
       do_not_contact_reason: str(contact.do_not_contact_reason),
@@ -948,19 +960,81 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
         ? remote.number
         : `+${remote.number}`
       : 'an unknown caller');
-  const title = `Call back ${who}`;
+  const noteFor = (count: number) =>
+    missedCallNote({
+      count,
+      status: ev.status,
+      didNumber: ws.didNumber,
+      hint: draftHint ? MISSED_DRAFT_HINT : null,
+    });
+
+  // A caller who rings again before anyone called back folds into the
+  // open task: on live every repeat opened a task and rang a bell.
+  // Matched on the contact, else on the number; a caller with neither
+  // opens a task per call. The open missed-call set is small, so no
+  // index: account, source, kind and status narrow it first.
+  const remoteNumber = remote?.number ?? null;
+  if (match.contactId || remoteNumber) {
+    let q = ctx.db
+      .from('tasks')
+      .select('id, assigned_to, meta')
+      .eq('account_id', ws.accountId)
+      .eq('source', 'pbx')
+      .eq('kind', 'missed_call')
+      .eq('status', 'open');
+    q = match.contactId
+      ? q.eq('contact_id', match.contactId)
+      : q.is('contact_id', null).eq('meta->>remote_number', remoteNumber);
+    const open = await q.order('created_at', { ascending: true }).limit(1);
+    if (open.error) fail('tasks read', open.error);
+    const held = ((open.data ?? []) as Row[])[0];
+    if (held) {
+      const ids = foldedCallIds(held.meta);
+      // A redelivered end under another hash: already counted.
+      if (ids.includes(callRowId)) return;
+      const callIds = [...ids, callRowId];
+      const folded = await ctx.db
+        .from('tasks')
+        .update({
+          note: noteFor(callIds.length),
+          meta: {
+            ...(isRecord(held.meta) ? held.meta : {}),
+            call_ids: callIds,
+            missed_count: callIds.length,
+          },
+          // Unassigned until someone's phone rang: they take it now, and
+          // tasks_notify_assigned (089) rings their bell on this UPDATE,
+          // so no call_missed bell of our own. The due time stays.
+          ...(!held.assigned_to && owner ? { assigned_to: owner } : {}),
+        })
+        .eq('account_id', ws.accountId)
+        .eq('id', String(held.id))
+        .eq('status', 'open')
+        .select('id');
+      if (folded.error) fail('tasks update', folded.error);
+      // Closed in the meantime: this call opens a task of its own.
+      if (((folded.data ?? []) as unknown[]).length) return;
+    }
+  }
+
   const task = await createSystemTask(ctx.db, {
     accountId: ws.accountId,
     kind: 'missed_call',
-    title,
-    note: `Missed call (${ev.status.toLowerCase()})${ws.didNumber ? ` on ${ws.didNumber}` : ''}.${draftHint ? ` ${MISSED_DRAFT_HINT}` : ''}`,
+    title: `Call back ${who}`,
+    note: noteFor(1),
     contactId: match.contactId,
-    conversationId: match.contactId ? match.conversationId : null,
+    conversationId,
     assignedTo: owner,
     dueAt: plusSeconds(ctx.receivedAt, settings.missed_call_due_minutes * 60),
     source: 'pbx',
     sourceRef: `call:${callRowId}`,
-    meta: { call_id: callRowId, did_number: ws.didNumber },
+    meta: {
+      call_id: callRowId,
+      call_ids: [callRowId],
+      missed_count: 1,
+      did_number: ws.didNumber,
+      remote_number: remoteNumber,
+    },
   });
   if (!task.created || !owner) return;
   const bell = await ctx.db.from('notifications').insert({
@@ -968,7 +1042,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     user_id: owner,
     type: 'call_missed',
     contact_id: match.contactId,
-    conversation_id: match.contactId ? match.conversationId : null,
+    conversation_id: conversationId,
     actor_user_id: null,
     title: `Missed call: ${who}`,
     body: null,

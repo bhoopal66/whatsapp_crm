@@ -21,7 +21,11 @@ and a deal of the same account.
   (`automation`). `created_by` stays empty. `resolveTaskOwner` assigns
   the task to the person the chat is assigned to, else the contact's
   owner, whichever is an active owner, admin, team leader or agent;
-  otherwise the task is left unassigned. `closeSystemTasks` marks the
+  otherwise the task is left unassigned. Missed calls have their own
+  rule (`missedCallOwner`, `src/lib/pbx/missed-call.ts`): a person the
+  call rang, else the chat's assigned agent, else unassigned, never the
+  contact's creator; a repeat missed call folds into the caller's open
+  task (see `docs/yeastar.md`). `closeSystemTasks` marks the
   module's open task done once the event is dealt with.
 
 ## Dedupe by source reference
@@ -75,7 +79,9 @@ Assigning a task to someone else, on creation or later, sends them a
 one, its due time in UTC. Assigning a task to yourself sends nothing; a
 task a module assigns always notifies — except the phone system's
 missed-call task when it is opened, because the call's own `call_missed`
-bell already carries it (reassigning that task later still rings). A
+bell already carries it (reassigning that task later still rings, and
+so does a repeat missed call that hands an unassigned one to the person
+it rang: that call rings no `call_missed` bell of its own). A
 notification that fails to write never undoes the task.
 
 ## REST contract

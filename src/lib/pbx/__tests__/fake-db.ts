@@ -42,7 +42,9 @@ function field(r: Row, c: string): unknown {
 
 export function createFakeDb(
   tables: Record<string, Row[]> = {},
-  rpcs: Record<string, Rpc> = {}
+  rpcs: Record<string, Rpc> = {},
+  /** Column defaults per table, as the schema's DEFAULTs fill an insert. */
+  defaults: Record<string, Row> = {}
 ): FakeDb {
   const failures = new Map<string, DbError>();
   const log: FakeDb['log'] = [];
@@ -208,7 +210,11 @@ export function createFakeDb(
             Object.assign(existing, item);
             return [existing];
           }
-          const row = { id: crypto.randomUUID(), ...item };
+          const row = {
+            id: crypto.randomUUID(),
+            ...defaults[this.table],
+            ...item,
+          };
           rows.push(row);
           return [row];
         });

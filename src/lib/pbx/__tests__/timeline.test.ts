@@ -220,6 +220,9 @@ describe('tasks', () => {
   it('finds the missed call task and words its strip', () => {
     expect(missedTaskFor('c2', [task])).toBe(task);
     expect(missedTaskFor('c1', [task])).toBeNull();
+    // A repeat call folded into the task finds it too.
+    const folded = { ...task, meta: { call_id: 'c2', call_ids: ['c2', 'c3'] } };
+    expect(missedTaskFor('c3', [folded])).toBe(folded);
     expect(say(taskStrip(task, 'Sara', TZ))).toBe(
       'Task for Sara: call back by 12:10'
     );
