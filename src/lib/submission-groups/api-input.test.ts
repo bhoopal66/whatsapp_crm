@@ -278,6 +278,7 @@ describe('serializeGroup', () => {
       pending: true,
       refused_participants: [],
       invite_sent: false,
+      invite_sent_at: null,
       error: 'later',
     });
     expect(out.access).toEqual([
@@ -296,5 +297,11 @@ describe('serializeGroup', () => {
     const out = serializeGroup(ended as SubmissionGroup, []);
     expect(out.whatsapp.pending).toBe(false);
     expect(out.ended_at).toBe('2026-10-17T00:00:00.000Z');
+  });
+
+  it('carries when the 1:1 invite link went out (118)', () => {
+    const sent = { ...group, inviteSentAt: new Date('2026-10-16T10:01:00Z') };
+    const out = serializeGroup(sent as SubmissionGroup, []);
+    expect(out.whatsapp.invite_sent_at).toBe('2026-10-16T10:01:00.000Z');
   });
 });

@@ -33,6 +33,7 @@ import {
   canRetryCreate,
   endReasonView,
   groupBanners,
+  inviteNotice,
   SEND_TEXT_MAX,
   sendErrorKey,
   sentAsPreview,
@@ -270,6 +271,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
   const { group } = detail;
   const ended = group.status === 'ENDED';
   const banners = groupBanners(group);
+  const invite = inviteNotice(group);
   const reason = endReasonView(group.end_reason);
   const myName =
     detail.access.find((a) => a.user_id === user?.id)?.name ??
@@ -326,6 +328,19 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
               .filter(Boolean)
               .join(' · ')}
           </p>
+          {invite && (
+            <p
+              className={
+                invite.key === 'failed'
+                  ? 'text-destructive mt-0.5 text-xs'
+                  : 'text-muted-foreground mt-0.5 text-xs'
+              }
+            >
+              {invite.key === 'sent'
+                ? t('inviteSent', { when: dateLabel(invite.at) })
+                : t('inviteFailed')}
+            </p>
+          )}
           {ended && (
             <p className="text-muted-foreground mt-0.5 text-xs">
               {t('endedOn', { when: dateLabel(group.ended_at) })}

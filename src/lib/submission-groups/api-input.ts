@@ -319,6 +319,9 @@ export function serializeGroup(
       pending: group.waGroupId === null && group.status === 'ACTIVE',
       refused_participants: [...(extras.refusedParticipants ?? [])],
       invite_sent: extras.inviteSent ?? false,
+      invite_sent_at: group.inviteSentAt
+        ? group.inviteSentAt.toISOString()
+        : null,
       ...(extras.error ? { error: extras.error } : {}),
     },
     access: access.map((a) => ({

@@ -40,6 +40,8 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup => ({
   waCreateError: null,
   waClosedAt: null,
   waCloseError: null,
+  inviteSentAt: null,
+  inviteSendError: null,
   ...over,
 });
 
@@ -89,6 +91,7 @@ describe('GET /api/v1/submission-groups/{submission_id}', () => {
         pending: false,
         refused_participants: [],
         invite_sent: false,
+        invite_sent_at: null,
       },
       access: [{ user_id: 'u-agent', label: 'agent' }],
       created_at: '2026-10-16T10:00:00.000Z',

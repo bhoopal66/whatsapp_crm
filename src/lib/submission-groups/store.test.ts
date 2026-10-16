@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 
-import { SubmissionGroupDbError, SubmissionGroupStore } from './store';
+import { SubmissionGroupDbError, SubmissionGroupStore, toGroup } from './store';
 
 const failing = (code: string | undefined) =>
   new SubmissionGroupStore({
@@ -23,5 +23,39 @@ describe('SubmissionGroupStore RPC errors', () => {
       .accessRemove('g', 'u')
       .catch((e: unknown) => e);
     expect((err as SubmissionGroupDbError).code).toBeNull();
+  });
+});
+
+describe('the 1:1 invite (118)', () => {
+  it('noteInvite calls sg_note_invite and answers its boolean', async () => {
+    const calls: [string, unknown][] = [];
+    const store = new SubmissionGroupStore({
+      rpc: async (fn: string, args: unknown) => {
+        calls.push([fn, args]);
+        return { data: false, error: null };
+      },
+    } as unknown as SupabaseClient);
+    expect(await store.noteInvite('g1', false, 'gateway down')).toBe(false);
+    expect(calls).toEqual([
+      [
+        'sg_note_invite',
+        { p_group: 'g1', p_sent: false, p_error: 'gateway down' },
+      ],
+    ]);
+  });
+
+  it('toGroup reads invite_sent_at and invite_send_error', () => {
+    const g = toGroup({
+      id: 'g1',
+      account_id: 'a',
+      submission_ref: 'S',
+      status: 'ACTIVE',
+      created_at: '2026-10-16T10:00:00Z',
+      last_activity_at: '2026-10-16T10:00:00Z',
+      invite_sent_at: '2026-10-16T10:05:00Z',
+      invite_send_error: null,
+    });
+    expect(g.inviteSentAt).toEqual(new Date('2026-10-16T10:05:00Z'));
+    expect(g.inviteSendError).toBeNull();
   });
 });

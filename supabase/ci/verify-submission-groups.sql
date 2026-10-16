@@ -1,4 +1,5 @@
--- Behavioural regression suite for Submission Groups (migration 115).
+-- Behavioural regression suite for Submission Groups (migrations 115,
+-- 118).
 --
 -- A submission group's identity (id, account_id, submission_ref,
 -- contact_id, channel_id) never changes; wa_group_id is attached once,
@@ -12,7 +13,8 @@
 -- audited sg_read_archive. This asserts those rules, the access-list
 -- and hosting-number guards, the append-only audit, that neither a
 -- client nor the service role writes any table directly, and what an
--- authenticated reader sees.
+-- authenticated reader sees. 118: the 1:1 invite's outcome is written
+-- only through sg_note_invite, and only on an ACTIVE group.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -46,6 +48,7 @@ DECLARE
   cb        UUID;
   g1        UUID;  -- A, ended below
   g2        UUID;  -- A, stays ACTIVE
+  last_inv  timestamptz;  -- g1's invite_sent_at when it ended
   gb        UUID;  -- B, ACTIVE
   tok       UUID;
   e_at      TIMESTAMPTZ;
@@ -399,6 +402,34 @@ BEGIN
      OR (SELECT submission_status FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'UNDER_REVIEW' THEN
     failed := failed || 'sg_note_submission_status did not record the status on an ACTIVE group'::text;
   END IF;
+  -- 118: the 1:1 invite link's outcome, recorded only through sg_note_invite.
+  n := n + 1;
+  r := pg_temp.sg_try('authenticated', u_owner, format('SELECT sg_note_invite(%L, true, NULL)::text', g1));
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := failed || format('a signed-in user ran sg_note_invite (%s)', r); END IF;
+  n := n + 1;
+  r := pg_temp.sg_try('service_role', NULL, format('UPDATE submission_groups SET invite_sent_at = now() WHERE id = %L', g1));
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := failed || format('service role wrote invite_sent_at directly (%s)', r); END IF;
+  n := n + 1;
+  r := pg_temp.sg_try('service_role', NULL, format('SELECT sg_note_invite(%L, false, repeat(''e'', 600))::text', g1));
+  IF r IS DISTINCT FROM 'true'
+     OR (SELECT invite_sent_at FROM submission_groups WHERE id = g1) IS NOT NULL
+     OR (SELECT char_length(invite_send_error) FROM submission_groups WHERE id = g1) IS DISTINCT FROM 500 THEN
+    failed := failed || format('sg_note_invite did not record a failed invite on an ACTIVE group, capped (%s)', r);
+  END IF;
+  n := n + 1;
+  r := sg_note_invite(g1, true, NULL)::text;
+  IF r IS DISTINCT FROM 'true'
+     OR (SELECT invite_sent_at FROM submission_groups WHERE id = g1) IS NULL
+     OR (SELECT invite_send_error FROM submission_groups WHERE id = g1) IS NOT NULL THEN
+    failed := failed || 'sg_note_invite did not stamp a sent invite and clear the error on an ACTIVE group'::text;
+  END IF;
+  n := n + 1;
+  r := sg_note_invite(g1, false, '  ')::text;
+  IF r IS DISTINCT FROM 'true'
+     OR (SELECT invite_sent_at FROM submission_groups WHERE id = g1) IS NULL
+     OR (SELECT invite_send_error FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'unknown error' THEN
+    failed := failed || 'a later failed invite cleared invite_sent_at or kept a blank error'::text;
+  END IF;
   n := n + 1;
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
      AND (SELECT count(*) FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
@@ -417,6 +448,17 @@ BEGIN
   IF r IS DISTINCT FROM 'false'
      OR (SELECT submission_status FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'UNDER_REVIEW' THEN
     failed := failed || 'sg_note_submission_status changed an ENDED group'::text;
+  END IF;
+  n := n + 1;
+  SELECT invite_sent_at INTO last_inv FROM submission_groups WHERE id = g1;
+  IF sg_note_invite(g1, true, NULL) IS DISTINCT FROM false
+     OR sg_note_invite(g1, false, 'late') IS DISTINCT FROM false THEN
+    failed := failed || 'sg_note_invite did not answer false on an ENDED group'::text;
+  END IF;
+  n := n + 1;
+  IF (SELECT invite_sent_at FROM submission_groups WHERE id = g1) IS DISTINCT FROM last_inv
+     OR (SELECT invite_send_error FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'unknown error' THEN
+    failed := failed || 'sg_note_invite changed an ENDED group'::text;
   END IF;
   n := n + 1;
   IF (SELECT count(*) FROM submission_group_access WHERE group_id = g1 AND removed_at IS NULL) <> 0

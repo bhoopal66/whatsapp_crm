@@ -49,7 +49,10 @@ When the case reaches a final status the app reports it with `PATCH
 If WhatsApp refuses to add the customer (privacy settings), the group
 still exists and the group's invite link is sent to them 1:1 from the
 hosting number. That invite is the one message this module sends without
-storing it: it appears neither in the group's log nor in the inbox.
+storing it: it appears neither in the group's log nor in the inbox. Its
+outcome is recorded on the group (migration 118): `invite_sent_at` when it
+went out, or the reason it failed, and the group page's header shows
+"Invite link sent to the customer" or "Invite link could not be sent".
 
 ## The access list and labels
 
@@ -136,4 +139,8 @@ and the WhatsApp close is not attempted.
   TypeSafe; opt-outs there are recorded by a person.
 - Delivery and read receipts for group sends are **not tracked**; a send
   is `sent` once Whapi accepts it.
+- The 1:1 invite link is recorded only as `invite_sent_at` (or the
+  failure reason); its text is not stored. A later failed attempt keeps
+  the earlier `invite_sent_at`, and nothing records whether the customer
+  then joined.
 - Text only.

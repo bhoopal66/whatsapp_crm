@@ -442,7 +442,8 @@ automatically.
       "invite_link": "https://chat.whatsapp.com/…",
       "pending": false,
       "refused_participants": [],
-      "invite_sent": false
+      "invite_sent": false,
+      "invite_sent_at": null
     },
     "access": [
       { "email": "agent@example.com", "user_id": "…", "label": "agent" },
@@ -456,7 +457,9 @@ automatically.
 
 `refused_participants` lists numbers WhatsApp would not add;
 `invite_sent` is `true` when the customer was refused and the invite link
-was sent to them 1:1. Errors: `400 bad_request`; `409 consent_required`
+was sent to them 1:1 by this call; `invite_sent_at` is when the invite
+link went out (recorded on the group, so `GET` and `PATCH` return it too;
+`null` when none was sent). Errors: `400 bad_request`; `409 consent_required`
 (the customer opted out or is do-not-contact); `422 unknown_user` (the
 message names the field), `duplicate_user`, `no_whapi_number`,
 `channel_not_allowed`.

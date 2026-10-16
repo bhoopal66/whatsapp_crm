@@ -29,6 +29,10 @@ export interface SubmissionGroup {
   waCreateError: string | null;
   waClosedAt: Date | null;
   waCloseError: string | null;
+  /** When the invite link last went out 1:1 to a customer WhatsApp refused to add (118). */
+  inviteSentAt: Date | null;
+  /** Why the last 1:1 invite send failed; cleared by a later success. */
+  inviteSendError: string | null;
 }
 
 /** 'out' rows only (null for 'in'). Only "sent" reached the customer. */
@@ -63,7 +67,7 @@ export interface ConsentAnswer {
 }
 
 export const GROUP_COLUMNS =
-  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error';
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error';
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string | null =>
@@ -91,6 +95,8 @@ export function toGroup(r: Row): SubmissionGroup {
     waCreateError: str(r.wa_create_error),
     waClosedAt: date(r.wa_closed_at),
     waCloseError: str(r.wa_close_error),
+    inviteSentAt: date(r.invite_sent_at),
+    inviteSendError: str(r.invite_send_error),
   };
 }
 
@@ -446,9 +452,7 @@ export class SubmissionGroupStore {
   }
 
   /** A message's send state; null if there is no such row. */
-  async sendState(
-    messageId: string
-  ): Promise<{
+  async sendState(messageId: string): Promise<{
     sendStatus: SendStatus | null;
     waMessageId: string | null;
   } | null> {
@@ -507,6 +511,21 @@ export class SubmissionGroupStore {
     return (
       (await this.rpc('sg_record_wa_close_error', {
         p_group: groupId,
+        p_error: error,
+      })) === true
+    );
+  }
+
+  /** Records the 1:1 invite send's outcome; false when the group is not ACTIVE. */
+  async noteInvite(
+    groupId: string,
+    sent: boolean,
+    error: string | null
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_note_invite', {
+        p_group: groupId,
+        p_sent: sent,
         p_error: error,
       })) === true
     );

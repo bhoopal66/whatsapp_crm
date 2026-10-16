@@ -47,6 +47,8 @@ const group = (over: Record<string, unknown>) => ({
   wa_create_error: null,
   wa_closed_at: null,
   wa_close_error: null,
+  invite_sent_at: null,
+  invite_send_error: null,
   ...over,
 });
 

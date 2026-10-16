@@ -203,6 +203,8 @@ export function toDetailGroup(group: SubmissionGroup, refs: ItemRefs) {
     wa_create_error: group.waCreateError,
     wa_close_error: group.waCloseError,
     wa_closed_at: iso(group.waClosedAt),
+    invite_sent_at: iso(group.inviteSentAt),
+    invite_send_error: group.inviteSendError,
   };
 }
 

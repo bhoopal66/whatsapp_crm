@@ -33,6 +33,8 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup => ({
   waCreateError: null,
   waClosedAt: null,
   waCloseError: null,
+  inviteSentAt: null,
+  inviteSendError: null,
   ...over,
 });
 

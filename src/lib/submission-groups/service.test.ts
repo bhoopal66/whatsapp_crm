@@ -59,6 +59,8 @@ class FakeStore implements GroupStore {
       waCreateError: null,
       waClosedAt: null,
       waCloseError: null,
+      inviteSentAt: null,
+      inviteSendError: null,
     });
     for (const a of i.access)
       this.access.push({ groupId: id, ...a, removed: false });

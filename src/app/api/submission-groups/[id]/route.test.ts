@@ -46,6 +46,8 @@ const groupRow = (over: Record<string, unknown> = {}) => ({
   wa_create_error: null,
   wa_closed_at: null,
   wa_close_error: null,
+  invite_sent_at: '2026-10-01T10:01:00.000Z',
+  invite_send_error: null,
   ...over,
 });
 
@@ -179,6 +181,8 @@ describe('GET /api/submission-groups/[id]', () => {
       wa_create_error: null,
       wa_close_error: null,
       wa_closed_at: null,
+      invite_sent_at: '2026-10-01T10:01:00.000Z',
+      invite_send_error: null,
     });
     expect(body.access).toEqual([
       {
