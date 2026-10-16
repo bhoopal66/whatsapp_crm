@@ -443,6 +443,25 @@ function ResultView({
             <p className="text-xs">{t('resultInviteNote')}</p>
           </section>
         )}
+        {summary.skipped.length > 0 && (
+          <section className="text-muted-foreground space-y-1">
+            <h3 className="text-foreground font-semibold">
+              {t('resultSkipped', { count: summary.skipped.length })}
+            </h3>
+            <ul className="space-y-0.5">
+              {summary.skipped.map((p) => (
+                <li key={p.waId} className="truncate">
+                  {`${label(p)} · ${t(
+                    p.reason === 'do_not_contact'
+                      ? 'skippedDoNotContact'
+                      : 'skippedOptedOut'
+                  )}`}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs">{t('resultSkippedNote')}</p>
+          </section>
+        )}
         {summary.invalid.length > 0 && (
           <section className="text-destructive space-y-1">
             <h3 className="font-semibold">

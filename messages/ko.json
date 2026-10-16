@@ -5943,6 +5943,10 @@
       "resultInvalid": "WhatsApp 번호 아님 ({count})",
       "resultInviteNote": "WhatsApp에서 이 사람들을 직접 추가하지 못했습니다. 그룹의 초대 탭에서 초대 링크를 보내세요.",
       "resultNotAttempted": "시도하지 않음",
+      "resultSkipped": "제외됨 ({count})",
+      "resultSkippedNote": "수신 거부했거나 연락 금지로 표시되어 추가하거나 초대하지 않았습니다.",
+      "skippedOptedOut": "수신 거부",
+      "skippedDoNotContact": "연락 금지",
       "resultNone": "아직 아무도 추가되지 않았습니다. 그룹의 초대 탭에서 초대 링크를 보내세요.",
       "openGroup": "그룹 열기",
       "done": "완료"
@@ -6004,11 +6008,11 @@
         "not_found": "찾을 수 없습니다.",
         "unavailable": "문제가 발생했습니다. 잠시 후 다시 시도하세요.",
         "invalid_body": "메시지를 보낼 수 없습니다. 내용을 확인하고 다시 시도하세요.",
+        "time_budget": "시간 제한 전에 중단했습니다. 나머지는 다시 시도하거나 초대 링크를 보내세요.",
         "unknown": "문제가 발생했습니다. 다시 시도하세요."
       },
       "membersTab": {
         "search": "멤버 검색",
-        "time_budget": "시간 제한 전에 중단했습니다. 나머지는 다시 시도하거나 초대 링크를 보내세요.",
         "searchLabel": "이름 또는 번호로 멤버 검색",
         "none": "아직 멤버가 없습니다.",
         "noMatches": "검색 결과가 없습니다.",
