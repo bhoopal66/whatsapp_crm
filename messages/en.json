@@ -65,7 +65,8 @@
     "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}",
     "meetings": "Meetings",
     "calendar": "Calendar",
-    "whatsappGroups": "WhatsApp groups"
+    "whatsappGroups": "WhatsApp groups",
+    "submissionGroups": "Submission groups"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -95,7 +96,9 @@
     "compass": "Compass",
     "customer": "Customer",
     "whatsappGroups": "WhatsApp groups",
-    "whatsappGroup": "WhatsApp group"
+    "whatsappGroup": "WhatsApp group",
+    "submissionGroups": "Submission groups",
+    "submissionGroup": "Submission group"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -6156,6 +6159,136 @@
         "saved": "Managers updated.",
         "loadFailed": "Couldn't load the managers."
       }
+    }
+  },
+  "SubmissionGroups": {
+    "title": "Submission groups",
+    "subtitle": "One WhatsApp group per submitted case. Everything you send goes out as \"Name (Label): text\".",
+    "tabs": {
+      "active": "Active",
+      "ended": "Ended"
+    },
+    "search": "Search by reference, subject or customer",
+    "loadFailed": "Could not load submission groups.",
+    "retry": "Try again",
+    "noMatches": "No groups match \"{query}\".",
+    "emptyActiveTitle": "No active groups",
+    "emptyActiveBody": "Groups appear here when a case is submitted and you are on its access list.",
+    "emptyEndedTitle": "No ended groups",
+    "emptyEndedBody": "A group moves here when its case closes.",
+    "loadMore": "Load more",
+    "justNow": "just now",
+    "endedAt": "Ended {when}",
+    "pendingBadge": "Setting up",
+    "archiveBadge": "Archive",
+    "contactRemoved": "Customer deleted",
+    "numberRemoved": "Number removed",
+    "labels": {
+      "agent": "Agent",
+      "coordinator": "Coordinator",
+      "team_lead": "Team Lead"
+    },
+    "chat": {
+      "someone": "Someone",
+      "attachment": "Attachment",
+      "afterEnd": "after end",
+      "kind": {
+        "customer": "Customer",
+        "coordinator": "Coordinator",
+        "other": "Other"
+      },
+      "status": {
+        "pending": "Sending",
+        "sent": "Sent",
+        "failed": "Failed",
+        "blocked": "Blocked"
+      }
+    },
+    "people": {
+      "title": "People",
+      "hint": "Staff on this list read and write the group.",
+      "empty": "Nobody is on the list yet.",
+      "unknown": "Unknown member",
+      "labelFor": "Label for {name}",
+      "remove": "Remove {name}",
+      "add": "Add a person",
+      "person": "Person",
+      "pickPerson": "Choose a staff member…",
+      "label": "Label",
+      "addButton": "Add",
+      "saveFailed": "Could not save the access list.",
+      "removeFailed": "Could not remove this person.",
+      "removeTitle": "Remove from the group?",
+      "removeBody": "{name} will no longer read or write this group.",
+      "removeConfirm": "Remove",
+      "cancel": "Cancel"
+    },
+    "page": {
+      "back": "Submission groups",
+      "notFound": "This group does not exist or was removed.",
+      "forbidden": "You are not on this group's access list.",
+      "loadFailed": "Could not load this group.",
+      "retry": "Try again",
+      "statusActive": "Active",
+      "statusEnded": "Ended",
+      "you": "You: {label}",
+      "customer": "Customer: {name}",
+      "number": "Number: {name}",
+      "numberRemoved": "Number removed",
+      "contactRemoved": "deleted",
+      "submissionStatus": "Status: {status}",
+      "endedOn": "Ended {when}",
+      "endReason": {
+        "finalStatus": "case reached {status}",
+        "idle": "no activity",
+        "manual": "ended by an admin",
+        "other": "{reason}"
+      },
+      "retryCreate": "Retry create",
+      "endGroup": "End group",
+      "banners": {
+        "pending": "The WhatsApp group is being created. You can send once it is ready.",
+        "createError": "The WhatsApp group could not be created.",
+        "closeError": "The group ended, but closing it on WhatsApp failed.",
+        "numberRemoved": "The WhatsApp number hosting this group was removed. Nobody can send.",
+        "contactRemoved": "The customer contact of this group was deleted."
+      },
+      "archiveViewing": "Archive, read-only. Your view was logged.",
+      "endedTitle": "This group has ended",
+      "endedArchiveBody": "Nobody can send any more. Its messages open only in the archive view.",
+      "endedNoArchive": "Nobody can send any more, and its archive is not open to you.",
+      "viewArchive": "View archive",
+      "archiveLogged": "Opening the archive is logged.",
+      "archiveTitle": "Open the archive?",
+      "archiveBody": "Every archive view is logged with your name and the time.",
+      "archiveFailed": "Could not open the archive.",
+      "archiveForbidden": "The archive is not open to you.",
+      "empty": "No messages yet.",
+      "sentAs": "Sent as: {who}",
+      "cannotSend": "You can read this group but not send to it.",
+      "placeholder": "Write a message",
+      "send": "Send",
+      "sendErrors": {
+        "optedOut": "Not sent: the customer opted out.",
+        "doNotContact": "Not sent: the customer is marked do not contact.",
+        "blocked": "Not sent: sending to this customer is blocked.",
+        "notReady": "Not sent: the group cannot take messages right now.",
+        "notAllowed": "You can't send to this group.",
+        "notFound": "This group no longer exists.",
+        "rateLimited": "You are sending too fast. Wait a minute.",
+        "gateway": "WhatsApp did not take the message.",
+        "tooLong": "The message is empty or too long.",
+        "unknown": "The message could not be sent."
+      },
+      "endTitle": "End this group?",
+      "endBody": "Group {ref} ends now: nobody can send, and its messages open only through the logged archive.",
+      "endDone": "Group ended.",
+      "endFailed": "Could not end the group.",
+      "retryTitle": "Retry creating the WhatsApp group?",
+      "retryBody": "We will ask WhatsApp to create the group again.",
+      "retryDone": "Asked WhatsApp to create the group again.",
+      "retryFailed": "Could not retry.",
+      "cancel": "Cancel"
     }
   }
 }

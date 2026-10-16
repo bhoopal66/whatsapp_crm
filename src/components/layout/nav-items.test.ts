@@ -33,7 +33,12 @@ const EVERYONE = [
 ];
 
 /** The opening group for an agent and up: Journeys (module 016) is agent+. */
-const STAFF = [...EVERYONE, '/journeys'];
+const STAFF = [
+  ...EVERYONE.slice(0, 4),
+  '/submission-groups',
+  ...EVERYONE.slice(4),
+  '/journeys',
+];
 
 const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
 
