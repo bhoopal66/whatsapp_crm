@@ -22,6 +22,13 @@ the group's own message log, which stays out of the inbox, flows,
 automations and the AI. Owners and admins see every group; others see
 the groups they created or manage, and team leaders their team's.
 
+The Groups screen (`/groups`) creates a group from a Whapi number and
+runs it: chat, members (adds paced at 5 per call, 3 s apart, 50 per
+operation, with the invite link as the fallback; opted-out contacts are
+skipped), settings and picture (JPEG/PNG up to 2 MB), the invite link,
+join requests with a bell for managers, and a Managers tab. See
+`docs/whatsapp-groups.md`.
+
 Routes for a group's managers (`GET`/`PUT .../managers`), its picture
 (`GET`/`PUT`/`DELETE .../icon`) and its own chat (`GET`/`POST
 .../messages`, at most 20 sends a minute per group).

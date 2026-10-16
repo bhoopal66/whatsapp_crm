@@ -962,6 +962,21 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   those calls through `GET /api/pbx/calls?scope=unrouted`; its per-number
   summary covers 30 days.
 
+### WhatsApp groups (`lib/groups/*`, migration 114)
+
+Groups on a Whapi number, at `/groups`. `docs/whatsapp-groups.md` is the contract.
+
+- **Separate tables** (groups, participants, managers, invite link, the
+  group's own message log): group traffic never enters `messages`, so the
+  inbox, flows, automations, AI and webhooks never see it.
+- **Writes go through the routes** (`/api/whatsapp/groups/*`) on the
+  service role, after an RLS-client check of the caller (`loadGroupForCaller`).
+- **Access lives twice:** the SQL predicates and `lib/groups/access.ts`;
+  change one, change both. `verify-whatsapp-groups.sql` asserts the SQL.
+- **Inbound** (webhook events, join requests, bells) is `lib/groups/inbound.ts`.
+- **Pacing** is anti-ban: 5 adds per call, 3 s apart, 50 per operation,
+  invite-link fallback; opted-out contacts are skipped; 20 sends/min/group.
+
 ### Video meetings (`lib/meetings/*`, migration 106)
 
 Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
@@ -1257,6 +1272,6 @@ fails if one is wired to plain `t()`.
   behaviour is documented in `docs/` — `whapi.md`, `meta-cloud-api.md`,
   `docker.md`, `public-api.md`, `mcp.md`, `campaign-journeys.md`,
   `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`,
-  `meetings.md`.
+  `meetings.md`, `whatsapp-groups.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

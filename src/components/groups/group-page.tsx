@@ -36,7 +36,9 @@ import {
 
 import { ChatTab } from './group/chat-tab';
 import { InviteTab } from './group/invite-tab';
+import { ManagersTab } from './group/managers-tab';
 import { MembersTab } from './group/members-tab';
+import { fetchJoinRequests, RequestsTab } from './group/requests-tab';
 import { SettingsTab } from './group/settings-tab';
 
 /** The GET /api/whatsapp/groups/[id] answer, as later tabs read it. */
@@ -87,6 +89,7 @@ export function GroupPage({
   const [refreshing, setRefreshing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [iconOk, setIconOk] = useState(true);
+  const [pendingRequests, setPendingRequests] = useState(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -129,19 +132,32 @@ export function GroupPage({
     void reload();
   }, [reload]);
 
+  // The pending count drives the tab's visibility and badge, so it is read
+  // here once rather than only when the tab is open (bell deep links).
+  const requestsBlocked = detail ? detail.blocks.join_requests : 'loading';
+  useEffect(() => {
+    if (!detail || requestsBlocked !== null || !detail.canManage) return;
+    let live = true;
+    void fetchJoinRequests(groupId).then((list) => {
+      if (live && list) setPendingRequests(list.length);
+    });
+    return () => {
+      live = false;
+    };
+  }, [detail, requestsBlocked, groupId]);
+
   const tabs = useMemo(
     () =>
       detail
         ? visibleTabs({
             settings: parseGroupSettings(detail.group.settings),
-            // Filled in by the Requests tab's job.
-            pendingRequests: 0,
+            pendingRequests,
             canEditManagers:
               (!!accountRole && canEditSettings(accountRole)) ||
               detail.group.created_by === user?.id,
           })
         : [],
-    [detail, accountRole, user?.id]
+    [detail, accountRole, user?.id, pendingRequests]
   );
   const activeTab: GroupTab = tabs.includes(tab) ? tab : 'chat';
 
@@ -322,6 +338,11 @@ export function GroupPage({
           {tabs.map((name) => (
             <TabsTrigger key={name} value={name}>
               {t(`tabs.${name}`)}
+              {name === 'requests' && pendingRequests > 0 && (
+                <Badge variant="secondary" className="ml-1.5">
+                  {pendingRequests}
+                </Badge>
+              )}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -341,8 +362,18 @@ export function GroupPage({
         <TabsContent value="invite" className="min-h-0 flex-1 overflow-y-auto">
           <InviteTab {...tabProps} />
         </TabsContent>
-        <TabsContent value="requests" />
-        <TabsContent value="managers" />
+        <TabsContent
+          value="requests"
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <RequestsTab {...tabProps} onCount={setPendingRequests} />
+        </TabsContent>
+        <TabsContent
+          value="managers"
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <ManagersTab {...tabProps} />
+        </TabsContent>
       </Tabs>
 
       <ConfirmDialog

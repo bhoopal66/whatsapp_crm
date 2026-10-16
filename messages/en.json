@@ -6106,6 +6106,25 @@
         "reasonOverLimit": "over the limit for one go",
         "reasonInvalid": "not a valid WhatsApp number",
         "blockedHint": "Can't be used right now: {reason}"
+      },
+      "requestsTab": {
+        "empty": "Nobody is asking to join right now.",
+        "requested": "Asked {when}",
+        "approve": "Approve",
+        "reject": "Reject",
+        "approved": "Approved. They are in the group.",
+        "rejected": "Request rejected.",
+        "failed": "WhatsApp couldn't record that decision. Try again.",
+        "loadFailed": "Couldn't load the join requests."
+      },
+      "managersTab": {
+        "about": "Managers can see and work this group (chat, members, invites, requests) without being owners or admins.",
+        "creator": "Creator",
+        "unnamed": "Unnamed",
+        "creatorKept": "The creator always stays a manager.",
+        "save": "Save managers",
+        "saved": "Managers updated.",
+        "loadFailed": "Couldn't load the managers."
       }
     }
   }
