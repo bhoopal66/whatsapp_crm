@@ -47,7 +47,9 @@ When the case reaches a final status the app reports it with `PATCH
 - optionally the **coordinator's own phone** (`coordinator_phone`).
 
 If WhatsApp refuses to add the customer (privacy settings), the group
-still exists and the group's invite link is sent to them 1:1.
+still exists and the group's invite link is sent to them 1:1 from the
+hosting number. That invite is the one message this module sends without
+storing it: it appears neither in the group's log nor in the inbox.
 
 ## The access list and labels
 
@@ -71,9 +73,12 @@ received`. Staff cannot send as themselves.
 | **ACTIVE** | anyone on the open access list; owners and admins of the workspace | anyone on the open list (an admin only if on it) |
 | **ENDED** | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody |
 
-Agents never read an ENDED group. An ENDED group is read only through the
-archive view, and **every archive view is written to an audit log first**
-(who, when, which window); a refused view writes nothing. Messages that
+Agents never read an ENDED group. An ENDED group's **messages** are read
+only through the archive view, and **every archive view is written to an
+audit log first** (who, when, which window); a refused view writes
+nothing. Its details (submission id, customer, final status, the access
+list at the end) stay listed, without an audit entry, for the same people
+who may open its archive. Messages that
 arrive after the end are kept but hidden from every live read.
 
 ## Ending
@@ -87,16 +92,16 @@ ended group never reopens.
 
 After the end the number removes every other participant and then leaves
 the group. A participant that WhatsApp shows only as a hidden `@lid`
-cannot be removed; the close is then retried and the failure is recorded
-on the group. A PATCH answer reports `closed` or `close_deferred` (a send
+cannot be removed and stays in the group after our number leaves. A PATCH answer reports `closed` or `close_deferred` (a send
 was still in flight; the next call or the cron retries).
 
 ## The cron
 
 The automations cron (`GET /api/automations/cron`, throttled to every 2
 minutes) retries pending creates older than 2 minutes, fails sends still
-pending after 10 minutes, and retries closes that did not finish. It
-starts no new work after 45 s.
+pending after 10 minutes (one sweep over every workspace), and retries
+closes that did not finish, one workspace at a time on that workspace's
+own numbers. It starts no new work after 45 s.
 
 ## Consent
 
