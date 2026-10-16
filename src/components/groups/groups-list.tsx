@@ -9,7 +9,10 @@ import { toast } from 'sonner';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
-import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import {
+  useAccountNumbers,
+  useAllNumberAllocations,
+} from '@/hooks/use-whatsapp-numbers';
 import { canEditSettings } from '@/lib/auth/roles';
 import { canSyncGroups } from '@/lib/groups/access';
 import { canCreateGroups } from '@/lib/auth/roles';
@@ -21,9 +24,13 @@ import {
   type GroupListItem,
 } from '@/lib/groups/ui';
 import { createClient } from '@/lib/supabase/client';
+import { usableNumbers } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
 
 import { CreateGroupDialog } from './create-group-dialog';
+
+/** Keeps each subscription's topic unique (see use-presence.ts). */
+let topicSeq = 0;
 
 /** Realtime bursts (a sync touches every row) collapse into one re-read. */
 const REFETCH_DEBOUNCE_MS = 400;
@@ -36,8 +43,9 @@ interface Loaded {
 /** /groups — the account's WhatsApp groups, newest activity first. */
 export function GroupsList() {
   const t = useTranslations('Groups');
-  const { accountId, accountRole } = useAuth();
+  const { user, accountId, accountRole } = useAuth();
   const numbers = useAccountNumbers();
+  const allocations = useAllNumberAllocations();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [query, setQuery] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -49,6 +57,16 @@ export function GroupsList() {
   const canSync = !!accountRole && canSyncGroups(accountRole);
   const isAdmin = !!accountRole && canEditSettings(accountRole);
   const hasWhapi = numbers?.some((n) => n.provider === 'whapi') ?? null;
+  // New group needs a number this person may send from (the wizard's filter).
+  const canUseWhapi =
+    numbers && allocations
+      ? usableNumbers(
+          numbers.filter((n) => n.provider === 'whapi'),
+          allocations,
+          user?.id ?? null,
+          isAdmin
+        ).length > 0
+      : null;
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +102,7 @@ export function GroupsList() {
     };
     const supabase = createClient();
     const channel = supabase
-      .channel(`whatsapp-groups:${accountId}`)
+      .channel(`whatsapp-groups:${accountId}:${++topicSeq}`)
       .on(
         'postgres_changes',
         {
@@ -158,7 +176,7 @@ export function GroupsList() {
               {syncing ? t('syncing') : t('sync')}
             </Button>
           )}
-          {canCreate && hasWhapi && (
+          {canCreate && canUseWhapi && (
             <Button onClick={openNew}>
               <Plus className="size-4" aria-hidden />
               {t('newGroup')}

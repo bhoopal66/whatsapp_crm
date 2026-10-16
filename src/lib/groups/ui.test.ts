@@ -7,6 +7,7 @@ import {
 
 import {
   buildCreateBody,
+  createErrorKey,
   contactSearchFilter,
   DEFAULT_TOGGLES,
   filterGroups,
@@ -16,10 +17,12 @@ import {
   GROUP_MEMBERS_PER_OPERATION,
   GROUP_NAME_MAX,
   groupInitials,
+  isCreatedButUnsaved,
   mergeMembers,
   parseCreateResult,
   parseGroupList,
   parsePhoneList,
+  pickableManagers,
   relativeActivity,
   summarizeResult,
   validateStep,
@@ -288,5 +291,54 @@ describe('parseCreateResult with the real create-route shape', () => {
     expect(r.refused).toEqual(['971502222222']);
     expect(r.notAttempted).toEqual(['971503333333']);
     expect(r.skipped).toEqual([{ waId: '971504444444', reason: 'opted_out' }]);
+  });
+});
+
+describe('create failure and warnings helpers', () => {
+  it('maps error codes to a known key, else unknown', () => {
+    expect(createErrorKey('invalid_manager')).toBe('invalid_manager');
+    expect(createErrorKey('billing')).toBe('billing');
+    expect(createErrorKey('boom')).toBe('unknown');
+    expect(createErrorKey(undefined)).toBe('unknown');
+  });
+
+  it('treats only saved_failed_run_sync as created-but-unsaved', () => {
+    expect(isCreatedButUnsaved('saved_failed_run_sync')).toBe(true);
+    expect(isCreatedButUnsaved('gateway_unavailable')).toBe(false);
+  });
+
+  it('carries known warnings through the summary, dropping unknown ones', () => {
+    const result = parseCreateResult({
+      group: { id: 'g1' },
+      warnings: ['managers_not_saved', 'adds_stopped', 'mystery'],
+    });
+    expect(summarizeResult(result, []).warnings).toEqual([
+      'adds_stopped',
+      'managers_not_saved',
+    ]);
+  });
+
+  it('offers only live staff as co-managers', () => {
+    const m = (
+      user_id: string,
+      account_role: string,
+      deactivated_at = null
+    ) => ({
+      user_id,
+      full_name: user_id,
+      account_role,
+      deactivated_at,
+    });
+    const picked = pickableManagers(
+      [
+        m('me', 'admin'),
+        m('ok', 'agent'),
+        m('gone', 'agent', '2026-01-01' as never),
+        m('viewer', 'viewer'),
+        m('bank', 'bank_guest'),
+      ],
+      'me'
+    );
+    expect(picked.map((p) => p.id)).toEqual(['ok']);
   });
 });

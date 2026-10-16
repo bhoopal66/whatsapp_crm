@@ -8,18 +8,20 @@
  * client, which must stay out of the browser bundle, so its limits are
  * restated here and `ui.test.ts` checks they still agree.
  */
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 
+import { GROUP_ADD_POLICY } from './limits';
 import type { GroupOurRole, GroupPolicy, GroupSetting } from './types';
 
 /** WhatsApp's limit on a group's name (`GROUP_NAME_MAX`). */
 export const GROUP_NAME_MAX = 100;
 /** WhatsApp's limit on a group's description. */
 export const GROUP_DESCRIPTION_MAX = 2048;
-/** `GROUP_ADD_POLICY`: people added per call, the pause, the cap per operation. */
-export const GROUP_ADD_BATCH = 5;
-export const GROUP_ADD_PAUSE_SECONDS = 3;
-export const GROUP_MEMBERS_PER_OPERATION = 50;
+/** `GROUP_ADD_POLICY` (limits.ts, client-safe): per call, the pause, the cap. */
+export const GROUP_ADD_BATCH = GROUP_ADD_POLICY.batchSize;
+export const GROUP_ADD_PAUSE_SECONDS = GROUP_ADD_POLICY.pauseMs / 1000;
+export const GROUP_MEMBERS_PER_OPERATION = GROUP_ADD_POLICY.maxPerOperation;
 
 // ------------------------------------------------------------
 // The list
@@ -454,6 +456,45 @@ export interface ResultSummary {
   skipped: Array<ResultPerson & { reason: SkippedPerson['reason'] }>;
   /** Everyone who still needs the invite link. */
   needInvite: number;
+  /** Known `warnings` codes of the create response, once each. */
+  warnings: CreateWarning[];
+}
+
+/** The create route's `warnings` codes; each has `Groups.create.warnings.<code>`. */
+export const CREATE_WARNINGS = [
+  'adds_stopped',
+  'managers_not_saved',
+  'description_not_set',
+  'settings_not_set',
+] as const;
+export type CreateWarning = (typeof CREATE_WARNINGS)[number];
+
+/** The create route's error codes; each has `Groups.create.errors.<key>`. */
+const CREATE_ERROR_KEYS = [
+  'no_participants',
+  'invalid_manager',
+  'invalid_body',
+  'not_allowed',
+  'rate_limited',
+  'channel_disconnected',
+  'billing',
+  'gateway_unavailable',
+] as const;
+export type CreateErrorKey = (typeof CREATE_ERROR_KEYS)[number] | 'unknown';
+
+/** The message key for a failed create's `code`; anything else is `unknown`. */
+export function createErrorKey(code: unknown): CreateErrorKey {
+  return (CREATE_ERROR_KEYS as readonly unknown[]).includes(code)
+    ? (code as CreateErrorKey)
+    : 'unknown';
+}
+
+/**
+ * The group exists on WhatsApp but was not saved here. Submitting again
+ * would create a second group, so the wizard ends instead of retrying.
+ */
+export function isCreatedButUnsaved(code: unknown): boolean {
+  return code === 'saved_failed_run_sync';
 }
 
 /**
@@ -492,6 +533,7 @@ export function summarizeResult(
     invalid,
     skipped,
     needInvite: refused.length + notAttempted.length,
+    warnings: CREATE_WARNINGS.filter((w) => result.warnings.includes(w)),
   };
 }
 
@@ -513,4 +555,30 @@ export function contactSearchFilter(query: string): string | null {
   const digits = q.replace(/\D/g, '');
   if (digits.length >= 3 && digits !== q) parts.push(`phone.ilike.*${digits}*`);
   return parts.join(',');
+}
+
+/**
+ * Staff who can be a group co-manager: live (the routes refuse a
+ * deactivated person with `invalid_manager`), agent or above (so never a
+ * bank guest), and not `excludeUserId` (the creator, already one).
+ */
+export function pickableManagers(
+  members: ReadonlyArray<{
+    user_id: string;
+    full_name?: string | null;
+    email?: string | null;
+    account_role?: string | null;
+    deactivated_at?: string | null;
+  }>,
+  excludeUserId: string | null | undefined
+): Array<{ id: string; name: string }> {
+  return members
+    .filter(
+      (p) =>
+        p.user_id !== excludeUserId &&
+        p.deactivated_at == null &&
+        !!p.account_role &&
+        hasMinRole(p.account_role as AccountRole, 'agent')
+    )
+    .map((p) => ({ id: p.user_id, name: p.full_name || p.email || '' }));
 }

@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   contactSearchFilter,
   GROUP_ADD_BATCH,
+  GROUP_ADD_PAUSE_SECONDS,
   GROUP_MEMBERS_PER_OPERATION,
   type mergeMembers,
   type PickedContact,
@@ -187,7 +188,12 @@ export function MemberPicker({
           {t('memberCount', { count, max: GROUP_MEMBERS_PER_OPERATION })}
         </p>
         {over && <p>{t('overCap', { max: GROUP_MEMBERS_PER_OPERATION })}</p>}
-        <p>{t('pacingNote', { batch: GROUP_ADD_BATCH })}</p>
+        <p>
+          {t('pacingNote', {
+            batch: GROUP_ADD_BATCH,
+            seconds: GROUP_ADD_PAUSE_SECONDS,
+          })}
+        </p>
       </div>
     </>
   );
