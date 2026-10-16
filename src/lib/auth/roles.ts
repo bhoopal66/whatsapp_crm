@@ -293,3 +293,26 @@ export function canLeadTeam(role: AccountRole): boolean {
 export function canManageTeams(role: AccountRole): boolean {
   return hasMinRole(role, 'admin');
 }
+
+/**
+ * Owner / admin: every WhatsApp group of the workspace (migration 114's
+ * whatsapp_group_visible_ids). Below that a person sees the groups they
+ * created or manage, and a team leader those of the people they lead.
+ */
+export function canViewAllGroups(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
+ * Agent and up: create a WhatsApp group on a number they may use
+ * (migration 114's whatsapp_group_can_create). Viewers and bank guests
+ * never. The number check lives in `lib/groups/access.ts`.
+ */
+export function canCreateGroups(role: AccountRole): boolean {
+  return hasMinRole(role, 'agent');
+}
+
+/** Owner / admin: pull a number's groups in from WhatsApp (sync). */
+export function canSyncGroups(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}

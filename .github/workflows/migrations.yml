@@ -279,3 +279,13 @@ jobs:
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify calendar
         run: supabase db query --local --file supabase/ci/verify-calendar.sql
+
+      # WhatsApp groups (114): owner/admin see every group, else the
+      # creator, a manager, or the leader of a team either is in; another
+      # agent, a bank guest and another workspace see nothing; managing
+      # needs the number (can_use_channel); the invite link reads only
+      # for managers; no client writes; a group lives on a Whapi number
+      # of its own workspace.
+      # RLS, triggers and grants: only real Postgres can show it.
+      - name: Verify WhatsApp groups
+        run: supabase db query --local --file supabase/ci/verify-whatsapp-groups.sql

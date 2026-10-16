@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### WhatsApp groups on a Whapi number
+
+**Migration required: 114** (`114_whatsapp_groups.sql`, apply as a
+superuser or BYPASSRLS role). It adds the tables behind WhatsApp groups
+on a Whapi number: the groups, their participants, the staff who
+manage each one, the invite link (readable only by those managers) and
+the group's own message log, which stays out of the inbox, flows,
+automations and the AI. Owners and admins see every group; others see
+the groups they created or manage, and team leaders their team's.
+
 ### Each person sees their own calls
 
 A team leader no longer sees every call and incoming-call card of the
