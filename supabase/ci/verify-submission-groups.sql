@@ -701,6 +701,32 @@ BEGIN
   r := pg_temp.sg_try('authenticated', u_owner, format('SELECT count(*)::text FROM submission_groups WHERE id = %L', gb));
   IF r IS DISTINCT FROM '0' THEN failed := failed || format('A''s owner sees B''s group (%s)', r); END IF;
 
+  -- ---------- removing the number or the contact detaches, never blocks ----------
+  -- Only the FKs' ON DELETE SET NULL may clear channel_id / contact_id,
+  -- and only once the referenced row is gone; the archive survives.
+  n := n + 1;
+  r := pg_temp.sg_try(NULL, NULL, format('UPDATE submission_groups SET channel_id = NULL WHERE id = %L', g2));
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := failed || format('channel_id cleared while the number exists (%s)', r); END IF;
+  n := n + 1;
+  r := pg_temp.sg_try(NULL, NULL, format('UPDATE submission_groups SET contact_id = NULL WHERE id = %L', g2));
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := failed || format('contact_id cleared while the contact exists (%s)', r); END IF;
+  n := n + 1;
+  r := pg_temp.sg_try(NULL, NULL, format('DELETE FROM whatsapp_config WHERE id = %L', w1));
+  IF r IS DISTINCT FROM 'ok' THEN failed := failed || format('a number hosting groups could not be removed (%s)', r); END IF;
+  n := n + 1;
+  IF (SELECT count(*) FROM submission_groups WHERE id IN (g1, g2) AND channel_id IS NULL) <> 2
+     OR (SELECT status FROM submission_groups WHERE id = g1) <> 'ENDED'
+     OR NOT EXISTS (SELECT 1 FROM submission_group_messages WHERE group_id = g1) THEN
+    failed := failed || 'removing the number did not detach both groups and keep the archive'::text;
+  END IF;
+  n := n + 1;
+  r := pg_temp.sg_try(NULL, NULL, format('DELETE FROM contacts WHERE id = %L', c2));
+  IF r IS DISTINCT FROM 'ok' THEN failed := failed || format('a contact with a group could not be deleted (%s)', r); END IF;
+  n := n + 1;
+  IF (SELECT contact_id FROM submission_groups WHERE id = g2) IS NOT NULL THEN
+    failed := failed || 'deleting the contact did not detach its group'::text;
+  END IF;
+
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT115', MESSAGE = 'verify-submission-groups rollback';
   EXCEPTION WHEN SQLSTATE 'ZT115' THEN

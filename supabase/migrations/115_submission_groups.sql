@@ -46,8 +46,12 @@
 --    messages, never an ENDED group directly.
 --  * Hosting number: a Whapi whatsapp_config row of the group's own
 --    account (submission_groups_guard; the composite FK alone would
---    take a Meta row), ON DELETE RESTRICT: a number with groups on it
---    cannot be removed, so an archive always names its number.
+--    take a Meta row). Removing the number, or deleting the customer's
+--    contact, sets channel_id / contact_id NULL (as 114 does for its
+--    groups) rather than blocking the delete: the archive and its audit
+--    survive, and a group without a number can neither send nor be
+--    created. The guard lets those two columns go NULL only once the
+--    referenced row is really gone, so no writer can detach a group.
 --
 -- The SECURITY DEFINER functions read RLS-forced tables, so, as 114,
 -- this must be applied by a superuser or BYPASSRLS role.
@@ -70,8 +74,8 @@ CREATE TABLE IF NOT EXISTS public.submission_groups (
   id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id              uuid NOT NULL REFERENCES public.accounts(id),
   submission_ref          text NOT NULL,
-  contact_id              uuid NOT NULL,
-  channel_id              uuid NOT NULL,
+  contact_id              uuid NULL,  -- NOT NULL on insert (guard); NULL once the contact is deleted
+  channel_id              uuid NULL,  -- NOT NULL on insert (guard); NULL once the number is removed
   subject                 text NULL,
   coordinator_phone       text NULL,
   status                  text NOT NULL DEFAULT 'ACTIVE',
@@ -107,9 +111,9 @@ CREATE TABLE IF NOT EXISTS public.submission_groups (
   -- The target of the composite FKs below.
   CONSTRAINT submission_groups_id_account_key UNIQUE (id, account_id),
   CONSTRAINT submission_groups_contact_fkey FOREIGN KEY (contact_id, account_id)
-    REFERENCES public.contacts (id, account_id),
+    REFERENCES public.contacts (id, account_id) ON DELETE SET NULL (contact_id),
   CONSTRAINT submission_groups_channel_fkey FOREIGN KEY (channel_id, account_id)
-    REFERENCES public.whatsapp_config (id, account_id) ON DELETE RESTRICT
+    REFERENCES public.whatsapp_config (id, account_id) ON DELETE SET NULL (channel_id)
 );
 
 CREATE INDEX IF NOT EXISTS submission_groups_account_activity_idx
@@ -402,6 +406,10 @@ BEGIN
       RAISE EXCEPTION 'public.submission_groups: the hosting number must be a Whapi number of the group''s workspace'
         USING ERRCODE = 'check_violation';
     END IF;
+    IF NEW.contact_id IS NULL THEN
+      RAISE EXCEPTION 'public.submission_groups: a group is inserted with its customer contact'
+        USING ERRCODE = 'not_null_violation';
+    END IF;
     IF NEW.status <> 'ACTIVE' OR NEW.wa_group_id IS NOT NULL OR NEW.wa_create_claim IS NOT NULL THEN
       RAISE EXCEPTION 'public.submission_groups: a group is inserted ACTIVE, unclaimed and without a WhatsApp group'
         USING ERRCODE = 'insufficient_privilege';
@@ -409,6 +417,19 @@ BEGIN
     RETURN NEW;
   END IF;
   IF TG_OP = 'UPDATE' THEN
+    -- The FKs' ON DELETE SET NULL: the number or the contact went away.
+    -- Allowed in every status, only for a reference whose row is gone,
+    -- and only when nothing else in the row changes.
+    IF (NEW.channel_id IS DISTINCT FROM OLD.channel_id OR NEW.contact_id IS DISTINCT FROM OLD.contact_id)
+       AND (NEW.channel_id IS NOT DISTINCT FROM OLD.channel_id
+            OR (NEW.channel_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM public.whatsapp_config w WHERE w.id = OLD.channel_id)))
+       AND (NEW.contact_id IS NOT DISTINCT FROM OLD.contact_id
+            OR (NEW.contact_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM public.contacts c WHERE c.id = OLD.contact_id)))
+       AND (to_jsonb(NEW) - 'channel_id' - 'contact_id') = (to_jsonb(OLD) - 'channel_id' - 'contact_id') THEN
+      RETURN NEW;
+    END IF;
     IF NEW.id IS DISTINCT FROM OLD.id
        OR NEW.account_id IS DISTINCT FROM OLD.account_id
        OR NEW.submission_ref IS DISTINCT FROM OLD.submission_ref
