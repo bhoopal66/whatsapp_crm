@@ -221,6 +221,48 @@ describe('GET /api/submission-groups', () => {
     }
   );
 
+  it.each(['active', 'ended'])(
+    'pages %s groups by the exact microsecond sort time PostgREST returns',
+    async (status) => {
+      const ended = status === 'ended';
+      if (ended) as('admin');
+      // Three rows tied at .123456 and one at .123400: a cursor cut to
+      // the millisecond (.123) equals neither and skips every one of them.
+      const TIE = '2026-10-05T10:00:00.123456+00:00';
+      const NEAR = '2026-10-05T10:00:00.123400+00:00';
+      const ids = [1, 2, 3, 4].map(
+        (n) => `55555555-5555-4555-8555-55555555555${n}`
+      );
+      const at = (n: number) => (n === 3 ? NEAR : TIE);
+      const rows = ids.map((id, n) =>
+        group({
+          id,
+          status: ended ? 'ENDED' : 'ACTIVE',
+          last_activity_at: at(n),
+          ended_at: ended ? at(n) : null,
+        })
+      );
+      (ended ? admin : rls).tables.submission_groups.push(...rows);
+      if (ended) [E, ...ids].forEach((id) => readable.add(id));
+      const seen: string[] = [];
+      let cursor = '';
+      for (let i = 0; i < 10; i++) {
+        const body = await (
+          await get(
+            `?status=${status}&limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+          )
+        ).json();
+        seen.push(...body.groups.map((g: { id: string }) => g.id));
+        if (!body.next_cursor) break;
+        cursor = body.next_cursor;
+      }
+      const tiedDesc = [ids[2], ids[1], ids[0]];
+      expect(seen).toEqual(
+        ended ? [E, ...tiedDesc, ids[3]] : [A, A2, ...tiedDesc, ids[3]]
+      );
+    }
+  );
+
   it('searches the submission ref and the contact name', async () => {
     const byRef = await (await get('?q=ref-7')).json();
     expect(byRef.groups.map((g: { id: string }) => g.id)).toEqual([A2]);

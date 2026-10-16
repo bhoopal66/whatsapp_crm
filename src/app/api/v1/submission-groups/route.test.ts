@@ -333,14 +333,36 @@ describe('POST /api/v1/submission-groups', () => {
       inviteLink: 'https://chat.whatsapp.com/CODE1',
       refusedParticipants: ['971501234567@s.whatsapp.net'],
     });
-    m.sendInviteLink.mockRejectedValue(new Error('gateway down'));
+    m.sendInviteLink.mockRejectedValue(new Error('gateway down: secret'));
     const res = await post(body);
     expect(res.status).toBe(201);
     expect((await res.json()).data.whatsapp.invite_sent).toBe(false);
     expect(m.store.noteInvite).toHaveBeenCalledWith(
       'g1',
       false,
-      'gateway down'
+      'The invite could not be sent'
+    );
+  });
+
+  it('records a fixed category, never the gateway text, when WhatsApp refuses the invite', async () => {
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: true,
+      group: group(),
+      inviteLink: 'https://chat.whatsapp.com/CODE1',
+      refusedParticipants: ['971501234567'],
+    });
+    m.sendInviteLink.mockRejectedValue(
+      Object.assign(new Error('HTTP 403: token abc123 refused'), {
+        status: 403,
+      })
+    );
+    const res = await post(body);
+    expect(res.status).toBe(201);
+    expect(m.store.noteInvite).toHaveBeenCalledWith(
+      'g1',
+      false,
+      'WhatsApp refused the invite'
     );
   });
 

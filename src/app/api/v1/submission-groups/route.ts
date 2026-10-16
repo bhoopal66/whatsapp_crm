@@ -47,8 +47,18 @@ const CONSENT_MESSAGE =
   'The customer has opted out of WhatsApp messages or asked not to be contacted';
 const PENDING_MESSAGE =
   'WhatsApp could not create the group yet; it will be retried automatically';
-// Recorded as the invite's failure when the hosting number cannot be loaded.
+// The invite's recorded failure (`invite_send_error`), one fixed category:
+// every member of the group reads it in the dashboard, so the gateway's own
+// error text (which can carry provider detail) stays in the server log.
 const INVITE_NO_NUMBER = 'The hosting WhatsApp number is not available';
+const INVITE_REFUSED = 'WhatsApp refused the invite';
+const INVITE_NOT_SENT = 'The invite could not be sent';
+
+/** A gateway error carries its HTTP `status`: the provider answered and refused. */
+function inviteFailure(err: unknown): string {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? INVITE_REFUSED : INVITE_NOT_SENT;
+}
 
 export async function POST(request: Request) {
   try {
@@ -221,7 +231,7 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         console.error('[api/v1/submission-groups] invite send:', err);
-        sendError = err instanceof Error ? err.message : String(err);
+        sendError = inviteFailure(err);
       }
       // Best-effort: the send already happened (or not); recording it never fails the request.
       try {
