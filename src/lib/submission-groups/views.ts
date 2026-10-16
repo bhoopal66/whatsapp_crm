@@ -20,7 +20,12 @@ export const DETAIL_MESSAGE_LIMIT = 200;
 export type ListStatus = 'ACTIVE' | 'ENDED';
 
 export interface ListCursor {
-  /** ISO timestamp of the last row's sort column. */
+  /**
+   * The last row's sort column exactly as PostgREST returned it
+   * (`2026-10-16T10:00:00.123456+00:00`). Never re-formatted: the column
+   * carries microseconds, and a millisecond `toISOString()` copy neither
+   * equals a tied row nor excludes rows between the two instants.
+   */
   at: string;
   id: string;
 }
@@ -28,7 +33,15 @@ export interface ListCursor {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The opaque `next_cursor`: base64url of `<iso timestamp>|<id>`. */
+/**
+ * A timestamptz as PostgREST writes it: ISO date-time, 0–6 fractional
+ * digits, `Z` or a `±HH:MM` offset. Nothing else passes, so no comma,
+ * parenthesis or space can reach the raw `or()` interpolation.
+ */
+const TIMESTAMP_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
+
+/** The opaque `next_cursor`: base64url of `<timestamp>|<id>`. */
 export function encodeCursor(c: ListCursor): string {
   return Buffer.from(`${c.at}|${c.id}`, 'utf8').toString('base64url');
 }
@@ -41,16 +54,15 @@ export function decodeCursor(raw: string): ListCursor {
     .toString('utf8')
     .split('|');
   if (extra.length || !at || !id || !UUID_RE.test(id)) throw bad();
-  const ms = Date.parse(at);
-  if (Number.isNaN(ms) || new Date(ms).toISOString() !== at) throw bad();
+  if (!TIMESTAMP_RE.test(at) || Number.isNaN(Date.parse(at))) throw bad();
   return { at, id: id.toLowerCase() };
 }
 
 /**
  * The keyset `or()` filter for the page after a cursor, matching the
  * (column desc, id desc) order: strictly older, or the same instant with a
- * smaller id. The timestamp is canonical ISO (digits, `-`, `:`, `.`, `T`,
- * `Z`) and the id a validated UUID, so neither needs quoting.
+ * smaller id. The timestamp passed `TIMESTAMP_RE` (digits, `-`, `:`, `.`,
+ * `T`, `Z`, `+`) and the id is a validated UUID, so neither needs quoting.
  */
 export function cursorFilter(column: string, c: ListCursor): string {
   return `${column}.lt.${c.at},and(${column}.eq.${c.at},id.lt.${c.id})`;
@@ -116,16 +128,22 @@ export function searchFilter(term: string, contactIds: readonly string[]) {
   return parts.join(',');
 }
 
-/** The next page's cursor: the last scanned row's sort time when the page was full. */
+/**
+ * The next page's cursor when the page was full: the last scanned row's
+ * raw sort-column string (not its parsed `Date`, which drops the
+ * microseconds) and id.
+ */
 export function nextCursor(
-  scanned: readonly SubmissionGroup[],
+  scanned: readonly Record<string, unknown>[],
   limit: number,
   status: ListStatus
 ): string | null {
   if (scanned.length < limit) return null;
   const last = scanned[scanned.length - 1];
-  const at = status === 'ACTIVE' ? last.lastActivityAt : last.endedAt;
-  return at ? encodeCursor({ at: at.toISOString(), id: last.id }) : null;
+  const at = last[sortColumn(status)];
+  return typeof at === 'string' && at
+    ? encodeCursor({ at, id: String(last.id) })
+    : null;
 }
 
 /** Owner / admin manage every group's access list and see every group. */

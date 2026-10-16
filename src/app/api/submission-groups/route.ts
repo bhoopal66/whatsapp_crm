@@ -74,9 +74,8 @@ export async function GET(request: Request) {
       .limit(query.limit);
     if (error) throw new Error(`submission_groups: ${error.message}`);
 
-    const scanned = ((data ?? []) as unknown as Record<string, unknown>[]).map(
-      toGroup
-    );
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    const scanned = rows.map(toGroup);
     let groups = scanned;
     if (ended) {
       const store = submissionGroupStore(admin);
@@ -113,7 +112,7 @@ export async function GET(request: Request) {
       groups: groups.map((g) =>
         toListItem(g, { ...refs, myLabel: myLabelOf(g, mine) })
       ),
-      next_cursor: nextCursor(scanned, query.limit, query.status),
+      next_cursor: nextCursor(rows, query.limit, query.status),
     });
   } catch (err) {
     if (err instanceof SgHttpError)

@@ -29,6 +29,28 @@ const likeRe = (pattern: string) =>
     'i'
   );
 
+const TIME_RE =
+  /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,6}))?(Z|[+-]\d\d:\d\d)?$/;
+
+/**
+ * A timestamp as microseconds since the epoch, as Postgres compares
+ * timestamptz: the fraction read to the microsecond (a `Date` stops at the
+ * millisecond), the offset normalised. Anything else falls back to
+ * `Date.parse`; null when it is not a time at all.
+ */
+const toMicros = (v: unknown): number | null => {
+  const s = String(v);
+  const m = TIME_RE.exec(s);
+  if (m) {
+    const whole = Date.parse(`${m[1]}${m[3] ?? 'Z'}`);
+    return whole * 1000 + Number((m[2] ?? '').padEnd(6, '0'));
+  }
+  const ms = Date.parse(s);
+  return Number.isNaN(ms) ? null : ms * 1000;
+};
+
+const isTime = (v: unknown) => /^\d{4}-\d\d-\d\dT/.test(String(v));
+
 /** Splits `a,b(c,d),e` on top-level commas. */
 const topLevel = (s: string): string[] => {
   const out: string[] = [];
@@ -83,7 +105,7 @@ class FakeQuery {
   lt(col: string, v: string) {
     return this.where(
       `${col}<${v}`,
-      (r) => r[col] != null && Date.parse(String(r[col])) < Date.parse(v)
+      (r) => r[col] != null && toMicros(r[col])! < toMicros(v)!
     );
   }
   ilike(col: string, pattern: string) {
@@ -101,11 +123,11 @@ class FakeQuery {
       const [col, op, ...rest] = part.split('.');
       const value = rest.join('.');
       if (op === 'lt' || op === 'eq') {
-        const time = /^\d{4}-\d\d-\d\dT/.test(value);
+        const time = isTime(value);
         const cmp = (r: Row) => {
           if (r[col] == null) return NaN;
           return time
-            ? Date.parse(String(r[col])) - Date.parse(value)
+            ? toMicros(r[col])! - toMicros(value)!
             : String(r[col]) < value
               ? -1
               : String(r[col]) > value
@@ -146,6 +168,8 @@ class FakeQuery {
     );
     for (const [col, asc] of [...this.orderBy].reverse()) {
       view = [...view].sort((a, b) => {
+        if (isTime(a[col]) && isTime(b[col]))
+          return (toMicros(a[col])! - toMicros(b[col])!) * (asc ? 1 : -1);
         const x = String(a[col] ?? '');
         const y = String(b[col] ?? '');
         return (x < y ? -1 : x > y ? 1 : 0) * (asc ? 1 : -1);

@@ -79,6 +79,13 @@ describe('parseListQuery', () => {
       enc('2026-10-10T00:00:00.000Z|g1'),
       enc(`2026-10-10T00:00:00.000Z|${GID}|x`),
       enc(`2026-10-10|${GID}`),
+      enc(`2026-10-10T00:00:00.1234567Z|${GID}`), // 7 fractional digits
+      enc(`2026-10-10T00:00:00+0000|${GID}`), // offset without a colon
+      enc(`2026-10-10 00:00:00Z|${GID}`), // no T
+      enc(`2026-13-45T00:00:00Z|${GID}`), // not a date
+      // Filter syntax smuggled into the timestamp never reaches or().
+      enc(`2026-10-10T00:00:00Z,id.gt.0|${GID}`),
+      enc(`2026-10-10T00:00:00Z (x),or(id.gt.0)|${GID}`),
     ])
       expect(() => qs(`cursor=${bad}`)).toThrow(SgHttpError);
   });
@@ -91,6 +98,21 @@ describe('cursor', () => {
     expect(cursorFilter('ended_at', c)).toBe(
       `ended_at.lt.${c.at},and(ended_at.eq.${c.at},id.lt.${GID})`
     );
+  });
+
+  it('keeps a PostgREST timestamp byte for byte, microseconds and offset', () => {
+    for (const at of [
+      '2026-10-16T10:00:00.123456+00:00',
+      '2026-10-16T14:00:00.1+04:00',
+      '2026-10-16T10:00:00-05:30',
+      '2026-10-16T10:00:00Z',
+    ]) {
+      const c = { at, id: GID };
+      expect(decodeCursor(encodeCursor(c))).toEqual(c);
+      expect(cursorFilter('last_activity_at', c)).toBe(
+        `last_activity_at.lt.${at},and(last_activity_at.eq.${at},id.lt.${GID})`
+      );
+    }
   });
 });
 
@@ -122,27 +144,29 @@ describe('searchFilter', () => {
 });
 
 describe('nextCursor', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'g1',
+    last_activity_at: '2026-10-10T00:00:00+00:00',
+    ended_at: null,
+    ...over,
+  });
+
   it('names the last scanned row only when the page was full', () => {
     const rows = [
-      group(),
-      group({ id: GID, lastActivityAt: new Date('2026-10-09Z') }),
+      row(),
+      row({ id: GID, last_activity_at: '2026-10-09T00:00:00.123456+00:00' }),
     ];
     expect(decodeCursor(nextCursor(rows, 2, 'ACTIVE')!)).toEqual({
-      at: '2026-10-09T00:00:00.000Z',
+      at: '2026-10-09T00:00:00.123456+00:00',
       id: GID,
     });
     expect(nextCursor(rows, 3, 'ACTIVE')).toBeNull();
-    const ended = [
-      group({
-        id: GID,
-        status: 'ENDED',
-        endedAt: new Date('2026-10-12Z'),
-      }),
-    ];
+    const ended = [row({ id: GID, ended_at: '2026-10-12T00:00:00.5+00:00' })];
     expect(decodeCursor(nextCursor(ended, 1, 'ENDED')!)).toEqual({
-      at: '2026-10-12T00:00:00.000Z',
+      at: '2026-10-12T00:00:00.5+00:00',
       id: GID,
     });
+    expect(nextCursor([row()], 1, 'ENDED')).toBeNull();
   });
 });
 
