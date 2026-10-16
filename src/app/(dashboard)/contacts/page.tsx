@@ -51,8 +51,8 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContactForm } from '@/components/contacts/contact-form';
-import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import { ChatTagChip, OptedOutBadge } from '@/components/contacts/contact-badges';
@@ -104,6 +104,7 @@ interface ContactRow extends Contact {
  * both views are account-wide for them.
  */
 export function ContactsPageInner({ teamView = false }: { teamView?: boolean } = {}) {
+  const router = useRouter();
   const t = useTranslations('Contacts.page');
   const locale = useLocale();
   const { user, accountRole, profileLoading } = useAuth();
@@ -132,8 +133,6 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   // Modals
   const [formOpen, setFormOpen] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailContactId, setDetailContactId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -384,8 +383,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   }
 
   function openDetail(contactId: string) {
-    setDetailContactId(contactId);
-    setDetailOpen(true);
+    router.push(`/contacts/${contactId}`);
   }
 
   // `?c=<id>` deep link — used by "view contact" on a saved contact card
@@ -394,7 +392,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   useEffect(() => {
     try {
       const id = new URLSearchParams(window.location.search).get('c');
-      if (id) openDetail(id);
+      if (id) router.replace(`/contacts/${id}`);
     } catch {
       // No window (SSR) or malformed URL — nothing to open.
     }
@@ -900,14 +898,6 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
           setFormOpen(false);
           openDetail(id);
         }}
-      />
-
-      {/* Contact Detail Sheet */}
-      <ContactDetailView
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-        contactId={detailContactId}
-        onUpdated={refreshContacts}
       />
 
       {/* Import Modal */}
