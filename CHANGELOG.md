@@ -25,6 +25,24 @@ heartbeat, up to 20 seconds later, and stayed in the call until then.
 The room now listens for its own removal directly; the heartbeat check
 remains as a fallback.
 
+### Deletes that cascade no longer depend on trigger order
+
+**Migration required: 117** (`117_deferred_cascade_fks.sql`). It
+changes no data and no `ON DELETE` behaviour, and only rewrites catalog
+rows of two meeting tables (each locked for a moment; it gives up after
+5 s if a long transaction holds one — just run it again).
+
+Deleting a meeting host's login reaches a removal or seat row by two
+paths at once — a cascade through the meeting and a `SET NULL` on
+`removed_by`. On a database restored from `pg_dump` the foreign-key
+triggers fire in a different order than on one built from the
+migrations, and a delete in the same transaction that created the row
+then failed with `23503` (seen as `verify-calendar.sql` failing on a
+restored copy; deletes in a later transaction were never affected). 117
+makes `meeting_participants_meeting_fkey` and
+`meeting_removed_users_meeting_fkey` `DEFERRABLE INITIALLY DEFERRED`, so
+they are checked at commit, after the cascade.
+
 ### Submission groups (module 018a)
 
 **Migration required: 115** (`115_submission_groups.sql`, apply as a

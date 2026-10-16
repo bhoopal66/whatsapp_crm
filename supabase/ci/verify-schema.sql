@@ -297,6 +297,17 @@ BEGIN
     RAISE EXCEPTION 'contacts.opted_out_at is missing — migration 076 did not apply';
   END IF;
 
+  -- 117: a foreign key a delete can re-check mid-cascade is checked at
+  -- commit, so the RI trigger order a pg_dump restore produces cannot
+  -- fail it. Both of 117's meeting FKs must be deferred.
+  IF (SELECT count(*) FROM pg_constraint c
+      WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+        AND c.condeferrable AND c.condeferred
+        AND c.conname = ANY (ARRAY[
+          'meeting_participants_meeting_fkey', 'meeting_removed_users_meeting_fkey'])) <> 2 THEN
+    RAISE EXCEPTION 'a foreign key 117 defers is missing or still checked immediately — migration 117 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;
