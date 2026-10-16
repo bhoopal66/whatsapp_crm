@@ -507,6 +507,12 @@ export class SubmissionGroupService {
     try {
       sent = await api.sendGroupText(channelId, waGroupId, prefixed);
     } catch (err) {
+      // The gateway may have sent it and lost only the answer: if Whapi's
+      // echo (inbound.ts) already settled the row 'sent', telling the user
+      // it failed would invite a duplicate resend.
+      const echoed = await this.echoedSent(messageId);
+      if (echoed !== null)
+        throw new SubmissionGroupSentNotRecordedError(messageId, echoed, err);
       await this.settleQuietly(messageId, 'failed');
       throw err;
     }
@@ -581,6 +587,23 @@ export class SubmissionGroupService {
         err: errText(err),
       });
       return false;
+    }
+  }
+
+  /** The WhatsApp id of a row already settled 'sent'; null otherwise, or when the read fails. */
+  private async echoedSent(messageId: string): Promise<string | null> {
+    try {
+      const state = await this.deps.store.sendState(messageId);
+      return state?.sendStatus === 'sent' ? (state.waMessageId ?? '') : null;
+    } catch (err) {
+      this.log.warn(
+        'group message could not be re-read after a gateway error',
+        {
+          messageId,
+          err: errText(err),
+        }
+      );
+      return null;
     }
   }
 
