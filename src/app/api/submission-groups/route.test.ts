@@ -175,12 +175,49 @@ describe('GET /api/submission-groups', () => {
   it('pages by last_activity_at', async () => {
     const first = await (await get('?limit=1')).json();
     expect(first.groups.map((g: { id: string }) => g.id)).toEqual([A]);
-    expect(first.next_cursor).toBe('2026-10-10T10:00:00.000Z');
+    expect(typeof first.next_cursor).toBe('string');
     const second = await (
-      await get(`?limit=1&cursor=${first.next_cursor}`)
+      await get(`?limit=1&cursor=${encodeURIComponent(first.next_cursor)}`)
     ).json();
     expect(second.groups.map((g: { id: string }) => g.id)).toEqual([A2]);
   });
+
+  it.each(['active', 'ended'])(
+    'lists every %s group once when a page ends inside a timestamp tie',
+    async (status) => {
+      const ended = status === 'ended';
+      if (ended) as('admin');
+      const T = '2026-10-05T10:00:00.000Z';
+      const ids = [1, 2, 3, 4, 5].map(
+        (n) => `44444444-4444-4444-8444-44444444444${n}`
+      );
+      const rows = ids.map((id) =>
+        group({
+          id,
+          status: ended ? 'ENDED' : 'ACTIVE',
+          last_activity_at: T,
+          ended_at: ended ? T : null,
+        })
+      );
+      (ended ? admin : rls).tables.submission_groups.push(...rows);
+      if (ended) ids.forEach((id) => readable.add(id));
+      const seen: string[] = [];
+      let cursor = '';
+      for (let i = 0; i < 10; i++) {
+        const body = await (
+          await get(
+            `?status=${status}&limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`
+          )
+        ).json();
+        seen.push(...body.groups.map((g: { id: string }) => g.id));
+        if (!body.next_cursor) break;
+        cursor = body.next_cursor;
+      }
+      const tied = seen.filter((id) => ids.includes(id));
+      expect(tied).toEqual([...ids].reverse());
+      expect(new Set(seen).size).toBe(seen.length);
+    }
+  );
 
   it('searches the submission ref and the contact name', async () => {
     const byRef = await (await get('?q=ref-7')).json();
@@ -195,6 +232,7 @@ describe('GET /api/submission-groups', () => {
   it('answers 400 for an unknown status or cursor', async () => {
     expect((await get('?status=open')).status).toBe(400);
     expect((await get('?cursor=yesterday')).status).toBe(400);
+    expect((await get('?cursor=2026-10-10T10:00:00.000Z')).status).toBe(400);
   });
 
   it('lists ENDED groups sg_can_read allows, from this account only, without messages', async () => {

@@ -1,7 +1,7 @@
 // ============================================================
 // GET /api/submission-groups — the caller's Submission Groups (115).
 // `?status=active|ended` (default active), `q` (submission ref or contact
-// name), `cursor` (the previous page's last last_activity_at / ended_at),
+// name), `cursor` (opaque: the previous page's last sort time + id),
 // `limit` (≤ 50) → `{ groups, next_cursor }`.
 //
 // ACTIVE groups are read through the caller's own RLS client: the
@@ -28,6 +28,7 @@ import {
 } from '@/lib/submission-groups/view-refs';
 import {
   canManageSubmissionGroups,
+  cursorFilter,
   myLabelOf,
   nextCursor,
   parseListQuery,
@@ -58,7 +59,7 @@ export async function GET(request: Request) {
       .eq('account_id', ctx.accountId)
       .eq('status', query.status);
     if (narrow) q = q.eq('submission_group_access.user_id', ctx.userId);
-    if (query.cursor) q = q.lt(column, query.cursor);
+    if (query.cursor) q = q.or(cursorFilter(column, query.cursor));
     if (query.search) {
       const contactIds = await matchingContactIds(
         admin,

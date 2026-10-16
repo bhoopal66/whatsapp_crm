@@ -19,12 +19,49 @@ export const DETAIL_MESSAGE_LIMIT = 200;
 
 export type ListStatus = 'ACTIVE' | 'ENDED';
 
+export interface ListCursor {
+  /** ISO timestamp of the last row's sort column. */
+  at: string;
+  id: string;
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The opaque `next_cursor`: base64url of `<iso timestamp>|<id>`. */
+export function encodeCursor(c: ListCursor): string {
+  return Buffer.from(`${c.at}|${c.id}`, 'utf8').toString('base64url');
+}
+
+/** Parses an opaque cursor; anything malformed is a 400. */
+export function decodeCursor(raw: string): ListCursor {
+  const bad = () => new SgHttpError(400, 'cursor is not valid');
+  if (!/^[A-Za-z0-9_-]+$/.test(raw)) throw bad();
+  const [at, id, ...extra] = Buffer.from(raw, 'base64url')
+    .toString('utf8')
+    .split('|');
+  if (extra.length || !at || !id || !UUID_RE.test(id)) throw bad();
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms) || new Date(ms).toISOString() !== at) throw bad();
+  return { at, id: id.toLowerCase() };
+}
+
+/**
+ * The keyset `or()` filter for the page after a cursor, matching the
+ * (column desc, id desc) order: strictly older, or the same instant with a
+ * smaller id. The timestamp is canonical ISO (digits, `-`, `:`, `.`, `T`,
+ * `Z`) and the id a validated UUID, so neither needs quoting.
+ */
+export function cursorFilter(column: string, c: ListCursor): string {
+  return `${column}.lt.${c.at},and(${column}.eq.${c.at},id.lt.${c.id})`;
+}
+
 export interface ListQuery {
   status: ListStatus;
   /** The sanitised search term, or null for no search. */
   search: string | null;
-  /** ISO timestamp: rows strictly older than this (by the status's sort column). */
-  cursor: string | null;
+  /** Rows strictly after this (sort time, id) in (column desc, id desc) order. */
+  cursor: ListCursor | null;
   limit: number;
 }
 
@@ -59,13 +96,7 @@ export function parseListQuery(params: URLSearchParams): ListQuery {
   else throw new SgHttpError(400, 'status must be active or ended');
 
   const rawCursor = (params.get('cursor') ?? '').trim();
-  let cursor: string | null = null;
-  if (rawCursor) {
-    const at = Date.parse(rawCursor);
-    if (Number.isNaN(at))
-      throw new SgHttpError(400, 'cursor must be an ISO timestamp');
-    cursor = new Date(at).toISOString();
-  }
+  const cursor = rawCursor ? decodeCursor(rawCursor) : null;
 
   const n = Number.parseInt(params.get('limit') ?? '', 10);
   const limit = Number.isFinite(n)
@@ -94,7 +125,7 @@ export function nextCursor(
   if (scanned.length < limit) return null;
   const last = scanned[scanned.length - 1];
   const at = status === 'ACTIVE' ? last.lastActivityAt : last.endedAt;
-  return at ? at.toISOString() : null;
+  return at ? encodeCursor({ at: at.toISOString(), id: last.id }) : null;
 }
 
 /** Owner / admin manage every group's access list and see every group. */
