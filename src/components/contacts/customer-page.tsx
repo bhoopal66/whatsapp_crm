@@ -21,8 +21,11 @@ import {
 
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
+import { useContactOutreach } from '@/components/contacts/contact-outreach';
+import { ContactForm } from '@/components/contacts/contact-form';
+import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { CallButton } from '@/components/pbx/call-button';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { ConsentFields } from '@/lib/pbx/call-ui';
 import {
@@ -32,7 +35,6 @@ import {
   entryHeading,
   filterTimeline,
   groupByDay,
-  initials,
   mergeTimeline,
   missedDraftOffer,
   missedDraftText,
@@ -61,10 +63,31 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePhonePresence } from '@/hooks/use-phone-presence';
 import { usePresence } from '@/hooks/use-presence';
 import { PERSON_PRESENCE_KEY, presenceOf } from '@/lib/person-presence';
+import { useChatTags } from '@/hooks/use-chat-tags';
+import {
+  useAccountNumbers,
+  useMyNumberIds,
+} from '@/hooks/use-whatsapp-numbers';
+import { contactChatTagChip } from '@/lib/contacts/chat-tag-column';
+import {
+  loadContactThread,
+  NO_THREAD,
+  type ContactThread,
+} from '@/lib/contacts/contact-thread';
 import { customerAccess } from '@/lib/contacts/customer-access';
+import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
+import type { Contact } from '@/types';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
+import {
+  DealsCard,
+  DetailsCard,
+  NoteComposer,
+  SideCard as Card,
+  type SavedNote,
+} from './customer/customer-cards';
+import { CustomerHeader } from './customer/customer-header';
 import { RecordingPlayer } from './recording-player';
 
 const PAGE = 50;
@@ -75,6 +98,8 @@ interface Customer extends ConsentFields {
   name: string | null;
   company: string | null;
   phone: string | null;
+  email: string | null;
+  created_at: string | null;
   user_id: string | null;
 }
 interface Basics {
@@ -241,6 +266,35 @@ export function CustomerPage({ contactId }: { contactId: string }) {
   const [ticking, setTicking] = useState<string | null>(null);
   const asked = useRef(new Set<string>());
   const sentinel = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  // The chat tag and send prediction, as the side sheet reads them.
+  const { tree: chatTagTree } = useChatTags();
+  const channels = useAccountNumbers(access.send);
+  const myNumberIds = useMyNumberIds();
+  const [thread, setThread] = useState<ContactThread>(NO_THREAD);
+  useEffect(() => {
+    let live = true;
+    void loadContactThread(createClient(), contactId).then(
+      (t) => live && setThread(t)
+    );
+    return () => {
+      live = false;
+    };
+  }, [contactId, reloadKey]);
+  const prediction = useMemo(
+    () => predictSendChannels(channels ?? [], thread, myNumberIds),
+    [channels, myNumberIds, thread]
+  );
+  const outreach = useContactOutreach({
+    contact:
+      load.state === 'ready'
+        ? { id: contactId, phone: load.contact.phone }
+        : null,
+    thread,
+    prediction,
+    onSent: () => setReloadKey((k) => k + 1),
+  });
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);
 
@@ -251,9 +305,8 @@ export function CustomerPage({ contactId }: { contactId: string }) {
       const [c, conv, deal, pbx] = await Promise.all([
         sb
           .from('contacts')
-          .select(
-            'id, name, company, phone, user_id, do_not_contact_at, do_not_contact_reason, marketing_opt_in_at, opted_out_at'
-          )
+          // `*`: the Edit form saves the whole row back.
+          .select('*')
           .eq('id', contactId)
           .maybeSingle(),
         sb
@@ -324,7 +377,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
     return () => {
       live = false;
     };
-  }, [contactId]);
+  }, [contactId, reloadKey]);
 
   useEffect(() => {
     let live = true;
@@ -489,15 +542,13 @@ export function CustomerPage({ contactId }: { contactId: string }) {
 
   const { contact, conversation, deal } = load;
   const draft = missedDraftOffer(load.draftOn, contact);
-  const title = contact.company || contact.name || contact.phone || '';
   const ownerName = contact.user_id ? names[contact.user_id] : null;
-  const subline = [
-    contact.company && contact.name
-      ? `${contact.name} ${tl('ownerSuffix')}`
-      : null,
-    contact.phone || null,
-    ownerName ? tl('ownerRm', { name: ownerName }) : null,
-  ].filter(Boolean);
+  const addNote = (n: SavedNote) =>
+    setLoad((prev) =>
+      prev.state === 'ready'
+        ? { ...prev, rows: { ...prev.rows, notes: [n, ...prev.rows.notes] } }
+        : prev
+    );
 
   const draftWhatsApp = () => {
     if (!conversation) return void toast.error(tl('noConversation'));
@@ -659,51 +710,22 @@ export function CustomerPage({ contactId }: { contactId: string }) {
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <BackLink label={tl('back')} />
-      <header className="flex flex-wrap items-start gap-4">
-        <div className="bg-primary/10 text-primary flex size-12 shrink-0 items-center justify-center rounded-xl text-base font-semibold">
-          {initials(title)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xl font-bold">{title}</h1>
-          {subline.length > 0 && (
-            <p className="text-muted-foreground text-sm">
-              {subline.join(' · ')}
-            </p>
-          )}
-          {deal && (
-            <span className="mt-1.5 inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200">
-              {[deal.title, deal.stage].filter(Boolean).join(' · ')}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {access.call && (
-            <CallButton contact={contact} conversationId={conversation?.id} />
-          )}
-          {conversation ? (
-            <Link
-              href={`/inbox?c=${conversation.id}`}
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-            >
-              <MessageCircle className="size-4" />
-              {tl('whatsappButton')}
-            </Link>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled
-              title={tl('noConversation')}
-            >
-              <MessageCircle className="size-4" />
-              {tl('whatsappButton')}
-            </Button>
-          )}
-        </div>
-      </header>
-
+      <CustomerHeader
+        contact={contact}
+        ownerName={ownerName}
+        conversationId={conversation?.id ?? null}
+        chip={contactChatTagChip(thread.chatTags, chatTagTree)}
+        access={access}
+        outreach={outreach}
+        channels={channels}
+        prediction={prediction}
+        onEdit={() => setEditing(true)}
+      />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <section className="min-w-0 space-y-4">
+        <section className="order-2 min-w-0 space-y-4 lg:order-1">
+          {access.addNote && (
+            <NoteComposer contactId={contactId} onAdded={addNote} />
+          )}
           <nav className="flex flex-wrap gap-2">
             {TIMELINE_FILTERS.map((f) => (
               <button
@@ -723,7 +745,9 @@ export function CustomerPage({ contactId }: { contactId: string }) {
             ))}
           </nav>
           {visible.length === 0 && !canPage ? (
-            <p className="text-muted-foreground text-sm">{tl('empty')}</p>
+            <p className="border-border text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">
+              {tl(`emptyFor.${filter}`)}
+            </p>
           ) : (
             groupByDay(visible, (e) => e.at, Date.now(), timeZone).map((g) => (
               <section key={g.key} className="space-y-3">
@@ -748,7 +772,9 @@ export function CustomerPage({ contactId }: { contactId: string }) {
           )}
         </section>
 
-        <aside className="space-y-4">
+        <aside className="order-1 min-w-0 space-y-4 lg:order-2">
+          <DetailsCard contact={contact} canEdit={access.edit} />
+          <DealsCard contactId={contactId} />
           <Card title={tl('openTasks')}>
             {side.tasks.length === 0 ? (
               <p className="text-muted-foreground text-sm">
@@ -814,9 +840,42 @@ export function CustomerPage({ contactId }: { contactId: string }) {
               />
             )}
           </Card>
+          {/* Journey + consent (module 016); it gates its own actions on
+              the same role rules (set: agent and up, clear: admin). */}
+          <div className="border-border divide-border divide-y overflow-hidden rounded-xl border">
+            <ContactJourneySections
+              key={contact.id}
+              contactId={contact.id}
+              SectionTitle={ConsentTitle}
+            />
+          </div>
         </aside>
       </div>
+      {outreach.dialogs}
+      {access.edit && (
+        <ContactForm
+          open={editing}
+          onOpenChange={setEditing}
+          contact={contact as unknown as Contact}
+          onSaved={() => setReloadKey((k) => k + 1)}
+        />
+      )}
     </div>
+  );
+}
+
+function ConsentTitle({
+  icon: Icon,
+  children,
+}: {
+  icon: typeof Phone;
+  children: React.ReactNode;
+}) {
+  return (
+    <h2 className="flex items-center gap-2 text-sm font-semibold">
+      <Icon className="text-muted-foreground size-3.5" />
+      {children}
+    </h2>
   );
 }
 
@@ -829,20 +888,5 @@ function BackLink({ label }: { label: string }) {
       <ArrowLeft className="size-4" />
       {label}
     </Link>
-  );
-}
-
-function Card({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="border-border bg-card rounded-xl border p-4">
-      <h2 className="mb-3 text-sm font-semibold">{title}</h2>
-      {children}
-    </section>
   );
 }

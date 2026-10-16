@@ -4915,7 +4915,17 @@
     "holdLifted": "법적 보존이 해제되었습니다",
     "holdFailed": "법적 보존을 변경하지 못했습니다",
     "liftDeletes": "이 통화는 보존 기간({days}일)보다 오래되었습니다. 보존을 해제하면 몇 분 안에 녹음이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
-    "liftAndDelete": "보존 해제 후 삭제"
+    "liftAndDelete": "보존 해제 후 삭제",
+    "moreActions": "추가 작업",
+    "openPipelines": "파이프라인 열기",
+    "dealWon": "성사",
+    "dealLost": "실패",
+    "emptyFor": {
+      "all": "이 고객과의 기록이 아직 없습니다. 통화, WhatsApp 메시지, 메모가 여기에 표시됩니다.",
+      "calls": "이 고객과의 통화가 아직 없습니다.",
+      "whatsapp": "이 고객과의 WhatsApp 메시지가 아직 없습니다.",
+      "notes": "메모가 아직 없습니다. 위에서 첫 메모를 추가하세요."
+    }
   },
   "CallsPage": {
     "title": "통화",

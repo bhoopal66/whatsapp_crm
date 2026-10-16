@@ -4915,7 +4915,17 @@
     "holdLifted": "Legal hold lifted",
     "holdFailed": "Couldn't change the legal hold",
     "liftDeletes": "This call is older than the {days, plural, one {# day} other {# days}} retention period: once the hold is lifted, its recording is deleted within minutes. This cannot be undone.",
-    "liftAndDelete": "Lift hold and delete"
+    "liftAndDelete": "Lift hold and delete",
+    "moreActions": "More actions",
+    "openPipelines": "Open pipelines",
+    "dealWon": "Won",
+    "dealLost": "Lost",
+    "emptyFor": {
+      "all": "Nothing with this customer yet. Calls, WhatsApp messages and notes will show here.",
+      "calls": "No calls with this customer yet.",
+      "whatsapp": "No WhatsApp messages with this customer yet.",
+      "notes": "No notes yet. Add the first one above."
+    }
   },
   "CallsPage": {
     "title": "Calls",
