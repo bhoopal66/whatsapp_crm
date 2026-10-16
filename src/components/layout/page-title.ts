@@ -16,6 +16,9 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/groups', 'whatsappGroups'],
   // /groups/<id>: one group's page.
   ['/groups/*', 'whatsappGroup'],
+  ['/submission-groups', 'submissionGroups'],
+  // /submission-groups/<id>: one submission's group.
+  ['/submission-groups/*', 'submissionGroup'],
   ['/chat', 'chat'],
   ['/meetings', 'meetings'],
   ['/calendar', 'calendar'],

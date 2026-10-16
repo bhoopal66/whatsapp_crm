@@ -12,6 +12,7 @@ import {
   Settings,
   Users,
   UsersRound,
+  FolderKanban,
   Video,
   CalendarDays,
   Workflow,
@@ -93,6 +94,15 @@ export const NAV_GROUPS: NavGroup[] = [
       // and which groups come back is RLS's call
       // (whatsapp_group_visible_ids).
       { href: '/groups', labelKey: 'whatsappGroups', icon: UsersRound },
+      // Submission groups (module 018a): one WhatsApp group per submitted
+      // case. Agent and up (the route's AgentOnlyLayout); which groups
+      // come back is the access list's call, server-side.
+      {
+        href: '/submission-groups',
+        labelKey: 'submissionGroups',
+        icon: FolderKanban,
+        minRole: 'agent',
+      },
       // Team chat (migration 087): the one row a bank guest sees too.
       {
         href: '/chat',

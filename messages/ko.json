@@ -65,7 +65,8 @@
     "missedCalls": "열린 부재중 전화 할 일 {count}건",
     "meetings": "회의",
     "calendar": "캘린더",
-    "whatsappGroups": "WhatsApp 그룹"
+    "whatsappGroups": "WhatsApp 그룹",
+    "submissionGroups": "제출 그룹"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -95,7 +96,9 @@
     "compass": "Compass",
     "customer": "고객",
     "whatsappGroups": "WhatsApp 그룹",
-    "whatsappGroup": "WhatsApp 그룹 상세"
+    "whatsappGroup": "WhatsApp 그룹 상세",
+    "submissionGroups": "제출 그룹",
+    "submissionGroup": "제출 그룹 상세"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -6156,6 +6159,136 @@
         "saved": "관리자를 업데이트했습니다.",
         "loadFailed": "관리자를 불러오지 못했습니다."
       }
+    }
+  },
+  "SubmissionGroups": {
+    "title": "제출 그룹",
+    "subtitle": "제출된 건마다 WhatsApp 그룹이 하나씩 열립니다. 보내는 모든 메시지는 \"이름 (역할): 내용\" 형식으로 전송됩니다.",
+    "tabs": {
+      "active": "진행 중",
+      "ended": "종료됨"
+    },
+    "search": "참조 번호, 제목 또는 고객으로 검색",
+    "loadFailed": "제출 그룹을 불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "noMatches": "\"{query}\"와(과) 일치하는 그룹이 없습니다.",
+    "emptyActiveTitle": "진행 중인 그룹이 없습니다",
+    "emptyActiveBody": "건이 제출되고 접근 목록에 포함되면 그룹이 여기에 표시됩니다.",
+    "emptyEndedTitle": "종료된 그룹이 없습니다",
+    "emptyEndedBody": "건이 종료되면 그룹이 여기로 이동합니다.",
+    "loadMore": "더 보기",
+    "justNow": "방금",
+    "endedAt": "{when} 종료",
+    "pendingBadge": "생성 중",
+    "archiveBadge": "보관함",
+    "contactRemoved": "고객 삭제됨",
+    "numberRemoved": "번호 제거됨",
+    "labels": {
+      "agent": "상담원",
+      "coordinator": "코디네이터",
+      "team_lead": "팀장"
+    },
+    "chat": {
+      "someone": "알 수 없음",
+      "attachment": "첨부 파일",
+      "afterEnd": "종료 후",
+      "kind": {
+        "customer": "고객",
+        "coordinator": "코디네이터",
+        "other": "기타"
+      },
+      "status": {
+        "pending": "전송 중",
+        "sent": "전송됨",
+        "failed": "실패",
+        "blocked": "차단됨"
+      }
+    },
+    "people": {
+      "title": "참여자",
+      "hint": "이 목록의 직원은 그룹을 읽고 메시지를 보낼 수 있습니다.",
+      "empty": "아직 목록에 아무도 없습니다.",
+      "unknown": "알 수 없는 멤버",
+      "labelFor": "{name}의 역할",
+      "remove": "{name} 제거",
+      "add": "사람 추가",
+      "person": "사람",
+      "pickPerson": "직원 선택…",
+      "label": "역할",
+      "addButton": "추가",
+      "saveFailed": "접근 목록을 저장하지 못했습니다.",
+      "removeFailed": "이 사람을 제거하지 못했습니다.",
+      "removeTitle": "그룹에서 제거할까요?",
+      "removeBody": "{name}님은 더 이상 이 그룹을 읽거나 메시지를 보낼 수 없습니다.",
+      "removeConfirm": "제거",
+      "cancel": "취소"
+    },
+    "page": {
+      "back": "제출 그룹",
+      "notFound": "이 그룹이 없거나 삭제되었습니다.",
+      "forbidden": "이 그룹의 접근 목록에 포함되어 있지 않습니다.",
+      "loadFailed": "이 그룹을 불러오지 못했습니다.",
+      "retry": "다시 시도",
+      "statusActive": "진행 중",
+      "statusEnded": "종료됨",
+      "you": "내 역할: {label}",
+      "customer": "고객: {name}",
+      "number": "번호: {name}",
+      "numberRemoved": "번호 제거됨",
+      "contactRemoved": "삭제됨",
+      "submissionStatus": "상태: {status}",
+      "endedOn": "{when} 종료",
+      "endReason": {
+        "finalStatus": "건이 {status} 상태가 됨",
+        "idle": "활동 없음",
+        "manual": "관리자가 종료함",
+        "other": "{reason}"
+      },
+      "retryCreate": "다시 생성",
+      "endGroup": "그룹 종료",
+      "banners": {
+        "pending": "WhatsApp 그룹을 만드는 중입니다. 준비되면 메시지를 보낼 수 있습니다.",
+        "createError": "WhatsApp 그룹을 만들지 못했습니다.",
+        "closeError": "그룹은 종료되었지만 WhatsApp에서 닫지 못했습니다.",
+        "numberRemoved": "이 그룹을 운영하는 WhatsApp 번호가 제거되었습니다. 아무도 메시지를 보낼 수 없습니다.",
+        "contactRemoved": "이 그룹의 고객 연락처가 삭제되었습니다."
+      },
+      "archiveViewing": "보관함, 읽기 전용입니다. 이 열람은 기록되었습니다.",
+      "endedTitle": "이 그룹은 종료되었습니다",
+      "endedArchiveBody": "더 이상 아무도 메시지를 보낼 수 없습니다. 메시지는 보관함 보기에서만 열립니다.",
+      "endedNoArchive": "더 이상 아무도 메시지를 보낼 수 없으며, 보관함은 열람할 수 없습니다.",
+      "viewArchive": "보관함 보기",
+      "archiveLogged": "보관함 열람은 기록됩니다.",
+      "archiveTitle": "보관함을 열까요?",
+      "archiveBody": "모든 보관함 열람은 이름과 시간과 함께 기록됩니다.",
+      "archiveFailed": "보관함을 열지 못했습니다.",
+      "archiveForbidden": "보관함을 열람할 수 없습니다.",
+      "empty": "아직 메시지가 없습니다.",
+      "sentAs": "보내는 이름: {who}",
+      "cannotSend": "이 그룹을 읽을 수는 있지만 메시지를 보낼 수는 없습니다.",
+      "placeholder": "메시지 입력",
+      "send": "보내기",
+      "sendErrors": {
+        "optedOut": "전송되지 않음: 고객이 수신을 거부했습니다.",
+        "doNotContact": "전송되지 않음: 고객이 연락 금지로 지정되어 있습니다.",
+        "blocked": "전송되지 않음: 이 고객에게 보내는 것이 차단되었습니다.",
+        "notReady": "전송되지 않음: 지금은 그룹에 메시지를 보낼 수 없습니다.",
+        "notAllowed": "이 그룹에 메시지를 보낼 수 없습니다.",
+        "notFound": "이 그룹은 더 이상 존재하지 않습니다.",
+        "rateLimited": "너무 빠르게 보내고 있습니다. 1분 후에 다시 시도하세요.",
+        "gateway": "WhatsApp이 메시지를 받지 않았습니다.",
+        "tooLong": "메시지가 비어 있거나 너무 깁니다.",
+        "unknown": "메시지를 보내지 못했습니다."
+      },
+      "endTitle": "이 그룹을 종료할까요?",
+      "endBody": "그룹 {ref}이(가) 지금 종료됩니다. 아무도 메시지를 보낼 수 없으며, 메시지는 기록되는 보관함에서만 열립니다.",
+      "endDone": "그룹이 종료되었습니다.",
+      "endFailed": "그룹을 종료하지 못했습니다.",
+      "retryTitle": "WhatsApp 그룹 생성을 다시 시도할까요?",
+      "retryBody": "WhatsApp에 그룹 생성을 다시 요청합니다.",
+      "retryDone": "WhatsApp에 그룹 생성을 다시 요청했습니다.",
+      "retryFailed": "다시 시도하지 못했습니다.",
+      "cancel": "취소"
     }
   }
 }
