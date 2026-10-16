@@ -94,7 +94,8 @@
     "flows": "Flows",
     "compass": "Compass",
     "customer": "Customer",
-    "whatsappGroups": "WhatsApp groups"
+    "whatsappGroups": "WhatsApp groups",
+    "whatsappGroup": "WhatsApp group"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"

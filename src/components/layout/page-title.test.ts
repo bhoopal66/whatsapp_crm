@@ -15,7 +15,7 @@ describe('pageTitleKey', () => {
     ['/team-inbox', 'teamInbox'],
     ['/calls', 'calls'],
     ['/groups', 'whatsappGroups'],
-    ['/groups/g1', 'whatsappGroups'],
+    ['/groups/g1', 'whatsappGroup'],
     ['/calendar', 'calendar'],
     ['/meetings', 'meetings'],
     ['/meetings/abc/room', 'meetings'],

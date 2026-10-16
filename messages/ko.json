@@ -94,7 +94,8 @@
     "flows": "플로우",
     "compass": "Compass",
     "customer": "고객",
-    "whatsappGroups": "WhatsApp 그룹"
+    "whatsappGroups": "WhatsApp 그룹",
+    "whatsappGroup": "WhatsApp 그룹 상세"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
