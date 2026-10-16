@@ -996,8 +996,10 @@ submission app. `docs/submission-groups.md` is the contract.
   service role reads but never writes them directly. Like 114 it must be
   applied as a superuser or BYPASSRLS role.
 - **Who reads** lives twice, `sg_rule_can_read` and `rules.ts`: change one,
-  change both. ENDED is read only through the audited `sg_read_archive`
-  (audit row and messages in one statement; a refusal writes nothing).
+  change both. An ENDED group's messages are read only through the
+  audited `sg_read_archive` (audit row and messages in one statement; a
+  refusal writes nothing); its metadata is listed to the same readers
+  unaudited. The list branch also requires live staff (`sg_is_staff`).
 - **Send** writes the `out` row first (`sg_send_begin`, pending), then
   the gateway call, then settles once (`sent` / `blocked` / `failed`);
   the cron fails pending rows older than 10 minutes.
