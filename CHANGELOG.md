@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Calendar: a click on an event is no longer undone by a scroll
+
+No migration. On the day and week grids, the event popover could open
+and then vanish: the grid jumped back to an hour before now whenever the
+page re-rendered or the workspace time zone arrived, carrying the
+clicked event away. The grid now scrolls to now only when it first
+shows a set of dates (opening, changing week or view), never in between.
+
 ### Submission groups: the 1:1 invite link is recorded
 
 **Migration required: 118** (`118_submission_group_invite.sql`, apply as

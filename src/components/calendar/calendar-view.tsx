@@ -62,6 +62,11 @@ import {
   intlTimeZonePlugin,
   wallDateKey,
 } from '@/lib/calendar/fc-timezone';
+import {
+  datesKey,
+  gridScrollTime,
+  shouldScrollToNow,
+} from '@/lib/calendar/grid-scroll';
 import { colorVar, paletteCss } from '@/lib/calendar/ui/colors';
 import {
   chipDetails,
@@ -135,6 +140,13 @@ const noop = () => {};
 const SCOPE = '.cal-root';
 const REALTIME_DEBOUNCE_MS = 500;
 const RAIL_KEY = 'calendar.rail.v1';
+
+/**
+ * Module-level so its identity is stable: FullCalendar memoises its
+ * DateEnv on the locales array, and a fresh one per render rebuilt the
+ * date profile (and re-fired datesSet) on every render.
+ */
+const FC_LOCALES = [koLocale];
 
 const EVENT_TIME_FORMAT = {
   hour: 'numeric',
@@ -449,7 +461,15 @@ export function CalendarView({
     );
   }, []);
 
+  // The dates last scrolled to "now"; see lib/calendar/grid-scroll.ts.
+  const scrolledDatesRef = useRef<string | null>(null);
+
   const onDatesSet = (arg: DatesSetArg) => {
+    const key = datesKey(arg.view.type, arg.startStr, arg.endStr);
+    if (shouldScrollToNow(scrolledDatesRef.current, key)) {
+      scrolledDatesRef.current = key;
+      arg.view.calendar.scrollToTime(gridScrollTime(zone, Date.now()));
+    }
     const v = viewKeyOf(arg.view.type) ?? 'week';
     const date = wallDateKey(zone, arg.view.calendar.getDate().getTime());
     setTitle(arg.view.title);
@@ -599,16 +619,8 @@ export function CalendarView({
   );
 
   // Day and week views open an hour before now, so the present is in view.
-  const scrollTime = useMemo(() => {
-    const hour = Number(
-      new Intl.DateTimeFormat('en-GB', {
-        timeZone: zone,
-        hour: '2-digit',
-        hourCycle: 'h23',
-      }).format(Date.now())
-    );
-    return `${String(Math.max(0, hour - 1)).padStart(2, '0')}:00:00`;
-  }, [zone]);
+  // Only the mount reads it; later scrolls come from onDatesSet.
+  const scrollTime = useMemo(() => gridScrollTime(zone, Date.now()), [zone]);
 
   const renderDayHeader = (arg: DayHeaderContentArg) => {
     // Month and year headers are weekday names only; keep FullCalendar's.
@@ -927,7 +939,7 @@ export function CalendarView({
               intlTimeZonePlugin,
             ]}
             timeZone={fcZone}
-            locales={[koLocale]}
+            locales={FC_LOCALES}
             locale={locale}
             initialView={FC_VIEWS[initialView]}
             initialDate={initialDate ?? undefined}
@@ -938,6 +950,7 @@ export function CalendarView({
             nowIndicatorContent={renderNow}
             weekNumbers
             scrollTime={scrollTime}
+            scrollTimeReset={false}
             slotLabelFormat={{
               hour: 'numeric',
               minute: '2-digit',
