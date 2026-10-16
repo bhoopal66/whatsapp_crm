@@ -6046,6 +6046,66 @@
         "removeBody": "{group} 그룹에서 나가며 새 메시지를 볼 수 없게 됩니다. 나중에 다시 추가할 수 있습니다.",
         "removeConfirm": "내보내기",
         "blockedHint": "지금은 멤버를 변경할 수 없습니다: {reason}"
+      },
+      "settingsTab": {
+        "pictureTitle": "그룹 사진",
+        "pictureAlt": "그룹 사진",
+        "pictureHint": "JPEG 또는 PNG, 최대 2MB.",
+        "upload": "사진 업로드",
+        "remove": "삭제",
+        "iconType": "JPEG 또는 PNG 이미지를 사용하세요.",
+        "toastIconSaved": "사진이 변경되었습니다.",
+        "toastIconRemoved": "사진이 삭제되었습니다.",
+        "toastSaved": "그룹 정보가 저장되었습니다.",
+        "save": "변경사항 저장",
+        "saving": "저장 중...",
+        "policiesTitle": "권한 설정",
+        "blockedHint": "지금은 변경할 수 없습니다: {reason}"
+      },
+      "inviteTab": {
+        "intro": "이 링크가 있는 사람은 누구나 그룹에 참여할 수 있습니다. 너무 널리 공유되었다면 링크를 재설정하세요.",
+        "linkLabel": "초대 링크",
+        "loading": "불러오는 중...",
+        "copy": "복사",
+        "copied": "링크를 복사했습니다.",
+        "copyFailed": "복사하지 못했습니다. 링크를 선택해 직접 복사하세요.",
+        "reset": "링크 재설정",
+        "resetTitle": "초대 링크를 재설정할까요?",
+        "resetBody": "이전 링크는 더 이상 작동하지 않습니다. 이전 링크만 가진 사람은 참여할 수 없게 됩니다.",
+        "resetConfirm": "링크 재설정",
+        "cancel": "취소",
+        "toastReset": "새 초대 링크가 만들어졌습니다.",
+        "send": "연락처에 링크 보내기",
+        "sendTitle": "초대 링크 보내기",
+        "sendDescription": "고객을 선택하거나 번호를 입력하세요. 이 그룹의 번호로 WhatsApp 메시지가 전송됩니다.",
+        "messageLabel": "메시지",
+        "messageHint": "%URL%은 링크로 바뀝니다. 넣지 않으면 링크가 새 줄에 추가됩니다.",
+        "preview": "미리보기",
+        "defaultMessage": "저희 WhatsApp 그룹에 초대합니다: %URL%",
+        "sendSubmit": "{count}명에게 보내기",
+        "sending": "보내는 중...",
+        "done": "완료",
+        "nobody": "링크를 받은 사람이 없습니다.",
+        "toastSent": "{count}명에게 링크를 보냈습니다",
+        "count": {
+          "sent": "전송 {count}",
+          "failed": "실패 {count}",
+          "skipped": "건너뜀 {count}",
+          "notAttempted": "시도 안 함 {count}",
+          "invalid": "유효하지 않음 {count}"
+        },
+        "status": {
+          "sent": "전송됨",
+          "failed": "실패",
+          "skipped": "건너뜀",
+          "not_attempted": "시도 안 함",
+          "invalid": "유효하지 않음"
+        },
+        "reasonOptedOut": "수신 거부",
+        "reasonDoNotContact": "연락 금지로 표시됨",
+        "reasonOverLimit": "한 번에 보낼 수 있는 한도 초과",
+        "reasonInvalid": "유효한 WhatsApp 번호가 아님",
+        "blockedHint": "지금은 사용할 수 없습니다: {reason}"
       }
     }
   }

@@ -6046,6 +6046,66 @@
         "removeBody": "They will leave {group} and stop seeing new messages. You can add them again later.",
         "removeConfirm": "Remove",
         "blockedHint": "You cannot change members right now: {reason}"
+      },
+      "settingsTab": {
+        "pictureTitle": "Group picture",
+        "pictureAlt": "Group picture",
+        "pictureHint": "JPEG or PNG, up to 2 MB.",
+        "upload": "Upload picture",
+        "remove": "Remove",
+        "iconType": "Use a JPEG or PNG image.",
+        "toastIconSaved": "Picture updated.",
+        "toastIconRemoved": "Picture removed.",
+        "toastSaved": "Group details saved.",
+        "save": "Save changes",
+        "saving": "Saving...",
+        "policiesTitle": "Who can do what",
+        "blockedHint": "Can't change this right now: {reason}"
+      },
+      "inviteTab": {
+        "intro": "Anyone with this link can join the group. Reset it if it has been shared too widely.",
+        "linkLabel": "Invite link",
+        "loading": "Loading...",
+        "copy": "Copy",
+        "copied": "Link copied.",
+        "copyFailed": "Couldn't copy. Select the link and copy it by hand.",
+        "reset": "Reset link",
+        "resetTitle": "Reset the invite link?",
+        "resetBody": "The old link will stop working. Anyone who only has the old link won't be able to join.",
+        "resetConfirm": "Reset link",
+        "cancel": "Cancel",
+        "toastReset": "New invite link created.",
+        "send": "Send link to contacts",
+        "sendTitle": "Send the invite link",
+        "sendDescription": "Pick customers or type their numbers. Each gets the link as a WhatsApp message from this group's number.",
+        "messageLabel": "Message",
+        "messageHint": "%URL% is replaced with the link. If you leave it out, the link is added on a new line.",
+        "preview": "Preview",
+        "defaultMessage": "You're invited to join our WhatsApp group: %URL%",
+        "sendSubmit": "{count, plural, one {Send to # person} other {Send to # people}}",
+        "sending": "Sending...",
+        "done": "Done",
+        "nobody": "Nobody was sent the link.",
+        "toastSent": "{count, plural, one {Link sent to # person} other {Link sent to # people}}",
+        "count": {
+          "sent": "{count} sent",
+          "failed": "{count} failed",
+          "skipped": "{count} skipped",
+          "notAttempted": "{count} not attempted",
+          "invalid": "{count} invalid"
+        },
+        "status": {
+          "sent": "Sent",
+          "failed": "Failed",
+          "skipped": "Skipped",
+          "not_attempted": "Not attempted",
+          "invalid": "Invalid"
+        },
+        "reasonOptedOut": "opted out",
+        "reasonDoNotContact": "marked do-not-contact",
+        "reasonOverLimit": "over the limit for one go",
+        "reasonInvalid": "not a valid WhatsApp number",
+        "blockedHint": "Can't be used right now: {reason}"
       }
     }
   }
