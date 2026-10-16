@@ -20,15 +20,14 @@ import {
   persistGroupSnapshot,
   supabaseAdmin,
 } from '@/lib/groups/server';
+import { parsePatch } from '@/lib/groups/requests';
 import {
-  GROUP_SETTINGS,
   parseGroupSettings,
   type GroupSettings,
   type WhatsappGroupRow,
 } from '@/lib/groups/types';
 import {
   getGroup,
-  GROUP_NAME_MAX,
   leaveGroup,
   updateGroupInfo,
   updateGroupSetting,
@@ -37,9 +36,6 @@ import {
 export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
-
-const bad = (message: string) =>
-  new GroupHttpError(400, 'invalid_body', message);
 
 /** Each action and whether WhatsApp lets only a group admin do it. */
 function adminOnlyActions(settings: GroupSettings) {
@@ -169,56 +165,6 @@ export async function GET(request: Request, { params }: Params) {
   } catch (err) {
     return groupErrorResponse(err);
   }
-}
-
-interface GroupPatch {
-  name?: string;
-  description?: string;
-  settings: GroupSettings;
-}
-
-function parsePatch(raw: unknown): GroupPatch {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw bad('Body must be a JSON object');
-  }
-  const b = raw as Record<string, unknown>;
-  const out: GroupPatch = { settings: {} };
-  if (b.name !== undefined) {
-    const name = typeof b.name === 'string' ? b.name.trim() : '';
-    if (!name || name.length > GROUP_NAME_MAX) {
-      throw bad(`name must be 1-${GROUP_NAME_MAX} characters`);
-    }
-    out.name = name;
-  }
-  if (b.description !== undefined) {
-    if (typeof b.description !== 'string' || b.description.length > 2048) {
-      throw bad('description must be text of at most 2048 characters');
-    }
-    out.description = b.description;
-  }
-  if (b.settings !== undefined) {
-    if (typeof b.settings !== 'object' || b.settings === null) {
-      throw bad('settings must be an object');
-    }
-    const s = b.settings as Record<string, unknown>;
-    for (const key of Object.keys(s)) {
-      if (!(GROUP_SETTINGS as readonly string[]).includes(key)) {
-        throw bad(`Unknown setting ${key}`);
-      }
-    }
-    out.settings = parseGroupSettings(s);
-    if (Object.keys(out.settings).length !== Object.keys(s).length) {
-      throw bad("A setting's policy must be anyone or admins");
-    }
-  }
-  if (
-    out.name === undefined &&
-    out.description === undefined &&
-    Object.keys(out.settings).length === 0
-  ) {
-    throw bad('Nothing to change');
-  }
-  return out;
 }
 
 function requireActive(group: WhatsappGroupRow) {
