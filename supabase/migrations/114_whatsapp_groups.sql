@@ -316,7 +316,10 @@ BEGIN
   IF TG_OP = 'UPDATE' THEN
     IF NEW.account_id IS DISTINCT FROM OLD.account_id
        OR NEW.wa_group_id IS DISTINCT FROM OLD.wa_group_id
-       OR NEW.created_by IS DISTINCT FROM OLD.created_by AND NEW.created_by IS NOT NULL THEN
+       -- An unowned row may be stamped once: the groups.post webhook for a
+       -- group our number just created can land before the create route
+       -- stamps its creator. A set creator never changes.
+       OR NEW.created_by IS DISTINCT FROM OLD.created_by AND OLD.created_by IS NOT NULL THEN
       RAISE EXCEPTION 'A group''s workspace, WhatsApp id and creator cannot be changed'
         USING ERRCODE = 'check_violation';
     END IF;
