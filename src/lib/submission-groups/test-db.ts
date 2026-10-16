@@ -92,16 +92,36 @@ class FakeQuery {
     );
   }
   or(expr: string) {
-    const tests = topLevel(expr).map((part) => {
+    const build = (part: string): ((r: Row) => boolean) => {
+      const and = /^and\((.*)\)$/.exec(part);
+      if (and) {
+        const subs = topLevel(and[1]).map(build);
+        return (r) => subs.every((t) => t(r));
+      }
       const [col, op, ...rest] = part.split('.');
       const value = rest.join('.');
+      if (op === 'lt' || op === 'eq') {
+        const time = /^\d{4}-\d\d-\d\dT/.test(value);
+        const cmp = (r: Row) => {
+          if (r[col] == null) return NaN;
+          return time
+            ? Date.parse(String(r[col])) - Date.parse(value)
+            : String(r[col]) < value
+              ? -1
+              : String(r[col]) > value
+                ? 1
+                : 0;
+        };
+        return op === 'lt' ? (r) => cmp(r) < 0 : (r) => cmp(r) === 0;
+      }
       if (op === 'ilike') return (r: Row) => likeRe(value).test(String(r[col]));
       if (op === 'in') {
         const vs = value.replace(/^\(|\)$/g, '').split(',');
         return (r: Row) => vs.includes(String(r[col]));
       }
       throw new Error(`fake or(): unsupported ${part}`);
-    });
+    };
+    const tests = topLevel(expr).map(build);
     return this.where(`or ${expr}`, (r) => tests.some((t) => t(r)));
   }
   order(col: string, opts: { ascending?: boolean } = {}) {

@@ -5,6 +5,9 @@ import type { SubmissionGroup } from './store';
 import {
   LIST_LIMIT_DEFAULT,
   LIST_LIMIT_MAX,
+  cursorFilter,
+  decodeCursor,
+  encodeCursor,
   myLabelOf,
   nextCursor,
   parseListQuery,
@@ -13,6 +16,8 @@ import {
   toChannelRef,
   toListItem,
 } from './views';
+
+const GID = '11111111-1111-4111-8111-111111111111';
 
 const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup => ({
   id: 'g1',
@@ -49,10 +54,12 @@ describe('parseListQuery', () => {
   });
 
   it('reads status, cursor and a clamped limit', () => {
-    expect(qs('status=ENDED&cursor=2026-10-10T00:00:00Z&limit=500')).toEqual({
+    const cursor = { at: '2026-10-10T00:00:00.000Z', id: GID };
+    const raw = encodeURIComponent(encodeCursor(cursor));
+    expect(qs(`status=ENDED&cursor=${raw}&limit=500`)).toEqual({
       status: 'ENDED',
       search: null,
-      cursor: '2026-10-10T00:00:00.000Z',
+      cursor,
       limit: LIST_LIMIT_MAX,
     });
     expect(qs('limit=0').limit).toBe(1);
@@ -62,6 +69,26 @@ describe('parseListQuery', () => {
   it('refuses an unknown status or an unparseable cursor', () => {
     expect(() => qs('status=open')).toThrow(SgHttpError);
     expect(() => qs('cursor=soon')).toThrow(SgHttpError);
+    const enc = (v: string) => Buffer.from(v).toString('base64url');
+    for (const bad of [
+      '2026-10-10T00:00:00.000Z', // the old timestamp-only cursor
+      enc('2026-10-10T00:00:00.000Z'),
+      enc(`nope|${GID}`),
+      enc('2026-10-10T00:00:00.000Z|g1'),
+      enc(`2026-10-10T00:00:00.000Z|${GID}|x`),
+      enc(`2026-10-10|${GID}`),
+    ])
+      expect(() => qs(`cursor=${bad}`)).toThrow(SgHttpError);
+  });
+});
+
+describe('cursor', () => {
+  it('round-trips and builds the keyset filter', () => {
+    const c = { at: '2026-10-10T00:00:00.000Z', id: GID };
+    expect(decodeCursor(encodeCursor(c))).toEqual(c);
+    expect(cursorFilter('ended_at', c)).toBe(
+      `ended_at.lt.${c.at},and(ended_at.eq.${c.at},id.lt.${GID})`
+    );
   });
 });
 
@@ -94,13 +121,26 @@ describe('searchFilter', () => {
 
 describe('nextCursor', () => {
   it('names the last scanned row only when the page was full', () => {
-    const rows = [group(), group({ lastActivityAt: new Date('2026-10-09Z') })];
-    expect(nextCursor(rows, 2, 'ACTIVE')).toBe('2026-10-09T00:00:00.000Z');
+    const rows = [
+      group(),
+      group({ id: GID, lastActivityAt: new Date('2026-10-09Z') }),
+    ];
+    expect(decodeCursor(nextCursor(rows, 2, 'ACTIVE')!)).toEqual({
+      at: '2026-10-09T00:00:00.000Z',
+      id: GID,
+    });
     expect(nextCursor(rows, 3, 'ACTIVE')).toBeNull();
     const ended = [
-      group({ status: 'ENDED', endedAt: new Date('2026-10-12Z') }),
+      group({
+        id: GID,
+        status: 'ENDED',
+        endedAt: new Date('2026-10-12Z'),
+      }),
     ];
-    expect(nextCursor(ended, 1, 'ENDED')).toBe('2026-10-12T00:00:00.000Z');
+    expect(decodeCursor(nextCursor(ended, 1, 'ENDED')!)).toEqual({
+      at: '2026-10-12T00:00:00.000Z',
+      id: GID,
+    });
   });
 });
 
