@@ -27,6 +27,7 @@ const U2 = '55555555-5555-4555-8555-555555555552';
 const CREATOR = '55555555-5555-4555-8555-555555555500';
 const GUEST = '55555555-5555-4555-8555-555555555599';
 const OTHER = '55555555-5555-4555-8555-555555555588';
+let canManage = true;
 const params = { params: Promise.resolve({ id: G }) };
 
 const put = (body: unknown) =>
@@ -43,7 +44,9 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   mocks.role = 'admin';
   mocks.userId = 'admin-1';
+  canManage = true;
   mocks.rls = {
+    rpc: { whatsapp_group_can_manage: () => ({ data: canManage }) },
     tables: {
       whatsapp_groups: [
         { id: G, account_id: 'acct-1', created_by: CREATOR, settings: {} },
@@ -143,6 +146,18 @@ describe('PUT', () => {
     mocks.userId = CREATOR;
     expect((await put({ userIds: [U2] })).status).toBe(200);
     expect(managerIds()).toEqual([CREATOR, U2].sort());
+  });
+
+  it('refuses a creator who can no longer manage the group; admins still pass', async () => {
+    mocks.role = 'agent';
+    mocks.userId = CREATOR;
+    canManage = false;
+    expect((await put({ userIds: [U2] })).status).toBe(403);
+    expect(managerIds()).toEqual([CREATOR, U1].sort());
+
+    mocks.role = 'admin';
+    mocks.userId = 'admin-1';
+    expect((await put({ userIds: [U2] })).status).toBe(200);
   });
 
   it.each([

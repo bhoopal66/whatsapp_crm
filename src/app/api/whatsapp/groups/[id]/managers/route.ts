@@ -14,6 +14,7 @@ import { canViewAllGroups } from '@/lib/auth/roles';
 import { parseManagerSet } from '@/lib/groups/member-requests';
 import {
   GroupHttpError,
+  callerCanManage,
   groupErrorResponse,
   loadGroupForCaller,
   supabaseAdmin,
@@ -96,7 +97,13 @@ export async function PUT(request: Request, { params }: Params) {
     const { id } = await params;
     const { userIds } = parseManagerSet(await request.json().catch(() => null));
     const group = await loadGroupForCaller(ctx, id);
-    if (!canViewAllGroups(ctx.role) && group.created_by !== ctx.userId) {
+    // The creator keeps this only while they can still manage the group
+    // (an agent whose access lapsed must not edit its managers).
+    const allowed = canViewAllGroups(ctx.role)
+      ? true
+      : group.created_by === ctx.userId &&
+        (await callerCanManage(ctx.supabase, id));
+    if (!allowed) {
       throw new GroupHttpError(
         403,
         'not_allowed',
