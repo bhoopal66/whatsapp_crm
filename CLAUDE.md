@@ -900,7 +900,10 @@ Yeastar P-Series. `lib/pbx/yeastar/*` is the Open API client plus the event
 parser, signature check, WebSocket helpers, token manager and CDR helpers.
 `docs/yeastar.md` is the operator contract.
 
-- Who sees a call is `pbx_can_view_call`; guests see none. Secrets
+- Who sees a call is `pbx_can_view_call`; guests see none. Since 113:
+  owners/admins all; everyone else the calls they were on or that rang
+  them (`meta.rang_user_ids`), a leader also their teams' calls, plus
+  the calls of contacts they can see. `call_live_select` follows. Secrets
   (app-encrypted) live only in `pbx_connection_secrets`: RLS on, no policy, no
   client grant.
 - **Tokens.** Yeastar allows 8 live tokens per application, each for 30

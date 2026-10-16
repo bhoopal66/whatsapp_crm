@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Each person sees their own calls
+
+A team leader no longer sees every call and incoming-call card of the
+workspace: only their own, the people of the teams they lead, and the
+customers they can see. Agents and viewers now also see a missed call
+that rang their phone. Owners and admins still see every call.
+
+**Migration required:** `supabase/migrations/113_call_visibility.sql`.
+
 ### Only team leaders and admins create video meetings
 
 Agents and viewers can no longer schedule or start a video meeting; they

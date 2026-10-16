@@ -450,6 +450,16 @@ section describes the behaviour once it is on.
   for a typed number). A do-not-contact customer's _Call back_
   is disabled with the reason; an owner or admin can still call, with
   a reason that is logged.
+- **Who sees a call** (migration 113). Owners and admins see every call of
+  the workspace. A team leader sees the calls they were on or that rang
+  their phone, and the same for the people of the teams they lead. Agents
+  and viewers see the calls they were on or that rang their phone. Everyone
+  also sees the calls of the customers they can see (contacts they created,
+  or whose chat they own or are assigned), so a customer's page shows that
+  customer's call history. Recordings follow the call. The incoming-call
+  card shows the same way: owners and admins every live call, a team
+  leader the ones ringing or answered by them or their teams, everyone else
+  only their own. Bank guests see no calls.
 - **Tabs on the Calls screen.** Who is offered each:
 
   | Tab             | Who                                                                        |

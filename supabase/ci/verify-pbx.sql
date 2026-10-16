@@ -53,6 +53,8 @@ DECLARE
   k_cust   UUID;   -- the agent's customer, taken by the other agent; recorded
   k_int    UUID;   -- internal: the agent called the other agent
   k_other  UUID;   -- the other agent's customer
+  k_rang   UUID;   -- a missed call that only rang agent3 (113)
+  tm_call  UUID;   -- a team the leader leads for a moment (113)
   k_mis    UUID;   -- the agent's call, matched to the wrong customer
   k_hold   UUID;   -- recorded, under legal hold
   k_held   UUID;   -- recorded, the announcement not confirmed played
@@ -206,11 +208,29 @@ BEGIN
   r := pg_temp.px_try('authenticated', u_agent2, format('SELECT count(*)::text FROM calls WHERE id = %L', k_int));
   n := n + 1;
   IF r <> '1' THEN failed := array_append(failed, ('the peer sees the internal call: ' || r)::text); END IF;
-  r := pg_temp.px_try('authenticated', u_lead, 'SELECT count(*)::text FROM calls');
+  -- 113: a team leader sees their own calls and their team's, never
+  -- the whole centre's; a call that only rang someone is theirs too.
+  r := pg_temp.px_try('authenticated', u_lead, format('SELECT count(*)::text FROM calls WHERE id = %L', k_other));
   n := n + 1;
-  IF r IS DISTINCT FROM (SELECT count(*)::text FROM calls WHERE account_id = a_acct) THEN
-    failed := array_append(failed, ('team leader sees every call of the account: ' || r)::text);
-  END IF;
+  IF r <> '0' THEN failed := array_append(failed, ('call visibility (113): a team leader sees a call of someone outside their teams: ' || r)::text); END IF;
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'PX call team', u_lead) RETURNING id INTO tm_call;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (tm_call, u_agent2, a_acct);
+  r := pg_temp.px_try('authenticated', u_lead, format('SELECT count(*)::text FROM calls WHERE id IN (%L, %L)', k_other, k_cust));
+  n := n + 1;
+  IF r <> '2' THEN failed := array_append(failed, ('call visibility (113): a team leader does not see their team''s calls: ' || r)::text); END IF;
+  r := pg_temp.px_try('authenticated', u_lead, format('SELECT count(*)::text FROM calls WHERE id = %L', k_held));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('call visibility (113): a team leader sees a call of someone outside their teams: ' || r)::text); END IF;
+  DELETE FROM team_members WHERE team_id = tm_call;
+  DELETE FROM teams WHERE id = tm_call;
+  INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, status, meta)
+  VALUES (a_acct, conn, 'px-rang', 'inbound', 'no_answer', jsonb_build_object('rang_user_ids', jsonb_build_array(u_agent3)))
+  RETURNING id INTO k_rang;
+  r := pg_temp.px_try('authenticated', u_agent3, format('SELECT count(*)::text FROM calls WHERE id = %L', k_rang))
+    || '/' || pg_temp.px_try('authenticated', u_agent, format('SELECT count(*)::text FROM calls WHERE id = %L', k_rang));
+  n := n + 1;
+  IF r <> '1/0' THEN failed := array_append(failed, ('call visibility (113): a missed call is seen by the person it rang and nobody else below admin: ' || r)::text); END IF;
+  DELETE FROM calls WHERE id = k_rang;
   r := pg_temp.px_try('authenticated', u_admin, 'SELECT count(*)::text FROM calls');
   n := n + 1;
   IF r IS DISTINCT FROM (SELECT count(*)::text FROM calls WHERE account_id = a_acct) THEN
@@ -235,7 +255,17 @@ BEGIN
   IF r <> '0' THEN failed := array_append(failed, ('an agent it does not ring sees the screen pop: ' || r)::text); END IF;
   r := pg_temp.px_try('authenticated', u_lead, q_live);
   n := n + 1;
-  IF r <> '1' THEN failed := array_append(failed, ('a team leader sees the screen pop: ' || r)::text); END IF;
+  IF r <> '0' THEN failed := array_append(failed, ('call visibility (113): a team leader sees a screen pop outside their teams: ' || r)::text); END IF;
+  r := pg_temp.px_try('authenticated', u_admin, q_live);
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('an admin sees the screen pop: ' || r)::text); END IF;
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'PX live team', u_lead) RETURNING id INTO tm_call;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (tm_call, u_agent, a_acct);
+  r := pg_temp.px_try('authenticated', u_lead, q_live);
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('call visibility (113): a team leader does not see a screen pop ringing their team: ' || r)::text); END IF;
+  DELETE FROM team_members WHERE team_id = tm_call;
+  DELETE FROM teams WHERE id = tm_call;
 
   -- ---------- when the call rang (094) ----------
   -- The default stamps the first frame (px-live was inserted without
@@ -554,11 +584,16 @@ BEGIN
     IF r <> 'ok' OR (SELECT contact_id FROM calls WHERE id = k_rel) <> c_x THEN
       failed := array_append(failed, ('the person on the call re-links it: ' || r)::text);
     END IF;
+    -- Since 113 a leader sees (and so re-links) their team's calls only.
+    INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'PX link team', u_lead) RETURNING id INTO tm_call;
+    INSERT INTO team_members (team_id, user_id, account_id) VALUES (tm_call, u_agent2, a_acct);
     r := pg_temp.px_try('authenticated', u_lead, format(q_link, k_rel, c_lead));
     n := n + 1;
     IF r <> 'ok' OR (SELECT contact_id FROM calls WHERE id = k_rel) <> c_lead THEN
-      failed := array_append(failed, ('a team leader re-links a call they were not on: ' || r)::text);
+      failed := array_append(failed, ('a team leader re-links their team''s call they were not on: ' || r)::text);
     END IF;
+    DELETE FROM team_members WHERE team_id = tm_call;
+    DELETE FROM teams WHERE id = tm_call;
 
     -- C-2: a bank number's recording (listed internationally, or in the
     -- local "0" form) is held while the workspace excludes bank numbers.
