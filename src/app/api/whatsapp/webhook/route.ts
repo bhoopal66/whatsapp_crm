@@ -18,6 +18,18 @@ import type { WhatsAppChannel } from '@/lib/whatsapp/channels'
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
 import {
+  applyGroupEvents,
+  applyGroupStatuses,
+  extractWhapiGroupMessages,
+  persistGroupMessages,
+  type GroupChannel,
+  type GroupInboundMessage,
+} from '@/lib/groups/inbound'
+import {
+  parseWhapiGroupEvents,
+  type WhapiGroupEvent,
+} from '@/lib/whatsapp/whapi-group-events'
+import {
   clientIp,
   confirmAccepted,
   RateLimiter,
@@ -147,8 +159,15 @@ export async function POST(request: Request) {
   // message list. Channel adoption and the channel_id cross-check still
   // run in after(), with everything else.
   let event: NormalizedWhapiWebhook
+  // Group traffic (migration 114) is read from the same body on its own:
+  // the normaliser keeps dropping group chats, so none of it can reach
+  // the inbox pipeline. Both readers are pure and never throw.
+  let groupMessages: GroupInboundMessage[]
+  let groupEvents: WhapiGroupEvent[]
   try {
     event = normalizeWhapiWebhook(payload)
+    groupMessages = extractWhapiGroupMessages(payload)
+    groupEvents = parseWhapiGroupEvents(payload)
   } catch (error) {
     // A body that cannot be read now will not read better on a retry,
     // so it is acked and logged, as it was when this ran in after().
@@ -160,7 +179,7 @@ export async function POST(request: Request) {
   // secret has authenticated it. Never a 429 — that only brings a retry.
   const screen = await screenWebhook(edgeCtx(), {
     ip: clientIp(request.headers),
-    events: screenEvents(event, config.id),
+    events: screenEvents(event, groupMessages, config.id),
   })
   if (screen.status === 503) {
     // Another delivery holds a claim on one of these events and has not
@@ -180,14 +199,26 @@ export async function POST(request: Request) {
   // inbound messages (issue #301). `after()` hands the callback to the
   // runtime, which keeps the function alive until it resolves.
   after(async () => {
+    const screened = applyScreen(event, groupMessages, screen.decisions)
+    let groupsOk = true
     try {
-      const screened = applyScreen(event, screen.decisions)
       if (screened.duplicates + screened.ipLimited > 0) {
         console.warn(
           `[whapi-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`,
         )
       }
-      await processWhapiWebhook(screened.event, config, screened.overLimit)
+      if (await channelMatches(screened.event, config)) {
+        // Groups first and isolated: a failure there is logged and never
+        // stops the inbox work below. Group events carry no id to screen,
+        // so an IP-limited delivery skips them along with everything else.
+        groupsOk = await processWhapiGroups(
+          config,
+          screened.groupMessages,
+          screened.ipLimited > 0 ? [] : groupEvents,
+          screened.event.statuses,
+        )
+        await processWhapiWebhook(screened.event, config, screened.overLimit)
+      }
     } catch (error) {
       // A claim is confirmed only once its event is persisted. These
       // lapse with their lease instead, so a redelivery is processed
@@ -195,7 +226,14 @@ export async function POST(request: Request) {
       console.error('[whapi-webhook] processing failed:', error)
       return
     }
-    await confirmAccepted(edgeCtx(), screen.decisions)
+    // Group messages whose write failed keep their claims unconfirmed,
+    // so a redelivery stores them (the insert is idempotent anyway).
+    await confirmAccepted(
+      edgeCtx(),
+      groupsOk
+        ? screen.decisions
+        : screen.decisions.filter((d) => !d.key.startsWith(GROUP_KEY_PREFIX)),
+    )
   })
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
@@ -212,8 +250,11 @@ export async function POST(request: Request) {
  * placeholder with the real channel id, and a key must not change under
  * a redelivery.
  */
+const GROUP_KEY_PREFIX = 'whapi:group:'
+
 function screenEvents(
   event: NormalizedWhapiWebhook,
+  groupMessages: readonly GroupInboundMessage[],
   configId: string,
 ): ScreenEvent[] {
   const events: ScreenEvent[] = []
@@ -230,6 +271,15 @@ function screenEvents(
       kind: 'message',
     })
   }
+  // Group messages last. Screened as `status` kind: replay and the IP
+  // limit apply, but a busy group never spends a sender's message
+  // budget (and nothing in a group is answered anyway).
+  for (const message of groupMessages) {
+    events.push({
+      key: `${GROUP_KEY_PREFIX}${configId}:${message.id}`,
+      kind: 'status',
+    })
+  }
   return events
 }
 
@@ -241,6 +291,7 @@ function screenEvents(
  */
 function applyScreen(
   event: NormalizedWhapiWebhook,
+  groupMessages: readonly GroupInboundMessage[],
   decisions: readonly ScreenDecision[],
 ) {
   let next = 0
@@ -271,8 +322,16 @@ function applyScreen(
     } else skip(outcome)
   }
 
+  const groups: GroupInboundMessage[] = []
+  for (const message of groupMessages) {
+    const { outcome } = decisions[next++]
+    if (outcome === 'accept') groups.push(message)
+    else skip(outcome)
+  }
+
   return {
     event: { ...event, statuses, messages },
+    groupMessages: groups,
     overLimit,
     duplicates,
     ipLimited,
@@ -373,20 +432,15 @@ async function adoptChannelId(config: any, channelId: string): Promise<void> {
 }
 
 /**
- * Turn one authenticated Whapi callback into CRM state.
- *
- * The heavy lifting — contact dedup, conversation resolution, Flows,
- * automations, AI auto-reply, public webhook fan-out — is all
- * provider-agnostic and lives below. This function's only job is to
- * cross-check the channel and dispatch the screened events.
+ * Cross-check the callback's channel against the row the secret
+ * resolved (adopting the real id over the phone placeholder). False
+ * means drop the whole delivery, group traffic included.
  */
-async function processWhapiWebhook(
+async function channelMatches(
   event: NormalizedWhapiWebhook,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   config: any,
-  // Messages from a sender over the webhook rate limit (module 017a).
-  overLimit: ReadonlySet<NormalizedInboundMessage>,
-) {
+): Promise<boolean> {
   // The secret already proved which account this is. A channel_id that
   // disagrees means the operator pointed a *second* channel at a URL
   // minted for the first — messages would land in the wrong account, so
@@ -407,10 +461,65 @@ async function processWhapiWebhook(
       console.error(
         `[whapi-webhook] channel mismatch: callback says "${event.channelId}" but this secret belongs to "${config.phone_number_id}". Dropping.`,
       )
-      return
+      return false
     }
   }
+  return true
+}
 
+/**
+ * Group traffic of one authenticated callback (migration 114): group
+ * messages into `whatsapp_group_messages`, receipts onto our group
+ * sends, `groups` events onto known groups of this number. Service
+ * role, confined to the row the secret resolved. Never throws; false
+ * when the group messages could not be stored.
+ */
+async function processWhapiGroups(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+  messages: GroupInboundMessage[],
+  events: WhapiGroupEvent[],
+  statuses: NormalizedWhapiWebhook['statuses'],
+): Promise<boolean> {
+  const channel: GroupChannel = {
+    id: config.id,
+    accountId: config.account_id,
+    wabaId: config.waba_id ?? null,
+  }
+  const admin = supabaseAdmin()
+  let ok = true
+  try {
+    await persistGroupMessages(admin, channel, messages)
+  } catch (error) {
+    ok = false
+    console.error('[whapi-webhook] group messages failed:', error)
+  }
+  try {
+    // A 1:1 receipt matches no group row (and a group id no `messages`
+    // row), so every receipt goes to both writers.
+    if (statuses.length > 0) await applyGroupStatuses(admin, channel, statuses)
+  } catch (error) {
+    console.error('[whapi-webhook] group statuses failed:', error)
+  }
+  try {
+    await applyGroupEvents(admin, channel, events)
+  } catch (error) {
+    console.error('[whapi-webhook] group events failed:', error)
+  }
+  return ok
+}
+
+/**
+ * Turn one authenticated Whapi callback's inbox traffic into CRM
+ * state. The channel has already been checked (`channelMatches`).
+ */
+async function processWhapiWebhook(
+  event: NormalizedWhapiWebhook,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+  // Messages from a sender over the webhook rate limit (module 017a).
+  overLimit: ReadonlySet<NormalizedInboundMessage>,
+) {
   for (const status of event.statuses) {
     await handleStatusUpdate(status, config.account_id)
   }

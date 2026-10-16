@@ -296,10 +296,33 @@ choice: **5 people per call, a 3 second pause between calls, at most 50
 per operation**. Anyone past the ceiling, or whom WhatsApp refuses to
 add, is offered the group's invite link instead.
 
-**Inbox.** Group traffic stays out of the inbox pipeline. Group
-messages are still dropped by the normaliser, and a groups callback
-carries no `messages` or `statuses`, so the webhook answers 200 and
-processes nothing from it.
+**Inbox.** Group traffic stays out of the inbox pipeline: the
+normaliser still drops group chats, so a group never creates a contact
+or conversation and never reaches flows, journeys, automations, the AI
+or outbound webhooks.
+
+**What the webhook stores** (`src/lib/groups/inbound.ts`, service role,
+confined to the number the callback secret resolved):
+
+- *Group messages* (`@g.us` chats) of a group this number already has
+  a `whatsapp_groups` row for go into `whatsapp_group_messages`, once
+  per (group, message id) — a redelivery inserts nothing. Text, type,
+  sender digits (or `<id>@lid`), sender name and WhatsApp's timestamp
+  are kept; `from_me` is stored as `out`. Media keeps the gateway's id,
+  link, MIME type and filename in `media` — the bytes are not mirrored
+  yet, so a link expires with the gateway's (~30 days). Reactions,
+  edits and deletions are skipped. Messages of unknown groups are only
+  counted in a log line. Each is edge-screened (`whapi:group:` keys).
+- *Receipts* for our group sends move `status` forward only (pending →
+  sent → delivered → read; `failed` only from pending or sent).
+- *`groups` events*: `groups.post` refreshes a known group's snapshot
+  and adds a group our own number created as unowned (admins see it);
+  `groups.put` adds, removes, promotes or demotes participants and
+  adjusts `participants_count` (our number removed → `our_role =
+  'left'`); `groups.patch` updates name, description and settings. Join
+  requests are not recorded and ring no bell.
+
+A failure in any of these is logged and never fails the callback.
 
 ## Webhook authentication
 
