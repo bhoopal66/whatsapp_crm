@@ -289,3 +289,15 @@ jobs:
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify WhatsApp groups
         run: supabase db query --local --file supabase/ci/verify-whatsapp-groups.sql
+
+      # Submission groups (115): identity frozen, wa_group_id once under a
+      # claim, ENDED frozen but for the close bookkeeping; out rows born
+      # pending and settled once, post_end set by the trigger; the
+      # supervisor window (coordinator / team_lead on the list at the
+      # end, until ended_at + 60 days exclusive), owner/admin always,
+      # agents never; sg_read_archive audits allowed reads only; the
+      # audit is append-only; no direct writes, the service role's
+      # included.
+      # RLS, triggers and grants: only real Postgres can show it.
+      - name: Verify submission groups
+        run: supabase db query --local --file supabase/ci/verify-submission-groups.sql
