@@ -78,8 +78,9 @@ export async function POST(request: Request) {
       open = {
         accountId: ctx.accountId,
         submissionRef: existing.submissionRef,
-        contactId: existing.contactId,
-        channelId: existing.channelId,
+        // Ignored for an existing group (its row is returned as it stands).
+        contactId: existing.contactId ?? '',
+        channelId: existing.channelId ?? '',
         subject: existing.subject,
         coordinatorPhone: existing.coordinatorPhone,
         access: [],

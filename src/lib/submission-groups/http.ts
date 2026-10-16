@@ -107,6 +107,8 @@ const REFUSAL: Record<
 > = {
   GROUP_NOT_FOUND: [404, GROUP_NOT_FOUND],
   GROUP_NOT_READY: [409, 'The WhatsApp group is not ready yet'],
+  NUMBER_REMOVED: [409, 'The WhatsApp number hosting this group was removed'],
+  CONTACT_REMOVED: [409, 'The customer contact of this group was deleted'],
   SEND_NOT_ALLOWED: [403, "You can't send to this group"],
   UNKNOWN_USER: [403, "You can't send to this group"],
 };

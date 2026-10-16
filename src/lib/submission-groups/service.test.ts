@@ -696,3 +696,55 @@ describe('SubmissionGroupService.endIfDue / sweep / archive', () => {
       ).toThrow(/windowDays/);
   });
 });
+
+describe('a group detached by 115 (its number or contact was deleted)', () => {
+  const detach = (
+    s: ReturnType<typeof setup>,
+    id: string,
+    patch: Partial<Pick<SubmissionGroup, 'channelId' | 'contactId'>>
+  ) => s.store.groups.set(id, { ...s.store.groups.get(id)!, ...patch });
+
+  it('send is refused before anything is stored: NUMBER_REMOVED, then CONTACT_REMOVED', async () => {
+    const s = setup();
+    const g = await opened(s);
+    detach(s, g.id, { channelId: null });
+    await expect(
+      s.svc.sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+    ).rejects.toMatchObject({ reason: 'NUMBER_REMOVED' });
+    detach(s, g.id, { channelId: CH, contactId: null });
+    await expect(
+      s.svc.sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+    ).rejects.toMatchObject({ reason: 'CONTACT_REMOVED' });
+    expect(s.store.messages).toEqual([]);
+    expect(s.api.of('sendGroupText')).toEqual([]);
+  });
+
+  it('a pending group without a number is not created and not claimed', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    detach(s, g.id, { channelId: null });
+    const r = await s.svc.retryOne(g.id);
+    expect(r).toMatchObject({
+      consentRequired: false,
+      group: { waGroupId: null },
+    });
+    expect(s.api.of('createGroup')).toHaveLength(1);
+    expect(s.store.claims.size).toBe(0);
+  });
+
+  it('an ENDED group without a number reports number_removed and records nothing', async () => {
+    const s = setup();
+    const g = await opened(s);
+    detach(s, g.id, { channelId: null });
+    const r = await s.svc.endIfDue(due(g.id));
+    expect(r).toMatchObject({
+      ended: true,
+      closed: false,
+      closeError: 'number_removed',
+    });
+    expect(s.api.of('closeGroup')).toEqual([]);
+    expect(s.store.groups.get(g.id)!.waCloseError).toBeNull();
+  });
+});

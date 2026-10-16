@@ -79,10 +79,11 @@ export async function recordSubmissionGroupInbound(
       }
       const group = await lookup;
       if (!group) continue;
-      let phone = phones.get(group.contactId);
-      if (!phone) {
-        phone = store.contactConsent(group.contactId).then((c) => c.phone);
-        phones.set(group.contactId, phone);
+      const contactId = group.contactId;
+      let phone = contactId ? phones.get(contactId) : Promise.resolve(null);
+      if (!phone && contactId) {
+        phone = store.contactConsent(contactId).then((c) => c.phone);
+        phones.set(contactId, phone);
       }
       const recorded = await store.recordInbound({
         groupId: group.id,
@@ -90,7 +91,7 @@ export async function recordSubmissionGroupInbound(
         senderWaId: m.senderWaId,
         senderKind: senderKindOf(
           m.senderWaId,
-          await phone,
+          (await phone) ?? null,
           group.coordinatorPhone
         ),
         type: m.type,

@@ -12,9 +12,10 @@ export interface SubmissionGroup {
   id: string;
   accountId: string;
   submissionRef: string;
-  contactId: string;
-  /** The Whapi `whatsapp_config` row hosting the group; frozen. */
-  channelId: string;
+  /** NULL once the contact is deleted (115's ON DELETE SET NULL). */
+  contactId: string | null;
+  /** The Whapi `whatsapp_config` row hosting the group; frozen, NULL once the number is removed. */
+  channelId: string | null;
   subject: string;
   coordinatorPhone: string | null;
   status: GroupStatus;
@@ -75,8 +76,8 @@ export function toGroup(r: Row): SubmissionGroup {
     id: String(r.id),
     accountId: String(r.account_id),
     submissionRef: String(r.submission_ref),
-    contactId: String(r.contact_id),
-    channelId: String(r.channel_id),
+    contactId: str(r.contact_id),
+    channelId: str(r.channel_id),
     subject: String(r.subject ?? ''),
     coordinatorPhone: str(r.coordinator_phone),
     status: r.status as GroupStatus,
@@ -227,6 +228,7 @@ export class SubmissionGroupStore {
       .select(GROUP_COLUMNS)
       .eq('status', 'ACTIVE')
       .is('wa_group_id', null)
+      .not('channel_id', 'is', null)
       .lt('created_at', before.toISOString());
     if (opts.accountId) q = q.eq('account_id', opts.accountId);
     const { data, error } = await q
@@ -245,6 +247,7 @@ export class SubmissionGroupStore {
       .select(GROUP_COLUMNS)
       .eq('status', 'ENDED')
       .not('wa_group_id', 'is', null)
+      .not('channel_id', 'is', null)
       .is('wa_closed_at', null);
     if (opts.accountId) q = q.eq('account_id', opts.accountId);
     const { data, error } = await q

@@ -111,7 +111,12 @@ export const STAFF_LABEL_TEXT: Record<StaffLabel, string> = {
 };
 
 export type GroupRefusal =
-  'GROUP_NOT_FOUND' | 'GROUP_NOT_READY' | 'SEND_NOT_ALLOWED' | 'UNKNOWN_USER';
+  | 'GROUP_NOT_FOUND'
+  | 'GROUP_NOT_READY'
+  | 'NUMBER_REMOVED'
+  | 'CONTACT_REMOVED'
+  | 'SEND_NOT_ALLOWED'
+  | 'UNKNOWN_USER';
 
 /** sendFromCrm refused before anything was stored or sent. */
 export class SubmissionGroupSendRefusedError extends Error {
@@ -287,6 +292,15 @@ export class SubmissionGroupService {
   /** The claim / consent re-check / create / attach path for one pending group. */
   private async createPending(group: SubmissionGroup): Promise<CreateOutcome> {
     const { store, api } = this.deps;
+    // Number or contact deleted (115 detaches the group): nothing to create on, nobody to add.
+    const { channelId, contactId } = group;
+    if (channelId === null || contactId === null)
+      return {
+        consentRequired: false,
+        group,
+        inviteLink: group.inviteLink,
+        refused: [],
+      };
     // Only the holder of the create claim calls the gateway; anyone else gets the group as it stands.
     const token = await store.claimCreate(
       group.id,
@@ -305,7 +319,7 @@ export class SubmissionGroupService {
     let made: Awaited<ReturnType<GroupsApi['createGroup']>>;
     try {
       // Re-checked by the claim holder before every createGroup: a pending group's row says nothing about consent now.
-      const consent = await this.deps.consent(group.contactId);
+      const consent = await this.deps.consent(contactId);
       if (!consent.allowed || !consent.phone) {
         await this.releaseClaimQuietly(group.id, token, null);
         return { consentRequired: true };
@@ -313,7 +327,7 @@ export class SubmissionGroupService {
       const participants = [consent.phone];
       if (group.coordinatorPhone) participants.push(group.coordinatorPhone);
       made = await api.createGroup(
-        group.channelId,
+        channelId,
         participants,
         group.subject,
         group.id
@@ -388,7 +402,7 @@ export class SubmissionGroupService {
       current !== null &&
       (current.waGroupId === waGroupId ||
         (current.waGroupId === null && current.status === 'ACTIVE'));
-    if (!live) {
+    if (!live && group.channelId !== null) {
       try {
         await this.deps.api.closeGroup(group.channelId, waGroupId);
       } catch (err) {
@@ -434,6 +448,13 @@ export class SubmissionGroupService {
     if (!group) throw new SubmissionGroupSendRefusedError('GROUP_NOT_FOUND');
     if (group.waGroupId === null)
       throw new SubmissionGroupSendRefusedError('GROUP_NOT_READY');
+    // 115 detaches a group whose number or contact was deleted: no gateway to
+    // send through, and no customer the CRM still keeps.
+    if (group.channelId === null)
+      throw new SubmissionGroupSendRefusedError('NUMBER_REMOVED');
+    if (group.contactId === null)
+      throw new SubmissionGroupSendRefusedError('CONTACT_REMOVED');
+    const { channelId, contactId, waGroupId } = group;
     const name = await this.deps.displayName(input.userId, group.accountId);
     if (!name) throw new SubmissionGroupSendRefusedError('UNKNOWN_USER');
     // The prefix label is the open access row's label; sg_send_begin re-decides under the group lock.
@@ -453,7 +474,7 @@ export class SubmissionGroupService {
 
     let consent: ConsentAnswer;
     try {
-      consent = await this.deps.consent(group.contactId);
+      consent = await this.deps.consent(contactId);
     } catch (err) {
       await this.settleQuietly(messageId, 'failed');
       throw err;
@@ -466,11 +487,7 @@ export class SubmissionGroupService {
 
     let sent: { waMessageId: string };
     try {
-      sent = await api.sendGroupText(
-        group.channelId,
-        group.waGroupId,
-        prefixed
-      );
+      sent = await api.sendGroupText(channelId, waGroupId, prefixed);
     } catch (err) {
       await this.settleQuietly(messageId, 'failed');
       throw err;
@@ -564,6 +581,9 @@ export class SubmissionGroupService {
       return { ended, reason, ...none, closed: true };
     // ENDED: no new 'out' row can be written, so the pending count only falls. A send begun before the end completes
     // (and is stored) before the WhatsApp group is closed.
+    // The number was removed (115 detaches the group): nothing can close it any more.
+    if (group.channelId === null)
+      return { ended, reason, ...none, closeError: 'number_removed' };
     if ((await store.countPendingOut(group.id)) > 0)
       return { ended, reason, ...none, closeDeferred: true };
     try {
