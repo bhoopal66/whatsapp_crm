@@ -6,6 +6,8 @@ import {
   mergeMessages,
   parseBlocks,
   reasonKey,
+  removalFailed,
+  resolveTab,
   shouldSendOnKey,
   statusTick,
   summarizeAddMembers,
@@ -215,5 +217,35 @@ describe('inviteMessagePreview', () => {
     expect(inviteMessagePreview('Join: %URL%', 'L')).toBe('Join: L');
     expect(inviteMessagePreview('Join us', 'L')).toBe('Join us\nL');
     expect(inviteMessagePreview('  ', 'L')).toBe('L');
+  });
+});
+
+describe('resolveTab', () => {
+  const visible = ['chat', 'members', 'settings', 'invite'] as const;
+  it('follows ?tab= and falls back to chat', () => {
+    expect(resolveTab('invite', visible)).toBe('invite');
+    expect(resolveTab(undefined, visible)).toBe('chat');
+    expect(resolveTab(null, visible)).toBe('chat');
+    expect(resolveTab('nope', visible)).toBe('chat');
+  });
+  it('reads a tab the person does not see as chat', () => {
+    expect(resolveTab('requests', visible)).toBe('chat');
+    expect(resolveTab('requests', [...visible, 'requests'])).toBe('requests');
+  });
+});
+
+describe('removalFailed', () => {
+  it('is true only when WhatsApp refused someone', () => {
+    expect(removalFailed({ removed: 1, failed: [] })).toBe(false);
+    expect(removalFailed({ removed: 0, failed: ['9715'] })).toBe(true);
+    expect(removalFailed({ failed: [{ waId: '9715' }] })).toBe(true);
+    expect(removalFailed(null)).toBe(false);
+  });
+});
+
+describe('reason codes', () => {
+  it('knows the create-group outcomes', () => {
+    expect(reasonKey('no_participants')).toBe('no_participants');
+    expect(reasonKey('saved_failed_run_sync')).toBe('saved_failed_run_sync');
   });
 });

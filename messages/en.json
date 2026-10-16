@@ -6009,7 +6009,9 @@
         "unavailable": "Something went wrong on our side. Try again in a moment.",
         "invalid_body": "That message couldn't be sent. Check the text and try again.",
         "time_budget": "Stopped before the time limit. Try the rest again, or send them the invite link.",
-        "unknown": "Something went wrong. Try again."
+        "unknown": "Something went wrong. Try again.",
+        "no_participants": "None of those people could be added to a group. Check the numbers and try again.",
+        "saved_failed_run_sync": "The group was created on WhatsApp but couldn't be saved here. An admin can run Sync to bring it in — don't create it again."
       },
       "membersTab": {
         "search": "Search members",
@@ -6050,7 +6052,8 @@
         "removeTitle": "Remove {name}?",
         "removeBody": "They will leave {group} and stop seeing new messages. You can add them again later.",
         "removeConfirm": "Remove",
-        "blockedHint": "You cannot change members right now: {reason}"
+        "blockedHint": "You cannot change members right now: {reason}",
+        "toastRemoveFailed": "WhatsApp couldn't remove {name} from the group."
       },
       "settingsTab": {
         "pictureTitle": "Group picture",

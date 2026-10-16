@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft, MoreVertical, RefreshCw, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
@@ -20,9 +20,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import {
-  GROUP_TABS,
   parseBlocks,
   reasonKey,
+  resolveTab,
   visibleTabs,
   type GroupBlocks,
   type GroupTab,
@@ -62,15 +62,13 @@ export interface GroupTabProps {
   detail: GroupDetail;
   /** Re-read the group (`refresh` also re-fetches it from WhatsApp). */
   reload: (opts?: { refresh?: boolean }) => Promise<void>;
+  /** Switch tab (writes `?tab=`), e.g. Members → Invite. */
+  onTabChange?: (tab: GroupTab) => void;
+  /** The picture changed: the header re-reads it. */
+  onIconChange?: () => void;
 }
 
 type State = 'loading' | 'ok' | 'gone' | 'error';
-
-function toTab(v: string | undefined): GroupTab {
-  return (GROUP_TABS as readonly string[]).includes(v ?? '')
-    ? (v as GroupTab)
-    : 'chat';
-}
 
 /** /groups/[id] — header, tabs and the chat. */
 export function GroupPage({
@@ -85,10 +83,11 @@ export function GroupPage({
   const { user, accountRole } = useAuth();
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [state, setState] = useState<State>('loading');
-  const [tab, setTab] = useState<GroupTab>(toTab(initialTab));
+  const searchParams = useSearchParams();
   const [refreshing, setRefreshing] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [iconOk, setIconOk] = useState(true);
+  const [iconVersion, setIconVersion] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
   const mounted = useRef(true);
   useEffect(() => {
@@ -159,15 +158,23 @@ export function GroupPage({
         : [],
     [detail, accountRole, user?.id, pendingRequests]
   );
-  const activeTab: GroupTab = tabs.includes(tab) ? tab : 'chat';
+  // The URL is the one source of truth, so a link or Open invite that only
+  // changes `?tab=` while the page is open switches tabs too.
+  const activeTab: GroupTab = resolveTab(
+    searchParams.get('tab') ?? initialTab,
+    tabs
+  );
 
-  const changeTab = (next: unknown) => {
-    const value = toTab(String(next));
-    setTab(value);
+  const goToTab = (value: GroupTab) => {
     const url = new URL(window.location.href);
     if (value === 'chat') url.searchParams.delete('tab');
     else url.searchParams.set('tab', value);
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
+  };
+  const changeTab = (next: unknown) => goToTab(resolveTab(String(next), tabs));
+  const bumpIcon = () => {
+    setIconVersion((v) => v + 1);
+    setIconOk(true);
   };
 
   const refresh = async () => {
@@ -243,7 +250,13 @@ export function GroupPage({
       : group.our_role === 'admin'
         ? t('roleAdmin')
         : t('roleMember');
-  const tabProps: GroupTabProps = { groupId, detail, reload };
+  const tabProps: GroupTabProps = {
+    groupId,
+    detail,
+    reload,
+    onTabChange: goToTab,
+    onIconChange: bumpIcon,
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
@@ -259,7 +272,7 @@ export function GroupPage({
           {iconOk ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={`/api/whatsapp/groups/${groupId}/icon`}
+              src={`/api/whatsapp/groups/${groupId}/icon?v=${iconVersion}`}
               alt=""
               className="size-full object-cover"
               onError={() => setIconOk(false)}

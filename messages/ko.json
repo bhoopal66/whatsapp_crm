@@ -6009,7 +6009,9 @@
         "unavailable": "문제가 발생했습니다. 잠시 후 다시 시도하세요.",
         "invalid_body": "메시지를 보낼 수 없습니다. 내용을 확인하고 다시 시도하세요.",
         "time_budget": "시간 제한 전에 중단했습니다. 나머지는 다시 시도하거나 초대 링크를 보내세요.",
-        "unknown": "문제가 발생했습니다. 다시 시도하세요."
+        "unknown": "문제가 발생했습니다. 다시 시도하세요.",
+        "no_participants": "추가할 수 있는 사람이 없습니다. 번호를 확인하고 다시 시도하세요.",
+        "saved_failed_run_sync": "그룹은 WhatsApp에 만들어졌지만 여기에 저장하지 못했습니다. 관리자가 동기화를 실행해 가져올 수 있습니다. 다시 만들지 마세요."
       },
       "membersTab": {
         "search": "멤버 검색",
@@ -6050,7 +6052,8 @@
         "removeTitle": "{name}님을 내보낼까요?",
         "removeBody": "{group} 그룹에서 나가며 새 메시지를 볼 수 없게 됩니다. 나중에 다시 추가할 수 있습니다.",
         "removeConfirm": "내보내기",
-        "blockedHint": "지금은 멤버를 변경할 수 없습니다: {reason}"
+        "blockedHint": "지금은 멤버를 변경할 수 없습니다: {reason}",
+        "toastRemoveFailed": "WhatsApp에서 {name}님을 그룹에서 내보내지 못했습니다."
       },
       "settingsTab": {
         "pictureTitle": "그룹 사진",

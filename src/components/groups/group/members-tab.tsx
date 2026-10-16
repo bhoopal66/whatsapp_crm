@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Loader2, MoreVertical, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -30,6 +29,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   reasonKey,
+  removalFailed,
   summarizeAddMembers,
   type AddMembersSummary,
 } from '@/lib/groups/group-page';
@@ -48,10 +48,14 @@ import type { GroupDetail, GroupTabProps } from '../group-page';
 type Participant = GroupDetail['participants'][number];
 
 /** The Members tab: who is in the group, add people, admins, removal. */
-export function MembersTab({ groupId, detail, reload }: GroupTabProps) {
+export function MembersTab({
+  groupId,
+  detail,
+  reload,
+  onTabChange,
+}: GroupTabProps) {
   const t = useTranslations('Groups.page');
   const m = useTranslations('Groups.page.membersTab');
-  const router = useRouter();
   const numbers = useAccountNumbers();
   const [search, setSearch] = useState('');
   const [addOpen, setAddOpen] = useState(false);
@@ -114,7 +118,11 @@ export function MembersTab({ groupId, detail, reload }: GroupTabProps) {
         body: JSON.stringify({ waIds: [p.wa_id] }),
       });
       if (!res.ok) return await failed(res);
-      toast.success(m('toastRemoved', { name: nameOf(p) }));
+      // 200 even when WhatsApp refused: `failed` names who is still in.
+      const json = (await res.json().catch(() => null)) as unknown;
+      if (removalFailed(json))
+        toast.error(m('toastRemoveFailed', { name: nameOf(p) }));
+      else toast.success(m('toastRemoved', { name: nameOf(p) }));
       await reload();
     } catch {
       toast.error(t('reasons.unknown'));
@@ -238,9 +246,7 @@ export function MembersTab({ groupId, detail, reload }: GroupTabProps) {
           onAdded={() => void reload()}
           onInvite={() => {
             setAddOpen(false);
-            const url = new URL(window.location.href);
-            url.searchParams.set('tab', 'invite');
-            router.replace(`${url.pathname}${url.search}`, { scroll: false });
+            onTabChange?.('invite');
           }}
         />
       )}

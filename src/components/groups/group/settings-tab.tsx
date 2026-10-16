@@ -26,7 +26,12 @@ import {
 import type { GroupTabProps } from '../group-page';
 
 /** The Settings tab: name, description, picture and the four policies. */
-export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
+export function SettingsTab({
+  groupId,
+  detail,
+  reload,
+  onIconChange,
+}: GroupTabProps) {
   const t = useTranslations('Groups.page');
   const s = useTranslations('Groups.page.settingsTab');
   const c = useTranslations('Groups.create');
@@ -145,6 +150,7 @@ export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
       toast.success(s('toastIconSaved'));
       setIconMissing(false);
       setIconVersion((v) => v + 1);
+      onIconChange?.();
       await reload();
     } catch {
       toast.error(t('reasons.unknown'));
@@ -161,6 +167,7 @@ export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
       toast.success(s('toastIconRemoved'));
       setIconMissing(true);
       setIconVersion((v) => v + 1);
+      onIconChange?.();
       await reload();
     } catch {
       toast.error(t('reasons.unknown'));
@@ -170,6 +177,10 @@ export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
   };
 
   const infoLocked = !!infoBlock;
+  // The picture route always needs our number to be a group admin, which
+  // is what `blocks.settings` reports; `edit_info` alone is not enough.
+  const iconBlock = settingsBlock ?? infoBlock;
+  const iconLocked = !!iconBlock;
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 overflow-y-auto pb-6">
@@ -202,7 +213,7 @@ export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
             <Button
               type="button"
               variant="outline"
-              disabled={infoLocked || iconBusy}
+              disabled={iconLocked || iconBusy}
               onClick={() => fileRef.current?.click()}
             >
               {iconBusy ? (
@@ -215,7 +226,7 @@ export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
             <Button
               type="button"
               variant="ghost"
-              disabled={infoLocked || iconBusy || iconMissing}
+              disabled={iconLocked || iconBusy || iconMissing}
               onClick={() => void removeIcon()}
             >
               <Trash2 className="size-4" />
@@ -223,7 +234,11 @@ export function SettingsTab({ groupId, detail, reload }: GroupTabProps) {
             </Button>
           </div>
         </div>
-        <p className="text-muted-foreground text-xs">{s('pictureHint')}</p>
+        <p className="text-muted-foreground text-xs">
+          {iconBlock
+            ? s('blockedHint', { reason: reasonOf(iconBlock) })
+            : s('pictureHint')}
+        </p>
       </section>
 
       <form onSubmit={saveInfo} className="space-y-3">

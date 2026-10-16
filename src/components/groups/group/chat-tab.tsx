@@ -181,13 +181,25 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         message?: Msg;
         code?: string;
       } | null;
-      if (!res.ok || !json?.message) {
+      if (!res.ok) {
         setMessages((m) => m.filter((x) => x.id !== tempId));
         setText(body);
         toast.error(t(`reasons.${reasonKey(json?.code)}`));
         return;
       }
-      const sent = json.message;
+      const sent = json?.message;
+      if (!sent) {
+        // WhatsApp took it but the row was not recorded (200 `message:
+        // null`): the text is out, so keep the bubble as sent, never
+        // restore it to the composer (a resend would duplicate).
+        setMessages((m) =>
+          m.map((x) => (x.id === tempId ? { ...x, status: 'sent' } : x))
+        );
+        void load()
+          .then((r) => setMessages((m) => mergeMessages(m, r.messages)))
+          .catch(() => undefined);
+        return;
+      }
       // The realtime echo may already have delivered the real row.
       setMessages((m) =>
         mergeMessages(

@@ -39,6 +39,8 @@ export const GROUP_REASON_CODES = [
   'unavailable',
   'invalid_body',
   'time_budget',
+  'no_participants',
+  'saved_failed_run_sync',
   'unknown',
 ] as const;
 export type GroupReasonCode = (typeof GROUP_REASON_CODES)[number];
@@ -114,6 +116,30 @@ export function visibleTabs(args: {
     if (tab === 'managers') return args.canEditManagers;
     return true;
   });
+}
+
+/**
+ * The tab the URL names (`?tab=`), else Chat. A name that is not a tab, or
+ * a tab this person does not see (Requests while nothing waits, Managers
+ * for a non-manager), also reads as Chat.
+ */
+export function resolveTab(
+  raw: string | null | undefined,
+  visible: readonly GroupTab[]
+): GroupTab {
+  const tab = (GROUP_TABS as readonly string[]).includes(raw ?? '')
+    ? (raw as GroupTab)
+    : 'chat';
+  return visible.includes(tab) ? tab : 'chat';
+}
+
+/**
+ * Whether a `DELETE …/participants` answer says WhatsApp refused anyone.
+ * The route answers 200 `{removed, failed, resynced}` even then.
+ */
+export function removalFailed(json: unknown): boolean {
+  const failed = (json as { failed?: unknown } | null)?.failed;
+  return identityIds(failed).length > 0;
 }
 
 // ------------------------------------------------------------
