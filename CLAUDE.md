@@ -522,7 +522,9 @@ workspaces, edge security, tasks, journeys, internal chat (two files),
 deal rooms and PBX, then 106's meetings), each a step in `.github/workflows/migrations.yml`
 and each one statement (the pinned CLI rejects more). A migration that
 changes one of those rules updates its verify file; a new verify file must
-be wired in there.
+be wired in there. In a plpgsql verify block, assign a writing function's
+result first and read its effect in a separate statement — a subquery in
+the same expression reads the snapshot taken before the call.
 
 ### Chat tags (`lib/chat-tags/*`, migrations 075–076)
 
@@ -977,6 +979,39 @@ Groups on a Whapi number, at `/groups`. `docs/whatsapp-groups.md` is the contrac
 - **Pacing** is anti-ban: 5 adds per call, 3 s apart, 50 per operation,
   invite-link fallback; opted-out contacts are skipped; 20 sends/min/group.
 
+### Submission groups (`lib/submission-groups/*`, migration 115)
+
+One Whapi WhatsApp group per submitted case, opened by the external
+submission app. `docs/submission-groups.md` is the contract.
+
+- **Trigger.** `POST /api/v1/submission-groups` (scopes
+  `submission_groups:read|write`), idempotent per `(account, submission_id)`;
+  `PATCH` reports a status and a final one ends the group. `mcp-server/`
+  is not involved. Staff are named by login email (`sg_staff_by_email`).
+- **Participants** are the hosting Whapi number, the customer and an
+  optional coordinator phone; a customer WhatsApp will not add gets the
+  invite link 1:1. The CRM access list is separate (label agent /
+  coordinator / team_lead, per group, not the account role).
+- **Writes are `sg_*` RPCs only**: the tables are RLS-forced and even the
+  service role reads but never writes them directly. Like 114 it must be
+  applied as a superuser or BYPASSRLS role.
+- **Who reads** lives twice, `sg_rule_can_read` and `rules.ts`: change one,
+  change both. ENDED is read only through the audited `sg_read_archive`
+  (audit row and messages in one statement; a refusal writes nothing).
+- **Send** writes the `out` row first (`sg_send_begin`, pending), then
+  the gateway call, then settles once (`sent` / `blocked` / `failed`);
+  the cron fails pending rows older than 10 minutes.
+- **Inbound** group messages arrive through `processWhapiGroups` and are
+  stored idempotently on `(group_id, wa_message_id)`; they never reach
+  `messages`, flows, automations or the AI.
+- **Detach on delete:** `channel_id` / `contact_id` are ON DELETE SET NULL;
+  a detached group refuses sends (`NUMBER_REMOVED` / `CONTACT_REMOVED`).
+- **Consent:** opt-out and do-not-contact refuse create and sends; there
+  is no opt-in register.
+- **Cron:** the automations cron every 2 minutes (`cron.ts`): pending
+  creates, stale sends, close retries. Idle ending is off.
+  `verify-submission-groups.sql` asserts the SQL.
+
 ### Video meetings (`lib/meetings/*`, migration 106)
 
 Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
@@ -1272,6 +1307,6 @@ fails if one is wired to plain `t()`.
   behaviour is documented in `docs/` — `whapi.md`, `meta-cloud-api.md`,
   `docker.md`, `public-api.md`, `mcp.md`, `campaign-journeys.md`,
   `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`,
-  `meetings.md`, `whatsapp-groups.md`.
+  `meetings.md`, `whatsapp-groups.md`, `submission-groups.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

@@ -12,6 +12,24 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups (module 018a)
+
+**Migration required: 115** (`115_submission_groups.sql`, apply as a
+superuser or BYPASSRLS role, as 114). It adds the tables behind
+submission groups: the groups, their access list, their own message log
+and an append-only audit of archive views. Removing a Whapi number or
+deleting a contact detaches its groups instead of blocking the delete.
+
+The submission application opens one WhatsApp group per submitted case on
+a Whapi number through the public API (`POST`/`GET`/`PATCH
+/api/v1/submission-groups`, scopes `submission_groups:read` and
+`submission_groups:write`). Staff are named by login email and work the
+group from the CRM, every message prefixed `Name (Label): text`. A final
+status ends the group; an ended group is read only through an audited
+archive view (admins, and coordinators and team leads for 60 days). The
+automations cron finishes pending creates, fails stale sends and retries
+closes. See `docs/submission-groups.md`.
+
 ### WhatsApp groups on a Whapi number
 
 **Migration required: 114** (`114_whatsapp_groups.sql`, apply as a
