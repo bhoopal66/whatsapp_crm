@@ -379,7 +379,7 @@ describe('Whapi webhook: submission groups (018a)', () => {
     expect(groupMessages().map((r) => r.wa_message_id)).toEqual(['g-1']);
   });
 
-  it('a submission-group failure leaves the 114 path and the 1:1 pipeline untouched', async () => {
+  it('a submission-group failure leaves the 114 path and the 1:1 pipeline untouched, and its claim unconfirmed', async () => {
     h.rpc.mockImplementation(async (fn: string) =>
       fn === 'sg_record_inbound'
         ? { data: null, error: { message: 'boom' } }
@@ -402,10 +402,13 @@ describe('Whapi webhook: submission groups (018a)', () => {
     expect(sgCalls()).toHaveLength(1);
     expect(groupMessages().map((r) => r.wa_message_id)).toEqual(['g-1']);
     expect(h.processMessage).toHaveBeenCalledTimes(1);
+    // The group claims stay unconfirmed so Whapi's redelivery records the
+    // submission-group message (both group writes are idempotent).
     const confirmed = h.confirmAccepted.mock.calls[0][1] as { key: string }[];
-    expect(confirmed.map((d) => d.key)).toEqual(
-      expect.arrayContaining(['whapi:group:cfg-1:g-1', 'whapi:group:cfg-1:s-1'])
+    expect(confirmed.map((d) => d.key)).not.toEqual(
+      expect.arrayContaining(['whapi:group:cfg-1:s-1'])
     );
+    expect(confirmed.length).toBeGreaterThan(0);
   });
 });
 
