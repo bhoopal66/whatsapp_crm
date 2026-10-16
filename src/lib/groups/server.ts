@@ -72,6 +72,8 @@ const FAILURES: Record<GroupFailureKey, [number, string]> = {
   billing: [402, "The number's Whapi plan has run out"],
   invalid_request: [400, 'WhatsApp refused the request as invalid'],
   gateway_unavailable: [502, 'WhatsApp did not respond; try again'],
+  // Never thrown by a call; listed so the map stays total.
+  time_budget: [503, 'Stopped before the time limit; try again'],
   unknown: [502, 'WhatsApp refused the request'],
 };
 
@@ -233,7 +235,8 @@ async function matchContacts(
 
 /**
  * Write what Whapi says a group is: upsert `whatsapp_groups` on
- * (channel_id, wa_group_id), then replace its participants. `createdBy`
+ * (channel_id, wa_group_id), then upsert its participants and drop
+ * whoever is no longer listed. `createdBy`
  * is sent only for a group we just created: the guard freezes it, so a
  * sync must leave an existing row's creator alone. `our_role` is left
  * out when our number is not in the list, so an existing row keeps it
@@ -277,22 +280,38 @@ export async function persistGroupSnapshot(
   const contacts = await matchContacts(admin, channel.accountId, [
     ...people.keys(),
   ]);
-  const del = await admin
-    .from('whatsapp_group_participants')
-    .delete()
-    .eq('group_id', saved.id);
-  if (del.error) throw del.error;
+  // Upsert, then drop only who is no longer listed. Delete-all-then-
+  // insert left the list empty between the two calls, and two saves of
+  // one group (the create route and its `groups.post` webhook) collided
+  // on the primary key, failing the create after WhatsApp had made it.
   if (people.size > 0) {
-    const ins = await admin.from('whatsapp_group_participants').insert(
+    const up = await admin.from('whatsapp_group_participants').upsert(
       [...people.values()].map((p) => ({
         group_id: saved.id,
         account_id: channel.accountId,
         wa_id: p.waId,
         contact_id: contacts.get(p.waId!) ?? null,
         role: p.role,
-      }))
+      })),
+      { onConflict: 'group_id,wa_id' }
     );
-    if (ins.error) throw ins.error;
+    if (up.error) throw up.error;
+  }
+  const cur = await admin
+    .from('whatsapp_group_participants')
+    .select('wa_id')
+    .eq('group_id', saved.id);
+  if (cur.error) throw cur.error;
+  const gone = ((cur.data ?? []) as Array<{ wa_id: string }>)
+    .map((r) => r.wa_id)
+    .filter((w) => !people.has(w));
+  for (let i = 0; i < gone.length; i += MAX_IN) {
+    const del = await admin
+      .from('whatsapp_group_participants')
+      .delete()
+      .eq('group_id', saved.id)
+      .in('wa_id', gone.slice(i, i + MAX_IN));
+    if (del.error) throw del.error;
   }
   return saved;
 }

@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   loadChannels: vi.fn(),
   createGroup: vi.fn(),
+  getGroup: vi.fn(),
   updateGroupInfo: vi.fn(),
   updateGroupSetting: vi.fn(),
   persist: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
 vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
   createGroup: mocks.createGroup,
+  getGroup: mocks.getGroup,
   updateGroupInfo: mocks.updateGroupInfo,
   updateGroupSetting: mocks.updateGroupSetting,
 }));
@@ -78,6 +80,7 @@ const WA = '120363000000000001@g.us';
 let rlsLog: Op[];
 let adminLog: Op[];
 let canCreate: boolean;
+let registry: Array<Record<string, unknown>>;
 let staff: string[];
 const rpc = vi.fn();
 
@@ -108,6 +111,7 @@ beforeEach(() => {
   adminLog = [];
   canCreate = true;
   staff = [M1];
+  registry = [];
   rpc.mockImplementation(async (fn: string) =>
     fn === 'whatsapp_group_can_create'
       ? { data: canCreate, error: null }
@@ -132,6 +136,7 @@ beforeEach(() => {
     if (op.table === 'profiles') {
       return { data: staff.map((user_id) => ({ user_id })), error: null };
     }
+    if (op.table === 'contacts') return { data: registry, error: null };
     if (op.table === 'whatsapp_groups') {
       return { data: row({ description: 'Hi' }), error: null };
     }
@@ -283,5 +288,86 @@ describe('POST /api/whatsapp/groups', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'no_participants' });
     expect(mocks.createGroup).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/whatsapp/groups: consent and later batches', () => {
+  const twelve = Array.from(
+    { length: 12 },
+    (_, i) => `9715012300${String(i).padStart(2, '0')}`
+  );
+  const ident = (waId: string) => ({ jid: `${waId}@s.whatsapp.net`, waId });
+  const member = (waId: string) => ({ ...ident(waId), role: 'member' });
+  const created = {
+    id: WA,
+    name: 'Team',
+    description: null,
+    participantsCount: 6,
+    participants: [
+      { ...ident('971500000000'), role: 'superadmin' },
+      ...twelve.slice(0, 5).map(member),
+    ],
+  };
+
+  beforeEach(() => {
+    mocks.createGroup.mockResolvedValue({
+      group: created,
+      added: twelve.map(ident),
+      refused: [],
+      notAttempted: [],
+      invalid: [],
+      error: null,
+    });
+  });
+
+  const storedWaIds = () =>
+    (
+      mocks.persist.mock.calls[0][2] as { participants: { waId: string }[] }
+    ).participants.map((p) => p.waId);
+
+  it('stores the re-read group, not the first batch, after a 12-person create', async () => {
+    mocks.getGroup.mockResolvedValue({
+      ...created,
+      participantsCount: 13,
+      participants: [created.participants[0], ...twelve.map(member)],
+    });
+    const res = await post({ ...base, participants: twelve });
+    expect(res.status).toBe(201);
+    expect(mocks.getGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: WA })
+    );
+    expect(storedWaIds()).toEqual(expect.arrayContaining(twelve));
+  });
+
+  it('merges who was added when the re-read fails', async () => {
+    mocks.getGroup.mockRejectedValue(new Error('timeout'));
+    const res = await post({ ...base, participants: twelve });
+    expect(res.status).toBe(201);
+    expect(storedWaIds()).toEqual(expect.arrayContaining(twelve));
+    expect(mocks.persist.mock.calls[0][2]).toMatchObject({
+      participantsCount: 13,
+    });
+  });
+
+  it('never sends an opted-out number to WhatsApp, and reports it', async () => {
+    registry = [
+      {
+        id: 'c-out',
+        phone_normalized: '971501234567',
+        opted_out_at: '2026-10-01T00:00:00Z',
+        do_not_contact_at: null,
+      },
+    ];
+    const res = await post({
+      ...base,
+      participants: ['+971501234567', '+971507654321'],
+    });
+    expect(res.status).toBe(201);
+    expect(mocks.createGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ participants: ['971507654321'] })
+    );
+    expect((await res.json()).skipped).toEqual([
+      { waId: '971501234567', contactId: null, reason: 'opted_out' },
+    ]);
   });
 });

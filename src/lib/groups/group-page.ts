@@ -37,6 +37,7 @@ export const GROUP_REASON_CODES = [
   'not_found',
   'unavailable',
   'invalid_body',
+  'time_budget',
   'unknown',
 ] as const;
 export type GroupReasonCode = (typeof GROUP_REASON_CODES)[number];

@@ -228,3 +228,57 @@ describe('ourRoleIn / sendGroupText', () => {
     expect(bodyOf(0)).toEqual({ to: GID, body: 'hi' });
   });
 });
+
+describe('time budget', () => {
+  /** A clock that only moves when the code waits or calls Whapi. */
+  function clock() {
+    let t = 0;
+    return {
+      now: () => t,
+      sleep: async (ms: number) => {
+        t += ms;
+      },
+      tick: (ms: number) => (t += ms),
+    };
+  }
+
+  it('starts no batch that would run past the deadline', async () => {
+    const c = clock();
+    fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+      c.tick(1_000);
+      return json({ processed: JSON.parse(init.body as string).participants });
+    });
+    const res = await addParticipants({
+      channel: whapiChannel,
+      groupId: GID,
+      participants: phones(20),
+      sleep: c.sleep,
+      now: c.now,
+      deadline: 10_000,
+    });
+    // 0 → 1s, pause → 4s → 5s, pause → 8s → 9s; a 4th pause ends at 12s.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(res.added).toHaveLength(15);
+    expect(res.notAttempted).toEqual(phones(20).slice(15));
+    expect(res.error).toBe('time_budget');
+  });
+
+  it('carries the deadline through createGroup', async () => {
+    const c = clock();
+    fetchMock.mockImplementation(async () => {
+      c.tick(46_000);
+      return json({ id: GID, name: 'Deal', participants: [] });
+    });
+    const res = await createGroup({
+      channel: whapiChannel,
+      name: 'Deal',
+      participants: phones(7),
+      sleep: c.sleep,
+      now: c.now,
+      deadline: 45_000,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.notAttempted).toEqual(phones(7).slice(5));
+    expect(res.error).toBe('time_budget');
+  });
+});

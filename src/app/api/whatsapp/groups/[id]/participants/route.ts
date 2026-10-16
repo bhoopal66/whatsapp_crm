@@ -30,6 +30,7 @@ import {
 import {
   addParticipants,
   demoteAdmins,
+  groupDeadline,
   promoteAdmins,
   removeParticipants,
 } from '@/lib/whatsapp/groups';
@@ -47,6 +48,7 @@ const ownNumber = () =>
   );
 
 export async function POST(request: Request, { params }: Params) {
+  const deadline = groupDeadline();
   try {
     const ctx = await getCurrentAccount();
     const { id } = await params;
@@ -63,6 +65,7 @@ export async function POST(request: Request, { params }: Params) {
             channel,
             groupId: group.wa_group_id,
             participants: screened.recipients.map((r) => r.waId),
+            deadline,
           })
         : null;
     const changed = (outcome?.added.length ?? 0) > 0;

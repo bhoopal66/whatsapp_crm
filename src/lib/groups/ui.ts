@@ -372,7 +372,28 @@ export interface CreateGroupResult {
   refused: string[];
   notAttempted: string[];
   invalid: string[];
+  /** Left out because they opted out or are do-not-contact. */
+  skipped: SkippedPerson[];
   warnings: string[];
+}
+
+export interface SkippedPerson {
+  waId: string;
+  reason: 'opted_out' | 'do_not_contact';
+}
+
+function skippedList(v: unknown): SkippedPerson[] {
+  if (!Array.isArray(v)) return [];
+  const out: SkippedPerson[] = [];
+  for (const s of v) {
+    const r = (s ?? {}) as { waId?: unknown; reason?: unknown };
+    if (typeof r.waId !== 'string') continue;
+    out.push({
+      waId: r.waId,
+      reason: r.reason === 'do_not_contact' ? 'do_not_contact' : 'opted_out',
+    });
+  }
+  return out;
 }
 
 const strings = (v: unknown): string[] =>
@@ -388,6 +409,7 @@ export function parseCreateResult(json: unknown): CreateGroupResult {
     refused: strings(r.refused),
     notAttempted: strings(r.notAttempted),
     invalid: strings(r.invalid),
+    skipped: skippedList(r.skipped),
     warnings: strings(r.warnings),
   };
 }
@@ -406,6 +428,8 @@ export interface ResultSummary {
   notAttempted: ResultPerson[];
   /** Not WhatsApp numbers (red). */
   invalid: ResultPerson[];
+  /** Left out for consent: no invite link either. */
+  skipped: Array<ResultPerson & { reason: SkippedPerson['reason'] }>;
   /** Everyone who still needs the invite link. */
   needInvite: number;
 }
@@ -434,11 +458,17 @@ export function summarizeResult(
   const refused = take(result.refused);
   const notAttempted = take(result.notAttempted);
   const invalid = take(result.invalid);
+  const skipped = result.skipped.map((p) => ({
+    waId: p.waId,
+    name: nameOf.get(p.waId) ?? null,
+    reason: p.reason,
+  }));
   return {
     added,
     refused,
     notAttempted,
     invalid,
+    skipped,
     needInvite: refused.length + notAttempted.length,
   };
 }

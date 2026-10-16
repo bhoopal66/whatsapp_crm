@@ -237,3 +237,34 @@ describe('POST invite', () => {
     expect(mocks.sendInviteLink).not.toHaveBeenCalled();
   });
 });
+
+describe('POST invite send: time budget', () => {
+  it('stops before maxDuration and reports the rest as time_budget', async () => {
+    let t = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    mocks.sendInviteLink.mockImplementation(async () => {
+      t += 20_000;
+      return { messageId: 'm' };
+    });
+    try {
+      const res = await post({
+        action: 'send',
+        phones: [
+          '971504444444',
+          '971505555555',
+          '971506666666',
+          '971507777777',
+        ],
+      });
+      const json = await res.json();
+      expect(mocks.sendInviteLink).toHaveBeenCalledTimes(3);
+      expect(json.results.at(-1)).toMatchObject({
+        waId: '971507777777',
+        status: 'not_attempted',
+        reason: 'time_budget',
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

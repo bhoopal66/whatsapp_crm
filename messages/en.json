@@ -5943,6 +5943,10 @@
       "resultInvalid": "Not WhatsApp numbers ({count})",
       "resultInviteNote": "WhatsApp didn't let us add these people directly. Send them the invite link from the group's Invite tab.",
       "resultNotAttempted": "not attempted",
+      "resultSkipped": "Left out ({count})",
+      "resultSkippedNote": "They opted out or are marked do-not-contact, so they weren't added or invited.",
+      "skippedOptedOut": "opted out",
+      "skippedDoNotContact": "do not contact",
       "resultNone": "Nobody was added yet — send the invite link from the group's Invite tab.",
       "openGroup": "Open group",
       "done": "Done"
@@ -6004,6 +6008,7 @@
         "not_found": "Not found.",
         "unavailable": "Something went wrong on our side. Try again in a moment.",
         "invalid_body": "That message couldn't be sent. Check the text and try again.",
+        "time_budget": "Stopped before the time limit. Try the rest again, or send them the invite link.",
         "unknown": "Something went wrong. Try again."
       },
       "membersTab": {

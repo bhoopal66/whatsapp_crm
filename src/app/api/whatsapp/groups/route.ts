@@ -12,6 +12,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { screenRecipients } from '@/lib/groups/recipients';
 import { nameSearchPattern, parseCreate } from '@/lib/groups/requests';
 import {
   GROUP_COLUMNS,
@@ -26,11 +27,15 @@ import type {
   GroupSettings,
   WhatsappGroupRow,
 } from '@/lib/groups/types';
+import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   createGroup,
-  normaliseParticipants,
+  type CreateGroupOutcome,
+  getGroup,
+  groupDeadline,
   updateGroupInfo,
   updateGroupSetting,
+  withinBudget,
 } from '@/lib/whatsapp/groups';
 
 export const maxDuration = 60;
@@ -51,6 +56,42 @@ function idSet(data: unknown): Set<string> {
     }
   }
   return out;
+}
+
+/**
+ * What to store for a group just made. Whapi's create response lists
+ * only the first batch; later batches went in by separate calls, so
+ * saving that response would delete the rows their webhooks wrote and
+ * reset the count. Re-read the group when anyone was added after it;
+ * if that fails (or time is short), merge in who we know was added.
+ */
+async function createdSnapshot(
+  channel: WhatsAppChannel,
+  outcome: CreateGroupOutcome,
+  deadline: number
+): Promise<CreateGroupOutcome['group']> {
+  const listed = new Set(outcome.group.participants.map((p) => p.waId));
+  const extra = outcome.added.filter((a) => a.waId && !listed.has(a.waId));
+  if (extra.length === 0) return outcome.group;
+  if (withinBudget({ deadline })) {
+    try {
+      return await getGroup({ channel, groupId: outcome.group.id });
+    } catch (err) {
+      console.error('[groups] re-read after create failed', err);
+    }
+  }
+  const participants = [
+    ...outcome.group.participants,
+    ...extra.map((a) => ({ ...a, role: 'member' as const })),
+  ];
+  return {
+    ...outcome.group,
+    participants,
+    participantsCount: Math.max(
+      outcome.group.participantsCount ?? 0,
+      participants.length
+    ),
+  };
 }
 
 export async function GET(request: Request) {
@@ -131,6 +172,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const deadline = groupDeadline();
   try {
     const ctx = await getCurrentAccount();
     const body = parseCreate(await request.json().catch(() => null));
@@ -150,29 +192,25 @@ export async function POST(request: Request) {
       );
     }
 
-    // Contacts through the caller's RLS: a contact they cannot see is
-    // ignored like an unknown id.
-    const invalid = [...body.participants.invalid];
-    const phones = [...body.participants.waIds];
-    if (body.contactIds.length > 0) {
-      const { data, error } = await ctx.supabase
-        .from('contacts')
-        .select('id, phone')
-        .eq('account_id', ctx.accountId)
-        .in('id', body.contactIds);
-      if (error) {
-        console.error('[groups] contact lookup failed', error);
-        throw unavailable('load the contacts');
-      }
-      const fromContacts = normaliseParticipants(
-        ((data ?? []) as Array<{ phone: string | null }>).map(
-          (c) => c.phone ?? ''
-        )
-      );
-      phones.push(...fromContacts.waIds);
-      invalid.push(...fromContacts.invalid.filter(Boolean));
-    }
-    const { waIds } = normaliseParticipants(phones);
+    // Contacts through the caller's RLS (one they cannot see is ignored
+    // like an unknown id), and everyone screened against the consent
+    // register as the participants route does: creating a group adds
+    // people just as surely, so an opt-out has to hold here too.
+    const screened = await screenRecipients(ctx, supabaseAdmin(), {
+      contactIds: body.contactIds,
+      phones: body.participants.waIds,
+    });
+    const contactIds = new Set(body.contactIds);
+    const invalid = [
+      ...body.participants.invalid,
+      // A contact with no usable number is warned about in the wizard.
+      ...screened.invalid.filter((x) => !contactIds.has(x)),
+    ];
+    // Typed numbers first, then contacts, as the wizard lists them.
+    const waIds = [
+      ...screened.recipients.filter((r) => !r.contactId),
+      ...screened.recipients.filter((r) => r.contactId),
+    ].map((r) => r.waId);
     if (waIds.length === 0) {
       throw new GroupHttpError(
         400,
@@ -211,12 +249,14 @@ export async function POST(request: Request) {
       channel,
       name: body.name,
       participants: waIds,
+      deadline,
     });
 
     const admin = supabaseAdmin();
     let group: WhatsappGroupRow;
     try {
-      group = await persistGroupSnapshot(admin, channel, outcome.group, {
+      const snapshot = await createdSnapshot(channel, outcome, deadline);
+      group = await persistGroupSnapshot(admin, channel, snapshot, {
         createdBy: ctx.userId,
       });
     } catch (err) {
@@ -301,6 +341,7 @@ export async function POST(request: Request) {
         refused: outcome.refused,
         notAttempted: outcome.notAttempted,
         invalid: [...invalid, ...outcome.invalid],
+        skipped: screened.skipped,
         warnings,
       },
       { status: 201 }
