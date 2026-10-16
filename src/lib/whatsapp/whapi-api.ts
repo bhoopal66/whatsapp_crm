@@ -1694,6 +1694,8 @@ export interface ListGroupsArgs {
 
 export interface WhapiGroupPage {
   groups: WhapiGroup[]
+  /** Rows Whapi returned, parseable or not; decides the last page. */
+  rawCount: number
   /** Total groups on the number, when Whapi says. */
   total: number | null
   offset: number
@@ -1713,6 +1715,7 @@ export async function listGroups(args: ListGroupsArgs): Promise<WhapiGroupPage> 
   const raw = Array.isArray(data?.groups) ? data.groups : []
   return {
     groups: raw.map(parseWhapiGroup).filter((g): g is WhapiGroup => g !== null),
+    rawCount: raw.length,
     total: num(data?.total),
     offset,
   }
@@ -1749,7 +1752,10 @@ export async function* iterateGroups(
     // Advance by the page size asked for, not the rows parsed: a row
     // dropped as unusable must not shift the next page's offset.
     offset += size
-    if (page.groups.length < size) return
+    // The raw row count decides the last page: a row dropped as
+    // unparseable must not end the walk early (sync would mark the
+    // later groups left).
+    if (page.rawCount < size) return
     if (page.total !== null && offset >= page.total) return
   }
 }

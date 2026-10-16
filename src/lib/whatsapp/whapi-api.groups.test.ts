@@ -167,6 +167,25 @@ describe('listAllGroups', () => {
     expect(call(1).url.searchParams.get('count')).toBe('2');
   });
 
+  it('does not end the walk on a page with an unparseable row', async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        json({
+          groups: [
+            { id: '120363025555500001@g.us', name: 'a' },
+            { nope: true },
+          ],
+          total: 3,
+        })
+      )
+      .mockResolvedValueOnce(
+        json({ groups: [{ id: '120363025555500003@g.us', name: 'c' }], total: 3 })
+      );
+    const all = await listAllGroups({ token: 't', pageSize: 2 });
+    expect(all.map((g) => g.name)).toEqual(['a', 'c']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('stops at maxGroups', async () => {
     fetchMock.mockImplementation(async () =>
       json({
