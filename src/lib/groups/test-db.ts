@@ -12,6 +12,8 @@ export interface FakeDb {
   errors?: Record<string, unknown>;
   /** Function name → its scripted answer; an unscripted call errors. */
   rpc?: Record<string, (args: Row) => { data?: unknown; error?: unknown }>;
+  /** Table → primary-key columns an insert may not repeat (23505). */
+  unique?: Record<string, string[]>;
   /** Every write, in order: [table, op, values]. */
   writes?: [table: string, op: string, values: unknown][];
 }
@@ -133,6 +135,14 @@ class FakeQuery {
           this.op === 'upsert'
             ? rows.find((r) => this.conflict.every((c) => r[c] === v[c]))
             : undefined;
+        const key = this.db.unique?.[this.table];
+        if (
+          this.op === 'insert' &&
+          key &&
+          rows.some((r) => key.every((c) => r[c] === v[c]))
+        ) {
+          return { data: null, error: { code: '23505', message: 'dup' } };
+        }
         if (hit) {
           if (!this.ignoreDuplicates) {
             Object.assign(hit, v);
