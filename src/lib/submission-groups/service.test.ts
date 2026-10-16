@@ -602,6 +602,31 @@ describe('SubmissionGroupService.sendFromCrm', () => {
     ]);
   });
 
+  it('gateway error, the echo lands between the re-read and the failed settle: still SentNotRecorded', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.fail.add('sendGroupText');
+    // The first read sees it pending; the echo settles it before 'failed'.
+    const realState = s.store.sendState.bind(s.store);
+    let reads = 0;
+    s.store.sendState = async (mid) => {
+      const state = await realState(mid);
+      if (++reads === 1) {
+        expect(await s.store.settleSend(mid, 'sent', 'wa-late')).toBe(true);
+        return state; // still the pending snapshot taken before the echo
+      }
+      return state;
+    };
+    const err = await s.svc
+      .sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSentNotRecordedError);
+    expect(err).toMatchObject({ waMessageId: 'wa-late' });
+    expect(s.store.messages.map((m) => [m.sendStatus, m.waMessageId])).toEqual([
+      ['sent', 'wa-late'],
+    ]);
+  });
+
   it('gateway error whose re-read fails: the row is settled failed and the gateway error reaches the caller', async () => {
     const s = setup();
     const g = await opened(s);

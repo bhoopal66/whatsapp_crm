@@ -513,7 +513,13 @@ export class SubmissionGroupService {
       const echoed = await this.echoedSent(messageId);
       if (echoed !== null)
         throw new SubmissionGroupSentNotRecordedError(messageId, echoed, err);
-      await this.settleQuietly(messageId, 'failed');
+      // The echo can still land between that read and this settle: then
+      // the row is no longer pending, and a second read finds it sent.
+      if (!(await this.settleQuietly(messageId, 'failed'))) {
+        const late = await this.echoedSent(messageId);
+        if (late !== null)
+          throw new SubmissionGroupSentNotRecordedError(messageId, late, err);
+      }
       throw err;
     }
     // Not pending any more (swept, or settled elsewhere) but WhatsApp has
@@ -611,15 +617,16 @@ export class SubmissionGroupService {
   private async settleQuietly(
     messageId: string,
     status: 'blocked' | 'failed'
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
-      await this.deps.store.settleSend(messageId, status);
+      return await this.deps.store.settleSend(messageId, status);
     } catch (err) {
       this.log.warn('pending group message could not be settled', {
         messageId,
         status,
         err: errText(err),
       });
+      return false;
     }
   }
 

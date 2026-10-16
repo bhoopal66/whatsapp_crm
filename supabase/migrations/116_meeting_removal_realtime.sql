@@ -17,8 +17,9 @@
 --    it and leave within a second; the heartbeat stays as the fallback.
 --    Managers receive every removal of the meeting, the person only
 --    their own, nobody else anything.
---  * REPLICA IDENTITY stays DEFAULT: the room listens for INSERT only,
---    and an INSERT carries the whole new row under any identity.
+--  * REPLICA IDENTITY stays DEFAULT: the room listens for INSERT and
+--    UPDATE (a repeat removal re-upserts), never DELETE, which Realtime
+--    delivers without RLS; both carry the whole new row.
 --
 -- ALTER PUBLICATION needs the publication's owner, so, as 106, apply
 -- as a superuser.

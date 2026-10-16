@@ -835,6 +835,13 @@ class MeetingCallEngine {
 
   private async subscribeRows() {
     const id = this.meetingId;
+    // Since 112 a removal hides our seat, so its removed_at UPDATE never
+    // reaches us; our removal row does (116). The heartbeat's 404 stays
+    // the fallback, and removed() is safe to run twice.
+    const onRemovalRow = (row: unknown) => {
+      if (this.channel !== channel) return;
+      if (isOwnRemoval(row, this.viewer.userId, id)) this.removed();
+    };
     const channel = this.supabase
       .channel(`meeting-room:${id}:${Math.random().toString(36).slice(2, 10)}`)
       .on(
@@ -882,26 +889,28 @@ class MeetingCallEngine {
         },
         (payload: { new: unknown }) => this.onMessage(payload.new)
       )
+      // A first removal is an INSERT; removing someone again re-upserts
+      // the row (UPDATE). Not '*': Realtime applies neither RLS nor the
+      // filter to DELETE events, which would reach every room.
       .on(
         'postgres_changes' as never,
         {
-          // INSERT for a first removal; UPDATE when the route re-upserts
-          // an existing row (removed again). DELETE (let back in) carries
-          // no new row and is ignored by isOwnRemoval.
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'meeting_removed_users',
           filter: `meeting_id=eq.${id}`,
         },
-        (payload: { new: unknown }) => {
-          // Since 112 a removal hides our seat, so its removed_at UPDATE
-          // never reaches us; our removal row does (116). The heartbeat's
-          // 404 stays the fallback, and removed() is safe to run twice.
-          if (this.channel !== channel) return;
-          if (isOwnRemoval(payload.new, this.viewer.userId, id)) {
-            this.removed();
-          }
-        }
+        (payload: { new: unknown }) => onRemovalRow(payload.new)
+      )
+      .on(
+        'postgres_changes' as never,
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'meeting_removed_users',
+          filter: `meeting_id=eq.${id}`,
+        },
+        (payload: { new: unknown }) => onRemovalRow(payload.new)
       )
       .subscribe((status) => {
         // A line written between join's chat read and the subscription
