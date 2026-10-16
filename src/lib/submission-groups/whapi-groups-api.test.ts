@@ -156,6 +156,16 @@ describe('closeGroup', () => {
     );
   });
 
+  it('never removes the creator (our number) even when wabaId is not on file', async () => {
+    h.loadChannels.mockResolvedValue([{ ...whapi, wabaId: null }]);
+    await api().closeGroup('cfg-1', WA_GROUP);
+    expect(h.removeParticipants).toHaveBeenCalledWith({
+      channel: { ...whapi, wabaId: null },
+      groupId: WA_GROUP,
+      participants: ['971501234567'],
+    });
+  });
+
   it('counts a group already gone as closed', async () => {
     h.getGroup.mockRejectedValue(new WhapiError('not found', 404));
     await expect(api().closeGroup('cfg-1', WA_GROUP)).resolves.toBeUndefined();
