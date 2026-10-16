@@ -22,6 +22,21 @@ for them, and the API answers 403. Existing meetings keep their host.
 
 **Migration required:** `supabase/migrations/111_meeting_creators.sql`.
 
+### Meeting and push access fixes
+
+- Someone removed from a video meeting no longer sees it at all until
+  they are let back in: not the meeting, its people, its chat, its
+  calendar entry or its reminders. Before, only rejoining and posting
+  were blocked.
+- Removing an admin from a meeting, and keeping admins in a meeting when
+  invitees change, now go by the person's real workspace role. Before,
+  the check read an old profile field that any user could set on
+  themselves.
+- A team-chat message that is deleted or edited before its push
+  notification goes out is no longer pushed with its old text.
+
+**Migration required:** `supabase/migrations/112_meeting_push_access.sql`.
+
 ### Calendar look
 
 The day and week views show their hour labels again (an overlay had

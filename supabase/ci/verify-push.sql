@@ -468,6 +468,31 @@ BEGIN
     failed := array_append(failed, ('whatsapp: our own message pushed: ' || i)::text);
   END IF;
 
+  -- ---------- 112: a queued chat push follows its message ----------
+  DELETE FROM push_outbox;
+  INSERT INTO internal_messages (channel_id, account_id, author_kind, author_id, body)
+  VALUES (ch_team, a_acct, 'user', u_a, 'PT regret') RETURNING id INTO msg;
+  PERFORM pg_temp.pu_flush();
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM push_outbox o WHERE o.user_id = u_b AND o.message_id = msg AND public.push_still_allowed(o)) THEN
+    failed := array_append(failed, 'chat: a queued push records its message and is still allowed'::text);
+  END IF;
+  UPDATE internal_messages SET deleted_at = now() WHERE id = msg;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM push_outbox o WHERE o.message_id = msg AND public.push_still_allowed(o)) THEN
+    failed := array_append(failed, 'chat: a push of a message deleted after it was queued is still allowed'::text);
+  END IF;
+  INSERT INTO internal_messages (channel_id, account_id, author_kind, author_id, body)
+  VALUES (ch_team, a_acct, 'user', u_a, 'PT typo') RETURNING id INTO msg;
+  PERFORM pg_temp.pu_flush();
+  UPDATE internal_messages SET body = 'PT fixed' WHERE id = msg;
+  n := n + 1;
+  IF NOT EXISTS (SELECT 1 FROM push_outbox o WHERE o.message_id = msg)
+     OR EXISTS (SELECT 1 FROM push_outbox o WHERE o.message_id = msg AND public.push_still_allowed(o)) THEN
+    failed := array_append(failed, 'chat: a push of a message edited after it was queued is still allowed'::text);
+  END IF;
+  DELETE FROM push_outbox;
+
   -- ---------- chat erasure reaches the outbox ----------
   DELETE FROM push_outbox;
   r := pg_temp.pu_try('authenticated', u_a, format('SELECT public.chat_post_message(%L, %L)::text', ch_team, 'PT erase me'));

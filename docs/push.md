@@ -78,3 +78,10 @@ not dropped, and delivered when the window ends if it is then less than
   send the same row twice.
 - A device the push service reports gone (HTTP 404 or 410) is removed
   at once; a device that fails 10 times in a row is removed too.
+
+## Deleted and edited team-chat messages (migration 112)
+
+A queued `chat_message` row records its message (`push_outbox.message_id`).
+At claim time a row whose message has since been deleted, erased or edited
+is skipped (`skipped: access revoked`), so the old words never reach a lock
+screen. Rows queued before 112 carry no message id and are judged as before.

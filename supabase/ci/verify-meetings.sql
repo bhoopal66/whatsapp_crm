@@ -486,15 +486,27 @@ BEGIN
   r := pg_temp.mt_try('service_role', NULL, format('INSERT INTO meeting_removed_users (meeting_id, user_id, account_id, removed_by) VALUES (%L, %L, %L, %L)', m_open, u_out, a_acct, u_host));
   n := n + 1;
   IF r <> 'ok' THEN failed := array_append(failed, ('service role records a removal: ' || r)::text); END IF;
+  -- 112: the removal hides the (open) meeting, its seats and its chat.
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT meeting_can_view(%L)::text', m_open));
+  n := n + 1;
+  IF r <> 'false' THEN failed := array_append(failed, ('a removed person still sees the meeting: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format(
+    'SELECT ((SELECT count(*) FROM meetings WHERE id = %1$L) + (SELECT count(*) FROM meeting_participants WHERE meeting_id = %1$L) + (SELECT count(*) FROM meeting_messages WHERE meeting_id = %1$L))::text', m_open));
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('a removed person reads the meeting, its seats or its chat: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_inv, format('SELECT meeting_can_view(%L)::text', m_open));
+  n := n + 1;
+  IF r <> 'true' THEN failed := array_append(failed, ('someone else''s removal hid the open meeting from a colleague: ' || r)::text); END IF;
   r := pg_temp.mt_try('service_role', NULL, format('INSERT INTO meeting_participants (meeting_id, account_id, user_id, cf_session_id) VALUES (%L, %L, %L, %L)', m_open, a_acct, u_out, 'mt-session-removed'));
   n := n + 1;
   IF r NOT LIKE 'ERROR P0001: removed_from_meeting%' THEN failed := array_append(failed, ('a removed person was given a new seat: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'back again'));
   n := n + 1;
-  IF r NOT LIKE 'ERROR P0001: removed%' THEN failed := array_append(failed, ('a removed person posted to the meeting: ' || r)::text); END IF;
+  -- Since 112 the removal hides the meeting, so the visibility check refuses first.
+  IF r NOT LIKE 'ERROR 42501: meeting_not_visible%' THEN failed := array_append(failed, ('a removed person posted to the meeting: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_out, format('SELECT id::text FROM meeting_post_message(%L, %L, %L)', m_open, 'reaction', E'\U0001F44D'));
   n := n + 1;
-  IF r NOT LIKE 'ERROR P0001: removed%' THEN failed := array_append(failed, ('a removed person reacted in the meeting: ' || r)::text); END IF;
+  IF r NOT LIKE 'ERROR 42501: meeting_not_visible%' THEN failed := array_append(failed, ('a removed person reacted in the meeting: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_out, format('SELECT count(*)::text FROM meeting_removed_users WHERE meeting_id = %L', m_open));
   n := n + 1;
   IF r <> '1' THEN failed := array_append(failed, ('the removed person reads their own removal: ' || r)::text); END IF;
@@ -519,6 +531,9 @@ BEGIN
   r := pg_temp.mt_try('service_role', NULL, format('DELETE FROM meeting_removed_users WHERE meeting_id = %L AND user_id = %L', m_open, u_out));
   n := n + 1;
   IF r <> 'ok' THEN failed := array_append(failed, ('service role lets a removed person back in: ' || r)::text); END IF;
+  r := pg_temp.mt_try('authenticated', u_out, format('SELECT meeting_can_view(%L)::text', m_open));
+  n := n + 1;
+  IF r <> 'true' THEN failed := array_append(failed, ('a person let back in still cannot see the meeting: ' || r)::text); END IF;
   r := pg_temp.mt_try('authenticated', u_out, format('SELECT body FROM meeting_post_message(%L, %L, %L)', m_open, 'chat', 'back again'));
   n := n + 1;
   IF r IS DISTINCT FROM 'back again' THEN failed := array_append(failed, ('a person let back in posts again: ' || r)::text); END IF;

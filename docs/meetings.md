@@ -69,6 +69,8 @@ Every rule applies inside the caller's active workspace.
   a title, description, time or "anyone can join" change by anyone but
   the host is refused, and only the host adds or removes invitees.
 - **Cancels, ends:** the host, or an owner/admin.
+- **Admins** are judged by `profiles.account_role`, never the legacy
+  `role` column, which anyone may write on their own row.
 - **Creates:** a team leader, admin or owner, who becomes the host
   (migration 111; the API answers 403 "Only team leaders and admins can
   create meetings" below that). Agents and viewers only attend: the
@@ -228,9 +230,12 @@ true }`, host/owner/admin only (403), on an open seat of this meeting
   A removal sticks for the rest of the meeting (migration 110): it is
   recorded in `meeting_removed_users` before the seat is closed, and
   while that row exists `join` answers 403 `removed_from_meeting`
-  (before any Cloudflare session is made) and chat and reactions answer
-  403 `removed_from_meeting` (`meeting_post_message` raises P0001
-  `removed`). `{ target: userId, action: 'readmit' }` (the person's
+  (before any Cloudflare session is made). Since migration 112 the
+  removal also hides the meeting from them, open or invited
+  (`meeting_row_visible`): they no longer read the meeting, its seats or
+  its chat (realtime included), it leaves their calendar, no meeting
+  reminder rings for them, and their chat and reactions are refused as
+  for anyone who cannot see the meeting. `{ target: userId, action: 'readmit' }` (the person's
   user id, not a seat) lets them back in: host/owner/admin only (403),
   404 if they were not removed. `GET /api/meetings/[id]` lists
   `removed: [{ user_id, removed_at }]` for a manager only; the room's
