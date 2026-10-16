@@ -114,6 +114,7 @@ import {
   presentParticipants,
 } from '@/lib/meetings/room/presence';
 import { createSerialQueue } from '@/lib/meetings/room/queue';
+import { isOwnRemoval } from '@/lib/meetings/room/removed';
 import {
   admitPullRejoin,
   afterPullStrike,
@@ -880,6 +881,24 @@ class MeetingCallEngine {
           filter: `meeting_id=eq.${id}`,
         },
         (payload: { new: unknown }) => this.onMessage(payload.new)
+      )
+      .on(
+        'postgres_changes' as never,
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'meeting_removed_users',
+          filter: `meeting_id=eq.${id}`,
+        },
+        (payload: { new: unknown }) => {
+          // Since 112 a removal hides our seat, so its removed_at UPDATE
+          // never reaches us; our removal row does (116). The heartbeat's
+          // 404 stays the fallback, and removed() is safe to run twice.
+          if (this.channel !== channel) return;
+          if (isOwnRemoval(payload.new, this.viewer.userId, id)) {
+            this.removed();
+          }
+        }
       )
       .subscribe((status) => {
         // A line written between join's chat read and the subscription
