@@ -10,6 +10,7 @@ import { isStaffLabel, type StaffLabel } from './rules';
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSentNotRecordedError,
 } from './service';
 import { SubmissionGroupDbError, type SubmissionGroup } from './store';
 
@@ -124,6 +125,10 @@ export function sendErrorFor(err: unknown): SgHttpError {
     const [status, message] = REFUSAL[err.reason];
     return new SgHttpError(status, message);
   }
+  // WhatsApp already holds the message: a 2xx, so the composer clears the
+  // text and nobody is invited to resend it.
+  if (err instanceof SubmissionGroupSentNotRecordedError)
+    return new SgHttpError(202, 'Sent, but not recorded yet', { sent: true });
   if (err instanceof SubmissionGroupSendBlockedError)
     return new SgHttpError(409, 'Sending to this customer is blocked', {
       reason: err.reason,

@@ -134,6 +134,25 @@ export class SubmissionGroupSendBlockedError extends Error {
   }
 }
 
+/**
+ * The gateway accepted the message but its row could not be settled 'sent'
+ * (the settle threw, twice). WhatsApp holds the message: callers must not
+ * invite a resend. The row stays pending until something settles it.
+ */
+export class SubmissionGroupSentNotRecordedError extends Error {
+  override readonly name = 'SubmissionGroupSentNotRecordedError';
+  constructor(
+    readonly messageId: string,
+    readonly waMessageId: string,
+    cause: unknown
+  ) {
+    super(
+      `submission group message ${messageId} (${waMessageId}) was sent but could not be recorded`,
+      { cause }
+    );
+  }
+}
+
 export type OpenResult =
   | { consentRequired: true; group: null; inviteLink: null }
   | {
@@ -349,8 +368,8 @@ export class SubmissionGroupService {
       throw err;
     }
     if (!attached) {
-      // Our claim expired and another caller took it (or the group ended). The idempotency key is the group row id,
-      // so the winner may hold the very group we got back: close it only if it is provably not the live one.
+      // Our claim expired and another caller took it (or the group ended). Whapi has no idempotency key, so the
+      // group we got back is ours alone unless the row stores its id: otherwise close it (the cron recreates).
       const current = await this.discardIfOrphan(
         group,
         made.waGroupId,
@@ -377,9 +396,10 @@ export class SubmissionGroupService {
   }
 
   /**
-   * After a failed attach: closes `waGroupId` only when the re-read row shows it cannot become live — another
-   * WhatsApp group is stored, or the group ENDED (or is gone) without one. A row that stores this id, or is still
-   * pending (a claimant's createGroup with the same key returns this id), keeps it open; so does a failed re-read.
+   * After a failed attach: `waGroupId` is live only when the re-read row stores exactly this id (an attach that
+   * threw after committing). Whapi's createGroup has no idempotency key, so nobody else can ever attach the group
+   * we created: a row still pending, holding another group, ENDED or gone means ours is an orphan and is closed
+   * (a pending row's group is recreated by the cron). A failed re-read keeps it open, since it may be live.
    */
   private async discardIfOrphan(
     group: SubmissionGroup,
@@ -398,10 +418,7 @@ export class SubmissionGroupService {
       });
       return null;
     }
-    const live =
-      current !== null &&
-      (current.waGroupId === waGroupId ||
-        (current.waGroupId === null && current.status === 'ACTIVE'));
+    const live = current !== null && current.waGroupId === waGroupId;
     if (!live && group.channelId !== null) {
       try {
         await this.deps.api.closeGroup(group.channelId, waGroupId);
@@ -492,12 +509,50 @@ export class SubmissionGroupService {
       await this.settleQuietly(messageId, 'failed');
       throw err;
     }
-    if (!(await store.settleSend(messageId, 'sent', sent.waMessageId))) {
+    if (!(await this.settleSent(messageId, sent.waMessageId))) {
       throw new Error(
         `submission group ${group.id}: message ${messageId} (${sent.waMessageId}) was sent but is no longer pending`
       );
     }
     return { messageId, prefixedBody: prefixed, waMessageId: sent.waMessageId };
+  }
+
+  /**
+   * Settles an accepted send 'sent'. A settle that throws is retried once;
+   * a second failure (a throw, or the row no longer pending because the
+   * first attempt may have landed) is SubmissionGroupSentNotRecordedError,
+   * never a generic error, because the message is already in WhatsApp.
+   */
+  private async settleSent(
+    messageId: string,
+    waMessageId: string
+  ): Promise<boolean> {
+    const { store } = this.deps;
+    try {
+      return await store.settleSend(messageId, 'sent', waMessageId);
+    } catch (first) {
+      this.log.warn('sent group message could not be settled; retrying', {
+        messageId,
+        err: errText(first),
+      });
+      let settled: boolean;
+      try {
+        settled = await store.settleSend(messageId, 'sent', waMessageId);
+      } catch (err) {
+        throw new SubmissionGroupSentNotRecordedError(
+          messageId,
+          waMessageId,
+          err
+        );
+      }
+      if (!settled)
+        throw new SubmissionGroupSentNotRecordedError(
+          messageId,
+          waMessageId,
+          first
+        );
+      return true;
+    }
   }
 
   /** Settles a row on an error path without masking the original error. */

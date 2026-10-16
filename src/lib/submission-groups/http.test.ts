@@ -18,6 +18,7 @@ import {
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSentNotRecordedError,
 } from './service';
 import { SubmissionGroupDbError, type SubmissionGroup } from './store';
 
@@ -125,6 +126,13 @@ describe('sendErrorFor', () => {
     );
     expect(e.status).toBe(409);
     expect(e.body).toMatchObject({ reason: 'do_not_contact' });
+  });
+  it('maps a sent-but-unrecorded send to 202 sent:true (no resend invited)', () => {
+    const e = sendErrorFor(
+      new SubmissionGroupSentNotRecordedError('m-1', 'wamid.1', null)
+    );
+    expect(e.status).toBe(202);
+    expect(e.body).toEqual({ error: 'Sent, but not recorded yet', sent: true });
   });
   it('maps anything else to a generic 502', () => {
     const e = sendErrorFor(new Error('whapi: token abc'));

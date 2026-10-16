@@ -96,8 +96,12 @@ export function createWhapiGroupsApi(
         if (isGroupGone(err)) return;
         throw err;
       }
+      // Our number is the one on file, and in any case the group's creator
+      // (we created it): skip both, so a missing or placeholder wabaId never
+      // makes the close try to remove ourselves and fail on every retry.
       const ours = normalizePhone(channel.wabaId ?? '') || null;
       const others = group.participants
+        .filter((p) => p.role !== 'superadmin')
         .map((p) => p.waId)
         .filter((w): w is string => !!w && w !== ours);
       try {

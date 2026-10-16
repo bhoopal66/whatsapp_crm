@@ -2,7 +2,9 @@
 // /api/submission-groups/[id]/messages — staff send into a Submission
 // Group (115). POST `{ text }`; the service decides who may send (the
 // open access row) and stores the row pending before the gateway call,
-// so a gateway failure leaves it failed and answers a generic 502.
+// so a gateway failure leaves it failed and answers a generic 502. A
+// send WhatsApp accepted but whose row could not be settled answers 202
+// `{ error, sent: true }`: the text is gone, so nobody resends it.
 // At most GROUP_SEND_LIMIT sends per window per person per group
 // (anti-ban), failed ones included.
 // ============================================================
@@ -66,7 +68,7 @@ export async function POST(request: Request, { params }: Params) {
       });
     } catch (err) {
       const mapped = sendErrorFor(err);
-      if (mapped.status === 502)
+      if (mapped.status === 502 || mapped.status === 202)
         console.error('[submission-groups] send failed', err);
       throw mapped;
     }

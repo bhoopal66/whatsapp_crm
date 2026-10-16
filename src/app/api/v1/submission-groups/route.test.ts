@@ -239,6 +239,7 @@ describe('POST /api/v1/submission-groups', () => {
     const res = await post(body);
     expect(res.status).toBe(422);
     expect((await res.json()).error.code).toBe('no_whapi_number');
+    expect(m.findOrCreateContact).not.toHaveBeenCalled();
   });
 
   it('answers 422 channel_not_allowed for a number allocated to someone else', async () => {
@@ -249,6 +250,7 @@ describe('POST /api/v1/submission-groups', () => {
     });
     expect(res.status).toBe(422);
     expect((await res.json()).error.code).toBe('channel_not_allowed');
+    expect(m.findOrCreateContact).not.toHaveBeenCalled();
   });
 
   it('returns an existing group (200) without re-resolving staff', async () => {
