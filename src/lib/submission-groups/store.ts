@@ -120,12 +120,27 @@ const scalarIds = (data: unknown): string[] =>
       )
     : [];
 
+/** A failed `sg_*` RPC; `code` is the Postgres SQLSTATE (e.g. 55000: group not ACTIVE). */
+export class SubmissionGroupDbError extends Error {
+  override readonly name = 'SubmissionGroupDbError';
+  constructor(
+    message: string,
+    readonly code: string | null
+  ) {
+    super(message);
+  }
+}
+
 export class SubmissionGroupStore {
   constructor(private readonly db: SupabaseClient) {}
 
   private async rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await this.db.rpc(fn, args);
-    if (error) throw new Error(`${fn}: ${error.message}`);
+    if (error)
+      throw new SubmissionGroupDbError(
+        `${fn}: ${error.message}`,
+        error.code ?? null
+      );
     return data as T;
   }
 
@@ -199,19 +214,42 @@ export class SubmissionGroupStore {
     return data ? toGroup(data as Row) : null;
   }
 
-  /** ACTIVE groups still without a WhatsApp group, created before `before` (the cron's retry list). */
+  /**
+   * ACTIVE groups still without a WhatsApp group, created before `before` (the cron's retry list). Pass
+   * `accountId` whenever a per-account Whapi adapter will act on the rows; without it every account's are listed.
+   */
   async listPendingCreates(
     before: Date,
-    limit = 50
+    opts: { accountId?: string; limit?: number } = {}
   ): Promise<SubmissionGroup[]> {
-    const { data, error } = await this.db
+    let q = this.db
       .from('submission_groups')
       .select(GROUP_COLUMNS)
       .eq('status', 'ACTIVE')
       .is('wa_group_id', null)
-      .lt('created_at', before.toISOString())
+      .lt('created_at', before.toISOString());
+    if (opts.accountId) q = q.eq('account_id', opts.accountId);
+    const { data, error } = await q
       .order('created_at', { ascending: true })
-      .limit(limit);
+      .limit(opts.limit ?? 50);
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return ((data ?? []) as Row[]).map(toGroup);
+  }
+
+  /** ENDED groups with a WhatsApp group whose close is not recorded yet (the cron's close retry list). */
+  async listUnclosedEnded(
+    opts: { accountId?: string; limit?: number } = {}
+  ): Promise<SubmissionGroup[]> {
+    let q = this.db
+      .from('submission_groups')
+      .select(GROUP_COLUMNS)
+      .eq('status', 'ENDED')
+      .not('wa_group_id', 'is', null)
+      .is('wa_closed_at', null);
+    if (opts.accountId) q = q.eq('account_id', opts.accountId);
+    const { data, error } = await q
+      .order('ended_at', { ascending: true })
+      .limit(opts.limit ?? 50);
     if (error) throw new Error(`submission_groups: ${error.message}`);
     return ((data ?? []) as Row[]).map(toGroup);
   }

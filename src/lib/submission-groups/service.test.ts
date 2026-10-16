@@ -73,9 +73,13 @@ class FakeStore implements GroupStore {
     );
     return g ? { ...g } : null;
   }
-  async listPendingCreates(before: Date) {
+  async listPendingCreates(before: Date, o: { accountId?: string } = {}) {
     return [...this.groups.values()].filter(
-      (g) => g.status === 'ACTIVE' && !g.waGroupId && g.createdAt < before
+      (g) =>
+        g.status === 'ACTIVE' &&
+        !g.waGroupId &&
+        g.createdAt < before &&
+        (!o.accountId || g.accountId === o.accountId)
     );
   }
   async openAccessLabel(groupId: string, userId: string) {
@@ -440,11 +444,13 @@ describe('SubmissionGroupService.openForSubmission', () => {
     s.api.fail.add('createGroup');
     await expect(s.open()).rejects.toThrow();
     const [g] = [...s.store.groups.values()];
-    expect(await s.svc.retryPending({ olderThanMs: 60_000 })).toMatchObject({
+    expect(
+      await s.svc.retryPending({ accountId: ACC, olderThanMs: 60_000 })
+    ).toMatchObject({
       attempted: 0,
     });
     g.createdAt = new Date(Date.now() - 120_000);
-    const r = await s.svc.retryPending({ olderThanMs: 60_000 });
+    const r = await s.svc.retryPending({ accountId: ACC, olderThanMs: 60_000 });
     expect(r).toEqual({
       attempted: 1,
       created: [g.id],
@@ -452,6 +458,30 @@ describe('SubmissionGroupService.openForSubmission', () => {
       failed: [],
     });
     expect(s.store.groups.get(g.id)!.waGroupId).not.toBeNull();
+  });
+
+  it("retryPending leaves another account's pending groups alone", async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    g.createdAt = new Date(Date.now() - 120_000);
+    expect(
+      await s.svc.retryPending({ accountId: 'acc-2', olderThanMs: 60_000 })
+    ).toMatchObject({ attempted: 0 });
+    expect(s.api.of('createGroup')).toHaveLength(1);
+  });
+
+  it('retryOne finishes a pending create; a complete or ENDED group is returned without a gateway call', async () => {
+    const s = setup();
+    s.api.fail.add('createGroup');
+    await expect(s.open()).rejects.toThrow();
+    const [g] = [...s.store.groups.values()];
+    const r = await s.svc.retryOne(g.id);
+    expect(r.consentRequired).toBe(false);
+    expect(s.store.groups.get(g.id)!.waGroupId).not.toBeNull();
+    await s.svc.retryOne(g.id);
+    expect(s.api.of('createGroup')).toHaveLength(2);
   });
 });
 
@@ -558,6 +588,44 @@ describe('SubmissionGroupService.endIfDue / sweep / archive', () => {
       closeDeferred: false,
     });
     expect(s.store.groups.get(g.id)!.waClosedAt).not.toBeNull();
+  });
+
+  it('endNow ends with the given reason and closes; on an ENDED group it only retries the close', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.fail.add('closeGroup');
+    const first = await s.svc.endNow(g.id, 'MANUAL');
+    expect(first).toMatchObject({
+      ended: true,
+      reason: 'MANUAL',
+      closed: false,
+    });
+    expect(s.store.groups.get(g.id)!).toMatchObject({
+      status: 'ENDED',
+      endReason: 'MANUAL',
+    });
+    expect(await s.svc.endNow(g.id, 'MANUAL')).toEqual({
+      ended: false,
+      reason: null,
+      closed: true,
+      closeError: null,
+      closeDeferred: false,
+    });
+    expect(s.api.of('closeGroup')).toHaveLength(2);
+  });
+
+  it('retryClose closes an ENDED group once and never ends an ACTIVE one', async () => {
+    const s = setup();
+    const g = await opened(s);
+    expect(await s.svc.retryClose(g.id)).toMatchObject({
+      ended: false,
+      closed: false,
+    });
+    expect(s.store.groups.get(g.id)!.status).toBe('ACTIVE');
+    await s.store.end(g.id, 'MANUAL');
+    expect(await s.svc.retryClose(g.id)).toMatchObject({ closed: true });
+    await s.svc.retryClose(g.id);
+    expect(s.api.of('closeGroup')).toHaveLength(1);
   });
 
   it('not due: nothing ends', async () => {
