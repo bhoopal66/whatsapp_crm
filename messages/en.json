@@ -85,7 +85,14 @@
     "teamActivity": "Team activity",
     "chat": "Team chat",
     "meetings": "Meetings",
-    "calendar": "Calendar"
+    "calendar": "Calendar",
+    "teamInbox": "Team inbox",
+    "teamContacts": "Team contacts",
+    "calls": "Calls",
+    "journeys": "Journeys",
+    "flows": "Flows",
+    "compass": "Compass",
+    "customer": "Customer"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"

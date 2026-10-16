@@ -85,7 +85,14 @@
     "teamActivity": "팀 활동",
     "chat": "팀 채팅",
     "meetings": "회의",
-    "calendar": "캘린더"
+    "calendar": "캘린더",
+    "teamInbox": "팀 받은편지함",
+    "teamContacts": "팀 연락처",
+    "calls": "통화",
+    "journeys": "여정",
+    "flows": "플로우",
+    "compass": "Compass",
+    "customer": "고객"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
