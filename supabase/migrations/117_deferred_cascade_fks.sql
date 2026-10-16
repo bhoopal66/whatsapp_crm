@@ -68,3 +68,5 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+RESET lock_timeout;

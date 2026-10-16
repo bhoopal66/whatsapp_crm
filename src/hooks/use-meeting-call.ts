@@ -885,7 +885,10 @@ class MeetingCallEngine {
       .on(
         'postgres_changes' as never,
         {
-          event: 'INSERT',
+          // INSERT for a first removal; UPDATE when the route re-upserts
+          // an existing row (removed again). DELETE (let back in) carries
+          // no new row and is ignored by isOwnRemoval.
+          event: '*',
           schema: 'public',
           table: 'meeting_removed_users',
           filter: `meeting_id=eq.${id}`,
