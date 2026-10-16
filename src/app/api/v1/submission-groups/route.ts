@@ -11,6 +11,8 @@
 // Staff are named by login email: each must be a live agent, team
 // leader, admin or owner of the key's workspace (422 unknown_user names
 // the field). The group lives on a Whapi number the agent may use.
+// A customer WhatsApp refused to add is sent the invite link 1:1; the
+// outcome is recorded on the group (migration 118, invite_sent_at).
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -45,6 +47,8 @@ const CONSENT_MESSAGE =
   'The customer has opted out of WhatsApp messages or asked not to be contacted';
 const PENDING_MESSAGE =
   'WhatsApp could not create the group yet; it will be retried automatically';
+// Recorded as the invite's failure when the hosting number cannot be loaded.
+const INVITE_NO_NUMBER = 'The hosting WhatsApp number is not available';
 
 export async function POST(request: Request) {
   try {
@@ -197,10 +201,11 @@ export async function POST(request: Request) {
     if (result.consentRequired)
       return fail('consent_required', CONSENT_MESSAGE, 409);
 
-    const group = result.group;
+    let group = result.group;
     let inviteSent = false;
     const code = inviteCodeOf(result.inviteLink);
     if (code && phoneWasRefused(result.refusedParticipants, customerPhone)) {
+      let sendError: string | null = INVITE_NO_NUMBER;
       try {
         const channel = (await loadChannels(db, ctx.accountId)).find(
           (c) => c.id === group.channelId
@@ -212,9 +217,18 @@ export async function POST(request: Request) {
             to: customerPhone,
           });
           inviteSent = true;
+          sendError = null;
         }
       } catch (err) {
         console.error('[api/v1/submission-groups] invite send:', err);
+        sendError = err instanceof Error ? err.message : String(err);
+      }
+      // Best-effort: the send already happened (or not); recording it never fails the request.
+      try {
+        if (await store.noteInvite(group.id, inviteSent, sendError))
+          group = (await store.get(group.id)) ?? group;
+      } catch (err) {
+        console.error('[api/v1/submission-groups] invite record:', err);
       }
     }
 

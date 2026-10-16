@@ -6238,6 +6238,8 @@
       "contactRemoved": "deleted",
       "submissionStatus": "Status: {status}",
       "endedOn": "Ended {when}",
+      "inviteSent": "Invite link sent to the customer · {when}",
+      "inviteFailed": "Invite link could not be sent",
       "endReason": {
         "finalStatus": "case reached {status}",
         "idle": "no activity",

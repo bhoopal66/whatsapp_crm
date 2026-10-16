@@ -6238,6 +6238,8 @@
       "contactRemoved": "삭제됨",
       "submissionStatus": "상태: {status}",
       "endedOn": "{when} 종료",
+      "inviteSent": "고객에게 초대 링크 전송됨 · {when}",
+      "inviteFailed": "초대 링크를 보낼 수 없습니다",
       "endReason": {
         "finalStatus": "건이 {status} 상태가 됨",
         "idle": "활동 없음",

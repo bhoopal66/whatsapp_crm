@@ -59,6 +59,8 @@ class FakeStore implements GroupStore {
       waCreateError: null,
       waClosedAt: null,
       waCloseError: null,
+      inviteSentAt: null,
+      inviteSendError: null,
     });
     for (const a of i.access)
       this.access.push({ groupId: id, ...a, removed: false });
@@ -161,6 +163,10 @@ class FakeStore implements GroupStore {
     m.sendStatus = status;
     m.waMessageId = status === 'sent' ? wa : null;
     return true;
+  }
+  async sendState(mid: string) {
+    const m = this.messages.find((x) => x.id === mid);
+    return m ? { sendStatus: m.sendStatus, waMessageId: m.waMessageId } : null;
   }
   async end(id: string, reason: string) {
     const g = this.groups.get(id);
@@ -629,6 +635,45 @@ describe('SubmissionGroupService.sendFromCrm', () => {
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SubmissionGroupSentNotRecordedError);
     expect(s.api.of('sendGroupText')).toHaveLength(1);
+  });
+  /** Whapi's echo (inbound.ts) settles the row with `waOf(id)` before the sender's own settle runs. */
+  const echoSettlesFirst = (
+    s: ReturnType<typeof setup>,
+    waOf: (id: string) => string = (id) => id
+  ) => {
+    const real = s.api.sendGroupText.bind(s.api);
+    s.api.sendGroupText = async (ch, wa, text) => {
+      const r = await real(ch, wa, text);
+      const [m] = s.store.messages;
+      expect(await s.store.settleSend(m.id, 'sent', waOf(r.waMessageId))).toBe(
+        true
+      );
+      return r;
+    };
+  };
+
+  it("the echo settled the row before the sender's own settle: a success, not SentNotRecorded", async () => {
+    const s = setup();
+    const g = await opened(s);
+    echoSettlesFirst(s);
+    const out = await s.svc.sendFromCrm({
+      groupId: g.id,
+      userId: 'ali',
+      text: 'x',
+    });
+    expect(s.store.messages.map((m) => [m.sendStatus, m.waMessageId])).toEqual([
+      ['sent', out.waMessageId],
+    ]);
+    expect(s.api.of('sendGroupText')).toHaveLength(1);
+  });
+
+  it('a row settled sent with a different WhatsApp id is still SentNotRecorded', async () => {
+    const s = setup();
+    const g = await opened(s);
+    echoSettlesFirst(s, () => 'wa-other');
+    await expect(
+      s.svc.sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+    ).rejects.toBeInstanceOf(SubmissionGroupSentNotRecordedError);
   });
 });
 

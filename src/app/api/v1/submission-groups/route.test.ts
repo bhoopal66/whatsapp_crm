@@ -8,6 +8,8 @@ const m = vi.hoisted(() => ({
     findByRef: vi.fn(),
     listAccess: vi.fn(),
     contactConsent: vi.fn(),
+    noteInvite: vi.fn(),
+    get: vi.fn(),
   },
   service: { openForSubmission: vi.fn() },
   findOrCreateContact: vi.fn(),
@@ -86,6 +88,8 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup =>
     waCreateError: null,
     waClosedAt: null,
     waCloseError: null,
+    inviteSentAt: null,
+    inviteSendError: null,
     ...over,
   }) as SubmissionGroup;
 
@@ -131,6 +135,8 @@ beforeEach(() => {
     refusedParticipants: [],
   });
   m.sendInviteLink.mockResolvedValue({});
+  m.store.noteInvite.mockResolvedValue(true);
+  m.store.get.mockResolvedValue(null);
 });
 
 describe('POST /api/v1/submission-groups', () => {
@@ -172,6 +178,8 @@ describe('POST /api/v1/submission-groups', () => {
       ],
     });
     expect(m.sendInviteLink).not.toHaveBeenCalled();
+    expect(m.store.noteInvite).not.toHaveBeenCalled();
+    expect(data.whatsapp.invite_sent_at).toBeNull();
   });
 
   it('refuses a bad body with 400 and opens nothing', async () => {
@@ -278,6 +286,9 @@ describe('POST /api/v1/submission-groups', () => {
       inviteLink: 'https://chat.whatsapp.com/CODE1',
       refusedParticipants: ['971501234567'],
     });
+    m.store.get.mockResolvedValue(
+      group({ inviteSentAt: new Date('2026-10-16T10:01:00Z') })
+    );
     const res = await post(body);
     expect(res.status).toBe(201);
     expect(m.sendInviteLink).toHaveBeenCalledWith(
@@ -287,10 +298,30 @@ describe('POST /api/v1/submission-groups', () => {
         channel: expect.objectContaining({ id: 'w1' }),
       })
     );
+    expect(m.store.noteInvite).toHaveBeenCalledWith('g1', true, null);
     const { data } = await res.json();
     expect(data.whatsapp).toMatchObject({
       invite_sent: true,
+      invite_sent_at: '2026-10-16T10:01:00.000Z',
       refused_participants: ['971501234567'],
+    });
+  });
+
+  it('answers 201 even when recording the invite fails', async () => {
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: true,
+      group: group(),
+      inviteLink: 'https://chat.whatsapp.com/CODE1',
+      refusedParticipants: ['971501234567'],
+    });
+    m.store.noteInvite.mockRejectedValue(new Error('db down'));
+    const res = await post(body);
+    expect(res.status).toBe(201);
+    const { data } = await res.json();
+    expect(data.whatsapp).toMatchObject({
+      invite_sent: true,
+      invite_sent_at: null,
     });
   });
 
@@ -306,6 +337,11 @@ describe('POST /api/v1/submission-groups', () => {
     const res = await post(body);
     expect(res.status).toBe(201);
     expect((await res.json()).data.whatsapp.invite_sent).toBe(false);
+    expect(m.store.noteInvite).toHaveBeenCalledWith(
+      'g1',
+      false,
+      'gateway down'
+    );
   });
 
   it('answers 202 pending, never 5xx, when WhatsApp cannot create the group', async () => {

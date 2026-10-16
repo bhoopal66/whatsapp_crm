@@ -12,6 +12,28 @@ and polish.
 
 ## [Unreleased]
 
+### Submission groups: the 1:1 invite link is recorded
+
+**Migration required: 118** (`118_submission_group_invite.sql`, apply as
+a superuser or BYPASSRLS role, as 115). It adds
+`submission_groups.invite_sent_at` and `invite_send_error` and the
+service-role function `sg_note_invite`.
+
+When WhatsApp refuses to add the customer and the invite link is sent to
+them 1:1, the outcome is now kept on the group. The group page's header
+shows "Invite link sent to the customer · <time>" or "Invite link could
+not be sent", and the public API's group carries
+`whatsapp.invite_sent_at`. The invite's text is still not stored.
+
+### Submission groups: a sent message is recorded from Whapi's echo
+
+When WhatsApp accepted a staff message but the CRM could not record it
+(the sender saw "sent, but not recorded"), the stored copy stayed pending
+and the cron marked it failed after 10 minutes although the customer had
+it. Whapi's echo of the send now settles that copy as sent, matched on
+its exact text within 15 minutes; a sender whose own record lost the race
+to the echo is no longer told it was not recorded. No migration.
+
 ### Meetings: a removed person leaves the call at once
 
 **Migration required: 116** (`116_meeting_removal_realtime.sql`, apply

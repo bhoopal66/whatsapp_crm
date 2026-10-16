@@ -29,6 +29,10 @@ export interface SubmissionGroup {
   waCreateError: string | null;
   waClosedAt: Date | null;
   waCloseError: string | null;
+  /** When the invite link last went out 1:1 to a customer WhatsApp refused to add (118). */
+  inviteSentAt: Date | null;
+  /** Why the last 1:1 invite send failed; cleared by a later success. */
+  inviteSendError: string | null;
 }
 
 /** 'out' rows only (null for 'in'). Only "sent" reached the customer. */
@@ -63,7 +67,7 @@ export interface ConsentAnswer {
 }
 
 export const GROUP_COLUMNS =
-  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error';
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error';
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string | null =>
@@ -91,6 +95,8 @@ export function toGroup(r: Row): SubmissionGroup {
     waCreateError: str(r.wa_create_error),
     waClosedAt: date(r.wa_closed_at),
     waCloseError: str(r.wa_close_error),
+    inviteSentAt: date(r.invite_sent_at),
+    inviteSendError: str(r.invite_send_error),
   };
 }
 
@@ -405,6 +411,65 @@ export class SubmissionGroupStore {
     );
   }
 
+  /** Echo reconcile: does any row of the group already carry this WhatsApp message id? */
+  async hasWaMessage(groupId: string, waMessageId: string): Promise<boolean> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('id')
+      .eq('group_id', groupId)
+      .eq('wa_message_id', waMessageId)
+      .limit(1);
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    return ((data ?? []) as Row[]).length > 0;
+  }
+
+  /**
+   * Echo reconcile: the group's oldest pending 'out' row created at or
+   * after `since` whose prefixed body is exactly `prefixedBody`. The body
+   * is compared here, not in the query string, so a long text never
+   * lengthens the URL; a group has only a handful of pending rows.
+   */
+  async oldestPendingOut(
+    groupId: string,
+    prefixedBody: string,
+    since: Date
+  ): Promise<string | null> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('id, prefixed_body')
+      .eq('group_id', groupId)
+      .eq('direction', 'out')
+      .eq('send_status', 'pending')
+      .gte('created_at', since.toISOString())
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(50);
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    const hit = ((data ?? []) as Row[]).find(
+      (r) => r.prefixed_body === prefixedBody
+    );
+    return hit ? String(hit.id) : null;
+  }
+
+  /** A message's send state; null if there is no such row. */
+  async sendState(messageId: string): Promise<{
+    sendStatus: SendStatus | null;
+    waMessageId: string | null;
+  } | null> {
+    const { data, error } = await this.db
+      .from('submission_group_messages')
+      .select('send_status, wa_message_id')
+      .eq('id', messageId)
+      .maybeSingle();
+    if (error) throw new Error(`submission_group_messages: ${error.message}`);
+    const row = data as Row | null;
+    if (!row) return null;
+    return {
+      sendStatus: (row.send_status as SendStatus | null) ?? null,
+      waMessageId: str(row.wa_message_id),
+    };
+  }
+
   /** False = duplicate (already recorded). */
   async recordInbound(input: {
     groupId: string;
@@ -446,6 +511,21 @@ export class SubmissionGroupStore {
     return (
       (await this.rpc('sg_record_wa_close_error', {
         p_group: groupId,
+        p_error: error,
+      })) === true
+    );
+  }
+
+  /** Records the 1:1 invite send's outcome; false when the group is not ACTIVE. */
+  async noteInvite(
+    groupId: string,
+    sent: boolean,
+    error: string | null
+  ): Promise<boolean> {
+    return (
+      (await this.rpc('sg_note_invite', {
+        p_group: groupId,
+        p_sent: sent,
         p_error: error,
       })) === true
     );

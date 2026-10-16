@@ -42,6 +42,8 @@ export interface SgGroup extends SgListItem {
   wa_create_error: string | null;
   wa_close_error: string | null;
   wa_closed_at: string | null;
+  invite_sent_at: string | null;
+  invite_send_error: string | null;
 }
 
 export interface SgAccess {
@@ -243,6 +245,18 @@ export function groupBanners(g: SgGroup): BannerKey[] {
   if (!g.channel) out.push('numberRemoved');
   if (!g.contact) out.push('contactRemoved');
   return out;
+}
+
+/**
+ * The 1:1 invite link's outcome (migration 118). A send that went out is
+ * shown even if a later attempt failed: the customer has the link.
+ */
+export function inviteNotice(
+  g: SgGroup
+): { key: 'sent'; at: string } | { key: 'failed' } | null {
+  if (g.invite_sent_at) return { key: 'sent', at: g.invite_sent_at };
+  if (g.invite_send_error) return { key: 'failed' };
+  return null;
 }
 
 /** Retry create is offered while an ACTIVE group has no WhatsApp group yet. */

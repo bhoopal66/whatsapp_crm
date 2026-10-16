@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  inviteNotice,
   addableStaff,
   appendPage,
   bubbleKind,
@@ -43,6 +44,8 @@ const group = (over: Partial<SgGroup> = {}): SgGroup => ({
   wa_create_error: null,
   wa_close_error: null,
   wa_closed_at: null,
+  invite_sent_at: null,
+  invite_send_error: null,
   ...over,
 });
 
@@ -246,5 +249,26 @@ describe('addableStaff', () => {
       { id: 'boss', name: 'BOSS' },
       { id: 'zed', name: 'ZED' },
     ]);
+  });
+});
+
+describe('inviteNotice', () => {
+  it('is nothing when no invite was attempted', () => {
+    expect(inviteNotice(group())).toBeNull();
+  });
+  it('shows a sent invite with its time, even after a later failure', () => {
+    const at = '2026-10-16T10:05:00.000Z';
+    expect(inviteNotice(group({ invite_sent_at: at }))).toEqual({
+      key: 'sent',
+      at,
+    });
+    expect(
+      inviteNotice(group({ invite_sent_at: at, invite_send_error: 'x' }))
+    ).toEqual({ key: 'sent', at });
+  });
+  it('shows a failed invite when none went out', () => {
+    expect(inviteNotice(group({ invite_send_error: 'gateway down' }))).toEqual({
+      key: 'failed',
+    });
   });
 });

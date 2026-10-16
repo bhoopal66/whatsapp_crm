@@ -43,6 +43,9 @@ function fakeStore(over: Partial<InboundStore> = {}) {
       phone: '+971 050 123 4567',
     })),
     recordInbound: vi.fn(async () => true),
+    hasWaMessage: vi.fn(async () => false),
+    oldestPendingOut: vi.fn(async () => '41'),
+    settleSend: vi.fn(async () => true),
     ...over,
   } satisfies InboundStore;
 }
@@ -69,7 +72,12 @@ describe('recordSubmissionGroupInbound', () => {
   it('records a submission-group message scoped to the account and number', async () => {
     const store = fakeStore();
     const out = await recordSubmissionGroupInbound(store, channel, [msg()]);
-    expect(out).toEqual({ recorded: 1, duplicates: 0, failed: 0 });
+    expect(out).toEqual({
+      recorded: 1,
+      reconciled: 0,
+      duplicates: 0,
+      failed: 0,
+    });
     expect(store.findByWaGroupId).toHaveBeenCalledWith(
       'acc-1',
       'cfg-1',
@@ -87,13 +95,60 @@ describe('recordSubmissionGroupInbound', () => {
     });
   });
 
-  it('skips our own sends (fromMe)', async () => {
+  const NOW = new Date('2026-10-16T10:20:00.000Z');
+  const echo = (over: Partial<GroupInboundMessage> = {}) =>
+    msg({
+      id: 'wa-echo',
+      fromMe: true,
+      senderWaId: '971500000001',
+      body: 'Ali (Agent): hi',
+      ...over,
+    });
+
+  it("an echo of our own send settles the group's oldest matching pending row sent with the echo's id", async () => {
     const store = fakeStore();
-    const out = await recordSubmissionGroupInbound(store, channel, [
-      msg({ fromMe: true }),
-    ]);
+    const out = await recordSubmissionGroupInbound(store, channel, [echo()], {
+      now: () => NOW,
+    });
+    expect(store.hasWaMessage).toHaveBeenCalledWith('sg-1', 'wa-echo');
+    expect(store.oldestPendingOut).toHaveBeenCalledWith(
+      'sg-1',
+      'Ali (Agent): hi',
+      new Date('2026-10-16T10:05:00.000Z')
+    );
+    expect(store.settleSend).toHaveBeenCalledWith('41', 'sent', 'wa-echo');
     expect(store.recordInbound).not.toHaveBeenCalled();
-    expect(out.recorded).toBe(0);
+    expect(out).toEqual({
+      recorded: 0,
+      reconciled: 1,
+      duplicates: 0,
+      failed: 0,
+    });
+  });
+
+  it('an echo whose id is already recorded, or with no matching pending send, is ignored and never stored', async () => {
+    const known = fakeStore({ hasWaMessage: vi.fn(async () => true) });
+    await recordSubmissionGroupInbound(known, channel, [echo()]);
+    expect(known.oldestPendingOut).not.toHaveBeenCalled();
+    expect(known.settleSend).not.toHaveBeenCalled();
+
+    const none = fakeStore({ oldestPendingOut: vi.fn(async () => null) });
+    const out = await recordSubmissionGroupInbound(none, channel, [echo()]);
+    expect(none.settleSend).not.toHaveBeenCalled();
+    expect(none.recordInbound).not.toHaveBeenCalled();
+    expect(out.reconciled).toBe(0);
+  });
+
+  it('a media or empty echo, or one outside a submission group, is ignored', async () => {
+    const store = fakeStore();
+    await recordSubmissionGroupInbound(store, channel, [
+      echo({ type: 'image', body: 'caption', media: { id: 'x' } }),
+      echo({ body: null }),
+      echo({ waGroupId: '120363000000000999@g.us' }),
+    ]);
+    expect(store.oldestPendingOut).not.toHaveBeenCalled();
+    expect(store.settleSend).not.toHaveBeenCalled();
+    expect(store.recordInbound).not.toHaveBeenCalled();
   });
 
   it('ignores chats that are not submission groups', async () => {
@@ -118,7 +173,12 @@ describe('recordSubmissionGroupInbound', () => {
       msg({ id: 'c', senderWaId: '971509999999' }),
     ]);
     err.mockRestore();
-    expect(out).toEqual({ recorded: 1, duplicates: 1, failed: 1 });
+    expect(out).toEqual({
+      recorded: 1,
+      reconciled: 0,
+      duplicates: 1,
+      failed: 1,
+    });
     expect(recordInbound.mock.calls.map((c) => c[0].senderKind)).toEqual([
       'customer',
       'coordinator',
