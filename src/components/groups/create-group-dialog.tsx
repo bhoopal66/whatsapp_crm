@@ -29,19 +29,23 @@ import {
   useAllNumberAllocations,
   useMyNumberIds,
 } from '@/hooks/use-whatsapp-numbers';
-import { canEditSettings, hasMinRole } from '@/lib/auth/roles';
+import { canEditSettings } from '@/lib/auth/roles';
+import { canSyncGroups } from '@/lib/groups/access';
 import { GROUP_SETTINGS } from '@/lib/groups/types';
 import {
   buildCreateBody,
+  createErrorKey,
   DEFAULT_TOGGLES,
   firstInvalidStep,
   formatWaId,
   GROUP_DESCRIPTION_MAX,
   GROUP_NAME_MAX,
+  isCreatedButUnsaved,
   mergeMembers,
   nameLength,
   parseCreateResult,
   parsePhoneList,
+  pickableManagers,
   summarizeResult,
   validateStep,
   WIZARD_STEPS,
@@ -56,6 +60,8 @@ import { cn } from '@/lib/utils';
 type Phase =
   | { kind: 'form' }
   | { kind: 'creating' }
+  // On WhatsApp but not saved here: terminal, a retry would make a second group.
+  | { kind: 'unsaved'; syncing: boolean }
   | { kind: 'done'; groupId: string | null; summary: ResultSummary };
 
 /**
@@ -78,6 +84,7 @@ export function CreateGroupDialog({
   const allocations = useAllNumberAllocations();
   const myIds = useMyNumberIds();
   const { members: staff } = useWorkspaceMembers();
+  const canSync = !!accountRole && canSyncGroups(accountRole);
 
   // Only the Whapi numbers this person may send from (can_use_channel).
   const options = useMemo(
@@ -148,7 +155,13 @@ export function CreateGroupDialog({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(t('failed', { reason: json?.error ?? res.status }));
+        if (isCreatedButUnsaved(json?.code)) {
+          setPhase({ kind: 'unsaved', syncing: false });
+          return;
+        }
+        toast.error(
+          t('failed', { reason: t(`errors.${createErrorKey(json?.code)}`) })
+        );
         setPhase({ kind: 'form' });
         return;
       }
@@ -162,6 +175,19 @@ export function CreateGroupDialog({
     } catch {
       toast.error(t('failed', { reason: 'network' }));
       setPhase({ kind: 'form' });
+    }
+  };
+
+  const syncNow = async () => {
+    setPhase({ kind: 'unsaved', syncing: true });
+    try {
+      const res = await fetch('/api/whatsapp/groups/sync', { method: 'POST' });
+      if (!res.ok) throw new Error(String(res.status));
+      onCreated();
+      onOpenChange(false);
+    } catch {
+      toast.error(t('syncNowFailed'));
+      setPhase({ kind: 'unsaved', syncing: false });
     }
   };
 
@@ -180,7 +206,11 @@ export function CreateGroupDialog({
       >
         <DialogHeader>
           <DialogTitle>
-            {phase.kind === 'done' ? t('resultTitle') : t('title')}
+            {phase.kind === 'done'
+              ? t('resultTitle')
+              : phase.kind === 'unsaved'
+                ? t('unsavedTitle')
+                : t('title')}
           </DialogTitle>
           {phase.kind === 'form' && (
             <DialogDescription>
@@ -199,6 +229,36 @@ export function CreateGroupDialog({
             />
             <p className="font-medium">{t('creating')}</p>
             <p className="text-muted-foreground text-sm">{t('creatingHint')}</p>
+          </div>
+        ) : phase.kind === 'unsaved' ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div
+              className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200"
+              role="alert"
+            >
+              <p className="font-semibold">{t('unsavedHeadline')}</p>
+              <p>{canSync ? t('unsavedAdmin') : t('unsavedOther')}</p>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={phase.syncing}
+                onClick={() => onOpenChange(false)}
+              >
+                {t('done')}
+              </Button>
+              {canSync && (
+                <Button
+                  type="button"
+                  disabled={phase.syncing}
+                  onClick={() => void syncNow()}
+                >
+                  {phase.syncing && <Loader2 className="size-4 animate-spin" />}
+                  {t('syncNow')}
+                </Button>
+              )}
+            </DialogFooter>
           </div>
         ) : phase.kind === 'done' ? (
           <ResultView
@@ -331,17 +391,7 @@ export function CreateGroupDialog({
                     </div>
                   ))}
                   <ManagersPicker
-                    staff={staff
-                      .filter(
-                        (p) =>
-                          p.user_id !== user?.id &&
-                          !!p.account_role &&
-                          hasMinRole(p.account_role, 'agent')
-                      )
-                      .map((p) => ({
-                        id: p.user_id,
-                        name: p.full_name || p.email,
-                      }))}
+                    staff={pickableManagers(staff, user?.id)}
                     selected={values.managerIds}
                     onChange={(ids) => set('managerIds', ids)}
                   />
@@ -402,6 +452,7 @@ function ResultView({
   const t = useTranslations('Groups.create');
   const label = (p: ResultPerson) =>
     p.name ? `${p.name} (${formatWaId(p.waId)})` : formatWaId(p.waId);
+  const warnings = summary.warnings;
   const pending = [
     ...summary.refused.map((p) => label(p)),
     ...summary.notAttempted.map(
@@ -472,6 +523,16 @@ function ResultView({
                 <li key={p.waId} className="truncate">
                   {label(p)}
                 </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {warnings.length > 0 && (
+          <section className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200">
+            <h3 className="font-semibold">{t('resultWarnings')}</h3>
+            <ul className="list-disc space-y-0.5 ps-4">
+              {warnings.map((w) => (
+                <li key={w}>{t(`warnings.${w}`)}</li>
               ))}
             </ul>
           </section>

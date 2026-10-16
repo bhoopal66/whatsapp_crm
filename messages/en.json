@@ -5905,7 +5905,7 @@
       "noPhone": "{name} has no usable phone number and will be skipped.",
       "memberCount": "{count} of {max} people",
       "overCap": "Only the first {max} are added now. Send the rest the invite link from the group's Invite tab.",
-      "pacingNote": "Added {batch} at a time with short pauses. People who haven't messaged this number may be refused by WhatsApp — you can send them the invite link.",
+      "pacingNote": "Added {batch} at a time with a {seconds}-second pause between each. People who haven't messaged this number may be refused by WhatsApp — you can send them the invite link.",
       "toggles": {
         "send_messages": "Only admins can send messages",
         "edit_group_info": "Only admins can edit group info",
@@ -5934,7 +5934,16 @@
         "nameTooLong": "The name can be at most {max} characters.",
         "descriptionTooLong": "The description is too long.",
         "membersRequired": "Add at least one person.",
-        "fixInvalidNumbers": "Fix or remove the numbers marked in red."
+        "fixInvalidNumbers": "Fix or remove the numbers marked in red.",
+        "no_participants": "none of the people you picked can be added",
+        "invalid_manager": "a co-manager you picked can't manage groups (deactivated or not staff)",
+        "invalid_body": "the request was not valid",
+        "not_allowed": "you don't have permission to create groups",
+        "rate_limited": "too many requests, wait a moment and try again",
+        "channel_disconnected": "the number is disconnected",
+        "billing": "the WhatsApp number's subscription needs attention",
+        "gateway_unavailable": "WhatsApp didn't respond, try again",
+        "unknown": "something went wrong"
       },
       "failed": "Couldn't create the group: {reason}",
       "resultTitle": "Group created",
@@ -5949,7 +5958,20 @@
       "skippedDoNotContact": "do not contact",
       "resultNone": "Nobody was added yet — send the invite link from the group's Invite tab.",
       "openGroup": "Open group",
-      "done": "Done"
+      "done": "Done",
+      "unsavedTitle": "Group created on WhatsApp",
+      "unsavedHeadline": "Created on WhatsApp but not saved here — don't create it again.",
+      "unsavedAdmin": "The group exists on WhatsApp, but this CRM could not save it. Creating it again would make a duplicate. Run a sync to bring it in.",
+      "unsavedOther": "The group exists on WhatsApp, but this CRM could not save it. Creating it again would make a duplicate. Ask an admin to run a sync from the Groups screen.",
+      "syncNow": "Sync now",
+      "syncNowFailed": "Couldn't sync. Try again, or run a sync from the Groups screen.",
+      "resultWarnings": "Created, with a few things to check",
+      "warnings": {
+        "adds_stopped": "Adding people stopped early. Send the rest the invite link.",
+        "managers_not_saved": "The co-managers couldn't be saved. Set them on the group's Managers tab.",
+        "description_not_set": "The description couldn't be set. Edit it from the group page.",
+        "settings_not_set": "Some group settings couldn't be applied. Check them on the group's Settings tab."
+      }
     },
     "page": {
       "back": "Groups",

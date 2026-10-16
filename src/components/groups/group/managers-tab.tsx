@@ -10,7 +10,8 @@ import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
-import { canEditSettings, hasMinRole } from '@/lib/auth/roles';
+import { canEditSettings } from '@/lib/auth/roles';
+import { pickableManagers } from '@/lib/groups/ui';
 import { reasonKey } from '@/lib/groups/group-page';
 
 import type { GroupTabProps } from '../group-page';
@@ -34,8 +35,10 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
   const [saving, setSaving] = useState(false);
 
   const creatorId = detail.group.created_by;
+  // The creator keeps the editor only while they can still manage the group.
   const editable =
-    (!!accountRole && canEditSettings(accountRole)) || creatorId === user?.id;
+    detail.canManage &&
+    ((!!accountRole && canEditSettings(accountRole)) || creatorId === user?.id);
 
   const apply = (list: Manager[]) => {
     setManagers(list);
@@ -96,14 +99,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
     return <div className="bg-muted h-24 animate-pulse rounded-lg" aria-busy />;
   }
 
-  const staff = members
-    .filter(
-      (p) =>
-        p.user_id !== creatorId &&
-        !!p.account_role &&
-        hasMinRole(p.account_role, 'agent')
-    )
-    .map((p) => ({ id: p.user_id, name: p.full_name || p.email }));
+  const staff = pickableManagers(members, creatorId);
   const dirty =
     selected.length !== managers.filter((x) => !x.isCreator).length ||
     selected.some((id) => !managers.some((x) => x.userId === id));
