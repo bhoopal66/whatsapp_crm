@@ -572,6 +572,51 @@ describe('ingestPbxEvent', () => {
       );
     });
 
+    it('a call already counted in a closed task is not counted again', async () => {
+      await ingest(end('call-1', 'NO ANSWER'));
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks).toHaveLength(1);
+      fake.tables.tasks[0].status = 'done';
+      // call-2's end again, under another hash, after the task was closed.
+      await ingest({ ...end('call-2', 'NO ANSWER'), sn: 'SN-again' });
+      expect(fake.tables.tasks).toHaveLength(1);
+      // Nor does it fold into a newer open task for the same caller.
+      await ingest(end('call-3', 'NO ANSWER'));
+      await ingest({ ...end('call-2', 'NO ANSWER'), sn: 'SN-third' });
+      expect(fake.tables.tasks).toHaveLength(2);
+      expect(fake.tables.tasks[1].meta).toMatchObject({ missed_count: 1 });
+    });
+
+    it('a fold that loses a race reads again and keeps both calls', async () => {
+      await ingest(end('call-1', 'NO ANSWER'));
+      const task = fake.tables.tasks[0];
+      task.updated_at = 't0';
+      // Another delivery folds 'other' in between our read and our write.
+      const from = fake.db.from.bind(fake.db);
+      let raced = false;
+      (fake.db as unknown as { from: typeof from }).from = (table: string) => {
+        const q = from(table);
+        if (table !== 'tasks' || raced) return q;
+        const update = q.update.bind(q);
+        q.update = ((values: Row) => {
+          raced = true;
+          const ids = (task.meta as Row).call_ids as string[];
+          task.meta = { ...(task.meta as Row), call_ids: [...ids, 'other'] };
+          task.updated_at = 't1';
+          return update(values);
+        }) as typeof q.update;
+        return q;
+      };
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(raced).toBe(true);
+      expect(fake.tables.tasks).toHaveLength(1);
+      const ids = (fake.tables.calls as Row[]).map((c) => c.id);
+      expect(task.meta).toMatchObject({
+        call_ids: [ids[0], 'other', ids[1]],
+        missed_count: 3,
+      });
+    });
+
     it("with no contact, fold on the caller's number only", async () => {
       fake.tables.contacts = [];
       await ingest(end('call-1', 'NO ANSWER'));

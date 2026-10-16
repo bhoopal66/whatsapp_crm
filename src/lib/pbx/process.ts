@@ -67,6 +67,8 @@ const END_STATUS: Record<string, CallStatus> = {
   FAILED: 'failed',
 };
 const TASK_HOLDERS = ['owner', 'admin', 'team_leader', 'agent'];
+/** Tries at folding a repeat missed call into the open task before it opens its own. */
+const FOLD_ATTEMPTS = 3;
 const CALL_COLUMNS =
   'id, account_id, direction, status, extension, user_id, peer_user_id, contact_id, conversation_id, did_number, started_at, answered_at, recording_state, meta';
 
@@ -974,23 +976,46 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   // opens a task per call. The open missed-call set is small, so no
   // index: account, source, kind and status narrow it first.
   const remoteNumber = remote?.number ?? null;
+
+  // Already counted: an end redelivered under another hash, after the
+  // task that holds the call was closed (or while a newer one is open)
+  // must neither open a task and ring again nor fold into the newer one.
+  const counted = await ctx.db
+    .from('tasks')
+    .select('id')
+    .eq('account_id', ws.accountId)
+    .eq('source', 'pbx')
+    .eq('kind', 'missed_call')
+    .or(
+      `source_ref.eq.call:${callRowId},meta->call_ids.cs.${JSON.stringify([callRowId])}`
+    )
+    .limit(1);
+  if (counted.error) fail('tasks read', counted.error);
+  if (((counted.data ?? []) as unknown[]).length) return;
+
   if (match.contactId || remoteNumber) {
-    let q = ctx.db
-      .from('tasks')
-      .select('id, assigned_to, meta')
-      .eq('account_id', ws.accountId)
-      .eq('source', 'pbx')
-      .eq('kind', 'missed_call')
-      .eq('status', 'open');
-    q = match.contactId
-      ? q.eq('contact_id', match.contactId)
-      : q.is('contact_id', null).eq('meta->>remote_number', remoteNumber);
-    const open = await q.order('created_at', { ascending: true }).limit(1);
-    if (open.error) fail('tasks read', open.error);
-    const held = ((open.data ?? []) as Row[])[0];
-    if (held) {
+    // Compare-and-set on updated_at (tasks_guard stamps it on every
+    // UPDATE): two folds that read the same call_ids would otherwise
+    // each write their own call over the other's. A lost race reads
+    // again; after the last try the call opens a task of its own
+    // rather than be dropped.
+    for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
+      let q = ctx.db
+        .from('tasks')
+        .select('id, assigned_to, meta, updated_at')
+        .eq('account_id', ws.accountId)
+        .eq('source', 'pbx')
+        .eq('kind', 'missed_call')
+        .eq('status', 'open');
+      q = match.contactId
+        ? q.eq('contact_id', match.contactId)
+        : q.is('contact_id', null).eq('meta->>remote_number', remoteNumber);
+      const open = await q.order('created_at', { ascending: true }).limit(1);
+      if (open.error) fail('tasks read', open.error);
+      const held = ((open.data ?? []) as Row[])[0];
+      if (!held) break;
       const ids = foldedCallIds(held.meta);
-      // A redelivered end under another hash: already counted.
+      // Folded by a concurrent delivery of the same end.
       if (ids.includes(callRowId)) return;
       const callIds = [...ids, callRowId];
       const folded = await ctx.db
@@ -1010,10 +1035,11 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
         .eq('account_id', ws.accountId)
         .eq('id', String(held.id))
         .eq('status', 'open')
+        .eq('updated_at', held.updated_at)
         .select('id');
       if (folded.error) fail('tasks update', folded.error);
-      // Closed in the meantime: this call opens a task of its own.
       if (((folded.data ?? []) as unknown[]).length) return;
+      // Closed or folded into meanwhile: read again.
     }
   }
 
