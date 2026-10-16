@@ -5,6 +5,7 @@ import {
   GROUP_ADD_POLICY,
   GroupsUnsupportedError,
   addParticipants,
+  callTimeoutMs,
   createGroup,
   describeGroupFailure,
   normaliseParticipants,
@@ -261,6 +262,46 @@ describe('time budget', () => {
     expect(res.added).toHaveLength(15);
     expect(res.notAttempted).toEqual(phones(20).slice(15));
     expect(res.error).toBe('time_budget');
+  });
+
+  it('bounds each gateway call so it ends before maxDuration', async () => {
+    const c = clock();
+    const timeouts: number[] = [];
+    const spy = vi.spyOn(AbortSignal, 'timeout');
+    fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+      c.tick(1_000);
+      timeouts.push(spy.mock.calls.at(-1)![0]);
+      return json({ processed: JSON.parse(init.body as string).participants });
+    });
+    await addParticipants({
+      channel: whapiChannel,
+      groupId: GID,
+      participants: phones(15),
+      sleep: c.sleep,
+      now: c.now,
+      deadline: 45_000,
+    });
+    // Plenty left: capped at 15 s, never the 30 s default.
+    expect(timeouts[0]).toBe(15_000);
+    spy.mockRestore();
+    expect(callTimeoutMs({ deadline: 45_000, now: () => 40_000 })).toBe(15_000);
+    // 2 s left + 10 s slack: the call ends by 52 s.
+    expect(callTimeoutMs({ deadline: 45_000, now: () => 43_000 })).toBe(12_000);
+    expect(callTimeoutMs({ deadline: 45_000, now: () => 44_900 })).toBe(10_100);
+    expect(callTimeoutMs({})).toBeUndefined();
+  });
+
+  it('reports a timed-out batch as not attempted', async () => {
+    fetchMock.mockRejectedValue(new DOMException('timed out', 'TimeoutError'));
+    const res = await addParticipants({
+      channel: whapiChannel,
+      groupId: GID,
+      participants: phones(7),
+      deadline: Date.now() + 45_000,
+    });
+    expect(res.added).toEqual([]);
+    expect(res.notAttempted).toEqual(phones(7));
+    expect(res.error).not.toBeNull();
   });
 
   it('carries the deadline through createGroup', async () => {

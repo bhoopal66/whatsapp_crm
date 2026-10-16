@@ -181,6 +181,7 @@ export async function POST(request: Request, { params }: Params) {
             inviteCode: invite!.code,
             to: waId,
             body,
+            ...budget,
           });
           results.push({ ...base, status: 'sent', reason: null });
         } catch (err) {

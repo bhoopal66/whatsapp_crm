@@ -126,6 +126,30 @@ export function withinBudget(budget: TimeBudget, waitMs = 0): boolean {
   return (budget.now ?? Date.now)() + waitMs < budget.deadline;
 }
 
+/** Longest a single paced gateway call may take. */
+export const GROUP_CALL_TIMEOUT_MS = 15_000;
+/**
+ * Slack past the budget a call that starts just inside it may use. The
+ * routes' `maxDuration` is 60 s and the budget 45 s, so the call may end
+ * by 55 s, leaving 5 s to save and answer.
+ */
+const GROUP_CALL_SLACK_MS = 10_000;
+
+/**
+ * The timeout for one paced Whapi call: the budget left plus the slack,
+ * capped at `GROUP_CALL_TIMEOUT_MS`, so a call that starts before the
+ * deadline still ends before `maxDuration` (the default 30 s timeout
+ * could not). No deadline (tests, other callers) keeps the gateway default.
+ */
+export function callTimeoutMs(budget: TimeBudget): number | undefined {
+  if (budget.deadline === undefined) return undefined;
+  const left = budget.deadline - (budget.now ?? Date.now)();
+  return Math.max(
+    1_000,
+    Math.min(GROUP_CALL_TIMEOUT_MS, left + GROUP_CALL_SLACK_MS)
+  );
+}
+
 export interface BatchPlan {
   batches: string[][];
   /** Past `maxPerOperation`: not added in this operation. */
@@ -251,6 +275,7 @@ export async function createGroup(
     token,
     subject: name,
     participants: first,
+    timeoutMs: callTimeoutMs(input),
   });
   const more = await addBatches({
     token,
@@ -303,6 +328,7 @@ async function addBatches(
         token: args.token,
         groupId: args.groupId,
         participants: args.batches[i],
+        timeoutMs: callTimeoutMs(args),
       });
       out.added.push(...res.processed);
       out.refused.push(...res.failed);
@@ -427,17 +453,20 @@ export async function resetInviteLink(args: GroupRef) {
   return { code, link: whapi.groupInviteLink(code) };
 }
 
-export function sendInviteLink(args: {
-  channel: WhatsAppChannel;
-  inviteCode: string;
-  to: string;
-  body?: string;
-}) {
+export function sendInviteLink(
+  args: TimeBudget & {
+    channel: WhatsAppChannel;
+    inviteCode: string;
+    to: string;
+    body?: string;
+  }
+) {
   return whapi.sendGroupInvite({
     token: whapiToken(args.channel),
     inviteCode: args.inviteCode,
     to: args.to,
     body: args.body,
+    timeoutMs: callTimeoutMs(args),
   });
 }
 

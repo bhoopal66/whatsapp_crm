@@ -1771,6 +1771,8 @@ export interface CreateGroupArgs {
   subject: string
   /** At least one; WhatsApp won't create an empty group. */
   participants: string[]
+  /** Overrides WHAPI_TIMEOUT_MS for this call. */
+  timeoutMs?: number
 }
 
 export interface ParticipantsResult {
@@ -1800,6 +1802,7 @@ export async function createGroup(args: CreateGroupArgs): Promise<CreateGroupRes
     path: '/groups',
     method: 'POST',
     body: { subject, participants },
+    timeoutMs: args.timeoutMs,
   })
   const group = parseWhapiGroup(data)
   if (!group) {
@@ -1897,6 +1900,8 @@ export interface SendGroupInviteArgs {
   body?: string
   /** Shown title; the group's name when unset. */
   title?: string
+  /** Overrides WHAPI_TIMEOUT_MS for this call. */
+  timeoutMs?: number
 }
 
 /**
@@ -1913,6 +1918,7 @@ export async function sendGroupInvite(args: SendGroupInviteArgs): Promise<WhapiS
     path: invitePath(args.inviteCode),
     method: 'POST',
     body,
+    timeoutMs: args.timeoutMs,
   })
   return { messageId: readSentMessageId(data, 'group invite') }
 }
@@ -1962,6 +1968,8 @@ export async function acceptGroupInvite(args: {
 
 export interface GroupParticipantsArgs extends GroupArgs {
   participants: string[]
+  /** Overrides WHAPI_TIMEOUT_MS for this call. */
+  timeoutMs?: number
 }
 
 function parseParticipantsResult(data: unknown): ParticipantsResult {
@@ -1985,6 +1993,7 @@ export async function addGroupParticipants(
     path: groupPath(args.groupId, '/participants'),
     method: 'POST',
     body: { participants: participantIds(args.participants) },
+    timeoutMs: args.timeoutMs,
   })
   return parseParticipantsResult(data)
 }
