@@ -225,15 +225,20 @@ export class SubmissionGroupService {
    * `olderThanMs` through the same claim/create path. One group's failure is
    * reported, never thrown, so the rest still run.
    */
-  async retryPending(input: { olderThanMs: number }): Promise<{
+  async retryPending(input: {
+    accountId: string;
+    olderThanMs: number;
+  }): Promise<{
     attempted: number;
     created: string[];
     consentRequired: string[];
     failed: { groupId: string; error: string }[];
   }> {
     const now = this.deps.now?.() ?? new Date();
+    // Only this account's rows: the Whapi adapter behind deps.api loads one account's numbers.
     const pending = await this.deps.store.listPendingCreates(
-      new Date(now.getTime() - input.olderThanMs)
+      new Date(now.getTime() - input.olderThanMs),
+      { accountId: input.accountId }
     );
     const result = {
       attempted: pending.length,
@@ -251,6 +256,32 @@ export class SubmissionGroupService {
       }
     }
     return result;
+  }
+
+  /**
+   * Finishes one pending create now (the admin "retry" action) through the same claim/create path. A group that
+   * already has its WhatsApp group, or has ENDED, is returned as it stands with no gateway call.
+   */
+  async retryOne(groupId: string): Promise<OpenResult> {
+    const group = await this.deps.store.get(groupId);
+    if (!group) throw new Error(`submission group ${groupId} not found`);
+    if (group.waGroupId !== null || group.status !== 'ACTIVE')
+      return {
+        consentRequired: false,
+        created: false,
+        group,
+        inviteLink: group.inviteLink,
+        refusedParticipants: [],
+      };
+    const out = await this.createPending(group);
+    if (out.consentRequired) return CONSENT_REQUIRED;
+    return {
+      consentRequired: false,
+      created: false,
+      group: out.group,
+      inviteLink: out.inviteLink,
+      refusedParticipants: out.refused,
+    };
   }
 
   /** The claim / consent re-check / create / attach path for one pending group. */
@@ -496,6 +527,37 @@ export class SubmissionGroupService {
       ended = await store.end(group.id, d.reason);
       group = (await store.get(group.id)) ?? group;
     }
+    return this.closeEnded(group, ended, reason);
+  }
+
+  /** Ends the group now (an admin's manual end, reason e.g. 'MANUAL') and closes the WhatsApp group. */
+  async endNow(groupId: string, reason: string): Promise<EndResult> {
+    const { store } = this.deps;
+    let group = await store.get(groupId);
+    if (!group) throw new Error(`submission group ${groupId} not found`);
+    let ended = false;
+    if (group.status === 'ACTIVE') {
+      ended = await store.end(group.id, reason);
+      group = (await store.get(group.id)) ?? group;
+    }
+    return this.closeEnded(group, ended, ended ? reason : null);
+  }
+
+  /** Cron: retries the WhatsApp close of an ENDED group (deferred or failed earlier); never ends anything. */
+  async retryClose(groupId: string): Promise<EndResult> {
+    const group = await this.deps.store.get(groupId);
+    if (!group) throw new Error(`submission group ${groupId} not found`);
+    return this.closeEnded(group, false, null);
+  }
+
+  /** The close step: an ENDED group's WhatsApp group is closed once no 'out' row is pending. */
+  private async closeEnded(
+    group: SubmissionGroup,
+    ended: boolean,
+    reason: string | null
+  ): Promise<EndResult> {
+    const { store } = this.deps;
+    const none = { closed: false, closeError: null, closeDeferred: false };
     if (group.status !== 'ENDED' || group.waGroupId === null)
       return { ended, reason, ...none };
     if (group.waClosedAt !== null)

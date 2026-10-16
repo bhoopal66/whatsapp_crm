@@ -10,6 +10,7 @@ import {
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
+import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { dispatchPush } from '@/lib/push/dispatch'
@@ -207,6 +208,38 @@ function scheduleDealRoomReconcile() {
 }
 
 /**
+ * Submission groups (module 018a, migration 115): stale pending sends
+ * settled failed, pending WhatsApp group creates finished and failed or
+ * deferred closes retried, at most every 2 minutes per process, inside
+ * after(). runSubmissionGroupsCron never throws; a failure is only logged.
+ */
+const submissionGroupsDue = everyInterval(2 * 60_000)
+
+function scheduleSubmissionGroups() {
+  try {
+    if (!submissionGroupsDue()) return
+    after(async () => {
+      try {
+        const r = await runSubmissionGroupsCron(supabaseAdmin())
+        if (r.errors.length > 0) {
+          console.error('[automations-cron] submission groups:', r.errors)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] submission groups failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule submission groups:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * The phone system's work (recordings, call-backs, event retries,
  * purge; GET /api/pbx/cron) rides along at most once a minute per
  * process, inside after(). It stops starting work after 45 s, and a
@@ -346,6 +379,7 @@ export async function GET(request: Request) {
     scheduleChatFileSweep()
     scheduleJourneyTick()
     scheduleDealRoomReconcile()
+    scheduleSubmissionGroups()
     schedulePbxCron()
     schedulePushDispatch()
     scheduleCalendarReminders()

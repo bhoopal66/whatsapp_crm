@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   rpc: vi.fn(),
   journeyTick: vi.fn(),
   reconcile: vi.fn(),
+  submissionGroups: vi.fn(),
   pbx: vi.fn(),
   chatFiles: vi.fn(),
   push: vi.fn(),
@@ -69,6 +70,9 @@ vi.mock('@/lib/journeys/host/tick', () => ({
 vi.mock('@/lib/deal-rooms/reconcile', () => ({
   reconcileCreatingRooms: h.reconcile,
 }));
+vi.mock('@/lib/submission-groups/cron', () => ({
+  runSubmissionGroupsCron: h.submissionGroups,
+}));
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
 vi.mock('@/lib/chat/file-cleanup', () => ({ runChatFileSweep: h.chatFiles }));
 vi.mock('@/lib/push/dispatch', () => ({ dispatchPush: h.push }));
@@ -111,6 +115,7 @@ beforeEach(() => {
     failed: 0,
   });
   h.recurring.mockReset().mockResolvedValue(0);
+  h.submissionGroups.mockReset().mockResolvedValue({ errors: [] });
   h.chatFiles
     .mockReset()
     .mockResolvedValue({ found: 0, deleted: 0, failed: [] });
@@ -396,6 +401,38 @@ describe('GET /api/automations/cron — deal-room reconcile', () => {
     await GET(req());
     await runAfter();
     expect(h.reconcile).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('GET /api/automations/cron — submission groups', () => {
+  it('runs after the response, at most every 2 minutes, and survives a throw', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-16T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.submissionGroups).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.submissionGroups).toHaveBeenCalledTimes(1);
+    expect(h.submissionGroups.mock.calls[0][0]).toHaveProperty('from');
+
+    vi.setSystemTime(new Date('2026-10-16T09:01:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.submissionGroups).toHaveBeenCalledTimes(1);
+
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.submissionGroups.mockRejectedValueOnce(new Error('boom'));
+    vi.setSystemTime(new Date('2026-10-16T09:02:00Z'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.submissionGroups).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] submission groups failed:',
+      'boom'
+    );
+    log.mockRestore();
   });
 });
 
