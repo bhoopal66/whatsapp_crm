@@ -62,7 +62,7 @@ export interface ConsentAnswer {
   reason?: 'opted_out' | 'do_not_contact';
 }
 
-const GROUP_COLUMNS =
+export const GROUP_COLUMNS =
   'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error';
 
 type Row = Record<string, unknown>;
@@ -260,7 +260,7 @@ export class SubmissionGroupStore {
   /** The access list as it stands: the open rows, or on an ENDED group the rows closed at the end. */
   async listAccess(
     group: Pick<SubmissionGroup, 'id' | 'status' | 'endedAt'>
-  ): Promise<{ userId: string; label: StaffLabel }[]> {
+  ): Promise<{ userId: string; label: StaffLabel; addedAt: Date }[]> {
     const { data, error } = await this.db
       .from('submission_group_access')
       .select('user_id, label, removed_at, added_at')
@@ -278,6 +278,7 @@ export class SubmissionGroupStore {
       .map((r) => ({
         userId: String(r.user_id),
         label: r.label as StaffLabel,
+        addedAt: date(r.added_at)!,
       }));
   }
 
