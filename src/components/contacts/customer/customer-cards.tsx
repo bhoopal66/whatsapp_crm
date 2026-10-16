@@ -161,6 +161,11 @@ export function DetailsCard({
         )}
         {!draft && fields.map((f) => row(f.field_name, values[f.id]))}
       </dl>
+      {fields.length === 0 && (
+        <p className="text-muted-foreground mt-2 text-xs">
+          {t('noCustomFields')}
+        </p>
+      )}
       {draft && (
         <div className="mt-3 space-y-2 border-t pt-3">
           {fields.map((f) => (

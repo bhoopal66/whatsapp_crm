@@ -17,6 +17,7 @@ import {
   Phone,
   PhoneMissed,
   StickyNote,
+  Trash2,
 } from 'lucide-react';
 
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
@@ -75,6 +76,7 @@ import {
   type ContactThread,
 } from '@/lib/contacts/contact-thread';
 import { customerAccess } from '@/lib/contacts/customer-access';
+import { contactsListPath } from '@/lib/contacts/customer-links';
 import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
 import type { Contact } from '@/types';
 import { createClient } from '@/lib/supabase/client';
@@ -241,8 +243,16 @@ const paged = (source: TimelineSource, rows: unknown[]) => ({
   more: rows.length === PAGE,
 });
 
-export function CustomerPage({ contactId }: { contactId: string }) {
+export function CustomerPage({
+  contactId,
+  fromTeam = false,
+}: {
+  contactId: string;
+  /** Opened from the team list: back and delete return there. */
+  fromTeam?: boolean;
+}) {
   const tl = useTranslations('CustomerTimeline');
+  const td = useTranslations('Contacts.detailView');
   const locale = useLocale();
   const router = useRouter();
   const { accountRole } = useAuth();
@@ -529,7 +539,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
   if (load.state !== 'ready')
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-        <BackLink label={tl('back')} />
+        <BackLink label={tl('back')} href={contactsListPath(fromTeam)} />
         {load.state === 'loading' ? (
           <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
         ) : (
@@ -549,6 +559,27 @@ export function CustomerPage({ contactId }: { contactId: string }) {
         ? { ...prev, rows: { ...prev.rows, notes: [n, ...prev.rows.notes] } }
         : prev
     );
+
+  const deleteNote = async (id: string) => {
+    if (!window.confirm(td('confirmDeleteNote'))) return;
+    const { error } = await createClient()
+      .from('contact_notes')
+      .delete()
+      .eq('id', id);
+    if (error) return void toast.error(td('toastNoteDeleteFailed'));
+    setLoad((prev) =>
+      prev.state === 'ready'
+        ? {
+            ...prev,
+            rows: {
+              ...prev.rows,
+              notes: prev.rows.notes.filter((n) => n.id !== id),
+            },
+          }
+        : prev
+    );
+    toast.success(td('toastNoteDeleted'));
+  };
 
   const draftWhatsApp = () => {
     if (!conversation) return void toast.error(tl('noConversation'));
@@ -637,12 +668,24 @@ export function CustomerPage({ contactId }: { contactId: string }) {
           <Icon className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm">
-            <span className="font-semibold">{say(h.label)}</span>
-            <span className="text-muted-foreground">
-              {h.details.map((d) => ` · ${say(d)}`).join('')}
-            </span>
-          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm">
+              <span className="font-semibold">{say(h.label)}</span>
+              <span className="text-muted-foreground">
+                {h.details.map((d) => ` · ${say(d)}`).join('')}
+              </span>
+            </p>
+            {e.kind === 'note' && access.addNote && (
+              <button
+                type="button"
+                onClick={() => void deleteNote(e.id)}
+                aria-label={td('deleteNote')}
+                className="text-muted-foreground shrink-0 cursor-pointer hover:text-red-500"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+          </div>
           {text ? (
             <p className="mt-1 text-sm break-words whitespace-pre-wrap">
               {text}
@@ -709,7 +752,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
   const month = side.summary ? monthSummaryParts(side.summary) : null;
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-      <BackLink label={tl('back')} />
+      <BackLink label={tl('back')} href={contactsListPath(fromTeam)} />
       <CustomerHeader
         contact={contact}
         ownerName={ownerName}
@@ -720,6 +763,7 @@ export function CustomerPage({ contactId }: { contactId: string }) {
         channels={channels}
         prediction={prediction}
         onEdit={() => setEditing(true)}
+        listPath={contactsListPath(fromTeam)}
       />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <section className="order-2 min-w-0 space-y-4 lg:order-1">
@@ -879,10 +923,10 @@ function ConsentTitle({
   );
 }
 
-function BackLink({ label }: { label: string }) {
+function BackLink({ label, href }: { label: string; href: string }) {
   return (
     <Link
-      href="/contacts"
+      href={href}
       className="text-muted-foreground inline-flex items-center gap-1 text-sm hover:underline"
     >
       <ArrowLeft className="size-4" />

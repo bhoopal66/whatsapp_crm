@@ -12,6 +12,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   Building2,
+  Check,
+  Copy,
   LayoutTemplate,
   Loader2,
   Mail,
@@ -70,6 +72,7 @@ export function CustomerHeader({
   channels,
   prediction,
   onEdit,
+  listPath = '/contacts',
 }: {
   contact: HeaderContact;
   ownerName: string | null;
@@ -80,6 +83,8 @@ export function CustomerHeader({
   channels: readonly AccountNumber[] | null;
   prediction: SendChannelPrediction;
   onEdit: () => void;
+  /** Where delete returns to: the list this customer was opened from. */
+  listPath?: string;
 }) {
   const tl = useTranslations('CustomerTimeline');
   const t = useTranslations('Contacts.detailView');
@@ -89,6 +94,16 @@ export function CustomerHeader({
   const router = useRouter();
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyPhone = async () => {
+    try {
+      await navigator.clipboard.writeText(contact.phone ?? '');
+    } catch {
+      return void toast.error(t('copyFailed'));
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
   const actions = headerActions(access);
   const title =
     contact.name || contact.company || contact.phone || t('unnamed');
@@ -109,7 +124,7 @@ export function CustomerHeader({
     if (error) return void toast.error(tp('toastFailedDelete'));
     toast.success(tp('toastDeleted'));
     setConfirm(false);
-    router.push('/contacts');
+    router.push(listPath);
   };
 
   const button = (a: HeaderAction) => {
@@ -196,6 +211,7 @@ export function CustomerHeader({
           key={a}
           className={cls}
           onClick={outreach.openTemplate}
+          disabled={outreach.sendingTemplate}
         >
           <LayoutTemplate className="size-4" />
           {t('sendTemplateBtn')}
@@ -237,10 +253,20 @@ export function CustomerHeader({
               </span>
             )}
             {contact.phone && (
-              <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void copyPhone()}
+                aria-label={t('copyPhone')}
+                className="hover:text-primary inline-flex cursor-pointer items-center gap-1 transition-colors"
+              >
                 <Phone className="size-3.5" />
                 {contact.phone}
-              </span>
+                {copied ? (
+                  <Check className="text-primary size-3" />
+                ) : (
+                  <Copy className="size-3" />
+                )}
+              </button>
             )}
             {contact.email && (
               <a

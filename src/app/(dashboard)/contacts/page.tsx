@@ -1,5 +1,7 @@
 'use client';
 
+import { isUuid } from '@/lib/chat/mentions';
+import { customerPath } from '@/lib/contacts/customer-links';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -383,7 +385,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   }
 
   function openDetail(contactId: string) {
-    router.push(`/contacts/${contactId}`);
+    router.push(customerPath(contactId, teamView));
   }
 
   // `?c=<id>` deep link — used by "view contact" on a saved contact card
@@ -392,7 +394,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   useEffect(() => {
     try {
       const id = new URLSearchParams(window.location.search).get('c');
-      if (id) router.replace(`/contacts/${id}`);
+      if (isUuid(id)) router.replace(customerPath(id, teamView));
     } catch {
       // No window (SSR) or malformed URL — nothing to open.
     }
@@ -763,7 +765,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   <TableCell className="text-foreground font-medium">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <Link
-                        href={`/contacts/${contact.id}`}
+                        href={customerPath(contact.id, teamView)}
                         onClick={(e) => e.stopPropagation()}
                         className="hover:underline"
                       >
