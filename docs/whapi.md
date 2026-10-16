@@ -263,6 +263,44 @@ Until that line exists, `/api/automations/cron` runs the same sweep
 itself, at most once every 5 minutes per server process, so an install
 that already pings the automation cron is covered.
 
+## Groups
+
+The CRM can create and manage WhatsApp groups on a Whapi number
+(`src/lib/whatsapp/groups.ts`, over the client in `whapi-api.ts`).
+Groups are Whapi-only: a Meta number answers `GroupsUnsupportedError`.
+
+**Endpoints used:** `GET/POST /groups`, `GET/PUT/PATCH/DELETE
+/groups/{id}` (read with resync, edit name and description, change a
+setting, leave), `GET/DELETE /groups/{id}/invite` (invite code, revoke),
+`POST/DELETE /groups/{id}/participants`, `PATCH/DELETE
+/groups/{id}/admins` (promote, demote), `GET/PUT/DELETE
+/groups/{id}/icon`, `GET/POST/DELETE /groups/{id}/applications` (join
+requests), `GET/POST /groups/invite/{code}` (preview, join by invite)
+and `PUT /groups` (send an invite). Group messages go out through the
+ordinary send endpoints with the group id as the recipient.
+
+**Webhook events subscribed** (`REQUIRED_WEBHOOK_EVENTS`, written by
+Connect and by every re-register): `groups.post` (the number joined or
+created a group), `groups.put` (participant `add`, `remove`, `promote`,
+`demote`, or a join `request`) and `groups.patch` (name, description or
+setting changes). `whapi-group-events.ts` turns them into neutral
+events and skips anything malformed or unknown. A member changing
+phone number arrives as an `add`; Whapi cannot yet tell the two apart.
+Numbers connected before this change pick the events up on the next
+Reconnect, which re-registers the webhook.
+
+**Pacing.** Whapi publishes no figures; WhatsApp's anti-spam rules
+refuse some adds (a person's privacy setting) and mass-adding is what
+restricts a number. `GROUP_ADD_POLICY` is this CRM's own conservative
+choice: **5 people per call, a 3 second pause between calls, at most 50
+per operation**. Anyone past the ceiling, or whom WhatsApp refuses to
+add, is offered the group's invite link instead.
+
+**Inbox.** Group traffic stays out of the inbox pipeline. Group
+messages are still dropped by the normaliser, and a groups callback
+carries no `messages` or `statuses`, so the webhook answers 200 and
+processes nothing from it.
+
 ## Webhook authentication
 
 Meta signed every webhook POST with `X-Hub-Signature-256`. Whapi signs
@@ -518,6 +556,7 @@ itself sent and bump unread counts for your own replies.
 |---|---|
 | `src/lib/whatsapp/whapi-api.ts` | Gateway client: sends, media, health, settings |
 | `src/lib/whatsapp/whapi-webhook.ts` | Whapi payload → provider-neutral CRM shape |
+| `src/lib/whatsapp/groups.ts`, `whapi-group-events.ts` | Group operations and group webhook parsing |
 | `src/lib/whatsapp/whapi-webhook-auth.ts` | Secret generation, comparison, callback URL |
 | `src/app/api/whatsapp/webhook/route.ts` | Inbound: auth, normalise, dispatch |
 | `src/app/api/whatsapp/config/route.ts` | Connect / verify / reset a channel |

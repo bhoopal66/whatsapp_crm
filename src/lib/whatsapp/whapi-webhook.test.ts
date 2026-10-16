@@ -295,6 +295,24 @@ describe('normalizeWhapiWebhook — what reaches the inbox', () => {
     expect(out.messages[0].text).toBe('hello')
   })
 
+  it('treats a groups event body as a no-op for the inbox', () => {
+    // Subscribed since the group client; the route must stay a 200 with
+    // nothing processed for these (no messages, no statuses).
+    const out = normalizeWhapiWebhook({
+      groups_participants: [
+        { group_id: '120363271212442249@g.us', participants: ['61280155346'], action: 'add' },
+      ],
+      event: { type: 'groups', event: 'put' },
+      channel_id: 'MANTIS-M72HC',
+    } as never)
+    expect(out).toMatchObject({
+      messages: [],
+      statuses: [],
+      eventType: 'groups',
+      eventMethod: 'put',
+    })
+  })
+
   it('handles an empty body without throwing', () => {
     expect(normalizeWhapiWebhook({})).toMatchObject({ messages: [], statuses: [] })
   })

@@ -478,6 +478,28 @@ describe('getContactProfile', () => {
 })
 
 describe('registerWebhook', () => {
+  it('subscribes to messages, statuses and the three group events', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) })
+
+    await registerWebhook({ token: 't', webhookUrl: 'https://crm.test/api/whatsapp/webhook?secret=s' })
+
+    const ours = lastCall().body.webhooks.find((w: { url: string }) =>
+      w.url.includes('secret=s'),
+    )
+    expect(ours.events).toEqual(
+      expect.arrayContaining([
+        { type: 'messages', method: 'post' },
+        { type: 'statuses', method: 'post' },
+        { type: 'statuses', method: 'put' },
+        { type: 'groups', method: 'post' },
+        { type: 'groups', method: 'put' },
+        { type: 'groups', method: 'patch' },
+      ]),
+    )
+  })
+
   it('merges with a third party’s hook instead of clobbering it', async () => {
     fetchMock
       // GET /settings

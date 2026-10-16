@@ -1310,6 +1310,12 @@ export const REQUIRED_WEBHOOK_EVENTS = [
   { type: 'messages', method: 'post' },
   { type: 'statuses', method: 'post' },
   { type: 'statuses', method: 'put' },
+  // Group lifecycle: joined/created, membership changes, renames and
+  // setting changes. Group *messages* still arrive as messages.post and
+  // are dropped by the normaliser.
+  { type: 'groups', method: 'post' },
+  { type: 'groups', method: 'put' },
+  { type: 'groups', method: 'patch' },
 ] as const
 
 export interface WhapiWebhookConfig {

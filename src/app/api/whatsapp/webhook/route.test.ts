@@ -575,6 +575,33 @@ describe('inbound webhook: delivery statuses', () => {
   })
 })
 
+describe('inbound webhook: group events', () => {
+  it('answers 200 and processes nothing for a groups.put callback', async () => {
+    const res = await POST({
+      url: `https://crm.test/api/whatsapp/webhook?secret=${WEBHOOK_SECRET}`,
+      json: async () => ({
+        groups_participants: [
+          {
+            group_id: '120363271212442249@g.us',
+            participants: ['61280155346'],
+            action: 'add',
+          },
+        ],
+        event: { type: 'groups', event: 'put' },
+        channel_id: 'CHANNEL-1',
+      }),
+      headers: { get: () => null },
+    } as unknown as Request)
+    for (const cb of h.state.afterCallbacks) await cb()
+
+    expect(res).toMatchObject({ body: { status: 'received' } })
+    expect(res).toMatchObject({ init: { status: 200 } })
+    expect(h.state.upsertCalls).toHaveLength(0)
+    expect(h.state.messageStatusUpdates).toHaveLength(0)
+    expect(h.dispatchInboundToFlows).not.toHaveBeenCalled()
+  })
+})
+
 describe('inbound webhook: idempotent insert (#367)', () => {
   it('a genuine first delivery persists once and fans out downstream', async () => {
     await runWebhook()
