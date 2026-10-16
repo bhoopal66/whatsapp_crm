@@ -12,6 +12,19 @@ and polish.
 
 ## [Unreleased]
 
+### Meetings: a removed person leaves the call at once
+
+**Migration required: 116** (`116_meeting_removal_realtime.sql`, apply
+as a superuser, as 106). It adds `meeting_removed_users` to the
+realtime publication.
+
+When the host removes someone, that person's room now switches to the
+"removed" screen within about a second. Since 112 a removed person can
+no longer see their own seat, so the room only found out at its next
+heartbeat, up to 20 seconds later, and stayed in the call until then.
+The room now listens for its own removal directly; the heartbeat check
+remains as a fallback.
+
 ### Submission groups (module 018a)
 
 **Migration required: 115** (`115_submission_groups.sql`, apply as a

@@ -32,3 +32,18 @@ export function parseRemovedPeople(body: unknown): RemovedPerson[] {
 export function readmitRequest(userId: string) {
   return { target: userId, action: 'readmit' as const };
 }
+
+/**
+ * Whether a realtime INSERT on meeting_removed_users (migration 116) is
+ * the viewer's own removal from this meeting. A manager in the room
+ * receives everyone's removals; only their own ends the call.
+ */
+export function isOwnRemoval(
+  row: unknown,
+  viewerUserId: string | null,
+  meetingId: string
+): boolean {
+  if (!viewerUserId || !row || typeof row !== 'object') return false;
+  const r = row as { user_id?: unknown; meeting_id?: unknown };
+  return r.user_id === viewerUserId && r.meeting_id === meetingId;
+}

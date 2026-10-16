@@ -23,7 +23,8 @@
 -- writes it. Also from 110: only the host edits a meeting's details or
 -- its invitees (an owner or admin may still end or cancel it; the
 -- service role is unaffected). From 111: only a team leader and up
--- creates a meeting; agents and viewers attend.
+-- creates a meeting; agents and viewers attend. From 116:
+-- meeting_removed_users is in the realtime publication.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -645,6 +646,15 @@ BEGIN
            WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
              AND tablename IN ('meetings', 'meeting_participants', 'meeting_messages')) <> 3 THEN
     failed := array_append(failed, 'meetings, meeting_participants and meeting_messages are not all in supabase_realtime'::text);
+  END IF;
+  -- 116: a removed person's room hears its removal by realtime, since
+  -- 112 hides the seat UPDATE from them.
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables
+                      WHERE pubname = 'supabase_realtime' AND schemaname = 'public'
+                        AND tablename = 'meeting_removed_users') THEN
+    failed := array_append(failed, 'meeting_removed_users is not in supabase_realtime'::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
