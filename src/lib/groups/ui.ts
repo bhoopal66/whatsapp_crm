@@ -399,15 +399,37 @@ function skippedList(v: unknown): SkippedPerson[] {
 const strings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : [];
 
+/**
+ * The people in a result list as phone/wa ids. The routes return whole
+ * identities (`{ jid, waId }`, `waId` null when the gateway only gave a
+ * jid); a bare string is still accepted.
+ */
+export function identityIds(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item === 'string') {
+      out.push(item);
+      continue;
+    }
+    const r = (item ?? {}) as { waId?: unknown; jid?: unknown };
+    if (typeof r.waId === 'string' && r.waId) out.push(r.waId);
+    else if (typeof r.jid === 'string' && r.jid) {
+      out.push(r.jid.replace(/@.*$/, ''));
+    }
+  }
+  return out;
+}
+
 /** Tolerant read of the create response. */
 export function parseCreateResult(json: unknown): CreateGroupResult {
   const r = (json ?? {}) as Record<string, unknown>;
   const group = r.group as { id?: unknown } | null | undefined;
   return {
     groupId: str(group?.id),
-    added: strings(r.added),
-    refused: strings(r.refused),
-    notAttempted: strings(r.notAttempted),
+    added: identityIds(r.added),
+    refused: identityIds(r.refused),
+    notAttempted: identityIds(r.notAttempted),
     invalid: strings(r.invalid),
     skipped: skippedList(r.skipped),
     warnings: strings(r.warnings),

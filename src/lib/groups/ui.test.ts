@@ -273,3 +273,20 @@ describe('the list', () => {
     );
   });
 });
+
+describe('parseCreateResult with the real create-route shape', () => {
+  it('shows identity objects as added, refused and not attempted', () => {
+    const r = parseCreateResult({
+      group: { id: '120363@g.us' },
+      added: [{ jid: '971501111111@s.whatsapp.net', waId: '971501111111' }],
+      refused: [{ jid: '971502222222@s.whatsapp.net', waId: null }],
+      notAttempted: ['971503333333'],
+      invalid: ['x'],
+      skipped: [{ waId: '971504444444', contactId: 'c', reason: 'opted_out' }],
+    });
+    expect(r.added).toEqual(['971501111111']);
+    expect(r.refused).toEqual(['971502222222']);
+    expect(r.notAttempted).toEqual(['971503333333']);
+    expect(r.skipped).toEqual([{ waId: '971504444444', reason: 'opted_out' }]);
+  });
+});

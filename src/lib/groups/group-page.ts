@@ -4,6 +4,7 @@
  * and the add-members / send-invite result summaries. No I/O, so it is
  * tested in node.
  */
+import { identityIds } from './ui';
 import type { GroupMessageStatus, GroupSettings } from './types';
 
 // ------------------------------------------------------------
@@ -233,9 +234,9 @@ export function summarizeAddMembers(json: unknown): AddMembersSummary {
         .filter((w): w is string => typeof w === 'string')
     : [];
   return {
-    added: strings(r.added),
+    added: identityIds(r.added),
     needInvite: [
-      ...new Set([...strings(r.refused), ...strings(r.notAttempted)]),
+      ...new Set([...identityIds(r.refused), ...identityIds(r.notAttempted)]),
     ],
     invalid: strings(r.invalid),
     skipped,

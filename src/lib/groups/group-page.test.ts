@@ -152,6 +152,24 @@ describe('summarizeAddMembers', () => {
       error: 'rate_limited',
     });
   });
+  it('reads the identity objects the participants route returns', () => {
+    // The shape of `addParticipants`' outcome, as the route serialises it.
+    const body = {
+      added: [{ jid: '971501111111@s.whatsapp.net', waId: '971501111111' }],
+      refused: [{ jid: '971502222222@s.whatsapp.net', waId: null }],
+      notAttempted: ['971503333333'],
+      invalid: [],
+      skipped: [{ waId: '971504444444', contactId: 'c', reason: 'opted_out' }],
+      error: null,
+    };
+    expect(summarizeAddMembers(body)).toEqual({
+      added: ['971501111111'],
+      needInvite: ['971502222222', '971503333333'],
+      invalid: [],
+      skipped: ['971504444444'],
+      error: null,
+    });
+  });
   it('tolerates an empty body', () => {
     expect(summarizeAddMembers(null)).toEqual({
       added: [],
