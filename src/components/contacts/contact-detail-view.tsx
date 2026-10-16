@@ -5,30 +5,24 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { validatePhoneToSave } from '@/lib/contacts/phone-validation';
 import { useAuth } from '@/hooks/use-auth';
-import { useMyOutreach } from '@/hooks/use-my-outreach';
-import { limitNotices } from '@/lib/team-activity/thread-guard';
-import { OutreachBanner } from '@/components/inbox/outreach-banner';
 import {
-  predictNumber,
   useAccountNumbers,
   useMyNumberIds,
-  type AccountNumber,
 } from '@/hooks/use-whatsapp-numbers';
+import {
+  loadContactThread,
+  NO_THREAD,
+  type ContactThread,
+} from '@/lib/contacts/contact-thread';
+import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
+import {
+  ContactChannelHint,
+  ContactOutreachButtons,
+  useContactOutreach,
+} from '@/components/contacts/contact-outreach';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
-import {
-  TemplatePicker,
-  type TemplateSendValues,
-} from '@/components/inbox/template-picker';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import type { Contact, ContactNote, CustomField, ContactCustomValue, Deal } from '@/types';
 import {
   Sheet,
   SheetContent,
@@ -57,19 +51,12 @@ import {
   Save,
   X,
   DollarSign,
-  LayoutTemplate,
-  MessageSquarePlus,
-  Send,
   ExternalLink,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
-import {
-  chatTagsByContact,
-  contactChatTagChip,
-  type ChatTagIds,
-} from '@/lib/contacts/chat-tag-column';
+import { contactChatTagChip } from '@/lib/contacts/chat-tag-column';
 import {
   Tooltip,
   TooltipContent,
@@ -83,29 +70,6 @@ interface ContactDetailViewProps {
   onUpdated: () => void;
 }
 
-/** Mirrors `describeChannel` server-side, minus the encryption import. */
-interface ContactThread {
-  pin: string | null;
-  home: string | null;
-  /** The last message that reached WhatsApp; null: none. */
-  last: { at: string; byCustomer: boolean } | null;
-  /** The chat tag (migration 075), picked as the contacts list picks
-   *  it; null: no thread. */
-  chatTags: ChatTagIds | null;
-}
-
-const NO_THREAD: ContactThread = {
-  pin: null,
-  home: null,
-  last: null,
-  chatTags: null,
-};
-
-function channelName(c: AccountNumber): string {
-  const name = c.label || c.waba_id || c.phone_number_id;
-  return `${name} (${c.provider === 'meta' ? 'Cloud API' : 'Whapi'})`;
-}
-
 export function ContactDetailView({
   open,
   onOpenChange,
@@ -117,45 +81,16 @@ export function ContactDetailView({
   const locale = useLocale();
   const { tree: chatTagTree } = useChatTags();
   const supabase = createClient();
-  const { accountId, defaultCurrency, user, accountRole } = useAuth();
+  const { accountId, defaultCurrency } = useAuth();
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
 
-  // Send template — lets the business initiate (or re-open) a conversation
-  // with this contact by sending an approved template. The send route
-  // find-or-creates the conversation, so no inbound message is required.
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [sendingTemplate, setSendingTemplate] = useState(false);
-
-  // Send a plain message — the other way to open a thread with this
-  // contact. Templates exist because Meta only allowed a
-  // business-initiated conversation to start with a pre-approved one;
-  // the Whapi transport has no such rule and no template registry, so
-  // on a WhatsApp-Web channel an ordinary text is the *normal* way to
-  // say hello and templates are just saved canned replies. The send
-  // route already accepts `contact_id` with any message type and
-  // find-or-creates the conversation, so this needs no new endpoint.
-  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
-  const [messageText, setMessageText] = useState('');
-  // When the message dialog opened: whether the message would start a
-  // chat (nothing said for 24 hours) is judged against it.
-  const [messageDialogOpenedAt, setMessageDialogOpenedAt] = useState(0);
-  const [sendingMessage, setSendingMessage] = useState(false);
-
-  // Which number each action goes out on. With both providers
-  // connected the two buttons split by nature: a free-form message on
-  // the Whapi number (no service window to fall outside of) and an
-  // approved template on the Meta number (the only thing that opens a
-  // business-initiated conversation there). The send route is told
-  // the provider explicitly; when that provider isn't connected it
-  // falls back to the account default, and this list is what lets the
-  // caption below the buttons say so instead of surprising the agent.
-  //
-  // With several Whapi numbers (migration 060) the server picks the
-  // thread's own number, then one the sender is allocated to — so the
-  // caption asks the same two questions.
+  // Which number each send action goes out on — see
+  // contact-outreach.tsx. With several Whapi numbers (migration 060)
+  // the server picks the thread's own number, then one the sender is
+  // allocated to, so the prediction asks the same two questions.
   const channels = useAccountNumbers(open);
   const myNumberIds = useMyNumberIds();
   // The thread's pin (migration 061) and its own number, in the order
@@ -176,99 +111,27 @@ export function ContactDetailView({
     if (!contactId || !open) return;
     let cancelled = false;
     (async () => {
-      // Oldest first. The send-number fields come from the oldest
-      // thread, as before; the chat tag from the first thread that
-      // carries one, which is what the contacts list shows and filters on.
-      const { data: rows } = await supabase
-        .from('conversations')
-        .select('id, contact_id, channel_id, send_channel_id, chat_tag_id, chat_sub_tag_id')
-        .eq('contact_id', contactId)
-        .order('created_at', { ascending: true });
-      const data = rows?.[0] ?? null;
-      // Whether a message from here would start a chat (Team activity,
-      // migration 068) turns on the last message that went out or came
-      // in, and on who sent it.
-      const { data: lastRow } = data?.id
-        ? await supabase
-            .from('messages')
-            .select('sender_type, created_at')
-            .eq('conversation_id', data.id as string)
-            .neq('status', 'failed')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-        : { data: null };
-      if (!cancelled) {
-        setLoadedThread({
-          contactId,
-          thread: {
-            pin: (data?.send_channel_id as string | null) ?? null,
-            home: (data?.channel_id as string | null) ?? null,
-            last: lastRow?.created_at
-              ? {
-                  at: lastRow.created_at as string,
-                  byCustomer: lastRow.sender_type === 'customer',
-                }
-              : null,
-            chatTags: data
-              ? (chatTagsByContact(
-                  rows as (ChatTagIds & { contact_id: string })[]
-                ).get(contactId) ?? null)
-              : null,
-          },
-        });
-      }
+      const loaded = await loadContactThread(supabase, contactId);
+      if (!cancelled) setLoadedThread({ contactId, thread: loaded });
     })();
     return () => {
       cancelled = true;
     };
   }, [contactId, open, supabase]);
 
-  const { messageChannel, templateChannel } = useMemo(() => {
-    const list = channels ?? [];
-    const fallback = list.find((c) => c.is_primary) ?? list[0] ?? null;
-    // Mirrors resolveSendChannel: a person's pin on the chat wins when
-    // it is the kind of number the button asks for, or when that kind
-    // is not connected at all; otherwise the kind wins, preferring the
-    // thread's own number, then one this user is allocated to.
-    const pinned = thread.pin ? list.find((c) => c.id === thread.pin) : undefined;
-    const pick = (provider: 'whapi' | 'meta') =>
-      (pinned &&
-      (pinned.provider === provider || !list.some((c) => c.provider === provider))
-        ? pinned
-        : predictNumber(list, provider, [thread.home, ...(myNumberIds ?? [])])) ??
-      fallback;
-    return {
-      messageChannel: pick('whapi'),
-      templateChannel: pick('meta'),
-    };
-  }, [channels, myNumberIds, thread]);
-
-  // Team activity (migration 068): a message from here usually starts
-  // a chat, so warn at the day's new-chat limit before it is typed.
-  const myOutreach = useMyOutreach(
-    messageDialogOpen && accountRole && accountRole !== 'viewer' ? user?.id : null,
-    messageDialogOpenedAt
+  const prediction = useMemo(
+    () => predictSendChannels(channels ?? [], thread, myNumberIds),
+    [channels, myNumberIds, thread]
   );
-  const messageNotices = useMemo(() => {
-    // As in the inbox: nothing for 24 hours, and the customer did not
-    // write last (answering them is a reply, however late).
-    const lastAt = thread.last ? Date.parse(thread.last.at) : null;
-    const starting =
-      !thread.last?.byCustomer &&
-      (lastAt === null ||
-        !Number.isFinite(lastAt) ||
-        lastAt <= messageDialogOpenedAt - 24 * 3600_000);
-    return limitNotices({
-      starting,
-      day: myOutreach,
-      channelId: messageChannel?.id ?? null,
-      provider:
-        messageChannel?.provider === 'whapi' || messageChannel?.provider === 'meta'
-          ? messageChannel.provider
-          : null,
-    });
-  }, [thread.last, messageDialogOpenedAt, myOutreach, messageChannel]);
+  // The send-message dialog and template picker. Mounted beside the
+  // Sheet (below), not inside it; the buttons sit in the header.
+  const outreach = useContactOutreach({
+    contact: contactId
+      ? { id: contactId, phone: contact?.phone ?? null }
+      : null,
+    thread,
+    prediction,
+  });
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -492,90 +355,6 @@ export function ContactDetailView({
     setSavingCustom(false);
   }
 
-  async function handleSendMessage() {
-    const text = messageText.trim();
-    if (!contactId || !text || sendingMessage) return;
-
-    setSendingMessage(true);
-    try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // Same find-or-create path the template send uses — omitting
-          // conversation_id lets the route open the thread if this is
-          // the first contact we've ever had with this number.
-          contact_id: contactId,
-          message_type: 'text',
-          content_text: text,
-          // A plain message belongs on the Whapi number — see the
-          // note on `channels` above.
-          provider: 'whapi',
-        }),
-      });
-
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
-        toast.error(t('toastMessageFailed', { reason }));
-        return;
-      }
-
-      toast.success(t('toastMessageSent'));
-      setMessageText('');
-      setMessageDialogOpen(false);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(t('toastMessageFailed', { reason }));
-    } finally {
-      setSendingMessage(false);
-    }
-  }
-
-  async function handleSendTemplate(
-    template: MessageTemplate,
-    values: TemplateSendValues,
-  ) {
-    if (!contactId) return;
-    setSendingTemplate(true);
-    try {
-      const res = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // No conversation_id — the route find-or-creates one for this
-          // contact, mirroring the inbox template-send payload otherwise.
-          contact_id: contactId,
-          message_type: 'template',
-          template_name: template.name,
-          template_language: template.language,
-          template_message_params: {
-            body: values.body,
-            headerText: values.headerText,
-            buttonParams: values.buttonParams,
-          },
-          template_params: values.body,
-          // An approved template belongs on the Meta number — see the
-          // note on `channels` above.
-          provider: 'meta',
-        }),
-      });
-
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const reason = payload?.error || `HTTP ${res.status}`;
-        toast.error(t('toastTemplateFailed', { reason }));
-        return;
-      }
-
-      toast.success(t('toastTemplateSent', { name: template.name }));
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(`Failed to send template: ${reason}`);
-    } finally {
-      setSendingTemplate(false);
-    }
-  }
 
   function getInitials(name?: string | null) {
     if (!name) return '?';
@@ -669,38 +448,8 @@ export function ContactDetailView({
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {/* Primary action: just write to them. Templates are the
-                    secondary path now — see the note on
-                    `messageDialogOpen` above. */}
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setMessageDialogOpenedAt(Date.now());
-                    setMessageDialogOpen(true);
-                  }}
-                  disabled={sendingMessage}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  {sendingMessage ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <MessageSquarePlus className="size-4" />
-                  )}
-                  {t('sendMessageBtn')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setTemplatePickerOpen(true)}
-                  disabled={sendingTemplate}
-                  className="border-border"
-                >
-                  {sendingTemplate ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <LayoutTemplate className="size-4" />
-                  )}
-                  {t('sendTemplateBtn')}
-                </Button>
+                    secondary path — see contact-outreach.tsx. */}
+                <ContactOutreachButtons outreach={outreach} />
                 <Link
                   href={`/contacts/${contact.id}`}
                   className={buttonVariants({ variant: 'outline', size: 'sm' })}
@@ -709,19 +458,7 @@ export function ContactDetailView({
                   {tc('openCustomerPage')}
                 </Link>
               </div>
-              {channels && channels.length > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {messageChannel &&
-                    t('channelHint.message', {
-                      channel: channelName(messageChannel),
-                    })}
-                  {messageChannel && templateChannel && ' · '}
-                  {templateChannel &&
-                    t('channelHint.template', {
-                      channel: channelName(templateChannel),
-                    })}
-                </p>
-              )}
+              <ContactChannelHint channels={channels} prediction={prediction} />
             </SheetHeader>
 
             {/* Tabs */}
@@ -979,67 +716,7 @@ export function ContactDetailView({
         )}
       </SheetContent>
     </Sheet>
-    <Dialog open={messageDialogOpen} onOpenChange={setMessageDialogOpen}>
-      <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-popover-foreground">
-            {t('messageDialog.title')}
-          </DialogTitle>
-          <DialogDescription className="text-muted-foreground">
-            {t('messageDialog.desc', { phone: contact?.phone ?? '' })}
-            {messageChannel &&
-              ` ${t('messageDialog.via', { channel: channelName(messageChannel) })}`}
-          </DialogDescription>
-        </DialogHeader>
-        {messageNotices.length > 0 && (
-          <div className="overflow-hidden rounded-lg">
-            <OutreachBanner notices={messageNotices} />
-          </div>
-        )}
-        <Textarea
-          value={messageText}
-          onChange={(e) => setMessageText(e.target.value)}
-          placeholder={t('messageDialog.placeholder')}
-          rows={5}
-          autoFocus
-          // Enter sends, Shift+Enter makes a newline — the same reflex
-          // the inbox composer trains.
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleSendMessage();
-            }
-          }}
-          className="bg-background border-border resize-none"
-        />
-        <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => setMessageDialogOpen(false)}
-            disabled={sendingMessage}
-          >
-            {t('messageDialog.cancel')}
-          </Button>
-          <Button
-            onClick={() => void handleSendMessage()}
-            disabled={!messageText.trim() || sendingMessage}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            {sendingMessage ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Send className="size-4" />
-            )}
-            {t('messageDialog.send')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <TemplatePicker
-      open={templatePickerOpen}
-      onOpenChange={setTemplatePickerOpen}
-      onSelect={handleSendTemplate}
-    />
+    {outreach.dialogs}
     </>
   );
 }
