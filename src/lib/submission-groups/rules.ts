@@ -125,6 +125,11 @@ export interface EndedReadInput {
   windowDays?: number;
 }
 
+/**
+ * Mirrors sg_rule_can_read / sg_visible_ids. `onList` means on the open
+ * list AND live staff (agent and up): SQL's sg_is_staff, so a member
+ * demoted to viewer or deactivated after being listed is not onList.
+ */
 export function canRead(
   role: GroupRole | null,
   status: GroupStatus,

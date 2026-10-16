@@ -370,9 +370,11 @@ AS $$
 $$;
 
 -- The groups the caller may see live: ACTIVE groups of the active
--- workspace that they are on the open list of, or all of them for an
--- owner/admin. Empty for a guest or deactivated row. Read once per
--- query by the policies.
+-- workspace that they are on the open list of while live staff (agent
+-- and up, as sg_read_role / sg_can_send require), or all of them for an
+-- owner/admin. Empty for a guest, a viewer or a deactivated row: a
+-- member demoted after being listed loses the group here too. Read
+-- once per query by the policies.
 CREATE OR REPLACE FUNCTION public.sg_visible_ids()
 RETURNS SETOF uuid
 LANGUAGE sql
@@ -384,8 +386,9 @@ AS $$
    WHERE g.account_id = public.current_account_id()
      AND g.status = 'ACTIVE'
      AND (public.is_account_member(g.account_id, 'admin')
-          OR EXISTS (SELECT 1 FROM public.submission_group_access a
-                      WHERE a.group_id = g.id AND a.user_id = auth.uid() AND a.removed_at IS NULL))
+          OR (public.sg_is_staff(g.account_id, auth.uid())
+              AND EXISTS (SELECT 1 FROM public.submission_group_access a
+                           WHERE a.group_id = g.id AND a.user_id = auth.uid() AND a.removed_at IS NULL)))
 $$;
 
 -- ---------- 3. Integrity (every writer) ----------

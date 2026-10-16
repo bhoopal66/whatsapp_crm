@@ -727,6 +727,19 @@ BEGIN
     failed := failed || 'deleting the contact did not detach its group'::text;
   END IF;
 
+  -- ---------- a listed member demoted below agent stops reading ----------
+  -- sg_visible_ids must require live staff like sg_read_role does: a
+  -- viewer still on the open list reads nothing through RLS/realtime.
+  n := n + 1;
+  r := pg_temp.sg_try('authenticated', u_agent, format('SELECT count(*)::text FROM submission_groups WHERE id = %L', g2));
+  IF r IS DISTINCT FROM '1' THEN failed := failed || format('fixture: the listed agent does not see g2 before demotion (%s)', r); END IF;
+  UPDATE profiles SET account_role = 'viewer' WHERE user_id = u_agent AND account_id = a_acct;
+  n := n + 1;
+  r := pg_temp.sg_try('authenticated', u_agent, format(
+    'SELECT ((SELECT count(*) FROM submission_groups WHERE id = %1$L)
+           + (SELECT count(*) FROM submission_group_messages WHERE group_id = %1$L))::text', g2));
+  IF r IS DISTINCT FROM '0' THEN failed := failed || format('a listed member demoted to viewer still reads the group (%s)', r); END IF;
+
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT115', MESSAGE = 'verify-submission-groups rollback';
   EXCEPTION WHEN SQLSTATE 'ZT115' THEN
