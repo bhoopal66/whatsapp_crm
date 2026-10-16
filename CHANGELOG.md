@@ -27,6 +27,16 @@ imported the contact, which had sent one owner every missed call. A
 caller who rings again while their task is still open adds to that
 task ("3 missed calls…") instead of opening another task and bell.
 
+The Calls screen now opens on **My calls**: the calls you placed, took
+or were the other party to, and the ones that rang your phone.
+**Missed calls** shows your own missed calls and the missed-call tasks
+assigned to you; team leaders can switch it to _Team_ and owners and
+admins to _All_. The old Call log is now **Team calls** for team
+leaders and **All calls** for owners and admins, and agents and viewers
+no longer see it. The chat sidebar's call count is your own calls today.
+`GET /api/pbx/calls` defaults to `scope=mine`, which now includes calls
+that rang you, and takes `scope=my_missed`.
+
 **Migration required:** `supabase/migrations/113_call_visibility.sql`.
 
 ### Only team leaders and admins create video meetings

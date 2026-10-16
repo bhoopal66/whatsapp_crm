@@ -135,7 +135,11 @@ export function createFakeDb(
       this.filters.push((r) => cmp(r[c], v) > 0);
       return this;
     }
-    /** PostgREST `or`: comma-separated `col.is.null` / `col.eq.v` / `col.lt.v` / `col.lte.v` terms. */
+    /**
+     * PostgREST `or`: comma-separated `col.is.null` / `col.eq.v` /
+     * `col.lt.v` / `col.lte.v` terms, and `col->key.cs.<JSON array>`
+     * (jsonb containment; one element, as a comma would split it).
+     */
     or(expr: string) {
       const terms = expr.split(',').map((t) => {
         const [c, op, ...rest] = t.split('.');
@@ -144,6 +148,15 @@ export function createFakeDb(
         if (op === 'eq') return (r: Row) => r[c] != null && String(r[c]) === v;
         if (op === 'lt') return (r: Row) => cmp(r[c], v) < 0;
         if (op === 'lte') return (r: Row) => cmp(r[c], v) <= 0;
+        if (op === 'cs' && c.includes('->')) {
+          const [col, key] = c.split('->');
+          const want = JSON.parse(v) as unknown[];
+          return (r: Row) => {
+            const doc = r[col] as Row | null | undefined;
+            const got = doc && typeof doc === 'object' ? doc[key] : undefined;
+            return Array.isArray(got) && want.every((w) => got.includes(w));
+          };
+        }
         throw new Error(`fake-db: unsupported or() term ${t}`);
       });
       this.filters.push((r) => terms.some((f) => f(r)));

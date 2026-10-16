@@ -19,6 +19,7 @@ import {
   canCreateMeetings,
   canArchiveWorkspace,
   canViewOnly,
+  canViewAllCalls,
   canViewUnroutedCalls,
   hasMinRole,
   isBankGuest,
@@ -234,6 +235,15 @@ describe('canDownloadRecording', () => {
   it('team leader and up, as the recording route allows', () => {
     expect(ACCOUNT_ROLES.filter((r) => canDownloadRecording(r))).toEqual([
       'team_leader',
+      'admin',
+      'owner',
+    ]);
+  });
+});
+
+describe('canViewAllCalls', () => {
+  it('owner and admin only, as pbx_can_view_call (113)', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canViewAllCalls(r))).toEqual([
       'admin',
       'owner',
     ]);

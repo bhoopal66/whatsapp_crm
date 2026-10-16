@@ -19,6 +19,9 @@ import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
 import {
   UNROUTED_SUMMARY_DAYS,
   callBackFor,
+  callsListScopes,
+  callsReach,
+  callsTabLabel,
   messageWhen,
   shownCallsTab,
   visibleCallTabs,
@@ -49,6 +52,8 @@ type CallRow = TimelineCall & {
 };
 interface Loaded {
   tab: CallsTab;
+  /** Missed calls: the Team / All toggle's side when this was asked. */
+  wide: boolean;
   calls: CallRow[];
   tasks: TimelineTask[];
   /** Unrouted: the dialled numbers, summed over every such call. */
@@ -69,8 +74,14 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const { accountRole } = useAuth();
   const hasPhone = Boolean(useCalls()?.me);
   // A direct link to a tab this role is not offered (the API would
-  // refuse it) shows Missed calls, as an unknown ?tab= does.
+  // refuse it, or it is not theirs) shows My calls, as an unknown ?tab=
+  // does.
   const tab = shownCallsTab(requested, accountRole);
+  // Missed calls are the viewer's own unless a leader or admin turns
+  // the toggle to their team's or everyone's.
+  const reach = callsReach(accountRole);
+  const [wideToggle, setWide] = useState(false);
+  const wide = wideToggle && reach !== 'mine';
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -81,27 +92,26 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   useEffect(() => {
     // The report tab loads its own figures; Unrouted waits for the role.
     if (!listReady) return;
+    const scopes = callsListScopes(tab, wide);
+    if (!scopes) return;
     let cancelled = false;
-    const calls =
+    const from =
       tab === 'missed'
-        ? `/api/pbx/calls?scope=missed&limit=200&from=${encodeURIComponent(
-            missedWindowStart(Date.now())
-          )}`
-        : tab === 'unrouted'
-          ? '/api/pbx/calls?scope=unrouted&limit=200'
-          : '/api/pbx/calls?scope=all&limit=200';
+        ? `&from=${encodeURIComponent(missedWindowStart(Date.now()))}`
+        : '';
     Promise.all([
-      getJson(calls),
-      tab === 'missed'
-        ? getJson('/api/tasks?scope=all&status=all&limit=200').catch(() => ({
-            tasks: [],
-          }))
+      getJson(`/api/pbx/calls?scope=${scopes.calls}&limit=200${from}`),
+      scopes.tasks
+        ? getJson(
+            `/api/tasks?scope=${scopes.tasks}&status=all&limit=200`
+          ).catch(() => ({ tasks: [] }))
         : { tasks: [] },
     ])
       .then(([c, k]) => {
         if (!cancelled)
           setLoaded({
             tab,
+            wide,
             calls: c.calls ?? [],
             tasks: k.tasks ?? [],
             numbers: c.numbers ?? [],
@@ -110,16 +120,23 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       })
       .catch(() => {
         if (!cancelled)
-          setLoaded({ tab, calls: [], tasks: [], numbers: [], failed: true });
+          setLoaded({
+            tab,
+            wide,
+            calls: [],
+            tasks: [],
+            numbers: [],
+            failed: true,
+          });
       });
     return () => {
       cancelled = true;
     };
-  }, [tab, listReady]);
+  }, [tab, listReady, wide]);
 
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);
-  const current = loaded?.tab === tab ? loaded : null;
+  const current = loaded?.tab === tab && loaded.wide === wide ? loaded : null;
 
   const row = (c: CallRow) => {
     const h = callHeading(c, { timeZone, locale });
@@ -201,7 +218,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     );
 
   const split =
-    current && (tab === 'log' || tab === 'unrouted')
+    current && (tab === 'mine' || tab === 'log' || tab === 'unrouted')
       ? splitCallLog(current.calls, Date.now(), timeZone)
       : null;
 
@@ -257,7 +274,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
         {visibleCallTabs(accountRole, hasPhone).map((k) => (
           <Link
             key={k}
-            href={k === 'missed' ? '/calls' : `/calls?tab=${k}`}
+            href={k === 'mine' ? '/calls' : `/calls?tab=${k}`}
             aria-current={tab === k ? 'page' : undefined}
             className={cn(
               'rounded-full border px-3 py-1 text-sm',
@@ -266,12 +283,41 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
                 : 'border-border text-muted-foreground hover:bg-muted'
             )}
           >
-            {t(`tabs.${k}`)}
+            {t(`tabs.${callsTabLabel(k, accountRole)}`)}
           </Link>
         ))}
       </nav>
+      {tab === 'mine' && (
+        <p className="text-muted-foreground text-sm">{t('mineHint')}</p>
+      )}
       {tab === 'missed' && (
-        <p className="text-muted-foreground text-sm">{t('missedHint')}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-muted-foreground text-sm">{t('missedHint')}</p>
+          {reach !== 'mine' && (
+            <div
+              role="group"
+              aria-label={t('missedWho.label')}
+              className="border-border flex rounded-full border p-0.5 text-sm"
+            >
+              {([false, true] as const).map((w) => (
+                <button
+                  key={String(w)}
+                  type="button"
+                  aria-pressed={wide === w}
+                  onClick={() => setWide(w)}
+                  className={cn(
+                    'rounded-full px-3 py-0.5',
+                    wide === w
+                      ? 'bg-foreground text-background'
+                      : 'text-muted-foreground hover:bg-muted'
+                  )}
+                >
+                  {t(`missedWho.${w ? reach : 'mine'}`)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       {tab === 'unrouted' && (
         <p className="text-muted-foreground text-sm">{t('unrouted.hint')}</p>
@@ -293,7 +339,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       ) : current.calls.length === 0 ? (
         <p className="text-muted-foreground text-sm">
           {tab === 'missed'
-            ? t('emptyMissed')
+            ? t(wide ? 'emptyMissed' : 'emptyMyMissed')
             : tab === 'unrouted'
               ? t('unrouted.empty')
               : t('emptyLog')}

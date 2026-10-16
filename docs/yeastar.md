@@ -475,18 +475,25 @@ section describes the behaviour once it is on.
   only their own. Bank guests see no calls.
 - **Tabs on the Calls screen.** Who is offered each:
 
-  | Tab             | Who                                                                        |
-  | --------------- | -------------------------------------------------------------------------- |
-  | Keypad          | Agents and above who have an extension                                     |
-  | Colleagues      | Agents and above who have an extension                                     |
-  | Missed calls    | Everyone who can open the screen                                           |
-  | Call log        | Everyone who can open the screen                                           |
-  | By person       | Team leaders, admins and owners                                            |
-  | Unrouted        | Owners and admins                                                          |
-  | Voicemail       | Agents and above who have an extension                                     |
-  | Groups & queues | Agents and above who have an extension; team leaders and above without one |
+  | Tab                    | Who                                                                        |
+  | ---------------------- | -------------------------------------------------------------------------- |
+  | My calls               | Everyone who can open the screen; the tab it opens on                      |
+  | Keypad                 | Agents and above who have an extension                                     |
+  | Colleagues             | Agents and above who have an extension                                     |
+  | Missed calls           | Everyone who can open the screen                                           |
+  | Team calls / All calls | Team leaders (Team calls); owners and admins (All calls)                   |
+  | By person              | Team leaders, admins and owners                                            |
+  | Unrouted               | Owners and admins                                                          |
+  | Voicemail              | Agents and above who have an extension                                     |
+  | Groups & queues        | Agents and above who have an extension; team leaders and above without one |
 
-  A link to a tab you are not offered opens Missed calls.
+  _My calls_ lists the calls you placed, took or were the other party
+  to, and the ones that rang your phone. _Missed calls_ shows your own
+  missed calls of the last 7 days and the missed-call tasks assigned to
+  you; a team leader can switch it to _Team_, an owner or admin to
+  _All_ (every missed call and task they can see). _Team calls_
+  / _All calls_ is every call you can see. A link to a tab you are not
+  offered opens My calls.
 
 - **By person** (the Calls screen's _By person_ tab: team leaders, admins and
   owners). For today, this week (from Monday), this month or up to 92
@@ -565,7 +572,7 @@ agent or above, the reads a viewer or above, never a bank guest):
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/pbx/calls/{id}/recording` | `{ action: 'play' \| 'download' }` → `{ url, expiresAt }` (409 if held)                                                                                                                                   |
 | `POST /api/pbx/calls/{id}/attach`    | `{ dealId }` → `{ fileId }`, a reference row in the deal's files                                                                                                                                          |
-| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|missed\|all\|unrouted&from=&to=&limit=` → `{ calls }`; `unrouted` (owner and admin) adds `numbers: [{ didNumber, calls, lastAt }]`, over the last 30 days unless `from` is given |
+| `GET /api/pbx/calls`                 | `?contactId=&scope=mine\|my_missed\|missed\|all\|unrouted&from=&to=&limit=` → `{ calls }`; `mine` (the default) includes calls that rang you; `unrouted` (owner and admin) adds `numbers: [{ didNumber, calls, lastAt }]`, over the last 30 days unless `from` is given |
 | `GET /api/pbx/calls/summary`         | `?contactId=&tz=` → `{ total, answered, missed, talkSeconds }`, this month (default Asia/Dubai)                                                                                                           |
 | `GET /api/pbx/calls/wrap-up`         | `{ calls, mandatory }`: your calls still owing their wrap-up, newest first (may be empty)                                                                                                                 |
 | `GET /api/pbx/calls/report`          | `?period=today\|week\|month\|custom&from=&to=&tz=` → `{ report, range }` (team leader and up)                                                                                                             |

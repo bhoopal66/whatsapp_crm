@@ -57,7 +57,8 @@ export function CallsSection({
           .from('pbx_extensions')
           .select('id', { count: 'exact', head: true }),
         getJson('/api/tasks?scope=mine&status=open&limit=200'),
-        getJson(`/api/pbx/calls?scope=all&from=${from}&limit=200`),
+        // Today's count is the person's own calls, as /calls opens on.
+        getJson(`/api/pbx/calls?scope=mine&from=${from}&limit=200`),
       ]);
       if (cancelled) return;
       setState({
@@ -99,7 +100,7 @@ export function CallsSection({
           </Link>
         </li>
         <li>
-          <Link href="/calls?tab=log" className={rowClassName}>
+          <Link href="/calls" className={rowClassName}>
             <PhoneCall className="size-3.5 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{t('log')}</span>
             <span className="text-xs text-white/50">

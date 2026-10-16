@@ -98,7 +98,7 @@ describe('GET /api/pbx/calls', () => {
       call({ contact_id: C2, user_id: 'other', disposition: 'call_back' }),
       call({ account_id: 'elsewhere' })
     );
-    const { status, body } = await get();
+    const { status, body } = await get('scope=all');
     expect(status).toBe(200);
     expect(mocks.requireRole).toHaveBeenCalledWith('viewer');
     expect(body.calls).toEqual([
@@ -270,6 +270,40 @@ describe('GET /api/pbx/calls', () => {
     expect(await ids('from=2026-10-02T00:00:00Z&limit=1')).toHaveLength(1);
     expect((await get('scope=team')).status).toBe(400);
     expect((await get('limit=500')).status).toBe(400);
+  });
+
+  it('counts a call that rang me as mine, by a jsonb containment PostgREST accepts', async () => {
+    rls.tables.calls.push(
+      call({ user_id: 'other', meta: { rang_user_ids: ['x', 'me'] } }),
+      call({
+        user_id: 'other',
+        status: 'no_answer',
+        meta: { rang_user_ids: ['me'] },
+      }),
+      call({
+        user_id: 'other',
+        status: 'no_answer',
+        meta: { rang_user_ids: ['x'] },
+      }),
+      call({ user_id: 'other', status: 'no_answer', meta: null })
+    );
+    const ors: string[] = [];
+    const from = rls.db.from.bind(rls.db);
+    vi.spyOn(rls.db, 'from').mockImplementation(((table: string) => {
+      const query = from(table);
+      const q = query as unknown as { or: (expr: string) => unknown };
+      const or = q.or.bind(q);
+      q.or = (expr: string) => (ors.push(expr), or(expr));
+      return query;
+    }) as typeof rls.db.from);
+    expect(await ids('scope=mine')).toEqual(['call-1', 'call-2']);
+    expect(ors).toEqual([
+      'user_id.eq.me,peer_user_id.eq.me,meta->rang_user_ids.cs.["me"]',
+    ]);
+    expect(await ids('scope=my_missed')).toEqual(['call-2']);
+    expect(await ids('scope=missed')).toEqual(['call-2', 'call-3', 'call-4']);
+    expect(await ids('')).toEqual(['call-1', 'call-2']);
+    expect(await ids('scope=all')).toHaveLength(4);
   });
 
   it('refuses a bank guest', async () => {

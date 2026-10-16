@@ -372,7 +372,13 @@ export function parseOutcome(
 
 // ---------- Call lists ----------
 
-export const CALL_SCOPES = ['mine', 'missed', 'all', 'unrouted'] as const;
+export const CALL_SCOPES = [
+  'mine',
+  'my_missed',
+  'missed',
+  'all',
+  'unrouted',
+] as const;
 export type CallScope = (typeof CALL_SCOPES)[number];
 export const CALL_LIST_LIMIT = 50;
 export const CALL_LIST_MAX = 200;
@@ -383,6 +389,19 @@ export const CALL_LIST_MAX = 200;
  * canViewUnroutedCalls; every other scope is every reader's, RLS
  * choosing the rows.
  */
+/**
+ * PostgREST `or` terms for "my calls": calls `userId` took or placed
+ * (user_id), was the other party to (peer_user_id), or that rang their
+ * phone (calls.meta.rang_user_ids, a jsonb array the PBX processor
+ * keeps). The last is a jsonb containment, so its value is JSON text,
+ * not the `{…}` array literal postgrest-js's contains() writes for a
+ * Postgres array. `userId` is the session's auth uid, never request
+ * input.
+ */
+export function myCallsFilter(userId: string): string {
+  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${JSON.stringify([userId])}`;
+}
+
 export function canListCallScope(role: AccountRole, scope: CallScope): boolean {
   return scope !== 'unrouted' || canViewUnroutedCalls(role);
 }
@@ -443,7 +462,9 @@ export interface CallListQuery {
 export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const contactId = q.get('contactId') || null;
   if (contactId && !UUID.test(contactId)) return 'contactId must be an id';
-  const scope = q.get('scope') || 'all';
+  // No scope is the caller's own calls: a list of everyone's has to be
+  // asked for.
+  const scope = q.get('scope') || 'mine';
   if (!(CALL_SCOPES as readonly string[]).includes(scope))
     return `scope must be one of ${CALL_SCOPES.join(', ')}`;
   const instant = (key: 'from' | 'to') => {

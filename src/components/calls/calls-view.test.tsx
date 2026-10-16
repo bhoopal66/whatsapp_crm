@@ -38,21 +38,23 @@ function render(tab: CallsTab, role: AccountRole | null): string {
 }
 
 const missedHint = en.CallsPage.missedHint;
+const mineHint = en.CallsPage.mineHint;
 const unroutedHint = en.CallsPage.unrouted.hint;
 
 describe('CallsView', () => {
-  it('shows Missed calls, not a failed load, to a role opening Unrouted by link', () => {
+  it('shows My calls, not a failed load, to a role opening Unrouted by link', () => {
     for (const role of ['team_leader', 'agent', 'viewer'] as const) {
       const html = render('unrouted', role);
-      expect(html).toContain(missedHint);
+      expect(html).toContain(mineHint);
       expect(html).not.toContain(unroutedHint);
     }
   });
 
-  it('shows Missed calls to a role opening By person by link', () => {
+  it('shows My calls to a role opening By person or Team calls by link', () => {
     for (const role of ['agent', 'viewer'] as const) {
+      expect(render('log', role)).toContain(mineHint);
       const html = render('people', role);
-      expect(html).toContain(missedHint);
+      expect(html).toContain(mineHint);
       expect(html).not.toContain('by-person-report');
     }
   });
@@ -65,6 +67,28 @@ describe('CallsView', () => {
     }
     expect(render('people', 'team_leader')).toContain('by-person-report');
     expect(render('missed', 'agent')).toContain(missedHint);
+  });
+
+  it('opens on My calls, and offers the supervisor tab by role', () => {
+    const tabs = en.CallsPage.tabs;
+    const agent = render('mine', 'agent');
+    expect(agent).toContain(mineHint);
+    expect(agent).toContain(tabs.mine);
+    expect(agent).not.toContain(tabs.team);
+    expect(agent).not.toContain(tabs.all);
+    expect(render('mine', 'team_leader')).toContain(tabs.team);
+    expect(render('mine', 'admin')).toContain(tabs.all);
+  });
+
+  it('offers the Mine / Team|All toggle on Missed calls to leaders and admins only', () => {
+    const who = en.CallsPage.missedWho;
+    for (const role of ['agent', 'viewer', null] as const)
+      expect(render('missed', role)).not.toContain(who.label);
+    const leader = render('missed', 'team_leader');
+    expect(leader).toContain(who.label);
+    expect(leader).toContain(`>${who.team}<`);
+    expect(leader).not.toContain(`>${who.all}<`);
+    expect(render('missed', 'owner')).toContain(`>${who.all}<`);
   });
 });
 

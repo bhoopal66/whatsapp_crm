@@ -8,6 +8,7 @@ import {
   isMissedCall,
   monthStart,
   myLeg,
+  myCallsFilter,
   parseCallListQuery,
   presenceByUser,
   presenceView,
@@ -215,11 +216,18 @@ describe('pbx call helpers', () => {
     expect(long.endsWith('😀')).toBe(true);
   });
 
+  it('counts a call that rang me as mine, in the or-filter', () => {
+    const me = '00000000-0000-4000-8000-0000000000aa';
+    expect(myCallsFilter(me)).toBe(
+      `user_id.eq.${me},peer_user_id.eq.${me},meta->rang_user_ids.cs.["${me}"]`
+    );
+  });
+
   it('checks a call list query', () => {
     const q = (s: string) => parseCallListQuery(new URLSearchParams(s));
     expect(q('')).toEqual({
       contactId: null,
-      scope: 'all',
+      scope: 'mine',
       from: null,
       to: null,
       limit: 50,
@@ -237,7 +245,7 @@ describe('pbx call helpers', () => {
     });
     expect(q('contactId=x')).toBe('contactId must be an id');
     expect(q('scope=team')).toBe(
-      'scope must be one of mine, missed, all, unrouted'
+      'scope must be one of mine, my_missed, missed, all, unrouted'
     );
     expect(q('scope=unrouted')).toMatchObject({ scope: 'unrouted' });
     expect(q('to=yesterday')).toBe('from and to must be dates');

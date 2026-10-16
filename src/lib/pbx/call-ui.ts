@@ -11,6 +11,8 @@
 // ============================================================
 
 import {
+  canLeadTeam,
+  canViewAllCalls,
   canViewUnroutedCalls,
   hasMinRole,
   isBankGuest,
@@ -888,8 +890,12 @@ export function messageWhen(
 
 // ---------- The Calls screen's tabs ----------
 
-/** /calls?tab=…, Missed calls being the default (no tab). */
+/**
+ * /calls?tab=…, My calls being the default (no tab). `log` is the
+ * supervisor list, worded Team calls or All calls (callsTabLabel).
+ */
 export const CALLS_TABS = [
+  'mine',
   'keypad',
   'colleagues',
   'missed',
@@ -901,14 +907,36 @@ export const CALLS_TABS = [
 ] as const;
 export type CallsTab = (typeof CALLS_TABS)[number];
 
-/** `?tab=` as the page reads it: anything else is Missed calls. */
+/** `?tab=` as the page reads it: anything else is My calls. */
 export const callsTab = (tab: string | undefined): CallsTab =>
   (CALLS_TABS as readonly (string | undefined)[]).includes(tab)
     ? (tab as CallsTab)
-    : 'missed';
+    : 'mine';
 
 /**
- * The tabs `role` is offered: By person to team leaders and up
+ * How far past their own calls `role` reaches on the Calls screen, as
+ * migration 113's pbx_can_view_call lets them: owners and admins every
+ * call (`all`), team leaders their teams' (`team`), everyone else only
+ * their own (`mine`), as before the role is known. It decides whether
+ * the supervisor tab and the Missed calls toggle are offered and what
+ * they are called; RLS still decides the rows.
+ */
+export type CallsReach = 'mine' | 'team' | 'all';
+export function callsReach(role: AccountRole | null): CallsReach {
+  if (role === null) return 'mine';
+  if (canViewAllCalls(role)) return 'all';
+  return canLeadTeam(role) ? 'team' : 'mine';
+}
+
+/** The CallsPage.tabs key a tab is worded by: the supervisor tab by reach. */
+export function callsTabLabel(tab: CallsTab, role: AccountRole | null): Exclude<CallsTab, 'log'> | 'team' | 'all' {
+  return tab === 'log' ? (callsReach(role) === 'all' ? 'all' : 'team') : tab;
+}
+
+/**
+ * The tabs `role` is offered: My calls and Missed calls to everyone,
+ * first, Team calls / All calls (`log`) to team leaders and up
+ * (callsReach), By person to team leaders and up
  * (pbx_call_report), Unrouted to owners and admins
  * (canViewUnroutedCalls, as the list route refuses the scope below).
  * With no role yet, the tabs everyone has. Keypad and Colleagues to
@@ -937,41 +965,70 @@ export function visibleCallTabs(
             (hasPhone && hasMinRole(role, 'agent')))
         : k === 'people'
           ? role !== null && hasMinRole(role, 'team_leader')
-          : k === 'unrouted'
-            ? role !== null && canViewUnroutedCalls(role)
-            : true
+          : k === 'log'
+            ? callsReach(role) !== 'mine'
+            : k === 'unrouted'
+              ? role !== null && canViewUnroutedCalls(role)
+              : true
   );
 }
 
 /**
  * The tab to show for `?tab=`: the one asked for, unless `role` is known
  * and is not offered it (a direct link to Unrouted below admin, to By
- * person below team leader), which is Missed calls like any other tab
- * the screen does not know. With no role yet the request stands. The
- * keypad is Missed calls whatever the role while this build may not place
- * calls (`outbound`).
+ * person or Team calls below team leader), which is My calls like any
+ * other tab the screen does not know. With no role yet the request
+ * stands. The keypad is My calls whatever the role while this build may
+ * not place calls (`outbound`).
  */
 export function shownCallsTab(
   tab: CallsTab,
   role: AccountRole | null,
   outbound = outboundCallsEnabled()
 ): CallsTab {
-  if (tab === 'keypad' && !outbound) return 'missed';
+  if (tab === 'keypad' && !outbound) return 'mine';
   if (
     tab === 'keypad' ||
     tab === 'colleagues' ||
     tab === 'voicemail' ||
     tab === 'groups'
   )
-    return role === null || hasMinRole(role, 'agent') ? tab : 'missed';
-  return role === null || visibleCallTabs(role).includes(tab) ? tab : 'missed';
+    return role === null || hasMinRole(role, 'agent') ? tab : 'mine';
+  return role === null || visibleCallTabs(role).includes(tab) ? tab : 'mine';
+}
+
+/**
+ * What a list tab asks for: the /api/pbx/calls scope and, on Missed
+ * calls, the /api/tasks scope of the missed-call tasks beside them.
+ * Missed calls are the caller's own (`my_missed`, and the tasks
+ * assigned to them) unless `wide` (the Team / All toggle, offered only
+ * where callsReach is past `mine`), which is every missed call RLS shows
+ * them and every task. Null for the tabs that load their own.
+ */
+export function callsListScopes(
+  tab: CallsTab,
+  wide = false
+): {
+  calls: 'mine' | 'my_missed' | 'missed' | 'all' | 'unrouted';
+  tasks: 'mine' | 'all' | null;
+} | null {
+  if (tab === 'mine') return { calls: 'mine', tasks: null };
+  if (tab === 'missed')
+    return wide
+      ? { calls: 'missed', tasks: 'all' }
+      : { calls: 'my_missed', tasks: 'mine' };
+  if (tab === 'log') return { calls: 'all', tasks: null };
+  if (tab === 'unrouted') return { calls: 'unrouted', tasks: null };
+  return null;
 }
 
 /**
  * Whether the Calls screen may load `tab`'s list now. People, Keypad,
- * Colleagues, Voicemail and Groups load their own, and Unrouted waits for the role: shownCallsTab keeps a
- * linked tab until the role is known, and loading it first would ask a
- * non-admin's browser for a list the API refuses (403).
+ * Colleagues, Voicemail and Groups load their own, and Unrouted and
+ * Team / All calls wait for the role: shownCallsTab keeps a linked tab
+ * until the role is known, and loading it first would ask a non-admin's
+ * browser for a list the API refuses (403), or an agent's for a list
+ * that is not theirs to be shown.
  */
 export function callsListReady(
   tab: CallsTab,
@@ -985,7 +1042,7 @@ export function callsListReady(
     tab === 'groups'
   )
     return false;
-  return tab !== 'unrouted' || role !== null;
+  return (tab !== 'unrouted' && tab !== 'log') || role !== null;
 }
 
 /**

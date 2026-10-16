@@ -1,6 +1,6 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
-//   ?contactId=&scope=mine|missed|all|unrouted&from=&to=&limit=
+//   ?contactId=&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
 //       ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
@@ -31,9 +31,11 @@
 // stamp and reason (086) only when they can see the contact too, so
 // the Calls screen disables Call back for that customer. The dial route
 // still decides: it checks the number across the workspace, which this
-// list does not. mine: calls they were a party to; missed: inbound
-// calls nobody answered (as the month summary counts them). Newest
-// first; from/to bound started_at (from inclusive). Viewer+.
+// list does not. mine (the default): calls they were a party to or
+// that rang their phone (myCallsFilter); missed: inbound calls nobody
+// answered (as the month summary counts them); my_missed: both; all:
+// every call RLS shows them (a leader's teams, an admin's workspace).
+// Newest first; from/to bound started_at (from inclusive). Viewer+.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -43,6 +45,7 @@ import {
   MISSED_STATUSES,
   canListCallScope,
   fail,
+  myCallsFilter,
   parseCallListQuery,
   unroutedNumbers,
   type UnroutedNumber,
@@ -101,11 +104,9 @@ export async function GET(request: Request) {
         .select(columns)
         .eq('account_id', ctx.accountId);
       if (q.contactId) query = query.eq('contact_id', q.contactId);
-      if (q.scope === 'mine')
-        query = query.or(
-          `user_id.eq.${ctx.userId},peer_user_id.eq.${ctx.userId}`
-        );
-      if (q.scope === 'missed')
+      if (q.scope === 'mine' || q.scope === 'my_missed')
+        query = query.or(myCallsFilter(ctx.userId));
+      if (q.scope === 'missed' || q.scope === 'my_missed')
         query = query
           .eq('direction', 'inbound')
           .in('status', [...MISSED_STATUSES])

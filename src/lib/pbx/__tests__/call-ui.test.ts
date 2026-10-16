@@ -34,6 +34,9 @@ import {
   loadsPbxMe,
   callBackFor,
   callsTab,
+  callsListScopes,
+  callsReach,
+  callsTabLabel,
   shownCallsTab,
   callsListReady,
   visibleCallTabs,
@@ -578,43 +581,45 @@ describe('callBackFor', () => {
 });
 
 describe('the Calls screen tabs', () => {
-  it('offers By person to leaders and up, Unrouted to owners and admins', () => {
+  it('offers My calls first to everyone, Team / All calls to leaders and up, By person to leaders and up, Unrouted to owners and admins', () => {
     const tabs = Object.fromEntries(
       ACCOUNT_ROLES.map((r) => [r, visibleCallTabs(r).join(',')])
     );
     expect(tabs).toEqual({
-      owner: 'missed,log,people,unrouted,groups',
-      admin: 'missed,log,people,unrouted,groups',
-      team_leader: 'missed,log,people,groups',
-      agent: 'missed,log',
-      viewer: 'missed,log',
-      bank_guest: 'missed,log',
+      owner: 'mine,missed,log,people,unrouted,groups',
+      admin: 'mine,missed,log,people,unrouted,groups',
+      team_leader: 'mine,missed,log,people,groups',
+      agent: 'mine,missed',
+      viewer: 'mine,missed',
+      bank_guest: 'mine,missed',
     });
-    expect(visibleCallTabs(null)).toEqual(['missed', 'log']);
+    expect(visibleCallTabs(null)).toEqual(['mine', 'missed']);
+    expect(visibleCallTabs('agent', true, true)[0]).toBe('mine');
   });
 
-  it('puts the keypad first for agents and up who have an extension', () => {
-    expect(visibleCallTabs('agent', true, true)[0]).toBe('keypad');
-    expect(visibleCallTabs('owner', true, true)[0]).toBe('keypad');
+  it('puts the keypad after My calls for agents and up who have an extension', () => {
+    expect(visibleCallTabs('agent', true, true)[1]).toBe('keypad');
+    expect(visibleCallTabs('owner', true, true)[1]).toBe('keypad');
     expect(visibleCallTabs('viewer', true, true)).not.toContain('keypad');
     expect(visibleCallTabs(null, true, true)).not.toContain('keypad');
     expect(visibleCallTabs('agent', false, true)).not.toContain('keypad');
     expect(callsTab('keypad')).toBe('keypad');
     expect(callsListReady('keypad', 'agent')).toBe(false);
     expect(shownCallsTab('keypad', 'agent', true)).toBe('keypad');
-    expect(shownCallsTab('keypad', 'viewer', true)).toBe('missed');
+    expect(shownCallsTab('keypad', 'viewer', true)).toBe('mine');
     expect(shownCallsTab('keypad', null, true)).toBe('keypad');
   });
 
   it('offers no keypad while calling from the CRM is off', () => {
     for (const r of [...ACCOUNT_ROLES, null])
       expect(visibleCallTabs(r, true, false)).not.toContain('keypad');
-    expect(visibleCallTabs('agent', true, false).slice(0, 2)).toEqual([
+    expect(visibleCallTabs('agent', true, false).slice(0, 3)).toEqual([
+      'mine',
       'colleagues',
       'missed',
     ]);
-    expect(shownCallsTab('keypad', 'owner', false)).toBe('missed');
-    expect(shownCallsTab('keypad', null, false)).toBe('missed');
+    expect(shownCallsTab('keypad', 'owner', false)).toBe('mine');
+    expect(shownCallsTab('keypad', null, false)).toBe('mine');
     expect(shownCallsTab('colleagues', 'agent', false)).toBe('colleagues');
     expect(shownCallsTab('voicemail', 'agent', false)).toBe('voicemail');
   });
@@ -623,9 +628,9 @@ describe('the Calls screen tabs', () => {
     vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', '');
     try {
       expect(visibleCallTabs('owner', true)).not.toContain('keypad');
-      expect(shownCallsTab('keypad', 'owner')).toBe('missed');
+      expect(shownCallsTab('keypad', 'owner')).toBe('mine');
       vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', 'on');
-      expect(visibleCallTabs('owner', true)[0]).toBe('keypad');
+      expect(visibleCallTabs('owner', true)[1]).toBe('keypad');
       expect(shownCallsTab('keypad', 'owner')).toBe('keypad');
     } finally {
       vi.unstubAllEnvs();
@@ -633,7 +638,8 @@ describe('the Calls screen tabs', () => {
   });
 
   it('offers Colleagues after the keypad, on the same terms', () => {
-    expect(visibleCallTabs('agent', true, true).slice(0, 3)).toEqual([
+    expect(visibleCallTabs('agent', true, true).slice(0, 4)).toEqual([
+      'mine',
       'keypad',
       'colleagues',
       'missed',
@@ -647,8 +653,8 @@ describe('the Calls screen tabs', () => {
     expect(callsListReady('colleagues', 'agent')).toBe(false);
     expect(callsListReady('colleagues', null)).toBe(false);
     expect(shownCallsTab('colleagues', 'agent')).toBe('colleagues');
-    expect(shownCallsTab('colleagues', 'viewer')).toBe('missed');
-    expect(shownCallsTab('colleagues', 'bank_guest')).toBe('missed');
+    expect(shownCallsTab('colleagues', 'viewer')).toBe('mine');
+    expect(shownCallsTab('colleagues', 'bank_guest')).toBe('mine');
     expect(shownCallsTab('colleagues', null)).toBe('colleagues');
   });
 
@@ -660,7 +666,7 @@ describe('the Calls screen tabs', () => {
     expect(callsTab('voicemail')).toBe('voicemail');
     expect(callsListReady('voicemail', 'agent')).toBe(false);
     expect(shownCallsTab('voicemail', 'agent')).toBe('voicemail');
-    expect(shownCallsTab('voicemail', 'viewer')).toBe('missed');
+    expect(shownCallsTab('voicemail', 'viewer')).toBe('mine');
     expect(shownCallsTab('voicemail', null)).toBe('voicemail');
   });
 
@@ -677,38 +683,82 @@ describe('the Calls screen tabs', () => {
     expect(visibleCallTabs(null, true)).not.toContain('groups');
     expect(callsListReady('groups', 'team_leader')).toBe(false);
     expect(shownCallsTab('groups', 'agent')).toBe('groups');
-    expect(shownCallsTab('groups', 'viewer')).toBe('missed');
+    expect(shownCallsTab('groups', 'viewer')).toBe('mine');
   });
 
-  it('reads ?tab=, anything else being Missed calls', () => {
+  it('reads ?tab=, anything else being My calls', () => {
     expect(callsTab('unrouted')).toBe('unrouted');
     expect(callsTab('people')).toBe('people');
-    expect(callsTab(undefined)).toBe('missed');
-    expect(callsTab('team')).toBe('missed');
+    expect(callsTab(undefined)).toBe('mine');
+    expect(callsTab('team')).toBe('mine');
+    expect(callsTab('missed')).toBe('missed');
   });
 
   it('loads the Unrouted list only once the role is known', () => {
     expect(callsListReady('unrouted', null)).toBe(false);
     expect(callsListReady('unrouted', 'admin')).toBe(true);
     expect(callsListReady('missed', null)).toBe(true);
-    expect(callsListReady('log', null)).toBe(true);
+    expect(callsListReady('mine', null)).toBe(true);
+    expect(callsListReady('log', null)).toBe(false);
+    expect(callsListReady('log', 'team_leader')).toBe(true);
     expect(callsListReady('people', 'owner')).toBe(false);
   });
 
-  it('shows Missed calls when a link names a tab the role is not offered', () => {
-    expect(shownCallsTab('unrouted', 'team_leader')).toBe('missed');
-    expect(shownCallsTab('unrouted', 'agent')).toBe('missed');
-    expect(shownCallsTab('unrouted', 'viewer')).toBe('missed');
-    expect(shownCallsTab('people', 'agent')).toBe('missed');
-    expect(shownCallsTab('people', 'viewer')).toBe('missed');
+  it('shows My calls when a link names a tab the role is not offered', () => {
+    expect(shownCallsTab('unrouted', 'team_leader')).toBe('mine');
+    expect(shownCallsTab('unrouted', 'agent')).toBe('mine');
+    expect(shownCallsTab('unrouted', 'viewer')).toBe('mine');
+    expect(shownCallsTab('people', 'agent')).toBe('mine');
+    expect(shownCallsTab('people', 'viewer')).toBe('mine');
+    expect(shownCallsTab('log', 'agent')).toBe('mine');
+    expect(shownCallsTab('log', 'viewer')).toBe('mine');
+    expect(shownCallsTab('log', 'bank_guest')).toBe('mine');
     // The tabs a role is offered stand.
     expect(shownCallsTab('unrouted', 'admin')).toBe('unrouted');
     expect(shownCallsTab('unrouted', 'owner')).toBe('unrouted');
     expect(shownCallsTab('people', 'team_leader')).toBe('people');
-    expect(shownCallsTab('log', 'viewer')).toBe('log');
+    expect(shownCallsTab('log', 'team_leader')).toBe('log');
+    expect(shownCallsTab('log', 'admin')).toBe('log');
     expect(shownCallsTab('missed', 'agent')).toBe('missed');
     // Before the role is known the request stands (the API decides).
     expect(shownCallsTab('unrouted', null)).toBe('unrouted');
+  });
+
+  it('reaches past My calls by role, and words the supervisor tab by it', () => {
+    expect(
+      Object.fromEntries(ACCOUNT_ROLES.map((r) => [r, callsReach(r)]))
+    ).toEqual({
+      owner: 'all',
+      admin: 'all',
+      team_leader: 'team',
+      agent: 'mine',
+      viewer: 'mine',
+      bank_guest: 'mine',
+    });
+    expect(callsReach(null)).toBe('mine');
+    expect(callsTabLabel('log', 'owner')).toBe('all');
+    expect(callsTabLabel('log', 'team_leader')).toBe('team');
+    expect(callsTabLabel('mine', 'agent')).toBe('mine');
+    expect(callsTabLabel('missed', 'admin')).toBe('missed');
+  });
+
+  it('asks for my own missed calls and tasks unless the toggle widens them', () => {
+    expect(callsListScopes('mine')).toEqual({ calls: 'mine', tasks: null });
+    expect(callsListScopes('missed')).toEqual({
+      calls: 'my_missed',
+      tasks: 'mine',
+    });
+    expect(callsListScopes('missed', true)).toEqual({
+      calls: 'missed',
+      tasks: 'all',
+    });
+    expect(callsListScopes('log')).toEqual({ calls: 'all', tasks: null });
+    expect(callsListScopes('unrouted')).toEqual({
+      calls: 'unrouted',
+      tasks: null,
+    });
+    expect(callsListScopes('people')).toBeNull();
+    expect(callsListScopes('keypad')).toBeNull();
   });
 });
 

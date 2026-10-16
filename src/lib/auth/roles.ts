@@ -202,6 +202,17 @@ export function canViewUnroutedCalls(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: every call of the workspace (migration 113's
+ * pbx_can_view_call). Below that a team leader sees their own calls,
+ * their teams' and their customers', everyone else their own and their
+ * customers'. The Calls screen's All calls view and its Missed calls
+ * All toggle follow this; RLS still decides the rows.
+ */
+export function canViewAllCalls(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
  * Every staff role, viewer included: video meetings (migration 106).
  * Never a bank guest: `meeting_can_view` and the meetings INSERT policy
  * refuse a guest too; this is the API's matching answer.
