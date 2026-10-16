@@ -64,7 +64,8 @@
     "calls": "통화",
     "missedCalls": "열린 부재중 전화 할 일 {count}건",
     "meetings": "회의",
-    "calendar": "캘린더"
+    "calendar": "캘린더",
+    "whatsappGroups": "WhatsApp 그룹"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -92,7 +93,8 @@
     "journeys": "여정",
     "flows": "플로우",
     "compass": "Compass",
-    "customer": "고객"
+    "customer": "고객",
+    "whatsappGroups": "WhatsApp 그룹"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -5844,6 +5846,104 @@
         "repeatInvalid": "반복 설정을 확인하세요. 현재 설정으로는 저장할 수 없습니다.",
         "tooManyReminders": "알림은 최대 5개입니다."
       }
+    }
+  },
+  "Groups": {
+    "title": "WhatsApp 그룹",
+    "subtitle": "WhatsApp 번호의 그룹을 만들고, 사람을 추가하고, 깔끔하게 관리하세요.",
+    "search": "그룹 검색",
+    "newGroup": "새 그룹",
+    "sync": "WhatsApp에서 동기화",
+    "syncing": "동기화 중…",
+    "syncDone": "그룹 {synced}개 동기화 · 신규 {created} · 나감 {left}",
+    "syncFailed": "그룹을 동기화하지 못했습니다: {reason}",
+    "loadFailed": "그룹을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
+    "emptyTitle": "아직 그룹이 없습니다",
+    "emptyBody": "번호 중 하나로 WhatsApp 그룹을 만들고 고객을 추가하세요. 휴대폰에 이미 있는 그룹은 관리자가 동기화할 수 있습니다.",
+    "emptyViewer": "아직 공유된 그룹이 없습니다.",
+    "noWhapiTitle": "그룹용 WhatsApp 번호가 없습니다",
+    "noWhapiAdmin": "그룹은 연결된 Whapi 번호에서 운영됩니다. 설정 → WhatsApp에서 번호를 연결하세요.",
+    "noWhapiOther": "그룹은 연결된 Whapi 번호에서 운영됩니다. 관리자에게 연결을 요청하세요.",
+    "openSettings": "WhatsApp 설정 열기",
+    "noMatches": "“{query}”와 일치하는 그룹이 없습니다.",
+    "members": "멤버 {count}명",
+    "adminBadge": "관리자",
+    "leftBadge": "나감",
+    "numberRemoved": "번호 삭제됨",
+    "activityNone": "아직 메시지 없음",
+    "activityNow": "방금 활동",
+    "activityAt": "{when} 활동",
+    "create": {
+      "title": "새 WhatsApp 그룹",
+      "stepOf": "{total}단계 중 {step}단계",
+      "steps": {
+        "basics": "번호 및 이름",
+        "members": "멤버",
+        "settings": "설정"
+      },
+      "number": "번호",
+      "numberHint": "이 WhatsApp 번호로 그룹이 만들어지며, 이 번호가 그룹 관리자가 됩니다.",
+      "noNumbers": "그룹을 만들 수 있는 WhatsApp 번호가 없습니다.",
+      "disconnected": "연결 끊김",
+      "name": "그룹 이름",
+      "namePlaceholder": "예: 다운타운 빌라 구매자",
+      "nameCounter": "{count}/{max}",
+      "description": "설명 (선택)",
+      "descriptionPlaceholder": "이 그룹의 용도",
+      "contactsLabel": "연락처에서 추가",
+      "contactsSearch": "이름 또는 전화번호로 검색",
+      "contactsSearching": "검색 중…",
+      "contactsNone": "일치하는 연락처가 없습니다.",
+      "contactsTypeMore": "2자 이상 입력하세요.",
+      "removeMember": "{name} 제거",
+      "phonesLabel": "전화번호 추가",
+      "phonesHint": "국가 코드를 포함해 한 줄에 하나씩 또는 쉼표로 구분하세요.",
+      "phonesPlaceholder": "+971 50 123 4567",
+      "invalidNumber": "“{input}”은(는) 국가 코드가 포함된 올바른 번호가 아닙니다.",
+      "noPhone": "{name}에게 사용할 수 있는 전화번호가 없어 건너뜁니다.",
+      "memberCount": "{max}명 중 {count}명",
+      "overCap": "지금은 처음 {max}명만 추가됩니다. 나머지는 그룹의 초대 탭에서 초대 링크를 보내세요.",
+      "pacingNote": "짧은 간격을 두고 {batch}명씩 추가합니다. 이 번호로 메시지를 보낸 적 없는 사람은 WhatsApp이 거부할 수 있으며, 그 경우 초대 링크를 보낼 수 있습니다.",
+      "toggles": {
+        "send_messages": "관리자만 메시지 전송",
+        "edit_group_info": "관리자만 그룹 정보 수정",
+        "approve_participants": "새 멤버 승인",
+        "add_participants": "관리자만 멤버 추가"
+      },
+      "toggleHints": {
+        "send_messages": "그룹을 공지 채널로 바꿉니다.",
+        "edit_group_info": "이름, 설명, 사진.",
+        "approve_participants": "링크로 참여하는 사람은 관리자 승인을 기다립니다.",
+        "add_participants": "멤버가 다른 사람을 추가할 수 없습니다."
+      },
+      "managers": "공동 관리자 (선택)",
+      "managersHint": "이 그룹을 함께 관리할 동료.",
+      "managersSearch": "동료 검색",
+      "managersNone": "일치하는 동료가 없습니다.",
+      "back": "이전",
+      "next": "다음",
+      "cancel": "취소",
+      "submit": "그룹 만들기",
+      "creating": "그룹을 만드는 중…",
+      "creatingHint": "멤버를 추가하는 중입니다(최대 1분 소요). 이 창을 닫지 마세요.",
+      "errors": {
+        "numberRequired": "번호를 선택하세요.",
+        "nameRequired": "그룹 이름을 입력하세요.",
+        "nameTooLong": "이름은 최대 {max}자까지 가능합니다.",
+        "descriptionTooLong": "설명이 너무 깁니다.",
+        "membersRequired": "한 명 이상 추가하세요.",
+        "fixInvalidNumbers": "빨간색으로 표시된 번호를 수정하거나 삭제하세요."
+      },
+      "failed": "그룹을 만들지 못했습니다: {reason}",
+      "resultTitle": "그룹이 만들어졌습니다",
+      "resultAdded": "추가됨 ({count})",
+      "resultRefused": "아직 추가되지 않음 ({count})",
+      "resultInvalid": "WhatsApp 번호 아님 ({count})",
+      "resultInviteNote": "WhatsApp에서 이 사람들을 직접 추가하지 못했습니다. 그룹의 초대 탭에서 초대 링크를 보내세요.",
+      "resultNotAttempted": "시도하지 않음",
+      "resultNone": "아직 아무도 추가되지 않았습니다. 그룹의 초대 탭에서 초대 링크를 보내세요.",
+      "openGroup": "그룹 열기",
+      "done": "완료"
     }
   }
 }

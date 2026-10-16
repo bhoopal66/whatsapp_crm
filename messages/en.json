@@ -64,7 +64,8 @@
     "calls": "Calls",
     "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}",
     "meetings": "Meetings",
-    "calendar": "Calendar"
+    "calendar": "Calendar",
+    "whatsappGroups": "WhatsApp groups"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -92,7 +93,8 @@
     "journeys": "Journeys",
     "flows": "Flows",
     "compass": "Compass",
-    "customer": "Customer"
+    "customer": "Customer",
+    "whatsappGroups": "WhatsApp groups"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -5844,6 +5846,104 @@
         "repeatInvalid": "Check the repeat: it can't be saved as set.",
         "tooManyReminders": "Up to 5 reminders."
       }
+    }
+  },
+  "Groups": {
+    "title": "WhatsApp groups",
+    "subtitle": "Groups on your WhatsApp numbers: create them, add people and keep them tidy.",
+    "search": "Search groups",
+    "newGroup": "New group",
+    "sync": "Sync from WhatsApp",
+    "syncing": "Syncing…",
+    "syncDone": "{synced, plural, =1 {# group} other {# groups}} synced · {created} new · {left} left",
+    "syncFailed": "Couldn't sync groups: {reason}",
+    "loadFailed": "Couldn't load groups. Try again in a moment.",
+    "emptyTitle": "No groups yet",
+    "emptyBody": "Create a WhatsApp group on one of your numbers and add customers to it. Groups you already have on the phone can be synced in by an admin.",
+    "emptyViewer": "No groups have been shared with you yet.",
+    "noWhapiTitle": "No WhatsApp number for groups",
+    "noWhapiAdmin": "Groups run on a connected Whapi number. Connect one in Settings → WhatsApp to start.",
+    "noWhapiOther": "Groups run on a connected Whapi number. Ask an admin to connect one.",
+    "openSettings": "Open WhatsApp settings",
+    "noMatches": "No groups match “{query}”.",
+    "members": "{count, plural, =1 {# member} other {# members}}",
+    "adminBadge": "Admin",
+    "leftBadge": "Left",
+    "numberRemoved": "Number removed",
+    "activityNone": "No messages yet",
+    "activityNow": "Active just now",
+    "activityAt": "Active {when}",
+    "create": {
+      "title": "New WhatsApp group",
+      "stepOf": "Step {step} of {total}",
+      "steps": {
+        "basics": "Number & name",
+        "members": "Members",
+        "settings": "Settings"
+      },
+      "number": "Number",
+      "numberHint": "The group is created by this WhatsApp number, which becomes its admin.",
+      "noNumbers": "You have no WhatsApp number you can create groups on.",
+      "disconnected": "disconnected",
+      "name": "Group name",
+      "namePlaceholder": "e.g. Downtown villa buyers",
+      "nameCounter": "{count}/{max}",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "What this group is for",
+      "contactsLabel": "Add from contacts",
+      "contactsSearch": "Search by name or phone",
+      "contactsSearching": "Searching…",
+      "contactsNone": "No contacts match.",
+      "contactsTypeMore": "Type at least 2 characters.",
+      "removeMember": "Remove {name}",
+      "phonesLabel": "Add phone numbers",
+      "phonesHint": "One per line, or separated by commas, with the country code.",
+      "phonesPlaceholder": "+971 50 123 4567",
+      "invalidNumber": "“{input}” isn't a valid number with a country code.",
+      "noPhone": "{name} has no usable phone number and will be skipped.",
+      "memberCount": "{count} of {max} people",
+      "overCap": "Only the first {max} are added now. Send the rest the invite link from the group's Invite tab.",
+      "pacingNote": "Added {batch} at a time with short pauses. People who haven't messaged this number may be refused by WhatsApp — you can send them the invite link.",
+      "toggles": {
+        "send_messages": "Only admins can send messages",
+        "edit_group_info": "Only admins can edit group info",
+        "approve_participants": "Approve new members",
+        "add_participants": "Only admins can add members"
+      },
+      "toggleHints": {
+        "send_messages": "Turns the group into an announcement channel.",
+        "edit_group_info": "Name, description and picture.",
+        "approve_participants": "People joining by link wait for an admin to approve them.",
+        "add_participants": "Members can't add other people."
+      },
+      "managers": "Co-managers (optional)",
+      "managersHint": "Colleagues who can work this group with you.",
+      "managersSearch": "Search colleagues",
+      "managersNone": "No colleagues match.",
+      "back": "Back",
+      "next": "Next",
+      "cancel": "Cancel",
+      "submit": "Create group",
+      "creating": "Creating group…",
+      "creatingHint": "Adding members (this can take a minute). Keep this window open.",
+      "errors": {
+        "numberRequired": "Choose a number.",
+        "nameRequired": "Give the group a name.",
+        "nameTooLong": "The name can be at most {max} characters.",
+        "descriptionTooLong": "The description is too long.",
+        "membersRequired": "Add at least one person.",
+        "fixInvalidNumbers": "Fix or remove the numbers marked in red."
+      },
+      "failed": "Couldn't create the group: {reason}",
+      "resultTitle": "Group created",
+      "resultAdded": "Added ({count})",
+      "resultRefused": "Not added yet ({count})",
+      "resultInvalid": "Not WhatsApp numbers ({count})",
+      "resultInviteNote": "WhatsApp didn't let us add these people directly. Send them the invite link from the group's Invite tab.",
+      "resultNotAttempted": "not attempted",
+      "resultNone": "Nobody was added yet — send the invite link from the group's Invite tab.",
+      "openGroup": "Open group",
+      "done": "Done"
     }
   }
 }

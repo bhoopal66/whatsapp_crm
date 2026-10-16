@@ -88,6 +88,11 @@ export const NAV_GROUPS: NavGroup[] = [
       // route's layout turns a bank guest away; which calls come back is
       // RLS's call (`pbx_can_view_call`).
       { href: '/calls', labelKey: 'calls', icon: Phone, needsPbx: true },
+      // WhatsApp groups on the Whapi numbers (migration 114): every staff
+      // role, never a bank guest; the route's layout turns a guest away,
+      // and which groups come back is RLS's call
+      // (whatsapp_group_visible_ids).
+      { href: '/groups', labelKey: 'whatsappGroups', icon: UsersRound },
       // Team chat (migration 087): the one row a bank guest sees too.
       {
         href: '/chat',
