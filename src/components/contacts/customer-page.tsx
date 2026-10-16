@@ -33,7 +33,6 @@ import {
   filterTimeline,
   groupByDay,
   initials,
-  maskPhone,
   mergeTimeline,
   missedDraftOffer,
   missedDraftText,
@@ -58,9 +57,11 @@ import {
   type TimelineTask,
 } from '@/lib/pbx/timeline';
 import { PresenceDot } from '@/components/presence/presence-dot';
+import { useAuth } from '@/hooks/use-auth';
 import { usePhonePresence } from '@/hooks/use-phone-presence';
 import { usePresence } from '@/hooks/use-presence';
 import { PERSON_PRESENCE_KEY, presenceOf } from '@/lib/person-presence';
+import { customerAccess } from '@/lib/contacts/customer-access';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -219,6 +220,8 @@ export function CustomerPage({ contactId }: { contactId: string }) {
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
   const router = useRouter();
+  const { accountRole } = useAuth();
+  const access = customerAccess(accountRole);
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -486,13 +489,13 @@ export function CustomerPage({ contactId }: { contactId: string }) {
 
   const { contact, conversation, deal } = load;
   const draft = missedDraftOffer(load.draftOn, contact);
-  const title = contact.company || contact.name || maskPhone(contact.phone);
+  const title = contact.company || contact.name || contact.phone || '';
   const ownerName = contact.user_id ? names[contact.user_id] : null;
   const subline = [
     contact.company && contact.name
       ? `${contact.name} ${tl('ownerSuffix')}`
       : null,
-    maskPhone(contact.phone) || null,
+    contact.phone || null,
     ownerName ? tl('ownerRm', { name: ownerName }) : null,
   ].filter(Boolean);
 
@@ -619,8 +622,14 @@ export function CustomerPage({ contactId }: { contactId: string }) {
                   )}
                 </span>
               )}
-              <CallButton contact={contact} label={tl('callBack')} size="xs" />
-              {draft.kind === 'offer' && (
+              {access.call && (
+                <CallButton
+                  contact={contact}
+                  label={tl('callBack')}
+                  size="xs"
+                />
+              )}
+              {access.send && draft.kind === 'offer' && (
                 <Button size="xs" variant="outline" onClick={draftWhatsApp}>
                   {tl('draftWhatsApp')}
                 </Button>
@@ -668,7 +677,9 @@ export function CustomerPage({ contactId }: { contactId: string }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <CallButton contact={contact} conversationId={conversation?.id} />
+          {access.call && (
+            <CallButton contact={contact} conversationId={conversation?.id} />
+          )}
           {conversation ? (
             <Link
               href={`/inbox?c=${conversation.id}`}

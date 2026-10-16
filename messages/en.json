@@ -4873,7 +4873,7 @@
     "yesterday": "Yesterday",
     "empty": "Nothing here yet",
     "loadFailed": "Couldn't load this customer",
-    "notFound": "Customer not found",
+    "notFound": "Customer not found, or you don't have access.",
     "callBack": "Call back",
     "draftWhatsApp": "Draft WhatsApp",
     "missedDraft": "Sorry we missed your call — how can we help?",

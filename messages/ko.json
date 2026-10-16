@@ -4873,7 +4873,7 @@
     "yesterday": "어제",
     "empty": "아직 기록이 없습니다",
     "loadFailed": "이 고객을 불러오지 못했습니다",
-    "notFound": "고객을 찾을 수 없습니다",
+    "notFound": "고객을 찾을 수 없거나 접근 권한이 없습니다.",
     "callBack": "회신 전화",
     "draftWhatsApp": "WhatsApp 초안",
     "missedDraft": "전화를 받지 못해 죄송합니다. 무엇을 도와드릴까요?",
