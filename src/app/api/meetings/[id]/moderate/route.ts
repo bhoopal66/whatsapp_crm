@@ -106,7 +106,9 @@ export async function POST(request: Request, { params }: Params) {
         .select('id')
         .eq('account_id', loaded.meeting.account_id)
         .eq('user_id', row.user_id)
-        .in('role', ['owner', 'admin'])
+        // account_role, never the legacy `role` column: anyone may write
+        // that one on their own row.
+        .in('account_role', ['owner', 'admin'])
         .is('deactivated_at', null)
         .limit(1);
       if (managerErr) return readErrorResponse(managerErr);

@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   insertError: null as unknown,
   meeting: {} as Record<string, unknown>,
   seats: [] as { id: string; user_id: string; cf_session_id: string }[],
-  profiles: [] as { user_id: string; role: string }[],
+  profiles: [] as { user_id: string; account_role: string; role?: string }[],
   closedSeatIds: [] as unknown[],
   inviteeReadError: null as unknown,
   chatCount: 0,
@@ -165,8 +165,9 @@ describe('PATCH /api/meetings/[id]', () => {
   it('closes and cuts a removed invitee’s seat, keeping host, invitees and admins', async () => {
     mocks.seats = [seat(OLD), seat(HOST), seat(NEW), seat(ADMIN)];
     mocks.profiles = [
-      { user_id: OLD, role: 'agent' },
-      { user_id: ADMIN, role: 'admin' },
+      // The legacy `role` column is self-writable: it must not count.
+      { user_id: OLD, account_role: 'agent', role: 'admin' },
+      { user_id: ADMIN, account_role: 'admin', role: 'user' },
     ];
     expect((await patch({ inviteeUserIds: [NEW] })).status).toBe(200);
     expect(mocks.writes).toEqual([
@@ -183,7 +184,7 @@ describe('PATCH /api/meetings/[id]', () => {
   it('closes the workspace’s seats when open_to_workspace goes off', async () => {
     mocks.meeting.open_to_workspace = true;
     mocks.seats = [seat(STRANGER), seat(OLD)];
-    mocks.profiles = [{ user_id: STRANGER, role: 'viewer' }];
+    mocks.profiles = [{ user_id: STRANGER, account_role: 'viewer' }];
     expect((await patch({ openToWorkspace: false })).status).toBe(200);
     expect(mocks.closedSeatIds).toEqual([[seat(STRANGER).id]]);
     expect(mocks.cutSeats).toHaveBeenCalledWith([seat(STRANGER)]);

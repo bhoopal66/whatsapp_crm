@@ -211,7 +211,7 @@ describe('POST /api/meetings/[id]/moderate', () => {
     expect(mocks.profileFilters).toEqual([
       ['eq', 'account_id', 'acct-1'],
       ['eq', 'user_id', 'user-2'],
-      ['in', 'role', ['owner', 'admin']],
+      ['in', 'account_role', ['owner', 'admin']],
       ['is', 'deactivated_at', null],
     ]);
     expect(mocks.adminUpsert).not.toHaveBeenCalled();

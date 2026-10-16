@@ -73,7 +73,7 @@ async function evictSeatsWithoutAccess(
   const admin = supabaseAdmin();
   const { data: profiles, error: profErr } = await admin
     .from('profiles')
-    .select('user_id, role')
+    .select('user_id, account_role')
     .eq('account_id', meeting.account_id)
     .in('user_id', [...new Set(candidates.map((s) => s.user_id))])
     .is('deactivated_at', null);
@@ -83,7 +83,12 @@ async function evictSeatsWithoutAccess(
   }
   const admins = new Set(
     (profiles ?? [])
-      .filter((p) => isAccountRole(p.role) && hasMinRole(p.role, 'admin'))
+      // account_role, never the legacy `role` column: anyone may write
+      // that one on their own row.
+      .filter(
+        (p) =>
+          isAccountRole(p.account_role) && hasMinRole(p.account_role, 'admin')
+      )
       .map((p) => p.user_id as string)
   );
   const evicted = candidates.filter((s) => !admins.has(s.user_id));
