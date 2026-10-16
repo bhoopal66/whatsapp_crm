@@ -297,6 +297,30 @@ BEGIN
     RAISE EXCEPTION 'contacts.opted_out_at is missing — migration 076 did not apply';
   END IF;
 
+  -- 117: a foreign key a delete can re-check mid-cascade is checked at
+  -- commit, so the RI trigger order a pg_dump restore produces cannot
+  -- fail it. Every one of 117's list must be deferred.
+  IF (SELECT count(*) FROM pg_constraint c
+      WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+        AND c.condeferrable AND c.condeferred
+        AND c.conname = ANY (ARRAY[
+          'automation_pending_executions_log_id_fkey', 'automation_pending_executions_parent_step_id_fkey',
+          'callback_requests_journey_file_id_fkey', 'callback_requests_outbox_item_id_fkey',
+          'calls_contact_fkey', 'calls_conversation_fkey', 'calls_deal_id_fkey',
+          'compass_notifications_conversation_id_fkey', 'compass_notifications_message_id_fkey',
+          'conversation_events_conversation_id_fkey', 'conversation_events_from_channel_id_fkey',
+          'conversation_events_to_channel_id_fkey', 'deal_files_room_fkey',
+          'deal_room_participants_consent_id_fkey', 'deal_room_participants_room_fkey',
+          'deal_rooms_deal_fkey', 'flow_runs_conversation_id_fkey',
+          'flow_runs_last_prompt_message_id_fkey', 'group_message_receipts_message_id_fkey',
+          'meeting_participants_meeting_fkey', 'meeting_removed_users_meeting_fkey',
+          'messages_conversation_id_fkey', 'messages_reply_to_message_id_fkey',
+          'notifications_contact_id_fkey', 'notifications_conversation_id_fkey',
+          'tasks_contact_id_fkey', 'tasks_conversation_id_fkey', 'tasks_deal_id_fkey',
+          'whatsapp_groups_channel_fkey'])) <> 29 THEN
+    RAISE EXCEPTION 'a foreign key 117 defers is missing or still checked immediately — migration 117 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;
