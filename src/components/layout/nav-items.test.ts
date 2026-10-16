@@ -24,6 +24,7 @@ const EVERYONE = [
   '/dashboard',
   '/notifications',
   '/inbox',
+  '/groups',
   '/chat',
   '/meetings',
   '/calendar',
@@ -177,7 +178,7 @@ describe('nav model', () => {
 
   // /calls had no guard: a bank guest who typed the URL got the screen
   // (its API answered 403, but the page was theirs to open).
-  it.each(['calls', 'meetings', 'calendar'])(
+  it.each(['calls', 'groups', 'meetings', 'calendar'])(
     'turns a bank guest away from /%s on the server',
     (route) => {
       const file = join(process.cwd(), 'src', 'app', '(dashboard)', route);
