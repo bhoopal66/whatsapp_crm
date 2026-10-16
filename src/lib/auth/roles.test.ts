@@ -19,7 +19,10 @@ import {
   canCreateMeetings,
   canArchiveWorkspace,
   canViewOnly,
+  canCreateGroups,
+  canSyncGroups,
   canViewAllCalls,
+  canViewAllGroups,
   canViewUnroutedCalls,
   hasMinRole,
   isBankGuest,
@@ -308,5 +311,26 @@ describe('adding people (migration 099)', () => {
     ]);
     expect(grantableRoles('agent', ASSIGNABLE_ROLES)).toEqual([]);
     expect(grantableRoles(null, ASSIGNABLE_ROLES)).toEqual([]);
+  });
+});
+
+describe('group capabilities (114)', () => {
+  it('view-all and sync are owner and admin only', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canViewAllGroups(r))).toEqual([
+      'admin',
+      'owner',
+    ]);
+    expect(ACCOUNT_ROLES.filter((r) => canSyncGroups(r))).toEqual([
+      'admin',
+      'owner',
+    ]);
+  });
+  it('create is agent and up, never viewer or bank guest', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canCreateGroups(r)).sort()).toEqual([
+      'admin',
+      'agent',
+      'owner',
+      'team_leader',
+    ]);
   });
 });
