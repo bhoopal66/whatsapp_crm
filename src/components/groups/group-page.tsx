@@ -35,6 +35,7 @@ import {
 } from '@/lib/groups/types';
 
 import { ChatTab } from './group/chat-tab';
+import { MembersTab } from './group/members-tab';
 
 /** The GET /api/whatsapp/groups/[id] answer, as later tabs read it. */
 export interface GroupDetail {
@@ -326,7 +327,9 @@ export function GroupPage({
           <ChatTab {...tabProps} />
         </TabsContent>
         {/* Filled by later jobs; they receive GroupTabProps. */}
-        <TabsContent value="members" />
+        <TabsContent value="members" className="min-h-0 flex-1">
+          <MembersTab {...tabProps} />
+        </TabsContent>
         <TabsContent value="settings" />
         <TabsContent value="invite" />
         <TabsContent value="requests" />
