@@ -1,5 +1,7 @@
 'use client';
 
+import { isUuid } from '@/lib/chat/mentions';
+import { customerPath } from '@/lib/contacts/customer-links';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
@@ -51,15 +53,15 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ContactForm } from '@/components/contacts/contact-form';
-import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
+import { ChatTagChip, OptedOutBadge } from '@/components/contacts/contact-badges';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useLocale, useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
@@ -104,6 +106,7 @@ interface ContactRow extends Contact {
  * both views are account-wide for them.
  */
 export function ContactsPageInner({ teamView = false }: { teamView?: boolean } = {}) {
+  const router = useRouter();
   const t = useTranslations('Contacts.page');
   const locale = useLocale();
   const { user, accountRole, profileLoading } = useAuth();
@@ -132,8 +135,6 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   // Modals
   const [formOpen, setFormOpen] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailContactId, setDetailContactId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -384,8 +385,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   }
 
   function openDetail(contactId: string) {
-    setDetailContactId(contactId);
-    setDetailOpen(true);
+    router.push(customerPath(contactId, teamView));
   }
 
   // `?c=<id>` deep link — used by "view contact" on a saved contact card
@@ -394,7 +394,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   useEffect(() => {
     try {
       const id = new URLSearchParams(window.location.search).get('c');
-      if (id) openDetail(id);
+      if (isUuid(id)) router.replace(customerPath(id, teamView));
     } catch {
       // No window (SSR) or malformed URL — nothing to open.
     }
@@ -765,7 +765,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   <TableCell className="text-foreground font-medium">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <Link
-                        href={`/contacts/${contact.id}`}
+                        href={customerPath(contact.id, teamView)}
                         onClick={(e) => e.stopPropagation()}
                         className="hover:underline"
                       >
@@ -902,14 +902,6 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
         }}
       />
 
-      {/* Contact Detail Sheet */}
-      <ContactDetailView
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-        contactId={detailContactId}
-        onUpdated={refreshContacts}
-      />
-
       {/* Import Modal */}
       <ImportModal
         open={importOpen}
@@ -1015,52 +1007,6 @@ function ChatTagFilterOption({
       />
       <span className="text-sm text-popover-foreground truncate">{name}</span>
     </label>
-  );
-}
-
-/** A contact's chat tag as the inbox list draws it: dot + label on a
- *  tint of the tag colour, text in the theme's foreground. */
-function ChatTagChip({
-  chip,
-}: {
-  chip: { label: string; color: string } | null;
-}) {
-  if (!chip) return <span className="text-muted-foreground text-xs">-</span>;
-  return (
-    <span
-      title={chip.label}
-      style={chatTagChipStyle(chip.color)}
-      className="text-foreground inline-flex max-w-[14rem] min-w-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] leading-4 font-medium"
-    >
-      <span
-        className="size-1.5 shrink-0 rounded-full"
-        style={{ backgroundColor: chatTagColor(chip.color) }}
-      />
-      <span className="truncate">{chip.label}</span>
-    </span>
-  );
-}
-
-/** Set when the customer asked not to be messaged (migration 076).
- *  Focusable, and named by the full hint (date included), so a keyboard
- *  or screen-reader user gets what the tooltip says on hover. */
-function OptedOutBadge({ label, hint }: { label: string; hint: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            role="img"
-            tabIndex={0}
-            aria-label={hint}
-            className="border-destructive/40 bg-destructive/10 text-destructive focus-visible:ring-ring/50 inline-flex shrink-0 items-center rounded-full border px-1.5 text-[10px] leading-4 font-medium outline-none focus-visible:ring-2"
-          />
-        }
-      >
-        {label}
-      </TooltipTrigger>
-      <TooltipContent>{hint}</TooltipContent>
-    </Tooltip>
   );
 }
 

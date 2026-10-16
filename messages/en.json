@@ -85,7 +85,14 @@
     "teamActivity": "Team activity",
     "chat": "Team chat",
     "meetings": "Meetings",
-    "calendar": "Calendar"
+    "calendar": "Calendar",
+    "teamInbox": "Team inbox",
+    "teamContacts": "Team contacts",
+    "calls": "Calls",
+    "journeys": "Journeys",
+    "flows": "Flows",
+    "compass": "Compass",
+    "customer": "Customer"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -532,22 +539,13 @@
         "message": "Message",
         "delete": "Delete"
       },
-      "contactInfo": "Contact Information",
       "unnamed": "Unknown",
-      "contactDetailsDesc": "Contact details",
       "name": "Name",
       "phone": "Phone",
       "email": "Email",
       "company": "Company",
       "createdAt": "Created At",
-      "customFields": "Custom Fields",
-      "noCustomFields": "No custom fields defined. Create them in Settings.",
-      "manageFields": "Manage fields",
       "enterCustomField": "Enter {name}...",
-      "activityTab": {
-        "title": "Activity History",
-        "noActivity": "No activity yet."
-      },
       "notesTab": {
         "title": "Internal Notes",
         "placeholder": "Write a note...",
@@ -562,16 +560,17 @@
       "optedOut": "Opted out {date}",
       "optedOutHint": "Asked not to be messaged. Broadcasts skip this customer.",
       "sendTemplateBtn": "Send template",
-      "saveChangesBtn": "Save Changes",
       "saveCustomFieldsBtn": "Save Custom Fields",
-      "toastPhoneRequired": "Phone number is required",
-      "toastUpdateFailed": "Failed to update contact",
-      "toastUpdated": "Contact updated",
       "toastNotAuthenticated": "Not authenticated",
       "toastNoteAddFailed": "Failed to add note",
-      "toastNoteAdded": "Note added",
+      "deleteNote": "Delete note",
+      "confirmDeleteNote": "Delete this note?",
+      "copyPhone": "Copy phone number",
+      "copyFailed": "Copy failed",
+      "noCustomFields": "No custom fields defined. Create them in Settings.",
       "toastNoteDeleteFailed": "Failed to delete note",
       "toastNoteDeleted": "Note deleted",
+      "toastNoteAdded": "Note added",
       "toastCustomFieldsSaved": "Custom fields saved",
       "toastCustomFieldsFailed": "Failed to save custom fields",
       "toastTemplateSent": "Template \"{name}\" sent",
@@ -4866,7 +4865,7 @@
     "yesterday": "Yesterday",
     "empty": "Nothing here yet",
     "loadFailed": "Couldn't load this customer",
-    "notFound": "Customer not found",
+    "notFound": "Customer not found, or you don't have access.",
     "callBack": "Call back",
     "draftWhatsApp": "Draft WhatsApp",
     "missedDraft": "Sorry we missed your call — how can we help?",
@@ -4908,7 +4907,17 @@
     "holdLifted": "Legal hold lifted",
     "holdFailed": "Couldn't change the legal hold",
     "liftDeletes": "This call is older than the {days, plural, one {# day} other {# days}} retention period: once the hold is lifted, its recording is deleted within minutes. This cannot be undone.",
-    "liftAndDelete": "Lift hold and delete"
+    "liftAndDelete": "Lift hold and delete",
+    "moreActions": "More actions",
+    "openPipelines": "Open pipelines",
+    "dealWon": "Won",
+    "dealLost": "Lost",
+    "emptyFor": {
+      "all": "Nothing with this customer yet. Calls, WhatsApp messages and notes will show here.",
+      "calls": "No calls with this customer yet.",
+      "whatsapp": "No WhatsApp messages with this customer yet.",
+      "notes": "No notes yet. Add the first one above."
+    }
   },
   "CallsPage": {
     "title": "Calls",

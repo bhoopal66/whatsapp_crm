@@ -39,6 +39,18 @@ that rang you, and takes `scope=my_missed`.
 
 **Migration required:** `supabase/migrations/113_call_visibility.sql`.
 
+### One customer page replaces the contact side sheet
+
+Clicking a contact in Contacts or Team contacts (and "view contact" on a
+saved contact card in the inbox) now opens the customer page at
+`/contacts/<id>`; the side sheet is gone. The page carries the header
+actions (send message, send template, edit), notes, details and custom
+fields, deals and consent. Actions follow the role: delete is
+admin-only. The full phone number is shown, a contact that does not
+exist or that you cannot see answers "not found or no access", and the
+top bar shows the right title on the page. Old `/contacts?c=<id>` links
+redirect to the page.
+
 ### Only team leaders and admins create video meetings
 
 Agents and viewers can no longer schedule or start a video meeting; they

@@ -85,7 +85,14 @@
     "teamActivity": "팀 활동",
     "chat": "팀 채팅",
     "meetings": "회의",
-    "calendar": "캘린더"
+    "calendar": "캘린더",
+    "teamInbox": "팀 받은편지함",
+    "teamContacts": "팀 연락처",
+    "calls": "통화",
+    "journeys": "여정",
+    "flows": "플로우",
+    "compass": "Compass",
+    "customer": "고객"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -532,22 +539,13 @@
         "message": "메시지",
         "delete": "삭제"
       },
-      "contactInfo": "연락처 정보",
       "unnamed": "알 수 없음",
-      "contactDetailsDesc": "연락처 정보",
       "name": "이름",
       "phone": "전화번호",
       "email": "이메일",
       "company": "회사",
       "createdAt": "생성일",
-      "customFields": "커스텀 필드",
-      "noCustomFields": "정의된 커스텀 필드가 없습니다. 설정에서 만드세요.",
-      "manageFields": "필드 관리",
       "enterCustomField": "{name} 입력...",
-      "activityTab": {
-        "title": "활동 내역",
-        "noActivity": "아직 활동이 없습니다."
-      },
       "notesTab": {
         "title": "내부 메모",
         "placeholder": "메모를 작성하세요...",
@@ -562,16 +560,17 @@
       "optedOut": "수신 거부 {date}",
       "optedOutHint": "메시지 수신을 원하지 않는다고 요청했습니다. 브로드캐스트에서 이 고객은 제외됩니다.",
       "sendTemplateBtn": "템플릿 보내기",
-      "saveChangesBtn": "변경 사항 저장",
       "saveCustomFieldsBtn": "커스텀 필드 저장",
-      "toastPhoneRequired": "전화번호는 필수입니다",
-      "toastUpdateFailed": "연락처를 업데이트하지 못했습니다",
-      "toastUpdated": "연락처가 업데이트되었습니다",
       "toastNotAuthenticated": "인증되지 않았습니다",
       "toastNoteAddFailed": "메모를 추가하지 못했습니다",
-      "toastNoteAdded": "메모가 추가되었습니다",
+      "deleteNote": "메모 삭제",
+      "confirmDeleteNote": "이 메모를 삭제할까요?",
+      "copyPhone": "전화번호 복사",
+      "copyFailed": "복사 실패",
+      "noCustomFields": "정의된 커스텀 필드가 없습니다. 설정에서 만드세요.",
       "toastNoteDeleteFailed": "메모를 삭제하지 못했습니다",
       "toastNoteDeleted": "메모가 삭제되었습니다",
+      "toastNoteAdded": "메모가 추가되었습니다",
       "toastCustomFieldsSaved": "커스텀 필드가 저장되었습니다",
       "toastCustomFieldsFailed": "커스텀 필드를 저장하지 못했습니다",
       "toastTemplateSent": "\"{name}\" 템플릿을 보냈습니다",
@@ -4866,7 +4865,7 @@
     "yesterday": "어제",
     "empty": "아직 기록이 없습니다",
     "loadFailed": "이 고객을 불러오지 못했습니다",
-    "notFound": "고객을 찾을 수 없습니다",
+    "notFound": "고객을 찾을 수 없거나 접근 권한이 없습니다.",
     "callBack": "회신 전화",
     "draftWhatsApp": "WhatsApp 초안",
     "missedDraft": "전화를 받지 못해 죄송합니다. 무엇을 도와드릴까요?",
@@ -4908,7 +4907,17 @@
     "holdLifted": "법적 보존이 해제되었습니다",
     "holdFailed": "법적 보존을 변경하지 못했습니다",
     "liftDeletes": "이 통화는 보존 기간({days}일)보다 오래되었습니다. 보존을 해제하면 몇 분 안에 녹음이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
-    "liftAndDelete": "보존 해제 후 삭제"
+    "liftAndDelete": "보존 해제 후 삭제",
+    "moreActions": "추가 작업",
+    "openPipelines": "파이프라인 열기",
+    "dealWon": "성사",
+    "dealLost": "실패",
+    "emptyFor": {
+      "all": "이 고객과의 기록이 아직 없습니다. 통화, WhatsApp 메시지, 메모가 여기에 표시됩니다.",
+      "calls": "이 고객과의 통화가 아직 없습니다.",
+      "whatsapp": "이 고객과의 WhatsApp 메시지가 아직 없습니다.",
+      "notes": "메모가 아직 없습니다. 위에서 첫 메모를 추가하세요."
+    }
   },
   "CallsPage": {
     "title": "통화",

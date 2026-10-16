@@ -138,7 +138,7 @@ function ContactCard({ card }: { card: SharedContact }) {
         <div className="border-wa-divider mt-2 border-t pt-2 text-xs">
           {savedId ? (
             <a
-              href={`/contacts?c=${savedId}`}
+              href={`/contacts/${savedId}`}
               className={cn(
                 'inline-flex items-center gap-1 hover:underline',
                 muted
