@@ -967,8 +967,11 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 - **Staff only.** `canUseMeetings` (viewer and up, never `bank_guest`) gates
   every route through `requireMeetingsUser`; the policies go through
   `current_account_id()`, which is NULL for a guest.
+- **Who creates (111).** Team leader and up (`canCreateMeetings`, the
+  meetings INSERT policy); agents and viewers only attend.
 - **Who sees / manages.** `meeting_can_view`: owner/admin, the host, an invitee,
-  or `open_to_workspace`. `meeting_can_manage`: owner/admin or the host. Both
+  or `open_to_workspace` — the last two not while a `meeting_removed_users` row
+  names the caller (112: a removal hides the room, its chat and reminders). `meeting_can_manage`: owner/admin or the host. Both
   wrap the shared row checks `meeting_row_visible` / `meeting_row_manageable`,
   which the table policies call with their own columns (a STABLE function
   would not see the row an INSERT … RETURNING is writing).

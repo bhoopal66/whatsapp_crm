@@ -62,7 +62,7 @@ const pick = (r: MeetingMessage): MeetingMessage => ({
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const { supabase } = await requireMeetingsUser();
+    const { supabase, userId } = await requireMeetingsUser();
     const { id } = await params;
     if (!isUuid(id)) return jsonError('Invalid meeting id', 400);
     const parsed = parseMessagePost(await readJson(request));
@@ -73,6 +73,18 @@ export async function POST(request: Request, { params }: Params) {
       p_kind: parsed.values.kind,
       p_body: parsed.values.body,
     });
+    if (error?.code === '42501') {
+      // Since 112 a removal hides the meeting, so the function refuses
+      // it as not visible; the caller reads their own removal (110's
+      // policy) to be told why.
+      const { data: removal } = await supabase
+        .from('meeting_removed_users')
+        .select('user_id')
+        .eq('meeting_id', id)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (removal) return jsonError('removed_from_meeting', 403);
+    }
     if (error) return postErrorResponse(error);
     const row = (Array.isArray(data) ? data[0] : data) as MeetingMessage | null;
     if (!row) return jsonError('Failed to send the message', 500);

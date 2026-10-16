@@ -1,4 +1,5 @@
--- Behavioural regression suite for the staff calendar (migration 108).
+-- Behavioural regression suite for the staff calendar (migration 108;
+-- 112: no meeting reminder for a person removed from the meeting).
 --
 -- Who sees an event is calendar_event_can_view: a live, non-guest
 -- member active in its workspace who created it, is an attendee, or
@@ -48,6 +49,7 @@ DECLARE
   e_cp    UUID;   -- the split's copy
   ts      TIMESTAMPTZ;
   m_one   UUID;
+  m_rm    UUID;
   t_open  UUID;
   r       TEXT;
   k       TEXT;
@@ -414,6 +416,18 @@ DTSTART:20300101''', 'reminders = ''{-1}''', 'reminders = ''{1,2,3,4,5,6}''',
   IF r <> '2' OR (SELECT count(*) FROM notifications WHERE type = 'meeting_reminder'
                     AND meta = jsonb_build_object('meeting_id', m_one) AND body LIKE 'Starting now · %') <> 2 THEN
     failed := array_append(failed, ('a meeting rings "starting now" at its start: ' || r)::text);
+  END IF;
+
+  -- 112: a person removed from a meeting is no longer reminded of it.
+  INSERT INTO meetings (account_id, title, host_user_id, scheduled_start, scheduled_end)
+  VALUES (a_acct, 'Cal meeting removal', u_crt, '2030-01-10 09:10+00', '2030-01-10 10:00+00') RETURNING id INTO m_rm;
+  INSERT INTO meeting_invitees (meeting_id, user_id, account_id) VALUES (m_rm, u_att, a_acct);
+  INSERT INTO meeting_removed_users (meeting_id, user_id, account_id, removed_by) VALUES (m_rm, u_att, a_acct, u_crt);
+  r := pg_temp.cal_try('service_role', NULL, 'SELECT calendar_reminder_sweep(''2030-01-10 09:01+00'')::text');
+  n := n + 1;
+  IF r <> '1' OR EXISTS (SELECT 1 FROM notifications WHERE type = 'meeting_reminder'
+                          AND user_id = u_att AND meta = jsonb_build_object('meeting_id', m_rm)) THEN
+    failed := array_append(failed, ('a removed invitee was reminded of the meeting: ' || r)::text);
   END IF;
 
   -- Tasks: 15 minutes before due, open ones only.

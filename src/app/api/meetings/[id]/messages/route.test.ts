@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   rpc: vi.fn(),
   meeting: null as unknown,
+  removal: null as unknown,
   rows: [] as unknown[],
   calls: [] as string[],
 }));
@@ -39,7 +40,10 @@ function from(table: string) {
       q
     );
   }
-  q.maybeSingle = async () => ({ data: mocks.meeting, error: null });
+  q.maybeSingle = async () => ({
+    data: table === 'meeting_removed_users' ? mocks.removal : mocks.meeting,
+    error: null,
+  });
   q.then = (ok: (v: unknown) => unknown) =>
     Promise.resolve({ data: mocks.rows, error: null }).then(ok);
   return q;
@@ -57,6 +61,7 @@ describe('/api/meetings/[id]/messages', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.calls = [];
+    mocks.removal = null;
     mocks.getCurrentAccount.mockResolvedValue({
       role: 'agent',
       userId: 'user-1',
@@ -104,6 +109,17 @@ describe('/api/meetings/[id]/messages', () => {
       expect(res.status).toBe(status);
       if (text) expect(await res.json()).toEqual({ error: text });
     }
+  });
+
+  it('tells a removed person why: 112 hides the meeting from them', async () => {
+    mocks.removal = { user_id: 'user-1' };
+    mocks.rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '42501', message: 'meeting_not_visible' },
+    });
+    const res = await post({ kind: 'chat', body: 'hi' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'removed_from_meeting' });
   });
 
   it('refuses a bad body before calling the database', async () => {

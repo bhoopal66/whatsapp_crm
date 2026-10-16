@@ -74,6 +74,10 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
   if (call.meetingState === 'loading') {
     return <p className="text-muted-foreground p-6 text-sm">{t('loading')}</p>;
   }
+  // Before "missing": since 112 a removal hides the meeting too.
+  if (call.phase === 'removed') {
+    return <EndScreen title={t('removed.title')} back={back} />;
+  }
   if (call.meetingState === 'missing' || call.error === 'forbidden') {
     return <EndScreen title={t('missing.title')} back="/meetings" />;
   }
@@ -83,9 +87,6 @@ export function MeetingRoom({ meetingId }: { meetingId: string }) {
     (call.phase === 'lobby' && call.meeting?.status !== 'scheduled')
   ) {
     return <EndScreen title={t('ended.title')} back={back} />;
-  }
-  if (call.phase === 'removed') {
-    return <EndScreen title={t('removed.title')} back={back} />;
   }
   if (call.phase === 'left') {
     return (

@@ -419,12 +419,34 @@ class MeetingCallEngine {
       .eq('id', this.meetingId)
       .maybeSingle();
     // An error reads as missing too: the room cannot be shown either way.
-    this.emit(
-      data && !error
-        ? { meetingState: 'ready', meeting: data as MeetingSummary }
-        : { meetingState: 'missing' }
-    );
+    if (data && !error) {
+      this.emit({ meetingState: 'ready', meeting: data as MeetingSummary });
+    } else {
+      // Since 112 a removal hides the meeting: say so rather than "not found".
+      const removed = !error && (await this.isRemoved(null));
+      this.emit(
+        removed
+          ? { meetingState: 'missing', phase: 'removed', error: null }
+          : { meetingState: 'missing' }
+      );
+    }
     this.updateCanModerate();
+  }
+
+  /**
+   * Our own removal row (110's policy lets a person read theirs; a
+   * manager reads every row of the meeting). Without `userId` (the auth
+   * context may not have loaded yet) it asks for any row: only right
+   * when the meeting is hidden from us, so we cannot be its manager.
+   */
+  private async isRemoved(userId: string | null): Promise<boolean> {
+    let q = this.supabase
+      .from('meeting_removed_users')
+      .select('user_id')
+      .eq('meeting_id', this.meetingId);
+    if (userId) q = q.eq('user_id', userId);
+    const { data, error } = await q.limit(1);
+    return !error && (data?.length ?? 0) > 0;
   }
 
   // --- devices ---------------------------------------------------------
@@ -983,15 +1005,25 @@ class MeetingCallEngine {
     if (res.status !== 404 || !this.isLive()) return;
     // 404: the seat was closed under us — by the host (removed_at), or
     // by joining the same meeting from another tab (join closes the
-    // person's other seats). The row says which.
+    // person's other seats). The row says which; since 112 a removal
+    // hides the seat row from us, so our removal row says it too.
     const seat = this.participantId;
-    const { data } = await this.supabase
-      .from('meeting_participants')
-      .select('removed_at')
-      .eq('id', seat ?? '')
-      .maybeSingle();
+    const [{ data }, removed] = await Promise.all([
+      this.supabase
+        .from('meeting_participants')
+        .select('removed_at')
+        .eq('id', seat ?? '')
+        .maybeSingle(),
+      // Our own row only: a manager reads everyone's.
+      this.viewer.userId
+        ? this.isRemoved(this.viewer.userId)
+        : Promise.resolve(false),
+    ]);
     if (seat !== this.participantId || !this.isLive()) return;
-    if ((data as { removed_at?: string | null } | null)?.removed_at) {
+    if (
+      removed ||
+      (data as { removed_at?: string | null } | null)?.removed_at
+    ) {
       return this.removed();
     }
     // Same as removed(): the seat is gone, so release the camera and mic
