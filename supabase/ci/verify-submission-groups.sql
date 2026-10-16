@@ -655,12 +655,15 @@ BEGIN
   r := pg_temp.sg_try('authenticated', u_agent,
     format('SELECT count(*)::text FROM submission_group_access WHERE group_id <> %L', g2));
   IF r IS DISTINCT FROM '0' THEN failed := failed || format('an agent sees access rows of other groups (%s)', r); END IF;
+  -- sg_end closed u_coord's list rows, so these two pin "a closed list row
+  -- grants no live read"; the ACTIVE-only filter itself is pinned by the
+  -- admin check below (an admin's live read never includes ENDED g1).
   n := n + 1;
   r := pg_temp.sg_try('authenticated', u_coord, 'SELECT count(*)::text FROM submission_groups');
-  IF r IS DISTINCT FROM '0' THEN failed := failed || format('a coordinator sees an ENDED group directly (%s)', r); END IF;
+  IF r IS DISTINCT FROM '0' THEN failed := failed || format('a closed list row still grants a live read of the ENDED group (%s)', r); END IF;
   n := n + 1;
   r := pg_temp.sg_try('authenticated', u_coord, 'SELECT count(*)::text FROM submission_group_messages');
-  IF r IS DISTINCT FROM '0' THEN failed := failed || format('a coordinator sees ENDED messages directly (%s)', r); END IF;
+  IF r IS DISTINCT FROM '0' THEN failed := failed || format('a closed list row still grants a live read of the ENDED group''s messages (%s)', r); END IF;
   n := n + 1;
   r := pg_temp.sg_try('authenticated', u_admin,
     'SELECT string_agg(submission_ref, '','' ORDER BY submission_ref) FROM submission_groups');
