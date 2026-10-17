@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DETAIL_KPI_KEYS,
+  EVERYONE,
+  HERO_TILES,
   KPI_KEYS,
   POINT_DELTA_KEYS,
   callListQuery,
@@ -9,10 +12,14 @@ import {
   deltaTone,
   heatLevel,
   heatmapMatrix,
+  heroTileValue,
+  isSingleDay,
   mergeCalls,
   nextPageTo,
+  periodButtons,
   readReportParams,
   reportSearch,
+  reportView,
   sortPeople,
   statsCsvRows,
   statsQuery,
@@ -66,15 +73,15 @@ const person = (
 });
 
 describe('the report URL', () => {
-  it('reads period, custom days and person, defaulting what it cannot use', () => {
+  it('opens on me, today, and reads period, custom days and person', () => {
     expect(params('')).toEqual({
-      period: 'month',
+      period: 'today',
       from: null,
       to: null,
       user: null,
     });
     expect(params('period=bogus&user=nope')).toMatchObject({
-      period: 'month',
+      period: 'today',
       user: null,
     });
     expect(params(`period=last_week&user=${U}`)).toEqual({
@@ -82,6 +89,10 @@ describe('the report URL', () => {
       from: null,
       to: null,
       user: U,
+    });
+    expect(params('period=month&user=all')).toMatchObject({
+      period: 'month',
+      user: EVERYONE,
     });
     expect(params('period=custom&from=2026-10-01&to=2026-10-05')).toEqual({
       period: 'custom',
@@ -95,19 +106,98 @@ describe('the report URL', () => {
     );
   });
 
-  it('writes it back, and builds the stats query', () => {
+  it('writes it back, leaving today and me out', () => {
     expect(reportSearch(params(''))).toBe('');
+    expect(reportSearch(params('period=today'))).toBe('');
+    expect(reportSearch(params('period=month'))).toBe('period=month');
+    expect(reportSearch(params('user=all'))).toBe('user=all');
     const p = params(`period=custom&from=2026-10-01&to=2026-10-05&user=${U}`);
     expect(reportSearch(p)).toBe(
       `period=custom&from=2026-10-01&to=2026-10-05&user=${U}`
     );
-    expect(statsQuery(p, 'Asia/Dubai')).toBe(
-      `period=custom&from=2026-10-01&to=2026-10-05&tz=Asia%2FDubai&user=${U}`
+  });
+
+  it('asks for my own id by default, no user for everyone', () => {
+    const me = '00000000-0000-4000-8000-0000000000bb';
+    expect(statsQuery(params(''), 'UTC', me)).toBe(
+      `period=today&tz=UTC&user=${me}`
     );
-    expect(statsQuery(params('period=custom'), 'UTC')).toBeNull();
-    expect(statsQuery(params('period=today'), 'UTC')).toBe(
+    // Me before the signed-in id is known: wait, never ask for everyone.
+    expect(statsQuery(params(''), 'UTC', null)).toBeNull();
+    expect(statsQuery(params('user=all'), 'UTC', me)).toBe(
       'period=today&tz=UTC'
     );
+    const p = params(`period=custom&from=2026-10-01&to=2026-10-05&user=${U}`);
+    expect(statsQuery(p, 'Asia/Dubai', me)).toBe(
+      `period=custom&from=2026-10-01&to=2026-10-05&tz=Asia%2FDubai&user=${U}`
+    );
+    expect(statsQuery(params('period=custom'), 'UTC', me)).toBeNull();
+  });
+
+  it('names the view: me, everyone or one person', () => {
+    expect(reportView(params(''), U)).toBe('me');
+    expect(reportView(params(`user=${U}`), U)).toBe('me');
+    expect(reportView(params('user=all'), U)).toBe('everyone');
+    expect(reportView(params(`user=${U}`), null)).toBe('person');
+  });
+
+  it('shows four periods and custom, plus an old one while it is open', () => {
+    expect(periodButtons('today')).toEqual([
+      'today',
+      'yesterday',
+      'week',
+      'month',
+      'custom',
+    ]);
+    expect(periodButtons('custom')).toEqual(periodButtons('today'));
+    expect(periodButtons('last_month')).toEqual([
+      'today',
+      'yesterday',
+      'week',
+      'month',
+      'last_month',
+      'custom',
+    ]);
+  });
+
+  it('knows a one-day period', () => {
+    expect(isSingleDay(params(''))).toBe(true);
+    expect(isSingleDay(params('period=yesterday'))).toBe(true);
+    expect(isSingleDay(params('period=week'))).toBe(false);
+    expect(
+      isSingleDay(params('period=custom&from=2026-10-01&to=2026-10-01'))
+    ).toBe(true);
+    expect(
+      isSingleDay(params('period=custom&from=2026-10-01&to=2026-10-02'))
+    ).toBe(false);
+  });
+});
+
+describe('the hero and the details', () => {
+  it('splits the tiles: talk time and four in the hero, the rest in details', () => {
+    expect(HERO_TILES).toEqual(['calls', 'answered', 'missed', 'talkAverage']);
+    expect(DETAIL_KPI_KEYS).toEqual([
+      'inboundAnswered',
+      'outbound',
+      'answerRate',
+      'longest',
+      'ringAverage',
+      'uniqueNumbers',
+    ]);
+  });
+
+  it('counts answered both ways', () => {
+    const s = summary({
+      calls: 7,
+      inboundAnswered: 3,
+      outboundAnswered: 2,
+      missed: 1,
+      avgTalkSeconds: 40,
+    });
+    expect(heroTileValue(s, 'answered')).toBe(5);
+    expect(heroTileValue(s, 'calls')).toBe(7);
+    expect(heroTileValue(s, 'missed')).toBe(1);
+    expect(heroTileValue(s, 'talkAverage')).toBe(40);
   });
 });
 

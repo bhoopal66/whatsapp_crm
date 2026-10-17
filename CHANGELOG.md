@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system: a simpler call report
+
+`/calls/report` now opens on your own external calls today: one big
+talk-time figure (with its change against yesterday or the previous
+period), four small tiles (calls, answered, missed, average talk) and
+today's call list. The charts, the remaining figures and, for everyone,
+the by-person table sit behind "More details", which remembers being
+left open. Periods are Today, Yesterday, This week, This month and
+Custom (old links to last week or last month still open). Team leaders
+and admins switch between Me, Everyone (`?user=all`) and one person; a
+single "Export (CSV)" writes the figures and the call list together.
+
 ### Phone system: call report figures
 
 **Migration required: 119** (`119_pbx_call_stats.sql`). It adds

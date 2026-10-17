@@ -22,7 +22,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
 import {
   CALL_REPORT_OUTCOMES,
-  CALL_STATS_PERIODS,
   checkCustomDays,
   type CallStatsPeriod,
 } from '@/lib/pbx/call-report';
@@ -37,6 +36,9 @@ import {
 import {
   CALL_LIST_PAGE,
   DAILY_SERIES,
+  DETAIL_KPI_KEYS,
+  EVERYONE,
+  HERO_TILES,
   KPI_KEYS,
   PEOPLE_SORT_KEYS,
   POINT_DELTA_KEYS,
@@ -46,11 +48,15 @@ import {
   deltaTone,
   heatLevel,
   heatmapMatrix,
+  heroTileValue,
+  isSingleDay,
   kpiValue,
   mergeCalls,
   nextPageTo,
+  periodButtons,
   readReportParams,
   reportSearch,
+  reportView,
   sortPeople,
   statsCsvRows,
   statsQuery,
@@ -113,6 +119,8 @@ interface CallList {
 }
 
 const card = 'border-border bg-card rounded-xl border';
+/** localStorage: whether "More details" was left open. */
+const DETAILS_KEY = 'callReport.detailsOpen';
 const OUTCOME_KEYS = CALL_REPORT_OUTCOMES.filter((o) => o !== 'none');
 
 function download(name: string, rows: CsvValue[][]) {
@@ -148,10 +156,14 @@ export function CallStatsReport() {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
   );
-  const params = useMemo(
-    () => readReportParams((k) => search.get(k)),
-    [search]
-  );
+  const ownId = user?.id ?? null;
+  // Below team leader there is only me: a shared link to someone else
+  // or to everyone still opens on the reader's own calls.
+  const params = useMemo(() => {
+    const p = readReportParams((k) => search.get(k));
+    return leader ? p : { ...p, user: null };
+  }, [search, leader]);
+  const view = reportView(params, ownId);
   const setParams = (next: Partial<ReportParams>) => {
     const qs = reportSearch({ ...params, ...next });
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -165,7 +177,7 @@ export function CallStatsReport() {
   const [customOpen, setCustomOpen] = useState(params.period === 'custom');
   const shownPeriod: CallStatsPeriod = customOpen ? 'custom' : params.period;
 
-  const query = statsQuery(params, viewerZone);
+  const query = statsQuery(params, viewerZone, ownId);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   // The person picker's names: the people of the last load for everyone.
   const [people, setPeople] = useState<CallStatsPerson[]>([]);
@@ -205,6 +217,42 @@ export function CallStatsReport() {
       cancelled = true;
     };
   }, [query]);
+
+  // The "Showing" picker's people, for a leader: one load for everyone
+  // (today, the cheapest), since the default view of me has no people.
+  useEffect(() => {
+    if (!leader) return;
+    let cancelled = false;
+    const q = new URLSearchParams({ period: 'today', tz: viewerZone });
+    fetch(`/api/pbx/calls/stats?${q}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { stats?: CallStats } | null) => {
+        if (!cancelled && body?.stats?.people)
+          setPeople(body.stats.people.filter((p) => p.kind === 'person'));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [leader, viewerZone]);
+
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(DETAILS_KEY) === '1') setDetailsOpen(true);
+    } catch {
+      // Storage refused (private mode): start closed.
+    }
+  }, []);
+  const toggleDetails = () => {
+    const next = !detailsOpen;
+    setDetailsOpen(next);
+    try {
+      localStorage.setItem(DETAILS_KEY, next ? '1' : '0');
+    } catch {
+      // Not remembered; the toggle still works.
+    }
+  };
 
   const current = query && loaded?.key === query ? loaded : null;
   const stats = current?.stats;
@@ -321,18 +369,24 @@ export function CallStatsReport() {
           ? '—'
           : nf(v);
 
-  const subtitle = !stats
-    ? null
-    : stats.scope === 'person'
-      ? (people.find((p) => p.userId === stats.userId)?.fullName ??
-        stats.longest.find((c) => c.userId === stats.userId)?.userName ??
-        t('scope.onePerson'))
-      : t(`scope.${stats.scope}`);
+  const title = view === 'me' ? t('myTitle') : t('title');
+  const subtitle =
+    view === 'me'
+      ? t('mySubtitle')
+      : !stats
+        ? null
+        : stats.scope === 'person'
+          ? (people.find((p) => p.userId === stats.userId)?.fullName ??
+            stats.longest.find((c) => c.userId === stats.userId)?.userName ??
+            t('scope.onePerson'))
+          : t(`scope.${stats.scope}`);
+  const lastDay = (r: Range) =>
+    dayFmt(new Date(Date.parse(r.to) - 1).toISOString());
 
   // ---------- CSV ----------
   const csvName = (what: string) =>
     `${what}-${range ? zoneDay(range.from, range.timeZone) : 'period'}.csv`;
-  const exportReport = () => {
+  const exportCsv = () => {
     if (!stats) return;
     const L: StatsCsvLabels = {
       section: {
@@ -372,23 +426,15 @@ export function CallStatsReport() {
       unnamed: t('people.unnamed'),
       total: t('people.total'),
     };
+    const calls = shownList?.calls ?? [];
     download(csvName('call-report'), [
-      [t('title'), subtitle],
-      range
-        ? [
-            dayFmt(range.from),
-            dayFmt(new Date(Date.parse(range.to) - 1).toISOString()),
-            range.timeZone,
-          ]
-        : [],
+      [title, subtitle],
+      range ? [dayFmt(range.from), lastDay(range), range.timeZone] : [],
       [t('csv.secondsNote')],
       [],
       ...statsCsvRows(stats, L),
-    ]);
-  };
-  const exportCalls = () => {
-    if (!shownList) return;
-    download(csvName('calls'), [
+      [],
+      [t('csv.calls')],
       [
         t('csv.started'),
         t('list.columns.direction'),
@@ -400,7 +446,7 @@ export function CallStatsReport() {
         t('csv.talkSeconds'),
         t('list.columns.outcome'),
       ],
-      ...shownList.calls.map((c) => [
+      ...calls.map((c) => [
         c.startedAt,
         c.direction,
         c.contactName,
@@ -425,35 +471,24 @@ export function CallStatsReport() {
         {t('back')}
       </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">{t('title')}</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold">{title}</h1>
           {subtitle && (
             <p className="text-muted-foreground text-sm">{subtitle}</p>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={exportReport}
-            disabled={!stats}
-            className="border-border hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-          >
-            <Download className="size-4" aria-hidden />
-            {t('exportReport')}
-          </button>
-          <button
-            type="button"
-            onClick={exportCalls}
-            disabled={!shownList || shownList.calls.length === 0}
-            className="border-border hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-          >
-            <Download className="size-4" aria-hidden />
-            {t('exportCalls')}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={!stats}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm disabled:opacity-50"
+        >
+          <Download className="size-4" aria-hidden />
+          {t('exportCsv')}
+        </button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {CALL_STATS_PERIODS.map((p) => (
+        {periodButtons(params.period).map((p) => (
           <button
             key={p}
             type="button"
@@ -473,24 +508,29 @@ export function CallStatsReport() {
             {t(`periods.${p}`)}
           </button>
         ))}
-        {leader && (people.length > 0 || params.user) && (
-          <label className="text-muted-foreground ml-auto flex items-center gap-2 text-sm">
-            {t('person')}
+        {leader && (
+          <label className="text-muted-foreground flex items-center gap-2 text-sm sm:ml-auto">
+            {t('showing')}
             <select
               value={params.user ?? ''}
               onChange={(e) => setParams({ user: e.target.value || null })}
-              className="border-border bg-background text-foreground rounded-md border px-2 py-1 text-sm"
+              className="border-border bg-background text-foreground max-w-[14rem] rounded-md border px-2 py-1 text-sm"
             >
-              <option value="">{t('everyone')}</option>
-              {params.user && !people.some((p) => p.userId === params.user) && (
-                <option value={params.user}>{subtitle ?? '…'}</option>
-              )}
-              {people.map((p) => (
-                <option key={p.userId} value={p.userId ?? ''}>
-                  {personName(p)}
-                  {p.extension ? ` (${p.extension})` : ''}
-                </option>
-              ))}
+              <option value="">{t('me')}</option>
+              <option value={EVERYONE}>{t('everyone')}</option>
+              {view === 'person' &&
+                params.user &&
+                !people.some((p) => p.userId === params.user) && (
+                  <option value={params.user}>{subtitle ?? '…'}</option>
+                )}
+              {people
+                .filter((p) => p.userId !== ownId)
+                .map((p) => (
+                  <option key={p.userId} value={p.userId ?? ''}>
+                    {personName(p)}
+                    {p.extension ? ` (${p.extension})` : ''}
+                  </option>
+                ))}
             </select>
           </label>
         )}
@@ -507,12 +547,131 @@ export function CallStatsReport() {
     </div>
   );
 
+  const deltaBadge = (
+    k: KpiKey,
+    now: number | null,
+    before: number | null,
+    label: string,
+    title?: string
+  ) => {
+    const d = delta(now, before);
+    // Under half a point rounds to 0: no arrow, no colour.
+    if (
+      !d ||
+      d.direction === 'flat' ||
+      (POINT_DELTA_KEYS.has(k) && deltaPoints(d.abs) === 0)
+    )
+      return null;
+    const tone = deltaTone(k, d);
+    return (
+      <p
+        title={title ?? label}
+        className={cn(
+          'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
+          tone === 'good' &&
+            'text-emerald-600 [[data-mode=dark]_&]:text-emerald-400',
+          tone === 'bad' && 'text-red-600 [[data-mode=dark]_&]:text-red-400'
+        )}
+      >
+        {d.direction === 'up' ? (
+          <ArrowUp className="size-3" aria-hidden />
+        ) : (
+          <ArrowDown className="size-3" aria-hidden />
+        )}
+        {POINT_DELTA_KEYS.has(k)
+          ? t(d.direction === 'up' ? 'pointsUp' : 'pointsDown', {
+              n: deltaPoints(d.abs),
+            })
+          : d.pct === null
+            ? t('newFigure')
+            : formatPercent(Math.abs(d.pct))}
+        <span className="text-muted-foreground ml-1 font-normal">{label}</span>
+      </p>
+    );
+  };
+
+  // The previous window, as "Compared with …": a window ending at
+  // midnight names its last day; one cut part-way through names the cut.
+  const comparedWith =
+    stats?.range.previousFrom && stats.range.previousTo
+      ? t('comparedWith', {
+          from: dayTime(stats.range.previousFrom),
+          to:
+            dayTime(stats.range.previousTo) === dayFmt(stats.range.previousTo)
+              ? dayFmt(
+                  new Date(Date.parse(stats.range.previousTo) - 1).toISOString()
+                )
+              : dayTime(stats.range.previousTo),
+        })
+      : undefined;
+
+  const hero =
+    stats &&
+    (() => {
+      const s = stats.summary;
+      const periodLabel =
+        params.period === 'custom' && range
+          ? `${dayFmt(range.from)} – ${lastDay(range)}`
+          : t(`periods.${params.period}`);
+      const hint = (inbound: number, outbound: number) =>
+        t('hint.calls', { inbound, outbound });
+      return (
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+          <div className={cn(card, 'p-5')}>
+            <p className="text-muted-foreground text-sm">
+              {t('hero.talkTime')}
+            </p>
+            <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums">
+              {formatDuration(s.talkSecondsTotal)}
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {t('externalOnly', { period: periodLabel })}
+            </p>
+            {deltaBadge(
+              'talkTotal',
+              s.talkSecondsTotal,
+              stats.previous.talkSecondsTotal,
+              t(`compare.${params.period}`),
+              comparedWith
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {HERO_TILES.map((k) => {
+              const v = heroTileValue(s, k);
+              return (
+                <div key={k} className={cn(card, 'p-3')}>
+                  <p className="text-muted-foreground text-xs">
+                    {k === 'answered' ? t('hero.answered') : t(`kpi.${k}`)}
+                  </p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums">
+                    {k === 'talkAverage'
+                      ? formatDuration(v)
+                      : v === null
+                        ? '—'
+                        : nf(v)}
+                  </p>
+                  {k === 'calls' && (
+                    <p className="text-muted-foreground text-xs">
+                      {hint(s.inboundTotal, s.outboundTotal)}
+                    </p>
+                  )}
+                  {k === 'answered' && (
+                    <p className="text-muted-foreground text-xs">
+                      {hint(s.inboundAnswered, s.outboundAnswered)}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    })();
+
   const tiles = stats && (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      {KPI_KEYS.map((k) => {
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {DETAIL_KPI_KEYS.map((k) => {
         const now = kpiValue(stats.summary, k);
-        const d = delta(now, kpiValue(stats.previous, k));
-        const tone = deltaTone(k, d);
         const s = stats.summary;
         const hint =
           k === 'outbound'
@@ -525,12 +684,7 @@ export function CallStatsReport() {
                   answered: s.inboundAnswered,
                   total: s.inboundTotal,
                 })
-              : k === 'calls'
-                ? t('hint.calls', {
-                    inbound: s.inboundTotal,
-                    outbound: s.outboundTotal,
-                  })
-                : null;
+              : null;
         return (
           <div key={k} className={cn(card, 'p-3')}>
             <p className="text-muted-foreground text-xs">{t(`kpi.${k}`)}</p>
@@ -538,37 +692,13 @@ export function CallStatsReport() {
               {kpiText(k, now)}
             </p>
             {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
-            {d &&
-              d.direction !== 'flat' &&
-              // Under half a point rounds to 0: no arrow, no colour.
-              !(POINT_DELTA_KEYS.has(k) && deltaPoints(d.abs) === 0) && (
-                <p
-                  title={t('vsPrevious')}
-                  className={cn(
-                    'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
-                    tone === 'good' &&
-                      'text-emerald-600 [[data-mode=dark]_&]:text-emerald-400',
-                    tone === 'bad' &&
-                      'text-red-600 [[data-mode=dark]_&]:text-red-400'
-                  )}
-                >
-                  {d.direction === 'up' ? (
-                    <ArrowUp className="size-3" aria-hidden />
-                  ) : (
-                    <ArrowDown className="size-3" aria-hidden />
-                  )}
-                  {POINT_DELTA_KEYS.has(k)
-                    ? t(d.direction === 'up' ? 'pointsUp' : 'pointsDown', {
-                        n: deltaPoints(d.abs),
-                      })
-                    : d.pct === null
-                      ? t('newFigure')
-                      : formatPercent(Math.abs(d.pct))}
-                  <span className="text-muted-foreground ml-1 font-normal">
-                    {t('vsPrevious')}
-                  </span>
-                </p>
-              )}
+            {deltaBadge(
+              k,
+              now,
+              kpiValue(stats.previous, k),
+              t('vsPrevious'),
+              comparedWith
+            )}
           </div>
         );
       })}
@@ -920,7 +1050,17 @@ export function CallStatsReport() {
       )
     );
 
-  const showAgent = stats?.scope !== 'self';
+  const showAgent = view === 'everyone';
+  const singleDay = isSingleDay(params);
+  // One day: the clock is enough; longer: the day too.
+  const listTime = (iso: string) =>
+    singleDay
+      ? new Intl.DateTimeFormat(locale, {
+          timeZone: zone,
+          hour: '2-digit',
+          minute: '2-digit',
+        }).format(new Date(iso))
+      : timeFmt(iso);
   const callList = stats && (
     <section className={cn(card, 'overflow-hidden')}>
       <header className="border-border border-b px-4 py-3">
@@ -941,102 +1081,53 @@ export function CallStatsReport() {
         </p>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[48rem] text-sm">
-              <thead className="text-muted-foreground border-border border-b text-xs">
-                <tr>
-                  {(
-                    [
-                      'time',
-                      'direction',
-                      'customer',
-                      ...(showAgent ? (['agent'] as const) : []),
-                      'status',
-                      'ring',
-                      'talk',
-                      'outcome',
-                    ] as const
-                  ).map((c) => (
-                    <th
-                      key={c}
-                      className={cn(
-                        'px-3 py-2 font-semibold whitespace-nowrap',
-                        c === 'ring' || c === 'talk'
-                          ? 'text-right'
-                          : 'text-left'
-                      )}
-                    >
-                      {t(`list.columns.${c}`)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shownList.calls.map((c) => {
-                  const missed = callTone(c) === 'missed';
-                  const answered =
-                    !missed && (c.answeredAt || (c.talkSeconds ?? 0) > 0);
-                  const outbound = c.direction === 'outbound';
-                  const Icon = missed
-                    ? PhoneMissed
-                    : outbound
-                      ? PhoneOutgoing
-                      : PhoneIncoming;
-                  return (
-                    <tr key={c.id} className="border-border border-b">
-                      <td className="px-3 py-2 whitespace-nowrap tabular-nums">
-                        {timeFmt(c.startedAt)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1',
-                            missed &&
-                              'text-red-600 [[data-mode=dark]_&]:text-red-400'
-                          )}
-                        >
-                          <Icon className="size-4" aria-hidden />
-                          <span className="sr-only sm:not-sr-only">
-                            {t(outbound ? 'list.outbound' : 'list.inbound')}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="max-w-[14rem] truncate px-3 py-2">
-                        {who(c)}
-                      </td>
-                      {showAgent && (
-                        <td className="text-muted-foreground px-3 py-2">
-                          {c.userName ?? '—'}
-                        </td>
-                      )}
-                      <td className="px-3 py-2">
-                        {t(
+          <ul className="divide-border divide-y text-sm">
+            {shownList.calls.map((c) => {
+              const missed = callTone(c) === 'missed';
+              const answered =
+                !missed && (c.answeredAt || (c.talkSeconds ?? 0) > 0);
+              const outbound = c.direction === 'outbound';
+              const Icon = missed
+                ? PhoneMissed
+                : outbound
+                  ? PhoneOutgoing
+                  : PhoneIncoming;
+              return (
+                <li key={c.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <Icon
+                    className={cn(
+                      'size-4 shrink-0',
+                      missed
+                        ? 'text-red-600 [[data-mode=dark]_&]:text-red-400'
+                        : 'text-muted-foreground'
+                    )}
+                    aria-label={t(outbound ? 'list.outbound' : 'list.inbound')}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate">{who(c)}</p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {[
+                        listTime(c.startedAt),
+                        t(
                           missed
                             ? 'list.status.missed'
                             : answered
                               ? 'list.status.answered'
                               : 'list.status.unanswered'
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {formatDuration(c.ringSeconds)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {formatDuration(c.talkSeconds)}
-                      </td>
-                      <td className="text-muted-foreground px-3 py-2">
-                        {(OUTCOME_KEYS as readonly string[]).includes(
-                          c.disposition ?? ''
-                        )
-                          ? tOutcome(c.disposition as 'interested')
-                          : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        ),
+                        showAgent && (c.userName ?? '—'),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-medium tabular-nums">
+                    {formatDuration(c.talkSeconds)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
           {shownList.failed && (
             <p className="text-destructive px-4 pt-3 text-sm">
               {t('list.loadFailed')}
@@ -1069,7 +1160,11 @@ export function CallStatsReport() {
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       {header}
       {!query ? (
-        <p className="text-muted-foreground text-sm">{t('pickDays')}</p>
+        params.period === 'custom' ? (
+          <p className="text-muted-foreground text-sm">{t('pickDays')}</p>
+        ) : (
+          <div className="bg-muted h-40 animate-pulse rounded-xl" aria-hidden />
+        )
       ) : !current ? (
         <div className="bg-muted h-40 animate-pulse rounded-xl" aria-hidden />
       ) : current.error ? (
@@ -1082,58 +1177,51 @@ export function CallStatsReport() {
         </p>
       ) : !stats ? null : (
         <>
-          {range && (
-            <p className="text-muted-foreground text-xs">
-              {t('range', {
-                from: dayFmt(range.from),
-                to: dayFmt(new Date(Date.parse(range.to) - 1).toISOString()),
-                zone: range.timeZone,
-              })}
-              {stats.range.previousFrom && stats.range.previousTo && (
-                <>
-                  {' · '}
-                  {t('comparedWith', {
-                    from: dayTime(stats.range.previousFrom),
-                    // A window ending at midnight names its last day;
-                    // one cut part-way through names the cut.
-                    to:
-                      dayTime(stats.range.previousTo) ===
-                      dayFmt(stats.range.previousTo)
-                        ? dayFmt(
-                            new Date(
-                              Date.parse(stats.range.previousTo) - 1
-                            ).toISOString()
-                          )
-                        : dayTime(stats.range.previousTo),
-                  })}
-                </>
-              )}
-            </p>
-          )}
-          {tiles}
-          {stats.summary.calls === 0 ? (
-            <p
-              className={cn(
-                card,
-                'text-muted-foreground p-8 text-center text-sm'
-              )}
-            >
-              {t('empty')}
-            </p>
-          ) : (
+          {hero}
+          {callList}
+          {stats.summary.calls > 0 && (
             <>
-              {daily}
-              {heat}
-              <div className="grid gap-4 lg:grid-cols-2">
-                {buckets}
-                {outcomes}
-              </div>
-              {peopleTable}
-              <div className="grid gap-4 lg:grid-cols-2">
-                {top}
-                {longest}
-              </div>
-              {callList}
+              <button
+                type="button"
+                aria-expanded={detailsOpen}
+                onClick={toggleDetails}
+                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm font-medium"
+              >
+                {detailsOpen ? t('details.hide') : t('details.show')}
+                <ChevronDown
+                  className={cn(
+                    'size-4 transition-transform',
+                    detailsOpen && 'rotate-180'
+                  )}
+                  aria-hidden
+                />
+              </button>
+              {detailsOpen && (
+                <div className="space-y-4">
+                  {range && (
+                    <p className="text-muted-foreground text-xs">
+                      {t('range', {
+                        from: dayFmt(range.from),
+                        to: lastDay(range),
+                        zone: range.timeZone,
+                      })}
+                      {comparedWith && ` · ${comparedWith}`}
+                    </p>
+                  )}
+                  {tiles}
+                  {!singleDay && daily}
+                  {heat}
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {buckets}
+                    {outcomes}
+                  </div>
+                  {showAgent && peopleTable}
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {top}
+                    {longest}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </>

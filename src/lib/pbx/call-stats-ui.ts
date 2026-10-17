@@ -23,37 +23,50 @@ const UUID_RE =
 
 // ---------- The URL ----------
 
+/** `?user=all`: everyone the caller may see (their teams, the workspace). */
+export const EVERYONE = 'all';
+
+/** The page opens on today: people check their own talk time today. */
+export const DEFAULT_PERIOD: CallStatsPeriod = 'today';
+
 export interface ReportParams {
   period: CallStatsPeriod;
   /** YYYY-MM-DD, custom only (null otherwise or when unusable). */
   from: string | null;
   to: string | null;
-  /** The person drilled into, else null (everyone in scope). */
+  /**
+   * Whose calls: null is me (the default, for every role), EVERYONE is
+   * everyone in the caller's scope, a uuid is that one person.
+   */
   user: string | null;
 }
 
 /**
  * `?period=&from=&to=&user=` as the page reads it: an unknown period is
- * this month, a custom period with bad days keeps the days null (the
- * page then asks for them), a malformed person is everyone.
+ * today, a custom period with bad days keeps the days null (the page
+ * then asks for them), a missing or malformed person is me.
  */
 export function readReportParams(
   get: (key: string) => string | null
 ): ReportParams {
   const raw = get('period');
-  const period: CallStatsPeriod = isCallStatsPeriod(raw) ? raw : 'month';
+  const period: CallStatsPeriod = isCallStatsPeriod(raw) ? raw : DEFAULT_PERIOD;
   const user = get('user');
   const days =
     period === 'custom' && checkCustomDays(get('from'), get('to')) === null
       ? { from: get('from'), to: get('to') }
       : { from: null, to: null };
-  return { period, ...days, user: user && UUID_RE.test(user) ? user : null };
+  return {
+    period,
+    ...days,
+    user: user === EVERYONE || (user && UUID_RE.test(user)) ? user : null,
+  };
 }
 
-/** The query string for `p`, without the `?`; month is the default. */
+/** The query string for `p`, without the `?`; today and me are defaults. */
 export function reportSearch(p: ReportParams): string {
   const q = new URLSearchParams();
-  if (p.period !== 'month') q.set('period', p.period);
+  if (p.period !== DEFAULT_PERIOD) q.set('period', p.period);
   if (p.period === 'custom' && p.from && p.to) {
     q.set('from', p.from);
     q.set('to', p.to);
@@ -62,17 +75,53 @@ export function reportSearch(p: ReportParams): string {
   return q.toString();
 }
 
-/** The stats request's query, or null while a custom period lacks days. */
-export function statsQuery(p: ReportParams, tz: string): string | null {
+/**
+ * The stats request's query, or null while it cannot be asked yet: a
+ * custom period lacking days, or "me" before the signed-in id is known.
+ * Me is `user=<own id>` (always in the caller's scope); everyone sends
+ * no user, so the API answers for the caller's whole scope.
+ */
+export function statsQuery(
+  p: ReportParams,
+  tz: string,
+  ownId: string | null
+): string | null {
   if (p.period === 'custom' && !(p.from && p.to)) return null;
+  const user = p.user === null ? ownId : p.user === EVERYONE ? null : p.user;
+  if (p.user === null && !user) return null;
   const q = new URLSearchParams({ period: p.period });
   if (p.period === 'custom') {
     q.set('from', p.from!);
     q.set('to', p.to!);
   }
   q.set('tz', tz);
-  if (p.user) q.set('user', p.user);
+  if (user) q.set('user', user);
   return q.toString();
+}
+
+export type ReportView = 'me' | 'everyone' | 'person';
+
+/** Who the page is showing: picking myself by id is still "me". */
+export function reportView(p: ReportParams, ownId: string | null): ReportView {
+  if (p.user === null || (ownId !== null && p.user === ownId)) return 'me';
+  return p.user === EVERYONE ? 'everyone' : 'person';
+}
+
+/**
+ * The period buttons: today, yesterday, this week, this month, custom.
+ * A period still reachable by URL (last week, last month) gets its
+ * button too while it is the one shown, before Custom.
+ */
+export function periodButtons(current: CallStatsPeriod): CallStatsPeriod[] {
+  const shown: CallStatsPeriod[] = ['today', 'yesterday', 'week', 'month'];
+  if (current !== 'custom' && !shown.includes(current)) shown.push(current);
+  return [...shown, 'custom'];
+}
+
+/** A period of one day: no daily trend to draw. */
+export function isSingleDay(p: ReportParams): boolean {
+  if (p.period === 'today' || p.period === 'yesterday') return true;
+  return p.period === 'custom' && !!p.from && p.from === p.to;
 }
 
 export { CALL_STATS_PERIODS };
@@ -92,6 +141,29 @@ export const KPI_KEYS = [
   'uniqueNumbers',
 ] as const;
 export type KpiKey = (typeof KPI_KEYS)[number];
+
+/** The hero's small tiles, under the talk time (talkTotal). */
+export const HERO_TILES = [
+  'calls',
+  'answered',
+  'missed',
+  'talkAverage',
+] as const;
+export type HeroTile = (typeof HERO_TILES)[number];
+
+/** A hero tile's figure: answered is both ways, inbound and outbound. */
+export function heroTileValue(
+  s: CallStatsSummary,
+  key: HeroTile
+): number | null {
+  if (key === 'answered') return s.inboundAnswered + s.outboundAnswered;
+  return kpiValue(s, key);
+}
+
+/** The KPI tiles behind "More details": every one the hero leaves out. */
+export const DETAIL_KPI_KEYS: readonly KpiKey[] = KPI_KEYS.filter(
+  (k) => k !== 'talkTotal' && !(HERO_TILES as readonly string[]).includes(k)
+);
 
 /** The figure a tile compares with the previous period. */
 export function kpiValue(s: CallStatsSummary, key: KpiKey): number | null {

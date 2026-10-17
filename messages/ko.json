@@ -6321,15 +6321,11 @@
       "span": "최대 92일까지 선택할 수 있습니다"
     },
     "pickDays": "첫날과 마지막 날을 고른 뒤 적용을 누르세요",
-    "person": "담당자",
     "everyone": "전체",
-    "exportReport": "리포트 내보내기 (CSV)",
-    "exportCalls": "통화 목록 내보내기 (CSV)",
     "range": "{from} – {to} · {zone}",
     "loadFailed": "통화 리포트를 불러오지 못했습니다",
     "forbidden": "이 사람의 통화는 볼 수 없습니다",
     "needsMigration": "통화 리포트를 쓰려면 데이터베이스 업데이트가 필요합니다",
-    "empty": "이 기간에는 통화가 없습니다",
     "kpi": {
       "calls": "전체 통화",
       "inboundAnswered": "받은 수신 통화",
@@ -6420,13 +6416,8 @@
     "list": {
       "title": "이 기간의 통화",
       "columns": {
-        "time": "시간",
         "direction": "방향",
-        "customer": "고객",
-        "agent": "담당자",
         "status": "상태",
-        "ring": "대기",
-        "talk": "통화",
         "outcome": "결과"
       },
       "inbound": "수신",
@@ -6455,7 +6446,31 @@
       "customer": "고객",
       "agent": "담당자",
       "started": "시작 시각",
-      "secondsNote": "시간은 초 단위, 응답률은 0–1 비율입니다"
-    }
+      "secondsNote": "시간은 초 단위, 응답률은 0–1 비율입니다",
+      "calls": "통화 목록"
+    },
+    "myTitle": "내 통화",
+    "mySubtitle": "통화 시간과 통화 내역",
+    "showing": "보기",
+    "me": "나",
+    "externalOnly": "외부 통화만 · {period}",
+    "hero": {
+      "talkTime": "통화 시간",
+      "answered": "연결됨"
+    },
+    "compare": {
+      "today": "어제 대비",
+      "yesterday": "그저께 대비",
+      "week": "지난주 대비",
+      "last_week": "그 전 주 대비",
+      "month": "지난달 대비",
+      "last_month": "그 전 달 대비",
+      "custom": "이전 기간 대비"
+    },
+    "details": {
+      "show": "자세히 보기",
+      "hide": "간단히 보기"
+    },
+    "exportCsv": "내보내기 (CSV)"
   }
 }

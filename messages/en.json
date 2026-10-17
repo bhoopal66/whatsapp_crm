@@ -6321,15 +6321,11 @@
       "span": "Pick at most 92 days"
     },
     "pickDays": "Pick the first and last day, then Apply",
-    "person": "Person",
     "everyone": "Everyone",
-    "exportReport": "Export report (CSV)",
-    "exportCalls": "Export calls (CSV)",
     "range": "{from} – {to} · {zone}",
     "loadFailed": "Couldn’t load the call report",
     "forbidden": "You can’t view that person’s calls",
     "needsMigration": "Call report needs a database update",
-    "empty": "No calls in this period",
     "kpi": {
       "calls": "Total calls",
       "inboundAnswered": "Answered inbound",
@@ -6420,13 +6416,8 @@
     "list": {
       "title": "Calls in this period",
       "columns": {
-        "time": "Time",
         "direction": "Direction",
-        "customer": "Customer",
-        "agent": "Agent",
         "status": "Status",
-        "ring": "Ring",
-        "talk": "Talk",
         "outcome": "Outcome"
       },
       "inbound": "Inbound",
@@ -6455,7 +6446,31 @@
       "customer": "Customer",
       "agent": "Agent",
       "started": "Started",
-      "secondsNote": "Durations in seconds; answer rate as a 0–1 ratio"
-    }
+      "secondsNote": "Durations in seconds; answer rate as a 0–1 ratio",
+      "calls": "Calls"
+    },
+    "myTitle": "My calls",
+    "mySubtitle": "Talk time and calls",
+    "showing": "Showing",
+    "me": "Me",
+    "externalOnly": "External calls only · {period}",
+    "hero": {
+      "talkTime": "Talk time",
+      "answered": "Answered"
+    },
+    "compare": {
+      "today": "vs yesterday",
+      "yesterday": "vs the day before",
+      "week": "vs last week",
+      "last_week": "vs the week before",
+      "month": "vs last month",
+      "last_month": "vs the month before",
+      "custom": "vs the days before"
+    },
+    "details": {
+      "show": "More details",
+      "hide": "Fewer details"
+    },
+    "exportCsv": "Export (CSV)"
   }
 }
