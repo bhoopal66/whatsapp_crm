@@ -77,7 +77,8 @@
 -- SECURITY DEFINER, as 098: every read is filtered by
 -- current_account_id() and the scope by hand. The scope is an array
 -- computed once, so each call costs an array lookup (113's lesson).
--- The period is at most 100 days; p_tz must be in pg_timezone_names.
+-- The period is at most 100 days; p_tz is any time zone Postgres
+-- converts to (a zone name, an abbreviation or a POSIX offset).
 --
 -- Re-runnable: CREATE OR REPLACE, then the grants.
 -- ============================================================
@@ -113,10 +114,16 @@ BEGIN
     RAISE EXCEPTION 'The period must end after it starts and span at most 100 days'
       USING ERRCODE = '22023';
   END IF;
-  IF p_tz IS NULL OR NOT EXISTS (SELECT 1 FROM pg_timezone_names z WHERE z.name = p_tz) THEN
-    RAISE EXCEPTION 'Unknown time zone: %', coalesce(p_tz, 'NULL')
-      USING ERRCODE = '22023';
+  -- Asking Postgres to convert is the check: a pg_timezone_names lookup
+  -- reads every zone file and cost ~55 ms of a ~250 ms call.
+  IF p_tz IS NULL THEN
+    RAISE EXCEPTION 'Unknown time zone: NULL' USING ERRCODE = '22023';
   END IF;
+  BEGIN
+    PERFORM now() AT TIME ZONE p_tz;
+  EXCEPTION WHEN invalid_parameter_value THEN
+    RAISE EXCEPTION 'Unknown time zone: %', p_tz USING ERRCODE = '22023';
+  END;
 
   IF v_rank < 4 THEN
     v_scope := pbx_visible_user_ids();

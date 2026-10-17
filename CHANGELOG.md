@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system: call report figures
+
+**Migration required: 119** (`119_pbx_call_stats.sql`). It adds
+`pbx_call_stats`, which returns everything the Call report page shows
+for a period in one call: the headline figures and the previous
+period's, calls per day and per weekday and hour in the workspace's time
+zone, talk-length buckets, outcomes, a row per person, the most called
+numbers and the longest calls. Owners and admins see the whole
+workspace, team leaders their teams and themselves, everyone else their
+own calls. `supabase/ci/verify-pbx-call-stats.sql` asserts it.
+
 ### Calendar: a click on an event is no longer undone by a scroll
 
 No migration. On the day and week grids, the event popover could open
