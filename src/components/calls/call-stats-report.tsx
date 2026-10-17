@@ -538,34 +538,37 @@ export function CallStatsReport() {
               {kpiText(k, now)}
             </p>
             {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
-            {d && d.direction !== 'flat' && (
-              <p
-                title={t('vsPrevious')}
-                className={cn(
-                  'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
-                  tone === 'good' &&
-                    'text-emerald-600 [[data-mode=dark]_&]:text-emerald-400',
-                  tone === 'bad' &&
-                    'text-red-600 [[data-mode=dark]_&]:text-red-400'
-                )}
-              >
-                {d.direction === 'up' ? (
-                  <ArrowUp className="size-3" aria-hidden />
-                ) : (
-                  <ArrowDown className="size-3" aria-hidden />
-                )}
-                {POINT_DELTA_KEYS.has(k)
-                  ? t(d.direction === 'up' ? 'pointsUp' : 'pointsDown', {
-                      n: deltaPoints(d.abs),
-                    })
-                  : d.pct === null
-                    ? t('newFigure')
-                    : formatPercent(Math.abs(d.pct))}
-                <span className="text-muted-foreground ml-1 font-normal">
-                  {t('vsPrevious')}
-                </span>
-              </p>
-            )}
+            {d &&
+              d.direction !== 'flat' &&
+              // Under half a point rounds to 0: no arrow, no colour.
+              !(POINT_DELTA_KEYS.has(k) && deltaPoints(d.abs) === 0) && (
+                <p
+                  title={t('vsPrevious')}
+                  className={cn(
+                    'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
+                    tone === 'good' &&
+                      'text-emerald-600 [[data-mode=dark]_&]:text-emerald-400',
+                    tone === 'bad' &&
+                      'text-red-600 [[data-mode=dark]_&]:text-red-400'
+                  )}
+                >
+                  {d.direction === 'up' ? (
+                    <ArrowUp className="size-3" aria-hidden />
+                  ) : (
+                    <ArrowDown className="size-3" aria-hidden />
+                  )}
+                  {POINT_DELTA_KEYS.has(k)
+                    ? t(d.direction === 'up' ? 'pointsUp' : 'pointsDown', {
+                        n: deltaPoints(d.abs),
+                      })
+                    : d.pct === null
+                      ? t('newFigure')
+                      : formatPercent(Math.abs(d.pct))}
+                  <span className="text-muted-foreground ml-1 font-normal">
+                    {t('vsPrevious')}
+                  </span>
+                </p>
+              )}
           </div>
         );
       })}
@@ -1091,11 +1094,17 @@ export function CallStatsReport() {
                   {' · '}
                   {t('comparedWith', {
                     from: dayTime(stats.range.previousFrom),
-                    to: dayTime(
-                      new Date(
-                        Date.parse(stats.range.previousTo) - 1
-                      ).toISOString()
-                    ),
+                    // A window ending at midnight names its last day;
+                    // one cut part-way through names the cut.
+                    to:
+                      dayTime(stats.range.previousTo) ===
+                      dayFmt(stats.range.previousTo)
+                        ? dayFmt(
+                            new Date(
+                              Date.parse(stats.range.previousTo) - 1
+                            ).toISOString()
+                          )
+                        : dayTime(stats.range.previousTo),
                   })}
                 </>
               )}
