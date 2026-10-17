@@ -5031,7 +5031,8 @@
       "saved": "상태를 {status}(으)로 바꿨습니다",
       "failed": "상태를 바꾸지 못했습니다",
       "notOnPbx": "전화 시스템에 내 내선이 없습니다"
-    }
+    },
+    "reportLink": "통화 리포트"
   },
   "ChatCalls": {
     "section": "통화",
@@ -6292,6 +6293,166 @@
       "retryDone": "WhatsApp에 그룹 생성을 다시 요청했습니다.",
       "retryFailed": "다시 시도하지 못했습니다.",
       "cancel": "취소"
+    }
+  },
+  "CallStatsPage": {
+    "title": "통화 리포트",
+    "back": "통화",
+    "scope": {
+      "self": "내 통화",
+      "team": "내 팀",
+      "workspace": "전체 워크스페이스",
+      "onePerson": "한 사람"
+    },
+    "periods": {
+      "today": "오늘",
+      "yesterday": "어제",
+      "week": "이번 주",
+      "last_week": "지난주",
+      "month": "이번 달",
+      "last_month": "지난달",
+      "custom": "직접 지정"
+    },
+    "from": "시작",
+    "to": "종료",
+    "apply": "적용",
+    "custom": {
+      "order": "종료일이 시작일보다 앞섭니다",
+      "span": "최대 92일까지 선택할 수 있습니다"
+    },
+    "pickDays": "첫날과 마지막 날을 고른 뒤 적용을 누르세요",
+    "person": "담당자",
+    "everyone": "전체",
+    "exportReport": "리포트 내보내기 (CSV)",
+    "exportCalls": "통화 목록 내보내기 (CSV)",
+    "range": "{from} – {to} · {zone}",
+    "loadFailed": "통화 리포트를 불러오지 못했습니다",
+    "forbidden": "이 사람의 통화는 볼 수 없습니다",
+    "needsMigration": "통화 리포트를 쓰려면 데이터베이스 업데이트가 필요합니다",
+    "empty": "이 기간에는 통화가 없습니다",
+    "kpi": {
+      "calls": "전체 통화",
+      "inboundAnswered": "받은 수신 통화",
+      "outbound": "발신",
+      "missed": "부재중",
+      "answerRate": "응답률",
+      "talkTotal": "총 통화 시간",
+      "talkAverage": "평균 통화 시간",
+      "longest": "최장 통화",
+      "ringAverage": "평균 대기 (응답 속도)",
+      "uniqueNumbers": "고유 번호 수"
+    },
+    "hint": {
+      "outbound": "{total}건 중 {answered}건 연결",
+      "answerRate": "수신 {total}건 중 {answered}건",
+      "calls": "수신 {inbound} · 발신 {outbound}"
+    },
+    "vsPrevious": "이전 기간 대비",
+    "newFigure": "신규",
+    "charts": {
+      "dailyTitle": "일별 추이",
+      "dailyDescription": "하루 통화 수와 통화 시간(분) 선 그래프",
+      "inboundAnswered": "받은 수신",
+      "outbound": "발신",
+      "missed": "부재중",
+      "talkMinutes": "통화 (분)",
+      "heatTitle": "바쁜 시간대",
+      "heatDescription": "요일·시간대별 통화 수, 진할수록 바쁩니다",
+      "heatCell": "{day} {hour}:00 — 통화 {calls}건, 응답 {answered}건, 부재중 {missed}건, 통화 시간 {talk}",
+      "less": "적음",
+      "more": "많음",
+      "days": {
+        "1": "월",
+        "2": "화",
+        "3": "수",
+        "4": "목",
+        "5": "금",
+        "6": "토",
+        "7": "일"
+      },
+      "talkTitle": "통화 길이",
+      "talkDescription": "연결된 통화를 길이별로 나눈 분포",
+      "buckets": {
+        "under_30s": "30초 미만",
+        "30s_2m": "30초–2분",
+        "2m_5m": "2–5분",
+        "5m_15m": "5–15분",
+        "15m_plus": "15분 이상"
+      },
+      "calls": "통화",
+      "outcomesTitle": "통화 결과",
+      "outcomesDescription": "통화 후 기록한 결과별 연결 통화 수",
+      "noOutcome": "결과 없음"
+    },
+    "people": {
+      "title": "담당자별",
+      "hint": "담당자를 고르면 그 사람의 통화만 볼 수 있습니다",
+      "columns": {
+        "name": "담당자",
+        "extension": "내선",
+        "calls": "통화",
+        "inboundAnswered": "응답",
+        "outbound": "발신",
+        "missed": "부재중",
+        "answerRate": "응답률",
+        "talkTotal": "통화 시간",
+        "talkAverage": "평균 통화",
+        "longest": "최장",
+        "ringAverage": "평균 대기"
+      },
+      "unassigned": "링 그룹 / 미배정",
+      "unnamed": "이름 없는 사용자",
+      "total": "합계"
+    },
+    "top": {
+      "title": "주요 고객",
+      "detail": "통화 {count}건 · 통화 시간 {talk}",
+      "empty": "이 기간에는 고객이 없습니다"
+    },
+    "longest": {
+      "title": "가장 긴 통화",
+      "empty": "이 기간에는 연결된 통화가 없습니다"
+    },
+    "unknownNumber": "알 수 없는 번호",
+    "list": {
+      "title": "이 기간의 통화",
+      "columns": {
+        "time": "시간",
+        "direction": "방향",
+        "customer": "고객",
+        "agent": "담당자",
+        "status": "상태",
+        "ring": "대기",
+        "talk": "통화",
+        "outcome": "결과"
+      },
+      "inbound": "수신",
+      "outbound": "발신",
+      "status": {
+        "answered": "응답",
+        "missed": "부재중",
+        "unanswered": "연결 안 됨"
+      },
+      "loadMore": "더 보기",
+      "empty": "이 기간에는 통화가 없습니다",
+      "loadFailed": "통화 목록을 불러오지 못했습니다"
+    },
+    "csv": {
+      "summary": "요약",
+      "days": "일별",
+      "people": "담당자별",
+      "metric": "항목",
+      "current": "이번 기간",
+      "previous": "이전 기간",
+      "day": "날짜",
+      "outboundAnswered": "연결된 발신",
+      "talkSeconds": "통화 (초)",
+      "ringSeconds": "대기 (초)",
+      "number": "번호",
+      "customer": "고객",
+      "agent": "담당자",
+      "started": "시작 시각",
+      "secondsNote": "시간은 초 단위, 응답률은 0–1 비율입니다"
     }
   }
 }

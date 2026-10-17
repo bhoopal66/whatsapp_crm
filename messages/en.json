@@ -5031,7 +5031,8 @@
       "saved": "Status set to {status}",
       "failed": "Couldn't change your status",
       "notOnPbx": "The phone system does not list your extension"
-    }
+    },
+    "reportLink": "Call report"
   },
   "ChatCalls": {
     "section": "Calls",
@@ -6292,6 +6293,166 @@
       "retryDone": "Asked WhatsApp to create the group again.",
       "retryFailed": "Could not retry.",
       "cancel": "Cancel"
+    }
+  },
+  "CallStatsPage": {
+    "title": "Call report",
+    "back": "Calls",
+    "scope": {
+      "self": "Your calls",
+      "team": "Your teams",
+      "workspace": "Whole workspace",
+      "onePerson": "One person"
+    },
+    "periods": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "week": "This week",
+      "last_week": "Last week",
+      "month": "This month",
+      "last_month": "Last month",
+      "custom": "Custom"
+    },
+    "from": "From",
+    "to": "To",
+    "apply": "Apply",
+    "custom": {
+      "order": "The end date is before the start date",
+      "span": "Pick at most 92 days"
+    },
+    "pickDays": "Pick the first and last day, then Apply",
+    "person": "Person",
+    "everyone": "Everyone",
+    "exportReport": "Export report (CSV)",
+    "exportCalls": "Export calls (CSV)",
+    "range": "{from} – {to} · {zone}",
+    "loadFailed": "Couldn’t load the call report",
+    "forbidden": "You can’t view that person’s calls",
+    "needsMigration": "Call report needs a database update",
+    "empty": "No calls in this period",
+    "kpi": {
+      "calls": "Total calls",
+      "inboundAnswered": "Answered inbound",
+      "outbound": "Outbound",
+      "missed": "Missed",
+      "answerRate": "Answer rate",
+      "talkTotal": "Total talk time",
+      "talkAverage": "Avg talk time",
+      "longest": "Longest call",
+      "ringAverage": "Avg ring (speed of answer)",
+      "uniqueNumbers": "Unique numbers"
+    },
+    "hint": {
+      "outbound": "{answered} answered of {total}",
+      "answerRate": "{answered} of {total} incoming",
+      "calls": "{inbound} in · {outbound} out"
+    },
+    "vsPrevious": "vs previous period",
+    "newFigure": "new",
+    "charts": {
+      "dailyTitle": "Daily trend",
+      "dailyDescription": "Calls per day, with talk minutes as a line",
+      "inboundAnswered": "Inbound answered",
+      "outbound": "Outbound",
+      "missed": "Missed",
+      "talkMinutes": "Talk (min)",
+      "heatTitle": "Busiest times",
+      "heatDescription": "Calls by weekday and hour; darker is busier",
+      "heatCell": "{day} {hour}:00 — {calls} calls, {answered} answered, {missed} missed, {talk} talk",
+      "less": "Less",
+      "more": "More",
+      "days": {
+        "1": "Mon",
+        "2": "Tue",
+        "3": "Wed",
+        "4": "Thu",
+        "5": "Fri",
+        "6": "Sat",
+        "7": "Sun"
+      },
+      "talkTitle": "Talk length",
+      "talkDescription": "Answered calls by how long they lasted",
+      "buckets": {
+        "under_30s": "Under 30s",
+        "30s_2m": "30s–2m",
+        "2m_5m": "2–5m",
+        "5m_15m": "5–15m",
+        "15m_plus": "15m+"
+      },
+      "calls": "Calls",
+      "outcomesTitle": "Outcomes",
+      "outcomesDescription": "Answered calls by the outcome set after the call",
+      "noOutcome": "No outcome"
+    },
+    "people": {
+      "title": "By person",
+      "hint": "Pick a person to see only their calls",
+      "columns": {
+        "name": "Person",
+        "extension": "Ext.",
+        "calls": "Calls",
+        "inboundAnswered": "Answered",
+        "outbound": "Outbound",
+        "missed": "Missed",
+        "answerRate": "Answer rate",
+        "talkTotal": "Talk time",
+        "talkAverage": "Avg talk",
+        "longest": "Longest",
+        "ringAverage": "Avg ring"
+      },
+      "unassigned": "Ring groups / unassigned",
+      "unnamed": "Unnamed person",
+      "total": "Total"
+    },
+    "top": {
+      "title": "Top customers",
+      "detail": "{count, plural, one {# call} other {# calls}} · {talk} talk",
+      "empty": "No customers in this period"
+    },
+    "longest": {
+      "title": "Longest calls",
+      "empty": "No answered calls in this period"
+    },
+    "unknownNumber": "Unknown number",
+    "list": {
+      "title": "Calls in this period",
+      "columns": {
+        "time": "Time",
+        "direction": "Direction",
+        "customer": "Customer",
+        "agent": "Agent",
+        "status": "Status",
+        "ring": "Ring",
+        "talk": "Talk",
+        "outcome": "Outcome"
+      },
+      "inbound": "Inbound",
+      "outbound": "Outbound",
+      "status": {
+        "answered": "Answered",
+        "missed": "Missed",
+        "unanswered": "Not answered"
+      },
+      "loadMore": "Load more",
+      "empty": "No calls in this period",
+      "loadFailed": "Couldn’t load the calls"
+    },
+    "csv": {
+      "summary": "Summary",
+      "days": "By day",
+      "people": "By person",
+      "metric": "Metric",
+      "current": "This period",
+      "previous": "Previous period",
+      "day": "Day",
+      "outboundAnswered": "Outbound answered",
+      "talkSeconds": "Talk (seconds)",
+      "ringSeconds": "Ring (seconds)",
+      "number": "Number",
+      "customer": "Customer",
+      "agent": "Agent",
+      "started": "Started",
+      "secondsNote": "Durations in seconds; answer rate as a 0–1 ratio"
     }
   }
 }

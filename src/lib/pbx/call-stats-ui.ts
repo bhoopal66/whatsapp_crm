@@ -131,6 +131,24 @@ export function deltaTone(key: KpiKey, d: CallStatsDelta | null): DeltaTone {
   return up !== LOWER_IS_BETTER.has(key) ? 'good' : 'bad';
 }
 
+// ---------- The daily trend ----------
+
+/** One day of the trend chart: stacked calls, talk minutes as a line. */
+export interface DailyPoint {
+  day: string;
+  inboundAnswered: number;
+  outbound: number;
+  missed: number;
+  talkMinutes: number;
+}
+
+/** The stacked series, bottom first, with their chart and legend colours. */
+export const DAILY_SERIES = [
+  { key: 'inboundAnswered', fill: 'fill-emerald-500', bg: 'bg-emerald-500' },
+  { key: 'outbound', fill: 'fill-blue-500', bg: 'bg-blue-500' },
+  { key: 'missed', fill: 'fill-red-500', bg: 'bg-red-500' },
+] as const;
+
 // ---------- Busiest times ----------
 
 export interface HeatCell {

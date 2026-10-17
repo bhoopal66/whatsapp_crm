@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { Phone, PhoneMissed } from 'lucide-react';
+import { BarChart3, Phone, PhoneMissed } from 'lucide-react';
 
 import { CallReport } from '@/components/calls/call-report';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
@@ -268,7 +268,16 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{t('title')}</h1>
-        <MyStatus />
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/calls/report"
+            className="border-border hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
+          >
+            <BarChart3 className="size-4" aria-hidden />
+            {t('reportLink')}
+          </Link>
+          <MyStatus />
+        </div>
       </div>
       <nav className="flex flex-wrap gap-2" aria-label={t('title')}>
         {visibleCallTabs(accountRole, hasPhone).map((k) => (
