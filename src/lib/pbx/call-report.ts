@@ -175,6 +175,62 @@ export function callReportRange(
   return { ok: true, from, to };
 }
 
+/**
+ * The window the Call report compares `period` with: like with like.
+ * The periods still running (today, this week, this month) against the
+ * one before up to the same point — today at 10:00 against yesterday
+ * 00:00-10:00, this month against last month from the 1st for as long
+ * (cut at last month's end, so 31 October has all of September); the
+ * whole periods (yesterday, last week, last month) against the whole
+ * one before; N custom days against the N days before. Starts are
+ * local midnights (DST-safe); null when the period itself is refused.
+ */
+export function callReportPreviousRange(
+  period: CallStatsPeriod,
+  now: Date,
+  timeZone: string,
+  custom?: { from?: string | null; to?: string | null }
+): { from: Date; to: Date } | null {
+  const current = callReportRange(period, now, timeZone, custom);
+  if (!current.ok) return null;
+  if (period === 'custom') {
+    const a = parseDay(custom?.from)!;
+    const b = parseDay(custom?.to)!;
+    const days = b.day - a.day + 1;
+    return {
+      from: zonedMidnight(a.y, a.m, a.d - days, timeZone),
+      to: current.from,
+    };
+  }
+  const { y, m, d } = localDate(now, timeZone);
+  const sinceMonday = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+  if (period === 'yesterday')
+    return {
+      from: zonedDayStart(now, timeZone, 2),
+      to: zonedDayStart(now, timeZone, 1),
+    };
+  if (period === 'last_week')
+    return {
+      from: zonedDayStart(now, timeZone, sinceMonday + 14),
+      to: zonedDayStart(now, timeZone, sinceMonday + 7),
+    };
+  if (period === 'last_month')
+    return {
+      from: zonedMidnight(y, m - 2, 1, timeZone),
+      to: zonedMidnight(y, m - 1, 1, timeZone),
+    };
+  const from =
+    period === 'today'
+      ? zonedDayStart(now, timeZone, 1)
+      : period === 'week'
+        ? zonedDayStart(now, timeZone, sinceMonday + 7)
+        : zonedMidnight(y, m - 1, 1, timeZone);
+  // As far in as now is into the current period, never past its start.
+  const elapsed = current.to.getTime() - current.from.getTime();
+  const to = Math.min(from.getTime() + elapsed, current.from.getTime());
+  return { from, to: new Date(to) };
+}
+
 // ---------- The rows ----------
 
 /** The calls.disposition values, then answered calls with none. */

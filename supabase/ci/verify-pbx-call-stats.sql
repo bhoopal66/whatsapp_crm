@@ -31,6 +31,8 @@ DECLARE
   u_member UUID := '00000000-0000-4000-8000-000000119003';   -- in the leader's team
   u_agent  UUID := '00000000-0000-4000-8000-000000119004';   -- in no team of the leader
   u_other  UUID := '00000000-0000-4000-8000-000000119005';   -- owner of another workspace
+  u_guest  UUID := '00000000-0000-4000-8000-000000119006';   -- a bank guest of workspace A
+  u_nobody UUID := '00000000-0000-4000-8000-000000119007';   -- signed in, no profile anywhere
   a_acct   UUID;
   b_acct   UUID;
   conn     UUID;
@@ -39,6 +41,7 @@ DECLARE
   p_from   TEXT := '2025-03-02 20:00:00+00';
   p_to     TEXT := '2025-03-06 20:00:00+00';
   q_stats  TEXT := 'SELECT pbx_call_stats(%L, %L, %L, %L)::text';
+  q_prev   TEXT := 'SELECT pbx_call_stats(%L, %L, %L, %L, %L, %L)::text';
   r        TEXT;
   j        JSONB;
   s        TEXT;
@@ -112,7 +115,8 @@ BEGIN
     (u_lead,   'cs-lead@example.invalid'),
     (u_member, 'cs-member@example.invalid'),
     (u_agent,  'cs-agent@example.invalid'),
-    (u_other,  'cs-other@example.invalid')
+    (u_other,  'cs-other@example.invalid'),
+    (u_guest,  'cs-guest@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_other;
@@ -123,6 +127,7 @@ BEGIN
   UPDATE profiles SET account_id = a_acct, account_role = 'team_leader', full_name = 'CS Lead' WHERE user_id = u_lead;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent', full_name = 'CS Member' WHERE user_id = u_member;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent', full_name = 'CS Agent' WHERE user_id = u_agent;
+  UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
 
   INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'CS team', u_lead)
   RETURNING id INTO t_team;
@@ -190,6 +195,12 @@ BEGIN
     -- before the previous period: left out
     (a_acct, conn, 'cs-p4', 'inbound', '101', u_member, 'answered',
      '2025-02-26 19:59:59+00', '2025-02-26 20:00:00+00', 70, 1, NULL, '971500119015', NULL);
+  -- A month later, alone in its period: the agent calls the member's
+  -- customer, whom the agent cannot see (no chat links them).
+  INSERT INTO calls (account_id, connection_id, pbx_call_id, direction, extension, user_id, status,
+                     started_at, answered_at, talk_seconds, ring_seconds, remote_number, contact_id)
+  VALUES (a_acct, conn, 'cs-a9', 'outbound', '102', u_agent, 'answered',
+          '2025-04-01 06:00+00', '2025-04-01 06:00:03+00', 45, 3, '971500119001', c_cust);
   -- workspace B's call in the same hour as the member's first
   INSERT INTO calls (account_id, pbx_call_id, direction, user_id, status, started_at, answered_at,
                      talk_seconds, ring_seconds, remote_number)
@@ -374,6 +385,69 @@ BEGIN
   n := n + 1;
   IF r NOT LIKE 'ERROR 22023: Unknown time zone%' THEN
     failed := array_append(failed, ('an unknown time zone does not raise: ' || left(r, 300))::text);
+  END IF;
+
+  -- ---------- a customer's name only for who can see the customer ----------
+  r := pg_temp.px_try('authenticated', u_agent, format(q_stats, '2025-03-31 20:00+00', '2025-04-01 20:00+00', 'Asia/Dubai', NULL));
+  j := CASE WHEN r LIKE 'ERROR%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF j->'top_numbers'->0->>'contact_id' IS DISTINCT FROM c_cust::text
+     OR jsonb_typeof(j->'top_numbers'->0->'contact_name') IS DISTINCT FROM 'null'
+     OR j->'longest'->0->>'contact_id' IS DISTINCT FROM c_cust::text
+     OR jsonb_typeof(j->'longest'->0->'contact_name') IS DISTINCT FROM 'null' THEN
+    failed := array_append(failed, ('an agent is shown the name of a customer they cannot see: ' || left(r, 400))::text);
+  END IF;
+  r := pg_temp.px_try('authenticated', u_owner, format(q_stats, '2025-03-31 20:00+00', '2025-04-01 20:00+00', 'Asia/Dubai', NULL));
+  j := CASE WHEN r LIKE 'ERROR%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF j->'top_numbers'->0->>'contact_name' IS DISTINCT FROM 'CS customer'
+     OR j->'longest'->0->>'contact_name' IS DISTINCT FROM 'CS customer' THEN
+    failed := array_append(failed, ('the owner is not shown the customer''s name: ' || left(r, 400))::text);
+  END IF;
+
+  -- ---------- no workspace, no figures ----------
+  r := pg_temp.px_try('authenticated', u_guest, format(q_stats, p_from, p_to, 'Asia/Dubai', NULL));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN
+    failed := array_append(failed, ('a bank guest is not 42501: ' || left(r, 300))::text);
+  END IF;
+  r := pg_temp.px_try('authenticated', u_nobody, format(q_stats, p_from, p_to, 'Asia/Dubai', NULL));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501:%' THEN
+    failed := array_append(failed, ('a caller with no active workspace is not 42501: ' || left(r, 300))::text);
+  END IF;
+
+  -- ---------- the previous period the caller names ----------
+  -- [2025-03-01 04:00Z, 2025-03-01 05:30Z): cs-p1 only, not cs-p2 or cs-p3.
+  r := pg_temp.px_try('authenticated', u_owner, format(q_prev, p_from, p_to, 'Asia/Dubai', NULL,
+                                                       '2025-03-01 04:00+00', '2025-03-01 05:30+00'));
+  j := CASE WHEN r LIKE 'ERROR%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF pg_temp.cs_fig(j->'previous') IS DISTINCT FROM '1/1/1/0/0/0/1.0000/50/1/50/50/5/1/5/5/1/0'
+     OR pg_temp.cs_fig(j->'summary') IS DISTINCT FROM '13/8/4/5/4/4/0.5000/1810/7/259/1000/23/4/6/8/11/4'
+     OR (j->'range'->>'previous_from')::timestamptz IS DISTINCT FROM '2025-03-01 04:00+00'::timestamptz
+     OR (j->'range'->>'previous_to')::timestamptz IS DISTINCT FROM '2025-03-01 05:30+00'::timestamptz THEN
+    failed := array_append(failed, ('a named previous period: ' || coalesce(pg_temp.cs_fig(j->'previous'), r)
+                                    || ' ' || coalesce(j->>'range', '-'))::text);
+  END IF;
+  -- A window long before this one: the calls between them count in neither.
+  r := pg_temp.px_try('authenticated', u_owner, format(q_prev, p_from, p_to, 'Asia/Dubai', NULL,
+                                                       '2025-02-26 00:00+00', '2025-02-27 00:00+00'));
+  j := CASE WHEN r LIKE 'ERROR%' THEN NULL ELSE r::jsonb END;
+  n := n + 1;
+  IF j->'previous'->>'calls' IS DISTINCT FROM '1' OR j->'summary'->>'calls' IS DISTINCT FROM '13' THEN
+    failed := array_append(failed, ('a previous period apart from this one: ' || left(coalesce(j->>'previous', r), 300))::text);
+  END IF;
+  n := n + 1;
+  IF pg_temp.px_try('authenticated', u_owner, format(q_prev, p_from, p_to, 'Asia/Dubai', NULL,
+                                                     '2025-03-01 00:00+00', '2025-03-03 00:00+00')) NOT LIKE 'ERROR 22023:%'
+     OR pg_temp.px_try('authenticated', u_owner, format(q_prev, p_from, p_to, 'Asia/Dubai', NULL,
+                                                        '2025-03-01 00:00+00', '2025-03-01 00:00+00')) NOT LIKE 'ERROR 22023:%'
+     OR pg_temp.px_try('authenticated', u_owner, format(q_prev, p_from, p_to, 'Asia/Dubai', NULL,
+                                                        '2024-11-01 00:00+00', '2025-03-01 00:00+00')) NOT LIKE 'ERROR 22023:%'
+     OR pg_temp.px_try('authenticated', u_owner, format(q_prev, p_from, p_to, 'Asia/Dubai', NULL,
+                                                        '2025-03-01 00:00+00', NULL)) NOT LIKE 'ERROR 22023:%' THEN
+    failed := array_append(failed, 'a previous period past this one''s start, empty, over 100 days or half given does not raise 22023'::text);
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

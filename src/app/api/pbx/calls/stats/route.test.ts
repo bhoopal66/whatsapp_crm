@@ -78,6 +78,9 @@ describe('GET /api/pbx/calls/stats', () => {
       p_to: '2026-10-13T10:00:00.000Z',
       p_tz: 'Asia/Dubai',
       p_user: null,
+      // Like with like: last month from the 1st for as long.
+      p_prev_from: '2026-08-31T20:00:00.000Z',
+      p_prev_to: '2026-09-13T10:00:00.000Z',
     });
     const body = await res.json();
     expect(body.range).toEqual({
@@ -207,6 +210,16 @@ describe('GET /api/pbx/calls/stats', () => {
       '[pbx] call stats failed:',
       'secret detail'
     );
+
+    stats = {
+      data: null,
+      error: { message: 'Unknown time zone: Mars/Base', code: '22023' },
+    };
+    const refused = await get();
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({
+      error: 'Unknown time zone: Mars/Base',
+    });
 
     stats = { data: 'not an object', error: null };
     expect((await get()).status).toBe(500);

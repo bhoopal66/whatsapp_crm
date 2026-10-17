@@ -8,6 +8,7 @@ import {
   CALL_REPORT_PERIODS,
   CALL_STATS_PERIODS,
   averageSeconds,
+  callReportPreviousRange,
   callReportRange,
   checkCustomDays,
   formatDuration,
@@ -325,5 +326,92 @@ describe('agrees with the database', () => {
   it("a custom period fits 098's 100 days, with a day of slack for DST", () => {
     expect(sql).toContain("p_to - p_from > interval '100 days'");
     expect(CALL_REPORT_MAX_DAYS + 1).toBeLessThan(100);
+  });
+});
+
+describe('callReportPreviousRange: like with like', () => {
+  // Tuesday 13 October 2026, 14:00 in Dubai (UTC+4).
+  const now = new Date('2026-10-13T10:00:00Z');
+  const prev = (...args: Parameters<typeof callReportPreviousRange>) => {
+    const r = callReportPreviousRange(...args);
+    if (!r) throw new Error('refused');
+    return { from: iso(r.from), to: iso(r.to) };
+  };
+
+  it('today so far against yesterday up to the same time', () => {
+    expect(prev('today', now, DUBAI)).toEqual({
+      from: '2026-10-11T20:00:00.000Z',
+      to: '2026-10-12T10:00:00.000Z',
+    });
+  });
+
+  it('this week so far against last week from Monday for as long', () => {
+    expect(prev('week', now, DUBAI)).toEqual({
+      from: '2026-10-04T20:00:00.000Z',
+      to: '2026-10-06T10:00:00.000Z',
+    });
+  });
+
+  it('this month so far against last month from the 1st for as long', () => {
+    expect(prev('month', now, DUBAI)).toEqual({
+      from: '2026-08-31T20:00:00.000Z',
+      to: '2026-09-13T10:00:00.000Z',
+    });
+  });
+
+  it('31 October against all of September, cut at its end', () => {
+    const late = new Date('2026-10-31T15:00:00Z');
+    expect(prev('month', late, DUBAI)).toEqual({
+      from: '2026-08-31T20:00:00.000Z',
+      to: '2026-09-30T20:00:00.000Z',
+    });
+  });
+
+  it('January looks back into December, and last month into November', () => {
+    const jan = new Date('2027-01-15T10:00:00Z');
+    expect(prev('month', jan, DUBAI)).toEqual({
+      from: '2026-11-30T20:00:00.000Z',
+      to: '2026-12-15T10:00:00.000Z',
+    });
+    expect(prev('last_month', jan, DUBAI)).toEqual({
+      from: '2026-10-31T20:00:00.000Z',
+      to: '2026-11-30T20:00:00.000Z',
+    });
+  });
+
+  it('the whole periods just gone against the whole one before', () => {
+    expect(prev('yesterday', now, DUBAI)).toEqual({
+      from: '2026-10-10T20:00:00.000Z',
+      to: '2026-10-11T20:00:00.000Z',
+    });
+    expect(prev('last_week', now, DUBAI)).toEqual({
+      from: '2026-09-27T20:00:00.000Z',
+      to: '2026-10-04T20:00:00.000Z',
+    });
+    expect(prev('last_month', now, DUBAI)).toEqual({
+      from: '2026-07-31T20:00:00.000Z',
+      to: '2026-08-31T20:00:00.000Z',
+    });
+  });
+
+  it('N custom days against the N days before; refused days have none', () => {
+    expect(
+      prev('custom', now, DUBAI, { from: '2026-10-01', to: '2026-10-05' })
+    ).toEqual({
+      from: '2026-09-25T20:00:00.000Z',
+      to: '2026-09-30T20:00:00.000Z',
+    });
+    expect(
+      callReportPreviousRange('custom', now, DUBAI, { from: '2026-10-05' })
+    ).toBeNull();
+  });
+
+  it('starts at local midnight across a DST change, never past the current start', () => {
+    // Monday 26 October 2026 in London, the day after clocks went back.
+    const r = prev('today', new Date('2026-10-26T10:00:00Z'), 'Europe/London');
+    expect(r.from).toBe('2026-10-24T23:00:00.000Z');
+    expect(Date.parse(r.to)).toBeLessThanOrEqual(
+      Date.parse('2026-10-26T00:00:00.000Z')
+    );
   });
 });

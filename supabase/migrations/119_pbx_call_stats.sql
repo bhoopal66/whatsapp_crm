@@ -1,10 +1,10 @@
 -- ============================================================
 -- 119 — the call report page's figures (module 015).
 --
--- pbx_call_stats(p_from, p_to, p_tz, p_user) returns, as one JSON
--- object, everything the Call report page draws for [p_from, p_to):
--- the headline figures and the same for the equally long period just
--- before (for deltas), a zero-filled day series and a weekday x hour
+-- pbx_call_stats(p_from, p_to, p_tz, p_user, p_prev_from, p_prev_to)
+-- returns, as one JSON object, everything the Call report page draws
+-- for [p_from, p_to): the headline figures and the same for the
+-- previous period (for deltas), a zero-filled day series and a weekday x hour
 -- grid in p_tz, talk-length buckets, outcomes, a row per person, the
 -- most called numbers and the longest calls. Needs 089 and 113.
 --
@@ -43,7 +43,13 @@
 --                      unique_numbers (distinct remote_number),
 --                      with_outcome (calls with a disposition).
 --                      Averages and maxima are null with nothing to
---                      measure. previous: [p_from - (p_to - p_from), p_from).
+--                      measure. previous: [p_prev_from, p_prev_to),
+--                      the window the caller compares with (the app
+--                      passes like with like: today so far against
+--                      yesterday up to the same hour); with neither
+--                      given, the equally long period just before,
+--                      [p_from - (p_to - p_from), p_from). Both or
+--                      neither, ending by p_from, at most 100 days.
 --   by_day      every local day of the period, oldest first: day
 --               (YYYY-MM-DD), calls, inbound_answered, outbound,
 --               outbound_answered, missed, talk_seconds.
@@ -83,11 +89,17 @@
 -- Re-runnable: CREATE OR REPLACE, then the grants.
 -- ============================================================
 
+-- A database that ran an earlier draft has the 4-argument form, which
+-- would make a 4-argument call ambiguous.
+DROP FUNCTION IF EXISTS public.pbx_call_stats(timestamptz, timestamptz, text, uuid);
+
 CREATE OR REPLACE FUNCTION public.pbx_call_stats(
   p_from timestamptz,
   p_to   timestamptz,
   p_tz   text,
-  p_user uuid DEFAULT NULL
+  p_user uuid DEFAULT NULL,
+  p_prev_from timestamptz DEFAULT NULL,
+  p_prev_to   timestamptz DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -102,7 +114,8 @@ DECLARE
   -- The people whose calls count; NULL for the whole workspace.
   v_scope   uuid[];
   v_people  boolean;
-  v_prev    timestamptz;
+  v_prev    timestamptz := coalesce(p_prev_from, p_from - (p_to - p_from));
+  v_prev_to timestamptz := coalesce(p_prev_to, p_from);
   v_result  jsonb;
 BEGIN
   IF v_uid IS NULL OR v_account IS NULL OR v_rank < 1 THEN
@@ -112,6 +125,11 @@ BEGIN
   IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from
      OR p_to - p_from > interval '100 days' THEN
     RAISE EXCEPTION 'The period must end after it starts and span at most 100 days'
+      USING ERRCODE = '22023';
+  END IF;
+  IF (p_prev_from IS NULL) <> (p_prev_to IS NULL) OR v_prev_to <= v_prev
+     OR v_prev_to > p_from OR v_prev_to - v_prev > interval '100 days' THEN
+    RAISE EXCEPTION 'The previous period must end by the start of this one, after it starts, and span at most 100 days'
       USING ERRCODE = '22023';
   END IF;
   -- Asking Postgres to convert is the check: a pg_timezone_names lookup
@@ -136,7 +154,6 @@ BEGIN
     v_scope := ARRAY[p_user];
   END IF;
   v_people := v_rank >= 3 AND p_user IS NULL;
-  v_prev := p_from - (p_to - p_from);
 
   WITH base AS MATERIALIZED (
     SELECT k.id,
@@ -160,8 +177,9 @@ BEGIN
            k.ring_seconds AS ring
       FROM calls k
      WHERE k.account_id = v_account
-       AND k.started_at >= v_prev
-       AND k.started_at < p_to
+       -- This period and the previous one, which need not touch it.
+       AND ((k.started_at >= p_from AND k.started_at < p_to)
+            OR (k.started_at >= v_prev AND k.started_at < v_prev_to))
        AND k.direction IN ('inbound', 'outbound')
        AND (v_scope IS NULL OR k.user_id = ANY (v_scope))
   ),
@@ -311,7 +329,7 @@ BEGIN
         LEFT JOIN contacts ct ON ct.id = l.contact AND ct.account_id = v_account
         LEFT JOIN profiles pr ON pr.user_id = l.who AND pr.account_id = v_account), '[]'::jsonb),
     'range', jsonb_build_object('from', p_from, 'to', p_to, 'tz', p_tz,
-                                'previous_from', v_prev, 'previous_to', p_from),
+                                'previous_from', v_prev, 'previous_to', v_prev_to),
     'scope', CASE WHEN p_user IS NOT NULL THEN 'person'
                   WHEN v_rank >= 4 THEN 'workspace'
                   WHEN v_rank = 3 THEN 'team'
@@ -323,10 +341,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.pbx_call_stats(timestamptz, timestamptz, text, uuid) IS
-  'The Call report page''s figures for [p_from, p_to), at most 100 days, days and hours in p_tz: summary and the previous period, by day, weekday x hour, talk buckets, outcomes, people (leader and up), top numbers, longest calls. Owners/admins the workspace (calls with no person included), a team leader their teams plus themselves, everyone else their own calls; p_user narrows to one person in that scope (42501 outside it). 098''s attribution. Migration 119.';
+COMMENT ON FUNCTION public.pbx_call_stats(timestamptz, timestamptz, text, uuid, timestamptz, timestamptz) IS
+  'The Call report page''s figures for [p_from, p_to), at most 100 days, days and hours in p_tz: summary and the previous period ([p_prev_from, p_prev_to), else the equally long period just before), by day, weekday x hour, talk buckets, outcomes, people (leader and up), top numbers, longest calls. Owners/admins the workspace (calls with no person included), a team leader their teams plus themselves, everyone else their own calls; p_user narrows to one person in that scope (42501 outside it). 098''s attribution. Migration 119.';
 
-REVOKE ALL ON FUNCTION public.pbx_call_stats(timestamptz, timestamptz, text, uuid)
+REVOKE ALL ON FUNCTION public.pbx_call_stats(timestamptz, timestamptz, text, uuid, timestamptz, timestamptz)
   FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.pbx_call_stats(timestamptz, timestamptz, text, uuid)
+GRANT EXECUTE ON FUNCTION public.pbx_call_stats(timestamptz, timestamptz, text, uuid, timestamptz, timestamptz)
   TO authenticated;

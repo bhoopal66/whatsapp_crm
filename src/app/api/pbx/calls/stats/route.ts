@@ -11,7 +11,9 @@
 // inclusive, at most 92. pbx_call_stats decides whose calls the caller
 // gets: owners and admins the workspace, a team leader their teams plus
 // themselves, everyone else their own. `user` narrows to one person in
-// that scope; anyone outside it is a 403.
+// that scope; anyone outside it is a 403. The previous period the deltas
+// compare with is computed here too (callReportPreviousRange: like with
+// like). SQL's 22023 (a zone or period it refuses) is a 400.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -19,6 +21,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { UUID, fail } from '@/lib/pbx/calls';
 import {
   CALL_REPORT_MAX_DAYS,
+  callReportPreviousRange,
   callReportRange,
   isCallStatsPeriod,
   reportTimeZone,
@@ -51,21 +54,26 @@ export async function GET(request: Request) {
       : null;
     const timeZone = reportTimeZone(saved, params.get('tz'));
 
-    const range = callReportRange(period, new Date(), timeZone, {
-      from: params.get('from'),
-      to: params.get('to'),
-    });
+    const now = new Date();
+    const custom = { from: params.get('from'), to: params.get('to') };
+    const range = callReportRange(period, now, timeZone, custom);
     if (!range.ok) return fail(PROBLEMS[range.problem]);
+    // Like with like: today so far against yesterday up to the same time.
+    const previous = callReportPreviousRange(period, now, timeZone, custom);
 
     const { data, error } = await ctx.supabase.rpc('pbx_call_stats', {
       p_from: range.from.toISOString(),
       p_to: range.to.toISOString(),
       p_tz: timeZone,
       p_user: user,
+      p_prev_from: previous?.from.toISOString() ?? null,
+      p_prev_to: previous?.to.toISOString() ?? null,
     });
     if (error) {
       if (error.code === '42501')
         return fail('You cannot view that person’s calls', 403);
+      // An unknown zone or a refused period: the request, not the server.
+      if (error.code === '22023') return fail(error.message);
       if (isMissingFunction(error))
         return fail('The call report needs database migration 119.', 503);
       console.error('[pbx] call stats failed:', error.message);
