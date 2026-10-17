@@ -227,6 +227,7 @@ describe('pbx call helpers', () => {
     const q = (s: string) => parseCallListQuery(new URLSearchParams(s));
     expect(q('')).toEqual({
       contactId: null,
+      userId: null,
       scope: 'mine',
       from: null,
       to: null,
@@ -238,12 +239,17 @@ describe('pbx call helpers', () => {
       )
     ).toEqual({
       contactId: '00000000-0000-4000-8000-000000000001',
+      userId: null,
       scope: 'missed',
       from: '2026-09-30T20:00:00.000Z',
       to: null,
       limit: 200,
     });
     expect(q('contactId=x')).toBe('contactId must be an id');
+    expect(q('userId=x')).toBe('userId must be an id');
+    expect(q('userId=00000000-0000-4000-8000-0000000000aa')).toMatchObject({
+      userId: '00000000-0000-4000-8000-0000000000aa',
+    });
     expect(q('scope=team')).toBe(
       'scope must be one of mine, my_missed, missed, all, unrouted'
     );

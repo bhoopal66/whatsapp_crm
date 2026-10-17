@@ -1,6 +1,6 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
-//   ?contactId=&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
+//   ?contactId=&userId=&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
 //       ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
@@ -35,7 +35,10 @@
 // that rang their phone (myCallsFilter); missed: inbound calls nobody
 // answered (as the month summary counts them); my_missed: both; all:
 // every call RLS shows them (a leader's teams, an admin's workspace).
-// Newest first; from/to bound started_at (from inclusive). Viewer+.
+// userId: only the calls that person took or placed (calls.user_id),
+// narrowing whatever the scope and RLS show (the Call report page's
+// drill-down). Newest first; from/to bound started_at (from inclusive).
+// Viewer+.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -104,6 +107,7 @@ export async function GET(request: Request) {
         .select(columns)
         .eq('account_id', ctx.accountId);
       if (q.contactId) query = query.eq('contact_id', q.contactId);
+      if (q.userId) query = query.eq('user_id', q.userId);
       if (q.scope === 'mine' || q.scope === 'my_missed')
         query = query.or(myCallsFilter(ctx.userId));
       if (q.scope === 'missed' || q.scope === 'my_missed')

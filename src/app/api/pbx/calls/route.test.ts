@@ -272,6 +272,23 @@ describe('GET /api/pbx/calls', () => {
     expect((await get('limit=500')).status).toBe(400);
   });
 
+  it('narrows to one person with userId, within the scope, and refuses a bad id', async () => {
+    const U = '00000000-0000-4000-8000-0000000000bb';
+    rls.tables.calls.push(
+      call({ user_id: U }),
+      call({ user_id: 'other' }),
+      call({
+        user_id: U,
+        status: 'no_answer',
+        started_at: '2026-10-12T09:00:00.000Z',
+      })
+    );
+    expect(await ids(`scope=all&userId=${U}`)).toEqual(['call-3', 'call-1']);
+    expect(await ids(`scope=missed&userId=${U}`)).toEqual(['call-3']);
+    expect(await ids(`scope=all`)).toHaveLength(3);
+    expect((await get('scope=all&userId=nope')).status).toBe(400);
+  });
+
   it('counts a call that rang me as mine, by a jsonb containment PostgREST accepts', async () => {
     rls.tables.calls.push(
       call({ user_id: 'other', meta: { rang_user_ids: ['x', 'me'] } }),

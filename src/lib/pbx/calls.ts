@@ -451,6 +451,8 @@ export function unroutedNumbers(
 
 export interface CallListQuery {
   contactId: string | null;
+  /** One person's calls (calls.user_id), within what RLS already shows. */
+  userId: string | null;
   scope: CallScope;
   /** ISO instants: started_at >= from, < to. */
   from: string | null;
@@ -462,6 +464,8 @@ export interface CallListQuery {
 export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const contactId = q.get('contactId') || null;
   if (contactId && !UUID.test(contactId)) return 'contactId must be an id';
+  const userId = q.get('userId') || null;
+  if (userId && !UUID.test(userId)) return 'userId must be an id';
   // No scope is the caller's own calls: a list of everyone's has to be
   // asked for.
   const scope = q.get('scope') || 'mine';
@@ -480,7 +484,7 @@ export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const limit = q.get('limit') ? Number(q.get('limit')) : CALL_LIST_LIMIT;
   if (!Number.isInteger(limit) || limit < 1 || limit > CALL_LIST_MAX)
     return `limit must be a whole number from 1 to ${CALL_LIST_MAX}`;
-  return { contactId, scope: scope as CallScope, from, to, limit };
+  return { contactId, userId, scope: scope as CallScope, from, to, limit };
 }
 
 // ---------- Shared lookups (route side) ----------
