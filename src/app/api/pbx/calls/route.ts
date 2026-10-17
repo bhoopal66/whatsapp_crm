@@ -1,6 +1,6 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
-//   ?contactId=&userId=&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
+//   ?contactId=&userId=&userIds=&direction=external&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
 //   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
 //       ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
@@ -37,7 +37,10 @@
 // every call RLS shows them (a leader's teams, an admin's workspace).
 // userId: only the calls that person took or placed (calls.user_id),
 // narrowing whatever the scope and RLS show (the Call report page's
-// drill-down). Newest first; from/to bound started_at (from inclusive).
+// drill-down). userIds: the same for a comma list of people (at most
+// 200). direction=external: only inbound and outbound calls, the ones
+// pbx_call_stats counts. Like userId, both only narrow; RLS is not
+// widened. Newest first; from/to bound started_at (from inclusive).
 // Viewer+.
 // ============================================================
 
@@ -108,6 +111,9 @@ export async function GET(request: Request) {
         .eq('account_id', ctx.accountId);
       if (q.contactId) query = query.eq('contact_id', q.contactId);
       if (q.userId) query = query.eq('user_id', q.userId);
+      if (q.userIds) query = query.in('user_id', q.userIds);
+      if (q.direction === 'external')
+        query = query.in('direction', ['inbound', 'outbound']);
       if (q.scope === 'mine' || q.scope === 'my_missed')
         query = query.or(myCallsFilter(ctx.userId));
       if (q.scope === 'missed' || q.scope === 'my_missed')

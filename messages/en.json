@@ -6348,6 +6348,9 @@
       "calls": "{inbound} in · {outbound} out"
     },
     "vsPrevious": "vs previous period",
+    "comparedWith": "Compared with {from} – {to}",
+    "pointsUp": "+{n} pts",
+    "pointsDown": "−{n} pts",
     "newFigure": "new",
     "charts": {
       "dailyTitle": "Daily trend",

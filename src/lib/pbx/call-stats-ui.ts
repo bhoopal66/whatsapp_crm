@@ -250,23 +250,56 @@ export function sortPeople(
 /** The list's page size ("Load more"). */
 export const CALL_LIST_PAGE = 100;
 
-/** What the list asks /api/pbx/calls for: its own, or all + the person. */
+/**
+ * What the list asks /api/pbx/calls for: exactly the calls the figures
+ * count (pbx_call_stats counts calls.user_id, inbound and outbound
+ * only). Self is my id, not scope=mine, which would add calls that
+ * only rang me. A team with no person row has no calls to list: null.
+ */
 export function callListQuery(
   scope: CallStatsScope,
   userId: string | null,
   range: { from: string; to: string },
-  limit = CALL_LIST_PAGE
-): string {
+  limit = CALL_LIST_PAGE,
+  people: CallStatsPerson[] | null = null,
+  ownId: string | null = null
+): string | null {
   const q = new URLSearchParams();
-  if (scope === 'self') q.set('scope', 'mine');
-  else {
-    q.set('scope', 'all');
-    if (userId) q.set('userId', userId);
+  q.set('scope', 'all');
+  if (scope === 'self') {
+    if (!ownId) return null;
+    q.set('userId', ownId);
+  } else if (userId) q.set('userId', userId);
+  else if (scope === 'team') {
+    const ids = (people ?? []).flatMap((p) =>
+      p.kind === 'person' && p.userId ? [p.userId] : []
+    );
+    if (ids.length === 0) return null;
+    q.set('userIds', ids.join(','));
   }
+  q.set('direction', 'external');
   q.set('from', range.from);
   q.set('to', range.to);
   q.set('limit', String(limit));
   return q.toString();
+}
+
+/** The KPI tiles whose change is read in percentage points, not percent. */
+export const POINT_DELTA_KEYS: ReadonlySet<KpiKey> = new Set(['answerRate']);
+
+/** A ratio's change (0.06) as whole percentage points (6). */
+export function deltaPoints(abs: number): number {
+  return Math.round(Math.abs(abs) * 100);
+}
+
+/** The day in `timeZone` as YYYY-MM-DD (the CSV file name's date). */
+export function zoneDay(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(iso));
 }
 
 /**

@@ -228,6 +228,8 @@ describe('pbx call helpers', () => {
     expect(q('')).toEqual({
       contactId: null,
       userId: null,
+      userIds: null,
+      direction: null,
       scope: 'mine',
       from: null,
       to: null,
@@ -240,11 +242,25 @@ describe('pbx call helpers', () => {
     ).toEqual({
       contactId: '00000000-0000-4000-8000-000000000001',
       userId: null,
+      userIds: null,
+      direction: null,
       scope: 'missed',
       from: '2026-09-30T20:00:00.000Z',
       to: null,
       limit: 200,
     });
+    const A = '00000000-0000-4000-8000-0000000000aa';
+    const B = '00000000-0000-4000-8000-0000000000bb';
+    expect(q(`userIds=${A},${B}&direction=external`)).toMatchObject({
+      userIds: [A, B],
+      direction: 'external',
+    });
+    expect(q(`userIds=${A},nope`)).toBe('userIds must be ids');
+    expect(q(`userIds=${Array(201).fill(A).join(',')}`)).toMatch(/at most 200/);
+    expect(q(`userIds=${Array(200).fill(A).join(',')}`)).toMatchObject({
+      userIds: expect.any(Array),
+    });
+    expect(q('direction=internal')).toBe('direction must be external');
     expect(q('contactId=x')).toBe('contactId must be an id');
     expect(q('userId=x')).toBe('userId must be an id');
     expect(q('userId=00000000-0000-4000-8000-0000000000aa')).toMatchObject({

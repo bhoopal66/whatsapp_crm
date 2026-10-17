@@ -21,7 +21,12 @@ period's, calls per day and per weekday and hour in the workspace's time
 zone, talk-length buckets, outcomes, a row per person, the most called
 numbers and the longest calls. Owners and admins see the whole
 workspace, team leaders their teams and themselves, everyone else their
-own calls. `supabase/ci/verify-pbx-call-stats.sql` asserts it.
+own calls. `supabase/ci/verify-pbx-call-stats.sql` asserts it. The previous period
+is like with like (the same length, and the page says which days it
+covers), the answer rate's change reads in percentage points, and the
+call list under the figures is exactly the calls they count: external
+calls (inbound and outbound) by the person, the team's people or the
+whole workspace, rather than every call the viewer can see.
 
 ### Calendar: a click on an event is no longer undone by a scroll
 

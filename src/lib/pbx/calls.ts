@@ -449,10 +449,17 @@ export function unroutedNumbers(
   );
 }
 
+/** The most people `userIds` may name. */
+export const CALL_LIST_USER_IDS_MAX = 200;
+
 export interface CallListQuery {
   contactId: string | null;
   /** One person's calls (calls.user_id), within what RLS already shows. */
   userId: string | null;
+  /** Only these people's calls (calls.user_id), again within RLS. */
+  userIds: string[] | null;
+  /** 'external': inbound and outbound only, as the call report counts. */
+  direction: 'external' | null;
   scope: CallScope;
   /** ISO instants: started_at >= from, < to. */
   from: string | null;
@@ -460,12 +467,23 @@ export interface CallListQuery {
   limit: number;
 }
 
-/** `?contactId=&scope=&from=&to=&limit=`, checked; a string is the 400. */
+/** `?contactId=&userId=&userIds=&direction=&scope=&from=&to=&limit=`, checked; a string is the 400. */
 export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const contactId = q.get('contactId') || null;
   if (contactId && !UUID.test(contactId)) return 'contactId must be an id';
   const userId = q.get('userId') || null;
   if (userId && !UUID.test(userId)) return 'userId must be an id';
+  let userIds: string[] | null = null;
+  const idList = q.get('userIds');
+  if (idList) {
+    userIds = idList.split(',');
+    if (userIds.length > CALL_LIST_USER_IDS_MAX)
+      return `userIds takes at most ${CALL_LIST_USER_IDS_MAX} ids`;
+    if (!userIds.every((u) => UUID.test(u))) return 'userIds must be ids';
+  }
+  const direction = q.get('direction') || null;
+  if (direction !== null && direction !== 'external')
+    return 'direction must be external';
   // No scope is the caller's own calls: a list of everyone's has to be
   // asked for.
   const scope = q.get('scope') || 'mine';
@@ -484,7 +502,16 @@ export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const limit = q.get('limit') ? Number(q.get('limit')) : CALL_LIST_LIMIT;
   if (!Number.isInteger(limit) || limit < 1 || limit > CALL_LIST_MAX)
     return `limit must be a whole number from 1 to ${CALL_LIST_MAX}`;
-  return { contactId, userId, scope: scope as CallScope, from, to, limit };
+  return {
+    contactId,
+    userId,
+    userIds,
+    direction,
+    scope: scope as CallScope,
+    from,
+    to,
+    limit,
+  };
 }
 
 // ---------- Shared lookups (route side) ----------

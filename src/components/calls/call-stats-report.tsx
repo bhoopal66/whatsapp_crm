@@ -39,7 +39,10 @@ import {
   DAILY_SERIES,
   KPI_KEYS,
   PEOPLE_SORT_KEYS,
+  POINT_DELTA_KEYS,
   callListQuery,
+  deltaPoints,
+  zoneDay,
   deltaTone,
   heatLevel,
   heatmapMatrix,
@@ -139,7 +142,7 @@ export function CallStatsReport() {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  const { accountRole } = useAuth();
+  const { accountRole, user } = useAuth();
   const leader = !!accountRole && hasMinRole(accountRole, 'team_leader');
   const viewerZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -210,7 +213,14 @@ export function CallStatsReport() {
   // ---------- The call list ----------
   const listKey =
     stats && range
-      ? callListQuery(stats.scope, stats.userId, range, CALL_LIST_PAGE)
+      ? callListQuery(
+          stats.scope,
+          stats.userId,
+          range,
+          CALL_LIST_PAGE,
+          stats.people,
+          user?.id ?? null
+        )
       : null;
   const [list, setList] = useState<CallList | null>(null);
   const loadCalls = (key: string, to: string | null, prev: ListCall[]) => {
@@ -249,6 +259,8 @@ export function CallStatsReport() {
   useEffect(() => {
     if (listKey) loadCalls(listKey, null, []);
   }, [listKey]);
+  // No key: nothing to list (a team with nobody on it), not a pending load.
+  const noCalls = !!stats && !!range && !listKey;
   const shownList = list?.key === listKey ? list : null;
 
   // ---------- People table sort ----------
@@ -270,6 +282,17 @@ export function CallStatsReport() {
       month: 'short',
       year: 'numeric',
     }).format(new Date(iso));
+  // A day, with the time of day only when it is not midnight in the zone.
+  const dayTime = (iso: string) => {
+    const at = new Date(iso);
+    const clock = new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(at);
+    return clock === '00:00' ? dayFmt(iso) : `${dayFmt(iso)}, ${clock}`;
+  };
   const timeFmt = (iso: string | null) =>
     iso
       ? new Intl.DateTimeFormat(locale, {
@@ -308,7 +331,7 @@ export function CallStatsReport() {
 
   // ---------- CSV ----------
   const csvName = (what: string) =>
-    `${what}-${range ? range.from.slice(0, 10) : 'period'}.csv`;
+    `${what}-${range ? zoneDay(range.from, range.timeZone) : 'period'}.csv`;
   const exportReport = () => {
     if (!stats) return;
     const L: StatsCsvLabels = {
@@ -351,7 +374,13 @@ export function CallStatsReport() {
     };
     download(csvName('call-report'), [
       [t('title'), subtitle],
-      range ? [dayFmt(range.from), dayFmt(range.to), range.timeZone] : [],
+      range
+        ? [
+            dayFmt(range.from),
+            dayFmt(new Date(Date.parse(range.to) - 1).toISOString()),
+            range.timeZone,
+          ]
+        : [],
       [t('csv.secondsNote')],
       [],
       ...statsCsvRows(stats, L),
@@ -525,9 +554,13 @@ export function CallStatsReport() {
                 ) : (
                   <ArrowDown className="size-3" aria-hidden />
                 )}
-                {d.pct === null
-                  ? t('newFigure')
-                  : formatPercent(Math.abs(d.pct))}
+                {POINT_DELTA_KEYS.has(k)
+                  ? t(d.direction === 'up' ? 'pointsUp' : 'pointsDown', {
+                      n: deltaPoints(d.abs),
+                    })
+                  : d.pct === null
+                    ? t('newFigure')
+                    : formatPercent(Math.abs(d.pct))}
                 <span className="text-muted-foreground ml-1 font-normal">
                   {t('vsPrevious')}
                 </span>
@@ -890,7 +923,9 @@ export function CallStatsReport() {
       <header className="border-border border-b px-4 py-3">
         <h2 className="text-sm font-semibold">{t('list.title')}</h2>
       </header>
-      {!shownList || (shownList.loading && shownList.calls.length === 0) ? (
+      {noCalls ? (
+        <p className="text-muted-foreground p-4 text-sm">{t('list.empty')}</p>
+      ) : !shownList || (shownList.loading && shownList.calls.length === 0) ? (
         <div className="bg-muted m-4 h-16 animate-pulse rounded-xl" />
       ) : shownList.calls.length === 0 ? (
         <p
@@ -1051,6 +1086,19 @@ export function CallStatsReport() {
                 to: dayFmt(new Date(Date.parse(range.to) - 1).toISOString()),
                 zone: range.timeZone,
               })}
+              {stats.range.previousFrom && stats.range.previousTo && (
+                <>
+                  {' · '}
+                  {t('comparedWith', {
+                    from: dayTime(stats.range.previousFrom),
+                    to: dayTime(
+                      new Date(
+                        Date.parse(stats.range.previousTo) - 1
+                      ).toISOString()
+                    ),
+                  })}
+                </>
+              )}
             </p>
           )}
           {tiles}

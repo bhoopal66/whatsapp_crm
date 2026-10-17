@@ -289,6 +289,37 @@ describe('GET /api/pbx/calls', () => {
     expect((await get('scope=all&userId=nope')).status).toBe(400);
   });
 
+  it('narrows to external calls and to a list of people, and refuses bad ones', async () => {
+    const U = '00000000-0000-4000-8000-0000000000bb';
+    const V = '00000000-0000-4000-8000-0000000000cc';
+    rls.tables.calls.push(
+      call({ user_id: U }),
+      call({ user_id: U, direction: 'internal' }),
+      call({ user_id: V, direction: 'outbound' }),
+      call({ user_id: 'other' })
+    );
+    const sorted = async (qs: string) => (await ids(qs)).sort();
+    expect(await sorted('scope=all&direction=external')).toEqual([
+      'call-1',
+      'call-3',
+      'call-4',
+    ]);
+    expect(await sorted(`scope=all&userIds=${U},${V}`)).toEqual([
+      'call-1',
+      'call-2',
+      'call-3',
+    ]);
+    expect(
+      await sorted(`scope=all&userIds=${U},${V}&direction=external`)
+    ).toEqual(['call-1', 'call-3']);
+    expect((await get('scope=all&userIds=nope')).status).toBe(400);
+    expect((await get(`scope=all&userIds=${U},x`)).status).toBe(400);
+    expect((await get('scope=all&direction=internal')).status).toBe(400);
+    expect(
+      (await get(`scope=all&userIds=${Array(201).fill(U).join(',')}`)).status
+    ).toBe(400);
+  });
+
   it('counts a call that rang me as mine, by a jsonb containment PostgREST accepts', async () => {
     rls.tables.calls.push(
       call({ user_id: 'other', meta: { rang_user_ids: ['x', 'me'] } }),

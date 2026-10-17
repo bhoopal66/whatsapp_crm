@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   KPI_KEYS,
+  POINT_DELTA_KEYS,
   callListQuery,
   csvCell,
+  deltaPoints,
   deltaTone,
   heatLevel,
   heatmapMatrix,
@@ -15,6 +17,7 @@ import {
   statsCsvRows,
   statsQuery,
   toCsv,
+  zoneDay,
   type StatsCsvLabels,
 } from './call-stats-ui';
 import {
@@ -202,14 +205,61 @@ describe('the call list', () => {
     from: '2026-10-01T00:00:00.000Z',
     to: '2026-10-02T00:00:00.000Z',
   };
-  it('asks for my own calls in self scope, all + the person otherwise', () => {
-    expect(callListQuery('self', null, range)).toBe(
-      'scope=mine&from=2026-10-01T00%3A00%3A00.000Z&to=2026-10-02T00%3A00%3A00.000Z&limit=100'
-    );
+  const enc = (iso: string) => encodeURIComponent(iso);
+  const tail = `from=${enc(range.from)}&to=${enc(range.to)}&limit=100`;
+  const person = (userId: string | null, kind: 'person' | 'none' = 'person') =>
+    ({ kind, userId }) as CallStatsPerson;
+
+  it('lists my own calls by my id, never scope=mine', () => {
+    const q = callListQuery('self', null, range, 100, null, U);
+    expect(q).toBe(`scope=all&userId=${U}&direction=external&${tail}`);
+    expect(q).not.toContain('scope=mine');
+  });
+
+  it('lists one person, all scope, external calls only', () => {
     expect(callListQuery('person', U, range, 5)).toBe(
-      `scope=all&userId=${U}&from=2026-10-01T00%3A00%3A00.000Z&to=2026-10-02T00%3A00%3A00.000Z&limit=5`
+      `scope=all&userId=${U}&direction=external&from=${enc(range.from)}&to=${enc(range.to)}&limit=5`
     );
-    expect(callListQuery('workspace', null, range)).toMatch(/^scope=all&from=/);
+  });
+
+  it('lists a team by the people rows, and nothing when there are none', () => {
+    const V = '00000000-0000-4000-8000-0000000000cc';
+    expect(
+      callListQuery(
+        'team',
+        null,
+        range,
+        100,
+        [person(U), person(null, 'none'), person(V)],
+        'me'
+      )
+    ).toBe(
+      `scope=all&userIds=${U},${V}&direction=external&${tail}`.replace(
+        /,/g,
+        '%2C'
+      )
+    );
+    expect(
+      callListQuery('team', null, range, 100, [person(null, 'none')])
+    ).toBeNull();
+    expect(callListQuery('team', null, range, 100, [])).toBeNull();
+  });
+
+  it('lists the whole workspace, external calls only', () => {
+    expect(callListQuery('workspace', null, range)).toBe(
+      `scope=all&direction=external&${tail}`
+    );
+  });
+
+  it('shows the answer rate as points and dates in the zone', () => {
+    expect(POINT_DELTA_KEYS.has('answerRate')).toBe(true);
+    expect(POINT_DELTA_KEYS.has('missed')).toBe(false);
+    expect(deltaPoints(0.064)).toBe(6);
+    expect(deltaPoints(-0.0612)).toBe(6);
+    expect(zoneDay('2026-09-30T20:00:00.000Z', 'Asia/Dubai')).toBe(
+      '2026-10-01'
+    );
+    expect(zoneDay('2026-09-30T20:00:00.000Z', 'UTC')).toBe('2026-09-30');
   });
 
   it('pages from just past the oldest call, dropping repeats', () => {

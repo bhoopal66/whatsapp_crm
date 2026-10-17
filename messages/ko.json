@@ -6348,6 +6348,9 @@
       "calls": "수신 {inbound} · 발신 {outbound}"
     },
     "vsPrevious": "이전 기간 대비",
+    "comparedWith": "비교 기간: {from} – {to}",
+    "pointsUp": "+{n}%p",
+    "pointsDown": "−{n}%p",
     "newFigure": "신규",
     "charts": {
       "dailyTitle": "일별 추이",
