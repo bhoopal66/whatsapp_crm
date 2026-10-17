@@ -236,6 +236,16 @@ jobs:
       - name: Verify phone system
         run: supabase db query --local --file supabase/ci/verify-pbx.sql
 
+      # Call report figures (119): pbx_call_stats counts an owner/admin's
+      # whole workspace (a 'none' row for calls with no person), a team
+      # leader's teams plus themselves, anyone else their own calls; a
+      # person outside that scope is 42501, another workspace never
+      # counts; the figures, previous period, talk buckets, outcomes and
+      # the zero-filled days and weekday x hour grid in the caller's time
+      # zone are checked against a hand-computed fixture.
+      - name: Verify call report figures
+        run: supabase db query --local --file supabase/ci/verify-pbx-call-stats.sql
+
       # Deal rooms (088): WhatsApp groups on the Meta number, linked to a
       # contact. Consent before any group, at most 8 members, opted-out
       # and do-not-contact people refused, bank guests per bank and with
