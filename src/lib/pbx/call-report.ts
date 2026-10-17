@@ -22,6 +22,29 @@ export function isCallReportPeriod(value: unknown): value is CallReportPeriod {
   );
 }
 
+/**
+ * The Call report page's periods (GET /api/pbx/calls/stats): the tab's,
+ * plus the whole period just gone. Separate so the tab's buttons stay
+ * as they are.
+ */
+export const CALL_STATS_PERIODS = [
+  'today',
+  'yesterday',
+  'week',
+  'last_week',
+  'month',
+  'last_month',
+  'custom',
+] as const;
+export type CallStatsPeriod = (typeof CALL_STATS_PERIODS)[number];
+
+export function isCallStatsPeriod(value: unknown): value is CallStatsPeriod {
+  return (
+    typeof value === 'string' &&
+    (CALL_STATS_PERIODS as readonly string[]).includes(value)
+  );
+}
+
 /** A custom period's longest span in days; 098 refuses over 100. */
 export const CALL_REPORT_MAX_DAYS = 92;
 
@@ -101,11 +124,12 @@ export type CallReportRange =
 
 /**
  * [from, to) of a period in `timeZone`: today, this week (from Monday,
- * the UAE's first working day), this month — each up to `now` — or
- * whole custom days, both inclusive.
+ * the UAE's first working day), this month — each up to `now` —
+ * yesterday, last week, last month — whole — or whole custom days,
+ * both inclusive.
  */
 export function callReportRange(
-  period: CallReportPeriod,
+  period: CallStatsPeriod,
   now: Date,
   timeZone: string,
   custom?: { from?: string | null; to?: string | null }
@@ -122,12 +146,28 @@ export function callReportRange(
     };
   }
   const { y, m, d } = localDate(now, timeZone);
-  const back =
-    period === 'today'
-      ? 0
-      : period === 'week'
-        ? (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7
-        : d - 1;
+  const sinceMonday = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+  // The periods just gone are whole: they end where the current one starts.
+  if (period === 'yesterday')
+    return {
+      ok: true,
+      from: zonedDayStart(now, timeZone, 1),
+      to: zonedDayStart(now, timeZone, 0),
+    };
+  if (period === 'last_week')
+    return {
+      ok: true,
+      from: zonedDayStart(now, timeZone, sinceMonday + 7),
+      to: zonedDayStart(now, timeZone, sinceMonday),
+    };
+  if (period === 'last_month')
+    return {
+      ok: true,
+      // Month 0 is December of the year before (Date.UTC rolls it).
+      from: zonedMidnight(y, m - 1, 1, timeZone),
+      to: zonedMidnight(y, m, 1, timeZone),
+    };
+  const back = period === 'today' ? 0 : period === 'week' ? sinceMonday : d - 1;
   const from = zonedDayStart(now, timeZone, back);
   // A request on the very millisecond of midnight.
   const to =

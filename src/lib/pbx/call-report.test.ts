@@ -5,12 +5,15 @@ import { describe, expect, it } from 'vitest';
 import {
   CALL_REPORT_MAX_DAYS,
   CALL_REPORT_OUTCOMES,
+  CALL_REPORT_PERIODS,
+  CALL_STATS_PERIODS,
   averageSeconds,
   callReportRange,
   checkCustomDays,
   formatDuration,
   hasCalls,
   isCallReportPeriod,
+  isCallStatsPeriod,
   outcomeCounts,
   parseCallReport,
   reportTimeZone,
@@ -31,6 +34,19 @@ describe('periods and zones', () => {
     expect(isCallReportPeriod('week')).toBe(true);
     expect(isCallReportPeriod('7d')).toBe(false);
     expect(isCallReportPeriod(undefined)).toBe(false);
+  });
+
+  it("the report page's periods add the ones just gone; the tab's stay as they are", () => {
+    expect(CALL_REPORT_PERIODS).toEqual(['today', 'week', 'month', 'custom']);
+    for (const p of CALL_REPORT_PERIODS)
+      expect(isCallStatsPeriod(p)).toBe(true);
+    for (const p of ['yesterday', 'last_week', 'last_month']) {
+      expect(isCallStatsPeriod(p)).toBe(true);
+      expect(isCallReportPeriod(p)).toBe(false);
+    }
+    expect(CALL_STATS_PERIODS).toHaveLength(7);
+    expect(isCallStatsPeriod('year')).toBe(false);
+    expect(isCallStatsPeriod(null)).toBe(false);
   });
 
   it("takes the account's zone, else the viewer's, else the UAE's", () => {
@@ -105,6 +121,65 @@ describe('callReportRange', () => {
     expect(iso(zonedMidnight(2026, 11, 1, 'America/New_York'))).toBe(
       '2026-11-01T04:00:00.000Z'
     );
+  });
+
+  it('yesterday is the whole local day before today', () => {
+    expect(range('yesterday', now, DUBAI)).toEqual({
+      from: '2026-10-11T20:00:00.000Z',
+      to: '2026-10-12T20:00:00.000Z',
+    });
+    // 21:00 UTC on 12 October is already the 13th in Dubai.
+    expect(range('yesterday', new Date('2026-10-12T21:00:00Z'), DUBAI)).toEqual(
+      range('yesterday', now, DUBAI)
+    );
+  });
+
+  it('last week runs Monday to Monday, seen from any day of this week', () => {
+    const lastWeek = {
+      from: '2026-10-04T20:00:00.000Z',
+      to: '2026-10-11T20:00:00.000Z',
+    };
+    expect(range('last_week', now, DUBAI)).toEqual(lastWeek);
+    const monday = new Date('2026-10-12T08:00:00Z');
+    expect(range('last_week', monday, DUBAI)).toEqual(lastWeek);
+    const sunday = new Date('2026-10-18T15:00:00Z');
+    expect(range('last_week', sunday, DUBAI)).toEqual(lastWeek);
+  });
+
+  it("last month is the zone's whole month before this one, also in January", () => {
+    expect(range('last_month', now, DUBAI)).toEqual({
+      from: '2026-08-31T20:00:00.000Z',
+      to: '2026-09-30T20:00:00.000Z',
+    });
+    const december = {
+      from: '2026-11-30T20:00:00.000Z',
+      to: '2026-12-31T20:00:00.000Z',
+    };
+    expect(
+      range('last_month', new Date('2027-01-15T08:00:00Z'), DUBAI)
+    ).toEqual(december);
+    // 21:00 UTC on 31 December is already January in Dubai.
+    expect(
+      range('last_month', new Date('2026-12-31T21:00:00Z'), DUBAI)
+    ).toEqual(december);
+  });
+
+  it('the periods just gone keep local midnight across a DST change', () => {
+    const ny = 'America/New_York';
+    // Monday 9 March 2026, noon in New York, the day after springing forward.
+    const monday = new Date('2026-03-09T16:00:00Z');
+    expect(range('yesterday', monday, ny)).toEqual({
+      from: '2026-03-08T05:00:00.000Z',
+      to: '2026-03-09T04:00:00.000Z',
+    });
+    expect(range('last_week', monday, ny)).toEqual({
+      from: '2026-03-02T05:00:00.000Z',
+      to: '2026-03-09T04:00:00.000Z',
+    });
+    expect(range('last_month', new Date('2026-04-10T16:00:00Z'), ny)).toEqual({
+      from: '2026-03-01T05:00:00.000Z',
+      to: '2026-04-01T04:00:00.000Z',
+    });
   });
 
   it('refuses a custom period that is missing, reversed or too long', () => {
