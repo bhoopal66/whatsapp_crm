@@ -7368,5 +7368,137 @@
       "notAllowed": "소유자와 관리자만 이 설정을 바꿀 수 있습니다.",
       "generic": "저장하지 못했습니다: {error}"
     }
+  },
+  "Vault": {
+    "title": "보관소",
+    "description": "민감한 고객 번호, 이를 볼 수 있는 사람, 그리고 모든 열람 기록입니다.",
+    "loadFailed": "보관소 상태를 불러오지 못했습니다. 페이지를 새로 고쳐 다시 시도하세요.",
+    "cancel": "취소",
+    "noRole": "보관소 역할이 없어 상태만 볼 수 있습니다. 보관소 최고 관리자에게 추가해 달라고 요청하세요.",
+    "status": {
+      "title": "상태",
+      "configured": "설정됨",
+      "notConfigured": "설정 안 됨",
+      "configuredBody": "메모리에 적힌 고객 신분증 번호, IBAN, 여권·전화·계좌 번호는 여기에 암호화되어 저장되고, 메모리에는 대신 토큰이 표시됩니다.",
+      "notConfiguredBody": "서버 환경에 VAULT_KEYS, VAULT_CURRENT_KEY, VAULT_BLIND_KEY가 필요합니다. 서버 운영자가 이 값을 설정한 뒤 서버를 다시 시작해야 합니다.",
+      "reasonCode": "사유 코드: {code}"
+    },
+    "setup": {
+      "title": "첫 최고 관리자",
+      "body": "아직 보관소 역할을 가진 사람이 없습니다. 워크스페이스 소유자가 첫 보관소 최고 관리자가 되면 다른 사람을 추가할 수 있습니다.",
+      "ownerOnly": "워크스페이스 소유자만 할 수 있습니다.",
+      "become": "보관소 최고 관리자 되기",
+      "confirmTitle": "보관소 최고 관리자가 되시겠습니까?",
+      "confirmBody": "저장된 값을 열람하고 삭제할 수 있으며, 보관소 역할을 추가하고 제거할 수 있습니다. 보관소에서 하는 모든 일은 기록됩니다.",
+      "confirm": "최고 관리자 되기",
+      "done": "이제 보관소 최고 관리자입니다."
+    },
+    "roles": {
+      "title": "보관소 역할",
+      "body": "보관소 역할은 그 사람이 이 워크스페이스의 소유자나 관리자인 동안에만 유효합니다. 역할은 최고 관리자만 추가하거나 제거할 수 있으며, 마지막 최고 관리자는 제거할 수 없습니다.",
+      "empty": "보관소 역할을 가진 사람이 없습니다.",
+      "add": "추가",
+      "remove": "제거",
+      "you": "(나)",
+      "names": {
+        "super_admin": "최고 관리자",
+        "admin": "보관소 관리자"
+      },
+      "notActive": "비활성 — 더 이상 소유자/관리자가 아님",
+      "grantedBy": "{name} 님이 부여, {date}",
+      "grantedOn": "부여일 {date}",
+      "removeLabel": "{name} 님의 {role} 역할 제거",
+      "removeTitle": "이 보관소 역할을 제거하시겠습니까?",
+      "removeBody": "{name} 님은 더 이상 {role} 역할을 갖지 않습니다. 이 변경은 기록됩니다.",
+      "added": "역할을 추가했습니다.",
+      "alreadyHeld": "이미 이 역할을 가지고 있습니다.",
+      "removed": "역할을 제거했습니다.",
+      "alreadyGone": "이미 제거된 역할입니다."
+    },
+    "addRole": {
+      "title": "보관소 역할 추가",
+      "body": "이 워크스페이스의 소유자와 관리자만 보관소 역할을 가질 수 있습니다.",
+      "person": "사람",
+      "personPlaceholder": "사람 선택",
+      "role": "역할",
+      "adminHelp": "저장된 값을 열람하고 삭제할 수 있습니다.",
+      "superHelp": "보관소 역할도 추가하고 제거할 수 있습니다.",
+      "noCandidates": "선택할 수 있는 소유자나 관리자가 없습니다.",
+      "submit": "추가"
+    },
+    "form": {
+      "token": "토큰",
+      "tokenPlaceholder": "vlt_…",
+      "tokenInvalid": "보관소 토큰이 아닙니다. 메모리에 표시된 것처럼 vlt_ 뒤에 영문자 26개가 옵니다.",
+      "reason": "사유",
+      "reasonPlaceholder": "예: 통화 중 고객 본인 확인",
+      "reasonIdentifier": "사유에 식별 번호나 긴 숫자가 들어 있는 것 같습니다. 사유를 말로 설명해 주세요.",
+      "reasonTooLong": "사유는 500자 이내로 적어 주세요."
+    },
+    "reveal": {
+      "title": "값 열람",
+      "body": "메모리의 토큰을 붙여 넣고 값이 필요한 이유를 적으세요. 모든 열람은 기록되며, 한 사람이 한 시간에 최대 20개까지 열람할 수 있습니다.",
+      "submit": "열람",
+      "dialogTitle": "열람한 값",
+      "dialogBody": "이곳에서만 30초 동안 표시됩니다. 이 기기에는 아무것도 남지 않습니다.",
+      "hidden": "다시 숨겨졌습니다. 아직 필요하면 한 번 더 열람하세요.",
+      "close": "닫기"
+    },
+    "erase": {
+      "title": "값 삭제",
+      "body": "저장된 값을 영구히 삭제합니다. 메모리에는 토큰이 남지만 더 이상 열람할 수 없습니다.",
+      "submit": "삭제…",
+      "confirmTitle": "이 값을 영구히 삭제하시겠습니까?",
+      "confirmBody": "값이 삭제되며 복구할 수 없습니다. 같은 값을 공유하는 다른 고객에게서도 사라집니다. 각 값은 워크스페이스마다 한 번만 저장되기 때문입니다.",
+      "confirm": "영구 삭제",
+      "done": "값을 삭제했습니다."
+    },
+    "audit": {
+      "title": "감사 기록",
+      "note": "최근 100건, 최신순입니다.",
+      "empty": "아직 기록이 없습니다.",
+      "loadFailed": "감사 기록을 불러오지 못했습니다.",
+      "target": "{name}, {role}",
+      "columns": {
+        "time": "시간",
+        "who": "누가",
+        "action": "작업",
+        "outcome": "결과",
+        "token": "토큰",
+        "kind": "종류",
+        "reason": "사유"
+      },
+      "actions": {
+        "put": "저장",
+        "dedupe": "저장(이미 보관소에 있음)",
+        "reveal": "열람",
+        "reveal_failed": "열람 실패",
+        "delete": "삭제",
+        "rewrap_read": "키 교체: 읽기",
+        "rewrap": "키 교체",
+        "role_grant": "역할 추가",
+        "role_revoke": "역할 제거",
+        "role_bootstrap": "첫 최고 관리자"
+      },
+      "outcomes": {
+        "OK": "성공",
+        "DENIED": "거부",
+        "NOT_FOUND": "없음",
+        "RATE_LIMITED": "횟수 초과",
+        "CONFLICT": "충돌",
+        "DECRYPT_FAILED": "복호화 실패"
+      }
+    },
+    "errors": {
+      "notConfigured": "이 서버에는 보관소가 설정되어 있지 않습니다.",
+      "roleDenied": "허용되지 않는 역할 변경입니다. 역할은 보관소 최고 관리자만 바꿀 수 있고, 대상은 이곳의 소유자나 관리자여야 하며, 마지막 최고 관리자는 제거할 수 없습니다.",
+      "bootstrapDenied": "보관소에 이미 역할을 가진 사람이 있습니다. 보관소 최고 관리자에게 추가해 달라고 요청하세요.",
+      "denied": "이 작업을 할 권한이 없습니다.",
+      "notFound": "보관소에 그런 값이 없습니다.",
+      "rateLimited": "지난 한 시간 동안 열람이 너무 많았습니다. 나중에 다시 시도하세요.",
+      "decryptFailed": "값을 복호화하지 못했습니다.",
+      "reasonRefused": "사유에 식별 번호가 들어 있는 것 같습니다. 사유를 말로 설명해 주세요.",
+      "failed": "문제가 발생했습니다. 다시 시도하세요."
+    }
   }
 }

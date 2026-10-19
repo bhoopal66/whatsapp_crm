@@ -7368,5 +7368,137 @@
       "notAllowed": "Only owners and admins can change these settings.",
       "generic": "Could not save: {error}"
     }
+  },
+  "Vault": {
+    "title": "Vault",
+    "description": "Sensitive customer numbers, who may see them, and every access to them.",
+    "loadFailed": "The vault's status could not be loaded. Reload the page to try again.",
+    "cancel": "Cancel",
+    "noRole": "You do not hold a vault role, so you see only its status. Ask a vault super admin to add you.",
+    "status": {
+      "title": "Status",
+      "configured": "Set up",
+      "notConfigured": "Not set up",
+      "configuredBody": "Customer ID numbers, IBANs, passport, phone and account numbers written in Memory are stored here encrypted; Memory shows a token instead.",
+      "notConfiguredBody": "The server's environment needs VAULT_KEYS, VAULT_CURRENT_KEY and VAULT_BLIND_KEY. Whoever runs the server sets them and then restarts it.",
+      "reasonCode": "Reason code: {code}"
+    },
+    "setup": {
+      "title": "First super admin",
+      "body": "Nobody holds a vault role yet. The workspace owner becomes the first vault super admin, who can then add others.",
+      "ownerOnly": "Only the workspace owner can do this.",
+      "become": "Become the vault's super admin",
+      "confirmTitle": "Become the vault's super admin?",
+      "confirmBody": "You will be able to reveal and erase stored values and to add and remove vault roles. Everything you do in the vault is recorded.",
+      "confirm": "Become super admin",
+      "done": "You are now the vault's super admin."
+    },
+    "roles": {
+      "title": "Vault roles",
+      "body": "A vault role counts only while its holder is also an owner or admin of this workspace. Only a super admin adds or removes roles, and the last super admin cannot be removed.",
+      "empty": "Nobody holds a vault role.",
+      "add": "Add",
+      "remove": "Remove",
+      "you": "(you)",
+      "names": {
+        "super_admin": "Super admin",
+        "admin": "Vault admin"
+      },
+      "notActive": "Not active — no longer an owner / admin",
+      "grantedBy": "Granted by {name}, {date}",
+      "grantedOn": "Granted {date}",
+      "removeLabel": "Remove the {role} role from {name}",
+      "removeTitle": "Remove this vault role?",
+      "removeBody": "{name} will no longer hold the {role} role. The change is recorded.",
+      "added": "Role added.",
+      "alreadyHeld": "That person already holds this role.",
+      "removed": "Role removed.",
+      "alreadyGone": "That role was already removed."
+    },
+    "addRole": {
+      "title": "Add a vault role",
+      "body": "Only owners and admins of this workspace can hold a vault role.",
+      "person": "Person",
+      "personPlaceholder": "Choose a person",
+      "role": "Role",
+      "adminHelp": "Can reveal and erase stored values.",
+      "superHelp": "Can also add and remove vault roles.",
+      "noCandidates": "There are no owners or admins to choose from.",
+      "submit": "Add"
+    },
+    "form": {
+      "token": "Token",
+      "tokenPlaceholder": "vlt_…",
+      "tokenInvalid": "That is not a vault token: it is vlt_ followed by 26 letters, as shown in Memory.",
+      "reason": "Reason",
+      "reasonPlaceholder": "For example: confirming the customer's identity on a call",
+      "reasonIdentifier": "That reason looks like it contains an identifier or a long number. Describe the reason in words.",
+      "reasonTooLong": "Keep the reason under 500 characters."
+    },
+    "reveal": {
+      "title": "Reveal a value",
+      "body": "Paste a token from Memory and say why you need the value. Every reveal is recorded, and each person can reveal at most 20 values an hour.",
+      "submit": "Reveal",
+      "dialogTitle": "Revealed value",
+      "dialogBody": "Shown only here, for 30 seconds. Nothing is kept on this device.",
+      "hidden": "Hidden again. Reveal once more if you still need it.",
+      "close": "Close"
+    },
+    "erase": {
+      "title": "Erase a value",
+      "body": "Deletes a stored value for good. Memory keeps the token, but it can no longer be revealed.",
+      "submit": "Erase…",
+      "confirmTitle": "Erase this value for good?",
+      "confirmBody": "The value is deleted and cannot be recovered, also for any other customer who shares the same value: each value is stored once per workspace.",
+      "confirm": "Erase for good",
+      "done": "The value was erased."
+    },
+    "audit": {
+      "title": "Audit trail",
+      "note": "The latest 100 entries, newest first.",
+      "empty": "Nothing recorded yet.",
+      "loadFailed": "The audit trail could not be loaded.",
+      "target": "{name}, {role}",
+      "columns": {
+        "time": "Time",
+        "who": "Who",
+        "action": "Action",
+        "outcome": "Outcome",
+        "token": "Token",
+        "kind": "Kind",
+        "reason": "Reason"
+      },
+      "actions": {
+        "put": "Stored",
+        "dedupe": "Stored (already in the vault)",
+        "reveal": "Revealed",
+        "reveal_failed": "Reveal failed",
+        "delete": "Erased",
+        "rewrap_read": "Key rotation: read",
+        "rewrap": "Key rotation",
+        "role_grant": "Role added",
+        "role_revoke": "Role removed",
+        "role_bootstrap": "First super admin"
+      },
+      "outcomes": {
+        "OK": "OK",
+        "DENIED": "Refused",
+        "NOT_FOUND": "Not found",
+        "RATE_LIMITED": "Too many",
+        "CONFLICT": "Conflict",
+        "DECRYPT_FAILED": "Decrypt failed"
+      }
+    },
+    "errors": {
+      "notConfigured": "The vault is not set up on this server.",
+      "roleDenied": "That role change is not allowed. Only a vault super admin changes roles, the person must be an owner or admin here, and the last super admin cannot be removed.",
+      "bootstrapDenied": "The vault already has a role holder. Ask a vault super admin to add you.",
+      "denied": "You are not allowed to do this.",
+      "notFound": "There is no such value in the vault.",
+      "rateLimited": "Too many reveals in the last hour. Try again later.",
+      "decryptFailed": "The value could not be decrypted.",
+      "reasonRefused": "That reason looks like it contains an identifier. Describe the reason in words.",
+      "failed": "Something went wrong. Try again."
+    }
   }
 }
