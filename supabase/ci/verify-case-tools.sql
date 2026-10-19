@@ -425,6 +425,9 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_check('a blank note was not NOTE_EMPTY',
     'service_role', NULL, format('SELECT note_id::text FROM case_note_add(%L, %L, %L, NULL)', k1, u_agent, '   '),
     'ERROR 23514 NOTE_EMPTY:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a tabs-and-newlines note was not NOTE_EMPTY',
+    'service_role', NULL, format('SELECT note_id::text FROM case_note_add(%L, %L, %L, NULL)', k1, u_agent, E' \n\t\r '),
+    'ERROR 23514 NOTE_EMPTY:%');
   n := n + 1; failed := failed || pg_temp.cs_check('a 10001-character note was not NOTE_TOO_LONG',
     'service_role', NULL, format('SELECT note_id::text FROM case_note_add(%L, %L, %L, NULL)', k1, u_agent, repeat('x', 10001)),
     'ERROR 23514 NOTE_TOO_LONG:%');

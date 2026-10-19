@@ -176,7 +176,9 @@ CREATE TABLE IF NOT EXISTS public.case_notes (
   CONSTRAINT case_notes_id_account_key UNIQUE (id, account_id),
   CONSTRAINT case_notes_case_fkey FOREIGN KEY (case_id, account_id)
     REFERENCES public.cases (id, account_id),
-  CONSTRAINT case_notes_body_check CHECK (btrim(body) <> '' AND char_length(body) <= 10000)
+  -- [[:space:]], not btrim(): btrim strips spaces only, so a note of tabs
+  -- or newlines would pass as non-blank.
+  CONSTRAINT case_notes_body_check CHECK (body !~ '^[[:space:]]*$' AND char_length(body) <= 10000)
 );
 CREATE INDEX IF NOT EXISTS case_notes_case_idx ON public.case_notes (case_id, created_at);
 
@@ -498,7 +500,7 @@ DECLARE
   v_ok      uuid[];
 BEGIN
   PERFORM public.case_tools_lock_for_write(p_case, p_actor);
-  IF p_body IS NULL OR btrim(p_body) = '' THEN
+  IF p_body IS NULL OR p_body ~ '^[[:space:]]*$' THEN
     RAISE EXCEPTION 'note is empty' USING ERRCODE = 'check_violation', HINT = 'NOTE_EMPTY';
   END IF;
   IF char_length(p_body) > 10000 THEN
