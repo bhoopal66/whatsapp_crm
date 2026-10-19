@@ -1,7 +1,8 @@
 /**
  * The group-end sweeper (module 018c): retries the submission-group end of
  * final-stage cases whose end never completed (a crash, a failed close,
- * a released claim). Not wired into a cron route yet.
+ * a released claim). The automations cron runs it, and the SLA job below,
+ * at most every 5 minutes per process.
  *
  * The pending list spans every account, and each case's group must be
  * ended through its own account's 115 service, so `storeFor(accountId)`
