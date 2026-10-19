@@ -16,7 +16,7 @@ import {
   loadCaseForCaller,
   readObject,
   requiredText,
-} from '@/lib/cases/route-helpers';
+} from '@/lib/cases/http';
 import { caseNotesStore, caseStore } from '@/lib/cases/server';
 
 type Params = { params: Promise<{ id: string }> };
@@ -28,9 +28,9 @@ export async function GET(_request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: false,
       }
@@ -46,9 +46,9 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: true,
       }

@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount } from '@/lib/auth/account';
 import { CaseTakeOverRefusedError } from '@/lib/cases/conversations';
 import {
+  assertUnderGroupSendLimit,
   CASE_NOT_FOUND,
   caseErrorResponse,
   caseSendErrorResponse,
@@ -43,6 +44,7 @@ export async function POST(_request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
+    await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
 
     const names = await loadNames(supabaseAdmin(), ctx.accountId, [c.agentId]);
     const result = await caseConversations(ctx.accountId).takeOver(

@@ -14,14 +14,21 @@ import {
   toErrorResponse,
   UnauthorizedError,
 } from '@/lib/auth/account';
-import { isUuid, sendErrorFor } from '@/lib/submission-groups/http';
+import {
+  isOverSendLimit,
+  isUuid,
+  sendErrorFor,
+  sendWindowStart,
+} from '@/lib/submission-groups/http';
+import { supabaseAdmin } from '@/lib/submission-groups/server';
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
 } from '@/lib/submission-groups/service';
 
-import { canReadCase } from './access';
+import { canReadCase, canWriteCase } from './access';
+import { BankDashboardRefusedError } from './dashboard';
 import { CaseInboxRefusedError, type CaseInboxFilters } from './inbox';
 import { CaseRefusedError, CaseStoreError, type CaseStore } from './store';
 import type { Case, CaseRole } from './types';
@@ -29,6 +36,7 @@ import type { Case, CaseRole } from './types';
 export { isUuid };
 
 export const CASE_NOT_FOUND = 'Case not found';
+export const NOT_ALLOWED = "You can't change this case";
 
 /** A response the route answers as `{ error, ...extra }` with `status`. */
 export class CaseHttpError extends Error {
@@ -58,18 +66,21 @@ export function ownCase(c: Case | null, accountId: string): Case {
 /**
  * The case and the caller's live role on it. 404 for a non-uuid id, a
  * missing case, another account's case (checked BEFORE the role call) and
- * a case the caller cannot read.
+ * a case the caller cannot read. With `{ write: true }`, 403 when the role
+ * may read but not write.
  */
 export async function loadCaseForCaller(
   ctx: { accountId: string; userId: string },
   id: string,
-  store: Pick<CaseStore, 'get' | 'role'>
+  store: Pick<CaseStore, 'get' | 'role'>,
+  { write = false }: { write?: boolean } = {}
 ): Promise<{ case: Case; role: CaseRole }> {
   if (!isUuid(id)) throw new CaseHttpError(404, CASE_NOT_FOUND);
   const c = ownCase(await store.get(id), ctx.accountId);
   const role = await store.role(c.id, ctx.userId);
   if (role === null || !canReadCase(role))
     throw new CaseHttpError(404, CASE_NOT_FOUND);
+  if (write && !canWriteCase(role)) throw new CaseHttpError(403, NOT_ALLOWED);
   return { case: c, role };
 }
 
@@ -98,6 +109,11 @@ const REFUSAL_TEXT: Record<string, string> = {
 };
 
 function refusal(code: string): NextResponse {
+  if (code === 'TASK_NOT_FOUND')
+    return NextResponse.json(
+      { error: 'Task not found', code },
+      { status: 404 }
+    );
   if (code === 'NOT_ALLOWED')
     return NextResponse.json({ error: 'Not allowed', code }, { status: 403 });
   if (code === 'CASE_NOT_FOUND')
@@ -111,20 +127,26 @@ function refusal(code: string): NextResponse {
 /**
  * Any error a case route can meet, as a response. Store failures and
  * unknown errors are 500 and logged by name / function / SQLSTATE only:
- * never a message, which may carry customer data.
+ * never a message, which may carry customer data. `route` only labels the
+ * log line.
  */
-export function caseErrorResponse(err: unknown): NextResponse {
+export function caseErrorResponse(err: unknown, route?: string): NextResponse {
+  const tag = route ? `[cases] ${route}` : '[cases]';
   if (err instanceof CaseHttpError)
     return NextResponse.json(err.body, { status: err.status });
-  if (err instanceof CaseRefusedError || err instanceof CaseInboxRefusedError)
+  if (
+    err instanceof CaseRefusedError ||
+    err instanceof CaseInboxRefusedError ||
+    err instanceof BankDashboardRefusedError
+  )
     return refusal(err.reason);
   if (err instanceof UnauthorizedError || err instanceof ForbiddenError)
     return toErrorResponse(err);
   if (err instanceof CaseStoreError)
-    console.error('[cases] store failure:', err.fn, err.code);
+    console.error(`${tag} store failure:`, err.fn, err.code);
   else
     console.error(
-      '[cases] unexpected failure:',
+      `${tag} unexpected failure:`,
       err instanceof Error ? err.name : typeof err
     );
   return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
@@ -138,6 +160,78 @@ export async function readJsonObject(
   return raw !== null && typeof raw === 'object' && !Array.isArray(raw)
     ? (raw as Record<string, unknown>)
     : null;
+}
+
+/** A JSON object body, or a 400. */
+export async function readObject(
+  request: Request
+): Promise<Record<string, unknown>> {
+  const body = await readJsonObject(request);
+  if (body === null) throw badRequest('Body must be a JSON object');
+  return body;
+}
+
+/** A trimmed, non-empty string of at most `max` characters, or a 400. */
+export function requiredText(value: unknown, field: string, max: number) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw badRequest(`${field} is required`);
+  if (text.length > max)
+    throw badRequest(`${field} must be at most ${max} characters`);
+  return text;
+}
+
+/** Absent / null / blank -> null; else as requiredText. */
+export function optionalText(value: unknown, field: string, max: number) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  return requiredText(value, field, max);
+}
+
+export function requiredDate(value: unknown, field: string): Date {
+  const d = typeof value === 'string' ? new Date(value) : null;
+  if (!d || Number.isNaN(d.getTime()))
+    throw badRequest(`${field} must be a date`);
+  return d;
+}
+
+/** Absent / null -> null; else a parseable date string, or a 400. */
+export function optionalDate(value: unknown, field: string): Date | null {
+  if (value === undefined || value === null) return null;
+  return requiredDate(value, field);
+}
+
+/** 123's template_key / doc_key rule. */
+const KEY_RE = /^[a-z0-9_]{1,64}$/;
+
+export function requiredKey(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !KEY_RE.test(value))
+    throw badRequest(`${field} is not a valid key`);
+  return value;
+}
+
+/** 123's case_documents_file_ref_check: an id of the stored file. */
+const FILE_REF_RE = /^[A-Za-z0-9_:-][A-Za-z0-9._:-]{0,127}$/;
+
+/** Absent / null -> null; else a file_ref matching 123's rule, or a 400. */
+export function optionalFileRef(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || !FILE_REF_RE.test(value))
+    throw badRequest('file_ref is not a valid file reference');
+  return value;
+}
+
+/** One of `allowed`, or a 400. */
+export function oneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  field: string
+): T {
+  if (
+    typeof value === 'string' &&
+    (allowed as readonly string[]).includes(value)
+  )
+    return value as T;
+  throw badRequest(`${field} must be one of ${allowed.join(', ')}`);
 }
 
 const AMOUNT_RE = /^\d{1,16}(\.\d{1,2})?$/;
@@ -242,4 +336,37 @@ export function caseSendErrorResponse(err: unknown): NextResponse | null {
       { status: 409 }
     );
   return null;
+}
+
+/**
+ * The per-person anti-ban send limit of the Submission Group send route
+ * (src/app/api/submission-groups/[id]/messages), for the case routes that
+ * send into the same group: the caller's `out` rows in the group within
+ * the window, failed ones included. 429 SEND_RATE_LIMITED when over; a
+ * count error is 503 (fail closed, as there). Call after the case load and
+ * role check and BEFORE any send or log write.
+ */
+export async function assertUnderGroupSendLimit(
+  accountId: string,
+  groupId: string,
+  userId: string
+): Promise<void> {
+  const { count, error } = await supabaseAdmin()
+    .from('submission_group_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('account_id', accountId)
+    .eq('group_id', groupId)
+    .eq('direction', 'out')
+    .eq('sender_user_id', userId)
+    .gte('created_at', sendWindowStart());
+  if (error) {
+    console.error('[cases] send count failed', error);
+    throw new CaseHttpError(503, 'Could not check the send limit');
+  }
+  if (isOverSendLimit(count ?? 0))
+    throw new CaseHttpError(
+      429,
+      'You are sending to this group too fast; wait a minute',
+      { code: 'SEND_RATE_LIMITED' }
+    );
 }

@@ -21,7 +21,7 @@ import {
   caseErrorResponse,
   loadCaseForCaller,
   readObject,
-} from '@/lib/cases/route-helpers';
+} from '@/lib/cases/http';
 import { bankDashboard, caseStore } from '@/lib/cases/server';
 
 type Params = { params: Promise<{ id: string }> };
@@ -33,9 +33,9 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: true,
       }

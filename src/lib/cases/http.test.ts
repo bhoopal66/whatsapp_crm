@@ -1,14 +1,29 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ForbiddenError } from '@/lib/auth/account';
 
+const access = vi.hoisted(() => ({ writer: null as null | boolean }));
+// Every case role writes today (122), so a non-writer is simulated.
+vi.mock('./access', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./access')>();
+  return {
+    ...real,
+    canWriteCase: (r: Parameters<typeof real.canWriteCase>[0]) =>
+      access.writer ?? real.canWriteCase(r),
+  };
+});
+
+import { BankDashboardRefusedError } from './dashboard';
 import {
   canSeeCaseAudit,
   caseErrorResponse,
   CaseHttpError,
   loadCaseForCaller,
+  optionalFileRef,
   parseAmount,
   parseInboxQuery,
+  requiredKey,
+  requiredText,
 } from './http';
 import { CaseInboxRefusedError } from './inbox';
 import { CaseRefusedError, CaseStoreError } from './store';
@@ -30,6 +45,10 @@ async function status(p: Promise<unknown>) {
     return e instanceof CaseHttpError ? e.status : e;
   }
 }
+
+beforeEach(() => {
+  access.writer = null;
+});
 
 describe('loadCaseForCaller', () => {
   it('answers the case and role', async () => {
@@ -61,6 +80,32 @@ describe('loadCaseForCaller', () => {
     expect(await status(loadCaseForCaller(ctx, 'nope', store))).toBe(404);
     expect(store.get).not.toHaveBeenCalled();
   });
+
+  it('is 403 for a write by a role that may not write, 200 for its read', async () => {
+    access.writer = false;
+    expect(
+      await status(
+        loadCaseForCaller(ctx, ID, fakeStore(aCase(), 'agent'), { write: true })
+      )
+    ).toBe(403);
+    expect(
+      await status(
+        loadCaseForCaller(ctx, ID, fakeStore(aCase(), 'agent'), {
+          write: false,
+        })
+      )
+    ).toBe('ok');
+    expect(
+      await status(loadCaseForCaller(ctx, ID, fakeStore(aCase(), 'agent')))
+    ).toBe('ok');
+  });
+
+  it('treats a role outside the case roles as none (404), even for a write', async () => {
+    const store = fakeStore(aCase(), 'viewer' as unknown as CaseRole);
+    expect(
+      await status(loadCaseForCaller(ctx, ID, store, { write: true }))
+    ).toBe(404);
+  });
 });
 
 describe('caseErrorResponse', () => {
@@ -91,6 +136,29 @@ describe('caseErrorResponse', () => {
     expect(
       await answer(new CaseInboxRefusedError('NOT_ALLOWED'))
     ).toMatchObject({ status: 403 });
+  });
+
+  it('maps TASK_NOT_FOUND to 404 and the bank dashboard refusals like the case ones', async () => {
+    expect(await answer(new CaseRefusedError('TASK_NOT_FOUND'))).toEqual({
+      status: 404,
+      body: { error: 'Task not found', code: 'TASK_NOT_FOUND' },
+    });
+    expect(await answer(new CaseRefusedError('NOTE_TOO_LONG'))).toMatchObject({
+      status: 422,
+      body: { code: 'NOTE_TOO_LONG' },
+    });
+    expect(
+      await answer(new BankDashboardRefusedError('REASON_ALREADY_SET'))
+    ).toMatchObject({ status: 422, body: { code: 'REASON_ALREADY_SET' } });
+    expect(
+      await answer(new BankDashboardRefusedError('NOT_ALLOWED'))
+    ).toMatchObject({ status: 403 });
+  });
+
+  it('labels the 500 log line with the route when given one', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    caseErrorResponse(new Error('x'), 'notes GET');
+    expect(JSON.stringify(log.mock.calls)).toContain('notes GET');
   });
 
   it('passes http errors and auth errors through', async () => {
@@ -164,5 +232,19 @@ describe('parseInboxQuery', () => {
       noActivityDays: 'x',
     });
     expect(Number.isNaN(q('limit=ten').limit)).toBe(true);
+  });
+});
+
+describe('body parsers', () => {
+  it('checks text, keys and file refs', () => {
+    expect(requiredText('  hi ', 'body', 5)).toBe('hi');
+    expect(() => requiredText('   ', 'body', 5)).toThrow(CaseHttpError);
+    expect(() => requiredText('toolong', 'body', 5)).toThrow(CaseHttpError);
+    expect(requiredKey('id_card', 'k')).toBe('id_card');
+    expect(() => requiredKey('ID Card', 'k')).toThrow(CaseHttpError);
+    expect(optionalFileRef(undefined)).toBeNull();
+    expect(optionalFileRef('files:abc-1.pdf')).toBe('files:abc-1.pdf');
+    expect(() => optionalFileRef('.hidden')).toThrow(CaseHttpError);
+    expect(() => optionalFileRef('a/b')).toThrow(CaseHttpError);
   });
 });

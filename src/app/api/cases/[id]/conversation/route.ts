@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount } from '@/lib/auth/account';
 import { canWriteCase } from '@/lib/cases/access';
 import {
+  assertUnderGroupSendLimit,
   badRequest,
   caseErrorResponse,
   CaseHttpError,
@@ -67,6 +68,7 @@ export async function POST(request: Request, { params }: Params) {
     const { id } = await params;
     const { case: c, role } = await loadCaseForCaller(ctx, id, caseStore());
     if (!canWriteCase(role)) throw new CaseHttpError(403, 'Not allowed');
+    await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
 
     const body = await readJsonObject(request);
     const text = parseText(body?.text, SG_TEXT_MAX);

@@ -16,7 +16,7 @@ import {
   loadCaseForCaller,
   oneOf,
   readObject,
-} from '@/lib/cases/route-helpers';
+} from '@/lib/cases/http';
 import { caseStore, caseToolsStore } from '@/lib/cases/server';
 import type { TaskStatus } from '@/lib/cases/tools';
 
@@ -29,9 +29,9 @@ export async function PATCH(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id, taskId } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: true,
       }

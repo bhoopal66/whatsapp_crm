@@ -1,11 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
+  countResult: { count: 0, error: null } as {
+    count: number | null;
+    error: unknown;
+  },
+  eqs: [] as unknown[][],
   getCurrentAccount: vi.fn(),
   loadNames: vi.fn(),
   store: {} as Record<string, ReturnType<typeof vi.fn>>,
   conv: {} as Record<string, ReturnType<typeof vi.fn>>,
 }));
+
+// The send-limit count: from().select().eq()...gte() resolves to countResult.
+const chain: Record<string, unknown> = {};
+chain.select = () => chain;
+chain.eq = (col: string, val: unknown) => (m.eqs.push([col, val]), chain);
+chain.gte = () => Promise.resolve(m.countResult);
+const admin = { from: () => chain };
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
@@ -16,7 +28,7 @@ vi.mock('@/lib/cases/server', () => ({
   caseConversations: () => m.conv,
 }));
 vi.mock('@/lib/submission-groups/server', () => ({
-  supabaseAdmin: () => ({}),
+  supabaseAdmin: () => admin,
 }));
 vi.mock('@/lib/submission-groups/view-refs', () => ({
   loadNames: m.loadNames,
@@ -29,10 +41,12 @@ import {
 } from '@/lib/submission-groups/service';
 import { POST } from './route';
 
+const USER = 'u-me';
 const ID = '11111111-1111-4111-8111-111111111111';
 const aCase = (over: Record<string, unknown> = {}) => ({
   id: ID,
   accountId: 'acct-1',
+  groupId: 'g-1',
   agentId: 'u-agent',
   bankName: 'ADCB',
   ...over,
@@ -40,6 +54,8 @@ const aCase = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.countResult = { count: 0, error: null };
+  m.eqs.length = 0;
   m.getCurrentAccount.mockResolvedValue({
     userId: 'u-me',
     accountId: 'acct-1',
@@ -80,7 +96,7 @@ describe('POST /api/cases/[id]/takeover', () => {
     const res = await post();
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ logId: '7', sent: true });
-    expect(m.loadNames).toHaveBeenCalledWith({}, 'acct-1', ['u-agent']);
+    expect(m.loadNames).toHaveBeenCalledWith(admin, 'acct-1', ['u-agent']);
     expect(m.conv.takeOver).toHaveBeenCalledWith('u-me', ID, {
       agentName: 'Sara Ali',
       bankName: 'ADCB',
@@ -130,5 +146,41 @@ describe('POST /api/cases/[id]/takeover', () => {
     spy.mockRestore();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ sent: true, recorded: false });
+  });
+});
+
+describe('takeover: group send limit', () => {
+  it('is 429 SEND_RATE_LIMITED at the limit and does nothing', async () => {
+    m.countResult = { count: 20, error: null };
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ code: 'SEND_RATE_LIMITED' });
+    expect(m.conv.takeOver).not.toHaveBeenCalled();
+  });
+
+  it("counts the caller's out rows in the case's group", async () => {
+    await post();
+    expect(m.eqs).toEqual(
+      expect.arrayContaining([
+        ['account_id', 'acct-1'],
+        ['group_id', 'g-1'],
+        ['direction', 'out'],
+        ['sender_user_id', USER],
+      ])
+    );
+  });
+
+  it('proceeds under the limit', async () => {
+    m.countResult = { count: 19, error: null };
+    expect((await post()).status).toBeLessThan(300);
+    expect(m.conv.takeOver).toHaveBeenCalled();
+  });
+
+  it('is 503 when the count fails, and does nothing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.countResult = { count: null, error: { message: 'boom' } };
+    const res = await post();
+    expect(res.status).toBe(503);
+    expect(m.conv.takeOver).not.toHaveBeenCalled();
   });
 });

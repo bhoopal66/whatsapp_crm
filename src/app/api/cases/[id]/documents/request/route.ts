@@ -26,9 +26,10 @@ import {
   type DocRequestResult,
 } from '@/lib/cases/documents';
 import {
+  assertUnderGroupSendLimit,
   caseErrorResponse,
   loadCaseForCaller,
-} from '@/lib/cases/route-helpers';
+} from '@/lib/cases/http';
 import { caseStore, caseToolsStore } from '@/lib/cases/server';
 import {
   submissionGroupService,
@@ -54,13 +55,14 @@ export async function POST(_request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: true,
       }
     );
+    await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
     const result = await requestMissingDocuments(
       {
         tools: caseToolsStore(),

@@ -18,7 +18,7 @@ import {
   loadCaseForCaller,
   oneOf,
   readObject,
-} from '@/lib/cases/route-helpers';
+} from '@/lib/cases/http';
 import { caseSlaStore, caseStore } from '@/lib/cases/server';
 import type { SlaActorEvent, SlaTimer, SlaTimerAction } from '@/lib/cases/sla';
 
@@ -37,9 +37,9 @@ export async function GET(_request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: false,
       }
@@ -55,9 +55,9 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(
-      caseStore(ctx.accountId),
       ctx,
       id,
+      caseStore(ctx.accountId),
       {
         write: true,
       }
