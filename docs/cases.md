@@ -170,8 +170,10 @@ must be on the group's open access list.
 conversation over with a hand-over message) is **disabled** until the
 hand-over wording is approved: it answers `TEMPLATE_NOT_APPROVED`.
 
-**Presence.** The case page shows who else has it open (a hint, refreshed
-every 30 seconds, kept in server memory only).
+**Presence.** The case page shows who else has it open: a hint, not a
+lock or a record. The page reports itself every 20 seconds while visible,
+and someone stays listed for 30 seconds after their last report. It is
+kept in the app server's memory only, so a restart clears it.
 
 ## Banks
 
