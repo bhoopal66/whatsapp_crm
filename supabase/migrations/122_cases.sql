@@ -189,11 +189,14 @@ CREATE TABLE IF NOT EXISTS public.case_detail_log (
   actor_id   uuid NULL,   -- NULL = the v1 API
   actor_role text NOT NULL,
   changed_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT case_detail_log_field_check CHECK (field IN ('bank_code', 'product', 'amount')),
   CONSTRAINT case_detail_log_case_fkey FOREIGN KEY (case_id, account_id)
     REFERENCES public.cases (id, account_id)
 );
 CREATE INDEX IF NOT EXISTS case_detail_log_case_idx ON public.case_detail_log (case_id, id);
+-- Dropped and re-added by name so a re-run widens a table made with the shorter list.
+ALTER TABLE public.case_detail_log DROP CONSTRAINT IF EXISTS case_detail_log_field_check;
+ALTER TABLE public.case_detail_log ADD CONSTRAINT case_detail_log_field_check
+  CHECK (field IN ('bank_code', 'product', 'amount', 'priority', 'due_at'));
 
 CREATE TABLE IF NOT EXISTS public.case_view_audit (
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -636,6 +639,82 @@ BEGIN
     v_changed := v_changed || 'amount'::text;
   END IF;
   RETURN v_changed;
+END;
+$$;
+
+-- Sets the case's priority (low | normal | high | urgent) for anyone who
+-- may act on the case, closed cases included. Returns true when it
+-- changed (one case_detail_log row), false for the same value.
+CREATE OR REPLACE FUNCTION public.case_set_priority(p_case uuid, p_actor uuid, p_priority text)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  c      public.cases%ROWTYPE;
+  v_role text;
+BEGIN
+  SELECT * INTO c FROM public.cases x WHERE x.id = p_case FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
+  END IF;
+  v_role := public.case_role(p_case, p_actor);
+  IF NOT public.case_rule_can_write(v_role) THEN
+    RAISE EXCEPTION 'case %: % may not change its priority', p_case, p_actor
+      USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
+  END IF;
+  IF p_priority IS NULL OR p_priority NOT IN ('low', 'normal', 'high', 'urgent') THEN
+    RAISE EXCEPTION 'priority % is not low, normal, high or urgent', p_priority
+      USING ERRCODE = 'check_violation', HINT = 'PRIORITY_INVALID';
+  END IF;
+  IF p_priority = c.priority THEN
+    RETURN false;
+  END IF;
+  UPDATE public.cases SET priority = p_priority WHERE id = p_case;
+  INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
+  VALUES (p_case, c.account_id, 'priority', c.priority, p_priority, p_actor, v_role);
+  RETURN true;
+END;
+$$;
+
+-- Sets or clears (NULL) the case's due date for anyone who may act on the
+-- case, closed cases included. Returns true when it changed (one
+-- case_detail_log row, from / to as ISO text in UTC), false otherwise.
+CREATE OR REPLACE FUNCTION public.case_set_due(p_case uuid, p_actor uuid, p_due_at timestamptz)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  c      public.cases%ROWTYPE;
+  v_role text;
+BEGIN
+  SELECT * INTO c FROM public.cases x WHERE x.id = p_case FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
+  END IF;
+  v_role := public.case_role(p_case, p_actor);
+  IF NOT public.case_rule_can_write(v_role) THEN
+    RAISE EXCEPTION 'case %: % may not change its due date', p_case, p_actor
+      USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
+  END IF;
+  IF p_due_at IN ('infinity'::timestamptz, '-infinity'::timestamptz) THEN
+    RAISE EXCEPTION 'due date % is not a date', p_due_at
+      USING ERRCODE = 'check_violation', HINT = 'DUE_INVALID';
+  END IF;
+  IF p_due_at IS NOT DISTINCT FROM c.due_at THEN
+    RETURN false;
+  END IF;
+  UPDATE public.cases SET due_at = p_due_at WHERE id = p_case;
+  INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
+  VALUES (p_case, c.account_id, 'due_at',
+    to_char(c.due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    to_char(p_due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), p_actor, v_role);
+  RETURN true;
 END;
 $$;
 
@@ -1139,6 +1218,8 @@ REVOKE ALL ON FUNCTION
   public.case_fill_details(uuid, text, text, numeric, uuid, text),
   public.case_open(uuid, text, text, text, numeric, uuid),
   public.case_set_details(uuid, uuid, text, text, numeric),
+  public.case_set_priority(uuid, uuid, text),
+  public.case_set_due(uuid, uuid, timestamptz),
   public.case_set_stage(uuid, uuid, text, text, boolean),
   public.case_apply_submission_status(uuid, text),
   public.case_release_group_end(uuid, timestamptz),
@@ -1165,6 +1246,8 @@ GRANT EXECUTE ON FUNCTION
   public.case_stages_for_bank(uuid, text),
   public.case_open(uuid, text, text, text, numeric, uuid),
   public.case_set_details(uuid, uuid, text, text, numeric),
+  public.case_set_priority(uuid, uuid, text),
+  public.case_set_due(uuid, uuid, timestamptz),
   public.case_set_stage(uuid, uuid, text, text, boolean),
   public.case_apply_submission_status(uuid, text),
   public.case_release_group_end(uuid, timestamptz),

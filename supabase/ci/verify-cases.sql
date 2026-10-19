@@ -298,6 +298,73 @@ BEGIN
     AND (SELECT count(*) FROM case_stage_history WHERE case_id = k[1]) = 6
     AND (SELECT closed_at FROM cases WHERE id = k[1]) IS NULL,
     'k1 is not at Query raised with 6 history rows and no closed_at');
+
+  -- ---------- priority and due date ----------
+  lbl := ARRAY['owner', 'admin', 'team lead', 'coordinator', 'agent'];
+  usr := ARRAY[u_owner, u_admin, u_lead, u_coord, u_agent];
+  exp := ARRAY['low', 'high', 'urgent', 'low', 'high'];
+  FOR i IN 1 .. 5 LOOP
+    n := n + 1; failed := failed || pg_temp.cs_check(format('the %s could not set the priority', lbl[i]),
+      'service_role', NULL, format('SELECT case_set_priority(%L, %L, %L)::text', k[1], usr[i], exp[i]), 'true');
+    n := n + 1; failed := failed || pg_temp.cs_check(format('the %s could not set the due date', lbl[i]),
+      'service_role', NULL, format('SELECT case_set_due(%L, %L, %L)::text', k[1], usr[i],
+        '2031-01-0' || i || ' 09:00:00+00'), 'true');
+  END LOOP;
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field = 'priority') = 5
+    AND (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field = 'due_at') = 5
+    AND (SELECT priority FROM cases WHERE id = k[1]) = 'high'
+    AND (SELECT due_at FROM cases WHERE id = k[1]) = '2031-01-05 09:00:00+00',
+    'priority / due changes did not write exactly one detail-log row each');
+  lbl := ARRAY['viewer', 'another agent', 'NULL actor'];
+  usr := ARRAY[u_viewer, u_agent2, NULL];
+  FOR i IN 1 .. 3 LOOP
+    n := n + 1; failed := failed || pg_temp.cs_check(format('the %s set the priority (not NOT_ALLOWED)', lbl[i]),
+      'service_role', NULL, format('SELECT case_set_priority(%L, %L, ''low'')::text', k[1], usr[i]),
+      'ERROR 42501 NOT_ALLOWED:%');
+    n := n + 1; failed := failed || pg_temp.cs_check(format('the %s set the due date (not NOT_ALLOWED)', lbl[i]),
+      'service_role', NULL, format('SELECT case_set_due(%L, %L, now())::text', k[1], usr[i]),
+      'ERROR 42501 NOT_ALLOWED:%');
+  END LOOP;
+  n := n + 1; failed := failed || pg_temp.cs_check('an unknown case was not CASE_NOT_FOUND for priority',
+    'service_role', NULL, format('SELECT case_set_priority(%L, %L, ''low'')::text', gen_random_uuid(), u_admin),
+    'ERROR P0002 CASE_NOT_FOUND:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('priority critical was not PRIORITY_INVALID',
+    'service_role', NULL, format('SELECT case_set_priority(%L, %L, ''critical'')::text', k[1], u_admin),
+    'ERROR 23514 PRIORITY_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a NULL priority was not PRIORITY_INVALID',
+    'service_role', NULL, format('SELECT case_set_priority(%L, %L, NULL)::text', k[1], u_admin),
+    'ERROR 23514 PRIORITY_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('an infinite due date was not DUE_INVALID',
+    'service_role', NULL, format('SELECT case_set_due(%L, %L, ''infinity'')::text', k[1], u_admin),
+    'ERROR 23514 DUE_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a -infinity due date was not DUE_INVALID',
+    'service_role', NULL, format('SELECT case_set_due(%L, %L, ''-infinity'')::text', k[1], u_admin),
+    'ERROR 23514 DUE_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a repeated priority was not a no-op',
+    'service_role', NULL, format('SELECT case_set_priority(%L, %L, ''high'')::text', k[1], u_admin), 'false');
+  n := n + 1; failed := failed || pg_temp.cs_check('a repeated due date was not a no-op',
+    'service_role', NULL, format('SELECT case_set_due(%L, %L, %L)::text', k[1], u_admin, '2031-01-05 09:00:00+00'),
+    'false');
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field IN ('priority', 'due_at')) = 10,
+    'a refused or no-op priority / due call wrote a detail-log row');
+  n := n + 1; failed := failed || pg_temp.cs_check('a NULL due date did not clear it',
+    'service_role', NULL, format('SELECT case_set_due(%L, %L, NULL)::text', k[1], u_coord), 'true');
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT due_at IS NULL FROM cases WHERE id = k[1])
+    AND (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field = 'due_at'
+           AND from_value = '2031-01-05T09:00:00.000000Z' AND to_value IS NULL
+           AND actor_id = u_coord AND actor_role = 'coordinator') = 1,
+    'clearing the due date did not log ISO from and NULL to with the coordinator');
+  n := n + 1; failed := failed || pg_temp.cs_check('clearing an already-clear due date was not a no-op',
+    'service_role', NULL, format('SELECT case_set_due(%L, %L, NULL)::text', k[1], u_admin), 'false');
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field = 'priority'
+        AND from_value = 'low' AND to_value = 'high' AND actor_id = u_agent AND actor_role = 'agent') = 1
+    AND (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field = 'priority'
+        AND from_value = 'normal' AND to_value = 'low' AND actor_id = u_owner) = 1,
+    'a priority log row has the wrong from / to / actor');
   n := n + 1; failed := failed || pg_temp.cs_check('a move to the current stage was not a no-op',
     'service_role', NULL, format('SELECT moved::text FROM case_set_stage(%L, %L, ''Query raised'')', k[1], u_agent), 'false');
   n := n + 1; failed := failed || pg_temp.cs_ok((SELECT count(*) FROM case_stage_history WHERE case_id = k[1]) = 6,
@@ -464,7 +531,7 @@ BEGIN
     'service_role', NULL, format('SELECT case_set_details(%L, %L, ''NEWBANK'', ''P-agent'', 1234.5)::text', k[1], u_owner),
     '{bank_code,amount}');
   n := n + 1; failed := failed || pg_temp.cs_ok(
-    (SELECT count(*) FROM case_detail_log WHERE case_id = k[1]) = 7
+    (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field IN ('bank_code', 'product', 'amount')) = 7
     AND (SELECT count(*) FROM case_detail_log WHERE case_id = k[1] AND field = 'amount' AND to_value = '1234.50'
            AND actor_id = u_owner AND actor_role = 'super_admin') = 1,
     'case_set_details did not log exactly one row per changed field');
