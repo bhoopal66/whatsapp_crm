@@ -12,18 +12,26 @@
  *       An embedding is computed only when the store was built with embedExternal: true and an embedder, only from the
  *       redacted text, under a timeout; any failure stores no embedding and the put still succeeds. memory_put's
  *       SCOPE_INVALID / SUPERSEDE_VERIFIED refusals (error hint) come back as typed refusals.
- *   recall(userId, accountId, query, limit)  memory_recall_candidates with the search TEXT (the SQL folds digits and
- *       parses it with websearch_to_tsquery; blank -> no text filter): rows of the scopes the user may read, in SQL
- *       order. Read-only: nothing is bumped or audited.
- *   recallForPrompt(userId, accountId, query, opts)  recall (pool of 100) -> rankRecall -> memory_mark_recalled with
- *       ONLY the selected ids (called with an empty list too, so every prompt recall is audited) -> renderMemories.
+ *   recall(userId, accountId, query, limit, scopes?)  memory_recall_candidates with the search TEXT (the SQL folds
+ *       digits and parses it with websearch_to_tsquery; blank -> no text filter): rows of the scopes the user may read,
+ *       in SQL order. `scopes` narrows it to those scopes (parallel p_scope_types / p_scope_ids; an empty list matches
+ *       nothing); absent = every readable scope (NULL arrays). Read-only: nothing is bumped or audited.
+ *   recallForPrompt(userId, accountId, query, opts)  recall (pool of 100, opts.scopes) -> rankRecall ->
+ *       memory_mark_recalled with ONLY the selected ids (called with an empty list too, so every prompt recall is
+ *       audited) -> renderMemories.
  *   list / canRead  memory_list / memory_can_read for one scope.
+ *   compactScope(accountId, scope, opts)  memory_compact_candidates (as opts.actor: live, non-summary, untrusted
+ *       items older than olderThanDays, oldest first, at most maxBatch; empty for an actor who may not read the scope)
+ *       -> fewer than minItems is a no-op -> the injected summariser (stored, already redacted content only; timeout
+ *       10 s) -> raw length check -> redact -> blank / length check -> memory_compact_apply in one transaction. Every
+ *       failure (THREW / TIMEOUT / EMPTY / TOO_LONG / REFUSED, or CONFLICT when apply raises 40001 because a source is
+ *       no longer live / untrusted / in scope) returns { ok: false } with nothing changed. The verified-never-compacted
+ *       rule is SQL's (both functions); the store sends exactly the ids the candidates function returned.
  *   forget(actor, accountId, scope, reason) / expireDue(actor)  memory_forget / memory_expire_due, audited in the DB.
  *       The forget reason is redacted before the call (refused / blank -> "[REDACTED]"); a missing, blank or
  *       over-MAX_FORGET_REASON_CHARS reason is rejected (RangeError) before redaction.
  * Any other database error throws MemoryStoreError, whose message names only the function (PostgREST's message and
  * details can echo the failing row, i.e. memory content).
- * Not ported yet: compactScope (memory_compact_candidates / memory_compact_apply).
  */
 import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -190,6 +198,8 @@ export interface ListOptions {
 export interface RecallForPromptOptions {
   /** Most items to put in the prompt. */
   limit: number;
+  /** Only these scopes (see recall); absent = every scope the user may read. */
+  scopes?: readonly MemoryScope[];
   /** Token budget for the items' content (ceil(chars / 4) each); the block's header, notice and markers are not counted. */
   tokenBudget: number;
   /** Embedding of the query, for the cosine component of the ranking. */
@@ -203,6 +213,58 @@ export interface PromptRecall {
   /** The selected items, best first (the only ones marked recalled). */
   readonly items: RecalledItem[];
 }
+
+export const DEFAULT_SUMMARISE_TIMEOUT_MS = 10_000;
+export const DEFAULT_COMPACT_OLDER_THAN_DAYS = 30;
+export const DEFAULT_COMPACT_MIN_ITEMS = 10;
+export const DEFAULT_COMPACT_MAX_BATCH = 50;
+
+/** An item handed to the summariser: its stored (already redacted) content. */
+export interface CompactSource {
+  readonly id: string;
+  readonly kind: MemoryKind;
+  readonly content: string;
+  readonly createdAt: Date;
+}
+
+/** Injected summariser. The store holds no network code; it only ever gets stored (redacted) content. */
+export type Summariser = (
+  items: readonly CompactSource[],
+  signal: AbortSignal
+) => Promise<string>;
+
+export interface CompactOptions {
+  summariser: Summariser;
+  /** A uuid, recorded as the summary's created_by and in the audit; must be able to read the scope (memory_can_read). */
+  actor: string;
+  olderThanDays?: number;
+  minItems?: number;
+  maxBatch?: number;
+  timeoutMs?: number;
+}
+
+export type CompactFailure =
+  'THREW' | 'TIMEOUT' | 'EMPTY' | 'TOO_LONG' | 'REFUSED' | 'CONFLICT';
+
+export type CompactResult =
+  | {
+      readonly ok: true;
+      readonly summaryId: string;
+      readonly deduped: boolean;
+      readonly compacted: number;
+    }
+  /** Fewer than minItems candidates: nothing done. */
+  | {
+      readonly ok: true;
+      readonly summaryId: null;
+      readonly compacted: 0;
+      readonly candidates: number;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: CompactFailure;
+      readonly detail: string;
+    };
 
 /**
  * A memory_* call failed in the database or answered in an unexpected shape. The message names only the function;
@@ -267,6 +329,49 @@ function toListed(x: Row): ListedItem {
     recallCount: Number(x.recall_count ?? 0),
     lastRecalledAt: date(x.last_recalled_at),
   };
+}
+
+/** Runs the summariser under a timeout; the signal is aborted when the timeout fires. */
+async function summarise(
+  summariser: Summariser,
+  items: readonly CompactSource[],
+  timeoutMs: number
+): Promise<
+  | { ok: true; text: string }
+  | { ok: false; reason: 'THREW' | 'TIMEOUT'; detail: string }
+> {
+  const ac = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => {
+      ac.abort();
+      resolve('timeout');
+    }, timeoutMs);
+  });
+  try {
+    const v = await Promise.race([
+      Promise.resolve()
+        .then(() => summariser(items, ac.signal))
+        .then((t) => ({ t })),
+      timeout,
+    ]);
+    if (v === 'timeout')
+      return {
+        ok: false,
+        reason: 'TIMEOUT',
+        detail: `summariser did not answer within ${timeoutMs} ms`,
+      };
+    return { ok: true, text: v.t };
+  } catch (e) {
+    // The error's name only: its message could carry content.
+    return {
+      ok: false,
+      reason: 'THREW',
+      detail: `summariser failed: ${e instanceof Error ? e.name : 'error'}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export class MemoryStore {
@@ -448,14 +553,15 @@ export class MemoryStore {
     userId: string,
     accountId: string,
     query: string | null,
-    limit = 20
+    limit = 20,
+    scopes?: readonly MemoryScope[]
   ): Promise<RecalledItem[]> {
     const q = query === null || query.trim() === '' ? null : query;
     const rows = await this.rows('memory_recall_candidates', {
       p_user_id: userId,
       p_account_id: accountId,
-      p_scope_types: null,
-      p_scope_ids: null,
+      p_scope_types: scopes ? scopes.map((x) => x.type) : null,
+      p_scope_ids: scopes ? scopes.map((x) => x.id) : null,
       p_query: q,
       p_limit: limit,
     });
@@ -469,7 +575,13 @@ export class MemoryStore {
     query: string | null,
     opts: RecallForPromptOptions
   ): Promise<PromptRecall> {
-    const candidates = await this.recall(userId, accountId, query, RECALL_POOL);
+    const candidates = await this.recall(
+      userId,
+      accountId,
+      query,
+      RECALL_POOL,
+      opts.scopes
+    );
     const ranked = rankRecall(candidates, {
       now: opts.now ?? new Date(),
       limit: opts.limit,
@@ -518,6 +630,100 @@ export class MemoryStore {
     if (typeof v !== 'boolean')
       throw new MemoryStoreError('memory_can_read', null);
     return v;
+  }
+
+  /**
+   * Compacts the oldest live untrusted non-summary items of one scope into one summary item. Failure never drops data:
+   * any summariser failure (throw, timeout, blank, over MAX_CONTENT_CHARS raw or redacted, redaction refusal) or a
+   * source changed since selection (40001) returns { ok: false } with nothing changed. On success the sources are
+   * superseded (kept, not deleted) by the summary in one transaction (memory_compact_apply); a replay of the same
+   * summary hash returns the existing item with deduped: true.
+   */
+  async compactScope(
+    accountId: string,
+    scope: MemoryScope,
+    opts: CompactOptions
+  ): Promise<CompactResult> {
+    const minItems = opts.minItems ?? DEFAULT_COMPACT_MIN_ITEMS;
+    const cand = await this.rows('memory_compact_candidates', {
+      p_actor: opts.actor,
+      p_account_id: accountId,
+      p_scope_type: scope.type,
+      p_scope_id: scope.id,
+      p_older_than_days: opts.olderThanDays ?? DEFAULT_COMPACT_OLDER_THAN_DAYS,
+      p_limit: opts.maxBatch ?? DEFAULT_COMPACT_MAX_BATCH,
+    });
+    const sources: CompactSource[] = cand.map((x) => ({
+      id: String(x.id),
+      kind: x.kind as MemoryKind,
+      content: String(x.content),
+      createdAt: date(x.created_at)!,
+    }));
+    if (sources.length < minItems)
+      return {
+        ok: true,
+        summaryId: null,
+        compacted: 0,
+        candidates: sources.length,
+      };
+
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_SUMMARISE_TIMEOUT_MS;
+    const s = await summarise(opts.summariser, sources, timeoutMs);
+    if (!s.ok) return s;
+    const raw = s.text;
+    if (typeof raw === 'string' && raw.length > MAX_CONTENT_CHARS) {
+      const n = Array.from(raw).length;
+      if (n > MAX_CONTENT_CHARS)
+        return {
+          ok: false,
+          reason: 'TOO_LONG',
+          detail: `summary is ${n} chars (max ${MAX_CONTENT_CHARS})`,
+        };
+    }
+    const r = redact(raw);
+    if (!r.ok) return { ok: false, reason: 'REFUSED', detail: r.reason };
+    const text = r.text.replace(/^\s+|\s+$/g, '');
+    if (text === '')
+      return {
+        ok: false,
+        reason: 'EMPTY',
+        detail: 'summary is blank after redaction',
+      };
+    const chars = Array.from(text).length;
+    if (chars > MAX_CONTENT_CHARS)
+      return {
+        ok: false,
+        reason: 'TOO_LONG',
+        detail: `summary is ${chars} chars after redaction (max ${MAX_CONTENT_CHARS})`,
+      };
+
+    const { data, error } = await this.call('memory_compact_apply', {
+      p_account_id: accountId,
+      p_scope_type: scope.type,
+      p_scope_id: scope.id,
+      p_ids: sources.map((x) => x.id),
+      p_summary: text,
+      p_summary_hash: contentHash(text),
+      p_actor: opts.actor,
+    });
+    if (error) {
+      if (error.code === '40001')
+        return {
+          ok: false,
+          reason: 'CONFLICT',
+          detail: 'a source changed since it was selected; nothing applied',
+        };
+      throw new MemoryStoreError('memory_compact_apply', error.code ?? null);
+    }
+    const row = (Array.isArray(data) ? data[0] : null) as Row | null;
+    if (!row || row.summary_id == null)
+      throw new MemoryStoreError('memory_compact_apply', null);
+    return {
+      ok: true,
+      summaryId: String(row.summary_id),
+      deduped: row.deduped === true,
+      compacted: Number(row.superseded ?? 0),
+    };
   }
 
   /** Erases every item of one scope (privacy request). Returns the count removed. A missing, blank or whitespace-only

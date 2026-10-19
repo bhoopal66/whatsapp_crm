@@ -744,3 +744,53 @@ describe('MemoryStore.forget', () => {
     expect(FORGET_REASON_PLACEHOLDER).toBe('[REDACTED]');
   });
 });
+
+describe('MemoryStore.recall: scope filter', () => {
+  const CASE: MemoryScope = {
+    type: 'case',
+    id: '66666666-6666-4666-8666-666666666666',
+  };
+
+  it('scopes are sent as parallel arrays in order; without scopes both are null', async () => {
+    const { db, s } = store({ memory_recall_candidates: { data: [] } });
+    await s.recall(USER, ACCOUNT, 'tea', 7, [SCOPE, CASE]);
+    await s.recall(USER, ACCOUNT, 'tea', 7);
+    await s.recall(USER, ACCOUNT, 'tea', 7, []);
+    expect(
+      db
+        .of('memory_recall_candidates')
+        .map((a) => [a.p_scope_types, a.p_scope_ids])
+    ).toEqual([
+      [
+        ['contact', 'case'],
+        [SCOPE.id, CASE.id],
+      ],
+      [null, null],
+      [[], []],
+    ]);
+  });
+
+  it('recallForPrompt passes its scopes to the candidate pool', async () => {
+    const { db, s } = store({
+      memory_recall_candidates: { data: [] },
+      memory_mark_recalled: { data: 0 },
+    });
+    await s.recallForPrompt(USER, ACCOUNT, null, {
+      limit: 5,
+      tokenBudget: 500,
+      scopes: [CASE],
+    });
+    await s.recallForPrompt(USER, ACCOUNT, null, {
+      limit: 5,
+      tokenBudget: 500,
+    });
+    expect(
+      db
+        .of('memory_recall_candidates')
+        .map((a) => [a.p_scope_types, a.p_scope_ids, a.p_limit])
+    ).toEqual([
+      [['case'], [CASE.id], RECALL_POOL],
+      [null, null, RECALL_POOL],
+    ]);
+  });
+});

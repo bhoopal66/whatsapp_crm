@@ -4,6 +4,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/groups/server';
+import { vaultStore } from '@/lib/vault/server';
+import type { StaffMemoryDeps } from './staff';
 import { MemoryStore, type MemoryStoreOptions } from './store';
 
 export function memoryStore(
@@ -11,4 +13,10 @@ export function memoryStore(
   admin: SupabaseClient = supabaseAdmin()
 ): MemoryStore {
   return new MemoryStore(admin, opts);
+}
+
+/** addStaffMemory's dependencies: the memory store, and the vault when it is configured (else null: put redacts). */
+export function staffMemoryDeps(): StaffMemoryDeps {
+  const v = vaultStore();
+  return { memory: memoryStore(), vault: v.ok ? v.store : null };
 }
