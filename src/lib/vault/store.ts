@@ -348,35 +348,12 @@ export class VaultStore implements TokenVault {
   }
 
   /** The account's audit rows, newest first; the database clamps limit to 1..500 (default 100). */
-  async auditList(
+  auditList(
     actor: string,
     account: string,
     limit?: number
   ): Promise<VaultAuditRow[]> {
-    const data = await this.call('vault_audit_list', {
-      p_actor: actor,
-      p_account: account,
-      p_limit: limit ?? 100,
-    });
-    if (!Array.isArray(data))
-      throw new VaultStoreError('vault_audit_list', null);
-    return (data as Row[]).map((r) => ({
-      id: String(r.id),
-      at: new Date(String(r.at)),
-      action: String(r.action),
-      outcome: String(r.outcome),
-      actor: String(r.actor),
-      accountId: String(r.account_id),
-      token: str(r.token),
-      kind: str(r.kind),
-      subjectType: str(r.subject_type),
-      subjectId: str(r.subject_id),
-      reason: str(r.reason),
-      detail:
-        r.detail !== null && typeof r.detail === 'object'
-          ? (r.detail as Record<string, unknown>)
-          : {},
-    }));
+    return vaultAuditList(this.db, actor, account, limit);
   }
 
   /**
@@ -483,4 +460,105 @@ export class VaultStore implements TokenVault {
       return 'ERROR';
     }
   }
+}
+
+/**
+ * vault_audit_list without the keys (the audit holds no value, so Settings -> Vault reads it on an install whose keys
+ * are not configured too). Newest first; the database clamps limit to 1..500 (default 100) and answers zero rows for a
+ * caller with no vault role.
+ */
+export async function vaultAuditList(
+  db: SupabaseClient,
+  actor: string,
+  account: string,
+  limit?: number
+): Promise<VaultAuditRow[]> {
+  const { data, error } = await db.rpc('vault_audit_list', {
+    p_actor: actor,
+    p_account: account,
+    p_limit: limit ?? 100,
+  });
+  if (error) throw new VaultStoreError('vault_audit_list', error.code ?? null);
+  if (!Array.isArray(data)) throw new VaultStoreError('vault_audit_list', null);
+  return (data as Row[]).map((r) => ({
+    id: String(r.id),
+    at: new Date(String(r.at)),
+    action: String(r.action),
+    outcome: String(r.outcome),
+    actor: String(r.actor),
+    accountId: String(r.account_id),
+    token: str(r.token),
+    kind: str(r.kind),
+    subjectType: str(r.subject_type),
+    subjectId: str(r.subject_id),
+    reason: str(r.reason),
+    detail:
+      r.detail !== null && typeof r.detail === 'object'
+        ? (r.detail as Record<string, unknown>)
+        : {},
+  }));
+}
+
+/** One active vault role row (vault_overview). `counts`: the holder is still a live owner / admin of the account. */
+export interface VaultOverviewRole {
+  readonly userId: string;
+  readonly role: VaultRole;
+  readonly grantedBy: string | null;
+  readonly grantedAt: Date | null;
+  readonly counts: boolean;
+}
+
+/** Settings -> Vault in one read (vault_overview, migration 121). */
+export interface VaultOverview {
+  /** No active role row at all: the account's owner may bootstrap the first super_admin. */
+  readonly bootstrapAvailable: boolean;
+  /** The caller's role under vault_has_role's rule; null when it does not count. */
+  readonly myRole: VaultRole | null;
+  /** The active role rows; empty for a caller whose role does not count. */
+  readonly roles: readonly VaultOverviewRole[];
+}
+
+const VAULT_ROLES: readonly VaultRole[] = ['admin', 'super_admin'];
+
+/**
+ * vault_overview, defensively parsed; needs no keys. A database error, or an answer that is not an object, throws a
+ * VaultStoreError (SQLSTATE only). Within the answer anything unexpected fails closed: bootstrapAvailable is true only
+ * for a literal true, an unknown my_role is null, and a role row without a user id or with an unknown role is dropped.
+ */
+export async function vaultOverview(
+  db: SupabaseClient,
+  actor: string,
+  account: string
+): Promise<VaultOverview> {
+  const { data, error } = await db.rpc('vault_overview', {
+    p_actor: actor,
+    p_account: account,
+  });
+  if (error) throw new VaultStoreError('vault_overview', error.code ?? null);
+  if (data === null || typeof data !== 'object' || Array.isArray(data))
+    throw new VaultStoreError('vault_overview', null);
+  const o = data as Row;
+  const asRole = (v: unknown): VaultRole | null =>
+    VAULT_ROLES.includes(v as VaultRole) ? (v as VaultRole) : null;
+  const roles: VaultOverviewRole[] = [];
+  for (const r of Array.isArray(o.roles) ? (o.roles as unknown[]) : []) {
+    if (r === null || typeof r !== 'object') continue;
+    const row = r as Row;
+    const role = asRole(row.role);
+    if (typeof row.user_id !== 'string' || role === null) continue;
+    const at =
+      typeof row.granted_at === 'string' ? new Date(row.granted_at) : null;
+    roles.push({
+      userId: row.user_id,
+      role,
+      grantedBy: typeof row.granted_by === 'string' ? row.granted_by : null,
+      grantedAt: at && !Number.isNaN(at.getTime()) ? at : null,
+      counts: row.counts === true,
+    });
+  }
+  return {
+    bootstrapAvailable: o.bootstrap_available === true,
+    myRole: asRole(o.my_role),
+    roles,
+  };
 }

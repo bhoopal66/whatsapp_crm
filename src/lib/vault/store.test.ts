@@ -24,6 +24,8 @@ import {
   VaultStore,
   VaultStoreError,
   fromBytea,
+  vaultAuditList,
+  vaultOverview,
 } from './store';
 import { tokenizeSensitive } from './tokenize';
 
@@ -847,5 +849,161 @@ describe('tokenizeSensitive over a VaultStore', () => {
       ok: false,
       reason: 'vault put failed: EID: VaultPutDeniedError',
     });
+  });
+});
+
+describe('vaultOverview / vaultAuditList (no keys)', () => {
+  const GRANTER = '55555555-5555-4555-8555-555555555555';
+
+  it('vaultOverview sends actor and account and maps the answer', async () => {
+    const db = new FakeDb({
+      vault_overview: {
+        data: {
+          bootstrap_available: false,
+          my_role: 'super_admin',
+          roles: [
+            {
+              user_id: ACTOR,
+              role: 'super_admin',
+              granted_by: GRANTER,
+              granted_at: '2026-10-19T08:00:00.5+00:00',
+              counts: true,
+            },
+            {
+              user_id: OTHER,
+              role: 'admin',
+              granted_by: null,
+              granted_at: 'not a time',
+              counts: false,
+            },
+          ],
+        },
+      },
+    });
+    expect(await vaultOverview(db.client, ACTOR, ACCOUNT)).toEqual({
+      bootstrapAvailable: false,
+      myRole: 'super_admin',
+      roles: [
+        {
+          userId: ACTOR,
+          role: 'super_admin',
+          grantedBy: GRANTER,
+          grantedAt: new Date('2026-10-19T08:00:00.500Z'),
+          counts: true,
+        },
+        {
+          userId: OTHER,
+          role: 'admin',
+          grantedBy: null,
+          grantedAt: null,
+          counts: false,
+        },
+      ],
+    });
+    expect(db.of('vault_overview')).toEqual([
+      { p_actor: ACTOR, p_account: ACCOUNT },
+    ]);
+  });
+
+  it('vaultOverview fails closed on an unexpected answer', async () => {
+    const db = new FakeDb({
+      vault_overview: {
+        data: {
+          bootstrap_available: 'yes',
+          my_role: 'owner',
+          roles: [
+            null,
+            { user_id: ACTOR, role: 'owner', counts: true },
+            { user_id: 7, role: 'admin', counts: true },
+            { user_id: OTHER, role: 'admin', counts: 'true' },
+          ],
+        },
+      },
+    });
+    expect(await vaultOverview(db.client, ACTOR, ACCOUNT)).toEqual({
+      bootstrapAvailable: false,
+      myRole: null,
+      roles: [
+        {
+          userId: OTHER,
+          role: 'admin',
+          grantedBy: null,
+          grantedAt: null,
+          counts: false,
+        },
+      ],
+    });
+    const noRoles = new FakeDb({
+      vault_overview: { data: { bootstrap_available: true, my_role: null } },
+    });
+    expect(await vaultOverview(noRoles.client, ACTOR, ACCOUNT)).toEqual({
+      bootstrapAvailable: true,
+      myRole: null,
+      roles: [],
+    });
+  });
+
+  it('vaultOverview throws a VaultStoreError with the SQLSTATE only', async () => {
+    const failed = new FakeDb({
+      vault_overview: { error: { message: 'secret detail', code: '22023' } },
+    });
+    const err = await vaultOverview(failed.client, ACTOR, ACCOUNT).catch(
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(VaultStoreError);
+    expect((err as VaultStoreError).code).toBe('22023');
+    expect((err as Error).message).toBe('vault: vault_overview failed');
+    for (const data of [null, [], 'OK']) {
+      const db = new FakeDb({ vault_overview: { data } });
+      await expect(vaultOverview(db.client, ACTOR, ACCOUNT)).rejects.toThrow(
+        VaultStoreError
+      );
+    }
+  });
+
+  it('vaultAuditList reads the audit on a bare client', async () => {
+    const db = new FakeDb({
+      vault_audit_list: [
+        {
+          data: [
+            {
+              id: 9,
+              at: '2026-10-19T08:00:00Z',
+              action: 'role_grant',
+              outcome: 'OK',
+              actor: ACTOR,
+              account_id: ACCOUNT,
+              token: null,
+              kind: null,
+              subject_type: null,
+              subject_id: null,
+              reason: null,
+              detail: null,
+            },
+          ],
+        },
+        { error: { message: 'x', code: '42501' } },
+      ],
+    });
+    expect(await vaultAuditList(db.client, ACTOR, ACCOUNT, 5)).toEqual([
+      {
+        id: '9',
+        at: new Date('2026-10-19T08:00:00Z'),
+        action: 'role_grant',
+        outcome: 'OK',
+        actor: ACTOR,
+        accountId: ACCOUNT,
+        token: null,
+        kind: null,
+        subjectType: null,
+        subjectId: null,
+        reason: null,
+        detail: {},
+      },
+    ]);
+    await expect(vaultAuditList(db.client, ACTOR, ACCOUNT)).rejects.toThrow(
+      VaultStoreError
+    );
+    expect(db.of('vault_audit_list').map((a) => a.p_limit)).toEqual([5, 100]);
   });
 });
