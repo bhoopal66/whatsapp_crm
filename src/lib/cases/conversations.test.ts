@@ -172,8 +172,23 @@ describe('CaseConversations.reply', () => {
 });
 
 describe('CaseConversations.takeOver', () => {
+  it('a read-only caller (no write role on the case) is refused NOT_ALLOWED before any record or send', async () => {
+    const { db, groups, conv } = setup({
+      role: null,
+      handover: {
+        template: HANDOVER_TEMPLATE_DRAFT,
+        allowDraftTemplate: true,
+      },
+    });
+    await expect(conv.takeOver(ACTOR, CASE_ID, NAMES)).rejects.toMatchObject({
+      reason: 'NOT_ALLOWED',
+    });
+    expect(db.rpcs).toHaveLength(0);
+    expect(groups.sendFromCrm).not.toHaveBeenCalled();
+  });
+
   it('TEMPLATE_NOT_APPROVED by default (the draft): nothing logged or sent', async () => {
-    const { db, groups, conv } = setup();
+    const { db, groups, conv } = setup({ role: 'agent' });
     const err = await conv.takeOver(ACTOR, CASE_ID, NAMES).catch((e) => e);
     expect(err).toBeInstanceOf(CaseTakeOverRefusedError);
     expect(err.reason).toBe('TEMPLATE_NOT_APPROVED');
@@ -194,7 +209,10 @@ describe('CaseConversations.takeOver', () => {
   ])(
     '%j / %j -> %s before anything is logged',
     async (names, template, reason) => {
-      const { db, groups, conv } = setup({ handover: { template } });
+      const { db, groups, conv } = setup({
+        role: 'agent',
+        handover: { template },
+      });
       await expect(conv.takeOver(ACTOR, CASE_ID, names)).rejects.toMatchObject({
         reason,
       });
@@ -205,6 +223,7 @@ describe('CaseConversations.takeOver', () => {
 
   it('agent / admin: the SQL refuses NOT_ALLOWED and nothing is sent', async () => {
     const { groups, conv } = setup({
+      role: 'agent',
       handover: { template: APPROVED },
       takeover: { error: { message: 'x', code: '42501', hint: 'NOT_ALLOWED' } },
     });
@@ -216,6 +235,7 @@ describe('CaseConversations.takeOver', () => {
 
   it('records before it sends, with the rendered text and the normalised version', async () => {
     const { log, db, groups, conv } = setup({
+      role: 'agent',
       handover: { template: { ...APPROVED, version: ' v1 ' } },
     });
     const r = await conv.takeOver(ACTOR, CASE_ID, NAMES);
@@ -241,6 +261,7 @@ describe('CaseConversations.takeOver', () => {
 
   it('the draft is usable with allowDraftTemplate', async () => {
     const { groups, conv } = setup({
+      role: 'agent',
       handover: { template: HANDOVER_TEMPLATE_DRAFT, allowDraftTemplate: true },
     });
     await conv.takeOver(ACTOR, CASE_ID, NAMES);
@@ -254,6 +275,7 @@ describe('CaseConversations.takeOver', () => {
     'logged then %s: the error passes through and the log row stays',
     async (_k, mk) => {
       const { db, conv } = setup({
+        role: 'agent',
         handover: { template: APPROVED },
         send: async () => {
           throw mk();

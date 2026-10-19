@@ -152,6 +152,10 @@ export class CaseConversations {
       throw new CaseTakeOverRefusedError('TEMPLATE_NOT_APPROVED');
     const v = validateHandover(template, names);
     if (!v.ok) throw new CaseTakeOverRefusedError(v.reason);
+    // Defence in depth: the route loads the case with { write: true }, and
+    // case_takeover_record decides again; this refuses before any write.
+    if (!canWriteCase(await store.role(caseId, actor)))
+      throw new CaseTakeOverRefusedError('NOT_ALLOWED');
     const kase = await store.get(caseId);
     if (!kase) throw new CaseTakeOverRefusedError('CASE_NOT_FOUND');
     // Record before send: the row stays whatever the send does next.

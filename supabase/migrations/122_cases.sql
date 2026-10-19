@@ -792,8 +792,12 @@ $$;
 -- already ended the group through 115): APPROVED / DECLINED / WITHDRAWN
 -- / CLOSED move the group's case, if any and not at a final stage, to
 -- Approved / Declined / Withdrawn / Closed (outcome for the first
--- three), history actor NULL / 'api', and record group_ended_at without
--- taking a claim. Anything else is a no-op. True if it moved the case.
+-- three), history actor NULL / 'api', without taking a claim.
+-- group_ended_at is recorded only when the linked submission group is
+-- actually ENDED (115); while it is still ACTIVE (the PATCH's endIfDue
+-- lost a race) it stays NULL, so case_pending_group_end lists the case
+-- and the sweeper ends the group later. Anything else is a no-op. True
+-- if it moved the case.
 CREATE OR REPLACE FUNCTION public.case_apply_submission_status(p_group uuid, p_status text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -822,7 +826,9 @@ BEGIN
      SET stage = v_stage,
          outcome = CASE WHEN v_stage = 'Closed' THEN x.outcome ELSE v_stage END,
          closed_at = now(),
-         group_ended_at = coalesce(x.group_ended_at, now())
+         group_ended_at = coalesce(x.group_ended_at,
+           (SELECT g.ended_at FROM public.submission_groups g
+             WHERE g.id = c.group_id AND g.status = 'ENDED'))
    WHERE x.id = c.id;
   INSERT INTO public.case_stage_history (case_id, account_id, from_stage, to_stage, outcome, actor_id, actor_role)
   VALUES (c.id, c.account_id, c.stage, v_stage,
