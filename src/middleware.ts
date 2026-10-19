@@ -101,6 +101,8 @@ export async function middleware(request: NextRequest) {
     '/calendar',
     '/groups',
     '/submission-groups',
+    '/cases',
+    '/banks',
   ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()

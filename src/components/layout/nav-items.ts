@@ -1,8 +1,10 @@
 import {
   Activity,
   Bell,
+  Briefcase,
   Building2,
   GitBranch,
+  Landmark,
   LayoutDashboard,
   MessageSquare,
   MessagesSquare,
@@ -101,6 +103,22 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/submission-groups',
         labelKey: 'submissionGroups',
         icon: FolderKanban,
+        minRole: 'agent',
+      },
+      // Cases (module 019): the coordinator inbox over submission cases.
+      // Agent and up (the route's AgentOnlyLayout); which cases come back
+      // is Postgres's call (`case_inbox`, case_role).
+      {
+        href: '/cases',
+        labelKey: 'cases',
+        icon: Briefcase,
+        minRole: 'agent',
+      },
+      // Partner banks (module 019): agent and up, like Cases.
+      {
+        href: '/banks',
+        labelKey: 'banks',
+        icon: Landmark,
         minRole: 'agent',
       },
       // Team chat (migration 087): the one row a bank guest sees too.

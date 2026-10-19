@@ -66,7 +66,9 @@
     "meetings": "회의",
     "calendar": "캘린더",
     "whatsappGroups": "WhatsApp 그룹",
-    "submissionGroups": "제출 그룹"
+    "submissionGroups": "제출 그룹",
+    "cases": "케이스",
+    "banks": "은행"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -98,7 +100,9 @@
     "whatsappGroups": "WhatsApp 그룹",
     "whatsappGroup": "WhatsApp 그룹 상세",
     "submissionGroups": "제출 그룹",
-    "submissionGroup": "제출 그룹 상세"
+    "submissionGroup": "제출 그룹 상세",
+    "cases": "케이스",
+    "banks": "은행"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -6472,5 +6476,80 @@
       "hide": "간단히 보기"
     },
     "exportCsv": "내보내기 (CSV)"
+  },
+  "Cases": {
+    "title": "케이스",
+    "subtitle": "담당하는 모든 제출 케이스를 가장 급한 것부터 보여 줍니다.",
+    "filtersButton": "필터",
+    "clearFilters": "필터 지우기",
+    "filters": {
+      "bank": "은행",
+      "allBanks": "모든 은행",
+      "stage": "단계",
+      "allStages": "모든 단계",
+      "agent": "상담원",
+      "allAgents": "모든 상담원",
+      "priority": "우선순위",
+      "allPriorities": "모든 우선순위",
+      "sla": "SLA",
+      "allSla": "모든 SLA",
+      "sort": "정렬",
+      "customerWaiting": "고객 대기 중",
+      "documentsMissing": "서류 누락",
+      "bankQueryOpen": "은행 문의 진행 중",
+      "noActivity": "활동 없음",
+      "noActivityDays": "일 이상",
+      "includeClosed": "종료된 케이스 포함"
+    },
+    "sorts": {
+      "most_overdue": "가장 많이 지연된 순",
+      "due_soonest": "마감 임박 순",
+      "stalest": "활동이 가장 오래된 순"
+    },
+    "priorities": {
+      "low": "낮음",
+      "normal": "보통",
+      "high": "높음",
+      "urgent": "긴급"
+    },
+    "sla": {
+      "on_track": "정상",
+      "due_soon": "마감 임박",
+      "overdue": "지연"
+    },
+    "columns": {
+      "customer": "고객",
+      "bank": "은행",
+      "stage": "단계",
+      "people": "상담원 / 코디네이터",
+      "lastActivity": "마지막 활동",
+      "due": "마감"
+    },
+    "flags": {
+      "customerWaiting": "고객 대기 중",
+      "documentsMissing": "서류 {count}건 누락",
+      "bankQuery": "은행 문의",
+      "overdueTasks": "지연된 작업 {count}건"
+    },
+    "noCustomer": "고객 없음",
+    "noBank": "은행 없음",
+    "unassigned": "미배정",
+    "noCoordinator": "코디네이터 없음",
+    "unknownPerson": "알 수 없음",
+    "agentLabel": "상담원: {name}",
+    "coordinatorLabel": "코디네이터: {name}",
+    "byWhom": "{when} · {name}",
+    "dueOn": "마감 {date}",
+    "noDue": "마감일 없음",
+    "closed": "종료됨",
+    "justNow": "방금",
+    "loadMore": "더 보기",
+    "loadFailed": "케이스를 불러오지 못했습니다.",
+    "invalidFilters": "필터가 올바르지 않습니다. 필터를 지우고 다시 시도하세요.",
+    "retry": "다시 시도",
+    "emptyTitle": "아직 케이스가 없습니다",
+    "emptyBody": "내가 상담원이나 코디네이터인 케이스, 또는 내 팀이 담당하는 케이스는 제출 건이 케이스로 열리면 여기에 표시됩니다.",
+    "noMatchesTitle": "필터에 맞는 케이스가 없습니다",
+    "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요."
   }
 }

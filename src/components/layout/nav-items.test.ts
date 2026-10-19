@@ -36,6 +36,8 @@ const EVERYONE = [
 const STAFF = [
   ...EVERYONE.slice(0, 4),
   '/submission-groups',
+  '/cases',
+  '/banks',
   ...EVERYONE.slice(4),
   '/journeys',
 ];

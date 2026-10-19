@@ -66,7 +66,9 @@
     "meetings": "Meetings",
     "calendar": "Calendar",
     "whatsappGroups": "WhatsApp groups",
-    "submissionGroups": "Submission groups"
+    "submissionGroups": "Submission groups",
+    "cases": "Cases",
+    "banks": "Banks"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -98,7 +100,9 @@
     "whatsappGroups": "WhatsApp groups",
     "whatsappGroup": "WhatsApp group",
     "submissionGroups": "Submission groups",
-    "submissionGroup": "Submission group"
+    "submissionGroup": "Submission group",
+    "cases": "Cases",
+    "banks": "Banks"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -6472,5 +6476,80 @@
       "hide": "Fewer details"
     },
     "exportCsv": "Export (CSV)"
+  },
+  "Cases": {
+    "title": "Cases",
+    "subtitle": "Every submitted case you work on, the most urgent first.",
+    "filtersButton": "Filters",
+    "clearFilters": "Clear filters",
+    "filters": {
+      "bank": "Bank",
+      "allBanks": "All banks",
+      "stage": "Stage",
+      "allStages": "All stages",
+      "agent": "Agent",
+      "allAgents": "All agents",
+      "priority": "Priority",
+      "allPriorities": "Any priority",
+      "sla": "SLA",
+      "allSla": "Any SLA",
+      "sort": "Sort",
+      "customerWaiting": "Customer waiting",
+      "documentsMissing": "Documents missing",
+      "bankQueryOpen": "Bank query open",
+      "noActivity": "No activity for",
+      "noActivityDays": "days",
+      "includeClosed": "Include closed"
+    },
+    "sorts": {
+      "most_overdue": "Most overdue",
+      "due_soonest": "Due soonest",
+      "stalest": "Longest without activity"
+    },
+    "priorities": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "sla": {
+      "on_track": "On track",
+      "due_soon": "Due soon",
+      "overdue": "Overdue"
+    },
+    "columns": {
+      "customer": "Customer",
+      "bank": "Bank",
+      "stage": "Stage",
+      "people": "Agent / coordinator",
+      "lastActivity": "Last activity",
+      "due": "Due"
+    },
+    "flags": {
+      "customerWaiting": "Customer waiting",
+      "documentsMissing": "{count, plural, =1 {1 document missing} other {# documents missing}}",
+      "bankQuery": "Bank query",
+      "overdueTasks": "{count, plural, =1 {1 overdue task} other {# overdue tasks}}"
+    },
+    "noCustomer": "No customer",
+    "noBank": "No bank",
+    "unassigned": "Unassigned",
+    "noCoordinator": "No coordinator",
+    "unknownPerson": "Someone",
+    "agentLabel": "Agent: {name}",
+    "coordinatorLabel": "Coordinator: {name}",
+    "byWhom": "{when} · {name}",
+    "dueOn": "Due {date}",
+    "noDue": "No due date",
+    "closed": "Closed",
+    "justNow": "just now",
+    "loadMore": "Load more",
+    "loadFailed": "Couldn't load cases.",
+    "invalidFilters": "These filters aren't valid. Clear them and try again.",
+    "retry": "Retry",
+    "emptyTitle": "No cases yet",
+    "emptyBody": "Cases you are the agent or coordinator on, or that your team works, show up here once a submission is opened as a case.",
+    "noMatchesTitle": "No cases match these filters",
+    "noMatchesBody": "Try fewer filters, or include closed cases."
   }
 }
