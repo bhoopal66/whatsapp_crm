@@ -162,7 +162,10 @@ export class AssistGuard {
           ...(errorClass ? { error: errorClass } : {}),
         },
       });
-      if (error) throw new Error(error.message);
+      if (error)
+        throw new Error(
+          `audit append failed${error.code ? ` (${error.code})` : ''}`
+        );
     } catch (e) {
       this.logger.warn('assist: execution audit append failed', {
         runId: ctx.runId,

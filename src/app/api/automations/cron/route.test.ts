@@ -765,7 +765,7 @@ describe('GET /api/automations/cron — assistant safety housekeeping', () => {
     await expect(runAfter()).resolves.toBeUndefined();
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] assist pending sweep failed:',
-      'assist_pending_expire: boom'
+      'assist_pending_expire failed'
     );
     expect(rpcCalls('assist_rate_prune')).toHaveLength(1);
     log.mockRestore();

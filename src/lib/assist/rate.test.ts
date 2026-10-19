@@ -136,10 +136,15 @@ describe('019a G7 rate limit', () => {
       l.resetKey('nokey', { actor: 'a', reason: 'r' })
     ).rejects.toThrow(TypeError);
     const denied = new FakeDb(() => ({
-      error: { message: 'permission denied' },
+      error: { code: '42501', message: 'permission denied for row 7' },
     }));
-    await expect(
-      limiter(denied).resetKey(key, { actor: 'a', reason: 'r' })
-    ).rejects.toThrow(/permission denied/);
+    const err = await limiter(denied)
+      .resetKey(key, { actor: 'a', reason: 'r' })
+      .then(
+        () => null,
+        (e: Error) => e
+      );
+    // Function name and SQLSTATE only, never PostgREST's text.
+    expect(err?.message).toBe('assist_rate_reset failed (42501)');
   });
 });

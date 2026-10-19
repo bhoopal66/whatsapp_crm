@@ -122,7 +122,6 @@ export class RateLimiter {
       if (error) {
         this.logger.warn('assist_rate_take failed', {
           code: error.code,
-          message: error.message,
         });
         return { allowed: false, reason: 'RATE_STATE_UNAVAILABLE' };
       }
@@ -172,7 +171,11 @@ export class RateLimiter {
 
   private async call(fn: string, args: Record<string, unknown>) {
     const { data, error } = await this.db.rpc(fn, args);
-    if (error) throw new Error(`${fn} failed: ${error.message}`);
+    // Function name and SQLSTATE only: PostgREST's message can carry row data.
+    if (error)
+      throw new Error(
+        error.code ? `${fn} failed (${error.code})` : `${fn} failed`
+      );
     return data as unknown;
   }
 }
