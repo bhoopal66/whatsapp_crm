@@ -1,26 +1,32 @@
 // ============================================================
 // POST /api/vault/erase — delete one vaulted value (019c). Workspace
 // owner / admin only; vault_delete then checks the vault role and audits.
-// Needs the vault configured (503 VAULT_NOT_CONFIGURED).
+// Needs no keys (vault_delete never uses them), so it works on a misconfigured install.
 //
 // Body `{ token, reason }` (as reveal). Answers `{ status: 'OK' }`;
 // refusals: 403 DENIED, 404 NOT_FOUND. Cache-Control: no-store.
 // ============================================================
 
 import { requireRole } from '@/lib/auth/account';
+import { supabaseAdmin } from '@/lib/groups/server';
 import {
   readTokenAndReason,
-  requireVaultStore,
   vaultErrorResponse,
   vaultJson,
 } from '@/lib/vault/http';
+import { vaultDelete } from '@/lib/vault/store';
 
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole('admin');
     const { token, reason } = await readTokenAndReason(request);
-    const store = requireVaultStore();
-    const status = await store.delete(ctx.userId, ctx.accountId, token, reason);
+    const status = await vaultDelete(
+      supabaseAdmin(),
+      ctx.userId,
+      ctx.accountId,
+      token,
+      reason
+    );
     if (status === 'DENIED')
       return vaultJson(
         { error: 'Not allowed to erase this value', code: 'DENIED' },

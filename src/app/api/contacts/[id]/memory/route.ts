@@ -20,6 +20,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { hasMinRole } from '@/lib/auth/roles';
 import {
   isUuid,
   loadContactScope,
@@ -71,7 +72,10 @@ export async function GET(request: Request, { params }: Params) {
       limit,
       before,
     });
-    return NextResponse.json({ items });
+    return NextResponse.json(
+      { items },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (err) {
     return memoryErrorResponse(err);
   }
@@ -82,7 +86,8 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const scope = await loadContactScope(ctx, id);
-    if (ctx.role === 'viewer') throw new MemoryHttpError(403, 'Not allowed');
+    if (!hasMinRole(ctx.role, 'agent'))
+      throw new MemoryHttpError(403, 'Not allowed');
     if (!(await memoryStore().canRead(ctx.userId, ctx.accountId, scope)))
       throw new MemoryHttpError(403, 'Not allowed');
 

@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { hasMinRole } from '@/lib/auth/roles';
 import {
   badRequest,
   caseErrorResponse,
@@ -26,7 +27,7 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
-    if (ctx.role !== 'owner' && ctx.role !== 'admin')
+    if (!hasMinRole(ctx.role, 'admin'))
       throw new CaseHttpError(403, 'Not allowed');
 
     const body = await readJsonObject(request);

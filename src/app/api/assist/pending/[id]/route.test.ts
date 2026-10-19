@@ -102,7 +102,6 @@ describe('POST /api/assist/pending/[id]', () => {
   });
 
   it.each([
-    ['WRONG_USER', row({ user_id: '44444444-4444-4444-8444-444444444444' })],
     ['NOT_PENDING', row({ status: 'consumed' })],
     ['EXPIRED', row({ status: 'expired' })],
     ['BAD_NONCE', row()],
@@ -111,6 +110,13 @@ describe('POST /api/assist/pending/[id]', () => {
     const res = await post({ decision: 'confirm', nonce: NONCE });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: reason });
+  });
+
+  it('answers WRONG_USER exactly like an unknown id (404 NOT_FOUND)', async () => {
+    db.pendingRow = row({ user_id: '44444444-4444-4444-8444-444444444444' });
+    const res = await post({ decision: 'confirm', nonce: NONCE });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'NOT_FOUND' });
   });
 
   it('answers 404 NOT_FOUND for an unknown id', async () => {

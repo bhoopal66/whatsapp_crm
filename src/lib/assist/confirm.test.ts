@@ -131,11 +131,18 @@ describe('request', () => {
 
   it('an RPC error is ConfirmStateUnavailableError', async () => {
     const db = new FakeDb({
-      assist_pending_request: { error: { message: 'down' } },
+      assist_pending_request: {
+        error: { message: 'secret row detail', code: '57014' },
+      },
     });
-    await expect(gate(db).request(action, scope)).rejects.toBeInstanceOf(
-      ConfirmStateUnavailableError
+    const err = await gate(db)
+      .request(action, scope)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConfirmStateUnavailableError);
+    expect((err as Error).message).toBe(
+      'assist_pending_request failed (57014)'
     );
+    expect((err as Error).message).not.toContain('secret');
   });
 
   it('the prompt stays bounded for a large argument', async () => {

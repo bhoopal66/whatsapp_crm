@@ -7,6 +7,7 @@
 // ============================================================
 
 import { ForbiddenError, requireRole } from '@/lib/auth/account';
+import { isOwner } from '@/lib/auth/roles';
 import {
   requireVaultStore,
   VaultHttpError,
@@ -17,7 +18,7 @@ import {
 export async function POST() {
   try {
     const ctx = await requireRole('admin');
-    if (ctx.role !== 'owner')
+    if (!isOwner(ctx.role))
       throw new ForbiddenError('Only the workspace owner can set up the vault');
     const store = requireVaultStore();
     const status = await store.bootstrap(ctx.userId, ctx.accountId, ctx.userId);

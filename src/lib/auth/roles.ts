@@ -262,6 +262,10 @@ export function canDeleteAccount(role: AccountRole): boolean {
 }
 
 /** Owner only: hand the account to another member. */
+export function isOwner(role: AccountRole): boolean {
+  return role === 'owner';
+}
+
 export function canTransferOwnership(role: AccountRole): boolean {
   return role === 'owner';
 }

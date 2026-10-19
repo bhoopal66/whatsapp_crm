@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { hasMinRole } from '@/lib/auth/roles';
 import {
   loadContactScope,
   memoryBadRequest,
@@ -26,7 +27,7 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const scope = await loadContactScope(ctx, id);
-    if (ctx.role !== 'owner' && ctx.role !== 'admin')
+    if (!hasMinRole(ctx.role, 'admin'))
       throw new MemoryHttpError(403, 'Not allowed');
 
     const body = await readJsonObject(request);

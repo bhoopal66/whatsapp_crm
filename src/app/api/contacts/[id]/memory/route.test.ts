@@ -103,6 +103,7 @@ describe('GET /api/contacts/[id]/memory', () => {
     m.memory.list.mockResolvedValue([{ id: 'mem-1' }]);
     const res = await get('?limit=10&before=2026-10-01T00:00:00Z');
     expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await res.json()).toEqual({ items: [{ id: 'mem-1' }] });
     expect(m.memory.list).toHaveBeenCalledWith('u-me', 'acct-1', SCOPE, {
       limit: 10,
@@ -145,6 +146,12 @@ describe('POST /api/contacts/[id]/memory', () => {
 
   it('is 403 for a workspace viewer', async () => {
     asRole('viewer');
+    expect((await post({ content: 'x' })).status).toBe(403);
+    expect(m.addStaffMemory).not.toHaveBeenCalled();
+  });
+
+  it('is 403 for a bank guest, without adding', async () => {
+    asRole('bank_guest');
     expect((await post({ content: 'x' })).status).toBe(403);
     expect(m.addStaffMemory).not.toHaveBeenCalled();
   });

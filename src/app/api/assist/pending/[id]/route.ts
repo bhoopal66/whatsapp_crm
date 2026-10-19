@@ -57,10 +57,11 @@ export async function POST(request: Request, { params }: Params) {
         ok: true,
         status: decision === 'confirm' ? 'confirmed' : 'denied',
       });
-    return NextResponse.json(
-      { error: r.reason },
-      { status: r.reason === 'NOT_FOUND' ? 404 : 409 }
-    );
+    // Someone else's pending action answers exactly like a missing one (the
+    // audit keeps the real reason), so ids cannot be probed across users.
+    if (r.reason === 'NOT_FOUND' || r.reason === 'WRONG_USER')
+      return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    return NextResponse.json({ error: r.reason }, { status: 409 });
   } catch (err) {
     return toErrorResponse(err);
   }

@@ -562,3 +562,26 @@ export async function vaultOverview(
     roles,
   };
 }
+
+/**
+ * vault_delete without the keys: the SQL never touches them, so an erase must still work on an install whose keys are
+ * misconfigured. Same arguments and status check as VaultStore.delete; an error carries the function name and SQLSTATE only.
+ */
+export async function vaultDelete(
+  db: SupabaseClient,
+  actor: string,
+  account: string,
+  token: string,
+  reason: string | null
+): Promise<DeleteStatus> {
+  const { data, error } = await db.rpc('vault_delete', {
+    p_actor: actor,
+    p_account: account,
+    p_token: token,
+    p_reason: reason,
+  });
+  if (error) throw new VaultStoreError('vault_delete', error.code ?? null);
+  if (!DELETE_STATUSES.includes(data as DeleteStatus))
+    throw new VaultStoreError('vault_delete', null);
+  return data as DeleteStatus;
+}

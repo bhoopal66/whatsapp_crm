@@ -17,6 +17,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { hasMinRole } from '@/lib/auth/roles';
 import { canWriteCase } from '@/lib/cases/access';
 import {
   badRequest,
@@ -71,7 +72,10 @@ export async function GET(request: Request, { params }: Params) {
       limit,
       before,
     });
-    return NextResponse.json({ items });
+    return NextResponse.json(
+      { items },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   } catch (err) {
     return caseErrorResponse(err);
   }
@@ -82,7 +86,7 @@ export async function POST(request: Request, { params }: Params) {
     const ctx = await getCurrentAccount();
     const { id } = await params;
     const { case: c, role } = await loadCaseForCaller(ctx, id, caseStore());
-    if (!canWriteCase(role) || ctx.role === 'viewer')
+    if (!canWriteCase(role) || !hasMinRole(ctx.role, 'agent'))
       throw new CaseHttpError(403, 'Not allowed');
 
     const body = await readJsonObject(request);

@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   admin: { admin: true },
   vaultOverview: vi.fn(),
   vaultAuditList: vi.fn(),
+  vaultDelete: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => {
@@ -32,6 +33,7 @@ vi.mock('@/lib/vault/store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/vault/store')>()),
   vaultOverview: m.vaultOverview,
   vaultAuditList: m.vaultAuditList,
+  vaultDelete: m.vaultDelete,
 }));
 
 import { POST } from './route';
@@ -51,6 +53,7 @@ beforeEach(() => {
     revoke: vi.fn(async () => 'OK'),
   };
   m.vault = { ok: true, store: m.store };
+  m.vaultDelete.mockResolvedValue('OK');
 });
 
 const NOT_CONFIGURED = { ok: false, reason: 'NOT_CONFIGURED' };
@@ -73,7 +76,7 @@ describe('POST /api/vault/erase', () => {
     const res = await post({ token: TOKEN, reason: REASON });
     expect(res.status).toBe(403);
     noStore(res);
-    expect(m.store.delete).not.toHaveBeenCalled();
+    expect(m.vaultDelete).not.toHaveBeenCalled();
   });
 
   it('erases and answers OK', async () => {
@@ -81,7 +84,8 @@ describe('POST /api/vault/erase', () => {
     expect(res.status).toBe(200);
     noStore(res);
     expect(await res.json()).toEqual({ status: 'OK' });
-    expect(m.store.delete).toHaveBeenCalledWith(
+    expect(m.vaultDelete).toHaveBeenCalledWith(
+      m.admin,
       'u-me',
       'acct-1',
       TOKEN,
@@ -93,18 +97,22 @@ describe('POST /api/vault/erase', () => {
     ['DENIED', 403],
     ['NOT_FOUND', 404],
   ] as const)('maps %s to %i', async (status, http) => {
-    m.store.delete.mockResolvedValue(status);
+    m.vaultDelete.mockResolvedValue(status);
     const res = await post({ token: TOKEN, reason: REASON });
     expect(res.status).toBe(http);
     expect(await res.json()).toMatchObject({ code: status });
   });
 
-  it('is 400 for a bad body and 503 when not configured', async () => {
+  it('is 400 for a bad body', async () => {
     expect((await post({ token: TOKEN, reason: '' })).status).toBe(400);
+    expect(m.vaultDelete).not.toHaveBeenCalled();
+  });
+
+  it('erases when the vault keys are not configured (vault_delete needs none)', async () => {
     m.vault = NOT_CONFIGURED;
     const res = await post({ token: TOKEN, reason: REASON });
-    expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ code: 'VAULT_NOT_CONFIGURED' });
-    expect(m.store.delete).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'OK' });
+    expect(m.vaultDelete).toHaveBeenCalledTimes(1);
   });
 });

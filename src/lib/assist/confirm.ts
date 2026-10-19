@@ -57,8 +57,12 @@ export class PendingCapError extends Error {
 
 /** A gate database call failed (or answered nothing usable). The guard denies CONFIRM_STATE_UNAVAILABLE. */
 export class ConfirmStateUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(
+    readonly fn: string,
+    readonly sqlstate: string | null
+  ) {
+    // Function name and SQLSTATE only: PostgREST's message can carry row data.
+    super(sqlstate ? `${fn} failed (${sqlstate})` : `${fn} failed`);
     this.name = 'ConfirmStateUnavailableError';
   }
 }
@@ -388,15 +392,14 @@ export class ConfirmationGate implements ConfirmApi {
     let res: { data: unknown; error: RpcError | null };
     try {
       res = await this.db.rpc(fn, args);
-    } catch (e) {
-      throw new ConfirmStateUnavailableError(
-        `${fn}: ${e instanceof Error ? e.message : String(e)}`
-      );
+    } catch {
+      // Name the function only: a thrown error can carry row or connection detail.
+      throw new ConfirmStateUnavailableError(fn, null);
     }
     if (res.error)
       throw (
         map(res.error) ??
-        new ConfirmStateUnavailableError(`${fn}: ${res.error.message}`)
+        new ConfirmStateUnavailableError(fn, res.error.code ?? null)
       );
     return res.data;
   }
@@ -409,7 +412,8 @@ export class ConfirmationGate implements ConfirmApi {
       .maybeSingle();
     if (error)
       throw new ConfirmStateUnavailableError(
-        `assist_pending_actions: ${error.message}`
+        'assist_pending_actions',
+        error.code ?? null
       );
     if (!data) return undefined;
     const r = data as Omit<Row, 'expired'> & { expires_at: string };
@@ -448,7 +452,10 @@ export class ConfirmationGate implements ConfirmApi {
       outcome: reason,
     });
     if (error)
-      throw new ConfirmStateUnavailableError(`assist_audit: ${error.message}`);
+      throw new ConfirmStateUnavailableError(
+        'assist_audit',
+        error.code ?? null
+      );
     return { ok: false, reason };
   }
 }
