@@ -43,7 +43,9 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     const ctx = await getCurrentAccount();
     const { id } = await params;
-    const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
+    const { case: c } = await loadCaseForCaller(ctx, id, caseStore(), {
+      write: true,
+    });
     await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
 
     const names = await loadNames(supabaseAdmin(), ctx.accountId, [c.agentId]);

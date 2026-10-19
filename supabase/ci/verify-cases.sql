@@ -464,16 +464,17 @@ BEGIN
     b1 := case_apply_submission_status(g[3 + i], lbl[i]);
     n := n + 1; failed := failed || pg_temp.cs_ok(b1
       AND (SELECT stage = initcap(lbl[i]) AND outcome = initcap(lbl[i]) AND closed_at IS NOT NULL
-                  AND group_ended_at IS NOT NULL AND group_end_claimed_at IS NULL FROM cases WHERE id = k[3 + i])
+                  AND group_ended_at IS NULL AND group_end_claimed_at IS NULL FROM cases WHERE id = k[3 + i])
       AND (SELECT actor_id IS NULL AND actor_role = 'api' AND to_stage = initcap(lbl[i])
              FROM case_stage_history WHERE case_id = k[3 + i] ORDER BY id DESC LIMIT 1),
-      format('submission status %s did not close the case with its outcome and group_ended_at, claim-free', lbl[i]));
+      format('submission status %s did not close the case with its outcome, group_ended_at NULL while the group is active, claim-free', lbl[i]));
   END LOOP;
   b1 := case_apply_submission_status(g[7], 'PENDING');
   b2 := case_apply_submission_status(gen_random_uuid(), 'APPROVED');
   n := n + 1; failed := failed || pg_temp.cs_ok(NOT b1 AND NOT b2 AND NOT case_apply_submission_status(g[3], 'APPROVED')
     AND (SELECT stage = 'Submitted' AND closed_at IS NULL AND group_ended_at IS NULL FROM cases WHERE id = k[7]),
     'a non-final status, or a group with no case, was not a no-op');
+  b1 := sg_end(g[7], 'verify');
   b1 := case_apply_submission_status(g[7], ' closed ');
   n := n + 1; failed := failed || pg_temp.cs_ok(b1
     AND (SELECT stage = 'Closed' AND outcome IS NULL AND closed_at IS NOT NULL AND group_ended_at IS NOT NULL
@@ -483,8 +484,10 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_ok(NOT b1 AND (SELECT stage FROM cases WHERE id = k[4]) = 'Approved',
     'a submission status moved an already-final case');
   n := n + 1; failed := failed || pg_temp.cs_ok(NOT EXISTS (SELECT 1 FROM case_pending_group_end(interval '0 seconds') x
-      WHERE x.case_id IN (k[4], k[5], k[6], k[7])),
-    'a case ended by its submission status is listed as pending');
+      WHERE x.case_id = k[7])
+    AND (SELECT count(*) FROM case_pending_group_end(interval '0 seconds') x
+      WHERE x.case_id IN (k[4], k[5], k[6])) = 3,
+    'a final status on a still-active group was not left to the sweeper, or one on an ended group is listed as pending');
 
   -- ---------- reassign ----------
   lbl := ARRAY['coordinator', 'agent', 'viewer'];
