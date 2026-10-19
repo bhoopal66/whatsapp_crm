@@ -13,8 +13,11 @@
 //
 // PATCH also moves the group's case (module 018c): a final status sets
 // its stage (case_apply_submission_status), and the answer carries
-// `case: { id, stage, outcome }`. Best effort: a case failure is logged
-// and answers `case: null`, never an error; a group without a case too.
+// `case: { id, stage, outcome }`. That holds on an ENDED group too (staff
+// may have ended it before the bank decided): the submission app's final
+// status is the case's outcome, and a case already at a final stage is
+// left alone by the SQL. Best effort: a case failure is logged and
+// answers `case: null`, never an error; a group without a case too.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -93,7 +96,7 @@ export async function PATCH(request: Request, { params }: Params) {
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
-        case: await patchCase(ctx.accountId, group.id, null),
+        case: await patchCase(ctx.accountId, group.id, parsed.value.status),
       });
 
     const { error } = await ctx.supabase.rpc('sg_note_submission_status', {

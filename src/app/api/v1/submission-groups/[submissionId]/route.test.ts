@@ -107,10 +107,13 @@ describe('PATCH moves the case', () => {
     expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
   });
 
-  it('on an ENDED group reports the case without moving it', async () => {
+  it('on an ENDED group still moves the case, recording nothing on the group', async () => {
     m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
     const res = await patch({ status: 'APPROVED' });
-    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledWith(
+      'g1',
+      'APPROVED'
+    );
     expect((await res.json()).data.case).toMatchObject({ id: 'case-1' });
   });
 });
