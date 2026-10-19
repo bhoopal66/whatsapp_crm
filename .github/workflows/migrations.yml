@@ -338,3 +338,16 @@ jobs:
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify vault
         run: supabase db query --local --file supabase/ci/verify-vault.sql
+
+      # Case tools (123): tasks only from a template of the case's own
+      # account and bank, owned by someone who may act on the case, due
+      # the clock + due_hours and never infinite, every status a log row,
+      # overdue computed over readable cases; documents from the case's
+      # own account / bank / product (case-insensitive, trimmed), file
+      # refs ids only; notes store only lowercase @<uuid> mentions of
+      # case members; config owner/admin only; log, notes and mentions
+      # append-only and tasks / documents untruncatable for every writer;
+      # no API role writes a 123 table, only service_role executes 123.
+      # RLS, triggers and grants: only real Postgres can show it.
+      - name: Verify case tools
+        run: supabase db query --local --file supabase/ci/verify-case-tools.sql
