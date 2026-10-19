@@ -525,6 +525,9 @@ changes one of those rules updates its verify file; a new verify file must
 be wired in there. In a plpgsql verify block, assign a writing function's
 result first and read its effect in a separate statement — a subquery in
 the same expression reads the snapshot taken before the call.
+Migrations 120–129 add nine more: assistant safety, vault, cases, case
+tools, case SLA, case inbox, bank workspaces, bank dashboard and CRM
+memory (`verify-assistant-safety.sql` … `verify-crm-memory.sql`).
 
 ### Chat tags (`lib/chat-tags/*`, migrations 075–076)
 
@@ -1014,6 +1017,99 @@ submission app. `docs/submission-groups.md` is the contract.
   creates, stale sends, close retries. Idle ending is off.
   `verify-submission-groups.sql` asserts the SQL.
 
+### Cases (`lib/cases/*`, migrations 122-128)
+
+One case per submission group: bank, product, amount, stages, tasks,
+documents, notes, bank contact log, SLA timers, the coordinator inbox at
+`/cases`, and bank spaces at `/banks`. `docs/cases.md` is the contract.
+
+- **Tenancy first.** `case_role` / `case_can_*` ignore which workspace is
+  active, so a case route checks the case's account against the caller's
+  **active** account before any service-role call (`lib/cases/http.ts`,
+  the TENANCY comment); a case the caller may not read answers 404.
+- **Roles** are worked out live, never stored: owner (super admin),
+  admin, the team leader of the **agent's** team, the named coordinator,
+  the named agent. Viewers and bank guests get nothing; there is no IT
+  role. The mirrors in `lib/cases/access.ts` are pinned to 122-124 by
+  `access.test.ts`: change one, change both.
+- **Pinned lists.** `DEFAULT_STAGES` (`lib/cases/ui.ts`) equals
+  `case_default_stages()` and `OUTCOME_REASON_CODES` equals 127's CHECK;
+  tests read the migrations.
+- **SLA events from SQL.** The stage-change and document-received events
+  fire from the triggers `case_stage_history_sla` and `case_documents_sla`
+  (124); don't call them from TS as well.
+- **Sends.** A case reply, take-over and documents request go through the
+  group's send path and honour the per-person group send limit
+  (`assertUnderGroupSendLimit`). Notes, bank contacts and bank workspaces
+  never reach a send path (`lib/cases/never-sent.test.ts`).
+- **Ending the group.** A case's first move to a final stage ends its
+  WhatsApp group exactly once, through a claim token; the automations
+  cron sweeps failed ends.
+- **SQL habits.** A blank check uses `~ '^[[:space:]]*$'`, never
+  `btrim(x) = ''`: `btrim()` strips spaces only, so a tab or newline
+  passes (this bit twice; older checks still use `btrim`). Appending a
+  literal to a `text[]` needs `::text` (`v || 'x'::text`).
+- All seven migrations must be applied as a superuser or BYPASSRLS role.
+  `verify-cases.sql`, `verify-case-tools.sql`, `verify-case-sla.sql`,
+  `verify-case-inbox.sql`, `verify-bank-workspaces.sql`,
+  `verify-bank-dashboard.sql`.
+
+### CRM memory and vault (`lib/memory/*`, `lib/vault/*`, migrations 121, 129)
+
+Staff notes per customer, case or workspace, with sensitive numbers kept
+in an encrypted vault. `docs/memory-and-vault.md` is the contract.
+
+- **Clean before storing.** A note is redacted before it is stored, and
+  tokenised through the vault first when the vault is configured
+  (`lib/memory/staff.ts`). Only cleaned text is stored or searched.
+- **One read rule**, `memory_can_read`. Its contact branch mirrors 072's
+  `can_view_contact` written for an explicit user (the service-role path
+  has no `auth.uid()`); change one, change both.
+- **Contact delete erases memory** (the `contacts_forget_memory`
+  trigger). Forget is owner/admin only, with a reason, and permanent.
+- **Search text is an identifier risk.** Memory search should not put
+  identifiers in URLs; today it does (`GET ?q=`), a known limit.
+- **The app encrypts**, never the database: AES-256-GCM with AAD =
+  account | kind | blind index (`lib/vault/crypto.ts`). Keys come only
+  from `VAULT_KEYS` / `VAULT_CURRENT_KEY` / `VAULT_BLIND_KEY`, read at call
+  time; unset means not configured (503 `VAULT_NOT_CONFIGURED`), and
+  memory still redacts.
+- **A vault role counts only** while its holder is a live owner or admin
+  of the workspace.
+- **Reveal** answers `no-store` and never logs the value or the reason.
+- `bytea` travels as `\x` hex over PostgREST (`lib/vault/store.ts`).
+- Both migrations must be applied as a superuser or BYPASSRLS role.
+  `verify-vault.sql`, `verify-crm-memory.sql`.
+
+### Assistant safety (`lib/assist/*`, migration 120)
+
+The gate for a future AI assistant's tool calls. `docs/assistant-safety.md`
+is the contract.
+
+- **Idle.** No assistant exists; nothing calls the guard or
+  `createModelToolRouter`. `DEFAULT_TOOL_RISKS` has no handlers, so the
+  router would deny every call `UNKNOWN_TOOL`.
+- **Risk.** READ / WRITE / DANGEROUS; modes supervised / cautious
+  (default) / autonomous. An unregistered tool is DANGEROUS; DANGEROUS
+  always needs a person, WRITE only in supervised. Model arguments only
+  feed the action hash, never approve.
+- **The router exposes only `execute()`.** The human prompt (with the
+  nonce) goes to `notifyHuman`, never to the model; the person confirms
+  through `POST /api/assist/pending/[id]`, whose HumanOrigin is minted
+  from the session.
+- **The database owns the nonce, TTL (300 s) and cap** (5 open per
+  person, across workspaces) in `assist_pending_request`; status moves
+  only through the `assist_pending_*` SECURITY DEFINER functions.
+- **Consume and its decision audit row are one SQL call**
+  (`assist_pending_consume`): wacrm has no client transactions. A failed
+  audit insert rolls the consume back (`AUDIT_UNAVAILABLE`).
+- **Fail closed.** Rate state unavailable, audit unavailable and
+  confirmation state unavailable all deny. `assist_rate_reset` is not
+  granted to the service role.
+- `assist_audit` is append-only, owner included. Crons: pending sweep
+  every minute, rate prune hourly (automations cron).
+  `verify-assistant-safety.sql`.
+
 ### Video meetings (`lib/meetings/*`, migration 106)
 
 Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
@@ -1309,6 +1405,7 @@ fails if one is wired to plain `t()`.
   behaviour is documented in `docs/` — `whapi.md`, `meta-cloud-api.md`,
   `docker.md`, `public-api.md`, `mcp.md`, `campaign-journeys.md`,
   `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`,
-  `meetings.md`, `whatsapp-groups.md`, `submission-groups.md`.
+  `meetings.md`, `whatsapp-groups.md`, `submission-groups.md`,
+  `cases.md`, `memory-and-vault.md`, `assistant-safety.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

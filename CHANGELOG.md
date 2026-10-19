@@ -12,6 +12,63 @@ and polish.
 
 ## [Unreleased]
 
+### Cases, CRM memory, the vault and assistant safety (migrations 120-129)
+
+**Migration required: 120-129**, applied in number order, each as a
+superuser or BYPASSRLS role. Their SQL is asserted by
+`supabase/ci/verify-assistant-safety.sql`, `verify-vault.sql`,
+`verify-cases.sql`, `verify-case-tools.sql`, `verify-case-sla.sql`,
+`verify-case-inbox.sql`, `verify-bank-workspaces.sql`,
+`verify-bank-dashboard.sql` and `verify-crm-memory.sql`.
+
+### Cases
+
+**Migration required: 122-128** (`122_cases.sql` to
+`128_case_takeover.sql`). One case per submission group: the bank, product
+and amount of a submitted application, its stages, tasks, required
+documents, internal notes, bank contact log and SLA timers. Coordinators
+work them from the inbox at `/cases` and the case page; every read of a
+case's conversation by a coordinator, team leader, admin or owner is
+audited. `/banks` gives each bank an internal space: threads, pinned
+information, action items and a dashboard. Owners and admins configure
+banks, stage lists, task templates, required documents and SLA timers in
+Settings -> Cases. See [docs/cases.md](docs/cases.md).
+
+### CRM memory
+
+**Migration required: 129** (`129_crm_memory.sql`). A Memory panel on the
+customer page and the case page keeps short staff notes of what was
+agreed. Sensitive numbers are redacted (or vaulted) before a note is
+stored, notes expire after 24 months, and owners and admins can forget a
+customer's or a case's notes. See
+[docs/memory-and-vault.md](docs/memory-and-vault.md).
+
+### Vault
+
+**Migration required: 121** (`121_vault.sql`). Emirates ID, IBAN,
+passport, phone and account numbers in memory notes are encrypted by the
+app and replaced by a token; vault admins reveal or erase a value with a
+reason, every attempt audited, in Settings -> Vault. New environment
+variables `VAULT_KEYS`, `VAULT_CURRENT_KEY` and `VAULT_BLIND_KEY`; they
+are optional: without them memory still redacts those numbers,
+irreversibly. See [docs/memory-and-vault.md](docs/memory-and-vault.md).
+
+### Assistant safety
+
+**Migration required: 120** (`120_assistant_safety.sql`). The idle
+foundation for a future AI assistant: tool risk levels, human
+confirmation of risky actions (`POST /api/assist/pending/[id]`), rate
+limits, a loop guard and an append-only audit. No assistant exists yet,
+so nothing calls it. See [docs/assistant-safety.md](docs/assistant-safety.md).
+
+### Public API: submission groups carry their case
+
+`POST /api/v1/submission-groups` takes optional `bank`, `product` and
+`amount` and opens the group's case; `POST` and `PATCH` answers carry it as
+`case`. A final status (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`)
+moves a case not yet at a final stage. See
+[docs/public-api.md](docs/public-api.md).
+
 ### Phone system: a simpler call report
 
 `/calls/report` now opens on your own external calls today: one big
