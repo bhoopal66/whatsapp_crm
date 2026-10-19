@@ -351,3 +351,20 @@ jobs:
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify case tools
         run: supabase db query --local --file supabase/ci/verify-case-tools.sql
+
+      # CRM memory (129): memory_can_read needs a live staff profile in the
+      # account (never a bank guest), then owner / admin read every scope,
+      # members the workspace, a contact follows 072 (creator, own /
+      # assigned chat, their team's leader), a case 122's case_role, plus
+      # acl rows; demotion and deactivation bite at once. memory_put
+      # stores content as given, dedupes on the scope's live hash, refuses
+      # untrusted importance > 2, a scope outside the account and an
+      # untrusted supersede of a verified item, and evicts over the cap
+      # (superseded first, never verified), audited; recall candidates are
+      # read-only and mark_recalled audits once per call; forget (a real
+      # reason, at most 1000 chars), the TTL sweep and contact deletion
+      # erase with counted audit rows; compaction supersedes every source
+      # or nothing; audit append-only and no direct delete, the owner
+      # included; only service_role executes the 11 API functions.
+      - name: Verify CRM memory
+        run: supabase db query --local --file supabase/ci/verify-crm-memory.sql
