@@ -235,8 +235,11 @@ CREATE TRIGGER case_documents_no_truncate
 
 -- ---------- 3. Helper ----------
 
--- Locks the case (FOR SHARE) for a write by p_actor; raises
+-- Locks the case (FOR NO KEY UPDATE) for a write by p_actor; raises
 -- CASE_NOT_FOUND / NOT_ALLOWED. Returns the actor's live case role.
+-- Not FOR SHARE: 124's case_documents trigger updates cases.sla_state
+-- under FOR NO KEY UPDATE in the same call, and two receipts on one case
+-- that each held FOR SHARE and then upgraded would deadlock (40P01).
 CREATE OR REPLACE FUNCTION public.case_tools_lock_for_write(p_case uuid, p_actor uuid)
 RETURNS text
 LANGUAGE plpgsql
@@ -247,7 +250,7 @@ AS $$
 DECLARE
   v_role text;
 BEGIN
-  PERFORM 1 FROM public.cases x WHERE x.id = p_case FOR SHARE;
+  PERFORM 1 FROM public.cases x WHERE x.id = p_case FOR NO KEY UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
   END IF;
