@@ -35,7 +35,7 @@ import {
   type CaseTab,
   type CaseTabProps,
 } from '@/lib/cases/case-page';
-import { formatCurrency } from '@/lib/currency';
+import { formatAed } from '@/lib/cases/ui';
 
 import { AuditTab } from './audit-tab';
 import { BankContactsTab } from './bank-contacts-tab';
@@ -255,7 +255,7 @@ export function CasePage({ caseId }: { caseId: string }) {
       : null;
   const amount =
     c.amount !== null && c.amount !== ''
-      ? formatCurrency(Number(c.amount), 'AED')
+      ? formatAed(Number(c.amount), locale)
       : null;
   const due = dateLabel(c.dueAt);
   const timers = runningTimers(detail.timers);
