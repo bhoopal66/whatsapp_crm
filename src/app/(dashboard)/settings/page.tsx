@@ -181,6 +181,17 @@ const DealRoomsPanel = dynamic(
     ),
   { loading: PanelLoading }
 );
+const CasesSettingsPanel = dynamic(
+  () =>
+    import('@/components/settings/cases-settings-panel').then(
+      (m) => m.CasesSettingsPanel
+    ),
+  { loading: PanelLoading }
+);
+const VaultPanel = dynamic(
+  () => import('@/components/settings/vault-panel').then((m) => m.VaultPanel),
+  { loading: PanelLoading }
+);
 const AuditLogPanel = dynamic(
   () =>
     import('@/components/settings/audit-log-panel').then(
@@ -325,6 +336,8 @@ function SettingsPageInner() {
     members: <MembersTab />,
     teams: <TeamsTab />,
     'team-chat': <TeamChatSettings />,
+    cases: <CasesSettingsPanel />,
+    vault: <VaultPanel />,
     'consent-retention': <ConsentRetentionPanel />,
     'audit-log': <AuditLogPanel />,
     api: <ApiKeysSettings />,

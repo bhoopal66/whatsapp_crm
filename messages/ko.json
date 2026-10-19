@@ -2132,7 +2132,9 @@
       "phone-system": "전화 시스템",
       "consent-retention": "동의 및 보존",
       "audit-log": "감사 로그",
-      "deal-rooms": "딜룸"
+      "deal-rooms": "딜룸",
+      "cases": "케이스",
+      "vault": "보관소"
     },
     "categories": {
       "overview": "개요",
@@ -7225,6 +7227,146 @@
       "notFound": "이 기록을 찾을 수 없거나 볼 권한이 없습니다.",
       "invalid": "입력한 내용을 확인하고 다시 시도하세요.",
       "saveFailed": "메모리를 저장하지 못했습니다."
+    }
+  },
+  "CaseSettings": {
+    "title": "케이스",
+    "description": "은행별로 케이스 모듈을 설정합니다: 단계, 작업 템플릿, 필수 서류, SLA 타이머.",
+    "loadFailed": "설정을 불러오지 못했습니다. 페이지를 새로고침해 다시 시도하세요.",
+    "bankHeading": "{name}",
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "key": "키",
+    "keyHelp": "영문 소문자, 숫자, 밑줄만 사용합니다. 나중에 바꿀 수 없습니다.",
+    "keyInvalid": "영문 소문자, 숫자, 밑줄만 사용하세요(최대 64자).",
+    "keyTaken": "이미 사용 중인 키입니다.",
+    "position": "순서",
+    "positionHelp": "선택 사항입니다. 숫자가 작을수록 앞에 표시됩니다.",
+    "wholeNumber": "1 이상의 정수를 입력하세요.",
+    "tabs": {
+      "stages": "단계",
+      "templates": "작업 템플릿",
+      "documents": "서류",
+      "sla": "SLA"
+    },
+    "banks": {
+      "add": "은행 추가",
+      "addTitle": "은행 추가",
+      "renameTitle": "은행 이름 변경",
+      "code": "은행 코드",
+      "name": "이름",
+      "codeHelp": "제출 앱이 모든 케이스에 이 코드를 함께 보내므로 정확히 일치해야 합니다. 영문 대문자, 숫자, 밑줄로 2~32자입니다.",
+      "codeInvalid": "영문 대문자, 숫자, 밑줄로 2~32자를 입력하세요.",
+      "codeTaken": "이 코드를 쓰는 은행이 이미 있습니다.",
+      "empty": "아직 은행이 없습니다. 첫 번째 은행을 추가하세요.",
+      "ownStages": "자체 단계",
+      "defaultStages": "기본 단계",
+      "renameLabel": "{name} 이름 변경",
+      "saved": "은행을 저장했습니다"
+    },
+    "stages": {
+      "help": "이 은행의 케이스는 이 단계를 순서대로 거칩니다. Approved, Declined, Withdrawn, Closed는 최종 단계이며 목록에 반드시 있어야 합니다.",
+      "usingDefaults": "기본 단계를 사용 중",
+      "stageLabel": "{position}단계",
+      "moveUp": "{stage} 위로 이동",
+      "moveDown": "{stage} 아래로 이동",
+      "remove": "{stage} 삭제",
+      "addPlaceholder": "새 단계 이름",
+      "add": "단계 추가",
+      "discard": "변경 취소",
+      "reset": "기본값으로 재설정",
+      "resetTitle": "기본 단계로 재설정할까요?",
+      "resetBody": "이 은행은 다시 기본 단계 목록을 사용합니다. 진행 중인 케이스가 기본 목록에 없는 단계에 있으면 거부됩니다.",
+      "saved": "단계를 저장했습니다",
+      "resetDone": "기본 단계로 돌아갔습니다",
+      "problems": {
+        "empty": "목록이 비어 있습니다. 단계를 추가하거나 기본값으로 재설정하세요.",
+        "tooMany": "은행 하나에 단계는 최대 {max}개입니다.",
+        "blank": "{position}단계의 이름이 비어 있습니다.",
+        "tooLong": "{position}단계가 {max}자를 넘습니다.",
+        "duplicate": "“{stage}”이(가) 두 번 있습니다.",
+        "firstFinal": "첫 단계는 최종 단계(“{stage}”)일 수 없습니다. 진행 단계를 맨 위로 옮기세요.",
+        "finalSpelling": "최종 단계는 정확히 “{stage}”(으)로 써야 합니다.",
+        "missingFinal": "“{stage}”이(가) 없습니다. Approved, Declined, Withdrawn, Closed가 모두 목록에 있어야 합니다."
+      }
+    },
+    "templates": {
+      "help": "직원이 이 은행의 케이스에 한 번에 추가할 수 있는 작업입니다.",
+      "add": "템플릿 추가",
+      "addTitle": "작업 템플릿 추가",
+      "editTitle": "작업 템플릿 편집",
+      "titleLabel": "작업 제목",
+      "dueHours": "기한(시간)",
+      "dueHoursHelp": "선택 사항입니다. 비워 두면 기한이 없습니다.",
+      "dueIn": "{hours}시간 후 기한",
+      "noDue": "기한 없음",
+      "usedByBankSpaces": "은행 공간의 “조치 필요”에서 사용",
+      "empty": "아직 작업 템플릿이 없습니다.",
+      "editLabel": "{title} 편집",
+      "deleteLabel": "{title} 삭제",
+      "deleteTitle": "이 템플릿을 삭제할까요?",
+      "deleteBody": "“{title}”은(는) 더 이상 제공되지 않습니다. 이미 만든 작업은 그대로 남습니다.",
+      "saved": "템플릿을 저장했습니다",
+      "deleted": "템플릿을 삭제했습니다"
+    },
+    "documents": {
+      "help": "이 은행의 케이스에 상품별로 필요한 서류입니다.",
+      "add": "서류 추가",
+      "addToProduct": "추가",
+      "addTitle": "필수 서류 추가",
+      "editTitle": "필수 서류 편집",
+      "product": "상품",
+      "productHelp": "예: Mortgage, Credit card. 대소문자와 공백은 구분하지 않습니다.",
+      "label": "서류 이름",
+      "empty": "아직 필수 서류가 없습니다.",
+      "editLabel": "{label} 편집",
+      "deleteLabel": "{label} 삭제",
+      "deleteTitle": "이 서류를 제외할까요?",
+      "deleteBody": "“{label}”은(는) 더 이상 {product}에 필요하지 않습니다.",
+      "saved": "서류를 저장했습니다",
+      "deleted": "서류를 제외했습니다"
+    },
+    "sla": {
+      "help": "각 단계가 기한을 넘기기 전까지 걸릴 수 있는 시간입니다. 칸을 눌러 타이머를 설정하거나 지우세요.",
+      "stage": "단계",
+      "timers": {
+        "customer_reply": "고객 응답 대기",
+        "bank_response": "은행 응답 대기",
+        "document_chase": "서류 독촉"
+      },
+      "days": "{count}일",
+      "minutes": "{count}분",
+      "dueSoonPct": "{pct}% 남으면 임박",
+      "dueSoonMinutes": "{count}분 전 임박",
+      "cell": "{amount}, {dueSoon}",
+      "editCell": "{stage}의 {timer}",
+      "dialogTitle": "{stage} 타이머",
+      "amount": "허용 시간",
+      "unit": "단위",
+      "units": {
+        "minutes": "분",
+        "days": "일"
+      },
+      "dueSoonPctLabel": "임박 알림(%)",
+      "dueSoonPctHelp": "남은 시간이 이 비율이 되면 알립니다(1~99).",
+      "pctRange": "1에서 99 사이의 숫자를 입력하세요.",
+      "dueSoonMinutesLabel": "또는 몇 분 전에 알림",
+      "dueSoonMinutesHelp": "선택 사항입니다. 설정하면 비율 대신 사용합니다.",
+      "clear": "타이머 지우기",
+      "saved": "타이머를 저장했습니다",
+      "cleared": "타이머를 지웠습니다"
+    },
+    "errors": {
+      "stageInUse": "진행 중인 케이스가 삭제한 단계에 있습니다. 먼저 그 케이스를 옮기거나 종료하거나, 단계를 유지하세요.",
+      "firstFinal": "첫 단계는 최종 단계일 수 없습니다.",
+      "missingFinal": "Approved, Declined, Withdrawn, Closed가 모두 목록에 있어야 합니다.",
+      "finalSpelling": "최종 단계는 정확히 Approved, Declined, Withdrawn, Closed로 써야 합니다.",
+      "duplicate": "목록에 같은 단계가 두 번 있습니다.",
+      "stageNotConfigured": "그 단계는 이제 이 은행의 목록에 없습니다. 새로고침 후 다시 시도하세요.",
+      "invalid": "허용되지 않는 값입니다.",
+      "notAllowed": "소유자와 관리자만 이 설정을 바꿀 수 있습니다.",
+      "generic": "저장하지 못했습니다: {error}"
     }
   }
 }

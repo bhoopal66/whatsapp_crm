@@ -2,6 +2,7 @@ import {
   Bell,
   Blocks,
   Bot,
+  BriefcaseBusiness,
   Building2,
   CircleDollarSign,
   Coins,
@@ -25,6 +26,7 @@ import {
   TextCursorInput,
   User,
   UsersRound,
+  Vault,
   Workflow,
   Zap,
   type LucideIcon,
@@ -63,6 +65,8 @@ export const SETTINGS_SECTIONS = [
   'members',
   'teams',
   'team-chat',
+  'cases',
+  'vault',
   'consent-retention',
   'audit-log',
   'ai',
@@ -207,6 +211,25 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'team-chat': {
     id: 'team-chat',
     icon: MessagesSquare,
+    category: 'team',
+    minRole: 'admin',
+  },
+  // The Cases module per bank (module 018c, migrations 122-124): the
+  // bank list, each bank's stages, task templates, required documents
+  // and SLA timers. Workspace-wide setup, so in Team beside Workspace's
+  // other account-wide panels; admin+, like the config routes' writes.
+  cases: {
+    id: 'cases',
+    icon: BriefcaseBusiness,
+    category: 'team',
+    minRole: 'admin',
+  },
+  // The customer-data vault (module 019c, migration 121). Admin+, and
+  // in Team beside Consent and retention and the Audit log: My account
+  // (where Login & security lives) holds only a person's own settings.
+  vault: {
+    id: 'vault',
+    icon: Vault,
     category: 'team',
     minRole: 'admin',
   },

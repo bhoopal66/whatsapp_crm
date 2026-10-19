@@ -2132,7 +2132,9 @@
       "phone-system": "Phone system",
       "consent-retention": "Consent and retention",
       "audit-log": "Audit log",
-      "deal-rooms": "Deal rooms"
+      "deal-rooms": "Deal rooms",
+      "cases": "Cases",
+      "vault": "Vault"
     },
     "categories": {
       "overview": "Overview",
@@ -7225,6 +7227,146 @@
       "notFound": "This record was not found, or you cannot see it.",
       "invalid": "Check what you entered and try again.",
       "saveFailed": "The memory could not be saved."
+    }
+  },
+  "CaseSettings": {
+    "title": "Cases",
+    "description": "Set up the Cases module for each bank: its stages, task templates, required documents and SLA timers.",
+    "loadFailed": "Could not load these settings. Reload the page to try again.",
+    "bankHeading": "{name}",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "key": "Key",
+    "keyHelp": "Lower-case letters, digits and underscores. It cannot be changed later.",
+    "keyInvalid": "Use only lower-case letters, digits and underscores (up to 64).",
+    "keyTaken": "That key is already in use.",
+    "position": "Position",
+    "positionHelp": "Optional. Lower numbers come first.",
+    "wholeNumber": "Enter a whole number of 1 or more.",
+    "tabs": {
+      "stages": "Stages",
+      "templates": "Task templates",
+      "documents": "Documents",
+      "sla": "SLA"
+    },
+    "banks": {
+      "add": "Add bank",
+      "addTitle": "Add a bank",
+      "renameTitle": "Rename bank",
+      "code": "Bank code",
+      "name": "Name",
+      "codeHelp": "The submission app sends this code with every case, so it must match exactly. Capital letters, digits and underscores, 2 to 32 characters.",
+      "codeInvalid": "Use 2 to 32 capital letters, digits or underscores.",
+      "codeTaken": "A bank with this code already exists.",
+      "empty": "No banks yet. Add the first one.",
+      "ownStages": "Own stages",
+      "defaultStages": "Default stages",
+      "renameLabel": "Rename {name}",
+      "saved": "Bank saved"
+    },
+    "stages": {
+      "help": "Cases at this bank move through these stages in order. Approved, Declined, Withdrawn and Closed are the final stages and must stay in the list.",
+      "usingDefaults": "Using the default stages",
+      "stageLabel": "Stage {position}",
+      "moveUp": "Move {stage} up",
+      "moveDown": "Move {stage} down",
+      "remove": "Remove {stage}",
+      "addPlaceholder": "New stage name",
+      "add": "Add stage",
+      "discard": "Discard changes",
+      "reset": "Reset to defaults",
+      "resetTitle": "Reset to the default stages?",
+      "resetBody": "This bank will use the default stage list again. It is refused if an open case is at a stage the defaults do not have.",
+      "saved": "Stages saved",
+      "resetDone": "Back to the default stages",
+      "problems": {
+        "empty": "The list is empty. Add stages, or use Reset to defaults.",
+        "tooMany": "A bank can have at most {max} stages.",
+        "blank": "Stage {position} has no name.",
+        "tooLong": "Stage {position} is longer than {max} characters.",
+        "duplicate": "“{stage}” appears twice.",
+        "firstFinal": "The first stage can’t be a final stage (“{stage}”). Move a working stage to the top.",
+        "finalSpelling": "Spell the final stage exactly “{stage}”.",
+        "missingFinal": "“{stage}” is missing. Approved, Declined, Withdrawn and Closed must all be in the list."
+      }
+    },
+    "templates": {
+      "help": "Tasks that staff can add to a case at this bank with one click.",
+      "add": "Add template",
+      "addTitle": "Add a task template",
+      "editTitle": "Edit task template",
+      "titleLabel": "Task title",
+      "dueHours": "Due in (hours)",
+      "dueHoursHelp": "Optional. Leave empty for no due time.",
+      "dueIn": "Due in {hours, plural, =1 {# hour} other {# hours}}",
+      "noDue": "No due time",
+      "usedByBankSpaces": "Used by bank spaces for “Action needed”",
+      "empty": "No task templates yet.",
+      "editLabel": "Edit {title}",
+      "deleteLabel": "Delete {title}",
+      "deleteTitle": "Delete this template?",
+      "deleteBody": "“{title}” will no longer be offered. Tasks already created from it stay.",
+      "saved": "Template saved",
+      "deleted": "Template deleted"
+    },
+    "documents": {
+      "help": "The documents a case at this bank needs, per product.",
+      "add": "Add document",
+      "addToProduct": "Add",
+      "addTitle": "Add a required document",
+      "editTitle": "Edit required document",
+      "product": "Product",
+      "productHelp": "For example Mortgage or Credit card. Capitals and spaces don’t matter.",
+      "label": "Document name",
+      "empty": "No required documents yet.",
+      "editLabel": "Edit {label}",
+      "deleteLabel": "Delete {label}",
+      "deleteTitle": "Remove this document?",
+      "deleteBody": "“{label}” will no longer be required for {product}.",
+      "saved": "Document saved",
+      "deleted": "Document removed"
+    },
+    "sla": {
+      "help": "How long each step may take before it is overdue. Click a cell to set or clear a timer.",
+      "stage": "Stage",
+      "timers": {
+        "customer_reply": "Waiting for the customer",
+        "bank_response": "Waiting for the bank",
+        "document_chase": "Chasing documents"
+      },
+      "days": "{count, plural, =1 {# day} other {# days}}",
+      "minutes": "{count, plural, =1 {# minute} other {# minutes}}",
+      "dueSoonPct": "due soon at {pct}%",
+      "dueSoonMinutes": "due soon {count, plural, =1 {# minute} other {# minutes}} before",
+      "cell": "{amount}, {dueSoon}",
+      "editCell": "{timer} at {stage}",
+      "dialogTitle": "Timer for {stage}",
+      "amount": "Time allowed",
+      "unit": "Unit",
+      "units": {
+        "minutes": "Minutes",
+        "days": "Days"
+      },
+      "dueSoonPctLabel": "Due soon at (%)",
+      "dueSoonPctHelp": "Warn when this share of the time is left (1 to 99).",
+      "pctRange": "Enter a number from 1 to 99.",
+      "dueSoonMinutesLabel": "Or warn minutes before",
+      "dueSoonMinutesHelp": "Optional. When set, it is used instead of the percentage.",
+      "clear": "Clear timer",
+      "saved": "Timer saved",
+      "cleared": "Timer cleared"
+    },
+    "errors": {
+      "stageInUse": "An open case at this bank is at a stage you removed. Move or close that case first, or keep the stage.",
+      "firstFinal": "The first stage can’t be a final stage.",
+      "missingFinal": "Approved, Declined, Withdrawn and Closed must all be in the list.",
+      "finalSpelling": "Spell the final stages exactly: Approved, Declined, Withdrawn, Closed.",
+      "duplicate": "A stage appears twice in the list.",
+      "stageNotConfigured": "That stage is no longer in this bank’s list. Reload and try again.",
+      "invalid": "That value is not allowed.",
+      "notAllowed": "Only owners and admins can change these settings.",
+      "generic": "Could not save: {error}"
     }
   }
 }
