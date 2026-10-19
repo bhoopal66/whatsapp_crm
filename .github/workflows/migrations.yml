@@ -323,3 +323,18 @@ jobs:
       # writer; no API role writes a case table.
       - name: Verify cases
         run: supabase db query --local --file supabase/ci/verify-cases.sql
+
+      # Vault (121): a vault role counts only while its holder is a live
+      # owner/admin of the account; bootstrap only for a live owner of an
+      # account with no role, grant / revoke only by a super_admin, never
+      # the last one; put dedupes per (account, kind, blind index) under a
+      # random token and refuses CARD / CVV / OTP / PIN; reveal needs a
+      # role and an identifier-free reason, 20 attempts per actor per
+      # hour; delete wipes the payload; rewrap is super_admin only with
+      # keyset paging and CONFLICT on a stale key id; every attempt is
+      # audited, never with a value; the audit is append-only and item
+      # identity fixed, the owner included; no API role holds a table
+      # privilege and only service_role executes the 11 API functions.
+      # RLS, triggers and grants: only real Postgres can show it.
+      - name: Verify vault
+        run: supabase db query --local --file supabase/ci/verify-vault.sql
