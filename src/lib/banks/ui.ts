@@ -50,6 +50,7 @@ export interface BankCase {
   product: string | null;
   agentId: string | null;
   coordinatorId: string | null;
+  openedAt: string | null;
   closedAt: string | null;
 }
 export interface BankThread {
@@ -156,6 +157,7 @@ export function parseBankPage(json: unknown): {
         product: str(r.product),
         agentId: str(r.agentId),
         coordinatorId: str(r.coordinatorId),
+        openedAt: str(r.openedAt),
         closedAt: str(r.closedAt),
       };
     }),

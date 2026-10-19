@@ -7033,6 +7033,80 @@
       "notAllowed": "여기서 이 작업을 할 권한이 없습니다.",
       "notFound": "더 이상 존재하지 않습니다.",
       "failed": "문제가 발생했습니다. 다시 시도하세요."
+    },
+    "cases": {
+      "filterLabel": "케이스 보기",
+      "filters": {
+        "all": "전체 ({count})",
+        "open": "진행 중 ({count})",
+        "closed": "종료 ({count})"
+      },
+      "empty": {
+        "all": "볼 수 있는 이 은행의 케이스가 없습니다.",
+        "open": "이 은행의 진행 중인 케이스가 없습니다.",
+        "closed": "이 은행의 종료된 케이스가 없습니다."
+      },
+      "columns": {
+        "stage": "단계",
+        "product": "상품",
+        "agent": "담당자",
+        "coordinator": "코디네이터",
+        "opened": "시작일",
+        "closed": "종료일"
+      },
+      "noStage": "단계 없음",
+      "closedChip": "종료",
+      "stillOpen": "진행 중",
+      "unassigned": "미배정",
+      "noCoordinator": "코디네이터 없음",
+      "openCase": "케이스 열기: {stage}",
+      "openedOn": "{date} 시작",
+      "closedOn": "{date} 종료",
+      "agentLabel": "담당자: {name}",
+      "coordinatorLabel": "코디네이터: {name}"
+    },
+    "dashboard": {
+      "scope": {
+        "all": "이 은행의 모든 케이스에 대한 수치입니다.",
+        "own": "볼 수 있는 케이스에 대한 수치입니다."
+      },
+      "refresh": "새로고침",
+      "emptyTitle": "아직 케이스가 없습니다",
+      "emptyBody": "이 은행의 케이스가 생기면 여기에 수치가 표시됩니다.",
+      "howCalculated": "{label} 계산 방법",
+      "tiles": {
+        "total": "전체 케이스",
+        "approvalRate": "승인율",
+        "approvalRateHint": "승인 ÷ (승인 + 거절), 철회는 포함하지 않음",
+        "approved": "승인",
+        "declined": "거절",
+        "withdrawn": "철회",
+        "overdue": "기한 초과 케이스",
+        "overdueHint": "SLA 타이머나 진행 중인 작업의 기한이 지난 케이스로, 케이스마다 한 번만 셉니다.",
+        "amount": "진행 중 금액",
+        "amountHint": "아직 최종 단계에 이르지 않은 케이스의 금액 합계입니다."
+      },
+      "charts": {
+        "byStage": "단계별 케이스",
+        "avgDays": "단계별 평균 일수",
+        "declined": "거절 사유",
+        "withdrawn": "철회 사유"
+      },
+      "series": {
+        "cases": "케이스",
+        "days": "평균 일수"
+      },
+      "daysValue": "{days}일",
+      "intervals": "{count, plural, other {이 단계에 머문 #건 기준}}",
+      "noData": "아직 표시할 내용이 없습니다.",
+      "reasons": {
+        "INCOMPLETE_DOCS": "서류 누락 또는 미비",
+        "CREDIT_POLICY": "은행 신용 정책에 맞지 않음",
+        "INCOME_INSUFFICIENT": "소득 부족",
+        "KYC_AML": "본인 확인 또는 규정 심사(KYC/AML)",
+        "CUSTOMER_WITHDREW": "고객이 철회함",
+        "OTHER": "기타 사유"
+      }
     }
   },
   "Memory": {

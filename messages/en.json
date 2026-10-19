@@ -7033,6 +7033,80 @@
       "notAllowed": "You aren't allowed to do that here.",
       "notFound": "It no longer exists.",
       "failed": "Something went wrong. Try again."
+    },
+    "cases": {
+      "filterLabel": "Show cases",
+      "filters": {
+        "all": "All ({count})",
+        "open": "Open ({count})",
+        "closed": "Closed ({count})"
+      },
+      "empty": {
+        "all": "No cases with this bank that you can see.",
+        "open": "No open cases with this bank.",
+        "closed": "No closed cases with this bank."
+      },
+      "columns": {
+        "stage": "Stage",
+        "product": "Product",
+        "agent": "Agent",
+        "coordinator": "Coordinator",
+        "opened": "Opened",
+        "closed": "Closed"
+      },
+      "noStage": "No stage",
+      "closedChip": "Closed",
+      "stillOpen": "Still open",
+      "unassigned": "Unassigned",
+      "noCoordinator": "No coordinator",
+      "openCase": "Open case: {stage}",
+      "openedOn": "Opened {date}",
+      "closedOn": "Closed {date}",
+      "agentLabel": "Agent: {name}",
+      "coordinatorLabel": "Coordinator: {name}"
+    },
+    "dashboard": {
+      "scope": {
+        "all": "Figures for every case of this bank.",
+        "own": "Figures for the cases you can see."
+      },
+      "refresh": "Refresh",
+      "emptyTitle": "No cases yet",
+      "emptyBody": "Figures appear here once there are cases with this bank.",
+      "howCalculated": "How {label} is calculated",
+      "tiles": {
+        "total": "Total cases",
+        "approvalRate": "Approval rate",
+        "approvalRateHint": "approved ÷ (approved + declined); withdrawn not counted",
+        "approved": "Approved",
+        "declined": "Declined",
+        "withdrawn": "Withdrawn",
+        "overdue": "Overdue cases",
+        "overdueHint": "Cases with an overdue SLA timer or an overdue open task, each counted once.",
+        "amount": "Amount in pipeline",
+        "amountHint": "The total amount of the cases that are not at a final stage yet."
+      },
+      "charts": {
+        "byStage": "Cases by stage",
+        "avgDays": "Average days per stage",
+        "declined": "Why cases were declined",
+        "withdrawn": "Why cases were withdrawn"
+      },
+      "series": {
+        "cases": "Cases",
+        "days": "Average days"
+      },
+      "daysValue": "{days} days",
+      "intervals": "{count, plural, =1 {Based on 1 stay in this stage} other {Based on # stays in this stage}}",
+      "noData": "Nothing to show yet.",
+      "reasons": {
+        "INCOMPLETE_DOCS": "Documents missing or incomplete",
+        "CREDIT_POLICY": "Outside the bank's credit policy",
+        "INCOME_INSUFFICIENT": "Income too low",
+        "KYC_AML": "Identity or compliance checks (KYC/AML)",
+        "CUSTOMER_WITHDREW": "The customer withdrew",
+        "OTHER": "Another reason"
+      }
     }
   },
   "Memory": {
