@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import type { CaseTabProps } from '@/lib/cases/case-page';
+import { formatAed } from '@/lib/cases/ui';
 
 import { SlaChip } from './sla-chip';
 
@@ -99,9 +100,11 @@ export function OverviewTab({ detail }: CaseTabProps) {
               ? t('empty')
               : d.field === 'due_at'
                 ? when(v)
-                : d.field === 'priority' && t.has(`priority.${v}`)
-                  ? t(`priority.${v}`)
-                  : v;
+                : d.field === 'amount'
+                  ? (formatAed(v, locale) ?? v)
+                  : d.field === 'priority' && t.has(`priority.${v}`)
+                    ? t(`priority.${v}`)
+                    : v;
           return (
             <li key={i} className="flex flex-col gap-0.5">
               <span>

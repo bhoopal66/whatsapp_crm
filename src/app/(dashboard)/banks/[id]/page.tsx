@@ -16,7 +16,7 @@ export default async function Page({
     <Suspense
       fallback={<div className="bg-muted m-6 h-40 animate-pulse rounded-xl" />}
     >
-      <BankPage bankWsId={id} />
+      <BankPage key={id} bankWsId={id} />
     </Suspense>
   );
 }

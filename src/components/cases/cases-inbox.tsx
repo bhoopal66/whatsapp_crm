@@ -40,11 +40,11 @@ import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
 import {
   activeFilterCount,
   appendRows,
-  DEFAULT_STAGES,
   EMPTY_FILTERS,
   filtersFromSearch,
   filtersToSearch,
   formatAed,
+  stageFilterOptions,
   inboxUrl,
   INBOX_SORTS,
   NO_ACTIVITY_DAYS_DEFAULT,
@@ -231,6 +231,7 @@ export function CasesInbox() {
         banks={banks}
         agents={agents}
         narrowed={narrowed}
+        rows={loaded?.rows ?? []}
       />
 
       {!loaded ? (
@@ -404,6 +405,7 @@ function FilterBar({
   banks,
   agents,
   narrowed,
+  rows,
 }: {
   className?: string;
   filters: InboxFilters;
@@ -411,6 +413,7 @@ function FilterBar({
   banks: CaseBankOption[];
   agents: Array<{ id: string; name: string }>;
   narrowed: number;
+  rows: readonly { stage: string }[];
 }) {
   const t = useTranslations('Cases');
 
@@ -447,7 +450,10 @@ function FilterBar({
           label={t('filters.stage')}
           allLabel={t('filters.allStages')}
           value={f.stage}
-          options={DEFAULT_STAGES.map((s) => ({ value: s, label: s }))}
+          options={stageFilterOptions(rows, f.stage).map((s) => ({
+            value: s,
+            label: s,
+          }))}
           onChange={(stage) => setFilters({ stage })}
         />
         <FilterSelect

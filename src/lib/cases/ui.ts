@@ -278,17 +278,37 @@ export function parseBanks(json: unknown): CaseBankOption[] {
     .map((b) => ({ code: b.code, name: optStr(b.name) ?? b.code }));
 }
 
+/**
+ * The stage filter's options: the defaults, then any other stage seen in the
+ * loaded rows or currently selected, sorted.
+ */
+export function stageFilterOptions(
+  rows: readonly { stage: string }[],
+  selected: string | null
+): string[] {
+  const known = new Set(DEFAULT_STAGES);
+  const extra = new Set<string>();
+  for (const r of rows) if (r.stage && !known.has(r.stage)) extra.add(r.stage);
+  if (selected && !known.has(selected)) extra.add(selected);
+  return [...DEFAULT_STAGES, ...[...extra].sort()];
+}
+
 /** An amount in AED with 2 decimals; null when unknown. */
 export function formatAed(
-  amount: number | null,
+  amount: number | string | null,
   locale?: string
 ): string | null {
-  if (amount === null || !Number.isFinite(amount)) return null;
+  if (amount === null) return null;
+  if (typeof amount === 'string') {
+    // A decimal string goes to Intl as is: Number() would round past 2^53.
+    if (!/^-?\d+(?:\.\d+)?$/.test(amount.trim())) return null;
+    amount = amount.trim();
+  } else if (!Number.isFinite(amount)) return null;
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: 'AED',
     currencyDisplay: 'code',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(amount as number | `${number}`);
 }

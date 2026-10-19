@@ -379,7 +379,7 @@ export function takeoverNotApproved(status: number, code: unknown): boolean {
 
 /** Roles that may take the conversation over (the server decides). */
 export function canTakeOver(role: CaseRole): boolean {
-  return role !== 'agent';
+  return role === 'coordinator' || role === 'team_lead';
 }
 
 // Tabs: `?tab=` holds the URL name; Overview is the bare URL.

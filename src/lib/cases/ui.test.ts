@@ -10,6 +10,7 @@ import {
   filtersFromSearch,
   filtersToSearch,
   formatAed,
+  stageFilterOptions,
   inboxUrl,
   parseBanks,
   parseDays,
@@ -224,5 +225,32 @@ describe('parseBanks / formatAed', () => {
     expect(plain(formatAed(1250000.5, 'en'))).toBe('AED 1,250,000.50');
     expect(plain(formatAed(0, 'en'))).toBe('AED 0.00');
     expect(formatAed(null, 'en')).toBeNull();
+  });
+
+  it('keeps every digit of a decimal string', () => {
+    const plain = (s: string | null) => s?.replace(/\s/g, ' ');
+    expect(plain(formatAed('12345678901234567.89', 'en'))).toBe(
+      'AED 12,345,678,901,234,567.89'
+    );
+    expect(plain(formatAed('1200.5', 'en'))).toBe('AED 1,200.50');
+    expect(formatAed('abc', 'en')).toBeNull();
+  });
+});
+
+describe('stageFilterOptions', () => {
+  it('lists defaults first, then sorted extras from rows and the selection', () => {
+    const rows = [
+      { stage: 'Zeta' },
+      { stage: DEFAULT_STAGES[0] },
+      { stage: 'Alpha' },
+      { stage: 'Zeta' },
+    ];
+    expect(stageFilterOptions(rows, 'Mid')).toEqual([
+      ...DEFAULT_STAGES,
+      'Alpha',
+      'Mid',
+      'Zeta',
+    ]);
+    expect(stageFilterOptions([], null)).toEqual([...DEFAULT_STAGES]);
   });
 });

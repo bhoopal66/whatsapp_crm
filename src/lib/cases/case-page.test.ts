@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  canTakeOver,
   docRequestKey,
   detailsErrorKey,
   fromLocalInput,
@@ -286,5 +287,15 @@ describe('inputs', () => {
     expect(normaliseAmount('150,000.50')).toBe('150000.50');
     expect(normaliseAmount('12.345')).toBeNull();
     expect(normaliseAmount('abc')).toBeNull();
+  });
+});
+
+describe('canTakeOver', () => {
+  it('is for coordinators and team leads only (SQL 128)', () => {
+    expect(canTakeOver('coordinator')).toBe(true);
+    expect(canTakeOver('team_lead')).toBe(true);
+    expect(canTakeOver('agent')).toBe(false);
+    expect(canTakeOver('admin')).toBe(false);
+    expect(canTakeOver('super_admin')).toBe(false);
   });
 });

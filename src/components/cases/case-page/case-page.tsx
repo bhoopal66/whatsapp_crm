@@ -85,22 +85,26 @@ export function CasePage({ caseId }: { caseId: string }) {
   const [acting, setActing] = useState(false);
   const [viewers, setViewers] = useState<string[]>([]);
   const mounted = useRef(true);
+  const seq = useRef(0);
 
   const reload = useCallback(async () => {
+    // An older reload answering after a newer one must not overwrite it.
+    const mine = ++seq.current;
+    const current = () => mounted.current && mine === seq.current;
     try {
       const res = await fetch(`/api/cases/${caseId}`, { cache: 'no-store' });
-      if (!mounted.current) return;
+      if (!current()) return;
       if (res.status === 404) return setState('gone');
       if (res.status === 403) return setState('forbidden');
       if (!res.ok) throw new Error(String(res.status));
       const parsed = parseCaseDetail(await res.json());
       if (!parsed) throw new Error('shape');
-      if (!mounted.current) return;
+      if (!current()) return;
       setDetail(parsed);
       setState('ok');
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
-      if (mounted.current) setState((s) => (s === 'ok' ? s : 'error'));
+      if (current()) setState((s) => (s === 'ok' ? s : 'error'));
     }
   }, [caseId]);
 
@@ -254,9 +258,7 @@ export function CasePage({ caseId }: { caseId: string }) {
         }).format(new Date(iso))
       : null;
   const amount =
-    c.amount !== null && c.amount !== ''
-      ? formatAed(Number(c.amount), locale)
-      : null;
+    c.amount !== null && c.amount !== '' ? formatAed(c.amount, locale) : null;
   const due = dateLabel(c.dueAt);
   const timers = runningTimers(detail.timers);
   const others = viewers.map((v) => nameOf(v)).filter((n): n is string => !!n);

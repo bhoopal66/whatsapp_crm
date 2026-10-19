@@ -172,7 +172,7 @@ export function BankDashboardTab({ bankWsId }: { bankWsId: string }) {
             className="col-span-2"
             icon={<Wallet className="text-primary size-4" />}
             label={t('tiles.amount')}
-            value={formatAed(Number(data.amountInPipeline), locale) ?? '—'}
+            value={formatAed(data.amountInPipeline, locale) ?? '—'}
             tooltip={t('tiles.amountHint')}
           />
         </div>

@@ -249,6 +249,7 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
         <TabsContent value="threads">
           {threadId ? (
             <ThreadView
+              key={threadId}
               bankWsId={bankWsId}
               threadId={threadId}
               cases={page.cases}
