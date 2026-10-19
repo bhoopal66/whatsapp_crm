@@ -124,11 +124,12 @@ DECLARE
   v_text text;
 BEGIN
   SELECT * INTO c FROM public.cases x WHERE x.id = p_case FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
+  -- An unknown case and a case the actor may not write answer alike, so the
+  -- error is no oracle for which case ids exist.
+  IF FOUND THEN
+    v_role := public.case_role(p_case, p_actor);
   END IF;
-  v_role := public.case_role(p_case, p_actor);
-  IF NOT public.case_rule_can_write(v_role) THEN
+  IF NOT FOUND OR NOT coalesce(public.case_rule_can_write(v_role), false) THEN
     RAISE EXCEPTION 'case %: % may not set the outcome reason', p_case, p_actor
       USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
   END IF;

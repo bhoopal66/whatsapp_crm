@@ -40,6 +40,8 @@ DECLARE
   u_viewer UUID := '00000000-0000-4000-8000-000000127008';
   u_agent4 UUID := '00000000-0000-4000-8000-000000127009';  -- on no case
   u_bown   UUID := '00000000-0000-4000-8000-000000127010';  -- owner of account B
+  u_guest  UUID := '00000000-0000-4000-8000-000000127011';  -- bank_guest, made holder of k1 and k3 below
+  u_gone   UUID := '00000000-0000-4000-8000-000000127012';  -- deactivated agent, made holder of k1 and k3 below
   a_acct   UUID;
   b_acct   UUID;
   wa       UUID;
@@ -139,7 +141,9 @@ BEGIN
     (u_agent3, 'bd-agent3@example.invalid'),
     (u_viewer, 'bd-viewer@example.invalid'),
     (u_agent4, 'bd-agent4@example.invalid'),
-    (u_bown,   'bd-bown@example.invalid')
+    (u_bown,   'bd-bown@example.invalid'),
+    (u_guest,  'bd-guest@example.invalid'),
+    (u_gone,   'bd-gone@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_bown;
@@ -149,7 +153,7 @@ BEGIN
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_admin;
   UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id = u_lead;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent'
-   WHERE user_id IN (u_coord, u_agent, u_agent2, u_agent3, u_agent4);
+   WHERE user_id IN (u_coord, u_agent, u_agent2, u_agent3, u_agent4, u_guest, u_gone);
   UPDATE profiles SET account_id = a_acct, account_role = 'viewer' WHERE user_id = u_viewer;
 
   INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'BD T1', u_lead) RETURNING id INTO team1;
@@ -262,7 +266,7 @@ BEGIN
 
   -- ---------- reasons: refusals in order, each isolated ----------
   n := n + 1; failed := failed || pg_temp.bw_err('reason for an unknown case',
-    format('SELECT case_outcome_reason_set(%L, %L, ''NOPE'', NULL)::text', u_owner, gen_random_uuid()), 'CASE_NOT_FOUND');
+    format('SELECT case_outcome_reason_set(%L, %L, ''NOPE'', NULL)::text', u_owner, gen_random_uuid()), 'NOT_ALLOWED');
   FOREACH r IN ARRAY ARRAY[format('%L', u_viewer), format('%L', u_agent4), format('%L', u_bown), format('%L', u_coord),
                            format('%L', u_lead), 'NULL'] LOOP
     -- k3 is Declined; none of these may write it; a bad code and text come after the role.
@@ -397,6 +401,17 @@ BEGIN
     INTO st FROM unnest(ARRAY[u_owner, u_agent2, u_agent, u_agent4, u_bown]) u;
   n := n + 1; failed := failed || pg_temp.cs_ok(st = '4,2,1,0,0',
     format('reason reads under RLS are not as pinned (owner, agent2, agent, agent on no case, B owner): %s', st));
+  -- u_agent2 works on k3 and k8 in A but is active in B: the policy's account
+  -- conjunct is the only thing that hides A's reasons from that session.
+  UPDATE profiles SET is_active = false WHERE user_id = u_agent2 AND account_id = a_acct;
+  INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+  VALUES (u_agent2, '', 'bd-agent2@example.invalid', b_acct, 'agent', true);
+  st := pg_temp.cs_try('authenticated', u_agent2, 'SELECT count(*)::text FROM public.case_outcome_reasons');
+  r2 := (SELECT count(*)::text FROM case_outcome_reasons x WHERE case_can_read(x.case_id, u_agent2));
+  n := n + 1; failed := failed || pg_temp.cs_ok(st = '0' AND r2 <> '0',
+    format('u_agent2 active in B reads %s of A''s reasons under RLS (the case rule alone gives %s)', st, r2));
+  DELETE FROM profiles WHERE user_id = u_agent2 AND account_id = b_acct;
+  UPDATE profiles SET is_active = true WHERE user_id = u_agent2 AND account_id = a_acct;
   n := n + 1; failed := failed || pg_temp.cs_check('authenticated inserted a reason', 'authenticated', u_owner,
     format('INSERT INTO public.case_outcome_reasons (case_id, account_id, reason_code, outcome, actor_id, actor_role) VALUES (%L, %L, ''OTHER'', ''Declined'', %L, ''super_admin'')',
       k[4], a_acct, u_owner), 'ERROR 42501 %');
@@ -405,9 +420,37 @@ BEGIN
       'SELECT count(*)::text FROM public.case_outcome_reasons', 'ERROR 42501 %');
   END LOOP;
 
+  -- ---------- a bank guest and a deactivated agent who hold the cases ----------
+  -- case_role gives neither a role, whatever the case lists. Each in turn
+  -- becomes agent and coordinator of k1 and agent of k3 (k3 is Declined),
+  -- then the cases go back.
+  FOREACH r IN ARRAY ARRAY[u_guest::text, u_gone::text] LOOP
+    IF r = u_guest::text THEN
+      UPDATE profiles SET account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
+    ELSE
+      UPDATE profiles SET deactivated_at = now() WHERE user_id = u_gone;
+    END IF;
+    UPDATE cases SET agent_id = r::uuid, coordinator_id = r::uuid WHERE id IN (k[1], k[3]);
+    n := n + 1; failed := failed || pg_temp.cs_ok(
+      (SELECT count(*) FROM cases WHERE id IN (k[1], k[3]) AND agent_id = r::uuid AND coordinator_id = r::uuid) = 2
+      AND case_role(k[1], r::uuid) IS NULL AND case_role(k[3], r::uuid) IS NULL,
+      format('fixture: %s does not hold k1 and k3 without a role', r));
+    n := n + 1; failed := failed || pg_temp.bw_err(format('bank_ws_dashboard by %s', r),
+      format('SELECT bank_ws_dashboard(%L, %L, %L)::text', r, ws_a, t_now), 'NOT_ALLOWED');
+    n := n + 1; failed := failed || pg_temp.bw_err(format('reason on k3 by %s', r),
+      format('SELECT case_outcome_reason_set(%L, %L, ''NOPE'', %L)::text', r, k[3], repeat('x', 501)), 'NOT_ALLOWED');
+    n := n + 1; failed := failed || pg_temp.bw_err(format('take-over of k1 by %s', r),
+      format('SELECT case_takeover_record(%L, %L, ''v1'')::text', r, k[1]), 'NOT_ALLOWED');
+  END LOOP;
+  UPDATE cases SET agent_id = u_agent, coordinator_id = u_coord WHERE id = k[1];
+  UPDATE cases SET agent_id = u_agent2, coordinator_id = NULL WHERE id = k[3];
+  n := n + 1; failed := failed || pg_temp.cs_ok(case_role(k[1], u_coord) = 'coordinator'
+    AND case_role(k[1], u_agent) = 'agent' AND case_role(k[3], u_agent2) = 'agent',
+    'fixture: k1 and k3 are not back to their holders');
+
   -- ---------- take-over ----------
   n := n + 1; failed := failed || pg_temp.bw_err('take-over of an unknown case',
-    format('SELECT case_takeover_record(%L, %L, NULL)::text', u_coord, gen_random_uuid()), 'CASE_NOT_FOUND');
+    format('SELECT case_takeover_record(%L, %L, NULL)::text', u_coord, gen_random_uuid()), 'NOT_ALLOWED');
   FOREACH r IN ARRAY ARRAY[format('%L', u_agent), format('%L', u_admin), format('%L', u_owner), format('%L', u_agent2),
                            format('%L', u_viewer), format('%L', u_bown), 'NULL'] LOOP
     -- k1: agent u_agent, coordinator u_coord, team lead u_lead. A bad template comes after the role.
