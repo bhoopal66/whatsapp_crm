@@ -51,6 +51,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { useAuth } from '@/hooks/use-auth';
+import { hasMinRole } from '@/lib/auth/roles';
 import {
   VAULT_REASON_MAX,
   VAULT_ROLE_NAMES,
@@ -450,7 +451,8 @@ function RolesCard({
             .filter(
               (m) =>
                 !m.deactivated_at &&
-                (m.account_role === 'owner' || m.account_role === 'admin')
+                m.account_role &&
+                hasMinRole(m.account_role, 'admin')
             )
             .map((m) => ({ userId: m.user_id, name: m.full_name || m.email }))}
           onClose={() => setAdding(false)}

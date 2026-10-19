@@ -7204,6 +7204,8 @@
       "copy": "Copy",
       "copied": "Copied.",
       "copyFailed": "Could not copy.",
+      "copyClearNote": "The copied value is cleared from your clipboard when it expires.",
+      "reasonIdentifier": "That reason looks like it contains an identifier or a long number. Describe the reason in words.",
       "hidesIn": "Hidden again in {seconds} s.",
       "hidden": "Hidden again. Reveal once more if you still need it.",
       "errors": {

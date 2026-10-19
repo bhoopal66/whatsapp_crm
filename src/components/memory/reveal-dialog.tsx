@@ -21,6 +21,7 @@ import {
   REVEAL_VISIBLE_MS,
   revealErrorKey,
 } from '@/lib/memory/ui';
+import { reasonLooksLikeIdentifier } from '@/lib/vault/ui';
 
 /**
  * The vault reveal pieces shared by Memory's token chips and Settings ->
@@ -56,6 +57,17 @@ export async function requestReveal(
   }
 }
 
+/** Best-effort: overwrites a copied value; the browser may refuse without focus. */
+function clearCopied(copied: { current: boolean }) {
+  if (!copied.current) return;
+  copied.current = false;
+  try {
+    void navigator.clipboard.writeText('').catch(() => {});
+  } catch {
+    // no clipboard access: nothing more to do
+  }
+}
+
 /**
  * One revealed value with a copy button and the countdown; calls
  * `onExpire` (which must drop the value) after REVEAL_VISIBLE_MS. Mount
@@ -71,9 +83,14 @@ export function RevealedValue({
   const t = useTranslations('Memory');
   const [left, setLeft] = useState(Math.ceil(REVEAL_VISIBLE_MS / 1000));
   const expire = useRef(onExpire);
+  // Set once the value has been put on the OS clipboard, so expiry and
+  // unmount can overwrite it.
+  const copied = useRef(false);
   useEffect(() => {
     expire.current = onExpire;
   });
+
+  useEffect(() => () => clearCopied(copied), []);
 
   useEffect(() => {
     const until = Date.now() + REVEAL_VISIBLE_MS;
@@ -81,6 +98,7 @@ export function RevealedValue({
       const ms = until - Date.now();
       if (ms <= 0) {
         clearInterval(timer);
+        clearCopied(copied);
         expire.current();
       } else setLeft(Math.ceil(ms / 1000));
     }, 250);
@@ -90,6 +108,7 @@ export function RevealedValue({
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
+      copied.current = true;
       toast.success(t('reveal.copied'));
     } catch {
       toast.error(t('reveal.copyFailed'));
@@ -112,6 +131,9 @@ export function RevealedValue({
           {t('reveal.copy')}
         </Button>
       </div>
+      <p className="text-muted-foreground text-xs">
+        {t('reveal.copyClearNote')}
+      </p>
       <p className="text-muted-foreground text-xs" role="status">
         {t('reveal.hidesIn', { seconds: left })}
       </p>
@@ -141,9 +163,10 @@ export function RevealDialog({
 
   const trimmed = reason.trim();
   const tooLong = [...reason].length > REVEAL_REASON_MAX;
+  const identifier = reasonLooksLikeIdentifier(reason);
 
   const reveal = async () => {
-    if (!trimmed || tooLong) return;
+    if (!trimmed || tooLong || identifier) return;
     setBusy(true);
     setError(null);
     const answer = await requestReveal(token, reason);
@@ -187,8 +210,13 @@ export function RevealDialog({
               rows={2}
               placeholder={t('reveal.reasonPlaceholder')}
               onChange={(e) => setReason(e.target.value)}
-              aria-invalid={tooLong || undefined}
+              aria-invalid={tooLong || identifier || undefined}
             />
+            {identifier && (
+              <p className="text-destructive text-xs" role="alert">
+                {t('reveal.reasonIdentifier')}
+              </p>
+            )}
             {error && (
               <p className="text-destructive text-sm" role="alert">
                 {error}
@@ -209,7 +237,7 @@ export function RevealDialog({
           {value === null && (
             <Button
               type="button"
-              disabled={busy || !trimmed || tooLong}
+              disabled={busy || !trimmed || tooLong || identifier}
               onClick={() => void reveal()}
             >
               {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
