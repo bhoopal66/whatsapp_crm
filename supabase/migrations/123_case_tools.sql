@@ -13,7 +13,7 @@
 --    when the template has none); infinity / -infinity are refused
 --    (DUE_INVALID), a finite past date is allowed. Every status, the
 --    initial 'open' included, is a case_task_status_log row. Overdue
---    is never stored: case_task_overdue(actor, now) computes it (due
+--    is never stored: case_task_overdue(actor, account, now) computes it (due
 --    before now and not done; a blocked task past due is overdue)
 --    over the tasks of cases the actor may read.
 --  * Documents. case_doc_requirements is config per (account, bank,
@@ -354,23 +354,44 @@ END;
 $$;
 
 -- Overdue, computed from the injected clock (never stored): tasks of
--- cases p_actor may read that are not done and due before p_now.
-CREATE OR REPLACE FUNCTION public.case_task_overdue(p_actor uuid, p_now timestamptz)
+-- p_account's cases p_actor may read that are not done and due before
+-- p_now. The account is explicit (one login holds a profile in several
+-- workspaces). Visibility is computed once per call, never case_role per
+-- row (074), and mirrors case_role (122) exactly, as 125's case_inbox:
+-- the account-level role, then for a team lead the led-team agents.
+DROP FUNCTION IF EXISTS public.case_task_overdue(uuid, timestamptz);
+CREATE OR REPLACE FUNCTION public.case_task_overdue(p_actor uuid, p_account uuid, p_now timestamptz)
 RETURNS TABLE (task_id uuid, case_id uuid, title text, owner_id uuid, due_at timestamptz, status text)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
+DECLARE
+  v_role        text;
+  v_team_agents uuid[] := '{}';
 BEGIN
   IF p_now IS NULL THEN
     RAISE EXCEPTION 'case_task_overdue needs the clock' USING ERRCODE = 'null_value_not_allowed', HINT = 'NOW_REQUIRED';
   END IF;
+  v_role := public.case_account_role(p_account, p_actor);
+  IF v_role IS NULL THEN
+    RETURN;
+  END IF;
+  IF v_role = 'team_lead' THEN
+    SELECT coalesce(array_agg(DISTINCT m.user_id), '{}') INTO v_team_agents
+      FROM public.teams t
+      JOIN public.team_members m ON m.team_id = t.id
+     WHERE t.account_id = p_account AND m.account_id = p_account AND t.leader_user_id = p_actor;
+  END IF;
   RETURN QUERY
     SELECT t.id, t.case_id, t.title, t.owner_id, t.due_at, t.status
       FROM public.case_tasks t
-     WHERE t.status <> 'done' AND t.due_at IS NOT NULL AND t.due_at < p_now
-       AND public.case_can_read(t.case_id, p_actor)
+      JOIN public.cases c ON c.id = t.case_id AND c.account_id = t.account_id
+     WHERE t.account_id = p_account
+       AND t.status <> 'done' AND t.due_at IS NOT NULL AND t.due_at < p_now
+       AND (v_role IN ('super_admin', 'admin') OR c.agent_id = p_actor OR c.coordinator_id = p_actor
+            OR c.agent_id = ANY (v_team_agents))
      ORDER BY t.due_at, t.id;
 END;
 $$;
@@ -721,7 +742,7 @@ REVOKE ALL ON FUNCTION
   public.case_tools_lock_for_write(uuid, uuid),
   public.case_task_create(uuid, uuid, text, uuid, timestamptz, timestamptz),
   public.case_task_set_status(uuid, uuid, text, timestamptz),
-  public.case_task_overdue(uuid, timestamptz),
+  public.case_task_overdue(uuid, uuid, timestamptz),
   public.case_doc_set_status(uuid, uuid, text, text, text, timestamptz),
   public.case_doc_request_begin(uuid, uuid),
   public.case_doc_mark_requested(uuid, uuid, text[], timestamptz),
@@ -736,7 +757,7 @@ GRANT EXECUTE ON FUNCTION
   public.case_tools_lock_for_write(uuid, uuid),
   public.case_task_create(uuid, uuid, text, uuid, timestamptz, timestamptz),
   public.case_task_set_status(uuid, uuid, text, timestamptz),
-  public.case_task_overdue(uuid, timestamptz),
+  public.case_task_overdue(uuid, uuid, timestamptz),
   public.case_doc_set_status(uuid, uuid, text, text, text, timestamptz),
   public.case_doc_request_begin(uuid, uuid),
   public.case_doc_mark_requested(uuid, uuid, text[], timestamptz),

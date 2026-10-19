@@ -168,13 +168,14 @@ describe('CaseToolsStore', () => {
       p_status: 'done',
       p_now: T0.toISOString(),
     });
-    const [o] = await s.overdueTasks(ACTOR);
+    const [o] = await s.overdueTasks(ACTOR, 'acct-1');
     expect(o).toMatchObject({
       taskId: 't',
       dueAt: new Date('2026-10-18T00:00:00Z'),
     });
     expect(db.args('case_task_overdue')).toEqual({
       p_actor: ACTOR,
+      p_account: 'acct-1',
       p_now: T0.toISOString(),
     });
     await s.setDocStatus({

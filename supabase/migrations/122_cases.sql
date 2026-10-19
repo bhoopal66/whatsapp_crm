@@ -1033,7 +1033,7 @@ $$;
 
 -- The only reader of case_view_audit: the case's rows, newest first,
 -- for an admin / super_admin of the case's account (NOT_ALLOWED
--- otherwise). limit NULL -> 100, above 500 -> 500, below 1 ->
+-- otherwise, an unknown case included). limit NULL -> 100, above 500 -> 500, below 1 ->
 -- LIMIT_INVALID. Reading the audit is not itself audited.
 CREATE OR REPLACE FUNCTION public.case_audit_list(p_actor uuid, p_case uuid, p_limit int DEFAULT NULL)
 RETURNS TABLE (id bigint, case_id uuid, viewer_id uuid, viewer_role text, viewed_at timestamptz)
@@ -1050,10 +1050,8 @@ BEGIN
     RAISE EXCEPTION 'limit % is below 1', v_limit USING ERRCODE = 'check_violation', HINT = 'LIMIT_INVALID';
   END IF;
   v_limit := least(v_limit, 500);
-  PERFORM 1 FROM public.cases x WHERE x.id = p_case;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
-  END IF;
+  -- One answer for an unknown case and another account's: NOT_ALLOWED
+  -- (CASE_NOT_FOUND first would tell whether the id exists elsewhere).
   v_role := public.case_role(p_case, p_actor);
   IF v_role IS NULL OR v_role NOT IN ('admin', 'super_admin') THEN
     RAISE EXCEPTION 'case %: % may not read its view audit', p_case, p_actor

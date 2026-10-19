@@ -625,6 +625,10 @@ BEGIN
   END LOOP;
   n := n + 1; failed := failed || pg_temp.cs_check('the owner could not read the view audit',
     'service_role', NULL, format('SELECT count(*)::text FROM case_audit_list(%L, %L)', u_owner, k[1]), '4');
+  -- One answer for an unknown case and another account's (no existence oracle).
+  n := n + 1; failed := failed || pg_temp.cs_check('case_audit_list of an unknown case was not NOT_ALLOWED',
+    'service_role', NULL, format('SELECT count(*)::text FROM case_audit_list(%L, %L)', u_owner, gen_random_uuid()),
+    'ERROR 42501 NOT_ALLOWED:%');
   n := n + 1; failed := failed || pg_temp.cs_check('case_audit_list limit 0 was not LIMIT_INVALID',
     'service_role', NULL, format('SELECT count(*)::text FROM case_audit_list(%L, %L, 0)', u_admin, k[1]),
     'ERROR 23514 LIMIT_INVALID:%');

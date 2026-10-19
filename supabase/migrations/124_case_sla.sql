@@ -52,7 +52,7 @@
 --    task status changes after the initial open, notes (first 200
 --    chars), documents (key + status; the file is an id only), SLA log
 --    rows and bank contacts in time order; ties keep log order. Read
---    gate: case_can_read (CASE_NOT_FOUND / NOT_ALLOWED).
+--    gate: case_can_read (NOT_ALLOWED, an unknown case included).
 --  * Access is the case's: writes need case_rule_can_write of the live
 --    case_role (NOT_ALLOWED); reads through RLS follow
 --    case_rls_can_read in the caller's active workspace; config to the
@@ -440,8 +440,9 @@ BEGIN
 END;
 $$;
 
--- An SLA event reported by a person who may act on the case (e.g.
--- bank_response). Returns the case's new sla_state.
+-- An SLA event reported by a person who may act on the case:
+-- customer_message or bank_response only (EVENT_INVALID otherwise;
+-- stage_change and document_received fire from 124's triggers). Returns the case's new sla_state.
 CREATE OR REPLACE FUNCTION public.case_sla_event(p_case uuid, p_actor uuid, p_event text, p_now timestamptz)
 RETURNS text
 LANGUAGE plpgsql
@@ -453,6 +454,10 @@ DECLARE
   v_role text;
 BEGIN
   PERFORM public.case_sla_require_now(p_now, 'case_sla_event');
+  IF p_event IS NULL OR p_event NOT IN ('customer_message', 'bank_response') THEN
+    RAISE EXCEPTION 'SLA event % is not customer_message or bank_response (stage_change and document_received fire from triggers)', p_event
+      USING ERRCODE = 'check_violation', HINT = 'EVENT_INVALID';
+  END IF;
   PERFORM 1 FROM public.cases x WHERE x.id = p_case FOR NO KEY UPDATE;
   v_role := public.case_tools_lock_for_write(p_case, p_actor);
   RETURN public.case_sla_apply_event(p_case, p_event, p_now, p_actor, v_role);
@@ -460,7 +465,8 @@ END;
 $$;
 
 -- An SLA event from the system (the inbound pipeline's
--- customer_message): actor NULL, role 'system'.
+-- customer_message): actor NULL, role 'system'. Explicit events only,
+-- as case_sla_event.
 CREATE OR REPLACE FUNCTION public.case_sla_event_system(p_case uuid, p_event text, p_now timestamptz)
 RETURNS text
 LANGUAGE plpgsql
@@ -470,6 +476,10 @@ SET search_path = ''
 AS $$
 BEGIN
   PERFORM public.case_sla_require_now(p_now, 'case_sla_event_system');
+  IF p_event IS NULL OR p_event NOT IN ('customer_message', 'bank_response') THEN
+    RAISE EXCEPTION 'SLA event % is not customer_message or bank_response (stage_change and document_received fire from triggers)', p_event
+      USING ERRCODE = 'check_violation', HINT = 'EVENT_INVALID';
+  END IF;
   RETURN public.case_sla_apply_event(p_case, p_event, p_now, NULL, 'system');
 END;
 $$;
@@ -565,7 +575,7 @@ $$;
 -- ---------- 7. Timeline ----------
 
 -- Every in-database source of a case, merged and time-ordered, for a
--- person who may read it (CASE_NOT_FOUND / NOT_ALLOWED). Ties at the
+-- person who may read it (NOT_ALLOWED otherwise, an unknown case included). Ties at the
 -- same instant are ordered by kind, then log order (stage, task_status
 -- and sla carry their log id), then ref_id.
 CREATE OR REPLACE FUNCTION public.case_timeline(p_actor uuid, p_case uuid)
@@ -576,10 +586,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-  PERFORM 1 FROM public.cases x WHERE x.id = p_case;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
-  END IF;
+  -- An unknown case answers as another account's (no existence oracle).
   IF NOT coalesce(public.case_can_read(p_case, p_actor), false) THEN
     RAISE EXCEPTION 'case %: % may not read it', p_case, p_actor
       USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';

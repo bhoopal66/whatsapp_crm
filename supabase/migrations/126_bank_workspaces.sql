@@ -668,6 +668,14 @@ BEGIN
     RAISE EXCEPTION 'an action needs an owner' USING ERRCODE = 'check_violation', HINT = 'OWNER_INVALID';
   END IF;
   SELECT r.case_id INTO v_case FROM public.bank_ws_posts r WHERE r.thread_id = p_thread AND r.parent_post_id IS NULL;
+  -- The link was checked when posted; case_set_details may since have
+  -- moved the case to another bank, so check it is still this one's.
+  IF v_case IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM public.cases c JOIN public.bank_workspaces w ON w.id = t.bank_ws_id
+        WHERE c.id = v_case AND c.account_id = w.account_id AND c.bank_code = w.bank_code) THEN
+    RAISE EXCEPTION 'the thread''s case is no longer of this bank workspace''s bank'
+      USING ERRCODE = 'check_violation', HINT = 'LINK_INVALID';
+  END IF;
   IF v_case IS NOT NULL THEN
     v_task := public.case_task_create(v_case, p_actor, 'bank_ws_action_needed', p_owner, p_due_at, p_now);
   ELSIF public.bank_ws_access(t.bank_ws_id, p_owner) IS DISTINCT FROM 'member' THEN

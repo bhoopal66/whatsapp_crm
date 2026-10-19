@@ -505,6 +505,21 @@ BEGIN
       n := n + 1; failed := failed || pg_temp.bw_err('Action needed on an unknown thread',
         format('SELECT bank_ws_action_mark(%L, %L, %L, %L)::text', gen_random_uuid(), u_agent, u_agent, t0),
         'THREAD_NOT_FOUND');
+      -- th3 links k3 (ADCB); once case_set_details moves k3 to ENBD, the
+      -- ADCB workspace may not mark it (no task from ENBD's template).
+      -- Rolled back, so th3 is marked normally below.
+      BEGIN
+        PERFORM case_set_details(k3, u_owner, 'ENBD', 'Mortgage', 3000);
+        n := n + 1; failed := failed || pg_temp.bw_err('Action needed on a thread whose case moved to another bank',
+          format('SELECT bank_ws_action_mark(%L, %L, %L, %L)::text', th3, u_admin, u_agent2, t0), 'LINK_INVALID');
+        n := n + 1; failed := failed || pg_temp.cs_ok(
+          (SELECT count(*) FROM case_tasks WHERE case_id = k3) = 0
+          AND (SELECT count(*) FROM bank_ws_actions WHERE thread_id = th3) = 0,
+          'a refused Action needed on a moved case created a task or an action');
+        RAISE EXCEPTION USING ERRCODE = 'ZT126', MESSAGE = 'moved-case rollback';
+      EXCEPTION WHEN SQLSTATE 'ZT126' THEN
+        NULL;
+      END;
       act2 := pg_temp.cs_try('service_role', NULL, format('SELECT bank_ws_action_mark(%L, %L, %L, %L, %L)::text',
         th2, u_agent, u_agent2, t0 + interval '2 days', t0))::uuid;
       PERFORM bank_ws_action_mark(th3, u_lead2, u_agent2, t0 + interval '3 days', t0);

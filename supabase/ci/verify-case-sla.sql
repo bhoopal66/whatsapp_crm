@@ -380,6 +380,16 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_check('case_sla_event bogus was not EVENT_INVALID',
     'service_role', NULL, format('SELECT coalesce(case_sla_event(%L, %L, ''bogus'', %L), ''-'')', k1, u_agent, t0),
     'ERROR 23514 EVENT_INVALID:%');
+  -- Only customer_message and bank_response are explicit; the trigger
+  -- events are refused by both public wrappers (and change nothing).
+  FOREACH r IN ARRAY ARRAY['stage_change', 'document_received'] LOOP
+    n := n + 1; failed := failed || pg_temp.cs_check(format('case_sla_event %s was not EVENT_INVALID', r),
+      'service_role', NULL, format('SELECT coalesce(case_sla_event(%L, %L, %L, %L), ''-'')', k1, u_agent, r, t0),
+      'ERROR 23514 EVENT_INVALID:%');
+    n := n + 1; failed := failed || pg_temp.cs_check(format('case_sla_event_system %s was not EVENT_INVALID', r),
+      'service_role', NULL, format('SELECT coalesce(case_sla_event_system(%L, %L, %L), ''-'')', k1, r, t0),
+      'ERROR 23514 EVENT_INVALID:%');
+  END LOOP;
 
   -- customer_message from the system: actor NULL, role 'system'.
   st := case_sla_timer(k1, u_agent, 'customer_reply', 'start', t0 + interval '3010 minutes');
@@ -566,9 +576,11 @@ BEGIN
       'service_role', NULL, format('SELECT count(*)::text FROM case_timeline(%L, %L)', usr[i], k1),
       'ERROR 42501 NOT_ALLOWED:%');
   END LOOP;
-  n := n + 1; failed := failed || pg_temp.cs_check('case_timeline of an unknown case was not CASE_NOT_FOUND',
+  -- Spec change (review): an unknown case answers NOT_ALLOWED, as
+  -- another account's does, so the answer is no existence oracle.
+  n := n + 1; failed := failed || pg_temp.cs_check('case_timeline of an unknown case was not NOT_ALLOWED',
     'service_role', NULL, format('SELECT count(*)::text FROM case_timeline(%L, %L)', u_agent, gen_random_uuid()),
-    'ERROR P0002 CASE_NOT_FOUND:%');
+    'ERROR 42501 NOT_ALLOWED:%');
 
   -- ---------- grants ----------
   FOREACH r IN ARRAY ARRAY['service_role', 'authenticated', 'anon'] LOOP

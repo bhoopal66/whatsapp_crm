@@ -344,14 +344,40 @@ BEGIN
   FOR i IN 1 .. 5 LOOP
     ids := CASE i WHEN 1 THEN ARRAY[tk3, tk4] WHEN 2 THEN ARRAY[tk5] WHEN 3 THEN ARRAY[tk3, tk4, tk5]
                   WHEN 4 THEN '{}'::uuid[] ELSE ARRAY[tkb] END;
-    n := n + 1; failed := failed || pg_temp.cs_ok(
-      coalesce((SELECT array_agg(x.task_id ORDER BY x.task_id) FROM case_task_overdue(usr[i], t0 + interval '72 hours') x), '{}')
-      = coalesce((SELECT array_agg(y ORDER BY y) FROM unnest(ids) y), '{}'),
-      format('case_task_overdue for %s is not exactly its readable past-due, not-done tasks', lbl[i]));
+    n := n + 1; failed := failed || pg_temp.cs_check(
+      format('case_task_overdue for %s is not exactly its readable past-due, not-done tasks', lbl[i]),
+      NULL, NULL, format('SELECT coalesce((SELECT array_agg(x.task_id ORDER BY x.task_id)::text
+                            FROM case_task_overdue(%L, %L, %L) x), ''{}'')',
+                         usr[i], CASE WHEN i = 5 THEN b_acct ELSE a_acct END, t0 + interval '72 hours'),
+      coalesce((SELECT array_agg(y ORDER BY y)::text FROM unnest(ids) y), '{}'));
   END LOOP;
   n := n + 1; failed := failed || pg_temp.cs_check('case_task_overdue without a clock was not NOW_REQUIRED',
-    'service_role', NULL, format('SELECT count(*)::text FROM case_task_overdue(%L, NULL)', u_agent),
+    'service_role', NULL, format('SELECT count(*)::text FROM case_task_overdue(%L, %L, NULL)', u_agent, a_acct),
     'ERROR 22004 NOW_REQUIRED:%');
+  -- One login, two workspaces (B active): u_agent2 also works in B as the
+  -- agent of a B case with an overdue task. Each account's call returns
+  -- only that account's tasks, whichever workspace is active. Rolled back.
+  BEGIN
+    UPDATE profiles SET is_active = false WHERE user_id = u_agent2 AND account_id = a_acct;
+    INSERT INTO profiles (user_id, account_id, account_role, full_name, email, is_active)
+    VALUES (u_agent2, b_acct, 'agent', 'CT agent2 B', 'ct-agent2@example.invalid', true);
+    g[6] := (SELECT x.group_id FROM sg_open(b_acct, 'CT-123-6', cb, wb, 'tools 6', NULL,
+      jsonb_build_array(jsonb_build_object('user_id', u_agent2, 'label', 'agent')), NULL) x);
+    u := (SELECT x.case_id FROM case_open(g[6], 'ADCB', 'B ADCB', 'Loan', NULL, NULL) x);
+    tkb := case_task_create(u, u_agent2, 'b_only', NULL, NULL, t0);
+    FOR i IN 1 .. 2 LOOP
+      ids := CASE i WHEN 1 THEN ARRAY[tk5] ELSE ARRAY[tkb] END;
+      n := n + 1; failed := failed || pg_temp.cs_check(
+        format('case_task_overdue for a two-workspace agent leaked another account''s tasks (account %s)', i),
+        NULL, NULL, format('SELECT coalesce((SELECT array_agg(x.task_id ORDER BY x.task_id)::text
+                              FROM case_task_overdue(%L, %L, %L) x), ''{}'')',
+                           u_agent2, CASE i WHEN 1 THEN a_acct ELSE b_acct END, t0 + interval '72 hours'),
+        ids::text);
+    END LOOP;
+    RAISE EXCEPTION USING ERRCODE = 'ZT124', MESSAGE = 'two-workspace overdue rollback';
+  EXCEPTION WHEN SQLSTATE 'ZT124' THEN
+    NULL;
+  END;
 
   -- ---------- documents ----------
   SELECT * INTO rec FROM case_doc_request_begin(k1, u_agent);

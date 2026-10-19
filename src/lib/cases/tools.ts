@@ -176,10 +176,18 @@ export class CaseToolsStore extends CaseRpc {
     };
   }
 
-  /** Not done and due before `now`, over the cases the actor may read. */
-  async overdueTasks(actor: string, now?: Date): Promise<OverdueTask[]> {
+  /**
+   * Not done and due before `now`, over the cases of `accountId` the actor
+   * may read (the account is explicit: one login works in several).
+   */
+  async overdueTasks(
+    actor: string,
+    accountId: string,
+    now?: Date
+  ): Promise<OverdueTask[]> {
     const data = await this.rpc('case_task_overdue', {
       p_actor: actor,
+      p_account: accountId,
       p_now: (now ?? this.clock()).toISOString(),
     });
     return rows(data).map((t) => ({
