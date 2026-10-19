@@ -212,6 +212,12 @@ export class CaseStore {
     };
   }
 
+  /** The case id of a submission group, or null (no access decision). */
+  async idForGroup(groupId: string): Promise<string | null> {
+    const c = await this.select('cases', 'id', { group_id: groupId });
+    return str(c?.id);
+  }
+
   /** The user's live role on the case (any workspace: see the header). */
   async role(caseId: string, userId: string): Promise<CaseRole | null> {
     const data = await this.rpc('case_role', {

@@ -10,6 +10,11 @@
 // retries). On an ENDED group it records nothing and only reports the
 // group's state (`ended: false` — this call did not end it).
 // Account-scoped: a submission of another workspace → 404.
+//
+// PATCH also moves the group's case (module 018c): a final status sets
+// its stage (case_apply_submission_status), and the answer carries
+// `case: { id, stage, outcome }`. Best effort: a case failure is logged
+// and answers `case: null`, never an error; a group without a case too.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -22,6 +27,7 @@ import {
   parsePatchInput,
   serializeGroup,
 } from '@/lib/submission-groups/api-input';
+import { caseStore } from '@/lib/cases/server';
 import type {
   SubmissionGroup,
   SubmissionGroupStore,
@@ -33,6 +39,28 @@ type Params = { params: Promise<{ submissionId: string }> };
 
 async function wire(store: SubmissionGroupStore, group: SubmissionGroup) {
   return serializeGroup(group, await store.listAccess(group));
+}
+
+/** Applies the status to the group's case (when given) and reads it back; null on any failure. */
+async function patchCase(
+  accountId: string,
+  groupId: string,
+  status: string | null
+) {
+  try {
+    const cases = caseStore(accountId);
+    const caseId = await cases.idForGroup(groupId);
+    if (!caseId) return null;
+    if (status !== null) await cases.applySubmissionStatus(groupId, status);
+    const c = await cases.get(caseId);
+    return c ? { id: c.id, stage: c.stage, outcome: c.outcome } : null;
+  } catch (err) {
+    console.error(
+      `[api/v1/submission-groups] case status for group ${groupId}:`,
+      err instanceof Error ? err.message : 'unknown error'
+    );
+    return null;
+  }
 }
 
 export async function GET(request: Request, { params }: Params) {
@@ -65,6 +93,7 @@ export async function PATCH(request: Request, { params }: Params) {
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
+        case: await patchCase(ctx.accountId, group.id, null),
       });
 
     const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
@@ -84,11 +113,17 @@ export async function PATCH(request: Request, { params }: Params) {
       now: new Date(),
     });
     group = (await store.get(group.id)) ?? group;
+    const caseWire = await patchCase(
+      ctx.accountId,
+      group.id,
+      parsed.value.status
+    );
     return ok({
       ...(await wire(store, group)),
       ended: end.ended,
       closed: end.closed || group.waClosedAt !== null,
       close_deferred: end.closeDeferred,
+      case: caseWire,
     });
   } catch (err) {
     return toApiErrorResponse(err);

@@ -19,6 +19,54 @@ const base = {
 };
 
 describe('parseCreateInput', () => {
+  it('normalises the case fields: bank upper-cased, product trimmed, amount a decimal string', () => {
+    const value = (over: Record<string, unknown>) => {
+      const r = parseCreateInput({ ...base, ...over });
+      if (!r.ok) throw new Error(r.message);
+      return r.value;
+    };
+    expect(
+      value({ bank: ' mashreq ', product: ' Personal loan ', amount: 1500.5 })
+    ).toMatchObject({
+      bankCode: 'MASHREQ',
+      product: 'Personal loan',
+      amount: '1500.5',
+    });
+    expect(value({ amount: '007.25' }).amount).toBe('7.25');
+    expect(value({ amount: 0 }).amount).toBe('0');
+    expect(value({ amount: '9999999999999999.99' }).amount).toBe(
+      '9999999999999999.99'
+    );
+    expect(value({ bank: null, product: null, amount: null })).toMatchObject({
+      bankCode: null,
+      product: null,
+      amount: null,
+    });
+  });
+
+  it.each([
+    [{ bank: 'X' }, "'bank'"],
+    [{ bank: 'BANK-1' }, "'bank'"],
+    [{ bank: 'A'.repeat(33) }, "'bank'"],
+    [{ bank: 12 }, "'bank'"],
+    [{ product: '   ' }, "'product'"],
+    [{ product: 'p'.repeat(201) }, "'product'"],
+    [{ product: 5 }, "'product'"],
+    [{ amount: -1 }, "'amount'"],
+    [{ amount: '-1' }, "'amount'"],
+    [{ amount: 1.005 }, "'amount'"],
+    [{ amount: '1e3' }, "'amount'"],
+    [{ amount: 1e16 }, "'amount'"],
+    [{ amount: '10000000000000000' }, "'amount'"],
+    [{ amount: Number.NaN }, "'amount'"],
+    [{ amount: '' }, "'amount'"],
+    [{ amount: true }, "'amount'"],
+  ])('refuses a malformed case field %o', (over, field) => {
+    const r = parseCreateInput({ ...base, ...over });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain(field);
+  });
+
   it('normalises the minimal body and defaults the subject', () => {
     const r = parseCreateInput(base);
     expect(r).toEqual({
@@ -33,6 +81,9 @@ describe('parseCreateInput', () => {
         coordinatorPhone: null,
         subject: 'Jane · SUB-1',
         channelId: null,
+        bankCode: null,
+        product: null,
+        amount: null,
       },
     });
   });

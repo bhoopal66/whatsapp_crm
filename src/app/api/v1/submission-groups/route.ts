@@ -13,6 +13,11 @@
 // the field). The group lives on a Whapi number the agent may use.
 // A customer WhatsApp refused to add is sent the invite link 1:1; the
 // outcome is recorded on the group (migration 118, invite_sent_at).
+//
+// The case (module 018c): every answer that returns a group (new, repeat
+// or pending) opens its case — once per group; a repeat call fills only
+// the details still empty — and returns it as `case`. The case step never
+// fails the request: on any error it is logged and `case` is null.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -36,10 +41,14 @@ import {
   resolveStaff,
   serializeGroup,
   type AccessEntry,
+  type CaseWire,
   type ChannelMemberRow,
+  type CreateInput,
   type StaffRow,
 } from '@/lib/submission-groups/api-input';
 import type { SubmissionGroup } from '@/lib/submission-groups/store';
+import { caseStore } from '@/lib/cases/server';
+import { BANKS } from '@/lib/typesafe/banks';
 
 export const maxDuration = 60;
 
@@ -58,6 +67,46 @@ const INVITE_NOT_SENT = 'The invite could not be sent';
 function inviteFailure(err: unknown): string {
   const status = (err as { status?: unknown } | null)?.status;
   return typeof status === 'number' ? INVITE_REFUSED : INVITE_NOT_SENT;
+}
+
+/** Opens (or fills) the group's case; null on any failure, never a throw. */
+async function openCase(
+  accountId: string,
+  groupId: string,
+  input: Pick<CreateInput, 'bankCode' | 'product' | 'amount'>
+): Promise<CaseWire> {
+  try {
+    const cases = caseStore(accountId);
+    const opened = await cases.open(
+      groupId,
+      {
+        bankCode: input.bankCode,
+        bankName: input.bankCode
+          ? (BANKS.find((b) => b.code === input.bankCode)?.displayName ?? null)
+          : null,
+        product: input.product,
+        amount: input.amount,
+      },
+      null
+    );
+    const c = await cases.get(opened.caseId);
+    if (!c) return null;
+    return {
+      id: c.id,
+      created: opened.created,
+      stage: c.stage,
+      bank: c.bankCode,
+      product: c.product,
+      amount: c.amount,
+    };
+  } catch (err) {
+    // The error names only the function and SQLSTATE (CaseStoreError); no case data.
+    console.error(
+      `[api/v1/submission-groups] case open for group ${groupId}:`,
+      err instanceof Error ? err.message : 'unknown error'
+    );
+    return null;
+  }
 }
 
 export async function POST(request: Request) {
@@ -206,7 +255,15 @@ export async function POST(request: Request) {
         .catch(() => null);
       if (!pending) throw err;
       console.error('[api/v1/submission-groups] create pending:', err);
-      return respond(pending, 202, { error: PENDING_MESSAGE }, emails);
+      return respond(
+        pending,
+        202,
+        {
+          error: PENDING_MESSAGE,
+          case: await openCase(ctx.accountId, pending.id, input),
+        },
+        emails
+      );
     }
     if (result.consentRequired)
       return fail('consent_required', CONSENT_MESSAGE, 409);
@@ -245,6 +302,7 @@ export async function POST(request: Request) {
     const extras = {
       refusedParticipants: result.refusedParticipants,
       inviteSent,
+      case: await openCase(ctx.accountId, group.id, input),
     };
     if (group.waGroupId === null && group.status === 'ACTIVE')
       return respond(group, 202, { ...extras, error: PENDING_MESSAGE }, emails);

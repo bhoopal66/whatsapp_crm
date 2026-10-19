@@ -10,6 +10,9 @@ const h = vi.hoisted(() => ({
   journeyTick: vi.fn(),
   reconcile: vi.fn(),
   submissionGroups: vi.fn(),
+  caseSla: vi.fn(),
+  caseSweep: vi.fn(),
+  memoryExpire: vi.fn(),
   pbx: vi.fn(),
   chatFiles: vi.fn(),
   push: vi.fn(),
@@ -73,6 +76,17 @@ vi.mock('@/lib/deal-rooms/reconcile', () => ({
 vi.mock('@/lib/submission-groups/cron', () => ({
   runSubmissionGroupsCron: h.submissionGroups,
 }));
+vi.mock('@/lib/cases/cron', () => ({
+  evaluateCaseSla: h.caseSla,
+  sweepCaseGroupEnds: h.caseSweep,
+}));
+vi.mock('@/lib/cases/server', () => ({
+  caseSlaStore: () => 'sla-store',
+  caseStore: (accountId?: string) => `case-store:${accountId ?? 'all'}`,
+}));
+vi.mock('@/lib/memory/server', () => ({
+  memoryStore: () => ({ expireDue: h.memoryExpire }),
+}));
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
 vi.mock('@/lib/chat/file-cleanup', () => ({ runChatFileSweep: h.chatFiles }));
 vi.mock('@/lib/push/dispatch', () => ({ dispatchPush: h.push }));
@@ -116,6 +130,11 @@ beforeEach(() => {
   });
   h.recurring.mockReset().mockResolvedValue(0);
   h.submissionGroups.mockReset().mockResolvedValue({ errors: [] });
+  h.caseSla.mockReset().mockResolvedValue([]);
+  h.caseSweep
+    .mockReset()
+    .mockResolvedValue({ attempted: 0, results: [], stopped: false });
+  h.memoryExpire.mockReset().mockResolvedValue(0);
   h.chatFiles
     .mockReset()
     .mockResolvedValue({ found: 0, deleted: 0, failed: [] });
@@ -431,6 +450,89 @@ describe('GET /api/automations/cron — submission groups', () => {
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] submission groups failed:',
       'boom'
+    );
+    log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — cases and memory', () => {
+  it('runs the case SLA job and the group-end sweeper after the response, at most every 5 minutes', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.caseSla).not.toHaveBeenCalled();
+    expect(h.caseSweep).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.caseSla).toHaveBeenCalledWith({ store: 'sla-store' });
+    expect(h.caseSweep).toHaveBeenCalledTimes(1);
+    const sweep = h.caseSweep.mock.calls[0][0];
+    expect(sweep).toMatchObject({
+      store: 'case-store:all',
+      deadlineMs: 20_000,
+    });
+    expect(sweep.storeFor('acct-1')).toBe('case-store:acct-1');
+
+    vi.setSystemTime(new Date('2026-10-19T09:04:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.caseSla).toHaveBeenCalledTimes(1);
+    expect(h.caseSweep).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-19T09:05:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.caseSla).toHaveBeenCalledTimes(2);
+    expect(h.caseSweep).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failing case job is only logged and spares the others', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.caseSla.mockRejectedValueOnce(new Error('sla boom'));
+    h.caseSweep.mockRejectedValueOnce(new Error('sweep boom'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] case SLA failed:',
+      'sla boom'
+    );
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] case group ends failed:',
+      'sweep boom'
+    );
+    expect(h.memoryExpire).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('expires memory once a day per process, and survives a throw', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    await runAfter();
+    expect(h.memoryExpire).toHaveBeenCalledWith(null);
+
+    vi.setSystemTime(new Date('2026-10-20T08:59:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.memoryExpire).toHaveBeenCalledTimes(1);
+
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.memoryExpire.mockRejectedValueOnce(new Error('mem boom'));
+    vi.setSystemTime(new Date('2026-10-20T09:00:00Z'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.memoryExpire).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] memory expiry failed:',
+      'mem boom'
     );
     log.mockRestore();
   });

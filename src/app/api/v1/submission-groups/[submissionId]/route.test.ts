@@ -5,7 +5,9 @@ const m = vi.hoisted(() => ({
   rpc: vi.fn(),
   store: { findByRef: vi.fn(), listAccess: vi.fn(), get: vi.fn() },
   service: { endIfDue: vi.fn() },
+  cases: { idForGroup: vi.fn(), applySubmissionStatus: vi.fn(), get: vi.fn() },
 }));
+vi.mock('@/lib/cases/server', () => ({ caseStore: () => m.cases }));
 
 vi.mock('@/lib/auth/api-context', () => ({
   requireApiKey: vi.fn(async () => ({
@@ -63,6 +65,53 @@ beforeEach(() => {
     ended: false,
     closed: false,
     closeDeferred: false,
+  });
+  m.cases.idForGroup.mockResolvedValue('case-1');
+  m.cases.applySubmissionStatus.mockResolvedValue(true);
+  m.cases.get.mockResolvedValue({
+    id: 'case-1',
+    stage: 'Approved',
+    outcome: 'Approved',
+  });
+});
+
+describe('PATCH moves the case', () => {
+  it('applies the status to the group case and returns it', async () => {
+    const res = await patch({ status: 'APPROVED' });
+    expect(res.status).toBe(200);
+    expect(m.cases.idForGroup).toHaveBeenCalledWith('g1');
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledWith(
+      'g1',
+      'APPROVED'
+    );
+    expect((await res.json()).data.case).toEqual({
+      id: 'case-1',
+      stage: 'Approved',
+      outcome: 'Approved',
+    });
+  });
+
+  it('answers 200 with case null when the case step fails', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.applySubmissionStatus.mockRejectedValue(new Error('db down'));
+    const res = await patch({ status: 'APPROVED' });
+    err.mockRestore();
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.case).toBeNull();
+  });
+
+  it('answers case null for a group without a case, applying nothing', async () => {
+    m.cases.idForGroup.mockResolvedValue(null);
+    const res = await patch({ status: 'APPROVED' });
+    expect((await res.json()).data.case).toBeNull();
+    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+  });
+
+  it('on an ENDED group reports the case without moving it', async () => {
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    const res = await patch({ status: 'APPROVED' });
+    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+    expect((await res.json()).data.case).toMatchObject({ id: 'case-1' });
   });
 });
 

@@ -20,11 +20,15 @@ export const SUBMISSION_ID_MAX = 128;
 export const CUSTOMER_NAME_MAX = 200;
 export const SUBJECT_MAX = 100;
 export const SUBMISSION_STATUS_MAX = 64;
+export const PRODUCT_MAX = 200;
 const EMAIL_MAX = 254;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+$/;
+const BANK_CODE_RE = /^[A-Z0-9_]{2,32}$/;
+// numeric(18, 2): at most 16 integer digits and 2 decimals.
+const AMOUNT_RE = /^(\d{1,16})(?:\.(\d{1,2}))?$/;
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -45,6 +49,10 @@ export interface CreateInput {
   coordinatorPhone: string | null;
   subject: string;
   channelId: string | null;
+  /** The case's bank code (upper-cased), product and AED amount (decimal string). */
+  bankCode: string | null;
+  product: string | null;
+  amount: string | null;
 }
 
 const STAFF_FIELDS: readonly [StaffField, StaffLabel][] = [
@@ -76,6 +84,23 @@ function parseEmail(v: unknown, field: string): Parsed<string> {
   if (!email || email.length > EMAIL_MAX || !EMAIL_RE.test(email))
     return bad(`'${field}' must be an email address`);
   return { ok: true, value: email };
+}
+
+/** A non-negative amount below 10^16 with at most 2 decimals → its decimal string. */
+function parseAmount(v: unknown): Parsed<string> {
+  const text =
+    typeof v === 'number' && Number.isFinite(v)
+      ? String(v)
+      : typeof v === 'string'
+        ? v.trim()
+        : '';
+  const m = AMOUNT_RE.exec(text);
+  if (!m)
+    return bad(
+      "'amount' must be a non-negative number below 10^16 with at most 2 decimals"
+    );
+  const whole = m[1].replace(/^0+(?=\d)/, '');
+  return { ok: true, value: m[2] ? `${whole}.${m[2]}` : whole };
 }
 
 /** POST body → CreateInput, or a 400 message naming the field. */
@@ -143,6 +168,30 @@ export function parseCreateInput(body: unknown): Parsed<CreateInput> {
     channelId = body.channel_id.toLowerCase();
   }
 
+  let bankCode: string | null = null;
+  if (!absent(body.bank)) {
+    const code =
+      typeof body.bank === 'string' ? body.bank.trim().toUpperCase() : '';
+    if (!BANK_CODE_RE.test(code))
+      return bad("'bank' must be a bank code of 2 to 32 letters, digits or _");
+    bankCode = code;
+  }
+
+  let product: string | null = null;
+  if (!absent(body.product)) {
+    const given = typeof body.product === 'string' ? body.product.trim() : '';
+    if (!given || given.length > PRODUCT_MAX)
+      return bad(`'product' must be 1 to ${PRODUCT_MAX} characters`);
+    product = given;
+  }
+
+  let amount: string | null = null;
+  if (!absent(body.amount)) {
+    const parsedAmount = parseAmount(body.amount);
+    if (!parsedAmount.ok) return parsedAmount;
+    amount = parsedAmount.value;
+  }
+
   return {
     ok: true,
     value: {
@@ -153,6 +202,9 @@ export function parseCreateInput(body: unknown): Parsed<CreateInput> {
       coordinatorPhone,
       subject,
       channelId,
+      bankCode,
+      product,
+      amount,
     },
   };
 }
@@ -294,10 +346,15 @@ export interface AccessEntry {
   email?: string;
 }
 
+/** The group's case (module 018c) as the v1 API shows it; null when it could not be read. */
+export type CaseWire = Record<string, unknown> | null;
+
 export interface WireExtras {
   refusedParticipants?: readonly string[];
   inviteSent?: boolean;
   error?: string;
+  /** Absent: no `case` key (GET); null: the case step failed. */
+  case?: CaseWire;
 }
 
 /** The v1 wire shape of a group. */
@@ -331,5 +388,6 @@ export function serializeGroup(
     })),
     created_at: group.createdAt.toISOString(),
     ended_at: group.endedAt ? group.endedAt.toISOString() : null,
+    ...(extras.case !== undefined ? { case: extras.case } : {}),
   };
 }

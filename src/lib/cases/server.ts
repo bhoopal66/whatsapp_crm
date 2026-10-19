@@ -7,6 +7,9 @@ import {
   submissionGroupService,
   supabaseAdmin,
 } from '@/lib/submission-groups/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { CaseSlaHook } from '@/lib/submission-groups/inbound';
+import { CaseSlaStore } from './sla';
 import { CaseStore } from './store';
 
 /**
@@ -19,4 +22,19 @@ export function caseStore(accountId?: string): CaseStore {
     admin,
     accountId ? { ender: submissionGroupService(accountId, admin) } : {}
   );
+}
+
+/** The SLA store on the service role (the SLA job and the inbound hook). */
+export function caseSlaStore(): CaseSlaStore {
+  return new CaseSlaStore(supabaseAdmin());
+}
+
+/** The submission-group inbound path's customer_message hook, on the webhook's service-role client. */
+export function caseSlaInboundHook(admin: SupabaseClient): CaseSlaHook {
+  const cases = new CaseStore(admin);
+  const sla = new CaseSlaStore(admin);
+  return {
+    caseIdForGroup: (groupId) => cases.idForGroup(groupId),
+    customerMessage: (caseId) => sla.customerMessageSystem(caseId),
+  };
 }

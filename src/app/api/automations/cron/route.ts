@@ -11,6 +11,9 @@ import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
+import { evaluateCaseSla, sweepCaseGroupEnds } from '@/lib/cases/cron'
+import { caseSlaStore, caseStore } from '@/lib/cases/server'
+import { memoryStore } from '@/lib/memory/server'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { dispatchPush } from '@/lib/push/dispatch'
@@ -242,6 +245,98 @@ function scheduleSubmissionGroups() {
 }
 
 /**
+ * Cases (module 018c, migrations 122-124): the SLA job (case_sla_evaluate
+ * over every running timer) and the group-end sweeper (final-stage cases
+ * whose submission-group end never completed, each ended through its own
+ * account's service), each at most every 5 minutes per process, inside
+ * after(). The sweeper starts no case after 20 s. A failure is only logged.
+ */
+const caseSlaDue = everyInterval(5 * 60_000)
+const caseGroupEndDue = everyInterval(5 * 60_000)
+const CASE_GROUP_END_DEADLINE_MS = 20_000
+
+function scheduleCaseSla() {
+  try {
+    if (!caseSlaDue()) return
+    after(async () => {
+      try {
+        await evaluateCaseSla({ store: caseSlaStore() })
+      } catch (err) {
+        console.error(
+          '[automations-cron] case SLA failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the case SLA job:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+function scheduleCaseGroupEnds() {
+  try {
+    if (!caseGroupEndDue()) return
+    after(async () => {
+      try {
+        const r = await sweepCaseGroupEnds({
+          store: caseStore(),
+          storeFor: caseStore,
+          deadlineMs: CASE_GROUP_END_DEADLINE_MS,
+        })
+        const errors = r.results.filter((x) => x.reason === 'ERROR')
+        if (errors.length > 0) {
+          console.error(
+            '[automations-cron] case group ends:',
+            errors.map((x) => x.caseId),
+          )
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] case group ends failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the case group ends:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * CRM memory (module 019b, migration 129): memories past their expiry
+ * are removed (memory_expire_due, every account) once a day per process,
+ * inside after(). A failure is only logged.
+ */
+const memoryExpiryDue = everyInterval(24 * 60 * 60_000)
+
+function scheduleMemoryExpiry() {
+  try {
+    if (!memoryExpiryDue()) return
+    after(async () => {
+      try {
+        await memoryStore().expireDue(null)
+      } catch (err) {
+        console.error(
+          '[automations-cron] memory expiry failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the memory expiry:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * The phone system's work (recordings, call-backs, event retries,
  * purge; GET /api/pbx/cron) rides along at most once a minute per
  * process, inside after(). It stops starting work after 45 s, and a
@@ -429,6 +524,9 @@ export async function GET(request: Request) {
     scheduleJourneyTick()
     scheduleDealRoomReconcile()
     scheduleSubmissionGroups()
+    scheduleCaseSla()
+    scheduleCaseGroupEnds()
+    scheduleMemoryExpiry()
     schedulePbxCron()
     schedulePushDispatch()
     scheduleCalendarReminders()

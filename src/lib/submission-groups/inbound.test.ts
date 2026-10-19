@@ -221,4 +221,66 @@ describe('recordSubmissionGroupInbound', () => {
     expect(store.findByWaGroupId).toHaveBeenCalledTimes(1);
     expect(store.contactConsent).toHaveBeenCalledTimes(1);
   });
+
+  describe('case SLA hook', () => {
+    const hook = (caseId: string | null = 'case-1') => ({
+      caseIdForGroup: vi.fn(async () => caseId),
+      customerMessage: vi.fn(async () => 'on_track'),
+    });
+
+    it("a new customer message is the case's customer_message", async () => {
+      const caseSla = hook();
+      await recordSubmissionGroupInbound(fakeStore(), channel, [msg()], {
+        caseSla,
+      });
+      expect(caseSla.caseIdForGroup).toHaveBeenCalledWith('sg-1');
+      expect(caseSla.customerMessage).toHaveBeenCalledWith('case-1');
+    });
+
+    it('a staff echo, a duplicate, a coordinator or another sender fires nothing', async () => {
+      const caseSla = hook();
+      await recordSubmissionGroupInbound(fakeStore(), channel, [echo()], {
+        caseSla,
+        now: () => NOW,
+      });
+      await recordSubmissionGroupInbound(
+        fakeStore({ recordInbound: vi.fn(async () => false) }),
+        channel,
+        [msg()],
+        { caseSla }
+      );
+      await recordSubmissionGroupInbound(
+        fakeStore(),
+        channel,
+        [
+          msg({ id: 'b', senderWaId: '971550000002' }),
+          msg({ id: 'c', senderWaId: '971509999999' }),
+        ],
+        { caseSla }
+      );
+      expect(caseSla.customerMessage).not.toHaveBeenCalled();
+    });
+
+    it('a group without a case fires nothing', async () => {
+      const caseSla = hook(null);
+      await recordSubmissionGroupInbound(fakeStore(), channel, [msg()], {
+        caseSla,
+      });
+      expect(caseSla.customerMessage).not.toHaveBeenCalled();
+    });
+
+    it('a failing SLA event is logged, never counted against the delivery', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const caseSla = hook();
+      caseSla.customerMessage.mockRejectedValue(new Error('db down'));
+      const out = await recordSubmissionGroupInbound(
+        fakeStore(),
+        channel,
+        [msg()],
+        { caseSla }
+      );
+      err.mockRestore();
+      expect(out).toMatchObject({ recorded: 1, failed: 0 });
+    });
+  });
 });

@@ -37,6 +37,17 @@ export type InboundStore = Pick<
   | 'settleSend'
 >;
 
+/**
+ * The case SLA hook (module 018c): a NEW message from the customer is the
+ * case's `customer_message` event. Best effort: a failure is logged, never
+ * counted against the delivery (the message is stored; a redelivery would
+ * be a duplicate and fire nothing).
+ */
+export interface CaseSlaHook {
+  caseIdForGroup(groupId: string): Promise<string | null>;
+  customerMessage(caseId: string): Promise<unknown>;
+}
+
 /** How far back an echo may reconcile a pending send (the cron sweeps at 10 minutes). */
 export const ECHO_RECONCILE_WINDOW_MS = 15 * 60_000;
 
@@ -80,7 +91,7 @@ export async function recordSubmissionGroupInbound(
   store: InboundStore,
   channel: Pick<GroupChannel, 'id' | 'accountId'>,
   messages: readonly GroupInboundMessage[],
-  opts: { now?: () => Date } = {}
+  opts: { now?: () => Date; caseSla?: CaseSlaHook } = {}
 ): Promise<InboundOutcome> {
   const out: InboundOutcome = {
     recorded: 0,
@@ -90,6 +101,7 @@ export async function recordSubmissionGroupInbound(
   };
   const groups = new Map<string, Promise<SubmissionGroup | null>>();
   const phones = new Map<string, Promise<string | null>>();
+  const caseIds = new Map<string, Promise<string | null>>();
   for (const m of messages) {
     // A media or empty echo cannot be matched to a send: ignored.
     if (m.fromMe && (m.type !== 'text' || !m.body)) continue;
@@ -116,15 +128,16 @@ export async function recordSubmissionGroupInbound(
         phone = store.contactConsent(contactId).then((c) => c.phone);
         phones.set(contactId, phone);
       }
+      const senderKind = senderKindOf(
+        m.senderWaId,
+        (await phone) ?? null,
+        group.coordinatorPhone
+      );
       const recorded = await store.recordInbound({
         groupId: group.id,
         waMessageId: m.id,
         senderWaId: m.senderWaId,
-        senderKind: senderKindOf(
-          m.senderWaId,
-          (await phone) ?? null,
-          group.coordinatorPhone
-        ),
+        senderKind,
         type: m.type,
         body: m.body,
         media: m.media,
@@ -132,6 +145,8 @@ export async function recordSubmissionGroupInbound(
       });
       if (recorded) out.recorded++;
       else out.duplicates++;
+      if (recorded && senderKind === 'customer' && opts.caseSla)
+        await customerMessageSla(opts.caseSla, caseIds, group.id, m.id);
     } catch (error) {
       out.failed++;
       console.error(
@@ -141,6 +156,29 @@ export async function recordSubmissionGroupInbound(
     }
   }
   return out;
+}
+
+/** The customer_message SLA event on the group's case, if any; never throws. */
+async function customerMessageSla(
+  hook: CaseSlaHook,
+  caseIds: Map<string, Promise<string | null>>,
+  groupId: string,
+  messageId: string
+): Promise<void> {
+  try {
+    let lookup = caseIds.get(groupId);
+    if (!lookup) {
+      lookup = hook.caseIdForGroup(groupId);
+      caseIds.set(groupId, lookup);
+    }
+    const caseId = await lookup;
+    if (caseId) await hook.customerMessage(caseId);
+  } catch (error) {
+    console.error(
+      `[submission-groups] case SLA for inbound ${messageId} of group ${groupId} failed:`,
+      error instanceof Error ? error.message : 'unknown error'
+    );
+  }
 }
 
 /**

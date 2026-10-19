@@ -15,6 +15,8 @@ const m = vi.hoisted(() => ({
   findOrCreateContact: vi.fn(),
   loadChannels: vi.fn(),
   sendInviteLink: vi.fn(),
+  cases: { open: vi.fn(), get: vi.fn() },
+  caseStore: vi.fn(),
 }));
 
 const db = {
@@ -50,6 +52,7 @@ vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
   loadChannels: m.loadChannels,
 }));
 vi.mock('@/lib/whatsapp/groups', () => ({ sendInviteLink: m.sendInviteLink }));
+vi.mock('@/lib/cases/server', () => ({ caseStore: m.caseStore }));
 
 import { POST } from './route';
 
@@ -137,6 +140,15 @@ beforeEach(() => {
   m.sendInviteLink.mockResolvedValue({});
   m.store.noteInvite.mockResolvedValue(true);
   m.store.get.mockResolvedValue(null);
+  m.caseStore.mockReturnValue(m.cases);
+  m.cases.open.mockResolvedValue({ caseId: 'case-1', created: true });
+  m.cases.get.mockResolvedValue({
+    id: 'case-1',
+    stage: 'Submitted',
+    bankCode: 'MASHREQ',
+    product: 'Personal loan',
+    amount: '1500.50',
+  });
 });
 
 describe('POST /api/v1/submission-groups', () => {
@@ -180,6 +192,65 @@ describe('POST /api/v1/submission-groups', () => {
     expect(m.sendInviteLink).not.toHaveBeenCalled();
     expect(m.store.noteInvite).not.toHaveBeenCalled();
     expect(data.whatsapp.invite_sent_at).toBeNull();
+  });
+
+  it('opens the case with the parsed details and returns it', async () => {
+    const res = await post({
+      ...body,
+      bank: 'mashreq',
+      product: 'Personal loan',
+      amount: '1500.5',
+    });
+    expect(res.status).toBe(201);
+    expect(m.caseStore).toHaveBeenCalledWith('acct-1');
+    expect(m.cases.open).toHaveBeenCalledWith(
+      'g1',
+      {
+        bankCode: 'MASHREQ',
+        bankName: 'Mashreq',
+        product: 'Personal loan',
+        amount: '1500.5',
+      },
+      null
+    );
+    expect(m.cases.get).toHaveBeenCalledWith('case-1');
+    expect((await res.json()).data.case).toEqual({
+      id: 'case-1',
+      created: true,
+      stage: 'Submitted',
+      bank: 'MASHREQ',
+      product: 'Personal loan',
+      amount: '1500.50',
+    });
+  });
+
+  it('passes no bank name for an unknown bank code, and nulls for absent details', async () => {
+    await post({ ...body, bank: 'NEWBANK' });
+    expect(m.cases.open).toHaveBeenCalledWith(
+      'g1',
+      { bankCode: 'NEWBANK', bankName: null, product: null, amount: null },
+      null
+    );
+  });
+
+  it('still answers 201 with case null when the case cannot be opened', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.open.mockRejectedValue(new Error('cases: case_open failed'));
+    const res = await post({ ...body, product: 'Secret product' });
+    expect(res.status).toBe(201);
+    const { data } = await res.json();
+    expect(data.case).toBeNull();
+    expect(data.id).toBe('g1');
+    expect(JSON.stringify(err.mock.calls)).not.toContain('Secret product');
+    err.mockRestore();
+  });
+
+  it('a 400 for a malformed case field names it and opens nothing', async () => {
+    const res = await post({ ...body, amount: -1 });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toContain("'amount'");
+    expect(m.service.openForSubmission).not.toHaveBeenCalled();
+    expect(m.cases.open).not.toHaveBeenCalled();
   });
 
   it('refuses a bad body with 400 and opens nothing', async () => {
@@ -276,6 +347,29 @@ describe('POST /api/v1/submission-groups', () => {
     expect(m.service.openForSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ submissionRef: 'SUB-1', channelId: 'w1' })
     );
+  });
+
+  it('a repeat call (200) fills the case through open() and returns it', async () => {
+    m.store.findByRef.mockResolvedValue(group());
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: false,
+      group: group(),
+      inviteLink: group().inviteLink,
+      refusedParticipants: [],
+    });
+    m.cases.open.mockResolvedValue({ caseId: 'case-1', created: false });
+    const res = await post({ ...body, amount: 1500.5 });
+    expect(res.status).toBe(200);
+    expect(m.cases.open).toHaveBeenCalledWith(
+      'g1',
+      expect.objectContaining({ amount: '1500.5' }),
+      null
+    );
+    expect((await res.json()).data.case).toMatchObject({
+      id: 'case-1',
+      created: false,
+    });
   });
 
   it('sends the invite link to a customer WhatsApp refused', async () => {
@@ -382,6 +476,8 @@ describe('POST /api/v1/submission-groups', () => {
       group_id: null,
       error: expect.any(String),
     });
+    expect(m.cases.open).toHaveBeenCalledWith('g1', expect.any(Object), null);
+    expect(JSON.parse(text).data.case).toMatchObject({ id: 'case-1' });
   });
 
   it('answers a generic 500 when no row was written', async () => {

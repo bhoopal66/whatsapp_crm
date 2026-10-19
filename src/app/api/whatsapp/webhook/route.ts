@@ -30,6 +30,7 @@ import {
   type WhapiGroupEvent,
 } from '@/lib/whatsapp/whapi-group-events'
 import { recordSubmissionGroupInbound } from '@/lib/submission-groups/inbound'
+import { caseSlaInboundHook } from '@/lib/cases/server'
 import { SubmissionGroupStore } from '@/lib/submission-groups/store'
 import {
   clientIp,
@@ -506,6 +507,7 @@ async function processWhapiGroups(
       new SubmissionGroupStore(admin),
       channel,
       messages,
+      { caseSla: caseSlaInboundHook(admin) },
     )
     if (sg.failed > 0) ok = false
   } catch (error) {
