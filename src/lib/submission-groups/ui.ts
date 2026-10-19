@@ -79,6 +79,8 @@ export interface SgDetail {
   archive_available: boolean;
   can_send: boolean;
   can_manage: boolean;
+  /** The group's case, or null when none was opened yet. */
+  caseId: string | null;
 }
 
 export interface SgListPage {

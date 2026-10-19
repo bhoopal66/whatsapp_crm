@@ -8,11 +8,13 @@ import {
   useState,
 } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  Briefcase,
   Eye,
   FolderKanban,
   Loader2,
@@ -64,6 +66,8 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
   const [acting, setActing] = useState(false);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [openingCase, setOpeningCase] = useState(false);
+  const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const mounted = useRef(true);
@@ -180,6 +184,30 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
     } finally {
       setSending(false);
       void reload();
+    }
+  };
+
+  // A group made before cases existed: owner / admin opens its case.
+  const openCase = async () => {
+    setOpeningCase(true);
+    try {
+      const res = await fetch('/api/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: groupId }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        caseId?: unknown;
+      } | null;
+      if (!res.ok || typeof json?.caseId !== 'string') {
+        toast.error(t('openNewCaseFailed'));
+        return;
+      }
+      router.push(`/cases/${json.caseId}`);
+    } catch {
+      toast.error(t('openNewCaseFailed'));
+    } finally {
+      if (mounted.current) setOpeningCase(false);
     }
   };
 
@@ -355,9 +383,32 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
             </p>
           )}
         </div>
-        {detail.can_manage && (
+        {(detail.caseId || detail.can_manage) && (
           <div className="flex shrink-0 flex-wrap justify-end gap-1">
-            {canRetryCreate(group) && (
+            {detail.caseId ? (
+              <Link
+                href={`/cases/${detail.caseId}`}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                <Briefcase className="size-4" aria-hidden />
+                {t('openCase')}
+              </Link>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={openingCase}
+                onClick={() => void openCase()}
+              >
+                {openingCase ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Briefcase className="size-4" aria-hidden />
+                )}
+                {t('openNewCase')}
+              </Button>
+            )}
+            {detail.can_manage && canRetryCreate(group) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -368,7 +419,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
                 {t('retryCreate')}
               </Button>
             )}
-            {!ended && (
+            {detail.can_manage && !ended && (
               <Button
                 variant="destructive"
                 size="sm"

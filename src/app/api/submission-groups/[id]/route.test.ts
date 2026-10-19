@@ -146,6 +146,16 @@ beforeEach(() => {
   as('agent');
 });
 
+const CASE = '33333333-3333-4333-8333-333333333333';
+const caseRow = (over: Record<string, unknown> = {}) => ({
+  id: CASE,
+  account_id: 'acct-1',
+  group_id: G,
+  ...over,
+});
+const caseLookups = () =>
+  (admin.log ?? []).filter(([t]) => t === 'cases').length;
+
 const endIt = () => {
   const ended = {
     status: 'ENDED',
@@ -273,6 +283,47 @@ describe('GET /api/submission-groups/[id]', () => {
     endIt();
     readable = false;
     expect((await get()).status).toBe(404);
+  });
+
+  it("answers the group's case id, looked up in the caller's account", async () => {
+    admin.tables.cases = [caseRow()];
+    expect(await (await get()).json()).toMatchObject({ caseId: CASE });
+    expect(admin.log).toEqual(
+      expect.arrayContaining([
+        ['cases', `group_id=${G}`],
+        ['cases', 'account_id=acct-1'],
+      ])
+    );
+  });
+
+  it('answers caseId null when the group has no case in this account', async () => {
+    admin.tables.cases = [
+      caseRow({ account_id: 'acct-2' }),
+      caseRow({ id: 'other', group_id: 'g-other' }),
+    ];
+    expect(await (await get()).json()).toMatchObject({ caseId: null });
+    admin.tables.cases = [];
+    expect(await (await get()).json()).toMatchObject({ caseId: null });
+  });
+
+  it('answers caseId for an ENDED group sg_can_read allows', async () => {
+    endIt();
+    readable = true;
+    admin.tables.cases = [caseRow()];
+    expect(await (await get()).json()).toMatchObject({ caseId: CASE });
+  });
+
+  it('does not look the case up when the access checks refuse', async () => {
+    admin.tables.cases = [caseRow()];
+    as('agent', 'u-other');
+    rls.tables = {};
+    expect((await get()).status).toBe(404);
+    endIt();
+    readable = false;
+    expect((await get()).status).toBe(404);
+    admin.tables.submission_groups = [groupRow({ account_id: 'acct-2' })];
+    expect((await get()).status).toBe(404);
+    expect(caseLookups()).toBe(0);
   });
 
   it('answers a group whose number and contact were deleted', async () => {

@@ -8,6 +8,10 @@
 // service role answers it, pinned to the caller's account and only when
 // `sg_can_read` allows; never its messages (the archive is POST
 // /archive, which audits every view), and the list as it stood at the end.
+//
+// `caseId` is the group's case (019a), or null when none was opened yet:
+// looked up on the service role only once the checks above let the
+// caller in, pinned to their account.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -78,12 +82,13 @@ export async function GET(_request: Request, { params }: Params) {
         .reverse();
     }
 
-    const [refs, names] = await Promise.all([
+    const [refs, names, caseId] = await Promise.all([
       loadRefs(admin, ctx.accountId, [group]),
       loadNames(admin, ctx.accountId, [
         ...access.map((a) => a.userId),
         ...messages.map((m) => m.senderUserId),
       ]),
+      loadCaseId(admin, ctx.accountId, group.id),
     ]);
     const myLabel = access.find((a) => a.userId === ctx.userId)?.label ?? null;
     const active = group.status === 'ACTIVE';
@@ -94,10 +99,28 @@ export async function GET(_request: Request, { params }: Params) {
       archive_available: !active,
       can_send: active && myLabel !== null,
       can_manage: canManageSubmissionGroups(ctx.role),
+      caseId,
     });
   } catch (err) {
     if (err instanceof SgHttpError)
       return NextResponse.json(err.body, { status: err.status });
     return toErrorResponse(err);
   }
+}
+
+/** The group's case id in this account, or null when it has none. */
+async function loadCaseId(
+  admin: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  groupId: string
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from('cases')
+    .select('id')
+    .eq('group_id', groupId)
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) throw new Error(`cases: ${error.message}`);
+  const id = (data as { id?: unknown } | null)?.id;
+  return typeof id === 'string' ? id : null;
 }

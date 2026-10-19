@@ -6256,6 +6256,9 @@
       },
       "retryCreate": "Retry create",
       "endGroup": "End group",
+      "openCase": "Open case",
+      "openNewCase": "Open a case",
+      "openNewCaseFailed": "Couldn't open a case. Try again.",
       "banners": {
         "pending": "The WhatsApp group is being created. You can send once it is ready.",
         "createError": "The WhatsApp group could not be created.",

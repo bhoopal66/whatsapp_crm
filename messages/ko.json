@@ -6256,6 +6256,9 @@
       },
       "retryCreate": "다시 생성",
       "endGroup": "그룹 종료",
+      "openCase": "케이스 열기",
+      "openNewCase": "케이스 만들기",
+      "openNewCaseFailed": "케이스를 만들지 못했습니다. 다시 시도하세요.",
       "banners": {
         "pending": "WhatsApp 그룹을 만드는 중입니다. 준비되면 메시지를 보낼 수 있습니다.",
         "createError": "WhatsApp 그룹을 만들지 못했습니다.",
