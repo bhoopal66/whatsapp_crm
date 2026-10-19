@@ -86,9 +86,17 @@ export function MemoryPanel({
     (async () => {
       setState('loading');
       try {
-        const res = await fetch(memoryListUrl(apiBase, { q, limit: PAGE }), {
-          cache: 'no-store',
-        });
+        // The search text goes in the body, never the URL (access logs).
+        const res = q
+          ? await fetch(`${apiBase}/search`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ q, limit: PAGE }),
+              cache: 'no-store',
+            })
+          : await fetch(memoryListUrl(apiBase, { limit: PAGE }), {
+              cache: 'no-store',
+            });
         const json: unknown = res.ok
           ? await res.json().catch(() => null)
           : null;

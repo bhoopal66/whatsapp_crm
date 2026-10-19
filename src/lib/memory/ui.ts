@@ -58,7 +58,7 @@ const isoOrNull = (v: unknown): string | null => {
 };
 
 /**
- * `{ items }` from GET …/memory, with or without q. Search results carry
+ * `{ items }` from GET …/memory or POST …/memory/search. Search results carry
  * `rank` and leave some list fields out, so every field but id and
  * content is optional; an entry without those two is dropped.
  */
@@ -176,15 +176,16 @@ export function canRevealFrom(json: unknown): boolean {
   return o?.configured === true && str(obj(o.overview)?.myRole) !== null;
 }
 
-/** The list / search URL for one page. */
+/**
+ * The list URL for one page. Search is POST `${apiBase}/search` with the
+ * text in the body: the URL never carries it.
+ */
 export function memoryListUrl(
   apiBase: string,
-  opts: { q?: string; before?: string | null; limit: number }
+  opts: { before?: string | null; limit: number }
 ): string {
   const p = new URLSearchParams();
-  const q = opts.q?.trim();
-  if (q) p.set('q', q);
-  else if (opts.before) p.set('before', opts.before);
+  if (opts.before) p.set('before', opts.before);
   p.set('limit', String(opts.limit));
   return `${apiBase}?${p.toString()}`;
 }

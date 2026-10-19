@@ -13,14 +13,19 @@ screens reads it today.
 ## Where staff see it
 
 - the **Memory** panel on the customer page (`/contacts/[id]`):
-  `GET` / `POST /api/contacts/[id]/memory`, and
+  `GET` / `POST /api/contacts/[id]/memory`,
+  `POST /api/contacts/[id]/memory/search`, and
   `POST /api/contacts/[id]/memory/forget`;
 - the **Memory** panel on the case page (`/cases/[id]`):
-  `GET` / `POST /api/cases/[id]/memory`, and
+  `GET` / `POST /api/cases/[id]/memory`,
+  `POST /api/cases/[id]/memory/search`, and
   `POST /api/cases/[id]/memory/forget`.
 
 A panel lists the scope's notes newest first (50 at a time, up to 200) or
-searches them (`?q=`, up to 100 results). Workspace notes have no screen
+searches them (`POST …/memory/search` with `{ q, limit? }`, up to 100
+results). The search text travels in the body, never the URL, so a number
+typed into search stays out of proxy and access logs; a `GET` that still
+sends `?q=` is refused (400). Workspace notes have no screen
 yet; the access rule below already covers them.
 
 ## Who reads and who writes
@@ -181,8 +186,6 @@ the database leaking, not the server.
 
 ## Known limits
 
-- Memory search sends the search text in the URL (`GET ?q=`), so a number
-  typed into search can land in proxy logs.
 - Bootstrap is done by a live owner from Settings -> Vault rather than by
   a deploy script.
 - Key rotation has no screen; it is an operator task.

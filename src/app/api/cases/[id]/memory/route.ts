@@ -1,11 +1,11 @@
 // ============================================================
 // /api/cases/[id]/memory — the case's CRM memory (019b).
 //
-// GET `?q=&before=&limit=`: without q the scope's live items, newest
-// first, keyset-paged by `before` (ISO time; memory_list, limit 1–200,
-// default 50); with q a search of this case's scope (memory_recall_
-// candidates, limit 1–100, default 20). The memory_* functions decide
-// who reads. Answers `{ items }` (recall items without their embedding).
+// GET `?before=&limit=`: the scope's live items, newest first,
+// keyset-paged by `before` (ISO time; memory_list, limit 1–200, default
+// 50). The memory_* functions decide who reads. Answers `{ items }`.
+// Search is POST …/memory/search, so the text stays out of the URL and
+// out of access logs: a GET that still sends `q` is 400.
 //
 // POST `{ content, kind?, importance?, supersedes? }`: a case writer who
 // is not a workspace viewer adds a verified staff memory (tokenised into
@@ -34,8 +34,6 @@ import type { MemoryKind, MemoryScope } from '@/lib/memory/store';
 type Params = { params: Promise<{ id: string }> };
 
 const LIST_MAX = 200;
-const RECALL_MAX = 100;
-const RECALL_DEFAULT = 20;
 const KINDS: readonly MemoryKind[] = [
   'fact',
   'preference',
@@ -52,31 +50,16 @@ export async function GET(request: Request, { params }: Params) {
     const scope: MemoryScope = { type: 'case', id: c.id };
 
     const sp = new URL(request.url).searchParams;
-    const q = sp.get('q')?.trim() || null;
-    const max = q === null ? LIST_MAX : RECALL_MAX;
+    if (sp.has('q')) throw badRequest('Search with POST');
     const rawLimit = sp.get('limit');
     let limit: number | undefined;
     if (rawLimit !== null && rawLimit !== '') {
       limit = /^\d{1,9}$/.test(rawLimit) ? Number(rawLimit) : NaN;
-      if (!(limit >= 1 && limit <= max))
-        throw badRequest(`limit must be a whole number 1–${max}`);
+      if (!(limit >= 1 && limit <= LIST_MAX))
+        throw badRequest(`limit must be a whole number 1–${LIST_MAX}`);
     }
 
     const store = memoryStore();
-    if (q !== null) {
-      const items = await store.recall(
-        ctx.userId,
-        ctx.accountId,
-        q,
-        limit ?? RECALL_DEFAULT,
-        [scope]
-      );
-      return NextResponse.json({
-        // undefined drops the key: the vector is no use to the screen.
-        items: items.map((item) => ({ ...item, embedding: undefined })),
-      });
-    }
-
     const rawBefore = sp.get('before');
     let before: Date | null = null;
     if (rawBefore !== null && rawBefore !== '') {

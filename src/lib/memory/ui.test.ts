@@ -233,7 +233,7 @@ describe('paging', () => {
     rank: null,
   });
 
-  it('builds the list and search URLs', () => {
+  it('builds the list URL', () => {
     expect(memoryListUrl('/api/cases/c1/memory', { limit: 20 })).toBe(
       '/api/cases/c1/memory?limit=20'
     );
@@ -243,14 +243,6 @@ describe('paging', () => {
         limit: 20,
       })
     ).toBe('/api/cases/c1/memory?before=2026-10-18T10%3A00%3A00.000Z&limit=20');
-    // A search does not page: before is ignored.
-    expect(
-      memoryListUrl('/api/contacts/k/memory', {
-        q: '  deferral & rate ',
-        before: 'x',
-        limit: 20,
-      })
-    ).toBe('/api/contacts/k/memory?q=deferral+%26+rate&limit=20');
   });
 
   it('pages from the oldest item and drops repeats', () => {

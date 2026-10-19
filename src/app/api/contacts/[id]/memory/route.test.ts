@@ -110,26 +110,19 @@ describe('GET /api/contacts/[id]/memory', () => {
     });
   });
 
-  it('searches only the contact scope with q, without embeddings', async () => {
-    m.memory.recall.mockResolvedValue([
-      { id: 'mem-2', embedding: [0.1], rank: 1 },
-    ]);
-    const res = await get('?q=salary');
-    expect(await res.json()).toEqual({ items: [{ id: 'mem-2', rank: 1 }] });
-    expect(m.memory.recall).toHaveBeenCalledWith(
-      'u-me',
-      'acct-1',
-      'salary',
-      20,
-      [SCOPE]
-    );
+  it('is 400 when q is in the URL: search is a POST', async () => {
+    for (const q of ['?q=784-1990-1234567-1', '?q=', '?limit=5&q=salary']) {
+      const res = await get(q);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'Search with POST' });
+    }
+    expect(m.memory.recall).not.toHaveBeenCalled();
     expect(m.memory.list).not.toHaveBeenCalled();
   });
 
   it('is 400 for a bad limit or before', async () => {
     expect((await get('?limit=0')).status).toBe(400);
     expect((await get('?limit=201')).status).toBe(400);
-    expect((await get('?q=x&limit=101')).status).toBe(400);
     expect((await get('?before=yesterday')).status).toBe(400);
   });
 
