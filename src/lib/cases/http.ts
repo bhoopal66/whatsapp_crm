@@ -14,7 +14,12 @@ import {
   toErrorResponse,
   UnauthorizedError,
 } from '@/lib/auth/account';
-import { isUuid } from '@/lib/submission-groups/http';
+import { isUuid, sendErrorFor } from '@/lib/submission-groups/http';
+import {
+  SubmissionGroupSendBlockedError,
+  SubmissionGroupSendRefusedError,
+  SubmissionGroupSentNotRecordedError,
+} from '@/lib/submission-groups/service';
 
 import { canReadCase } from './access';
 import { CaseInboxRefusedError, type CaseInboxFilters } from './inbox';
@@ -208,4 +213,33 @@ export function parseInboxQuery(params: URLSearchParams): {
   const after = get('after');
   if (after !== undefined) out.after = after;
   return out;
+}
+
+/**
+ * What a failed case send (the conversation reply, the take-over) answers,
+ * or null for an error caseErrorResponse owns. 115's send refusals and
+ * consent blocks are 409 with a code (its wording, from sendErrorFor). A
+ * message WhatsApp accepted but whose row was not recorded is a 200
+ * `{ sent: true, recorded: false }`: the text is gone, so nobody resends it.
+ */
+export function caseSendErrorResponse(err: unknown): NextResponse | null {
+  if (err instanceof SubmissionGroupSentNotRecordedError) {
+    console.error('[cases] sent but not recorded:', err.messageId);
+    return NextResponse.json({ sent: true, recorded: false });
+  }
+  if (err instanceof SubmissionGroupSendRefusedError)
+    return NextResponse.json(
+      { error: sendErrorFor(err).message, code: err.reason },
+      { status: 409 }
+    );
+  if (err instanceof SubmissionGroupSendBlockedError)
+    return NextResponse.json(
+      {
+        error: sendErrorFor(err).message,
+        code: 'SEND_BLOCKED',
+        reason: err.reason,
+      },
+      { status: 409 }
+    );
+  return null;
 }
