@@ -45,20 +45,20 @@ key's next request. Revoked keys stay in the list as an audit trail.
 A key can do only what its scopes allow — independent of who created
 it. Grant the minimum.
 
-| Scope                | Allows                                   |
-| -------------------- | ---------------------------------------- |
-| `messages:send`      | Send WhatsApp messages                   |
-| `messages:read`      | Read messages and delivery status        |
-| `contacts:read`      | List and read contacts                   |
-| `contacts:write`     | Create and update contacts               |
-| `conversations:read` | List and read conversations              |
-| `broadcasts:send`    | Launch broadcast campaigns               |
-| `webhooks:manage`    | Register and manage outbound webhooks    |
-| `compass_contacts:read` | Read customers synced from Taamul Compass |
-| `compass_contacts:write` | Sync customers from Taamul Compass      |
-| `compass_notifications:send` | Send Compass status notifications (Whapi only) |
-| `submission_groups:read` | Read a submission's WhatsApp group |
-| `submission_groups:write` | Open a submission's WhatsApp group and report its status |
+| Scope                        | Allows                                                   |
+| ---------------------------- | -------------------------------------------------------- |
+| `messages:send`              | Send WhatsApp messages                                   |
+| `messages:read`              | Read messages and delivery status                        |
+| `contacts:read`              | List and read contacts                                   |
+| `contacts:write`             | Create and update contacts                               |
+| `conversations:read`         | List and read conversations                              |
+| `broadcasts:send`            | Launch broadcast campaigns                               |
+| `webhooks:manage`            | Register and manage outbound webhooks                    |
+| `compass_contacts:read`      | Read customers synced from Taamul Compass                |
+| `compass_contacts:write`     | Sync customers from Taamul Compass                       |
+| `compass_notifications:send` | Send Compass status notifications (Whapi only)           |
+| `submission_groups:read`     | Read a submission's WhatsApp group                       |
+| `submission_groups:write`    | Open a submission's WhatsApp group and report its status |
 
 A key with **no scopes** still authenticates and can call
 `GET /api/v1/me` — useful for verifying a key works.
@@ -78,14 +78,14 @@ Every response uses one of two shapes:
 Branch on `error.code` (stable); `error.message` is for humans and
 may be reworded.
 
-| Status | `code`         | Meaning                                          |
-| ------ | -------------- | ------------------------------------------------ |
+| Status | `code`         | Meaning                                                                             |
+| ------ | -------------- | ----------------------------------------------------------------------------------- |
 | 401    | `unauthorized` | Missing / malformed / unknown / revoked / expired key, or its workspace is archived |
-| 403    | `forbidden`    | Valid key, but missing the required scope        |
-| 429    | `rate_limited` | Per-key rate limit exceeded                      |
-| 400    | `bad_request`  | Malformed input                                  |
-| 404    | `not_found`    | No such resource                                 |
-| 500    | `internal`     | Server error                                     |
+| 403    | `forbidden`    | Valid key, but missing the required scope                                           |
+| 429    | `rate_limited` | Per-key rate limit exceeded                                                         |
+| 400    | `bad_request`  | Malformed input                                                                     |
+| 404    | `not_found`    | No such resource                                                                    |
+| 500    | `internal`     | Server error                                                                        |
 
 ## Rate limits
 
@@ -174,9 +174,9 @@ needs a `template` object:
   "template": {
     "name": "order_update",
     "language": "en_US",
-    "params": ["A123"]        // positional body vars, or a structured object
+    "params": ["A123"], // positional body vars, or a structured object
   },
-  "reply_to_message_id": "<uuid>"   // optional; must be in the same conversation
+  "reply_to_message_id": "<uuid>", // optional; must be in the same conversation
 }
 ```
 
@@ -208,11 +208,16 @@ or phone).
 {
   "data": [
     {
-      "id": "…", "phone": "+14155550123", "name": "Jane Doe",
-      "email": null, "company": "Acme", "avatar_url": null,
+      "id": "…",
+      "phone": "+14155550123",
+      "name": "Jane Doe",
+      "email": null,
+      "company": "Acme",
+      "avatar_url": null,
       "tags": [],
       "opted_out_at": null,
-      "created_at": "…", "updated_at": "…"
+      "created_at": "…",
+      "updated_at": "…"
     }
   ],
   "meta": { "next_cursor": "…" }
@@ -271,17 +276,29 @@ chat tag:
 {
   "data": [
     {
-      "id": "…", "contact_id": "…", "status": "open",
+      "id": "…",
+      "contact_id": "…",
+      "status": "open",
       "assigned_agent_id": null,
       "last_message_text": "Is the offer still on?",
-      "last_message_at": "…", "unread_count": 1,
-      "chat_tag": { "id": "…", "name": "Interested customer", "color": "#16a34a" },
+      "last_message_at": "…",
+      "unread_count": 1,
+      "chat_tag": {
+        "id": "…",
+        "name": "Interested customer",
+        "color": "#16a34a"
+      },
       "chat_sub_tag": { "id": "…", "name": "ADCB", "color": "#2563eb" },
-      "created_at": "…", "updated_at": "…",
+      "created_at": "…",
+      "updated_at": "…",
       "contact": {
-        "id": "…", "phone": "+14155550123", "name": "Jane Doe",
-        "email": null, "company": "Acme",
-        "tags": [], "opted_out_at": null
+        "id": "…",
+        "phone": "+14155550123",
+        "name": "Jane Doe",
+        "email": null,
+        "company": "Acme",
+        "tags": [],
+        "opted_out_at": null
       }
     }
   ],
@@ -455,6 +472,33 @@ automatically.
 }
 ```
 
+Optional case fields (module 018c, see [cases.md](cases.md)): `bank` (a
+bank code, upper-cased, `^[A-Z0-9_]{2,32}$`; a code the workspace does not
+know yet is added to its bank list), `product` (1 to 200 characters) and
+`amount` (AED, a number or a numeric string, non-negative, below 10^16, at
+most 2 decimals). A bad value is `400 bad_request` naming the field.
+
+Every answer that returns a group (`200`, `201`, `202`) also opens the
+group's case and carries it:
+
+```json
+{
+  "case": {
+    "id": "…",
+    "created": true,
+    "stage": "Submitted",
+    "bank": "ADCB",
+    "product": "Personal loan",
+    "amount": "150000.50"
+  }
+}
+```
+
+`created` is `false` when the case already existed; a repeat call fills only
+case fields that are still empty and never overwrites one. `amount` is a
+decimal string. `case` is `null` when the case step failed: it never fails
+the request.
+
 `refused_participants` lists numbers WhatsApp would not add;
 `invite_sent` is `true` when the customer was refused and the invite link
 was sent to them 1:1 by this call; `invite_sent_at` is when the invite
@@ -493,6 +537,12 @@ retried by the next call or the cron. On an already ENDED group nothing is
 recorded and the call reports its state with `ended: false`. `404` for an
 unknown submission.
 
+The answer also carries the group's case, `case: { "id", "stage",
+"outcome" }`, or `null` when the group has no case or the case step failed.
+A final status moves a case not yet at a final stage to **Approved**,
+**Declined**, **Withdrawn** or **Closed**; this also happens on an ENDED
+group. `GET` carries no `case`.
+
 ### Taamul Compass endpoints
 
 `/api/v1/compass/contacts` (customer sync into a dedicated
@@ -528,11 +578,11 @@ things happen in your account. **Migration required:** apply
 
 ### Events
 
-| Event                    | Fires when                                        |
-| ------------------------ | ------------------------------------------------- |
-| `message.received`       | An inbound message arrives from a contact         |
-| `message.status_updated` | A message you sent changed delivery status        |
-| `conversation.created`   | A new conversation is opened for a contact        |
+| Event                    | Fires when                                 |
+| ------------------------ | ------------------------------------------ |
+| `message.received`       | An inbound message arrives from a contact  |
+| `message.status_updated` | A message you sent changed delivery status |
+| `conversation.created`   | A new conversation is opened for a contact |
 
 ### Managing endpoints
 
@@ -563,7 +613,7 @@ delivery uuid you can dedupe on, and `data` varies by `event`:
   "event": "message.received",
   "occurred_at": "2026-07-01T12:00:00.000Z",
   "account_id": "…",
-  "data": { /* per-event, see below */ }
+  "data": {/* per-event, see below */}
 }
 ```
 
@@ -596,8 +646,10 @@ a few minutes old (replay protection).
 
 ```js
 const [, t, v1] = header.match(/t=(\d+),v1=([0-9a-f]+)/);
-const expected = crypto.createHmac('sha256', secret)
-  .update(`${t}.${rawBody}`).digest('hex');
+const expected = crypto
+  .createHmac('sha256', secret)
+  .update(`${t}.${rawBody}`)
+  .digest('hex');
 const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
 ```
 

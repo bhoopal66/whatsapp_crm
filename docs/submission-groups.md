@@ -71,10 +71,10 @@ received`. Staff cannot send as themselves.
 
 ## Who reads and sends, and when
 
-| State | Read | Send |
-| --- | --- | --- |
-| **ACTIVE** | anyone on the open access list; owners and admins of the workspace | anyone on the open list (an admin only if on it) |
-| **ENDED** | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody |
+| State      | Read                                                                                                         | Send                                             |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| **ACTIVE** | anyone on the open access list; owners and admins of the workspace                                           | anyone on the open list (an admin only if on it) |
+| **ENDED**  | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody                                           |
 
 Agents never read an ENDED group. An ENDED group's **messages** are read
 only through the archive view, and **every archive view is written to an
@@ -120,6 +120,21 @@ block the delete. The group is detached (its number or contact becomes
 empty): the archive and its audit survive, but sends are refused
 (`NUMBER_REMOVED` / `CONTACT_REMOVED`), a pending create is not retried
 and the WhatsApp close is not attempted.
+
+## Cases
+
+Every group has one **case** (module 018c, migrations 122-128): bank,
+product, amount, stage, tasks, documents and SLA timers, worked at
+`/cases`. The contract is in [cases.md](cases.md).
+
+- `POST` opens the group's case (also on a repeat call) and takes optional
+  `bank`, `product` and `amount`; an owner or admin can open the case of an
+  older group from the CRM.
+- A move of the case to a final stage (Approved, Declined, Withdrawn,
+  Closed) ends the group, exactly once; the cron retries an end that did not
+  complete.
+- A `PATCH` with a final status ends the group as above and also moves the
+  case to the matching final stage, even when the group had already ended.
 
 ## Known limits
 
