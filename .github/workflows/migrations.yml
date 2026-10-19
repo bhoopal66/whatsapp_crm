@@ -405,3 +405,14 @@ jobs:
       # bank_ws_posts), the API to service_role only.
       - name: Verify bank workspaces
         run: supabase db query --local --file supabase/ci/verify-bank-workspaces.sql
+      # Migrations 127-128: the bank dashboard answers owner / admin
+      # ('all') and members ('own', exactly the cases they may read) and
+      # refuses everyone else (NOT_ALLOWED, after BANK_WS_NOT_FOUND and
+      # NOW_REQUIRED); its maths are pinned (stage days, approval rate
+      # without withdrawn, overdue once per case, pipeline amount,
+      # reasons by code) and it carries no identifier; a reason is once
+      # per Declined / Withdrawn case, refused in its documented order;
+      # take-over is the coordinator's and team lead's only; both tables
+      # append-only, the three functions service_role's only.
+      - name: Verify bank dashboard
+        run: supabase db query --local --file supabase/ci/verify-bank-dashboard.sql
