@@ -22,6 +22,7 @@ import {
 
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
+import { MemoryPanel } from '@/components/memory/memory-panel';
 import { useContactOutreach } from '@/components/contacts/contact-outreach';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactJourneySections } from '@/components/journeys/contact-journey';
@@ -65,6 +66,7 @@ import { usePhonePresence } from '@/hooks/use-phone-presence';
 import { usePresence } from '@/hooks/use-presence';
 import { PERSON_PRESENCE_KEY, presenceOf } from '@/lib/person-presence';
 import { useChatTags } from '@/hooks/use-chat-tags';
+import { hasMinRole } from '@/lib/auth/roles';
 import {
   useAccountNumbers,
   useMyNumberIds,
@@ -257,6 +259,7 @@ export function CustomerPage({
   const router = useRouter();
   const { accountRole } = useAuth();
   const access = customerAccess(accountRole);
+  const tm = useTranslations('Memory');
   const timeZone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
@@ -840,6 +843,14 @@ export function CustomerPage({
                 ))}
               </ul>
             )}
+          </Card>
+          <Card title={tm('title')}>
+            <MemoryPanel
+              apiBase={`/api/contacts/${contactId}/memory`}
+              canWrite={access.addNote}
+              canForget={!!accountRole && hasMinRole(accountRole, 'admin')}
+              compact
+            />
           </Card>
           <DealRoomLinks
             contact={contact}

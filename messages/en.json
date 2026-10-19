@@ -7034,5 +7034,123 @@
       "notFound": "It no longer exists.",
       "failed": "Something went wrong. Try again."
     }
+  },
+  "Memory": {
+    "title": "Memory",
+    "intro": "Short notes about what was agreed, kept so anyone can find them later.",
+    "searchPlaceholder": "Search memory",
+    "searchLabel": "Search memory",
+    "clear": "Clear",
+    "add": "Add memory",
+    "loading": "Loading…",
+    "loadFailed": "Memory could not be loaded.",
+    "retry": "Try again",
+    "empty": "Nothing remembered yet.",
+    "noMatches": "No memory matches this search.",
+    "loadMore": "Load more",
+    "showAll": "Show all",
+    "showLess": "Show less",
+    "verified": "Verified",
+    "verifiedHint": "Written by staff",
+    "untrusted": "Untrusted",
+    "untrustedHint": "Not written by staff: check before relying on it",
+    "importance": "Importance {value} of 5",
+    "byOn": "{who} · {when}",
+    "system": "System",
+    "formerMember": "Former member",
+    "expires": "Expires {date}",
+    "correct": "Correct",
+    "kinds": {
+      "fact": "Fact",
+      "preference": "Preference",
+      "decision": "Decision",
+      "document": "Document",
+      "summary": "Summary"
+    },
+    "form": {
+      "addTitle": "Add memory",
+      "correctTitle": "Correct memory",
+      "correctNote": "Saving replaces the memory you are correcting.",
+      "content": "What should be remembered?",
+      "counter": "{count} / {max}",
+      "kind": "Kind",
+      "importance": "Importance",
+      "importanceValue": "{value} of 5",
+      "sensitiveNote": "Sensitive numbers are stored in the vault; card numbers and codes are removed.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saved": "Memory saved.",
+      "deduped": "This was already remembered."
+    },
+    "forget": {
+      "action": "Forget all",
+      "title": "Forget all memory",
+      "caseBody": "This permanently erases every memory of this case. It cannot be undone.",
+      "contactBody": "This permanently erases every memory of this customer. It cannot be undone.",
+      "reason": "Reason",
+      "reasonPlaceholder": "For example: the customer asked us to delete their data",
+      "cancel": "Cancel",
+      "confirm": "Erase permanently",
+      "done": "{count, plural, =0 {Nothing to erase.} one {# memory erased.} other {# memories erased.}}",
+      "failed": "Memory could not be erased."
+    },
+    "chips": {
+      "EID": "Emirates ID",
+      "IBAN": "IBAN",
+      "PASSPORT": "Passport",
+      "PHONE": "Phone",
+      "ACCOUNT": "Account number",
+      "TRADE_LICENCE": "Trade licence",
+      "vaulted": "{label} (in the vault)",
+      "revealHint": "Reveal {label}",
+      "redacted": {
+        "EMAIL": "Email removed",
+        "CARD": "Card number removed",
+        "OTP": "Code removed",
+        "IBAN": "IBAN removed",
+        "EID": "Emirates ID removed",
+        "ACCT": "Account number removed",
+        "PASSPORT": "Passport removed",
+        "PHONE": "Phone removed",
+        "phoneEnding": "Phone ending {digits}"
+      }
+    },
+    "reveal": {
+      "title": "Reveal {label}",
+      "body": "Every reveal is recorded. Say why you need it, in words: a reason containing numbers is refused.",
+      "reason": "Reason",
+      "reasonPlaceholder": "For example: confirming the customer's identity on a call",
+      "cancel": "Close",
+      "submit": "Reveal",
+      "copy": "Copy",
+      "copied": "Copied.",
+      "copyFailed": "Could not copy.",
+      "hidesIn": "Hidden again in {seconds} s.",
+      "hidden": "Hidden again. Reveal once more if you still need it.",
+      "errors": {
+        "denied": "You are not allowed to reveal this value.",
+        "notFound": "This value is no longer in the vault.",
+        "rateLimited": "Too many reveals. Try again later.",
+        "decryptFailed": "The value could not be decrypted.",
+        "notConfigured": "The vault is not configured.",
+        "reasonRefused": "That reason looks like it contains an identifier. Describe the reason in words.",
+        "failed": "The value could not be revealed."
+      }
+    },
+    "refusals": {
+      "tokenizeFailed": "The vault could not store a sensitive number, so nothing was saved. Try again.",
+      "empty": "Nothing is left once sensitive data is removed, so nothing was saved.",
+      "tooLong": "Too long once sensitive data is stored: keep it under 4,000 characters.",
+      "supersedeVerified": "This memory can only be corrected by staff.",
+      "scopeInvalid": "This memory can no longer be saved here.",
+      "redactionRefused": "Sensitive data could not be removed safely, so nothing was saved.",
+      "unknown": "The memory was refused."
+    },
+    "errors": {
+      "forbidden": "Your role cannot add memory here.",
+      "notFound": "This record was not found, or you cannot see it.",
+      "invalid": "Check what you entered and try again.",
+      "saveFailed": "The memory could not be saved."
+    }
   }
 }

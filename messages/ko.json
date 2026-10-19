@@ -7034,5 +7034,123 @@
       "notFound": "더 이상 존재하지 않습니다.",
       "failed": "문제가 발생했습니다. 다시 시도하세요."
     }
+  },
+  "Memory": {
+    "title": "메모리",
+    "intro": "합의한 내용을 짧게 기록해 두어 누구나 나중에 찾아볼 수 있습니다.",
+    "searchPlaceholder": "메모리 검색",
+    "searchLabel": "메모리 검색",
+    "clear": "지우기",
+    "add": "메모리 추가",
+    "loading": "불러오는 중…",
+    "loadFailed": "메모리를 불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "empty": "아직 기록된 메모리가 없습니다.",
+    "noMatches": "검색과 일치하는 메모리가 없습니다.",
+    "loadMore": "더 보기",
+    "showAll": "모두 보기",
+    "showLess": "접기",
+    "verified": "확인됨",
+    "verifiedHint": "직원이 작성함",
+    "untrusted": "미확인",
+    "untrustedHint": "직원이 작성하지 않았습니다. 사용하기 전에 확인하세요",
+    "importance": "중요도 5 중 {value}",
+    "byOn": "{who} · {when}",
+    "system": "시스템",
+    "formerMember": "이전 멤버",
+    "expires": "{date} 만료",
+    "correct": "수정",
+    "kinds": {
+      "fact": "사실",
+      "preference": "선호",
+      "decision": "결정",
+      "document": "문서",
+      "summary": "요약"
+    },
+    "form": {
+      "addTitle": "메모리 추가",
+      "correctTitle": "메모리 수정",
+      "correctNote": "저장하면 수정 중인 메모리가 대체됩니다.",
+      "content": "무엇을 기억해 둘까요?",
+      "counter": "{count} / {max}",
+      "kind": "종류",
+      "importance": "중요도",
+      "importanceValue": "5 중 {value}",
+      "sensitiveNote": "민감한 번호는 보관소에 저장되며, 카드 번호와 인증 코드는 삭제됩니다.",
+      "cancel": "취소",
+      "save": "저장",
+      "saved": "메모리를 저장했습니다.",
+      "deduped": "이미 기록된 내용입니다."
+    },
+    "forget": {
+      "action": "모두 삭제",
+      "title": "메모리 모두 삭제",
+      "caseBody": "이 케이스의 모든 메모리가 영구적으로 삭제됩니다. 되돌릴 수 없습니다.",
+      "contactBody": "이 고객의 모든 메모리가 영구적으로 삭제됩니다. 되돌릴 수 없습니다.",
+      "reason": "사유",
+      "reasonPlaceholder": "예: 고객이 데이터 삭제를 요청함",
+      "cancel": "취소",
+      "confirm": "영구 삭제",
+      "done": "{count, plural, =0 {삭제할 메모리가 없습니다.} other {메모리 #개를 삭제했습니다.}}",
+      "failed": "메모리를 삭제하지 못했습니다."
+    },
+    "chips": {
+      "EID": "에미레이트 ID",
+      "IBAN": "IBAN",
+      "PASSPORT": "여권",
+      "PHONE": "전화번호",
+      "ACCOUNT": "계좌 번호",
+      "TRADE_LICENCE": "사업자 면허",
+      "vaulted": "{label} (보관소에 저장됨)",
+      "revealHint": "{label} 보기",
+      "redacted": {
+        "EMAIL": "이메일 삭제됨",
+        "CARD": "카드 번호 삭제됨",
+        "OTP": "인증 코드 삭제됨",
+        "IBAN": "IBAN 삭제됨",
+        "EID": "에미레이트 ID 삭제됨",
+        "ACCT": "계좌 번호 삭제됨",
+        "PASSPORT": "여권 번호 삭제됨",
+        "PHONE": "전화번호 삭제됨",
+        "phoneEnding": "끝자리 {digits} 전화번호"
+      }
+    },
+    "reveal": {
+      "title": "{label} 보기",
+      "body": "모든 열람은 기록됩니다. 필요한 이유를 글로 적어 주세요. 숫자가 포함된 사유는 거부됩니다.",
+      "reason": "사유",
+      "reasonPlaceholder": "예: 통화 중 고객 본인 확인",
+      "cancel": "닫기",
+      "submit": "보기",
+      "copy": "복사",
+      "copied": "복사했습니다.",
+      "copyFailed": "복사하지 못했습니다.",
+      "hidesIn": "{seconds}초 후 다시 숨겨집니다.",
+      "hidden": "다시 숨겨졌습니다. 아직 필요하면 한 번 더 열람하세요.",
+      "errors": {
+        "denied": "이 값을 볼 권한이 없습니다.",
+        "notFound": "이 값은 더 이상 보관소에 없습니다.",
+        "rateLimited": "열람 횟수가 너무 많습니다. 나중에 다시 시도하세요.",
+        "decryptFailed": "값을 복호화하지 못했습니다.",
+        "notConfigured": "보관소가 설정되지 않았습니다.",
+        "reasonRefused": "사유에 식별 번호가 포함된 것 같습니다. 사유를 글로 설명해 주세요.",
+        "failed": "값을 표시하지 못했습니다."
+      }
+    },
+    "refusals": {
+      "tokenizeFailed": "보관소에 민감한 번호를 저장하지 못해 아무것도 저장되지 않았습니다. 다시 시도하세요.",
+      "empty": "민감한 정보를 삭제하고 나면 남는 내용이 없어 저장하지 않았습니다.",
+      "tooLong": "민감한 정보를 저장한 후 길이가 너무 깁니다. 4,000자 이내로 줄여 주세요.",
+      "supersedeVerified": "이 메모리는 직원만 수정할 수 있습니다.",
+      "scopeInvalid": "이 메모리는 더 이상 여기에 저장할 수 없습니다.",
+      "redactionRefused": "민감한 정보를 안전하게 삭제하지 못해 저장하지 않았습니다.",
+      "unknown": "메모리 저장이 거부되었습니다."
+    },
+    "errors": {
+      "forbidden": "현재 역할로는 여기에 메모리를 추가할 수 없습니다.",
+      "notFound": "이 기록을 찾을 수 없거나 볼 권한이 없습니다.",
+      "invalid": "입력한 내용을 확인하고 다시 시도하세요.",
+      "saveFailed": "메모리를 저장하지 못했습니다."
+    }
   }
 }
