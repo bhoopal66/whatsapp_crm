@@ -600,8 +600,13 @@ SET search_path = ''
 AS $$
 DECLARE v_n integer;
 BEGIN
-  IF p_actor IS NULL OR coalesce(btrim(p_reason), '') = '' THEN
+  -- Blank means no visible character (tabs and newlines included); the store refuses a reason over 1000 characters,
+  -- and so does the database, since no other layer stands between a caller and this audit row.
+  IF p_actor IS NULL OR coalesce(p_reason, '') !~ '[^[:space:]]' THEN
     RAISE EXCEPTION 'memory_forget: actor and reason are required' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF char_length(p_reason) > 1000 THEN
+    RAISE EXCEPTION 'memory_forget: the reason is over 1000 characters' USING ERRCODE = 'invalid_parameter_value';
   END IF;
   IF p_account_id IS NULL OR p_scope_type IS NULL OR p_scope_id IS NULL THEN
     RAISE EXCEPTION 'memory_forget: a full scope is required' USING ERRCODE = 'invalid_parameter_value';
