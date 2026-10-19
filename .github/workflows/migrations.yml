@@ -416,3 +416,15 @@ jobs:
       # append-only, the three functions service_role's only.
       - name: Verify bank dashboard
         run: supabase db query --local --file supabase/ci/verify-bank-dashboard.sql
+      # Migration 120's assistant guard: a pending action is born only
+      # through assist_pending_request (20-hex nonce stored as sha256,
+      # 300 s life, 5 open per user across accounts); confirm needs the
+      # row's nonce, user and account, consume the exact action hash, and
+      # consume writes its ALLOW:CONFIRMED decision row or raises
+      # AUDIT_UNAVAILABLE and moves nothing; expire / cancel; status is
+      # forward-only, identity fixed, nothing deleted, every transition
+      # audited, the audit append-only; rate takes are all keys or none
+      # per window, prune keeps two windows, reset is audited and not
+      # service_role's; service_role executes exactly seven functions.
+      - name: Verify assistant safety
+        run: supabase db query --local --file supabase/ci/verify-assistant-safety.sql
