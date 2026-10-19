@@ -154,6 +154,11 @@ describe('templates', () => {
     expect(m.del).toHaveBeenCalledWith('u-1', 'acct-1', 'ADCB', 'call_bank');
   });
 
+  it("refuses to delete the bank spaces' Action needed template", async () => {
+    expect((await del('key=bank_ws_action_needed')).status).toBe(400);
+    expect(m.del).not.toHaveBeenCalled();
+  });
+
   it('maps refusals and CHECK violations to 422', async () => {
     m.upsert.mockRejectedValueOnce(new CaseRefusedError('BANK_UNKNOWN'));
     let res = await post(T);

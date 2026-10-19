@@ -18,6 +18,7 @@ import {
 } from '@/lib/cases/config-http';
 import { readObject, requiredKey, requiredText } from '@/lib/cases/http';
 import { caseToolsStore } from '@/lib/cases/server';
+import { BANK_SPACE_TEMPLATE_KEY } from '@/lib/cases/settings-ui';
 
 type Params = { params: Promise<{ code: string }> };
 
@@ -62,6 +63,14 @@ export async function DELETE(request: Request, { params }: Params) {
     const ctx = await requireRole('admin');
     const code = bankCodeParam((await params).code);
     const key = requiredKey(queryParam(request, 'key'), 'key');
+    // Bank spaces' "Action needed" creates its task from this template;
+    // without it every mark answers TEMPLATE_NOT_FOUND.
+    if (key === BANK_SPACE_TEMPLATE_KEY) {
+      return NextResponse.json(
+        { error: 'This template is used by bank spaces and cannot be deleted' },
+        { status: 400 }
+      );
+    }
     const deleted = await caseToolsStore().deleteTaskTemplate(
       ctx.userId,
       ctx.accountId,

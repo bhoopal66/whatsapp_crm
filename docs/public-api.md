@@ -477,6 +477,8 @@ bank code, upper-cased, `^[A-Z0-9_]{2,32}$`; a code the workspace does not
 know yet is added to its bank list), `product` (1 to 200 characters) and
 `amount` (AED, a number or a numeric string, non-negative, below 10^16, at
 most 2 decimals). A bad value is `400 bad_request` naming the field.
+Send `amount` as a string when every digit matters: a JSON number is read
+as a double, so a value past 15 significant digits can change or be refused.
 
 Every answer that returns a group (`200`, `201`, `202`) also opens the
 group's case and carries it:
