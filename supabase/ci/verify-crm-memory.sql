@@ -435,11 +435,34 @@ BEGIN
     AND (SELECT count(*) FROM memory_recall_candidates(u_guest, a_acct, NULL, NULL, NULL, 100)) = 0,
     'memory_recall_candidates: a non-member read the account''s items');
   SELECT array_agg(x.content ORDER BY o) INTO lbl
-    FROM memory_recall_candidates(u_agent, a_acct, ARRAY['contact'], ARRAY[c1], to_tsquery('simple', 'pear | tea'), 10)
+    FROM memory_recall_candidates(u_agent, a_acct, ARRAY['contact'], ARRAY[c1], 'pear or tea', 10)
          WITH ORDINALITY AS x(id, scope_type, scope_id, kind, content, importance, trust, source_type, created_at,
                               last_recalled_at, embedding, rank, o);
   n := n + 1; failed := failed || pg_temp.cs_ok(lbl = ARRAY['pear tea pear', 'Likes pear'],
     format('memory_recall_candidates: a full-text query did not rank the better match first and drop non-matches (%s)', lbl));
+  -- The query is search text (websearch syntax), digits folded like the search column; blank means no filter.
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT array_agg(x.id) FROM memory_recall_candidates(u_agent, a_acct, ARRAY['contact'], ARRAY[c1], '٤٢', 10) x)
+      = ARRAY[x3]
+    AND (SELECT array_agg(x.id) FROM memory_recall_candidates(u_agent, a_acct, ARRAY['contact'], ARRAY[c1], '42', 10) x)
+      = ARRAY[x3]
+    AND (SELECT array_agg(x.content) FROM memory_recall_candidates(u_agent, a_acct, ARRAY['contact'], ARRAY[c1],
+           '"tea pear"', 10) x) = ARRAY['pear tea pear']
+    AND (SELECT count(*) FROM memory_recall_candidates(u_agent, a_acct, ARRAY['contact'], ARRAY[c1], 'pear -tea', 10) x
+          WHERE x.content = 'pear tea pear') = 0,
+    'memory_recall_candidates: the search text is not parsed as a digit-folded websearch query');
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT array_agg(x.id ORDER BY x.id) FROM memory_recall_candidates(u_agent, a_acct, NULL, NULL, '', 100) x)
+      = (SELECT array_agg(x.id ORDER BY x.id) FROM memory_recall_candidates(u_agent, a_acct, NULL, NULL, NULL, 100) x)
+    AND (SELECT array_agg(x.id ORDER BY x.id) FROM memory_recall_candidates(u_agent, a_acct, NULL, NULL, E' \t\n ', 100) x)
+      = (SELECT array_agg(x.id ORDER BY x.id) FROM memory_recall_candidates(u_agent, a_acct, NULL, NULL, NULL, 100) x)
+    AND (SELECT bool_and(x.rank = 0) FROM memory_recall_candidates(u_agent, a_acct, NULL, NULL, '  ', 100) x),
+    'memory_recall_candidates: a blank search text filtered or ranked the items');
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT p.provolatile = 's' FROM pg_proc p
+      WHERE p.oid = to_regprocedure('public.memory_recall_candidates(uuid, uuid, text[], uuid[], text, integer)'))
+    AND to_regprocedure('public.memory_recall_candidates(uuid, uuid, text[], uuid[], tsquery, integer)') IS NULL,
+    'memory_recall_candidates: not one STABLE function taking the search text');
   n := n + 1; failed := failed || pg_temp.cs_ok(
     (SELECT count(*) FROM memory_items) = i AND (SELECT sum(recall_count) FROM memory_items) = j
     AND (SELECT count(*) FROM memory_audit) = m AND NOT EXISTS (SELECT 1 FROM memory_items WHERE last_recalled_at IS NOT NULL),

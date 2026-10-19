@@ -482,12 +482,16 @@ $$;
 
 -- READ-ONLY (STABLE, writes nothing). Live (not superseded, not expired) items of the scopes memory_can_read
 -- allows RIGHT NOW, judged once per scope. Optional scope filter: parallel arrays p_scope_types[i] /
--- p_scope_ids[i]. Optional full-text query (tsquery, 'simple' config); rank is ts_rank_cd (0 without a query).
--- At most 100 rows. Recall counters are NOT touched here: the caller ranks the candidates and passes only the ids
--- it actually uses to memory_mark_recalled, which bumps and audits them.
+-- p_scope_ids[i]. Optional full-text query: the search TEXT, parsed here with websearch_to_tsquery('simple', ...)
+-- after folding Arabic-Indic digits to ASCII exactly as the search column does (PostgREST can fill a tsquery
+-- parameter only from raw tsquery syntax, so the app passes text); NULL or blank means no text filter. Rank is
+-- ts_rank_cd (0 without a query). At most 100 rows. Recall counters are NOT touched here: the caller ranks the
+-- candidates and passes only the ids it actually uses to memory_mark_recalled, which bumps and audits them.
+-- Both signatures are dropped: an install that applied the earlier tsquery version keeps no stale overload.
 DROP FUNCTION IF EXISTS public.memory_recall_candidates(uuid, uuid, text[], uuid[], tsquery, integer);
+DROP FUNCTION IF EXISTS public.memory_recall_candidates(uuid, uuid, text[], uuid[], text, integer);
 CREATE FUNCTION public.memory_recall_candidates(
-  p_user_id uuid, p_account_id uuid, p_scope_types text[], p_scope_ids uuid[], p_query tsquery, p_limit integer)
+  p_user_id uuid, p_account_id uuid, p_scope_types text[], p_scope_ids uuid[], p_query text, p_limit integer)
 RETURNS TABLE (id uuid, scope_type text, scope_id uuid, kind text, content text, importance smallint, trust text,
                source_type text, created_at timestamptz, last_recalled_at timestamptz, embedding real[], rank real)
 LANGUAGE plpgsql
@@ -496,12 +500,18 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 #variable_conflict use_column
+DECLARE
+  v_query tsquery;
 BEGIN
   IF p_user_id IS NULL OR p_account_id IS NULL THEN
     RAISE EXCEPTION 'memory_recall_candidates: user and account are required' USING ERRCODE = 'invalid_parameter_value';
   END IF;
   IF coalesce(cardinality(p_scope_types), 0) <> coalesce(cardinality(p_scope_ids), 0) THEN
     RAISE EXCEPTION 'memory_recall_candidates: scope filter arrays differ in length' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF p_query IS NOT NULL AND p_query !~ '^\s*$' THEN
+    v_query := websearch_to_tsquery('simple'::regconfig,
+                 translate(p_query, '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'));
   END IF;
 
   RETURN QUERY
@@ -512,7 +522,7 @@ BEGIN
          AND m.expires_at > now()
          AND (p_scope_types IS NULL
               OR (m.scope_type, m.scope_id) IN (SELECT f.t, f.i FROM unnest(p_scope_types, p_scope_ids) AS f(t, i)))
-         AND (p_query IS NULL OR m.search @@ p_query)
+         AND (v_query IS NULL OR m.search @@ v_query)
     ), readable AS MATERIALIZED (
       SELECT s.scope_type, s.scope_id
         FROM (SELECT DISTINCT l.scope_type, l.scope_id FROM live l) s
@@ -520,7 +530,7 @@ BEGIN
     )
     SELECT l.id, l.scope_type, l.scope_id, l.kind, l.content, l.importance, l.trust, l.source_type, l.created_at,
            l.last_recalled_at, l.embedding,
-           CASE WHEN p_query IS NULL THEN 0::real ELSE ts_rank_cd(l.search, p_query) END
+           CASE WHEN v_query IS NULL THEN 0::real ELSE ts_rank_cd(l.search, v_query) END
       FROM live l
       JOIN readable r ON r.scope_type = l.scope_type AND r.scope_id = l.scope_id
      ORDER BY 12 DESC, l.importance DESC, l.created_at DESC
@@ -887,7 +897,7 @@ REVOKE ALL ON FUNCTION
   public.memory_forget_deleted_contact(),
   public.memory_can_read(uuid, uuid, text, uuid),
   public.memory_put(uuid, text, uuid, text, text, text, smallint, text, text, text, uuid, real[], text, uuid, integer, jsonb),
-  public.memory_recall_candidates(uuid, uuid, text[], uuid[], tsquery, integer),
+  public.memory_recall_candidates(uuid, uuid, text[], uuid[], text, integer),
   public.memory_mark_recalled(uuid, uuid, uuid[]),
   public.memory_list(uuid, uuid, text, uuid, integer, timestamptz),
   public.memory_forget(uuid, uuid, text, uuid, text),
@@ -902,7 +912,7 @@ REVOKE ALL ON FUNCTION
 GRANT EXECUTE ON FUNCTION
   public.memory_can_read(uuid, uuid, text, uuid),
   public.memory_put(uuid, text, uuid, text, text, text, smallint, text, text, text, uuid, real[], text, uuid, integer, jsonb),
-  public.memory_recall_candidates(uuid, uuid, text[], uuid[], tsquery, integer),
+  public.memory_recall_candidates(uuid, uuid, text[], uuid[], text, integer),
   public.memory_mark_recalled(uuid, uuid, uuid[]),
   public.memory_list(uuid, uuid, text, uuid, integer, timestamptz),
   public.memory_forget(uuid, uuid, text, uuid, text),
