@@ -6727,6 +6727,87 @@
       "notAllowed": "You are not allowed to do that.",
       "notFound": "The case was not found.",
       "unknown": "Something went wrong. Try again."
+    },
+    "timeline": {
+      "includeMessages": "Include WhatsApp messages",
+      "messagesNote": "Opening messages is recorded for supervisors.",
+      "empty": "Nothing has happened on this case yet.",
+      "loadFailed": "The timeline could not be loaded.",
+      "kinds": {
+        "stage": "Stage change",
+        "task": "Task added",
+        "task_status": "Task updated",
+        "note": "Note",
+        "document": "Document",
+        "sla": "SLA",
+        "bank_contact": "Bank contact",
+        "group_open": "WhatsApp group opened",
+        "group_end": "WhatsApp group ended",
+        "conversation_archived": "Conversation archived",
+        "group_message": "WhatsApp message",
+        "message": "WhatsApp message",
+        "call": "Call"
+      },
+      "callLine": "{direction} · {status}",
+      "callLineTalk": "{direction} · {status} · {duration}",
+      "callDirection": {
+        "inbound": "Incoming",
+        "outbound": "Outgoing",
+        "internal": "Internal"
+      },
+      "callStatus": {
+        "ringing": "ringing",
+        "in_progress": "in progress",
+        "answered": "answered",
+        "no_answer": "no answer",
+        "busy": "busy",
+        "voicemail": "voicemail",
+        "abandoned": "abandoned",
+        "failed": "failed"
+      }
+    },
+    "conversation": {
+      "gateBody": "The customer's WhatsApp conversation for this case.",
+      "auditNote": "Opening the conversation is recorded for supervisors.",
+      "show": "Show conversation",
+      "loadFailed": "The conversation could not be loaded.",
+      "notReadable": "This group has ended and its conversation is outside your archive window.",
+      "archived": "This group has ended. The conversation is read-only.",
+      "noGroup": "This case has no WhatsApp group.",
+      "empty": "No messages yet.",
+      "placeholder": "Write a message",
+      "cannotSend": "Your role on this case cannot send messages.",
+      "send": {
+        "button": "Send",
+        "sent": "Message sent",
+        "sentNotRecorded": "Sent to WhatsApp, but not recorded in the CRM yet. Don't send it again.",
+        "optedOut": "Not sent: the customer has opted out of messages.",
+        "notOnList": "Not sent: you're not on this group's list. Ask an admin to add you.",
+        "notReady": "Not sent: the group can't take messages right now. Try again shortly.",
+        "noGroup": "Not sent: this case's WhatsApp group no longer exists.",
+        "numberRemoved": "Not sent: the group's WhatsApp number was removed.",
+        "contactRemoved": "Not sent: the customer's contact was removed.",
+        "rateLimited": "Too many messages. Wait a minute and try again.",
+        "notAllowed": "You are not allowed to send messages on this case.",
+        "notFound": "The case was not found.",
+        "invalid": "The message is empty or too long.",
+        "failed": "The message could not be sent. Check the conversation before trying again."
+      }
+    },
+    "audit": {
+      "explain": "Every time a supervisor opens this case's conversation, it is recorded here.",
+      "empty": "Nobody has opened this case's conversation yet.",
+      "loadFailed": "The audit log could not be loaded.",
+      "who": "Viewed by",
+      "role": "Role",
+      "when": "When",
+      "roles": {
+        "super_admin": "Super admin",
+        "admin": "Admin",
+        "team_lead": "Team lead",
+        "coordinator": "Coordinator",
+        "agent": "Agent"
+      }
     }
   },
   "Banks": {
