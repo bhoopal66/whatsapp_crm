@@ -394,3 +394,14 @@ jobs:
       # STABLE, writes nothing, service_role only.
       - name: Verify case inbox
         run: supabase db query --local --file supabase/ci/verify-case-inbox.sql
+      # Migration 126's bank workspaces: access is a live owner / admin of
+      # the account, else a reader of an OPEN case of that bank, lapsing
+      # the moment the last one closes (posts stay); non-members are
+      # NOT_ALLOWED on every write and read nothing; pins are versioned
+      # and edited by admins, team leads and coordinators only; links are
+      # same account, same bank, readable (LINK_INVALID); 'Action needed'
+      # is once per thread and a real case task on a case-linked thread;
+      # every table append-only, authenticated SELECT under RLS (never
+      # bank_ws_posts), the API to service_role only.
+      - name: Verify bank workspaces
+        run: supabase db query --local --file supabase/ci/verify-bank-workspaces.sql
