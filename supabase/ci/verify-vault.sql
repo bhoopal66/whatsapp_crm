@@ -13,7 +13,7 @@
 -- (candidates with keyset paging, rewrap, CONFLICT, the failure
 -- reports), the audit read, the append-only and identity guards, and
 -- that service_role / anon / authenticated hold no table or sequence
--- privilege and execute exactly the 11 API functions (service_role) or
+-- privilege and execute exactly the 12 API functions (service_role) or
 -- none. Every call the app makes runs as service_role.
 --
 -- Not testable in one DO block: the READ COMMITTED requirement
@@ -156,6 +156,12 @@ BEGIN
   END IF;
 
   SET LOCAL ROLE service_role;
+
+  -- ---------- overview before any role (Settings -> Vault) ----------
+  n := n + 1;
+  IF vault_overview(u_o, a_acct) IS DISTINCT FROM '{"bootstrap_available": true, "my_role": null, "roles": []}'::jsonb THEN
+    failed := failed || format('vault_overview before any role is not bootstrap-available / no role (%s)', vault_overview(u_o, a_acct));
+  END IF;
 
   -- ---------- bootstrap ----------
   FOREACH uu IN ARRAY ARRAY[u_a1, u_g, u_od, u_o2] LOOP
@@ -610,6 +616,33 @@ BEGIN
      OR (SELECT count(*) FROM vault_audit_list(u_o, a_acct)) <> 100 THEN
     failed := failed || 'vault_audit_list limit is not clamped to 1..500 (NULL / default 100)'::text;
   END IF;
+  -- vault_overview: the holder sees every active role, anyone else nothing; never audited
+  c0 := pg_temp.v_audits(a_acct);
+  n := n + 1;
+  IF (vault_overview(u_o, a_acct) ->> 'bootstrap_available')::boolean IS DISTINCT FROM false
+     OR vault_overview(u_o, a_acct) ->> 'my_role' IS DISTINCT FROM 'super_admin'
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(vault_overview(u_o, a_acct) -> 'roles') e
+                     WHERE e ->> 'user_id' = u_o::text AND e ->> 'role' = 'super_admin' AND (e ->> 'counts')::boolean)
+     OR jsonb_array_length(vault_overview(u_o, a_acct) -> 'roles')
+        <> pg_temp.v_q(format('SELECT count(*) FROM vault_roles WHERE account_id = %L AND revoked_at IS NULL', a_acct))::int THEN
+    failed := failed || format('vault_overview for the super_admin is not the account''s active roles (%s)', vault_overview(u_o, a_acct));
+  END IF;
+  n := n + 1;
+  IF vault_overview(u_a1, a_acct) ->> 'my_role' IS DISTINCT FROM 'admin' THEN
+    failed := failed || format('vault_overview does not report the admin holder''s role (%s)', vault_overview(u_a1, a_acct));
+  END IF;
+  n := n + 1;
+  IF vault_overview(u_g, a_acct) IS DISTINCT FROM '{"bootstrap_available": false, "my_role": null, "roles": []}'::jsonb
+     OR vault_overview(u_o2, a_acct) IS DISTINCT FROM '{"bootstrap_available": false, "my_role": null, "roles": []}'::jsonb THEN
+    failed := failed || format('vault_overview showed roles to a non-holder (%s / %s)', vault_overview(u_g, a_acct), vault_overview(u_o2, a_acct));
+  END IF;
+  n := n + 1;
+  IF pg_temp.v_audits(a_acct) <> c0 THEN
+    failed := failed || 'a vault_overview read was audited'::text;
+  END IF;
+  tx := pg_temp.v_try('service_role', format('SELECT vault_overview(NULL, %L)::text', a_acct));
+  n := n + 1;
+  IF tx NOT LIKE 'ERROR 22023%' THEN failed := failed || format('vault_overview with a NULL actor was not 22023 (%s)', tx); END IF;
   -- the audit never holds a blind index (64 hex) or a ciphertext
   n := n + 1;
   IF pg_temp.v_q('SELECT count(*) FROM vault_audit a WHERE a::text ~ ''[0-9a-f]{64}'' OR a::text ~* ''deadbeef''') <> '0' THEN
@@ -659,9 +692,9 @@ BEGIN
   IF (SELECT array_agg(p.proname::text ORDER BY p.proname) FROM pg_proc p
        WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'vault\_%'
          AND has_function_privilege('service_role', p.oid, 'EXECUTE'))
-     IS DISTINCT FROM ARRAY['vault_audit_list', 'vault_delete', 'vault_put', 'vault_reveal', 'vault_reveal_failed', 'vault_rewrap',
+     IS DISTINCT FROM ARRAY['vault_audit_list', 'vault_delete', 'vault_overview', 'vault_put', 'vault_reveal', 'vault_reveal_failed', 'vault_rewrap',
                             'vault_rewrap_candidates', 'vault_rewrap_failed', 'vault_role_bootstrap', 'vault_role_grant', 'vault_role_revoke'] THEN
-    failed := failed || 'service_role does not execute exactly the 11 vault API functions'::text;
+    failed := failed || 'service_role does not execute exactly the 12 vault API functions'::text;
   END IF;
   n := n + 1;
   IF EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname LIKE 'vault\_%'

@@ -847,6 +847,48 @@ AS $$
    limit greatest(1, least(500, coalesce(p_limit, 100)))
 $$;
 
+-- ---------- 10b. Overview (wacrm addition: Settings -> Vault) ----------
+
+-- One read for the settings screen: whether the account can still be
+-- bootstrapped (no active role row at all), the caller's own role under
+-- vault_has_role's rule (NULL when it does not count), and the active role
+-- rows — only for a caller whose role counts; anyone else gets an empty
+-- list. Not audited (it reveals no value). NULL actor / account: 22023.
+CREATE OR REPLACE FUNCTION public.vault_overview(p_actor uuid, p_account uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_role  text;
+  v_roles jsonb := '[]'::jsonb;
+BEGIN
+  IF p_actor IS NULL OR p_account IS NULL THEN
+    RAISE EXCEPTION 'vault_overview: actor and account are required' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  v_role := CASE
+    WHEN public.vault_has_role(p_account, p_actor, array['super_admin']) THEN 'super_admin'
+    WHEN public.vault_has_role(p_account, p_actor, array['admin']) THEN 'admin'
+  END;
+  IF v_role IS NOT NULL THEN
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+             'user_id', r.user_id, 'role', r.role, 'granted_by', r.granted_by, 'granted_at', r.granted_at,
+             'counts', public.vault_live_profile(p_account, r.user_id, array['owner', 'admin']))
+             ORDER BY r.granted_at, r.id), '[]'::jsonb)
+      INTO v_roles
+      FROM public.vault_roles r
+     WHERE r.account_id = p_account AND r.revoked_at IS NULL;
+  END IF;
+  RETURN jsonb_build_object(
+    'bootstrap_available', NOT EXISTS (SELECT 1 FROM public.vault_roles r
+                                        WHERE r.account_id = p_account AND r.revoked_at IS NULL),
+    'my_role', v_role,
+    'roles', v_roles);
+END;
+$$;
+
 -- ---------- 11. Privileges ----------
 
 -- Start from nothing (a new table, sequence and function grant anon,
@@ -878,7 +920,8 @@ REVOKE ALL ON FUNCTION
   public.vault_role_bootstrap(uuid, uuid, uuid),
   public.vault_role_grant(uuid, uuid, uuid, text),
   public.vault_role_revoke(uuid, uuid, uuid, text),
-  public.vault_audit_list(uuid, uuid, integer)
+  public.vault_audit_list(uuid, uuid, integer),
+  public.vault_overview(uuid, uuid)
   FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION
@@ -892,5 +935,6 @@ GRANT EXECUTE ON FUNCTION
   public.vault_role_bootstrap(uuid, uuid, uuid),
   public.vault_role_grant(uuid, uuid, uuid, text),
   public.vault_role_revoke(uuid, uuid, uuid, text),
-  public.vault_audit_list(uuid, uuid, integer)
+  public.vault_audit_list(uuid, uuid, integer),
+  public.vault_overview(uuid, uuid)
   TO service_role;
