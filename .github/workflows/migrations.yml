@@ -383,3 +383,14 @@ jobs:
       # deadlocked two concurrent document receipts).
       - name: Verify case SLA
         run: supabase db query --local --file supabase/ci/verify-case-sla.sql
+      # Migration 125's coordinator inbox: case_inbox lists exactly the
+      # cases case_can_read grants (owner/admin all, a lead their team's
+      # agents', agent / coordinator their own; nobody else, no other
+      # account); each filter selects what it names, sla_state from the
+      # live timers at p_now, any other key, type or range FILTER_INVALID;
+      # most_overdue / due_soonest / stalest order with the case id last,
+      # keyset pages return every case once and a cursor is bound to its
+      # sort and clock; the last touch ignores the SLA job's system rows;
+      # STABLE, writes nothing, service_role only.
+      - name: Verify case inbox
+        run: supabase db query --local --file supabase/ci/verify-case-inbox.sql
