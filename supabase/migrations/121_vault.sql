@@ -34,8 +34,9 @@
 --    demoted or deactivated person loses the vault with the account
 --    role. Only super_admin grants / revokes / rewraps; a grant to
 --    someone who is not a live owner/admin is DENIED (NOT_ADMIN).
---    Bootstrap only while the account has zero active rows, and only
---    for a live OWNER of it (NOT_OWNER). The last super_admin who
+--    Bootstrap only while no active super_admin row counts (none at
+--    all, or every holder demoted / deactivated), and only for a live
+--    OWNER of it (NOT_OWNER). The last super_admin who
 --    still counts cannot be revoked. Rows are never removed; revoke
 --    sets revoked_at.
 --  * vault_audit: append-only (UPDATE / DELETE / TRUNCATE refused,
@@ -294,6 +295,21 @@ AS $$
      and public.vault_live_profile(p_account, p_user, array['owner', 'admin'])
 $$;
 
+-- Bootstrap is open while no active super_admin row COUNTS (vault_has_role's rule): rows held by people since
+-- demoted or deactivated do not keep it shut, else a workspace whose every super_admin left could never grant
+-- again. vault_role_bootstrap and vault_overview's bootstrap_available both read this.
+CREATE OR REPLACE FUNCTION public.vault_bootstrap_open(p_account uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  select not exists (select 1 from public.vault_roles r
+                      where r.account_id = p_account and r.revoked_at is null and r.role = 'super_admin'
+                        and public.vault_has_role(p_account, r.user_id, array['super_admin']))
+$$;
+
 -- Audit detail for caller-supplied text: the audit is append-only, so raw input never goes in unvalidated.
 -- vault_audit_role: {role} for a valid role (admin / super_admin), else {role_valid: false, role_len} only.
 -- vault_audit_text: control and invisible characters (C0, DEL, C1, zero-width, bidi embeddings / overrides, word
@@ -382,6 +398,10 @@ AS $$
 declare
   v_item public.vault_items%rowtype;
 begin
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'vault_put: requires READ COMMITTED (advisory locks do not serialise under a snapshot taken before the lock)'
+      using errcode = 'invalid_transaction_state';
+  end if;
   if p_actor is null or p_account is null then
     raise exception 'vault_put: actor and account are required' using errcode = 'invalid_parameter_value';
   end if;
@@ -390,6 +410,23 @@ begin
     values ('put', 'DENIED', p_actor, p_account, jsonb_build_object('why', 'BAD_SUBJECT'));
     return query select 'DENIED'::text, null::text, null::boolean;
     return;
+  end if;
+  -- The table's CHECKs, restated so a bad payload is refused with a fixed message: a CHECK violation raised by the
+  -- INSERT would carry the failing row (ciphertext, iv, tag, blind index) in its DETAIL. The CHECKs stay as the
+  -- backstop; the SQLSTATE is theirs (23514), the HINT names the rule. Nothing caller-supplied goes into the error.
+  if p_kind is null or p_kind not in ('EID', 'IBAN', 'PASSPORT', 'PHONE', 'ACCOUNT', 'TRADE_LICENCE') then
+    raise exception 'vault_put: kind is not one the vault stores' using errcode = 'check_violation', hint = 'BAD_KIND';
+  end if;
+  if coalesce(octet_length(p_iv), -1) <> 12 or coalesce(octet_length(p_auth_tag), -1) <> 16
+     or coalesce(octet_length(p_ciphertext), 0) not between 1 and 4096 then
+    raise exception 'vault_put: the payload is not a GCM payload (12-byte iv, 16-byte tag, 1..4096-byte ciphertext)'
+      using errcode = 'check_violation', hint = 'BAD_PAYLOAD';
+  end if;
+  if p_key_id is null or p_key_id !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'vault_put: key_id is not 1..64 of [A-Za-z0-9._:-]' using errcode = 'check_violation', hint = 'BAD_KEY_ID';
+  end if;
+  if p_blind_index is null or p_blind_index !~ '^[0-9a-f]{64}$' then
+    raise exception 'vault_put: blind_index is not 64 lowercase hex' using errcode = 'check_violation', hint = 'BAD_BLIND_INDEX';
   end if;
   perform pg_advisory_xact_lock(hashtext('vault:put:' || p_account::text || ':' || coalesce(p_kind, '') || ':' || coalesce(p_blind_index, '')));
   select * into v_item from public.vault_items i
@@ -694,8 +731,9 @@ $$;
 -- ---------- 9. Roles ----------
 
 -- Grant / revoke need the CALLER (p_actor) to hold super_admin in the account (vault_has_role: an active row and a
--- live owner / admin profile). Bootstrap: grants super_admin to p_user ONLY while the account has zero active rows
--- (first install, or after every row was revoked) and only to a live OWNER of the account (NOT_OWNER); run it from a
+-- live owner / admin profile). Bootstrap: grants super_admin to p_user ONLY while no active super_admin row counts
+-- (vault_bootstrap_open: first install, every row revoked, or every holder demoted / deactivated — else
+-- WORKSPACE_HAS_ROLES) and only to a live OWNER of the account (NOT_OWNER); run it from a
 -- deploy / admin script, not from a user request path. A grant to someone who is not a live owner / admin of the
 -- account is DENIED (NOT_ADMIN); a role other than admin / super_admin is DENIED (INVALID_ROLE). Revoking a
 -- super_admin is refused when no OTHER super_admin who still counts (vault_has_role) would remain
@@ -716,7 +754,7 @@ begin
     raise exception 'vault_role_bootstrap: actor, account and user are required' using errcode = 'invalid_parameter_value';
   end if;
   perform pg_advisory_xact_lock(hashtext('vault:roles:' || p_account::text));
-  if exists (select 1 from public.vault_roles r where r.account_id = p_account and r.revoked_at is null) then
+  if not public.vault_bootstrap_open(p_account) then
     insert into public.vault_audit (action, outcome, actor, account_id, detail)
     values ('role_bootstrap', 'DENIED', p_actor, p_account, jsonb_build_object('why', 'WORKSPACE_HAS_ROLES')
             || public.vault_audit_text('user_id', p_user::text));
@@ -850,10 +888,13 @@ $$;
 -- ---------- 10b. Overview (wacrm addition: Settings -> Vault) ----------
 
 -- One read for the settings screen: whether the account can still be
--- bootstrapped (no active role row at all), the caller's own role under
--- vault_has_role's rule (NULL when it does not count), and the active role
--- rows — only for a caller whose role counts; anyone else gets an empty
--- list. Not audited (it reveals no value). NULL actor / account: 22023.
+-- bootstrapped (vault_bootstrap_open: no active super_admin row that
+-- counts), the caller's own role under vault_has_role's rule (NULL when it
+-- does not count), and the active role rows — only for a caller whose role
+-- counts; anyone else gets an empty list. A caller who is not a live owner /
+-- admin of the account learns nothing: {bootstrap_available: false,
+-- my_role: null, roles: []}. Not audited (it reveals no value). NULL actor
+-- / account: 22023.
 CREATE OR REPLACE FUNCTION public.vault_overview(p_actor uuid, p_account uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -867,6 +908,9 @@ DECLARE
 BEGIN
   IF p_actor IS NULL OR p_account IS NULL THEN
     RAISE EXCEPTION 'vault_overview: actor and account are required' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF NOT public.vault_live_profile(p_account, p_actor, array['owner', 'admin']) THEN
+    RETURN jsonb_build_object('bootstrap_available', false, 'my_role', NULL, 'roles', '[]'::jsonb);
   END IF;
   v_role := CASE
     WHEN public.vault_has_role(p_account, p_actor, array['super_admin']) THEN 'super_admin'
@@ -882,8 +926,7 @@ BEGIN
      WHERE r.account_id = p_account AND r.revoked_at IS NULL;
   END IF;
   RETURN jsonb_build_object(
-    'bootstrap_available', NOT EXISTS (SELECT 1 FROM public.vault_roles r
-                                        WHERE r.account_id = p_account AND r.revoked_at IS NULL),
+    'bootstrap_available', public.vault_bootstrap_open(p_account),
     'my_role', v_role,
     'roles', v_roles);
 END;
@@ -907,6 +950,7 @@ REVOKE ALL ON FUNCTION
   public.vault_append_only(),
   public.vault_live_profile(uuid, uuid, text[]),
   public.vault_has_role(uuid, uuid, text[]),
+  public.vault_bootstrap_open(uuid),
   public.vault_reason_problem(text),
   public.vault_audit_role(text),
   public.vault_audit_text(text, text),

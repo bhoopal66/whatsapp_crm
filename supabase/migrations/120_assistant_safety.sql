@@ -242,6 +242,12 @@ declare
   v_oldest timestamptz;
   v_order  integer[];
 begin
+  -- The count below relies on a fresh snapshot after the lock (READ COMMITTED); a REPEATABLE READ / SERIALIZABLE
+  -- caller's snapshot predates the lock and would miss the previous holder's slot.
+  if current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'assist_rate_take: requires READ COMMITTED (advisory locks do not serialise under a snapshot taken before the lock)'
+      using errcode = 'invalid_transaction_state';
+  end if;
   v_n := coalesce(array_length(p_keys, 1), 0);
   if v_n = 0 or v_n <> coalesce(array_length(p_limits, 1), 0) or v_n <> coalesce(array_length(p_windows_ms, 1), 0) then
     raise exception 'assist_rate_take: keys, limits and windows must be non-empty and the same length'

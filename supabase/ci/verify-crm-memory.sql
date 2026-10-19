@@ -360,10 +360,10 @@ BEGIN
     NULL, NULL, format('SELECT x.deduped::text FROM pg_temp.mp(%L, %L, %L, %L, 4, %L, %L, 100) x', a_acct,
       'contact', c1, 'Salary 25k (verified)', 'verified', x4), 'false');
 
-  -- Untrusted importance is capped by a CHECK: the write is refused.
+  -- Untrusted importance is capped (memory_put restates the CHECK, which stays as the backstop): the write is refused.
   n := n + 1; failed := failed || pg_temp.cs_check('memory_put: an untrusted item with importance 3 was stored',
     NULL, NULL, format('SELECT x.item_id::text FROM pg_temp.mp(%L, %L, %L, %L, 3, NULL, NULL, 100) x', a_acct,
-      'contact', c1, 'Very important'), 'ERROR 23514 %memory_items_untrusted_importance%');
+      'contact', c1, 'Very important'), 'ERROR 23514 UNTRUSTED_IMPORTANCE:%');
   n := n + 1; failed := failed || pg_temp.cs_check('memory_items: an expiry later than created_at + 24 months was stored',
     NULL, NULL, format($q$INSERT INTO memory_items (account_id, scope_type, scope_id, kind, content, content_hash,
       importance, source_type, expires_at) VALUES (%L, 'contact', %L, 'fact', 'late', %L, 1, 'chat',

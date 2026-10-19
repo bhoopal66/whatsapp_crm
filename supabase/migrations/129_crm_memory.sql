@@ -176,8 +176,10 @@ BEGIN
     END IF;
     RETURN new;
   END IF;
-  -- DELETE
-  IF coalesce(current_setting('wacrm.memory_erase', true), '') <> 'on' THEN
+  -- DELETE: the flag alone is not enough (any session can SET a custom setting); the deleting code must also run
+  -- as the table's owner, which only the SECURITY DEFINER memory_* functions do (087's chat.erase pattern).
+  IF coalesce(current_setting('wacrm.memory_erase', true), '') <> 'on'
+     OR current_user <> (SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c WHERE c.oid = tg_relid) THEN
     RAISE EXCEPTION 'public.memory_items: items are removed only by memory_forget / memory_expire_due / cap eviction / contact deletion (DELETE refused)'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -339,6 +341,37 @@ BEGIN
   IF p_redactions IS NULL OR jsonb_typeof(p_redactions) <> 'object'
      OR EXISTS (SELECT 1 FROM jsonb_each(p_redactions) e WHERE jsonb_typeof(e.value) <> 'number') THEN
     RAISE EXCEPTION 'memory_put: p_redactions is an object of counts' USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  -- The table's CHECKs, restated so a bad write is refused with a fixed message: a CHECK violation raised by the
+  -- INSERT would carry the failing row (the content) in its DETAIL. The CHECKs stay as the backstop; the SQLSTATE
+  -- is theirs (23514), the HINT names the rule. Nothing caller-supplied goes into the error.
+  IF p_content IS NULL OR p_content ~ '^[[:space:]]*$' OR char_length(btrim(p_content)) > 4000 THEN
+    RAISE EXCEPTION 'memory_put: content must be 1..4000 characters and not blank'
+      USING ERRCODE = 'check_violation', HINT = 'BAD_CONTENT';
+  END IF;
+  IF p_content_hash IS NULL OR p_content_hash !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'memory_put: content_hash is not 64 lowercase hex' USING ERRCODE = 'check_violation', HINT = 'BAD_HASH';
+  END IF;
+  IF p_kind IS NULL OR p_kind NOT IN ('fact', 'preference', 'decision', 'document', 'summary') THEN
+    RAISE EXCEPTION 'memory_put: kind is not one memory stores' USING ERRCODE = 'check_violation', HINT = 'BAD_KIND';
+  END IF;
+  IF p_trust IS NOT NULL AND p_trust NOT IN ('untrusted', 'verified') THEN
+    RAISE EXCEPTION 'memory_put: trust is untrusted or verified' USING ERRCODE = 'check_violation', HINT = 'BAD_TRUST';
+  END IF;
+  IF p_importance IS NULL OR p_importance NOT BETWEEN 1 AND 5 THEN
+    RAISE EXCEPTION 'memory_put: importance is 1..5' USING ERRCODE = 'check_violation', HINT = 'BAD_IMPORTANCE';
+  END IF;
+  IF coalesce(p_trust, 'untrusted') <> 'verified' AND p_importance > 2 THEN
+    RAISE EXCEPTION 'memory_put: an untrusted item has importance 1..2' USING ERRCODE = 'check_violation', HINT = 'UNTRUSTED_IMPORTANCE';
+  END IF;
+  IF p_source_type IS NULL OR p_source_type !~ '^[a-z][a-z_]{0,31}$' THEN
+    RAISE EXCEPTION 'memory_put: source_type is not [a-z][a-z_]{0,31}' USING ERRCODE = 'check_violation', HINT = 'BAD_SOURCE_TYPE';
+  END IF;
+  IF char_length(p_source_id) > 200 THEN
+    RAISE EXCEPTION 'memory_put: source_id is longer than 200 characters' USING ERRCODE = 'check_violation', HINT = 'BAD_SOURCE_ID';
+  END IF;
+  IF (p_embedding IS NULL) <> (p_embedding_model IS NULL) THEN
+    RAISE EXCEPTION 'memory_put: embedding and embedding_model come together' USING ERRCODE = 'check_violation', HINT = 'BAD_EMBEDDING';
   END IF;
 
   -- The scope must exist inside the account.
@@ -922,3 +955,89 @@ GRANT EXECUTE ON FUNCTION
   public.memory_compact_candidates(uuid, uuid, text, uuid, integer, integer),
   public.memory_compact_apply(uuid, text, uuid, uuid[], text, text, uuid)
   TO service_role;
+
+-- ---------- 10. Leaving a personal account behind (083's disposable_personal_account) ----------
+
+-- redeem_invitation / add_workspace_member (083, 099, 105) DELETE the
+-- person's personal account when disposable_personal_account() calls it
+-- empty. 083's emptiness list predates 120-129, whose tables reference
+-- accounts with NO ACTION and are append-only, so an owner who had, say,
+-- set up a bank in Settings -> Cases or bootstrapped the vault could
+-- never redeem an invitation: the DELETE failed on the FK and rolled the
+-- redeem back. This restates 083's body exactly, plus every 120-129 table
+-- that carries an account_id, so such an account is simply kept (the
+-- person's row moves, as for any account with data). It lives here, at
+-- the end of the series, because 129 is the last migration to add an
+-- account-scoped table; a later one that adds such a table extends this
+-- list again.
+CREATE OR REPLACE FUNCTION public.disposable_personal_account(p_user_id uuid)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT a.id
+    FROM profiles p
+    JOIN accounts a ON a.id = p.account_id
+   WHERE p.user_id = p_user_id
+     AND a.owner_user_id = p_user_id
+     AND NOT EXISTS (SELECT 1 FROM profiles o
+                      WHERE o.user_id = p_user_id AND o.id <> p.id)
+     AND NOT EXISTS (SELECT 1 FROM profiles o
+                      WHERE o.account_id = a.id AND o.user_id <> p_user_id)
+     AND NOT EXISTS (
+       SELECT 1 FROM contacts WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM conversations WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM broadcasts WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM automations WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM flows WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM pipelines WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM message_templates WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM tags WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM custom_fields WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM contact_notes WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM whatsapp_config WHERE account_id = a.id
+       -- 120 assistant safety
+       UNION ALL SELECT 1 FROM assist_pending_actions WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM assist_audit WHERE account_id = a.id
+       -- 121 vault
+       UNION ALL SELECT 1 FROM vault_items WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM vault_roles WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM vault_audit WHERE account_id = a.id
+       -- 122 cases
+       UNION ALL SELECT 1 FROM case_banks WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_bank_stages WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM cases WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_stage_history WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_reassign_history WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_detail_log WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_view_audit WHERE account_id = a.id
+       -- 123 case tools
+       UNION ALL SELECT 1 FROM case_task_templates WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_doc_requirements WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_tasks WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_task_status_log WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_documents WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_notes WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_note_mentions WHERE account_id = a.id
+       -- 124 case SLA
+       UNION ALL SELECT 1 FROM case_sla_config WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_sla_timers WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_sla_state_log WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_bank_contacts WHERE account_id = a.id
+       -- 126 bank workspaces
+       UNION ALL SELECT 1 FROM bank_workspaces WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM bank_ws_pins WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM bank_ws_threads WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM bank_ws_posts WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM bank_ws_post_retractions WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM bank_ws_actions WHERE account_id = a.id
+       -- 127 bank dashboard, 128 case takeover
+       UNION ALL SELECT 1 FROM case_outcome_reasons WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM case_takeover_log WHERE account_id = a.id
+       -- 129 CRM memory
+       UNION ALL SELECT 1 FROM memory_items WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM memory_acl WHERE account_id = a.id
+       UNION ALL SELECT 1 FROM memory_audit WHERE account_id = a.id);
+$$;
+REVOKE ALL ON FUNCTION public.disposable_personal_account(uuid) FROM PUBLIC, anon, authenticated;
