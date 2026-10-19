@@ -29,6 +29,7 @@ import {
   parseMemoryItems,
   type MemoryItemView,
 } from '@/lib/memory/ui';
+import { SEARCH_Q_MAX } from '@/lib/memory/search-request';
 
 import { MemoryContent } from './memory-content';
 import { MemoryForm } from './memory-form';
@@ -91,7 +92,10 @@ export function MemoryPanel({
           ? await fetch(`${apiBase}/search`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ q, limit: PAGE }),
+              body: JSON.stringify({
+                q: q.slice(0, SEARCH_Q_MAX),
+                limit: PAGE,
+              }),
               cache: 'no-store',
             })
           : await fetch(memoryListUrl(apiBase, { limit: PAGE }), {
@@ -186,6 +190,7 @@ export function MemoryPanel({
           />
           <Input
             type="search"
+            maxLength={SEARCH_Q_MAX}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('searchPlaceholder')}
