@@ -335,6 +335,12 @@ DECLARE
   v_dead       boolean;
   v_ok         boolean;
 BEGIN
+  -- The dedupe and cap reads below rely on a fresh snapshot after the per-scope lock (READ COMMITTED); a
+  -- REPEATABLE READ / SERIALIZABLE caller's snapshot predates the lock and would miss the previous holder's write.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'memory_put: requires READ COMMITTED (advisory locks do not serialise under a snapshot taken before the lock)'
+      USING ERRCODE = 'invalid_transaction_state';
+  END IF;
   IF p_max_items IS NULL OR p_max_items < 1 OR p_max_items > 10000 THEN
     RAISE EXCEPTION 'memory_put: p_max_items must be 1..10000' USING ERRCODE = 'invalid_parameter_value';
   END IF;

@@ -38,6 +38,10 @@ DECLARE
   u_guest  UUID := '00000000-0000-4000-8000-000000129008';  -- bank_guest of A
   u_bown   UUID := '00000000-0000-4000-8000-000000129009';  -- owner of account B
   u_multi  UUID := '00000000-0000-4000-8000-000000129010';  -- active in its own account, inactive viewer row in A
+  u_disp1  UUID := '00000000-0000-4000-8000-000000129011';  -- own personal account, holds a case bank
+  u_disp2  UUID := '00000000-0000-4000-8000-000000129012';  -- own personal account, empty
+  acct_d1  UUID;
+  acct_d2  UUID;
   a_acct   UUID;
   b_acct   UUID;
   wa       UUID;
@@ -659,6 +663,73 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_ok(
     (SELECT count(*) FROM memory_acl) = 3 AND (SELECT count(*) FROM memory_audit) > 0,
     'a lock probe removed rows');
+
+  -- The erase flag alone does not open DELETE: any session can set a
+  -- custom setting, so the guard also needs current_user = the table's
+  -- owner (only the SECURITY DEFINER memory_* functions). A role that
+  -- holds DELETE (and the SELECT its WHERE needs) and sets the flag is
+  -- still refused.
+  GRANT SELECT, DELETE ON public.memory_items TO service_role;
+  PERFORM set_config('wacrm.memory_erase', 'on', true);
+  n := n + 1; failed := failed || pg_temp.cs_check(
+    'memory_items: service_role with DELETE and the erase flag deleted an item (the flag alone opened the guard)',
+    'service_role', NULL, format('DELETE FROM public.memory_items WHERE id = %L', x2), 'ERROR 42501 %DELETE refused%');
+  PERFORM set_config('wacrm.memory_erase', '', true);
+  REVOKE SELECT, DELETE ON public.memory_items FROM service_role;
+
+  -- ---------- write errors carry no caller text ----------
+  -- memory_put restates the table's CHECKs: a refused write raises 23514
+  -- with a fixed message and the rule in the HINT; the CHECK itself would
+  -- have put the failing row (the content) in the DETAIL.
+  FOR i IN 1..2 LOOP
+    p1 := NULL; p2 := NULL; p3 := NULL;
+    BEGIN
+      PERFORM * FROM public.memory_put(a_acct, 'contact', c1, 'fact', 'leak-129-the-customer-secret',
+        CASE WHEN i = 1 THEN 'NOT-A-HASH-leak-129' ELSE pg_temp.h('leak-129-the-customer-secret') END,
+        CASE WHEN i = 1 THEN 1 ELSE 9 END::smallint, NULL, 'chat', NULL, NULL, NULL, NULL, NULL, 100, '{}'::jsonb);
+      p3 := 'accepted';
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS p1 = MESSAGE_TEXT, p2 = PG_EXCEPTION_DETAIL, p3 = PG_EXCEPTION_HINT;
+      r := SQLSTATE;
+    END;
+    n := n + 1; failed := failed || pg_temp.cs_ok(
+      p3 IS NOT DISTINCT FROM (ARRAY['BAD_HASH', 'BAD_IMPORTANCE'])[i] AND r = '23514'
+      AND strpos(coalesce(p1, '') || coalesce(p2, ''), 'leak-129') = 0,
+      format('memory_put: a refused write (case %s) is not 23514 HINT %s with no caller text in message / detail (%s / %s / %s)',
+             i, (ARRAY['BAD_HASH', 'BAD_IMPORTANCE'])[i], p3, p1, p2));
+  END LOOP;
+
+  -- ---------- isolation ----------
+  -- memory_put's dedupe / cap reads follow its per-scope advisory lock;
+  -- under REPEATABLE READ the snapshot predates the lock. One DO block
+  -- cannot change its isolation level, so the guard (25000 unless READ
+  -- COMMITTED, before the lock) is pinned in the source.
+  r := pg_get_functiondef(
+    'public.memory_put(uuid,text,uuid,text,text,text,smallint,text,text,text,uuid,real[],text,uuid,integer,jsonb)'::regprocedure);
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    r ~ 'current_setting\(''transaction_isolation''\) <> ''read committed'''
+    AND r ~ 'invalid_transaction_state'
+    AND strpos(r, 'transaction_isolation') < strpos(r, 'pg_advisory_xact_lock'),
+    'memory_put does not refuse (25000) a caller outside READ COMMITTED before taking its lock');
+
+  -- ---------- disposable personal account (083, restated in 129) ----------
+  -- redeem_invitation deletes a personal account disposable_personal_account()
+  -- calls empty; one holding a 120-129 row (here a case bank) must be kept,
+  -- or the DELETE fails on the FK and the redeem rolls back.
+  INSERT INTO auth.users (id, email) VALUES
+    (u_disp1, 'mem-disp1@example.invalid'), (u_disp2, 'mem-disp2@example.invalid') ON CONFLICT DO NOTHING;
+  SELECT account_id INTO acct_d1 FROM profiles WHERE user_id = u_disp1;
+  SELECT account_id INTO acct_d2 FROM profiles WHERE user_id = u_disp2;
+  IF acct_d1 IS NULL OR acct_d2 IS NULL OR acct_d1 = acct_d2 THEN
+    RAISE EXCEPTION 'fixture: auth.users trigger did not provision personal accounts for the disposable check';
+  END IF;
+  PERFORM public.case_bank_upsert(u_disp1, acct_d1, 'ADCB', 'x');
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    EXISTS (SELECT 1 FROM case_banks WHERE account_id = acct_d1)
+    AND public.disposable_personal_account(u_disp1) IS NULL
+    AND public.disposable_personal_account(u_disp2) IS NOT DISTINCT FROM acct_d2,
+    format('disposable_personal_account: a personal account holding a case bank is disposable, or an empty one is not (%s, %s)',
+           public.disposable_personal_account(u_disp1), public.disposable_personal_account(u_disp2)));
 
   -- ---------- grants ----------
   FOREACH r IN ARRAY ARRAY['service_role', 'authenticated', 'anon'] LOOP

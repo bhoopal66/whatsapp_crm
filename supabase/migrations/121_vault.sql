@@ -670,6 +670,16 @@ begin
     values ('rewrap', 'DENIED', p_actor, p_account, v_tok, jsonb_build_object('why', 'NO_ROLE'));
     return 'DENIED';
   end if;
+  -- vault_put's restated CHECKs, for the same reason: a CHECK violation raised by the UPDATE would carry the row (the
+  -- new ciphertext, iv, tag and the stored blind index) in its DETAIL. Same fixed messages, 23514 and HINTs.
+  if coalesce(octet_length(p_iv), -1) <> 12 or coalesce(octet_length(p_auth_tag), -1) <> 16
+     or coalesce(octet_length(p_ciphertext), 0) not between 1 and 4096 then
+    raise exception 'vault_rewrap: the payload is not a GCM payload (12-byte iv, 16-byte tag, 1..4096-byte ciphertext)'
+      using errcode = 'check_violation', hint = 'BAD_PAYLOAD';
+  end if;
+  if p_new_key_id is null or p_new_key_id !~ '^[A-Za-z0-9._:-]{1,64}$' then
+    raise exception 'vault_rewrap: key_id is not 1..64 of [A-Za-z0-9._:-]' using errcode = 'check_violation', hint = 'BAD_KEY_ID';
+  end if;
   select * into v_item from public.vault_items i
    where i.token = v_tok and i.account_id = p_account and i.deleted_at is null
    for update;

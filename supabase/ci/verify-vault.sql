@@ -18,7 +18,8 @@
 --
 -- Not testable in one DO block: the READ COMMITTED requirement
 -- (vault_reveal and the role functions raise 25000 under REPEATABLE
--- READ; the isolation level cannot change inside a running transaction)
+-- READ; the isolation level cannot change inside a running transaction;
+-- vault_put's guard is pinned in its source instead)
 -- and concurrent bootstraps (serialised by an advisory lock; needs two
 -- sessions).
 --
@@ -42,6 +43,9 @@ DECLARE
   u_bg  UUID := '00000000-0000-4000-8000-000000121009';  -- bank guest
   u_od  UUID := '00000000-0000-4000-8000-000000121010';  -- deactivated owner of A
   u_o2  UUID := '00000000-0000-4000-8000-000000121011';  -- owner of B
+  u_c1  UUID := '00000000-0000-4000-8000-000000121012';  -- owner of C, bootstrapped then demoted
+  u_c2  UUID := '00000000-0000-4000-8000-000000121013';  -- second owner of C
+  c_acct UUID;
   a_acct UUID;
   b_acct UUID;
   v_ct   BYTEA := '\xdeadbeef01'::bytea;
@@ -64,6 +68,7 @@ DECLARE
   cur_id UUID;
   reasons TEXT[];
   whys    TEXT[];
+  em TEXT; ed TEXT; eh TEXT;
   n INT := 0;
   failed TEXT[] := '{}';
 BEGIN
@@ -137,7 +142,8 @@ BEGIN
     (u_o,  'vault-o@example.invalid'),  (u_a1, 'vault-a1@example.invalid'), (u_a2, 'vault-a2@example.invalid'),
     (u_a3, 'vault-a3@example.invalid'), (u_a4, 'vault-a4@example.invalid'), (u_r,  'vault-r@example.invalid'),
     (u_g,  'vault-g@example.invalid'),  (u_v,  'vault-v@example.invalid'),  (u_bg, 'vault-bg@example.invalid'),
-    (u_od, 'vault-od@example.invalid'), (u_o2, 'vault-o2@example.invalid')
+    (u_od, 'vault-od@example.invalid'), (u_o2, 'vault-o2@example.invalid'),
+    (u_c1, 'vault-c1@example.invalid'), (u_c2, 'vault-c2@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_o;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_o2;
@@ -155,6 +161,13 @@ BEGIN
     RAISE EXCEPTION 'fixture: profiles not where expected';
   END IF;
 
+  SELECT account_id INTO c_acct FROM profiles WHERE user_id = u_c1;
+  UPDATE profiles SET account_id = c_acct, account_role = 'owner' WHERE user_id = u_c2;
+  IF c_acct IS NULL OR c_acct IN (a_acct, b_acct)
+     OR (SELECT count(*) FROM profiles WHERE account_id = c_acct AND account_role = 'owner' AND deactivated_at IS NULL) <> 2 THEN
+    RAISE EXCEPTION 'fixture: account C does not have two live owners';
+  END IF;
+
   SET LOCAL ROLE service_role;
 
   -- ---------- overview before any role (Settings -> Vault) ----------
@@ -163,6 +176,15 @@ BEGIN
     failed := failed || format('vault_overview before any role is not bootstrap-available / no role (%s)', vault_overview(u_o, a_acct));
   END IF;
 
+  -- Someone who is not a live owner / admin of the account learns nothing
+  -- from it, not even that it can still be bootstrapped.
+  FOREACH uu IN ARRAY ARRAY[u_g, u_o2] LOOP
+    j := vault_overview(uu, a_acct);
+    n := n + 1;
+    IF j IS DISTINCT FROM '{"bootstrap_available": false, "my_role": null, "roles": []}'::jsonb THEN
+      failed := failed || format('vault_overview for an agent / another account''s owner %s told them something (%s)', uu, j);
+    END IF;
+  END LOOP;
   -- ---------- bootstrap ----------
   FOREACH uu IN ARRAY ARRAY[u_a1, u_g, u_od, u_o2] LOOP
     s := vault_role_bootstrap(u_o, a_acct, uu);
@@ -198,6 +220,32 @@ BEGIN
   END IF;
   s := vault_role_bootstrap(u_o2, b_acct, u_o2);
   IF s IS DISTINCT FROM 'OK' THEN RAISE EXCEPTION 'fixture: bootstrap of B: %', s; END IF;
+  -- Account C, two live owners: bootstrap reopens once no super_admin row
+  -- counts (its holder demoted), else a workspace whose every super_admin
+  -- left could never grant again.
+  s := vault_role_bootstrap(u_c1, c_acct, u_c1);
+  n := n + 1;
+  IF s || '|' || pg_temp.v_why(c_acct) IS DISTINCT FROM 'OK|role_bootstrap:OK:' THEN
+    failed := failed || format('bootstrap of C''s first owner: %s %s', s, pg_temp.v_why(c_acct));
+  END IF;
+  s := vault_role_bootstrap(u_c2, c_acct, u_c2);
+  n := n + 1;
+  IF s || '|' || pg_temp.v_why(c_acct) IS DISTINCT FROM 'DENIED|role_bootstrap:DENIED:WORKSPACE_HAS_ROLES' THEN
+    failed := failed || format('a bootstrap of C''s second owner while the first counts was not DENIED WORKSPACE_HAS_ROLES: %s %s', s, pg_temp.v_why(c_acct));
+  END IF;
+  RESET ROLE;
+  UPDATE profiles SET account_role = 'agent' WHERE user_id = u_c1;
+  SET LOCAL ROLE service_role;
+  j := vault_overview(u_c2, c_acct);
+  n := n + 1;
+  IF j->>'bootstrap_available' IS DISTINCT FROM 'true' THEN
+    failed := failed || format('vault_overview does not offer bootstrap once the only super_admin was demoted (%s)', j);
+  END IF;
+  s := vault_role_bootstrap(u_c2, c_acct, u_c2);
+  n := n + 1;
+  IF s || '|' || pg_temp.v_why(c_acct) IS DISTINCT FROM 'OK|role_bootstrap:OK:' THEN
+    failed := failed || format('bootstrap was not reopened once the only super_admin was demoted: %s %s', s, pg_temp.v_why(c_acct));
+  END IF;
 
   -- ---------- grant / revoke ----------
   s := vault_role_grant(u_o, a_acct, u_a1, 'admin');
@@ -336,6 +384,45 @@ BEGIN
   n := n + 1;
   IF pg_temp.v_q(format('SELECT count(*) FROM vault_items WHERE account_id = %L', a_acct))::bigint <> c1 THEN
     failed := failed || 'a BAD_SUBJECT put stored an item'::text;
+  END IF;
+  -- A refused payload raises 23514 with a fixed message and the rule in
+  -- the HINT: the table CHECK would have put the row (ciphertext, blind
+  -- index) in the DETAIL. Cases 1-4 vault_put, 5-6 vault_rewrap of t2.
+  FOR k IN 1..6 LOOP
+    tx := 'feedface0' || k;                       -- distinctive ciphertext hex
+    s := pg_temp.v_bi('leak-' || k);              -- distinctive blind index
+    em := NULL; ed := NULL; eh := NULL; td := NULL;
+    BEGIN
+      IF k <= 4 THEN
+        PERFORM vault_put(u_o, a_acct, 'EID', decode(tx, 'hex'),
+          decode(repeat('00', CASE WHEN k = 1 THEN 11 ELSE 12 END), 'hex'),
+          decode(repeat('11', CASE WHEN k = 2 THEN 15 ELSE 16 END), 'hex'),
+          CASE WHEN k = 3 THEN 'bad key ' || s ELSE 'k1' END,
+          CASE WHEN k = 4 THEN upper(s) ELSE s END, 'contact', gen_random_uuid());
+      ELSE
+        PERFORM vault_rewrap(u_o, a_acct, t2, 'k1', decode(tx, 'hex'),
+          decode(repeat('00', CASE WHEN k = 5 THEN 11 ELSE 12 END), 'hex'), v_tg,
+          CASE WHEN k = 6 THEN 'bad key ' || s ELSE 'knew' END);
+      END IF;
+      td := 'accepted';
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS em = MESSAGE_TEXT, ed = PG_EXCEPTION_DETAIL, eh = PG_EXCEPTION_HINT;
+      td := SQLSTATE;
+    END;
+    n := n + 1;
+    IF td IS DISTINCT FROM '23514'
+       OR eh IS DISTINCT FROM (ARRAY['BAD_PAYLOAD', 'BAD_PAYLOAD', 'BAD_KEY_ID', 'BAD_BLIND_INDEX', 'BAD_PAYLOAD', 'BAD_KEY_ID'])[k]
+       OR strpos(lower(coalesce(em, '') || coalesce(ed, '')), tx) > 0
+       OR strpos(lower(coalesce(em, '') || coalesce(ed, '')), s) > 0
+       OR strpos(lower(coalesce(em, '') || coalesce(ed, '')), pg_temp.v_item(t2)->>'bi') > 0 THEN
+      failed := failed || format('%s with a bad payload (case %s) is not 23514 HINT %s free of the ciphertext / blind index: %s %s / %s / %s',
+        CASE WHEN k <= 4 THEN 'vault_put' ELSE 'vault_rewrap' END, k,
+        (ARRAY['BAD_PAYLOAD', 'BAD_PAYLOAD', 'BAD_KEY_ID', 'BAD_BLIND_INDEX', 'BAD_PAYLOAD', 'BAD_KEY_ID'])[k], td, eh, em, ed);
+    END IF;
+  END LOOP;
+  n := n + 1;
+  IF pg_temp.v_item(t2)->>'key_id' IS DISTINCT FROM 'k1' THEN
+    failed := failed || 'a refused rewrap moved the item'::text;
   END IF;
 
   -- ---------- reveal ----------
@@ -674,6 +761,19 @@ BEGIN
     IF tx NOT LIKE 'ERROR 42501%' THEN failed := failed || format('vault_roles guard let the owner through: %s (%s)', s, tx); END IF;
   END LOOP;
 
+  -- ---------- isolation ----------
+  -- vault_put dedupes after an advisory lock; under REPEATABLE READ the
+  -- snapshot predates the lock. One DO block cannot change its isolation
+  -- level, so the guard (25000 unless READ COMMITTED, before the lock) is
+  -- pinned in the source.
+  tx := pg_get_functiondef('public.vault_put(uuid,uuid,text,bytea,bytea,bytea,text,text,text,uuid)'::regprocedure);
+  n := n + 1;
+  IF NOT (tx ~ 'current_setting\(''transaction_isolation''\) <> ''read committed'''
+          AND tx ~ 'invalid_transaction_state'
+          AND strpos(tx, 'transaction_isolation') < strpos(tx, 'pg_advisory_xact_lock')) THEN
+    failed := failed || 'vault_put does not refuse (25000) a caller outside READ COMMITTED before taking its lock'::text;
+  END IF;
+
   -- ---------- grants ----------
   n := n + 1;
   IF EXISTS (SELECT 1 FROM unnest(ARRAY['service_role', 'anon', 'authenticated']) rl,
@@ -702,11 +802,11 @@ BEGIN
      OR EXISTS (SELECT 1 FROM pg_proc p, unnest(ARRAY['service_role', 'anon', 'authenticated']) rl
                  WHERE p.pronamespace = 'public'::regnamespace
                    AND p.proname IN ('vault_new_token', 'vault_live_profile', 'vault_has_role', 'vault_reason_problem', 'vault_audit_role',
-                                     'vault_audit_text', 'vault_items_guard', 'vault_roles_guard', 'vault_append_only')
+                                     'vault_audit_text', 'vault_items_guard', 'vault_roles_guard', 'vault_append_only', 'vault_bootstrap_open')
                    AND has_function_privilege(rl, p.oid, 'EXECUTE'))
      OR (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
             AND p.proname IN ('vault_new_token', 'vault_live_profile', 'vault_has_role', 'vault_reason_problem', 'vault_audit_role',
-                              'vault_audit_text', 'vault_items_guard', 'vault_roles_guard', 'vault_append_only')) <> 9 THEN
+                              'vault_audit_text', 'vault_items_guard', 'vault_roles_guard', 'vault_append_only', 'vault_bootstrap_open')) <> 10 THEN
     failed := failed || 'anon / authenticated execute a vault function, or an API role executes a helper'::text;
   END IF;
 

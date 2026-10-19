@@ -23,7 +23,8 @@
 --
 -- Not testable in one DO block (one session, one snapshot): two
 -- requests racing for the last cap slot, and concurrent rate takes on
--- the same key. Both rest on the advisory locks in 120.
+-- the same key. Both rest on the advisory locks in 120; the READ
+-- COMMITTED guard those locks need is pinned in the function's source.
 --
 -- Rows are aged (created_at / expires_at moved into the past) as the
 -- table owner with the guard and audit triggers disabled for that one
@@ -518,6 +519,18 @@ BEGIN
     format('rate: reset did not clear exactly its key with one rate_reset audit row (%s, %s)', x, st));
   x := pg_temp.take(ARRAY[k_w, k_u], ARRAY[10, 3], ARRAY[60000, 60000]::bigint[]);
   n := n + 1; failed := failed || pg_temp.cs_ok(x = 'true/-/0', format('rate: a reset key was still refused (%s)', x));
+
+  -- ---------- isolation ----------
+  -- assist_rate_take counts after its advisory locks; under REPEATABLE
+  -- READ the snapshot predates the lock and misses the previous holder's
+  -- slot. One DO block cannot change its isolation level, so the guard
+  -- (25000 unless READ COMMITTED, before any lock) is pinned in the source.
+  st := pg_get_functiondef('public.assist_rate_take(text[],integer[],bigint[])'::regprocedure);
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    st ~ 'current_setting\(''transaction_isolation''\) <> ''read committed'''
+    AND st ~ 'invalid_transaction_state'
+    AND strpos(st, 'transaction_isolation') < strpos(st, 'pg_advisory_xact_lock'),
+    'rate: assist_rate_take does not refuse (25000) a caller outside READ COMMITTED before taking its locks');
 
   -- ---------- grants ----------
   SELECT string_agg(rl || '/' || pv || '/' || t, ',' ORDER BY rl COLLATE "C", pv COLLATE "C", t COLLATE "C") INTO st
