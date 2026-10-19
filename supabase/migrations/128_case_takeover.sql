@@ -77,12 +77,16 @@ DECLARE
   v_role text;
   v_id   bigint;
 BEGIN
-  SELECT * INTO c FROM public.cases x WHERE x.id = p_case;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
+  -- The lock (123/124's mode) serialises a concurrent case_reassign against
+  -- the role check below.
+  SELECT * INTO c FROM public.cases x WHERE x.id = p_case FOR NO KEY UPDATE;
+  -- An unknown case and a case the actor may not take over answer alike, so
+  -- the error is no oracle for which case ids exist.
+  IF FOUND THEN
+    v_role := public.case_role(p_case, p_actor);
   END IF;
-  v_role := public.case_role(p_case, p_actor);
-  IF NOT (coalesce(v_role IN ('coordinator', 'team_lead'), false) AND public.case_rule_can_write(v_role)) THEN
+  IF NOT FOUND OR NOT (coalesce(v_role IN ('coordinator', 'team_lead'), false)
+                       AND coalesce(public.case_rule_can_write(v_role), false)) THEN
     RAISE EXCEPTION 'case %: % may not take over', p_case, p_actor
       USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
   END IF;
