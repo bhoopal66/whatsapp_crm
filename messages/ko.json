@@ -6551,5 +6551,181 @@
     "emptyBody": "내가 상담원이나 코디네이터인 케이스, 또는 내 팀이 담당하는 케이스는 제출 건이 케이스로 열리면 여기에 표시됩니다.",
     "noMatchesTitle": "필터에 맞는 케이스가 없습니다",
     "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요."
+  },
+  "CasePage": {
+    "back": "케이스 목록으로",
+    "notFound": "케이스를 찾을 수 없거나 볼 권한이 없습니다.",
+    "forbidden": "이 케이스에 접근할 수 없습니다.",
+    "loadFailed": "케이스를 불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "untitled": "케이스",
+    "ref": "참조 {ref}",
+    "due": "마감 {when}",
+    "people": "상담원: {agent} · 코디네이터: {coordinator}",
+    "group": "WhatsApp 그룹",
+    "closed": "종료됨",
+    "closedWith": "종료됨: {outcome}",
+    "reasonLine": "사유: {reason}",
+    "alsoViewing": "함께 보는 중: {names}",
+    "unknownPerson": "이전 멤버",
+    "nobody": "없음",
+    "system": "시스템",
+    "empty": "(비어 있음)",
+    "cancel": "취소",
+    "save": "저장",
+    "close": "닫기",
+    "tabLoading": "불러오는 중…",
+    "gate": {
+      "write": "이 케이스에서 맡은 역할로는 변경할 수 없습니다.",
+      "reassign": "팀장 또는 관리자만 이 케이스를 재배정할 수 있습니다.",
+      "closed": "종료된 케이스입니다."
+    },
+    "actions": {
+      "move": "단계 이동",
+      "edit": "정보 수정",
+      "reassign": "재배정",
+      "docs": "누락 서류 요청",
+      "takeover": "대화 인계받기"
+    },
+    "tabs": {
+      "overview": "개요",
+      "timeline": "타임라인",
+      "conversation": "대화",
+      "tasks": "작업",
+      "documents": "서류",
+      "notes": "메모",
+      "bank-contacts": "은행 담당자",
+      "memory": "메모리",
+      "audit": "감사 기록"
+    },
+    "priority": {
+      "low": "낮은 우선순위",
+      "normal": "보통 우선순위",
+      "high": "높은 우선순위",
+      "urgent": "긴급"
+    },
+    "sla": {
+      "on_track": "정상",
+      "due_soon": "마감 임박",
+      "overdue": "기한 초과",
+      "unknown": "아직 확인 전"
+    },
+    "timers": {
+      "customer_reply": "고객 응답",
+      "bank_response": "은행 회신",
+      "document_chase": "서류 독촉"
+    },
+    "roles": {
+      "agent": "상담원",
+      "coordinator": "코디네이터"
+    },
+    "fields": {
+      "bank_code": "은행",
+      "product": "상품",
+      "amount": "금액",
+      "priority": "우선순위",
+      "due_at": "마감일"
+    },
+    "reasons": {
+      "INCOMPLETE_DOCS": "서류 미비",
+      "CREDIT_POLICY": "신용 정책",
+      "INCOME_INSUFFICIENT": "소득 부족",
+      "KYC_AML": "KYC / AML",
+      "CUSTOMER_WITHDREW": "고객 철회",
+      "OTHER": "기타"
+    },
+    "overview": {
+      "timers": "SLA 타이머",
+      "noTimers": "이 케이스에는 SLA 타이머가 없습니다.",
+      "stopped": "{when} 중지됨",
+      "timerLine": "단계 {stage} · 마감 {due} · {soon}부터 마감 임박",
+      "stages": "단계 기록",
+      "noStages": "아직 단계 변경이 없습니다.",
+      "stageStart": "{to} 단계로 시작",
+      "stageMove": "{from} → {to}",
+      "reassignments": "재배정 기록",
+      "noReassignments": "재배정된 적이 없습니다.",
+      "reassigned": "{field}: {from} → {to}",
+      "details": "정보 변경 기록",
+      "noDetails": "아직 정보 변경이 없습니다.",
+      "detailChange": "{field}: {from} → {to}"
+    },
+    "move": {
+      "title": "단계 이동",
+      "body": "현재 단계는 {stage}입니다. 옮길 단계를 고르세요.",
+      "stage": "새 단계",
+      "pick": "단계 선택",
+      "finalHint": "이 단계로 옮기면 케이스가 종료되고 WhatsApp 그룹도 끝납니다.",
+      "confirm": "이동",
+      "done": "{stage} 단계로 이동했습니다",
+      "movedTitle": "{stage} 단계로 이동함",
+      "doneBody": "케이스가 종료되었습니다.",
+      "reasonBody": "거절 또는 철회된 사유는 무엇인가요? 한 번만 기록할 수 있습니다.",
+      "reason": "사유",
+      "pickReason": "사유 선택",
+      "reasonText": "상세 내용 (선택)",
+      "later": "나중에 하기",
+      "saveReason": "사유 저장",
+      "reasonSaved": "사유를 저장했습니다",
+      "group": {
+        "ended": "WhatsApp 그룹이 종료되었습니다.",
+        "pending": "WhatsApp 그룹 종료가 대기 중이며 다시 시도됩니다.",
+        "failed": "WhatsApp 그룹을 닫지 못했습니다. 다시 시도되니 그룹 페이지를 확인하세요."
+      }
+    },
+    "edit": {
+      "title": "정보 수정",
+      "body": "변경 내용은 케이스 기록에 남습니다.",
+      "pickBank": "은행 선택",
+      "amountAed": "금액 (AED)",
+      "clearDue": "지우기",
+      "saved": "정보를 저장했습니다"
+    },
+    "reassign": {
+      "title": "재배정",
+      "body": "케이스의 상담원 또는 코디네이터를 다른 사람에게 넘깁니다.",
+      "field": "역할",
+      "person": "담당자",
+      "pick": "담당자 선택",
+      "current": "현재: {name}",
+      "confirm": "재배정",
+      "done": "{name}님에게 재배정했습니다"
+    },
+    "docs": {
+      "title": "누락 서류 요청",
+      "body": "아직 받지 못한 필수 서류를 모두 적은 메시지 한 통이 케이스의 WhatsApp 그룹으로 고객에게 전송됩니다.",
+      "confirm": "요청 보내기",
+      "sent": "서류 요청을 보냈습니다",
+      "sentNotRecorded": "요청은 전송되었지만 기록되지 않았습니다. 다시 보내지 마세요.",
+      "nothingMissing": "누락된 서류가 없습니다. 필수 서류를 모두 받았습니다.",
+      "blocked": "전송하지 않음: 고객이 수신을 거부했거나 연락 금지로 표시되어 있습니다.",
+      "refused": "전송하지 않음: 이 그룹의 명단에 없거나 지금은 그룹에 메시지를 보낼 수 없습니다.",
+      "rateLimited": "이 그룹에 메시지를 너무 많이 보냈습니다. 1분 후 다시 시도하세요.",
+      "sendFailed": "요청을 보내지 못했습니다. 잠시 후 다시 시도하세요."
+    },
+    "takeover": {
+      "awaiting": "인계 안내 메시지가 승인 대기 중입니다.",
+      "done": "대화를 인계받았습니다",
+      "failed": "대화를 인계받지 못했습니다"
+    },
+    "errors": {
+      "stageNotConfigured": "이 은행의 단계 목록에 없는 단계입니다.",
+      "outcomeInvalid": "결과가 단계와 맞지 않습니다.",
+      "caseClosed": "종료된 케이스는 더 이상 변경할 수 없습니다.",
+      "finalStage": "케이스가 이미 최종 단계에 있습니다.",
+      "bankUnknown": "설정되지 않은 은행입니다.",
+      "stageNotInList": "케이스의 현재 단계가 그 은행의 단계 목록에 없습니다. 새 은행이 쓰는 단계로 먼저 옮기거나 다른 은행을 고르세요.",
+      "priorityInvalid": "올바르지 않은 우선순위입니다.",
+      "dueInvalid": "올바르지 않은 마감일입니다.",
+      "amountInvalid": "금액은 소수점 둘째 자리까지의 숫자로 입력하세요.",
+      "reasonInvalid": "사유를 고르세요.",
+      "reasonTooLong": "상세 내용이 너무 깁니다 (최대 500자).",
+      "reasonNotDeclined": "사유는 거절 또는 철회된 케이스에만 기록할 수 있습니다.",
+      "reasonAlreadySet": "이 케이스에는 이미 사유가 기록되어 있습니다.",
+      "assigneeInvalid": "이 사람은 케이스에서 그 역할을 맡을 수 없습니다.",
+      "notAllowed": "이 작업을 할 권한이 없습니다.",
+      "notFound": "케이스를 찾을 수 없습니다.",
+      "unknown": "문제가 발생했습니다. 다시 시도하세요."
+    }
   }
 }

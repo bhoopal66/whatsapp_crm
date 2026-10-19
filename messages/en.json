@@ -6551,5 +6551,181 @@
     "emptyBody": "Cases you are the agent or coordinator on, or that your team works, show up here once a submission is opened as a case.",
     "noMatchesTitle": "No cases match these filters",
     "noMatchesBody": "Try fewer filters, or include closed cases."
+  },
+  "CasePage": {
+    "back": "Back to cases",
+    "notFound": "This case was not found, or you cannot see it.",
+    "forbidden": "You do not have access to this case.",
+    "loadFailed": "The case could not be loaded.",
+    "retry": "Try again",
+    "untitled": "Case",
+    "ref": "Ref {ref}",
+    "due": "Due {when}",
+    "people": "Agent: {agent} · Coordinator: {coordinator}",
+    "group": "WhatsApp group",
+    "closed": "Closed",
+    "closedWith": "Closed: {outcome}",
+    "reasonLine": "Reason: {reason}",
+    "alsoViewing": "Also viewing: {names}",
+    "unknownPerson": "Former member",
+    "nobody": "Nobody",
+    "system": "System",
+    "empty": "(empty)",
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "tabLoading": "Loading…",
+    "gate": {
+      "write": "Your role on this case cannot change it.",
+      "reassign": "Only a team lead or admin can reassign this case.",
+      "closed": "This case is closed."
+    },
+    "actions": {
+      "move": "Move stage",
+      "edit": "Edit details",
+      "reassign": "Reassign",
+      "docs": "Request missing documents",
+      "takeover": "Take over"
+    },
+    "tabs": {
+      "overview": "Overview",
+      "timeline": "Timeline",
+      "conversation": "Conversation",
+      "tasks": "Tasks",
+      "documents": "Documents",
+      "notes": "Notes",
+      "bank-contacts": "Bank contacts",
+      "memory": "Memory",
+      "audit": "Audit"
+    },
+    "priority": {
+      "low": "Low priority",
+      "normal": "Normal priority",
+      "high": "High priority",
+      "urgent": "Urgent"
+    },
+    "sla": {
+      "on_track": "On track",
+      "due_soon": "Due soon",
+      "overdue": "Overdue",
+      "unknown": "Not checked yet"
+    },
+    "timers": {
+      "customer_reply": "Customer reply",
+      "bank_response": "Bank response",
+      "document_chase": "Document chase"
+    },
+    "roles": {
+      "agent": "Agent",
+      "coordinator": "Coordinator"
+    },
+    "fields": {
+      "bank_code": "Bank",
+      "product": "Product",
+      "amount": "Amount",
+      "priority": "Priority",
+      "due_at": "Due date"
+    },
+    "reasons": {
+      "INCOMPLETE_DOCS": "Incomplete documents",
+      "CREDIT_POLICY": "Credit policy",
+      "INCOME_INSUFFICIENT": "Income not sufficient",
+      "KYC_AML": "KYC / AML",
+      "CUSTOMER_WITHDREW": "Customer withdrew",
+      "OTHER": "Other"
+    },
+    "overview": {
+      "timers": "SLA timers",
+      "noTimers": "No SLA timers on this case.",
+      "stopped": "Stopped {when}",
+      "timerLine": "Stage {stage} · due {due} · due soon from {soon}",
+      "stages": "Stage history",
+      "noStages": "No stage changes yet.",
+      "stageStart": "Opened at {to}",
+      "stageMove": "{from} → {to}",
+      "reassignments": "Reassignments",
+      "noReassignments": "Never reassigned.",
+      "reassigned": "{field}: {from} → {to}",
+      "details": "Detail changes",
+      "noDetails": "No detail changes yet.",
+      "detailChange": "{field}: {from} → {to}"
+    },
+    "move": {
+      "title": "Move stage",
+      "body": "The case is at {stage}. Pick the stage to move it to.",
+      "stage": "New stage",
+      "pick": "Choose a stage",
+      "finalHint": "This closes the case and ends its WhatsApp group.",
+      "confirm": "Move",
+      "done": "Moved to {stage}",
+      "movedTitle": "Moved to {stage}",
+      "doneBody": "The case is closed.",
+      "reasonBody": "Why was it declined or withdrawn? This can be recorded once.",
+      "reason": "Reason",
+      "pickReason": "Choose a reason",
+      "reasonText": "Details (optional)",
+      "later": "Skip for now",
+      "saveReason": "Save reason",
+      "reasonSaved": "Reason saved",
+      "group": {
+        "ended": "The WhatsApp group was ended.",
+        "pending": "Ending the WhatsApp group is pending; it will be retried.",
+        "failed": "The WhatsApp group could not be closed. It will be retried; check the group page."
+      }
+    },
+    "edit": {
+      "title": "Edit details",
+      "body": "Changes are recorded in the case history.",
+      "pickBank": "Choose a bank",
+      "amountAed": "Amount (AED)",
+      "clearDue": "Clear",
+      "saved": "Details saved"
+    },
+    "reassign": {
+      "title": "Reassign",
+      "body": "Hand the case's agent or coordinator role to someone else.",
+      "field": "Role",
+      "person": "Person",
+      "pick": "Choose a person",
+      "current": "Now: {name}",
+      "confirm": "Reassign",
+      "done": "Reassigned to {name}"
+    },
+    "docs": {
+      "title": "Request missing documents",
+      "body": "The customer gets one message in the case's WhatsApp group listing every required document not yet received.",
+      "confirm": "Send request",
+      "sent": "Document request sent",
+      "sentNotRecorded": "The request was sent, but not recorded. Do not send it again.",
+      "nothingMissing": "Nothing is missing: every required document is in.",
+      "blocked": "Not sent: the customer opted out or is marked do-not-contact.",
+      "refused": "Not sent: you are not on this group's list, or the group cannot take messages right now.",
+      "rateLimited": "Too many messages to this group. Wait a minute and try again.",
+      "sendFailed": "The request could not be sent. Try again later."
+    },
+    "takeover": {
+      "awaiting": "The hand-over message is awaiting approval.",
+      "done": "You have taken over the conversation",
+      "failed": "Could not take over the conversation"
+    },
+    "errors": {
+      "stageNotConfigured": "That stage is not in this bank's stage list.",
+      "outcomeInvalid": "That outcome does not match the stage.",
+      "caseClosed": "This case is closed and can no longer change.",
+      "finalStage": "The case is already at a final stage.",
+      "bankUnknown": "That bank is not set up.",
+      "stageNotInList": "The case's current stage is not in that bank's stage list. Move the case to a stage the new bank uses, or pick another bank.",
+      "priorityInvalid": "That priority is not valid.",
+      "dueInvalid": "That due date is not valid.",
+      "amountInvalid": "Enter the amount as a number, with at most two decimals.",
+      "reasonInvalid": "Choose a reason.",
+      "reasonTooLong": "The details are too long (500 characters at most).",
+      "reasonNotDeclined": "A reason can only be recorded for a declined or withdrawn case.",
+      "reasonAlreadySet": "A reason was already recorded for this case.",
+      "assigneeInvalid": "That person cannot take this role on the case.",
+      "notAllowed": "You are not allowed to do that.",
+      "notFound": "The case was not found.",
+      "unknown": "Something went wrong. Try again."
+    }
   }
 }
