@@ -368,3 +368,18 @@ jobs:
       # included; only service_role executes the 11 API functions.
       - name: Verify CRM memory
         run: supabase db query --local --file supabase/ci/verify-crm-memory.sql
+      # Migration 124's case SLA: config is owner/admin only, for a bank
+      # of the account and a stage in its list; deadlines are snapshotted
+      # at start, due soon in the last 20 % (or due_soon_minutes), overdue
+      # from due_at; every stage move (case_open, case_set_stage, the v1
+      # final status) restarts the configured timers and stops the
+      # others, a customer message / bank response stops its timer, a
+      # received document restarts or stops document_chase; the job logs
+      # each change once as system; sla_state is the worst running state;
+      # bank contacts are capped, never blank, append-only; the timeline
+      # merges every kind in time order for readers only; no API role
+      # writes a 124 table, only service_role executes the 8 public
+      # functions; and 123's write lock stays FOR NO KEY UPDATE (FOR SHARE
+      # deadlocked two concurrent document receipts).
+      - name: Verify case SLA
+        run: supabase db query --local --file supabase/ci/verify-case-sla.sql
