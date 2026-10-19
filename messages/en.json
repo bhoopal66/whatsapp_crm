@@ -102,7 +102,8 @@
     "submissionGroups": "Submission groups",
     "submissionGroup": "Submission group",
     "cases": "Cases",
-    "banks": "Banks"
+    "banks": "Banks",
+    "bank": "Bank"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -6726,6 +6727,112 @@
       "notAllowed": "You are not allowed to do that.",
       "notFound": "The case was not found.",
       "unknown": "Something went wrong. Try again."
+    }
+  },
+  "Banks": {
+    "title": "Banks",
+    "subtitle": "One internal space per partner bank: discussion, pinned info and action items.",
+    "pageSubtitle": "Internal staff notes about this bank. Nothing here is ever sent to a customer or the bank.",
+    "access": {
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "openSpace": "Open a bank space",
+    "openSpacePick": "Choose a bank",
+    "opening": "Opening…",
+    "emptyTitle": "No bank spaces yet",
+    "emptyBody": "A bank appears here once you have an open case with it, or once an admin opens a space for it.",
+    "loadFailed": "Couldn't load this.",
+    "retry": "Retry",
+    "notFound": "This bank space doesn't exist or you don't have access to it.",
+    "backToBanks": "All banks",
+    "loading": "Loading…",
+    "unknownPerson": "Someone",
+    "justNow": "just now",
+    "tabs": {
+      "threads": "Threads",
+      "pinned": "Pinned",
+      "actions": "Actions",
+      "cases": "Cases",
+      "dashboard": "Dashboard"
+    },
+    "threads": {
+      "newThread": "New thread",
+      "empty": "No threads yet. Start one to discuss this bank with your team.",
+      "posts": "{count, plural, =1 {1 post} other {# posts}}",
+      "byWhom": "{name} · {when}",
+      "actionChip": "Action needed: {name}, due {due}",
+      "back": "All threads",
+      "titleLabel": "Title",
+      "bodyLabel": "First post",
+      "linkLabel": "Link to a case (optional)",
+      "noLink": "No case",
+      "create": "Create thread",
+      "creating": "Creating…",
+      "cancel": "Cancel",
+      "reply": "Reply",
+      "replyPlaceholder": "Write a reply…",
+      "composerPlaceholder": "Write a post…",
+      "send": "Post",
+      "sending": "Posting…",
+      "retract": "Retract",
+      "retracted": "Retracted",
+      "retractTitle": "Retract this post?",
+      "retractBody": "Its text is removed for everyone. This cannot be undone.",
+      "caseChip": "Case: {stage}",
+      "caseHidden": "Linked case",
+      "markAction": "Mark action needed",
+      "ownerLabel": "Owner",
+      "ownerPick": "Choose a person",
+      "dueLabel": "Due",
+      "mark": "Mark",
+      "marking": "Marking…",
+      "chars": "{used} / {max}"
+    },
+    "pinned": {
+      "kinds": {
+        "bank_contacts": "Bank contacts",
+        "product_rules": "Product rules",
+        "required_documents": "Required documents",
+        "turnaround_times": "Turnaround times",
+        "known_pitfalls": "Known pitfalls"
+      },
+      "empty": "Nothing pinned yet.",
+      "edit": "Edit",
+      "history": "History",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "blankClears": "Leave it blank to clear this section.",
+      "historyTitle": "History: {kind}",
+      "historyEmpty": "No versions yet.",
+      "cleared": "Cleared",
+      "byWhom": "{name} · {when}",
+      "readOnly": "Admins, team leaders and coordinators of an open case with this bank can edit pinned info."
+    },
+    "actions": {
+      "empty": "No action items.",
+      "owner": "Owner: {name}",
+      "due": "Due {date}",
+      "overdue": "Overdue",
+      "thread": "Open thread",
+      "task": "Task: {status}",
+      "caseLinked": "Case-linked"
+    },
+    "errors": {
+      "linkInvalid": "That case isn't one of this bank's cases you can see.",
+      "bodyInvalid": "The text is empty or too long.",
+      "titleInvalid": "The title is empty or too long.",
+      "ownerInvalid": "That person can't own this action.",
+      "dueRequired": "Choose a due date and time.",
+      "dueInvalid": "That due date isn't valid.",
+      "alreadyMarked": "This thread already has an action.",
+      "alreadyRetracted": "That post was already retracted.",
+      "kindInvalid": "That section doesn't exist.",
+      "parentInvalid": "That post can't be replied to here.",
+      "notAllowed": "You aren't allowed to do that here.",
+      "notFound": "It no longer exists.",
+      "failed": "Something went wrong. Try again."
     }
   }
 }

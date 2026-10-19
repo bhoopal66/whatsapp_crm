@@ -102,7 +102,8 @@
     "submissionGroups": "제출 그룹",
     "submissionGroup": "제출 그룹 상세",
     "cases": "케이스",
-    "banks": "은행"
+    "banks": "은행",
+    "bank": "은행"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -6726,6 +6727,112 @@
       "notAllowed": "이 작업을 할 권한이 없습니다.",
       "notFound": "케이스를 찾을 수 없습니다.",
       "unknown": "문제가 발생했습니다. 다시 시도하세요."
+    }
+  },
+  "Banks": {
+    "title": "은행",
+    "subtitle": "제휴 은행별 내부 공간: 토론, 고정 정보, 조치 항목.",
+    "pageSubtitle": "이 은행에 대한 직원 전용 내부 메모입니다. 여기 내용은 고객이나 은행에 절대 전송되지 않습니다.",
+    "access": {
+      "admin": "관리자",
+      "member": "멤버"
+    },
+    "openSpace": "은행 공간 열기",
+    "openSpacePick": "은행 선택",
+    "opening": "여는 중…",
+    "emptyTitle": "아직 은행 공간이 없습니다",
+    "emptyBody": "해당 은행의 진행 중인 케이스가 있거나 관리자가 공간을 열면 여기에 은행이 표시됩니다.",
+    "loadFailed": "불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "notFound": "이 은행 공간이 없거나 접근 권한이 없습니다.",
+    "backToBanks": "전체 은행",
+    "loading": "불러오는 중…",
+    "unknownPerson": "알 수 없는 사용자",
+    "justNow": "방금",
+    "tabs": {
+      "threads": "스레드",
+      "pinned": "고정 정보",
+      "actions": "조치 항목",
+      "cases": "케이스",
+      "dashboard": "대시보드"
+    },
+    "threads": {
+      "newThread": "새 스레드",
+      "empty": "아직 스레드가 없습니다. 스레드를 시작해 팀과 이 은행에 대해 논의하세요.",
+      "posts": "게시글 {count}개",
+      "byWhom": "{name} · {when}",
+      "actionChip": "조치 필요: {name}, 기한 {due}",
+      "back": "전체 스레드",
+      "titleLabel": "제목",
+      "bodyLabel": "첫 게시글",
+      "linkLabel": "케이스 연결 (선택)",
+      "noLink": "연결 안 함",
+      "create": "스레드 만들기",
+      "creating": "만드는 중…",
+      "cancel": "취소",
+      "reply": "답글",
+      "replyPlaceholder": "답글을 입력하세요…",
+      "composerPlaceholder": "게시글을 입력하세요…",
+      "send": "게시",
+      "sending": "게시 중…",
+      "retract": "철회",
+      "retracted": "철회됨",
+      "retractTitle": "이 게시글을 철회할까요?",
+      "retractBody": "모든 사람에게서 내용이 삭제됩니다. 되돌릴 수 없습니다.",
+      "caseChip": "케이스: {stage}",
+      "caseHidden": "연결된 케이스",
+      "markAction": "조치 필요로 표시",
+      "ownerLabel": "담당자",
+      "ownerPick": "담당자 선택",
+      "dueLabel": "기한",
+      "mark": "표시",
+      "marking": "표시하는 중…",
+      "chars": "{used} / {max}"
+    },
+    "pinned": {
+      "kinds": {
+        "bank_contacts": "은행 연락처",
+        "product_rules": "상품 규정",
+        "required_documents": "필요 서류",
+        "turnaround_times": "처리 기간",
+        "known_pitfalls": "주의 사항"
+      },
+      "empty": "고정된 내용이 없습니다.",
+      "edit": "편집",
+      "history": "이력",
+      "save": "저장",
+      "saving": "저장 중…",
+      "cancel": "취소",
+      "blankClears": "비워 두면 이 항목이 지워집니다.",
+      "historyTitle": "이력: {kind}",
+      "historyEmpty": "아직 버전이 없습니다.",
+      "cleared": "지워짐",
+      "byWhom": "{name} · {when}",
+      "readOnly": "관리자, 팀 리더, 이 은행의 진행 중인 케이스 코디네이터만 고정 정보를 편집할 수 있습니다."
+    },
+    "actions": {
+      "empty": "조치 항목이 없습니다.",
+      "owner": "담당자: {name}",
+      "due": "기한 {date}",
+      "overdue": "기한 초과",
+      "thread": "스레드 열기",
+      "task": "작업: {status}",
+      "caseLinked": "케이스 연결됨"
+    },
+    "errors": {
+      "linkInvalid": "해당 케이스는 볼 수 있는 이 은행의 케이스가 아닙니다.",
+      "bodyInvalid": "내용이 비어 있거나 너무 깁니다.",
+      "titleInvalid": "제목이 비어 있거나 너무 깁니다.",
+      "ownerInvalid": "이 사람은 이 조치의 담당자가 될 수 없습니다.",
+      "dueRequired": "기한 날짜와 시간을 선택하세요.",
+      "dueInvalid": "기한이 올바르지 않습니다.",
+      "alreadyMarked": "이 스레드에는 이미 조치 항목이 있습니다.",
+      "alreadyRetracted": "이미 철회된 게시글입니다.",
+      "kindInvalid": "존재하지 않는 항목입니다.",
+      "parentInvalid": "이 게시글에는 여기서 답글을 달 수 없습니다.",
+      "notAllowed": "여기서 이 작업을 할 권한이 없습니다.",
+      "notFound": "더 이상 존재하지 않습니다.",
+      "failed": "문제가 발생했습니다. 다시 시도하세요."
     }
   }
 }
