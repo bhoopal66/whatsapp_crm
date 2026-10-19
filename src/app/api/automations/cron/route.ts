@@ -15,6 +15,8 @@ import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
+import { ConfirmationGate } from '@/lib/assist/confirm'
+import { RateLimiter } from '@/lib/assist/rate'
 
 /**
  * The channel health sweep rides along on this cron, at most once per
@@ -345,6 +347,53 @@ function scheduleCalendarReminders() {
 }
 
 /**
+ * Assistant safety (module 019a, migration 120): pending and confirmed
+ * actions past their expiry are marked expired once a minute, and the
+ * rate-limit events older than two of their windows are pruned once an
+ * hour, per process, inside after(). Both only tidy up: the SQL checks
+ * expiry and the window on every call, so a missed run is never a wrong
+ * answer. A failure is only logged.
+ */
+const assistSweepDue = everyInterval(60_000)
+const assistPruneDue = everyInterval(60 * 60_000)
+
+function scheduleAssistHousekeeping() {
+  try {
+    const sweep = assistSweepDue()
+    const prune = assistPruneDue()
+    if (!sweep && !prune) return
+    after(async () => {
+      const admin = supabaseAdmin()
+      if (sweep) {
+        try {
+          await new ConfirmationGate(admin).sweep()
+        } catch (err) {
+          console.error(
+            '[automations-cron] assist pending sweep failed:',
+            err instanceof Error ? err.message : err,
+          )
+        }
+      }
+      if (prune) {
+        try {
+          await new RateLimiter(admin).prune()
+        } catch (err) {
+          console.error(
+            '[automations-cron] assist rate prune failed:',
+            err instanceof Error ? err.message : err,
+          )
+        }
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the assist housekeeping:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Drain due `automation_pending_executions` rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
@@ -383,6 +432,7 @@ export async function GET(request: Request) {
     schedulePbxCron()
     schedulePushDispatch()
     scheduleCalendarReminders()
+    scheduleAssistHousekeeping()
   }
 }
 

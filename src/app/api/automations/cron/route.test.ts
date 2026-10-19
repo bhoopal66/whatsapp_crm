@@ -599,3 +599,45 @@ describe('GET /api/automations/cron — calendar reminders', () => {
     expect(h.recurring).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /api/automations/cron — assistant safety housekeeping', () => {
+  it('expires stale pending actions once a minute and prunes rate events once an hour', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(rpcCalls('assist_pending_expire')).toEqual([]);
+    await runAfter();
+    expect(rpcCalls('assist_pending_expire')).toEqual([
+      ['assist_pending_expire', { p_actor: 'system:sweep' }],
+    ]);
+    expect(rpcCalls('assist_rate_prune')).toEqual([['assist_rate_prune', {}]]);
+
+    vi.setSystemTime(new Date('2026-09-29T13:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(rpcCalls('assist_pending_expire')).toHaveLength(2);
+    expect(rpcCalls('assist_rate_prune')).toHaveLength(1);
+
+    vi.setSystemTime(new Date('2026-09-29T14:00:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(rpcCalls('assist_pending_expire')).toHaveLength(3);
+    expect(rpcCalls('assist_rate_prune')).toHaveLength(2);
+  });
+
+  it('logs a failed sweep and still prunes', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] assist pending sweep failed:',
+      'assist_pending_expire: boom'
+    );
+    expect(rpcCalls('assist_rate_prune')).toHaveLength(1);
+    log.mockRestore();
+  });
+});
