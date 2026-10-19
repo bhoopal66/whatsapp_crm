@@ -402,6 +402,7 @@ describe('notes, bank contacts and SLA', () => {
       case_sla_timer: { data: 'on_track' },
       case_sla_event: { data: null },
       case_sla_event_system: { data: 'due_soon' },
+      case_sla_due_cases: { data: [{ case_id: CASE }] },
       case_sla_evaluate: {
         data: [
           {
@@ -450,17 +451,28 @@ describe('notes, bank contacts and SLA', () => {
       p_now: T0.toISOString(),
     });
     const later = new Date('2026-10-21T00:00:00.000Z');
-    expect(await evaluateCaseSla({ store: s, now: () => later })).toEqual([
-      {
-        caseId: CASE,
-        timer: 'bank_response',
-        fromState: 'on_track',
-        toState: 'overdue',
-      },
-    ]);
+    expect(
+      await evaluateCaseSla({ store: s, now: () => later, deadlineMs: 20_000 })
+    ).toEqual({
+      evaluated: 1,
+      changes: [
+        {
+          caseId: CASE,
+          timer: 'bank_response',
+          fromState: 'on_track',
+          toState: 'overdue',
+        },
+      ],
+      errors: [],
+      stoppedEarly: false,
+    });
+    expect(db.args('case_sla_due_cases')).toEqual({
+      p_now: later.toISOString(),
+      p_limit: null,
+    });
     expect(db.args('case_sla_evaluate')).toEqual({
       p_now: later.toISOString(),
-      p_case: null,
+      p_case: CASE,
     });
     await s.upsertConfig(ACTOR, {
       accountId: ACCOUNT,

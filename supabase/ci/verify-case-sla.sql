@@ -9,10 +9,11 @@
 -- status) restarts the configured timers and stops the others; a
 -- customer message / bank response stops its timer; a document becoming
 -- 'received' restarts document_chase when configured, else stops it.
--- case_sla_evaluate logs each change once. cases.sla_state is the worst
--- running state. Bank contacts are append-only, capped, never blank.
+-- case_sla_evaluate logs each change once; case_sla_due_cases lists, for
+-- the cron's per-case calls, exactly the cases whose stored state differs
+-- at its clock. cases.sla_state is the worst running state. Bank contacts are append-only, capped, never blank.
 -- The timeline merges every kind in time order for readers only. No API
--- role writes a 124 table; only service_role executes the 8 public
+-- role writes a 124 table; only service_role executes the 9 public
 -- functions, nobody the internal ones.
 --
 -- Stage history uses now(), not an injected clock, so timers started by
@@ -45,6 +46,8 @@ DECLARE
   k2       UUID;  -- no bank
   k3       UUID;  -- ADCB: closed by case_apply_submission_status
   tk1      UUID;
+  kd       UUID[] := '{}';  -- case_sla_due_cases: due soon, overdue, on track, stopped
+  tdue     TIMESTAMPTZ := now() + interval '30 days';
   bc1      UUID;
   t0       TIMESTAMPTZ := now();  -- the stage-history clock
   i        INT;
@@ -63,6 +66,7 @@ DECLARE
     'public.case_sla_event(uuid,uuid,text,timestamptz)',
     'public.case_sla_event_system(uuid,text,timestamptz)',
     'public.case_sla_evaluate(timestamptz,uuid)',
+    'public.case_sla_due_cases(timestamptz,integer)',
     'public.case_bank_contact_add(uuid,uuid,text,timestamptz,text,text,timestamptz,timestamptz)',
     'public.case_timeline(uuid,uuid)',
     'public.case_sla_config_upsert(uuid,uuid,text,text,text,integer,text,integer,integer)',
@@ -581,6 +585,63 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_check('case_timeline of an unknown case was not NOT_ALLOWED',
     'service_role', NULL, format('SELECT count(*)::text FROM case_timeline(%L, %L)', u_agent, gen_random_uuid()),
     'ERROR 42501 NOT_ALLOWED:%');
+
+  -- ---------- case_sla_due_cases: the cron's per-case work list ----------
+  -- Four ENBD cases (no timer at their first stage until configured
+  -- here), customer_reply 60 minutes started by hand so that at tdue
+  -- kd[1] is due soon, kd[2] overdue, kd[3] on track (stored on_track:
+  -- nothing to change) and kd[4] stopped. Its own sentinel undoes them.
+  BEGIN
+    FOR i IN 1 .. 4 LOOP
+      g[3 + i] := (SELECT x.group_id FROM sg_open(a_acct, 'CT-124-D' || i, ca, wa, 'sla due ' || i, NULL,
+        jsonb_build_array(jsonb_build_object('user_id', u_agent, 'label', 'agent')), NULL) x);
+      kd[i] := (SELECT x.case_id FROM case_open(g[3 + i], 'ENBD', NULL, NULL, NULL, NULL) x);
+      IF kd[i] IS NULL THEN RAISE EXCEPTION 'fixture: case_open returned no due case %', i; END IF;
+    END LOOP;
+    st := (SELECT c.stage FROM cases c WHERE c.id = kd[1]);
+    PERFORM case_sla_config_upsert(u_owner, a_acct, 'ENBD', st, 'customer_reply', 60, 'minutes');
+    PERFORM case_sla_timer(kd[1], u_agent, 'customer_reply', 'start', tdue - interval '50 minutes');
+    PERFORM case_sla_timer(kd[2], u_agent, 'customer_reply', 'start', tdue - interval '70 minutes');
+    PERFORM case_sla_timer(kd[3], u_agent, 'customer_reply', 'start', tdue - interval '10 minutes');
+    PERFORM case_sla_timer(kd[4], u_agent, 'customer_reply', 'start', tdue - interval '70 minutes');
+    PERFORM case_sla_timer(kd[4], u_agent, 'customer_reply', 'stop', tdue - interval '65 minutes');
+    SELECT coalesce(array_agg(x.case_id::text ORDER BY x.ord), '{}') INTO arr
+      FROM case_sla_due_cases(tdue, 5000) WITH ORDINALITY AS x(case_id, ord) WHERE x.case_id = ANY (kd);
+    n := n + 1; failed := failed || pg_temp.cs_ok(
+      arr = (SELECT array_agg(y::text ORDER BY y) FROM unnest(ARRAY[kd[1], kd[2]]) y),
+      format('case_sla_due_cases did not list exactly the due-soon and overdue cases, ordered by id (%s)', arr));
+    n := n + 1; failed := failed || pg_temp.cs_ok(
+      (SELECT bool_and(x.case_id > x.prev) FROM (SELECT y.case_id, lag(y.case_id) OVER (ORDER BY y.ord) AS prev
+         FROM case_sla_due_cases(tdue, 5000) WITH ORDINALITY AS y(case_id, ord)) x WHERE x.prev IS NOT NULL) IS NOT FALSE,
+      'case_sla_due_cases is not distinct and ordered by case id');
+    n := n + 1; failed := failed || pg_temp.cs_ok(
+      (SELECT count(*) FROM case_sla_due_cases(tdue, 0)) = 1
+      AND (SELECT array_agg(x.case_id) FROM case_sla_due_cases(tdue, 1) x)
+        = ARRAY[(SELECT x.case_id FROM case_sla_due_cases(tdue, 5000) x ORDER BY 1 LIMIT 1)]
+      AND (SELECT count(*) FROM case_sla_due_cases(tdue, 5000)) >= 2,
+      'case_sla_due_cases does not clamp its limit to at least 1');
+    n := n + 1; failed := failed || pg_temp.cs_ok(
+      (SELECT state FROM case_sla_timers WHERE case_id = kd[1] AND timer = 'customer_reply') = 'on_track'
+      AND (SELECT count(*) FROM case_sla_state_log WHERE case_id = ANY (kd) AND actor_role = 'system') = 0,
+      'case_sla_due_cases changed a timer or logged a row');
+    SELECT coalesce(array_agg(x.to_state ORDER BY x.timer), '{}') INTO arr FROM case_sla_evaluate(tdue, kd[1]) x;
+    n := n + 1; failed := failed || pg_temp.cs_ok(arr = ARRAY['due_soon']
+      AND NOT EXISTS (SELECT 1 FROM case_sla_due_cases(tdue, 5000) x WHERE x.case_id = kd[1])
+      AND EXISTS (SELECT 1 FROM case_sla_due_cases(tdue, 5000) x WHERE x.case_id = kd[2]),
+      format('after case_sla_evaluate of one listed case it was still listed, or the other was not (%s)', arr));
+    n := n + 1; failed := failed || pg_temp.cs_check('case_sla_due_cases at infinity was not NOW_REQUIRED',
+      'service_role', NULL, 'SELECT count(*)::text FROM case_sla_due_cases(''infinity'', 10)',
+      'ERROR 22023 NOW_REQUIRED:%');
+    n := n + 1; failed := failed || pg_temp.cs_check('case_sla_due_cases at NULL was not NOW_REQUIRED',
+      'service_role', NULL, 'SELECT count(*)::text FROM case_sla_due_cases(NULL, 10)',
+      'ERROR 22023 NOW_REQUIRED:%');
+    n := n + 1; failed := failed || pg_temp.cs_check('case_sla_due_cases was executable by authenticated',
+      'authenticated', u_owner, format('SELECT count(*)::text FROM case_sla_due_cases(%L, 10)', tdue),
+      'ERROR 42501 %');
+    RAISE EXCEPTION USING ERRCODE = 'ZT12D', MESSAGE = 'verify-case-sla due-cases rollback';
+  EXCEPTION WHEN SQLSTATE 'ZT12D' THEN
+    NULL;
+  END;
 
   -- ---------- grants ----------
   FOREACH r IN ARRAY ARRAY['service_role', 'authenticated', 'anon'] LOOP

@@ -41,7 +41,9 @@
 --    form (start / reset need a config row: SLA_NOT_CONFIGURED).
 --    case_sla_evaluate(now, case) is the SLA job (actor NULL, role
 --    'system'): it logs only a change, so a re-run at the same clock
---    logs nothing.
+--    logs nothing. The cron lists the cases with work at its clock
+--    (case_sla_due_cases, no lock) and evaluates each in its own
+--    transaction, so no case write waits behind a sweep of every case.
 --  * Bank contact log. case_bank_contacts: who at the bank, when, what
 --    was said, the next action and its date. Append-only and INTERNAL
 --    (never sent to the customer). Contact name capped at 200, summary
@@ -533,6 +535,30 @@ BEGIN
 END;
 $$;
 
+-- The cases the SLA job has work on at p_now: those with a running
+-- timer whose state at p_now differs from the stored one, ordered by
+-- id, at most p_limit (clamped to 1 .. 5000). It takes no lock: the
+-- cron calls case_sla_evaluate(p_now, case) once per returned case, each
+-- its own transaction, because case_sla_evaluate(p_now, NULL) holds
+-- every running case's lock until the whole sweep commits.
+CREATE OR REPLACE FUNCTION public.case_sla_due_cases(p_now timestamptz, p_limit int DEFAULT 500)
+RETURNS TABLE (case_id uuid)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  PERFORM public.case_sla_require_now(p_now, 'case_sla_due_cases');
+  RETURN QUERY
+    SELECT DISTINCT x.case_id FROM public.case_sla_timers x
+     WHERE x.stopped_at IS NULL
+       AND public.case_sla_state_at(x.due_soon_at, x.due_at, p_now) IS DISTINCT FROM x.state
+     ORDER BY 1
+     LIMIT greatest(1, least(coalesce(p_limit, 500), 5000));
+END;
+$$;
+
 -- ---------- 6. Bank contact log ----------
 
 -- Records a bank contact for a person who may act on the case. Returns
@@ -752,6 +778,7 @@ REVOKE ALL ON FUNCTION
   public.case_sla_event(uuid, uuid, text, timestamptz),
   public.case_sla_event_system(uuid, text, timestamptz),
   public.case_sla_evaluate(timestamptz, uuid),
+  public.case_sla_due_cases(timestamptz, int),
   public.case_bank_contact_add(uuid, uuid, text, timestamptz, text, text, timestamptz, timestamptz),
   public.case_timeline(uuid, uuid),
   public.case_sla_config_upsert(uuid, uuid, text, text, text, int, text, int, int),
@@ -763,6 +790,7 @@ GRANT EXECUTE ON FUNCTION
   public.case_sla_event(uuid, uuid, text, timestamptz),
   public.case_sla_event_system(uuid, text, timestamptz),
   public.case_sla_evaluate(timestamptz, uuid),
+  public.case_sla_due_cases(timestamptz, int),
   public.case_bank_contact_add(uuid, uuid, text, timestamptz, text, text, timestamptz, timestamptz),
   public.case_timeline(uuid, uuid),
   public.case_sla_config_upsert(uuid, uuid, text, text, text, int, text, int, int),

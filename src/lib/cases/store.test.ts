@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { EndResult } from '@/lib/submission-groups/service';
 
-import { sweepCaseGroupEnds } from './cron';
+import { evaluateCaseSla, sweepCaseGroupEnds } from './cron';
 import {
   CaseRefusedError,
   CaseStore,
@@ -645,5 +645,86 @@ describe('sweepCaseGroupEnds', () => {
       stopped: true,
     });
     expect(storeFor.mock.calls.map((c) => c[0])).toEqual(['A', 'B']);
+  });
+});
+
+describe('evaluateCaseSla', () => {
+  const NOW = new Date('2026-10-21T00:00:00.000Z');
+  const change = (caseId: string) => ({
+    caseId,
+    timer: 'customer_reply' as const,
+    fromState: 'on_track' as const,
+    toState: 'due_soon',
+  });
+
+  it('evaluates each due case on its own at one clock; a failing case spares the rest', async () => {
+    const calls: [string, string | undefined][] = [];
+    const dueCases = vi.fn(async () => ['c1', 'c2', 'c3']);
+    const r = await evaluateCaseSla({
+      store: {
+        dueCases,
+        evaluate: async (now?: Date, caseId?: string) => {
+          calls.push([now!.toISOString(), caseId]);
+          if (caseId === 'c2') throw new Error('db');
+          return caseId === 'c3' ? [change('c3')] : [];
+        },
+      },
+      now: () => NOW,
+      deadlineMs: 20_000,
+      limit: 50,
+    });
+    expect(dueCases).toHaveBeenCalledWith(NOW, 50);
+    expect(calls).toEqual([
+      [NOW.toISOString(), 'c1'],
+      [NOW.toISOString(), 'c2'],
+      [NOW.toISOString(), 'c3'],
+    ]);
+    expect(r).toEqual({
+      evaluated: 3,
+      changes: [change('c3')],
+      errors: ['c2'],
+      stoppedEarly: false,
+    });
+  });
+
+  it('starts no case once the deadline has passed', async () => {
+    let t = 0;
+    const seen: string[] = [];
+    const r = await evaluateCaseSla({
+      store: {
+        dueCases: async () => ['c1', 'c2', 'c3'],
+        evaluate: async (_now?: Date, caseId?: string) => {
+          seen.push(caseId!);
+          t += 60;
+          return [];
+        },
+      },
+      now: () => NOW,
+      clock: () => t,
+      deadlineMs: 100,
+    });
+    expect(seen).toEqual(['c1', 'c2']);
+    expect(r).toEqual({
+      evaluated: 2,
+      changes: [],
+      errors: [],
+      stoppedEarly: true,
+    });
+  });
+
+  it('evaluates nothing when no case is due', async () => {
+    const evaluate = vi.fn();
+    const r = await evaluateCaseSla({
+      store: { dueCases: async () => [], evaluate },
+      now: () => NOW,
+      deadlineMs: 20_000,
+    });
+    expect(evaluate).not.toHaveBeenCalled();
+    expect(r).toEqual({
+      evaluated: 0,
+      changes: [],
+      errors: [],
+      stoppedEarly: false,
+    });
   });
 });

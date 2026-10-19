@@ -130,7 +130,12 @@ beforeEach(() => {
   });
   h.recurring.mockReset().mockResolvedValue(0);
   h.submissionGroups.mockReset().mockResolvedValue({ errors: [] });
-  h.caseSla.mockReset().mockResolvedValue([]);
+  h.caseSla.mockReset().mockResolvedValue({
+    evaluated: 0,
+    changes: [],
+    errors: [],
+    stoppedEarly: false,
+  });
   h.caseSweep
     .mockReset()
     .mockResolvedValue({ attempted: 0, results: [], stopped: false });
@@ -465,7 +470,10 @@ describe('GET /api/automations/cron — cases and memory', () => {
     expect(h.caseSla).not.toHaveBeenCalled();
     expect(h.caseSweep).not.toHaveBeenCalled();
     await runAfter();
-    expect(h.caseSla).toHaveBeenCalledWith({ store: 'sla-store' });
+    expect(h.caseSla).toHaveBeenCalledWith({
+      store: 'sla-store',
+      deadlineMs: 20_000,
+    });
     expect(h.caseSweep).toHaveBeenCalledTimes(1);
     const sweep = h.caseSweep.mock.calls[0][0];
     expect(sweep).toMatchObject({
@@ -506,6 +514,26 @@ describe('GET /api/automations/cron — cases and memory', () => {
       'sweep boom'
     );
     expect(h.memoryExpire).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+
+  it('logs the SLA cases that failed by id only', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.caseSla.mockResolvedValueOnce({
+      evaluated: 3,
+      changes: [],
+      errors: ['case-2'],
+      stoppedEarly: false,
+    });
+    await GET(req());
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] case SLA failed for:',
+      ['case-2']
+    );
     log.mockRestore();
   });
 

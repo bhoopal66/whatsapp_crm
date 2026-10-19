@@ -229,7 +229,10 @@ from agent up may read):
 The automations cron (`GET /api/automations/cron`) runs, each at most every
 5 minutes per process, inside `after()`:
 
-- the **SLA job**: due soon / overdue over every running timer;
+- the **SLA job**: due soon / overdue over every running timer, one case at
+  a time (each in its own transaction, so a case being worked on never
+  waits for the whole sweep); a case that fails is logged by id and the
+  rest still run, and it starts no case after 20 seconds;
 - the **group-end sweeper**: final-stage cases whose group end never
   completed, each ended through its own workspace; it starts no case after
   20 seconds.

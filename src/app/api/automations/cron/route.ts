@@ -246,21 +246,30 @@ function scheduleSubmissionGroups() {
 
 /**
  * Cases (module 018c, migrations 122-124): the SLA job (case_sla_evaluate
- * over every running timer) and the group-end sweeper (final-stage cases
- * whose submission-group end never completed, each ended through its own
- * account's service), each at most every 5 minutes per process, inside
- * after(). The sweeper starts no case after 20 s. A failure is only logged.
+ * once per case with work, each its own transaction, so no case write
+ * waits behind a sweep of every case) and the group-end sweeper
+ * (final-stage cases whose submission-group end never completed, each
+ * ended through its own account's service), each at most every 5 minutes
+ * per process, inside after(). Neither starts a case after 20 s. A failure
+ * is only logged (an SLA case by its id only).
  */
 const caseSlaDue = everyInterval(5 * 60_000)
 const caseGroupEndDue = everyInterval(5 * 60_000)
 const CASE_GROUP_END_DEADLINE_MS = 20_000
+const CASE_SLA_DEADLINE_MS = 20_000
 
 function scheduleCaseSla() {
   try {
     if (!caseSlaDue()) return
     after(async () => {
       try {
-        await evaluateCaseSla({ store: caseSlaStore() })
+        const r = await evaluateCaseSla({
+          store: caseSlaStore(),
+          deadlineMs: CASE_SLA_DEADLINE_MS,
+        })
+        if (r.errors.length > 0) {
+          console.error('[automations-cron] case SLA failed for:', r.errors)
+        }
       } catch (err) {
         console.error(
           '[automations-cron] case SLA failed:',

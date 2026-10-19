@@ -12,6 +12,8 @@
  *                    (case_sla_event_system, no actor).
  *   evaluate       — the SLA job (case_sla_evaluate): SERVICE-ONLY, never
  *                    behind a user request.
+ *   dueCases       — the cases the job has work on at a clock
+ *                    (case_sla_due_cases), evaluated one by one: SERVICE-ONLY.
  *   config*        — per (account, bank, stage, timer), owner/admin.
  * Writes return the case's sla_state after them (NULL: no timer running).
  */
@@ -128,6 +130,19 @@ export class CaseSlaStore extends CaseRpc {
       fromState: state(x.from_state),
       toState: String(x.to_state),
     }));
+  }
+
+  /**
+   * SERVICE-ONLY: the cases with a running timer whose state at `now`
+   * differs from the stored one, ordered by id, at most `limit` (the SQL
+   * clamps it to 1 .. 5000). Takes no lock.
+   */
+  async dueCases(now: Date, limit?: number): Promise<string[]> {
+    const data = await this.rpc('case_sla_due_cases', {
+      p_now: now.toISOString(),
+      p_limit: limit ?? null,
+    });
+    return rows(data).map((x) => String(x.case_id));
   }
 
   /** The case's timers (no access decision). */
