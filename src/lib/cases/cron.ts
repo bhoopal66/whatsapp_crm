@@ -7,6 +7,7 @@
  * ended through its own account's 115 service, so `storeFor(accountId)`
  * builds one store per account (server.ts's `caseStore`).
  */
+import type { CaseSlaStore, SlaChange } from './sla';
 import type { CaseStore, GroupEndOutcome } from './store';
 
 export interface CaseSweepResult {
@@ -45,4 +46,15 @@ export async function sweepCaseGroupEnds(input: {
     }
   }
   return { attempted: results.length, results, stopped: false };
+}
+
+/**
+ * The SLA job (module 018c, migration 124): one case_sla_evaluate at `now`
+ * over every case's running timers. Not wired into a cron route yet.
+ */
+export async function evaluateCaseSla(input: {
+  store: Pick<CaseSlaStore, 'evaluate'>;
+  now?: () => Date;
+}): Promise<SlaChange[]> {
+  return input.store.evaluate((input.now ?? (() => new Date()))());
 }

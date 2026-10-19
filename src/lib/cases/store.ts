@@ -107,11 +107,11 @@ const CASE_COLUMNS =
 type Row = Record<string, unknown>;
 type DbError = { message?: string; code?: string; hint?: string | null };
 
-const str = (v: unknown): string | null =>
+export const str = (v: unknown): string | null =>
   v === null || v === undefined ? null : String(v);
-const date = (v: unknown): Date | null =>
+export const date = (v: unknown): Date | null =>
   v === null || v === undefined ? null : new Date(String(v));
-const rows = (data: unknown): Row[] =>
+export const rows = (data: unknown): Row[] =>
   Array.isArray(data) ? (data as Row[]) : data ? [data as Row] : [];
 /** A `setof uuid` comes back as strings or as one-key objects. */
 const scalars = (data: unknown): string[] =>
@@ -121,7 +121,7 @@ const scalars = (data: unknown): string[] =>
       )
     : [];
 
-function fail(fn: string, error: DbError): never {
+export function fail(fn: string, error: DbError): never {
   if (typeof error.hint === 'string' && REFUSALS.has(error.hint))
     throw new CaseRefusedError(error.hint as CaseRefusal);
   throw new CaseStoreError(fn, error.code ?? null);

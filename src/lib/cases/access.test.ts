@@ -67,8 +67,13 @@ describe('case access mirrors match migration 122', () => {
     );
   });
 
-  it('CASE_REFUSALS are exactly the HINTs 122 raises', () => {
-    const hints = [...SQL.matchAll(/HINT = '([A-Z_]+)'/g)].map((m) => m[1]);
+  it('CASE_REFUSALS are exactly the HINTs 122-124 raise', () => {
+    const sql = ['122_cases.sql', '123_case_tools.sql', '124_case_sla.sql']
+      .map((f) =>
+        readFileSync(join(process.cwd(), 'supabase/migrations', f), 'utf8')
+      )
+      .join('\n');
+    const hints = [...sql.matchAll(/HINT = '([A-Z_]+)'/g)].map((m) => m[1]);
     expect(new Set(CASE_REFUSALS)).toEqual(new Set(hints));
   });
 });

@@ -115,7 +115,7 @@ export interface CaseBank {
   name: string;
 }
 
-/** The HINTs 122's functions raise; anything else is a CaseStoreError. */
+/** The HINTs 122-124's functions raise; anything else is a CaseStoreError. */
 export const CASE_REFUSALS = [
   'CASE_NOT_FOUND',
   'NOT_ALLOWED',
@@ -136,6 +136,23 @@ export const CASE_REFUSALS = [
   'STAGE_IN_USE',
   'PRIORITY_INVALID',
   'DUE_INVALID',
+  // 123 (tasks, documents, notes) and 124 (SLA, bank contacts).
+  'TEMPLATE_NOT_FOUND',
+  'TASK_NOT_FOUND',
+  'OWNER_INVALID',
+  'STATUS_INVALID',
+  'DOC_NOT_REQUIRED',
+  'FILE_REF_INVALID',
+  'FILE_REF_REQUIRED',
+  'NOTE_EMPTY',
+  'NOTE_TOO_LONG',
+  'NOW_REQUIRED',
+  'TIMER_INVALID',
+  'ACTION_INVALID',
+  'SLA_NOT_CONFIGURED',
+  'EVENT_INVALID',
+  'CONTACT_INCOMPLETE',
+  'TEXT_TOO_LONG',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 
