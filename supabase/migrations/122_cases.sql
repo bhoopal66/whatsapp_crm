@@ -464,7 +464,12 @@ CREATE TRIGGER cases_no_truncate
 
 -- Fills the NULL bank_code / product / amount of a locked case from the
 -- given values (never overwrites), one case_detail_log row per filled
--- field. Internal to case_open.
+-- field. Internal to case_open's repeat call, which comes from the v1
+-- API and must never fail over a gap it cannot fill: a bank whose stage
+-- list lacks the case's current stage is simply not filled (bank_code
+-- stays NULL, nothing logged), while product / amount still are. Staff
+-- set such a bank through case_set_details, which refuses it with
+-- STAGE_NOT_IN_LIST.
 CREATE OR REPLACE FUNCTION public.case_fill_details(p_case uuid, p_bank_code text, p_product text,
   p_amount numeric, p_actor uuid, p_role text)
 RETURNS void
@@ -479,13 +484,11 @@ BEGIN
   SELECT * INTO c FROM public.cases WHERE id = p_case FOR UPDATE;
   IF c.bank_code IS NULL AND p_bank_code IS NOT NULL THEN
     PERFORM 1 FROM public.case_banks b WHERE b.account_id = c.account_id AND b.code = p_bank_code FOR SHARE;
-    IF NOT (c.stage = ANY (public.case_stages_for_bank(c.account_id, p_bank_code))) THEN
-      RAISE EXCEPTION 'case %: stage % is not in bank %''s list', p_case, c.stage, p_bank_code
-        USING ERRCODE = 'check_violation', HINT = 'STAGE_NOT_IN_LIST';
+    IF c.stage = ANY (public.case_stages_for_bank(c.account_id, p_bank_code)) THEN
+      UPDATE public.cases SET bank_code = p_bank_code WHERE id = p_case;
+      INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
+      VALUES (p_case, c.account_id, 'bank_code', NULL, p_bank_code, p_actor, p_role);
     END IF;
-    UPDATE public.cases SET bank_code = p_bank_code WHERE id = p_case;
-    INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
-    VALUES (p_case, c.account_id, 'bank_code', NULL, p_bank_code, p_actor, p_role);
   END IF;
   IF c.product IS NULL AND p_product IS NOT NULL THEN
     UPDATE public.cases SET product = p_product WHERE id = p_case;
@@ -503,7 +506,8 @@ $$;
 -- Opens the case of a submission group, idempotent per group. Returns
 -- (case_id, created): created is true only for the call that inserted
 -- the case. A repeat call fills only a NULL bank_code / product /
--- amount (case_detail_log), never overwrites. p_bank_code unknown in
+-- amount (case_detail_log), never overwrites, and never fails over a
+-- fill: a bank whose list lacks the case's stage is left unfilled. p_bank_code unknown in
 -- the group's account is added to case_banks (name = p_bank_name, else
 -- the code). agent_id = the group's open 'agent' access row (NO_AGENT
 -- if none), coordinator_id = the open 'coordinator' row or NULL.
@@ -617,19 +621,19 @@ BEGIN
     UPDATE public.cases SET bank_code = p_bank_code WHERE id = p_case;
     INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
     VALUES (p_case, c.account_id, 'bank_code', c.bank_code, p_bank_code, p_actor, v_role);
-    v_changed := v_changed || 'bank_code';
+    v_changed := v_changed || 'bank_code'::text;
   END IF;
   IF p_product IS NOT NULL AND p_product IS DISTINCT FROM c.product THEN
     UPDATE public.cases SET product = p_product WHERE id = p_case;
     INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
     VALUES (p_case, c.account_id, 'product', c.product, p_product, p_actor, v_role);
-    v_changed := v_changed || 'product';
+    v_changed := v_changed || 'product'::text;
   END IF;
   IF p_amount IS NOT NULL AND round(p_amount, 2) IS DISTINCT FROM c.amount THEN
     UPDATE public.cases SET amount = p_amount WHERE id = p_case;
     INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
     VALUES (p_case, c.account_id, 'amount', c.amount::text, round(p_amount, 2)::text, p_actor, v_role);
-    v_changed := v_changed || 'amount';
+    v_changed := v_changed || 'amount'::text;
   END IF;
   RETURN v_changed;
 END;

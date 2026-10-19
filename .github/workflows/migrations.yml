@@ -311,3 +311,15 @@ jobs:
       # RLS, triggers and grants: only real Postgres can show it.
       - name: Verify submission groups
         run: supabase db query --local --file supabase/ci/verify-submission-groups.sql
+
+      # Cases (122): roles resolved live (owner, admin, the agent's team
+      # lead, the named coordinator and agent; nobody else), reads in the
+      # active workspace, writes and reassigns by role; stage lists
+      # validated at commit and STAGE_IN_USE; final stages close the case
+      # and only the first final move takes the group-end claim, whose
+      # token release / finish need; a repeat case_open never fails over
+      # a bank it cannot fill; supervisor views audited and read only
+      # through case_audit_list; history and audit append-only for every
+      # writer; no API role writes a case table.
+      - name: Verify cases
+        run: supabase db query --local --file supabase/ci/verify-cases.sql
