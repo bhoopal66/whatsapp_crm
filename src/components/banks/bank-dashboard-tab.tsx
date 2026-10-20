@@ -6,7 +6,11 @@ import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
+  Hourglass,
   Info,
+  Landmark,
+  PiggyBank,
+  TrendingUp,
   Percent,
   RefreshCw,
   Undo2,
@@ -142,6 +146,22 @@ export function BankDashboardTab({ bankWsId }: { bankWsId: string }) {
             value={count(data.totalCases)}
           />
           <Tile
+            icon={<Hourglass className="text-muted-foreground size-4" />}
+            label={t('tiles.preSubmission')}
+            value={count(data.preSubmission)}
+          />
+          <Tile
+            icon={<Landmark className="text-primary size-4" />}
+            label={t('tiles.withBank')}
+            value={count(data.withBank)}
+          />
+          <Tile
+            icon={<AlertTriangle className="text-destructive size-4" />}
+            label={t('tiles.overdue')}
+            value={count(data.overdueCount)}
+            tooltip={t('tiles.overdueHint')}
+          />
+          <Tile
             icon={<Percent className="text-primary size-4" />}
             label={t('tiles.approvalRate')}
             value={percent(approval.rate, locale)}
@@ -163,17 +183,30 @@ export function BankDashboardTab({ bankWsId }: { bankWsId: string }) {
             value={count(approval.withdrawn)}
           />
           <Tile
-            icon={<AlertTriangle className="text-destructive size-4" />}
-            label={t('tiles.overdue')}
-            value={count(data.overdueCount)}
-            tooltip={t('tiles.overdueHint')}
+            icon={<PiggyBank className="text-muted-foreground size-4" />}
+            label={t('tiles.accounts')}
+            value={count(data.pipeline.accounts)}
+            tooltip={t('tiles.accountsHint')}
+          />
+          <Tile
+            icon={<TrendingUp className="text-primary size-4" />}
+            label={t('tiles.conversion')}
+            value={percent(data.conversion.rate, locale)}
+            detail={t('tiles.conversionDetail', {
+              leads: data.conversion.leads,
+              submitted: data.conversion.submitted,
+            })}
+            tooltip={t('tiles.conversionHint')}
           />
           <Tile
             className="col-span-2"
             icon={<Wallet className="text-primary size-4" />}
-            label={t('tiles.amount')}
-            value={formatAed(data.amountInPipeline, locale) ?? '—'}
-            tooltip={t('tiles.amountHint')}
+            label={t('tiles.financing')}
+            value={formatAed(data.pipeline.financingAmount, locale) ?? '—'}
+            detail={t('tiles.financingDetail', {
+              count: data.pipeline.financingCases,
+            })}
+            tooltip={t('tiles.financingHint')}
           />
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -237,12 +270,15 @@ function Tile({
   label,
   value,
   tooltip,
+  detail,
   className,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   tooltip?: string;
+  /** A second, quieter line under the value. */
+  detail?: string;
   className?: string;
 }) {
   const t = useTranslations('Banks.dashboard');
@@ -273,6 +309,11 @@ function Tile({
       <p className="text-foreground mt-1 truncate text-base font-semibold tabular-nums">
         {value}
       </p>
+      {detail && (
+        <p className="text-muted-foreground truncate text-xs tabular-nums">
+          {detail}
+        </p>
+      )}
     </div>
   );
 }

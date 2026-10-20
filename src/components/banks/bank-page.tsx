@@ -40,6 +40,7 @@ import {
   localToIso,
   parseActions,
   parseBankPage,
+  parseBankSummary,
   parsePins,
   parsePosts,
   parseThreads,
@@ -50,6 +51,7 @@ import {
   type BankPin,
   type BankPost,
   type BankSpace,
+  type BankSummary,
   type BankThread,
   type PinKind,
 } from '@/lib/banks/ui';
@@ -57,6 +59,7 @@ import { cn } from '@/lib/utils';
 
 import { BankCasesTab } from './bank-cases-tab';
 import { BankDashboardTab } from './bank-dashboard-tab';
+import { BankSummaryStrip } from './bank-summary-strip';
 import { chip } from './banks-list';
 
 const NONE = '__none__';
@@ -180,9 +183,23 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
       setPage('error');
     }
   }, [bankWsId]);
+  // The header's figures load on their own: any failure only hides the
+  // strip, never the page.
+  const [summary, setSummary] = useState<BankSummary | null>(null);
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/banks/${bankWsId}/summary`, {
+        cache: 'no-store',
+      });
+      setSummary(res.ok ? parseBankSummary(await res.json()) : null);
+    } catch {
+      setSummary(null);
+    }
+  }, [bankWsId]);
   useEffect(() => {
     void loadPage();
-  }, [loadPage]);
+    void loadSummary();
+  }, [loadPage, loadSummary]);
 
   const back = (
     <Link
@@ -203,7 +220,14 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
           {page === 'missing' ? t('notFound') : t('loadFailed')}
         </p>
         {page === 'error' && (
-          <Button variant="outline" size="sm" onClick={() => void loadPage()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void loadPage();
+              void loadSummary();
+            }}
+          >
             {t('retry')}
           </Button>
         )}
@@ -233,6 +257,7 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
           {t('pageSubtitle')}
         </p>
       </div>
+      {summary && <BankSummaryStrip summary={summary} />}
       <Tabs
         value={tab}
         onValueChange={(v) => setQuery({ tab: String(v), thread: null })}

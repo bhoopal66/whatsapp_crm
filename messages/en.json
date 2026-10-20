@@ -6940,6 +6940,21 @@
     "title": "Banks",
     "subtitle": "One internal space per partner bank: discussion, pinned info and action items.",
     "pageSubtitle": "Internal staff notes about this bank. Nothing here is ever sent to a customer or the bank.",
+    "summary": {
+      "label": "Bank space summary",
+      "openCases": "Open cases",
+      "members": "Members now",
+      "membersValue": "{total} ({agents, plural, =1 {1 agent} other {# agents}}, {coordinators, plural, =1 {1 coordinator} other {# coordinators}}, {teamLeads, plural, =1 {1 team lead} other {# team leads}})",
+      "actions": "Action needed",
+      "actionsValue": "{count} open",
+      "role": "Your role here",
+      "roles": {
+        "admin": "Admin",
+        "team_lead": "Team lead",
+        "coordinator": "Coordinator",
+        "agent": "Agent"
+      }
+    },
     "access": {
       "admin": "Admin",
       "member": "Member"
@@ -6951,7 +6966,7 @@
     "emptyBody": "A bank appears here once you have an open case with it, or once an admin opens a space for it.",
     "loadFailed": "Couldn't load this.",
     "retry": "Retry",
-    "notFound": "This bank space doesn't exist or you don't have access to it.",
+    "notFound": "You don't have access to this bank space. Access comes with an open case with this bank, and returns automatically with your next one.",
     "backToBanks": "All banks",
     "loading": "Loading…",
     "unknownPerson": "Someone",
@@ -7043,6 +7058,7 @@
     },
     "cases": {
       "filterLabel": "Show cases",
+      "order": "Most overdue first",
       "filters": {
         "all": "All ({count})",
         "open": "Open ({count})",
@@ -7054,23 +7070,33 @@
         "closed": "No closed cases with this bank."
       },
       "columns": {
+        "customer": "Customer",
         "stage": "Stage",
         "product": "Product",
         "agent": "Agent",
         "coordinator": "Coordinator",
+        "sla": "SLA",
         "opened": "Opened",
         "closed": "Closed"
       },
       "noStage": "No stage",
+      "unknownCustomer": "Unknown customer",
       "closedChip": "Closed",
+      "leadChip": "Lead",
       "stillOpen": "Still open",
       "unassigned": "Unassigned",
       "noCoordinator": "No coordinator",
       "openCase": "Open case: {stage}",
       "openedOn": "Opened {date}",
       "closedOn": "Closed {date}",
+      "dueOn": "Due {date}",
       "agentLabel": "Agent: {name}",
-      "coordinatorLabel": "Coordinator: {name}"
+      "coordinatorLabel": "Coordinator: {name}",
+      "sla": {
+        "overdue": "Overdue",
+        "dueSoon": "Due soon",
+        "onTrack": "On track"
+      }
     },
     "dashboard": {
       "scope": {
@@ -7090,8 +7116,16 @@
         "withdrawn": "Withdrawn",
         "overdue": "Overdue cases",
         "overdueHint": "Cases with an overdue SLA timer or an overdue open task, each counted once.",
-        "amount": "Amount in pipeline",
-        "amountHint": "The total amount of the cases that are not at a final stage yet."
+        "preSubmission": "Pre-submission",
+        "withBank": "With the bank",
+        "accounts": "Account openings",
+        "accountsHint": "Open cases with no amount count as account openings",
+        "financing": "Financing",
+        "financingHint": "Open cases with an amount above zero",
+        "financingDetail": "{count, plural, =1 {1 case} other {# cases}}",
+        "conversion": "Conversion",
+        "conversionHint": "Leads that reached the bank's submission stage",
+        "conversionDetail": "{leads, plural, =1 {1 lead} other {# leads}} → {submitted} submitted"
       },
       "charts": {
         "byStage": "Cases by stage",

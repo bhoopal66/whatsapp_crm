@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Banks: summary strip, case columns, new dashboard figures (migration 131)
+
+**Migration required: 131** (`131_bank_dashboard_leads.sql`), as a
+superuser or BYPASSRLS role, after 130. The bank page header shows open
+cases, members now by role, open Action needed items and your role here.
+The Cases tab adds the customer (linked), an SLA chip with the next due
+date and a Lead chip, sorted most overdue first. The Dashboard adds
+Pre-submission, With the bank, Account openings, Financing (count and
+exact AED amount, replacing Amount in pipeline) and lead Conversion. Losing
+access now explains that it returns with your next open case of the bank.
+See `docs/cases.md`.
+
 ### Case leads (migration 130)
 
 **Migration required: 130.** A case can now start as a lead: no
