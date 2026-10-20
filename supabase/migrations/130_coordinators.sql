@@ -504,3 +504,42 @@ GRANT EXECUTE ON FUNCTION public.revoke_conversation_share(uuid) TO authenticate
 
 COMMENT ON FUNCTION public.revoke_conversation_share(uuid) IS
   'Revoke a share: its sharer, its coordinator, an admin/owner, or an agent+ who can see the chat and owns it, is assigned it, or leads its owner / assignee. True when it was open, false when already revoked. Migration 130.';
+
+-- A conversation_shared push opens the shared chat, like conversation_assigned.
+-- Restates 109's push_bell_url with that one type added; change it together
+-- with hrefFor in src/lib/notifications/target.ts.
+CREATE OR REPLACE FUNCTION public.push_bell_url(n public.notifications)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_role    text;
+  v_chat    text := CASE WHEN n.conversation_id IS NOT NULL THEN '/inbox?c=' || n.conversation_id END;
+  v_contact text;
+BEGIN
+  SELECT p.account_role::text INTO v_role FROM public.profiles p
+   WHERE p.user_id = n.user_id AND p.account_id = n.account_id AND p.deactivated_at IS NULL;
+  CASE
+    WHEN n.type IN ('conversation_assigned', 'ai_handoff', 'conversation_shared') THEN
+      RETURN coalesce(v_chat, '/notifications');
+    WHEN n.type IN ('task_assigned', 'task_due') THEN
+      RETURN coalesce('/contacts/' || n.contact_id, v_chat, '/calls');
+    WHEN n.type IN ('call_missed', 'callback_requested', 'call_outcome_due') THEN
+      v_contact := coalesce(n.contact_id::text, n.meta ->> 'contact_id');
+      RETURN CASE WHEN public.push_is_uuid(v_contact) THEN '/contacts/' || v_contact ELSE '/calls' END;
+    WHEN n.type IN ('deal_room_join_request', 'deal_room_update') THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'room_id')
+                  THEN '/chat/rooms/' || (n.meta ->> 'room_id') ELSE '/notifications' END;
+    WHEN n.type IN ('channel_disconnected', 'channel_reconnected') THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin') THEN '/settings?tab=whatsapp' ELSE '/notifications' END;
+    WHEN n.type IN ('pbx_connection_silent', 'pbx_connection_restored') THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin') THEN '/settings?tab=phone-system' ELSE '/notifications' END;
+    WHEN n.type = 'team_activity_alert' THEN
+      RETURN CASE WHEN v_role IN ('owner', 'admin', 'team_leader') THEN '/team-activity' ELSE '/notifications' END;
+    WHEN n.type = 'meeting_invite' THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> 'meeting_id')
+                  THEN '/meetings/' || (n.meta ->> 'meeting_id') ELSE '/notifications' END;
+    ELSE
+      RETURN '/notifications';
+  END CASE;
+END $$;
+
+REVOKE ALL ON FUNCTION public.push_bell_url(public.notifications) FROM PUBLIC, anon, authenticated;
