@@ -6584,7 +6584,8 @@
     "gate": {
       "write": "Your role on this case cannot change it.",
       "reassign": "Only a team lead or admin can reassign this case.",
-      "closed": "This case is closed."
+      "closed": "This case is closed.",
+      "noGroup": "Available once the bank submission is made."
     },
     "actions": {
       "move": "Move stage",
@@ -6852,7 +6853,9 @@
       "assigneeInvalid": "That person cannot take this role on the case.",
       "notAllowed": "You are not allowed to do that.",
       "notFound": "The case was not found.",
-      "unknown": "Something went wrong. Try again."
+      "unknown": "Something went wrong. Try again.",
+      "presubReentry": "A submitted case cannot go back to a pre-submission stage.",
+      "submissionRequired": "That stage needs the bank submission first. A lead can only be withdrawn."
     },
     "timeline": {
       "includeMessages": "Include WhatsApp messages",
@@ -6934,6 +6937,10 @@
         "coordinator": "Coordinator",
         "agent": "Agent"
       }
+    },
+    "lead": {
+      "banner": "Lead — no submission yet",
+      "source": "Source: {source}"
     }
   },
   "Banks": {

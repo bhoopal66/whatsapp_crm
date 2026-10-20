@@ -5,6 +5,7 @@
  */
 
 import { FINAL_STAGES, OUTCOME_STAGES, PRIORITIES } from './types';
+import { isPresubStage } from './ui';
 import type { CasePriority, CaseRole } from './types';
 
 export type SlaState = 'on_track' | 'due_soon' | 'overdue';
@@ -260,6 +261,27 @@ export function needsOutcomeReason(stage: string): boolean {
   return stage === 'Declined' || stage === 'Withdrawn';
 }
 
+/**
+ * The stages the move dialog offers, mirroring 130's case_set_stage:
+ * nothing from Closed; only Closed from Approved / Declined / Withdrawn;
+ * never back to a pre-submission stage once past them (PRESUB_REENTRY);
+ * and a lead (no group) leaves the pre-submission stages only to
+ * Withdrawn (SUBMISSION_REQUIRED). `stages` is the case's configured list.
+ */
+export function allowedNextStages(
+  c: Pick<CaseRecord, 'stage' | 'groupId'>,
+  stages: readonly string[]
+): string[] {
+  if (c.stage === 'Closed') return [];
+  const others = stages.filter((s) => s !== c.stage);
+  if (OUTCOME_STAGES.includes(c.stage))
+    return others.filter((s) => s === 'Closed');
+  const pre = isPresubStage(c.stage);
+  return others.filter((s) =>
+    isPresubStage(s) ? pre : c.groupId !== null || s === 'Withdrawn'
+  );
+}
+
 /** The stage POST body: the outcome is the stage name, and only there. */
 export function stageMoveBody(stage: string): {
   stage: string;
@@ -279,6 +301,13 @@ export const OUTCOME_REASON_CODES = [
   'NO_RESPONSE',
 ] as const;
 export type OutcomeReasonCode = (typeof OUTCOME_REASON_CODES)[number];
+
+/** The reasons offered after a move to `stage`: NO_RESPONSE is Withdrawn's only. */
+export function outcomeReasonCodes(stage: string): OutcomeReasonCode[] {
+  return OUTCOME_REASON_CODES.filter(
+    (r) => r !== 'NO_RESPONSE' || stage === 'Withdrawn'
+  );
+}
 export const OUTCOME_REASON_TEXT_MAX = 500;
 
 export type ChipTone = 'ok' | 'warn' | 'bad' | 'muted';
@@ -323,6 +352,8 @@ const STAGE_ERRORS: Record<string, string> = {
   CASE_CLOSED: 'caseClosed',
   FINAL_STAGE: 'finalStage',
   NOT_ALLOWED: 'notAllowed',
+  PRESUB_REENTRY: 'presubReentry',
+  SUBMISSION_REQUIRED: 'submissionRequired',
 };
 const DETAIL_ERRORS: Record<string, string> = {
   BANK_UNKNOWN: 'bankUnknown',
@@ -408,12 +439,23 @@ export function visibleCaseTabs(canSeeAudit: boolean): CaseTab[] {
   return CASE_TABS.filter((t) => t !== 'audit' || canSeeAudit);
 }
 
-/** A `?tab=` value, falling back to Overview when unknown or not shown. */
+/** Tabs a lead (130, no group yet) shows but cannot open. */
+export function caseTabDisabled(tab: CaseTab, isLead: boolean): boolean {
+  return isLead && tab === 'conversation';
+}
+
+/**
+ * A `?tab=` value, falling back to Overview when unknown, not shown, or
+ * disabled for a lead.
+ */
 export function resolveCaseTab(
   raw: string | null | undefined,
-  canSeeAudit: boolean
+  canSeeAudit: boolean,
+  isLead = false
 ): CaseTab {
-  const tabs = visibleCaseTabs(canSeeAudit);
+  const tabs = visibleCaseTabs(canSeeAudit).filter(
+    (t) => !caseTabDisabled(t, isLead)
+  );
   return (tabs as readonly string[]).includes(raw ?? '')
     ? (raw as CaseTab)
     : 'overview';

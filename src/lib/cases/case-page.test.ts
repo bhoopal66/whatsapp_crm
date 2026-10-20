@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  caseTabDisabled,
+  allowedNextStages,
+  outcomeReasonCodes,
   canTakeOver,
   docRequestKey,
   detailsErrorKey,
@@ -297,5 +300,80 @@ describe('canTakeOver', () => {
     expect(canTakeOver('agent')).toBe(false);
     expect(canTakeOver('admin')).toBe(false);
     expect(canTakeOver('super_admin')).toBe(false);
+  });
+});
+
+describe('allowedNextStages (130)', () => {
+  const stages = [
+    'Interested',
+    'Data collection',
+    'Review',
+    'Submitted',
+    'Approved',
+    'Declined',
+    'Withdrawn',
+    'Closed',
+  ];
+  const lead = (stage: string) => ({ stage, groupId: null });
+  const sub = (stage: string) => ({ stage, groupId: 'g1' });
+
+  it('a lead moves among the pre stages or to Withdrawn only', () => {
+    expect(allowedNextStages(lead('Interested'), stages)).toEqual([
+      'Data collection',
+      'Review',
+      'Withdrawn',
+    ]);
+    expect(allowedNextStages(lead('Review'), stages)).not.toContain(
+      'Submitted'
+    );
+  });
+
+  it('a Withdrawn lead may only close; Closed goes nowhere', () => {
+    expect(allowedNextStages(lead('Withdrawn'), stages)).toEqual(['Closed']);
+    expect(allowedNextStages(lead('Closed'), stages)).toEqual([]);
+  });
+
+  it('a submission case never goes back to a pre stage', () => {
+    expect(allowedNextStages(sub('Submitted'), stages)).toEqual([
+      'Approved',
+      'Declined',
+      'Withdrawn',
+      'Closed',
+    ]);
+    expect(allowedNextStages(sub('Declined'), stages)).toEqual(['Closed']);
+  });
+
+  it('a submission case still at a pre stage may move forward', () => {
+    expect(allowedNextStages(sub('Review'), stages)).toContain('Submitted');
+    expect(allowedNextStages(sub('Review'), stages)).toContain('Interested');
+  });
+
+  it('offers only configured stages', () => {
+    expect(
+      allowedNextStages(lead('Interested'), ['Interested', 'Review'])
+    ).toEqual(['Review']);
+  });
+});
+
+describe('outcomeReasonCodes', () => {
+  it('offers NO_RESPONSE for Withdrawn only', () => {
+    expect(outcomeReasonCodes('Withdrawn')).toContain('NO_RESPONSE');
+    expect(outcomeReasonCodes('Declined')).not.toContain('NO_RESPONSE');
+  });
+
+  it('maps the 130 stage refusals', () => {
+    expect(stageErrorKey(422, 'PRESUB_REENTRY')).toBe('presubReentry');
+    expect(stageErrorKey(422, 'SUBMISSION_REQUIRED')).toBe(
+      'submissionRequired'
+    );
+  });
+});
+
+describe('lead tabs (130)', () => {
+  it('a lead cannot open the conversation tab', () => {
+    expect(caseTabDisabled('conversation', true)).toBe(true);
+    expect(caseTabDisabled('conversation', false)).toBe(false);
+    expect(resolveCaseTab('conversation', false, true)).toBe('overview');
+    expect(resolveCaseTab('conversation', false, false)).toBe('conversation');
   });
 });

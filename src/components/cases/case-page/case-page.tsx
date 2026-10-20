@@ -23,6 +23,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  caseTabDisabled,
   canTakeOver,
   docRequestKey,
   parseCaseDetail,
@@ -154,9 +155,14 @@ export function CasePage({ caseId }: { caseId: string }) {
   }, [caseId, state]);
 
   const canSeeAudit = detail?.permissions.canSeeAudit ?? false;
-  const activeTab = resolveCaseTab(searchParams.get('tab'), canSeeAudit);
+  const isLead = detail?.case.isLead ?? false;
+  const activeTab = resolveCaseTab(
+    searchParams.get('tab'),
+    canSeeAudit,
+    isLead
+  );
   const changeTab = (next: unknown) => {
-    const tab = resolveCaseTab(String(next), canSeeAudit);
+    const tab = resolveCaseTab(String(next), canSeeAudit, isLead);
     const url = new URL(window.location.href);
     if (tab === 'overview') url.searchParams.delete('tab');
     else url.searchParams.set('tab', tab);
@@ -264,6 +270,7 @@ export function CasePage({ caseId }: { caseId: string }) {
   const others = viewers.map((v) => nameOf(v)).filter((n): n is string => !!n);
   const noWrite = t('gate.write');
   const closedGate = t('gate.closed');
+  const noGroup = t('gate.noGroup');
   const tabProps: CaseTabProps = {
     caseId,
     detail,
@@ -352,6 +359,19 @@ export function CasePage({ caseId }: { caseId: string }) {
                 )}
               </div>
             )}
+            {c.isLead && (
+              <p
+                role="note"
+                className="bg-muted text-muted-foreground mt-1.5 rounded-md px-2 py-1 text-xs"
+              >
+                <span className="text-foreground font-medium">
+                  {t('lead.banner')}
+                </span>
+                {c.leadSource
+                  ? ` · ${t('lead.source', { source: c.leadSource })}`
+                  : ''}
+              </p>
+            )}
             {closed && c.outcome && detail.outcomeReason && (
               <p className="text-muted-foreground mt-1 text-xs">
                 {t('reasonLine', {
@@ -412,8 +432,16 @@ export function CasePage({ caseId }: { caseId: string }) {
           <GatedButton
             size="sm"
             variant="outline"
-            disabled={!canWrite || closed || acting}
-            title={!canWrite ? noWrite : closed ? closedGate : undefined}
+            disabled={!canWrite || closed || acting || c.isLead}
+            title={
+              c.isLead
+                ? noGroup
+                : !canWrite
+                  ? noWrite
+                  : closed
+                    ? closedGate
+                    : undefined
+            }
             onClick={() => setOpen('docs')}
           >
             <FileQuestion className="size-4" aria-hidden />
@@ -423,13 +451,17 @@ export function CasePage({ caseId }: { caseId: string }) {
             <GatedButton
               size="sm"
               variant="outline"
-              disabled={!TAKEOVER_TEMPLATE_APPROVED || closed || acting}
+              disabled={
+                !TAKEOVER_TEMPLATE_APPROVED || closed || acting || c.isLead
+              }
               title={
-                !TAKEOVER_TEMPLATE_APPROVED
-                  ? t('takeover.awaiting')
-                  : closed
-                    ? closedGate
-                    : undefined
+                c.isLead
+                  ? noGroup
+                  : !TAKEOVER_TEMPLATE_APPROVED
+                    ? t('takeover.awaiting')
+                    : closed
+                      ? closedGate
+                      : undefined
               }
               onClick={() => void takeOver()}
             >
@@ -438,6 +470,9 @@ export function CasePage({ caseId }: { caseId: string }) {
             </GatedButton>
           )}
         </div>
+        {c.isLead && (
+          <p className="text-muted-foreground -mt-1 text-xs">{noGroup}</p>
+        )}
         {canTakeOver(detail.role) && !TAKEOVER_TEMPLATE_APPROVED && (
           <p className="text-muted-foreground -mt-1 text-xs">
             {t('takeover.awaiting')}
@@ -452,7 +487,13 @@ export function CasePage({ caseId }: { caseId: string }) {
       >
         <TabsList className="max-w-full justify-start overflow-x-auto">
           {visibleCaseTabs(canSeeAudit).map((name) => (
-            <TabsTrigger key={name} value={name} className="flex-none">
+            <TabsTrigger
+              key={name}
+              value={name}
+              className="flex-none"
+              disabled={caseTabDisabled(name, c.isLead)}
+              title={caseTabDisabled(name, c.isLead) ? noGroup : undefined}
+            >
               {t(`tabs.${name}`)}
             </TabsTrigger>
           ))}

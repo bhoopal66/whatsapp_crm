@@ -25,13 +25,14 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  allowedNextStages,
   detailsErrorKey,
   fromLocalInput,
   groupEndView,
   isFinalStage,
   needsOutcomeReason,
   normaliseAmount,
-  OUTCOME_REASON_CODES,
+  outcomeReasonCodes,
   OUTCOME_REASON_TEXT_MAX,
   reasonErrorKey,
   reassignErrorKey,
@@ -100,7 +101,7 @@ export function MoveStageDialog({
   const [code, setCode] = useState<OutcomeReasonCode | ''>('');
   const [text, setText] = useState('');
 
-  const choices = detail.stages.filter((s) => s !== c.stage);
+  const choices = allowedNextStages(c, detail.stages);
 
   const move = async () => {
     if (!stage) return;
@@ -218,7 +219,7 @@ export function MoveStageDialog({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {OUTCOME_REASON_CODES.map((r) => (
+                  {outcomeReasonCodes(moved).map((r) => (
                     <SelectItem key={r} value={r}>
                       {t(`reasons.${r}`)}
                     </SelectItem>
