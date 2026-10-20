@@ -9,7 +9,10 @@
 -- conversation's own number only. It rings conversation_shared once; a
 -- repeat share of the same bank is idempotent. Visibility ends on
 -- revoke, on removing the bank, on deactivation. The sharer and an
--- admin may revoke; an unrelated agent may not.
+-- admin may revoke; an unrelated agent may not. Nothing else of the
+-- chat or contact opens: not the contact's TypeSafe decision rows, not
+-- writing reactions (reading them is fine). my_coordinator_shares()
+-- lists exactly the shares that grant.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -38,6 +41,7 @@ DECLARE
   ca2      UUID;
   c1       UUID;  -- shared
   c2       UUID;  -- never shared
+  m1       UUID;  -- the agent's message in c1
   s1       TEXT;
   s2       TEXT;
   s3       TEXT;
@@ -133,6 +137,12 @@ BEGIN
   INSERT INTO messages (conversation_id, sender_type, sender_id, content_text, channel_id, provider)
   VALUES (c1, 'agent', u_agent, 'hello from the agent', wa, 'whapi'),
          (c2, 'agent', u_agent, 'unshared chat', wa, 'whapi');
+  SELECT id INTO m1 FROM messages WHERE conversation_id = c1;
+  INSERT INTO message_reactions (message_id, conversation_id, actor_type, actor_id, emoji)
+  VALUES (m1, c1, 'customer', NULL, '👍');
+  INSERT INTO ts_decision_log (account_id, contact_id, conversation_id, check_name, question_set_version,
+                               decision, acted, shadow)
+  VALUES (a_acct, ca, c1::text, 'triage', 'ci-130', 'allow', false, true);
 
   q_conv := format('SELECT count(*)::text FROM conversations WHERE id = %L', c1);
   q_msgs := format('SELECT count(*)::text FROM messages WHERE conversation_id = %L', c1);
@@ -213,6 +223,36 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_check('the shared conversation or contact changed under the coordinator',
     NULL, NULL, format('SELECT ((SELECT status FROM conversations WHERE id = %L) || ''/'''
       || ' || (SELECT name FROM contacts WHERE id = %L))', c1, ca), 'open/CI shared');
+
+  -- ---------- 3b. nothing else of the chat or contact ----------
+  n := n + 1; failed := failed || pg_temp.cs_check('the sharer cannot read their contact''s TypeSafe decision rows',
+    'authenticated', u_agent, format('SELECT count(*)::text FROM ts_decision_log WHERE contact_id = %L', ca), '1');
+  n := n + 1; failed := failed || pg_temp.cs_check('the coordinator reads the shared contact''s TypeSafe decision rows',
+    'authenticated', u_coord, format('SELECT count(*)::text FROM ts_decision_log WHERE contact_id = %L', ca), '0');
+  n := n + 1; failed := failed || pg_temp.cs_check('the coordinator cannot read reactions in the shared chat',
+    'authenticated', u_coord, format('SELECT count(*)::text FROM message_reactions WHERE conversation_id = %L', c1), '1');
+  n := n + 1; failed := failed || pg_temp.cs_check('the coordinator could react in the shared chat',
+    'authenticated', u_coord, format('INSERT INTO message_reactions (message_id, conversation_id, actor_type, actor_id, emoji)'
+      || ' VALUES (%L, %L, ''agent'', %L, ''x'')', m1, c1, u_coord), 'ERROR 42501 %');
+  n := n + 1; failed := failed || pg_temp.cs_check('the coordinator could change a reaction in the shared chat',
+    'authenticated', u_coord, format('WITH u AS (UPDATE message_reactions SET emoji = ''y'' WHERE conversation_id = %L'
+      || ' RETURNING 1) SELECT count(*)::text FROM u', c1), '0');
+  n := n + 1; failed := failed || pg_temp.cs_check('the coordinator could delete a reaction in the shared chat',
+    'authenticated', u_coord, format('WITH d AS (DELETE FROM message_reactions WHERE conversation_id = %L RETURNING 1)'
+      || ' SELECT count(*)::text FROM d', c1), '0');
+  n := n + 1; failed := failed || pg_temp.cs_check('the sharer could not react in their own chat',
+    'authenticated', u_agent, format('INSERT INTO message_reactions (message_id, conversation_id, actor_type, actor_id, emoji)'
+      || ' VALUES (%L, %L, ''agent'', %L, ''z'')', m1, c1, u_agent), 'ok');
+  n := n + 1; failed := failed || pg_temp.cs_check('the shared chat''s reactions changed under the coordinator',
+    NULL, NULL, format('SELECT string_agg(emoji, '','' ORDER BY emoji COLLATE "C") FROM message_reactions WHERE conversation_id = %L', c1),
+    'z,👍');
+  n := n + 1; failed := failed || pg_temp.cs_check('my_coordinator_shares() does not list the share',
+    'authenticated', u_coord, 'SELECT string_agg(share_id || ''/'' || conversation_id || ''/'' || bank_code, '','')'
+      || ' FROM my_coordinator_shares()', s1 || '/' || c1::text || '/ADCB');
+  n := n + 1; failed := failed || pg_temp.cs_check('my_coordinator_shares() lists a share to someone else',
+    'authenticated', u_coord2, 'SELECT count(*)::text FROM my_coordinator_shares()', '0');
+  n := n + 1; failed := failed || pg_temp.cs_check('anon could call my_coordinator_shares()',
+    'anon', NULL, 'SELECT count(*)::text FROM my_coordinator_shares()', 'ERROR 42501 %');
 
   -- ---------- 4. the coordinator's reply ----------
   n := n + 1; failed := failed || pg_temp.cs_check('the coordinator could not reply on the shared chat''s number',
@@ -295,6 +335,8 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_check('the coordinator still sees messages or contact after losing the bank',
     'authenticated', u_coord, format('SELECT ((SELECT count(*) FROM messages WHERE conversation_id = %L)'
       || ' + (SELECT count(*) FROM contacts WHERE id = %L))::text', c1, ca), '0');
+  n := n + 1; failed := failed || pg_temp.cs_check('my_coordinator_shares() still lists the share after the bank was removed',
+    'authenticated', u_coord, 'SELECT count(*)::text FROM my_coordinator_shares()', '0');
   r := pg_temp.cs_try('authenticated', u_admin, format('SELECT set_coordinator_banks(%L, ''{ADCB}'')::text', u_coord));
   n := n + 1; failed := failed || pg_temp.cs_check('the still-open share does not grant again once the bank is back',
     'authenticated', u_coord, q_conv, '1');

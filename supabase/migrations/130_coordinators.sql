@@ -27,14 +27,15 @@
 --    owner / assignee or their team leader, or an admin). No expiry.
 --    Sharing rings the coordinator's bell (type conversation_shared).
 --
--- What a live share grants (coordinator_share_grants): the caller is
+-- What a live share grants (my_coordinator_shares): the caller is
 -- the share's coordinator, the share is open, the caller still holds
 -- its bank, and the caller is live agent / team_leader staff of the
 -- conversation's account, which is their ACTIVE account. Then:
 --
 --  * the conversation (conversations SELECT, through its own permissive
---    policy; conversation_events and message_reactions follow because
---    their policies sub-select conversations / messages under RLS);
+--    policy; conversation_events and reading message_reactions follow
+--    because their policies sub-select conversations / messages under
+--    RLS; writing reactions and ts_decision_log do not, see 4b);
 --  * its messages (SELECT), and INSERT of the coordinator's own outbound
 --    message (sender_type 'agent', sender_id = the caller) carrying the
 --    conversation's own number (channel_id or send_channel_id) — never
@@ -150,6 +151,42 @@ COMMENT ON TABLE public.conversation_coordinator_shares IS
 
 -- ---------- 3. The grant predicate ----------
 
+-- The caller's open shares that still grant: open, to auth.uid(), the
+-- bank still held (coordinator_banks), the caller live agent /
+-- team_leader staff of the share's account, which is their ACTIVE
+-- account. The one statement of the rule: coordinator_share_grants,
+-- the policies below and the client (the next TS job) all read it.
+CREATE OR REPLACE FUNCTION public.my_coordinator_shares()
+RETURNS TABLE (share_id uuid, conversation_id uuid, bank_code text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+ROWS 10
+AS $$
+  SELECT s.id, s.conversation_id, s.bank_code
+    FROM public.conversation_coordinator_shares s
+    JOIN public.coordinator_banks b
+      ON b.account_id = s.account_id
+     AND b.user_id = s.coordinator_user_id
+     AND b.bank_code = s.bank_code
+    JOIN public.profiles p
+      ON p.user_id = s.coordinator_user_id
+     AND p.account_id = s.account_id
+   WHERE auth.uid() IS NOT NULL
+     AND s.coordinator_user_id = auth.uid()
+     AND s.revoked_at IS NULL
+     AND s.account_id = public.current_account_id()
+     AND p.deactivated_at IS NULL
+     AND p.account_role::text IN ('agent', 'team_leader');
+$$;
+
+REVOKE ALL ON FUNCTION public.my_coordinator_shares() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.my_coordinator_shares() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.my_coordinator_shares() IS
+  'The caller''s open coordinator shares that still grant (bank held, live agent / team_leader, the share''s account active). The rule behind coordinator_share_grants and the coordinator policies; read by the client to list shared chats. Migration 130.';
+
 CREATE OR REPLACE FUNCTION public.coordinator_share_grants(p_conversation_id uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -157,22 +194,9 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT auth.uid() IS NOT NULL AND EXISTS (
-    SELECT 1
-      FROM public.conversation_coordinator_shares s
-      JOIN public.coordinator_banks b
-        ON b.account_id = s.account_id
-       AND b.user_id = s.coordinator_user_id
-       AND b.bank_code = s.bank_code
-      JOIN public.profiles p
-        ON p.user_id = s.coordinator_user_id
-       AND p.account_id = s.account_id
-     WHERE s.conversation_id = p_conversation_id
-       AND s.coordinator_user_id = auth.uid()
-       AND s.revoked_at IS NULL
-       AND s.account_id = public.current_account_id()
-       AND p.deactivated_at IS NULL
-       AND p.account_role::text IN ('agent', 'team_leader')
+  SELECT EXISTS (
+    SELECT 1 FROM public.my_coordinator_shares() g
+     WHERE g.conversation_id = p_conversation_id
   );
 $$;
 
@@ -180,7 +204,28 @@ REVOKE ALL ON FUNCTION public.coordinator_share_grants(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.coordinator_share_grants(uuid) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.coordinator_share_grants(uuid) IS
-  'Does a live share give the caller this conversation? Open share to auth.uid(), bank still held (coordinator_banks), live agent / team_leader in the conversation''s account, which is the caller''s active account. OR''d into conversations / messages SELECT, messages INSERT and chat_can_view_conversation. TS mirror: conversation-visibility.ts sharedWithMe. Migration 130.';
+  'Does a live share give the caller this conversation? One of my_coordinator_shares(). Used by messages INSERT, chat_can_view_conversation and the send path. TS mirror: conversation-visibility.ts sharedWithMe. Migration 130.';
+
+-- Contacts of the caller's granted conversations, read as the owner so
+-- the policy does not re-enter conversations' RLS.
+CREATE OR REPLACE FUNCTION public.coordinator_granted_contact_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+ROWS 10
+AS $$
+  SELECT c.contact_id
+    FROM public.my_coordinator_shares() g
+    JOIN public.conversations c ON c.id = g.conversation_id;
+$$;
+
+REVOKE ALL ON FUNCTION public.coordinator_granted_contact_ids() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.coordinator_granted_contact_ids() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.coordinator_granted_contact_ids() IS
+  'Contacts of the conversations my_coordinator_shares() grants the caller. Read-only grant: contacts SELECT only, not can_view_contact. Migration 130.';
 
 CREATE OR REPLACE FUNCTION public.coordinator_share_grants_contact(p_contact_id uuid)
 RETURNS boolean
@@ -189,30 +234,60 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.conversations c
-     WHERE c.contact_id = p_contact_id
-       AND public.coordinator_share_grants(c.id)
-  );
+  SELECT p_contact_id IN (SELECT public.coordinator_granted_contact_ids());
 $$;
 
 REVOKE ALL ON FUNCTION public.coordinator_share_grants_contact(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.coordinator_share_grants_contact(uuid) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.coordinator_share_grants_contact(uuid) IS
-  'A contact one of whose conversations is shared with the caller (coordinator_share_grants). Read-only grant: contacts SELECT only, not can_view_contact. Migration 130.';
+  'A contact one of whose conversations is shared with the caller (coordinator_granted_contact_ids). Read-only grant: contacts SELECT only, not can_view_contact. Migration 130.';
+
+-- Initplan guard: evaluated once per statement, so the coordinator
+-- policies cost a non-coordinator one cheap lookup, not a function call
+-- per row.
+CREATE OR REPLACE FUNCTION public.i_hold_open_coordinator_shares()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.my_coordinator_shares());
+$$;
+
+REVOKE ALL ON FUNCTION public.i_hold_open_coordinator_shares() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.i_hold_open_coordinator_shares() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.i_hold_open_coordinator_shares() IS
+  'Does the caller hold any open share that grants? The (SELECT ...) guard in front of the coordinator policies. Migration 130.';
 
 -- ---------- 4. Policies (permissive, added beside the existing ones) ----------
+-- Each is `(SELECT guard) AND <id> IN (uncorrelated set)`: both sides
+-- run once per statement, never once per row. conversations and
+-- contacts also restate their main policy's `account_id = (SELECT
+-- current_account_id())` (implied by the share already): the planner
+-- lifts a clause common to both OR'd policies out of the OR, so the
+-- account index still drives the scan. Without it every row of every
+-- account was filtered through can_view_conversation / can_view_contact
+-- (an agent's chat list went from ~0.2 s to ~2.5 s on 6,000 chats).
 
 DROP POLICY IF EXISTS conversations_coordinator_select ON public.conversations;
 CREATE POLICY conversations_coordinator_select ON public.conversations
   FOR SELECT
-  USING (public.coordinator_share_grants(id));
+  USING (
+    account_id = (SELECT public.current_account_id())
+    AND (SELECT public.i_hold_open_coordinator_shares())
+    AND id IN (SELECT g.conversation_id FROM public.my_coordinator_shares() g)
+  );
 
 DROP POLICY IF EXISTS messages_coordinator_select ON public.messages;
 CREATE POLICY messages_coordinator_select ON public.messages
   FOR SELECT
-  USING (public.coordinator_share_grants(conversation_id));
+  USING (
+    (SELECT public.i_hold_open_coordinator_shares())
+    AND conversation_id IN (SELECT g.conversation_id FROM public.my_coordinator_shares() g)
+  );
 
 -- The coordinator's own reply, on the conversation's own number. The
 -- send core inserts after the gateway call with the number it resolved
@@ -236,7 +311,68 @@ CREATE POLICY messages_coordinator_insert ON public.messages
 DROP POLICY IF EXISTS contacts_coordinator_select ON public.contacts;
 CREATE POLICY contacts_coordinator_select ON public.contacts
   FOR SELECT
-  USING (public.coordinator_share_grants_contact(id));
+  USING (
+    account_id = (SELECT public.current_account_id())
+    AND (SELECT public.i_hold_open_coordinator_shares())
+    AND id IN (SELECT public.coordinator_granted_contact_ids())
+  );
+
+-- ---------- 4b. Policies that relied on contacts / conversations RLS ----------
+-- The coordinator policies widen what a sub-select of contacts,
+-- conversations or messages returns. Every policy that sub-selects one
+-- of them without its own visibility predicate was swept; these two
+-- would have opened something the share does not grant, so each is
+-- restated from its latest definition with the predicate made explicit
+-- (what the sub-select meant before 130). Kept open on purpose:
+-- conversation_events_select and message_reactions_select (read, in the
+-- shared chat) and conversation_coordinator_shares_select.
+
+-- 063's ts_log_read: decision rows of a contact the caller can see
+-- under the normal rule (not a share).
+DROP POLICY IF EXISTS ts_log_read ON public.ts_decision_log;
+CREATE POLICY ts_log_read ON public.ts_decision_log
+  FOR SELECT TO authenticated
+  USING (
+    account_id = (SELECT public.current_account_id())
+    AND (
+      (SELECT public.current_role_rank()) >= 4
+      OR (
+        contact_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM public.contacts c
+          WHERE c.id = ts_decision_log.contact_id
+            AND c.account_id = ts_decision_log.account_id
+            AND public.can_view_contact(c.account_id, c.id, c.user_id)
+        )
+      )
+    )
+  );
+
+-- 017's message_reactions_modify: an agent+ on a chat they see under
+-- the normal rule. A coordinator reads reactions in a shared chat
+-- (message_reactions_select) but never writes them.
+DROP POLICY IF EXISTS message_reactions_modify ON public.message_reactions;
+CREATE POLICY message_reactions_modify ON public.message_reactions FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.messages m
+    JOIN public.conversations c ON c.id = m.conversation_id
+    WHERE m.id = message_reactions.message_id
+      AND public.is_account_member(c.account_id, 'agent')
+      AND ((SELECT public.current_role_rank()) >= 4
+           OR public.can_view_conversation(c.account_id, c.user_id, c.assigned_agent_id,
+                                           c.channel_id, c.send_channel_id))
+  )
+) WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.messages m
+    JOIN public.conversations c ON c.id = m.conversation_id
+    WHERE m.id = message_reactions.message_id
+      AND public.is_account_member(c.account_id, 'agent')
+      AND ((SELECT public.current_role_rank()) >= 4
+           OR public.can_view_conversation(c.account_id, c.user_id, c.assigned_agent_id,
+                                           c.channel_id, c.send_channel_id))
+  )
+);
 
 -- 087's predicate for team chat's conversation cards, plus a share.
 CREATE OR REPLACE FUNCTION public.chat_can_view_conversation(p_conversation_id uuid)

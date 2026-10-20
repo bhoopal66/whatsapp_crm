@@ -77,8 +77,12 @@ Nothing is exposed through the public API (`/api/v1`).
 Migration 130 must be applied as a superuser or BYPASSRLS role.
 `coordinator_banks` and `conversation_coordinator_shares` are written only
 through `set_coordinator_banks`, `share_conversation_with_coordinator` and
-`revoke_conversation_share`. Access is the predicate
-`coordinator_share_grants(conversation_id)`, added beside the existing
-conversation, message and contact policies (SELECT, plus a narrow messages
-INSERT); `can_view_conversation` and `can_view_contact` are unchanged.
+`revoke_conversation_share`. Access is the caller's granting shares,
+`my_coordinator_shares()` (also the client's list of shared chats), added
+beside the existing conversation, message and contact policies (SELECT,
+plus a narrow messages INSERT through `coordinator_share_grants`);
+`can_view_conversation` and `can_view_contact` are unchanged. A coordinator
+reads a shared chat's reactions and events but cannot write reactions, and
+never reads the contact's TypeSafe decision rows (`ts_log_read` and
+`message_reactions_modify` state the normal visibility rule explicitly).
 `supabase/ci/verify-coordinators.sql` asserts the rules.
