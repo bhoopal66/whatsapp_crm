@@ -139,10 +139,8 @@ export function parseContactCases(json: unknown): ContactCase[] {
       stage: optStr(c.stage) ?? '',
       bankCode: optStr(c.bankCode),
       product: optStr(c.product),
-      amount:
-        typeof c.amount === 'number' && Number.isFinite(c.amount)
-          ? String(c.amount)
-          : optStr(c.amount),
+      // Exact decimal strings only: a JSON number may already have lost digits.
+      amount: optStr(c.amount),
       isLead: c.isLead === true,
       openedAt: optStr(c.openedAt),
       closedAt: optStr(c.closedAt),

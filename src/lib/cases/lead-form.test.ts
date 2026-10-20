@@ -142,7 +142,7 @@ describe('parseContactCases', () => {
         stage: 'Submitted',
         bankCode: null,
         product: null,
-        amount: '12.5',
+        amount: null,
         isLead: false,
         openedAt: null,
         closedAt: null,

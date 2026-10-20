@@ -247,6 +247,7 @@ describe('result codes', () => {
   it('maps stage and detail refusals', () => {
     expect(detailsErrorKey(422, 'STAGE_NOT_IN_LIST')).toBe('stageNotInList');
     expect(detailsErrorKey(422, 'BANK_UNKNOWN')).toBe('bankUnknown');
+    expect(detailsErrorKey(422, 'LEAD_INVALID')).toBe('leadBankTaken');
     expect(stageErrorKey(422, 'CASE_CLOSED')).toBe('caseClosed');
     expect(stageErrorKey(422, 'OUTCOME_STAGE_MISMATCH')).toBe('outcomeInvalid');
     expect(stageErrorKey(403, undefined)).toBe('notAllowed');

@@ -6878,6 +6878,7 @@
       "caseClosed": "This case is closed and can no longer change.",
       "finalStage": "The case is already at a final stage.",
       "bankUnknown": "That bank is not set up.",
+      "leadBankTaken": "This customer already has an open lead or case with that bank. Pick another bank.",
       "stageNotInList": "The case's current stage is not in that bank's stage list. Move the case to a stage the new bank uses, or pick another bank.",
       "priorityInvalid": "That priority is not valid.",
       "dueInvalid": "That due date is not valid.",

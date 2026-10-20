@@ -357,6 +357,7 @@ const STAGE_ERRORS: Record<string, string> = {
 };
 const DETAIL_ERRORS: Record<string, string> = {
   BANK_UNKNOWN: 'bankUnknown',
+  LEAD_INVALID: 'leadBankTaken',
   STAGE_NOT_IN_LIST: 'stageNotInList',
   PRIORITY_INVALID: 'priorityInvalid',
   DUE_INVALID: 'dueInvalid',
