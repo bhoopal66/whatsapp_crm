@@ -33,7 +33,7 @@
 --    (OUTCOME_REASON otherwise). Data collection runs customer_reply for
 --    5 days when the (account, bank) has no SLA config row at all.
 --  * case_inbox lists leads (no group: LEFT JOIN, the contact from
---    cases.contact_id).
+--    cases.contact_id); 125's body otherwise unchanged).
 --
 -- Who: the case_* functions stay SECURITY DEFINER on the service role,
 -- p_actor = the signed-in user. As 122, this must be applied by a
@@ -255,7 +255,7 @@ BEGIN
       SELECT * INTO l FROM public.cases x
        WHERE x.account_id = v_account AND x.contact_id = v_contact AND x.bank_code = p_bank_code
          AND x.group_id IS NULL AND x.closed_at IS NULL
-       FOR UPDATE;
+       FOR NO KEY UPDATE;
       IF FOUND THEN
         UPDATE public.cases x
            SET group_id = p_group,
@@ -308,9 +308,10 @@ $$;
 -- submission case of the (account, contact, bank) refuses it
 -- (CASE_EXISTS). Idempotent: the open lead of the triple is returned
 -- for the same agent when the actor may read it; otherwise LEAD_EXISTS,
--- with nothing about that lead. Contact visibility is not checked: no
--- explicit-user mirror of can_view_contact exists (072's reads
--- auth.uid()), and the actor already holds a case role over the agent.
+-- with nothing about that lead. The contact must be visible to the
+-- agent (129's memory_can_read contact branch, the explicit-user mirror
+-- of 072's can_view_contact; owners and admins see every contact); a
+-- contact they cannot see is LEAD_INVALID, as one of another workspace.
 CREATE OR REPLACE FUNCTION public.case_open_lead(p_actor uuid, p_account uuid, p_contact uuid, p_bank_code text,
   p_product text, p_agent uuid, p_amount numeric DEFAULT NULL, p_coordinator uuid DEFAULT NULL,
   p_lead_source text DEFAULT NULL)
@@ -344,7 +345,10 @@ BEGIN
   END IF;
   IF p_contact IS NULL OR p_product IS NULL OR p_product ~ '^[[:space:]]*$' OR char_length(p_product) > 200
      OR p_amount < 0 OR p_amount = 'NaN'::numeric OR p_amount IN ('Infinity'::numeric, '-Infinity'::numeric)
-     OR NOT EXISTS (SELECT 1 FROM public.contacts ct WHERE ct.id = p_contact AND ct.account_id = p_account) THEN
+     OR NOT EXISTS (SELECT 1 FROM public.contacts ct WHERE ct.id = p_contact AND ct.account_id = p_account)
+     -- The agent must see the customer (129's explicit-user mirror of
+     -- 072's can_view_contact); refused as an unknown contact, no oracle.
+     OR NOT public.memory_can_read(p_agent, p_account, 'contact', p_contact) THEN
     RAISE EXCEPTION 'a lead needs a contact of the workspace, a product and a finite non-negative amount'
       USING ERRCODE = 'check_violation', HINT = 'LEAD_INVALID';
   END IF;
@@ -634,34 +638,246 @@ $$;
 
 -- ---------- 8. Inbox lists leads ----------
 
--- 125's case_inbox inner-joined submission_groups and read the contact
--- from the group, which drops every lead. The body is rewritten in
--- place (three exact fragments) rather than copied, so it stays 125's
--- in every other respect; a fragment that is neither found nor already
--- rewritten fails the migration.
-DO $$
+-- 125's case_inbox, with three changes so it lists leads: LEFT JOIN
+-- submission_groups (a lead has no group, so submission_ref is NULL),
+-- and the contact read from cases.contact_id instead of the group's.
+CREATE OR REPLACE FUNCTION public.case_inbox(p_actor uuid, p_account uuid, p_filters jsonb, p_now timestamptz,
+  p_limit int DEFAULT 50, p_after text DEFAULT NULL)
+RETURNS TABLE (case_id uuid, bank_code text, stage text, agent_id uuid, coordinator_id uuid, priority text,
+  due_at timestamptz, sla_state text, overdue_rank integer[], customer_waiting boolean, documents_missing integer,
+  bank_query_open boolean, last_activity_at timestamptz, last_touched_by uuid, open_task_overdue_count integer,
+  submission_ref text, contact_id uuid, contact_name text, bank_name text, product text, amount numeric,
+  opened_at timestamptz, closed_at timestamptz, cursor text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
-  v_def text;
-  v_new text;
-  v_oid oid;
+  v_filters     jsonb := coalesce(p_filters, '{}'::jsonb);
+  v_role        text;
+  v_all         boolean;
+  v_team_agents uuid[] := '{}';
+  v_key         text;
+  v_bank        text;
+  v_stage       text;
+  v_agent_txt   text;
+  v_agent       uuid;
+  v_priority    text;
+  v_sla         text;
+  v_waiting     boolean;
+  v_docs        boolean;
+  v_query       boolean;
+  v_closed      boolean;
+  v_sort        text;
+  v_days        numeric;
+  v_idle_before timestamptz;
+  v_limit       integer;
+  v_after       jsonb;
+  a_k1          timestamptz;
+  a_k2          integer[];
+  a_k3          timestamptz;
+  a_id          uuid;
 BEGIN
-  SELECT p.oid INTO v_oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'case_inbox';
-  v_def := pg_get_functiondef(v_oid);
-  IF position('LEFT JOIN public.submission_groups g ON g.id = c.group_id' IN v_def) > 0 THEN
-    RETURN;  -- already rewritten
+  IF p_actor IS NULL OR p_account IS NULL THEN
+    RAISE EXCEPTION 'case_inbox: no actor or account' USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
   END IF;
-  v_new := replace(v_def, 'JOIN public.submission_groups g ON g.id = c.group_id',
-                          'LEFT JOIN public.submission_groups g ON g.id = c.group_id');
-  v_new := replace(v_new, 'LEFT JOIN public.contacts ct ON ct.id = g.contact_id',
-                          'LEFT JOIN public.contacts ct ON ct.id = c.contact_id');
-  v_new := replace(v_new, 'g.submission_ref, g.contact_id,', 'g.submission_ref, c.contact_id,');
-  IF v_new = v_def OR position('g.contact_id' IN v_new) > 0
-     OR position('LEFT JOIN public.submission_groups g ON g.id = c.group_id' IN v_new) = 0 THEN
-    RAISE EXCEPTION '130: case_inbox no longer matches 125; rewrite it by hand';
+  IF p_now IS NULL OR NOT isfinite(p_now) THEN
+    RAISE EXCEPTION 'case_inbox needs a finite clock' USING ERRCODE = 'invalid_parameter_value', HINT = 'NOW_REQUIRED';
   END IF;
-  EXECUTE v_new;
-END $$;
+  IF p_limit IS NOT NULL AND p_limit < 1 THEN
+    RAISE EXCEPTION 'case_inbox: limit % is below 1', p_limit
+      USING ERRCODE = 'invalid_parameter_value', HINT = 'LIMIT_INVALID';
+  END IF;
+  v_limit := least(coalesce(p_limit, 50), 200);
+
+  -- filters: a fixed allowlist of keys, each type-checked
+  IF jsonb_typeof(v_filters) <> 'object' THEN
+    RAISE EXCEPTION 'inbox filters must be an object' USING ERRCODE = 'invalid_parameter_value', HINT = 'FILTER_INVALID';
+  END IF;
+  SELECT k INTO v_key FROM jsonb_object_keys(v_filters) k
+   WHERE k <> ALL (ARRAY['bank', 'stage', 'agent', 'priority', 'sla_state', 'customer_waiting', 'documents_missing',
+                         'bank_query_open', 'no_activity_days', 'include_closed', 'sort'])
+   LIMIT 1;
+  IF v_key IS NOT NULL THEN
+    RAISE EXCEPTION 'inbox filter % is not a filter', left(v_key, 64)
+      USING ERRCODE = 'invalid_parameter_value', HINT = 'FILTER_INVALID';
+  END IF;
+  v_bank      := public.case_inbox_text_filter(v_filters, 'bank');
+  v_stage     := public.case_inbox_text_filter(v_filters, 'stage');
+  v_agent_txt := public.case_inbox_text_filter(v_filters, 'agent');
+  IF v_agent_txt IS NOT NULL THEN
+    IF v_agent_txt !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      RAISE EXCEPTION 'inbox filter agent must be a uuid' USING ERRCODE = 'invalid_parameter_value', HINT = 'FILTER_INVALID';
+    END IF;
+    v_agent := v_agent_txt::uuid;
+  END IF;
+  v_priority := public.case_inbox_text_filter(v_filters, 'priority', ARRAY['low', 'normal', 'high', 'urgent']);
+  v_sla      := public.case_inbox_text_filter(v_filters, 'sla_state', ARRAY['on_track', 'due_soon', 'overdue']);
+  v_sort     := coalesce(public.case_inbox_text_filter(v_filters, 'sort', ARRAY['most_overdue', 'due_soonest', 'stalest']),
+                         'most_overdue');
+  v_waiting  := public.case_inbox_bool_filter(v_filters, 'customer_waiting');
+  v_docs     := public.case_inbox_bool_filter(v_filters, 'documents_missing');
+  v_query    := public.case_inbox_bool_filter(v_filters, 'bank_query_open');
+  v_closed   := coalesce(public.case_inbox_bool_filter(v_filters, 'include_closed'), false);
+  IF v_filters ? 'no_activity_days' THEN
+    IF jsonb_typeof(v_filters -> 'no_activity_days') <> 'number' THEN
+      RAISE EXCEPTION 'inbox filter no_activity_days must be a number'
+        USING ERRCODE = 'invalid_parameter_value', HINT = 'FILTER_INVALID';
+    END IF;
+    v_days := (v_filters -> 'no_activity_days')::numeric;
+    IF v_days <> trunc(v_days) OR v_days < 1 OR v_days > 3650 THEN
+      RAISE EXCEPTION 'inbox filter no_activity_days must be a whole number of days 1..3650'
+        USING ERRCODE = 'invalid_parameter_value', HINT = 'FILTER_INVALID';
+    END IF;
+    v_idle_before := p_now - make_interval(days => v_days::integer);
+  END IF;
+
+  -- cursor: JSON text with exactly the keys this function emits, the
+  -- same sort and the same clock
+  IF p_after IS NOT NULL THEN
+    BEGIN
+      v_after := p_after::jsonb;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE EXCEPTION 'inbox cursor is not valid' USING ERRCODE = 'invalid_parameter_value', HINT = 'CURSOR_INVALID';
+    END;
+    IF jsonb_typeof(v_after) <> 'object'
+       OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(v_after) k)
+          IS DISTINCT FROM ARRAY['case_id', 'due_at', 'last_activity_at', 'now', 'overdue_rank', 'sort']
+       OR jsonb_typeof(v_after -> 'sort') <> 'string' OR v_after ->> 'sort' <> v_sort
+       OR jsonb_typeof(v_after -> 'now') <> 'string'
+       OR jsonb_typeof(v_after -> 'case_id') <> 'string'
+       OR jsonb_typeof(v_after -> 'last_activity_at') <> 'string'
+       OR jsonb_typeof(v_after -> 'due_at') NOT IN ('string', 'null')
+       OR jsonb_typeof(v_after -> 'overdue_rank') <> 'array' OR jsonb_array_length(v_after -> 'overdue_rank') <> 2
+       OR jsonb_typeof(v_after -> 'overdue_rank' -> 0) <> 'number'
+       OR jsonb_typeof(v_after -> 'overdue_rank' -> 1) <> 'number' THEN
+      RAISE EXCEPTION 'inbox cursor is not valid' USING ERRCODE = 'invalid_parameter_value', HINT = 'CURSOR_INVALID';
+    END IF;
+    BEGIN
+      IF (v_after ->> 'now')::timestamptz <> p_now THEN
+        RAISE EXCEPTION 'clock';
+      END IF;
+      a_id := (v_after ->> 'case_id')::uuid;
+      a_k1 := public.case_inbox_k1(v_sort, (v_after ->> 'due_at')::timestamptz, (v_after ->> 'last_activity_at')::timestamptz);
+      a_k2 := ARRAY[-((v_after -> 'overdue_rank' ->> 0)::integer), -((v_after -> 'overdue_rank' ->> 1)::integer)];
+      a_k3 := public.case_inbox_k3(v_sort, (v_after ->> 'due_at')::timestamptz);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE EXCEPTION 'inbox cursor is not valid' USING ERRCODE = 'invalid_parameter_value', HINT = 'CURSOR_INVALID';
+    END;
+  END IF;
+
+  -- visibility, once per call; mirrors case_role (122) exactly: a live,
+  -- non-guest owner / admin / team_leader / agent profile in p_account
+  v_role := public.case_account_role(p_account, p_actor);
+  IF v_role IS NULL THEN
+    RETURN;
+  END IF;
+  v_all := v_role IN ('super_admin', 'admin');
+  IF v_role = 'team_lead' THEN
+    SELECT coalesce(array_agg(DISTINCT m.user_id), '{}') INTO v_team_agents
+      FROM public.teams t
+      JOIN public.team_members m ON m.team_id = t.id
+     WHERE t.account_id = p_account AND m.account_id = p_account AND t.leader_user_id = p_actor;
+  END IF;
+
+  RETURN QUERY
+    WITH base AS (
+      SELECT c.id AS case_id, c.bank_code, c.stage, c.agent_id, c.coordinator_id, c.priority, c.due_at,
+             s.sla_state, ARRAY[s.sla_overdue_minutes, t.n] AS overdue_rank, s.customer_waiting,
+             d.n AS documents_missing, c.stage = 'Query raised' AS bank_query_open,
+             coalesce(lt.last_activity_at, c.opened_at) AS last_activity_at, lt.last_touched_by,
+             t.n AS open_task_overdue_count,
+             g.submission_ref, c.contact_id, ct.name AS contact_name, bk.name AS bank_name,
+             c.product, c.amount, c.opened_at, c.closed_at
+        FROM public.cases c
+        CROSS JOIN LATERAL (
+          SELECT CASE max(CASE public.case_sla_state_at(x.due_soon_at, x.due_at, p_now)
+                            WHEN 'overdue' THEN 3 WHEN 'due_soon' THEN 2 ELSE 1 END)
+                   WHEN 3 THEN 'overdue' WHEN 2 THEN 'due_soon' WHEN 1 THEN 'on_track' END AS sla_state,
+                 coalesce(max(floor(extract(epoch FROM (p_now - x.due_at)) / 60)) FILTER (WHERE p_now >= x.due_at), 0)::integer
+                   AS sla_overdue_minutes,
+                 coalesce(bool_or(x.timer = 'customer_reply'), false) AS customer_waiting
+            FROM public.case_sla_timers x
+           WHERE x.case_id = c.id AND x.stopped_at IS NULL) s
+        CROSS JOIN LATERAL (
+          SELECT count(*)::integer AS n FROM public.case_tasks k
+           WHERE k.case_id = c.id AND k.status <> 'done' AND k.due_at IS NOT NULL AND k.due_at < p_now) t
+        CROSS JOIN LATERAL (
+          SELECT count(*)::integer AS n FROM public.case_doc_requirements r
+           WHERE r.account_id = c.account_id AND r.bank_code = c.bank_code
+             AND lower(btrim(r.product)) = lower(btrim(c.product))
+             AND NOT EXISTS (SELECT 1 FROM public.case_documents y
+                              WHERE y.case_id = c.id AND y.doc_key = r.doc_key AND y.status = 'received')) d
+        -- last touch: the latest activity row of this case (ties: the
+        -- later source in this list, then the larger ref). Each branch is
+        -- filtered on the case, so each reads only that case's rows (a
+        -- DISTINCT ON view joined to cases scanned every case's rows).
+        LEFT JOIN LATERAL (
+          SELECT e.at AS last_activity_at, e.actor AS last_touched_by
+            FROM (
+              SELECT h.changed_at AS at, h.actor_id AS actor, 1 AS src, lpad(h.id::text, 20, '0') AS ref
+                FROM public.case_stage_history h WHERE h.case_id = c.id
+              UNION ALL
+              SELECT r2.changed_at, r2.actor_id, 2, lpad(r2.id::text, 20, '0')
+                FROM public.case_reassign_history r2 WHERE r2.case_id = c.id
+              UNION ALL
+              SELECT d2.changed_at, d2.actor_id, 3, lpad(d2.id::text, 20, '0')
+                FROM public.case_detail_log d2 WHERE d2.case_id = c.id
+              UNION ALL
+              SELECT l.changed_at, l.actor_id, 4, lpad(l.id::text, 20, '0')
+                FROM public.case_task_status_log l WHERE l.case_id = c.id
+              UNION ALL
+              SELECT n.created_at, n.author_id, 5, n.id::text FROM public.case_notes n WHERE n.case_id = c.id
+              UNION ALL
+              SELECT o.updated_at, o.updated_by, 6, o.doc_key FROM public.case_documents o WHERE o.case_id = c.id
+              UNION ALL
+              SELECT b2.created_at, b2.author_id, 7, b2.id::text FROM public.case_bank_contacts b2 WHERE b2.case_id = c.id
+              UNION ALL
+              -- the SLA job's and the inbound pipeline's rows are not a touch
+              SELECT s2.changed_at, s2.actor_id, 8, lpad(s2.id::text, 20, '0')
+                FROM public.case_sla_state_log s2 WHERE s2.case_id = c.id AND s2.actor_role <> 'system'
+            ) e
+           ORDER BY e.at DESC, e.src DESC, e.ref DESC
+           LIMIT 1) lt ON true
+        -- 130: LEFT JOIN, a lead has no group
+        LEFT JOIN public.submission_groups g ON g.id = c.group_id AND g.account_id = c.account_id
+        LEFT JOIN public.contacts ct ON ct.id = c.contact_id AND ct.account_id = c.account_id
+        LEFT JOIN public.case_banks bk ON bk.account_id = c.account_id AND bk.code = c.bank_code
+       WHERE c.account_id = p_account
+         AND (v_closed OR c.closed_at IS NULL)
+         AND (v_all
+              OR c.agent_id = p_actor
+              OR c.coordinator_id = p_actor
+              OR c.agent_id = ANY (v_team_agents))
+    ), keyed AS (
+      SELECT b.*,
+             public.case_inbox_k1(v_sort, b.due_at, b.last_activity_at) AS k1,
+             ARRAY[-b.overdue_rank[1], -b.overdue_rank[2]] AS k2,
+             public.case_inbox_k3(v_sort, b.due_at) AS k3
+        FROM base b
+       WHERE (v_bank IS NULL OR b.bank_code = v_bank)
+         AND (v_stage IS NULL OR b.stage = v_stage)
+         AND (v_agent IS NULL OR b.agent_id = v_agent)
+         AND (v_priority IS NULL OR b.priority = v_priority)
+         AND (v_sla IS NULL OR b.sla_state = v_sla)
+         AND (v_waiting IS NULL OR b.customer_waiting = v_waiting)
+         AND (v_docs IS NULL OR (b.documents_missing > 0) = v_docs)
+         AND (v_query IS NULL OR b.bank_query_open = v_query)
+         AND (v_idle_before IS NULL OR b.last_activity_at < v_idle_before)
+    )
+    SELECT k.case_id, k.bank_code, k.stage, k.agent_id, k.coordinator_id, k.priority, k.due_at, k.sla_state,
+           k.overdue_rank, k.customer_waiting, k.documents_missing, k.bank_query_open, k.last_activity_at,
+           k.last_touched_by, k.open_task_overdue_count, k.submission_ref, k.contact_id, k.contact_name, k.bank_name,
+           k.product, k.amount, k.opened_at, k.closed_at,
+           jsonb_build_object('sort', v_sort, 'now', p_now, 'case_id', k.case_id, 'overdue_rank', to_jsonb(k.overdue_rank),
+                              'due_at', k.due_at, 'last_activity_at', k.last_activity_at)::text
+      FROM keyed k
+     WHERE p_after IS NULL OR (k.k1, k.k2, k.k3, k.case_id) > (a_k1, a_k2, a_k3, a_id)
+     ORDER BY k.k1, k.k2, k.k3, k.case_id
+     LIMIT v_limit;
+END;
+$$;
 
 -- ---------- 9. Privileges ----------
 
