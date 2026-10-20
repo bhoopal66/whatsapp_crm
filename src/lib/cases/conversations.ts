@@ -135,6 +135,8 @@ export class CaseConversations {
       throw new CaseRefusedError('NOT_ALLOWED');
     const kase = await store.get(caseId);
     if (!kase) throw new CaseRefusedError('CASE_NOT_FOUND');
+    // 130: a lead has no group to send into.
+    if (!kase.groupId) throw new CaseRefusedError('GROUP_NOT_FOUND');
     return groups.sendFromCrm({ groupId: kase.groupId, userId: actor, text });
   }
 
@@ -158,6 +160,9 @@ export class CaseConversations {
       throw new CaseTakeOverRefusedError('NOT_ALLOWED');
     const kase = await store.get(caseId);
     if (!kase) throw new CaseTakeOverRefusedError('CASE_NOT_FOUND');
+    // 130: a lead has no group; refuse before anything is recorded.
+    if (!kase.groupId) throw new CaseRefusedError('GROUP_NOT_FOUND');
+    const groupId = kase.groupId;
     // Record before send: the row stays whatever the send does next.
     const { data, error } = await db.rpc('case_takeover_record', {
       p_actor: actor,
@@ -176,7 +181,7 @@ export class CaseConversations {
         : null;
     if (logId === null) throw new CaseStoreError('case_takeover_record', null);
     const sent = await groups.sendFromCrm({
-      groupId: kase.groupId,
+      groupId,
       userId: actor,
       text: v.text,
     });

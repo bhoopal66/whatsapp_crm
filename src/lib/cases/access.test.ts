@@ -11,6 +11,7 @@ import {
   canReassignCase,
   canWriteCase,
 } from './access';
+import { BANK_DASHBOARD_REFUSALS } from './dashboard';
 import { CASE_REFUSALS, CASE_ROLES } from './types';
 
 const SQL = readFileSync(
@@ -67,13 +68,30 @@ describe('case access mirrors match migration 122', () => {
     );
   });
 
-  it('CASE_REFUSALS are exactly the HINTs 122-124 raise', () => {
+  it('CASE_REFUSALS are exactly the case HINTs 122-124 and 130 raise', () => {
     const sql = ['122_cases.sql', '123_case_tools.sql', '124_case_sla.sql']
       .map((f) =>
         readFileSync(join(process.cwd(), 'supabase/migrations', f), 'utf8')
       )
       .join('\n');
     const hints = [...sql.matchAll(/HINT = '([A-Z_]+)'/g)].map((m) => m[1]);
-    expect(new Set(CASE_REFUSALS)).toEqual(new Set(hints));
+    // 130 also replaces 125's inbox (its own refusals) and 127's outcome
+    // reason (BANK_DASHBOARD_REFUSALS); every other HINT it raises is a
+    // case refusal.
+    const sql130 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/130_case_leads.sql'),
+      'utf8'
+    );
+    const elsewhere = new Set<string>([
+      ...BANK_DASHBOARD_REFUSALS.filter((c) => c !== 'NOT_ALLOWED'),
+      'FILTER_INVALID',
+      'CURSOR_INVALID',
+      'LIMIT_INVALID',
+      'NOW_REQUIRED',
+    ]);
+    const hints130 = [...sql130.matchAll(/HINT = '([A-Z_]+)'/g)]
+      .map((m) => m[1])
+      .filter((h) => !elsewhere.has(h));
+    expect(new Set(CASE_REFUSALS)).toEqual(new Set([...hints, ...hints130]));
   });
 });

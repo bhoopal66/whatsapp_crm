@@ -5,7 +5,8 @@
 // Once per Declined / Withdrawn case. Refusals answer 422 with `code`:
 // REASON_INVALID, REASON_TEXT_TOO_LONG (both also checked here first),
 // OUTCOME_NOT_DECLINED (the case is not Declined / Withdrawn),
-// REASON_ALREADY_SET.
+// REASON_ALREADY_SET, OUTCOME_REASON (130: NO_RESPONSE on a case that is
+// not Withdrawn).
 // ============================================================
 
 import { NextResponse } from 'next/server';

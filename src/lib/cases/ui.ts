@@ -24,10 +24,13 @@ export const SLA_STATES: readonly InboxSlaState[] = [
 export { PRIORITIES };
 
 /**
- * 122's case_default_stages(), in order: the stage filter's options.
+ * 130's case_default_stages(), in order: the stage filter's options.
  * ui.test.ts reads the migration and keeps the two equal.
  */
 export const DEFAULT_STAGES: readonly string[] = [
+  'Interested',
+  'Data collection',
+  'Review',
   'Submitted',
   'Bank acknowledged',
   'Documents requested',
@@ -40,6 +43,21 @@ export const DEFAULT_STAGES: readonly string[] = [
   'Withdrawn',
   'Closed',
 ];
+
+/**
+ * 130's case_presub_stages(): a lead's stages, before any submission.
+ * Every stage list starts with exactly these, in this order.
+ */
+export const PRESUB_STAGES: readonly string[] = [
+  'Interested',
+  'Data collection',
+  'Review',
+];
+
+/** 130's case_stage_is_presub(). */
+export function isPresubStage(stage: string | null | undefined): boolean {
+  return stage != null && PRESUB_STAGES.includes(stage);
+}
 
 /** 125's bound on `no_activity_days`. */
 export const NO_ACTIVITY_DAYS_MAX = 3650;

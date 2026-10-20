@@ -36,6 +36,7 @@ const LABELS = {
   KYC_AML: 'KYC / AML',
   CUSTOMER_WITHDREW: 'Customer withdrew',
   OTHER: 'Other',
+  NO_RESPONSE: 'No response',
 };
 
 describe('percent', () => {

@@ -29,6 +29,7 @@ import {
   assertUnderGroupSendLimit,
   caseErrorResponse,
   loadCaseForCaller,
+  requireCaseGroup,
 } from '@/lib/cases/http';
 import { caseStore, caseToolsStore } from '@/lib/cases/server';
 import {
@@ -62,7 +63,11 @@ export async function POST(_request: Request, { params }: Params) {
         write: true,
       }
     );
-    await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
+    await assertUnderGroupSendLimit(
+      ctx.accountId,
+      requireCaseGroup(c),
+      ctx.userId
+    );
     const result = await requestMissingDocuments(
       {
         tools: caseToolsStore(),

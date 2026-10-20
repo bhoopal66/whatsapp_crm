@@ -27,6 +27,8 @@ export async function loadCaseGroup(
   db: SupabaseClient,
   kase: Pick<Case, 'groupId' | 'accountId'>
 ): Promise<CaseGroup | null> {
+  // 130: a lead has no group.
+  if (!kase.groupId) return null;
   const { data, error } = await db
     .from('submission_groups')
     .select('id, status, created_at, ended_at, end_reason')

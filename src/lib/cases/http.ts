@@ -84,6 +84,18 @@ export async function loadCaseForCaller(
   return { case: c, role };
 }
 
+export const NO_GROUP = 'This lead has no WhatsApp group yet';
+
+/**
+ * The case's submission group id, or 422 NO_GROUP for a lead (130): a
+ * lead has no conversation, so nothing can be sent to it. Call before
+ * any send-limit count or send.
+ */
+export function requireCaseGroup(c: Pick<Case, 'groupId'>): string {
+  if (!c.groupId) throw new CaseHttpError(422, NO_GROUP, { code: 'NO_GROUP' });
+  return c.groupId;
+}
+
 /** case_audit_list's only readers. */
 export function canSeeCaseAudit(role: CaseRole | null): boolean {
   return role === 'admin' || role === 'super_admin';
@@ -106,6 +118,18 @@ const REFUSAL_TEXT: Record<string, string> = {
   FILTER_INVALID: 'That filter is not valid',
   CURSOR_INVALID: 'That page cursor is not valid',
   NOW_REQUIRED: 'A time is required',
+  LEAD_INVALID:
+    'A lead needs a customer you can see, a product and a valid amount',
+  PRESUB_REENTRY: 'A submitted case cannot go back to a pre-submission stage',
+  SUBMISSION_REQUIRED: 'That stage needs a submission',
+  PRESUB_STAGES_REQUIRED:
+    'The list must start with Interested, Data collection, Review',
+};
+
+/** 130: one open lead / case per customer and bank. */
+const CONFLICT_TEXT: Record<string, string> = {
+  LEAD_EXISTS: 'An open lead already exists for this customer and bank',
+  CASE_EXISTS: 'An open case already exists for this customer and bank',
 };
 
 function refusal(code: string): NextResponse {
@@ -118,6 +142,11 @@ function refusal(code: string): NextResponse {
     return NextResponse.json({ error: 'Not allowed', code }, { status: 403 });
   if (code === 'CASE_NOT_FOUND')
     return NextResponse.json({ error: CASE_NOT_FOUND, code }, { status: 404 });
+  if (CONFLICT_TEXT[code])
+    return NextResponse.json(
+      { error: CONFLICT_TEXT[code], code },
+      { status: 409 }
+    );
   return NextResponse.json(
     { error: REFUSAL_TEXT[code] ?? 'Request refused', code },
     { status: 422 }

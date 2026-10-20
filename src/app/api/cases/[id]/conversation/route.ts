@@ -23,6 +23,7 @@ import {
   CaseHttpError,
   caseSendErrorResponse,
   loadCaseForCaller,
+  requireCaseGroup,
   parseText,
   readJsonObject,
 } from '@/lib/cases/http';
@@ -68,7 +69,11 @@ export async function POST(request: Request, { params }: Params) {
     const { id } = await params;
     const { case: c, role } = await loadCaseForCaller(ctx, id, caseStore());
     if (!canWriteCase(role)) throw new CaseHttpError(403, 'Not allowed');
-    await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
+    await assertUnderGroupSendLimit(
+      ctx.accountId,
+      requireCaseGroup(c),
+      ctx.userId
+    );
 
     const body = await readJsonObject(request);
     const text = parseText(body?.text, SG_TEXT_MAX);

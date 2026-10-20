@@ -6638,7 +6638,8 @@
       "INCOME_INSUFFICIENT": "Income not sufficient",
       "KYC_AML": "KYC / AML",
       "CUSTOMER_WITHDREW": "Customer withdrew",
-      "OTHER": "Other"
+      "OTHER": "Other",
+      "NO_RESPONSE": "No response from the customer"
     },
     "overview": {
       "timers": "SLA timers",
@@ -6846,6 +6847,7 @@
       "reasonInvalid": "Choose a reason.",
       "reasonTooLong": "The details are too long (500 characters at most).",
       "reasonNotDeclined": "A reason can only be recorded for a declined or withdrawn case.",
+      "reasonNoResponseWithdrawn": "No response can only be recorded for a withdrawn case.",
       "reasonAlreadySet": "A reason was already recorded for this case.",
       "assigneeInvalid": "That person cannot take this role on the case.",
       "notAllowed": "You are not allowed to do that.",
@@ -7110,7 +7112,8 @@
         "INCOME_INSUFFICIENT": "Income too low",
         "KYC_AML": "Identity or compliance checks (KYC/AML)",
         "CUSTOMER_WITHDREW": "The customer withdrew",
-        "OTHER": "Another reason"
+        "OTHER": "Another reason",
+        "NO_RESPONSE": "The customer stopped responding"
       }
     }
   },

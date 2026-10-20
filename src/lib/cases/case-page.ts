@@ -12,10 +12,13 @@ export type SlaState = 'on_track' | 'due_soon' | 'overdue';
 export interface CaseRecord {
   id: string;
   accountId: string;
-  groupId: string;
+  /** NULL while the case is a lead (130). */
+  groupId: string | null;
+  isLead: boolean;
   submissionRef: string | null;
   contactId: string | null;
   contactName: string | null;
+  leadSource: string | null;
   bankCode: string | null;
   bankName: string | null;
   product: string | null;
@@ -137,10 +140,12 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
     case: {
       id,
       accountId: str(c.accountId) ?? '',
-      groupId: str(c.groupId) ?? '',
+      groupId: str(c.groupId),
+      isLead: !str(c.groupId),
       submissionRef: str(c.submissionRef),
       contactId: str(c.contactId),
       contactName: str(c.contactName),
+      leadSource: str(c.leadSource),
       bankCode: str(c.bankCode),
       bankName: str(c.bankName),
       product: str(c.product),
@@ -263,7 +268,7 @@ export function stageMoveBody(stage: string): {
   return isOutcomeStage(stage) ? { stage, outcome: stage } : { stage };
 }
 
-/** 127's reason codes; `dashboard.ts`'s OUTCOME_REASON_CODES (tested equal). */
+/** 130's reason codes (NO_RESPONSE: Withdrawn only); `dashboard.ts`'s OUTCOME_REASON_CODES (tested equal). */
 export const OUTCOME_REASON_CODES = [
   'INCOMPLETE_DOCS',
   'CREDIT_POLICY',
@@ -271,6 +276,7 @@ export const OUTCOME_REASON_CODES = [
   'KYC_AML',
   'CUSTOMER_WITHDREW',
   'OTHER',
+  'NO_RESPONSE',
 ] as const;
 export type OutcomeReasonCode = (typeof OUTCOME_REASON_CODES)[number];
 export const OUTCOME_REASON_TEXT_MAX = 500;
@@ -330,6 +336,7 @@ const REASON_ERRORS: Record<string, string> = {
   REASON_INVALID: 'reasonInvalid',
   REASON_TEXT_TOO_LONG: 'reasonTooLong',
   OUTCOME_NOT_DECLINED: 'reasonNotDeclined',
+  OUTCOME_REASON: 'reasonNoResponseWithdrawn',
   REASON_ALREADY_SET: 'reasonAlreadySet',
 };
 const REASSIGN_ERRORS: Record<string, string> = {

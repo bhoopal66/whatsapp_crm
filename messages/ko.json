@@ -6638,7 +6638,8 @@
       "INCOME_INSUFFICIENT": "소득 부족",
       "KYC_AML": "KYC / AML",
       "CUSTOMER_WITHDREW": "고객 철회",
-      "OTHER": "기타"
+      "OTHER": "기타",
+      "NO_RESPONSE": "고객 무응답"
     },
     "overview": {
       "timers": "SLA 타이머",
@@ -6846,6 +6847,7 @@
       "reasonInvalid": "사유를 고르세요.",
       "reasonTooLong": "상세 내용이 너무 깁니다 (최대 500자).",
       "reasonNotDeclined": "사유는 거절 또는 철회된 케이스에만 기록할 수 있습니다.",
+      "reasonNoResponseWithdrawn": "무응답은 철회된 케이스에만 기록할 수 있습니다.",
       "reasonAlreadySet": "이 케이스에는 이미 사유가 기록되어 있습니다.",
       "assigneeInvalid": "이 사람은 케이스에서 그 역할을 맡을 수 없습니다.",
       "notAllowed": "이 작업을 할 권한이 없습니다.",
@@ -7110,7 +7112,8 @@
         "INCOME_INSUFFICIENT": "소득 부족",
         "KYC_AML": "본인 확인 또는 규정 심사(KYC/AML)",
         "CUSTOMER_WITHDREW": "고객이 철회함",
-        "OTHER": "기타 사유"
+        "OTHER": "기타 사유",
+        "NO_RESPONSE": "고객이 응답하지 않음"
       }
     }
   },

@@ -83,6 +83,18 @@ export interface StageResult {
   groupEnd: GroupEndOutcome | null;
 }
 
+/** One row of `listForContact`. */
+export interface ContactCase {
+  id: string;
+  stage: string;
+  bankCode: string | null;
+  product: string | null;
+  amount: string | null;
+  isLead: boolean;
+  openedAt: Date;
+  closedAt: Date | null;
+}
+
 export interface PendingGroupEnd {
   caseId: string;
   accountId: string;
@@ -96,13 +108,15 @@ export const VIEW_CASES_MAX = 200;
 
 const REFUSALS = new Set<string>(CASE_REFUSALS);
 const CLAIM_STATES = new Set<string>([
+  // 130: a lead has no group, so no claim is ever taken.
+  'NO_GROUP',
   'NOT_FINAL',
   'ALREADY_ENDED',
   'CLAIM_HELD',
 ]);
 
 const CASE_COLUMNS =
-  'id, account_id, group_id, bank_code, product, amount::text, agent_id, coordinator_id, stage, priority, due_at, sla_state, opened_at, closed_at, outcome, group_ended_at';
+  'id, account_id, group_id, contact_id, lead_source, bank_code, product, amount::text, agent_id, coordinator_id, stage, priority, due_at, sla_state, opened_at, closed_at, outcome, group_ended_at';
 
 type Row = Record<string, unknown>;
 type DbError = { message?: string; code?: string; hint?: string | null };
@@ -173,10 +187,14 @@ export class CaseStore {
     if (!c) return null;
     const accountId = String(c.account_id);
     const bankCode = str(c.bank_code);
+    const groupId = str(c.group_id);
     const [group, bank] = await Promise.all([
-      this.select('submission_groups', 'submission_ref, contact_id', {
-        id: String(c.group_id),
-      }),
+      // 130: a lead has no group.
+      groupId
+        ? this.select('submission_groups', 'submission_ref, contact_id', {
+            id: groupId,
+          })
+        : Promise.resolve(null),
       bankCode
         ? this.select('case_banks', 'name', {
             account_id: accountId,
@@ -184,16 +202,19 @@ export class CaseStore {
           })
         : Promise.resolve(null),
     ]);
-    const contactId = str(group?.contact_id);
+    // 130's cases.contact_id; the group's for a row the backfill missed.
+    const contactId = str(c.contact_id) ?? str(group?.contact_id);
     const contact = contactId
       ? await this.select('contacts', 'name', { id: contactId })
       : null;
     return {
       id: String(c.id),
       accountId,
-      groupId: String(c.group_id),
+      groupId,
+      isLead: groupId === null,
       submissionRef: str(group?.submission_ref),
       contactId,
+      leadSource: str(c.lead_source),
       contactName: str(contact?.name),
       bankCode,
       bankName: str(bank?.name),
@@ -247,6 +268,73 @@ export class CaseStore {
       p_actor: actor,
     });
     return { caseId: String(row.case_id), created: row.created === true };
+  }
+
+  /**
+   * Opens a lead (130's case_open_lead): a case at Interested with no
+   * submission group. `actor` is the signed-in user (the agent, an
+   * owner/admin, or the agent's team leader); idempotent for the same
+   * agent. A later submission of the same contact and bank attaches to it
+   * (case_open). TENANCY: the caller checks `accountId` is the actor's
+   * active account first.
+   */
+  async openLead(input: {
+    actor: string;
+    accountId: string;
+    contactId: string;
+    bankCode: string;
+    product: string;
+    agentId: string;
+    /** AED decimal string, as parseAmount gives it. */
+    amount?: string | null;
+    coordinatorId?: string | null;
+    leadSource?: string | null;
+  }): Promise<string> {
+    const data = await this.rpc('case_open_lead', {
+      p_actor: input.actor,
+      p_account: input.accountId,
+      p_contact: input.contactId,
+      p_bank_code: input.bankCode,
+      p_product: input.product,
+      p_agent: input.agentId,
+      p_amount: input.amount ?? null,
+      p_coordinator: input.coordinatorId ?? null,
+      p_lead_source: input.leadSource ?? null,
+    });
+    const id = str(data);
+    if (!id) throw new CaseStoreError('case_open_lead', null);
+    return id;
+  }
+
+  /**
+   * The cases of one contact in one account, newest first (at most
+   * `limit`). No access decision: the caller filters by `role`.
+   */
+  async listForContact(
+    accountId: string,
+    contactId: string,
+    limit = 50
+  ): Promise<ContactCase[]> {
+    const { data, error } = await this.db
+      .from('cases')
+      .select(
+        'id, group_id, bank_code, product, amount::text, stage, opened_at, closed_at'
+      )
+      .eq('account_id', accountId)
+      .eq('contact_id', contactId)
+      .order('opened_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new CaseStoreError('cases', error.code ?? null);
+    return rows(data).map((r) => ({
+      id: String(r.id),
+      stage: String(r.stage),
+      bankCode: str(r.bank_code),
+      product: str(r.product),
+      amount: str(r.amount),
+      isLead: r.group_id === null || r.group_id === undefined,
+      openedAt: date(r.opened_at)!,
+      closedAt: date(r.closed_at),
+    }));
   }
 
   /** Sets the given details (absent = unchanged); returns the changed fields. */
@@ -386,7 +474,7 @@ export class CaseStore {
       const c = await this.select('cases', 'group_id', { id: caseId });
       if (!ender) {
         reason = 'NO_DEPS';
-      } else if (!c) {
+      } else if (!c || c.group_id === null || c.group_id === undefined) {
         reason = 'NO_GROUP';
       } else {
         const groupId = String(c.group_id);
