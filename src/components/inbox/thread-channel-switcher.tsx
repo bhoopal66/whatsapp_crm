@@ -146,11 +146,14 @@ interface SwitcherProps {
   conversation: Conversation;
   /** Called after a successful switch, to refresh the timeline notes. */
   onSwitched?: () => void;
+  /** The viewer sees this chat only through a coordinator share (133). */
+  locked?: boolean;
 }
 
 export function ThreadChannelSwitcher({
   conversation,
   onSwitched,
+  locked = false,
 }: SwitcherProps) {
   const t = useTranslations('Inbox.channelSwitch');
   const { user, accountRole } = useAuth();
@@ -180,6 +183,9 @@ export function ThreadChannelSwitcher({
     [numbers, allocations, user?.id, isAdmin]
   );
 
+  // A coordinator who sees the chat only through a share replies on its
+  // own number (migration 133); SQL refuses any switch, so none is offered.
+  if (locked) return null;
   // One number on the account: there is nothing to switch between.
   if (!numbers || numbers.length < 2) return null;
 

@@ -204,13 +204,30 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   isLegacyFormat: () => false,
 }));
 
+// Every service-role write, recorded: the best-effort "pause active
+// flow run" write, and a coordinator's last-message summary (133).
+interface AdminWrite {
+  table: string;
+  row: Record<string, unknown>;
+  filters: [string, unknown][];
+}
+const adminWrites = vi.hoisted(() => [] as AdminWrite[]);
 vi.mock('@/lib/flows/admin-client', () => ({
-  // Only used for the best-effort "pause active flow run" write.
   supabaseAdmin: () => ({
-    from: () => ({
-      update: () => ({
-        eq: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
-      }),
+    from: (table: string) => ({
+      update: (row: Record<string, unknown>) => {
+        const write: AdminWrite = { table, row, filters: [] };
+        adminWrites.push(write);
+        const chain = {
+          eq: (column: string, value: unknown) => {
+            write.filters.push([column, value]);
+            return chain;
+          },
+          then: (resolve: (r: { error: null }) => unknown) =>
+            resolve({ error: null }),
+        };
+        return chain;
+      },
     }),
   }),
 }));
@@ -228,11 +245,18 @@ interface CapturedWrites {
  */
 function sendPathDb(
   templateRows: unknown[],
-  captured: CapturedWrites
+  captured: CapturedWrites,
+  options: {
+    /** Extra conversation columns (owner, numbers). */
+    conversation?: Record<string, unknown>;
+    /** Rows the RLS client's conversations UPDATE … select('id') returns. */
+    conversationUpdateRows?: unknown[];
+  } = {}
 ): SupabaseClient {
   const conversation = {
     id: 'cv-1',
     contact: { id: 'ct-1', phone: '+15551234567' },
+    ...options.conversation,
   };
   // Channel rows as `channels.ts` reads them (migration 046). The
   // encryption mock above is identity, so `access_token` is plaintext.
@@ -295,7 +319,12 @@ function sendPathDb(
         // Bare-await result — only message_templates is read this way.
         then: (resolve: (r: { data: unknown[]; error: null }) => unknown) =>
           resolve({
-            data: table === 'message_templates' ? templateRows : [],
+            data:
+              table === 'message_templates'
+                ? templateRows
+                : table === 'conversations'
+                  ? (options.conversationUpdateRows ?? [])
+                  : [],
             error: null,
           }),
       };
@@ -342,12 +371,16 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
 
   it('reads body values out of the structured params shape too', async () => {
     const captured: CapturedWrites = {};
-    await sendMessageToConversation(sendPathDb([TEMPLATE_ROW], captured), 'acct-1', {
-      conversationId: 'cv-1',
-      messageType: 'template',
-      templateName: 'order_update',
-      templateMessageParams: { body: ['B456', 'Monday'] },
-    });
+    await sendMessageToConversation(
+      sendPathDb([TEMPLATE_ROW], captured),
+      'acct-1',
+      {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+        templateMessageParams: { body: ['B456', 'Monday'] },
+      }
+    );
     expect(captured.message?.content_text).toBe(
       'Your order B456 ships on Monday'
     );
@@ -355,25 +388,33 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
 
   it("does not override the composer's pre-rendered text", async () => {
     const captured: CapturedWrites = {};
-    await sendMessageToConversation(sendPathDb([TEMPLATE_ROW], captured), 'acct-1', {
-      conversationId: 'cv-1',
-      messageType: 'template',
-      templateName: 'order_update',
-      templateParams: ['A123', 'Friday'],
-      contentText: 'rendered by the composer',
-    });
+    await sendMessageToConversation(
+      sendPathDb([TEMPLATE_ROW], captured),
+      'acct-1',
+      {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+        templateParams: ['A123', 'Friday'],
+        contentText: 'rendered by the composer',
+      }
+    );
     expect(captured.message?.content_text).toBe('rendered by the composer');
   });
 
   it('hands the resolved local row to the sender, with its body params', async () => {
     sendTemplateMessage.mockClear();
     const captured: CapturedWrites = {};
-    await sendMessageToConversation(sendPathDb([TEMPLATE_ROW], captured), 'acct-1', {
-      conversationId: 'cv-1',
-      messageType: 'template',
-      templateName: 'order_update',
-      templateParams: ['A123', 'Friday'],
-    });
+    await sendMessageToConversation(
+      sendPathDb([TEMPLATE_ROW], captured),
+      'acct-1',
+      {
+        conversationId: 'cv-1',
+        messageType: 'template',
+        templateName: 'order_update',
+        templateParams: ['A123', 'Friday'],
+      }
+    );
 
     // Under Meta this asserted the LANGUAGE CODE on the wire, because
     // the template lived on Meta's side and the code selected which
@@ -404,7 +445,7 @@ describe('sendMessageToConversation — template persistence (#483)', () => {
         messageType: 'template',
         templateName: 'never_saved',
         templateParams: ['A123'],
-      }),
+      })
     ).rejects.toMatchObject({ code: 'template_not_found' });
 
     expect(sendTemplateMessage).not.toHaveBeenCalled();
@@ -597,10 +638,7 @@ describe('sendMessageToConversation — whether a failure is definite', () => {
   it('is definite for a malformed template row, found before the gateway call', async () => {
     sendTemplateMessage.mockClear();
     const error = await sendMessageToConversation(
-      sendPathDb(
-        [{ id: 'tpl-bad', name: 'order_update', language: 'en' }],
-        {}
-      ),
+      sendPathDb([{ id: 'tpl-bad', name: 'order_update', language: 'en' }], {}),
       'acct-1',
       {
         conversationId: 'cv-1',
@@ -697,7 +735,10 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
 
   it('sends when the check allows it', async () => {
     sendTextMessage.mockClear();
-    const { db, captured } = withCheck({ data: { blocked: false }, error: null });
+    const { db, captured } = withCheck({
+      data: { blocked: false },
+      error: null,
+    });
     await sendMessageToConversation(db, 'acct-1', {
       conversationId: 'cv-1',
       messageType: 'text',
@@ -716,6 +757,136 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
       contentText: 'Your order shipped',
     });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendMessageToConversation — a chat shared with a coordinator (migration 133)', () => {
+  const COORDINATOR = 'u-coord';
+
+  /**
+   * The coordinator's view of a colleague's chat: `shared` decides what
+   * coordinator_share_grants answers (and can_view_conversation the
+   * opposite, as for a coordinator who sees the chat only by the share).
+   * The RLS client's summary UPDATE matches `updateRows`.
+   */
+  function sharedChat(opts: {
+    shared: boolean;
+    channelId: string | null;
+    updateRows?: unknown[];
+  }) {
+    const captured: CapturedWrites = {};
+    const inner = sendPathDb([], captured, {
+      conversation: {
+        user_id: 'u-owner',
+        assigned_agent_id: null,
+        channel_id: opts.channelId,
+        send_channel_id: null,
+      },
+      conversationUpdateRows: opts.updateRows ?? [],
+    });
+    const rpc = vi.fn(async (fn: string) => {
+      if (fn === 'coordinator_share_grants')
+        return { data: opts.shared, error: null };
+      if (fn === 'can_view_conversation')
+        return { data: !opts.shared, error: null };
+      return { data: { blocked: false }, error: null };
+    });
+    const db = {
+      from: (table: string) => inner.from(table),
+      rpc,
+    } as unknown as SupabaseClient;
+    return { db, rpc, captured };
+  }
+
+  const reply = {
+    conversationId: 'cv-1',
+    messageType: 'text',
+    contentText: 'The bank needs your salary letter',
+    senderUserId: COORDINATOR,
+  };
+
+  const summaryWrites = () =>
+    adminWrites.filter((w) => w.table === 'conversations');
+
+  it("updates the shared chat's last message through the service role, confined to it", async () => {
+    adminWrites.length = 0;
+    sendTextMessage.mockClear();
+    const { db, rpc, captured } = sharedChat({
+      shared: true,
+      channelId: 'cfg-1',
+    });
+    await sendMessageToConversation(db, 'acct-1', reply);
+
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(captured.message).toMatchObject({
+      sender_id: COORDINATOR,
+      channel_id: 'cfg-1',
+    });
+    expect(rpc).toHaveBeenCalledWith('coordinator_share_grants', {
+      p_conversation_id: 'cv-1',
+    });
+    expect(summaryWrites()).toEqual([
+      {
+        table: 'conversations',
+        row: expect.objectContaining({
+          last_message_text: 'The bank needs your salary letter',
+        }),
+        filters: [
+          ['id', 'cv-1'],
+          ['account_id', 'acct-1'],
+        ],
+      },
+    ]);
+  });
+
+  it('leaves a 0-row summary update alone for anyone the share does not explain', async () => {
+    adminWrites.length = 0;
+    const { db } = sharedChat({ shared: false, channelId: 'cfg-1' });
+    await sendMessageToConversation(db, 'acct-1', reply);
+    expect(summaryWrites()).toEqual([]);
+  });
+
+  it('asks nothing when the RLS update reached the row', async () => {
+    adminWrites.length = 0;
+    const { db, rpc } = sharedChat({
+      shared: true,
+      channelId: 'cfg-1',
+      updateRows: [{ id: 'cv-1' }],
+    });
+    await sendMessageToConversation(db, 'acct-1', reply);
+    expect(summaryWrites()).toEqual([]);
+    expect(rpc).not.toHaveBeenCalledWith(
+      'coordinator_share_grants',
+      expect.anything()
+    );
+  });
+
+  it("refuses, before the gateway, a reply on a number that is not the chat's own", async () => {
+    sendTextMessage.mockClear();
+    // No number on the thread yet: the send would go out on the primary,
+    // which the messages INSERT policy refuses for a coordinator.
+    const { db, captured } = sharedChat({ shared: true, channelId: null });
+    const error = await sendMessageToConversation(db, 'acct-1', reply).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({
+      code: 'shared_chat_number',
+      status: 409,
+      definite: true,
+    });
+    expect(sendTextMessage).not.toHaveBeenCalled();
+    expect(captured.message).toBeUndefined();
+  });
+
+  it('still sends from a thread with no number for a sender who sees it normally', async () => {
+    sendTextMessage.mockClear();
+    const { db, captured } = sharedChat({ shared: false, channelId: null });
+    await sendMessageToConversation(db, 'acct-1', reply);
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(captured.message).toMatchObject({ channel_id: 'cfg-1' });
+    // …and the thread is stamped with its number, as before.
+    expect(captured.conversation).toMatchObject({ channel_id: 'cfg-1' });
   });
 });
 

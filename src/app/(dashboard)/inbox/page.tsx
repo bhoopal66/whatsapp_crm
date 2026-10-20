@@ -47,6 +47,7 @@ import {
   useMyNumberIds,
 } from '@/hooks/use-whatsapp-numbers';
 import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
+import { useMyCoordinatorShares } from '@/hooks/use-my-coordinator-shares';
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -177,6 +178,18 @@ export function InboxPageInner({
     token: number;
     since: string | null;
   }>({ token: 0, since: null });
+
+  // Chats shared with me as a coordinator (migration 133), with the
+  // bank each came under: they count as mine on the personal inbox and
+  // carry a "Shared" label. Re-read with every resync.
+  const sharedBanks = useMyCoordinatorShares(resyncToken + deltaSync.token);
+  // Keyed on the ids, so a re-read finding the same shares does not
+  // refetch the list.
+  const sharedKey = sharedBanks ? [...sharedBanks.keys()].sort().join(',') : '';
+  const sharedConversationIds = useMemo(
+    () => (sharedKey ? sharedKey.split(',') : []),
+    [sharedKey]
+  );
 
   /**
    * Keyset cursor of the list's last loaded page (`null` once every
@@ -912,12 +925,17 @@ export function InboxPageInner({
             enabled={
               !profileLoading &&
               aiLive !== null &&
-              (!personalOnlyUserId || myNumberIds !== null)
+              (!personalOnlyUserId ||
+                (myNumberIds !== null && sharedBanks !== null))
             }
             restrictToUserId={personalOnlyUserId}
             restrictToChannelIds={
               personalOnlyUserId ? (myNumberIds ?? undefined) : undefined
             }
+            restrictToConversationIds={
+              personalOnlyUserId ? sharedConversationIds : undefined
+            }
+            sharedBanks={sharedBanks}
             numberNames={numberNames}
             showAssignee={showAssignee}
             campaignOnly={campaignOnly}
@@ -944,6 +962,11 @@ export function InboxPageInner({
           <MessageThread
             conversation={activeConversation}
             contact={activeContact}
+            sharedBank={
+              activeConversation
+                ? (sharedBanks?.get(activeConversation.id) ?? null)
+                : null
+            }
             messages={messages}
             onMessagesLoaded={handleMessagesLoaded}
             onNewMessage={handleNewMessage}

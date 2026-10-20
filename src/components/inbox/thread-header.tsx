@@ -20,6 +20,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
+  Share2,
   UserPlus,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -38,6 +39,9 @@ import type { Contact, Conversation, Profile } from '@/types';
 import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
+import { useAuth } from '@/hooks/use-auth';
+import { isShareOnlyViewer } from '@/lib/coordinators/ui';
+import { CoordinatorShareButton } from './coordinator-share-button';
 import { ThreadChannelSwitcher } from './thread-channel-switcher';
 import { MemberPresenceDot } from './thread-presence';
 import { ThreadTagBar, type ChatTagsPatch } from './thread-tag-bar';
@@ -75,6 +79,8 @@ export interface ThreadHeaderProps {
   contactPanelOpen?: boolean;
   /** Desktop contact-panel toggle; renders only when provided. */
   onToggleContactPanel?: () => void;
+  /** The bank this chat was shared with the viewer under (migration 133). */
+  sharedBank?: string | null;
 }
 
 export function ThreadHeader({
@@ -95,8 +101,17 @@ export function ThreadHeader({
   isRefreshing,
   contactPanelOpen,
   onToggleContactPanel,
+  sharedBank = null,
 }: ThreadHeaderProps) {
   const t = useTranslations('Inbox.messageThread');
+  const tShare = useTranslations('Coordinators.share');
+  const { accountRole } = useAuth();
+  const shareOnly = isShareOnlyViewer(
+    accountRole,
+    currentUserId,
+    conversation,
+    !!sharedBank
+  );
 
   const identity = (
     <>
@@ -109,6 +124,12 @@ export function ThreadHeader({
         {contact.name && (
           <p className="text-wa-text-secondary truncate text-xs leading-4">
             {contact.phone}
+          </p>
+        )}
+        {sharedBank && (
+          <p className="text-wa-teal inline-flex items-center gap-1 text-[11px] leading-4 font-medium">
+            <Share2 className="h-3 w-3 shrink-0" />
+            {tShare('sharedLabel', { bank: sharedBank })}
           </p>
         )}
       </div>
@@ -178,6 +199,7 @@ export function ThreadHeader({
             key={conversation.id}
             conversation={conversation}
             onSwitched={onChannelSwitched}
+            locked={shareOnly}
           />
 
           {/* Who is on this chat, and the way to hand it to someone —
@@ -258,6 +280,12 @@ export function ThreadHeader({
 
           <CallButton contact={contact} conversationId={conversation.id} />
           <ShareToChatButton conversationId={conversation.id} />
+          {!shareOnly && (
+            <CoordinatorShareButton
+              key={`coord-${conversation.id}`}
+              conversationId={conversation.id}
+            />
+          )}
 
           {onRefresh && (
             <span

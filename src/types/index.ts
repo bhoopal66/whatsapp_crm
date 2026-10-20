@@ -347,7 +347,12 @@ export type NotificationType =
   | 'meeting_reminder'
   // WhatsApp groups (114): someone asked to join a group. Sent to its
   // managers (else owners and admins). meta = {group_id, wa_ids}.
-  | 'group_join_request';
+  | 'group_join_request'
+  // Coordinators (133): an agent shared a customer chat with you, a
+  // coordinator of one of its banks (share_conversation_with_coordinator).
+  // The row carries conversation_id and contact_id; meta = {share_id,
+  // bank_code}.
+  | 'conversation_shared';
 
 export interface Notification {
   id: string;

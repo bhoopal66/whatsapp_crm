@@ -8,6 +8,7 @@ import {
   pickByProvider,
   resolveReplyChannel,
 } from '@/lib/whatsapp/channels';
+import { reachesOnlyByShare } from '@/lib/whatsapp/send-message';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -72,7 +73,9 @@ export async function POST(request: Request) {
 
     const { data: conversation, error: convError } = await supabase
       .from('conversations')
-      .select('id, account_id, channel_id, contact:contacts(phone)')
+      .select(
+        'id, account_id, user_id, assigned_agent_id, channel_id, send_channel_id, contact:contacts(phone)',
+      )
       .eq('id', targetMessage.conversation_id)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -81,6 +84,25 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Conversation not found' },
         { status: 404 },
+      );
+    }
+
+    // A coordinator who reaches the chat only through a share (133) may
+    // read and reply on the chat's number, nothing more: the database
+    // refuses their reaction write, so refuse before the gateway has
+    // shown it to the customer.
+    if (
+      await reachesOnlyByShare(supabase, accountId, userId, {
+        id: conversation.id,
+        user_id: conversation.user_id as string | null,
+        assigned_agent_id: conversation.assigned_agent_id as string | null,
+        channel_id: conversation.channel_id as string | null,
+        send_channel_id: conversation.send_channel_id as string | null,
+      })
+    ) {
+      return NextResponse.json(
+        { error: 'Reactions are not available in a shared chat' },
+        { status: 403 },
       );
     }
 

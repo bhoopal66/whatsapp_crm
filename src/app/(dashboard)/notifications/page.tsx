@@ -30,6 +30,7 @@ import {
   ClipboardPen,
   PhoneCall,
   PhoneOutgoing,
+  Share2,
   ShieldAlert,
   UserPlus,
   Video,
@@ -48,6 +49,7 @@ import { toast } from "sonner";
 // Icon per notification type — a one-line add per new type.
 const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   conversation_assigned: UserPlus,
+  conversation_shared: Share2,
   channel_disconnected: WifiOff,
   channel_reconnected: Wifi,
   team_activity_alert: ShieldAlert,

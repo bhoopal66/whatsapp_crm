@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Coordinators (migration 133)
+
+**Migration required: 133** (`133_coordinators.sql`), as a superuser or
+BYPASSRLS role; asserted by `supabase/ci/verify-coordinators.sql`. An owner
+or admin can give an agent or team leader one or more banks in Settings ->
+Members, which makes them that bank's **coordinator**. An agent shares a
+customer's chat with a bank's coordinator from the chat header; the
+coordinator is notified, sees the chat in their inbox as "Shared · BANK",
+can read it and reply from the chat's own number, and sees the contact read
+only. A share lasts until it is revoked. See
+[docs/coordinators.md](docs/coordinators.md).
+
 ### Banks: summary strip, case columns, new dashboard figures (migration 131)
 
 **Migration required: 131** (`131_bank_dashboard_leads.sql`), as a
