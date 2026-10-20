@@ -34,8 +34,9 @@ const TOOLS: PromptToolDefinition[] = [
 const EMAIL = 'ahmed.k@example.com';
 const router = {
   execute: async () => ({ status: 'ok', result: 'done' }),
-} as any;
-const pc = (extra: any = {}) =>
+} as unknown as AgentDeps['router'];
+type PcOptions = Parameters<typeof promptCacheMiddleware>[0];
+const pc = (extra: Partial<PcOptions> = {}) =>
   promptCacheMiddleware({
     constants: CONSTANTS,
     staticIds: ['sys.core'],
@@ -51,20 +52,25 @@ function model() {
   };
   return { call, requests };
 }
-const input = (runId: string, ws: string, msgs?: any[]): AgentInput =>
+const input = (runId: string, ws: string, msgs?: unknown[]): AgentInput =>
   ({
     runId,
     userId: 'u1',
     workspaceId: ws,
     channel: 'whatsapp',
     messages: msgs ?? [{ role: 'user', content: 'Hi, this is Ahmed.' }],
-  }) as any;
+  }) as unknown as AgentInput;
 const deps = (m: AgentDeps['model']): AgentDeps => ({ model: m, router });
-const isBp = (m: AgentMessage) => (m as any).cacheControl !== undefined;
-const wrap = (name: string, f: (msgs: any[]) => any[]): AgentMiddleware => ({
+type Msg = Record<string, unknown> & { content: string };
+const isBp = (m: AgentMessage) =>
+  (m as { cacheControl?: unknown }).cacheControl !== undefined;
+const wrap = (
+  name: string,
+  f: (msgs: Msg[]) => unknown[]
+): AgentMiddleware => ({
   name,
   wrapModelCall: (s, n) => {
-    s.messages = f(s.messages as any[]);
+    s.messages = f(s.messages as unknown as Msg[]) as AgentMessage[];
     return n();
   },
 });
@@ -75,8 +81,16 @@ const inp = (runId: string, ws = 'ws1', content = 'hi') =>
     workspaceId: ws,
     channel: 'c',
     messages: [{ role: 'user', content }],
-  }) as any;
-const base = (over: any = {}) => ({
+  }) as unknown as AgentInput;
+type BaseOver = {
+  constants?: Record<string, string>;
+  staticIds?: string[];
+  tools?: unknown[];
+  workspace?: unknown;
+  policyIds?: string[];
+  volatile?: unknown[];
+};
+const base = (over: BaseOver = {}) => ({
   constants: { core: SYS, ...(over.constants ?? {}) },
   staticIds: over.staticIds ?? ['core'],
   tools: over.tools ?? [
@@ -88,11 +102,13 @@ const base = (over: any = {}) => ({
   },
   volatile: over.volatile ?? [],
 });
-const tryB = (over: any) => {
+const tryB = (over: BaseOver) => {
   try {
-    buildCachedPrompt(base(over) as any);
+    buildCachedPrompt(
+      base(over) as unknown as Parameters<typeof buildCachedPrompt>[0]
+    );
     return 'ACCEPTED';
-  } catch (e: any) {
+  } catch (e) {
     return e instanceof PromptCacheError ? e.code : 'OTHER ' + e;
   }
 };
@@ -236,7 +252,7 @@ describe('A: inner wrap layer vs cacheable tiers (terminal keeps cache fields on
     }
   });
   it('A-getter a non-installed message with getter / function / cyclic tools loses every cache field', async () => {
-    const cyc: any = { name: 'c' };
+    const cyc: Record<string, unknown> = { name: 'c' };
     cyc.self = cyc;
     const variants = [
       Object.defineProperty({}, 'description', {
@@ -354,8 +370,8 @@ describe('D: usage accounting', () => {
       staticIds: ['core'],
       tools: [],
     });
-    const rows: any[] = [];
-    const usages: any = {
+    const rows: { runId: string; detail: unknown }[] = [];
+    const usages: Record<string, Record<string, unknown>[]> = {
       bad: [
         { cacheReadTokens: -5, cacheWriteTokens: NaN },
         { cacheReadTokens: '100', cacheWriteTokens: 1e300 },
@@ -372,13 +388,13 @@ describe('D: usage accounting', () => {
         const u = usages[key]?.[i];
         i++;
         await new Promise((s) => setTimeout(s, 3));
-        return i < (usages[key]?.length ?? 1)
+        return (i < (usages[key]?.length ?? 1)
           ? {
               text: 't',
               toolCalls: [{ id: 'c' + i, tool: 'get_contact', args: {} }],
               usage: { ...u, runId: 'other' },
             }
-          : { text: 'f', toolCalls: [], usage: u };
+          : { text: 'f', toolCalls: [], usage: u }) as unknown as ModelResponse;
       });
     };
     const sink = () =>
@@ -398,7 +414,7 @@ describe('D: usage accounting', () => {
               text: 'f',
               toolCalls: [],
               usage: { cacheReadTokens: i + 1, cacheWriteTokens: 0 },
-            } as any;
+            } as unknown as ModelResponse;
           }),
           router,
         },
@@ -407,7 +423,8 @@ describe('D: usage accounting', () => {
       )
     );
     await Promise.all([run('bad', 'bad'), run('huge', 'huge'), ...conc]);
-    const by = (id: string) => rows.find((r) => r.runId === id)?.detail;
+    const by = (id: string) =>
+      rows.find((r) => r.runId === id)?.detail as Record<string, number>;
     for (let i = 0; i < 20; i++)
       expect(by('k' + i).cache_read_tokens).toBe(i + 1);
     expect(JSON.stringify(rows)).not.toMatch(/Taamul|hi"/);
@@ -437,13 +454,13 @@ describe('D: usage accounting', () => {
               text: 't',
               toolCalls: [{ id: 'c', tool: 'get_contact', args: {} }],
               usage: { cacheReadTokens: 10, cacheWriteTokens: 0 },
-            } as any;
+            } as unknown as ModelResponse;
           }
           return {
             text: 'f',
             toolCalls: [],
             usage: { cacheReadTokens: 10, cacheWriteTokens: 0 },
-          } as any;
+          } as unknown as ModelResponse;
         }),
         router,
       },
@@ -460,7 +477,7 @@ describe('D: usage accounting', () => {
                 text: 'f',
                 toolCalls: [],
                 usage: { cacheReadTokens: 1, cacheWriteTokens: 0 },
-              }) as any
+              }) as unknown as ModelResponse
           ),
           router,
         },
@@ -486,14 +503,14 @@ describe('D: usage accounting', () => {
           text: 'f',
           toolCalls: [],
           usage: { cacheReadTokens: 1, cacheWriteTokens: 0 },
-        }) as any
+        }) as unknown as ModelResponse
     );
     const abortAfterModel = {
       name: 'abort',
       afterModel() {
         throw new Error('abandon');
       },
-    } as any;
+    } as unknown as AgentMiddleware;
     for (let i = 0; i < 1100; i++) {
       await expect(
         runAgent({ model, router }, [pcm, abortAfterModel], inp('a' + i))
@@ -509,7 +526,11 @@ describe('D: usage accounting', () => {
 
 describe('F: static prefix stability', () => {
   it('F1 inputSchema mutated after construction changes static bytes; hash stale', async () => {
-    const tools: any[] = [
+    const tools: {
+      name: string;
+      description: string;
+      inputSchema: { type: string; description: string };
+    }[] = [
       {
         name: 't',
         description: 'd',
@@ -529,7 +550,9 @@ describe('F: static prefix stability', () => {
     await runAgent({ model: m, router }, [pcm], inp('f1'));
     tools[0].inputSchema.description = 'Customer Ahmed Khan prefers Arabic';
     await runAgent({ model: m, router }, [pcm], inp('f2'));
-    const s = reqs.map((r) => r.messages[0] as any);
+    const s = reqs.map(
+      (r) => r.messages[0] as unknown as { content: string; cacheKey: string }
+    );
     expect(s[0].content).toBe(s[1].content);
     expect(s[1].cacheKey).toBe(`static:${pcm.staticPrefixHash}`);
   });

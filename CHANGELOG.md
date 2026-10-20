@@ -61,6 +61,17 @@ confirmation of risky actions (`POST /api/assist/pending/[id]`), rate
 limits, a loop guard and an append-only audit. No assistant exists yet,
 so nothing calls it. See [docs/assistant-safety.md](docs/assistant-safety.md).
 
+### Assistant middleware and prompt caching (019e, 019f)
+
+**Migration required: 132** (`132_assist_agent_run.sql`), as a superuser or
+BYPASSRLS role. Still idle (no assistant exists): the agent loop with
+ordered hooks (`src/lib/assist/middleware.ts`), the built-in redaction,
+context-budget and per-run audit middleware, and the three-tier prompt
+cache layout (`promptcache.ts`). 132 adds the audit kind `agent_run`
+(counts only) to `assist_audit`; asserted by
+`supabase/ci/verify-assistant-safety.sql`. See
+[docs/assistant-safety.md](docs/assistant-safety.md).
+
 ### Public API: submission groups carry their case
 
 `POST /api/v1/submission-groups` takes optional `bank`, `product` and
