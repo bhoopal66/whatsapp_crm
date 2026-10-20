@@ -1054,6 +1054,32 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `verify-case-inbox.sql`, `verify-bank-workspaces.sql`,
   `verify-bank-dashboard.sql`.
 
+### Coordinators (`lib/coordinators/*`, migration 130)
+
+The staff who file applications with banks. `docs/coordinators.md` is the
+contract.
+
+- **Not a role.** A coordinator is a live agent/team_leader with rows in
+  `coordinator_banks` (case banks), set only by `set_coordinator_banks`
+  (owner/admin). `account_role_enum` is unchanged.
+- **Shares** (`conversation_coordinator_shares`, RPCs
+  `share_conversation_with_coordinator` / `revoke_conversation_share`)
+  grant through `coordinator_share_grants(conversation_id)`: an open share,
+  the bank still held, the person live staff in their active account.
+  It is OR'd into separate SELECT policies on conversations, messages and
+  contacts and into `chat_can_view_conversation`, plus a messages INSERT
+  policy limited to the chat's own `channel_id`/`send_channel_id`.
+  `can_view_conversation` and `can_view_contact` are deliberately
+  unchanged (the contact stays read-only: extending `can_view_contact`
+  would hand over calls, tasks, deal rooms and memory too).
+- **Send path.** `send-message.ts` refuses a share-only sender on another
+  number before the gateway (`shared_chat_number`) and writes the chat's
+  last-message summary with the service role. `canViewConversation`'s
+  `sharedWithMe` and `canReadContact` are the TS mirrors.
+- `push_bell_url` (restated in 130) and `hrefFor` in
+  `lib/notifications/target.ts` both open the chat for
+  `conversation_shared`; change them together. `verify-coordinators.sql`.
+
 ### CRM memory and vault (`lib/memory/*`, `lib/vault/*`, migrations 121, 129)
 
 Staff notes per customer, case or workspace, with sensitive numbers kept
@@ -1406,6 +1432,7 @@ fails if one is wired to plain `t()`.
   `docker.md`, `public-api.md`, `mcp.md`, `campaign-journeys.md`,
   `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`,
   `meetings.md`, `whatsapp-groups.md`, `submission-groups.md`,
-  `cases.md`, `memory-and-vault.md`, `assistant-safety.md`.
+  `cases.md`, `memory-and-vault.md`, `assistant-safety.md`,
+  `coordinators.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
