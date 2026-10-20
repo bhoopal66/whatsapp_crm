@@ -251,11 +251,14 @@ BEGIN
     END IF;
     v_stage := public.case_submitted_stage(v_account, p_bank_code);
     -- 130: the open lead of the (account, contact, bank) takes the group.
+    -- FOR UPDATE, not FOR NO KEY UPDATE: the UPDATE below sets group_id,
+    -- which UNIQUE cases_one_per_group covers, so it takes FOR UPDATE
+    -- anyway; taking it here avoids a lock upgrade mid-transaction.
     IF v_contact IS NOT NULL AND p_bank_code IS NOT NULL THEN
       SELECT * INTO l FROM public.cases x
        WHERE x.account_id = v_account AND x.contact_id = v_contact AND x.bank_code = p_bank_code
          AND x.group_id IS NULL AND x.closed_at IS NULL
-       FOR NO KEY UPDATE;
+       FOR UPDATE;
       IF FOUND THEN
         UPDATE public.cases x
            SET group_id = p_group,
