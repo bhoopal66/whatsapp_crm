@@ -114,6 +114,9 @@ and the risk levels above are unchanged. Middleware has no handler map.
   counts only, never text or arguments. If the append fails the result is
   withheld. `supabaseAgentRunAuditSink` writes it to `assist_audit` on a
   service-role client (migration 132 adds the kind; no new function).
+  `user_id` is a uuid and `account_id` must name an account, so a run with
+  a non-uuid user or unknown account fails at the audit append and is
+  withheld (fail closed).
 
 **Prompt-cache tiers.** `promptCacheMiddleware` lays the request out as
 STATIC (system constants and tool definitions), then WORKSPACE (the

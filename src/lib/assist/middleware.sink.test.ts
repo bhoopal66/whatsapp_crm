@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, it, expect } from 'vitest';
 import {
   auditAfterAgent,
+  redactBeforeModel,
   supabaseAgentRunAuditSink,
   type AgentRunAuditRow,
 } from './middleware.builtin';
@@ -90,7 +91,7 @@ describe('supabaseAgentRunAuditSink', () => {
       tools: [],
     });
     const model = async () => ({
-      text: 'done',
+      text: 'Hello Ahmed',
       toolCalls: [],
       usage: { cacheReadTokens: 11, cacheWriteTokens: 5 },
     });
@@ -100,6 +101,7 @@ describe('supabaseAgentRunAuditSink', () => {
     await runAgent(
       { model: pc.wrapModel(model), router },
       [
+        redactBeforeModel(),
         pc,
         auditAfterAgent(
           pc.auditSink(
@@ -112,7 +114,7 @@ describe('supabaseAgentRunAuditSink', () => {
         userId: USER,
         workspaceId: ACCOUNT,
         channel: 'whatsapp',
-        messages: [{ role: 'user', content: 'hello' }],
+        messages: [{ role: 'user', content: 'hello, I am Ahmed' }],
       }
     );
     expect(db.audits('agent_run')).toHaveLength(1);
@@ -126,6 +128,6 @@ describe('supabaseAgentRunAuditSink', () => {
       cache_write_tokens: 5,
       channel: 'whatsapp',
     });
-    expect(JSON.stringify(db.inserts)).not.toMatch(/CRM assistant|hello/);
+    expect(JSON.stringify(db.inserts)).not.toMatch(/CRM assistant|hello|Ahmed/);
   });
 });
