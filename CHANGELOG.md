@@ -29,7 +29,10 @@ See `docs/cases.md`.
 **Migration required: 130.** A case can now start as a lead: no
 WhatsApp group, three pre-submission stages (Interested, Data collection,
 Review) before Submitted. Agents open one with `POST /api/cases/leads`; a
-later submission for the same contact and bank attaches to it. A cold lead
+later submission for the same contact and bank attaches to it. Staff open
+a lead from the customer page (Cases card, **Open lead**); the case page
+shows a lead banner and offers only the stage moves allowed, and the Cases
+inbox marks leads with a Lead chip. A cold lead
 ends as Withdrawn with the new outcome reason No response. Bank stage lists
 must start with the three new stages (the settings screen checks this).
 See `docs/cases.md`.
