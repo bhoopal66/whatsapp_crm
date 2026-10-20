@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
+import { LEAD_CHIP } from '@/lib/cases/lead-form';
 import {
   activeFilterCount,
   appendRows,
@@ -635,6 +636,9 @@ function Chips({ row }: { row: InboxRow }) {
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <span className={cn(chip, 'bg-muted text-foreground')}>{row.stage}</span>
+      {row.isLead && (
+        <span className={cn(chip, LEAD_CHIP)}>{t('leadChip')}</span>
+      )}
       {row.slaState && (
         <span className={cn(chip, SLA_CHIP[row.slaState])}>
           {t(`sla.${row.slaState}`)}

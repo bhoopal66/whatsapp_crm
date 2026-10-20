@@ -139,6 +139,7 @@ const row = {
   lastTouchedBy: 'u2',
   openTaskOverdueCount: 1,
   submissionRef: 'SUB-1',
+  isLead: false,
   contactId: 'k1',
   contactName: 'Sara',
   product: 'Home loan',
@@ -170,6 +171,7 @@ describe('parseInboxPage', () => {
         lastTouchedBy: 'u2',
         openTaskOverdueCount: 1,
         submissionRef: 'SUB-1',
+        isLead: false,
         contactId: 'k1',
         contactName: 'Sara',
         product: 'Home loan',
@@ -208,6 +210,21 @@ describe('parseInboxPage', () => {
       documentsMissing: 0,
       customerWaiting: false,
     });
+  });
+
+  it('reads isLead only when it is literally true', () => {
+    const rows = parseInboxPage({
+      rows: [
+        { ...row, caseId: 'l1', isLead: true, submissionRef: null },
+        { ...row, caseId: 'l2', isLead: 'true' },
+        { ...row, caseId: 'l3', isLead: undefined },
+      ],
+    }).rows;
+    expect(rows.map((r) => [r.caseId, r.isLead])).toEqual([
+      ['l1', true],
+      ['l2', false],
+      ['l3', false],
+    ]);
   });
 
   it('keeps one row per case across pages', () => {

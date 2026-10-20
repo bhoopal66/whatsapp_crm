@@ -136,6 +136,17 @@ in a bank product before anything is submitted (migration 130). It starts at
   a lead never ends a group.
 - **Listing.** `GET /api/cases/leads?contactId=` returns the contact's cases
   the caller may read.
+- **Where staff open one.** The customer page (`/contacts/<id>`) has a
+  **Cases** card, shown to agents and up: the customer's cases with stage,
+  bank, product, amount and a **Lead** chip, and an **Open lead** button
+  (bank and product required; amount in AED and lead source optional).
+  Team leaders, admins and owners may pick the agent; an agent opens for
+  themselves. On success the new case page opens. The Cases inbox marks
+  leads with the same chip.
+- **What the case page shows.** A "Lead - no submission yet" banner (with
+  the lead source); the Conversation tab, take-over and documents request
+  stay disabled until the submission arrives, and a stage move offers only
+  the moves a lead can make.
 
 Two defaults are waiting for the owner to confirm:
 

@@ -56,6 +56,12 @@ export interface CaseInboxRow {
   lastTouchedBy: string | null;
   openTaskOverdueCount: number;
   submissionRef: string | null;
+  /**
+   * A lead (130): a case with no submission group yet. 130's case_inbox
+   * returns no group id, but it LEFT JOINs submission_groups, whose
+   * submission_ref is NOT NULL (115), so a NULL ref is exactly a lead.
+   */
+  isLead: boolean;
   contactId: string | null;
   contactName: string | null;
   bankName: string | null;
@@ -163,6 +169,7 @@ function toRow(r: Record<string, unknown>): CaseInboxRow {
     lastTouchedBy: str(r.last_touched_by),
     openTaskOverdueCount: Number(r.open_task_overdue_count ?? 0),
     submissionRef: str(r.submission_ref),
+    isLead: str(r.submission_ref) === null,
     contactId: str(r.contact_id),
     contactName: str(r.contact_name),
     bankName: str(r.bank_name),
