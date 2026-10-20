@@ -6556,7 +6556,44 @@
     "emptyTitle": "No cases yet",
     "emptyBody": "Cases you are the agent or coordinator on, or that your team works, show up here once a submission is opened as a case.",
     "noMatchesTitle": "No cases match these filters",
-    "noMatchesBody": "Try fewer filters, or include closed cases."
+    "noMatchesBody": "Try fewer filters, or include closed cases.",
+    "leadChip": "Lead"
+  },
+  "CustomerCases": {
+    "title": "Cases",
+    "openLead": "Open lead",
+    "empty": "No cases or leads for this customer yet.",
+    "loadFailed": "Couldn't load this customer's cases.",
+    "noBank": "No bank",
+    "leadChip": "Lead",
+    "closed": "Closed",
+    "me": "Me",
+    "dialog": {
+      "title": "Open a lead",
+      "body": "A lead is a case before the bank submission. When the submission for this customer and bank arrives, it joins this lead.",
+      "bank": "Bank",
+      "pickBank": "Choose a bank",
+      "noBanks": "No banks are set up yet.",
+      "product": "Product",
+      "amount": "Amount (AED, optional)",
+      "source": "Lead source (optional)",
+      "agent": "Agent",
+      "cancel": "Cancel",
+      "confirm": "Open lead"
+    },
+    "errors": {
+      "bankRequired": "Choose a bank.",
+      "productRequired": "Enter the product.",
+      "productTooLong": "The product can be at most 200 characters.",
+      "amountInvalid": "Enter the amount as a number with up to two decimals.",
+      "sourceTooLong": "The lead source can be at most 200 characters.",
+      "leadExists": "This customer already has an open lead with this bank, owned by someone else.",
+      "caseExists": "This customer already has an open case with this bank.",
+      "leadInvalid": "Check the product and amount, and that the agent can see this customer.",
+      "bankUnknown": "That bank isn't set up.",
+      "assigneeInvalid": "That person can't own a lead.",
+      "generic": "Couldn't open the lead. Try again."
+    }
   },
   "CasePage": {
     "back": "Back to cases",

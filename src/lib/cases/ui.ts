@@ -199,6 +199,8 @@ export interface InboxRow {
   lastTouchedBy: string | null;
   openTaskOverdueCount: number;
   submissionRef: string | null;
+  /** A lead (130): no submission yet. */
+  isLead: boolean;
   contactId: string | null;
   contactName: string | null;
   product: string | null;
@@ -253,6 +255,7 @@ function parseRow(r: unknown): InboxRow | null {
     lastTouchedBy: optStr(r.lastTouchedBy),
     openTaskOverdueCount: count(r.openTaskOverdueCount),
     submissionRef: optStr(r.submissionRef),
+    isLead: r.isLead === true,
     contactId: optStr(r.contactId),
     contactName: optStr(r.contactName),
     product: optStr(r.product),

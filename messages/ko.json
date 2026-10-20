@@ -6556,7 +6556,44 @@
     "emptyTitle": "아직 케이스가 없습니다",
     "emptyBody": "내가 상담원이나 코디네이터인 케이스, 또는 내 팀이 담당하는 케이스는 제출 건이 케이스로 열리면 여기에 표시됩니다.",
     "noMatchesTitle": "필터에 맞는 케이스가 없습니다",
-    "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요."
+    "noMatchesBody": "필터를 줄이거나 종료된 케이스를 포함해 보세요.",
+    "leadChip": "리드"
+  },
+  "CustomerCases": {
+    "title": "케이스",
+    "openLead": "리드 열기",
+    "empty": "이 고객의 케이스나 리드가 아직 없습니다.",
+    "loadFailed": "이 고객의 케이스를 불러오지 못했습니다.",
+    "noBank": "은행 없음",
+    "leadChip": "리드",
+    "closed": "종료됨",
+    "me": "나",
+    "dialog": {
+      "title": "리드 열기",
+      "body": "리드는 은행 접수 전의 케이스입니다. 이 고객과 은행의 접수가 들어오면 이 리드에 연결됩니다.",
+      "bank": "은행",
+      "pickBank": "은행 선택",
+      "noBanks": "설정된 은행이 아직 없습니다.",
+      "product": "상품",
+      "amount": "금액 (AED, 선택)",
+      "source": "리드 출처 (선택)",
+      "agent": "담당 상담원",
+      "cancel": "취소",
+      "confirm": "리드 열기"
+    },
+    "errors": {
+      "bankRequired": "은행을 선택하세요.",
+      "productRequired": "상품을 입력하세요.",
+      "productTooLong": "상품은 최대 200자까지 입력할 수 있습니다.",
+      "amountInvalid": "금액은 소수점 둘째 자리까지의 숫자로 입력하세요.",
+      "sourceTooLong": "리드 출처는 최대 200자까지 입력할 수 있습니다.",
+      "leadExists": "이 고객은 이 은행에 대해 다른 사람이 담당하는 열린 리드가 이미 있습니다.",
+      "caseExists": "이 고객은 이 은행에 대해 열린 케이스가 이미 있습니다.",
+      "leadInvalid": "상품과 금액을 확인하고, 담당 상담원이 이 고객을 볼 수 있는지 확인하세요.",
+      "bankUnknown": "설정되지 않은 은행입니다.",
+      "assigneeInvalid": "이 사람은 리드를 담당할 수 없습니다.",
+      "generic": "리드를 열지 못했습니다. 다시 시도하세요."
+    }
   },
   "CasePage": {
     "back": "케이스 목록으로",

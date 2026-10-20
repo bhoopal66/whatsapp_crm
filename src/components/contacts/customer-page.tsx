@@ -66,7 +66,7 @@ import { usePhonePresence } from '@/hooks/use-phone-presence';
 import { usePresence } from '@/hooks/use-presence';
 import { PERSON_PRESENCE_KEY, presenceOf } from '@/lib/person-presence';
 import { useChatTags } from '@/hooks/use-chat-tags';
-import { hasMinRole } from '@/lib/auth/roles';
+import { canSendMessages, hasMinRole } from '@/lib/auth/roles';
 import {
   useAccountNumbers,
   useMyNumberIds,
@@ -91,6 +91,7 @@ import {
   SideCard as Card,
   type SavedNote,
 } from './customer/customer-cards';
+import { CasesCard } from './customer/cases-card';
 import { CustomerHeader } from './customer/customer-header';
 import { RecordingPlayer } from './recording-player';
 
@@ -822,6 +823,10 @@ export function CustomerPage({
         <aside className="order-1 min-w-0 space-y-4 lg:order-2">
           <DetailsCard contact={contact} canEdit={access.edit} />
           <DealsCard contactId={contactId} />
+          {/* Cases and leads (130): agent and up, as /api/cases/leads. */}
+          {!!accountRole && canSendMessages(accountRole) && (
+            <CasesCard contactId={contactId} />
+          )}
           <Card title={tl('openTasks')}>
             {side.tasks.length === 0 ? (
               <p className="text-muted-foreground text-sm">

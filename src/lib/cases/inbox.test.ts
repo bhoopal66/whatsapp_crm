@@ -85,6 +85,17 @@ describe('CaseInbox.list', () => {
     expect(page.nextCursor).toBeNull();
   });
 
+  it('a row with no submission ref (130: a lead, no group) is a lead', async () => {
+    const { inbox: ib } = inbox(() => ({
+      data: [row(), row({ case_id: 'lead-1', submission_ref: null })],
+    }));
+    const page = await ib.list(ACTOR, ACCOUNT_ID);
+    expect(page.rows.map((r) => [r.submissionRef, r.isLead])).toEqual([
+      ['SUB-1', false],
+      [null, true],
+    ]);
+  });
+
   it('a full page returns the last row’s cursor; with after and no now the cursor’s clock text is sent', async () => {
     const { db, inbox: ib } = inbox(() => ({ data: [row()] }));
     const first = await ib.list(ACTOR, ACCOUNT_ID, {}, { limit: 1 });
