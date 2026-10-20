@@ -22,6 +22,7 @@ import {
   optionalFileRef,
   parseAmount,
   parseInboxQuery,
+  requireCaseGroup,
   requiredKey,
   requiredText,
 } from './http';
@@ -246,5 +247,19 @@ describe('body parsers', () => {
     expect(optionalFileRef('files:abc-1.pdf')).toBe('files:abc-1.pdf');
     expect(() => optionalFileRef('.hidden')).toThrow(CaseHttpError);
     expect(() => optionalFileRef('a/b')).toThrow(CaseHttpError);
+  });
+});
+
+describe('requireCaseGroup (130)', () => {
+  it('returns the group id, and is 422 NO_GROUP for a lead', () => {
+    expect(requireCaseGroup({ groupId: 'g1' })).toBe('g1');
+    try {
+      requireCaseGroup({ groupId: null });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(CaseHttpError);
+      expect((e as CaseHttpError).status).toBe(422);
+      expect((e as CaseHttpError).body).toMatchObject({ code: 'NO_GROUP' });
+    }
   });
 });

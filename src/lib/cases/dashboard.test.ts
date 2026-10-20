@@ -228,18 +228,28 @@ describe('dashboard mirrors match migration 127', () => {
     'utf8'
   );
 
-  it('OUTCOME_REASON_CODES are the codes case_outcome_reasons_code_check allows', () => {
+  it('OUTCOME_REASON_CODES are the codes case_outcome_reasons_code_check allows (130)', () => {
     const m =
-      /case_outcome_reasons_code_check CHECK \(reason_code IN \(([^)]*)\)/.exec(
-        SQL
+      /case_outcome_reasons_code_check\s+CHECK \(reason_code IN \(([^)]*)\)/.exec(
+        readFileSync(
+          join(process.cwd(), 'supabase/migrations/130_case_leads.sql'),
+          'utf8'
+        )
       );
     expect(m).not.toBeNull();
     const codes = [...m![1].matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]);
     expect(new Set(codes)).toEqual(new Set(OUTCOME_REASON_CODES));
   });
 
-  it('BANK_DASHBOARD_REFUSALS are exactly the HINTs 127 raises', () => {
+  it("BANK_DASHBOARD_REFUSALS are exactly the HINTs 127 raises, plus 130's OUTCOME_REASON", () => {
     const hints = [...SQL.matchAll(/HINT = '([A-Z_]+)'/g)].map((m) => m[1]);
-    expect(new Set(BANK_DASHBOARD_REFUSALS)).toEqual(new Set(hints));
+    const sql130 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/130_case_leads.sql'),
+      'utf8'
+    );
+    expect(sql130).toContain("HINT = 'OUTCOME_REASON'");
+    expect(new Set(BANK_DASHBOARD_REFUSALS)).toEqual(
+      new Set([...hints, 'OUTCOME_REASON'])
+    );
   });
 });

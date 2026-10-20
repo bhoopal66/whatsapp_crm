@@ -22,6 +22,7 @@ import {
   caseErrorResponse,
   caseSendErrorResponse,
   loadCaseForCaller,
+  requireCaseGroup,
 } from '@/lib/cases/http';
 import { caseConversations, caseStore } from '@/lib/cases/server';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
@@ -46,7 +47,11 @@ export async function POST(_request: Request, { params }: Params) {
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore(), {
       write: true,
     });
-    await assertUnderGroupSendLimit(ctx.accountId, c.groupId, ctx.userId);
+    await assertUnderGroupSendLimit(
+      ctx.accountId,
+      requireCaseGroup(c),
+      ctx.userId
+    );
 
     const names = await loadNames(supabaseAdmin(), ctx.accountId, [c.agentId]);
     const result = await caseConversations(ctx.accountId).takeOver(

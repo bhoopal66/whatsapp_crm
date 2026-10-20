@@ -413,6 +413,11 @@ Open the WhatsApp group of a submitted case on a Whapi number. Scope:
 `submission_groups:write`. The behaviour is described in
 [submission-groups.md](submission-groups.md).
 
+If the contact and bank already have an open **lead** (a case opened in the
+CRM before submission, see [cases.md](cases.md)), the new group attaches to
+that lead's case. Otherwise a new case starts at the bank's first submission
+stage (**Submitted** by default).
+
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/submission-groups \
   -H "Authorization: Bearer taamul_live_xxx" \

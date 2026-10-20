@@ -11,7 +11,7 @@ import type {
 
 import type { BankCase } from './ui';
 
-/** 127's reason codes, in the order the charts list them. */
+/** 130's reason codes (127's plus NO_RESPONSE), in the order the charts list them. */
 export const REASON_CODES: readonly OutcomeReasonCode[] = [
   'INCOMPLETE_DOCS',
   'CREDIT_POLICY',
@@ -19,6 +19,7 @@ export const REASON_CODES: readonly OutcomeReasonCode[] = [
   'KYC_AML',
   'CUSTOMER_WITHDREW',
   'OTHER',
+  'NO_RESPONSE',
 ];
 
 export const CASE_FILTERS = ['all', 'open', 'closed'] as const;

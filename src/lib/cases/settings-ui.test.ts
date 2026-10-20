@@ -12,9 +12,14 @@ import {
   stagesBody,
   validateStages,
 } from './settings-ui';
+import { DEFAULT_STAGES } from './ui';
 
-// 122's case_default_stages().
+// 130's case_default_stages(): three pre-submission stages, then 122's.
+const PRESUB = ['Interested', 'Data collection', 'Review'];
 const DEFAULTS = [
+  'Interested',
+  'Data collection',
+  'Review',
   'Submitted',
   'Bank acknowledged',
   'Documents requested',
@@ -27,6 +32,10 @@ const DEFAULTS = [
   'Withdrawn',
   'Closed',
 ];
+
+it('the defaults here are ui.ts DEFAULT_STAGES', () => {
+  expect(DEFAULTS).toEqual([...DEFAULT_STAGES]);
+});
 
 describe('moveStage', () => {
   it('swaps a stage with its neighbour', () => {
@@ -54,11 +63,18 @@ describe('removeStage', () => {
   });
 });
 
-describe('validateStages (mirrors 122 case_bank_stages_check)', () => {
+describe('validateStages (mirrors 122/130 case_bank_stages_check)', () => {
   it('accepts the default list and a shorter valid one', () => {
     expect(validateStages(DEFAULTS)).toBeNull();
     expect(
-      validateStages(['New', 'Approved', 'Declined', 'Withdrawn', 'Closed'])
+      validateStages([
+        ...PRESUB,
+        'New',
+        'Approved',
+        'Declined',
+        'Withdrawn',
+        'Closed',
+      ])
     ).toBeNull();
   });
 
@@ -68,7 +84,8 @@ describe('validateStages (mirrors 122 case_bank_stages_check)', () => {
 
   it('refuses more than 50 stages', () => {
     const many = [
-      ...Array.from({ length: 47 }, (_, i) => `Step ${i}`),
+      ...PRESUB,
+      ...Array.from({ length: 44 }, (_, i) => `Step ${i}`),
       'Approved',
       'Declined',
       'Withdrawn',
@@ -78,28 +95,44 @@ describe('validateStages (mirrors 122 case_bank_stages_check)', () => {
   });
 
   it('refuses a blank or over-long name, by position', () => {
-    expect(validateStages(['New', '  ', ...DEFAULTS.slice(7)])).toEqual({
+    expect(validateStages([...PRESUB, '  ', ...DEFAULTS.slice(10)])).toEqual({
       kind: 'blank',
-      position: 2,
+      position: 4,
     });
-    expect(validateStages(['x'.repeat(101), ...DEFAULTS.slice(7)])).toEqual({
+    expect(
+      validateStages([...PRESUB, 'x'.repeat(101), ...DEFAULTS.slice(10)])
+    ).toEqual({
       kind: 'tooLong',
-      position: 1,
+      position: 4,
       max: 100,
     });
   });
 
   it('refuses the same stage twice, after trimming', () => {
-    expect(validateStages(['New', ' New ', ...DEFAULTS.slice(7)])).toEqual({
+    expect(
+      validateStages([...PRESUB, 'New', ' New ', ...DEFAULTS.slice(10)])
+    ).toEqual({
       kind: 'duplicate',
       stage: 'New',
     });
   });
 
   it('refuses a final stage first, in any case', () => {
-    expect(validateStages(['closed', 'New', ...DEFAULTS.slice(7, 10)])).toEqual(
-      { kind: 'firstFinal', stage: 'closed' }
-    );
+    expect(
+      validateStages([...PRESUB, 'closed', 'New', ...DEFAULTS.slice(10, 13)])
+    ).toEqual({ kind: 'firstFinal', stage: 'closed' });
+  });
+
+  it('refuses a list not starting with exactly the three pre-submission stages (130)', () => {
+    const rest = DEFAULTS.slice(3);
+    for (const list of [
+      rest, // 122's old 11-stage list
+      ['Interested', 'Review', 'Data collection', ...rest],
+      ['Interested', 'Data collection', ...rest],
+      [...PRESUB, 'review', ...rest],
+      [...PRESUB, ...rest, 'Interested'],
+    ])
+      expect(validateStages(list)).toEqual({ kind: 'presubRequired' });
   });
 
   it('refuses a list missing any of the four finals', () => {
@@ -140,6 +173,9 @@ describe('configErrorKey', () => {
     );
     expect(configErrorKey({ code: 'BANK_STAGES_FINAL_SPELLING' })).toBe(
       'finalSpelling'
+    );
+    expect(configErrorKey({ code: 'PRESUB_STAGES_REQUIRED' })).toBe(
+      'presubRequired'
     );
     expect(configErrorKey({ code: 'STAGE_DUPLICATE' })).toBe('duplicate');
     expect(configErrorKey({ code: 'STAGE_NOT_CONFIGURED' })).toBe(

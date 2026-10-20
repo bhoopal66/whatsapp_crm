@@ -12,27 +12,43 @@ import {
   formatAed,
   stageFilterOptions,
   inboxUrl,
+  isPresubStage,
   parseBanks,
   parseDays,
   parseInboxPage,
+  PRESUB_STAGES,
   type InboxFilters,
 } from './ui';
 
 const SQL = readFileSync(
-  join(process.cwd(), 'supabase/migrations/122_cases.sql'),
+  join(process.cwd(), 'supabase/migrations/130_case_leads.sql'),
   'utf8'
 );
 
 describe('DEFAULT_STAGES', () => {
-  it("equals 122's case_default_stages(), in order", () => {
+  it("equals 130's case_default_stages(), in order", () => {
     const fn =
       /FUNCTION public\.case_default_stages\(\)[\s\S]*?ARRAY\[([\s\S]*?)\]::text\[\]/.exec(
         SQL
       );
-    expect(fn, 'case_default_stages() not found in 122').not.toBeNull();
+    expect(fn, 'case_default_stages() not found in 130').not.toBeNull();
     const stages = [...fn![1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
     expect(stages.length).toBeGreaterThan(0);
     expect(DEFAULT_STAGES).toEqual(stages);
+  });
+
+  it("starts with 130's case_presub_stages(), which isPresubStage matches", () => {
+    const fn =
+      /FUNCTION public\.case_presub_stages\(\)[\s\S]*?ARRAY\[([\s\S]*?)\]::text\[\]/.exec(
+        SQL
+      );
+    expect(fn, 'case_presub_stages() not found in 130').not.toBeNull();
+    const presub = [...fn![1].matchAll(/'([^']*)'/g)].map((m) => m[1]);
+    expect(PRESUB_STAGES).toEqual(presub);
+    expect(DEFAULT_STAGES.slice(0, presub.length)).toEqual(presub);
+    expect(DEFAULT_STAGES.filter(isPresubStage)).toEqual(presub);
+    expect(isPresubStage('Submitted')).toBe(false);
+    expect(isPresubStage(null)).toBe(false);
   });
 });
 

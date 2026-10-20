@@ -335,6 +335,20 @@ describe('retryGroupEnd / retryGroupEndSystem', () => {
     });
   });
 
+  it('a lead: the claim answers NO_GROUP and no end is attempted (130)', async () => {
+    const { store, ender } = setup({
+      script: {
+        case_claim_group_end: claim({
+          claimed: false,
+          state: 'NO_GROUP',
+          claim_token: null,
+        }),
+      },
+    });
+    expect((await store.retryGroupEnd(CASE, ACTOR)).reason).toBe('NO_GROUP');
+    expect(ender!.endNow).not.toHaveBeenCalled();
+  });
+
   it('person retry: claims, ends with the stage reason, finishes with the token', async () => {
     const { db, store, ender } = setup({
       script: { case_claim_group_end: claim() },
@@ -564,7 +578,119 @@ describe('RPC arguments', () => {
   });
 });
 
+describe('openLead / listForContact (130)', () => {
+  it('openLead sends the exact case_open_lead args and returns the id', async () => {
+    const { db, store } = setup({
+      script: { case_open_lead: { data: CASE } },
+    });
+    expect(
+      await store.openLead({
+        actor: ACTOR,
+        accountId: ACCOUNT,
+        contactId: CONTACT,
+        bankCode: 'ADCB',
+        product: 'Mortgage',
+        agentId: ACTOR,
+      })
+    ).toBe(CASE);
+    await store.openLead({
+      actor: ACTOR,
+      accountId: ACCOUNT,
+      contactId: CONTACT,
+      bankCode: 'ADCB',
+      product: 'Mortgage',
+      agentId: ACTOR,
+      amount: '12.50',
+      coordinatorId: GROUP,
+      leadSource: 'walk-in',
+    });
+    expect(db.of('case_open_lead')).toEqual([
+      {
+        p_actor: ACTOR,
+        p_account: ACCOUNT,
+        p_contact: CONTACT,
+        p_bank_code: 'ADCB',
+        p_product: 'Mortgage',
+        p_agent: ACTOR,
+        p_amount: null,
+        p_coordinator: null,
+        p_lead_source: null,
+      },
+      {
+        p_actor: ACTOR,
+        p_account: ACCOUNT,
+        p_contact: CONTACT,
+        p_bank_code: 'ADCB',
+        p_product: 'Mortgage',
+        p_agent: ACTOR,
+        p_amount: '12.50',
+        p_coordinator: GROUP,
+        p_lead_source: 'walk-in',
+      },
+    ]);
+  });
+
+  it('openLead maps a refusal and fails on an empty answer', async () => {
+    const input = {
+      actor: ACTOR,
+      accountId: ACCOUNT,
+      contactId: CONTACT,
+      bankCode: 'ADCB',
+      product: 'P',
+      agentId: ACTOR,
+    };
+    const refused = setup({
+      script: {
+        case_open_lead: {
+          error: { message: 'x', code: 'P0001', hint: 'LEAD_EXISTS' },
+        },
+      },
+    });
+    await expect(refused.store.openLead(input)).rejects.toBeInstanceOf(
+      CaseRefusedError
+    );
+    const empty = setup({ script: { case_open_lead: { data: null } } });
+    await expect(empty.store.openLead(input)).rejects.toBeInstanceOf(
+      CaseStoreError
+    );
+  });
+});
+
 describe('get', () => {
+  it('a lead loads with isLead and never queries submission_groups', async () => {
+    const db = new FakeDb(
+      {},
+      {
+        cases: [
+          {
+            id: CASE,
+            account_id: ACCOUNT,
+            group_id: null,
+            contact_id: CONTACT,
+            lead_source: 'walk-in',
+            bank_code: null,
+            agent_id: ACTOR,
+            stage: 'Interested',
+            priority: 'normal',
+            opened_at: '2026-10-19T08:00:00+00:00',
+          },
+        ],
+        contacts: [{ id: CONTACT, name: 'Customer' }],
+      }
+    );
+    const from = vi.spyOn(db, 'from');
+    const c = await new CaseStore(db.client).get(CASE);
+    expect(c).toMatchObject({
+      groupId: null,
+      isLead: true,
+      contactId: CONTACT,
+      leadSource: 'walk-in',
+      contactName: 'Customer',
+      submissionRef: null,
+    });
+    expect(from.mock.calls.map((a) => a[0])).not.toContain('submission_groups');
+  });
+
   it('joins the group ref, contact name and bank name; amount stays a string', async () => {
     const db = new FakeDb(
       {},

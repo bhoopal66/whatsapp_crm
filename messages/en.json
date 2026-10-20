@@ -6638,7 +6638,8 @@
       "INCOME_INSUFFICIENT": "Income not sufficient",
       "KYC_AML": "KYC / AML",
       "CUSTOMER_WITHDREW": "Customer withdrew",
-      "OTHER": "Other"
+      "OTHER": "Other",
+      "NO_RESPONSE": "No response from the customer"
     },
     "overview": {
       "timers": "SLA timers",
@@ -6846,6 +6847,7 @@
       "reasonInvalid": "Choose a reason.",
       "reasonTooLong": "The details are too long (500 characters at most).",
       "reasonNotDeclined": "A reason can only be recorded for a declined or withdrawn case.",
+      "reasonNoResponseWithdrawn": "No response can only be recorded for a withdrawn case.",
       "reasonAlreadySet": "A reason was already recorded for this case.",
       "assigneeInvalid": "That person cannot take this role on the case.",
       "notAllowed": "You are not allowed to do that.",
@@ -7110,7 +7112,8 @@
         "INCOME_INSUFFICIENT": "Income too low",
         "KYC_AML": "Identity or compliance checks (KYC/AML)",
         "CUSTOMER_WITHDREW": "The customer withdrew",
-        "OTHER": "Another reason"
+        "OTHER": "Another reason",
+        "NO_RESPONSE": "The customer stopped responding"
       }
     }
   },
@@ -7291,6 +7294,7 @@
         "blank": "Stage {position} has no name.",
         "tooLong": "Stage {position} is longer than {max} characters.",
         "duplicate": "“{stage}” appears twice.",
+        "presubRequired": "The list must start with Interested, Data collection and Review, in that order, and those names can’t be used again later.",
         "firstFinal": "The first stage can’t be a final stage (“{stage}”). Move a working stage to the top.",
         "finalSpelling": "Spell the final stage exactly “{stage}”.",
         "missingFinal": "“{stage}” is missing. Approved, Declined, Withdrawn and Closed must all be in the list."
@@ -7364,6 +7368,7 @@
     },
     "errors": {
       "stageInUse": "An open case at this bank is at a stage you removed. Move or close that case first, or keep the stage.",
+      "presubRequired": "The list must start with Interested, Data collection and Review (in that order), once each.",
       "firstFinal": "The first stage can’t be a final stage.",
       "missingFinal": "Approved, Declined, Withdrawn and Closed must all be in the list.",
       "finalSpelling": "Spell the final stages exactly: Approved, Declined, Withdrawn, Closed.",

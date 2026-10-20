@@ -41,11 +41,16 @@ export const PRIORITIES: readonly CasePriority[] = [
 export interface Case {
   id: string;
   accountId: string;
-  groupId: string;
-  /** From the submission group (read by join, never copied). */
+  /** NULL while the case is a lead (130): no group, no conversation. */
+  groupId: string | null;
+  /** 130: a lead (no submission group yet). */
+  isLead: boolean;
+  /** From the submission group (read by join, never copied); NULL for a lead. */
   submissionRef: string | null;
-  /** NULL once the contact is deleted (115 detaches the group). */
+  /** 130's cases.contact_id; NULL once the contact is deleted. */
   contactId: string | null;
+  /** 130: where the lead came from (free text, at most 200). */
+  leadSource: string | null;
   contactName: string | null;
   bankCode: string | null;
   bankName: string | null;
@@ -153,6 +158,14 @@ export const CASE_REFUSALS = [
   'EVENT_INVALID',
   'CONTACT_INCOMPLETE',
   'TEXT_TOO_LONG',
+  // 130 (leads).
+  'LEAD_INVALID',
+  'LEAD_EXISTS',
+  'CASE_EXISTS',
+  'PRESUB_REENTRY',
+  'SUBMISSION_REQUIRED',
+  'PRESUB_STAGES_REQUIRED',
+  'PRESUB_STAGES_CONFLICT',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 

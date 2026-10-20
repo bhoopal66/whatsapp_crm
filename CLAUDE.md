@@ -1017,7 +1017,7 @@ submission app. `docs/submission-groups.md` is the contract.
   creates, stale sends, close retries. Idle ending is off.
   `verify-submission-groups.sql` asserts the SQL.
 
-### Cases (`lib/cases/*`, migrations 122-128)
+### Cases (`lib/cases/*`, migrations 122-130)
 
 One case per submission group: bank, product, amount, stages, tasks,
 documents, notes, bank contact log, SLA timers, the coordinator inbox at
@@ -1049,6 +1049,13 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `btrim(x) = ''`: `btrim()` strips spaces only, so a tab or newline
   passes (this bit twice; older checks still use `btrim`). Appending a
   literal to a `text[]` needs `::text` (`v || 'x'::text`).
+- **Leads (130).** A case with `group_id` NULL, opened by
+  `case_open_lead` (`POST /api/cases/leads`) at Interested; a later
+  submission of the same contact and bank attaches to it. Every stage list
+  starts with the three pre-submission stages (`PRESUB_STAGES`, mirrored by
+  `validateStages`). A lead has no group: no send, no group end
+  (`requireCaseGroup` -> 422 `NO_GROUP`). Cold lead = Withdrawn + `NO_RESPONSE`.
+  `verify-case-leads.sql`.
 - All seven migrations must be applied as a superuser or BYPASSRLS role.
   `verify-cases.sql`, `verify-case-tools.sql`, `verify-case-sla.sql`,
   `verify-case-inbox.sql`, `verify-bank-workspaces.sql`,

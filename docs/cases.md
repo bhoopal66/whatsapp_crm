@@ -62,9 +62,14 @@ A case route acts only on cases of the caller's active workspace.
 The default list, used by a case with no bank and by a bank with no list of
 its own:
 
-Submitted, Bank acknowledged, Documents requested, Documents received,
-Under review, Query raised, Query answered, Approved, Declined, Withdrawn,
-Closed.
+Interested, Data collection, Review, Submitted, Bank acknowledged,
+Documents requested, Documents received, Under review, Query raised, Query
+answered, Approved, Declined, Withdrawn, Closed.
+
+The first three are the pre-submission stages of a lead (see Leads below).
+Every bank list starts with exactly those three, in that order, and may not
+use their names again later (`PRESUB_STAGES_REQUIRED`; the settings screen
+warns before Save).
 
 An admin can give a bank its own list in **Settings -> Cases**
 (`PUT /api/cases/config/banks/[code]/stages`; an empty list goes back to the
@@ -105,6 +110,39 @@ free).
 yet final to Approved, Declined, Withdrawn or Closed, also when the group
 had already ended. A case already at a final stage is left alone; other
 statuses change nothing.
+
+## Leads
+
+A **lead** is a case with no WhatsApp group yet: a customer who is interested
+in a bank product before anything is submitted (migration 130). It starts at
+**Interested** and moves through **Data collection** and **Review**.
+
+- **Who opens one.** The agent who will work it, an owner or admin, or that
+  agent's team leader (`POST /api/cases/leads`, agent and up; viewers and
+  bank guests are refused). The contact must be visible to the agent. The
+  person signed in is always the actor; the agent defaults to them. One open
+  lead per contact and bank (`LEAD_EXISTS`, `CASE_EXISTS`: 409).
+- **Attach on submission.** When the submission app later submits the same
+  contact and bank, its new group attaches to the open lead: one case from
+  lead to outcome, moved to the bank's first submission stage (**Submitted**
+  by default). A submission with no lead starts a case at that stage.
+- **Stage rules.** A lead cannot jump to a submitted stage without a
+  submission (`SUBMISSION_REQUIRED`), and a submitted case cannot go back to
+  a pre-submission stage (`PRESUB_REENTRY`).
+- **Cold lead.** A lead that goes nowhere is moved to **Withdrawn** with the
+  outcome reason **No response** (`NO_RESPONSE`, valid only on Withdrawn).
+- **No group, so no chat.** There is no conversation, take-over or document
+  request until a submission creates the group (422 `NO_GROUP`), and ending
+  a lead never ends a group.
+- **Listing.** `GET /api/cases/leads?contactId=` returns the contact's cases
+  the caller may read.
+
+Two defaults are waiting for the owner to confirm:
+
+1. On the bank dashboard an amount that is empty or 0 counts as **account
+   opening**, and an amount above 0 as **financing**.
+2. A cold lead is recorded as Withdrawn + NO_RESPONSE rather than a stage
+   of its own.
 
 ## Working a case
 

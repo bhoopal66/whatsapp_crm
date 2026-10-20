@@ -21,7 +21,7 @@
 import { CaseRpc } from './rpc';
 import { fail } from './store';
 
-/** 127's case_outcome_reasons_code_check; dashboard.test.ts reads 127. */
+/** 130's case_outcome_reasons_code_check (127's plus NO_RESPONSE); dashboard.test.ts reads 130. */
 export const OUTCOME_REASON_CODES = [
   'INCOMPLETE_DOCS',
   'CREDIT_POLICY',
@@ -29,6 +29,7 @@ export const OUTCOME_REASON_CODES = [
   'KYC_AML',
   'CUSTOMER_WITHDREW',
   'OTHER',
+  'NO_RESPONSE',
 ] as const;
 export type OutcomeReasonCode = (typeof OUTCOME_REASON_CODES)[number];
 /** 127's REASON_TEXT_TOO_LONG limit. */
@@ -42,6 +43,8 @@ export const BANK_DASHBOARD_REFUSALS = [
   'REASON_TEXT_TOO_LONG',
   'OUTCOME_NOT_DECLINED',
   'REASON_ALREADY_SET',
+  // 130: NO_RESPONSE on a case that is not Withdrawn.
+  'OUTCOME_REASON',
 ] as const;
 export type BankDashboardRefusal = (typeof BANK_DASHBOARD_REFUSALS)[number];
 const REFUSALS = new Set<string>(BANK_DASHBOARD_REFUSALS);
