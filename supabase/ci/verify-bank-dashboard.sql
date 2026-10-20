@@ -317,8 +317,8 @@ BEGIN
   d := bank_ws_dashboard(u_owner, ws_a, t_now);
   n := n + 1; failed := failed || pg_temp.cs_ok(
     (SELECT array_agg(x ORDER BY x) FROM jsonb_object_keys(d) x) = ARRAY['amount_in_pipeline', 'approval',
-      'avg_days_per_stage', 'cases_by_stage', 'declined_reasons', 'overdue_count', 'scope', 'total_cases',
-      'withdrawn_reasons'],
+      'avg_days_per_stage', 'cases_by_stage', 'conversion', 'declined_reasons', 'overdue_count', 'pipeline',
+      'pre_submission', 'scope', 'total_cases', 'with_bank', 'withdrawn_reasons'],  -- 131 added four keys
     format('the dashboard keys are not exactly the documented ones (%s)',
       (SELECT string_agg(x, ',' ORDER BY x) FROM jsonb_object_keys(d) x)));
   n := n + 1; failed := failed || pg_temp.cs_ok(d->>'scope' = 'all' AND d->>'total_cases' = '8',

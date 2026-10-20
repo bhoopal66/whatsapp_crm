@@ -335,6 +335,14 @@ jobs:
       - name: Verify case leads
         run: supabase db query --local --file supabase/ci/verify-case-leads.sql
 
+      # Bank dashboard after leads (131): pre-submission vs with-bank,
+      # account openings (amount NULL / 0) counted vs financing summed,
+      # lead conversion over the actor's readable cases only;
+      # bank_ws_cases open and most overdue first with contact, SLA and
+      # lead columns; bank_ws_summary counts, NULL without access.
+      - name: Verify bank dashboard leads
+        run: supabase db query --local --file supabase/ci/verify-bank-dashboard-leads.sql
+
       # Vault (121): a vault role counts only while its holder is a live
       # owner/admin of the account; bootstrap only for a live owner of an
       # account with no role, grant / revoke only by a super_admin, never
