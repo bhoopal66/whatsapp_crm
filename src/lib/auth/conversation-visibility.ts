@@ -1,6 +1,16 @@
 import { hasMinRole, type AccountRole } from './roles';
 
 /**
+ * Roles a chat share can grant to (migration 130's
+ * `coordinator_share_grants`): a coordinator is a live agent or team
+ * leader holding a bank. A viewer, an admin (who sees everything
+ * anyway) and a bank guest get nothing from a share.
+ */
+function shareCanGrant(role: AccountRole): boolean {
+  return role === 'agent' || role === 'team_leader';
+}
+
+/**
  * Client-side mirror of the `can_view_conversation` SQL function
  * (migration 042, extended by 044; 072 removed the number-allocation
  * grant that 060 had added).
@@ -18,6 +28,12 @@ import { hasMinRole, type AccountRole } from './roles';
  * Allocation to a WhatsApp number (060, 071) grants no visibility: it
  * only decides which numbers someone may send from. Keep in lockstep
  * with migrations 042, 044 and 072.
+ *
+ * `sharedWithMe` is the caller's answer to "is there an open share of
+ * this chat to me, under a bank I still hold?" (130's
+ * `conversation_coordinator_shares` + `coordinator_banks`). It shows the
+ * chat to an agent or team leader only, as `coordinator_share_grants`
+ * does. It grants reading and replying, never editing the chat.
  */
 export function canViewConversation(
   role: AccountRole | null,
@@ -25,6 +41,7 @@ export function canViewConversation(
   conversation: {
     ownerId: string | null;
     assignedId: string | null;
+    sharedWithMe?: boolean;
   }
 ): boolean {
   // Unknown role or unknown user: fail closed. Both mean the profile
@@ -37,7 +54,10 @@ export function canViewConversation(
   // the WhatsApp channel.
   if (hasMinRole(role, 'admin')) return true;
 
-  return conversation.ownerId === userId || conversation.assignedId === userId;
+  if (conversation.ownerId === userId || conversation.assignedId === userId) {
+    return true;
+  }
+  return conversation.sharedWithMe === true && shareCanGrant(role);
 }
 
 /**
@@ -69,6 +89,11 @@ export function canAssignToOthers(role: AccountRole | null): boolean {
  * Note the OR: a contact you created stays yours even with no chat
  * against it, which is what makes "add a contact, then message them"
  * work.
+ *
+ * A chat shared with a coordinator (migration 130) does NOT count here:
+ * `can_view_contact` is deliberately unchanged, because it also grants
+ * contact edit and delete, notes, tasks, calls and memory. The share's
+ * read-only grant is {@link canReadContact}.
  */
 export function canViewContact(
   role: AccountRole | null,
@@ -78,6 +103,29 @@ export function canViewContact(
   if (!role || !userId) return false;
   if (hasMinRole(role, 'admin')) return true;
   return contact.creatorId === userId || contact.handlesChat === true;
+}
+
+/**
+ * May this viewer READ the contact? {@link canViewContact}, plus
+ * migration 130's `contacts_coordinator_select`: a coordinator (agent or
+ * team leader) with a chat of this contact shared to them reads the
+ * contact, and nothing more. Editing stays {@link canViewContact}.
+ *
+ * `sharedWithMe` is "is one of this contact's chats shared with me?"
+ * (`coordinator_share_grants_contact`).
+ */
+export function canReadContact(
+  role: AccountRole | null,
+  userId: string | null,
+  contact: {
+    creatorId: string | null;
+    handlesChat?: boolean;
+    sharedWithMe?: boolean;
+  }
+): boolean {
+  if (canViewContact(role, userId, contact)) return true;
+  if (!role || !userId) return false;
+  return contact.sharedWithMe === true && shareCanGrant(role);
 }
 
 /**

@@ -5617,6 +5617,7 @@
       "whatsapp_message": "New WhatsApp messages",
       "chat_message": "Team chat messages",
       "conversation_assigned": "A chat is assigned to me",
+      "conversation_shared": "A chat is shared with me",
       "ai_handoff": "The AI hands a chat to a person",
       "task_assigned": "A task is assigned to me",
       "task_due": "A task is due",

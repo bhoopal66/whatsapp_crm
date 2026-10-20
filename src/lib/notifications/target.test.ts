@@ -13,7 +13,7 @@ const CH = '44444444-4444-4444-8444-444444444444';
 const ROW = '55555555-5555-4555-8555-555555555555';
 
 describe('notificationTarget', () => {
-  it.each(['conversation_assigned', 'ai_handoff'])(
+  it.each(['conversation_assigned', 'ai_handoff', 'conversation_shared'])(
     '%s opens the chat',
     (type) => {
       expect(

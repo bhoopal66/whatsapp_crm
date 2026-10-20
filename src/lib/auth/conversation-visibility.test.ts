@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canAssignToOthers,
+  canReadContact,
   canViewContact,
   canViewConversation,
   viewsOthersConversations,
@@ -142,6 +143,70 @@ describe('canViewContact', () => {
   it('fails closed on an unresolved role or user', () => {
     expect(canViewContact(null, ME, { creatorId: ME })).toBe(false);
     expect(canViewContact('agent', null, { creatorId: ME })).toBe(false);
+  });
+});
+
+// Migration 130: a chat shared with a coordinator. The share grants the
+// chat (read and reply) and its contact read-only, to a live agent or
+// team leader only (`coordinator_share_grants`).
+describe('a chat shared with me (migration 130)', () => {
+  const colleagues = { ownerId: COLLEAGUE, assignedId: null };
+
+  it('shows a colleague’s shared chat to an agent or team leader', () => {
+    for (const role of ['agent', 'team_leader'] as const) {
+      expect(
+        canViewConversation(role, ME, { ...colleagues, sharedWithMe: true })
+      ).toBe(true);
+      expect(
+        canViewConversation(role, ME, { ...colleagues, sharedWithMe: false })
+      ).toBe(false);
+    }
+  });
+
+  it('grants nothing to a viewer or a bank guest, as the SQL role check', () => {
+    for (const role of ['viewer', 'bank_guest'] as const) {
+      expect(
+        canViewConversation(role, ME, { ...colleagues, sharedWithMe: true })
+      ).toBe(false);
+    }
+  });
+
+  it('fails closed on an unresolved role or user, share or not', () => {
+    const shared = { ...colleagues, sharedWithMe: true };
+    expect(canViewConversation(null, ME, shared)).toBe(false);
+    expect(canViewConversation('agent', null, shared)).toBe(false);
+  });
+
+  it('lets the coordinator read the contact', () => {
+    for (const role of ['agent', 'team_leader'] as const) {
+      expect(
+        canReadContact(role, ME, { creatorId: COLLEAGUE, sharedWithMe: true })
+      ).toBe(true);
+    }
+    expect(
+      canReadContact('viewer', ME, { creatorId: COLLEAGUE, sharedWithMe: true })
+    ).toBe(false);
+    expect(
+      canReadContact(null, ME, { creatorId: COLLEAGUE, sharedWithMe: true })
+    ).toBe(false);
+  });
+
+  it('does not make the contact editable (can_view_contact is unchanged)', () => {
+    // canViewContact is the mirror of can_view_contact, which gates
+    // contact edit and delete; a share must not reach it. Passed via a
+    // variable to dodge the excess-property check, like a stale caller.
+    const shared = { creatorId: COLLEAGUE, sharedWithMe: true };
+    expect(canViewContact('agent', ME, shared)).toBe(false);
+    expect(canViewContact('team_leader', ME, shared)).toBe(false);
+  });
+
+  it('reads the contact exactly as canViewContact without a share', () => {
+    expect(canReadContact('agent', ME, { creatorId: ME })).toBe(true);
+    expect(
+      canReadContact('agent', ME, { creatorId: COLLEAGUE, handlesChat: true })
+    ).toBe(true);
+    expect(canReadContact('admin', ME, { creatorId: COLLEAGUE })).toBe(true);
+    expect(canReadContact('agent', ME, { creatorId: COLLEAGUE })).toBe(false);
   });
 });
 
