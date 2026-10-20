@@ -93,10 +93,10 @@ const PRIORITY_CHIP: Partial<Record<CasePriority, string>> = {
 const chip =
   'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium';
 
-/** The workspace's case banks, for the bank filter; [] on any failure. */
-function useCaseBanks(): CaseBankOption[] {
+/** The workspace's case banks; null while loading, [] on any failure. */
+function useCaseBanks(): CaseBankOption[] | null {
   const { accountId } = useAuth();
-  const [banks, setBanks] = useState<CaseBankOption[]>([]);
+  const [banks, setBanks] = useState<CaseBankOption[] | null>(null);
   useEffect(() => {
     if (!accountId) return;
     let live = true;
@@ -248,7 +248,7 @@ export function CasesInbox() {
         className={cn(filtersOpen ? 'block' : 'hidden', 'md:block')}
         filters={filters}
         setFilters={setFilters}
-        banks={banks}
+        banks={banks ?? []}
         agents={agents}
         narrowed={narrowed}
         rows={loaded?.rows ?? []}
