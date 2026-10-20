@@ -1391,7 +1391,9 @@ mirrors of any SQL predicate.
 Files carry no BEGIN/COMMIT, and a hand apply runs in autocommit, so a
 migration that can refuse itself on existing data runs every refusal scan
 in one block **before its first DDL** (130 once left a half-applied schema
-that broke every new submission). When a migration adds keys to a function
+that broke every new submission). A plain `psql -f` keeps going after an
+error, so 130's scan records the refusal, sets the session
+`default_transaction_read_only`, and raises in the next statement. When a migration adds keys to a function
 returning JSON, check older verify files for an exact key-list assertion
 (`verify-bank-dashboard.sql` has one).
 
