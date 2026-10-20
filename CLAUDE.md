@@ -1109,6 +1109,12 @@ is the contract.
 - `assist_audit` is append-only, owner included. Crons: pending sweep
   every minute, rate prune hourly (automations cron).
   `verify-assistant-safety.sql`.
+- **Middleware (019e, 019f; migration 132).** Still idle. `middleware.ts`
+  runs hooks in a fixed order and the 019a router stays the only tool
+  layer; redaction is terminal, applied to every message just before the
+  model. `promptcache.ts` lays out STATIC, WORKSPACE, VOLATILE tiers and
+  fails closed (`PromptCacheError`). The provider mapping of
+  `cacheControl` is UNVERIFIED. `agent_run` audit rows hold counts only.
 
 ### Video meetings (`lib/meetings/*`, migration 106)
 

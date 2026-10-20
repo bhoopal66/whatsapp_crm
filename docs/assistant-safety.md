@@ -86,6 +86,48 @@ The automations cron (`GET /api/automations/cron`) runs, inside `after()`:
 Both only tidy up: expiry and the window are checked on every call, so a
 missed run is never a wrong answer. A failure is only logged.
 
+## Agent middleware and prompt caching (019e, 019f)
+
+Still idle: no assistant exists, so nothing calls `runAgent`. The code is
+in `src/lib/assist/` (`middleware.ts`, `middleware.builtin.ts`,
+`promptcache.ts`).
+
+**Hook order.** Per run `beforeAgent`, then per model round
+`beforeModel`, `wrapModelCall` (an onion: the first middleware is the
+outermost, the terminal calls the model once), `afterModel` (reverse
+order), and at the end `afterAgent` (reverse order). A hook can change
+text or remove tool calls but never add or alter one. A hook that throws
+aborts the run.
+
+**The 019a router stays the tool layer.** Every proposed call still goes
+to `createModelToolRouter().execute()`; the guard, the confirmation gate
+and the risk levels above are unchanged. Middleware has no handler map.
+
+**Built-ins.**
+
+- `redactBeforeModel` redacts every message at the terminal step, after
+  all wrap layers and whatever its position in the list. A redactor that
+  throws or returns something malformed aborts before the model is called.
+- `contextBudget` offloads an oversized message (never a system message),
+  then summarises or drops older turns to fit the token budget.
+- `auditAfterAgent` appends one `agent_run` row per run: rounds and tool
+  counts only, never text or arguments. If the append fails the result is
+  withheld. `supabaseAgentRunAuditSink` writes it to `assist_audit` on a
+  service-role client (migration 132 adds the kind; no new function).
+
+**Prompt-cache tiers.** `promptCacheMiddleware` lays the request out as
+STATIC (system constants and tool definitions), then WORKSPACE (the
+workspace's policy constants), then VOLATILE (everything else), with at
+most two cache breakpoints. It fails closed with `PromptCacheError` on an
+unknown constant, a volatile marker or text copied from the messages, or
+personal data in a cacheable tier, and the run aborts. Only the exact tier
+objects it installed keep their cache fields at the terminal step; every
+other message loses them. Cache read and write counts go into the
+`agent_run` audit detail.
+
+**Unverified.** How `cacheControl` maps onto a provider's request is the
+model client's job and has not been checked against either provider.
+
 ## Applying it
 
 Migration 120 must be applied as a superuser or BYPASSRLS role. The tables

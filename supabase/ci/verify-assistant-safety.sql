@@ -461,6 +461,25 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_check('TRUNCATE of assist_audit as the owner was not refused', NULL, NULL,
     'TRUNCATE public.assist_audit', 'ERROR 42501 -: public.assist_audit is append-only (TRUNCATE refused)');
 
+  -- ---------- agent_run (132) ----------
+  -- The 019e sink inserts as service_role: one counts-only row per run.
+  x := pg_temp.sr(format(
+    'insert into public.assist_audit (kind, actor, account_id, user_id, run_id, outcome, detail) values (%L, %L, %L, %L, %L, %L, %L)',
+    'agent_run', 'system:assist', a_acct, u_aown, 'run-132', 'completed',
+    '{"rounds":1,"toolsProposed":0,"toolsAllowed":0,"toolsRefused":0,"toolsPending":0,"channel":"wa"}'));
+  n := n + 1; failed := failed || pg_temp.cs_ok(x = 'ok', format('agent_run: service_role could not insert an agent_run audit row (%s)', x));
+  SELECT count(*) INTO m FROM public.assist_audit WHERE kind = 'agent_run' AND run_id = 'run-132';
+  n := n + 1; failed := failed || pg_temp.cs_ok(m = 1, format('agent_run: the inserted row was not stored exactly once (%s)', m));
+  n := n + 1; failed := failed || pg_temp.cs_check('agent_run: an unknown audit kind was accepted', 'service_role', NULL,
+    format('insert into public.assist_audit (kind, actor, outcome) values (%L, %L, %L)', 'agent_runs', 'system:assist', 'completed'),
+    'ERROR 23514 %');
+  n := n + 1; failed := failed || pg_temp.cs_check('UPDATE of an agent_run row as the owner was not refused', NULL, NULL,
+    'UPDATE public.assist_audit SET outcome = ''x'' WHERE kind = ''agent_run''', 'ERROR 42501 -: public.assist_audit is append-only (UPDATE refused)');
+  n := n + 1; failed := failed || pg_temp.cs_check('DELETE of an agent_run row as the owner was not refused', NULL, NULL,
+    'DELETE FROM public.assist_audit WHERE kind = ''agent_run''', 'ERROR 42501 -: public.assist_audit is append-only (DELETE refused)');
+  SELECT count(*) INTO m FROM public.assist_audit WHERE kind = 'agent_run' AND run_id = 'run-132' AND outcome = 'completed';
+  n := n + 1; failed := failed || pg_temp.cs_ok(m = 1, format('agent_run: the row did not survive the refused UPDATE / DELETE (%s)', m));
+
   -- ---------- rate ----------
   FOR i IN 1 .. 3 LOOP
     x := pg_temp.take(ARRAY[k_w, k_u], ARRAY[10, 3], ARRAY[60000, 60000]::bigint[]);
