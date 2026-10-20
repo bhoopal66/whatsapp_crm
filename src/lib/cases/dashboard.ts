@@ -78,6 +78,18 @@ export interface BankDashboardData {
   overdueCount: number;
   /** AED as a decimal string, over cases not at a final stage. */
   amountInPipeline: string;
+  /** 131: open cases at Interested / Data collection / Review. */
+  preSubmission: number;
+  /** 131: open cases past pre-submission. */
+  withBank: number;
+  /** 131: open cases; accounts = amount NULL or 0, financing = amount > 0 (AED decimal string). */
+  pipeline: {
+    accounts: number;
+    financingCases: number;
+    financingAmount: string;
+  };
+  /** 131: rate = submitted / leads (4 dp), NULL with no leads. */
+  conversion: { leads: number; submitted: number; rate: number | null };
 }
 
 type Obj = Record<string, unknown>;
@@ -104,6 +116,8 @@ function reasons(v: unknown): Partial<Record<OutcomeReasonCode, number>> {
 }
 
 const DECIMAL = /^-?\d+(?:\.\d+)?$/;
+const decimal = (v: unknown): string =>
+  typeof v === 'string' && DECIMAL.test(v) ? v : '0.00';
 
 /** bank_ws_dashboard's jsonb -> BankDashboardData; never throws. */
 export function parseBankDashboard(raw: unknown): BankDashboardData {
@@ -116,7 +130,8 @@ export function parseBankDashboard(raw: unknown): BankDashboardData {
       avg[stage] = { avgDays, intervals: count(e.intervals) };
   }
   const a = obj(d.approval);
-  const amount = d.amount_in_pipeline;
+  const p = obj(d.pipeline);
+  const cv = obj(d.conversion);
   return {
     scope: d.scope === 'all' ? 'all' : 'own',
     totalCases: count(d.total_cases),
@@ -131,8 +146,19 @@ export function parseBankDashboard(raw: unknown): BankDashboardData {
     declinedReasons: reasons(d.declined_reasons),
     withdrawnReasons: reasons(d.withdrawn_reasons),
     overdueCount: count(d.overdue_count),
-    amountInPipeline:
-      typeof amount === 'string' && DECIMAL.test(amount) ? amount : '0.00',
+    amountInPipeline: decimal(d.amount_in_pipeline),
+    preSubmission: count(d.pre_submission),
+    withBank: count(d.with_bank),
+    pipeline: {
+      accounts: count(p.accounts),
+      financingCases: count(p.financing_cases),
+      financingAmount: decimal(p.financing_amount),
+    },
+    conversion: {
+      leads: count(cv.leads),
+      submitted: count(cv.submitted),
+      rate: num(cv.rate),
+    },
   };
 }
 

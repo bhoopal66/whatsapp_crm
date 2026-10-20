@@ -15,6 +15,8 @@ import {
   parseActions,
   parseBankList,
   parseBankPage,
+  parseBankSummary,
+  slaChip,
   parsePins,
   parsePosts,
   parseThreads,
@@ -186,5 +188,74 @@ describe('small helpers', () => {
     expect(errorKey(403, { code: 'NOT_ALLOWED' })).toBe('notAllowed');
     expect(errorKey(404, {})).toBe('notFound');
     expect(errorKey(500, null)).toBe('failed');
+  });
+});
+
+describe('131: cases columns, summary, SLA chip', () => {
+  it('parseBankPage reads the customer, SLA and lead fields', () => {
+    const [c] = parseBankPage({
+      cases: [
+        {
+          caseId: 'x',
+          contactId: 'k',
+          contactName: 'Sara',
+          slaState: 'due_soon',
+          nextDueAt: '2026-10-21T00:00:00.000Z',
+          isLead: true,
+        },
+      ],
+    }).cases;
+    expect(c).toMatchObject({
+      contactId: 'k',
+      contactName: 'Sara',
+      slaState: 'due_soon',
+      nextDueAt: '2026-10-21T00:00:00.000Z',
+      isLead: true,
+    });
+    expect(
+      parseBankPage({ cases: [{ caseId: 'y', isLead: 'yes' }] }).cases[0]
+    ).toMatchObject({ contactName: null, slaState: null, isLead: false });
+  });
+
+  it('parseBankSummary: good body, defaults, unusable body', () => {
+    expect(
+      parseBankSummary({
+        summary: {
+          openCases: 3,
+          members: { agents: 2, coordinators: 1, teamLeads: 1, total: 4 },
+          openActions: 1,
+          myRole: 'coordinator',
+        },
+      })
+    ).toEqual({
+      openCases: 3,
+      members: { agents: 2, coordinators: 1, teamLeads: 1, total: 4 },
+      openActions: 1,
+      myRole: 'coordinator',
+    });
+    expect(parseBankSummary({ summary: { myRole: 'owner' } })).toEqual({
+      openCases: 0,
+      members: { agents: 0, coordinators: 0, teamLeads: 0, total: 0 },
+      openActions: 0,
+      myRole: null,
+    });
+    expect(parseBankSummary({ error: 'x' })).toBeNull();
+    expect(parseBankSummary(null)).toBeNull();
+  });
+
+  it('slaChip: overdue bad, due soon warn, else on track; closed shows nothing', () => {
+    expect(slaChip({ closedAt: null, slaState: 'overdue' })).toEqual({
+      key: 'overdue',
+      tone: 'bad',
+    });
+    expect(slaChip({ closedAt: null, slaState: 'due_soon' })).toEqual({
+      key: 'dueSoon',
+      tone: 'warn',
+    });
+    expect(slaChip({ closedAt: null, slaState: 'on_track' })?.key).toBe(
+      'onTrack'
+    );
+    expect(slaChip({ closedAt: null, slaState: null })?.tone).toBe('muted');
+    expect(slaChip({ closedAt: '2026-10-01', slaState: 'overdue' })).toBeNull();
   });
 });

@@ -52,6 +52,11 @@ export interface BankCase {
   coordinatorId: string | null;
   openedAt: string | null;
   closedAt: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  slaState: string | null;
+  nextDueAt: string | null;
+  isLead: boolean;
 }
 export interface BankThread {
   threadId: string;
@@ -159,9 +164,61 @@ export function parseBankPage(json: unknown): {
         coordinatorId: str(r.coordinatorId),
         openedAt: str(r.openedAt),
         closedAt: str(r.closedAt),
+        contactId: str(r.contactId),
+        contactName: str(r.contactName),
+        slaState: str(r.slaState),
+        nextDueAt: str(r.nextDueAt),
+        isLead: r.isLead === true,
       };
     }),
   };
+}
+
+export type BankRole = 'admin' | 'team_lead' | 'coordinator' | 'agent';
+export interface BankSummary {
+  openCases: number;
+  members: {
+    agents: number;
+    coordinators: number;
+    teamLeads: number;
+    total: number;
+  };
+  openActions: number;
+  myRole: BankRole | null;
+}
+const ROLES: readonly string[] = ['admin', 'team_lead', 'coordinator', 'agent'];
+
+/** GET /api/banks/[id]/summary; null when the body is unusable (the strip hides). */
+export function parseBankSummary(json: unknown): BankSummary | null {
+  if (!isObj(json) || !isObj(json.summary)) return null;
+  const d = json.summary;
+  const m = isObj(d.members) ? d.members : {};
+  return {
+    openCases: count(d.openCases),
+    members: {
+      agents: count(m.agents),
+      coordinators: count(m.coordinators),
+      teamLeads: count(m.teamLeads),
+      total: count(m.total),
+    },
+    openActions: count(d.openActions),
+    myRole: ROLES.includes(String(d.myRole)) ? (d.myRole as BankRole) : null,
+  };
+}
+
+export type SlaTone = 'bad' | 'warn' | 'muted';
+/**
+ * The Cases tab's SLA chip: null for a closed case (nothing shown), else
+ * Overdue (bad), Due soon (warn) or On track (muted). `key` is under
+ * `Banks.cases.sla`.
+ */
+export function slaChip(
+  c: Pick<BankCase, 'closedAt' | 'slaState'>
+): { key: 'overdue' | 'dueSoon' | 'onTrack'; tone: SlaTone } | null {
+  if (c.closedAt) return null;
+  if (c.slaState === 'overdue') return { key: 'overdue', tone: 'bad' };
+  if (c.slaState === 'due_soon') return { key: 'dueSoon', tone: 'warn' };
+  return { key: 'onTrack', tone: 'muted' };
 }
 
 export const parseThreads = (json: unknown): BankThread[] =>
