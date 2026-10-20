@@ -89,6 +89,7 @@ import { canSendMessages, isBankGuest } from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
 import { canAssignToOthers } from '@/lib/auth/conversation-visibility';
+import { isSharedChatNumberRefusal } from '@/lib/coordinators/ui';
 import { resolveConversationHandler } from '@/lib/inbox/handler';
 import {
   MESSAGE_PAGE_SELECT,
@@ -171,6 +172,8 @@ interface MessageThreadProps {
    * `onToggleContactPanel` is wired up.
    */
   contactPanelOpen?: boolean;
+  /** The bank this chat was shared with the viewer under (migration 130). */
+  sharedBank?: string | null;
   onToggleContactPanel?: () => void;
 }
 
@@ -247,6 +250,7 @@ export function MessageThread({
   onRefresh,
   contactPanelOpen,
   onToggleContactPanel,
+  sharedBank = null,
 }: MessageThreadProps) {
   const t = useTranslations('Inbox.messageThread');
   const tQuote = useTranslations('Inbox.replyQuote');
@@ -1008,7 +1012,9 @@ export function MessageThread({
         ? tFailedSend(
             refusal === 'do_not_contact' ? 'doNotContact' : 'optedOut'
           )
-        : sendFailureReason(res.status, payload);
+        : isSharedChatNumberRefusal(res.status, payload)
+          ? tFailedSend('sharedChatNumber')
+          : sendFailureReason(res.status, payload);
       console.error(`Failed to send ${message.content_type}:`, reason);
       toast.error(
         `${toastPrefix}: ${reason}`,
@@ -1580,6 +1586,7 @@ export function MessageThread({
           isRefreshing={isRefreshing}
           contactPanelOpen={contactPanelOpen}
           onToggleContactPanel={onToggleContactPanel}
+          sharedBank={sharedBank}
         />
 
         {/* A chat the AI handed to a person (migration 078): its banner

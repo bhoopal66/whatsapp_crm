@@ -74,17 +74,27 @@ export function conversationKeysetGroup(cursor: ConversationCursor): string {
  * "I created it OR it was handed to me OR it is on (or pinned to) a
  * number I work" — the personal-inbox narrowing for a team leader, the
  * same grants the database's visibility rule makes (042, plus 060's
- * allocated numbers and 061's pins). Without the last two, a leader
- * allocated to a number would find its chats only in the Team inbox.
+ * allocated numbers and 061's pins, and 130's coordinator shares).
+ * Without the numbers, a leader allocated to a number would find its
+ * chats only in the Team inbox.
  */
 export function restrictToUserGroup(
   userId: string,
-  channelIds: readonly string[] = []
+  channelIds: readonly string[] = [],
+  sharedConversationIds: readonly string[] = []
 ): string {
-  const mine = `user_id.eq.${userId},assigned_agent_id.eq.${userId}`;
-  if (channelIds.length === 0) return mine;
-  const ids = channelIds.join(',');
-  return `${mine},channel_id.in.(${ids}),send_channel_id.in.(${ids})`;
+  let group = `user_id.eq.${userId},assigned_agent_id.eq.${userId}`;
+  if (channelIds.length > 0) {
+    const ids = channelIds.join(',');
+    group += `,channel_id.in.(${ids}),send_channel_id.in.(${ids})`;
+  }
+  // Chats shared with this person as a coordinator (migration 130) are
+  // theirs too: without this a team leader's shares sat in /team-inbox
+  // only.
+  if (sharedConversationIds.length > 0) {
+    group += `,id.in.(${sharedConversationIds.join(',')})`;
+  }
+  return group;
 }
 
 /**

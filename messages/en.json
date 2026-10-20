@@ -206,7 +206,8 @@
       "campaignBotOff": "The AI auto-reply is switched off, so replies to campaigns are in the Inbox.",
       "yesterday": "Yesterday",
       "important": "Important",
-      "importantCount": "Important · {count}"
+      "importantCount": "Important · {count}",
+      "sharedWithMe": "Shared · {bank}"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -263,7 +264,8 @@
       "discardTitle": "Remove this unsent message from the chat",
       "maybeSent": "It may still have reached the customer. Check before sending it again.",
       "doNotContact": "This customer is marked do-not-contact, so the missed-call draft was not sent.",
-      "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent."
+      "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent.",
+      "sharedChatNumber": "This chat was shared with you, so you can reply only on the chat's own WhatsApp number."
     },
     "composer": {
       "templates": "Templates",
@@ -7505,6 +7507,29 @@
       "decryptFailed": "The value could not be decrypted.",
       "reasonRefused": "That reason looks like it contains an identifier. Describe the reason in words.",
       "failed": "Something went wrong. Try again."
+    }
+  },
+  "Coordinators": {
+    "share": {
+      "action": "Share with coordinator",
+      "title": "Share with a coordinator",
+      "description": "The coordinator can read this chat and reply in it on its own number, and sees the contact read-only, until the share is revoked.",
+      "bank": "Bank",
+      "coordinator": "Coordinator",
+      "noBanks": "No bank has a coordinator yet. An admin sets coordinators in Settings → Members.",
+      "noCoordinators": "No one else coordinates this bank.",
+      "openShares": "Shared with",
+      "noShares": "Not shared with anyone.",
+      "unnamed": "Unnamed",
+      "submit": "Share",
+      "close": "Close",
+      "revoke": "Revoke",
+      "shared": "Chat shared.",
+      "revoked": "Share revoked.",
+      "shareError": "Could not share this chat.",
+      "revokeError": "Could not revoke the share.",
+      "loadError": "Could not load coordinators.",
+      "sharedLabel": "Shared · {bank}"
     }
   }
 }

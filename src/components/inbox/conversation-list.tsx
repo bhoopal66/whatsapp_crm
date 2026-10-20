@@ -54,7 +54,15 @@ import { ChatTagPill } from '@/components/inbox/chat-tag-pill';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { cn } from '@/lib/utils';
 import type { Conversation, Profile } from '@/types';
-import { Search, ChevronDown, X, UserRound, Radio, Phone } from 'lucide-react';
+import {
+  Search,
+  ChevronDown,
+  X,
+  UserRound,
+  Radio,
+  Phone,
+  Share2,
+} from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { useLocale, useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/input';
@@ -123,6 +131,17 @@ interface ConversationListProps {
    */
   restrictToChannelIds?: readonly string[];
   /**
+   * With `restrictToUserId`: chats shared with that user as a
+   * coordinator (migration 130), which also belong in their personal
+   * inbox.
+   */
+  restrictToConversationIds?: readonly string[];
+  /**
+   * Conversation id -> bank code, for the chats shared with the viewer
+   * as a coordinator. Those rows carry a "Shared · BANK" label.
+   */
+  sharedBanks?: ReadonlyMap<string, string> | null;
+  /**
    * Show who holds each thread, and offer the by-agent filter.
    *
    * On for a viewer whose list mixes other people's chats — an admin
@@ -178,6 +197,7 @@ const DELTA_LIMIT = 200;
 interface ListQueryParams {
   restrictToUserId: string | null;
   restrictToChannelIds: readonly string[];
+  restrictToConversationIds: readonly string[];
   campaignOnly: boolean;
   aiLive: boolean;
   status: InboxFilter;
@@ -225,7 +245,11 @@ function conversationsQuery(
     // "I created it OR it was handed to me OR it is on my number", the
     // same grants the database's own visibility rule makes.
     groups.push(
-      restrictToUserGroup(p.restrictToUserId, p.restrictToChannelIds)
+      restrictToUserGroup(
+        p.restrictToUserId,
+        p.restrictToChannelIds,
+        p.restrictToConversationIds
+      )
     );
   }
   if (p.campaignOnly) {
@@ -307,6 +331,8 @@ export function ConversationList({
   enabled = true,
   restrictToUserId = null,
   restrictToChannelIds = NO_CHANNELS,
+  restrictToConversationIds = NO_CHANNELS,
+  sharedBanks = null,
   showAssignee = false,
   numberNames = null,
   campaignOnly = false,
@@ -433,6 +459,7 @@ export function ConversationList({
     () => ({
       restrictToUserId,
       restrictToChannelIds,
+      restrictToConversationIds,
       campaignOnly,
       aiLive,
       status: filter,
@@ -443,6 +470,7 @@ export function ConversationList({
     [
       restrictToUserId,
       restrictToChannelIds,
+      restrictToConversationIds,
       campaignOnly,
       aiLive,
       filter,
@@ -1177,6 +1205,7 @@ export function ConversationList({
                 showAssignee={showAssignee}
                 memberName={memberName}
                 chatTagTree={chatTagTree}
+                sharedBank={sharedBanks?.get(conv.id) ?? null}
                 numberName={
                   // The number the chat sends from: a person's pin
                   // (migration 061), else the one it is on.
@@ -1255,6 +1284,8 @@ interface ConversationItemProps {
   campaignName?: string | null;
   /** Which WhatsApp number the thread is on, when there are several. */
   numberName?: string | null;
+  /** The bank this chat was shared with the viewer under (migration 130). */
+  sharedBank?: string | null;
 }
 
 // Memoised: a realtime patch to one conversation re-renders that row,
@@ -1273,6 +1304,7 @@ const ConversationItem = memo(function ConversationItem({
   chatTagTree,
   campaignName = null,
   numberName = null,
+  sharedBank = null,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
@@ -1305,7 +1337,8 @@ const ConversationItem = memo(function ConversationItem({
 
   // Everything beyond name and preview shares one quiet line, so a row
   // is never more than three lines tall.
-  const hasMeta = !!numberName || !!campaignName || showAssignee;
+  const hasMeta =
+    !!numberName || !!campaignName || !!sharedBank || showAssignee;
 
   return (
     <button
@@ -1380,6 +1413,13 @@ const ConversationItem = memo(function ConversationItem({
 
         {hasMeta && (
           <div className="text-wa-text-secondary mt-1 flex min-w-0 items-center gap-x-2 text-[11.5px] leading-4">
+            {sharedBank && (
+              <span className="text-wa-teal inline-flex shrink-0 items-center gap-1 font-medium">
+                <Share2 className="h-3 w-3 shrink-0" />
+                {t('sharedWithMe', { bank: sharedBank })}
+              </span>
+            )}
+
             {numberName && (
               <span className="inline-flex min-w-0 shrink items-center gap-1">
                 <Phone className="h-3 w-3 shrink-0" />

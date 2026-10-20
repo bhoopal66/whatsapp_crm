@@ -206,7 +206,8 @@
       "campaignBotOff": "AI 자동 응답이 꺼져 있어 캠페인 답장은 인박스에 있습니다.",
       "yesterday": "어제",
       "important": "중요",
-      "importantCount": "중요 · {count}"
+      "importantCount": "중요 · {count}",
+      "sharedWithMe": "공유됨 · {bank}"
     },
     "messageThread": {
       "backToConversations": "대화 목록으로 돌아가기",
@@ -263,7 +264,8 @@
       "discardTitle": "보내지 못한 이 메시지를 채팅에서 지웁니다",
       "maybeSent": "고객에게 이미 전달되었을 수 있습니다. 다시 보내기 전에 확인하세요.",
       "doNotContact": "연락 금지 고객이므로 부재중 전화 초안을 보내지 않았습니다.",
-      "optedOut": "고객이 메시지 수신을 거부했으므로 부재중 전화 초안을 보내지 않았습니다."
+      "optedOut": "고객이 메시지 수신을 거부했으므로 부재중 전화 초안을 보내지 않았습니다.",
+      "sharedChatNumber": "공유받은 채팅이므로 채팅의 WhatsApp 번호로만 답장할 수 있습니다."
     },
     "composer": {
       "templates": "템플릿",
@@ -7505,6 +7507,29 @@
       "decryptFailed": "값을 복호화하지 못했습니다.",
       "reasonRefused": "사유에 식별 번호가 들어 있는 것 같습니다. 사유를 말로 설명해 주세요.",
       "failed": "문제가 발생했습니다. 다시 시도하세요."
+    }
+  },
+  "Coordinators": {
+    "share": {
+      "action": "코디네이터와 공유",
+      "title": "코디네이터와 공유",
+      "description": "코디네이터는 공유가 취소될 때까지 이 채팅을 읽고 채팅의 번호로 답장할 수 있으며, 연락처는 읽기 전용으로 봅니다.",
+      "bank": "은행",
+      "coordinator": "코디네이터",
+      "noBanks": "코디네이터가 지정된 은행이 없습니다. 관리자가 설정 → 멤버에서 지정합니다.",
+      "noCoordinators": "이 은행의 다른 코디네이터가 없습니다.",
+      "openShares": "공유 대상",
+      "noShares": "공유된 사람이 없습니다.",
+      "unnamed": "이름 없음",
+      "submit": "공유",
+      "close": "닫기",
+      "revoke": "취소",
+      "shared": "채팅을 공유했습니다.",
+      "revoked": "공유를 취소했습니다.",
+      "shareError": "채팅을 공유하지 못했습니다.",
+      "revokeError": "공유를 취소하지 못했습니다.",
+      "loadError": "코디네이터를 불러오지 못했습니다.",
+      "sharedLabel": "공유됨 · {bank}"
     }
   }
 }
