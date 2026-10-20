@@ -8,8 +8,9 @@
 --    starts with exactly those three, in that order, and does not reuse
 --    their names (PRESUB_STAGES_REQUIRED, checked at commit). Existing
 --    case_bank_stages lists are prepended in place; a list that already
---    uses one of the names elsewhere refuses the migration
---    (PRESUB_STAGES_CONFLICT) and nothing changes. case_submitted_stage
+--    uses one of the names elsewhere, or a case with a group at one of
+--    them, refuses the migration (PRESUB_STAGES_CONFLICT) and nothing
+--    changes. case_submitted_stage
 --    is the first stage after them.
 --  * cases: group_id is NULL for a lead; contact_id (the customer,
 --    backfilled from the group, set by case_open) and lead_source added.
@@ -26,7 +27,12 @@
 --    stage_change SLA event (124's trigger), so every timer is reset for
 --    the new stage on the server clock. A fresh case starts at
 --    case_submitted_stage, no longer at position 1.
---  * case_set_stage: PRESUB_REENTRY, SUBMISSION_REQUIRED; a lead never
+--  * case_open_lead, case_open's lead lookup and case_set_details' bank
+--    change of a lead serialise on case_lead_lock (an advisory lock per
+--    (account, contact, bank)); a lead changes bank only onto a free
+--    triple (LEAD_INVALID).
+--  * case_set_stage: PRESUB_REENTRY, SUBMISSION_REQUIRED (a Withdrawn
+--    lead may go to Closed); a lead never
 --    takes the group-end claim, case_claim_group_end(_system) answers
 --    NO_GROUP and case_pending_group_end skips it.
 --  * NO_RESPONSE is an outcome reason of a Withdrawn case only
@@ -41,6 +47,8 @@
 --
 -- Re-runnable: IF NOT EXISTS, CREATE OR REPLACE, DROP … IF EXISTS, and
 -- the stage-list prepend skips lists that already start with the three.
+-- The refusal checks run before any change, so a refused apply changes
+-- nothing even outside a transaction (a manual `psql -f`).
 -- ============================================================
 
 SET lock_timeout = '5s';
@@ -48,6 +56,72 @@ SET lock_timeout = '5s';
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
     RAISE EXCEPTION '130 must be applied by a superuser or BYPASSRLS role (the case_* functions read RLS-forced tables)';
+  END IF;
+END $$;
+
+-- ---------- 0. Refusal checks, before any change ----------
+
+-- Everything that would refuse 130 is scanned here, before the first DDL:
+-- a refusal further down would leave 130 half-applied under autocommit
+-- (group_id nullable, the new default list and list check in place, and
+-- case_open still 122's). Two statements: the scan stores the refusal and
+-- makes the session read-only without raising, so that persists under
+-- autocommit; the next statement raises it. Under --single-transaction
+-- the raise rolls both back; under ON_ERROR_STOP psql stops there; a
+-- plain `psql -f` carries on, and the read-only session refuses every
+-- later statement. The names are inlined (case_presub_stages() does not
+-- exist yet on a first run). On a re-run the lists already start with
+-- the three and the CHECKs below already hold, so this passes.
+DO $$
+DECLARE
+  r      record;
+  v_msg  text;
+  v_hint text;
+BEGIN
+  -- A stored list not yet prepended that already uses one of the names.
+  SELECT s.account_id, s.bank_code INTO r
+    FROM public.case_bank_stages s
+   GROUP BY s.account_id, s.bank_code
+  HAVING (array_agg(s.stage ORDER BY s.position))[1:3]
+           IS DISTINCT FROM ARRAY['Interested', 'Data collection', 'Review']::text[]
+     AND bool_or(lower(s.stage) IN ('interested', 'data collection', 'review'))
+   LIMIT 1;
+  IF FOUND THEN
+    v_msg := format('bank %s of account %s: the stage list already uses a pre-submission stage name; rename it, then re-run 130',
+                    r.bank_code, r.account_id);
+    v_hint := 'PRESUB_STAGES_CONFLICT';
+  END IF;
+  -- A case with a group at a stage named like a pre-submission stage
+  -- (cases_presub_group below would refuse it).
+  IF v_msg IS NULL THEN
+    SELECT c.id, c.stage INTO r FROM public.cases c
+     WHERE c.group_id IS NOT NULL AND c.stage IN ('Interested', 'Data collection', 'Review')
+     LIMIT 1;
+    IF FOUND THEN
+      v_msg := format('case %s is at stage %s, a pre-submission stage name; move it, then re-run 130', r.id, r.stage);
+      v_hint := 'PRESUB_STAGES_CONFLICT';
+    END IF;
+  END IF;
+  -- cases_amount_check below adds NaN to 122's check.
+  IF v_msg IS NULL THEN
+    SELECT c.id INTO r FROM public.cases c WHERE c.amount = 'NaN'::numeric LIMIT 1;
+    IF FOUND THEN
+      v_msg := format('case %s has amount NaN; set a number or NULL, then re-run 130', r.id);
+      v_hint := 'CASE_AMOUNT_NAN';
+    END IF;
+  END IF;
+  PERFORM set_config('wacrm.m130_refused', coalesce(v_msg, ''), false);
+  PERFORM set_config('wacrm.m130_hint', coalesce(v_hint, ''), false);
+  IF v_msg IS NOT NULL THEN
+    PERFORM set_config('default_transaction_read_only', 'on', false);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF current_setting('wacrm.m130_refused', true) <> '' THEN
+    RAISE EXCEPTION '130 refused, nothing changed (this session is now read-only; reconnect): %',
+      current_setting('wacrm.m130_refused')
+      USING ERRCODE = 'object_not_in_prerequisite_state', HINT = current_setting('wacrm.m130_hint');
   END IF;
 END $$;
 
@@ -184,6 +258,7 @@ BEGIN
   FOR r IN SELECT s.account_id, s.bank_code, array_agg(s.stage ORDER BY s.position) AS st
              FROM public.case_bank_stages s GROUP BY s.account_id, s.bank_code LOOP
     CONTINUE WHEN r.st[1:3] IS NOT DISTINCT FROM public.case_presub_stages();  -- already migrated
+    -- Section 0 already refused this; kept for a list written since.
     IF EXISTS (SELECT 1 FROM unnest(r.st) x WHERE lower(x) IN ('interested', 'data collection', 'review')) THEN
       RAISE EXCEPTION 'bank % of account %: the stage list already uses a pre-submission stage name; rename it, then re-run 130',
         r.bank_code, r.account_id USING ERRCODE = 'object_not_in_prerequisite_state', HINT = 'PRESUB_STAGES_CONFLICT';
@@ -199,6 +274,30 @@ BEGIN
 END $$;
 
 -- ---------- 4. Open ----------
+
+-- Serialises everything that opens or moves a case into an (account,
+-- contact, bank) triple: case_open_lead, case_open's lead lookup and
+-- case_set_details' bank change of a lead. Without it case_open_lead and
+-- case_open could both pass their checks at once and leave an open lead
+-- beside an open submission case. Held to the end of the transaction
+-- (one PostgREST call). READ COMMITTED only, as 120/121/129: under a
+-- snapshot taken before the lock the checks after it read stale rows.
+CREATE OR REPLACE FUNCTION public.case_lead_lock(p_account uuid, p_contact uuid, p_bank_code text)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'case_lead_lock: requires READ COMMITTED (advisory locks do not serialise under a snapshot taken before the lock)'
+      USING ERRCODE = 'invalid_transaction_state';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(
+    'case:lead:' || p_account::text || ':' || p_contact::text || ':' || p_bank_code, 0));
+END;
+$$;
 
 -- 122's case_open, plus: the customer is copied to cases.contact_id; an
 -- open lead of the group's (account, contact, bank) takes the group
@@ -255,6 +354,9 @@ BEGIN
     -- which UNIQUE cases_one_per_group covers, so it takes FOR UPDATE
     -- anyway; taking it here avoids a lock upgrade mid-transaction.
     IF v_contact IS NOT NULL AND p_bank_code IS NOT NULL THEN
+      -- Waits out a concurrent case_open_lead of the triple, so its lead
+      -- is found below rather than a second case opened beside it.
+      PERFORM public.case_lead_lock(v_account, v_contact, p_bank_code);
       SELECT * INTO l FROM public.cases x
        WHERE x.account_id = v_account AND x.contact_id = v_contact AND x.bank_code = p_bank_code
          AND x.group_id IS NULL AND x.closed_at IS NULL
@@ -348,6 +450,8 @@ BEGIN
   END IF;
   IF p_contact IS NULL OR p_product IS NULL OR p_product ~ '^[[:space:]]*$' OR char_length(p_product) > 200
      OR p_amount < 0 OR p_amount = 'NaN'::numeric OR p_amount IN ('Infinity'::numeric, '-Infinity'::numeric)
+     -- numeric(18, 2): 1e16 and up overflow the column (a raw 22003)
+     OR round(p_amount, 2) >= 1e16
      OR NOT EXISTS (SELECT 1 FROM public.contacts ct WHERE ct.id = p_contact AND ct.account_id = p_account)
      -- The agent must see the customer (129's explicit-user mirror of
      -- 072's can_view_contact); refused as an unknown contact, no oracle.
@@ -364,6 +468,8 @@ BEGIN
     RAISE EXCEPTION 'bank % is not a bank of this workspace', p_bank_code
       USING ERRCODE = 'check_violation', HINT = 'BANK_UNKNOWN';
   END IF;
+  -- Serialised with case_open's lead lookup (M1): checked after the lock.
+  PERFORM public.case_lead_lock(p_account, p_contact, p_bank_code);
   IF EXISTS (SELECT 1 FROM public.cases x
               WHERE x.account_id = p_account AND x.contact_id = p_contact AND x.bank_code = p_bank_code
                 AND x.group_id IS NOT NULL AND x.closed_at IS NULL) THEN
@@ -449,12 +555,14 @@ BEGIN
   END IF;
   -- 130: pre-submission stages move freely among themselves and are
   -- never re-entered once submitted; a lead leaves them only to
-  -- Withdrawn (the submission is attached by case_open).
+  -- Withdrawn (the submission is attached by case_open), and a Withdrawn
+  -- lead may then go to Closed, as a Withdrawn submission case may.
   IF public.case_stage_is_presub(p_to_stage) AND NOT public.case_stage_is_presub(c.stage) THEN
     RAISE EXCEPTION 'case %: pre-submission stage % cannot be re-entered after submission', p_case, p_to_stage
       USING ERRCODE = 'check_violation', HINT = 'PRESUB_REENTRY';
   END IF;
-  IF c.group_id IS NULL AND NOT public.case_stage_is_presub(p_to_stage) AND p_to_stage <> 'Withdrawn' THEN
+  IF c.group_id IS NULL AND NOT public.case_stage_is_presub(p_to_stage) AND p_to_stage <> 'Withdrawn'
+     AND NOT (c.stage = 'Withdrawn' AND p_to_stage = 'Closed') THEN
     RAISE EXCEPTION 'case %: stage % needs a submission', p_case, p_to_stage
       USING ERRCODE = 'check_violation', HINT = 'SUBMISSION_REQUIRED';
   END IF;
@@ -472,6 +580,75 @@ BEGIN
   INSERT INTO public.case_stage_history (case_id, account_id, from_stage, to_stage, outcome, actor_id, actor_role)
   VALUES (p_case, c.account_id, c.stage, p_to_stage, v_outcome, p_actor, v_role);
   RETURN QUERY SELECT true, c.stage, p_to_stage, v_outcome, v_claim, v_token;
+END;
+$$;
+
+-- 122's case_set_details, plus: a lead (no group) moves to another bank
+-- only when the new (contact, bank) has no open lead and no open
+-- submission case (LEAD_INVALID), checked under case_lead_lock. Any other
+-- case, and any other change, as 122.
+CREATE OR REPLACE FUNCTION public.case_set_details(p_case uuid, p_actor uuid, p_bank_code text,
+  p_product text, p_amount numeric)
+RETURNS text[]
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  c         public.cases%ROWTYPE;
+  v_role    text;
+  v_changed text[] := '{}';
+BEGIN
+  SELECT * INTO c FROM public.cases x WHERE x.id = p_case FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'case % not found', p_case USING ERRCODE = 'no_data_found', HINT = 'CASE_NOT_FOUND';
+  END IF;
+  v_role := public.case_role(p_case, p_actor);
+  IF NOT public.case_rule_can_write(v_role) THEN
+    RAISE EXCEPTION 'case %: % may not change its details', p_case, p_actor
+      USING ERRCODE = 'insufficient_privilege', HINT = 'NOT_ALLOWED';
+  END IF;
+  IF p_bank_code IS NOT NULL AND p_bank_code IS DISTINCT FROM c.bank_code THEN
+    PERFORM 1 FROM public.case_banks b WHERE b.account_id = c.account_id AND b.code = p_bank_code FOR SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'bank % is not a bank of this workspace', p_bank_code
+        USING ERRCODE = 'check_violation', HINT = 'BANK_UNKNOWN';
+    END IF;
+    IF NOT (c.stage = ANY (public.case_stages_for_bank(c.account_id, p_bank_code))) THEN
+      RAISE EXCEPTION 'case %: stage % is not in bank %''s list', p_case, c.stage, p_bank_code
+        USING ERRCODE = 'check_violation', HINT = 'STAGE_NOT_IN_LIST';
+    END IF;
+    -- 130: an open lead may not move onto a taken triple. Without this an
+    -- open lead there was a bare 23505 (cases_one_open_lead) and an open
+    -- submission case went unnoticed (case_open_lead's CASE_EXISTS).
+    IF c.group_id IS NULL AND c.closed_at IS NULL AND c.contact_id IS NOT NULL THEN
+      PERFORM public.case_lead_lock(c.account_id, c.contact_id, p_bank_code);
+      IF EXISTS (SELECT 1 FROM public.cases x
+                  WHERE x.account_id = c.account_id AND x.contact_id = c.contact_id AND x.bank_code = p_bank_code
+                    AND x.closed_at IS NULL AND x.id <> p_case) THEN
+        RAISE EXCEPTION 'case %: an open lead or case already exists for this contact and bank %', p_case, p_bank_code
+          USING ERRCODE = 'check_violation', HINT = 'LEAD_INVALID';
+      END IF;
+    END IF;
+    UPDATE public.cases SET bank_code = p_bank_code WHERE id = p_case;
+    INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
+    VALUES (p_case, c.account_id, 'bank_code', c.bank_code, p_bank_code, p_actor, v_role);
+    v_changed := v_changed || 'bank_code'::text;
+  END IF;
+  IF p_product IS NOT NULL AND p_product IS DISTINCT FROM c.product THEN
+    UPDATE public.cases SET product = p_product WHERE id = p_case;
+    INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
+    VALUES (p_case, c.account_id, 'product', c.product, p_product, p_actor, v_role);
+    v_changed := v_changed || 'product'::text;
+  END IF;
+  IF p_amount IS NOT NULL AND round(p_amount, 2) IS DISTINCT FROM c.amount THEN
+    UPDATE public.cases SET amount = p_amount WHERE id = p_case;
+    INSERT INTO public.case_detail_log (case_id, account_id, field, from_value, to_value, actor_id, actor_role)
+    VALUES (p_case, c.account_id, 'amount', c.amount::text, round(p_amount, 2)::text, p_actor, v_role);
+    v_changed := v_changed || 'amount'::text;
+  END IF;
+  RETURN v_changed;
 END;
 $$;
 
@@ -884,6 +1061,7 @@ $$;
 
 -- ---------- 9. Privileges ----------
 
+REVOKE ALL ON FUNCTION public.case_lead_lock(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.case_presub_stages(), public.case_stage_is_presub(text),
   public.case_submitted_stage(uuid, text),
   public.case_open_lead(uuid, uuid, uuid, text, text, uuid, numeric, uuid, text)
