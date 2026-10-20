@@ -345,6 +345,58 @@ export function validateSendMessageParams(params: {
   }
 }
 
+/**
+ * Does `userId` reach this conversation ONLY through a chat share
+ * (migration 130), and not by the ordinary rules? The coordinator case:
+ * the database lets them read the chat and insert their own reply on
+ * the chat's own number, but not update the conversation row.
+ *
+ * Asked of the database on the caller's client: `coordinator_share_grants`
+ * (an open share to auth.uid(), bank held, live agent / team leader) and
+ * `can_view_conversation` (the ordinary rule, admins included). The
+ * owner and the assignee see the chat anyway, so they skip the round
+ * trips. Any error, or anything but a plain boolean, answers false:
+ * this only ever narrows a send or completes a write the share already
+ * entitles, so not knowing falls back to the behaviour before 130.
+ */
+async function reachesOnlyByShare(
+  db: SupabaseClient,
+  accountId: string,
+  userId: string,
+  conversation: {
+    id: string;
+    user_id?: string | null;
+    assigned_agent_id?: string | null;
+    channel_id?: string | null;
+    send_channel_id?: string | null;
+  }
+): Promise<boolean> {
+  if (
+    conversation.user_id === userId ||
+    conversation.assigned_agent_id === userId
+  ) {
+    return false;
+  }
+  try {
+    const [grants, ordinary] = await Promise.all([
+      db.rpc('coordinator_share_grants', {
+        p_conversation_id: conversation.id,
+      }),
+      db.rpc('can_view_conversation', {
+        p_account_id: accountId,
+        p_owner_id: conversation.user_id ?? null,
+        p_assigned_id: conversation.assigned_agent_id ?? null,
+        p_channel_id: conversation.channel_id ?? null,
+        p_send_channel_id: conversation.send_channel_id ?? null,
+      }),
+    ]);
+    if (grants.error || ordinary.error) return false;
+    return grants.data === true && ordinary.data === false;
+  } catch {
+    return false;
+  }
+}
+
 export async function sendMessageToConversation(
   db: SupabaseClient,
   accountId: string,
@@ -474,6 +526,35 @@ export async function sendMessageToConversation(
     throw new SendMessageError(
       `${preferredProvider}_not_connected`,
       `No ${preferredProvider === 'whapi' ? 'Whapi' : 'Meta Cloud API'} channel is connected on this account.`,
+      409
+    );
+  }
+
+  // A chat shared with a coordinator (migration 130) may be answered
+  // only on its own number: the messages INSERT policy refuses any
+  // other. That refusal comes AFTER the gateway call, as a db_error on a
+  // message that already went out, so a share-only sender is refused
+  // here instead when the resolved number is neither the chat's number
+  // nor its pin (a thread with no number yet, or a provider pin to the
+  // other kind). Asked only on that mismatch, so an ordinary send pays
+  // no extra round trip.
+  const ownNumbers = [conversation.channel_id, conversation.send_channel_id];
+  // Memoised: the last-message update below asks the same question.
+  let shareOnly: Promise<boolean> | null = null;
+  const senderReachesOnlyByShare = () =>
+    (shareOnly ??= senderUserId
+      ? reachesOnlyByShare(db, accountId, senderUserId, conversation)
+      : Promise.resolve(false));
+  if (
+    senderUserId &&
+    !ownNumbers.includes(channel.id) &&
+    (await senderReachesOnlyByShare())
+  ) {
+    throw new SendMessageError(
+      'shared_chat_number',
+      ownNumbers.some(Boolean)
+        ? "This chat was shared with you, so you can reply only on the chat's own WhatsApp number."
+        : 'This chat was shared with you and has no WhatsApp number yet, so you cannot send in it until its owner does.',
       409
     );
   }
@@ -784,14 +865,40 @@ export async function sendMessageToConversation(
       ? interactivePayloadPreviewText(interactivePayload!)
       : persistedText || `[${messageType}]`;
 
-  await db
+  const summary = {
+    last_message_text: lastMessageText,
+    last_message_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  const { data: summarised, error: summaryError } = await db
     .from('conversations')
-    .update({
-      last_message_text: lastMessageText,
-      last_message_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', conversationId);
+    .update(summary)
+    .eq('id', conversationId)
+    .select('id');
+  // A coordinator reaches a shared chat through SELECT and INSERT
+  // policies only (migration 130): under RLS this update matches 0 rows,
+  // silently, and the inbox list would show a stale last message. Only
+  // for a sender who reaches the chat by the share alone, this one write
+  // goes through the service role, confined to this conversation in
+  // this account. Everyone else keeps the RLS result as it was.
+  if (
+    !summaryError &&
+    Array.isArray(summarised) &&
+    summarised.length === 0 &&
+    (await senderReachesOnlyByShare())
+  ) {
+    const { error: adminSummaryError } = await supabaseAdmin()
+      .from('conversations')
+      .update(summary)
+      .eq('id', conversationId)
+      .eq('account_id', accountId);
+    if (adminSummaryError) {
+      console.warn(
+        '[send-message] could not update the shared chat summary:',
+        adminSummaryError.message
+      );
+    }
+  }
 
   // An agent-initiated thread is on the number it was started from
   // (migration 060). Only ever filled in, never moved: re-pointing a

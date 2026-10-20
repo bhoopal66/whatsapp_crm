@@ -13,6 +13,7 @@ export const PUSH_KINDS = [
   'whatsapp_message',
   'chat_message',
   'conversation_assigned',
+  'conversation_shared',
   'ai_handoff',
   'task_assigned',
   'task_due',

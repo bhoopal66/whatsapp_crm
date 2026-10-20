@@ -5617,6 +5617,7 @@
       "whatsapp_message": "새 WhatsApp 메시지",
       "chat_message": "팀 채팅 메시지",
       "conversation_assigned": "나에게 채팅이 배정됨",
+      "conversation_shared": "나에게 채팅이 공유됨",
       "ai_handoff": "AI가 채팅을 담당자에게 넘김",
       "task_assigned": "나에게 작업이 배정됨",
       "task_due": "작업 마감",
