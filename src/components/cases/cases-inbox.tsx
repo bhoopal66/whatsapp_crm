@@ -10,6 +10,7 @@ import {
   Hourglass,
   Loader2,
   MessageCircleQuestion,
+  Plus,
   SlidersHorizontal,
   TriangleAlert,
   X,
@@ -35,7 +36,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { OpenLeadDialog } from '@/components/cases/open-lead-dialog';
 import { useAuth } from '@/hooks/use-auth';
+import { canSendMessages } from '@/lib/auth/roles';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
 import { LEAD_CHIP } from '@/lib/cases/lead-form';
 import {
@@ -144,6 +147,9 @@ export function CasesInbox() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [newLeadOpen, setNewLeadOpen] = useState(false);
+  const { accountRole } = useAuth();
+  const canOpenLead = !!accountRole && canSendMessages(accountRole);
   const seq = useRef(0);
 
   const apiUrl = inboxUrl(filters, null);
@@ -208,22 +214,35 @@ export function CasesInbox() {
           <h1 className="text-xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0 md:hidden"
-          aria-expanded={filtersOpen}
-          onClick={() => setFiltersOpen((o) => !o)}
-        >
-          <SlidersHorizontal className="size-4" aria-hidden />
-          {t('filtersButton')}
-          {narrowed > 0 && (
-            <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[11px]">
-              {narrowed}
-            </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {canOpenLead && (
+            <Button size="sm" onClick={() => setNewLeadOpen(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('newLead')}
+            </Button>
           )}
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="md:hidden"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((o) => !o)}
+          >
+            <SlidersHorizontal className="size-4" aria-hidden />
+            {t('filtersButton')}
+            {narrowed > 0 && (
+              <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[11px]">
+                {narrowed}
+              </span>
+            )}
+          </Button>
+        </div>
       </div>
+      <OpenLeadDialog
+        open={newLeadOpen}
+        onOpenChange={setNewLeadOpen}
+        banks={banks}
+      />
 
       <FilterBar
         className={cn(filtersOpen ? 'block' : 'hidden', 'md:block')}

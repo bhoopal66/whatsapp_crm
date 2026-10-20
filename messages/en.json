@@ -6488,6 +6488,7 @@
   },
   "Cases": {
     "title": "Cases",
+    "newLead": "New lead",
     "subtitle": "Every submitted case you work on, the most urgent first.",
     "filtersButton": "Filters",
     "clearFilters": "Clear filters",
@@ -6580,11 +6581,14 @@
       "product": "Product",
       "amount": "Amount (AED, optional)",
       "source": "Lead source (optional)",
+      "customer": "Customer",
+      "pickCustomer": "Search by name or phone",
       "agent": "Agent",
       "cancel": "Cancel",
       "confirm": "Open lead"
     },
     "errors": {
+      "customerRequired": "Choose the customer.",
       "bankRequired": "Choose a bank.",
       "productRequired": "Enter the product.",
       "productTooLong": "The product can be at most 200 characters.",

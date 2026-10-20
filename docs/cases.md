@@ -122,6 +122,8 @@ in a bank product before anything is submitted (migration 130). It starts at
   bank guests are refused). The contact must be visible to the agent. The
   person signed in is always the actor; the agent defaults to them. One open
   lead per contact and bank (`LEAD_EXISTS`, `CASE_EXISTS`: 409).
+  Staff open a lead from the customer page or Cases -> New lead (which
+  starts with a customer search on the caller's own visibility).
 - **Attach on submission.** When the submission app later submits the same
   contact and bank, its new group attaches to the open lead: one case from
   lead to outcome, moved to the bank's first submission stage (**Submitted**

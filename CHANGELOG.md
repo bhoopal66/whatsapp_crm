@@ -12,6 +12,8 @@ and polish.
 
 ## [Unreleased]
 
+- Cases: a **New lead** button on the Cases page opens a lead without going through the customer page; the dialog starts with a customer search (name or phone, limited to the contacts you can see).
+
 ### Coordinators (migration 133)
 
 **Migration required: 133** (`133_coordinators.sql`), as a superuser or

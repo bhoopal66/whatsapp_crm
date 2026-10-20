@@ -6488,6 +6488,7 @@
   },
   "Cases": {
     "title": "케이스",
+    "newLead": "새 리드",
     "subtitle": "담당하는 모든 제출 케이스를 가장 급한 것부터 보여 줍니다.",
     "filtersButton": "필터",
     "clearFilters": "필터 지우기",
@@ -6580,11 +6581,14 @@
       "product": "상품",
       "amount": "금액 (AED, 선택)",
       "source": "리드 출처 (선택)",
+      "customer": "고객",
+      "pickCustomer": "이름 또는 전화번호로 검색",
       "agent": "담당 상담원",
       "cancel": "취소",
       "confirm": "리드 열기"
     },
     "errors": {
+      "customerRequired": "고객을 선택하세요.",
       "bankRequired": "은행을 선택하세요.",
       "productRequired": "상품을 입력하세요.",
       "productTooLong": "상품은 최대 200자까지 입력할 수 있습니다.",

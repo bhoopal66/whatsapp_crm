@@ -2,28 +2,19 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import {
+  CONTACT_SEARCH_DEBOUNCE_MS,
+  CONTACT_SEARCH_LIMIT,
+  contactSearchFilter,
+  parseContactOptions,
+  sanitizeContactSearch,
+  type ContactOption,
+} from '@/lib/contacts/search';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
-export interface ContactOption {
-  id: string;
-  name: string | null;
-  phone: string;
-}
-
-/** Pause after typing before asking the server. */
-const SEARCH_DEBOUNCE_MS = 300;
-/** Matches shown per search. */
-const RESULT_LIMIT = 20;
-
-/**
- * Strip the characters that are syntax inside a PostgREST `or=(…)`
- * filter, so a search like "Acme, Inc (UK)" narrows instead of
- * producing a malformed request.
- */
-export function sanitizeContactSearch(term: string): string {
-  return term.replace(/[,()"\\]/g, ' ').trim();
-}
+export type { ContactOption };
+export { sanitizeContactSearch };
 
 function label(c: ContactOption): string {
   return c.name || c.phone;
@@ -68,20 +59,17 @@ export function ContactPicker({
           .from('contacts')
           .select('id, name, phone')
           .order('name')
-          .limit(RESULT_LIMIT);
-        const term = sanitizeContactSearch(query);
-        if (term) {
-          const like = `%${term}%`;
-          q = q.or(`name.ilike.${like},phone.ilike.${like}`);
-        }
+          .limit(CONTACT_SEARCH_LIMIT);
+        const or = contactSearchFilter(query);
+        if (or) q = q.or(or);
         const { data } = await q;
         if (mySeq !== seq.current) return; // superseded
-        setResults((data ?? []) as ContactOption[]);
+        setResults(parseContactOptions(data));
         setHighlight(0);
         setLoading(false);
       },
       // The first page on focus needs no typing pause.
-      query ? SEARCH_DEBOUNCE_MS : 0
+      query ? CONTACT_SEARCH_DEBOUNCE_MS : 0
     );
     return () => clearTimeout(timer);
   }, [focused, query]);
