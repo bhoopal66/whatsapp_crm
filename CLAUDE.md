@@ -1388,6 +1388,13 @@ change ships as: new numbered
 migration + a **Migration required** note in `CHANGELOG.md` + updated TS
 mirrors of any SQL predicate.
 
+Files carry no BEGIN/COMMIT, and a hand apply runs in autocommit, so a
+migration that can refuse itself on existing data runs every refusal scan
+in one block **before its first DDL** (130 once left a half-applied schema
+that broke every new submission). When a migration adds keys to a function
+returning JSON, check older verify files for an exact key-list assertion
+(`verify-bank-dashboard.sql` has one).
+
 ### i18n
 
 `next-intl` with a **build-time** locale (`NEXT_PUBLIC_APP_LOCALE`), configured
