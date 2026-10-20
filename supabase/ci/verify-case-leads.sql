@@ -46,6 +46,7 @@ DECLARE
   l1       UUID;
   l8       UUID;
   l12      UUID;
+  l15      UUID;
   ws       UUID;
   v_id     UUID;
   b1       BOOLEAN;
@@ -352,6 +353,44 @@ BEGIN
   SELECT count(*) INTO h1 FROM cases c WHERE c.account_id = a_acct AND c.group_id IS NOT NULL;
   n := n + 1; failed := failed || pg_temp.cs_ok(h0 = 0 AND h1 >= 3 AND (SELECT x.contact_id FROM cases x WHERE x.id = k0) = c1,
     format('%s of %s cases opened through case_open lack their group''s contact_id', h0, h1));
+
+  -- ---------- 15. review findings (130 fix pass) ----------
+  -- PRESUB_STAGES_CONFLICT (130's section 0) refuses the apply itself, so
+  -- it cannot be reached from a database 130 already applies to; the
+  -- refused-apply-changes-nothing check is a manual run against a 129
+  -- database. So is the case_lead_lock race (two sessions).
+  n := n + 1; failed := failed || pg_temp.cs_check('case_open_lead with an unknown bank was not BANK_UNKNOWN', NULL, NULL,
+    pg_temp.cl_sql(u_agent, a_acct, c1, 'NOPE', 'Card', u_agent), 'ERROR 23514 BANK_UNKNOWN:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('case_open_lead with a viewer as agent was not ASSIGNEE_INVALID', NULL, NULL,
+    pg_temp.cl_sql(u_admin, a_acct, c1, 'FAB', 'Card', u_viewer), 'ERROR 23514 ASSIGNEE_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('case_open_lead with amount 1e17 was not LEAD_INVALID', NULL, NULL,
+    pg_temp.cl_sql(u_agent, a_acct, c1, 'FAB', 'Card', u_agent, '1e17'), 'ERROR 23514 LEAD_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a grouped case moved to Interested by a direct UPDATE (cases_presub_group)',
+    NULL, NULL, format('UPDATE cases SET stage = ''Interested'' WHERE id = %L', k0), 'ERROR 23514 %cases_presub_group%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a second open lead of (c1, DIB) was inserted directly (cases_one_open_lead)',
+    NULL, NULL, format('INSERT INTO cases (account_id, contact_id, bank_code, product, agent_id, stage) '
+                       'VALUES (%L, %L, ''DIB'', ''Card'', %L, ''Interested'')', a_acct, c1, u_agent),
+    'ERROR 23505 %cases_one_open_lead%');
+  -- A lead's bank change: onto an open lead (c1 has one at RAK), onto an
+  -- open submission case (c3 at HSBC, l8 attached), then onto a free pair.
+  n := n + 1; failed := failed || pg_temp.cs_check('a lead changed bank onto an open lead of the contact (expected LEAD_INVALID)',
+    NULL, NULL, format('SELECT case_set_details(%L, %L, ''RAK'', NULL, NULL)::text', l12, u_agent),
+    'ERROR 23514 LEAD_INVALID:%');
+  l15 := case_open_lead(u_agent, a_acct, c3, 'FAB', 'Card', u_agent);
+  n := n + 1; failed := failed || pg_temp.cs_check(
+    'a lead changed bank onto an open submission case of the contact (expected LEAD_INVALID)',
+    NULL, NULL, format('SELECT case_set_details(%L, %L, ''HSBC'', NULL, NULL)::text', l15, u_agent),
+    'ERROR 23514 LEAD_INVALID:%');
+  n := n + 1; failed := failed || pg_temp.cs_check('a lead could not change bank onto a free pair', NULL, NULL,
+    format('SELECT case_set_details(%L, %L, ''FAB'', NULL, NULL)::text', l12, u_agent), '{bank_code}');
+  SELECT x.bank_code INTO st FROM cases x WHERE x.id = l12;
+  n := n + 1; failed := failed || pg_temp.cs_ok(st = 'FAB', format('the free-pair bank change left the lead at %s', st));
+  -- A Withdrawn lead (l1, section 7) may be closed.
+  n := n + 1; failed := failed || pg_temp.cs_check('a Withdrawn lead could not move to Closed', NULL, NULL,
+    format('SELECT moved::text FROM case_set_stage(%L, %L, ''Closed'') x', l1, u_agent), 'true');
+  SELECT x.stage || '/' || coalesce(x.outcome, '-') INTO st FROM cases x WHERE x.id = l1;
+  n := n + 1; failed := failed || pg_temp.cs_ok(st = 'Closed/Withdrawn',
+    format('the closed lead is %s, not Closed/Withdrawn', st));
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT130', MESSAGE = 'verify-case-leads rollback';
