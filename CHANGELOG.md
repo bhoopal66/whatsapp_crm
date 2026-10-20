@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Case leads (migration 130)
+
+**Migration required: 130.** A case can now start as a lead: no
+WhatsApp group, three pre-submission stages (Interested, Data collection,
+Review) before Submitted. Agents open one with `POST /api/cases/leads`; a
+later submission for the same contact and bank attaches to it. A cold lead
+ends as Withdrawn with the new outcome reason No response. Bank stage lists
+must start with the three new stages (the settings screen checks this).
+See `docs/cases.md`.
+
 ### Cases, CRM memory, the vault and assistant safety (migrations 120-129)
 
 **Migration required: 120-129**, applied in number order, each as a

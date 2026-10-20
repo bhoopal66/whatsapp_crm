@@ -7294,6 +7294,7 @@
         "blank": "{position}단계의 이름이 비어 있습니다.",
         "tooLong": "{position}단계가 {max}자를 넘습니다.",
         "duplicate": "“{stage}”이(가) 두 번 있습니다.",
+        "presubRequired": "목록은 Interested, Data collection, Review로 이 순서대로 시작해야 하며, 이 이름은 뒤에서 다시 쓸 수 없습니다.",
         "firstFinal": "첫 단계는 최종 단계(“{stage}”)일 수 없습니다. 진행 단계를 맨 위로 옮기세요.",
         "finalSpelling": "최종 단계는 정확히 “{stage}”(으)로 써야 합니다.",
         "missingFinal": "“{stage}”이(가) 없습니다. Approved, Declined, Withdrawn, Closed가 모두 목록에 있어야 합니다."
@@ -7367,6 +7368,7 @@
     },
     "errors": {
       "stageInUse": "진행 중인 케이스가 삭제한 단계에 있습니다. 먼저 그 케이스를 옮기거나 종료하거나, 단계를 유지하세요.",
+      "presubRequired": "목록은 Interested, Data collection, Review로 이 순서대로 한 번씩 시작해야 합니다.",
       "firstFinal": "첫 단계는 최종 단계일 수 없습니다.",
       "missingFinal": "Approved, Declined, Withdrawn, Closed가 모두 목록에 있어야 합니다.",
       "finalSpelling": "최종 단계는 정확히 Approved, Declined, Withdrawn, Closed로 써야 합니다.",

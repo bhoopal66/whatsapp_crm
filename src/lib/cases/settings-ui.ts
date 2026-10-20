@@ -4,10 +4,12 @@
  * list the database would refuse before it is sent, the 422 code ->
  * message key map, and the wording of one SLA cell.
  *
- * `validateStages` mirrors migration 122's `case_bank_stages_check` and
+ * `validateStages` mirrors migrations 122 and 130 (`case_bank_stages_check`) and
  * the stages route: change one, change both. The database stays the
  * judge; this only lets the screen warn before Save.
  */
+
+import { PRESUB_STAGES } from './ui';
 
 /** 122's final stages, spelled as the database requires. */
 export const FINAL_STAGES = [
@@ -64,6 +66,7 @@ export type StageProblem =
   | { kind: 'blank'; position: number }
   | { kind: 'tooLong'; position: number; max: number }
   | { kind: 'duplicate'; stage: string }
+  | { kind: 'presubRequired' }
   | { kind: 'firstFinal'; stage: string }
   | { kind: 'finalSpelling'; stage: string }
   | { kind: 'missingFinal'; stage: string };
@@ -83,14 +86,27 @@ export function validateStages(stages: readonly string[]): StageProblem | null {
     if (names[i].length > STAGE_NAME_MAX)
       return { kind: 'tooLong', position: i + 1, max: STAGE_NAME_MAX };
   }
+  // 130's PRESUB_STAGES_REQUIRED: the list starts with exactly the three
+  // pre-submission stages, in order, and never reuses their names.
+  const presubLower = PRESUB_STAGES.map((p) => p.toLowerCase());
+  if (
+    names.length < PRESUB_STAGES.length ||
+    PRESUB_STAGES.some((p, i) => names[i] !== p) ||
+    names
+      .slice(PRESUB_STAGES.length)
+      .some((n) => presubLower.includes(n.toLowerCase()))
+  )
+    return { kind: 'presubRequired' };
   const seen = new Set<string>();
   for (const name of names) {
     if (seen.has(name)) return { kind: 'duplicate', stage: name };
     seen.add(name);
   }
+  // The first submission stage (position 4) must not be a final stage.
   const finalsLower = FINAL_STAGES.map((f) => f.toLowerCase());
-  if (finalsLower.includes(names[0].toLowerCase()))
-    return { kind: 'firstFinal', stage: names[0] };
+  const firstSubmission = names[PRESUB_STAGES.length];
+  if (firstSubmission && finalsLower.includes(firstSubmission.toLowerCase()))
+    return { kind: 'firstFinal', stage: firstSubmission };
   for (const final of FINAL_STAGES) {
     if (names.includes(final)) continue;
     if (names.some((n) => n.toLowerCase() === final.toLowerCase()))
@@ -108,6 +124,7 @@ export function stagesBody(stages: readonly string[]): { stages: string[] } {
 /** A 422 code of the config routes -> its key under `CaseSettings.errors`. */
 const ERROR_KEYS: Record<string, string> = {
   STAGE_IN_USE: 'stageInUse',
+  PRESUB_STAGES_REQUIRED: 'presubRequired',
   BANK_STAGES_FIRST_FINAL: 'firstFinal',
   BANK_STAGES_MISSING_FINAL: 'missingFinal',
   BANK_STAGES_FINAL_SPELLING: 'finalSpelling',

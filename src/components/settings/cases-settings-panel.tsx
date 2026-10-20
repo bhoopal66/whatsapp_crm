@@ -527,6 +527,8 @@ function useStageProblemText() {
         return t('tooLong', { position: p.position, max: p.max });
       case 'duplicate':
         return t('duplicate', { stage: p.stage });
+      case 'presubRequired':
+        return t('presubRequired');
       case 'firstFinal':
         return t('firstFinal', { stage: p.stage });
       case 'finalSpelling':
