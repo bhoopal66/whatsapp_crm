@@ -6940,6 +6940,21 @@
     "title": "은행",
     "subtitle": "제휴 은행별 내부 공간: 토론, 고정 정보, 조치 항목.",
     "pageSubtitle": "이 은행에 대한 직원 전용 내부 메모입니다. 여기 내용은 고객이나 은행에 절대 전송되지 않습니다.",
+    "summary": {
+      "label": "은행 공간 요약",
+      "openCases": "진행 중 케이스",
+      "members": "현재 멤버",
+      "membersValue": "{total}명 (담당자 {agents}명, 코디네이터 {coordinators}명, 팀 리더 {teamLeads}명)",
+      "actions": "조치 필요",
+      "actionsValue": "{count}건 미완료",
+      "role": "이 공간에서의 역할",
+      "roles": {
+        "admin": "관리자",
+        "team_lead": "팀 리더",
+        "coordinator": "코디네이터",
+        "agent": "담당자"
+      }
+    },
     "access": {
       "admin": "관리자",
       "member": "멤버"
@@ -6951,7 +6966,7 @@
     "emptyBody": "해당 은행의 진행 중인 케이스가 있거나 관리자가 공간을 열면 여기에 은행이 표시됩니다.",
     "loadFailed": "불러오지 못했습니다.",
     "retry": "다시 시도",
-    "notFound": "이 은행 공간이 없거나 접근 권한이 없습니다.",
+    "notFound": "이 은행 공간에 접근할 권한이 없습니다. 이 은행의 진행 중인 케이스가 있으면 접근할 수 있으며, 다음 케이스가 생기면 자동으로 다시 열립니다.",
     "backToBanks": "전체 은행",
     "loading": "불러오는 중…",
     "unknownPerson": "알 수 없는 사용자",
@@ -7043,6 +7058,7 @@
     },
     "cases": {
       "filterLabel": "케이스 보기",
+      "order": "기한 초과가 가장 큰 순",
       "filters": {
         "all": "전체 ({count})",
         "open": "진행 중 ({count})",
@@ -7054,23 +7070,33 @@
         "closed": "이 은행의 종료된 케이스가 없습니다."
       },
       "columns": {
+        "customer": "고객",
         "stage": "단계",
         "product": "상품",
         "agent": "담당자",
         "coordinator": "코디네이터",
+        "sla": "SLA",
         "opened": "시작일",
         "closed": "종료일"
       },
       "noStage": "단계 없음",
+      "unknownCustomer": "알 수 없는 고객",
       "closedChip": "종료",
+      "leadChip": "리드",
       "stillOpen": "진행 중",
       "unassigned": "미배정",
       "noCoordinator": "코디네이터 없음",
       "openCase": "케이스 열기: {stage}",
       "openedOn": "{date} 시작",
       "closedOn": "{date} 종료",
+      "dueOn": "{date} 기한",
       "agentLabel": "담당자: {name}",
-      "coordinatorLabel": "코디네이터: {name}"
+      "coordinatorLabel": "코디네이터: {name}",
+      "sla": {
+        "overdue": "기한 초과",
+        "dueSoon": "기한 임박",
+        "onTrack": "정상 진행"
+      }
     },
     "dashboard": {
       "scope": {
@@ -7090,8 +7116,16 @@
         "withdrawn": "철회",
         "overdue": "기한 초과 케이스",
         "overdueHint": "SLA 타이머나 진행 중인 작업의 기한이 지난 케이스로, 케이스마다 한 번만 셉니다.",
-        "amount": "진행 중 금액",
-        "amountHint": "아직 최종 단계에 이르지 않은 케이스의 금액 합계입니다."
+        "preSubmission": "제출 전",
+        "withBank": "은행 진행 중",
+        "accounts": "계좌 개설",
+        "accountsHint": "금액이 없는 진행 중 케이스는 계좌 개설로 셉니다",
+        "financing": "금융",
+        "financingHint": "금액이 0보다 큰 진행 중 케이스",
+        "financingDetail": "{count}건",
+        "conversion": "전환",
+        "conversionHint": "은행의 제출 단계에 도달한 리드",
+        "conversionDetail": "리드 {leads}건 → 제출 {submitted}건"
       },
       "charts": {
         "byStage": "단계별 케이스",

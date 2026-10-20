@@ -240,6 +240,25 @@ describe('BankWorkspaceStore: listings', () => {
             coordinator_id: null,
             opened_at: NOW,
             closed_at: null,
+            contact_id: OWNER,
+            contact_name: 'Sara',
+            sla_state: 'overdue',
+            next_due_at: DUE.toISOString(),
+            is_lead: true,
+          },
+          {
+            case_id: TASK,
+            stage: 'Approved',
+            product: 'Loan',
+            agent_id: ACTOR,
+            coordinator_id: null,
+            opened_at: NOW,
+            closed_at: NOW,
+            contact_id: null,
+            contact_name: null,
+            sla_state: null,
+            next_due_at: null,
+            is_lead: false,
           },
         ],
       },
@@ -263,6 +282,26 @@ describe('BankWorkspaceStore: listings', () => {
         coordinatorId: null,
         openedAt: T0,
         closedAt: null,
+        contactId: OWNER,
+        contactName: 'Sara',
+        slaState: 'overdue',
+        nextDueAt: DUE,
+        isLead: true,
+      },
+      // The server's order is kept.
+      {
+        caseId: TASK,
+        stage: 'Approved',
+        product: 'Loan',
+        agentId: ACTOR,
+        coordinatorId: null,
+        openedAt: T0,
+        closedAt: T0,
+        contactId: null,
+        contactName: null,
+        slaState: null,
+        nextDueAt: null,
+        isLead: false,
       },
     ]);
     expect(db.calls.map((c) => c.args)).toEqual([
@@ -423,6 +462,48 @@ describe('BankWorkspaceStore: listings', () => {
     expect(await s.threads(WS, ACTOR)).toEqual([]);
     expect(await s.posts(THREAD, ACTOR)).toEqual([]);
     expect(await s.actions(WS, ACTOR)).toEqual([]);
+  });
+});
+
+describe('BankWorkspaceStore: summary (131)', () => {
+  it('sends the workspace and actor and maps the jsonb', async () => {
+    const { db, s } = store({
+      bank_ws_summary: {
+        data: {
+          open_cases: 4,
+          members: { agents: 2, coordinators: 1, team_leads: 1, total: 4 },
+          open_actions: 3,
+          my_role: 'team_lead',
+        },
+      },
+    });
+    expect(await s.summary(WS, ACTOR)).toEqual({
+      openCases: 4,
+      members: { agents: 2, coordinators: 1, teamLeads: 1, total: 4 },
+      openActions: 3,
+      myRole: 'team_lead',
+    });
+    expect(db.calls).toEqual([
+      { fn: 'bank_ws_summary', args: { p_bank_ws: WS, p_actor: ACTOR } },
+    ]);
+  });
+
+  it('SQL NULL (no access) is null; bad keys become defaults', async () => {
+    expect(await store({ bank_ws_summary: {} }).s.summary(WS, ACTOR)).toBe(
+      null
+    );
+    expect(
+      await store({
+        bank_ws_summary: {
+          data: { open_cases: 'x', members: null, my_role: 'owner' },
+        },
+      }).s.summary(WS, ACTOR)
+    ).toEqual({
+      openCases: 0,
+      members: { agents: 0, coordinators: 0, teamLeads: 0, total: 0 },
+      openActions: 0,
+      myRole: null,
+    });
   });
 });
 

@@ -50,6 +50,10 @@ const GOOD = {
   withdrawn_reasons: {},
   overdue_count: 1,
   amount_in_pipeline: '250000.00',
+  pre_submission: 2,
+  with_bank: 1,
+  pipeline: { accounts: 1, financing_cases: 2, financing_amount: '250000.00' },
+  conversion: { leads: 4, submitted: 3, rate: 0.75 },
 };
 
 const EMPTY = {
@@ -62,6 +66,10 @@ const EMPTY = {
   withdrawnReasons: {},
   overdueCount: 0,
   amountInPipeline: '0.00',
+  preSubmission: 0,
+  withBank: 0,
+  pipeline: { accounts: 0, financingCases: 0, financingAmount: '0.00' },
+  conversion: { leads: 0, submitted: 0, rate: null },
 };
 
 describe('parseBankDashboard', () => {
@@ -76,7 +84,44 @@ describe('parseBankDashboard', () => {
       withdrawnReasons: {},
       overdueCount: 1,
       amountInPipeline: '250000.00',
+      preSubmission: 2,
+      withBank: 1,
+      pipeline: {
+        accounts: 1,
+        financingCases: 2,
+        financingAmount: '250000.00',
+      },
+      conversion: { leads: 4, submitted: 3, rate: 0.75 },
     });
+  });
+
+  it('131 keys: wrong types become defaults; money stays an exact string', () => {
+    const p = parseBankDashboard({
+      pre_submission: '2',
+      with_bank: null,
+      pipeline: {
+        accounts: 3,
+        financing_cases: 'x',
+        financing_amount: 9007199254740993.5,
+      },
+      conversion: { leads: 2, submitted: 0, rate: '0.5' },
+    });
+    expect(p.preSubmission).toBe(0);
+    expect(p.withBank).toBe(0);
+    expect(p.pipeline).toEqual({
+      accounts: 3,
+      financingCases: 0,
+      financingAmount: '0.00',
+    });
+    expect(p.conversion).toEqual({ leads: 2, submitted: 0, rate: null });
+    expect(
+      parseBankDashboard({
+        pipeline: { financing_amount: '9007199254740993.25' },
+      }).pipeline.financingAmount
+    ).toBe('9007199254740993.25');
+    expect(parseBankDashboard({ pipeline: [1] }).pipeline).toEqual(
+      EMPTY.pipeline
+    );
   });
 
   it('missing keys and non-objects become safe defaults, never a throw', () => {
@@ -125,6 +170,10 @@ describe('parseBankDashboard', () => {
       withdrawnReasons: {},
       overdueCount: 0,
       amountInPipeline: '0.00',
+      preSubmission: 0,
+      withBank: 0,
+      pipeline: EMPTY.pipeline,
+      conversion: EMPTY.conversion,
     });
     expect(
       parseBankDashboard({ amount_in_pipeline: '12; drop' }).amountInPipeline

@@ -237,7 +237,19 @@ Members and admins have the same discussion rights.
   case-linked thread it creates a task on the case (from the bank's
   "Action needed" template, so the case's task rules apply). On an
   unlinked thread the owner must be a member.
-- **Cases.** The bank's cases the viewer may read.
+- **Summary strip.** The page header shows open cases (that the viewer
+  may read), members now (the people with access through an open case,
+  each counted once as coordinator, else agent, else team lead), open
+  Action needed items (not done), and the viewer's role here (Admin for
+  owners and admins). It loads separately from the page; if it fails, the
+  strip is hidden and the page works as before.
+- **Cases.** The bank's cases the viewer may read, open cases first, most
+  overdue first (overdue, then due soon, then the rest, each by next due
+  date), then closed cases, latest closed first. Columns: customer (linked
+  to the customer page; "Unknown customer" without a contact), stage (with
+  a Lead chip for a case that has no WhatsApp group yet), product, agent,
+  coordinator, SLA (Overdue / Due soon / On track with the next due date;
+  nothing for a closed case), opened, closed.
 - **Dashboard.** Worked out on every view over the bank's cases the viewer
   may read. Scope `all` for owners and admins, `own` for everyone else.
 
@@ -249,7 +261,18 @@ Members and admins have the same discussion rights.
 | approval                     | approved, declined, withdrawn, and rate = approved / (approved + declined); withdrawn is not a decision |
 | declined / withdrawn reasons | count per reason code                                                                                   |
 | overdue                      | cases with an overdue running SLA timer or an overdue task, each once                                   |
-| amount in pipeline           | sum of amounts (AED) of cases not at a final stage                                                      |
+| pre-submission               | open cases at a pre-submission stage (Interested, Data collection, Review)                              |
+| with the bank                | open cases past pre-submission                                                                          |
+| account openings             | open cases with no amount (or 0): an account opening is a count, never an amount                        |
+| financing                    | open cases with an amount above zero, and the sum of their amounts (AED, exact)                         |
+| conversion                   | leads (cases that ever reached Interested) -> those that reached the bank's submission stage, and rate  |
+
+A case's type is not stored: an open case with no amount counts as an
+account opening, one with an amount above zero as financing. A withdrawn
+lead still counts among the leads; a case opened straight from a
+submission never was one. The rate shows "—" with no leads. The old
+"amount in pipeline" figure equals financing's amount and is no longer a
+tile.
 
 ## Settings -> Cases
 

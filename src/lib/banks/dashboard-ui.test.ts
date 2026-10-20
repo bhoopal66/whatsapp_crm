@@ -27,6 +27,11 @@ const bankCase = (
   coordinatorId: null,
   openedAt,
   closedAt,
+  contactId: null,
+  contactName: null,
+  slaState: null,
+  nextDueAt: null,
+  isLead: false,
 });
 
 const LABELS = {
@@ -105,7 +110,8 @@ describe('reasonSeries', () => {
 });
 
 describe('splitCases', () => {
-  it('puts open cases first, each half newest first', () => {
+  // 131: bank_ws_cases orders by SLA urgency; the UI keeps that order.
+  it("puts open cases first, each half in the server's order", () => {
     const split = splitCases([
       bankCase('a', '2026-10-01T00:00:00Z', '2026-10-05T00:00:00Z'),
       bankCase('b', '2026-10-02T00:00:00Z'),
@@ -113,14 +119,14 @@ describe('splitCases', () => {
       bankCase('d', null),
       bankCase('e', '2026-10-08T00:00:00Z'),
     ]);
-    expect(split.open.map((c) => c.caseId)).toEqual(['e', 'b', 'd']);
-    expect(split.closed.map((c) => c.caseId)).toEqual(['c', 'a']);
+    expect(split.open.map((c) => c.caseId)).toEqual(['b', 'd', 'e']);
+    expect(split.closed.map((c) => c.caseId)).toEqual(['a', 'c']);
     expect(visibleCases(split, 'all').map((c) => c.caseId)).toEqual([
-      'e',
       'b',
       'd',
-      'c',
+      'e',
       'a',
+      'c',
     ]);
     expect(visibleCases(split, 'open')).toBe(split.open);
     expect(visibleCases(split, 'closed')).toBe(split.closed);
@@ -159,6 +165,10 @@ describe('parseDashboard', () => {
       withdrawnReasons: {},
       overdueCount: 1,
       amountInPipeline: '1200.50',
+      preSubmission: 0,
+      withBank: 0,
+      pipeline: { accounts: 0, financingCases: 0, financingAmount: '0.00' },
+      conversion: { leads: 0, submitted: 0, rate: null },
     });
     const empty = parseDashboard({ dashboard: { amountInPipeline: '1e9' } });
     expect(empty?.scope).toBe('own');
@@ -166,5 +176,41 @@ describe('parseDashboard', () => {
     expect(empty?.amountInPipeline).toBe('0.00');
     expect(parseDashboard({})).toBeNull();
     expect(parseDashboard(null)).toBeNull();
+  });
+});
+
+describe('parseDashboard: 131 keys', () => {
+  it('reads the new figures; money stays an exact string', () => {
+    const d = parseDashboard({
+      dashboard: {
+        preSubmission: 2,
+        withBank: 3,
+        pipeline: {
+          accounts: 1,
+          financingCases: 4,
+          financingAmount: '9007199254740993.25',
+        },
+        conversion: { leads: 5, submitted: 2, rate: 0.4 },
+      },
+    });
+    expect(d?.preSubmission).toBe(2);
+    expect(d?.withBank).toBe(3);
+    expect(d?.pipeline).toEqual({
+      accounts: 1,
+      financingCases: 4,
+      financingAmount: '9007199254740993.25',
+    });
+    expect(d?.conversion).toEqual({ leads: 5, submitted: 2, rate: 0.4 });
+  });
+  it('bad or missing keys become safe defaults', () => {
+    const d = parseDashboard({
+      dashboard: { pipeline: { financingAmount: 12.5 }, conversion: 'x' },
+    });
+    expect(d?.pipeline).toEqual({
+      accounts: 0,
+      financingCases: 0,
+      financingAmount: '0.00',
+    });
+    expect(d?.conversion).toEqual({ leads: 0, submitted: 0, rate: null });
   });
 });

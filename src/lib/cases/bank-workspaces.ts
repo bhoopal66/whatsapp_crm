@@ -84,6 +84,29 @@ export interface BankWsCase {
   coordinatorId: string | null;
   openedAt: Date;
   closedAt: Date | null;
+  /** 131: the case's customer; name NULL when the contact has none / is gone. */
+  contactId: string | null;
+  contactName: string | null;
+  /** 131: cases.sla_state ('overdue' | 'due_soon' | other), NULL when none. */
+  slaState: string | null;
+  /** 131: earliest due_at of the case's running SLA timers. */
+  nextDueAt: Date | null;
+  /** 131: a lead (no WhatsApp group yet). */
+  isLead: boolean;
+}
+
+/** bank_ws_summary (131); `myRole` 'admin' for owner / admin access. */
+export type BankWsRole = 'admin' | 'team_lead' | 'coordinator' | 'agent';
+export interface BankWsSummary {
+  openCases: number;
+  members: {
+    agents: number;
+    coordinators: number;
+    teamLeads: number;
+    total: number;
+  };
+  openActions: number;
+  myRole: BankWsRole | null;
 }
 
 export interface BankWsPin {
@@ -169,7 +192,41 @@ const toCase = (r: Row): BankWsCase => ({
   coordinatorId: str(r.coordinator_id),
   openedAt: date(r.opened_at)!,
   closedAt: date(r.closed_at),
+  contactId: str(r.contact_id),
+  contactName: str(r.contact_name),
+  slaState: str(r.sla_state),
+  nextDueAt: date(r.next_due_at),
+  isLead: r.is_lead === true,
 });
+
+const ROLES: readonly string[] = ['admin', 'team_lead', 'coordinator', 'agent'];
+const n = (v: unknown): number => {
+  const x = typeof v === 'string' ? Number(v) : v;
+  return typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0;
+};
+
+/** bank_ws_summary's jsonb -> BankWsSummary; SQL NULL (no access) -> null. */
+export function parseBankWsSummary(data: unknown): BankWsSummary | null {
+  if (data === null || typeof data !== 'object' || Array.isArray(data))
+    return null;
+  const d = data as Row;
+  const m = (
+    d.members && typeof d.members === 'object' ? d.members : {}
+  ) as Row;
+  return {
+    openCases: n(d.open_cases),
+    members: {
+      agents: n(m.agents),
+      coordinators: n(m.coordinators),
+      teamLeads: n(m.team_leads),
+      total: n(m.total),
+    },
+    openActions: n(d.open_actions),
+    myRole: ROLES.includes(String(d.my_role))
+      ? (d.my_role as BankWsRole)
+      : null,
+  };
+}
 
 const toPin = (r: Row): BankWsPin => ({
   pinId: String(r.pin_id),
@@ -263,6 +320,19 @@ export class BankWorkspaceStore extends CaseRpc {
       p_actor: actor,
     });
     return rows(data).map(toCase);
+  }
+
+  /** The page header's figures (131); null when the actor has no access. */
+  async summary(
+    bankWsId: string,
+    actor: string
+  ): Promise<BankWsSummary | null> {
+    return parseBankWsSummary(
+      await this.rpc('bank_ws_summary', {
+        p_bank_ws: bankWsId,
+        p_actor: actor,
+      })
+    );
   }
 
   // ---------- pins ----------

@@ -99,22 +99,17 @@ export function reasonSeries(
   );
 }
 
-const openedMs = (c: BankCase): number => {
-  const t = c.openedAt ? Date.parse(c.openedAt) : NaN;
-  return Number.isFinite(t) ? t : -Infinity;
-};
-
-/** Open and closed cases, each newest (by opening) first. */
+/**
+ * Open and closed cases in the SERVER's order (131's bank_ws_cases: open
+ * first, most overdue first, then by next due; closed latest first).
+ */
 export function splitCases(cases: readonly BankCase[]): {
   open: BankCase[];
   closed: BankCase[];
 } {
-  const sorted = [...cases].sort(
-    (a, b) => openedMs(b) - openedMs(a) || a.caseId.localeCompare(b.caseId)
-  );
   return {
-    open: sorted.filter((c) => !c.closedAt),
-    closed: sorted.filter((c) => Boolean(c.closedAt)),
+    open: cases.filter((c) => !c.closedAt),
+    closed: cases.filter((c) => Boolean(c.closedAt)),
   };
 }
 
@@ -149,6 +144,10 @@ export function parseDashboard(json: unknown): BankDashboardData | null {
       if (isObj(v) && typeof v.avgDays === 'number')
         avg[stage] = { avgDays: n(v.avgDays), intervals: n(v.intervals) };
   const a = isObj(d.approval) ? d.approval : {};
+  const p = isObj(d.pipeline) ? d.pipeline : {};
+  const cv = isObj(d.conversion) ? d.conversion : {};
+  const decimal = (v: unknown) =>
+    typeof v === 'string' && /^-?\d+(?:\.\d+)?$/.test(v) ? v : '0.00';
   const reasons = (v: unknown) => {
     const all = counts(v);
     const out: Partial<Record<OutcomeReasonCode, number>> = {};
@@ -175,5 +174,20 @@ export function parseDashboard(json: unknown): BankDashboardData | null {
       /^-?\d+(?:\.\d+)?$/.test(d.amountInPipeline)
         ? d.amountInPipeline
         : '0.00',
+    preSubmission: n(d.preSubmission),
+    withBank: n(d.withBank),
+    pipeline: {
+      accounts: n(p.accounts),
+      financingCases: n(p.financingCases),
+      financingAmount: decimal(p.financingAmount),
+    },
+    conversion: {
+      leads: n(cv.leads),
+      submitted: n(cv.submitted),
+      rate:
+        typeof cv.rate === 'number' && Number.isFinite(cv.rate)
+          ? cv.rate
+          : null,
+    },
   };
 }

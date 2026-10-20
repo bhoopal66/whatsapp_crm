@@ -20,10 +20,21 @@ import {
   visibleCases,
   type CaseFilter,
 } from '@/lib/banks/dashboard-ui';
-import { parseBankPage, type BankCase } from '@/lib/banks/ui';
+import {
+  parseBankPage,
+  slaChip,
+  type BankCase,
+  type SlaTone,
+} from '@/lib/banks/ui';
 import { cn } from '@/lib/utils';
 
 import { chip } from './banks-list';
+
+const SLA_TONE: Record<SlaTone, string> = {
+  bad: 'bg-red-500/15 text-red-700 [[data-mode=dark]_&]:text-red-300',
+  warn: 'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300',
+  muted: 'bg-muted text-muted-foreground',
+};
 
 /** The pieces both layouts show, worded once. */
 function useRowView() {
@@ -51,7 +62,52 @@ function useRowView() {
       : t('noCoordinator'),
     opened: day(c.openedAt) ?? '—',
     closed: c.closedAt ? (day(c.closedAt) ?? '—') : null,
+    customer: c.contactName ?? t('unknownCustomer'),
+    nextDue: shortDay(c.nextDueAt),
   });
+  function shortDay(iso: string | null) {
+    const d = iso ? new Date(iso) : null;
+    return d && Number.isFinite(d.getTime())
+      ? d.toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+      : null;
+  }
+}
+
+/**
+ * The customer's name, linked to their page when the case has a contact.
+ * It sits above the row's stretched case link (`relative z-10`), so a tap
+ * on the name opens the customer and anywhere else opens the case.
+ */
+function Customer({ c, name }: { c: BankCase; name: string }) {
+  if (!c.contactId)
+    return <span className="text-muted-foreground">{name}</span>;
+  return (
+    <Link
+      href={`/contacts/${c.contactId}`}
+      className="relative z-10 font-medium hover:underline focus-visible:underline"
+    >
+      {name}
+    </Link>
+  );
+}
+
+/** Overdue / Due soon / On track, with the next due date; nothing when closed. */
+function SlaChip({ c, nextDue }: { c: BankCase; nextDue: string | null }) {
+  const t = useTranslations('Banks.cases');
+  const sla = slaChip(c);
+  if (!sla) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span className={cn(chip, SLA_TONE[sla.tone])}>
+        {t(`sla.${sla.key}`)}
+      </span>
+      {nextDue && (
+        <span className="text-muted-foreground text-xs">
+          {t('dueOn', { date: nextDue })}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function StageChip({ c }: { c: BankCase }) {
@@ -61,6 +117,11 @@ function StageChip({ c }: { c: BankCase }) {
       <span className={cn(chip, 'bg-muted text-foreground')}>
         {c.stage || t('noStage')}
       </span>
+      {c.isLead && (
+        <span className={cn(chip, 'bg-primary/10 text-primary')}>
+          {t('leadChip')}
+        </span>
+      )}
       {c.closedAt && (
         <span className={cn(chip, 'bg-muted text-muted-foreground')}>
           {t('closedChip')}
@@ -119,6 +180,7 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
 
   return (
     <div className="space-y-3 pt-2">
+      <p className="text-muted-foreground text-xs">{t('order')}</p>
       <div
         role="group"
         aria-label={t('filterLabel')}
@@ -146,10 +208,12 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>{t('columns.customer')}</TableHead>
                   <TableHead>{t('columns.stage')}</TableHead>
                   <TableHead>{t('columns.product')}</TableHead>
                   <TableHead>{t('columns.agent')}</TableHead>
                   <TableHead>{t('columns.coordinator')}</TableHead>
+                  <TableHead>{t('columns.sla')}</TableHead>
                   <TableHead>{t('columns.opened')}</TableHead>
                   <TableHead>{t('columns.closed')}</TableHead>
                 </TableRow>
@@ -163,6 +227,9 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                       key={c.caseId}
                       className="hover:bg-muted/60 relative align-top"
                     >
+                      <TableCell className="max-w-48 text-sm whitespace-normal">
+                        <Customer c={c} name={v.customer} />
+                      </TableCell>
                       <TableCell className="whitespace-normal">
                         <Link
                           href={`/cases/${c.caseId}`}
@@ -183,6 +250,9 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                       <TableCell className="text-xs whitespace-normal">
                         {v.coordinator}
                       </TableCell>
+                      <TableCell className="whitespace-normal">
+                        <SlaChip c={c} nextDue={v.nextDue} />
+                      </TableCell>
                       <TableCell className="text-muted-foreground text-xs">
                         {v.opened}
                       </TableCell>
@@ -199,25 +269,38 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
             {rows.map((c) => {
               const v = view(c);
               return (
-                <li key={c.caseId}>
-                  <Link
-                    href={`/cases/${c.caseId}`}
-                    className="border-border bg-card hover:bg-muted/60 block space-y-2 rounded-xl border p-3 transition-colors"
-                  >
-                    <span className="flex items-start justify-between gap-2">
+                // One stretched case link over the card, and the customer
+                // link above it: two sibling anchors, never one inside the
+                // other.
+                <li
+                  key={c.caseId}
+                  className="border-border bg-card hover:bg-muted/60 relative space-y-2 rounded-xl border p-3 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/cases/${c.caseId}`}
+                      aria-label={t('openCase', {
+                        stage: c.stage || t('noStage'),
+                      })}
+                      className="after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:underline"
+                    >
                       <StageChip c={c} />
-                      <span className="text-muted-foreground shrink-0 text-xs">
-                        {v.closed
-                          ? t('closedOn', { date: v.closed })
-                          : t('openedOn', { date: v.opened })}
-                      </span>
+                    </Link>
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      {v.closed
+                        ? t('closedOn', { date: v.closed })
+                        : t('openedOn', { date: v.opened })}
                     </span>
-                    <span className="block truncate text-sm">{v.product}</span>
-                    <span className="text-muted-foreground block text-xs">
-                      {t('agentLabel', { name: v.agent })} ·{' '}
-                      {t('coordinatorLabel', { name: v.coordinator })}
-                    </span>
-                  </Link>
+                  </div>
+                  <p className="truncate text-sm">
+                    <Customer c={c} name={v.customer} />
+                  </p>
+                  <SlaChip c={c} nextDue={v.nextDue} />
+                  <p className="truncate text-sm">{v.product}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {t('agentLabel', { name: v.agent })} ·{' '}
+                    {t('coordinatorLabel', { name: v.coordinator })}
+                  </p>
                 </li>
               );
             })}
