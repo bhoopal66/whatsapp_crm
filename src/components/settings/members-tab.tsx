@@ -33,6 +33,7 @@ import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import {
   AlertTriangle,
   Loader2,
+  Landmark,
   Mail,
   MailX,
   Plus,
@@ -85,6 +86,8 @@ import {
   PRESENCE_DOT_CLASS,
   PresenceDot,
 } from '@/components/presence/presence-dot';
+import { canHoldCoordinatorBanks, banksByUser } from '@/lib/coordinators/ui';
+import { CoordinatorBanksDialog } from './coordinator-banks-dialog';
 import { CreateMemberDialog } from './create-member-dialog';
 import { InviteMemberDialog } from './invite-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
@@ -140,6 +143,7 @@ function fmtExpiresIn(
 export function MembersTab() {
   const t = useTranslations('Settings.members');
   const tRoles = useTranslations('Settings.roles');
+  const tCoord = useTranslations('Coordinators.members');
   const { user, accountRole } = useAuth();
   // Owner/admin: the roster too. A team leader only adds people (099).
   const managesRoster = !!accountRole && canManageMembers(accountRole);
@@ -155,6 +159,10 @@ export function MembersTab() {
   const [deactivatingMember, setDeactivatingMember] = useState<Member | null>(
     null
   );
+  const [coordBanks, setCoordBanks] = useState<Map<string, string[]>>(
+    new Map()
+  );
+  const [editingBanks, setEditingBanks] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null
   );
@@ -176,6 +184,17 @@ export function MembersTab() {
         }
         const mdata = (await mres.json()) as { members: Member[] };
         setMembers(mdata.members);
+      }
+
+      if (mres) {
+        // Coordinator badges; a failure only costs the badges.
+        const cres = await fetch('/api/coordinators', { cache: 'no-store' });
+        if (cres.ok) {
+          const cdata = (await cres.json()) as {
+            coordinators: Parameters<typeof banksByUser>[0];
+          };
+          setCoordBanks(banksByUser(cdata.coordinators));
+        }
       }
 
       if (!ires.ok) {
@@ -488,6 +507,13 @@ export function MembersTab() {
                               {t('you')}
                             </Badge>
                           )}
+                          {(coordBanks.get(member.user_id)?.length ?? 0) >
+                            0 && (
+                            <Badge className="bg-primary/10 text-primary border-primary/30 text-[10px] tracking-wide uppercase">
+                              {tCoord('badge')} ·{' '}
+                              {coordBanks.get(member.user_id)!.join(', ')}
+                            </Badge>
+                          )}
                           {isInactive && (
                             <Badge className="border-red-500/40 bg-red-500/10 text-[10px] tracking-wide text-red-400 uppercase">
                               {t('inactive')}
@@ -562,6 +588,25 @@ export function MembersTab() {
                             </span>
                           ) : null}
                         </span>
+                      )}
+
+                      {canHoldCoordinatorBanks(member.role) && !isInactive && (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={tCoord('manage')}
+                                onClick={() => setEditingBanks(member)}
+                                disabled={isBusy}
+                              >
+                                <Landmark className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>{tCoord('manage')}</TooltipContent>
+                        </Tooltip>
                       )}
 
                       {/* Deactivate / reactivate. Same gate as Remove: the
@@ -725,6 +770,29 @@ export function MembersTab() {
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         onCreated={loadEverything}
+      />
+
+      <CoordinatorBanksDialog
+        member={
+          editingBanks
+            ? {
+                user_id: editingBanks.user_id,
+                name: editingBanks.full_name || t('unnamed'),
+              }
+            : null
+        }
+        saved={editingBanks ? (coordBanks.get(editingBanks.user_id) ?? []) : []}
+        onOpenChange={(open) => {
+          if (!open) setEditingBanks(null);
+        }}
+        onSaved={(userId, banks) =>
+          setCoordBanks((prev) => {
+            const next = new Map(prev);
+            if (banks.length > 0) next.set(userId, banks);
+            else next.delete(userId);
+            return next;
+          })
+        }
       />
 
       <Dialog

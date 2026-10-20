@@ -7530,6 +7530,19 @@
       "revokeError": "Could not revoke the share.",
       "loadError": "Could not load coordinators.",
       "sharedLabel": "Shared · {bank}"
+    },
+    "members": {
+      "title": "Coordinator banks",
+      "badge": "Coordinator",
+      "manage": "Coordinator banks",
+      "description": "Banks {name} coordinates. Agents can share chats with a coordinator of the bank. Clear every bank to remove them as a coordinator.",
+      "noBanks": "No banks exist yet. Add banks in Settings → Cases.",
+      "loadBanksError": "Could not load banks.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "saved": "Coordinator banks saved.",
+      "saveError": "Could not save coordinator banks."
     }
   }
 }

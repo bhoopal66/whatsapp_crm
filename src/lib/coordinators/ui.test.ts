@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   banksByUser,
+  banksChanged,
   canHoldCoordinatorBanks,
   canShareWithCoordinator,
   coordinatorChoices,
@@ -110,5 +111,15 @@ describe('bank selection helpers', () => {
   it('toggles a code, sorted and distinct', () => {
     expect(toggleBank(['FAB'], 'ADCB')).toEqual(['ADCB', 'FAB']);
     expect(toggleBank(['ADCB', 'FAB'], 'ADCB')).toEqual(['FAB']);
+  });
+});
+
+describe('banksChanged', () => {
+  it('ignores order, sees additions and removals', () => {
+    expect(banksChanged(['ADCB', 'FAB'], ['FAB', 'ADCB'])).toBe(false);
+    expect(banksChanged([], [])).toBe(false);
+    expect(banksChanged(['ADCB'], [])).toBe(true);
+    expect(banksChanged(['ADCB'], ['ADCB', 'FAB'])).toBe(true);
+    expect(banksChanged(['ADCB'], ['FAB'])).toBe(true);
   });
 });

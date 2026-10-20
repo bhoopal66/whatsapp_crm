@@ -117,3 +117,15 @@ export function toggleBank(
   else set.add(code);
   return [...set].sort();
 }
+
+/** Whether a draft selection differs from the saved banks (order-blind). */
+export function banksChanged(
+  saved: readonly string[],
+  draft: readonly string[]
+): boolean {
+  const a = new Set(saved);
+  const b = new Set(draft);
+  if (a.size !== b.size) return true;
+  for (const c of a) if (!b.has(c)) return true;
+  return false;
+}

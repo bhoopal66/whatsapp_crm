@@ -27,6 +27,27 @@ export function useMyCoordinatorShares(
   const [shares, setShares] = useState<ReadonlyMap<string, string> | null>(
     null
   );
+  // Bumped when a `conversation_shared` bell arrives, to re-read.
+  const [liveToken, setLiveToken] = useState(0);
+
+  useEffect(() => {
+    if (profileLoading || !eligible || !userId) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`coordinator-shares-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          if ((payload.new as { type?: string }).type === 'conversation_shared')
+            setLiveToken((n) => n + 1);
+        }
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [profileLoading, eligible, userId]);
 
   useEffect(() => {
     if (profileLoading || !eligible || !userId || !accountId) return;
@@ -52,7 +73,7 @@ export function useMyCoordinatorShares(
     return () => {
       cancelled = true;
     };
-  }, [profileLoading, eligible, userId, accountId, refreshToken]);
+  }, [profileLoading, eligible, userId, accountId, refreshToken, liveToken]);
 
   if (profileLoading) return null;
   if (!eligible) return NONE;
