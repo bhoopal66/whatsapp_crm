@@ -324,6 +324,17 @@ jobs:
       - name: Verify cases
         run: supabase db query --local --file supabase/ci/verify-cases.sql
 
+      # Case leads (130): a lead opens at Interested with no group, once
+      # per open (contact, bank), for a contact the agent can see, by the
+      # agent, an admin or the agent's leader; pre-submission stages move
+      # freely and are never re-entered, a lead leaves them only to
+      # Withdrawn; case_open attaches a group to the open lead (same case,
+      # one history row, timers reset); a lead has no group to end;
+      # NO_RESPONSE is a Withdrawn reason only; stored lists start with
+      # the three pre-submission stages.
+      - name: Verify case leads
+        run: supabase db query --local --file supabase/ci/verify-case-leads.sql
+
       # Vault (121): a vault role counts only while its holder is a live
       # owner/admin of the account; bootstrap only for a live owner of an
       # account with no role, grant / revoke only by a super_admin, never

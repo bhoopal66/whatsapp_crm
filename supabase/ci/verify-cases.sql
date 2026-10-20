@@ -61,10 +61,10 @@ DECLARE
   rd       TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
-  defaults TEXT[] := ARRAY['Submitted', 'Bank acknowledged', 'Documents requested', 'Documents received',
+  defaults TEXT[] := ARRAY['Interested', 'Data collection', 'Review', 'Submitted', 'Bank acknowledged', 'Documents requested', 'Documents received',
     'Under review', 'Query raised', 'Query answered', 'Approved', 'Declined', 'Withdrawn', 'Closed'];
-  l1       TEXT[] := ARRAY['Received', 'In progress', 'Approved', 'Declined', 'Withdrawn', 'Closed'];
-  l2       TEXT[] := ARRAY['Received', 'Assessing', 'Approved', 'Declined', 'Withdrawn', 'Closed'];
+  l1       TEXT[] := ARRAY['Interested', 'Data collection', 'Review', 'Received', 'In progress', 'Approved', 'Declined', 'Withdrawn', 'Closed'];
+  l2       TEXT[] := ARRAY['Interested', 'Data collection', 'Review', 'Received', 'Assessing', 'Approved', 'Declined', 'Withdrawn', 'Closed'];
 BEGIN
   BEGIN
   -- Run a statement as p_role (NULL: as the current user) signed in as
@@ -556,26 +556,26 @@ BEGIN
     'service_role', NULL, format('SELECT case_bank_stages_set(%L, %L, ''ADCB'', %L)::text', u_agent, a_acct, l1),
     'ERROR 42501 NOT_ALLOWED:%');
   r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', l1);
-  n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ok:6' AND case_stages_for_bank(a_acct, 'ADCB') = l1,
+  n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ok:9' AND case_stages_for_bank(a_acct, 'ADCB') = l1,
     format('a valid stage list was refused or not stored (%s)', r));
   r := pg_temp.cs_stages(u_owner, a_acct, 'ADCB', l2);
-  n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ok:6' AND case_stages_for_bank(a_acct, 'ADCB') = l2
-    AND (SELECT count(*) FROM case_bank_stages WHERE account_id = a_acct AND bank_code = 'ADCB') = 6,
+  n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ok:9' AND case_stages_for_bank(a_acct, 'ADCB') = l2
+    AND (SELECT count(*) FROM case_bank_stages WHERE account_id = a_acct AND bank_code = 'ADCB') = 9,
     format('a second list did not replace the first exactly (%s)', r));
-  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Approved', 'Received', 'Declined', 'Withdrawn', 'Closed']);
+  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Interested', 'Data collection', 'Review', 'Approved', 'Received', 'Declined', 'Withdrawn', 'Closed']);
   n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ERROR 23514 BANK_STAGES_FIRST_FINAL',
     format('a list starting with a final stage was not refused (%s)', r));
-  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Received', 'Approved', 'Declined', 'Withdrawn']);
+  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Interested', 'Data collection', 'Review', 'Received', 'Approved', 'Declined', 'Withdrawn']);
   n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ERROR 23514 BANK_STAGES_MISSING_FINAL',
     format('a list missing Closed was not refused (%s)', r));
-  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Received', 'Approved', 'Declined', 'withdrawn', 'Closed']);
+  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Interested', 'Data collection', 'Review', 'Received', 'Approved', 'Declined', 'withdrawn', 'Closed']);
   n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ERROR 23514 BANK_STAGES_FINAL_SPELLING',
     format('a list misspelling Withdrawn was not refused (%s)', r));
   n := n + 1; failed := failed || pg_temp.cs_ok(case_stages_for_bank(a_acct, 'ADCB') = l2,
     'a refused list changed the stored one');
   r := pg_temp.cs_stages(u_admin, a_acct, 'FAB', l1);
   r := r || ',' || pg_temp.cs_stages(u_admin, a_acct, 'FAB', '{}');
-  n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ok:6,ok:0'
+  n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ok:9,ok:0'
     AND case_stages_for_bank(a_acct, 'FAB') = defaults
     AND NOT EXISTS (SELECT 1 FROM case_bank_stages WHERE account_id = a_acct AND bank_code = 'FAB'),
     format('an empty list did not return the bank to the defaults (%s)', r));
@@ -593,15 +593,16 @@ BEGIN
     'service_role', NULL, format('SELECT case_set_details(%L, %L, ''ADCB'', NULL, NULL)::text', k[9], u_owner),
     'ERROR 23514 STAGE_NOT_IN_LIST:%');
 
-  -- k10 opens on ADCB (by an admin): its first stage, then STAGE_IN_USE.
+  -- k10 opens on ADCB (by an admin): its first stage after the three
+  -- pre-submission stages (130's case_submitted_stage), then STAGE_IN_USE.
   k[10] := (SELECT x.case_id FROM case_open(g[10], 'ADCB', NULL, NULL, NULL, u_admin) x);
   n := n + 1; failed := failed || pg_temp.cs_ok((SELECT stage FROM cases WHERE id = k[10]) = 'Received'
     AND (SELECT actor_id = u_admin AND actor_role = 'admin' FROM case_stage_history WHERE case_id = k[10]),
-    'a case opened on a configured bank did not start at its first stage with the admin as actor');
+    'a case opened on a configured bank did not start at its first submission stage with the admin as actor');
   n := n + 1; failed := failed || pg_temp.cs_check('a stage outside the bank''s list was accepted',
     'service_role', NULL, format('SELECT moved::text FROM case_set_stage(%L, %L, ''Under review'')', k[10], u_agent),
     'ERROR 23514 STAGE_NOT_CONFIGURED:%');
-  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Assessing', 'Approved', 'Declined', 'Withdrawn', 'Closed']);
+  r := pg_temp.cs_stages(u_admin, a_acct, 'ADCB', ARRAY['Interested', 'Data collection', 'Review', 'Assessing', 'Approved', 'Declined', 'Withdrawn', 'Closed']);
   n := n + 1; failed := failed || pg_temp.cs_ok(r = 'ERROR 23514 STAGE_IN_USE' AND case_stages_for_bank(a_acct, 'ADCB') = l2,
     format('a list dropping an open case''s stage was not STAGE_IN_USE (%s)', r));
 
