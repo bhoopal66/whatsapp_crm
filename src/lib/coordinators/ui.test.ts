@@ -78,7 +78,10 @@ describe('isShareOnlyViewer', () => {
 
   it('is a coordinator who neither owns nor holds the chat', () => {
     expect(isShareOnlyViewer('agent', 'coord', conv, true)).toBe(true);
-    expect(isShareOnlyViewer('team_leader', 'coord', conv, true)).toBe(true);
+  });
+
+  it('never calls a team leader share-only (the client cannot see who they lead)', () => {
+    expect(isShareOnlyViewer('team_leader', 'coord', conv, true)).toBe(false);
   });
 
   it('is not the owner, the assignee, an admin, or someone without a share', () => {

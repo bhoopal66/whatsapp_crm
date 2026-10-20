@@ -1,4 +1,8 @@
-import { hasMinRole, type AccountRole } from './roles';
+import {
+  canReceiveCoordinatorShare,
+  hasMinRole,
+  type AccountRole,
+} from './roles';
 
 /**
  * Roles a chat share can grant to (migration 130's
@@ -7,7 +11,7 @@ import { hasMinRole, type AccountRole } from './roles';
  * anyway) and a bank guest get nothing from a share.
  */
 function shareCanGrant(role: AccountRole): boolean {
-  return role === 'agent' || role === 'team_leader';
+  return canReceiveCoordinatorShare(role);
 }
 
 /**

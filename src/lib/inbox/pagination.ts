@@ -70,6 +70,9 @@ export function conversationKeysetGroup(cursor: ConversationCursor): string {
   return `last_message_at.lt.${ts},and(last_message_at.eq.${ts},id.lt.${cursor.id})`;
 }
 
+/** Most shared-chat ids {@link restrictToUserGroup} puts in one filter. */
+export const MAX_SHARED_IDS_IN_FILTER = 100;
+
 /**
  * "I created it OR it was handed to me OR it is on (or pinned to) a
  * number I work" — the personal-inbox narrowing for a team leader, the
@@ -91,8 +94,14 @@ export function restrictToUserGroup(
   // Chats shared with this person as a coordinator (migration 130) are
   // theirs too: without this a team leader's shares sat in /team-inbox
   // only.
+  // Capped: hundreds of uuids in one `id.in.(…)` push the request URL
+  // past proxy limits and the whole inbox fails. The RPC gives no
+  // reliable order, so this is simply the first MAX_SHARED_IDS_IN_FILTER;
+  // the rest stay reachable in the Team inbox.
   if (sharedConversationIds.length > 0) {
-    group += `,id.in.(${sharedConversationIds.join(',')})`;
+    group += `,id.in.(${sharedConversationIds
+      .slice(0, MAX_SHARED_IDS_IN_FILTER)
+      .join(',')})`;
   }
   return group;
 }

@@ -359,7 +359,7 @@ export function validateSendMessageParams(params: {
  * this only ever narrows a send or completes a write the share already
  * entitles, so not knowing falls back to the behaviour before 130.
  */
-async function reachesOnlyByShare(
+export async function reachesOnlyByShare(
   db: SupabaseClient,
   accountId: string,
   userId: string,

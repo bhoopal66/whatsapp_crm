@@ -320,3 +320,12 @@ export function canCreateGroups(role: AccountRole): boolean {
 export function canSyncGroups(role: AccountRole): boolean {
   return hasMinRole(role, 'admin');
 }
+
+/**
+ * Roles a coordinator share can grant to (migration 130's
+ * `coordinator_share_grants`): agents and team leaders. Admins see every
+ * chat anyway; viewers and bank guests get nothing from a share.
+ */
+export function canReceiveCoordinatorShare(role: AccountRole | null): boolean {
+  return !!role && hasMinRole(role, 'agent') && !hasMinRole(role, 'admin');
+}

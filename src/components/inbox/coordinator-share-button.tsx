@@ -80,7 +80,7 @@ function ShareDialog({
   onClose: () => void;
 }) {
   const t = useTranslations('Coordinators.share');
-  const { user, accountId } = useAuth();
+  const { user, accountId, accountRole } = useAuth();
   const [banks, setBanks] = useState<BankOption[] | null>(null);
   const [coordinators, setCoordinators] = useState<CoordinatorRow[]>([]);
   const [shares, setShares] = useState<ConversationShareRow[] | null>(null);
@@ -112,10 +112,15 @@ function ShareDialog({
               (r) => r.banks
             )
           ),
-          cachedQuery(`coordinators:${accountId}`, 60_000, () =>
-            getJson<{ coordinators: CoordinatorRow[] }>(
-              '/api/coordinators'
-            ).then((r) => r.coordinators)
+          // Admins get e-mail addresses in the list, others do not: the
+          // key names the question so the two never share an entry.
+          cachedQuery(
+            `coordinators:${accountId}:${accountRole === 'owner' || accountRole === 'admin' ? 'emails' : 'names'}`,
+            60_000,
+            () =>
+              getJson<{ coordinators: CoordinatorRow[] }>(
+                '/api/coordinators'
+              ).then((r) => r.coordinators)
           ),
         ]);
         if (cancelled) return;
@@ -134,7 +139,7 @@ function ShareDialog({
     return () => {
       cancelled = true;
     };
-  }, [accountId, loadShares, t]);
+  }, [accountId, accountRole, loadShares, t]);
 
   const choices = useMemo(
     () => coordinatorChoices(coordinators, bank, user?.id ?? null),

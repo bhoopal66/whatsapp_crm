@@ -4,7 +4,12 @@
 // The database decides every one of these again; this only keeps the
 // UI from offering what SQL would refuse.
 
-import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import { canViewConversation } from '@/lib/auth/conversation-visibility';
+import {
+  canReceiveCoordinatorShare,
+  hasMinRole,
+  type AccountRole,
+} from '@/lib/auth/roles';
 
 /** A coordinator as `GET /api/coordinators` lists them. */
 export interface CoordinatorRow {
@@ -34,7 +39,7 @@ export function canShareWithCoordinator(role: AccountRole | null): boolean {
  * every chat anyway; viewers and guests get nothing from a share.
  */
 export function receivesShares(role: AccountRole | null): boolean {
-  return !!role && hasMinRole(role, 'agent') && !hasMinRole(role, 'admin');
+  return canReceiveCoordinatorShare(role);
 }
 
 /** Whose banks an admin may set in Settings -> Members (130's set_coordinator_banks). */
@@ -70,9 +75,16 @@ export function sharedBankByConversation(
 }
 
 /**
- * Sees this chat only through a share: not an admin, neither its owner
- * nor its assignee. Such a person may reply only on the chat's own
- * number, so the number switcher is not offered (SQL would refuse it).
+ * Sees this chat only through a share: no ordinary access (admin, owner
+ * or assignee, i.e. {@link canViewConversation} without the share). Such
+ * a person may reply only on the chat's own number, so the number
+ * switcher is not offered (SQL would refuse it).
+ *
+ * A team leader may also hold the chat by leading its owner or assignee,
+ * which the client cannot see; guessing "share-only" would hide the
+ * switcher from someone entitled to it, so a leader is never reported
+ * share-only here. The server still refuses a share-only send
+ * (`shared_chat_number`).
  */
 export function isShareOnlyViewer(
   role: AccountRole | null,
@@ -81,10 +93,11 @@ export function isShareOnlyViewer(
   sharedWithMe: boolean
 ): boolean {
   if (!sharedWithMe || !role || !userId) return false;
-  if (hasMinRole(role, 'admin')) return false;
-  return (
-    conversation.user_id !== userId && conversation.assigned_agent_id !== userId
-  );
+  if (role === 'team_leader') return false;
+  return !canViewConversation(role, userId, {
+    ownerId: conversation.user_id ?? null,
+    assignedId: conversation.assigned_agent_id ?? null,
+  });
 }
 
 /** `send-message.ts`'s refusal of a share-only sender on another number. */

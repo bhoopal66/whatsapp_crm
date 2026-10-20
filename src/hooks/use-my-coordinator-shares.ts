@@ -53,13 +53,9 @@ export function useMyCoordinatorShares(
     if (profileLoading || !eligible || !userId || !accountId) return;
     let cancelled = false;
     void (async () => {
-      const { data, error } = await createClient()
-        .from('conversation_coordinator_shares')
-        .select('conversation_id, bank_code')
-        .eq('account_id', accountId)
-        .eq('coordinator_user_id', userId)
-        .is('revoked_at', null)
-        .order('created_at', { ascending: true });
+      // The RPC, not the table: it drops a share whose bank the person
+      // no longer holds, so a removed bank stops showing "Shared".
+      const { data, error } = await createClient().rpc('my_coordinator_shares');
       if (cancelled) return;
       if (error) {
         // The list still loads; it just lacks the shared chats' labels

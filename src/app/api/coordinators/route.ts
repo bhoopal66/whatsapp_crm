@@ -8,7 +8,8 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { canManageMembers } from '@/lib/auth/roles';
+import { canManageMembers, type AccountRole } from '@/lib/auth/roles';
+import { canHoldCoordinatorBanks } from '@/lib/coordinators/ui';
 import { isBankCode } from '@/lib/coordinators/errors';
 
 export async function GET(request: Request) {
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
 
     const { data: profiles, error: pErr } = await supabase
       .from('profiles')
-      .select('user_id, full_name, email')
+      .select('user_id, full_name, email, account_role')
       .eq('account_id', accountId)
       .is('deactivated_at', null)
       .in('user_id', userIds);
@@ -60,12 +61,16 @@ export async function GET(request: Request) {
     }
 
     const showEmail = canManageMembers(role);
-    const coordinators = (profiles ?? []).map((p) => ({
-      user_id: p.user_id as string,
-      name: (p.full_name as string | null) ?? '',
-      ...(showEmail ? { email: (p.email as string | null) ?? null } : {}),
-      banks: byUser.get(p.user_id as string) ?? [],
-    }));
+    // Holding a bank row is not enough: a person since promoted to admin
+    // or demoted to viewer keeps the row but is no coordinator (130).
+    const coordinators = (profiles ?? [])
+      .filter((p) => canHoldCoordinatorBanks(p.account_role as AccountRole))
+      .map((p) => ({
+        user_id: p.user_id as string,
+        name: (p.full_name as string | null) ?? '',
+        ...(showEmail ? { email: (p.email as string | null) ?? null } : {}),
+        banks: byUser.get(p.user_id as string) ?? [],
+      }));
     return NextResponse.json({ coordinators });
   } catch (err) {
     return toErrorResponse(err);

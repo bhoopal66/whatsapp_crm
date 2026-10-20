@@ -13,6 +13,7 @@ import { GET } from './route';
 
 const U1 = '11111111-1111-4111-8111-111111111111';
 const U2 = '22222222-2222-4222-8222-222222222222';
+const U3 = '33333333-3333-4333-8333-333333333333';
 
 function client(role: string) {
   const tables: Record<string, unknown[]> = {
@@ -20,10 +21,27 @@ function client(role: string) {
       { user_id: U1, bank_code: 'ADCB' },
       { user_id: U1, bank_code: 'FAB' },
       { user_id: U2, bank_code: 'FAB' },
+      { user_id: U3, bank_code: 'FAB' },
     ],
     profiles: [
-      { user_id: U1, full_name: 'One', email: 'one@x.ae' },
-      { user_id: U2, full_name: 'Two', email: 'two@x.ae' },
+      {
+        user_id: U1,
+        full_name: 'One',
+        email: 'one@x.ae',
+        account_role: 'agent',
+      },
+      {
+        user_id: U2,
+        full_name: 'Two',
+        email: 'two@x.ae',
+        account_role: 'team_leader',
+      },
+      {
+        user_id: U3,
+        full_name: 'Three',
+        email: 'three@x.ae',
+        account_role: 'admin',
+      },
     ],
   };
   mocks.requireRole.mockResolvedValue({
@@ -64,6 +82,17 @@ describe('GET /api/coordinators', () => {
       name: 'One',
       banks: ['ADCB', 'FAB'],
     });
+  });
+
+  it('leaves out a holder who is no longer an agent or team leader', async () => {
+    client('agent');
+    const { coordinators } = await (
+      await GET(new Request('http://localhost/api/coordinators'))
+    ).json();
+    expect(coordinators.map((c: { user_id: string }) => c.user_id)).toEqual([
+      U1,
+      U2,
+    ]);
   });
 
   it('shows email to admins', async () => {

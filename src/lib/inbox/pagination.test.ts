@@ -141,6 +141,15 @@ describe('filter groups', () => {
     );
   });
 
+  it('caps the shared ids so the URL stays within proxy limits', () => {
+    const many = Array.from({ length: 250 }, (_, i) => `k${i}`);
+    const group = restrictToUserGroup('u9', [], many);
+    const ids = group.match(/id\.in\.\((.*)\)/)![1].split(',');
+    expect(ids).toHaveLength(100);
+    expect(ids[0]).toBe('k0');
+    expect(group).not.toContain('k100');
+  });
+
   it('mirrors matchesAssignee: assigned, or unassigned and owned', () => {
     expect(assigneeGroup('u9')).toBe(
       'assigned_agent_id.eq.u9,and(assigned_agent_id.is.null,user_id.eq.u9)'
