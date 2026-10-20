@@ -416,6 +416,17 @@ jobs:
       # append-only, the three functions service_role's only.
       - name: Verify bank dashboard
         run: supabase db query --local --file supabase/ci/verify-bank-dashboard.sql
+      # Migration 130's coordinators: only an owner / admin assigns banks,
+      # only to a live agent / team leader, only banks the account has; a
+      # chat is shared by agent-and-up staff who can see it, with another
+      # person holding that bank, ringing conversation_shared once (a
+      # repeat is the same share). The share gives that coordinator alone
+      # SELECT on the conversation, its messages and its contact, no
+      # UPDATE / DELETE, and INSERT of their own agent message on the
+      # chat's number only; it ends on revoke (sharer or admin, not an
+      # unrelated agent), on losing the bank and on deactivation.
+      - name: Verify coordinators
+        run: supabase db query --local --file supabase/ci/verify-coordinators.sql
       # Migration 120's assistant guard: a pending action is born only
       # through assist_pending_request (20-hex nonce stored as sha256,
       # 300 s life, 5 open per user across accounts); confirm needs the
