@@ -180,7 +180,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             // Taller on mobile so fingers can hit the row reliably (≥44px).
             'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
             isActive
-              ? 'bg-primary-soft text-primary font-semibold'
+              ? 'bg-card text-primary font-semibold shadow-xs'
               : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
           )}
         >

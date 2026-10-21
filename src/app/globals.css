@@ -165,11 +165,13 @@ html[data-mode='dark'] {
   --chart-4: oklch(0.68 0.19 15);
   --chart-5: oklch(0.68 0.17 300);
   --radius: 0.625rem;
-  --sidebar: oklch(0.185 0.016 255);
+  /* The side panels sit one step below the page, with a touch more
+   * blue, so the navigation reads as its own column. */
+  --sidebar: oklch(0.125 0.03 256);
   --sidebar-foreground: oklch(0.93 0.006 255);
-  --sidebar-accent: oklch(0.265 0.02 255);
+  --sidebar-accent: oklch(0.215 0.032 256);
   --sidebar-accent-foreground: oklch(0.98 0.003 255);
-  --sidebar-border: oklch(0.29 0.018 255);
+  --sidebar-border: oklch(0.25 0.02 255);
 }
 
 /* Light: a soft blue-grey page under white cards, so panels separate
@@ -205,11 +207,13 @@ html[data-mode='light'] {
   --chart-4: oklch(0.6 0.2 15);
   --chart-5: oklch(0.56 0.19 300);
   --radius: 0.625rem;
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.3 0.03 258);
-  --sidebar-accent: oklch(0.95 0.012 250);
-  --sidebar-accent-foreground: oklch(0.2 0.03 258);
-  --sidebar-border: oklch(0.9 0.009 252);
+  /* A brand-tinted blue-grey, darker than the page and the white
+   * header, so the navigation reads as its own column. */
+  --sidebar: oklch(0.94 0.02 248);
+  --sidebar-foreground: oklch(0.28 0.035 258);
+  --sidebar-accent: oklch(0.9 0.03 248);
+  --sidebar-accent-foreground: oklch(0.2 0.035 258);
+  --sidebar-border: oklch(0.86 0.022 250);
 }
 
 /* ---- INBOX: WhatsApp surfaces ----
