@@ -166,6 +166,9 @@ export const CASE_REFUSALS = [
   'SUBMISSION_REQUIRED',
   'PRESUB_STAGES_REQUIRED',
   'PRESUB_STAGES_CONFLICT',
+  // 134 (Compass sync): the lock and the setting.
+  'MANAGED_EXTERNALLY',
+  'SETTING_INVALID',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 

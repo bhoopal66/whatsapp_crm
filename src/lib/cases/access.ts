@@ -37,3 +37,18 @@ export const AUDITED_VIEWER_ROLES: readonly CaseRole[] = [
   'admin',
   'super_admin',
 ];
+
+/**
+ * 134's lock: while the account's `managed_externally` is on, a SUBMITTED
+ * case (group_id set) refuses stage, details, outcome reason and document
+ * received / rejected with MANAGED_EXTERNALLY. A lead is never locked.
+ * Mirrors the check 134 adds to case_set_stage, case_set_details,
+ * case_outcome_reason_set and case_doc_set_status; `access.test.ts` reads
+ * 134 — change one, change both.
+ */
+export function isManagedExternally(
+  settings: { managedExternally: boolean } | null,
+  kase: { groupId: string | null }
+): boolean {
+  return settings?.managedExternally === true && kase.groupId !== null;
+}

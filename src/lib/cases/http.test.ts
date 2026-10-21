@@ -116,6 +116,13 @@ describe('caseErrorResponse', () => {
     return { status: res.status, body: await res.json() };
   };
 
+  it('maps the Compass lock (134) to 409 MANAGED_EXTERNALLY', async () => {
+    const r = await answer(new CaseRefusedError('MANAGED_EXTERNALLY'));
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('MANAGED_EXTERNALLY');
+    expect(r.body.error).toMatch(/managed in Compass/);
+  });
+
   it('maps refusals: NOT_ALLOWED 403, CASE_NOT_FOUND 404, others 422 + code', async () => {
     expect(await answer(new CaseRefusedError('NOT_ALLOWED'))).toMatchObject({
       status: 403,

@@ -124,10 +124,13 @@ const REFUSAL_TEXT: Record<string, string> = {
   SUBMISSION_REQUIRED: 'That stage needs a submission',
   PRESUB_STAGES_REQUIRED:
     'The list must start with Interested, Data collection, Review',
+  SETTING_INVALID: 'That setting is not valid',
 };
 
-/** 130: one open lead / case per customer and bank. */
+/** 130: one open lead / case per customer and bank; 134: the Compass lock. */
 const CONFLICT_TEXT: Record<string, string> = {
+  MANAGED_EXTERNALLY:
+    'This case is managed in Compass: its stage, details and documents are updated from Compass',
   LEAD_EXISTS: 'An open lead already exists for this customer and bank',
   CASE_EXISTS: 'An open case already exists for this customer and bank',
 };
