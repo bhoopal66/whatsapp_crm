@@ -6,7 +6,7 @@ import { Switch as SwitchPrimitive } from "@base-ui/react/switch"
 import { cn } from "@/lib/utils"
 
 // Root: primary token when checked (responds to the active color theme),
-// slate when unchecked.
+// input-border grey when unchecked, so the off track shows on a white card.
 function Switch({
   className,
   ...props
@@ -18,7 +18,7 @@ function Switch({
         "inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        "data-[checked]:bg-primary data-[unchecked]:bg-muted",
+        "data-[checked]:bg-primary data-[unchecked]:bg-input",
         className,
       )}
       {...props}
