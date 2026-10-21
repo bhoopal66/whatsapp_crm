@@ -144,6 +144,11 @@ describe('toolErrorKey', () => {
       'tasks.errors.ownerInvalid'
     );
   });
+  it('names the Compass lock (134) on a 409', () => {
+    const key = toolErrorKey(409, 'MANAGED_EXTERNALLY');
+    expect(key).toBe('errors.managedExternally');
+    expect(has(key), key).toBe(true);
+  });
   it('falls back on the status', () => {
     expect(toolErrorKey(403, undefined)).toBe('errors.notAllowed');
     expect(toolErrorKey(404, 'X')).toBe('errors.notFound');

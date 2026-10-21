@@ -114,6 +114,7 @@ const TOOL_ERRORS: Record<string, string> = {
   CASE_CLOSED: 'errors.caseClosed',
   NOT_ALLOWED: 'errors.notAllowed',
   CASE_NOT_FOUND: 'errors.notFound',
+  MANAGED_EXTERNALLY: 'errors.managedExternally',
 };
 
 /** The CasePage message key for a failed tool write. */
