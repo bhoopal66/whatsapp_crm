@@ -7722,6 +7722,15 @@
       "openDeal": "거래 열기",
       "moveToStage": "단계 이동",
       "copyDealTitle": "거래 제목 복사"
+    },
+    "chat": {
+      "react": "반응 남기기",
+      "copyMessageLink": "메시지 링크 복사",
+      "markRead": "읽음으로 표시"
+    },
+    "schedule": {
+      "open": "열기",
+      "openDetails": "세부 정보 열기"
     }
   }
 }

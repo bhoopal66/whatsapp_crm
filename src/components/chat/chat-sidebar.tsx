@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   Archive,
+  Bell,
   BellOff,
   Bookmark,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   Hash,
@@ -17,7 +19,12 @@ import {
   Plus,
   Search,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 import { RoomItem } from '@/components/deal-rooms/rooms-sidebar';
 import { useAuth } from '@/hooks/use-auth';
 import type { RoomSummary } from '@/lib/deal-rooms/reads';
@@ -26,12 +33,15 @@ import { useInboxCounts } from '@/hooks/use-chat-workspace';
 import {
   combinedPresence,
   dmOthers,
+  chatErrorKey,
   inboxRows,
+  muteAction,
   presenceDot,
   sidebarRowEmphasis,
   sidebarSections,
   type SidebarChannelRow,
 } from '@/lib/chat/view';
+import { markRead, setMuted } from '@/lib/chat';
 import { isSavedPath, SAVED_PATH } from '@/lib/chat/saved';
 import { PERSON_PRESENCE_KEY } from '@/lib/person-presence';
 import { channelDisplayName as numberName } from '@/lib/whatsapp/channel-management';
@@ -58,6 +68,19 @@ export interface ChatSidebarProps {
   className?: string;
 }
 
+/** A list item whose right-click menu leads with `getItems`. */
+function MenuRow({
+  getItems,
+  children,
+}: {
+  getItems: () => ContextMenuEntry[];
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  useContextMenuItems(ref, getItems);
+  return <li ref={ref}>{children}</li>;
+}
+
 /** Follows the mode: sidebar surface, the app accent on the open row. */
 export function ChatSidebar({
   activeChannelId,
@@ -68,6 +91,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const t = useTranslations('Chat');
   const tp = useTranslations('Presence');
+  const tMenu = useTranslations('ContextMenu');
   const router = useRouter();
   const savedActive = isSavedPath(usePathname());
   const savedCount = useSavedCount();
@@ -110,6 +134,17 @@ export function ChatSidebar({
     showArchived ||
     sections.archived.some((r) => r.channel.id === activeChannelId);
 
+  // The same write and feedback as the channel header's settings menu.
+  const toggleMute = async (channelId: string, muted: boolean) => {
+    try {
+      await setMuted(ws.sb, channelId, muted);
+      toast.success(t(muted ? 'mute.muted' : 'mute.unmuted'));
+      await Promise.all([ws.reloadChannels(), ws.refreshUnread()]);
+    } catch (err) {
+      toast.error(t(`errors.${chatErrorKey(err)}`));
+    }
+  };
+
   const channelRow = (r: SidebarChannelRow) => {
     const active = r.channel.id === activeChannelId;
     const e = sidebarRowEmphasis(r, active);
@@ -135,8 +170,37 @@ export function ChatSidebar({
     } else {
       icon = <Hash className="size-3.5 shrink-0" aria-hidden />;
     }
+    // Link actions (open, new tab, copy) come from the global menu.
+    const menuItems = (): ContextMenuEntry[] => {
+      const mute = muteAction(r.channel.membership);
+      return [
+        ...(r.channel.membership && r.unread > 0
+          ? [
+              {
+                id: 'markRead',
+                label: tMenu('chat.markRead'),
+                icon: CheckCheck,
+                onSelect: () =>
+                  void markRead(ws.sb, r.channel.id)
+                    .then(ws.refreshUnread)
+                    .catch(ws.fail),
+              },
+            ]
+          : []),
+        ...(mute
+          ? [
+              {
+                id: 'mute',
+                label: t(`mute.${mute}`, { kind: r.channel.kind }),
+                icon: mute === 'mute' ? BellOff : Bell,
+                onSelect: () => void toggleMute(r.channel.id, mute === 'mute'),
+              },
+            ]
+          : []),
+      ];
+    };
     return (
-      <li key={r.channel.id}>
+      <MenuRow key={r.channel.id} getItems={menuItems}>
         <Link
           href={`/chat/${r.channel.id}`}
           aria-current={active ? 'page' : undefined}
@@ -176,7 +240,7 @@ export function ChatSidebar({
             </span>
           ) : null}
         </Link>
-      </li>
+      </MenuRow>
     );
   };
 

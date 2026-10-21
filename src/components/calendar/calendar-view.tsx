@@ -52,6 +52,10 @@ import {
 } from '@/components/ui/sheet';
 import { MeetingFormDialog } from '@/components/meetings/meeting-form-dialog';
 import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
+import {
+  registerContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { createClient } from '@/lib/supabase/client';
@@ -130,6 +134,11 @@ export interface CalendarViewProps {
     newEnd: Date | null,
     revert: () => void
   ) => void;
+  /** An event's right-click actions, read at right-click time. */
+  getEventMenuItems?: (
+    item: FeedItem,
+    anchorEl: HTMLElement
+  ) => ContextMenuEntry[];
   /** Create → Event, and the N shortcut. */
   onCreate?: () => void;
   /** Change it to drop the cache and refetch (e.g. after a save). */
@@ -137,6 +146,7 @@ export interface CalendarViewProps {
 }
 
 const noop = () => {};
+const noMenuItems = (): ContextMenuEntry[] => [];
 const SCOPE = '.cal-root';
 const REALTIME_DEBOUNCE_MS = 500;
 const RAIL_KEY = 'calendar.rail.v1';
@@ -233,6 +243,7 @@ export function CalendarView({
   onEventClick = noop,
   onEventChange = noop,
   onCreate = noop,
+  getEventMenuItems = noMenuItems,
   refreshSignal,
 }: CalendarViewProps) {
   const t = useTranslations('Calendar');
@@ -255,11 +266,13 @@ export function CalendarView({
   const cacheRef = useRef(new FeedCache());
   const abortRef = useRef<AbortController | null>(null);
   const pendingEventRef = useRef<string | null>(initialEventId);
+  const menuCleanups = useRef(new Map<HTMLElement, () => void>());
   const callbacks = useRef({
     onSelectRange,
     onEventClick,
     onEventChange,
     onCreate,
+    getEventMenuItems,
   });
   useEffect(() => {
     callbacks.current = {
@@ -267,6 +280,7 @@ export function CalendarView({
       onEventClick,
       onEventChange,
       onCreate,
+      getEventMenuItems,
     };
   });
 
@@ -1008,6 +1022,18 @@ export function CalendarView({
             }
             eventDidMount={(arg) => {
               arg.el.dataset.itemKey = itemKey(itemOf(arg.event));
+              // The whole event element, list-view time cell included; the
+              // event is read again at right-click time (refetches replace it).
+              menuCleanups.current.set(
+                arg.el,
+                registerContextMenuItems(arg.el, () =>
+                  callbacks.current.getEventMenuItems(itemOf(arg.event), arg.el)
+                )
+              );
+            }}
+            eventWillUnmount={(arg) => {
+              menuCleanups.current.get(arg.el)?.();
+              menuCleanups.current.delete(arg.el);
             }}
           />
         </div>

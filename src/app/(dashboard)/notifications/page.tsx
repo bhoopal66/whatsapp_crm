@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { createClient } from "@/lib/supabase/client";
@@ -18,6 +24,7 @@ import {
   CalendarX,
   CheckCheck,
   DoorOpen,
+  ExternalLink,
   Handshake,
   UsersRound,
   ListTodo,
@@ -39,6 +46,10 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from "@/components/context-menu/registry";
 import {
   notificationRow,
   type NotificationRowPlan,
@@ -87,10 +98,24 @@ const FULL_BODY: ReadonlySet<Notification["type"]> = new Set([
   "pbx_connection_restored",
 ]);
 
+/** A list item whose right-click menu leads with `getItems`. */
+function MenuRow({
+  getItems,
+  children,
+}: {
+  getItems: () => ContextMenuEntry[];
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  useContextMenuItems(ref, getItems);
+  return <li ref={ref}>{children}</li>;
+}
+
 export default function NotificationsPage() {
   const router = useRouter();
   const tSidebar = useTranslations("Sidebar");
   const tBell = useTranslations("Workspaces.bell");
+  const tMenu = useTranslations("ContextMenu");
   const {
     accountId,
     accountRole,
@@ -314,8 +339,27 @@ export default function NotificationsPage() {
             const workspaceName = plan.otherWorkspace
               ? (plan.otherWorkspace.name ?? tBell("unknown"))
               : null;
+            // The row's own click, and Mark as read while it is unread.
+            const menuItems = (): ContextMenuEntry[] => [
+              {
+                id: "open",
+                label: tMenu("schedule.open"),
+                icon: ExternalLink,
+                onSelect: () => void handleClick(n, plan),
+              },
+              ...(isUnread
+                ? [
+                    {
+                      id: "markRead",
+                      label: tMenu("chat.markRead"),
+                      icon: CheckCheck,
+                      onSelect: () => void markRead(n.id),
+                    },
+                  ]
+                : []),
+            ];
             return (
-              <li key={n.id}>
+              <MenuRow key={n.id} getItems={menuItems}>
                 <button
                   type="button"
                   onClick={() => void handleClick(n, plan)}
@@ -384,7 +428,7 @@ export default function NotificationsPage() {
                     </p>
                   </div>
                 </button>
-              </li>
+              </MenuRow>
             );
           })}
         </ul>
