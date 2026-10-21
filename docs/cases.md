@@ -121,7 +121,8 @@ in a bank product before anything is submitted (migration 130). It starts at
   agent's team leader (`POST /api/cases/leads`, agent and up; viewers and
   bank guests are refused). The contact must be visible to the agent. The
   person signed in is always the actor; the agent defaults to them. One open
-  lead per contact and bank (`LEAD_EXISTS`, `CASE_EXISTS`: 409).
+  lead per contact and bank (`LEAD_EXISTS`, `CASE_EXISTS`: 409); the same
+  agent opening it again gets the existing lead back.
   Staff open a lead from the customer page or Cases -> New lead (which
   starts with a customer search on the caller's own visibility).
 - **Attach on submission.** When the submission app later submits the same
@@ -133,9 +134,10 @@ in a bank product before anything is submitted (migration 130). It starts at
   a pre-submission stage (`PRESUB_REENTRY`).
 - **Cold lead.** A lead that goes nowhere is moved to **Withdrawn** with the
   outcome reason **No response** (`NO_RESPONSE`, valid only on Withdrawn).
-- **No group, so no chat.** There is no conversation, take-over or document
-  request until a submission creates the group (422 `NO_GROUP`), and ending
-  a lead never ends a group.
+- **No group, so no chat.** There is no reply, take-over or document
+  request until a submission creates the group (422 `NO_GROUP`); reading a
+  lead's conversation answers an empty one (`groupId: null`). Ending a lead
+  never ends a group.
 - **Listing.** `GET /api/cases/leads?contactId=` returns the contact's cases
   the caller may read.
 - **Where staff open one.** The customer page (`/contacts/<id>`) has a
