@@ -15,6 +15,20 @@ and polish.
 - Workspaces: the workspace rail at the far left of the sidebar is gone. Switching workspace, and creating one (owners and admins), now happens in **Settings → My account → Workspaces**, which lists every workspace you belong to with your role, team-chat unread and mentions. A bank guest can open that one Settings section (from the account menu's **Workspaces** item) and nothing else of Settings. No migration.
 - Cases: a **New lead** button on the Cases page opens a lead without going through the customer page; the dialog starts with a customer search (name or phone, limited to the contacts you can see).
 
+### Compass case sync (migration 134)
+
+**Migration required: 134** (`134_compass_case_sync.sql`), as a superuser or
+BYPASSRLS role. SQL only so far: `cases.external_url` / `external_changed_at`;
+a per-account `managed_externally` switch (`case_settings_set`, owner/admin)
+under which staff can no longer move the stage, edit bank/product/amount, set
+the outcome reason or mark documents received/rejected on a submitted case
+(`MANAGED_EXTERNALLY`; leads stay editable); `case_sync_from_submission`, the
+API path that applies the submission app's stage, details, outcome reason and
+documents (stale updates ignored); a webhook outbox fed by triggers
+(`case.stage_changed`, `case.lead_created`, `submission_group.ready` /
+`.failed` / `.ended`, `contact.opted_out`), queued only for subscribed
+endpoints; and `compass_link_contact_by_phone`.
+
 ### Coordinators (migration 133)
 
 **Migration required: 133** (`133_coordinators.sql`), as a superuser or
