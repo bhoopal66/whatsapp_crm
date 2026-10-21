@@ -7686,5 +7686,28 @@
       "saved": "코디네이터 은행을 저장했습니다.",
       "saveError": "코디네이터 은행을 저장하지 못했습니다."
     }
+  },
+  "ContextMenu": {
+    "openLink": "링크 열기",
+    "openLinkNewTab": "새 탭에서 링크 열기",
+    "copyLinkAddress": "링크 주소 복사",
+    "openImageNewTab": "새 탭에서 이미지 열기",
+    "copyImageAddress": "이미지 주소 복사",
+    "copy": "복사",
+    "back": "뒤로",
+    "forward": "앞으로",
+    "reload": "새로고침",
+    "copyPageLink": "페이지 링크 복사",
+    "darkMode": "다크 모드로 전환",
+    "lightMode": "라이트 모드로 전환",
+    "copied": "복사됨",
+    "copyFailed": "복사하지 못했습니다",
+    "conversation": {
+      "open": "채팅 열기",
+      "openNewTab": "새 탭에서 채팅 열기",
+      "openCustomer": "고객 페이지 열기",
+      "copyPhone": "전화번호 복사",
+      "copyName": "이름 복사"
+    }
   }
 }

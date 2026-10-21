@@ -12,6 +12,7 @@ and polish.
 
 ## [Unreleased]
 
+- Right-click menu: right-clicking anywhere in the app now opens Taamul Connect's own menu instead of the browser's: the actions of what you clicked (a chat in the Inbox list: open, open in new tab, customer page, copy phone or name; a message: reply, react, copy text, forward), then link, image and selected-text actions, then Back, Forward, Reload, Copy page link and a light/dark switch. Text fields keep the browser menu (spell check, paste), and holding **Shift** while right-clicking always gives the browser menu. A long-press on a message on a phone still pins its toolbar. No migration.
 - Workspaces: the workspace rail at the far left of the sidebar is gone. Switching workspace, and creating one (owners and admins), now happens in **Settings → My account → Workspaces**, which lists every workspace you belong to with your role, team-chat unread and mentions. A bank guest can open that one Settings section (from the account menu's **Workspaces** item) and nothing else of Settings. No migration.
 - Cases: a **New lead** button on the Cases page opens a lead without going through the customer page; the dialog starts with a customer search (name or phone, limited to the contacts you can see).
 

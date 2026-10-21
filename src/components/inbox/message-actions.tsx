@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { CornerUpLeft, Copy, Forward, SmilePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,8 @@ import {
 import type { Message } from '@/types';
 import { isForwardable } from '@/lib/whatsapp/forward';
 import { useTranslations } from 'next-intl';
+import { useContextMenuItems } from '@/components/context-menu/registry';
+import { isTouchContextMenu } from '@/lib/context-menu/resolve';
 
 // WhatsApp's own quick-reaction bar starts with these six. Picking the same
 // set keeps the affordance familiar without pulling in a 300KB emoji library.
@@ -45,14 +47,29 @@ export function MessageActions({
 
   // Touch devices have no hover. Long-press fires `contextmenu`; we capture
   // it, suppress the native menu, and pin the toolbar open until the user
-  // interacts elsewhere.
+  // interacts elsewhere. A mouse right-click is left alone, so the
+  // app-wide menu opens with this message's actions (registered below).
   const [touchOpen, setTouchOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const lastPointerTypeRef = useRef<string | null>(null);
 
   const isAgent =
     message.sender_type === 'agent' || message.sender_type === 'bot';
 
   const handleContextMenu = (e: React.MouseEvent) => {
+    const native = e.nativeEvent as MouseEvent & {
+      sourceCapabilities?: { firesTouchEvents?: boolean } | null;
+    };
+    const touch = isTouchContextMenu({
+      lastPointerType: lastPointerTypeRef.current,
+      firesTouchEvents: native.sourceCapabilities?.firesTouchEvents ?? null,
+    });
+    // One gesture's pointer type only: a later keyboard menu key must
+    // not inherit an old touch.
+    lastPointerTypeRef.current = null;
+    if (!touch) return;
+    // Prevented here, so the app-wide menu stands aside for this one.
     e.preventDefault();
     setTouchOpen(true);
   };
@@ -92,6 +109,40 @@ export function MessageActions({
     setTouchOpen(false);
   };
 
+  useContextMenuItems(rowRef, () => [
+    { id: 'reply', label: t('reply'), icon: CornerUpLeft, onSelect: onReply },
+    {
+      id: 'react',
+      label: t('react'),
+      icon: SmilePlus,
+      items: QUICK_EMOJIS.map((emoji) => ({
+        id: `react-${emoji}`,
+        label: emoji,
+        onSelect: () => onReact(emoji),
+      })),
+    },
+    ...(message.content_text
+      ? [
+          {
+            id: 'copy',
+            label: t('copyText'),
+            icon: Copy,
+            onSelect: () => void handleCopy(),
+          },
+        ]
+      : []),
+    ...(canForward
+      ? [
+          {
+            id: 'forward',
+            label: t('forward'),
+            icon: Forward,
+            onSelect: () => onForward?.(),
+          },
+        ]
+      : []),
+  ]);
+
   // Row alignment lives here (not in MessageBubble) so the `group/actions`
   // hover region matches the bubble's content width — hovering empty space
   // in the row no longer reveals the toolbar.
@@ -102,6 +153,10 @@ export function MessageActions({
         isAgent ? 'justify-end' : 'justify-start',
         className
       )}
+      ref={rowRef}
+      onPointerDown={(e) => {
+        lastPointerTypeRef.current = e.pointerType;
+      }}
       onContextMenu={handleContextMenu}
       onBlur={() => setTouchOpen(false)}
     >

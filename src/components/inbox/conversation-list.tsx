@@ -62,7 +62,17 @@ import {
   Radio,
   Phone,
   Share2,
+  MessageSquare,
+  SquareArrowOutUpRight,
+  UserRoundSearch,
+  Copy,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
 import { startOfDay } from 'date-fns';
 import { useLocale, useTranslations } from 'next-intl';
 import { Input } from '@/components/ui/input';
@@ -392,9 +402,9 @@ export function ConversationList({
     tree: chatTagTree,
     reload: reloadChatTags,
   } = useChatTags();
-  const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>(
-    () => [...(initialChatTagIds ?? [])]
-  );
+  const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>(() => [
+    ...(initialChatTagIds ?? []),
+  ]);
   // Rows tagged with ids the loaded list doesn't have: an admin probably
   // added the tag since the list was cached (up to five minutes ago).
   // Read the list again, once per id, as the chat header does; until
@@ -1329,6 +1339,68 @@ const ConversationItem = memo(function ConversationItem({
     onSelect(conversation);
   }, [onSelect, conversation]);
 
+  // Right-click actions (the app-wide menu). Only what the row already
+  // knows and what already exists: selecting, the `?c=` deep link the
+  // inbox writes on selection, the customer page, and copying.
+  const tMenu = useTranslations('ContextMenu');
+  const router = useRouter();
+  const rowRef = useRef<HTMLButtonElement>(null);
+  useContextMenuItems(rowRef, () => {
+    const copied = { copied: tMenu('copied'), failed: tMenu('copyFailed') };
+    const contactId = conversation.contact_id || contact?.id;
+    const items: ContextMenuEntry[] = [
+      {
+        id: 'open',
+        label: tMenu('conversation.open'),
+        icon: MessageSquare,
+        onSelect: () => onSelect(conversation),
+      },
+      {
+        id: 'openNewTab',
+        // The current route, so /team-inbox stays /team-inbox.
+        label: tMenu('conversation.openNewTab'),
+        icon: SquareArrowOutUpRight,
+        onSelect: () =>
+          void window.open(
+            `${window.location.pathname}?c=${encodeURIComponent(conversation.id)}`,
+            '_blank',
+            'noopener,noreferrer'
+          ),
+      },
+    ];
+    // A chat shared with a coordinator (migration 133) does not extend
+    // the customer to them: `can_view_contact` is unchanged by a share.
+    if (contactId && !sharedBank) {
+      items.push({
+        id: 'openCustomer',
+        label: tMenu('conversation.openCustomer'),
+        icon: UserRoundSearch,
+        onSelect: () =>
+          router.push(`/contacts/${encodeURIComponent(contactId)}`),
+      });
+    }
+    if (contact?.phone || contact?.name) items.push({ type: 'separator' });
+    const phone = contact?.phone;
+    if (phone) {
+      items.push({
+        id: 'copyPhone',
+        label: tMenu('conversation.copyPhone'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(phone, copied),
+      });
+    }
+    const name = contact?.name;
+    if (name) {
+      items.push({
+        id: 'copyName',
+        label: tMenu('conversation.copyName'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(name, copied),
+      });
+    }
+    return items;
+  });
+
   const time = formatListTimestamp(
     conversation.last_message_at,
     new Date(today),
@@ -1342,6 +1414,7 @@ const ConversationItem = memo(function ConversationItem({
 
   return (
     <button
+      ref={rowRef}
       onClick={handleClick}
       aria-current={isActive ? 'true' : undefined}
       className={cn(
