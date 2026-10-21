@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { FileText, Sparkles } from 'lucide-react';
 
@@ -110,6 +110,7 @@ export function MessageRow({
   const tRole = useTranslations('Sidebar');
   const { peopleById, people, userId } = useChatWorkspaceContext();
   const edits = useMessageEdits(message);
+  const rowRef = useRef<HTMLDivElement>(null);
   const m = edits.shown;
   const system = m.authorKind === 'system';
   const person: ChatPerson | undefined = m.authorId
@@ -172,6 +173,7 @@ export function MessageRow({
 
   return (
     <div
+      ref={rowRef}
       id={anchor ? `message-${m.id}` : undefined}
       data-message-id={m.id}
       className={cn(
@@ -188,6 +190,7 @@ export function MessageRow({
           onOpenThread={onOpenThread}
           onEdit={() => edits.setEditing(true)}
           onDelete={edits.remove}
+          rowRef={rowRef}
         />
       )}
       <div className="w-9 shrink-0">

@@ -7708,6 +7708,11 @@
       "openCustomer": "Open customer page",
       "copyPhone": "Copy phone number",
       "copyName": "Copy name"
+    },
+    "chat": {
+      "react": "React",
+      "copyMessageLink": "Copy link to message",
+      "markRead": "Mark as read"
     }
   }
 }

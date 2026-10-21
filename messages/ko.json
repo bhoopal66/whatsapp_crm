@@ -7708,6 +7708,11 @@
       "openCustomer": "고객 페이지 열기",
       "copyPhone": "전화번호 복사",
       "copyName": "이름 복사"
+    },
+    "chat": {
+      "react": "반응 남기기",
+      "copyMessageLink": "메시지 링크 복사",
+      "markRead": "읽음으로 표시"
     }
   }
 }

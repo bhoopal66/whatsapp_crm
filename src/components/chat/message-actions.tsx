@@ -1,18 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import {
   Bookmark,
   BookmarkMinus,
   Copy,
   History,
+  Link as LinkIcon,
   Loader2,
   MessagesSquare,
   MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
+  SmilePlus,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,6 +35,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 import {
   deleteMessageAndFiles,
   editMessage,
@@ -40,6 +47,7 @@ import {
   type ChatMessage,
   type MessageEdit,
 } from '@/lib/chat';
+import { chatHref } from '@/lib/chat/compose';
 import { deserializeBody } from '@/lib/chat/composer';
 import { editSubmission } from '@/lib/chat/composer-input';
 import {
@@ -160,6 +168,8 @@ export function MessageEditor({
   );
 }
 
+const NO_ROW: RefObject<HTMLDivElement | null> = { current: null };
+
 const ICON_BUTTON =
   'hover:bg-muted flex size-7 items-center justify-center rounded-md text-sm';
 
@@ -237,6 +247,7 @@ export function MessageActions({
   onOpenThread,
   onEdit,
   onDelete,
+  rowRef,
 }: {
   message: ChatMessage;
   ctx: RowActionContext;
@@ -244,15 +255,17 @@ export function MessageActions({
   onOpenThread?: (rootId: string) => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** The message row: right-click there offers the same actions. */
+  rowRef?: RefObject<HTMLDivElement | null>;
 }) {
   const t = useTranslations('Chat');
-  const { people, fail } = useChatWorkspaceContext();
+  const tMenu = useTranslations('ContextMenu');
+  const { people, channels, fail } = useChatWorkspaceContext();
   const marks = useMessageMarks();
   const [confirming, setConfirming] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const can = messageActions(m, ctx);
   const history = canViewEditHistory(m, ctx.workspaceAdmin);
-  if (!Object.values(can).some(Boolean)) return null;
   const pinned = marks.pinned.has(m.id);
   const saved = marks.saved.has(m.id);
   const mine = (emoji: string) =>
@@ -265,6 +278,126 @@ export function MessageActions({
     navigator.clipboard
       .writeText(plainText(m.body, people, t('unknownPerson')))
       .then(() => toast.success(t('actions.copied')), fail);
+  // A deal room's Team notes redirect to the room page, which drops
+  // ?message=, so a link there would not lead to the message.
+  const linkable =
+    channels?.find((c) => c.id === m.channelId)?.kind !== 'deal_room';
+
+  // Registered before the early return below: hooks run on every render.
+  useContextMenuItems(rowRef ?? NO_ROW, (): ContextMenuEntry[] =>
+    !Object.values(can).some(Boolean)
+      ? []
+      : [
+          ...(can.thread
+            ? [
+                {
+                  id: 'thread',
+                  label: t('actions.replyInThread'),
+                  icon: MessagesSquare,
+                  onSelect: thread,
+                },
+              ]
+            : []),
+          ...(can.react
+            ? [
+                {
+                  id: 'react',
+                  label: tMenu('chat.react'),
+                  icon: SmilePlus,
+                  items: QUICK_REACTIONS.map((emoji) => ({
+                    id: `react-${emoji}`,
+                    label: emoji,
+                    onSelect: () => onToggleReaction(m.id, emoji),
+                  })),
+                },
+              ]
+            : []),
+          { type: 'separator' },
+          ...(can.copy
+            ? [
+                {
+                  id: 'copy',
+                  label: t('actions.copy'),
+                  icon: Copy,
+                  onSelect: () => void copy(),
+                },
+              ]
+            : []),
+          ...(can.copy && linkable
+            ? [
+                {
+                  id: 'copyLink',
+                  label: tMenu('chat.copyMessageLink'),
+                  icon: LinkIcon,
+                  onSelect: () =>
+                    void copyWithToast(
+                      window.location.origin +
+                        chatHref(m.channelId, {
+                          thread: m.threadRootId,
+                          message: m.id,
+                        }),
+                      { copied: tMenu('copied'), failed: tMenu('copyFailed') }
+                    ),
+                },
+              ]
+            : []),
+          { type: 'separator' },
+          ...(can.pin
+            ? [
+                {
+                  id: 'pin',
+                  label: t(pinned ? 'actions.unpin' : 'actions.pin'),
+                  icon: pinned ? PinOff : Pin,
+                  onSelect: () => void marks.setPinned(m.id, !pinned),
+                },
+              ]
+            : []),
+          ...(can.save
+            ? [
+                {
+                  id: 'save',
+                  label: t(saved ? 'actions.unsave' : 'actions.save'),
+                  icon: saved ? BookmarkMinus : Bookmark,
+                  onSelect: () => void marks.setSaved(m.id, !saved),
+                },
+              ]
+            : []),
+          ...(can.edit
+            ? [
+                {
+                  id: 'edit',
+                  label: t('actions.edit'),
+                  icon: Pencil,
+                  onSelect: onEdit,
+                },
+              ]
+            : []),
+          ...(history
+            ? [
+                {
+                  id: 'history',
+                  label: t('actions.history'),
+                  icon: History,
+                  onSelect: () => setShowHistory(true),
+                },
+              ]
+            : []),
+          { type: 'separator' },
+          ...(can.delete
+            ? [
+                {
+                  id: 'delete',
+                  label: t('actions.delete'),
+                  icon: Trash2,
+                  destructive: true,
+                  onSelect: () => setConfirming(true),
+                },
+              ]
+            : []),
+        ]
+  );
+
+  if (!Object.values(can).some(Boolean)) return null;
 
   return (
     <>
