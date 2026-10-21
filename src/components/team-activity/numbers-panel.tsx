@@ -16,9 +16,9 @@ import { cn } from '@/lib/utils';
 import { LevelIcon, StatusBadge, TONE_BAR, useFindingCopy } from './shared';
 
 const SCORE_TONE: Record<1 | 2 | 3, string> = {
-  1: 'bg-red-500/10 text-red-700 [[data-mode=dark]_&]:text-red-400',
-  2: 'bg-amber-500/10 text-amber-700 [[data-mode=dark]_&]:text-amber-400',
-  3: 'bg-emerald-500/10 text-emerald-700 [[data-mode=dark]_&]:text-emerald-400',
+  1: 'bg-destructive-soft text-destructive',
+  2: 'bg-warning-soft text-warning',
+  3: 'bg-success-soft text-success',
 };
 
 function Score({ label, score }: { label: string; score: SafetyScore }) {
@@ -126,9 +126,7 @@ export function NumbersPanel({
               <p
                 className={cn(
                   'text-sm font-medium',
-                  connected
-                    ? 'text-emerald-700 [[data-mode=dark]_&]:text-emerald-400'
-                    : 'text-red-700 [[data-mode=dark]_&]:text-red-400'
+                  connected ? 'text-success' : 'text-destructive'
                 )}
               >
                 {t(connected ? 'connected' : 'disconnected')}
@@ -163,7 +161,7 @@ export function NumbersPanel({
                     </p>
                   )}
                   {n.warmingUp && (
-                    <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-800 [[data-mode=dark]_&]:text-amber-300">
+                    <p className="bg-warning-soft text-warning mt-2 rounded-lg px-3 py-2 text-sm">
                       {t('warmingUp', { limit: bar.limit })}
                     </p>
                   )}

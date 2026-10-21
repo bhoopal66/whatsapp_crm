@@ -63,7 +63,7 @@ const STATUS_LABELS = (t: ReturnType<typeof useTranslations>): Record<FlowRow["s
 
 const STATUS_COLORS: Record<FlowRow["status"], string> = {
   draft: "border-border bg-muted text-muted-foreground",
-  active: "border-emerald-600/40 bg-emerald-500/10 text-emerald-300",
+  active: "border-success/30 bg-success-soft text-success",
   archived: "border-border bg-muted/50 text-muted-foreground",
 };
 
@@ -200,12 +200,12 @@ export default function FlowsPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
-            <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+            <h1 className="text-2xl font-bold text-foreground">{t("title")}</h1>
+            <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
               {t("beta")}
             </span>
           </div>
@@ -415,7 +415,7 @@ function FlowCard({
           variant="ghost"
           size="sm"
           onClick={onDelete}
-          className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
+          className="text-destructive hover:bg-destructive-soft hover:text-destructive"
         >
           <Trash2 className="h-3.5 w-3.5" />
           {t("delete")}

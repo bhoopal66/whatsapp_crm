@@ -320,16 +320,16 @@ export default function NotificationsPage() {
                   type="button"
                   onClick={() => void handleClick(n, plan)}
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors",
+                    "flex w-full items-start gap-3 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     isUnread
-                      ? "border-primary/30 bg-primary/5 hover:border-primary/50"
-                      : "border-border bg-card hover:border-border/70",
+                      ? "border-primary/40 border-l-4 border-l-primary bg-primary-soft hover:bg-primary-soft-2"
+                      : "border-border bg-card hover:bg-accent",
                   )}
                 >
                   <div
                     className={cn(
                       "flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg",
-                      isUnread ? "bg-primary/15" : "bg-muted",
+                      isUnread ? "bg-primary-soft-2" : "bg-muted",
                     )}
                     aria-hidden
                   >

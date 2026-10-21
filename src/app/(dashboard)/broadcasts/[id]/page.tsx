@@ -449,7 +449,7 @@ export default function BroadcastDetailPage() {
   if (error || !broadcast) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
-        <p className="text-sm text-red-400">{error ?? t('notFound')}</p>
+        <p className="text-destructive text-sm">{error ?? t('notFound')}</p>
         <Button variant="outline" onClick={() => router.push('/broadcasts')}>
           {t('backToBroadcasts')}
         </Button>
@@ -531,8 +531,8 @@ export default function BroadcastDetailPage() {
             because orphaning in-flight Meta messages would leave the
             funnel inconsistent. */}
         {confirmDelete ? (
-          <div className="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm">
-            <span className="text-red-300">{t('deletePrompt')}</span>
+          <div className="border-destructive/30 bg-destructive-soft flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+            <span className="text-destructive">{t('deletePrompt')}</span>
             <Button
               variant="outline"
               size="sm"
@@ -546,7 +546,7 @@ export default function BroadcastDetailPage() {
               size="sm"
               onClick={handleDelete}
               disabled={deleting}
-              className="h-7 bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              className="bg-destructive hover:bg-destructive/90 h-7 text-white disabled:opacity-50"
             >
               {deleting ? t('deleting') : t('confirm')}
             </Button>
@@ -562,7 +562,7 @@ export default function BroadcastDetailPage() {
                 ? t('cannotDeleteSending')
                 : t('deleteHover')
             }
-            className="border-red-500/30 bg-transparent text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+            className="border-destructive/30 text-destructive hover:bg-destructive-soft bg-transparent disabled:opacity-40"
           >
             <Trash2 className="h-3.5 w-3.5" />
             {t('delete')}
@@ -574,9 +574,9 @@ export default function BroadcastDetailPage() {
           now" is the same server-side pass a resume runs — it ignores
           the appointment and delivers the pending rows immediately. */}
       {broadcast.status === 'scheduled' && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+        <div className="border-info/30 bg-info-soft flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
           <div className="flex items-start gap-3 text-sm">
-            <CalendarClock className="mt-0.5 h-4 w-4 text-blue-400" />
+            <CalendarClock className="text-info mt-0.5 h-4 w-4" />
             <div>
               <p className="text-foreground font-medium">
                 {t('scheduledTitle', {
@@ -703,28 +703,28 @@ export default function BroadcastDetailPage() {
           value={broadcast.delivered_count}
           total={broadcast.total_recipients}
           icon={<CheckCheck className="h-4 w-4" />}
-          color="bg-teal-500/10 text-teal-400"
+          color="bg-teal-500/10 text-teal-600 dark:text-teal-400"
         />
         <StatCard
           label={t('stats.read')}
           value={broadcast.read_count}
           total={broadcast.total_recipients}
           icon={<Eye className="h-4 w-4" />}
-          color="bg-blue-500/10 text-blue-400"
+          color="bg-blue-500/10 text-blue-600 dark:text-blue-400"
         />
         <StatCard
           label={t('stats.replied')}
           value={broadcast.replied_count}
           total={broadcast.total_recipients}
           icon={<MessageCircle className="h-4 w-4" />}
-          color="bg-indigo-500/10 text-indigo-400"
+          color="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
         />
         <StatCard
           label={t('stats.failed')}
           value={broadcast.failed_count}
           total={broadcast.total_recipients}
           icon={<AlertCircle className="h-4 w-4" />}
-          color="bg-red-500/10 text-red-400"
+          color="bg-destructive-soft text-destructive"
         />
       </div>
 
@@ -873,7 +873,7 @@ export default function BroadcastDetailPage() {
                           ? new Date(recipient.read_at).toLocaleString()
                           : '-'}
                       </TableCell>
-                      <TableCell className="max-w-xs truncate text-xs text-red-400">
+                      <TableCell className="text-destructive max-w-xs truncate text-xs">
                         {recipient.error_message ?? '-'}
                       </TableCell>
                     </TableRow>

@@ -15,26 +15,24 @@ import {
 } from '@/lib/team-activity/risk';
 import { cn } from '@/lib/utils';
 
-// Dark tones use `[[data-mode=dark]_&]:`, not `dark:`. The app sets
-// `data-mode` on <html> and never a `.dark` class, so a `dark:` class
-// here would never apply (see globals.css).
+// Tones are the mode-aware status tokens (success / warning /
+// destructive in globals.css), so one class reads in both modes.
 export const TONE_TEXT: Record<Tone, string> = {
-  good: 'text-emerald-700 [[data-mode=dark]_&]:text-emerald-400',
-  warn: 'text-amber-700 [[data-mode=dark]_&]:text-amber-400',
-  bad: 'text-red-700 [[data-mode=dark]_&]:text-red-400',
+  good: 'text-success',
+  warn: 'text-warning',
+  bad: 'text-destructive',
 };
 
 export const TONE_BAR: Record<Tone, string> = {
-  good: 'bg-emerald-500',
-  warn: 'bg-amber-500',
-  bad: 'bg-red-500',
+  good: 'bg-success',
+  warn: 'bg-warning',
+  bad: 'bg-destructive',
 };
 
 const STATUS_TONE: Record<PersonStatus, string> = {
-  fine: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 [[data-mode=dark]_&]:text-emerald-400',
-  watch:
-    'border-amber-500/30 bg-amber-500/10 text-amber-700 [[data-mode=dark]_&]:text-amber-400',
-  act: 'border-red-500/30 bg-red-500/10 text-red-700 [[data-mode=dark]_&]:text-red-400',
+  fine: 'border-success/30 bg-success-soft text-success',
+  watch: 'border-warning/30 bg-warning-soft text-warning',
+  act: 'border-destructive/30 bg-destructive-soft text-destructive',
 };
 
 export const LEVEL_STATUS: Record<FindingLevel, PersonStatus> = {
@@ -84,9 +82,7 @@ export function LevelIcon({
     <Icon
       className={cn(
         'h-4 w-4 shrink-0',
-        level === 'act_now'
-          ? 'text-red-600 [[data-mode=dark]_&]:text-red-400'
-          : 'text-amber-600 [[data-mode=dark]_&]:text-amber-400',
+        level === 'act_now' ? 'text-destructive' : 'text-warning',
         className
       )}
       aria-hidden

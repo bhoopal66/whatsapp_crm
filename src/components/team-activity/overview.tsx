@@ -35,7 +35,7 @@ export function AttentionList({ items }: { items: AttentionItem[] }) {
         {t('title')}
       </h2>
       {items.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 [[data-mode=dark]_&]:text-emerald-400">
+        <div className="border-success/30 bg-success-soft text-success flex items-center gap-2 rounded-xl border px-4 py-3 text-sm">
           <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
           {t('empty')}
         </div>
@@ -50,8 +50,8 @@ export function AttentionList({ items }: { items: AttentionItem[] }) {
                 className={cn(
                   'bg-card flex gap-3 rounded-xl border border-l-4 p-4',
                   act
-                    ? 'border-red-500/30 border-l-red-500'
-                    : 'border-amber-500/30 border-l-amber-500'
+                    ? 'border-destructive/30 border-l-destructive'
+                    : 'border-warning/30 border-l-warning'
                 )}
               >
                 <LevelIcon level={f.level} className="mt-0.5" />

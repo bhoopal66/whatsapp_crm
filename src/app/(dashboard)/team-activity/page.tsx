@@ -357,7 +357,7 @@ export default function TeamActivityPage() {
       </div>
 
       {error && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 [[data-mode=dark]_&]:text-red-400">
+        <div className="border-destructive/30 bg-destructive-soft text-destructive flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm">
           <span>{error}</span>
           <Button type="button" variant="outline" size="sm" onClick={reload}>
             {t('retry')}
