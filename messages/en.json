@@ -7343,6 +7343,14 @@
     }
   },
   "CaseSettings": {
+    "compass": {
+      "label": "Submitted cases are managed in Compass",
+      "help": "When on, stage, bank, product, amount and document status of a submitted case are set only by Compass. Notes, tasks, priority, due date and document requests stay open. Leads are not affected.",
+      "readOnly": "Only owners and admins can change this.",
+      "loadFailed": "Could not load this setting. Reload the page to try again.",
+      "turnedOn": "Submitted cases are now managed in Compass.",
+      "turnedOff": "Submitted cases can be changed in the CRM again."
+    },
     "title": "Cases",
     "description": "Set up the Cases module for each bank: its stages, task templates, required documents and SLA timers.",
     "loadFailed": "Could not load these settings. Reload the page to try again.",
