@@ -233,7 +233,7 @@ export function CreateGroupDialog({
         ) : phase.kind === 'unsaved' ? (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div
-              className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200"
+              className="border-warning/30 bg-warning-soft text-foreground space-y-2 rounded-lg border p-3 text-sm"
               role="alert"
             >
               <p className="font-semibold">{t('unsavedHeadline')}</p>
@@ -480,7 +480,7 @@ function ResultView({
           </section>
         )}
         {pending.length > 0 && (
-          <section className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200">
+          <section className="border-warning/30 bg-warning-soft text-foreground space-y-1 rounded-lg border p-3">
             <h3 className="font-semibold">
               {t('resultRefused', { count: pending.length })}
             </h3>
@@ -528,7 +528,7 @@ function ResultView({
           </section>
         )}
         {warnings.length > 0 && (
-          <section className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200">
+          <section className="border-warning/30 bg-warning-soft text-foreground space-y-1 rounded-lg border p-3">
             <h3 className="font-semibold">{t('resultWarnings')}</h3>
             <ul className="list-disc space-y-0.5 ps-4">
               {warnings.map((w) => (

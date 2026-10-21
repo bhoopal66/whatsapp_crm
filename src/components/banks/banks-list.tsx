@@ -84,7 +84,7 @@ export function BanksList() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6">
+    <div className="w-full space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold">{t('title')}</h1>
@@ -150,7 +150,7 @@ export function BanksList() {
             <li key={w.bankWsId}>
               <Link
                 href={`/banks/${w.bankWsId}`}
-                className="border-border bg-card hover:bg-muted/60 flex items-start justify-between gap-2 rounded-xl border p-4 transition-colors"
+                className="border-border bg-card hover:bg-accent flex items-start justify-between gap-2 rounded-xl border p-4 transition-colors"
               >
                 <span className="min-w-0">
                   <span className="block truncate font-semibold">
@@ -164,7 +164,7 @@ export function BanksList() {
                   className={cn(
                     chip,
                     w.access === 'admin'
-                      ? 'bg-sky-500/15 text-sky-700 [[data-mode=dark]_&]:text-sky-300'
+                      ? 'bg-info-soft text-info'
                       : 'bg-muted text-foreground'
                   )}
                 >

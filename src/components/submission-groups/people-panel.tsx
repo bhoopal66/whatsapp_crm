@@ -132,7 +132,7 @@ export function PeoplePanel({
                   </Button>
                 </>
               ) : (
-                <span className="bg-wa-green/15 text-wa-green shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
                   {tl(a.label)}
                 </span>
               )}

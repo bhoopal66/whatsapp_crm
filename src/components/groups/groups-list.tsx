@@ -160,7 +160,7 @@ export function GroupsList() {
   const now = new Date();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
+    <div className="w-full space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold">{t('title')}</h1>
@@ -328,7 +328,7 @@ function GroupRow({ group: g, now }: { group: GroupListItem; now: Date }) {
       <Link
         href={`/groups/${g.id}`}
         className={cn(
-          'border-border bg-card hover:bg-muted/60 flex items-center gap-3 rounded-xl border p-3 transition-colors sm:p-4',
+          'border-border bg-card hover:bg-accent flex items-center gap-3 rounded-xl border p-3 transition-colors sm:p-4',
           left && 'opacity-60'
         )}
       >
@@ -353,7 +353,7 @@ function GroupRow({ group: g, now }: { group: GroupListItem; now: Date }) {
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate font-semibold">{g.name || '—'}</span>
             {g.our_role === 'admin' && (
-              <span className="bg-wa-green/15 text-wa-green shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+              <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
                 {t('adminBadge')}
               </span>
             )}

@@ -303,7 +303,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
                       {tick === 'single' && <Check className="size-3.5" />}
                       {tick === 'double' && <CheckCheck className="size-3.5" />}
                       {tick === 'read' && (
-                        <CheckCheck className="size-3.5 text-sky-500" />
+                        <CheckCheck className="text-wa-tick-read size-3.5" />
                       )}
                       {tick === 'failed' && (
                         <AlertCircle className="text-destructive size-3.5" />

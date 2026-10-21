@@ -41,7 +41,7 @@ export function BankSummaryStrip({ summary }: { summary: BankSummary }) {
           className={cn(
             chip,
             summary.openActions > 0
-              ? 'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300'
+              ? 'bg-warning-soft text-warning'
               : 'bg-muted text-muted-foreground'
           )}
         >

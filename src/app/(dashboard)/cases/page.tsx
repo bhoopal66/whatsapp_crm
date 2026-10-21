@@ -9,7 +9,7 @@ import { CasesInbox } from '@/components/cases/cases-inbox';
 export default function CasesPage() {
   return (
     <Suspense
-      fallback={<div className="bg-muted m-6 h-40 animate-pulse rounded-xl" />}
+      fallback={<div className="bg-muted h-40 animate-pulse rounded-xl" />}
     >
       <CasesInbox />
     </Suspense>

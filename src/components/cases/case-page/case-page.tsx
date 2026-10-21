@@ -362,7 +362,7 @@ export function CasePage({ caseId }: { caseId: string }) {
             {c.isLead && (
               <p
                 role="note"
-                className="bg-muted text-muted-foreground mt-1.5 rounded-md px-2 py-1 text-xs"
+                className="bg-info-soft text-muted-foreground border-info/30 mt-1.5 rounded-md border px-2 py-1 text-xs"
               >
                 <span className="text-foreground font-medium">
                   {t('lead.banner')}

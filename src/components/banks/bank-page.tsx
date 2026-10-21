@@ -214,7 +214,7 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
     return <div className="bg-muted m-6 h-40 animate-pulse rounded-xl" />;
   if (page === 'missing' || page === 'error')
     return (
-      <div className="mx-auto max-w-5xl space-y-3 p-4 md:p-6">
+      <div className="mx-auto max-w-5xl space-y-3">
         {back}
         <p className="text-destructive text-sm">
           {page === 'missing' ? t('notFound') : t('loadFailed')}
@@ -243,7 +243,7 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
     );
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-5xl space-y-4">
       {back}
       <div className="min-w-0">
         <h1 className="text-xl font-bold">
@@ -394,7 +394,7 @@ function ThreadsTab({
                 <button
                   type="button"
                   onClick={() => onOpen(th.threadId)}
-                  className="border-border bg-card hover:bg-muted/60 block w-full space-y-1.5 rounded-xl border p-3 text-left transition-colors"
+                  className="border-border bg-card hover:bg-accent block w-full space-y-1.5 rounded-xl border p-3 text-left transition-colors"
                 >
                   <span className="block font-semibold break-words">
                     {th.title}
@@ -421,10 +421,7 @@ function ThreadsTab({
                     )}
                     {th.actionDueAt && (
                       <span
-                        className={cn(
-                          chip,
-                          'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300'
-                        )}
+                        className={cn(chip, 'bg-warning-soft text-warning')}
                       >
                         {t('threads.actionChip', {
                           name: name(th.actionOwnerId),
@@ -677,12 +674,7 @@ function ThreadView({
             {thread.title}
           </h2>
           {thread.actionDueAt ? (
-            <span
-              className={cn(
-                chip,
-                'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300'
-              )}
-            >
+            <span className={cn(chip, 'bg-warning-soft text-warning')}>
               {t('threads.actionChip', {
                 name: name(thread.actionOwnerId),
                 due: when(thread.actionDueAt),

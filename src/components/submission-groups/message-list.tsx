@@ -55,16 +55,14 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                     out && 'bg-wa-bubble-out text-foreground',
                     kind === 'customer' && 'bg-wa-bubble-in text-foreground',
                     kind === 'coordinator' &&
-                      'text-foreground border border-sky-500/30 bg-sky-500/10',
+                      'text-foreground border-info/30 bg-info-soft border',
                     kind === 'other' && 'bg-muted text-foreground'
                   )}
                 >
                   <p
                     className={cn(
                       'flex flex-wrap items-center gap-1.5 text-xs font-medium',
-                      kind === 'coordinator'
-                        ? 'text-sky-700 [[data-mode=dark]_&]:text-sky-300'
-                        : 'text-primary'
+                      kind === 'coordinator' ? 'text-info' : 'text-primary'
                     )}
                   >
                     <span>{sender ?? t('someone')}</span>
@@ -74,7 +72,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       </span>
                     )}
                     {m.post_end && (
-                      <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 [[data-mode=dark]_&]:text-amber-300">
+                      <span className="bg-warning-soft text-warning rounded-full px-1.5 py-0.5 text-[10px] font-medium">
                         {t('afterEnd')}
                       </span>
                     )}

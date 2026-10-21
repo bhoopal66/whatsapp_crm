@@ -150,10 +150,7 @@ export function MemberPicker({
           </ul>
         )}
         {merged.unusableContacts.map((c) => (
-          <p
-            key={c.id}
-            className="text-xs text-amber-700 [[data-mode=dark]_&]:text-amber-300"
-          >
+          <p key={c.id} className="text-warning text-xs">
             {t('noPhone', { name: c.name || c.id })}
           </p>
         ))}
@@ -180,7 +177,7 @@ export function MemberPicker({
         className={cn(
           'space-y-1 rounded-lg border p-3 text-xs',
           over
-            ? 'border-amber-300 bg-amber-50 text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200'
+            ? 'border-warning/30 bg-warning-soft text-foreground'
             : 'border-border bg-muted/40 text-muted-foreground'
         )}
       >

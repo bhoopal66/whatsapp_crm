@@ -13,7 +13,7 @@ export const LEAD_PRODUCT_MAX = 200;
 
 /** The "Lead" chip's colours (inbox rows and the customer page's Cases card). */
 export const LEAD_CHIP =
-  'bg-sky-500/15 text-sky-700 [[data-mode=dark]_&]:text-sky-300';
+  'bg-info-soft text-info ring-1 ring-info/30 ring-inset';
 export const LEAD_SOURCE_MAX = 200;
 
 export interface LeadFormInput {

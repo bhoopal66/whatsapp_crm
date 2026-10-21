@@ -6,9 +6,9 @@ import { slaChipTone, type ChipTone } from '@/lib/cases/case-page';
 import { cn } from '@/lib/utils';
 
 const TONE: Record<ChipTone, string> = {
-  ok: 'bg-wa-green/15 text-wa-green',
-  warn: 'bg-amber-500/15 text-amber-800 [[data-mode=dark]_&]:text-amber-200',
-  bad: 'bg-destructive/10 text-destructive',
+  ok: 'bg-success-soft text-success ring-1 ring-success/30 ring-inset',
+  warn: 'bg-warning-soft text-warning ring-1 ring-warning/30 ring-inset',
+  bad: 'bg-destructive-soft text-destructive ring-1 ring-destructive/30 ring-inset',
   muted: 'bg-muted text-muted-foreground',
 };
 
