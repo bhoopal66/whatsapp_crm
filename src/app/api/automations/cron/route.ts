@@ -14,6 +14,7 @@ import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
 import { evaluateCaseSla, sweepCaseGroupEnds } from '@/lib/cases/cron'
 import { caseSlaStore, caseStore } from '@/lib/cases/server'
 import { memoryStore } from '@/lib/memory/server'
+import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { dispatchPush } from '@/lib/push/dispatch'
@@ -346,6 +347,50 @@ function scheduleMemoryExpiry() {
 }
 
 /**
+ * Outbound webhook outbox (migration 134): the events SQL enqueued
+ * (case.stage_changed, submission_group.*, …) are claimed and sent at
+ * most once a minute per process, and delivered rows older than 7 days
+ * are purged once a day, both inside after(). A failure is only logged.
+ */
+const webhookOutboxDue = everyInterval(60_000)
+const webhookOutboxPurgeDue = everyInterval(24 * 60 * 60_000)
+
+function scheduleWebhookOutbox() {
+  try {
+    const drain = webhookOutboxDue()
+    const purge = webhookOutboxPurgeDue()
+    if (!drain && !purge) return
+    after(async () => {
+      if (drain) {
+        try {
+          await drainWebhookOutbox(supabaseAdmin())
+        } catch (err) {
+          console.error(
+            '[automations-cron] webhook outbox drain failed:',
+            err instanceof Error ? err.message : err,
+          )
+        }
+      }
+      if (purge) {
+        try {
+          await purgeWebhookOutbox(supabaseAdmin())
+        } catch (err) {
+          console.error(
+            '[automations-cron] webhook outbox purge failed:',
+            err instanceof Error ? err.message : err,
+          )
+        }
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the webhook outbox:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * The phone system's work (recordings, call-backs, event retries,
  * purge; GET /api/pbx/cron) rides along at most once a minute per
  * process, inside after(). It stops starting work after 45 s, and a
@@ -536,6 +581,7 @@ export async function GET(request: Request) {
     scheduleCaseSla()
     scheduleCaseGroupEnds()
     scheduleMemoryExpiry()
+    scheduleWebhookOutbox()
     schedulePbxCron()
     schedulePushDispatch()
     scheduleCalendarReminders()
