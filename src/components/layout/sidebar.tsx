@@ -261,6 +261,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
         )}
         aria-label="Primary"
+        // Navigation is dark in both modes: users found a light sidebar
+        // too bright next to light pages (2026-10-21).
+        data-mode="dark"
       >
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Logo row. On mobile we put a close button here; on desktop the
