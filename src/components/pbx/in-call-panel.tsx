@@ -329,7 +329,7 @@ function Panel() {
       aria-label={t('onCall', { extension: me.extension, mode: '' })}
       className="bg-card text-card-foreground fixed inset-0 z-50 flex flex-col shadow-2xl sm:inset-auto sm:top-14 sm:right-0 sm:bottom-0 sm:w-[530px] sm:border-l"
     >
-      <div className="bg-[#101B18] p-5 text-white">
+      <div className="bg-[#0f1b2d] p-5 text-white">
         <div className="flex items-center justify-between gap-2 text-xs text-white/70">
           <span>
             {t('onCall', {
