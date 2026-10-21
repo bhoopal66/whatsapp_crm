@@ -7713,6 +7713,10 @@
       "react": "반응 남기기",
       "copyMessageLink": "메시지 링크 복사",
       "markRead": "읽음으로 표시"
+    },
+    "schedule": {
+      "open": "열기",
+      "openDetails": "세부 정보 열기"
     }
   }
 }

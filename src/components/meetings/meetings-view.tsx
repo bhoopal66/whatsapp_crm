@@ -1,9 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { CalendarDays, Plus, Search, Video } from 'lucide-react';
+import {
+  CalendarDays,
+  ExternalLink,
+  Link2,
+  Plus,
+  Search,
+  Video,
+} from 'lucide-react';
+
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -262,6 +276,10 @@ function MeetingCard({
   personOf: (userId: string) => AvatarPerson;
 }) {
   const t = useTranslations('Meetings');
+  const td = useTranslations('Meetings.detail');
+  const tMenu = useTranslations('ContextMenu');
+  const router = useRouter();
+  const rowRef = useRef<HTMLLIElement>(null);
   const status = meetingDisplayStatus(m, now);
   const live = status === 'live';
   // Join straight from the list once the meeting is on or due; earlier
@@ -270,8 +288,39 @@ function MeetingCard({
   const invitees = [m.hostUserId, ...m.inviteeUserIds].map(personOf);
   const inCall = m.present.map((p) => personOf(p.userId));
 
+  // Cancel and End stay on the detail page, which owns their confirm.
+  useContextMenuItems(rowRef, (): ContextMenuEntry[] => [
+    ...(joinable
+      ? [
+          {
+            id: 'join',
+            label: t('join'),
+            icon: Video,
+            onSelect: () => router.push(`/meetings/${m.id}/room`),
+          },
+        ]
+      : []),
+    {
+      id: 'open',
+      label: tMenu('schedule.openDetails'),
+      icon: ExternalLink,
+      onSelect: () => router.push(`/meetings/${m.id}`),
+    },
+    {
+      id: 'copyLink',
+      label: td('copyLink'),
+      icon: Link2,
+      onSelect: () =>
+        void copyWithToast(`${window.location.origin}/meetings/${m.id}`, {
+          copied: td('linkCopied'),
+          failed: td('copyFailed'),
+        }),
+    },
+  ]);
+
   return (
     <li
+      ref={rowRef}
       className={cn(
         'border-border bg-card flex flex-wrap items-center gap-3 rounded-xl border p-4 sm:flex-nowrap',
         live && 'border-success/40'

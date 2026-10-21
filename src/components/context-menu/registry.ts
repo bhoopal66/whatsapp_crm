@@ -54,6 +54,20 @@ type ItemsGetter = () => readonly ContextMenuEntry[];
 const registry = new WeakMap<Element, ItemsGetter>();
 
 /**
+ * Registers item actions on an element React does not render, e.g. a
+ * FullCalendar event (`eventDidMount`). Returns the unregister call.
+ */
+export function registerContextMenuItems(
+  el: Element,
+  getItems: ItemsGetter
+): () => void {
+  registry.set(el, getItems);
+  return () => {
+    if (registry.get(el) === getItems) registry.delete(el);
+  };
+}
+
+/**
  * Registers item actions for the element behind `ref`. The getter runs
  * at right-click time, so it can read the latest props without the
  * registration being redone on every render.

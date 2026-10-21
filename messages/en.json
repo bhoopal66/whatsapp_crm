@@ -7713,6 +7713,10 @@
       "react": "React",
       "copyMessageLink": "Copy link to message",
       "markRead": "Mark as read"
+    },
+    "schedule": {
+      "open": "Open",
+      "openDetails": "Open details"
     }
   }
 }

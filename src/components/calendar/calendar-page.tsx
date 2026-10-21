@@ -1,14 +1,28 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import {
+  ExternalLink,
+  Link2,
+  Pencil,
+  Trash2,
+  UserRound,
+  Video,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
+import type { ContextMenuEntry } from '@/components/context-menu/registry';
+
 import { MeetingFormDialog } from '@/components/meetings/meeting-form-dialog';
+import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
 import { calendarTimeZone } from '@/lib/calendar/fc-timezone';
 import type { FeedItem } from '@/lib/calendar/feed';
+import { popoverActions } from '@/lib/calendar/ui/popover-rules';
 import {
   eventDragBody,
   isDragRefusal,
@@ -50,6 +64,10 @@ export function CalendarPage({
   initialEventId?: string | null;
 }) {
   const t = useTranslations('Calendar');
+  const tMenu = useTranslations('ContextMenu');
+  const td = useTranslations('Meetings.detail');
+  const router = useRouter();
+  const { user } = useAuth();
   const canCreateMeeting = useCan('create-meetings');
   const fcZone = calendarTimeZone(useMeetingTimeZone());
   const zone =
@@ -112,6 +130,101 @@ export function CalendarPage({
     }
   };
 
+  // The popover's delete guard needs the event's `updated_at`, so the
+  // menu reads the detail first and re-checks the popover's own rule.
+  const deleteFromMenu = async (item: FeedItem) => {
+    try {
+      const detail = await calendarFetch<EventDetail>(
+        `/api/calendar/events/${item.id}`
+      );
+      const allowed = popoverActions(
+        item,
+        {
+          createdBy: detail.event.created_by,
+          canEdit: detail.canEdit,
+          attendees: detail.attendees,
+        },
+        user?.id ?? null
+      ).remove;
+      if (allowed) await deleteItem(item, detail.event.updated_at);
+    } catch (err) {
+      toast.error(t('popover.deleteFailed', { reason: errorText(err) }));
+    }
+  };
+
+  // The popover's actions, gated as it gates them. An event's organiser
+  // is known from the feed (the API's canEdit is the same created_by test).
+  const eventMenuItems = (
+    item: FeedItem,
+    anchorEl: HTMLElement
+  ): ContextMenuEntry[] => {
+    const entries: ContextMenuEntry[] = [
+      {
+        id: 'open',
+        label: tMenu('schedule.openDetails'),
+        icon: ExternalLink,
+        onSelect: () => setPopover({ item, anchorEl }),
+      },
+    ];
+    if (item.kind === 'meeting') {
+      const live = item.status !== 'ended' && item.status !== 'cancelled';
+      if (live) {
+        entries.push({
+          id: 'join',
+          label: t('popover.join'),
+          icon: Video,
+          onSelect: () => router.push(`/meetings/${item.id}/room`),
+        });
+      }
+      entries.push(
+        {
+          id: 'openMeeting',
+          label: t('popover.openMeeting'),
+          icon: ExternalLink,
+          onSelect: () => router.push(`/meetings/${item.id}`),
+        },
+        {
+          id: 'copyLink',
+          label: td('copyLink'),
+          icon: Link2,
+          onSelect: () =>
+            void copyWithToast(
+              `${window.location.origin}/meetings/${item.id}`,
+              { copied: td('linkCopied'), failed: td('copyFailed') }
+            ),
+        }
+      );
+    } else if (item.kind === 'task') {
+      const contactId = item.contactId;
+      if (contactId) {
+        entries.push({
+          id: 'openContact',
+          label: t('popover.openContact'),
+          icon: UserRound,
+          onSelect: () => router.push(`/contacts/${contactId}`),
+        });
+      }
+    } else if (user && item.organizerId === user.id) {
+      entries.push(
+        { type: 'separator' },
+        {
+          id: 'edit',
+          label: t('popover.edit'),
+          icon: Pencil,
+          onSelect: () => void editItem(item),
+        },
+        {
+          id: 'delete',
+          label: t('popover.delete'),
+          icon: Trash2,
+          destructive: true,
+          onSelect: () => void deleteFromMenu(item),
+        }
+      );
+    }
+    return entries;
+  };
+
   const onEventChange = async (
     item: FeedItem,
     newStart: Date,
@@ -167,6 +280,7 @@ export function CalendarPage({
         }
         onCreate={() => openEditor({ mode: 'create' })}
         onEventChange={onEventChange}
+        getEventMenuItems={eventMenuItems}
       />
       <EventPopover
         target={popover}
