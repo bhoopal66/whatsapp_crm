@@ -131,7 +131,7 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
             : null;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">{t('title')}</h1>
@@ -153,10 +153,10 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
               href={k === 'live' ? '/meetings' : `/meetings?scope=${k}`}
               aria-current={scope === k ? 'page' : undefined}
               className={cn(
-                'rounded-full border px-3 py-1 text-sm',
+                'focus-visible:ring-ring/50 rounded-full border px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3',
                 scope === k
-                  ? 'bg-foreground text-background border-transparent'
-                  : 'border-border text-muted-foreground hover:bg-muted'
+                  ? 'border-primary/40 bg-primary-soft text-primary font-medium'
+                  : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
               )}
             >
               {t(`tabs.${k}`)}
@@ -188,7 +188,7 @@ export function MeetingsView({ scope }: { scope: MeetingScope }) {
       ) : current.failed ? (
         <p className="text-destructive text-sm">{t('loadFailed')}</p>
       ) : current.meetings.length === 0 ? (
-        <div className="border-border flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
+        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
           <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
             {scope === 'upcoming' ? (
               <CalendarDays className="size-5" aria-hidden />
@@ -274,14 +274,14 @@ function MeetingCard({
     <li
       className={cn(
         'border-border bg-card flex flex-wrap items-center gap-3 rounded-xl border p-4 sm:flex-nowrap',
-        live && 'border-emerald-300 [[data-mode=dark]_&]:border-emerald-900'
+        live && 'border-success/40'
       )}
     >
       <span
         className={cn(
           'flex size-10 shrink-0 items-center justify-center rounded-xl',
           live
-            ? 'bg-emerald-100 text-emerald-700 [[data-mode=dark]_&]:bg-emerald-950 [[data-mode=dark]_&]:text-emerald-300'
+            ? 'bg-success-soft text-success'
             : 'bg-muted text-muted-foreground'
         )}
       >
@@ -308,7 +308,7 @@ function MeetingCard({
             moreLabel={(n) => t('more', { count: n })}
           />
           {live && (
-            <span className="text-xs text-emerald-700 [[data-mode=dark]_&]:text-emerald-300">
+            <span className="text-success text-xs font-medium">
               {inCall.length > 0
                 ? t('whoIsIn', {
                     names: inCall

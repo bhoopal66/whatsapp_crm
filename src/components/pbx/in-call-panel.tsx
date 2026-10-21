@@ -329,7 +329,7 @@ function Panel() {
       aria-label={t('onCall', { extension: me.extension, mode: '' })}
       className="bg-card text-card-foreground fixed inset-0 z-50 flex flex-col shadow-2xl sm:inset-auto sm:top-14 sm:right-0 sm:bottom-0 sm:w-[530px] sm:border-l"
     >
-      <div className="bg-[#101B18] p-5 text-white">
+      <div className="bg-[#0f1b2d] p-5 text-white">
         <div className="flex items-center justify-between gap-2 text-xs text-white/70">
           <span>
             {t('onCall', {
@@ -352,7 +352,7 @@ function Panel() {
           {formatTimer(talkMs)}
         </p>
         {calls.settings.announcementRequired && (
-          <p className="mt-1 text-xs text-white/55">{t('noticePlayed')}</p>
+          <p className="mt-1 text-xs text-white/70">{t('noticePlayed')}</p>
         )}
         {wrapLeft !== null &&
           (phase === 'counting' ||
@@ -435,7 +435,7 @@ function Panel() {
                   onChange={(e) => setTransfer(e.target.value)}
                   placeholder={t('transferNumber')}
                   aria-label={t('transferNumber')}
-                  className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/40"
+                  className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/55"
                 />
                 <button
                   type="button"

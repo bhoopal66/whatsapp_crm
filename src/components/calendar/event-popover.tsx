@@ -126,8 +126,8 @@ const RESPONSE_ICON: Record<AttendeeResponse, LucideIcon> = {
 };
 
 const RESPONSE_TONE: Record<AttendeeResponse, string> = {
-  accepted: 'text-emerald-600',
-  tentative: 'text-amber-600',
+  accepted: 'text-success',
+  tentative: 'text-warning',
   declined: 'text-destructive',
   pending: 'text-muted-foreground',
 };

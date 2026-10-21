@@ -126,10 +126,10 @@ export function CallReport() {
             onClick={() => setPeriod(p)}
             aria-pressed={period === p}
             className={cn(
-              'rounded-full border px-3 py-1 text-sm',
+              'focus-visible:ring-ring/50 rounded-full border px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3',
               period === p
-                ? 'bg-foreground text-background border-transparent'
-                : 'border-border text-muted-foreground hover:bg-muted'
+                ? 'border-primary/40 bg-primary-soft text-primary font-medium'
+                : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
             {t(`periods.${p}`)}
@@ -153,14 +153,14 @@ export function CallReport() {
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, [k]: e.target.value }))
                 }
-                className="border-border bg-background text-foreground mt-1 block rounded-md border px-2 py-1 text-sm"
+                className="border-input bg-card text-foreground mt-1 block rounded-md border px-2 py-1 text-sm"
               />
             </label>
           ))}
           <button
             type="submit"
             disabled={problem !== null}
-            className="bg-foreground text-background rounded-md px-3 py-1.5 text-sm disabled:opacity-50"
+            className="bg-primary text-primary-foreground hover:bg-primary-hover rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
           >
             {t('apply')}
           </button>

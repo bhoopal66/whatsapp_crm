@@ -159,8 +159,8 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
           className={cn(
             'flex size-9 shrink-0 items-center justify-center rounded-xl',
             missed
-              ? 'bg-red-100 text-red-600 [[data-mode=dark]_&]:bg-red-950 [[data-mode=dark]_&]:text-red-300'
-              : 'bg-emerald-100 text-emerald-700 [[data-mode=dark]_&]:bg-emerald-950 [[data-mode=dark]_&]:text-emerald-300'
+              ? 'bg-destructive-soft text-destructive'
+              : 'bg-success-soft text-success'
           )}
         >
           <Icon className="size-4" aria-hidden />
@@ -185,7 +185,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             className={cn(
               'rounded-full px-2 py-0.5 text-xs',
               task.status === 'open'
-                ? 'bg-amber-100 text-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200'
+                ? 'bg-warning-soft text-warning font-medium'
                 : 'bg-muted text-muted-foreground'
             )}
           >
@@ -265,13 +265,13 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     );
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold">{t('title')}</h1>
         <div className="flex flex-wrap items-center gap-3">
           <Link
             href="/calls/report"
-            className="border-border hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
+            className="border-border bg-card hover:bg-accent inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
           >
             <BarChart3 className="size-4" aria-hidden />
             {t('reportLink')}
@@ -286,10 +286,10 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             href={k === 'mine' ? '/calls' : `/calls?tab=${k}`}
             aria-current={tab === k ? 'page' : undefined}
             className={cn(
-              'rounded-full border px-3 py-1 text-sm',
+              'focus-visible:ring-ring/50 rounded-full border px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3',
               tab === k
-                ? 'bg-foreground text-background border-transparent'
-                : 'border-border text-muted-foreground hover:bg-muted'
+                ? 'border-primary/40 bg-primary-soft text-primary font-medium'
+                : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
             {t(`tabs.${callsTabLabel(k, accountRole)}`)}
@@ -306,7 +306,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             <div
               role="group"
               aria-label={t('missedWho.label')}
-              className="border-border flex rounded-full border p-0.5 text-sm"
+              className="border-border bg-card flex rounded-full border p-0.5 text-sm"
             >
               {([false, true] as const).map((w) => (
                 <button
@@ -317,8 +317,8 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
                   className={cn(
                     'rounded-full px-3 py-0.5',
                     wide === w
-                      ? 'bg-foreground text-background'
-                      : 'text-muted-foreground hover:bg-muted'
+                      ? 'bg-primary-soft text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                   )}
                 >
                   {t(`missedWho.${w ? reach : 'mine'}`)}
@@ -346,13 +346,22 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       ) : current.failed ? (
         <p className="text-destructive text-sm">{t('loadFailed')}</p>
       ) : current.calls.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
-          {tab === 'missed'
-            ? t(wide ? 'emptyMissed' : 'emptyMyMissed')
-            : tab === 'unrouted'
-              ? t('unrouted.empty')
-              : t('emptyLog')}
-        </p>
+        <div className="border-border bg-card flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
+          <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
+            {tab === 'missed' ? (
+              <PhoneMissed className="size-5" aria-hidden />
+            ) : (
+              <Phone className="size-5" aria-hidden />
+            )}
+          </span>
+          <p className="text-muted-foreground text-sm">
+            {tab === 'missed'
+              ? t(wide ? 'emptyMissed' : 'emptyMyMissed')
+              : tab === 'unrouted'
+                ? t('unrouted.empty')
+                : t('emptyLog')}
+          </p>
+        </div>
       ) : split ? (
         <>
           {numbers}

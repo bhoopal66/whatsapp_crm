@@ -94,8 +94,7 @@ import type { EditorRequest } from './calendar-page';
 const SCOPE = '.cal-event-dialog';
 const DIALOG_CSS = paletteCss(SCOPE);
 // Native date/time pickers follow the app's mode, not the OS's.
-const NATIVE_INPUT =
-  '[color-scheme:light] [[data-mode=dark]_&]:[color-scheme:dark]';
+const NATIVE_INPUT = '[color-scheme:light] dark:[color-scheme:dark]';
 
 /**
  * Create or edit a calendar event. Mount it with a fresh `key` per
