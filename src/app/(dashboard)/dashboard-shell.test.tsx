@@ -47,6 +47,9 @@ vi.mock('@/components/pbx/in-call-panel', () => ({ InCallPanel: () => null }));
 vi.mock('@/components/pbx/softphone-mount', () => ({
   SoftphoneMount: () => null,
 }));
+vi.mock('@/components/context-menu/app-context-menu', () => ({
+  AppContextMenu: () => null,
+}));
 
 import { DashboardShell } from './dashboard-shell';
 
