@@ -57,9 +57,7 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-destructive-soft: var(--destructive-soft);
-  --color-rail: var(--rail);
-  --color-rail-item: var(--rail-item);
-  --color-rail-item-hover: var(--rail-item-hover);
+
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-soft-2: var(--primary-soft-2);
@@ -172,10 +170,6 @@ html[data-mode='dark'] {
   --sidebar-accent: oklch(0.265 0.02 255);
   --sidebar-accent-foreground: oklch(0.98 0.003 255);
   --sidebar-border: oklch(0.29 0.018 255);
-  /* Workspace rail: the brand navy, deepened for dark mode. */
-  --rail: oklch(0.2 0.045 250);
-  --rail-item: oklch(0.29 0.05 250);
-  --rail-item-hover: oklch(0.35 0.06 250);
 }
 
 /* Light: a soft blue-grey page under white cards, so panels separate
@@ -216,9 +210,6 @@ html[data-mode='light'] {
   --sidebar-accent: oklch(0.95 0.012 250);
   --sidebar-accent-foreground: oklch(0.2 0.03 258);
   --sidebar-border: oklch(0.9 0.009 252);
-  --rail: oklch(0.27 0.06 250);
-  --rail-item: oklch(0.35 0.06 250);
-  --rail-item-hover: oklch(0.41 0.07 250);
 }
 
 /* ---- INBOX: WhatsApp surfaces ----
