@@ -228,8 +228,8 @@ html[data-mode='light'] {
  * deliberately independent of the accent: an unread marker that turns
  * violet or amber with the theme is the confusion this replaces.
  *
- * Use these through Tailwind (bg-wa-*, text-wa-*), not `dark:` — that
- * variant keys on a `.dark` class this app never sets.
+ * Use these through Tailwind (bg-wa-*, text-wa-*) rather than pairing
+ * raw colours with `dark:`, so the whole inbox switches in one place.
  */
 
 :root,
