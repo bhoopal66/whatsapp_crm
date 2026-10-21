@@ -24,10 +24,10 @@ const ERROR_TEXT = 'text-destructive text-xs';
 
 /**
  * Settings → Team → Workspace (admin+): the workspace's name and the
- * short name on its rail tile, saved through PATCH /api/account, which
+ * short name on its tile in Settings → Workspaces, saved through PATCH /api/account, which
  * sends only what changed. planWorkspaceRename holds the route's rules,
  * so a field is checked as it is typed. After a save, refreshProfile()
- * re-reads the account and my_workspaces(), so the rail and headers
+ * re-reads the account and my_workspaces(), so the workspace list and headers
  * show the new names without a reload.
  *
  * An owner also archives the workspace here, and restores archived

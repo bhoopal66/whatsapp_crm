@@ -42,6 +42,7 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
+    "menuWorkspaces": "Workspaces",
     "menuSignOut": "Sign out",
     "roleTeamLeader": "Team leader",
     "teamInbox": "Team inbox",
@@ -1560,10 +1561,10 @@
     },
     "workspace": {
       "title": "Workspace",
-      "description": "This workspace's name, and the short name on its tile in the workspace rail. Everyone in the workspace sees the change.",
+      "description": "This workspace's name, and the short name on its tile in Settings → Workspaces. Everyone in the workspace sees the change.",
       "nameLabel": "Workspace name",
       "shortNameLabel": "Short name",
-      "shortNameHint": "Up to 4 letters or digits, shown on the workspace rail.",
+      "shortNameHint": "Up to 4 letters or digits, shown on its tile in Settings → Workspaces.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Workspace updated",
@@ -2112,6 +2113,7 @@
     "sections": {
       "overview": "Overview",
       "profile": "Profile",
+      "workspaces": "Workspaces",
       "security": "Login & security",
       "appearance": "Appearance",
       "notifications": "Notifications",
@@ -4530,12 +4532,20 @@
     }
   },
   "Workspaces": {
-    "rail": {
-      "label": "Workspaces",
-      "create": "Create a workspace",
+    "list": {
+      "title": "Workspaces",
+      "description": "Every workspace you belong to. Switch to work in another one; the whole app reloads there.",
+      "create": "Create workspace",
+      "active": "Active",
+      "switch": "Switch",
+      "switching": "Switching…",
+      "switchTo": "Switch to {name}",
+      "unnamed": "Unnamed workspace",
+      "empty": "You don’t belong to any workspace yet.",
       "mentions": "{count, plural, one {# mention} other {# mentions}}",
       "unread": "Unread messages",
-      "archived": "Archived — restore it in Settings → Workspace"
+      "archived": "Archived",
+      "archivedHint": "Nobody can enter it until it is restored in Settings → Workspace."
     },
     "bell": {
       "unknown": "Another workspace",
@@ -4547,7 +4557,7 @@
       "nameLabel": "Workspace name",
       "namePlaceholder": "e.g. Taamul Partners",
       "shortNameLabel": "Short name",
-      "shortNameHint": "Up to 4 letters or digits, shown on the workspace rail.",
+      "shortNameHint": "Up to 4 letters or digits, shown on its tile in Settings → Workspaces.",
       "numberLabel": "WhatsApp number for this workspace",
       "numberMeta": "Connect a new number with Meta…",
       "numberWhapi": "Connect a Whapi channel…",

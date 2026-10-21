@@ -11,6 +11,7 @@ import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import { useUnreadNotifications } from '@/hooks/use-unread-notifications';
 import {
+  ArrowLeftRight,
   Crown,
   LogOut,
   Settings,
@@ -23,8 +24,6 @@ import {
 } from 'lucide-react';
 import type { AccountRole } from '@/lib/auth/roles';
 import { workspaceHomePath } from '@/lib/auth/my-workspaces';
-import { showWorkspaceRail } from '@/lib/workspaces/form';
-import { WorkspaceRail } from './workspace-rail';
 import {
   isNavItemActive,
   visibleBottomNavItems,
@@ -104,7 +103,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     signOut,
     workspaces,
     isBankGuest,
-    canManageMembers,
   } = useAuth();
   const totalUnread = useTotalUnread();
   // Only what this role may open; null while the profile loads, so the
@@ -126,14 +124,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // name diverges and the strip becomes meaningful — that's the signal
   // we gate on. Wait for the profile fetch to settle first, otherwise
   // the strip flashes in once the row resolves (a layout jump).
-  // Someone in several workspaces always gets it: the rail's tiles
-  // carry only short names, so this is where the active one is named.
-  //
-  // The workspace rail: another workspace to switch to, or the "+"
-  // that creates one (owner/admin of the active workspace, the gate
-  // POST /api/workspaces applies).
-  const canCreateWorkspace = !profileLoading && canManageMembers;
-  const showRail = showWorkspaceRail(workspaces.length, canCreateWorkspace);
+  // Someone in several workspaces always gets it: this is where the
+  // active one is named (switching lives in Settings → Workspaces).
   const showAccountStrip =
     !profileLoading &&
     !!account?.name &&
@@ -261,19 +253,15 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          // Mobile: fixed drawer that slides in from the left. With the
-          // workspace rail the drawer is a row: rail, then the nav.
-          'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-40 flex h-full flex-row border-r',
-          showRail ? 'w-80' : 'w-64',
+          // Mobile: fixed drawer that slides in from the left.
+          'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-row border-r',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
           // Desktop: static, always visible — reset all the mobile framing.
-          'lg:static lg:z-0 lg:translate-x-0 lg:transition-none',
-          showRail ? 'lg:w-76' : 'lg:w-60'
+          'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
         )}
         aria-label="Primary"
       >
-        {showRail ? <WorkspaceRail canCreate={canCreateWorkspace} /> : null}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
@@ -412,8 +400,25 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 sideOffset={6}
                 className="bg-popover text-popover-foreground ring-border min-w-56"
               >
-                {/* Settings is staff-only: the shell keeps a guest on /chat. */}
-                {isBankGuest ? null : (
+                {/* A guest's Settings is Workspaces alone (the shell keeps
+                  them on /chat and /settings): switching lives there. */}
+                {isBankGuest ? (
+                  <>
+                    <DropdownMenuItem
+                      render={
+                        <Link
+                          href="/settings?tab=workspaces"
+                          onClick={onClose}
+                          className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
+                        />
+                      }
+                    >
+                      <ArrowLeftRight className="size-4" />
+                      {t('menuWorkspaces')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-border" />
+                  </>
+                ) : (
                   <>
                     <DropdownMenuItem
                       render={

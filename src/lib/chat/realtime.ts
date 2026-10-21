@@ -2,7 +2,7 @@
  * One Supabase realtime channel carrying every chat table's changes.
  * RLS is replayed per subscriber, so nothing leaks; the filters only cut
  * the work: `account_id` where the table has it, `user_id` for the bell
- * (the workspace rail wants every workspace's notifications). DELETE
+ * (Settings → Workspaces wants every workspace's notifications). DELETE
  * events carry only the primary key and are not RLS-filtered — the
  * reducers ignore ids they do not hold.
  *

@@ -8,7 +8,7 @@
 //
 // The rules are create_workspace()'s (lib/workspaces/form): a trimmed
 // name of 1–80 characters, a short name of 1–4 ASCII letters or digits
-// (the rail's tile; 083's CHECK holds 1–4 trimmed characters). Settings
+// (its tile in Settings → Workspaces; 083's CHECK holds 1–4 trimmed characters). Settings
 // → Workspace is the caller.
 //
 // Why both verbs share a route file

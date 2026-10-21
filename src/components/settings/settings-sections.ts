@@ -28,12 +28,13 @@ import {
   UsersRound,
   Vault,
   Workflow,
+  ArrowLeftRight,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
 
 import { isAgentTab } from '@/lib/ai/agent-tabs';
-import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 
 /**
  * Settings information architecture: a row of category tabs, each with
@@ -48,6 +49,7 @@ import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 export const SETTINGS_SECTIONS = [
   'overview',
   'profile',
+  'workspaces',
   'security',
   'appearance',
   'notifications',
@@ -91,6 +93,18 @@ export type SettingsCategory = (typeof SETTINGS_CATEGORIES)[number];
 
 export const DEFAULT_SECTION: SettingsSection = 'overview';
 
+/**
+ * A bank guest's whole Settings: switching workspace, which they cannot
+ * do anywhere else. The shell lets a guest onto /settings for it
+ * (`guestRedirectPath`).
+ */
+export const GUEST_SECTION: SettingsSection = 'workspaces';
+
+/** Where a `?tab=` the caller may not open lands them. */
+export function landingSectionFor(role: AccountRole | null): SettingsSection {
+  return isBankGuest(role) ? GUEST_SECTION : DEFAULT_SECTION;
+}
+
 export interface SectionMeta {
   id: SettingsSection;
   icon: LucideIcon;
@@ -113,6 +127,14 @@ export interface SectionMeta {
 export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   overview: { id: 'overview', icon: LayoutGrid, category: 'overview' },
   profile: { id: 'profile', icon: User, category: 'account' },
+  // Every workspace the person belongs to, and switching between them
+  // (and creating one, owner/admin): the only place to switch. Also the
+  // one section a bank guest sees (`canOpenSection`).
+  workspaces: {
+    id: 'workspaces',
+    icon: ArrowLeftRight,
+    category: 'account',
+  },
   security: { id: 'security', icon: Shield, category: 'account' },
   appearance: { id: 'appearance', icon: Palette, category: 'account' },
   // This device's web push and the person's push preferences: their own.
@@ -188,7 +210,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'inbox',
     minRole: 'admin',
   },
-  // The workspace's name and its rail tile's short name (PATCH
+  // The workspace's name and its tile's short name (PATCH
   // /api/account, admin+), first in Team: the workspace the team is.
   workspace: {
     id: 'workspace',
@@ -341,6 +363,9 @@ export function canOpenSection(
   section: SettingsSection,
   role: AccountRole | null
 ): boolean {
+  // A bank guest sees Workspaces and nothing else, not even Overview or
+  // the rest of My account.
+  if (isBankGuest(role)) return section === GUEST_SECTION;
   const min = SECTION_META[section].minRole;
   if (!min) return true;
   return !!role && hasMinRole(role, min);
@@ -365,7 +390,8 @@ export interface SettingsLocation extends SettingsTarget {
  * The location to render for the current URL. `?tab=` is user-supplied,
  * so resolving it is not the same as being allowed to see it: anything
  * below the section's minimum role lands on the Overview, which every
- * member can see (this also covers an admin demoted with a tab open).
+ * member can see (this also covers an admin demoted with a tab open);
+ * a bank guest lands on Workspaces, their one section.
  */
 export function resolveSettingsLocation(
   params: { get(name: string): string | null },
@@ -374,7 +400,7 @@ export function resolveSettingsLocation(
   const target = resolveSettingsTab(params.get('tab'));
   const allowed = canOpenSection(target.section, role)
     ? target
-    : { section: DEFAULT_SECTION, agentTab: null };
+    : { section: landingSectionFor(role), agentTab: null };
   return { ...allowed, category: SECTION_META[allowed.section].category };
 }
 

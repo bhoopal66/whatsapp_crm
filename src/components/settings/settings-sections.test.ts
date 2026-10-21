@@ -53,6 +53,7 @@ const LEADER_UP: SettingsSection[] = ['members', 'phone-system'];
 const OPEN_TO_ALL: SettingsSection[] = [
   'overview',
   'profile',
+  'workspaces',
   'security',
   'appearance',
   'notifications',
@@ -122,7 +123,13 @@ describe('categories', () => {
       Object.fromEntries(SETTINGS_CATEGORIES.map((c) => [c, sectionsOf(c)]))
     ).toEqual({
       overview: ['overview'],
-      account: ['profile', 'security', 'appearance', 'notifications'],
+      account: [
+        'profile',
+        'workspaces',
+        'security',
+        'appearance',
+        'notifications',
+      ],
       whatsapp: [
         'whatsapp',
         'numbers',
@@ -156,7 +163,16 @@ describe('categories', () => {
   it('shows a leader Members, the phone system and the personal sections', () => {
     expect(visibleCategories('team_leader')).toEqual([
       { id: 'overview', sections: ['overview'] },
-      { id: 'account', sections: ['profile', 'security', 'appearance', 'notifications'] },
+      {
+        id: 'account',
+        sections: [
+          'profile',
+          'workspaces',
+          'security',
+          'appearance',
+          'notifications',
+        ],
+      },
       { id: 'team', sections: ['members'] },
       { id: 'integrations', sections: ['phone-system'] },
     ]);
@@ -167,10 +183,64 @@ describe('categories', () => {
     (role) => {
       expect(visibleCategories(role)).toEqual([
         { id: 'overview', sections: ['overview'] },
-        { id: 'account', sections: ['profile', 'security', 'appearance', 'notifications'] },
+        {
+        id: 'account',
+        sections: [
+          'profile',
+          'workspaces',
+          'security',
+          'appearance',
+          'notifications',
+        ],
+      },
       ]);
     }
   );
+});
+
+// A bank guest switches workspace in Settings → Workspaces and sees
+// nothing else of Settings (the shell lets them onto /settings for it).
+describe('a bank guest in Settings', () => {
+  it('may open Workspaces and no other section', () => {
+    expect(
+      SETTINGS_SECTIONS.filter((s) => canOpenSection(s, 'bank_guest'))
+    ).toEqual(['workspaces']);
+  });
+
+  it('sees only the Workspaces section, under My account', () => {
+    expect(visibleCategories('bank_guest')).toEqual([
+      { id: 'account', sections: ['workspaces'] },
+    ]);
+  });
+
+  it.each([
+    null,
+    '',
+    'overview',
+    'profile',
+    'security',
+    'members',
+    'ai',
+    'ai-safety',
+    'tags',
+    'nonsense',
+    'workspaces',
+  ])('lands ?tab=%j on Workspaces', (tab) => {
+    expect(resolveSettingsLocation(params(tab), 'bank_guest')).toEqual({
+      section: 'workspaces',
+      agentTab: null,
+      category: 'account',
+    });
+  });
+
+  it('still lands staff on the Overview', () => {
+    expect(resolveSettingsLocation(params('nonsense'), 'agent').section).toBe(
+      'overview'
+    );
+    expect(resolveSettingsLocation(params('workspaces'), 'agent').section).toBe(
+      'workspaces'
+    );
+  });
 });
 
 describe('resolveSettingsTab', () => {

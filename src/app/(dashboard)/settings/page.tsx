@@ -39,6 +39,13 @@ const ProfileForm = dynamic(
   () => import('@/components/settings/profile-form').then((m) => m.ProfileForm),
   { loading: PanelLoading }
 );
+const WorkspacesPanel = dynamic(
+  () =>
+    import('@/components/settings/workspaces-panel').then(
+      (m) => m.WorkspacesPanel
+    ),
+  { loading: PanelLoading }
+);
 const SecurityPanel = dynamic(
   () =>
     import('@/components/settings/security-panel').then((m) => m.SecurityPanel),
@@ -306,6 +313,7 @@ function SettingsPageInner() {
   const panel: Record<SettingsSection, ReactNode> = {
     overview: <SettingsOverview onSelect={go} />,
     profile: <ProfileForm />,
+    workspaces: <WorkspacesPanel />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
     notifications: <NotificationsSettings />,

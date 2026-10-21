@@ -42,6 +42,7 @@
     "defaultAvatar": "아바타",
     "menuProfile": "프로필",
     "menuSettings": "설정",
+    "menuWorkspaces": "워크스페이스",
     "menuSignOut": "로그아웃",
     "roleTeamLeader": "팀 리더",
     "teamInbox": "팀 받은편지함",
@@ -1560,10 +1561,10 @@
     },
     "workspace": {
       "title": "워크스페이스",
-      "description": "이 워크스페이스의 이름과 워크스페이스 레일 타일에 표시되는 약칭입니다. 변경 내용은 워크스페이스의 모든 사람에게 표시됩니다.",
+      "description": "이 워크스페이스의 이름과 설정 → 워크스페이스 목록의 타일에 표시되는 약칭입니다. 변경 내용은 워크스페이스의 모든 사람에게 표시됩니다.",
       "nameLabel": "워크스페이스 이름",
       "shortNameLabel": "약칭",
-      "shortNameHint": "영문자 또는 숫자 최대 4자이며, 워크스페이스 레일에 표시됩니다.",
+      "shortNameHint": "영문자 또는 숫자 최대 4자이며, 설정 → 워크스페이스 목록의 타일에 표시됩니다.",
       "save": "저장",
       "saving": "저장 중...",
       "saved": "워크스페이스가 업데이트되었습니다",
@@ -2112,6 +2113,7 @@
     "sections": {
       "overview": "개요",
       "profile": "프로필",
+      "workspaces": "워크스페이스 목록",
       "security": "로그인 & 보안",
       "appearance": "화면 설정",
       "notifications": "알림",
@@ -4530,12 +4532,20 @@
     }
   },
   "Workspaces": {
-    "rail": {
-      "label": "워크스페이스",
+    "list": {
+      "title": "워크스페이스 목록",
+      "description": "내가 속한 모든 워크스페이스입니다. 다른 워크스페이스로 전환하면 앱 전체가 그 워크스페이스에서 다시 열립니다.",
       "create": "워크스페이스 만들기",
+      "active": "사용 중",
+      "switch": "전환",
+      "switching": "전환 중…",
+      "switchTo": "{name}(으)로 전환",
+      "unnamed": "이름 없는 워크스페이스",
+      "empty": "아직 속한 워크스페이스가 없습니다.",
       "mentions": "{count, plural, other {멘션 #개}}",
       "unread": "읽지 않은 메시지",
-      "archived": "보관됨 — 설정 → 워크스페이스에서 복원하세요"
+      "archived": "보관됨",
+      "archivedHint": "설정 → 워크스페이스에서 복원하기 전까지는 아무도 들어갈 수 없습니다."
     },
     "bell": {
       "unknown": "다른 워크스페이스",
@@ -4547,7 +4557,7 @@
       "nameLabel": "워크스페이스 이름",
       "namePlaceholder": "예: Taamul Partners",
       "shortNameLabel": "약칭",
-      "shortNameHint": "영문자 또는 숫자 최대 4자이며, 워크스페이스 레일에 표시됩니다.",
+      "shortNameHint": "영문자 또는 숫자 최대 4자이며, 설정 → 워크스페이스 목록의 타일에 표시됩니다.",
       "numberLabel": "이 워크스페이스의 WhatsApp 번호",
       "numberMeta": "Meta로 새 번호 연결…",
       "numberWhapi": "Whapi 채널 연결…",

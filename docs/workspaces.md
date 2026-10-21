@@ -21,9 +21,13 @@ are kept the same on all of a person's rows.
 
 ## Switching
 
-When a person belongs to more than one workspace, the sidebar shows the
-active workspace's short name and name; its menu lists the others
-(`POST /api/workspaces/switch`, which calls `switch_account()`).
+Switching lives in one place: **Settings → My account → Workspaces**
+(`?tab=workspaces`). It lists every workspace the person belongs to, with
+their role there, team-chat unread and mentions, and an Active badge on
+the current one; **Switch** calls `POST /api/workspaces/switch`, which
+calls `switch_account()`. Owners and admins create a workspace from the
+same screen. The sidebar names the active workspace but no longer
+switches (the workspace rail at its left edge is gone).
 
 - The whole app follows the active workspace. A switch reloads the app
   on the new workspace's landing page (the dashboard, or team chat for a
@@ -49,9 +53,12 @@ Each membership has one role: Owner, Admin, Team leader, Agent, Viewer
 A bank guest is an officer of a partner bank, not one of the workspace's
 staff. A guest:
 
-- sees **team chat only**. The app keeps a guest on `/chat`: any other
-  address goes back there, the sidebar shows no other screen, and the
-  account menu offers only Sign out. Team chat itself is still being set
+- sees **team chat only**, plus Settings → Workspaces to switch
+  workspace. The app keeps a guest on `/chat` and `/settings`: any other
+  address goes back to `/chat`, Settings shows a guest the Workspaces
+  section and nothing else (any other `?tab=` lands there), the sidebar
+  shows no other screen, and the account menu offers Workspaces and
+  Sign out. A guest's notifications still open team chat only. Team chat itself is still being set
   up, so for now the screen says so.
 - reads none of the inbox, contacts, deals, tasks, numbers, members or
   settings. This is enforced by the database, not by the screens: a
@@ -138,7 +145,7 @@ membership and leaves the person's others alone.
 An owner or admin renames their active workspace in Settings → Team →
 Workspace, which sends `PATCH /api/account` `{ name?, short_name? }`
 with only the fields that changed: the name, and the short name of 1–4
-letters or digits shown in the sidebar and the switcher.
+letters or digits shown on its tile in Settings → Workspaces.
 The write runs as the caller, so the `accounts_update` policy holds it
 to the workspace's owners and admins; for anyone else nothing changes.
 Before migration 092 the short name could not be saved at all (nor
@@ -249,5 +256,5 @@ On screen, an owner archives the workspace they are in from Settings →
 Workspace, after a confirmation that lists what happens and what to do
 first; a refusal names its reason there. The same panel, in another
 workspace where they are an admin or owner, lists the archived
-workspaces they own, each with Restore. On the rail an archived
-workspace's tile is dimmed and does not switch.
+workspaces they own, each with Restore. In Settings → Workspaces an
+archived workspace is listed, marked Archived, with no Switch button.
