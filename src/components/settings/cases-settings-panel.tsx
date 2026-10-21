@@ -29,8 +29,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
+import { useCan } from '@/hooks/use-can';
 import {
   BANK_CODE_RE,
   BANK_SPACE_TEMPLATE_KEY,
@@ -43,6 +45,7 @@ import {
   groupByProduct,
   keyFromLabel,
   moveStage,
+  parseCaseSettings,
   removeStage,
   slaCellLabel,
   slaRowFor,
@@ -186,6 +189,87 @@ function useFailToast() {
 }
 
 /**
+ * The Compass lock (migration 134): when on, a submitted case's stage,
+ * bank, product, amount and document status are Compass's alone. Owners
+ * and admins toggle it (optimistically, reverted on a refusal); anyone
+ * else sees it read-only. The PUT route re-checks the role.
+ */
+function CompassLockCard() {
+  const t = useTranslations('CaseSettings.compass');
+  const failToast = useFailToast();
+  const canEdit = useCan('edit-settings');
+  const { data, failed } = useConfigRead(
+    '/api/cases/config/settings',
+    parseCaseSettings
+  );
+  // The value shown while (and after) a save; null follows the read.
+  const [override, setOverride] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const on = override ?? data?.managedExternally ?? false;
+
+  async function change(next: boolean) {
+    const before = on;
+    setOverride(next);
+    setSaving(true);
+    const answer = await call('/api/cases/config/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ managed_externally: next }),
+    });
+    setSaving(false);
+    const saved = answer.ok ? parseCaseSettings(answer.body) : null;
+    if (!saved) {
+      setOverride(before);
+      failToast(answer);
+      return;
+    }
+    setOverride(saved.managedExternally);
+    toast.success(saved.managedExternally ? t('turnedOn') : t('turnedOff'));
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-2">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1">
+            <p
+              id="cases-compass-lock-label"
+              className="text-foreground text-sm font-medium"
+            >
+              {t('label')}
+            </p>
+            <p
+              id="cases-compass-lock-help"
+              className="text-muted-foreground text-sm"
+            >
+              {t('help')}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {saving && (
+              <Loader2 className="text-muted-foreground size-4 animate-spin" />
+            )}
+            <Switch
+              checked={on}
+              onCheckedChange={(next) => void change(next)}
+              disabled={!canEdit || !data || saving}
+              aria-labelledby="cases-compass-lock-label"
+              aria-describedby="cases-compass-lock-help"
+            />
+          </div>
+        </div>
+        {failed ? (
+          <p className="text-destructive text-sm" role="alert">
+            {t('loadFailed')}
+          </p>
+        ) : data && !canEdit ? (
+          <p className="text-muted-foreground text-xs">{t('readOnly')}</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
  * Settings -> Cases (module 018c, admin+): the workspace's banks and, per
  * bank, its stage list, task templates, required documents and SLA
  * timers. Every write goes to `/api/cases/config/*`, which (with the SQL
@@ -241,6 +325,8 @@ export function CasesSettingsPanel() {
           ) : null
         }
       />
+
+      <CompassLockCard />
 
       {loadFailed ? (
         <p className="text-destructive text-sm" role="alert">

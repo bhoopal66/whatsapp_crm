@@ -6,6 +6,7 @@ import {
   groupByProduct,
   keyFromLabel,
   moveStage,
+  parseCaseSettings,
   removeStage,
   slaCellLabel,
   slaRowFor,
@@ -254,5 +255,25 @@ describe('keyFromLabel', () => {
       'salary_certificate_3_months'
     );
     expect(keyFromLabel('ﾠ')).toBe('');
+  });
+});
+
+describe('parseCaseSettings', () => {
+  it('reads the settings route answer', () => {
+    expect(
+      parseCaseSettings({ settings: { managedExternally: true } })
+    ).toEqual({ managedExternally: true });
+    expect(
+      parseCaseSettings({ settings: { managedExternally: false } })
+    ).toEqual({ managedExternally: false });
+  });
+  it('refuses any other shape', () => {
+    expect(parseCaseSettings(null)).toBeNull();
+    expect(parseCaseSettings({ error: 'x' })).toBeNull();
+    expect(parseCaseSettings({ settings: null })).toBeNull();
+    expect(parseCaseSettings({ settings: {} })).toBeNull();
+    expect(
+      parseCaseSettings({ settings: { managedExternally: 'true' } })
+    ).toBeNull();
   });
 });

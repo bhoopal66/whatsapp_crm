@@ -3356,11 +3356,38 @@
     }
   },
   "Compass": {
+    "submissions": {
+      "loadFailed": "Could not load submissions. Reload the page to try again.",
+      "empty": "No submissions yet. The submission app opens them through the API.",
+      "latest100": "Showing the latest 100 submissions.",
+      "never": "Never",
+      "openCase": "Open case",
+      "table": {
+        "submission": "Submission ID",
+        "customer": "Customer",
+        "bank": "Bank",
+        "stage": "Stage",
+        "group": "Group",
+        "synced": "Last synced from Compass",
+        "case": "Case"
+      },
+      "groupStatus": {
+        "active": "Active",
+        "ended": "Ended"
+      },
+      "webhooks": {
+        "title": "Webhook events (7 days)",
+        "event": "Event",
+        "delivered": "Delivered",
+        "pending": "Pending"
+      }
+    },
     "title": "Taamul Compass",
     "subtitle": "Customers synced from the Compass ERP, and the status notifications it has sent on the Whapi number. Read-only — Compass is the system of record.",
     "tabs": {
       "customers": "Customers",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "submissions": "Submissions"
     },
     "searchPlaceholder": "Search by name, phone or Compass ID",
     "totalCustomers": "{count, plural, one {# customer} other {# customers}}",
@@ -6639,7 +6666,8 @@
       "write": "Your role on this case cannot change it.",
       "reassign": "Only a team lead or admin can reassign this case.",
       "closed": "This case is closed.",
-      "noGroup": "Available once the bank submission is made."
+      "noGroup": "Available once the bank submission is made.",
+      "compass": "Managed in Compass."
     },
     "actions": {
       "move": "Move stage",
@@ -6910,7 +6938,8 @@
       "notFound": "The case was not found.",
       "unknown": "Something went wrong. Try again.",
       "presubReentry": "A submitted case cannot go back to a pre-submission stage.",
-      "submissionRequired": "That stage needs the bank submission first. A lead can only be withdrawn."
+      "submissionRequired": "That stage needs the bank submission first. A lead can only be withdrawn.",
+      "managedExternally": "This case is managed in Compass. Change it there."
     },
     "timeline": {
       "includeMessages": "Include WhatsApp messages",
@@ -6996,6 +7025,13 @@
     "lead": {
       "banner": "Lead — no submission yet",
       "source": "Source: {source}"
+    },
+    "compass": {
+      "title": "Managed in Compass",
+      "body": "Stage, details and documents are updated from Compass.",
+      "open": "Open in Compass",
+      "synced": "Last synced {time}",
+      "detailsLocked": "Bank, product and amount are updated from Compass."
     }
   },
   "Banks": {
@@ -7334,6 +7370,14 @@
     }
   },
   "CaseSettings": {
+    "compass": {
+      "label": "Submitted cases are managed in Compass",
+      "help": "When on, stage, bank, product, amount and document status of a submitted case are set only by Compass. Notes, tasks, priority, due date and document requests stay open. Leads are not affected.",
+      "readOnly": "Only owners and admins can change this.",
+      "loadFailed": "Could not load this setting. Reload the page to try again.",
+      "turnedOn": "Submitted cases are now managed in Compass.",
+      "turnedOff": "Submitted cases can be changed in the CRM again."
+    },
     "title": "Cases",
     "description": "Set up the Cases module for each bank: its stages, task templates, required documents and SLA timers.",
     "loadFailed": "Could not load these settings. Reload the page to try again.",

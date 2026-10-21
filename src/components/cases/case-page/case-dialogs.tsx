@@ -26,6 +26,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import {
   allowedNextStages,
+  caseLocks,
   detailsErrorKey,
   fromLocalInput,
   groupEndView,
@@ -102,6 +103,7 @@ export function MoveStageDialog({
   const [text, setText] = useState('');
 
   const choices = allowedNextStages(c, detail.stages);
+  const locks = caseLocks(detail);
 
   const move = async () => {
     if (!stage) return;
@@ -262,7 +264,7 @@ export function MoveStageDialog({
                 {t('move.later')}
               </Button>
               <Button
-                disabled={!code || busy}
+                disabled={!code || busy || locks.outcomeReason}
                 onClick={() => void saveReason()}
               >
                 {busy && <Loader2 className="size-4 animate-spin" />}
@@ -302,6 +304,8 @@ export function EditDetailsDialog({
   const [due, setDue] = useState(toLocalInput(c.dueAt));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 134: Compass owns bank, product and amount; priority and due stay.
+  const locked = caseLocks(detail).details;
 
   useEffect(() => {
     if (!open) return;
@@ -324,10 +328,10 @@ export function EditDetailsDialog({
 
   const save = async () => {
     const patch: Record<string, unknown> = {};
-    if (bank && bank !== (c.bankCode ?? '')) patch.bank_code = bank;
-    if (product.trim() && product.trim() !== (c.product ?? ''))
+    if (!locked && bank && bank !== (c.bankCode ?? '')) patch.bank_code = bank;
+    if (!locked && product.trim() && product.trim() !== (c.product ?? ''))
       patch.product = product.trim();
-    if (amount.trim() && amount.trim() !== (c.amount ?? '')) {
+    if (!locked && amount.trim() && amount.trim() !== (c.amount ?? '')) {
       const a = normaliseAmount(amount);
       if (a === null) return setError(t('errors.amountInvalid'));
       if (a !== c.amount) patch.amount = a;
@@ -370,7 +374,7 @@ export function EditDetailsDialog({
               <SelectTrigger
                 id="case-bank"
                 className="w-full"
-                disabled={banks === null}
+                disabled={banks === null || locked}
               >
                 <SelectValue>
                   {bank ? bankName(bank) : t('edit.pickBank')}
@@ -390,6 +394,7 @@ export function EditDetailsDialog({
             <Input
               id="case-product"
               value={product}
+              disabled={locked}
               maxLength={200}
               onChange={(e) => setProduct(e.target.value)}
             />
@@ -399,10 +404,16 @@ export function EditDetailsDialog({
             <Input
               id="case-amount"
               inputMode="decimal"
+              disabled={locked}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
           </div>
+          {locked && (
+            <p className="text-muted-foreground text-xs sm:col-span-2">
+              {t('compass.detailsLocked')}
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="case-priority">{t('fields.priority')}</Label>
             <Select

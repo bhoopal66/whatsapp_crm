@@ -713,6 +713,8 @@ describe('get', () => {
             closed_at: null,
             outcome: null,
             group_ended_at: null,
+            external_url: 'https://compass.example/cases/9',
+            external_changed_at: '2026-10-20T09:00:00+00:00',
           },
         ],
         submission_groups: [
@@ -733,6 +735,8 @@ describe('get', () => {
       bankName: 'ADCB Bank',
       amount: '1500.00',
       openedAt: new Date('2026-10-19T08:00:00Z'),
+      externalUrl: 'https://compass.example/cases/9',
+      externalChangedAt: new Date('2026-10-20T09:00:00Z'),
     });
     expect(await new CaseStore(db.client).get('nope')).toBeNull();
   });

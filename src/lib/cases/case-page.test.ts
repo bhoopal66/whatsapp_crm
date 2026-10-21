@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   caseTabDisabled,
+  caseLocks,
+  docStatusLocked,
+  reasonErrorKey,
   allowedNextStages,
   outcomeReasonCodes,
   canTakeOver,
@@ -46,6 +49,8 @@ const detail = {
     closedAt: null,
     outcome: null,
     groupEndedAt: null,
+    externalUrl: 'https://compass.example/cases/9',
+    externalChangedAt: '2026-10-20T09:00:00.000Z',
   },
   role: 'coordinator',
   permissions: { canWrite: true, canReassign: false, canSeeAudit: false },
@@ -158,6 +163,61 @@ describe('parseCaseDetail', () => {
       },
     });
     expect(d!.outcomeReason?.reasonCode).toBe('KYC_AML');
+  });
+
+  it('reads the Compass link, sync time and lock (134)', () => {
+    const d = parseCaseDetail({
+      ...detail,
+      managedExternally: true,
+      locked: true,
+    });
+    expect(d!.case.externalUrl).toBe('https://compass.example/cases/9');
+    expect(d!.case.externalChangedAt).toBe('2026-10-20T09:00:00.000Z');
+    expect(d!.managedExternally).toBe(true);
+    expect(d!.locked).toBe(true);
+    const bare = parseCaseDetail({
+      ...detail,
+      case: {
+        ...detail.case,
+        externalUrl: { href: 1 },
+        externalChangedAt: undefined,
+      },
+      locked: 'yes',
+    });
+    expect(bare!.case.externalUrl).toBeNull();
+    expect(bare!.case.externalChangedAt).toBeNull();
+    expect(bare!.managedExternally).toBe(false);
+    expect(bare!.locked).toBe(false);
+  });
+});
+
+describe('the Compass lock (134)', () => {
+  it('locks stage, details and outcome reason only when locked', () => {
+    expect(caseLocks({ locked: true })).toEqual({
+      stage: true,
+      details: true,
+      outcomeReason: true,
+    });
+    expect(caseLocks({ locked: false })).toEqual({
+      stage: false,
+      details: false,
+      outcomeReason: false,
+    });
+  });
+
+  it('locks document received and rejected, never requested', () => {
+    expect(docStatusLocked('received', true)).toBe(true);
+    expect(docStatusLocked('rejected', true)).toBe(true);
+    expect(docStatusLocked('requested', true)).toBe(false);
+    expect(docStatusLocked('received', false)).toBe(false);
+  });
+
+  it('names MANAGED_EXTERNALLY in the stage, details and reason errors', () => {
+    expect(stageErrorKey(409, 'MANAGED_EXTERNALLY')).toBe('managedExternally');
+    expect(detailsErrorKey(409, 'MANAGED_EXTERNALLY')).toBe(
+      'managedExternally'
+    );
+    expect(reasonErrorKey(409, 'MANAGED_EXTERNALLY')).toBe('managedExternally');
   });
 });
 

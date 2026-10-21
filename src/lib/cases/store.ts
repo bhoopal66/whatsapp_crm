@@ -116,7 +116,7 @@ const CLAIM_STATES = new Set<string>([
 ]);
 
 const CASE_COLUMNS =
-  'id, account_id, group_id, contact_id, lead_source, bank_code, product, amount::text, agent_id, coordinator_id, stage, priority, due_at, sla_state, opened_at, closed_at, outcome, group_ended_at';
+  'id, account_id, group_id, contact_id, lead_source, bank_code, product, amount::text, agent_id, coordinator_id, stage, priority, due_at, sla_state, opened_at, closed_at, outcome, group_ended_at, external_url, external_changed_at';
 
 type Row = Record<string, unknown>;
 type DbError = { message?: string; code?: string; hint?: string | null };
@@ -230,6 +230,8 @@ export class CaseStore {
       closedAt: date(c.closed_at),
       outcome: str(c.outcome),
       groupEndedAt: date(c.group_ended_at),
+      externalUrl: str(c.external_url),
+      externalChangedAt: date(c.external_changed_at),
     };
   }
 

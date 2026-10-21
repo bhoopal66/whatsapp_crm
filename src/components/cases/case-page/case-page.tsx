@@ -8,8 +8,10 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   Briefcase,
+  ExternalLink,
   FileQuestion,
   Hand,
+  Lock,
   MessagesSquare,
   Pencil,
   UserRoundCog,
@@ -23,6 +25,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  caseLocks,
   caseTabDisabled,
   canTakeOver,
   docRequestKey,
@@ -271,6 +274,9 @@ export function CasePage({ caseId }: { caseId: string }) {
   const noWrite = t('gate.write');
   const closedGate = t('gate.closed');
   const noGroup = t('gate.noGroup');
+  const locks = caseLocks(detail);
+  const compassGate = t('gate.compass');
+  const synced = dateLabel(c.externalChangedAt);
   const tabProps: CaseTabProps = {
     caseId,
     detail,
@@ -280,6 +286,32 @@ export function CasePage({ caseId }: { caseId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
+      {detail.locked && (
+        <div
+          role="note"
+          className="bg-info-soft border-info/30 flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-sm"
+        >
+          <Lock className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-info font-medium">{t('compass.title')}</p>
+            <p className="text-muted-foreground text-xs">
+              {t('compass.body')}
+              {synced ? ` · ${t('compass.synced', { time: synced })}` : ''}
+            </p>
+          </div>
+          {c.externalUrl && (
+            <a
+              href={c.externalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-info inline-flex items-center gap-1 text-xs font-medium hover:underline"
+            >
+              {t('compass.open')}
+              <ExternalLink className="size-3.5" aria-hidden />
+            </a>
+          )}
+        </div>
+      )}
       <header className="bg-card flex flex-col gap-3 rounded-lg border p-3 sm:p-4">
         <div className="flex items-start gap-3">
           {back}
@@ -396,8 +428,16 @@ export function CasePage({ caseId }: { caseId: string }) {
           <GatedButton
             size="sm"
             variant="outline"
-            disabled={!canWrite || closed || acting}
-            title={!canWrite ? noWrite : closed ? closedGate : undefined}
+            disabled={!canWrite || closed || acting || locks.stage}
+            title={
+              !canWrite
+                ? noWrite
+                : closed
+                  ? closedGate
+                  : locks.stage
+                    ? compassGate
+                    : undefined
+            }
             onClick={() => setOpen('move')}
           >
             <ArrowRightLeft className="size-4" aria-hidden />

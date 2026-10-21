@@ -10,6 +10,7 @@ import {
   canReadCase,
   canReassignCase,
   canWriteCase,
+  isManagedExternally,
 } from './access';
 import { BANK_DASHBOARD_REFUSALS } from './dashboard';
 import { CASE_REFUSALS, CASE_ROLES } from './types';
@@ -92,6 +93,54 @@ describe('case access mirrors match migration 122', () => {
     const hints130 = [...sql130.matchAll(/HINT = '([A-Z_]+)'/g)]
       .map((m) => m[1])
       .filter((h) => !elsewhere.has(h));
-    expect(new Set(CASE_REFUSALS)).toEqual(new Set([...hints, ...hints130]));
+    // 134 adds the Compass lock and its setting's refusal; its other HINTs
+    // are case_sync_from_submission's (the v1 API, not a case route).
+    const ours134 = ['MANAGED_EXTERNALLY', 'SETTING_INVALID'];
+    const sql134 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/134_compass_case_sync.sql'),
+      'utf8'
+    );
+    for (const h of ours134) expect(sql134).toContain(`HINT = '${h}'`);
+    expect(new Set(CASE_REFUSALS)).toEqual(
+      new Set([...hints, ...hints130, ...ours134])
+    );
+  });
+});
+
+describe('isManagedExternally matches migration 134', () => {
+  const SQL134 = readFileSync(
+    join(process.cwd(), 'supabase/migrations/134_compass_case_sync.sql'),
+    'utf8'
+  );
+  const LOCK =
+    'c.group_id IS NOT NULL AND public.case_managed_externally(c.account_id)';
+
+  it('locks exactly case_set_stage, case_set_details, case_outcome_reason_set and case_doc_set_status, on group_id', () => {
+    const locked = [
+      ...SQL134.matchAll(/CREATE OR REPLACE FUNCTION public\.([a-z_]+)\(/g),
+    ]
+      .filter((m) => {
+        const open = SQL134.indexOf('$$', m.index);
+        const close = SQL134.indexOf('$$', open + 2);
+        return SQL134.slice(open, close).includes(LOCK);
+      })
+      .map((m) => m[1]);
+    expect(locked.sort()).toEqual(
+      [
+        'case_doc_set_status',
+        'case_outcome_reason_set',
+        'case_set_details',
+        'case_set_stage',
+      ].sort()
+    );
+  });
+
+  it('is on only for a submitted case of an account with the setting on', () => {
+    const on = { managedExternally: true };
+    const off = { managedExternally: false };
+    expect(isManagedExternally(on, { groupId: 'g' })).toBe(true);
+    expect(isManagedExternally(on, { groupId: null })).toBe(false);
+    expect(isManagedExternally(off, { groupId: 'g' })).toBe(false);
+    expect(isManagedExternally(null, { groupId: 'g' })).toBe(false);
   });
 });

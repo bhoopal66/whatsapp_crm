@@ -36,6 +36,10 @@ export interface CaseRecord {
   closedAt: string | null;
   outcome: string | null;
   groupEndedAt: string | null;
+  /** 134: https link to the case in Compass. */
+  externalUrl: string | null;
+  /** 134: last sync from Compass (ISO). */
+  externalChangedAt: string | null;
 }
 
 export interface CaseStageChange {
@@ -93,6 +97,10 @@ export interface CaseDetail {
     reasonText: string | null;
     createdAt: string;
   } | null;
+  /** 134: the account's case_account_settings.managed_externally. */
+  managedExternally: boolean;
+  /** 134: Compass owns stage, details and documents (isManagedExternally). */
+  locked: boolean;
 }
 
 /** What every tab component receives (the tab jobs build to this). */
@@ -163,6 +171,8 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
       closedAt: str(c.closedAt),
       outcome: str(c.outcome),
       groupEndedAt: str(c.groupEndedAt),
+      externalUrl: str(c.externalUrl),
+      externalChangedAt: str(c.externalChangedAt),
     },
     role: role as CaseRole,
     permissions: {
@@ -243,7 +253,31 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
             createdAt: str(reason.createdAt) ?? '',
           }
         : null,
+    managedExternally: root.managedExternally === true,
+    locked: root.locked === true,
   };
+}
+
+/**
+ * What the Compass lock (134) takes away on a case page. SQL refuses
+ * these with MANAGED_EXTERNALLY; notes, tasks, priority, due date,
+ * reassign, bank contacts, document requests and replies stay open.
+ */
+export interface CaseLocks {
+  /** The Move stage action (and with it the outcome-reason step). */
+  stage: boolean;
+  /** Bank, product and amount in Edit details; priority and due stay. */
+  details: boolean;
+  outcomeReason: boolean;
+}
+
+export function caseLocks(d: Pick<CaseDetail, 'locked'>): CaseLocks {
+  return { stage: d.locked, details: d.locked, outcomeReason: d.locked };
+}
+
+/** A document status the lock refuses: received and rejected, not requested. */
+export function docStatusLocked(status: string, locked: boolean): boolean {
+  return locked && (status === 'received' || status === 'rejected');
 }
 
 /** A final stage closes the case (122's `cases_closed_when_final`). */
@@ -354,6 +388,7 @@ const STAGE_ERRORS: Record<string, string> = {
   NOT_ALLOWED: 'notAllowed',
   PRESUB_REENTRY: 'presubReentry',
   SUBMISSION_REQUIRED: 'submissionRequired',
+  MANAGED_EXTERNALLY: 'managedExternally',
 };
 const DETAIL_ERRORS: Record<string, string> = {
   BANK_UNKNOWN: 'bankUnknown',
@@ -363,6 +398,7 @@ const DETAIL_ERRORS: Record<string, string> = {
   DUE_INVALID: 'dueInvalid',
   CASE_CLOSED: 'caseClosed',
   NOT_ALLOWED: 'notAllowed',
+  MANAGED_EXTERNALLY: 'managedExternally',
 };
 const REASON_ERRORS: Record<string, string> = {
   REASON_INVALID: 'reasonInvalid',
@@ -370,6 +406,7 @@ const REASON_ERRORS: Record<string, string> = {
   OUTCOME_NOT_DECLINED: 'reasonNotDeclined',
   OUTCOME_REASON: 'reasonNoResponseWithdrawn',
   REASON_ALREADY_SET: 'reasonAlreadySet',
+  MANAGED_EXTERNALLY: 'managedExternally',
 };
 const REASSIGN_ERRORS: Record<string, string> = {
   ASSIGNEE_INVALID: 'assigneeInvalid',

@@ -67,6 +67,10 @@ export interface Case {
   closedAt: Date | null;
   outcome: string | null;
   groupEndedAt: Date | null;
+  /** 134: https link to the case in Compass; NULL when not synced. */
+  externalUrl: string | null;
+  /** 134: when Compass last changed the case. */
+  externalChangedAt: Date | null;
 }
 
 export interface StageChange {
@@ -166,6 +170,9 @@ export const CASE_REFUSALS = [
   'SUBMISSION_REQUIRED',
   'PRESUB_STAGES_REQUIRED',
   'PRESUB_STAGES_CONFLICT',
+  // 134 (Compass sync): the lock and the setting.
+  'MANAGED_EXTERNALLY',
+  'SETTING_INVALID',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 

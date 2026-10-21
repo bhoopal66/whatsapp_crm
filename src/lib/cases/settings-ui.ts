@@ -243,3 +243,24 @@ export function keyFromLabel(label: string): string {
     .replace(/^_+|_+$/g, '')
     .slice(0, 64);
 }
+
+// ------------------------------------------------------------- Compass lock
+
+export interface CaseAccountSettings {
+  /** Migration 134: Compass alone sets a submitted case's core fields. */
+  managedExternally: boolean;
+}
+
+/**
+ * `GET|PUT /api/cases/config/settings` -> its settings, or null for an
+ * answer of any other shape (the screen then shows its load error).
+ */
+export function parseCaseSettings(body: unknown): CaseAccountSettings | null {
+  const settings =
+    body && typeof body === 'object'
+      ? (body as Record<string, unknown>).settings
+      : null;
+  if (!settings || typeof settings !== 'object') return null;
+  const value = (settings as Record<string, unknown>).managedExternally;
+  return typeof value === 'boolean' ? { managedExternally: value } : null;
+}
