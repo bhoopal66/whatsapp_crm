@@ -25,14 +25,14 @@ export function RoomItem({
       href={roomHref(room.id)}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'block rounded-md border border-transparent px-3 py-1.5 hover:bg-white/5',
-        active && 'border-amber-400 bg-[#3A2A14] hover:bg-[#3A2A14]'
+        'hover:bg-sidebar-accent focus-visible:ring-sidebar-ring block rounded-md border border-transparent px-3 py-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none',
+        active && 'border-warning/40 bg-warning-soft hover:bg-warning-soft'
       )}
     >
-      <span className="block truncate text-sm font-semibold text-white">
+      <span className="text-foreground block truncate text-sm font-semibold">
         {room.subject}
       </span>
-      <span className="block truncate text-xs text-white/55">
+      <span className="text-muted-foreground block truncate text-xs">
         {t('subLine', {
           count: sub.count,
           max: sub.max,
@@ -64,14 +64,14 @@ export function DealRoomsSidebar({
   return (
     <aside
       className={cn(
-        'flex h-full min-h-0 flex-col bg-[#12201C] text-white',
+        'bg-sidebar text-sidebar-foreground border-sidebar-border flex h-full min-h-0 flex-col lg:border-r',
         className
       )}
     >
       <Link
         href="/chat"
         aria-label={t('rooms.back', { name: workspaceName })}
-        className="flex items-center gap-1 px-3 pt-4 pb-2 text-[15px] font-bold hover:text-white/80"
+        className="text-foreground hover:text-primary flex items-center gap-1 px-3 pt-4 pb-2 text-[15px] font-bold"
       >
         <ChevronLeft className="size-4 shrink-0" aria-hidden />
         <span className="truncate">{workspaceName}</span>
@@ -80,17 +80,19 @@ export function DealRoomsSidebar({
         className="min-h-0 flex-1 overflow-y-auto px-1 pb-4"
         aria-label={t('sections.dealRooms')}
       >
-        <p className="px-3 pt-3 pb-1 text-[10px] font-semibold tracking-[0.14em] text-white/45 uppercase">
+        <p className="text-muted-foreground px-3 pt-3 pb-1 text-[11px] font-semibold tracking-[0.12em] uppercase">
           {t('sections.dealRooms')}
         </p>
         {rooms === null ? (
           <div className="space-y-2 px-3 pt-2" aria-hidden>
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-8 animate-pulse rounded bg-white/10" />
+              <div key={i} className="bg-muted h-8 animate-pulse rounded" />
             ))}
           </div>
         ) : rooms.length === 0 ? (
-          <p className="px-3 pt-2 text-sm text-white/50">{t('rooms.empty')}</p>
+          <p className="text-muted-foreground px-3 pt-2 text-sm">
+            {t('rooms.empty')}
+          </p>
         ) : (
           <ul className="space-y-0.5">
             {rooms.map((r) => (
@@ -104,7 +106,7 @@ export function DealRoomsSidebar({
           <button
             type="button"
             onClick={onCreateDealRoom}
-            className="mx-2 mt-3 flex w-[calc(100%-1rem)] items-center justify-center gap-1.5 rounded-md border border-dashed border-white/30 py-2 text-sm text-white/75 hover:bg-white/5 hover:text-white"
+            className="border-input text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground mx-2 mt-3 flex w-[calc(100%-1rem)] items-center justify-center gap-1.5 rounded-md border border-dashed py-2 text-sm"
           >
             <Plus className="size-4" aria-hidden />
             {t('rooms.new')}

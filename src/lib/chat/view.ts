@@ -105,14 +105,14 @@ export function combinedPresence(
 
 /** Pastel tile classes, light and dark (html[data-mode='dark']). */
 export const AVATAR_TINTS = [
-  'bg-rose-100 text-rose-700 [[data-mode=dark]_&]:bg-rose-500/25 [[data-mode=dark]_&]:text-rose-100',
-  'bg-amber-100 text-amber-800 [[data-mode=dark]_&]:bg-amber-500/25 [[data-mode=dark]_&]:text-amber-100',
-  'bg-lime-100 text-lime-800 [[data-mode=dark]_&]:bg-lime-500/25 [[data-mode=dark]_&]:text-lime-100',
-  'bg-emerald-100 text-emerald-800 [[data-mode=dark]_&]:bg-emerald-500/25 [[data-mode=dark]_&]:text-emerald-100',
-  'bg-sky-100 text-sky-800 [[data-mode=dark]_&]:bg-sky-500/25 [[data-mode=dark]_&]:text-sky-100',
-  'bg-indigo-100 text-indigo-700 [[data-mode=dark]_&]:bg-indigo-500/25 [[data-mode=dark]_&]:text-indigo-100',
-  'bg-violet-100 text-violet-700 [[data-mode=dark]_&]:bg-violet-500/25 [[data-mode=dark]_&]:text-violet-100',
-  'bg-fuchsia-100 text-fuchsia-700 [[data-mode=dark]_&]:bg-fuchsia-500/25 [[data-mode=dark]_&]:text-fuchsia-100',
+  'bg-rose-100 text-rose-700 dark:bg-rose-500/25 dark:text-rose-100',
+  'bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-100',
+  'bg-lime-100 text-lime-800 dark:bg-lime-500/25 dark:text-lime-100',
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/25 dark:text-emerald-100',
+  'bg-sky-100 text-sky-800 dark:bg-sky-500/25 dark:text-sky-100',
+  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/25 dark:text-indigo-100',
+  'bg-violet-100 text-violet-700 dark:bg-violet-500/25 dark:text-violet-100',
+  'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/25 dark:text-fuchsia-100',
 ] as const;
 
 /** A stable tint per user id (FNV-1a over the lower-cased id). */

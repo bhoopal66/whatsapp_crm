@@ -91,7 +91,7 @@ export function CallsSection({
             <span className="min-w-0 flex-1 truncate">{t('missed')}</span>
             {state.missed > 0 && (
               <span
-                className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold text-black"
+                className="min-w-5 rounded-full bg-amber-400 px-1.5 text-center text-[11px] font-bold text-amber-950"
                 aria-label={t('missedCount', { count: state.missed })}
               >
                 {state.missed}
@@ -103,25 +103,25 @@ export function CallsSection({
           <Link href="/calls" className={rowClassName}>
             <PhoneCall className="size-3.5 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{t('log')}</span>
-            <span className="text-xs text-white/50">
+            <span className="text-muted-foreground text-xs">
               {t('today', { count: state.today })}
             </span>
           </Link>
         </li>
       </ul>
       {view.line && (
-        <p className="flex items-center gap-2 px-3 pt-1 text-xs text-white/55">
+        <p className="text-muted-foreground flex items-center gap-2 px-3 pt-1 text-xs">
           <span
             aria-hidden
             className={cn(
               'size-2 shrink-0 rounded-full',
               view.line.kind === 'softphone'
-                ? 'bg-emerald-400'
+                ? 'bg-success'
                 : view.line.kind === 'softphoneConnecting'
-                  ? 'animate-pulse bg-amber-400'
+                  ? 'bg-warning animate-pulse'
                   : view.line.kind === 'softphoneError'
-                    ? 'bg-red-400'
-                    : 'border border-white/50'
+                    ? 'bg-destructive'
+                    : 'border-muted-foreground border'
             )}
           />
           {t(view.line.kind, { ext: view.line.extension })}

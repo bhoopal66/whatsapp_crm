@@ -59,9 +59,9 @@ import { useChatWorkspaceContext } from './chat-context';
 import { PresenceDot } from './presence-dot';
 
 const GUEST_CHIP =
-  'rounded-full bg-violet-100 px-1.5 text-[11px] font-semibold text-violet-700 [[data-mode=dark]_&]:bg-violet-500/20 [[data-mode=dark]_&]:text-violet-200';
+  'rounded-full bg-violet-100 px-1.5 text-[11px] font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200';
 const ADMIN_BADGE =
-  'shrink-0 rounded-full bg-emerald-50 px-1.5 text-[11px] font-semibold text-[#0E7C5A] [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300';
+  'shrink-0 rounded-full bg-primary-soft text-primary px-1.5 text-[11px] font-semibold';
 const ICON_BUTTON =
   'hover:bg-muted flex size-7 shrink-0 items-center justify-center rounded-md';
 const BLOCK_KEY = {
@@ -489,7 +489,7 @@ function AddPeople({
                     aria-hidden
                     className={cn(
                       'flex size-5 shrink-0 items-center justify-center rounded border',
-                      on && 'border-[#0E7C5A] bg-[#0E7C5A] text-white'
+                      on && 'border-primary bg-primary text-primary-foreground'
                     )}
                   >
                     {on && <Check className="size-3.5" />}

@@ -17,8 +17,7 @@ import { useChatWorkspaceContext } from './chat-context';
 import { useMessageMarks } from './message-marks';
 import { useWriteBlock } from './use-write-block';
 
-const CHIP =
-  'rounded px-1 font-semibold text-[#0E7C5A] bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300';
+const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 
 export interface PinsPanelProps {
   channelId: string;

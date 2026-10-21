@@ -35,8 +35,7 @@ import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
 
-const CHIP =
-  'rounded px-1 font-semibold text-[#0E7C5A] bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300';
+const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 
 const KIND_ICON: Record<ChannelKind, typeof Hash> = {
   team: Hash,
@@ -131,9 +130,7 @@ function SavedRow({
       <span
         className={cn(
           'flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold',
-          system
-            ? 'bg-neutral-200 text-neutral-600 [[data-mode=dark]_&]:bg-neutral-700 [[data-mode=dark]_&]:text-neutral-200'
-            : avatarTint(m.authorId)
+          system ? 'bg-muted text-muted-foreground' : avatarTint(m.authorId)
         )}
         aria-hidden
       >
@@ -219,7 +216,7 @@ export function SavedItems() {
         >
           <ArrowLeft className="size-4" />
         </Link>
-        <Bookmark className="size-4 text-[#0E7C5A]" aria-hidden />
+        <Bookmark className="text-primary size-4" aria-hidden />
         <div className="min-w-0 flex-1">
           <h1 className="text-base font-bold">{t('saved.title')}</h1>
           <p className="text-muted-foreground truncate text-xs">

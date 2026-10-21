@@ -43,9 +43,9 @@ import { PresenceDot } from './presence-dot';
 import { useSavedCount } from './saved-items';
 
 const SECTION_LABEL =
-  'px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45';
+  'px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground';
 const ROW =
-  'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-white/75 hover:bg-white/5';
+  'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-sidebar-foreground/85 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring';
 
 export interface ChatSidebarProps {
   activeChannelId: string | null;
@@ -58,7 +58,7 @@ export interface ChatSidebarProps {
   className?: string;
 }
 
-/** Dark green-black in both modes, by design. */
+/** Follows the mode: sidebar surface, the app accent on the open row. */
 export function ChatSidebar({
   activeChannelId,
   rooms = null,
@@ -128,7 +128,7 @@ export function ChatSidebar({
       );
     } else if (r.channel.kind === 'deal_room') {
       icon = (
-        <MessageCircle className="size-4 shrink-0 text-amber-400" aria-hidden />
+        <MessageCircle className="text-warning size-4 shrink-0" aria-hidden />
       );
     } else if (r.channel.kind === 'private') {
       icon = <Lock className="size-3.5 shrink-0" aria-hidden />;
@@ -143,9 +143,9 @@ export function ChatSidebar({
           className={cn(
             ROW,
             active &&
-              'bg-[#0E7C5A] font-semibold text-white hover:bg-[#0E7C5A]',
-            e.bold && 'font-semibold text-white',
-            e.dimmed && 'text-white/40'
+              'bg-primary-soft text-primary hover:bg-primary-soft hover:text-primary font-semibold',
+            e.bold && 'text-foreground font-semibold',
+            e.dimmed && 'text-muted-foreground/80'
           )}
         >
           {icon}
@@ -158,7 +158,7 @@ export function ChatSidebar({
           )}
           {e.badge?.kind === 'mentions' ? (
             <span
-              className="rounded-full bg-amber-400 px-1.5 text-[11px] font-bold text-black"
+              className="bg-primary text-primary-foreground min-w-5 rounded-full px-1.5 text-center text-[11px] font-bold"
               aria-label={t('mentions', { count: e.badge.count })}
             >
               {e.badge.count}
@@ -166,8 +166,10 @@ export function ChatSidebar({
           ) : e.badge ? (
             <span
               className={cn(
-                'text-xs',
-                e.dimmed ? 'text-white/40' : 'text-white/70'
+                'text-xs tabular-nums',
+                e.dimmed
+                  ? 'text-muted-foreground'
+                  : 'bg-secondary text-secondary-foreground min-w-5 rounded-full px-1.5 text-center font-semibold'
               )}
             >
               {e.badge.count}
@@ -193,7 +195,7 @@ export function ChatSidebar({
               onClick={add.onClick}
               aria-label={add.label}
               title={add.label}
-              className="mt-3 flex size-6 items-center justify-center rounded-md text-white/60 hover:bg-white/10 hover:text-white"
+              className="text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring mt-3 flex size-6 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-none"
             >
               <Plus className="size-3.5" />
             </button>
@@ -206,15 +208,17 @@ export function ChatSidebar({
   return (
     <aside
       className={cn(
-        'flex h-full min-h-0 flex-col bg-[#12201C] text-white',
+        'bg-sidebar text-sidebar-foreground border-sidebar-border flex h-full min-h-0 flex-col lg:border-r',
         className
       )}
     >
       <div className="flex items-start gap-2 px-4 pt-4 pb-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-bold">{wsName}</p>
+          <p className="text-foreground truncate text-[15px] font-bold">
+            {wsName}
+          </p>
           {!isBankGuest && connected && primary && (
-            <p className="truncate text-xs text-white/55">
+            <p className="text-muted-foreground truncate text-xs">
               {t('whatsappLine', { name: numberName(primary) })}
             </p>
           )}
@@ -224,7 +228,7 @@ export function ChatSidebar({
           onClick={onCompose}
           disabled={!onCompose || isBankGuest}
           aria-label={t('compose')}
-          className="flex size-8 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/15 disabled:opacity-40"
+          className="border-input text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-ring flex size-8 items-center justify-center rounded-lg border bg-transparent focus-visible:ring-2 focus-visible:outline-none disabled:opacity-40"
         >
           <PenSquare className="size-4" />
         </button>
@@ -238,14 +242,14 @@ export function ChatSidebar({
           if (query) router.push(`/chat?search=${encodeURIComponent(query)}`);
         }}
       >
-        <label className="flex items-center gap-2 rounded-md bg-white/10 px-2.5 py-1.5 text-sm text-white/60">
+        <label className="border-input bg-background text-muted-foreground focus-within:border-ring focus-within:ring-ring/30 flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm focus-within:ring-2">
           <Search className="size-4 shrink-0" aria-hidden />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={t('searchPlaceholder')}
             aria-label={t('searchPlaceholder')}
-            className="min-w-0 flex-1 bg-transparent text-white outline-none placeholder:text-white/45"
+            className="text-foreground placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent outline-none"
           />
         </label>
       </form>
@@ -260,13 +264,15 @@ export function ChatSidebar({
             ROW,
             'mt-2',
             savedActive &&
-              'bg-[#0E7C5A] font-semibold text-white hover:bg-[#0E7C5A]'
+              'bg-primary-soft text-primary hover:bg-primary-soft hover:text-primary font-semibold'
           )}
         >
           <Bookmark className="size-3.5 shrink-0" aria-hidden />
           <span className="min-w-0 flex-1 truncate">{t('saved.row')}</span>
           {savedCount ? (
-            <span className="text-xs text-white/60">{savedCount}</span>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {savedCount}
+            </span>
           ) : null}
         </Link>
         {rows.length > 0 && (
@@ -287,8 +293,8 @@ export function ChatSidebar({
                       className={cn(
                         'text-xs',
                         r.kind === 'unassigned' && r.count > 0
-                          ? 'rounded-full bg-amber-400 px-1.5 font-bold text-black'
-                          : 'text-white/50'
+                          ? 'min-w-5 rounded-full bg-amber-400 px-1.5 text-center font-bold text-amber-950'
+                          : 'text-muted-foreground tabular-nums'
                       )}
                     >
                       {r.count}
@@ -326,7 +332,7 @@ export function ChatSidebar({
               )}
               className={cn(
                 SECTION_LABEL,
-                'flex w-full items-center gap-1 text-left hover:text-white/70'
+                'hover:text-foreground flex w-full items-center gap-1 text-left'
               )}
             >
               {archivedOpen ? (
@@ -354,12 +360,14 @@ export function ChatSidebar({
         {ws.channels === null ? (
           <div className="space-y-2 px-3 pt-4" aria-hidden>
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-4 animate-pulse rounded bg-white/10" />
+              <div key={i} className="bg-muted h-4 animate-pulse rounded" />
             ))}
           </div>
         ) : (
           ws.channels.length === 0 && (
-            <p className="px-3 pt-4 text-sm text-white/50">{t('noChannels')}</p>
+            <p className="text-muted-foreground px-3 pt-4 text-sm">
+              {t('noChannels')}
+            </p>
           )
         )}
       </nav>

@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import { useChatWorkspaceContext } from './chat-context';
 
 export const GREEN_BUTTON =
-  'bg-[#0E7C5A] text-white hover:bg-[#0B6A4C] disabled:opacity-50';
+  'bg-primary text-primary-foreground hover:bg-primary-hover disabled:opacity-50';
 
 /**
  * Search + tick list of people, with the picked ones as removable chips
@@ -71,7 +71,7 @@ export function PeoplePicker({
                   type="button"
                   onClick={() => onChange(togglePick(picked, id))}
                   aria-label={t('remove', { name })}
-                  className="flex items-center gap-1 rounded-full bg-emerald-50 py-0.5 pr-1.5 pl-2.5 text-xs font-semibold text-[#0E7C5A] hover:bg-emerald-100 [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300"
+                  className="bg-primary-soft text-primary hover:bg-primary-soft-2 flex items-center gap-1 rounded-full py-0.5 pr-1.5 pl-2.5 text-xs font-semibold"
                 >
                   {name}
                   <X className="size-3" aria-hidden />
@@ -120,7 +120,7 @@ export function PeoplePicker({
                     checked={on}
                     disabled={!on && full}
                     onChange={() => onChange(togglePick(picked, p.userId, max))}
-                    className="size-4 shrink-0 accent-[#0E7C5A]"
+                    className="accent-primary size-4 shrink-0"
                   />
                   <span
                     className={cn(

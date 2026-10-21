@@ -25,7 +25,7 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
     return (
       <div className="bg-card mt-1.5 max-w-[730px] overflow-hidden rounded-xl border">
         <div className="bg-muted/50 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
-          <MessageCircle className="size-3.5 text-[#0E7C5A]" aria-hidden />
+          <MessageCircle className="text-primary size-3.5" aria-hidden />
           <span className="text-muted-foreground flex-1">{t('header')}</span>
         </div>
         <p className="text-muted-foreground flex items-center gap-2 px-3 py-2.5 text-sm">
@@ -54,10 +54,10 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
   return (
     <div className="bg-card mt-1.5 max-w-[730px] overflow-hidden rounded-xl border">
       <div className="bg-muted/50 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
-        <MessageCircle className="size-3.5 text-[#0E7C5A]" aria-hidden />
+        <MessageCircle className="text-primary size-3.5" aria-hidden />
         <span className="text-muted-foreground flex-1">{t('header')}</span>
         {tag && (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 [[data-mode=dark]_&]:bg-amber-500/20 [[data-mode=dark]_&]:text-amber-200">
+          <span className="bg-warning-soft text-warning rounded-full px-2 py-0.5 font-semibold">
             {tag.name}
           </span>
         )}
@@ -86,9 +86,7 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
                 <p
                   className={cn(
                     'max-w-[80%] rounded-lg px-2.5 py-1.5 text-sm whitespace-pre-wrap',
-                    customer
-                      ? 'bg-muted'
-                      : 'bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15'
+                    customer ? 'bg-muted' : 'bg-success-soft'
                   )}
                 >
                   {m.contentText ?? '…'}
@@ -101,7 +99,7 @@ export function SharedConversationCard({ card }: { card: SharedCard }) {
       <div className="flex gap-2 border-t px-3 py-2">
         <Link
           href={`${inboxBasePath(accountRole)}?c=${conversationId}`}
-          className="rounded-md bg-[#0E7C5A] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0b6a4d]"
+          className="bg-primary text-primary-foreground hover:bg-primary-hover rounded-md px-3 py-1.5 text-xs font-semibold"
         >
           {t('open')}
         </Link>

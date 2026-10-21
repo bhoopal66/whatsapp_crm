@@ -284,8 +284,7 @@ export function MessageActions({
               className={cn(
                 ICON_BUTTON,
                 'pointer-coarse:hidden',
-                mine(emoji) &&
-                  'bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15'
+                mine(emoji) && 'bg-success-soft'
               )}
             >
               {emoji}
