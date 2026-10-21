@@ -58,8 +58,8 @@ type Patch = Partial<
   Pick<JourneySettings, 'enabled' | 'startOnFirstInbound' | 'taamulDid'>
 > & { copy?: CopyOverrides };
 
-const OK = 'text-emerald-700 [[data-mode=dark]_&]:text-emerald-300';
-const WAIT = 'text-amber-700 [[data-mode=dark]_&]:text-amber-300';
+const OK = 'text-success';
+const WAIT = 'text-warning';
 
 /**
  * Settings → Journey bot (module 016, admin+): the bot's switches, the

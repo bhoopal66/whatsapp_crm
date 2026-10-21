@@ -58,8 +58,7 @@ import { cn } from '@/lib/utils';
 import { SettingsPanelHead } from './settings-panel-head';
 import { TABS_TRIGGER_DARK } from './settings-tabs';
 
-const WARN =
-  'border-amber-300 bg-amber-50 text-amber-900 [[data-mode=dark]_&]:border-amber-500/40 [[data-mode=dark]_&]:bg-amber-500/10 [[data-mode=dark]_&]:text-amber-200';
+const WARN = 'border-warning/30 bg-warning-soft text-warning';
 
 interface Bank {
   code: string;

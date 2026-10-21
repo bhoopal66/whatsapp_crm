@@ -180,7 +180,7 @@ export function QuickRepliesManager() {
                   size="icon-sm"
                   aria-label={t("delete")}
                   onClick={() => remove(qr.id)}
-                  className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                  className="text-destructive hover:bg-destructive-soft hover:text-destructive"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

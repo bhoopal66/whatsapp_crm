@@ -78,10 +78,9 @@ import {
 import { cn } from '@/lib/utils';
 
 const TONE_CLASS: Record<KbStatusTone, string> = {
-  success:
-    'bg-emerald-500/15 text-emerald-700 [[data-mode=dark]_&]:text-emerald-300',
+  success: 'bg-success-soft text-success',
   neutral: 'bg-secondary text-secondary-foreground',
-  warning: 'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300',
+  warning: 'bg-warning-soft text-warning',
   muted: 'bg-muted text-muted-foreground',
 };
 
@@ -238,7 +237,7 @@ export function AiApprovedAnswers({
                 ))}
               </ul>
               {readiness.approved === 0 ? (
-                <p className="flex items-start gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-xs text-amber-800 [[data-mode=dark]_&]:text-amber-200">
+                <p className="bg-warning-soft text-warning flex items-start gap-2 rounded-md px-2.5 py-2 text-xs">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   {t('readiness.noneApproved')}
                 </p>

@@ -661,7 +661,7 @@ function StatusCard({ status }: { status: TsStatus }) {
             {notes.map((note) => (
               <li
                 key={note}
-                className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-300"
+                className="text-warning flex items-start gap-2 text-xs"
               >
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                 <span>{note}</span>
@@ -1312,14 +1312,14 @@ function SummaryTiles({ summary }: { summary: TsActivitySummary }) {
           key={tile.key}
           className={cn(
             'border-border bg-card rounded-md border p-3',
-            tile.warn && 'border-amber-500/40'
+            tile.warn && 'border-warning/40 bg-warning-soft'
           )}
         >
           <p className="text-muted-foreground text-xs">{t(tile.key)}</p>
           <p
             className={cn(
               'text-foreground mt-1 text-lg font-semibold tabular-nums',
-              tile.warn && 'text-amber-600 dark:text-amber-300'
+              tile.warn && 'text-warning'
             )}
           >
             {tile.value}

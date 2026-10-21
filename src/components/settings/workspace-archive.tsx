@@ -143,7 +143,7 @@ export function ArchiveWorkspaceCard({ name }: { name: string }) {
             {refusal ? (
               <div
                 role="alert"
-                className="rounded-md border border-red-200 bg-red-50 p-3 text-red-700 [[data-mode=dark]_&]:border-red-900/60 [[data-mode=dark]_&]:bg-red-950/40 [[data-mode=dark]_&]:text-red-300"
+                className="border-destructive/30 bg-destructive-soft text-destructive rounded-md border p-3"
               >
                 <p>{refusalText(refusal)}</p>
                 {refusal.detail ? (

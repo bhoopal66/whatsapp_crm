@@ -295,7 +295,10 @@ export function WhatsAppCosts() {
                             })}
                           </span>
                           {n.unknown_rate > 0 ? (
-                            <Badge variant="outline" className="text-amber-600">
+                            <Badge
+                              variant="outline"
+                              className="border-warning/30 bg-warning-soft text-warning"
+                            >
                               {t('unknownRateBadge', { count: n.unknown_rate })}
                             </Badge>
                           ) : null}

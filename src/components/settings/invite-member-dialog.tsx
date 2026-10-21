@@ -230,13 +230,12 @@ export function InviteMemberDialog({
                 </Button>
               </div>
 
-              {/* Higher-contrast amber than the original 10% / amber-200.
-                  Reviewed against slate-900 to meet WCAG AAA for body
-                  text (target ratio 7:1). Border bumped to /50, bg to
-                  /15, foreground promoted to amber-100 for the strong
-                  intro, amber-200 for the body. */}
-              <div className="rounded-md border border-amber-500/50 bg-amber-500/15 px-3 py-2 text-xs text-amber-200">
-                <strong className="font-semibold text-amber-100">
+              {/* High contrast on purpose (the body was once a faint
+                  amber): the body is foreground text, so it meets WCAG
+                  AAA in both modes, and only the intro carries the
+                  warning hue on the warning tint. */}
+              <div className="border-warning/40 bg-warning-soft text-foreground rounded-md border px-3 py-2 text-xs">
+                <strong className="text-warning font-semibold">
                   {t('saveLinkNow')}
                 </strong>{' '}
                 {t('saveLinkHint')}
