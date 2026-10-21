@@ -77,17 +77,17 @@ export function useContextMenuItems(
   getItems: ItemsGetter
 ): void {
   const getterRef = useRef(getItems);
+  const stableGetter = useRef<ItemsGetter>(() => getterRef.current());
+  // No dependency list on purpose: re-registering after every render is a
+  // WeakMap write, and it follows the element if a re-render swaps the
+  // node behind `ref`. The unregister is identity-checked, so it never
+  // removes another registration on the same element.
   useEffect(() => {
     getterRef.current = getItems;
-  });
-  useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    registry.set(el, () => getterRef.current());
-    return () => {
-      registry.delete(el);
-    };
-  }, [ref]);
+    return registerContextMenuItems(el, stableGetter.current);
+  });
 }
 
 /**

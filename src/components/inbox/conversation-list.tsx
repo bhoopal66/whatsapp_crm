@@ -1347,7 +1347,9 @@ const ConversationItem = memo(function ConversationItem({
   const rowRef = useRef<HTMLButtonElement>(null);
   useContextMenuItems(rowRef, () => {
     const copied = { copied: tMenu('copied'), failed: tMenu('copyFailed') };
-    const contactId = conversation.contact_id || contact?.id;
+    // Only the contact the RLS read returned: a visible chat whose
+    // contact the viewer cannot read embeds none, and offers no link.
+    const contactId = contact?.id;
     const items: ContextMenuEntry[] = [
       {
         id: 'open',
