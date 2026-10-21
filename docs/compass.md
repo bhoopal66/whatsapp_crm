@@ -452,8 +452,9 @@ nothing.
 **`changed_at` and stale updates.** Taamul Connect keeps the latest
 `changed_at` it applied for the case. An update with an older
 `changed_at` is **stale**: nothing is written and the answer is `200`
-with `sync.applied: false, reason: "stale"`. So a retry or an
-out-of-order delivery can never move a case backwards. Without
+with `sync.applied: false, reason: "stale"`. A `status` in the same
+body is ignored too (not recorded, never ends the group). So a retry or
+an out-of-order delivery can never move a case backwards. Without
 `changed_at` the update is always applied.
 
 **Stage rules.** Get the valid list from `GET /case-stages` (next

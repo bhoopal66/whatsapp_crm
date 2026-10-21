@@ -5,7 +5,12 @@ const m = vi.hoisted(() => ({
   rpc: vi.fn(),
   store: { findByRef: vi.fn(), listAccess: vi.fn(), get: vi.fn() },
   service: { endIfDue: vi.fn() },
-  cases: { idForGroup: vi.fn(), applySubmissionStatus: vi.fn(), get: vi.fn() },
+  cases: {
+    idForGroup: vi.fn(),
+    applySubmissionStatus: vi.fn(),
+    get: vi.fn(),
+    endClaimedGroup: vi.fn(),
+  },
 }));
 vi.mock('@/lib/cases/server', () => ({ caseStore: () => m.cases }));
 
@@ -47,6 +52,8 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup => ({
   ...over,
 });
 
+const TOKEN = '2026-10-21T10:00:00.123456+00:00';
+
 const params = { params: Promise.resolve({ submissionId: ' SUB-1 ' }) };
 const patch = (body: unknown) =>
   PATCH(
@@ -71,6 +78,17 @@ beforeEach(() => {
     id: 'case-1',
     stage: 'Approved',
     outcome: 'Approved',
+  });
+  m.cases.endClaimedGroup.mockResolvedValue({
+    groupEnded: true,
+    reason: 'ENDED',
+    end: {
+      ended: true,
+      reason: 'CASE_DECLINED',
+      closed: true,
+      closeError: null,
+      closeDeferred: false,
+    },
   });
 });
 
@@ -116,41 +134,127 @@ describe('PATCH case sync (migration 134)', () => {
     });
   });
 
-  it('a final stage ends an ACTIVE group through endIfDue', async () => {
+  it('a final stage on an ACTIVE group ends it through the case path with the claim token', async () => {
     m.rpc.mockResolvedValueOnce(
-      syncOk({ stage: 'Declined', outcome: 'Declined', final: true })
+      syncOk({
+        case_id: 'case-1',
+        stage: 'Declined',
+        outcome: 'Declined',
+        final: true,
+        group_end_token: TOKEN,
+      })
     );
-    m.service.endIfDue.mockResolvedValue({
-      ended: true,
-      closed: true,
-      closeDeferred: false,
-    });
     const res = await patch({ stage: 'Declined' });
-    expect(m.service.endIfDue).toHaveBeenCalledWith(
-      expect.objectContaining({ groupId: 'g1', status: 'Declined' })
+    expect(m.cases.endClaimedGroup).toHaveBeenCalledWith(
+      'case-1',
+      'Declined',
+      TOKEN
     );
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
     expect((await res.json()).data).toMatchObject({
       ended: true,
       closed: true,
+      close_deferred: false,
     });
   });
 
-  it('with a status too, records it and ends on the final stage', async () => {
+  it('a failed case end answers ended false and never falls back to endIfDue', async () => {
+    m.rpc.mockResolvedValueOnce(
+      syncOk({
+        case_id: 'case-1',
+        stage: 'Approved',
+        final: true,
+        group_end_token: TOKEN,
+      })
+    );
+    m.cases.endClaimedGroup.mockResolvedValue({
+      groupEnded: false,
+      reason: 'END_FAILED',
+      end: null,
+    });
+    const res = await patch({ stage: 'Approved', status: 'APPROVED' });
+    expect(m.cases.endClaimedGroup).toHaveBeenCalledWith(
+      'case-1',
+      'Approved',
+      TOKEN
+    );
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
+    expect((await res.json()).data).toMatchObject({
+      ended: false,
+      close_deferred: false,
+    });
+  });
+
+  it('a final move without a token (claim held elsewhere) ends nothing itself', async () => {
+    m.rpc.mockResolvedValueOnce(
+      syncOk({ case_id: 'case-1', stage: 'Closed', final: true })
+    );
+    await patch({ stage: 'Closed' });
+    expect(m.cases.endClaimedGroup).not.toHaveBeenCalled();
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
+  });
+
+  it('with a status too, records it and ends through the case path', async () => {
     m.rpc
-      .mockResolvedValueOnce(syncOk({ stage: 'Approved', final: true }))
+      .mockResolvedValueOnce(
+        syncOk({
+          case_id: 'case-1',
+          stage: 'Approved',
+          final: true,
+          group_end_token: TOKEN,
+        })
+      )
       .mockResolvedValueOnce({ data: null, error: null });
     await patch({ status: 'BANK_REVIEW', stage: 'Approved' });
     expect(m.rpc).toHaveBeenNthCalledWith(2, 'sg_note_submission_status', {
       p_group: 'g1',
       p_status: 'BANK_REVIEW',
     });
-    expect(m.service.endIfDue).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'Approved' })
+    expect(m.cases.endClaimedGroup).toHaveBeenCalledWith(
+      'case-1',
+      'Approved',
+      TOKEN
     );
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
     expect(m.cases.applySubmissionStatus).toHaveBeenCalledWith(
       'g1',
       'BANK_REVIEW'
     );
+  });
+
+  it('a stale update with a final status records and ends nothing', async () => {
+    m.rpc.mockResolvedValueOnce({
+      data: { applied: false, reason: 'stale' },
+      error: null,
+    });
+    const res = await patch({
+      changed_at: '2026-10-01T00:00:00Z',
+      status: 'APPROVED',
+    });
+    expect(res.status).toBe(200);
+    expect(m.rpc).toHaveBeenCalledTimes(1);
+    expect(m.rpc).not.toHaveBeenCalledWith(
+      'sg_note_submission_status',
+      expect.anything()
+    );
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
+    expect(m.cases.endClaimedGroup).not.toHaveBeenCalled();
+    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+    expect((await res.json()).data).toMatchObject({
+      ended: false,
+      case: { id: 'case-1' },
+      sync: { applied: false, reason: 'stale' },
+    });
+  });
+
+  it('a stale update on an ENDED group does not apply its status to the case', async () => {
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    m.rpc.mockResolvedValueOnce({
+      data: { applied: false, reason: 'stale' },
+      error: null,
+    });
+    await patch({ changed_at: '2026-10-01T00:00:00Z', status: 'APPROVED' });
+    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
   });
 
   it('a stale update is 200 with applied false', async () => {

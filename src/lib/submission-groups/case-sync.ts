@@ -35,9 +35,15 @@ export class CaseSyncRefusedError extends Error {
 export interface CaseSyncResult {
   applied: boolean;
   reason?: string;
+  caseId: string | null;
   stage: string | null;
   /** The case moved to a final stage in this call. */
   final: boolean;
+  /**
+   * The group-end claim the final move took (an ACTIVE group), exactly
+   * as Postgres sent it; the caller ends the group with it.
+   */
+  groupEndToken: string | null;
   rejected: { key: string | null; error: string }[];
   changes: string[];
 }
@@ -72,8 +78,11 @@ export async function syncCaseFromSubmission(
   return {
     applied: r.applied === true,
     ...(typeof r.reason === 'string' ? { reason: r.reason } : {}),
+    caseId: typeof r.case_id === 'string' ? r.case_id : null,
     stage: typeof r.stage === 'string' ? r.stage : null,
     final: r.final === true,
+    groupEndToken:
+      typeof r.group_end_token === 'string' ? r.group_end_token : null,
     rejected: Array.isArray(r.rejected)
       ? (r.rejected as CaseSyncResult['rejected'])
       : [],

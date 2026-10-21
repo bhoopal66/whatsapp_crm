@@ -411,15 +411,19 @@ $$;
 --  * stage: in the bank's list (UNKNOWN_STAGE), never pre-submission
 --    (PRESUB_REENTRY), from Closed nothing (CASE_CLOSED), from an
 --    outcome only Closed (FINAL_STAGE). A final stage sets closed_at and
---    the outcome as case_apply_submission_status does (no claim; the
---    route ends the group). Same stage: no-op.
+--    the outcome, and on a group not yet ended takes the group-end claim
+--    as case_set_stage does (group_end_token; the route ends the group
+--    with it). Same stage: no-op.
 --  * outcome_code / outcome_text: once, 127/130's rules; a refusal is
 --    reported in rejected, never raised.
 --  * documents: a requirement of (bank, product) or a row already on
 --    the case; received defaults file_ref to 'external'; refusals go to
 --    rejected [{key, error}]. Same status and file: no-op.
--- Returns {applied:true, stage, outcome, final, rejected, changes};
--- final = the case moved to a final stage in this call.
+-- Returns {applied:true, case_id, stage, outcome, final,
+-- group_end_token, rejected, changes}; final = the case moved to a final
+-- stage in this call; group_end_token = the group_end_claimed_at it set
+-- (NULL when it took no claim). An invalid changed_at (CHANGED_AT_INVALID)
+-- is refused before the stale check.
 CREATE OR REPLACE FUNCTION public.case_sync_from_submission(p_group uuid, p_changed_at timestamptz, p_patch jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -448,17 +452,22 @@ DECLARE
   v_file     text;
   v_at       timestamptz;
   v_old      public.case_documents%ROWTYPE;
+  v_ended    timestamptz;
+  v_claim    boolean := false;
+  v_token    timestamptz;
 BEGIN
   SELECT * INTO c FROM public.cases x WHERE x.group_id = p_group FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('applied', false, 'reason', 'no_case');
   END IF;
-  IF p_changed_at IS NOT NULL AND c.external_changed_at IS NOT NULL AND p_changed_at < c.external_changed_at THEN
-    RETURN jsonb_build_object('applied', false, 'reason', 'stale');
-  END IF;
+  -- Validated before the stale comparison, so an invalid changed_at is
+  -- refused even when it would also be stale.
   IF p_changed_at IN ('infinity'::timestamptz, '-infinity'::timestamptz) THEN
     RAISE EXCEPTION 'CHANGED_AT_INVALID: changed_at % is not a date', p_changed_at
       USING ERRCODE = 'P0001', HINT = 'CHANGED_AT_INVALID';
+  END IF;
+  IF p_changed_at IS NOT NULL AND c.external_changed_at IS NOT NULL AND p_changed_at < c.external_changed_at THEN
+    RETURN jsonb_build_object('applied', false, 'reason', 'stale');
   END IF;
 
   -- Validate every scalar before the first write.
@@ -543,13 +552,20 @@ BEGIN
     END IF;
     v_final := v_stage IN ('Approved', 'Declined', 'Withdrawn', 'Closed');
     v_outcome := CASE WHEN v_stage IN ('Approved', 'Declined', 'Withdrawn') THEN v_stage ELSE c.outcome END;
+    SELECT g.ended_at INTO v_ended FROM public.submission_groups g
+     WHERE g.id = c.group_id AND g.status = 'ENDED';
+    -- case_set_stage's claim: a final move on a group not yet ended takes
+    -- the group-end claim in this locked update, so the case sweeper
+    -- (case_pending_group_end) never ends the same group concurrently.
+    -- The route ends it with the returned token (CaseStore.endClaimedGroup).
+    v_claim := v_final AND c.group_end_claimed_at IS NULL AND c.group_ended_at IS NULL AND v_ended IS NULL;
+    v_token := CASE WHEN v_claim THEN now() END;
     UPDATE public.cases x
        SET stage = v_stage,
            outcome = v_outcome,
            closed_at = CASE WHEN v_final THEN coalesce(x.closed_at, now()) ELSE NULL END,
-           group_ended_at = CASE WHEN v_final THEN coalesce(x.group_ended_at,
-             (SELECT g.ended_at FROM public.submission_groups g
-               WHERE g.id = c.group_id AND g.status = 'ENDED')) ELSE x.group_ended_at END
+           group_ended_at = CASE WHEN v_final THEN coalesce(x.group_ended_at, v_ended) ELSE x.group_ended_at END,
+           group_end_claimed_at = CASE WHEN v_claim THEN v_token ELSE x.group_end_claimed_at END
      WHERE x.id = c.id;
     INSERT INTO public.case_stage_history (case_id, account_id, from_stage, to_stage, outcome, actor_id, actor_role)
     VALUES (c.id, c.account_id, c.stage, v_stage, v_outcome, NULL, 'api');
@@ -642,8 +658,8 @@ BEGIN
     UPDATE public.cases x SET external_changed_at = greatest(x.external_changed_at, p_changed_at) WHERE x.id = c.id;
   END IF;
 
-  RETURN jsonb_build_object('applied', true, 'stage', c.stage, 'outcome', c.outcome, 'final', v_final,
-                            'rejected', v_rejected, 'changes', to_jsonb(v_changes));
+  RETURN jsonb_build_object('applied', true, 'case_id', c.id, 'stage', c.stage, 'outcome', c.outcome, 'final', v_final,
+                            'group_end_token', v_token, 'rejected', v_rejected, 'changes', to_jsonb(v_changes));
 END;
 $$;
 

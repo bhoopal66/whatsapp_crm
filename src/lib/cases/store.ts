@@ -433,6 +433,19 @@ export class CaseStore {
     });
   }
 
+  /**
+   * Ends the group of a case whose claim the caller already took in SQL
+   * (case_sync_from_submission's group_end_token): finish on an end,
+   * release otherwise, exactly as setStage's own claim.
+   */
+  async endClaimedGroup(
+    caseId: string,
+    finalStage: string,
+    token: string
+  ): Promise<GroupEndOutcome> {
+    return this.endGroup(caseId, finalStage, token);
+  }
+
   private noDeps(): GroupEndOutcome {
     return { groupEnded: false, reason: 'NO_DEPS', end: null };
   }

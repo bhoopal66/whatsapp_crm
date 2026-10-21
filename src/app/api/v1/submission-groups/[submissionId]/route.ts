@@ -26,8 +26,13 @@
 // answer adds `sync: { applied, reason?, rejected, changes }`. A stale
 // update is 200 with `applied: false, reason: 'stale'`; a refusal is 422
 // with its code (unknown_stage, presub_reentry, …) and writes nothing.
-// A sync that moves the case to a final stage ends an ACTIVE group
-// through the same endIfDue a final status uses.
+// A stale sync also skips every status step (note, end, case status):
+// the body's status is as old as its changed_at.
+// A sync that moves the case to a final stage on an ACTIVE group takes
+// the case's group-end claim in SQL (group_end_token) and ends the group
+// through the case store, as a person's stage move does, so the case
+// sweeper never ends the same group concurrently; a failed end releases
+// the claim for the sweeper. endIfDue then runs for nothing else.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -129,6 +134,16 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     const syncBlock = synced ? { sync: syncWire(synced) } : {};
 
+    if (synced && !synced.applied && synced.reason === 'stale')
+      return ok({
+        ...(await wire(store, group)),
+        ended: false,
+        closed: group.waClosedAt !== null,
+        close_deferred: false,
+        case: await patchCase(ctx.accountId, group.id, null),
+        ...syncBlock,
+      });
+
     if (group.status !== 'ACTIVE')
       return ok({
         ...(await wire(store, group)),
@@ -149,21 +164,31 @@ export async function PATCH(request: Request, { params }: Params) {
         return fail('internal', 'Failed to record the status', 500);
       }
     }
-    // A final stage (Approved, Declined, Withdrawn, Closed) is a final
-    // status to endIfDue, so a sync that closed the case ends the group
-    // exactly as a final status does.
-    const endStatus = synced?.final && synced.stage ? synced.stage : status;
-    const service = submissionGroupService(ctx.accountId, ctx.supabase);
-    const end =
-      endStatus === null
-        ? { ended: false, closed: false, closeDeferred: false }
-        : await service.endIfDue({
-            groupId: group.id,
-            status: endStatus,
-            lastActivityAt: group.lastActivityAt,
-            idleDays: null,
-            now: new Date(),
-          });
+    let end: { ended: boolean; closed: boolean; closeDeferred: boolean };
+    if (synced?.groupEndToken && synced.caseId && synced.stage) {
+      // The sync's final move holds the claim: end through the case path
+      // (finish on an end, release otherwise), never endIfDue as well.
+      const r = await caseStore(ctx.accountId).endClaimedGroup(
+        synced.caseId,
+        synced.stage,
+        synced.groupEndToken
+      );
+      end = {
+        ended: r.end?.ended ?? false,
+        closed: r.end?.closed ?? false,
+        closeDeferred: r.end?.closeDeferred ?? false,
+      };
+    } else if (status === null) {
+      end = { ended: false, closed: false, closeDeferred: false };
+    } else {
+      end = await submissionGroupService(ctx.accountId, ctx.supabase).endIfDue({
+        groupId: group.id,
+        status,
+        lastActivityAt: group.lastActivityAt,
+        idleDays: null,
+        now: new Date(),
+      });
+    }
     group = (await store.get(group.id)) ?? group;
     const caseWire = await patchCase(ctx.accountId, group.id, status);
     return ok({

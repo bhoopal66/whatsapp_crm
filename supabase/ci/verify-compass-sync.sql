@@ -164,6 +164,11 @@ BEGIN
     (SELECT x.external_changed_at FROM cases x WHERE x.id = k1) = now() - interval '2 days',
     'the stale update moved external_changed_at');
 
+  n := n + 1; failed := failed || pg_temp.cs_check(
+    'an infinite changed_at older than the stored one was not CHANGED_AT_INVALID', NULL, NULL,
+    format('SELECT case_sync_from_submission(%L, ''-infinity'', ''{"amount": 5}'')::text', g1),
+    'ERROR P0001 CHANGED_AT_INVALID:%');
+
   -- ---------- 3. stage refusals ----------
   n := n + 1; failed := failed || pg_temp.cs_check('a stage outside the bank list was not UNKNOWN_STAGE', NULL, NULL,
     pg_temp.sync_sql(g1, '{"stage": "Nope"}'), 'ERROR P0001 UNKNOWN_STAGE:%');
@@ -224,6 +229,12 @@ BEGIN
   SELECT x.outcome, x.closed_at IS NOT NULL INTO st, b1 FROM cases x WHERE x.id = k1;
   n := n + 1; failed := failed || pg_temp.cs_ok(st = 'Approved' AND b1,
     format('the move to Approved left outcome %s, closed_at set %s', st, b1));
+  -- The final move on an ACTIVE group takes the group-end claim (as
+  -- case_set_stage does), so the case sweeper cannot end it concurrently.
+  n := n + 1; failed := failed || pg_temp.cs_ok(
+    (SELECT x.group_end_claimed_at IS NOT NULL AND x.group_end_claimed_at = (j ->> 'group_end_token')::timestamptz
+       FROM cases x WHERE x.id = k1),
+    format('the final move on an ACTIVE group did not take the group-end claim it returned (%s)', j));
   n := n + 1; failed := failed || pg_temp.cs_ok(
     EXISTS (SELECT 1 FROM case_stage_history h
              WHERE h.case_id = k1 AND h.to_stage = 'Approved' AND h.actor_role = 'api' AND h.actor_id IS NULL),

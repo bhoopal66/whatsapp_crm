@@ -854,3 +854,31 @@ describe('evaluateCaseSla', () => {
     });
   });
 });
+
+describe('endClaimedGroup (the claim case_sync_from_submission took)', () => {
+  it('ends the group and finishes with the token', async () => {
+    const { db, store, ender } = setup({});
+    const r = await store.endClaimedGroup(CASE, 'Declined', TOKEN);
+    expect(ender?.endNow).toHaveBeenCalledWith(GROUP, 'CASE_DECLINED');
+    expect(db.of('case_finish_group_end')).toEqual([
+      { p_case: CASE, p_token: TOKEN },
+    ]);
+    expect(db.of('case_release_group_end')).toEqual([]);
+    expect(r.reason).toBe('ENDED');
+  });
+
+  it('a failed end releases the claim with the token', async () => {
+    const ender = {
+      endNow: vi.fn(async () => {
+        throw new Error('whapi down');
+      }),
+    };
+    const { db, store } = setup({ ender });
+    const r = await store.endClaimedGroup(CASE, 'Approved', TOKEN);
+    expect(r).toEqual({ groupEnded: false, reason: 'END_FAILED', end: null });
+    expect(db.of('case_release_group_end')).toEqual([
+      { p_case: CASE, p_token: TOKEN },
+    ]);
+    expect(db.of('case_finish_group_end')).toEqual([]);
+  });
+});
