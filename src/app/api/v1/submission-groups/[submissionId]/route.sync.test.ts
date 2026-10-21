@@ -222,6 +222,27 @@ describe('PATCH case sync (migration 134)', () => {
     );
   });
 
+  it('a failed status note still settles the claim the sync took', async () => {
+    m.rpc
+      .mockResolvedValueOnce(
+        syncOk({
+          case_id: 'case-1',
+          stage: 'Declined',
+          final: true,
+          group_end_token: TOKEN,
+        })
+      )
+      .mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+    const res = await patch({ status: 'DECLINED', stage: 'Declined' });
+    expect(res.status).toBe(500);
+    expect(m.cases.endClaimedGroup).toHaveBeenCalledWith(
+      'case-1',
+      'Declined',
+      TOKEN
+    );
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
+  });
+
   it('a stale update with a final status records and ends nothing', async () => {
     m.rpc.mockResolvedValueOnce({
       data: { applied: false, reason: 'stale' },

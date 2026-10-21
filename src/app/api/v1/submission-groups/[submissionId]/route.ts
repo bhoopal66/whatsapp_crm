@@ -161,6 +161,13 @@ export async function PATCH(request: Request, { params }: Params) {
       });
       if (error) {
         console.error('[api/v1/submission-groups] status note:', error);
+        // The sync's final move already committed and holds the group-end
+        // claim: settle it now (end, else release), or a retry finds the
+        // stage unchanged, takes no claim and races the held one.
+        if (synced?.groupEndToken && synced.caseId && synced.stage)
+          await caseStore(ctx.accountId)
+            .endClaimedGroup(synced.caseId, synced.stage, synced.groupEndToken)
+            .catch(() => undefined);
         return fail('internal', 'Failed to record the status', 500);
       }
     }
