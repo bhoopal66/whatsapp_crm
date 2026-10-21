@@ -285,7 +285,7 @@ export function CreateWorkspaceDialog({
                       {o.ok ? (
                         <Check className="text-wa-teal size-4 shrink-0" />
                       ) : (
-                        <X className="size-4 shrink-0 text-red-600 [[data-mode=dark]_&]:text-red-400" />
+                        <X className="text-destructive size-4 shrink-0" />
                       )}
                       <span className="text-foreground min-w-0 flex-1 truncate text-sm font-medium">
                         {o.invite.email}
@@ -359,7 +359,7 @@ export function CreateWorkspaceDialog({
                           {t('passwordHint', { min: MIN_PASSWORD_LENGTH })}
                         </p>
                         {o.loginError ? (
-                          <p className="text-xs text-red-600 [[data-mode=dark]_&]:text-red-400">
+                          <p className="text-destructive text-xs">
                             {o.loginError}
                           </p>
                         ) : null}
@@ -378,7 +378,7 @@ export function CreateWorkspaceDialog({
                         </Button>
                       </div>
                     ) : (
-                      <p className="pl-7 text-xs text-red-600 [[data-mode=dark]_&]:text-red-400">
+                      <p className="text-destructive pl-7 text-xs">
                         {o.error || t('inviteFailed')}
                       </p>
                     )}
@@ -428,7 +428,7 @@ export function CreateWorkspaceDialog({
                   className="bg-muted border-border"
                 />
                 {attempted && nameError ? (
-                  <p className="text-xs text-red-600 [[data-mode=dark]_&]:text-red-400">
+                  <p className="text-destructive text-xs">
                     {t(`errors.${nameError}`)}
                   </p>
                 ) : null}
@@ -452,7 +452,7 @@ export function CreateWorkspaceDialog({
                   className={cn(
                     'text-xs',
                     attempted && shortError
-                      ? 'text-red-600 [[data-mode=dark]_&]:text-red-400'
+                      ? 'text-destructive'
                       : 'text-muted-foreground'
                   )}
                 >
@@ -565,7 +565,7 @@ export function CreateWorkspaceDialog({
                         </Button>
                       </div>
                       {rowError ? (
-                        <p className="text-xs text-red-600 [[data-mode=dark]_&]:text-red-400">
+                        <p className="text-destructive text-xs">
                           {t(`errors.${rowError}`)}
                         </p>
                       ) : null}
@@ -574,7 +574,7 @@ export function CreateWorkspaceDialog({
                 })}
               </ul>
               {attempted && invites.tooMany ? (
-                <p className="text-xs text-red-600 [[data-mode=dark]_&]:text-red-400">
+                <p className="text-destructive text-xs">
                   {t('errors.tooMany', { max: MAX_INVITES })}
                 </p>
               ) : null}
@@ -594,16 +594,14 @@ export function CreateWorkspaceDialog({
                     className={cn(
                       'rounded-lg border p-3',
                       card.guest
-                        ? 'border-violet-500/30 bg-violet-500/10'
+                        ? 'border-primary/30 bg-primary-soft'
                         : 'border-border bg-muted/40'
                     )}
                   >
                     <p
                       className={cn(
                         'text-sm font-semibold',
-                        card.guest
-                          ? 'text-violet-700 [[data-mode=dark]_&]:text-violet-300'
-                          : 'text-foreground'
+                        card.guest ? 'text-primary' : 'text-foreground'
                       )}
                     >
                       {card.title}
@@ -619,7 +617,7 @@ export function CreateWorkspaceDialog({
             {formError ? (
               <p
                 role="alert"
-                className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 [[data-mode=dark]_&]:text-red-400"
+                className="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border px-3 py-2 text-sm"
               >
                 {formError}
               </p>

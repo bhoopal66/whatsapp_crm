@@ -39,7 +39,7 @@ export default function RootError({
   return (
     <div className="flex min-h-svh items-center justify-center px-4 py-12">
       <div className="flex w-full max-w-md flex-col items-center text-center">
-        <div className="bg-destructive/10 mb-4 flex size-12 items-center justify-center rounded-xl">
+        <div className="bg-destructive-soft mb-4 flex size-12 items-center justify-center rounded-xl">
           <TriangleAlert className="text-destructive size-6" aria-hidden />
         </div>
         <h1 className="text-foreground text-xl font-semibold">

@@ -223,7 +223,7 @@ export default function JoinPage() {
   // ----- Loading state (peek pending OR auth not yet resolved) -----
   if (peek === null || authedUserId === undefined) {
     return (
-      <Card className="w-full max-w-md border-border bg-card">
+      <Card className="w-full max-w-md border-border bg-card py-6 shadow-xl shadow-foreground/5 dark:shadow-black/40">
         <CardContent className="flex flex-col items-center gap-3 py-12">
           <Loader2 className="size-6 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Verifying invitation…</p>
@@ -236,10 +236,10 @@ export default function JoinPage() {
   if (!peek.ok) {
     const copy = FAIL_COPY[peek.reason];
     return (
-      <Card className="w-full max-w-md border-border bg-card">
+      <Card className="w-full max-w-md border-border bg-card py-6 shadow-xl shadow-foreground/5 dark:shadow-black/40">
         <CardHeader className="items-center text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/10">
-            <MailX className="h-6 w-6 text-red-400" />
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-destructive-soft">
+            <MailX className="h-6 w-6 text-destructive" />
           </div>
           <CardTitle className="text-xl text-foreground">{copy.title}</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -260,7 +260,7 @@ export default function JoinPage() {
             <>
               <Button
                 onClick={loadPeekAndAuth}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                className="w-full bg-primary text-primary-foreground hover:bg-primary-hover"
               >
                 Try again
               </Button>
@@ -275,7 +275,7 @@ export default function JoinPage() {
                   buttonVariants({
                     variant: 'outline',
                     className:
-                      'border-border text-muted-foreground hover:bg-muted hover:text-foreground w-full',
+                      'border-border text-muted-foreground hover:bg-accent hover:text-foreground w-full',
                   })
                 )}
               >
@@ -291,7 +291,7 @@ export default function JoinPage() {
   // ----- Peek OK -----
   const inviteHeader = (
     <CardHeader className="items-center text-center">
-      <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+      <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-soft">
         <UsersRound className="h-6 w-6 text-primary" />
       </div>
       <CardTitle className="text-xl text-foreground">
@@ -319,13 +319,13 @@ export default function JoinPage() {
   if (authedUserId) {
     return (
       <>
-        <Card className="w-full max-w-md border-border bg-card">
+        <Card className="w-full max-w-md border-border bg-card py-6 shadow-xl shadow-foreground/5 dark:shadow-black/40">
           {inviteHeader}
           <CardContent className="flex flex-col gap-3">
             <Button
               onClick={handleAccept}
               disabled={accepting}
-              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary-hover"
             >
               {accepting ? (
                 <>
@@ -360,7 +360,7 @@ export default function JoinPage() {
           <DialogContent className="bg-popover border-border sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-popover-foreground">
-                <AlertTriangle className="size-4 text-amber-400" />
+                <AlertTriangle className="size-4 text-warning" />
                 Can&apos;t join {peek.account_name} with this account
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
@@ -380,14 +380,14 @@ export default function JoinPage() {
               <Button
                 variant="outline"
                 onClick={() => setConflictMessage(null)}
-                className="border-border text-popover-foreground hover:bg-muted"
+                className="border-border text-popover-foreground hover:bg-accent"
               >
                 Stay signed in
               </Button>
               <Button
                 onClick={handleSignOutAndRetry}
                 disabled={signingOut}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                className="bg-primary text-primary-foreground hover:bg-primary-hover"
               >
                 {signingOut ? (
                   <>
@@ -413,7 +413,7 @@ export default function JoinPage() {
   // path is now specifically "an existing user joins this account",
   // and the only action is to sign in.
   return (
-    <Card className="w-full max-w-md border-border bg-card">
+    <Card className="w-full max-w-md border-border bg-card py-6 shadow-xl shadow-foreground/5 dark:shadow-black/40">
       {inviteHeader}
       <CardContent className="flex flex-col gap-2">
         <Link
@@ -422,7 +422,7 @@ export default function JoinPage() {
             buttonVariants({
               variant: 'outline',
               className:
-                'border-border text-muted-foreground hover:bg-muted hover:text-foreground w-full',
+                'border-border text-muted-foreground hover:bg-accent hover:text-foreground w-full',
             })
           )}
         >

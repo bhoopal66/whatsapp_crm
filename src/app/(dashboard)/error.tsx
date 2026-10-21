@@ -30,7 +30,7 @@ export default function DashboardError({
   return (
     <div className="flex min-h-[60vh] items-center justify-center py-12">
       <div className="border-border bg-card flex w-full max-w-md flex-col items-center rounded-xl border px-6 py-10 text-center">
-        <div className="bg-destructive/10 mb-4 flex size-12 items-center justify-center rounded-xl">
+        <div className="bg-destructive-soft mb-4 flex size-12 items-center justify-center rounded-xl">
           <TriangleAlert className="text-destructive size-6" aria-hidden />
         </div>
         <h1 className="text-foreground text-lg font-semibold">

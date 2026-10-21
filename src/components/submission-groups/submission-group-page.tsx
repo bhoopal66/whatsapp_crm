@@ -440,7 +440,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
           className={
             b === 'pending'
               ? 'bg-muted text-muted-foreground flex items-start gap-2 rounded-lg px-3 py-2 text-sm'
-              : 'border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-sm'
+              : 'border-destructive/30 bg-destructive-soft text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-sm'
           }
         >
           {b === 'pending' ? (
@@ -467,7 +467,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_18rem]">
         <div className="bg-card flex h-[calc(100dvh-16rem)] min-h-80 flex-col overflow-hidden rounded-lg border">
           {archive && (
-            <div className="flex items-start gap-2 border-b bg-amber-500/10 px-3 py-2 text-xs text-amber-800 [[data-mode=dark]_&]:text-amber-200">
+            <div className="bg-warning-soft text-foreground flex items-start gap-2 border-b px-3 py-2 text-xs">
               <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <span>{t('archiveViewing')}</span>
             </div>

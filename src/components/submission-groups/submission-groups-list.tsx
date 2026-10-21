@@ -96,7 +96,7 @@ export function SubmissionGroupsList() {
   const now = new Date();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6">
+    <div className="w-full space-y-4">
       <div className="min-w-0">
         <h1 className="text-xl font-bold">{t('title')}</h1>
         <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
@@ -229,7 +229,7 @@ function Row({ group: g, now }: { group: SgListItem; now: Date }) {
       <Link
         href={`/submission-groups/${g.id}`}
         className={cn(
-          'border-border bg-card hover:bg-muted/60 flex items-center gap-3 rounded-xl border p-3 transition-colors sm:p-4',
+          'border-border bg-card hover:bg-accent flex items-center gap-3 rounded-xl border p-3 transition-colors sm:p-4',
           ended && 'opacity-80'
         )}
       >
@@ -248,7 +248,7 @@ function Row({ group: g, now }: { group: SgListItem; now: Date }) {
               </span>
             )}
             {g.pending && !ended && (
-              <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 [[data-mode=dark]_&]:text-amber-300">
+              <span className="bg-warning-soft text-warning shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
                 {t('pendingBadge')}
               </span>
             )}
@@ -259,7 +259,7 @@ function Row({ group: g, now }: { group: SgListItem; now: Date }) {
               </span>
             )}
             {g.my_label && (
-              <span className="bg-wa-green/15 text-wa-green shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+              <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
                 {t(`labels.${g.my_label}`)}
               </span>
             )}

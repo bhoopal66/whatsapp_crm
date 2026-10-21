@@ -31,8 +31,8 @@ import { cn } from '@/lib/utils';
 import { chip } from './banks-list';
 
 const SLA_TONE: Record<SlaTone, string> = {
-  bad: 'bg-red-500/15 text-red-700 [[data-mode=dark]_&]:text-red-300',
-  warn: 'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300',
+  bad: 'bg-destructive-soft text-destructive',
+  warn: 'bg-warning-soft text-warning',
   muted: 'bg-muted text-muted-foreground',
 };
 
@@ -225,7 +225,7 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                     // The stage link is stretched over the whole row.
                     <TableRow
                       key={c.caseId}
-                      className="hover:bg-muted/60 relative align-top"
+                      className="hover:bg-accent relative align-top"
                     >
                       <TableCell className="max-w-48 text-sm whitespace-normal">
                         <Customer c={c} name={v.customer} />
@@ -274,7 +274,7 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                 // other.
                 <li
                   key={c.caseId}
-                  className="border-border bg-card hover:bg-muted/60 relative space-y-2 rounded-xl border p-3 transition-colors"
+                  className="border-border bg-card hover:bg-accent relative space-y-2 rounded-xl border p-3 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <Link

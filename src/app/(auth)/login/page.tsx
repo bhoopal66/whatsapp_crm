@@ -95,18 +95,18 @@ function LoginPageInner() {
 
   return (
     <div className="bg-background flex min-h-screen items-center justify-center px-4">
-      <Card className="border-border bg-card w-full max-w-md">
+      <Card className="border-border bg-card shadow-foreground/5 w-full max-w-md py-6 shadow-xl dark:shadow-black/40">
         <CardHeader className="items-center text-center">
           {/* CardHeader is a grid whose single column spans the full
               width, so a fixed-size child lands at the start of it.
               `items-center` on the header only centers the block axis
               — `mx-auto` is what actually centers these horizontally. */}
           {inviteToken ? (
-            <div className="bg-primary/10 mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl">
+            <div className="bg-primary-soft mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl">
               <UsersRound className="text-primary h-6 w-6" />
             </div>
           ) : (
-            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-white p-1.5">
+            <div className="ring-border mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-white p-1.5 shadow-sm ring-1">
               <img
                 src="/brand/taamul-mark.png"
                 alt="Taamul Connect"
@@ -126,7 +126,7 @@ function LoginPageInner() {
         <CardContent>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
             {error && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <div className="border-destructive/30 bg-destructive-soft text-destructive rounded-lg border px-4 py-3 text-sm">
                 {error}
               </div>
             )}
@@ -142,7 +142,7 @@ function LoginPageInner() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
+                className="border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20 dark:bg-input/30 h-10"
               />
             </div>
 
@@ -165,14 +165,14 @@ function LoginPageInner() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
+                className="border-input bg-card text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20 dark:bg-input/30 h-10"
               />
             </div>
 
             <Button
               type="submit"
               disabled={loading}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 mt-2 h-10 w-full disabled:opacity-50"
+              className="bg-primary text-primary-foreground hover:bg-primary-hover mt-2 h-10 w-full disabled:opacity-50"
             >
               {loading ? t('signingIn') : t('signIn')}
             </Button>

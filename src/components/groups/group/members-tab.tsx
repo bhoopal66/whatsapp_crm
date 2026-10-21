@@ -358,7 +358,7 @@ function AddMembersDialog({
               </section>
             )}
             {summary.needInvite.length > 0 && (
-              <section className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 [[data-mode=dark]_&]:border-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200">
+              <section className="border-warning/30 bg-warning-soft text-foreground space-y-1 rounded-lg border p-3">
                 <h3 className="font-semibold">
                   {m('resultNeedInvite', { count: summary.needInvite.length })}
                 </h3>

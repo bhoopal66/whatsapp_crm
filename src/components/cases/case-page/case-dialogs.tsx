@@ -149,7 +149,7 @@ export function MoveStageDialog({
       role="status"
       className={
         group === 'failed'
-          ? 'border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm'
+          ? 'border-destructive/30 bg-destructive-soft text-destructive rounded-lg border px-3 py-2 text-sm'
           : 'bg-muted text-muted-foreground rounded-lg px-3 py-2 text-sm'
       }
     >

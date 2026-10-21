@@ -77,18 +77,22 @@ interface Loaded {
 }
 
 const SLA_CHIP: Record<InboxSlaState, string> = {
-  on_track:
-    'bg-emerald-500/15 text-emerald-700 [[data-mode=dark]_&]:text-emerald-300',
-  due_soon:
-    'bg-amber-500/15 text-amber-700 [[data-mode=dark]_&]:text-amber-300',
-  overdue: 'bg-red-500/15 text-red-700 [[data-mode=dark]_&]:text-red-300',
+  on_track: 'bg-success-soft text-success ring-1 ring-success/30 ring-inset',
+  due_soon: 'bg-warning-soft text-warning ring-1 ring-warning/30 ring-inset',
+  overdue:
+    'bg-destructive-soft text-destructive ring-1 ring-destructive/30 ring-inset',
 };
 
 /** Only the raised priorities get a chip; low and normal stay quiet. */
 const PRIORITY_CHIP: Partial<Record<CasePriority, string>> = {
-  high: 'bg-orange-500/15 text-orange-700 [[data-mode=dark]_&]:text-orange-300',
-  urgent: 'bg-red-500/15 text-red-700 [[data-mode=dark]_&]:text-red-300',
+  high: 'bg-warning-soft text-warning ring-1 ring-warning/30 ring-inset',
+  urgent:
+    'bg-destructive-soft text-destructive ring-1 ring-destructive/30 ring-inset',
 };
+
+/** The shared Switch's unchecked track (bg-muted) vanishes on a white
+ * card; the filter bar gives it the input line colour instead. */
+const SWITCH_OFF = 'data-[unchecked]:bg-input';
 
 const chip =
   'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium';
@@ -208,7 +212,7 @@ export function CasesInbox() {
   const now = new Date();
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 p-4 md:p-6">
+    <div className="w-full space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold">{t('title')}</h1>
@@ -410,6 +414,7 @@ function Toggle({
         id={id}
         checked={checked}
         onCheckedChange={(v) => onChange(!!v)}
+        className={SWITCH_OFF}
       />
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
@@ -536,6 +541,7 @@ function FilterBar({
           <Switch
             id="cases-no-activity"
             checked={f.noActivityDays !== null}
+            className={SWITCH_OFF}
             onCheckedChange={(on) =>
               setFilters({
                 noActivityDays: on
@@ -553,7 +559,7 @@ function FilterBar({
             min={1}
             max={NO_ACTIVITY_DAYS_MAX}
             aria-label={`${t('filters.noActivity')} (${t('filters.noActivityDays')})`}
-            className="h-8 w-20"
+            className="disabled:bg-muted h-8 w-20 disabled:opacity-70"
             disabled={f.noActivityDays === null}
             value={f.noActivityDays === null ? '' : daysDraft}
             onChange={(e) => setDaysDraft(e.target.value)}
@@ -654,7 +660,9 @@ function Chips({ row }: { row: InboxRow }) {
   const priority = PRIORITY_CHIP[row.priority];
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <span className={cn(chip, 'bg-muted text-foreground')}>{row.stage}</span>
+      <span className={cn(chip, 'bg-secondary text-secondary-foreground')}>
+        {row.stage}
+      </span>
       {row.isLead && (
         <span className={cn(chip, LEAD_CHIP)}>{t('leadChip')}</span>
       )}
@@ -679,8 +687,12 @@ function Chips({ row }: { row: InboxRow }) {
 
 function Flags({ row }: { row: InboxRow }) {
   const t = useTranslations('Cases');
-  const flags: Array<{ key: string; icon: typeof Hourglass; text: string }> =
-    [];
+  const flags: Array<{
+    key: string;
+    icon: typeof Hourglass;
+    text: string;
+    urgent?: boolean;
+  }> = [];
   if (row.customerWaiting)
     flags.push({
       key: 'waiting',
@@ -704,12 +716,19 @@ function Flags({ row }: { row: InboxRow }) {
       key: 'tasks',
       icon: TriangleAlert,
       text: t('flags.overdueTasks', { count: row.openTaskOverdueCount }),
+      urgent: true,
     });
   if (flags.length === 0) return null;
   return (
-    <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-700 [[data-mode=dark]_&]:text-amber-300">
-      {flags.map(({ key, icon: Icon, text }) => (
-        <span key={key} className="inline-flex items-center gap-1">
+    <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium">
+      {flags.map(({ key, icon: Icon, text, urgent }) => (
+        <span
+          key={key}
+          className={cn(
+            'inline-flex items-center gap-1',
+            urgent ? 'text-destructive' : 'text-warning'
+          )}
+        >
           <Icon className="size-3.5" aria-hidden />
           {text}
         </span>
@@ -764,7 +783,7 @@ function TableRowView({
   const v = useRowView(row, now, nameOf);
   return (
     // The customer link is stretched over the whole row.
-    <TableRow className="hover:bg-muted/60 relative align-top">
+    <TableRow className="hover:bg-accent relative align-top">
       <TableCell className="max-w-64 whitespace-normal">
         <Link
           href={`/cases/${row.caseId}`}
@@ -821,7 +840,7 @@ function CaseCard({
     <li>
       <Link
         href={`/cases/${row.caseId}`}
-        className="border-border bg-card hover:bg-muted/60 block space-y-2 rounded-xl border p-3 transition-colors"
+        className="border-border bg-card hover:bg-accent block space-y-2 rounded-xl border p-3 transition-colors"
       >
         <span className="flex items-start justify-between gap-2">
           <span className="min-w-0">
