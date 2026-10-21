@@ -6639,7 +6639,8 @@
       "write": "이 케이스에서 맡은 역할로는 변경할 수 없습니다.",
       "reassign": "팀장 또는 관리자만 이 케이스를 재배정할 수 있습니다.",
       "closed": "종료된 케이스입니다.",
-      "noGroup": "제출 후 사용할 수 있습니다."
+      "noGroup": "제출 후 사용할 수 있습니다.",
+      "compass": "Compass에서 관리됩니다."
     },
     "actions": {
       "move": "단계 이동",
@@ -6910,7 +6911,8 @@
       "notFound": "케이스를 찾을 수 없습니다.",
       "unknown": "문제가 발생했습니다. 다시 시도하세요.",
       "presubReentry": "제출된 케이스는 제출 전 단계로 되돌릴 수 없습니다.",
-      "submissionRequired": "이 단계는 은행 제출 후에만 사용할 수 있습니다. 리드는 철회만 할 수 있습니다."
+      "submissionRequired": "이 단계는 은행 제출 후에만 사용할 수 있습니다. 리드는 철회만 할 수 있습니다.",
+      "managedExternally": "이 케이스는 Compass에서 관리됩니다. Compass에서 변경하세요."
     },
     "timeline": {
       "includeMessages": "WhatsApp 메시지 포함",
@@ -6996,6 +6998,13 @@
     "lead": {
       "banner": "리드 — 아직 제출 전",
       "source": "출처: {source}"
+    },
+    "compass": {
+      "title": "Compass에서 관리됨",
+      "body": "단계, 세부 정보 및 서류는 Compass에서 업데이트됩니다.",
+      "open": "Compass에서 열기",
+      "synced": "마지막 동기화 {time}",
+      "detailsLocked": "은행, 상품 및 금액은 Compass에서 업데이트됩니다."
     }
   },
   "Banks": {

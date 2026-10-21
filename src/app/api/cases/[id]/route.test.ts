@@ -22,14 +22,26 @@ const ID = '11111111-1111-4111-8111-111111111111';
 const aCase = (over: Record<string, unknown> = {}) => ({
   id: ID,
   accountId: 'acct-1',
+  groupId: 'g-1',
   bankCode: 'ADCB',
   stage: 'New',
   ...over,
 });
 
 const reason = { data: null as unknown, error: null as unknown };
-const eq = vi.fn(() => ({ maybeSingle: async () => reason }));
-const from = vi.fn(() => ({ select: () => ({ eq }) }));
+const settings = { data: null as unknown, error: null as unknown };
+const eq = vi.fn();
+const from = vi.fn((table: string) => ({
+  select: () => ({
+    eq: (col: string, val: unknown) => {
+      eq(col, val);
+      return {
+        maybeSingle: async () =>
+          table === 'case_account_settings' ? settings : reason,
+      };
+    },
+  }),
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,6 +67,8 @@ beforeEach(() => {
   m.timers.mockResolvedValue([]);
   reason.data = null;
   reason.error = null;
+  settings.data = null;
+  settings.error = null;
 });
 
 const p = (id = ID) => ({ params: Promise.resolve({ id }) });
@@ -104,12 +118,50 @@ describe('GET /api/cases/[id]', () => {
         reasonText: null,
         createdAt: '2026-10-18T10:00:00Z',
       },
+      managedExternally: false,
+      locked: false,
     });
     expect(m.store.stagesFor).toHaveBeenCalledWith('acct-1', 'ADCB');
     expect(m.timers).toHaveBeenCalledWith(ID);
     // The reason is read through the caller's RLS client.
     expect(from).toHaveBeenCalledWith('case_outcome_reasons');
     expect(eq).toHaveBeenCalledWith('case_id', ID);
+  });
+
+  it('locks a submitted case when the account is managed in Compass', async () => {
+    settings.data = { managed_externally: true };
+    const body = await (await get()).json();
+    expect(body).toMatchObject({ managedExternally: true, locked: true });
+    // Read through the caller's RLS client, for the case's account.
+    expect(from).toHaveBeenCalledWith('case_account_settings');
+    expect(eq).toHaveBeenCalledWith('account_id', 'acct-1');
+  });
+
+  it('never locks a lead, even when managed in Compass', async () => {
+    settings.data = { managed_externally: true };
+    m.store.get.mockResolvedValue(aCase({ groupId: null }));
+    expect(await (await get()).json()).toMatchObject({
+      managedExternally: true,
+      locked: false,
+    });
+  });
+
+  it('reads a missing settings row or a failed read as not managed', async () => {
+    expect(await (await get()).json()).toMatchObject({
+      managedExternally: false,
+      locked: false,
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    settings.data = { managed_externally: true };
+    settings.error = { code: '42501', message: 'denied' };
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      managedExternally: false,
+      locked: false,
+    });
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
   });
 
   it('gives an admin the audit permission', async () => {

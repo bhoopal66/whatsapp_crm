@@ -19,7 +19,7 @@ import {
 import { GatedButton } from '@/components/ui/gated-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { CaseTabProps } from '@/lib/cases/case-page';
+import { docStatusLocked, type CaseTabProps } from '@/lib/cases/case-page';
 import { toolErrorKey, validFileRef } from '@/lib/cases/case-tools-ui';
 import { cn } from '@/lib/utils';
 
@@ -106,6 +106,11 @@ export function DocumentsTab({ caseId, detail, onChanged }: CaseTabProps) {
     : closed
       ? t('gate.closed')
       : undefined;
+  // 134: Compass owns received / rejected; a request stays open.
+  const lockedTo = (status: DocStatus) =>
+    docStatusLocked(status, detail.locked);
+  const gateFor = (status: DocStatus) =>
+    gate ?? (lockedTo(status) ? t('gate.compass') : undefined);
 
   /** Saves a status; answers an error message, or null when saved. */
   const save = async (
@@ -215,8 +220,8 @@ export function DocumentsTab({ caseId, detail, onChanged }: CaseTabProps) {
                   <GatedButton
                     size="sm"
                     variant="ghost"
-                    disabled={!canAct || busy !== null}
-                    title={gate}
+                    disabled={!canAct || busy !== null || lockedTo('received')}
+                    title={gateFor('received')}
                     onClick={() => setReceiving(doc)}
                   >
                     {t('documents.markReceived')}
@@ -225,9 +230,13 @@ export function DocumentsTab({ caseId, detail, onChanged }: CaseTabProps) {
                     <GatedButton
                       size="sm"
                       variant="ghost"
-                      className={cn(canAct && 'text-destructive')}
-                      disabled={!canAct || busy !== null}
-                      title={gate}
+                      className={cn(
+                        canAct && !lockedTo('rejected') && 'text-destructive'
+                      )}
+                      disabled={
+                        !canAct || busy !== null || lockedTo('rejected')
+                      }
+                      title={gateFor('rejected')}
                       onClick={() => void quick(doc, 'rejected')}
                     >
                       {busy === `${doc.docKey}:rejected` && (

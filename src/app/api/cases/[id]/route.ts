@@ -8,6 +8,9 @@
 // the case's bank, its history and SLA timers, and the outcome reason —
 // read through the caller's own RLS client, so RLS decides whether it is
 // shown. A case record, not a conversation: no view_case audit row.
+// Also the account's Compass setting (134) and whether it locks this
+// case; a missing settings row or a failed read is "not managed" (the
+// SQL lock still holds, so the page only shows a control that 409s).
 //
 // PATCH: any of bank_code / product / amount (setDetails), priority,
 // due_at (ISO string, or null to clear). Applied in that order, each its
@@ -18,7 +21,11 @@
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount } from '@/lib/auth/account';
-import { canReassignCase, canWriteCase } from '@/lib/cases/access';
+import {
+  canReassignCase,
+  canWriteCase,
+  isManagedExternally,
+} from '@/lib/cases/access';
 import {
   badRequest,
   canSeeCaseAudit,
@@ -41,7 +48,7 @@ export async function GET(_request: Request, { params }: Params) {
     const { id } = await params;
     const store = caseStore();
     const { case: c, role } = await loadCaseForCaller(ctx, id, store);
-    const [stages, history, timers, reason] = await Promise.all([
+    const [stages, history, timers, reason, settings] = await Promise.all([
       store.stagesFor(c.accountId, c.bankCode),
       store.history(c.id),
       caseSlaStore().timers(c.id),
@@ -50,7 +57,21 @@ export async function GET(_request: Request, { params }: Params) {
         .select('reason_code, reason_text, created_at')
         .eq('case_id', c.id)
         .maybeSingle(),
+      ctx.supabase
+        .from('case_account_settings')
+        .select('managed_externally')
+        .eq('account_id', c.accountId)
+        .maybeSingle(),
     ]);
+    if (settings.error)
+      console.error(
+        '[cases] case_account_settings read failed',
+        settings.error.code ?? settings.error.message
+      );
+    const managedExternally =
+      !settings.error &&
+      (settings.data as Record<string, unknown> | null)?.managed_externally ===
+        true;
     if (reason.error)
       throw new CaseStoreError(
         'case_outcome_reasons',
@@ -75,6 +96,8 @@ export async function GET(_request: Request, { params }: Params) {
             createdAt: String(r.created_at),
           }
         : null,
+      managedExternally,
+      locked: isManagedExternally({ managedExternally }, c),
     });
   } catch (err) {
     return caseErrorResponse(err);

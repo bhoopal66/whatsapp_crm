@@ -67,6 +67,10 @@ export interface Case {
   closedAt: Date | null;
   outcome: string | null;
   groupEndedAt: Date | null;
+  /** 134: https link to the case in Compass; NULL when not synced. */
+  externalUrl: string | null;
+  /** 134: when Compass last changed the case. */
+  externalChangedAt: Date | null;
 }
 
 export interface StageChange {
