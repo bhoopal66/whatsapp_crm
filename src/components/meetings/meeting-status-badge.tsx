@@ -6,9 +6,9 @@ import type { MeetingDisplayStatus } from '@/lib/meetings/schedule';
 import { cn } from '@/lib/utils';
 
 const TONE: Record<MeetingDisplayStatus, string> = {
-  live: 'bg-emerald-100 text-emerald-800 [[data-mode=dark]_&]:bg-emerald-950 [[data-mode=dark]_&]:text-emerald-300',
-  due: 'bg-amber-100 text-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200',
-  scheduled: 'bg-muted text-foreground',
+  live: 'bg-success-soft text-success',
+  due: 'bg-warning-soft text-warning',
+  scheduled: 'bg-info-soft text-info',
   lapsed: 'bg-muted text-muted-foreground',
   ended: 'bg-muted text-muted-foreground',
   cancelled: 'bg-muted text-muted-foreground line-through',
@@ -29,8 +29,8 @@ export function MeetingStatusBadge({
     >
       {status === 'live' && (
         <span className="relative flex size-2" aria-hidden>
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-75 motion-reduce:animate-none" />
-          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+          <span className="bg-success absolute inline-flex size-full animate-ping rounded-full opacity-75 motion-reduce:animate-none" />
+          <span className="bg-success relative inline-flex size-2 rounded-full" />
         </span>
       )}
       {t(status)}

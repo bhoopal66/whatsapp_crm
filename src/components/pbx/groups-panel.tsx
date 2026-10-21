@@ -45,12 +45,10 @@ import { CallButton } from './call-button';
 const POLL_MS = 15_000;
 
 const TONE_CLASS: Record<Tone, string> = {
-  green:
-    'bg-emerald-100 text-emerald-700 [[data-mode=dark]_&]:bg-emerald-950 [[data-mode=dark]_&]:text-emerald-300',
-  amber:
-    'bg-amber-100 text-amber-900 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-200',
-  red: 'bg-red-100 text-red-700 [[data-mode=dark]_&]:bg-red-950 [[data-mode=dark]_&]:text-red-300',
-  blue: 'bg-sky-100 text-sky-700 [[data-mode=dark]_&]:bg-sky-950 [[data-mode=dark]_&]:text-sky-300',
+  green: 'bg-success-soft text-success',
+  amber: 'bg-warning-soft text-warning',
+  red: 'bg-destructive-soft text-destructive',
+  blue: 'bg-info-soft text-info',
   muted: 'bg-muted text-muted-foreground',
 };
 

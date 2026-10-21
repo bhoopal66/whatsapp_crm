@@ -499,10 +499,10 @@ export function CallStatsReport() {
               setParams({ period: p, from: null, to: null });
             }}
             className={cn(
-              'rounded-full border px-3 py-1 text-sm',
+              'focus-visible:ring-ring/50 rounded-full border px-3 py-1 text-sm transition-colors outline-none focus-visible:ring-3',
               shownPeriod === p
-                ? 'bg-foreground text-background border-transparent'
-                : 'border-border text-muted-foreground hover:bg-muted'
+                ? 'border-primary/40 bg-primary-soft text-primary font-medium'
+                : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
             )}
           >
             {t(`periods.${p}`)}
@@ -514,7 +514,7 @@ export function CallStatsReport() {
             <select
               value={params.user ?? ''}
               onChange={(e) => setParams({ user: e.target.value || null })}
-              className="border-border bg-background text-foreground max-w-[14rem] rounded-md border px-2 py-1 text-sm"
+              className="border-input bg-card text-foreground max-w-[14rem] rounded-md border px-2 py-1 text-sm"
             >
               <option value="">{t('me')}</option>
               <option value={EVERYONE}>{t('everyone')}</option>
@@ -568,9 +568,8 @@ export function CallStatsReport() {
         title={title ?? label}
         className={cn(
           'mt-1 inline-flex items-center gap-0.5 text-xs font-medium',
-          tone === 'good' &&
-            'text-emerald-600 [[data-mode=dark]_&]:text-emerald-400',
-          tone === 'bad' && 'text-red-600 [[data-mode=dark]_&]:text-red-400'
+          tone === 'good' && 'text-success',
+          tone === 'bad' && 'text-destructive'
         )}
       >
         {d.direction === 'up' ? (
@@ -1097,9 +1096,7 @@ export function CallStatsReport() {
                   <Icon
                     className={cn(
                       'size-4 shrink-0',
-                      missed
-                        ? 'text-red-600 [[data-mode=dark]_&]:text-red-400'
-                        : 'text-muted-foreground'
+                      missed ? 'text-destructive' : 'text-muted-foreground'
                     )}
                     aria-label={t(outbound ? 'list.outbound' : 'list.inbound')}
                   />
@@ -1256,14 +1253,14 @@ function CustomDays({
             type="date"
             value={draft[k]}
             onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
-            className="border-border bg-background text-foreground mt-1 block rounded-md border px-2 py-1 text-sm"
+            className="border-input bg-card text-foreground mt-1 block rounded-md border px-2 py-1 text-sm"
           />
         </label>
       ))}
       <button
         type="submit"
         disabled={problem !== null}
-        className="bg-foreground text-background rounded-md px-3 py-1.5 text-sm disabled:opacity-50"
+        className="bg-primary text-primary-foreground hover:bg-primary-hover rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
       >
         {t('apply')}
       </button>

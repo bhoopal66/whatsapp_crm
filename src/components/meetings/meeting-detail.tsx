@@ -237,8 +237,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
       <section
         className={cn(
           'border-border bg-card space-y-4 rounded-xl border p-4 md:p-6',
-          status === 'live' &&
-            'border-emerald-300 [[data-mode=dark]_&]:border-emerald-900'
+          status === 'live' && 'border-success/40'
         )}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -341,7 +340,7 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
                   {nameFor(p.userId)}
                   {p.handRaisedAt && (
                     <Hand
-                      className="size-4 text-amber-600 [[data-mode=dark]_&]:text-amber-300"
+                      className="text-warning size-4"
                       aria-label={td('handRaised')}
                     />
                   )}

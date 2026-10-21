@@ -266,7 +266,7 @@ export function IncomingCallCard() {
   };
   const fact = (label: string, value: string) => (
     <>
-      <dt className="text-white/55">{label}</dt>
+      <dt className="text-white/70">{label}</dt>
       <dd className="truncate text-white/90">{value}</dd>
     </>
   );
@@ -281,7 +281,7 @@ export function IncomingCallCard() {
         // must never cover Answer and Decline, the only controls a
         // browser-softphone agent has for a ringing call) and above the
         // floating Create-contact form where a narrow screen overlaps them.
-        className={`fixed top-[68px] right-4 z-[60] w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] [[data-mode=dark]_&]:ring-1 [[data-mode=dark]_&]:ring-white/10`}
+        className={`fixed top-[68px] right-4 z-[60] w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#101B18] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] dark:ring-1 dark:ring-white/10`}
       >
         <p className="flex items-center gap-2 text-xs text-white/70">
           <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
@@ -331,7 +331,7 @@ export function IncomingCallCard() {
               })
             )}
             {facts.hidden && (
-              <p className="col-span-2 mt-1 text-white/60">
+              <p className="col-span-2 mt-1 text-white/70">
                 {t('detailsHidden')}
               </p>
             )}
@@ -403,7 +403,7 @@ export function IncomingCallCard() {
             <span />
           )}
           {(others.names.length > 0 || others.more > 0) && (
-            <span className="truncate text-white/50">
+            <span className="truncate text-white/65">
               {t('alsoRinging', {
                 names: [
                   ...others.names,

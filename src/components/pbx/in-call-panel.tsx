@@ -352,7 +352,7 @@ function Panel() {
           {formatTimer(talkMs)}
         </p>
         {calls.settings.announcementRequired && (
-          <p className="mt-1 text-xs text-white/55">{t('noticePlayed')}</p>
+          <p className="mt-1 text-xs text-white/70">{t('noticePlayed')}</p>
         )}
         {wrapLeft !== null &&
           (phase === 'counting' ||
@@ -435,7 +435,7 @@ function Panel() {
                   onChange={(e) => setTransfer(e.target.value)}
                   placeholder={t('transferNumber')}
                   aria-label={t('transferNumber')}
-                  className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/40"
+                  className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/55"
                 />
                 <button
                   type="button"
