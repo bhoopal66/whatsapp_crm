@@ -31,8 +31,8 @@ import { cn } from '@/lib/utils';
 
 import { SettingsPanelHead } from './settings-panel-head';
 
-const OK = 'text-emerald-700 [[data-mode=dark]_&]:text-emerald-300';
-const WAIT = 'text-amber-700 [[data-mode=dark]_&]:text-amber-300';
+const OK = 'text-success';
+const WAIT = 'text-warning';
 
 /**
  * Settings → Deal rooms (module 014c, admin+): the group-invite template
@@ -114,9 +114,9 @@ export function DealRoomsPanel({
       <SettingsPanelHead title={t('title')} description={t('description')} />
 
       {view && !view.metaNumber ? (
-        <Alert className="border-amber-300 bg-amber-50 text-amber-900 [[data-mode=dark]_&]:border-amber-500/40 [[data-mode=dark]_&]:bg-amber-500/10 [[data-mode=dark]_&]:text-amber-200">
+        <Alert className="border-warning/30 bg-warning-soft text-warning">
           <TriangleAlert />
-          <AlertDescription className="text-amber-900 [[data-mode=dark]_&]:text-amber-200">
+          <AlertDescription className="text-warning">
             {t('noMeta')}
           </AlertDescription>
         </Alert>

@@ -28,7 +28,7 @@ export const ROLE_META: Record<
     icon: Crown,
     label: 'owner',
     variant: 'owner',
-    className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    className: 'border-warning/30 bg-warning-soft text-warning',
   },
   admin: {
     icon: Shield,
@@ -40,7 +40,7 @@ export const ROLE_META: Record<
     icon: UsersRound,
     label: 'team leader',
     variant: 'admin',
-    className: 'border-sky-500/40 bg-sky-500/10 text-sky-300',
+    className: 'border-info/30 bg-info-soft text-info',
   },
   agent: {
     icon: UserCog,
@@ -63,6 +63,6 @@ export const ROLE_META: Record<
     label: 'bank_guest',
     variant: 'muted',
     className:
-      'border-violet-500/30 bg-violet-500/10 text-violet-700 [[data-mode=dark]_&]:text-violet-300',
+      'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
   },
 };

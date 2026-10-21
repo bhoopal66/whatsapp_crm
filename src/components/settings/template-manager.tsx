@@ -67,9 +67,10 @@ const HEADER_FORMATS: HeaderFormat[] = [
 ];
 
 const categoryColors: Record<string, string> = {
-  Marketing: 'bg-purple-600/20 text-purple-400 border-purple-600/30',
-  Utility: 'bg-blue-600/20 text-blue-400 border-blue-600/30',
-  Authentication: 'bg-amber-600/20 text-amber-400 border-amber-600/30',
+  Marketing:
+    'bg-violet-500/10 text-violet-700 border-violet-500/30 dark:text-violet-300',
+  Utility: 'bg-info-soft text-info border-info/30',
+  Authentication: 'bg-warning-soft text-warning border-warning/30',
 };
 
 interface TemplateFormData {
@@ -549,10 +550,10 @@ export function TemplateManager() {
                         <span
                           className={`text-[10px] font-medium uppercase ${
                             template.quality_score === 'GREEN'
-                              ? 'text-emerald-400'
+                              ? 'text-success'
                               : template.quality_score === 'YELLOW'
-                                ? 'text-yellow-400'
-                                : 'text-red-400'
+                                ? 'text-warning'
+                                : 'text-destructive'
                           }`}
                           title="Meta quality score"
                         >
@@ -570,7 +571,7 @@ export function TemplateManager() {
                     )}
                     {(template.rejection_reason ||
                       template.submission_error) && (
-                      <div className="flex items-start gap-1.5 rounded border border-red-900/40 bg-red-950/20 px-2 py-1.5 text-xs text-red-400">
+                      <div className="border-destructive/30 bg-destructive-soft text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs">
                         <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                         <span>
                           {template.rejection_reason ||
@@ -621,7 +622,7 @@ export function TemplateManager() {
                           ? t('deleteMetaLocallyTitle')
                           : t('deleteLocallyTitle')
                       }
-                      className="text-muted-foreground h-8 w-8 hover:bg-red-950/30 hover:text-red-400"
+                      className="text-muted-foreground hover:bg-destructive-soft hover:text-destructive h-8 w-8"
                     >
                       {deletingId === template.id ? (
                         <Loader2 className="size-4 animate-spin" />
@@ -658,7 +659,7 @@ export function TemplateManager() {
           </DialogHeader>
 
           {form.category === 'Authentication' && (
-            <div className="flex items-start gap-2 rounded border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+            <div className="border-warning/30 bg-warning-soft text-warning flex items-start gap-2 rounded border px-3 py-2 text-xs">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               <p>
                 {t.rich('authWarning', {
@@ -1024,7 +1025,7 @@ export function TemplateManager() {
                           variant="ghost"
                           size="icon"
                           onClick={() => removeButton(i)}
-                          className="text-muted-foreground size-7 hover:bg-red-950/30 hover:text-red-400"
+                          className="text-muted-foreground hover:bg-destructive-soft hover:text-destructive size-7"
                         >
                           <X className="size-3.5" />
                         </Button>

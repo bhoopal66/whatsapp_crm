@@ -292,7 +292,7 @@ export function ProfileForm() {
               required
             />
             {emailChangePending && (
-              <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              <p className="flex items-start gap-2 border-warning/30 bg-warning-soft text-warning rounded-md border px-3 py-2 text-xs">
                 <Mail className="mt-0.5 size-3.5 shrink-0" />
                 <span>
                   {t.rich('emailChangeHint', { 

@@ -35,10 +35,10 @@ export async function pbxFetch<T>(
 
 /** The dot colour for a tone. */
 export const DOT: Record<Tone, string> = {
-  green: 'bg-emerald-500',
-  amber: 'bg-amber-500',
-  red: 'bg-red-500',
-  grey: 'bg-zinc-400',
-  brown: 'bg-orange-800 [[data-mode=dark]_&]:bg-orange-400',
+  green: 'bg-success',
+  amber: 'bg-warning',
+  red: 'bg-destructive',
+  grey: 'bg-muted-foreground/50',
+  brown: 'bg-orange-800 dark:bg-orange-400',
   muted: 'border border-muted-foreground/60 bg-transparent',
 };

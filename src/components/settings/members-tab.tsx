@@ -425,7 +425,7 @@ export function MembersTab() {
                 <PresenceDot status="offline" />
                 {counts.offline} {t('offline')}
               </span>
-              <span className="text-muted-foreground/70">
+              <span className="text-muted-foreground">
                 · {t('memberCount', { count: members.length })}
                 {inactiveCount > 0 &&
                   ` · ${t('inactiveCount', { count: inactiveCount })}`}
@@ -503,19 +503,19 @@ export function MembersTab() {
                             {member.full_name || t('unnamed')}
                           </span>
                           {isSelf && (
-                            <Badge className="bg-muted text-muted-foreground border-border text-[10px] tracking-wide uppercase">
+                            <Badge className="bg-muted text-muted-foreground border-border text-[11px] tracking-wide uppercase">
                               {t('you')}
                             </Badge>
                           )}
                           {(coordBanks.get(member.user_id)?.length ?? 0) >
                             0 && (
-                            <Badge className="bg-primary/10 text-primary border-primary/30 text-[10px] tracking-wide uppercase">
+                            <Badge className="bg-primary/10 text-primary border-primary/30 text-[11px] tracking-wide uppercase">
                               {tCoord('badge')} ·{' '}
                               {coordBanks.get(member.user_id)!.join(', ')}
                             </Badge>
                           )}
                           {isInactive && (
-                            <Badge className="border-red-500/40 bg-red-500/10 text-[10px] tracking-wide text-red-400 uppercase">
+                            <Badge className="border-destructive/30 bg-destructive-soft text-destructive text-[11px] tracking-wide uppercase">
                               {t('inactive')}
                             </Badge>
                           )}
@@ -658,7 +658,7 @@ export function MembersTab() {
                           size="sm"
                           onClick={() => setRemovingMember(member)}
                           disabled={isBusy}
-                          className="border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-200"
+                          className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -746,7 +746,7 @@ export function MembersTab() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleRevoke(inv)}
-                        className="border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-200"
+                        className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
                       >
                         <MailX className="size-4" />
                         {t('revoke')}
@@ -804,7 +804,7 @@ export function MembersTab() {
         <DialogContent className="bg-popover border-border sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-popover-foreground flex items-center gap-2">
-              <UserX className="size-4 text-amber-400" />
+              <UserX className="text-warning size-4" />
               {t('deactivateDialogTitle')}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
@@ -851,7 +851,7 @@ export function MembersTab() {
         <DialogContent className="bg-popover border-border sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-popover-foreground flex items-center gap-2">
-              <AlertTriangle className="size-4 text-amber-400" />
+              <AlertTriangle className="text-warning size-4" />
               {t('removeDialogTitle')}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">

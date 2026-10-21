@@ -482,7 +482,7 @@ function Stat({
     <Card className="gap-0 px-3 py-3 sm:px-4">
       <span
         className={`text-xl font-semibold tabular-nums sm:text-2xl ${
-          attention ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
+          attention ? 'text-warning' : 'text-foreground'
         }`}
       >
         {value}
@@ -607,7 +607,7 @@ function TeamRow({
               <NumberChip key={n.id} number={n} />
             ))}
             {emptyButAllocated ? (
-              <span className="w-full text-xs text-amber-700 dark:text-amber-300">
+              <span className="text-warning w-full text-xs">
                 {t('emptyTeamSharedShort')}
               </span>
             ) : null}

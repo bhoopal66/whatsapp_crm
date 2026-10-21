@@ -402,7 +402,7 @@ function EditorBody({
                 </ul>
               )}
               {allocationStaysShared(team.channel_ids, draft) ? (
-                <div className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 [[data-mode=dark]_&]:text-amber-300">
+                <div className="border-warning/30 bg-warning-soft text-warning flex gap-2 rounded-lg border px-3 py-2 text-xs">
                   <AlertTriangle className="mt-px size-3.5 shrink-0" />
                   <span>{t('emptyTeamShared')}</span>
                 </div>

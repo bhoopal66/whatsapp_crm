@@ -353,7 +353,7 @@ function PrivateReadCard({
           <p className="text-muted-foreground text-xs">{t('reasonHint')}</p>
         </div>
 
-        <p className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 [[data-mode=dark]_&]:border-amber-500/40 [[data-mode=dark]_&]:bg-amber-500/10 [[data-mode=dark]_&]:text-amber-200">
+        <p className="border-warning/30 bg-warning-soft text-warning flex gap-2 rounded-lg border p-3 text-sm">
           {t('auditWarning')}
         </p>
 

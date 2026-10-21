@@ -457,20 +457,20 @@ export function WhatsAppConfig({
               connection failure: no amount of retrying fixes it, the
               token has to be entered again. */}
           {needsReset && (
-            <Alert className="border-amber-600/40 bg-amber-950/40">
+            <Alert className="border-warning/30 bg-warning-soft">
               <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-400" />
+                <AlertTriangle className="text-warning mt-0.5 size-5 shrink-0" />
                 <div className="flex-1">
-                  <AlertTitle className="mb-1 text-amber-200">
+                  <AlertTitle className="text-foreground mb-1">
                     {t('tokenCorrupted')}
                   </AlertTitle>
-                  <AlertDescription className="text-sm text-amber-100/80">
+                  <AlertDescription className="text-muted-foreground text-sm">
                     {statusMessage}
                   </AlertDescription>
                   <Button
                     onClick={handleReenterToken}
                     size="sm"
-                    className="mt-3 bg-amber-600 text-white hover:bg-amber-700"
+                    className="mt-3 bg-amber-700 text-white hover:bg-amber-800"
                   >
                     <KeyRound className="size-4" />
                     {t('reenterToken')}
@@ -484,9 +484,9 @@ export function WhatsAppConfig({
           <Alert className="bg-card border-border">
             <div className="flex items-center gap-2">
               {isConnected ? (
-                <CheckCircle2 className="text-primary size-4" />
+                <CheckCircle2 className="text-success size-4" />
               ) : (
-                <XCircle className="size-4 text-red-500" />
+                <XCircle className="text-destructive size-4" />
               )}
               <AlertTitle className="text-foreground mb-0">
                 {isConnected ? t('connected') : t('notConnected')}
@@ -548,23 +548,21 @@ export function WhatsAppConfig({
             <Alert
               className={
                 isWebhookRegistered
-                  ? 'border-emerald-700/50 bg-emerald-950/30'
-                  : 'border-amber-700/50 bg-amber-950/30'
+                  ? 'border-success/30 bg-success-soft'
+                  : 'border-warning/30 bg-warning-soft'
               }
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {isWebhookRegistered ? (
-                    <CheckCircle2 className="size-4 text-emerald-400" />
+                    <CheckCircle2 className="text-success size-4" />
                   ) : (
-                    <AlertTriangle className="size-4 text-amber-400" />
+                    <AlertTriangle className="text-warning size-4" />
                   )}
                   <AlertTitle
                     className={
                       'mb-0 ' +
-                      (isWebhookRegistered
-                        ? 'text-emerald-200'
-                        : 'text-amber-200')
+                      (isWebhookRegistered ? 'text-success' : 'text-warning')
                     }
                   >
                     {isWebhookRegistered
@@ -616,7 +614,7 @@ export function WhatsAppConfig({
                     {lastRegistrationError && (
                       <>
                         {t('lastAttemptFailed')}
-                        <span className="text-red-300">
+                        <span className="text-destructive">
                           &quot;{lastRegistrationError}&quot;
                         </span>{' '}
                       </>
@@ -630,7 +628,7 @@ export function WhatsAppConfig({
                       <li key={hook.url} className="break-all">
                         {hook.url}
                         {!hook.ours && (
-                          <span className="ml-2 inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-px font-sans text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                          <span className="border-warning/30 bg-warning-soft text-warning ml-2 inline-flex items-center gap-1 rounded border px-1.5 py-px font-sans text-[11px] font-medium">
                             <AlertTriangle className="size-3 shrink-0" />
                             {t('webhookForeign')}
                           </span>
@@ -645,9 +643,7 @@ export function WhatsAppConfig({
                     message on the number, and this screen listed it as
                     ours. */}
                 {webhookHooks.some((hook) => !hook.ours) && (
-                  <p className="mt-2 text-amber-700 dark:text-amber-300">
-                    {t('webhookForeignHint')}
-                  </p>
+                  <p className="text-warning mt-2">{t('webhookForeignHint')}</p>
                 )}
               </AlertDescription>
             </Alert>
@@ -775,7 +771,7 @@ export function WhatsAppConfig({
                   />
                 </div>
                 {!mirrorMedia && (
-                  <p className="text-xs text-amber-400">
+                  <p className="text-warning text-xs">
                     {t('mirrorInboundOffWarning')}
                   </p>
                 )}
@@ -867,7 +863,7 @@ export function WhatsAppConfig({
                         'flex items-center gap-1 text-[11px] ' +
                         (hook.ours
                           ? 'text-muted-foreground'
-                          : 'font-medium text-amber-700 dark:text-amber-300')
+                          : 'text-warning font-medium')
                       }
                     >
                       {!hook.ours && (
@@ -883,7 +879,7 @@ export function WhatsAppConfig({
                           'font-mono text-xs' +
                           (hook.ours
                             ? ''
-                            : ' border-amber-500/50 bg-amber-500/5')
+                            : ' border-warning/50 bg-warning-soft')
                         }
                       />
                       <Button
@@ -899,7 +895,7 @@ export function WhatsAppConfig({
                   </div>
                 ))}
                 {webhookHooks.some((hook) => !hook.ours) && (
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                  <p className="text-warning text-xs">
                     {t('webhookForeignHint')}
                   </p>
                 )}

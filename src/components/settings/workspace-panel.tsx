@@ -20,7 +20,7 @@ import {
   ArchiveWorkspaceCard,
 } from './workspace-archive';
 
-const ERROR_TEXT = 'text-xs text-red-600 [[data-mode=dark]_&]:text-red-400';
+const ERROR_TEXT = 'text-destructive text-xs';
 
 /**
  * Settings → Team → Workspace (admin+): the workspace's name and the

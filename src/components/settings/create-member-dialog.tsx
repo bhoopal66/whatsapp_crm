@@ -218,7 +218,7 @@ export function CreateMemberDialog({
             <>
               <p
                 role="status"
-                className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 [[data-mode=dark]_&]:text-amber-300"
+                className="border-warning/30 bg-warning-soft text-warning rounded-lg border px-3 py-2 text-xs"
               >
                 {t('noLoginHint')}
               </p>

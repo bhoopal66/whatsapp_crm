@@ -190,12 +190,12 @@ export function ApiKeysSettings() {
                           {k.name}
                         </span>
                         {status === 'revoked' && (
-                          <Badge className="border-border bg-muted text-muted-foreground text-[10px] tracking-wide uppercase">
+                          <Badge className="border-border bg-muted text-muted-foreground text-[11px] tracking-wide uppercase">
                             {t('revoked')}
                           </Badge>
                         )}
                         {status === 'expired' && (
-                          <Badge className="border-border bg-muted text-muted-foreground text-[10px] tracking-wide uppercase">
+                          <Badge className="border-border bg-muted text-muted-foreground text-[11px] tracking-wide uppercase">
                             {t('expired')}
                           </Badge>
                         )}
@@ -212,7 +212,7 @@ export function ApiKeysSettings() {
                           k.scopes.map((s) => (
                             <Badge
                               key={s}
-                              className="border-border bg-muted text-muted-foreground text-[10px]"
+                              className="border-border bg-muted text-muted-foreground text-[11px]"
                             >
                               {s}
                             </Badge>
@@ -237,7 +237,7 @@ export function ApiKeysSettings() {
                         size="sm"
                         onClick={() => handleRevoke(k)}
                         disabled={revoking === k.id}
-                        className="self-start border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-200 sm:self-auto"
+                        className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive self-start sm:self-auto"
                       >
                         {revoking === k.id ? (
                           <Loader2 className="size-4 animate-spin" />

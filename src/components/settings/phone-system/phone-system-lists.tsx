@@ -536,9 +536,8 @@ export function ExtensionsCard({
                     <span
                       className={cn(
                         tone === 'brown' &&
-                          'text-orange-800 [[data-mode=dark]_&]:text-orange-300',
-                        tone === 'green' &&
-                          'text-emerald-700 [[data-mode=dark]_&]:text-emerald-300',
+                          'text-orange-800 dark:text-orange-300',
+                        tone === 'green' && 'text-success',
                         (tone === 'grey' || tone === 'muted') &&
                           'text-muted-foreground'
                       )}
@@ -654,7 +653,7 @@ function RetentionNote({
         </p>
       )}
       {unenforced && (
-        <p className="font-medium text-amber-700 [[data-mode=dark]_&]:text-amber-300">
+        <p className="text-warning font-medium">
           {t('rules.retentionNotEnforced')}
         </p>
       )}
@@ -803,7 +802,7 @@ export function RecordingRulesCard() {
           ) : null}
         </>
       }
-      className="border-amber-200 bg-amber-50/70 [[data-mode=dark]_&]:border-amber-500/30 [[data-mode=dark]_&]:bg-amber-500/10"
+      className="border-warning/30 bg-warning-soft"
     >
       <div className="space-y-3 text-sm">
         <div>
