@@ -174,23 +174,25 @@ html[data-mode='dark'] {
   --sidebar-border: oklch(0.25 0.02 255);
 }
 
-/* Light: a soft blue-grey page under white cards, so panels separate
+/* Light: a mid blue-grey page under off-white cards, so panels separate
  * without heavy borders; borders and inputs are dark enough to see on
- * an ordinary office monitor, and secondary text is >= 5.5:1. */
+ * an ordinary office monitor, and secondary text is >= 5.5:1. No surface
+ * is pure white: users found full-white screens too bright to work in
+ * all day (2026-10-21). */
 html[data-mode='light'] {
   color-scheme: light;
-  --background: oklch(0.972 0.006 250);
+  --background: oklch(0.925 0.008 250);
   --foreground: oklch(0.22 0.028 258);
-  --card: oklch(1 0 0);
-  --card-2: oklch(0.982 0.005 250);
+  --card: oklch(0.963 0.005 250);
+  --card-2: oklch(0.945 0.006 250);
   --card-foreground: oklch(0.22 0.028 258);
-  --popover: oklch(1 0 0);
+  --popover: oklch(0.97 0.005 250);
   --popover-foreground: oklch(0.22 0.028 258);
-  --secondary: oklch(0.948 0.01 250);
+  --secondary: oklch(0.905 0.011 250);
   --secondary-foreground: oklch(0.27 0.03 258);
-  --muted: oklch(0.955 0.008 250);
-  --muted-foreground: oklch(0.47 0.028 258);
-  --accent: oklch(0.945 0.014 250);
+  --muted: oklch(0.91 0.009 250);
+  --muted-foreground: oklch(0.43 0.028 258);
+  --accent: oklch(0.9 0.015 250);
   --accent-foreground: oklch(0.24 0.03 258);
   --destructive: oklch(0.55 0.21 27);
   --destructive-soft: oklch(0.55 0.21 27 / 0.09);
@@ -200,20 +202,20 @@ html[data-mode='light'] {
   --warning-soft: oklch(0.75 0.15 75 / 0.16);
   --info: oklch(0.5 0.15 250);
   --info-soft: oklch(0.5 0.15 250 / 0.09);
-  --border: oklch(0.885 0.01 252);
-  --input: oklch(0.84 0.014 252);
+  --border: oklch(0.83 0.012 252);
+  --input: oklch(0.78 0.016 252);
   --chart-2: oklch(0.6 0.12 185);
   --chart-3: oklch(0.72 0.15 70);
   --chart-4: oklch(0.6 0.2 15);
   --chart-5: oklch(0.56 0.19 300);
   --radius: 0.625rem;
-  /* A brand-tinted blue-grey, darker than the page and the white
+  /* A brand-tinted blue-grey, darker than the page and the off-white
    * header, so the navigation reads as its own column. */
-  --sidebar: oklch(0.94 0.02 248);
+  --sidebar: oklch(0.895 0.022 248);
   --sidebar-foreground: oklch(0.28 0.035 258);
-  --sidebar-accent: oklch(0.9 0.03 248);
+  --sidebar-accent: oklch(0.85 0.032 248);
   --sidebar-accent-foreground: oklch(0.2 0.035 258);
-  --sidebar-border: oklch(0.86 0.022 250);
+  --sidebar-border: oklch(0.81 0.024 250);
 }
 
 /* ---- INBOX: WhatsApp surfaces ----
@@ -271,28 +273,28 @@ html[data-mode='dark'] {
 }
 
 html[data-mode='light'] {
-  --wa-panel: #ffffff;
-  --wa-panel-header: #f0f2f5;
-  --wa-chat: #efeae2;
-  --wa-chat-veil: rgb(239 234 226 / 0.55);
-  --wa-row-hover: #f5f6f6;
-  --wa-row-active: #f0f2f5;
-  --wa-divider: oklch(0.885 0.01 252);
-  --wa-search: #f0f2f5;
-  --wa-input: #ffffff;
+  --wa-panel: oklch(0.963 0.005 250);
+  --wa-panel-header: oklch(0.92 0.008 250);
+  --wa-chat: #e2dcd2;
+  --wa-chat-veil: rgb(226 220 210 / 0.55);
+  --wa-row-hover: oklch(0.935 0.007 250);
+  --wa-row-active: oklch(0.9 0.012 250);
+  --wa-divider: oklch(0.83 0.012 252);
+  --wa-search: oklch(0.91 0.009 250);
+  --wa-input: oklch(0.97 0.005 250);
   --wa-text: #111b21;
   --wa-text-secondary: #667781;
   --wa-icon: #54656f;
   --wa-icon-hover: rgb(11 20 26 / 0.06);
-  --wa-bubble-in: #ffffff;
+  --wa-bubble-in: #f7f7f5;
   --wa-bubble-out: #d9fdd3;
   --wa-meta: #667781;
   --wa-quote: rgb(11 20 26 / 0.05);
   --wa-quote-bar: #06cf9c;
   --wa-tick-read: #53bdeb;
-  --wa-date-chip: #ffffff;
+  --wa-date-chip: #f7f7f5;
   --wa-date-chip-fg: #54656f;
-  --wa-unread-band: rgb(255 255 255 / 0.45);
+  --wa-unread-band: rgb(247 247 245 / 0.45);
   --wa-green: #1daa61;
   --wa-green-fg: #ffffff;
   --wa-teal: #008069;
