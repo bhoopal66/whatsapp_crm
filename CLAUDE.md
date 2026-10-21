@@ -966,6 +966,11 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   connection's workspace with `calls.meta.unrouted`. Owners and admins list
   those calls through `GET /api/pbx/calls?scope=unrouted`; its per-number
   summary covers 30 days.
+- **Call report (119).** `pbx_call_stats()` returns the whole Call
+  report page as one JSON object. Its scope is `pbx_visible_user_ids()`
+  (113), and naming a person outside that scope raises 42501. It uses
+  098's attribution, so it agrees with `pbx_call_report`.
+  `verify-pbx-call-stats.sql`.
 
 ### WhatsApp groups (`lib/groups/*`, migration 114)
 
@@ -1190,6 +1195,35 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   CSP `connect-src` (`rtc.live.cloudflare.com`) carry the camera, microphone,
   display-capture and Cloudflare origins. `verify-meetings.sql`.
 
+### Calendar and web push (`lib/calendar/*`, `lib/push/*`, migrations 108–110)
+
+`docs/calendar.md` and `docs/push.md` are the contracts.
+
+- **Calendar** is staff only (`current_account_id()`, so a guest gets
+  403). `GET /api/calendar/feed` merges `calendar_events` with meetings
+  and dated tasks, which keep their own rules. Only the organiser edits
+  or deletes an event, admins included. RLS enforces this as well as the
+  API. A recurring event is one row with an RFC 5545 rule, expanded in
+  the app (`recurrence.ts`) and never stored per occurrence. "This
+  event" edits go through `calendar_split_occurrence` /
+  `calendar_cancel_occurrence`. Reminders ring once through
+  `calendar_reminders_sent`. One-off events, meetings and tasks come
+  from the SQL `calendar_reminder_sweep`, and recurring occurrences from
+  `runRecurringReminders`.
+- **Push** needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
+  `VAPID_SUBJECT`. They are read at request time. If any is unset, the
+  `/api/push/*` routes answer 503 `push_not_configured`. Writers queue
+  into `push_outbox`. In production `src/instrumentation.ts` runs a
+  delivery loop per process, and the automations cron makes a fallback
+  pass. A leased claim keeps the two from double-sending. At claim time,
+  a `chat_message` row whose message has been edited, deleted or erased
+  is skipped (112). Quiet hours hold everything except meeting and event
+  reminders.
+- **117** makes two meeting FKs `DEFERRABLE INITIALLY DEFERRED`, because
+  a same-transaction insert-then-cascade-delete failed after a
+  `pg_dump` restore. The migration explains why no other FK was
+  changed. Add one only with a reproduction.
+
 ### Flows vs Automations
 
 Two independent engines, deliberately kept apart:
@@ -1213,10 +1247,13 @@ Cron / GitHub Actions / any pinger):
 
 - `GET /api/automations/cron` — scheduled automation steps. It also
   carries the others' work, each throttled per process (`everyInterval`)
-  inside `after()`, a failure only logged: channel health and Team
-  activity alerts (5 min), edge purge (15 min), chat file sweep
-  (15 min), journey tick (1 min), deal-room reconcile (2 min), PBX
-  housekeeping (1 min). An install that pings only this one is covered.
+  inside `after()`, a failure only logged: channel health, Team
+  activity alerts, case SLA and case group-end retries (5 min), edge
+  purge and chat file sweep (15 min), deal-room reconcile and
+  submission groups (2 min), journey tick, PBX housekeeping, push
+  delivery, calendar reminders and the assist pending sweep (1 min),
+  assist rate prune (1 h) and memory expiry (24 h). An install that pings
+  only this one is covered. A new background job joins this list.
 - `GET /api/flows/cron` — sweeps abandoned runs.
 - `GET /api/whatsapp/broadcast/cron` (migration 053) — delivers
   scheduled broadcasts. It is deliberately the *resume* machinery from
@@ -1455,6 +1492,8 @@ fails if one is wired to plain `t()`.
   `compass.md`, `typesafe.md`, `team-activity.md`, `ai-agent.md`,
   `meetings.md`, `whatsapp-groups.md`, `submission-groups.md`,
   `cases.md`, `memory-and-vault.md`, `assistant-safety.md`,
-  `coordinators.md`.
+  `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
+  `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
+  `push.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
