@@ -1762,7 +1762,7 @@ export function MessageThread({
         {disconnectedNumber && (
           <div
             role="status"
-            className="bg-wa-panel-header text-wa-warning flex items-start gap-2 border-t border-amber-500/40 px-3 py-2 text-xs sm:px-4"
+            className="bg-wa-panel-header text-wa-warning flex items-start gap-2 border-t border-warning/40 px-3 py-2 text-xs sm:px-4"
           >
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>

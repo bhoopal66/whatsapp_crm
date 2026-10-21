@@ -232,40 +232,46 @@ html[data-mode='light'] {
  *
  * Use these through Tailwind (bg-wa-*, text-wa-*) rather than pairing
  * raw colours with `dark:`, so the whole inbox switches in one place.
+ *
+ * Only the greens (bubbles, badges, ticks) are WhatsApp's own. The
+ * neutral surfaces follow the app's ramp above: dark mode once used
+ * WhatsApp's green-black (#111b21), which clashed with the blue-grey
+ * shell, and the light divider was too faint to separate the list,
+ * the thread and the contact panel on an office monitor.
  */
 
 :root,
 html[data-mode='dark'] {
-  --wa-panel: #111b21;
-  --wa-panel-header: #202c33;
-  --wa-chat: #0b141a;
+  --wa-panel: oklch(0.2 0.016 255);
+  --wa-panel-header: oklch(0.235 0.017 255);
+  --wa-chat: oklch(0.16 0.014 255);
   /* Laid over the doodle tile to soften it to WhatsApp's strength. */
-  --wa-chat-veil: rgb(11 20 26 / 0.45);
-  --wa-row-hover: #202c33;
-  --wa-row-active: #2a3942;
-  --wa-divider: #222d34;
-  --wa-search: #202c33;
-  --wa-input: #2a3942;
-  --wa-text: #e9edef;
-  --wa-text-secondary: #8696a0;
-  --wa-icon: #aebac1;
+  --wa-chat-veil: oklch(0.16 0.014 255 / 0.45);
+  --wa-row-hover: oklch(0.235 0.017 255);
+  --wa-row-active: oklch(0.27 0.02 255);
+  --wa-divider: oklch(0.28 0.018 255);
+  --wa-search: oklch(0.25 0.017 255);
+  --wa-input: oklch(0.265 0.018 255);
+  --wa-text: oklch(0.965 0.004 255);
+  --wa-text-secondary: oklch(0.74 0.016 255);
+  --wa-icon: oklch(0.8 0.014 255);
   --wa-icon-hover: rgb(255 255 255 / 0.08);
-  --wa-bubble-in: #202c33;
+  --wa-bubble-in: oklch(0.255 0.018 255);
   --wa-bubble-out: #005c4b;
   --wa-meta: rgb(233 237 239 / 0.6);
   --wa-quote: rgb(0 0 0 / 0.22);
   --wa-quote-bar: #06cf9c;
   --wa-tick-read: #53bdeb;
-  --wa-date-chip: #182229;
-  --wa-date-chip-fg: #8696a0;
-  --wa-unread-band: rgb(17 27 33 / 0.6);
+  --wa-date-chip: oklch(0.235 0.017 255);
+  --wa-date-chip-fg: oklch(0.74 0.016 255);
+  --wa-unread-band: oklch(0.2 0.016 255 / 0.6);
   --wa-green: #00a884;
   --wa-green-fg: #111b21;
   --wa-teal: #00a884;
   --wa-chip-active: #103529;
-  --wa-avatar: #6a7175;
+  --wa-avatar: oklch(0.42 0.02 255);
   --wa-avatar-fg: #e9edef;
-  --wa-section-gap: #0c1317;
+  --wa-section-gap: oklch(0.16 0.014 255);
   --wa-warning: #fbbf24;
 }
 
@@ -276,7 +282,7 @@ html[data-mode='light'] {
   --wa-chat-veil: rgb(239 234 226 / 0.55);
   --wa-row-hover: #f5f6f6;
   --wa-row-active: #f0f2f5;
-  --wa-divider: #e9edef;
+  --wa-divider: oklch(0.885 0.01 252);
   --wa-search: #f0f2f5;
   --wa-input: #ffffff;
   --wa-text: #111b21;

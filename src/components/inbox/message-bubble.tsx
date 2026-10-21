@@ -65,7 +65,7 @@ function StatusIcon({ status }: { status: Message['status'] }) {
     case 'read':
       return <CheckCheck className="text-wa-tick-read h-3.5 w-3.5" />;
     case 'failed':
-      return <XCircle className="h-3.5 w-3.5 text-red-500" />;
+      return <XCircle className="text-destructive h-3.5 w-3.5" />;
     default:
       return null;
   }

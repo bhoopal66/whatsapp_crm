@@ -17,7 +17,7 @@ export function OutreachBanner({ notices }: { notices: OutreachNotice[] }) {
   if (notices.length === 0) return null;
 
   return (
-    <div className="bg-wa-panel-header border-t border-amber-500/40">
+    <div className="bg-wa-panel-header border-t border-warning/40">
       {notices.map((n) => {
         const Icon =
           n.severity === 'critical'
@@ -55,7 +55,7 @@ export function OutreachBanner({ notices }: { notices: OutreachNotice[] }) {
             role={n.severity === 'info' ? 'note' : 'status'}
             className={cn(
               'flex items-start gap-2 px-3 py-2 text-xs sm:px-4',
-              n.severity === 'critical' && 'text-red-600 dark:text-red-400',
+              n.severity === 'critical' && 'text-destructive',
               n.severity === 'warning' && 'text-wa-warning',
               n.severity === 'info' && 'text-muted-foreground'
             )}

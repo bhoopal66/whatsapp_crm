@@ -234,7 +234,7 @@ export function RecordingPlayer({
           </Button>
           <div className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
             <div
-              className="h-full rounded-full bg-emerald-600"
+              className="bg-success h-full rounded-full"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -263,7 +263,7 @@ export function RecordingPlayer({
         <p className="text-muted-foreground text-xs">
           {!held && t('noticePlayed')}
           {hold && (
-            <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900 [[data-mode=dark]_&]:bg-amber-500/15 [[data-mode=dark]_&]:text-amber-200">
+            <span className="ml-2 bg-warning-soft text-warning rounded-md px-1.5 py-0.5 font-medium">
               {t('legalHold')}
             </span>
           )}

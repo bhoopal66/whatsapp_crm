@@ -631,25 +631,25 @@ export function CustomerPage({
         ? missed
           ? [
               PhoneMissed,
-              'bg-red-100 text-red-600 [[data-mode=dark]_&]:bg-red-950 [[data-mode=dark]_&]:text-red-300',
+              'bg-destructive-soft text-destructive',
             ]
           : [
               Phone,
-              'bg-emerald-100 text-emerald-700 [[data-mode=dark]_&]:bg-emerald-950 [[data-mode=dark]_&]:text-emerald-300',
+              'bg-info-soft text-info',
             ]
         : e.kind === 'whatsapp'
           ? [
               MessageCircle,
-              'bg-green-100 text-green-700 [[data-mode=dark]_&]:bg-green-950 [[data-mode=dark]_&]:text-green-300',
+              'bg-success-soft text-success',
             ]
           : e.kind === 'note'
             ? [
                 StickyNote,
-                'bg-amber-100 text-amber-800 [[data-mode=dark]_&]:bg-amber-950 [[data-mode=dark]_&]:text-amber-300',
+                'bg-warning-soft text-warning',
               ]
             : [
                 Hash,
-                'bg-sky-100 text-sky-700 [[data-mode=dark]_&]:bg-sky-950 [[data-mode=dark]_&]:text-sky-300',
+                'bg-primary-soft text-primary',
               ];
     const task =
       missed && e.kind === 'call' ? missedTaskFor(e.call.id, side.tasks) : null;
@@ -684,7 +684,7 @@ export function CustomerPage({
                 type="button"
                 onClick={() => void deleteNote(e.id)}
                 aria-label={td('deleteNote')}
-                className="text-muted-foreground shrink-0 cursor-pointer hover:text-red-500"
+                className="text-muted-foreground shrink-0 cursor-pointer hover:text-destructive"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -706,11 +706,11 @@ export function CustomerPage({
               className={cn(
                 'mt-2 flex flex-wrap items-center gap-2 rounded-lg',
                 task &&
-                  'border border-amber-300 bg-amber-50 px-3 py-2 [[data-mode=dark]_&]:border-amber-800 [[data-mode=dark]_&]:bg-amber-950/40'
+                  'border-warning/30 bg-warning-soft border px-3 py-2'
               )}
             >
               {task && (
-                <span className="flex-1 text-sm text-amber-900 [[data-mode=dark]_&]:text-amber-200">
+                <span className="text-foreground flex-1 text-sm">
                   {say(
                     taskStrip(
                       task,

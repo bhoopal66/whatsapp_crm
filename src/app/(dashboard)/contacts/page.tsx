@@ -690,10 +690,10 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       )}
 
       {/* Table */}
-      <div className="rounded-lg border border-border overflow-hidden">
+      <div className="bg-card overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader>
-            <TableRow className="border-border hover:bg-transparent">
+            <TableRow className="bg-muted/50 border-border hover:bg-muted/50">
               <TableHead className="w-10">
                 <Checkbox
                   checked={allOnPageSelected}
@@ -703,12 +703,12 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   aria-label="Select all contacts on this page"
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground">{t('tableColumns.name')}</TableHead>
-              <TableHead className="text-muted-foreground">{t('tableColumns.phone')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.chatTag')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
+              <TableHead className="text-muted-foreground font-semibold">{t('tableColumns.name')}</TableHead>
+              <TableHead className="text-muted-foreground font-semibold">{t('tableColumns.phone')}</TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">{t('tableColumns.email')}</TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">{t('tableColumns.company')}</TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">{t('tableColumns.chatTag')}</TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
@@ -752,7 +752,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               contacts.map((contact) => (
                 <TableRow
                   key={contact.id}
-                  className="border-border hover:bg-muted/50 cursor-pointer"
+                  className="border-border hover:bg-accent cursor-pointer"
                   onClick={() => openDetail(contact.id)}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
@@ -762,7 +762,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                       aria-label={`Select ${contact.name || contact.phone}`}
                     />
                   </TableCell>
-                  <TableCell className="text-foreground font-medium">
+                  <TableCell className="text-foreground max-w-56 font-medium whitespace-normal">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <Link
                         href={customerPath(contact.id, teamView)}
@@ -787,10 +787,10 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {contact.phone}
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
+                  <TableCell className="text-muted-foreground hidden max-w-48 truncate md:table-cell text-sm">
                     {contact.email || <span className="text-muted-foreground">-</span>}
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
+                  <TableCell className="text-muted-foreground hidden max-w-40 truncate xl:table-cell text-sm">
                     {contact.company || <span className="text-muted-foreground">-</span>}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
@@ -798,7 +798,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                       chip={contactChatTagChip(contact.chatTags, chatTagTree)}
                     />
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
+                  <TableCell className="text-muted-foreground text-xs hidden whitespace-nowrap lg:table-cell">
                     {new Date(contact.created_at).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',

@@ -53,10 +53,10 @@ export function DealCard({
         e.stopPropagation();
         onEdit(deal);
       }}
-      className={`group border-border/50 bg-muted/70 relative w-full cursor-pointer rounded-xl border py-3 pr-3 pl-4 text-left shadow-sm transition-all ${
+      className={`group border-border bg-card dark:bg-card-2 focus-visible:ring-ring relative w-full cursor-pointer rounded-xl border py-3 pr-3 pl-4 text-left shadow-sm transition-all focus-visible:ring-2 focus-visible:outline-none ${
         isOverlay
           ? 'shadow-xl'
-          : 'hover:border-border hover:bg-muted hover:-translate-y-0.5 hover:shadow-lg'
+          : 'hover:border-input hover:-translate-y-0.5 hover:shadow-md'
       }`}
     >
       {/* 4px left accent bar using stage color */}
@@ -77,7 +77,7 @@ export function DealCard({
           </span>
         )}
         {deal.status === 'lost' && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-400">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive-soft px-2 py-0.5 text-[10px] font-semibold text-destructive">
             <X className="h-3 w-3" />
             {t('lost')}
           </span>
@@ -86,7 +86,7 @@ export function DealCard({
 
       {/* Contact row */}
       <div className="mt-2 flex items-center gap-2">
-        <span className="bg-muted text-foreground flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold">
+        <span className="bg-secondary text-secondary-foreground flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold">
           {initials(deal.contact?.name, deal.contact?.phone)}
         </span>
         <span className="text-muted-foreground truncate text-xs">

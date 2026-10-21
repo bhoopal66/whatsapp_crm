@@ -26,8 +26,8 @@ interface Action {
 
 const ACTIONS: Action[] = [
   { labelKey: 'newContact', href: '/contacts', icon: UserPlus, tint: 'text-primary' },
-  { labelKey: 'newDeal', href: '/pipelines', icon: Briefcase, tint: 'text-blue-400', minRole: 'agent' },
-  { labelKey: 'newBroadcast', href: '/broadcasts/new', icon: Radio, tint: 'text-amber-400', minRole: 'admin' },
+  { labelKey: 'newDeal', href: '/pipelines', icon: Briefcase, tint: 'text-info', minRole: 'agent' },
+  { labelKey: 'newBroadcast', href: '/broadcasts/new', icon: Radio, tint: 'text-warning', minRole: 'admin' },
   { labelKey: 'newAutomation', href: '/automations/new', icon: Zap, tint: 'text-primary', minRole: 'admin' },
 ]
 

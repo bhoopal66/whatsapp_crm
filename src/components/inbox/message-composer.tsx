@@ -759,7 +759,7 @@ export function MessageComposer({
       ) : recording ? (
         // Recording bar — replaces the composer while the mic is live.
         <div className="bg-wa-input flex items-center gap-3 rounded-lg px-4 py-1.5">
-          <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-500" />
+          <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-destructive" />
           <span className="text-wa-text flex-1 text-sm">
             {t('recording', {
               current: formatDuration(recordSeconds),

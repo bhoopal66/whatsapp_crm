@@ -1459,13 +1459,13 @@ const ConversationItem = memo(function ConversationItem({
                 <UserRound
                   className={cn(
                     'h-3 w-3 shrink-0',
-                    handler?.kind !== 'assigned' && 'text-amber-500'
+                    handler?.kind !== 'assigned' && 'text-warning'
                   )}
                 />
                 <span
                   className={cn(
                     'truncate',
-                    handler?.kind !== 'assigned' && 'text-amber-600'
+                    handler?.kind !== 'assigned' && 'text-warning'
                   )}
                 >
                   {handlerName ?? t('unassigned')}

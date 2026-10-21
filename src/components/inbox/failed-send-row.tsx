@@ -72,7 +72,7 @@ export function FailedSendRow({
           className="line-clamp-2 max-w-full text-right text-[11px] break-words"
           title={failed.reason}
         >
-          <span className="font-medium text-red-600 dark:text-red-400">
+          <span className="text-destructive font-medium">
             {t('notSent')}
           </span>
           <span className="text-muted-foreground"> · {failed.reason}</span>

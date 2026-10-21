@@ -23,9 +23,15 @@ interface ConversationsChartProps {
 // viewBox coordinates so the drawing math stays simple even as the
 // container resizes.
 // ------------------------------------------------------------
+// VB_W is only the first-paint width: LineSvg re-measures its wrapper
+// and draws at 1:1 pixels, so the axis text renders at its real size.
+// A fixed 760-wide viewBox scaled a 10px label down to ~8px in the
+// dashboard's half-width card, which read as unreadable grey specks.
 const VB_W = 760
 const VB_H = 240
-const PADDING = { top: 16, right: 16, bottom: 28, left: 40 }
+const PADDING = { top: 16, right: 16, bottom: 30, left: 44 }
+const INCOMING_COLOR = 'var(--chart-2)'
+const OUTGOING_COLOR = 'var(--chart-1)'
 
 import { useTranslations } from 'next-intl'
 
@@ -89,8 +95,8 @@ export function ConversationsChart({ series, loading, range, onRangeChange }: Co
       </div>
 
       <footer className="flex items-center gap-4 border-t border-border px-5 py-3 text-xs text-muted-foreground">
-        <LegendDot color="#3b82f6" label={t('incoming')} />
-        <LegendDot color="#7c3aed" label={t('outgoing')} />
+        <LegendDot color={INCOMING_COLOR} label={t('incoming')} />
+        <LegendDot color={OUTGOING_COLOR} label={t('outgoing')} />
       </footer>
     </section>
   )
@@ -119,8 +125,20 @@ function LineSvg({
   const [hover, setHover] = useState<{ idx: number; tooltipLeftPx: number } | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const [vbW, setVbW] = useState(VB_W)
 
-  const chartW = VB_W - PADDING.left - PADDING.right
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width)
+      if (w > 0) setVbW(w)
+    })
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [])
+
+  const chartW = vbW - PADDING.left - PADDING.right
   const chartH = VB_H - PADDING.top - PADDING.bottom
 
   // x step can be fractional for 90-day views; points are positioned
@@ -154,7 +172,7 @@ function LineSvg({
       pt.y = e.clientY
       const local = pt.matrixTransform(ctm.inverse())
       const xVb = local.x
-      if (xVb < PADDING.left - 8 || xVb > VB_W - PADDING.right + 8) {
+      if (xVb < PADDING.left - 8 || xVb > vbW - PADDING.right + 8) {
         setHover(null)
         return
       }
@@ -184,7 +202,7 @@ function LineSvg({
       svg.removeEventListener('mouseleave', onLeave)
     }
     // xFor + yFor close over stepX, so stepX covers them.
-  }, [data, stepX])
+  }, [data, stepX, vbW])
 
   const hovered = hover !== null ? data[hover.idx] : null
   const hoverX = hover !== null ? xFor(hover.idx) : 0
@@ -197,7 +215,7 @@ function LineSvg({
     <div ref={wrapRef} className="relative w-full">
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        viewBox={`0 0 ${vbW} ${VB_H}`}
         className="h-[240px] w-full"
         role="img"
         aria-label={t('ariaLabel')}
@@ -209,7 +227,7 @@ function LineSvg({
             <g key={t}>
               <line
                 x1={PADDING.left}
-                x2={VB_W - PADDING.right}
+                x2={vbW - PADDING.right}
                 y1={y}
                 y2={y}
                 stroke="var(--border)"
@@ -220,7 +238,7 @@ function LineSvg({
                 y={y}
                 textAnchor="end"
                 dominantBaseline="middle"
-                className="fill-muted-foreground text-[10px]"
+                className="fill-muted-foreground text-xs"
               >
                 {t}
               </text>
@@ -236,27 +254,27 @@ function LineSvg({
               x={xFor(i)}
               y={VB_H - 8}
               textAnchor="middle"
-              className="fill-muted-foreground text-[10px]"
+              className="fill-muted-foreground text-xs"
             >
               {shortDayLabel(p.day)}
             </text>
           ) : null,
         )}
 
-        {/* Outgoing polyline (violet) */}
+        {/* Outgoing polyline (the accent, --chart-1) */}
         <path
           d={outgoingPath}
           fill="none"
-          stroke="#7c3aed"
+          stroke={OUTGOING_COLOR}
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        {/* Incoming polyline (blue) */}
+        {/* Incoming polyline (--chart-2) */}
         <path
           d={incomingPath}
           fill="none"
-          stroke="#3b82f6"
+          stroke={INCOMING_COLOR}
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -273,8 +291,8 @@ function LineSvg({
               stroke="var(--muted-foreground)"
               strokeDasharray="3 3"
             />
-            <circle cx={hoverX} cy={yFor(data[hover.idx].incoming)} r={3.5} fill="#3b82f6" />
-            <circle cx={hoverX} cy={yFor(data[hover.idx].outgoing)} r={3.5} fill="#7c3aed" />
+            <circle cx={hoverX} cy={yFor(data[hover.idx].incoming)} r={3.5} fill={INCOMING_COLOR} />
+            <circle cx={hoverX} cy={yFor(data[hover.idx].outgoing)} r={3.5} fill={OUTGOING_COLOR} />
           </g>
         )}
       </svg>
@@ -285,17 +303,17 @@ function LineSvg({
           letterboxed viewBox percentage. */}
       {hovered && hover !== null && (
         <div
-          className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] shadow-lg"
+          className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs shadow-lg"
           style={{ left: `${hover.tooltipLeftPx}px` }}
         >
           <div className="font-medium text-popover-foreground">{longDayLabel(hovered.day)}</div>
           <div className="mt-1 flex flex-col gap-0.5">
-            <span className="flex items-center gap-1.5 text-blue-300">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+            <span className="flex items-center gap-1.5 text-popover-foreground">
+              <span className="inline-block h-2 w-2 rounded-full bg-chart-2" />
               {t('tooltipIncoming', { count: hovered.incoming })}
             </span>
-            <span className="flex items-center gap-1.5 text-primary">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
+            <span className="flex items-center gap-1.5 text-popover-foreground">
+              <span className="inline-block h-2 w-2 rounded-full bg-chart-1" />
               {t('tooltipOutgoing', { count: hovered.outgoing })}
             </span>
           </div>
@@ -308,7 +326,7 @@ function LineSvg({
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: color }} />
       {label}
     </span>
   )
