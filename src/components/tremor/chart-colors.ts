@@ -68,6 +68,14 @@ export const chartColors = {
     fill: "fill-fuchsia-500",
     text: "text-fuchsia-500",
   },
+  // Local: the theme's chart tokens (globals.css --chart-1), which
+  // follow the accent and the light/dark mode.
+  chart1: {
+    bg: "bg-chart-1",
+    stroke: "stroke-chart-1",
+    fill: "fill-chart-1",
+    text: "text-chart-1",
+  },
 } as const satisfies {
   [color: string]: {
     [key in ColorUtility]: string
