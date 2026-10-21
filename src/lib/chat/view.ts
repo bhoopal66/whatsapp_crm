@@ -356,7 +356,7 @@ export function channelAdminErrorKey(
 
 /**
  * The nav badge: unread messages over every channel, except that a
- * muted channel counts only its mentions, as the workspace rail does
+ * muted channel counts only its mentions, as the Workspaces badges do
  * (091's chat_workspace_badges): muting is what this badge must show.
  */
 export function totalUnread(unread: readonly UnreadCount[]): number {

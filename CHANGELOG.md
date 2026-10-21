@@ -12,6 +12,7 @@ and polish.
 
 ## [Unreleased]
 
+- Workspaces: the workspace rail at the far left of the sidebar is gone. Switching workspace, and creating one (owners and admins), now happens in **Settings → My account → Workspaces**, which lists every workspace you belong to with your role, team-chat unread and mentions. A bank guest can open that one Settings section (from the account menu's **Workspaces** item) and nothing else of Settings. No migration.
 - Cases: a **New lead** button on the Cases page opens a lead without going through the customer page; the dialog starts with a customer search (name or phone, limited to the contacts you can see).
 
 ### Coordinators (migration 133)

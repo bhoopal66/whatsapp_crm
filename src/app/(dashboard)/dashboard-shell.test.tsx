@@ -67,7 +67,11 @@ describe('DashboardShell guest gating', () => {
 
   it('renders nothing of another screen for a bank guest', () => {
     expect(render('bank_guest', '/dashboard')).not.toContain('PAGE');
-    expect(render('bank_guest', '/settings')).not.toContain('PAGE');
+    expect(render('bank_guest', '/inbox')).not.toContain('PAGE');
+  });
+
+  it('renders Settings for a bank guest, where they switch workspace', () => {
+    expect(render('bank_guest', '/settings')).toContain('PAGE');
   });
 
   it('renders team chat for a bank guest', () => {

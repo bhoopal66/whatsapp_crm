@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// "Create a workspace" (migration 083), opened from the rail's "+".
+// "Create a workspace" (migration 083), opened from Settings → Workspaces.
 //
 // POST /api/workspaces creates the workspace, makes the caller its
 // owner, SWITCHES them into it and adds each invite there. So once it
@@ -60,7 +60,7 @@ import {
 interface CreateWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The workspace exists but could not be opened: reload the rail. */
+  /** The workspace exists but could not be opened: reload the list. */
   onCreatedElsewhere?: () => void;
 }
 
@@ -176,7 +176,7 @@ export function CreateWorkspaceDialog({
       } | null;
       if (!res.ok) {
         setFormError(body?.error || t('failed'));
-        // Created but not opened: its tile belongs on the rail anyway.
+        // Created but not opened: it belongs in the list anyway.
         if (body?.accountId) onCreatedElsewhere?.();
         return;
       }

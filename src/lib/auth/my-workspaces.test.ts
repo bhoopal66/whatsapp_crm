@@ -157,12 +157,25 @@ describe('guest paths', () => {
     expect(isGuestPath('/dashboard')).toBe(false);
   });
 
-  it('sends a guest anywhere outside /chat back to /chat', () => {
-    for (const path of ['/dashboard', '/inbox', '/settings', '/tasks', '/']) {
+  it('sends a guest anywhere outside /chat and /settings back to /chat', () => {
+    for (const path of [
+      '/dashboard',
+      '/inbox',
+      '/tasks',
+      '/',
+      '/settings/x',
+      '/settingsx',
+    ]) {
       expect(guestRedirectPath('bank_guest', path)).toBe('/chat');
     }
     expect(guestRedirectPath('bank_guest', '/chat')).toBeNull();
     expect(guestRedirectPath('bank_guest', '/chat/room-1')).toBeNull();
+  });
+
+  it('lets a guest open /settings, where they switch workspace', () => {
+    expect(guestRedirectPath('bank_guest', '/settings')).toBeNull();
+    // Settings is not part of the guest area a bell may lead to.
+    expect(isGuestPath('/settings')).toBe(false);
   });
 
   it('leaves staff, and a role still loading, where they are', () => {

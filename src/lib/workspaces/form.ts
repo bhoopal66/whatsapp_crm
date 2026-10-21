@@ -1,7 +1,7 @@
 // ============================================================
 // The workspace UI's logic (migration 083): the "Create a workspace"
 // dialog's form, the add-a-person flow in Settings → Members, and the
-// unread badges on the workspace rail.
+// unread badges in Settings → Workspaces.
 //
 // Pure: no I/O and no DOM, so the rules the dialogs enforce are tested
 // here rather than by mounting components (the test env has no DOM).
@@ -10,6 +10,7 @@
 // ============================================================
 
 import type { AddableRole } from '@/lib/account/add-member';
+import type { Workspace } from '@/lib/auth/my-workspaces';
 
 /** POST /api/workspaces accepts at most this many invites. */
 export const MAX_INVITES = 50;
@@ -217,14 +218,13 @@ export function afterCreatePath(choice: NumberChoice): string {
 }
 
 /**
- * Should the sidebar carry the workspace rail? Only when it has
- * something to offer: another workspace to switch to, or the "+" tile.
+ * The text on a workspace's tile in Settings → Workspaces: its short
+ * name, else the first letter of its name, else "?".
  */
-export function showWorkspaceRail(
-  workspaceCount: number,
-  canCreate: boolean
-): boolean {
-  return workspaceCount > 1 || canCreate;
+export function workspaceTileLabel(
+  workspace: Pick<Workspace, 'name' | 'shortName'>
+): string {
+  return workspace.shortName ?? (workspace.name.charAt(0).toUpperCase() || '?');
 }
 
 /** One row of `chat_workspace_badges()` (migration 087). */
@@ -261,17 +261,17 @@ export function parseWorkspaceBadges(rows: unknown): WorkspaceBadgeRow[] {
   });
 }
 
-export type RailBadge =
+export type WorkspaceBadge =
   { kind: 'mentions'; count: number } | { kind: 'unread'; count: number };
 
 /**
- * The badge on a workspace's tile: mentions win (a counted badge),
+ * The badge on a workspace in Settings → Workspaces: mentions win (a counted badge),
  * else unread messages (a dot), else none.
  */
 export function badgeFor(
   accountId: string,
   badges: readonly WorkspaceBadgeRow[]
-): RailBadge | null {
+): WorkspaceBadge | null {
   const row = badges.find((b) => b.accountId === accountId);
   if (!row) return null;
   if (row.mentions > 0) return { kind: 'mentions', count: row.mentions };

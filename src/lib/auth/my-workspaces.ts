@@ -113,16 +113,28 @@ export function isGuestPath(pathname: string): boolean {
 }
 
 /**
+ * Settings, where a bank guest may open only Workspaces: switching
+ * workspace lives there and nowhere else, and a guest in several
+ * workspaces must still be able to switch (`settings-sections.ts` keeps
+ * every other section from them). Deliberately not part of
+ * `isGuestPath`, which also decides where a guest's bell may lead.
+ */
+export const GUEST_SETTINGS_PATH = '/settings';
+
+/**
  * Where the dashboard shell must send this person, or null to stay.
- * A bank guest is kept on /chat; everyone else, and anyone whose role
- * is still loading (null), stays where they are. This is UX, not access
- * control: RLS already gives a guest none of the other screens' data.
+ * A bank guest is kept on /chat, plus Settings (Workspaces only);
+ * everyone else, and anyone whose role is still loading (null), stays
+ * where they are. This is UX, not access control: RLS already gives a
+ * guest none of the other screens' data.
  */
 export function guestRedirectPath(
   role: AccountRole | null | undefined,
   pathname: string
 ): string | null {
-  return isBankGuest(role) && !isGuestPath(pathname) ? GUEST_HOME_PATH : null;
+  if (!isBankGuest(role)) return null;
+  if (isGuestPath(pathname) || pathname === GUEST_SETTINGS_PATH) return null;
+  return GUEST_HOME_PATH;
 }
 
 /** Stands in for this origin when a path is parsed; never fetched. */

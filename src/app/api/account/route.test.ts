@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Settings → Workspace renames the workspace through this PATCH: a name,
-// a short name (the rail's tile), or both. Only the fields sent are
+// a short name (its tile in Settings → Workspaces), or both. Only the fields sent are
 // written, each under create_workspace()'s rule, and only an admin+
 // reaches the UPDATE at all.
 

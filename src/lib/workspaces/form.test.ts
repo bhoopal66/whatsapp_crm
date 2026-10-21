@@ -11,7 +11,7 @@ import {
   parseWorkspaceBadges,
   planWorkspaceRename,
   shortNameError,
-  showWorkspaceRail,
+  workspaceTileLabel,
   suggestPassword,
   suggestShortName,
   validateInviteRows,
@@ -239,12 +239,11 @@ describe('afterCreatePath', () => {
   });
 });
 
-describe('showWorkspaceRail', () => {
-  it('shows only when there is another workspace or a "+" tile', () => {
-    expect(showWorkspaceRail(1, false)).toBe(false);
-    expect(showWorkspaceRail(0, false)).toBe(false);
-    expect(showWorkspaceRail(2, false)).toBe(true);
-    expect(showWorkspaceRail(1, true)).toBe(true);
+describe('workspaceTileLabel', () => {
+  it('uses the short name, else the first letter, else ?', () => {
+    expect(workspaceTileLabel({ name: 'taamul', shortName: 'TC' })).toBe('TC');
+    expect(workspaceTileLabel({ name: 'taamul', shortName: null })).toBe('T');
+    expect(workspaceTileLabel({ name: '', shortName: null })).toBe('?');
   });
 });
 

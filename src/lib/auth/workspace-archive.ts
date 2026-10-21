@@ -166,7 +166,7 @@ export function archiveErrorResponse(
 }
 
 // ------------------------------------------------------------
-// The screens' side: Settings → Workspace and the workspace rail read
+// The screens' side: Settings → Workspace and Settings → Workspaces read
 // the route's answers through these.
 // ------------------------------------------------------------
 
@@ -256,9 +256,9 @@ export function afterArchive(
 }
 
 /**
- * Can the rail switch into this workspace? `switch_account` refuses a
+ * Can Settings → Workspaces switch into this workspace? `switch_account` refuses a
  * deactivated membership and an archived workspace, so neither tile
- * switches: both stay on the rail, dimmed, and say why.
+ * switches: both stay listed, marked, with no Switch button.
  */
 export function isSwitchableWorkspace(
   w: Pick<Workspace, 'deactivated' | 'archived'>

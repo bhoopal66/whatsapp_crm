@@ -126,8 +126,8 @@ chat rights**, and a team leader is the chat's "supervisor".
   last read and the day you joined. They count top-level messages only,
   never your own or deleted ones. The mention count also includes
   thread replies. Marking a channel read also marks its chat
-  notifications read. The workspace rail shows the totals of every
-  workspace you belong to.
+  notifications read. Settings → Workspaces shows the totals of
+  every workspace you belong to.
 - **Edits** are the author's alone. The message shows as edited and the
   previous text goes to an append-only history that only owners and
   admins can read, for messages in channels they can read directly. The
@@ -274,7 +274,7 @@ characters of the message and mentions shown as `@Name`.
   member gets no `chat_broadcast`, `chat_thread_reply` or `chat_dm`. A
   muted channel still shows its unread count in the channel list
   (`chat_unread_counts` returns `muted`), dimmed and marked muted, but
-  the workspace rail badge (`chat_workspace_badges`) and the main
+  the Settings → Workspaces badge (`chat_workspace_badges`) and the main
   navigation's Team chat badge leave its plain unread out; its mentions
   still count.
 - Editing a message rebuilds the bell text from the new text. Deleting
