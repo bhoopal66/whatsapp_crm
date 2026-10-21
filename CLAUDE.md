@@ -1476,10 +1476,16 @@ fails if one is wired to plain `t()`.
 - UI is shadcn (`style: base-nova`, neutral, lucide icons, base-ui
   primitives) in `src/components/ui` — regenerate via the shadcn CLI
   rather than hand-editing. Charts use `src/components/tremor` + recharts.
-- Dark mode is `html[data-mode='dark']`, never a `.dark` class, so Tailwind's
-  `dark:` variant matches nothing here. Use semantic tokens (`bg-card`,
-  `text-muted-foreground`, `bg-wa-*`), or `[[data-mode=dark]_&]:` for a
-  one-off colour.
+- Dark mode is `html[data-mode='dark']`, never a `.dark` class; the
+  `dark:` variant is keyed to that attribute (`globals.css`). Prefer
+  semantic tokens (`bg-card`, `text-muted-foreground`, `bg-wa-*`) and the
+  status tokens (`text-success` / `bg-success-soft`, `warning`, `info`,
+  `destructive` / `bg-destructive-soft`) over raw palette classes; a raw
+  hue (an identity colour such as a calendar or stage colour) needs a
+  shade per mode (`text-violet-700 dark:text-violet-300`). Never a
+  `text-*-300/400` without a light-mode pair: it vanishes on white.
+  The default accent is `taamul` (brand blue); dark mode lifts every
+  accent and puts dark text on it.
 - Prettier: single quotes, semicolons, 80 cols, `prettier-plugin-tailwindcss`.
   Most of the tree predates this — format the files you touch, not the repo.
 - `NEXT_PUBLIC_*` values are inlined at build time — changing one requires a

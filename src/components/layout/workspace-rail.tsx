@@ -109,7 +109,7 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
   return (
     <nav
       aria-label={t('label')}
-      className="flex w-16 shrink-0 flex-col items-center gap-3 overflow-y-auto bg-[#0b1f17] py-3"
+      className="bg-rail flex w-16 shrink-0 flex-col items-center gap-3 overflow-y-auto py-3"
     >
       <ul className="flex flex-col items-center gap-3">
         {workspaces.map((w) => {
@@ -147,8 +147,8 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
                       className={cn(
                         'relative flex size-11 items-center justify-center rounded-xl text-sm font-bold text-white transition-colors focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none',
                         active
-                          ? 'bg-[#00a884] ring-2 ring-[#25d366] ring-offset-2 ring-offset-[#0b1f17]'
-                          : 'bg-[#2a3530] hover:bg-[#35433d]',
+                          ? 'bg-primary text-primary-foreground ring-offset-rail ring-2 ring-white/80 ring-offset-2'
+                          : 'bg-rail-item hover:bg-rail-item-hover',
                         !switchable && 'cursor-not-allowed opacity-40',
                         disabled && switchable && 'opacity-70'
                       )}
@@ -159,11 +159,11 @@ export function WorkspaceRail({ canCreate }: { canCreate: boolean }) {
                         tileLabel(w)
                       )}
                       {badge?.kind === 'mentions' ? (
-                        <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#f15c6d] px-1 text-[10px] font-semibold text-white ring-2 ring-[#0b1f17]">
+                        <span className="bg-destructive ring-rail absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white ring-2">
                           {badge.count > 9 ? '9+' : badge.count}
                         </span>
                       ) : badge ? (
-                        <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-white ring-2 ring-[#0b1f17]" />
+                        <span className="ring-rail absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-white ring-2" />
                       ) : null}
                     </button>
                   }

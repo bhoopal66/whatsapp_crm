@@ -44,7 +44,7 @@ const ROLE_CHIP: Record<
     icon: Crown,
     labelKey: 'roleOwner',
     // Amber: scarce, immutable, "the boss" — gets visual emphasis.
-    className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    className: 'border-warning/40 bg-warning-soft text-warning',
   },
   admin: {
     icon: Shield,
@@ -57,7 +57,7 @@ const ROLE_CHIP: Record<
     labelKey: 'roleTeamLeader',
     // Sky: clearly a step up from an agent's neutral slate, clearly
     // not the amber reserved for the owner.
-    className: 'border-sky-500/40 bg-sky-500/10 text-sky-300',
+    className: 'border-info/40 bg-info-soft text-info',
   },
   agent: {
     icon: UserCog,
@@ -188,8 +188,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             // Taller on mobile so fingers can hit the row reliably (≥44px).
             'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
             isActive
-              ? 'bg-primary/10 text-primary'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              ? 'bg-primary-soft text-primary font-semibold'
+              : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
           )}
         >
           <item.icon className="h-4 w-4" />
@@ -197,7 +197,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           {item.beta && (
             <span
               aria-label={t('beta')}
-              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-300 uppercase"
+              className="border-warning/40 bg-warning-soft text-warning rounded-full border px-1.5 py-0.5 text-[9px] font-semibold tracking-wider uppercase"
             >
               {t('beta')}
             </span>
@@ -232,7 +232,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           {showCallsBadge && (
             <span
               aria-label={t('missedCalls', { count: callsNav.missed })}
-              className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-semibold text-black"
+              className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-semibold text-amber-950"
             >
               {callsNav.missed > 99 ? '99+' : callsNav.missed}
             </span>
@@ -263,7 +263,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         className={cn(
           // Mobile: fixed drawer that slides in from the left. With the
           // workspace rail the drawer is a row: rail, then the nav.
-          'border-border bg-card fixed inset-y-0 left-0 z-40 flex h-full flex-row border-r',
+          'border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-40 flex h-full flex-row border-r',
           showRail ? 'w-80' : 'w-64',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
