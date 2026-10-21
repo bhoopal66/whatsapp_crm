@@ -7,18 +7,22 @@
 // migration is needed — same model as API scopes).
 // ============================================================
 
-export const WEBHOOK_EVENTS = [
-  'message.received', // an inbound WhatsApp message landed
-  'message.status_updated', // a sent message advanced (sent/delivered/read)
-  'conversation.created', // a new conversation was opened for a contact
-  // Migration 134: enqueued in SQL (webhook_event_outbox), sent by
-  // drainWebhookOutbox (outbox.ts) from the automations cron.
+// Migration 134: enqueued in SQL (webhook_event_outbox), sent by
+// drainWebhookOutbox (outbox.ts) from the automations cron.
+export const OUTBOX_EVENTS = [
   'submission_group.ready', // the WhatsApp group of a submission exists
   'submission_group.failed', // creating that WhatsApp group failed (retrying)
   'submission_group.ended', // a submission group ended
   'case.lead_created', // a lead (a case with no submission yet) was opened
   'case.stage_changed', // a case moved stage (in the CRM or from Compass)
   'contact.opted_out', // a contact opted out of messages
+] as const;
+
+export const WEBHOOK_EVENTS = [
+  'message.received', // an inbound WhatsApp message landed
+  'message.status_updated', // a sent message advanced (sent/delivered/read)
+  'conversation.created', // a new conversation was opened for a contact
+  ...OUTBOX_EVENTS,
 ] as const;
 
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];

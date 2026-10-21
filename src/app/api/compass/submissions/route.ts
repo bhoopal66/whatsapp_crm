@@ -11,16 +11,7 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
-
-/** The events 134's triggers enqueue: change one, change both. */
-const OUTBOX_EVENTS = [
-  'case.stage_changed',
-  'case.lead_created',
-  'submission_group.ready',
-  'submission_group.failed',
-  'submission_group.ended',
-  'contact.opted_out',
-] as const;
+import { OUTBOX_EVENTS } from '@/lib/webhooks/events';
 
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
