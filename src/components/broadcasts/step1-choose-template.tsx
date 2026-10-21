@@ -8,9 +8,9 @@ import { Loader2, FileText, ArrowRight } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 const categoryColors: Record<string, string> = {
-  Marketing: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  Utility: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  Authentication: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+  Marketing: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
+  Utility: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+  Authentication: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
 };
 
 interface Step1Props {
@@ -62,7 +62,7 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
   if (error) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-destructive">{error}</p>
       </div>
     );
   }

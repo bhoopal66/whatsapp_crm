@@ -781,7 +781,9 @@ export function Step2SelectAudience({
               </span>
             )}
           </div>
-          {csvError && <p className="mt-2 text-xs text-red-400">{csvError}</p>}
+          {csvError && (
+            <p className="text-destructive mt-2 text-xs">{csvError}</p>
+          )}
           {!csvError && audience.csvContacts && (
             <p className="text-foreground mt-2 text-xs">
               {t('selectAudience.csvContactsFound', {
@@ -797,7 +799,7 @@ export function Step2SelectAudience({
             </p>
           )}
           {!csvError && csvPhoneWarning && (
-            <p className="mt-1 text-xs text-amber-400">{csvPhoneWarning}</p>
+            <p className="text-warning mt-1 text-xs">{csvPhoneWarning}</p>
           )}
           {!csvError && csvParsed && (
             <label className="text-foreground mt-3 flex items-center gap-2 text-xs">
@@ -855,7 +857,7 @@ export function Step2SelectAudience({
                 className="border-border bg-muted text-foreground"
               />
               {!compassStartValid && (
-                <span className="block text-xs text-red-400">
+                <span className="text-destructive block text-xs">
                   {t('selectAudience.compassStartInvalid')}
                 </span>
               )}
@@ -874,7 +876,7 @@ export function Step2SelectAudience({
                 className="border-border bg-muted text-foreground"
               />
               {!compassLimitValid && (
-                <span className="block text-xs text-red-400">
+                <span className="text-destructive block text-xs">
                   {t('selectAudience.compassLimitInvalid')}
                 </span>
               )}
@@ -889,15 +891,15 @@ export function Step2SelectAudience({
           {!compassStartValid || !compassLimitValid ? null : compassLoading ? (
             <Loader2 className="text-primary h-4 w-4 animate-spin" />
           ) : compassError ? (
-            <p className="text-xs text-red-400">
+            <p className="text-destructive text-xs">
               {t('selectAudience.compassError', { error: compassError })}
             </p>
           ) : compassTotal === 0 ? (
-            <p className="text-xs text-amber-400">
+            <p className="text-warning text-xs">
               {t('selectAudience.compassNone')}
             </p>
           ) : compassTotal !== null && compassWindow === 0 ? (
-            <p className="text-xs text-amber-400">
+            <p className="text-warning text-xs">
               {t('selectAudience.compassWindowEmpty', { total: compassTotal })}
             </p>
           ) : compassTotal !== null ? (
@@ -910,7 +912,7 @@ export function Step2SelectAudience({
             </p>
           ) : null}
           {!compassLoading && !compassError && compassPhoneWarning && (
-            <p className="text-xs text-amber-400">
+            <p className="text-warning text-xs">
               {t('selectAudience.compassPhoneWarning', {
                 summary: compassPhoneWarning,
               })}
@@ -922,7 +924,7 @@ export function Step2SelectAudience({
       {/* Exclude list — applies regardless of audience type */}
       <div className="border-border bg-card/50 rounded-xl border p-4">
         <div className="mb-3 flex items-center gap-2">
-          <X className="h-4 w-4 text-red-400" />
+          <X className="text-destructive h-4 w-4" />
           <p className="text-foreground text-sm font-medium">
             {t('selectAudience.excludeChatTags')}
           </p>
@@ -1046,7 +1048,7 @@ export function Step2SelectAudience({
 
 const CHAT_TAG_TONE = {
   include: 'border-primary/30 bg-primary/10 text-primary',
-  exclude: 'border-red-500/30 bg-red-500/10 text-red-300',
+  exclude: 'border-destructive/30 bg-destructive-soft text-destructive',
 } as const;
 
 /**

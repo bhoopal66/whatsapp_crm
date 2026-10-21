@@ -481,7 +481,7 @@ export function Step3Personalize({
               />
             )}
           {headerMediaError && (
-            <p className="mt-1.5 text-xs text-amber-300">
+            <p className="text-warning mt-1.5 text-xs">
               {headerMediaError === 'missing'
                 ? 'A media URL is required to send this template.'
                 : 'Enter a valid http(s) URL.'}
@@ -717,9 +717,9 @@ export function Step3Personalize({
             <Loader2 className="text-primary h-3.5 w-3.5 animate-spin" />
           )}
         </div>
-        <div className="rounded-lg bg-[#0e1a12] p-3">
-          <div className="bg-primary/30 ml-auto max-w-[85%] rounded-lg px-3 py-2 shadow-sm">
-            <p className="text-primary text-sm whitespace-pre-wrap">
+        <div className="rounded-lg bg-[var(--wa-chat)] p-3">
+          <div className="bg-wa-bubble-out ml-auto max-w-[85%] rounded-lg px-3 py-2 shadow-sm">
+            <p className="text-wa-text text-sm whitespace-pre-wrap">
               {previewText}
             </p>
           </div>
@@ -727,7 +727,7 @@ export function Step3Personalize({
       </div>
 
       {blankCounts.length > 0 && (
-        <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+        <div className="border-warning/30 bg-warning-soft text-warning space-y-1 rounded-md border px-3 py-2 text-xs">
           {blankCounts.map((c) => (
             <p key={c.key}>
               {t(
@@ -742,7 +742,7 @@ export function Step3Personalize({
       )}
 
       {unmappedKeys.length > 0 && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+        <div className="border-warning/30 bg-warning-soft text-warning rounded-md border px-3 py-2 text-xs">
           Map every placeholder before continuing — still missing{' '}
           <span className="font-mono font-semibold">
             {unmappedKeys.join(', ')}

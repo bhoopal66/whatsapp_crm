@@ -29,7 +29,7 @@ interface JourneyRow {
 const LIMIT = 200;
 const PRODUCTS = ['POS', 'ACCOUNT', 'LOAN'] as const;
 const selectClass =
-  'border-input bg-background text-foreground h-8 rounded-md border px-2 text-sm';
+  'border-input bg-background text-foreground h-8 rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
 
 /** GET /api/journeys with `params`; null when it failed. */
 async function fetchJourneys(
@@ -87,12 +87,10 @@ export default function JourneysPage() {
   const label = (s: string) => (stateLabelKey(s) ? t(`states.${s}`) : s);
 
   return (
-    <div className="h-full overflow-y-auto p-4 md:p-6">
-      <div className="mx-auto max-w-6xl space-y-5">
+    <div className="h-full overflow-y-auto">
+      <div className="space-y-5">
         <div>
-          <h1 className="text-foreground text-xl font-semibold">
-            {t('title')}
-          </h1>
+          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
         </div>
 
@@ -156,6 +154,7 @@ export default function JourneysPage() {
           <label className="text-foreground flex items-center gap-2 text-sm">
             <input
               type="checkbox"
+              className="accent-primary h-4 w-4"
               checked={openOnly}
               onChange={(e) => setOpenOnly(e.target.checked)}
             />

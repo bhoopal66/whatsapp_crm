@@ -209,7 +209,7 @@ export function PersonSheet({
                   </ul>
                 </section>
               ) : (
-                <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 [[data-mode=dark]_&]:text-emerald-400">
+                <p className="border-success/30 bg-success-soft text-success rounded-lg border px-3 py-2 text-sm">
                   {t('allGood')}
                 </p>
               )}
@@ -386,7 +386,7 @@ export function PersonSheet({
                             </span>
                           )}
                           {c.has_link && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 [[data-mode=dark]_&]:text-amber-400">
+                            <span className="bg-warning-soft text-warning inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]">
                               <Link2 className="h-3 w-3" />
                               {t('badgeLink')}
                             </span>
@@ -396,7 +396,7 @@ export function PersonSheet({
                               className={cn(
                                 'rounded-full px-2 py-0.5 text-[11px]',
                                 c.in_a_row > limits.maxUnansweredInRow
-                                  ? 'bg-red-500/10 text-red-700 [[data-mode=dark]_&]:text-red-400'
+                                  ? 'bg-destructive-soft text-destructive'
                                   : 'bg-muted text-muted-foreground'
                               )}
                             >
@@ -404,7 +404,7 @@ export function PersonSheet({
                             </span>
                           )}
                           {c.replied && (
-                            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 [[data-mode=dark]_&]:text-emerald-400">
+                            <span className="bg-success-soft text-success rounded-full px-2 py-0.5 text-[11px]">
                               {t('badgeReplied')}
                             </span>
                           )}
