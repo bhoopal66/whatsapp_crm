@@ -103,6 +103,22 @@ function parseAmount(v: unknown): Parsed<string> {
   return { ok: true, value: m[2] ? `${whole}.${m[2]}` : whole };
 }
 
+/** A bank code, trimmed and upper-cased. */
+function parseBank(v: unknown): Parsed<string> {
+  const code = typeof v === 'string' ? v.trim().toUpperCase() : '';
+  if (!BANK_CODE_RE.test(code))
+    return bad("'bank' must be a bank code of 2 to 32 letters, digits or _");
+  return { ok: true, value: code };
+}
+
+/** A product name, 1 to PRODUCT_MAX characters after trimming. */
+function parseProduct(v: unknown): Parsed<string> {
+  const given = typeof v === 'string' ? v.trim() : '';
+  if (!given || given.length > PRODUCT_MAX)
+    return bad(`'product' must be 1 to ${PRODUCT_MAX} characters`);
+  return { ok: true, value: given };
+}
+
 /** POST body → CreateInput, or a 400 message naming the field. */
 export function parseCreateInput(body: unknown): Parsed<CreateInput> {
   if (!isObject(body)) return bad('Request body must be a JSON object');
@@ -170,19 +186,16 @@ export function parseCreateInput(body: unknown): Parsed<CreateInput> {
 
   let bankCode: string | null = null;
   if (!absent(body.bank)) {
-    const code =
-      typeof body.bank === 'string' ? body.bank.trim().toUpperCase() : '';
-    if (!BANK_CODE_RE.test(code))
-      return bad("'bank' must be a bank code of 2 to 32 letters, digits or _");
-    bankCode = code;
+    const parsedBank = parseBank(body.bank);
+    if (!parsedBank.ok) return parsedBank;
+    bankCode = parsedBank.value;
   }
 
   let product: string | null = null;
   if (!absent(body.product)) {
-    const given = typeof body.product === 'string' ? body.product.trim() : '';
-    if (!given || given.length > PRODUCT_MAX)
-      return bad(`'product' must be 1 to ${PRODUCT_MAX} characters`);
-    product = given;
+    const parsedProduct = parseProduct(body.product);
+    if (!parsedProduct.ok) return parsedProduct;
+    product = parsedProduct.value;
   }
 
   let amount: string | null = null;
@@ -209,14 +222,170 @@ export function parseCreateInput(body: unknown): Parsed<CreateInput> {
   };
 }
 
-/** PATCH body → the reported submission status (1–64 characters, trimmed). */
-export function parsePatchInput(body: unknown): Parsed<{ status: string }> {
+export const OUTCOME_TEXT_MAX = 500;
+export const COMPASS_URL_MAX = 2048;
+export const PATCH_DOCUMENTS_MAX = 100;
+const DOC_KEY_RE = /^[a-z0-9_]{1,64}$/;
+const DOC_STATUSES = ['requested', 'received', 'rejected'] as const;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+const SYNC_KEYS = [
+  'changed_at',
+  'stage',
+  'outcome_reason',
+  'bank',
+  'product',
+  'amount',
+  'compass_url',
+  'documents',
+] as const;
+
+/** p_patch of case_sync_from_submission (migration 134); every key optional. */
+export interface CaseSyncPatch {
+  stage?: string;
+  outcome_code?: string;
+  outcome_text?: string;
+  bank?: string;
+  product?: string;
+  amount?: string;
+  external_url?: string;
+  documents?: {
+    key: string;
+    status: (typeof DOC_STATUSES)[number];
+    file_ref?: string;
+    received_at?: string;
+  }[];
+}
+
+export interface PatchInput {
+  /** The reported submission status, or null when the body syncs the case only. */
+  status: string | null;
+  /** Present only when the body carries a case-sync key (migration 134). */
+  sync?: { changedAt: string | null; patch: CaseSyncPatch };
+}
+
+/** An ISO 8601 date-time → its ISO string, or null when it is not one. */
+function isoDate(v: unknown): string | null {
+  if (typeof v !== 'string' || !ISO_DATE_RE.test(v.trim())) return null;
+  const t = Date.parse(v.trim());
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+function parseSync(body: Record<string, unknown>): Parsed<PatchInput['sync']> {
+  const patch: CaseSyncPatch = {};
+  let changedAt: string | null = null;
+  if (!absent(body.changed_at)) {
+    changedAt = isoDate(body.changed_at);
+    if (!changedAt) return bad("'changed_at' must be an ISO 8601 date-time");
+  }
+  if (!absent(body.stage)) {
+    const stage = typeof body.stage === 'string' ? body.stage.trim() : '';
+    if (!stage || stage.length > SUBMISSION_STATUS_MAX)
+      return bad(`'stage' must be 1 to ${SUBMISSION_STATUS_MAX} characters`);
+    patch.stage = stage;
+  }
+  if (!absent(body.outcome_reason)) {
+    const r = body.outcome_reason;
+    if (!isObject(r) || typeof r.code !== 'string' || !r.code.trim())
+      return bad("'outcome_reason.code' is required");
+    patch.outcome_code = r.code.trim().toUpperCase();
+    if (!absent(r.text)) {
+      if (typeof r.text !== 'string')
+        return bad("'outcome_reason.text' must be a string");
+      const text = r.text.trim();
+      if (text.length > OUTCOME_TEXT_MAX)
+        return bad(
+          `'outcome_reason.text' must be at most ${OUTCOME_TEXT_MAX} characters`
+        );
+      if (text) patch.outcome_text = text;
+    }
+  }
+  if (!absent(body.bank)) {
+    const bank = parseBank(body.bank);
+    if (!bank.ok) return bank;
+    patch.bank = bank.value;
+  }
+  if (!absent(body.product)) {
+    const product = parseProduct(body.product);
+    if (!product.ok) return product;
+    patch.product = product.value;
+  }
+  if (!absent(body.amount)) {
+    const amount = parseAmount(body.amount);
+    if (!amount.ok) return amount;
+    patch.amount = amount.value;
+  }
+  if (!absent(body.compass_url)) {
+    const url =
+      typeof body.compass_url === 'string' ? body.compass_url.trim() : '';
+    if (
+      !/^https:\/\/\S+$/.test(url) ||
+      url.length > COMPASS_URL_MAX ||
+      !URL.canParse(url)
+    )
+      return bad(
+        `'compass_url' must be an https URL of at most ${COMPASS_URL_MAX} characters`
+      );
+    patch.external_url = url;
+  }
+  if (!absent(body.documents)) {
+    if (!Array.isArray(body.documents))
+      return bad("'documents' must be an array");
+    if (body.documents.length > PATCH_DOCUMENTS_MAX)
+      return bad(`'documents' must have at most ${PATCH_DOCUMENTS_MAX} items`);
+    const docs: NonNullable<CaseSyncPatch['documents']> = [];
+    for (const [i, d] of body.documents.entries()) {
+      const at = `'documents[${i}]`;
+      if (!isObject(d)) return bad(`${at}' must be an object`);
+      if (typeof d.key !== 'string' || !DOC_KEY_RE.test(d.key))
+        return bad(`${at}.key' must be 1 to 64 of a-z, 0-9 or _`);
+      if (!(DOC_STATUSES as readonly unknown[]).includes(d.status))
+        return bad(`${at}.status' must be requested, received or rejected`);
+      const doc: NonNullable<CaseSyncPatch['documents']>[number] = {
+        key: d.key,
+        status: d.status as (typeof DOC_STATUSES)[number],
+      };
+      if (!absent(d.file_ref)) {
+        if (typeof d.file_ref !== 'string' || !d.file_ref.trim())
+          return bad(`${at}.file_ref' must be a non-empty string`);
+        doc.file_ref = d.file_ref.trim();
+      }
+      if (!absent(d.received_at)) {
+        const receivedAt = isoDate(d.received_at);
+        if (!receivedAt)
+          return bad(`${at}.received_at' must be an ISO 8601 date-time`);
+        doc.received_at = receivedAt;
+      }
+      docs.push(doc);
+    }
+    patch.documents = docs;
+  }
+  return { ok: true, value: { changedAt, patch } };
+}
+
+/**
+ * PATCH body → the reported submission status (1–64 characters, trimmed)
+ * and, when any case-sync key is present (migration 134: changed_at,
+ * stage, outcome_reason, bank, product, amount, compass_url, documents),
+ * the patch for case_sync_from_submission. A body with no sync key
+ * parses exactly as before: `status` is required and the value is
+ * `{ status }`.
+ */
+export function parsePatchInput(body: unknown): Parsed<PatchInput> {
   if (!isObject(body)) return bad('Request body must be a JSON object');
-  if (typeof body.status !== 'string') return bad("'status' is required");
-  const status = body.status.trim();
-  if (!status || status.length > SUBMISSION_STATUS_MAX)
-    return bad(`'status' must be 1 to ${SUBMISSION_STATUS_MAX} characters`);
-  return { ok: true, value: { status } };
+  const syncing = SYNC_KEYS.some((k) => !absent(body[k]));
+  if (!syncing || !absent(body.status)) {
+    if (typeof body.status !== 'string') return bad("'status' is required");
+  }
+  let status: string | null = null;
+  if (typeof body.status === 'string') {
+    status = body.status.trim();
+    if (!status || status.length > SUBMISSION_STATUS_MAX)
+      return bad(`'status' must be 1 to ${SUBMISSION_STATUS_MAX} characters`);
+  }
+  if (!syncing) return { ok: true, value: { status: status! } };
+  const sync = parseSync(body);
+  if (!sync.ok) return sync;
+  return { ok: true, value: { status, sync: sync.value } };
 }
 
 /** A row of sg_staff_by_email. */

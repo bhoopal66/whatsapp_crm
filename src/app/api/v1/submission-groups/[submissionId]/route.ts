@@ -18,6 +18,16 @@
 // status is the case's outcome, and a case already at a final stage is
 // left alone by the SQL. Best effort: a case failure is logged and
 // answers `case: null`, never an error; a group without a case too.
+//
+// Case sync (migration 134): a body with changed_at, stage,
+// outcome_reason, bank, product, amount, compass_url or documents
+// (status then optional) is applied first through
+// case_sync_from_submission, on ACTIVE and ENDED groups alike, and the
+// answer adds `sync: { applied, reason?, rejected, changes }`. A stale
+// update is 200 with `applied: false, reason: 'stale'`; a refusal is 422
+// with its code (unknown_stage, presub_reentry, …) and writes nothing.
+// A sync that moves the case to a final stage ends an ACTIVE group
+// through the same endIfDue a final status uses.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -31,6 +41,11 @@ import {
   serializeGroup,
 } from '@/lib/submission-groups/api-input';
 import { caseStore } from '@/lib/cases/server';
+import {
+  CaseSyncRefusedError,
+  syncCaseFromSubmission,
+  syncWire,
+} from '@/lib/submission-groups/case-sync';
 import type {
   SubmissionGroup,
   SubmissionGroupStore,
@@ -86,9 +101,33 @@ export async function PATCH(request: Request, { params }: Params) {
     const parsed = parsePatchInput(await request.json().catch(() => null));
     if (!parsed.ok) return fail('bad_request', parsed.message, 400);
 
+    const { status, sync } = parsed.value;
+
     const store = submissionGroupStore(ctx.supabase);
     let group = await store.findByRef(ctx.accountId, submissionId.trim());
     if (!group) return fail('not_found', 'Submission group not found', 404);
+
+    // ctx.supabase is the service-role client (requireApiKey).
+    let synced: Awaited<ReturnType<typeof syncCaseFromSubmission>> | null =
+      null;
+    if (sync) {
+      try {
+        synced = await syncCaseFromSubmission(ctx.supabase, group.id, sync);
+      } catch (err) {
+        if (err instanceof CaseSyncRefusedError)
+          return fail(
+            err.apiCode,
+            `The case update was refused (${err.code})`,
+            422
+          );
+        console.error(
+          '[api/v1/submission-groups] case sync:',
+          err instanceof Error ? err.message : 'unknown error'
+        );
+        return fail('internal', 'Failed to apply the case update', 500);
+      }
+    }
+    const syncBlock = synced ? { sync: syncWire(synced) } : {};
 
     if (group.status !== 'ACTIVE')
       return ok({
@@ -96,37 +135,44 @@ export async function PATCH(request: Request, { params }: Params) {
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
-        case: await patchCase(ctx.accountId, group.id, parsed.value.status),
+        case: await patchCase(ctx.accountId, group.id, status),
+        ...syncBlock,
       });
 
-    const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
-      p_group: group.id,
-      p_status: parsed.value.status,
-    });
-    if (error) {
-      console.error('[api/v1/submission-groups] status note:', error);
-      return fail('internal', 'Failed to record the status', 500);
+    if (status !== null) {
+      const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
+        p_group: group.id,
+        p_status: status,
+      });
+      if (error) {
+        console.error('[api/v1/submission-groups] status note:', error);
+        return fail('internal', 'Failed to record the status', 500);
+      }
     }
+    // A final stage (Approved, Declined, Withdrawn, Closed) is a final
+    // status to endIfDue, so a sync that closed the case ends the group
+    // exactly as a final status does.
+    const endStatus = synced?.final && synced.stage ? synced.stage : status;
     const service = submissionGroupService(ctx.accountId, ctx.supabase);
-    const end = await service.endIfDue({
-      groupId: group.id,
-      status: parsed.value.status,
-      lastActivityAt: group.lastActivityAt,
-      idleDays: null,
-      now: new Date(),
-    });
+    const end =
+      endStatus === null
+        ? { ended: false, closed: false, closeDeferred: false }
+        : await service.endIfDue({
+            groupId: group.id,
+            status: endStatus,
+            lastActivityAt: group.lastActivityAt,
+            idleDays: null,
+            now: new Date(),
+          });
     group = (await store.get(group.id)) ?? group;
-    const caseWire = await patchCase(
-      ctx.accountId,
-      group.id,
-      parsed.value.status
-    );
+    const caseWire = await patchCase(ctx.accountId, group.id, status);
     return ok({
       ...(await wire(store, group)),
       ended: end.ended,
       closed: end.closed || group.waClosedAt !== null,
       close_deferred: end.closeDeferred,
       case: caseWire,
+      ...syncBlock,
     });
   } catch (err) {
     return toApiErrorResponse(err);
