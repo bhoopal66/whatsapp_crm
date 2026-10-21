@@ -10,6 +10,7 @@ vi.mock('@/lib/webhooks/deliver', () => ({ deliverSigned }));
 import { WEBHOOK_EVENTS } from './events';
 import {
   drainWebhookOutbox,
+  OUTBOX_BATCH_SIZE,
   OUTBOX_CLAIM_LIMIT,
   purgeWebhookOutbox,
 } from './outbox';
@@ -22,7 +23,7 @@ beforeEach(() => {
 });
 
 describe('drainWebhookOutbox', () => {
-  it('claims at most the limit and delivers each row through the shared signer', async () => {
+  it('claims one batch and delivers each row through the shared signer', async () => {
     rpc.mockResolvedValue({
       data: [
         {
@@ -44,10 +45,16 @@ describe('drainWebhookOutbox', () => {
     });
     const res = await drainWebhookOutbox(db);
     expect(rpc).toHaveBeenCalledWith('webhook_outbox_claim', {
-      p_limit: OUTBOX_CLAIM_LIMIT,
+      p_limit: OUTBOX_BATCH_SIZE,
     });
     expect(OUTBOX_CLAIM_LIMIT).toBe(200);
-    expect(res).toEqual({ claimed: 2, delivered: 2 });
+    expect(OUTBOX_BATCH_SIZE).toBe(10);
+    expect(res).toEqual({
+      claimed: 2,
+      delivered: 2,
+      failed: 0,
+      stoppedEarly: false,
+    });
     expect(deliverSigned).toHaveBeenNthCalledWith(
       1,
       db,
@@ -79,8 +86,66 @@ describe('drainWebhookOutbox', () => {
       ],
       error: null,
     });
-    expect(await drainWebhookOutbox(db)).toEqual({ claimed: 1, delivered: 0 });
+    expect(await drainWebhookOutbox(db)).toEqual({
+      claimed: 1,
+      delivered: 0,
+      failed: 1,
+      stoppedEarly: false,
+    });
     expect(deliverSigned).not.toHaveBeenCalled();
+  });
+
+  const full = (n: number) => ({
+    data: Array.from({ length: n }, (_, i) => ({
+      id: i,
+      account_id: 'a',
+      event: 'case.stage_changed',
+      payload: {},
+      created_at: 'x',
+    })),
+    error: null,
+  });
+
+  it('stops claiming once the deadline has passed, leaving the rest unclaimed', async () => {
+    rpc.mockResolvedValue(full(OUTBOX_BATCH_SIZE));
+    let t = 0;
+    const now = vi.fn(() => {
+      const v = t;
+      t += 20_000; // start=0, first check 20s, second check 40s > 30s
+      return v;
+    });
+    const res = await drainWebhookOutbox(db, { deadlineMs: 30_000, now });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({
+      claimed: OUTBOX_BATCH_SIZE,
+      delivered: OUTBOX_BATCH_SIZE,
+      failed: 0,
+      stoppedEarly: true,
+    });
+  });
+
+  it('stops when a claim returns fewer rows than asked', async () => {
+    rpc
+      .mockResolvedValueOnce(full(OUTBOX_BATCH_SIZE))
+      .mockResolvedValueOnce(full(3));
+    const res = await drainWebhookOutbox(db, { now: () => 0 });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(res.claimed).toBe(OUTBOX_BATCH_SIZE + 3);
+    expect(res.stoppedEarly).toBe(false);
+  });
+
+  it('stops at the overall row cap', async () => {
+    rpc.mockResolvedValue(full(OUTBOX_BATCH_SIZE));
+    const res = await drainWebhookOutbox(db, { now: () => 0 });
+    expect(rpc).toHaveBeenCalledTimes(OUTBOX_CLAIM_LIMIT / OUTBOX_BATCH_SIZE);
+    expect(res.claimed).toBe(OUTBOX_CLAIM_LIMIT);
+  });
+
+  it('counts a rejected delivery as failed and still delivers the rest', async () => {
+    rpc.mockResolvedValue(full(2));
+    deliverSigned.mockRejectedValueOnce(new Error('boom'));
+    const res = await drainWebhookOutbox(db, { now: () => 0 });
+    expect(res).toMatchObject({ claimed: 2, delivered: 1, failed: 1 });
   });
 
   it('throws when the claim fails, delivering nothing', async () => {
