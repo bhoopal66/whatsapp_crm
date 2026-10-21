@@ -22,7 +22,7 @@
   "Sidebar": {
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
-    "inbox": "Inbox",
+    "inbox": "WhatsApp inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "pipelines": "Pipelines",
@@ -73,7 +73,7 @@
   },
   "Header": {
     "dashboard": "Dashboard",
-    "inbox": "Inbox",
+    "inbox": "WhatsApp inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "pipelines": "Pipelines",
