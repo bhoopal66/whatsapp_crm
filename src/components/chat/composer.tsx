@@ -161,7 +161,7 @@ export function Composer({
     threadRootId && sharedCard?.canOpen ? (
       <Link
         href={`${inboxBasePath(accountRole)}?c=${sharedCard.conversationId}`}
-        className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 hover:underline [[data-mode=dark]_&]:text-amber-300"
+        className="text-warning mt-2 inline-flex items-center gap-1.5 text-xs font-semibold hover:underline"
       >
         <MessageCircle className="size-3.5" aria-hidden />
         {t('composer.whatsappInstead')}
@@ -285,7 +285,7 @@ export function Composer({
           type="button"
           onClick={() => void send()}
           disabled={!canSend}
-          className="h-9 shrink-0 rounded-lg bg-[#0E7C5A] px-4 text-sm font-semibold text-white hover:bg-[#0b6a4d] disabled:opacity-50"
+          className="bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
         >
           {t('composer.send')}
         </button>

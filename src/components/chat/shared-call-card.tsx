@@ -22,10 +22,10 @@ export function SharedCallCardBox({ card }: { card: SharedCallCard }) {
   const shell = (body: React.ReactNode) => (
     <div className="bg-card mt-1.5 max-w-[730px] overflow-hidden rounded-xl border">
       <div className="bg-muted/50 flex items-center gap-2 border-b px-3 py-1.5 text-xs">
-        <Phone className="size-3.5 text-[#0E7C5A]" aria-hidden />
+        <Phone className="text-primary size-3.5" aria-hidden />
         <span className="text-muted-foreground flex-1">{t('header')}</span>
         {view.access && !view.erased && view.outcome && (
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800 [[data-mode=dark]_&]:bg-emerald-500/20 [[data-mode=dark]_&]:text-emerald-200">
+          <span className="bg-success-soft text-success rounded-full px-2 py-0.5 font-semibold">
             {(OUTCOMES as readonly string[]).includes(view.outcome)
               ? tc(`outcomes.${view.outcome as Outcome}`)
               : view.outcome}

@@ -10,7 +10,7 @@ describe('presence dots', () => {
     expect(app).toContain('bg-muted-foreground');
     expect(app.match(/<span/g)).toHaveLength(2);
     const chat = renderToStaticMarkup(<ChatDot state="dnd" />);
-    expect(chat).toContain('bg-zinc-400');
+    expect(chat).toContain('bg-muted-foreground');
     expect(chat.match(/<span/g)).toHaveLength(2);
   });
 
@@ -22,7 +22,7 @@ describe('presence dots', () => {
       'bg-red-500'
     );
     expect(renderToStaticMarkup(<ChatDot state="away" />)).toContain(
-      'border-white/50'
+      'border-muted-foreground'
     );
     const online = renderToStaticMarkup(<PresenceDot status="online" />);
     expect(online).toContain('bg-emerald-500');

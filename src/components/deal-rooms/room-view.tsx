@@ -257,7 +257,7 @@ export function DealRoomView({
         </header>
         {tab === 'group' ? (
           <>
-            <div className="mx-4 mt-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 [[data-mode=dark]_&]:border-amber-500/40 [[data-mode=dark]_&]:bg-amber-500/10 [[data-mode=dark]_&]:text-amber-100">
+            <div className="border-warning/40 bg-warning-soft text-foreground mx-4 mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs">
               <Eye className="mt-0.5 size-3.5 shrink-0" aria-hidden />
               <p>
                 {t.rich('rooms.everyone', {
@@ -283,7 +283,7 @@ export function DealRoomView({
         ) : (
           <>
             <div className="px-4 pt-3">
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-[#0E7C5A] [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300">
+              <span className="bg-success-soft text-success inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium">
                 <ShieldCheck className="size-3.5" aria-hidden />
                 {t('channel.internal')}
               </span>
@@ -495,7 +495,7 @@ function GroupTimeline({ roomId }: { roomId: string }) {
                   className={cn(
                     'rounded px-1.5 py-px text-[10px] font-semibold',
                     b.tag === 'bank'
-                      ? 'bg-violet-100 text-violet-800 [[data-mode=dark]_&]:bg-violet-500/20 [[data-mode=dark]_&]:text-violet-200'
+                      ? 'bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-200'
                       : 'bg-muted text-muted-foreground'
                   )}
                 >
@@ -509,9 +509,7 @@ function GroupTimeline({ roomId }: { roomId: string }) {
             <div
               className={cn(
                 'max-w-[80%] rounded-lg px-3 py-2',
-                ours
-                  ? 'bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15'
-                  : 'bg-muted'
+                ours ? 'bg-success-soft' : 'bg-muted'
               )}
             >
               {text}
@@ -648,8 +646,8 @@ function GroupComposer({
     );
   }
   return (
-    <div className="m-3 rounded-lg border border-amber-400 bg-amber-50/70 p-3 [[data-mode=dark]_&]:border-amber-500/50 [[data-mode=dark]_&]:bg-amber-500/10">
-      <p className="text-sm font-bold text-amber-900 [[data-mode=dark]_&]:text-amber-200">
+    <div className="border-warning/50 bg-warning-soft m-3 rounded-lg border p-3">
+      <p className="text-warning text-sm font-bold">
         {t('composer.label', { count: audience })}
       </p>
       {mode.mode === 'text' ? (

@@ -33,8 +33,7 @@ import {
 import { SharedCallCardBox } from './shared-call-card';
 import { SharedConversationCard } from './shared-conversation-card';
 
-const CHIP =
-  'rounded px-1 font-semibold text-[#0E7C5A] bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300';
+const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 
 export interface MessageRowProps {
   message: ChatMessage;
@@ -178,8 +177,7 @@ export function MessageRow({
       className={cn(
         'group hover:bg-muted/40 relative flex gap-3 px-4 transition-colors',
         grouped ? 'py-0.5' : 'pt-3 pb-0.5',
-        highlighted &&
-          'bg-amber-100 hover:bg-amber-100 [[data-mode=dark]_&]:bg-amber-500/20 [[data-mode=dark]_&]:hover:bg-amber-500/20'
+        highlighted && 'bg-warning-soft hover:bg-warning-soft'
       )}
     >
       {actions && !edits.editing && (
@@ -195,7 +193,7 @@ export function MessageRow({
       <div className="w-9 shrink-0">
         {!grouped &&
           (system ? (
-            <div className="flex size-9 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600 [[data-mode=dark]_&]:bg-neutral-700 [[data-mode=dark]_&]:text-neutral-200">
+            <div className="bg-muted text-muted-foreground flex size-9 items-center justify-center rounded-lg">
               <Sparkles className="size-4" aria-hidden />
             </div>
           ) : (
@@ -243,7 +241,7 @@ export function MessageRow({
                   className={cn(
                     'flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs',
                     mine
-                      ? 'border-[#0E7C5A] bg-emerald-50 font-semibold [[data-mode=dark]_&]:bg-emerald-500/15'
+                      ? 'border-primary/50 bg-primary-soft text-primary font-semibold'
                       : 'hover:bg-muted'
                   )}
                 >
@@ -273,7 +271,7 @@ export function MessageRow({
                 </span>
               ))}
             </span>
-            <span className="font-bold text-[#0E7C5A] [[data-mode=dark]_&]:text-emerald-300">
+            <span className="text-primary font-bold">
               {t('timeline.replies', {
                 count: m.thread.replyCount,
                 time: m.thread.lastReplyAt

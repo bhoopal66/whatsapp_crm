@@ -95,7 +95,7 @@ export function ChannelHeader({
       </p>
       {kind !== 'deal_room' && (
         <div className="mt-2 flex flex-wrap gap-2">
-          <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-[#0E7C5A] [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300">
+          <span className="bg-success-soft text-success flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium">
             <ShieldCheck className="size-3.5" aria-hidden />
             {t('internal')}
           </span>

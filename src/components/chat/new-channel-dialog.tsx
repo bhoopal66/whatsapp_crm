@@ -155,12 +155,8 @@ function NewChannelBody({
                 className={cn(
                   'flex cursor-pointer items-start gap-3 rounded-xl border-2 p-3.5 transition-colors',
                   !on && 'border-border hover:bg-muted/40',
-                  on &&
-                    !deal &&
-                    'border-[#0E7C5A] bg-emerald-50/70 [[data-mode=dark]_&]:bg-emerald-500/10',
-                  on &&
-                    deal &&
-                    'border-amber-500 bg-[#FFF8E6] text-[#7A4A12] [[data-mode=dark]_&]:bg-amber-500/10 [[data-mode=dark]_&]:text-amber-200',
+                  on && !deal && 'border-primary bg-primary-soft',
+                  on && deal && 'border-warning bg-warning-soft',
                   c.disabled && 'cursor-not-allowed opacity-60'
                 )}
               >
@@ -180,7 +176,7 @@ function NewChannelBody({
                     {c.body}
                   </span>
                   {deal && dealRoom === 'agentsOnly' && (
-                    <span className="block text-xs font-semibold text-amber-700 [[data-mode=dark]_&]:text-amber-300">
+                    <span className="text-warning block text-xs font-semibold">
                       {t('dealRoomAgentsOnly')}
                     </span>
                   )}

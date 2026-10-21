@@ -51,11 +51,11 @@ async function post(url: string, body?: unknown) {
 
 const BADGE_CLASS: Record<MemberBadge, string> = {
   consent:
-    'bg-emerald-50 text-emerald-800 [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300',
+    'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300',
   guest:
-    'bg-violet-100 text-violet-800 [[data-mode=dark]_&]:bg-violet-500/15 [[data-mode=dark]_&]:text-violet-300',
+    'bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300',
   pending:
-    'bg-amber-50 text-amber-900 [[data-mode=dark]_&]:bg-amber-500/15 [[data-mode=dark]_&]:text-amber-200',
+    'bg-amber-50 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200',
   invited: 'bg-muted text-muted-foreground',
   joined: 'bg-muted text-foreground',
   left: 'bg-muted text-muted-foreground',

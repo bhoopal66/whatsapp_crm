@@ -283,7 +283,7 @@ function CreateBody({
               className={cn(
                 'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs',
                 p.role === 'bank_guest'
-                  ? 'bg-violet-100 text-violet-800 [[data-mode=dark]_&]:bg-violet-500/15 [[data-mode=dark]_&]:text-violet-300'
+                  ? 'bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300'
                   : 'bg-muted text-foreground'
               )}
             >
@@ -385,7 +385,7 @@ function CreateBody({
           {t('places', { workspace, places: placesTaken(invitees.length) })}
         </p>
         {invitees.some((p) => p.role === 'bank_guest') && (
-          <p className="text-xs text-violet-800 [[data-mode=dark]_&]:text-violet-300">
+          <p className="text-xs text-violet-800 dark:text-violet-300">
             {t('guestWaits')}
           </p>
         )}
@@ -403,7 +403,7 @@ function CreateBody({
         )}
       </div>
 
-      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 [[data-mode=dark]_&]:border-amber-500/40 [[data-mode=dark]_&]:bg-amber-500/10 [[data-mode=dark]_&]:text-amber-100">
+      <div className="border-warning/40 bg-warning-soft text-foreground rounded-md border p-3 text-xs">
         <p className="font-semibold">{t('before.title')}</p>
         <ul className="mt-1 list-disc space-y-0.5 pl-4">
           <li>{t('before.phones')}</li>

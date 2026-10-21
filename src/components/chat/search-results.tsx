@@ -25,10 +25,9 @@ import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
 
-const CHIP =
-  'rounded px-1 font-semibold text-[#0E7C5A] bg-emerald-50 [[data-mode=dark]_&]:bg-emerald-500/15 [[data-mode=dark]_&]:text-emerald-300';
+const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 const MARK =
-  'rounded-sm bg-amber-200/80 px-0.5 text-inherit [[data-mode=dark]_&]:bg-amber-400/30';
+  'rounded-sm bg-amber-200/80 px-0.5 text-inherit dark:bg-amber-400/30';
 const HEADING =
   'text-muted-foreground px-1 pb-2 text-[11px] font-semibold tracking-[0.14em] uppercase';
 
