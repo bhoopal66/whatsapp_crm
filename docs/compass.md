@@ -8,9 +8,14 @@ covers everything Compass needs to:
    then a call each time a customer is created or changed.
 2. **Send status notifications** to customers on WhatsApp, for example
    "your bank account application has been approved".
+3. **Open submission groups and keep cases in step** (migration 134):
+   Compass is the master of a submitted case, so it reports stage,
+   details and documents with `PATCH`, and Taamul Connect tells Compass
+   about leads, group lifecycle and opt-outs by webhook.
 
 Everything here is plain HTTPS + JSON, so any language or HTTP client
-works.
+works. In this document "Compass" is the submission tracker app where
+agents submit cases and coordinators update their status.
 
 ---
 
@@ -57,19 +62,23 @@ linked to a CRM contact the first time Compass messages them.
    Supabase project (self-hosters: see `CHANGELOG.md`).
 2. **Check the Whapi channel is connected:** **Settings → WhatsApp → Connections**.
    Notifications cannot be sent without it.
-3. **Create two API keys:** **Settings → Integrations → API keys → New API key**.
+3. **Create three API keys:** **Settings → Integrations → API keys → New API key**.
    Using separate keys means a large backfill can never use up the rate
    limit that urgent notifications need.
 
-   | Key name                  | Scopes to tick                                    |
-   | ------------------------- | ------------------------------------------------- |
-   | `Compass – customer sync` | `compass_contacts:write`, `compass_contacts:read` |
-   | `Compass – notifications` | `compass_notifications:send`                      |
+   | Key name                  | Scopes to tick                                                         |
+   | ------------------------- | ---------------------------------------------------------------------- |
+   | `Compass – customer sync` | `compass_contacts:write`, `compass_contacts:read`                      |
+   | `Compass – notifications` | `compass_notifications:send`                                           |
+   | `Compass – submissions`   | `submission_groups:read`, `submission_groups:write`, `webhooks:manage` |
 
-   Each key is shown **once**. Copy both into Compass's secret store
+   Each key is shown **once**. Copy all three into Compass's secret store
    (environment variables or a vault), never into source code.
 
-4. Give the Compass team this document, the **base URL**, and the two
+4. Apply `supabase/migrations/134_compass_case_sync.sql` (as a
+   superuser or BYPASSRLS role) for the case sync and the new webhook
+   events.
+5. Give the Compass team this document, the **base URL**, and the three
    keys.
 
 Once Compass is live, admins can see what has arrived under
@@ -82,15 +91,16 @@ and every notification with its delivery status and any error.
 
 |                  |                                       |
 | ---------------- | ------------------------------------- |
-| **Base URL**     | `https://wacrm.taamul.ae/api/v1`      |
+| **Base URL**     | `https://<your-crm-host>/api/v1`      |
 | **Auth header**  | `Authorization: Bearer taamul_live_…` |
 | **Content type** | `Content-Type: application/json`      |
 | **Rate limit**   | 120 requests per minute **per key**   |
 
-Check a key works (any key, no scope needed):
+For development use `https://crm.taamul.ae/api/v1`. The samples below
+use that host. Check a key works (any key, no scope needed):
 
 ```bash
-curl https://wacrm.taamul.ae/api/v1/me \
+curl https://crm.taamul.ae/api/v1/me \
   -H "Authorization: Bearer $COMPASS_SYNC_KEY"
 ```
 
@@ -154,14 +164,14 @@ Sending the same record twice is therefore harmless.
 }
 ```
 
-| Field        | Required | Notes                                                                                                                                                                                                                                                                                                  |
-| ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `compass_id` | **yes**  | String or number, ≤ 200 chars. `42` and `"42"` are the same customer.                                                                                                                                                                                                                                  |
-| `name`       | no       | ≤ 500 chars.                                                                                                                                                                                                                                                                                           |
+| Field        | Required | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compass_id` | **yes**  | String or number, ≤ 200 chars. `42` and `"42"` are the same customer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `name`       | no       | ≤ 500 chars.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `phone`      | no       | **Must include the country code** (`+971…`). Spaces, dashes and brackets are fine. A local number such as `050 123 4567` is **rejected**: we can't guess the country, and a wrong guess would send a customer's bank details to a stranger. So are fewer than 10 or more than 15 digits (UAE `800` toll-free numbers excepted), more than 64 characters, spreadsheet notation (`9.71505E+11`) or a `.0` suffix, letters in the number, a +971 number that is not a mobile (`+971 5x` + 7 digits), a landline (`+971` + 8 digits) or a 600/800 service number, and any number that does not fit the numbering plan of the country code its first digits spell. A leading `00` is read as `+`, and a trunk `0` right after the country code is removed (except where numbers really start with 0, such as `+39 06…`). The same rule applies to `to` on notifications, and a stored phone that fails it is refused with `422 invalid_phone`. A customer without a phone can be stored but not messaged. |
-| `email`      | no       | ≤ 500 chars.                                                                                                                                                                                                                                                                                           |
-| `company`    | no       | ≤ 500 chars.                                                                                                                                                                                                                                                                                           |
-| `attributes` | no       | Any JSON object (≤ 16 KB) for extra ERP fields you want kept alongside the record.                                                                                                                                                                                                                     |
+| `email`      | no       | ≤ 500 chars.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `company`    | no       | ≤ 500 chars.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `attributes` | no       | Any JSON object (≤ 16 KB) for extra ERP fields you want kept alongside the record.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 - **Up to 500 records per request.** Send larger sets in several
   requests.
@@ -343,19 +353,19 @@ Scope: `compass_notifications:send`. Filters: `status`
 
 ### Error codes
 
-| HTTP | `code`                      | Meaning                                                                                                          | What Compass should do                                                |
-| ---- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 400  | `bad_request`               | Invalid body: missing `idempotency_key`, no recipient, local phone number, text too long, etc.                   | Fix the request. **Don't retry as-is.**                               |
-| 401  | `unauthorized`              | Missing, wrong, or revoked key                                                                                   | Check the key; ask an admin for a new one                             |
-| 403  | `forbidden`                 | Key lacks the scope                                                                                              | Ask an admin to create a key with the right scope                     |
-| 404  | `compass_contact_not_found` | Unknown `compass_id`                                                                                             | Sync the customer first, or send `to`                                 |
-| 409  | `in_progress`               | The same key is being sent right now                                                                             | Wait a few seconds, then `GET` the key                                |
-| 409  | `whapi_not_connected`       | The Whapi WhatsApp channel isn't connected, or the Whapi number this customer's chat uses is logged out of WhatsApp. Nothing was sent | Alert an admin; retry later with the **same** key                     |
-| 422  | `no_phone`                  | The synced customer has no phone                                                                                 | Sync a phone for them, or send `to`                                   |
-| 422  | `invalid_phone`             | The synced customer's phone is not a valid international number (it was stored before the sync enforced the rule). Nothing was sent | Re-sync the customer with the full number and country code, or send `to`; then retry with the **same** key |
-| 429  | `rate_limited`              | Over 120 requests/min on this key                                                                                | Wait `Retry-After` seconds, retry the same key                        |
-| 502  | `whatsapp_error`            | WhatsApp refused or failed the send (e.g. the number isn't on WhatsApp, or the phone paired to Whapi is offline) | Retry later with the same key. If it keeps failing, check the number. |
-| 500  | `internal` / `db_error`     | Unexpected server error                                                                                          | Retry later with the same key                                         |
+| HTTP | `code`                      | Meaning                                                                                                                               | What Compass should do                                                                                     |
+| ---- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`               | Invalid body: missing `idempotency_key`, no recipient, local phone number, text too long, etc.                                        | Fix the request. **Don't retry as-is.**                                                                    |
+| 401  | `unauthorized`              | Missing, wrong, or revoked key                                                                                                        | Check the key; ask an admin for a new one                                                                  |
+| 403  | `forbidden`                 | Key lacks the scope                                                                                                                   | Ask an admin to create a key with the right scope                                                          |
+| 404  | `compass_contact_not_found` | Unknown `compass_id`                                                                                                                  | Sync the customer first, or send `to`                                                                      |
+| 409  | `in_progress`               | The same key is being sent right now                                                                                                  | Wait a few seconds, then `GET` the key                                                                     |
+| 409  | `whapi_not_connected`       | The Whapi WhatsApp channel isn't connected, or the Whapi number this customer's chat uses is logged out of WhatsApp. Nothing was sent | Alert an admin; retry later with the **same** key                                                          |
+| 422  | `no_phone`                  | The synced customer has no phone                                                                                                      | Sync a phone for them, or send `to`                                                                        |
+| 422  | `invalid_phone`             | The synced customer's phone is not a valid international number (it was stored before the sync enforced the rule). Nothing was sent   | Re-sync the customer with the full number and country code, or send `to`; then retry with the **same** key |
+| 429  | `rate_limited`              | Over 120 requests/min on this key                                                                                                     | Wait `Retry-After` seconds, retry the same key                                                             |
+| 502  | `whatsapp_error`            | WhatsApp refused or failed the send (e.g. the number isn't on WhatsApp, or the phone paired to Whapi is offline)                      | Retry later with the same key. If it keeps failing, check the number.                                      |
+| 500  | `internal` / `db_error`     | Unexpected server error                                                                                                               | Retry later with the same key                                                                              |
 
 A **failed** notification can be retried with the **same key**; it is
 not treated as a duplicate. A **sent** one never sends again.
@@ -378,32 +388,326 @@ key when retrying the same status change.**
 
 ---
 
-## 6. Code samples
+## 6. Submissions
+
+### `POST /submission-groups` — open a case's WhatsApp group
+
+Scope: `submission_groups:write`. Compass calls it when an agent submits
+a case. It creates one Whapi WhatsApp group per `submission_id`
+(idempotent per account and `submission_id`) and the case that goes with
+it, and returns the group, including `whatsapp.invite_link` when
+WhatsApp would not add the customer directly. The full request and
+answer are in [`public-api.md`](public-api.md#post-apiv1submission-groups);
+the group rules are in [`submission-groups.md`](submission-groups.md).
+If the contact has an open lead with the same bank, the submission
+attaches to that lead.
+
+## 7. Status, details and document sync
+
+### `PATCH /submission-groups/{submission_id}`
+
+Scope: `submission_groups:write`. Compass reports what changed on the
+submission. Every key is optional, but a body needs `status` **or** at
+least one sync key.
+
+```json
+{
+  "changed_at": "2026-10-21T09:30:00Z",
+  "status": "UNDER_REVIEW",
+  "stage": "Under review",
+  "outcome_reason": { "code": "KYC_AML", "text": "Passport expired" },
+  "bank": "FAB",
+  "product": "Personal loan",
+  "amount": 150000,
+  "compass_url": "https://compass.example.com/submissions/SUB-10482",
+  "documents": [
+    {
+      "key": "passport",
+      "status": "received",
+      "file_ref": "DOC-77",
+      "received_at": "2026-10-21T09:00:00Z"
+    },
+    { "key": "salary_certificate", "status": "rejected" }
+  ]
+}
+```
+
+| Key              | Rules                                                                                                                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `changed_at`     | ISO 8601 date-time of the change **in Compass**. Always send it (see below).                                                                                                             |
+| `status`         | 1 to 64 characters, stored as the group's `submission_status`. A final value (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`) ends the group.                                             |
+| `stage`          | 1 to 64 characters; must be in the case's bank list (below).                                                                                                                             |
+| `outcome_reason` | `{ code, text? }`. `code` is one of `INCOMPLETE_DOCS`, `CREDIT_POLICY`, `INCOME_INSUFFICIENT`, `KYC_AML`, `CUSTOMER_WITHDREW`, `OTHER`, `NO_RESPONSE`; `text` is at most 500 characters. |
+| `bank`           | Bank code, `A-Z`, `0-9`, `_`, 2 to 32 characters. An unknown code is added to the account's banks.                                                                                       |
+| `product`        | 1 to 200 characters.                                                                                                                                                                     |
+| `amount`         | Number, 0 or more, 2 decimals.                                                                                                                                                           |
+| `compass_url`    | `https://` URL of the case in Compass (at most 2048 characters). Shown as "Open in Compass" on the case page.                                                                            |
+| `documents`      | Up to 100 of `{ key, status, file_ref?, received_at? }`. `status` is `requested`, `received` or `rejected`; `key` is 1 to 64 of `a-z`, `0-9`, `_`.                                       |
+
+**Applied in one step, in order:** details (bank, product, amount, URL),
+then stage, then outcome reason, then documents. A sync is applied on
+active and ended groups alike. Sending the same values again changes
+nothing.
+
+**`changed_at` and stale updates.** Taamul Connect keeps the latest
+`changed_at` it applied for the case. An update with an older
+`changed_at` is **stale**: nothing is written and the answer is `200`
+with `sync.applied: false, reason: "stale"`. So a retry or an
+out-of-order delivery can never move a case backwards. Without
+`changed_at` the update is always applied.
+
+**Stage rules.** Get the valid list from `GET /case-stages` (next
+section).
+
+- The stage must be in the list of the case's bank **after** this call's
+  bank change (`unknown_stage`, `stage_not_in_bank`).
+- Never a pre-submission stage (Interested, Data collection, Review):
+  `presub_reentry`.
+- From `Closed` nothing moves (`case_closed`). From `Approved`,
+  `Declined` or `Withdrawn` only `Closed` is allowed (`final_stage`).
+- The same stage is a no-op.
+- A move to `Approved`, `Declined`, `Withdrawn` or `Closed` is **final**:
+  it closes the case, sets the outcome, and **ends the WhatsApp group**
+  exactly as a final `status` does.
+
+**Outcome reason.** Set once, and only when the case's outcome is
+`Declined` or `Withdrawn`; `NO_RESPONSE` only on `Withdrawn`. Send it in
+the same call as the final stage, or later.
+
+**Documents.** The key must be a requirement of the case's (bank,
+product) or already on the case (`GET /case-documents`). `received`
+without a `file_ref` is stored with `file_ref: "external"`; a
+`file_ref` is 1 to 128 of letters, digits, `.`, `_`, `:`, `-`.
+`received_at` back-dates the change.
+
+**Per-item refusals go to `sync.rejected`, never an error.** The rest of
+the call is still applied. Each entry is `{ key, error }` where `key` is
+the document key or `"outcome_reason"`:
+
+| `error`                                                                        | Meaning                                                               |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `REASON_INVALID`, `REASON_TEXT_TOO_LONG`                                       | Unknown code, or text over 500 characters.                            |
+| `OUTCOME_NOT_DECLINED`, `OUTCOME_REASON`                                       | The case is not Declined or Withdrawn; `NO_RESPONSE` needs Withdrawn. |
+| `REASON_ALREADY_SET`                                                           | A reason is already stored.                                           |
+| `DOC_KEY_INVALID`, `STATUS_INVALID`, `FILE_REF_INVALID`, `RECEIVED_AT_INVALID` | Malformed document item.                                              |
+| `DOC_NOT_REQUIRED`                                                             | Not a requirement of the bank and product, not on the case.           |
+
+**Answer (200).** The group (as in `public-api.md`) plus `ended`,
+`closed`, `close_deferred`, `case: { id, stage, outcome }` and:
+
+```json
+{
+  "sync": {
+    "applied": true,
+    "rejected": [{ "key": "outcome_reason", "error": "OUTCOME_NOT_DECLINED" }],
+    "changes": ["bank_code", "stage", "document:passport"]
+  }
+}
+```
+
+`changes` lists what was written (`bank_code`, `product`, `amount`,
+`external_url`, `stage`, `outcome_reason`, `document:<key>`). A stale
+update gives `applied: false, reason: "stale"`; a group with no case
+gives `applied: false, reason: "no_case"`.
+
+**Errors**
+
+| HTTP | `code`                                                                                            | Meaning                                                                 |
+| ---- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 400  | `bad_request`                                                                                     | Malformed body, field out of range, or neither `status` nor a sync key. |
+| 401  | `unauthorized`                                                                                    | Missing, wrong or revoked key.                                          |
+| 403  | `forbidden`                                                                                       | Key lacks `submission_groups:write`.                                    |
+| 404  | `not_found`                                                                                       | Unknown `submission_id`, or another workspace's.                        |
+| 422  | `unknown_stage`, `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`              | Stage refused. Nothing was written.                                     |
+| 422  | `bank_invalid`, `product_invalid`, `amount_invalid`, `external_url_invalid`, `changed_at_invalid` | A value the database refused. Nothing was written.                      |
+| 429  | `rate_limited`                                                                                    | Over 120 requests/min on this key.                                      |
+| 500  | `internal`                                                                                        | Retry later with the same body.                                         |
+
+A 422 never partly applies: fix the data and resend. A retry of a
+timed-out call is safe because the same values change nothing.
+
+## 8. Stage and document lists
+
+Both need `submission_groups:read`. Use them to validate Compass's
+status-to-stage and document maps before sending.
+
+### `GET /case-stages?bank=FAB`
+
+```json
+{
+  "data": {
+    "bank": "FAB",
+    "stages": [
+      "Interested",
+      "Data collection",
+      "Review",
+      "Submitted",
+      "…",
+      "Approved",
+      "Declined",
+      "Withdrawn",
+      "Closed"
+    ],
+    "presubmission": ["Interested", "Data collection", "Review"],
+    "final": ["Approved", "Declined", "Withdrawn", "Closed"]
+  }
+}
+```
+
+`stages` is the bank's configured list; an unknown bank answers the
+account's default list. `presubmission` stages can never be targeted by
+`PATCH`; `final` stages end the group. `bank` is required (`400`
+otherwise).
+
+### `GET /case-documents?bank=FAB&product=Personal%20loan`
+
+```json
+{
+  "data": {
+    "bank": "FAB",
+    "product": "Personal loan",
+    "items": [{ "key": "passport", "label": "Passport", "position": 1 }]
+  }
+}
+```
+
+The documents the bank requires for the product, in order; the product
+matches case-insensitively on trimmed text. Both `bank` and `product`
+are required.
+
+## 9. Webhooks
+
+Taamul Connect tells Compass what happens on its side. Register an
+endpoint with the `Compass – submissions` key (scope `webhooks:manage`):
+
+```bash
+curl -X POST https://crm.taamul.ae/api/v1/webhooks \
+  -H "Authorization: Bearer $COMPASS_SUBMISSIONS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://compass.example.com/hooks/taamul","events":["case.stage_changed","case.lead_created","submission_group.ready","submission_group.failed","submission_group.ended","contact.opted_out"]}'
+```
+
+The answer contains the endpoint `secret` **once** (`whsec_…`). The URL
+must be `https://` and resolve to a public address. Endpoint management
+(`GET`, `PATCH`, `DELETE /webhooks`) is in
+[`public-api.md`](public-api.md#webhooks).
+
+### Envelope
+
+Every delivery is a `POST` with this body (`id` is unique per delivery):
+
+```json
+{
+  "id": "8f3c…",
+  "event": "case.stage_changed",
+  "occurred_at": "2026-10-21T09:30:00.000Z",
+  "account_id": "…",
+  "data": { "…": "…" }
+}
+```
+
+`data` repeats `account_id` and `occurred_at`, plus the fields below.
+
+| Event                     | Fires when                                         | `data` fields                                                                                                |
+| ------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `case.stage_changed`      | A case moves stage, in the CRM or from Compass     | `case_id`, `submission_id`, `from_stage`, `to_stage`, `outcome`, `source` (`compass` or `crm`), `changed_at` |
+| `case.lead_created`       | A lead (a case with no submission yet) is opened   | `case_id`, `contact_id`, `bank`, `product`, `amount`, `agent_email`, `created_at`                            |
+| `submission_group.ready`  | The WhatsApp group exists                          | `submission_id`, `group_id`, `case_id`, `invite_link_present`                                                |
+| `submission_group.failed` | Creating the WhatsApp group failed (it is retried) | `submission_id`, `error`, `retrying`                                                                         |
+| `submission_group.ended`  | The group ended                                    | `submission_id`, `end_reason`, `ended_at`                                                                    |
+| `contact.opted_out`       | A contact opted out of messages                    | `contact_id`, `phone`, `opted_out_at`, `compass_id` (null if not linked)                                     |
+
+No invite link or token is ever in a payload; `invite_link_present` only
+says whether one exists (read it with `GET /submission-groups/{id}`).
+
+**`source` echo rule.** A `case.stage_changed` caused by Compass's own
+`PATCH` arrives with `source: "compass"`. Ignore those (they are your
+own change coming back); apply only `source: "crm"` moves, which are
+made by staff in the CRM (a lead's stages, and submitted cases while
+"managed in Compass" is off).
+
+### Headers and signature
+
+`X-Taamul-Event`, `X-Taamul-Webhook-Id` and
+`X-Taamul-Signature: t=<unix_seconds>,v1=<hex>`. The legacy
+`X-Wacrm-*` names carry the same values. Verify:
+
+1. Take the **raw** request body, not a re-serialised copy.
+2. Compute `HMAC-SHA256(secret, "<t>.<rawBody>")` as hex.
+3. Compare with `v1` in constant time.
+4. Reject if `t` is more than 5 minutes from your clock.
+
+```js
+const [, t, v1] = header.match(/t=(\d+),v1=([0-9a-f]+)/);
+const expected = crypto
+  .createHmac('sha256', secret)
+  .update(`${t}.${rawBody}`)
+  .digest('hex');
+const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+```
+
+### Delivery guarantee
+
+Delivery is **at most once**: events are queued in the database, claimed
+by the automations cron (at most once a minute) and sent with one attempt,
+no redirects and a short timeout. A failure is not retried, and an
+endpoint that fails repeatedly is auto-disabled (`is_active: false`;
+re-enable it with `PATCH /webhooks/{id}`). So:
+
+- respond `2xx` quickly and do the work after;
+- dedupe on `id` and do not assume ordering;
+- **reconcile nightly**: re-read the cases and groups you care about
+  (`GET /submission-groups/{submission_id}`) and compare. A missed event
+  is possible, a wrong state should never persist.
+
+Events are queued only while an active endpoint of the account
+subscribes to them, so register before you rely on them.
+
+## 10. Managed in Compass (the lock)
+
+Compass is the master of a **submitted** case (one with a submission
+group). A Taamul Connect owner or admin turns on **Settings → Cases →
+"Submitted cases are managed in Compass"**. While it is on, people in the
+CRM can no longer, on a submitted case:
+
+- move the stage,
+- edit bank, product or amount,
+- set the outcome reason,
+- mark a document received or rejected.
+
+They get `409 MANAGED_EXTERNALLY`. Notes, tasks, priority, due date,
+reassigning, bank contacts, document requests and replies stay open.
+**Leads are never locked** (the CRM is their master), and **your API
+calls are never locked**: `PATCH /submission-groups/{id}` always applies.
+The case page shows a "Managed in Compass" banner with an **Open in
+Compass** link (from `compass_url`) and the time of the last sync.
+
+## 11. Code samples
 
 ### curl
 
 ```bash
 # Sync customers
-curl -X POST https://wacrm.taamul.ae/api/v1/compass/contacts \
+curl -X POST https://crm.taamul.ae/api/v1/compass/contacts \
   -H "Authorization: Bearer $COMPASS_SYNC_KEY" \
   -H "Content-Type: application/json" \
   -d '{"contacts":[{"compass_id":"CUST-1001","name":"Jane Doe","phone":"+971501234567"}]}'
 
 # Send a status notification
-curl -X POST https://wacrm.taamul.ae/api/v1/compass/notifications \
+curl -X POST https://crm.taamul.ae/api/v1/compass/notifications \
   -H "Authorization: Bearer $COMPASS_NOTIFY_KEY" \
   -H "Content-Type: application/json" \
   -d '{"idempotency_key":"APP-2291:approved","compass_id":"CUST-1001","text":"Your application APP-2291 has been approved."}'
 
 # Check it
-curl https://wacrm.taamul.ae/api/v1/compass/notifications/APP-2291%3Aapproved \
+curl https://crm.taamul.ae/api/v1/compass/notifications/APP-2291%3Aapproved \
   -H "Authorization: Bearer $COMPASS_NOTIFY_KEY"
 ```
 
 ### Node.js / TypeScript (Node 18+)
 
 ```ts
-const BASE = 'https://wacrm.taamul.ae/api/v1';
+const BASE = 'https://crm.taamul.ae/api/v1';
 
 async function call(key: string, method: string, path: string, body?: unknown) {
   const res = await fetch(`${BASE}${path}`, {
@@ -476,7 +780,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 ```python
 import os, requests
 
-BASE = "https://wacrm.taamul.ae/api/v1"
+BASE = "https://crm.taamul.ae/api/v1"
 
 def notify_status_change(app_id, status, customer_id, message):
     r = requests.post(
@@ -499,13 +803,14 @@ def notify_status_change(app_id, status, customer_id, message):
 
 ---
 
-## 7. Go-live checklist
+## 12. Go-live checklist
 
-- [ ] Migration `056_compass_integration.sql` applied
+- [ ] Migrations `056_compass_integration.sql` and
+      `134_compass_case_sync.sql` applied
 - [ ] Whapi channel connected (Settings → WhatsApp → Connections shows it)
-- [ ] Two API keys created with the scopes above and stored in
+- [ ] Three API keys created with the scopes above and stored in
       Compass's secret store
-- [ ] `GET /api/v1/me` succeeds with both keys
+- [ ] `GET /api/v1/me` succeeds with all three keys
 - [ ] Test customer synced; visible under **Taamul Compass → Customers**
 - [ ] Test notification sent to an internal phone; arrives from the
       **Whapi number**; visible under **Taamul Compass → Notifications**
@@ -517,8 +822,18 @@ def notify_status_change(app_id, status, customer_id, message):
 - [ ] Initial backfill run; `rejected` records reviewed
 - [ ] Compass hooks wired: customer create/update → sync; application
       status change → notification
+- [ ] `GET /case-stages` and `GET /case-documents` checked against
+      Compass's status and document maps for every bank
+- [ ] Test `PATCH` with `changed_at`, a stage and a document; an older
+      `changed_at` answers `applied: false, reason: "stale"`
+- [ ] A final stage ends the WhatsApp group
+- [ ] Webhook endpoint registered for the six events; a test event
+      verifies its signature; `source: "compass"` events are ignored
+- [ ] Nightly reconcile job in place
+- [ ] An admin decides whether to turn on "Submitted cases are managed
+      in Compass" (Settings → Cases)
 
-## 8. Good to know
+## 13. Good to know
 
 - **Whapi uses a real WhatsApp account** on a phone paired to the
   gateway. Keep that phone online and charged. Very high volumes of
@@ -532,7 +847,7 @@ def notify_status_change(app_id, status, customer_id, message):
 - The general public API (other endpoints, webhooks for inbound
   replies) is documented in [`public-api.md`](public-api.md).
 
-## 9. Broadcasting to Compass customers
+## 14. Broadcasting to Compass customers
 
 A Taamul Connect admin can send a WhatsApp broadcast (template
 campaign) to synced Compass customers: **Broadcasts → New → Compass
@@ -544,7 +859,7 @@ here so both teams know what a broadcast does to the synced records.
   least recently updated), newest or oldest added, name A→Z or Z→A — a
   start position (1 = the first customer in that order) and how many
   numbers (blank = all from the start position on). "100 numbers from
-  the bottom of the list" is *bottom of the Compass list*, start 1,
+  the bottom of the list" is _bottom of the Compass list_, start 1,
   100 numbers. The slice is read when the campaign is created, so a
   sync that lands between preview and send can shift it.
 - **A sync during the send can make it refuse.** A slice too big for

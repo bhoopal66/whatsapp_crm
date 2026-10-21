@@ -550,6 +550,54 @@ A final status moves a case not yet at a final stage to **Approved**,
 **Declined**, **Withdrawn** or **Closed**; this also happens on an ENDED
 group. `GET` carries no `case`.
 
+#### Case sync (migration 134)
+
+`PATCH` can also report the case itself. Besides (or instead of) `status`
+the body may carry `changed_at` (ISO 8601), `stage`, `outcome_reason`
+(`{ code, text? }`), `bank`, `product`, `amount`, `compass_url` (https)
+and `documents` (up to 100 of `{ key, status, file_ref?, received_at? }`,
+`status` being `requested`, `received` or `rejected`). A body needs
+`status` or at least one of these. They are applied in one call, on
+active and ended groups alike, and the answer adds
+
+```json
+{
+  "data": {
+    "…": "…",
+    "sync": { "applied": true, "rejected": [], "changes": ["stage"] }
+  }
+}
+```
+
+- An update whose `changed_at` is older than the last applied one is
+  **stale**: `200` with `sync.applied: false, reason: "stale"`, nothing
+  written. `reason: "no_case"` means the group has no case.
+- A refused stage or value is `422` with its code (`unknown_stage`,
+  `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`,
+  `bank_invalid`, `product_invalid`, `amount_invalid`,
+  `external_url_invalid`, `changed_at_invalid`) and writes nothing.
+  Refusals of one item (an outcome reason, a document) are listed in
+  `sync.rejected` as `{ key, error }` and the rest still applies.
+- A move to `Approved`, `Declined`, `Withdrawn` or `Closed` ends the group
+  like a final `status`.
+- The API is never blocked by the CRM's "managed in Compass" switch.
+
+The rules, reason codes and document handling are in
+[`compass.md`](compass.md#7-status-details-and-document-sync).
+
+### `GET /api/v1/case-stages?bank=FAB`
+
+Scope: `submission_groups:read`. `{ bank, stages, presubmission, final }`:
+the bank's stage list (the account default for an unknown bank), the
+pre-submission stages a `PATCH` can never target, and the final stages.
+`bank` is required (`400 bad_request`).
+
+### `GET /api/v1/case-documents?bank=FAB&product=Personal%20loan`
+
+Scope: `submission_groups:read`. `{ bank, product, items: [{ key, label,
+position }] }`: the documents the bank requires for the product (matched
+case-insensitively on trimmed text). `bank` and `product` are required.
+
 ### Taamul Compass endpoints
 
 `/api/v1/compass/contacts` (customer sync into a dedicated
@@ -585,11 +633,22 @@ things happen in your account. **Migration required:** apply
 
 ### Events
 
-| Event                    | Fires when                                 |
-| ------------------------ | ------------------------------------------ |
-| `message.received`       | An inbound message arrives from a contact  |
-| `message.status_updated` | A message you sent changed delivery status |
-| `conversation.created`   | A new conversation is opened for a contact |
+| Event                     | Fires when                                      |
+| ------------------------- | ----------------------------------------------- |
+| `message.received`        | An inbound message arrives from a contact       |
+| `message.status_updated`  | A message you sent changed delivery status      |
+| `conversation.created`    | A new conversation is opened for a contact      |
+| `case.stage_changed`      | A case moved stage (in the CRM or from the API) |
+| `case.lead_created`       | A lead (a case with no submission) was opened   |
+| `submission_group.ready`  | The WhatsApp group of a submission exists       |
+| `submission_group.failed` | Creating that group failed (it is retried)      |
+| `submission_group.ended`  | A submission group ended                        |
+| `contact.opted_out`       | A contact opted out of messages                 |
+
+The last six (migration 134) are queued in the database and sent by the
+automations cron; they are queued only while an active endpoint
+subscribes to them, and delivered at most once (reconcile with the read
+endpoints).
 
 ### Managing endpoints
 
@@ -633,6 +692,16 @@ delivery uuid you can dedupe on, and `data` varies by `event`:
 { "conversation_id": "…", "contact_id": "…" }
 // message.status_updated
 { "whatsapp_message_id": "wamid.…", "conversation_id": "…", "status": "delivered" }
+// case.stage_changed (every migration-134 payload also repeats account_id and occurred_at)
+{ "case_id": "…", "submission_id": "SUB-10482", "from_stage": "Submitted", "to_stage": "Approved", "outcome": "Approved", "source": "compass", "changed_at": "…" }
+// case.lead_created
+{ "case_id": "…", "contact_id": "…", "bank": "FAB", "product": "…", "amount": 150000, "agent_email": "…", "created_at": "…" }
+// submission_group.ready / .failed / .ended
+{ "submission_id": "…", "group_id": "…", "case_id": "…", "invite_link_present": true }
+{ "submission_id": "…", "error": "…", "retrying": true }
+{ "submission_id": "…", "end_reason": "…", "ended_at": "…" }
+// contact.opted_out
+{ "contact_id": "…", "phone": "…", "opted_out_at": "…", "compass_id": null }
 ```
 
 Headers: `X-Taamul-Event`, `X-Taamul-Webhook-Id`, and `X-Taamul-Signature`.

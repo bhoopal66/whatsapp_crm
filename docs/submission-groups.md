@@ -136,6 +136,27 @@ product, amount, stage, tasks, documents and SLA timers, worked at
 - A `PATCH` with a final status ends the group as above and also moves the
   case to the matching final stage, even when the group had already ended.
 
+### Sync from the submission app (migration 134)
+
+The same `PATCH` can report the case itself: `changed_at`, `stage`,
+`outcome_reason`, `bank`, `product`, `amount`, `compass_url` and
+`documents`, with `status` optional. It is applied in one call
+(`case_sync_from_submission`), stale updates are ignored by `changed_at`,
+and the answer adds a `sync` block. A sync that moves the case to a final
+stage ends an active group. `GET /api/v1/case-stages` and
+`GET /api/v1/case-documents` give the stage and document lists to validate
+against. The group lifecycle (`submission_group.ready`, `.failed`,
+`.ended`) is also sent to subscribed webhook endpoints. Contract and
+rules: [compass.md](compass.md) and [public-api.md](public-api.md).
+
+### Managed in Compass
+
+With the account switch **Submitted cases are managed in Compass** on
+(Settings -> Cases), people in the CRM cannot change a submitted case's
+stage, bank, product, amount, outcome reason or document received/rejected
+status (409 `MANAGED_EXTERNALLY`). Notes, tasks and the rest stay open,
+and this API is never locked. See [cases.md](cases.md).
+
 ## Known limits
 
 - If WhatsApp accepts a staff message but the CRM fails to record that
