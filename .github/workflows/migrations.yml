@@ -335,6 +335,17 @@ jobs:
       - name: Verify case leads
         run: supabase db query --local --file supabase/ci/verify-case-leads.sql
 
+      # Compass case sync (134): case_sync_from_submission applies the
+      # submission app's stage / details / documents as the API (no case
+      # and stale updates write nothing; UNKNOWN_STAGE, PRESUB_REENTRY,
+      # FINAL_STAGE; unknown documents reported, not raised);
+      # managed_externally locks a person's case_set_stage on a submitted
+      # case, never a lead or the API path; the outbox queues only for a
+      # subscribed active endpoint and hands each row out once;
+      # compass_link_contact_by_phone links once.
+      - name: Verify Compass case sync
+        run: supabase db query --local --file supabase/ci/verify-compass-sync.sql
+
       # Bank dashboard after leads (131): pre-submission vs with-bank,
       # account openings (amount NULL / 0) counted vs financing summed,
       # lead conversion over the actor's readable cases only;
