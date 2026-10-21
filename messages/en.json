@@ -3356,11 +3356,38 @@
     }
   },
   "Compass": {
+    "submissions": {
+      "loadFailed": "Could not load submissions. Reload the page to try again.",
+      "empty": "No submissions yet. The submission app opens them through the API.",
+      "latest100": "Showing the latest 100 submissions.",
+      "never": "Never",
+      "openCase": "Open case",
+      "table": {
+        "submission": "Submission ID",
+        "customer": "Customer",
+        "bank": "Bank",
+        "stage": "Stage",
+        "group": "Group",
+        "synced": "Last synced from Compass",
+        "case": "Case"
+      },
+      "groupStatus": {
+        "active": "Active",
+        "ended": "Ended"
+      },
+      "webhooks": {
+        "title": "Webhook events (7 days)",
+        "event": "Event",
+        "delivered": "Delivered",
+        "pending": "Pending"
+      }
+    },
     "title": "Taamul Compass",
     "subtitle": "Customers synced from the Compass ERP, and the status notifications it has sent on the Whapi number. Read-only — Compass is the system of record.",
     "tabs": {
       "customers": "Customers",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "submissions": "Submissions"
     },
     "searchPlaceholder": "Search by name, phone or Compass ID",
     "totalCustomers": "{count, plural, one {# customer} other {# customers}}",

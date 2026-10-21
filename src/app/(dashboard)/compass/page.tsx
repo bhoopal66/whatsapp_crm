@@ -9,6 +9,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { formatDistanceToNow } from 'date-fns';
 import { Building2, Loader2, Search } from 'lucide-react';
@@ -68,7 +69,9 @@ function ago(iso: string) {
 export default function CompassPage() {
   const t = useTranslations('Compass');
   const { accountId } = useAuth();
-  const [tab, setTab] = useState<'customers' | 'notifications'>('customers');
+  const [tab, setTab] = useState<'customers' | 'notifications' | 'submissions'>(
+    'customers'
+  );
 
   return (
     <div className="space-y-6">
@@ -86,12 +89,16 @@ export default function CompassPage() {
           <TabsTrigger value="notifications">
             {t('tabs.notifications')}
           </TabsTrigger>
+          <TabsTrigger value="submissions">{t('tabs.submissions')}</TabsTrigger>
         </TabsList>
         <TabsContent value="customers" className="mt-4">
           {accountId && <CustomersTab accountId={accountId} />}
         </TabsContent>
         <TabsContent value="notifications" className="mt-4">
           {accountId && <NotificationsTab accountId={accountId} />}
+        </TabsContent>
+        <TabsContent value="submissions" className="mt-4">
+          {accountId && <SubmissionsTab />}
         </TabsContent>
       </Tabs>
     </div>
@@ -358,6 +365,188 @@ function NotificationsTab({ accountId }: { accountId: string }) {
             ))}
           </TableBody>
         </Table>
+      </div>
+    </div>
+  );
+}
+
+interface Submission {
+  submissionRef: string;
+  status: string;
+  createdAt: string;
+  endedAt: string | null;
+  customer: string | null;
+  caseId: string | null;
+  stage: string | null;
+  bankCode: string | null;
+  externalChangedAt: string | null;
+}
+
+interface WebhookCount {
+  event: string;
+  delivered: number;
+  pending: number;
+}
+
+// Submission groups with their case (stage, bank, last Compass sync),
+// and the webhook outbox over 7 days. Server-side (GET
+// /api/compass/submissions): the outbox is service-role only.
+function SubmissionsTab() {
+  const t = useTranslations('Compass');
+  const [data, setData] = useState<{
+    submissions: Submission[];
+    webhooks: WebhookCount[];
+  } | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/compass/submissions', {
+          cache: 'no-store',
+        });
+        const body = res.ok ? await res.json() : null;
+        if (cancelled) return;
+        if (!body) setError(true);
+        else setData(body);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (error) {
+    return (
+      <p className="text-destructive text-sm" role="alert">
+        {t('submissions.loadFailed')}
+      </p>
+    );
+  }
+  if (data === null) {
+    return (
+      <Loader2 className="text-muted-foreground mx-auto h-6 w-6 animate-spin" />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {data.submissions.length === 0 ? (
+        <div className="border-border bg-card text-muted-foreground rounded-xl border p-10 text-center text-sm">
+          {t('submissions.empty')}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-muted-foreground text-xs">
+            {t('submissions.latest100')}
+          </p>
+          <div className="border-border bg-card overflow-x-auto rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead>{t('submissions.table.submission')}</TableHead>
+                  <TableHead>{t('submissions.table.customer')}</TableHead>
+                  <TableHead>{t('submissions.table.bank')}</TableHead>
+                  <TableHead>{t('submissions.table.stage')}</TableHead>
+                  <TableHead>{t('submissions.table.group')}</TableHead>
+                  <TableHead>{t('submissions.table.synced')}</TableHead>
+                  <TableHead>{t('submissions.table.case')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.submissions.map((row) => (
+                  <TableRow key={row.submissionRef} className="border-border">
+                    <TableCell className="font-mono text-xs">
+                      {row.submissionRef}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {row.customer ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {row.bankCode ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {row.stage ?? '—'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          row.status === 'ENDED' ? 'outline' : 'secondary'
+                        }
+                      >
+                        {row.status === 'ENDED'
+                          ? t('submissions.groupStatus.ended')
+                          : t('submissions.groupStatus.active')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+                      {row.externalChangedAt
+                        ? ago(row.externalChangedAt)
+                        : t('submissions.never')}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {row.caseId ? (
+                        <Link
+                          href={`/cases/${row.caseId}`}
+                          className="text-primary hover:underline"
+                        >
+                          {t('submissions.openCase')}
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <h2 className="text-foreground text-sm font-semibold">
+          {t('submissions.webhooks.title')}
+        </h2>
+        <div className="border-border bg-card overflow-x-auto rounded-xl border">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border hover:bg-transparent">
+                <TableHead>{t('submissions.webhooks.event')}</TableHead>
+                <TableHead className="text-right">
+                  {t('submissions.webhooks.delivered')}
+                </TableHead>
+                <TableHead className="text-right">
+                  {t('submissions.webhooks.pending')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.webhooks.map((row) => (
+                <TableRow key={row.event} className="border-border">
+                  <TableCell className="font-mono text-xs">
+                    {row.event}
+                  </TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {row.delivered}
+                  </TableCell>
+                  <TableCell
+                    className={
+                      row.pending > 0
+                        ? 'text-warning text-right text-sm tabular-nums'
+                        : 'text-right text-sm tabular-nums'
+                    }
+                  >
+                    {row.pending}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     </div>
   );

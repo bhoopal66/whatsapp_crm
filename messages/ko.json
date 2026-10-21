@@ -3356,11 +3356,38 @@
     }
   },
   "Compass": {
+    "submissions": {
+      "loadFailed": "제출 목록을 불러오지 못했습니다. 페이지를 새로고침한 후 다시 시도하세요.",
+      "empty": "아직 제출된 항목이 없습니다. 제출 앱이 API를 통해 생성합니다.",
+      "latest100": "최근 제출 100건을 표시합니다.",
+      "never": "없음",
+      "openCase": "케이스 열기",
+      "table": {
+        "submission": "제출 ID",
+        "customer": "고객",
+        "bank": "은행",
+        "stage": "단계",
+        "group": "그룹",
+        "synced": "Compass에서 마지막 동기화",
+        "case": "케이스"
+      },
+      "groupStatus": {
+        "active": "활성",
+        "ended": "종료됨"
+      },
+      "webhooks": {
+        "title": "웹훅 이벤트 (7일)",
+        "event": "이벤트",
+        "delivered": "전달됨",
+        "pending": "대기 중"
+      }
+    },
     "title": "Taamul Compass",
     "subtitle": "Compass ERP에서 동기화된 고객과 Whapi 번호로 발송된 상태 알림입니다. 읽기 전용이며, 원본 데이터는 Compass에서 관리합니다.",
     "tabs": {
       "customers": "고객",
-      "notifications": "알림"
+      "notifications": "알림",
+      "submissions": "제출"
     },
     "searchPlaceholder": "이름, 전화번호 또는 Compass ID로 검색",
     "totalCustomers": "{count, plural, other {고객 #명}}",
