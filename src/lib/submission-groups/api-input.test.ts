@@ -146,6 +146,118 @@ describe('parsePatchInput', () => {
     expect(parsePatchInput({ status: 'x'.repeat(65) }).ok).toBe(false);
     expect(parsePatchInput({}).ok).toBe(false);
   });
+
+  it('parses an old status-only body to exactly { status }', () => {
+    expect(
+      parsePatchInput({ status: 'APPROVED', bank: null, stage: undefined })
+    ).toEqual({ ok: true, value: { status: 'APPROVED' } });
+  });
+
+  it('parses the case-sync keys into the case_sync_from_submission patch', () => {
+    expect(
+      parsePatchInput({
+        changed_at: '2026-10-21T10:00:00+04:00',
+        stage: ' Approved ',
+        outcome_reason: { code: 'kyc_aml', text: ' note ' },
+        bank: ' fab ',
+        product: ' Personal Loan ',
+        amount: '0012.50',
+        compass_url: 'https://compass.example/cases/9',
+        documents: [
+          { key: 'emirates_id', status: 'received', file_ref: 'f:1' },
+          {
+            key: 'salary_cert',
+            status: 'requested',
+            received_at: '2026-10-20T08:00:00Z',
+          },
+        ],
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        status: null,
+        sync: {
+          changedAt: '2026-10-21T06:00:00.000Z',
+          patch: {
+            stage: 'Approved',
+            outcome_code: 'KYC_AML',
+            outcome_text: 'note',
+            bank: 'FAB',
+            product: 'Personal Loan',
+            amount: '12.50',
+            external_url: 'https://compass.example/cases/9',
+            documents: [
+              { key: 'emirates_id', status: 'received', file_ref: 'f:1' },
+              {
+                key: 'salary_cert',
+                status: 'requested',
+                received_at: '2026-10-20T08:00:00.000Z',
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps a status beside the sync keys, and a sync-only body needs no status', () => {
+    expect(parsePatchInput({ status: ' x ', stage: 'Submitted' })).toEqual({
+      ok: true,
+      value: {
+        status: 'x',
+        sync: { changedAt: null, patch: { stage: 'Submitted' } },
+      },
+    });
+    expect(parsePatchInput({ changed_at: '2026-10-21T10:00:00Z' })).toEqual({
+      ok: true,
+      value: {
+        status: null,
+        sync: { changedAt: '2026-10-21T10:00:00.000Z', patch: {} },
+      },
+    });
+    expect(parsePatchInput({ status: ' ', stage: 'Submitted' }).ok).toBe(false);
+  });
+
+  it('refuses malformed sync keys with a 400 message naming the field', () => {
+    const msg = (body: Record<string, unknown>) => {
+      const r = parsePatchInput(body);
+      return r.ok ? null : r.message;
+    };
+    expect(msg({ changed_at: 'yesterday' })).toMatch(/changed_at/);
+    expect(msg({ changed_at: '2026-13-45T00:00:00Z' })).toMatch(/changed_at/);
+    expect(msg({ stage: 'x'.repeat(65) })).toMatch(/stage/);
+    expect(msg({ outcome_reason: 'KYC' })).toMatch(/outcome_reason\.code/);
+    expect(
+      msg({ outcome_reason: { code: 'OTHER', text: 'x'.repeat(501) } })
+    ).toMatch(/outcome_reason\.text/);
+    expect(msg({ bank: 'f' })).toMatch(/bank/);
+    expect(msg({ product: ' ' })).toMatch(/product/);
+    expect(msg({ amount: -1 })).toMatch(/amount/);
+    expect(msg({ compass_url: 'http://compass.example' })).toMatch(
+      /compass_url/
+    );
+    expect(
+      msg({ compass_url: `https://c.example/${'a'.repeat(2048)}` })
+    ).toMatch(/compass_url/);
+    expect(msg({ documents: {} })).toMatch(/documents/);
+    expect(
+      msg({
+        documents: Array.from({ length: 101 }, () => ({
+          key: 'a',
+          status: 'requested',
+        })),
+      })
+    ).toMatch(/at most 100/);
+    expect(
+      msg({ documents: [{ key: 'Bad-Key', status: 'received' }] })
+    ).toMatch(/documents\[0\]\.key/);
+    expect(msg({ documents: [{ key: 'a', status: 'lost' }] })).toMatch(
+      /documents\[0\]\.status/
+    );
+    expect(
+      msg({ documents: [{ key: 'a', status: 'received', received_at: 'x' }] })
+    ).toMatch(/received_at/);
+  });
 });
 
 describe('resolveStaff', () => {

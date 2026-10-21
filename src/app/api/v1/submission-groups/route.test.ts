@@ -194,6 +194,50 @@ describe('POST /api/v1/submission-groups', () => {
     expect(data.whatsapp.invite_sent_at).toBeNull();
   });
 
+  it('links the Compass contact with the key account, contact and phone digits', async () => {
+    const res = await post(body);
+    expect(res.status).toBe(201);
+    expect(m.rpc).toHaveBeenCalledWith('compass_link_contact_by_phone', {
+      p_account: 'acct-1',
+      p_contact: 'c1',
+      p_phone_digits: '971501234567',
+    });
+  });
+
+  it('skips the Compass link when the group has no contact', async () => {
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: true,
+      group: group({ contactId: null }),
+      inviteLink: null,
+      refusedParticipants: [],
+    });
+    await post(body);
+    expect(m.rpc).not.toHaveBeenCalledWith(
+      'compass_link_contact_by_phone',
+      expect.anything()
+    );
+  });
+
+  it.each(['error', 'throw'])(
+    'answers the same when the Compass link fails by %s',
+    async (mode) => {
+      const ref = await (await post(body)).json();
+      const staff = await m.rpc('sg_staff_by_email');
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      m.rpc.mockImplementation(async (fn: string) => {
+        if (fn !== 'compass_link_contact_by_phone') return staff;
+        if (mode === 'throw') throw new Error('boom');
+        return { data: null, error: { message: 'boom' } };
+      });
+      const res = await post(body);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual(ref);
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore();
+    }
+  );
+
   it('opens the case with the parsed details and returns it', async () => {
     const res = await post({
       ...body,
@@ -343,7 +387,10 @@ describe('POST /api/v1/submission-groups', () => {
     });
     const res = await post(body);
     expect(res.status).toBe(200);
-    expect(m.rpc).not.toHaveBeenCalled();
+    expect(m.rpc).not.toHaveBeenCalledWith(
+      'sg_staff_by_email',
+      expect.anything()
+    );
     expect(m.service.openForSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ submissionRef: 'SUB-1', channelId: 'w1' })
     );

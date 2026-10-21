@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   caseSla: vi.fn(),
   caseSweep: vi.fn(),
   memoryExpire: vi.fn(),
+  outboxDrain: vi.fn(),
+  outboxPurge: vi.fn(),
   pbx: vi.fn(),
   chatFiles: vi.fn(),
   push: vi.fn(),
@@ -87,6 +89,10 @@ vi.mock('@/lib/cases/server', () => ({
 vi.mock('@/lib/memory/server', () => ({
   memoryStore: () => ({ expireDue: h.memoryExpire }),
 }));
+vi.mock('@/lib/webhooks/outbox', () => ({
+  drainWebhookOutbox: h.outboxDrain,
+  purgeWebhookOutbox: h.outboxPurge,
+}));
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
 vi.mock('@/lib/chat/file-cleanup', () => ({ runChatFileSweep: h.chatFiles }));
 vi.mock('@/lib/push/dispatch', () => ({ dispatchPush: h.push }));
@@ -140,6 +146,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ attempted: 0, results: [], stopped: false });
   h.memoryExpire.mockReset().mockResolvedValue(0);
+  h.outboxDrain.mockReset().mockResolvedValue({ claimed: 0, delivered: 0 });
+  h.outboxPurge.mockReset().mockResolvedValue(0);
   h.chatFiles
     .mockReset()
     .mockResolvedValue({ found: 0, deleted: 0, failed: [] });
@@ -561,6 +569,39 @@ describe('GET /api/automations/cron — cases and memory', () => {
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] memory expiry failed:',
       'mem boom'
+    );
+    log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — webhook outbox piggy-back', () => {
+  it('drains once a minute and purges once a day, after the response; a throw is only logged', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-21T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.outboxDrain).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.outboxDrain).toHaveBeenCalledTimes(1);
+    expect(h.outboxPurge).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-21T09:00:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.outboxDrain).toHaveBeenCalledTimes(1);
+
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.outboxDrain.mockRejectedValueOnce(new Error('outbox boom'));
+    vi.setSystemTime(new Date('2026-10-21T09:01:00Z'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.outboxDrain).toHaveBeenCalledTimes(2);
+    expect(h.outboxPurge).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] webhook outbox drain failed:',
+      'outbox boom'
     );
     log.mockRestore();
   });

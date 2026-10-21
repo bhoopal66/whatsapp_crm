@@ -29,6 +29,25 @@ documents (stale updates ignored); a webhook outbox fed by triggers
 `.failed` / `.ended`, `contact.opted_out`), queued only for subscribed
 endpoints; and `compass_link_contact_by_phone`.
 
+User-visible API and UI changes:
+
+- `PATCH /api/v1/submission-groups/{submission_id}` also accepts
+  `changed_at`, `stage`, `outcome_reason`, `bank`, `product`, `amount`,
+  `compass_url` and `documents` (`status` optional then) and answers a
+  `sync` block; stale updates are ignored, refusals are `422` with a code.
+- New `GET /api/v1/case-stages` and `GET /api/v1/case-documents`
+  (scope `submission_groups:read`).
+- The webhook vocabulary gains `case.stage_changed`, `case.lead_created`,
+  `submission_group.ready`, `.failed`, `.ended` and `contact.opted_out`,
+  sent by the automations cron (at most once).
+- Settings -> Cases: the switch **Submitted cases are managed in Compass**;
+  a locked case answers `MANAGED_EXTERNALLY` and shows a banner with an
+  Open in Compass link and the last sync time.
+- `docs/compass.md` is now the full contract for the Compass team
+  (base URL `https://<your-crm-host>/api/v1`, a third API key, sync,
+  webhooks, go-live checklist); `public-api.md`, `cases.md` and
+  `submission-groups.md` describe the sync and the lock.
+
 ### Coordinators (migration 133)
 
 **Migration required: 133** (`133_coordinators.sql`), as a superuser or

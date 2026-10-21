@@ -525,7 +525,7 @@ changes one of those rules updates its verify file; a new verify file must
 be wired in there. In a plpgsql verify block, assign a writing function's
 result first and read its effect in a separate statement — a subquery in
 the same expression reads the snapshot taken before the call.
-Migrations 120–129 add nine more: assistant safety, vault, cases, case
+Migrations 120–129 add nine more (134 adds `verify-compass-sync.sql`): assistant safety, vault, cases, case
 tools, case SLA, case inbox, bank workspaces, bank dashboard and CRM
 memory (`verify-assistant-safety.sql` … `verify-crm-memory.sql`).
 
@@ -1065,6 +1065,15 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `verify-cases.sql`, `verify-case-tools.sql`, `verify-case-sla.sql`,
   `verify-case-inbox.sql`, `verify-bank-workspaces.sql`,
   `verify-bank-dashboard.sql`.
+- **Compass sync (134).** Compass (the submission app) is the master of a
+  submitted case; a lead stays the CRM's. `case_sync_from_submission` is
+  the only API writer (actor NULL, role `api`): stale by
+  `cases.external_changed_at`, stage rules as 122/130, per-item refusals
+  in `rejected`. The lock is `case_account_settings.managed_externally`
+  (`case_settings_set`, owner/admin) refusing people with
+  `MANAGED_EXTERNALLY`, mirrored in TS by `isManagedExternally`; the API
+  path is never locked. `docs/compass.md` is the contract;
+  `verify-compass-sync.sql`.
 
 ### Coordinators (`lib/coordinators/*`, migration 133)
 
@@ -1402,6 +1411,14 @@ at the call site); delivery is at-most-once, best-effort, never throws,
 and auto-disables an endpoint after `MAX_CONSECUTIVE_FAILURES`
 (`deliver.ts`). Semantics are published in `docs/public-api.md` — keep
 the two in step.
+
+The 134 outbox: SQL triggers enqueue `case.stage_changed`,
+`case.lead_created`, `submission_group.ready|failed|ended` and
+`contact.opted_out` into `webhook_event_outbox` only when an active
+endpoint subscribes (`webhook_enqueue`); the automations cron drains it
+(`drainWebhookOutbox`, `webhook_outbox_claim`), at most once.
+`WEBHOOK_EVENTS` and 134's event names change together (`outbox.test.ts`
+checks).
 
 ### Realtime, presence, and the latency budget
 

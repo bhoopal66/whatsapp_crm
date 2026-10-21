@@ -287,6 +287,32 @@ submission never was one. The rate shows "—" with no leads. The old
 "amount in pipeline" figure equals financing's amount and is no longer a
 tile.
 
+## Sync from the submission app (migration 134)
+
+Taamul Compass, the submission app, is the master of a **submitted** case
+(one with a submission group). Its `PATCH /api/v1/submission-groups/{id}`
+can set the stage, bank, product, amount, outcome reason and documents in
+one call (contract: [compass.md](compass.md)). The writes run as the API
+(no person: history and the detail log show actor role `api`), follow the
+usual move rules (bank stage list, no return to a pre-submission stage,
+only Closed after a final stage), and a move to a final stage ends the
+group. `cases.external_changed_at` holds the latest applied `changed_at`;
+an older update is stale and ignored. `cases.external_url` is the case in
+Compass. A lead is never touched by the sync: the CRM stays its master.
+Stage moves also queue the `case.stage_changed` webhook (see
+[public-api.md](public-api.md#webhooks)).
+
+### Managed in Compass (the lock)
+
+An owner or admin can turn on **Settings -> Cases -> Submitted cases are
+managed in Compass**. While on, people cannot, on a submitted case, move
+the stage, edit bank, product or amount, set the outcome reason, or mark a
+document received or rejected (409 `MANAGED_EXTERNALLY`). Notes, tasks,
+priority, due date, reassigning, bank contacts, document requests and
+replies stay open; leads are never locked; the v1 API is never locked. The
+case page shows a "Managed in Compass" banner with an Open in Compass link
+and the time of the last sync.
+
 ## Settings -> Cases
 
 Owners and admins configure, per bank (`/api/cases/config/banks/...`; staff

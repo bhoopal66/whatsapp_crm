@@ -48,6 +48,7 @@ import {
 } from '@/lib/submission-groups/api-input';
 import type { SubmissionGroup } from '@/lib/submission-groups/store';
 import { caseStore } from '@/lib/cases/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { BANKS } from '@/lib/typesafe/banks';
 
 export const maxDuration = 60;
@@ -106,6 +107,36 @@ async function openCase(
       err instanceof Error ? err.message : 'unknown error'
     );
     return null;
+  }
+}
+
+/**
+ * Links the customer's Compass record to the group's contact (migration
+ * 134). Best effort: logged on any error, never changes the response.
+ */
+async function linkCompassContact(
+  db: Pick<SupabaseClient, 'rpc'>,
+  accountId: string,
+  group: SubmissionGroup,
+  phone: string
+): Promise<void> {
+  if (!group.contactId) return;
+  try {
+    const { error } = await db.rpc('compass_link_contact_by_phone', {
+      p_account: accountId,
+      p_contact: group.contactId,
+      p_phone_digits: phone.replace(/\D/g, ''),
+    });
+    if (error)
+      console.error(
+        `[api/v1/submission-groups] compass link for group ${group.id}:`,
+        error
+      );
+  } catch (err) {
+    console.error(
+      `[api/v1/submission-groups] compass link for group ${group.id}:`,
+      err instanceof Error ? err.message : 'unknown error'
+    );
   }
 }
 
@@ -255,6 +286,7 @@ export async function POST(request: Request) {
         .catch(() => null);
       if (!pending) throw err;
       console.error('[api/v1/submission-groups] create pending:', err);
+      await linkCompassContact(db, ctx.accountId, pending, customerPhone);
       return respond(
         pending,
         202,
@@ -269,6 +301,7 @@ export async function POST(request: Request) {
       return fail('consent_required', CONSENT_MESSAGE, 409);
 
     let group = result.group;
+    await linkCompassContact(db, ctx.accountId, group, customerPhone);
     let inviteSent = false;
     const code = inviteCodeOf(result.inviteLink);
     if (code && phoneWasRefused(result.refusedParticipants, customerPhone)) {

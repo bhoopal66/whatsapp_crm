@@ -49,6 +49,30 @@ export async function dispatchWebhookEvent(
   event: WebhookEvent,
   data: unknown
 ): Promise<void> {
+  // Sign the exact bytes we send so a receiver can recompute the
+  // HMAC over the raw request body. `id` is a per-delivery uuid the
+  // receiver can dedupe on (deliveries are at-least-once and may
+  // repeat / arrive out of order).
+  await deliverSigned(db, accountId, event, {
+    id: randomUUID(),
+    event,
+    occurred_at: new Date().toISOString(),
+    account_id: accountId,
+    data,
+  });
+}
+
+/**
+ * Sign `envelope` once and POST it to every active endpoint of
+ * `accountId` subscribed to `event`. Shared by dispatchWebhookEvent and
+ * the outbox drain (outbox.ts). Never throws.
+ */
+export async function deliverSigned(
+  db: SupabaseClient,
+  accountId: string,
+  event: WebhookEvent,
+  envelope: Record<string, unknown>
+): Promise<void> {
   try {
     const { data: rows, error } = await db
       .from('webhook_endpoints')
@@ -59,17 +83,7 @@ export async function dispatchWebhookEvent(
 
     if (error || !rows || rows.length === 0) return;
 
-    // Sign the exact bytes we send so a receiver can recompute the
-    // HMAC over the raw request body. `id` is a per-delivery uuid the
-    // receiver can dedupe on (deliveries are at-least-once and may
-    // repeat / arrive out of order).
-    const payload = JSON.stringify({
-      id: randomUUID(),
-      event,
-      occurred_at: new Date().toISOString(),
-      account_id: accountId,
-      data,
-    });
+    const payload = JSON.stringify(envelope);
     const tsSeconds = Math.floor(Date.now() / 1000);
 
     await Promise.allSettled(
