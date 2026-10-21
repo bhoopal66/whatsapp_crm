@@ -150,8 +150,10 @@ html[data-mode='dark'] {
   --muted-foreground: oklch(0.74 0.016 255);
   --accent: oklch(0.27 0.02 255);
   --accent-foreground: oklch(0.97 0.004 255);
-  --destructive: oklch(0.66 0.2 25);
-  --destructive-soft: oklch(0.66 0.2 25 / 0.16);
+  /* 0.62: white text on a solid destructive button stays >= 4:1 while
+   * red text still reads on dark cards. */
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-soft: oklch(0.62 0.21 25 / 0.18);
   --success: oklch(0.76 0.15 155);
   --success-soft: oklch(0.76 0.15 155 / 0.14);
   --warning: oklch(0.82 0.14 80);
