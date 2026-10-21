@@ -281,6 +281,7 @@ export function CustomerPage({
   const asked = useRef(new Set<string>());
   const sentinel = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
+  const [leadOpen, setLeadOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // The chat tag and send prediction, as the side sheet reads them.
   const { tree: chatTagTree } = useChatTags();
@@ -629,28 +630,13 @@ export function CustomerPage({
     const [Icon, tone] =
       e.kind === 'call'
         ? missed
-          ? [
-              PhoneMissed,
-              'bg-destructive-soft text-destructive',
-            ]
-          : [
-              Phone,
-              'bg-info-soft text-info',
-            ]
+          ? [PhoneMissed, 'bg-destructive-soft text-destructive']
+          : [Phone, 'bg-info-soft text-info']
         : e.kind === 'whatsapp'
-          ? [
-              MessageCircle,
-              'bg-success-soft text-success',
-            ]
+          ? [MessageCircle, 'bg-success-soft text-success']
           : e.kind === 'note'
-            ? [
-                StickyNote,
-                'bg-warning-soft text-warning',
-              ]
-            : [
-                Hash,
-                'bg-primary-soft text-primary',
-              ];
+            ? [StickyNote, 'bg-warning-soft text-warning']
+            : [Hash, 'bg-primary-soft text-primary'];
     const task =
       missed && e.kind === 'call' ? missedTaskFor(e.call.id, side.tasks) : null;
     const text =
@@ -684,7 +670,7 @@ export function CustomerPage({
                 type="button"
                 onClick={() => void deleteNote(e.id)}
                 aria-label={td('deleteNote')}
-                className="text-muted-foreground shrink-0 cursor-pointer hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -705,8 +691,7 @@ export function CustomerPage({
             <div
               className={cn(
                 'mt-2 flex flex-wrap items-center gap-2 rounded-lg',
-                task &&
-                  'border-warning/30 bg-warning-soft border px-3 py-2'
+                task && 'border-warning/30 bg-warning-soft border px-3 py-2'
               )}
             >
               {task && (
@@ -754,6 +739,8 @@ export function CustomerPage({
   };
 
   const month = side.summary ? monthSummaryParts(side.summary) : null;
+  // Cases and leads (130): agent and up, as /api/cases/leads.
+  const canOpenLead = !!accountRole && canSendMessages(accountRole);
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <BackLink label={tl('back')} href={contactsListPath(fromTeam)} />
@@ -767,6 +754,7 @@ export function CustomerPage({
         channels={channels}
         prediction={prediction}
         onEdit={() => setEditing(true)}
+        onNewLead={canOpenLead ? () => setLeadOpen(true) : undefined}
         listPath={contactsListPath(fromTeam)}
       />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -823,9 +811,12 @@ export function CustomerPage({
         <aside className="order-1 min-w-0 space-y-4 lg:order-2">
           <DetailsCard contact={contact} canEdit={access.edit} />
           <DealsCard contactId={contactId} />
-          {/* Cases and leads (130): agent and up, as /api/cases/leads. */}
-          {!!accountRole && canSendMessages(accountRole) && (
-            <CasesCard contactId={contactId} />
+          {canOpenLead && (
+            <CasesCard
+              contactId={contactId}
+              opening={leadOpen}
+              onOpeningChange={setLeadOpen}
+            />
           )}
           <Card title={tl('openTasks')}>
             {side.tasks.length === 0 ? (

@@ -2,7 +2,14 @@
 
 import { isUuid } from '@/lib/chat/mentions';
 import { customerPath } from '@/lib/contacts/customer-links';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact } from '@/types';
@@ -51,14 +58,25 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  Copy,
+  SquareArrowOutUpRight,
+  UserRoundSearch,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
-import { ChatTagChip, OptedOutBadge } from '@/components/contacts/contact-badges';
+import {
+  ChatTagChip,
+  OptedOutBadge,
+} from '@/components/contacts/contact-badges';
 import { useCan } from '@/hooks/use-can';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useLocale, useTranslations } from 'next-intl';
 import { useAuth } from '@/hooks/use-auth';
@@ -105,7 +123,9 @@ interface ContactRow extends Contact {
  * /team-contacts shows everything RLS allows. Admins are unchanged:
  * both views are account-wide for them.
  */
-export function ContactsPageInner({ teamView = false }: { teamView?: boolean } = {}) {
+export function ContactsPageInner({
+  teamView = false,
+}: { teamView?: boolean } = {}) {
   const router = useRouter();
   const t = useTranslations('Contacts.page');
   const locale = useLocale();
@@ -210,7 +230,11 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       // (3) the page, sorted like the plain path, read in full.
       // (1) and (2) are cached per filter, so turning a page re-reads
       // only (3) instead of every match (~700ms a round trip).
-      const filterKey = JSON.stringify([term, chatTagFilterKey, personalOnlyUserId]);
+      const filterKey = JSON.stringify([
+        term,
+        chatTagFilterKey,
+        personalOnlyUserId,
+      ]);
       const cached = filterMatches.current;
       let matchedRows =
         cached?.key === filterKey &&
@@ -243,9 +267,12 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               .from('contacts')
               .select('id, created_at')
               .in('id', ids);
-            if (personalOnlyUserId) query = query.eq('user_id', personalOnlyUserId);
+            if (personalOnlyUserId)
+              query = query.eq('user_id', personalOnlyUserId);
             if (like) {
-              query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+              query = query.or(
+                `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
+              );
             }
             return query;
           }
@@ -275,9 +302,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
           .in('id', pageIds);
         if (seq !== fetchSeq.current) return; // superseded by a newer fetch
         if (error) return failed();
-        const byId = new Map(
-          ((data ?? []) as Contact[]).map((c) => [c.id, c])
-        );
+        const byId = new Map(((data ?? []) as Contact[]).map((c) => [c.id, c]));
         contactRows = pageIds
           .map((id) => byId.get(id))
           .filter((c): c is Contact => !!c);
@@ -297,7 +322,9 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       }
 
       if (like) {
-        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+        query = query.or(
+          `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`
+        );
       }
 
       const { data, count: exactCount, error } = await query;
@@ -331,14 +358,25 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
     );
 
     setContacts(
-      contactRows.map((c) => ({ ...c, chatTags: tagsByContact.get(c.id) ?? null }))
+      contactRows.map((c) => ({
+        ...c,
+        chatTags: tagsByContact.get(c.id) ?? null,
+      }))
     );
     setLoading(false);
     // The tag tree is deliberately NOT a dependency (only the filter's
     // ids are): the rows keep raw ids and `chatTagTree` resolves them at
     // render, so loading or renaming a tag re-renders without another
     // round trip (~700ms through the tunnel).
-  }, [supabase, page, debouncedSearch, chatTagFilterIds, chatTagFilterKey, personalOnlyUserId, t]);
+  }, [
+    supabase,
+    page,
+    debouncedSearch,
+    chatTagFilterIds,
+    chatTagFilterKey,
+    personalOnlyUserId,
+    t,
+  ]);
 
   // After a create, edit, delete or import the cached filter matches may
   // be wrong (a new contact, a changed name the search matches, a
@@ -495,11 +533,13 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {totalCount > 0 ? t('subtitle', { count: totalCount }) : t('subtitleZero')}
+          <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {totalCount > 0
+              ? t('subtitle', { count: totalCount })
+              : t('subtitleZero')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -537,9 +577,9 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
 
       {/* Search + chat-tag filter */}
       <div className="space-y-2">
-        <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
             <Input
               value={search}
               onChange={(e) => {
@@ -556,7 +596,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                 }, SEARCH_DEBOUNCE_MS);
               }}
               placeholder={t('searchPlaceholder')}
-              className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
+              className="bg-card border-border text-foreground placeholder:text-muted-foreground pl-8"
             />
           </div>
 
@@ -572,27 +612,27 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               <Filter className="size-4" />
               {t('filterByChatTag')}
               {chatTagFilterIds.length > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                <span className="bg-primary text-primary-foreground ml-1 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold">
                   {chatTagFilterIds.length}
                 </span>
               )}
             </PopoverTrigger>
             <PopoverContent align="start" className="w-64 p-0">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-                <span className="text-sm font-medium text-popover-foreground">
+              <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                <span className="text-popover-foreground text-sm font-medium">
                   {t('filterByChatTag')}
                 </span>
                 {chatTagFilterIds.length > 0 && (
                   <button
                     onClick={clearChatTagFilters}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground text-xs"
                   >
                     {t('clearAll')}
                   </button>
                 )}
               </div>
               {chatTagTree.mains.length === 0 ? (
-                <p className="px-3 py-4 text-sm text-muted-foreground text-center">
+                <p className="text-muted-foreground px-3 py-4 text-center text-sm">
                   {t('noChatTagsYet')}
                 </p>
               ) : (
@@ -652,7 +692,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
             })}
             <button
               onClick={clearChatTagFilters}
-              className="text-xs text-muted-foreground hover:text-foreground px-1"
+              className="text-muted-foreground hover:text-foreground px-1 text-xs"
             >
               {t('clearAll')}
             </button>
@@ -662,8 +702,8 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-4 py-2">
-          <p className="text-sm text-foreground">
+        <div className="border-border bg-muted/40 flex items-center justify-between gap-4 rounded-lg border px-4 py-2">
+          <p className="text-foreground text-sm">
             {t('selectedCount', { count: selected.size })}
           </p>
           <div className="flex items-center gap-2">
@@ -690,7 +730,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       )}
 
       {/* Table */}
-      <div className="bg-card overflow-hidden rounded-lg border border-border">
+      <div className="bg-card border-border overflow-hidden rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 border-border hover:bg-muted/50">
@@ -703,31 +743,45 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   aria-label="Select all contacts on this page"
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground font-semibold">{t('tableColumns.name')}</TableHead>
-              <TableHead className="text-muted-foreground font-semibold">{t('tableColumns.phone')}</TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">{t('tableColumns.email')}</TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">{t('tableColumns.company')}</TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">{t('tableColumns.chatTag')}</TableHead>
-              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
+              <TableHead className="text-muted-foreground font-semibold">
+                {t('tableColumns.name')}
+              </TableHead>
+              <TableHead className="text-muted-foreground font-semibold">
+                {t('tableColumns.phone')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                {t('tableColumns.email')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold xl:table-cell">
+                {t('tableColumns.company')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold md:table-cell">
+                {t('tableColumns.chatTag')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                {t('tableColumns.createdAt')}
+              </TableHead>
               <TableHead className="text-muted-foreground w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={8} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <Loader2 className="size-6 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">{t('loading')}</p>
+                    <Loader2 className="text-primary size-6 animate-spin" />
+                    <p className="text-muted-foreground text-sm">
+                      {t('loading')}
+                    </p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={8} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <Users className="size-8 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
+                    <Users className="text-muted-foreground size-8" />
+                    <p className="text-muted-foreground text-sm">
                       {hasActiveFilters
                         ? t('noContactsMatch')
                         : t('noContactsYet')}
@@ -739,7 +793,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                         variant="outline"
                         size="sm"
                         onClick={openAddForm}
-                        className="mt-2 border-border text-muted-foreground hover:bg-muted"
+                        className="border-border text-muted-foreground hover:bg-muted mt-2"
                       >
                         <Plus className="size-3.5" />
                         {t('addFirstContact')}
@@ -750,10 +804,13 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
               </TableRow>
             ) : (
               contacts.map((contact) => (
-                <TableRow
+                <ContactRow
                   key={contact.id}
-                  className="border-border hover:bg-accent cursor-pointer"
-                  onClick={() => openDetail(contact.id)}
+                  contact={contact}
+                  teamView={teamView}
+                  onOpen={() => openDetail(contact.id)}
+                  onEdit={() => openEditForm(contact)}
+                  onDelete={() => confirmDelete(contact)}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
@@ -769,16 +826,23 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                         onClick={(e) => e.stopPropagation()}
                         className="hover:underline"
                       >
-                        {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                        {contact.name || (
+                          <span className="text-muted-foreground italic">
+                            {t('unnamed')}
+                          </span>
+                        )}
                       </Link>
                       {contact.opted_out_at && (
                         <OptedOutBadge
                           label={t('optedOut')}
                           hint={t('optedOutHint', {
-                            date: new Date(contact.opted_out_at).toLocaleDateString(
-                              locale,
-                              { month: 'short', day: 'numeric', year: 'numeric' }
-                            ),
+                            date: new Date(
+                              contact.opted_out_at
+                            ).toLocaleDateString(locale, {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            }),
                           })}
                         />
                       )}
@@ -787,18 +851,22 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {contact.phone}
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-48 truncate md:table-cell text-sm">
-                    {contact.email || <span className="text-muted-foreground">-</span>}
+                  <TableCell className="text-muted-foreground hidden max-w-48 truncate text-sm md:table-cell">
+                    {contact.email || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-40 truncate xl:table-cell text-sm">
-                    {contact.company || <span className="text-muted-foreground">-</span>}
+                  <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm xl:table-cell">
+                    {contact.company || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <ChatTagChip
                       chip={contactChatTagChip(contact.chatTags, chatTagTree)}
                     />
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs hidden whitespace-nowrap lg:table-cell">
+                  <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
                     {new Date(contact.created_at).toLocaleDateString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -847,7 +915,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
-                </TableRow>
+                </ContactRow>
               ))
             )}
           </TableBody>
@@ -857,11 +925,11 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             {t('showingPagination', {
               start: page * PAGE_SIZE + 1,
               end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount
+              total: totalCount,
             })}
           </p>
           <div className="flex items-center gap-1">
@@ -874,7 +942,7 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
             >
               <ChevronLeft className="size-4" />
             </Button>
-            <span className="text-xs text-muted-foreground px-2">
+            <span className="text-muted-foreground px-2 text-xs">
               {t('pageCount', { page: page + 1, total: totalPages })}
             </span>
             <Button
@@ -921,9 +989,13 @@ export function ContactsPageInner({ teamView = false }: { teamView?: boolean } =
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-popover-foreground">{t('deleteContactTitle')}</DialogTitle>
+            <DialogTitle className="text-popover-foreground">
+              {t('deleteContactTitle')}
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {t('deleteContactDesc', { name: deleteTarget?.name || deleteTarget?.phone || '' })}
+              {t('deleteContactDesc', {
+                name: deleteTarget?.name || deleteTarget?.phone || '',
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="bg-popover border-border">
@@ -996,7 +1068,7 @@ function ChatTagFilterOption({
 }) {
   return (
     <label
-      className={`flex items-center gap-2.5 py-1.5 pr-3 cursor-pointer hover:bg-muted/50 ${
+      className={`hover:bg-muted/50 flex cursor-pointer items-center gap-2.5 py-1.5 pr-3 ${
         indent ? 'pl-8' : 'pl-3'
       }`}
     >
@@ -1005,7 +1077,7 @@ function ChatTagFilterOption({
         className="size-2 shrink-0 rounded-full"
         style={{ backgroundColor: chatTagColor(color) }}
       />
-      <span className="text-sm text-popover-foreground truncate">{name}</span>
+      <span className="text-popover-foreground truncate text-sm">{name}</span>
     </label>
   );
 }
@@ -1013,4 +1085,93 @@ function ChatTagFilterOption({
 /** Route entry for /contacts — the personal view. */
 export default function ContactsPage() {
   return <ContactsPageInner />;
+}
+
+/**
+ * One contacts-list row, with its right-click actions: the same open,
+ * edit and delete the row and its "…" menu offer, plus copying.
+ */
+function ContactRow({
+  contact,
+  teamView,
+  onOpen,
+  onEdit,
+  onDelete,
+  children,
+}: {
+  contact: Contact;
+  teamView: boolean;
+  onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  children: ReactNode;
+}) {
+  const tMenu = useTranslations('ContextMenu');
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  useContextMenuItems(rowRef, (): ContextMenuEntry[] => {
+    const copied = { copied: tMenu('copied'), failed: tMenu('copyFailed') };
+    const items: ContextMenuEntry[] = [
+      {
+        id: 'open',
+        label: tMenu('conversation.openCustomer'),
+        icon: UserRoundSearch,
+        onSelect: onOpen,
+      },
+      {
+        id: 'openNewTab',
+        label: tMenu('records.openNewTab'),
+        icon: SquareArrowOutUpRight,
+        onSelect: () =>
+          void window.open(
+            customerPath(contact.id, teamView),
+            '_blank',
+            'noopener,noreferrer'
+          ),
+      },
+      { type: 'separator' },
+    ];
+    const { phone, email } = contact;
+    if (phone) {
+      items.push({
+        id: 'copyPhone',
+        label: tMenu('conversation.copyPhone'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(phone, copied),
+      });
+    }
+    if (email) {
+      items.push({
+        id: 'copyEmail',
+        label: tMenu('records.copyEmail'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(email, copied),
+      });
+    }
+    items.push(
+      { type: 'separator' },
+      {
+        id: 'edit',
+        label: tMenu('records.edit'),
+        icon: Pencil,
+        onSelect: onEdit,
+      },
+      {
+        id: 'delete',
+        label: tMenu('records.delete'),
+        icon: Trash2,
+        destructive: true,
+        onSelect: onDelete,
+      }
+    );
+    return items;
+  });
+  return (
+    <TableRow
+      ref={rowRef}
+      className="border-border hover:bg-accent cursor-pointer"
+      onClick={onOpen}
+    >
+      {children}
+    </TableRow>
+  );
 }

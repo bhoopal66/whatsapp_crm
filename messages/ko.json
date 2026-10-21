@@ -7708,6 +7708,20 @@
       "openCustomer": "고객 페이지 열기",
       "copyPhone": "전화번호 복사",
       "copyName": "이름 복사"
+    },
+    "records": {
+      "open": "열기",
+      "openNewTab": "새 탭에서 열기",
+      "copyEmail": "이메일 복사",
+      "edit": "편집",
+      "delete": "삭제",
+      "newLead": "새 리드",
+      "openCase": "케이스 열기",
+      "copyCustomerName": "고객 이름 복사",
+      "copySubmissionId": "제출 ID 복사",
+      "openDeal": "거래 열기",
+      "moveToStage": "단계 이동",
+      "copyDealTitle": "거래 제목 복사"
     }
   }
 }

@@ -1,12 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Landmark, Plus } from 'lucide-react';
+import {
+  ExternalLink,
+  Landmark,
+  Plus,
+  SquareArrowOutUpRight,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -147,7 +162,7 @@ export function BanksList() {
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {loaded.workspaces.map((w) => (
-            <li key={w.bankWsId}>
+            <BankRow key={w.bankWsId} bankWsId={w.bankWsId}>
               <Link
                 href={`/banks/${w.bankWsId}`}
                 className="border-border bg-card hover:bg-accent flex items-start justify-between gap-2 rounded-xl border p-4 transition-colors"
@@ -171,10 +186,40 @@ export function BanksList() {
                   {t(`access.${w.access}`)}
                 </span>
               </Link>
-            </li>
+            </BankRow>
           ))}
         </ul>
       )}
     </div>
   );
+}
+
+function BankRow({
+  bankWsId,
+  children,
+}: {
+  bankWsId: string;
+  children: ReactNode;
+}) {
+  const tMenu = useTranslations('ContextMenu');
+  const router = useRouter();
+  const itemRef = useRef<HTMLLIElement>(null);
+  useContextMenuItems(itemRef, (): ContextMenuEntry[] => {
+    const href = `/banks/${bankWsId}`;
+    return [
+      {
+        id: 'open',
+        label: tMenu('records.open'),
+        icon: ExternalLink,
+        onSelect: () => router.push(href),
+      },
+      {
+        id: 'openNewTab',
+        label: tMenu('records.openNewTab'),
+        icon: SquareArrowOutUpRight,
+        onSelect: () => void window.open(href, '_blank', 'noopener,noreferrer'),
+      },
+    ];
+  });
+  return <li ref={itemRef}>{children}</li>;
 }

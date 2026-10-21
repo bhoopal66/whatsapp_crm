@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagChipStyle } from '@/lib/chat-tags/style';
 import {
@@ -19,7 +20,19 @@ import {
 import type { Deal, PipelineStage, Profile } from '@/types';
 import { DealCard } from './deal-card';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  Copy,
+  ExternalLink,
+  Plus,
+  UserRoundSearch,
+} from 'lucide-react';
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
+import { moveTargets } from '@/lib/context-menu/records';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { useTranslations } from 'next-intl';
@@ -127,8 +140,10 @@ export function PipelineBoard({
               currency={defaultCurrency}
               members={members}
               readOnly={readOnly}
+              stages={sortedStages}
               onAddDeal={onAddDeal}
               onEditDeal={onEditDeal}
+              onDealMoved={onDealMoved}
             />
           );
         })}
@@ -185,8 +200,10 @@ function StageColumn({
   currency,
   members,
   readOnly,
+  stages,
   onAddDeal,
   onEditDeal,
+  onDealMoved,
 }: {
   stage: PipelineStage;
   deals: Deal[];
@@ -194,8 +211,10 @@ function StageColumn({
   currency: string;
   members: Profile[];
   readOnly: boolean;
+  stages: PipelineStage[];
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: Deal) => void;
+  onDealMoved: (dealId: string, newStageId: string) => void;
 }) {
   const t = useTranslations('Pipelines.board');
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
@@ -258,7 +277,9 @@ function StageColumn({
               stage={stage}
               members={members}
               disabled={readOnly}
+              stages={stages}
               onEdit={onEditDeal}
+              onMove={onDealMoved}
             />
           ))
         )}
@@ -284,22 +305,83 @@ function DraggableDealCard({
   stage,
   members,
   disabled,
+  stages,
   onEdit,
+  onMove,
 }: {
   deal: Deal;
   stage: PipelineStage;
   members: Profile[];
   disabled: boolean;
+  stages: PipelineStage[];
   onEdit: (deal: Deal) => void;
+  onMove: (dealId: string, newStageId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: deal.id,
     disabled,
   });
 
+  // Right-click: what a click does (open the deal), the drop a drag
+  // does (gated the same way: none on a read-only board), and the
+  // customer page when the board's own query could read the contact.
+  const tMenu = useTranslations('ContextMenu');
+  const router = useRouter();
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  useContextMenuItems(cardRef, (): ContextMenuEntry[] => {
+    const items: ContextMenuEntry[] = [
+      {
+        id: 'open',
+        label: tMenu('records.openDeal'),
+        icon: ExternalLink,
+        onSelect: () => onEdit(deal),
+      },
+    ];
+    const targets = moveTargets(stages, deal.stage_id, disabled);
+    if (targets.length > 0) {
+      items.push({
+        id: 'moveToStage',
+        label: tMenu('records.moveToStage'),
+        icon: ArrowRightLeft,
+        items: targets.map((s) => ({
+          id: `stage:${s.id}`,
+          label: s.name,
+          onSelect: () => onMove(deal.id, s.id),
+        })),
+      });
+    }
+    const contactId = deal.contact?.id;
+    if (contactId) {
+      items.push({
+        id: 'openCustomer',
+        label: tMenu('conversation.openCustomer'),
+        icon: UserRoundSearch,
+        onSelect: () =>
+          router.push(`/contacts/${encodeURIComponent(contactId)}`),
+      });
+    }
+    items.push(
+      { type: 'separator' },
+      {
+        id: 'copyTitle',
+        label: tMenu('records.copyDealTitle'),
+        icon: Copy,
+        onSelect: () =>
+          void copyWithToast(deal.title, {
+            copied: tMenu('copied'),
+            failed: tMenu('copyFailed'),
+          }),
+      }
+    );
+    return items;
+  });
+
   return (
     <div
-      ref={setNodeRef}
+      ref={(el) => {
+        setNodeRef(el);
+        cardRef.current = el;
+      }}
       {...listeners}
       {...attributes}
       style={{ opacity: isDragging ? 0.3 : 1, touchAction: 'none' }}

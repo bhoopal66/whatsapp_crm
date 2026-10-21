@@ -7708,6 +7708,20 @@
       "openCustomer": "Open customer page",
       "copyPhone": "Copy phone number",
       "copyName": "Copy name"
+    },
+    "records": {
+      "open": "Open",
+      "openNewTab": "Open in new tab",
+      "copyEmail": "Copy email",
+      "edit": "Edit",
+      "delete": "Delete",
+      "newLead": "New lead",
+      "openCase": "Open case",
+      "copyCustomerName": "Copy customer name",
+      "copySubmissionId": "Copy submission ID",
+      "openDeal": "Open deal",
+      "moveToStage": "Move to stage",
+      "copyDealTitle": "Copy deal title"
     }
   }
 }

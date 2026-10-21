@@ -5,7 +5,7 @@
 // (`headerActions`, from `customerAccess`). On a phone the secondary
 // actions fold into the overflow menu.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -22,6 +22,7 @@ import {
   MoreHorizontal,
   Pencil,
   Phone,
+  Plus,
   Trash2,
 } from 'lucide-react';
 
@@ -33,6 +34,11 @@ import {
   ContactChannelHint,
   type ContactOutreachState,
 } from '@/components/contacts/contact-outreach';
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 import { CallButton } from '@/components/pbx/call-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
@@ -72,6 +78,7 @@ export function CustomerHeader({
   channels,
   prediction,
   onEdit,
+  onNewLead,
   listPath = '/contacts',
 }: {
   contact: HeaderContact;
@@ -83,6 +90,8 @@ export function CustomerHeader({
   channels: readonly AccountNumber[] | null;
   prediction: SendChannelPrediction;
   onEdit: () => void;
+  /** Opens the Cases card's "Open lead" dialog; absent when it is not shown. */
+  onNewLead?: () => void;
   /** Where delete returns to: the list this customer was opened from. */
   listPath?: string;
 }) {
@@ -237,8 +246,59 @@ export function CustomerHeader({
   };
   const hasMenu = actions.secondary.length + actions.menu.length > 0;
 
+  // Right-click on the header: copying, plus what the page already
+  // offers (the WhatsApp button, the Cases card's "Open lead").
+  const tMenu = useTranslations('ContextMenu');
+  const headerRef = useRef<HTMLElement>(null);
+  useContextMenuItems(headerRef, (): ContextMenuEntry[] => {
+    const copiedMsgs = {
+      copied: tMenu('copied'),
+      failed: tMenu('copyFailed'),
+    };
+    const items: ContextMenuEntry[] = [];
+    const { phone, name } = contact;
+    if (phone) {
+      items.push({
+        id: 'copyPhone',
+        label: tMenu('conversation.copyPhone'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(phone, copiedMsgs),
+      });
+    }
+    if (name) {
+      items.push({
+        id: 'copyName',
+        label: tMenu('conversation.copyName'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(name, copiedMsgs),
+      });
+    }
+    items.push(
+      { type: 'separator' },
+      {
+        id: 'openChat',
+        label: tMenu('conversation.open'),
+        icon: MessageCircle,
+        disabled: !conversationId,
+        onSelect: () => router.push(`/inbox?c=${conversationId}`),
+      }
+    );
+    if (onNewLead) {
+      items.push({
+        id: 'newLead',
+        label: tMenu('records.newLead'),
+        icon: Plus,
+        onSelect: onNewLead,
+      });
+    }
+    return items;
+  });
+
   return (
-    <header className="border-border bg-card rounded-xl border p-4">
+    <header
+      ref={headerRef}
+      className="border-border bg-card rounded-xl border p-4"
+    >
       <div className="flex items-start gap-3 sm:gap-4">
         <div className="bg-primary/10 text-primary flex size-12 shrink-0 items-center justify-center rounded-xl text-base font-semibold">
           {initials(title)}

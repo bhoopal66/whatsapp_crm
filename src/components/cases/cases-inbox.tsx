@@ -1,17 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Briefcase,
+  Copy,
+  ExternalLink,
   FileX,
   Hourglass,
   Loader2,
   MessageCircleQuestion,
   Plus,
   SlidersHorizontal,
+  SquareArrowOutUpRight,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -37,6 +47,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { OpenLeadDialog } from '@/components/cases/open-lead-dialog';
+import { copyWithToast } from '@/components/context-menu/app-context-menu';
+import {
+  useContextMenuItems,
+  type ContextMenuEntry,
+} from '@/components/context-menu/registry';
 import { useAuth } from '@/hooks/use-auth';
 import { canSendMessages } from '@/lib/auth/roles';
 import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
@@ -655,6 +670,53 @@ function useRowView(row: InboxRow, now: Date, nameOf: NameOf) {
   };
 }
 
+/**
+ * Right-click actions for one inbox row (both layouts). No "Open
+ * customer page": the inbox reads the customer's name on the service
+ * role, so it does not tell whether this caller may open the contact.
+ */
+function useCaseRowMenu(ref: RefObject<Element | null>, row: InboxRow) {
+  const tMenu = useTranslations('ContextMenu');
+  const router = useRouter();
+  useContextMenuItems(ref, (): ContextMenuEntry[] => {
+    const copied = { copied: tMenu('copied'), failed: tMenu('copyFailed') };
+    const href = `/cases/${row.caseId}`;
+    const items: ContextMenuEntry[] = [
+      {
+        id: 'open',
+        label: tMenu('records.openCase'),
+        icon: ExternalLink,
+        onSelect: () => router.push(href),
+      },
+      {
+        id: 'openNewTab',
+        label: tMenu('records.openNewTab'),
+        icon: SquareArrowOutUpRight,
+        onSelect: () => void window.open(href, '_blank', 'noopener,noreferrer'),
+      },
+      { type: 'separator' },
+    ];
+    const { contactName, submissionRef } = row;
+    if (contactName) {
+      items.push({
+        id: 'copyCustomerName',
+        label: tMenu('records.copyCustomerName'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(contactName, copied),
+      });
+    }
+    if (submissionRef) {
+      items.push({
+        id: 'copySubmissionId',
+        label: tMenu('records.copySubmissionId'),
+        icon: Copy,
+        onSelect: () => void copyWithToast(submissionRef, copied),
+      });
+    }
+    return items;
+  });
+}
+
 function Chips({ row }: { row: InboxRow }) {
   const t = useTranslations('Cases');
   const priority = PRIORITY_CHIP[row.priority];
@@ -781,9 +843,11 @@ function TableRowView({
 }) {
   const t = useTranslations('Cases');
   const v = useRowView(row, now, nameOf);
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  useCaseRowMenu(rowRef, row);
   return (
     // The customer link is stretched over the whole row.
-    <TableRow className="hover:bg-accent relative align-top">
+    <TableRow ref={rowRef} className="hover:bg-accent relative align-top">
       <TableCell className="max-w-64 whitespace-normal">
         <Link
           href={`/cases/${row.caseId}`}
@@ -836,8 +900,10 @@ function CaseCard({
 }) {
   const t = useTranslations('Cases');
   const v = useRowView(row, now, nameOf);
+  const itemRef = useRef<HTMLLIElement>(null);
+  useCaseRowMenu(itemRef, row);
   return (
-    <li>
+    <li ref={itemRef}>
       <Link
         href={`/cases/${row.caseId}`}
         className="border-border bg-card hover:bg-accent block space-y-2 rounded-xl border p-3 transition-colors"

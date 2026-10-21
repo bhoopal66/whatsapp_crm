@@ -40,13 +40,21 @@ function useCaseBanks(): CaseBankOption[] | null {
   return banks;
 }
 
-export function CasesCard({ contactId }: { contactId: string }) {
+export function CasesCard({
+  contactId,
+  opening,
+  onOpeningChange,
+}: {
+  contactId: string;
+  /** The "Open lead" dialog, held by the page so the header can open it. */
+  opening: boolean;
+  onOpeningChange: (open: boolean) => void;
+}) {
   const t = useTranslations('CustomerCases');
   const locale = useLocale();
   const banks = useCaseBanks();
   const [cases, setCases] = useState<ContactCase[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [opening, setOpening] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -71,7 +79,11 @@ export function CasesCard({ contactId }: { contactId: string }) {
     <SideCard
       title={t('title')}
       action={
-        <Button size="xs" variant="outline" onClick={() => setOpening(true)}>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => onOpeningChange(true)}
+        >
           <Plus className="size-3.5" />
           {t('openLead')}
         </Button>
@@ -127,7 +139,7 @@ export function CasesCard({ contactId }: { contactId: string }) {
       )}
       <OpenLeadDialog
         open={opening}
-        onOpenChange={setOpening}
+        onOpenChange={onOpeningChange}
         contactId={contactId}
         banks={banks}
       />
