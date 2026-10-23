@@ -9,7 +9,54 @@
  *
  * Regex rather than DOMParser because the tests run in node. Dates are
  * Excel serial numbers and are returned as such, not converted.
+ *
+ * The file is untrusted (an admin's upload on the server, anyone's
+ * spreadsheet in the browser), and both of its layers can claim far
+ * more than it holds: a few KB of deflate can inflate to gigabytes, and
+ * one `<row r="2000000000">` would otherwise be padded out row by row.
+ * So every read runs on a budget (XLSX_LIMITS) and throws past it.
  */
+
+/** Excel's own grid: columns A to XFD, rows 1 to 1,048,576. */
+export const XLSX_MAX_COLUMNS = 16_384;
+export const XLSX_MAX_ROWS = 1_048_576;
+
+export interface XlsxLimits {
+  /**
+   * Cells a workbook may place, every sheet together. Blank padding
+   * counts (a cell at XFD1 is 16,384 of them), and so does each row.
+   */
+  maxCells: number;
+  /** Uncompressed bytes of one ZIP entry, declared or actual. */
+  maxEntryBytes: number;
+  /** Uncompressed bytes of every entry read, together. */
+  maxTotalBytes: number;
+  /** Tabs (`<sheet>` elements) a workbook may have, hidden ones included. */
+  maxSheets: number;
+}
+
+export const XLSX_LIMITS: Readonly<XlsxLimits> = {
+  maxCells: 2_000_000,
+  maxEntryBytes: 50 * 1024 * 1024,
+  maxTotalBytes: 100 * 1024 * 1024,
+  maxSheets: 50,
+};
+
+/** What one workbook read has spent so far. */
+interface Budget {
+  limits: XlsxLimits;
+  cells: number;
+  bytes: number;
+}
+
+function spendCells(budget: Budget, n: number) {
+  budget.cells += n;
+  if (budget.cells > budget.limits.maxCells) {
+    throw new Error(
+      `The workbook has more than ${budget.limits.maxCells} cells`
+    );
+  }
+}
 
 interface ZipEntry {
   method: number;
@@ -74,7 +121,61 @@ function readCentralDirectory(bytes: Uint8Array): Map<string, ZipEntry> {
   return entries;
 }
 
-async function readEntry(bytes: Uint8Array, entry: ZipEntry): Promise<string> {
+/**
+ * Inflates raw deflate, giving up as soon as the output passes `limit`
+ * bytes. The output is counted as it streams rather than buffered whole
+ * and measured afterwards, which is what lets a bomb through.
+ */
+async function inflate(
+  data: Uint8Array<ArrayBuffer>,
+  limit: number
+): Promise<Uint8Array> {
+  const reader = new Blob([data])
+    .stream()
+    .pipeThrough(new DecompressionStream('deflate-raw'))
+    .getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.length;
+    if (length > limit) {
+      void reader.cancel().catch(() => {});
+      throw new Error('ZIP entry inflates past its declared size');
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(length);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+
+async function readEntry(
+  bytes: Uint8Array,
+  name: string,
+  entry: ZipEntry,
+  budget: Budget
+): Promise<string> {
+  const { maxEntryBytes, maxTotalBytes } = budget.limits;
+  // The declared size is charged before inflating, so reads running
+  // side by side cannot each pass the total on their own.
+  if (entry.size > maxEntryBytes) {
+    throw new Error(
+      `ZIP entry ${name} is too large (${entry.size} bytes uncompressed, limit ${maxEntryBytes})`
+    );
+  }
+  budget.bytes += entry.size;
+  if (budget.bytes > maxTotalBytes) {
+    throw new Error(
+      `The workbook is too large uncompressed (limit ${maxTotalBytes} bytes)`
+    );
+  }
+
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const at = entry.localOffset;
   if (at + 30 > bytes.length || view.getUint32(at, true) !== LOCAL_SIGNATURE) {
@@ -90,10 +191,7 @@ async function readEntry(bytes: Uint8Array, entry: ZipEntry): Promise<string> {
   if (entry.method === 0) {
     out = data;
   } else if (entry.method === 8) {
-    const stream = new Blob([data])
-      .stream()
-      .pipeThrough(new DecompressionStream('deflate-raw'));
-    out = new Uint8Array(await new Response(stream).arrayBuffer());
+    out = await inflate(data, entry.size);
   } else {
     throw new Error(`Unsupported ZIP compression method ${entry.method}`);
   }
@@ -204,18 +302,37 @@ function cellValue(type: string | null, body: string, shared: string[]) {
   }
 }
 
-function sheetRows(xml: string, shared: string[]): string[][] {
+/**
+ * Cells and rows are placed by their references, padding the gaps, so
+ * a reference is held to Excel's grid and every slot it opens is
+ * charged to the budget before the padding is written.
+ */
+function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
   const rows: string[][] = [];
   for (const row of xml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const cells: string[] = [];
     for (const c of (row[2] ?? '').matchAll(
       /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
     )) {
-      const col = columnIndex(attr(c[1], 'r')) ?? cells.length;
+      const ref = attr(c[1], 'r');
+      const col = columnIndex(ref) ?? cells.length;
+      if (col >= XLSX_MAX_COLUMNS) {
+        throw new Error(
+          `Cell ${ref ?? `#${col + 1}`} is beyond Excel's last column (XFD)`
+        );
+      }
+      spendCells(budget, Math.max(0, col + 1 - cells.length));
       while (cells.length < col) cells.push('');
       cells[col] = cellValue(attr(c[1], 't'), c[2] ?? '', shared);
     }
-    const at = rowIndex(attr(row[1], 'r')) ?? rows.length;
+    const ref = attr(row[1], 'r');
+    const at = rowIndex(ref) ?? rows.length;
+    if (at < 0 || at >= XLSX_MAX_ROWS) {
+      throw new Error(
+        `Row ${ref ?? at + 1} is outside Excel's rows 1 to ${XLSX_MAX_ROWS}`
+      );
+    }
+    spendCells(budget, Math.max(0, at + 1 - rows.length));
     while (rows.length < at) rows.push([]);
     rows[at] = cells;
   }
@@ -257,14 +374,33 @@ interface Workbook {
   /** Every `<sheet>` in tab order, with its relationship when it has one. */
   sheets: { name: string; hidden: boolean; rel: Relationship | undefined }[];
   sharedStringsPath: string;
+  budget: Budget;
 }
 
 /** Opens the package and reads the workbook part and its relationships. */
-async function openWorkbook(bytes: Uint8Array): Promise<Workbook> {
+async function openWorkbook(
+  bytes: Uint8Array,
+  limits: Partial<XlsxLimits> | undefined
+): Promise<Workbook> {
+  const budget: Budget = {
+    limits: { ...XLSX_LIMITS, ...limits },
+    cells: 0,
+    bytes: 0,
+  };
   const entries = readCentralDirectory(bytes);
+  // Each entry is inflated at most once, however many relationships
+  // point at it.
+  const cache = new Map<string, Promise<string | null>>();
   const read = (name: string) => {
-    const entry = entries.get(name);
-    return entry ? readEntry(bytes, entry) : Promise.resolve(null);
+    let text = cache.get(name);
+    if (!text) {
+      const entry = entries.get(name);
+      text = entry
+        ? readEntry(bytes, name, entry, budget)
+        : Promise.resolve(null);
+      cache.set(name, text);
+    }
+    return text;
   };
 
   const [workbook, relsXml] = await Promise.all([
@@ -272,16 +408,21 @@ async function openWorkbook(bytes: Uint8Array): Promise<Workbook> {
     read('xl/_rels/workbook.xml.rels'),
   ]);
   const rels = relsXml ? relationships(relsXml) : [];
-  const sheets = Array.from(
-    workbook?.matchAll(/<sheet\b([^>]*)>/g) ?? [],
-    ({ 1: a }) => ({
+  const sheets: Workbook['sheets'] = [];
+  for (const { 1: a } of workbook?.matchAll(/<sheet\b([^>]*)>/g) ?? []) {
+    if (sheets.length === budget.limits.maxSheets) {
+      throw new Error(
+        `The workbook has more than ${budget.limits.maxSheets} sheets`
+      );
+    }
+    sheets.push({
       name: attr(a, 'name') ?? '',
       // A hidden tab is skipped: its rows would be messaged (or
       // imported) without the uploader ever having seen them.
       hidden: /^(?:hidden|veryHidden)$/.test(attr(a, 'state') ?? ''),
       rel: rels.find((r) => r.id === attr(a, 'r:id')),
-    })
-  );
+    });
+  }
   const sharedRel = rels.find((r) => r.type.endsWith('/sharedStrings'));
   return {
     read,
@@ -290,11 +431,19 @@ async function openWorkbook(bytes: Uint8Array): Promise<Workbook> {
     sharedStringsPath: sharedRel
       ? resolveTarget(sharedRel.target)
       : 'xl/sharedStrings.xml',
+    budget,
   };
 }
 
-export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
-  const { read, rels, sheets, sharedStringsPath } = await openWorkbook(bytes);
+/** `limits` overrides XLSX_LIMITS (tests lower them). */
+export async function readXlsxTable(
+  bytes: Uint8Array,
+  limits?: Partial<XlsxLimits>
+): Promise<string[][]> {
+  const { read, rels, sheets, sharedStringsPath, budget } = await openWorkbook(
+    bytes,
+    limits
+  );
 
   // The first visible worksheet in tab order, which need not be
   // sheet1.xml once sheets have been reordered or deleted. A chartsheet
@@ -317,7 +466,11 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
     read(sharedStringsPath),
   ]);
   if (sheet === null) throw new Error('The workbook has no worksheet');
-  const rows = sheetRows(sheet, sharedXml ? sharedStrings(sharedXml) : []);
+  const rows = sheetRows(
+    sheet,
+    sharedXml ? sharedStrings(sharedXml) : [],
+    budget
+  );
   // Rows are placed by reference, so a sheet whose header sits below a
   // blank first row would start with []; CSV drops leading blank lines
   // too, and the header must be row 0.
@@ -332,9 +485,13 @@ export async function readXlsxTable(bytes: Uint8Array): Promise<string[][]> {
  * relationships at all yields its default sheet as "Sheet1".
  */
 export async function readXlsxSheets(
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  limits?: Partial<XlsxLimits>
 ): Promise<{ name: string; rows: string[][] }[]> {
-  const { read, rels, sheets, sharedStringsPath } = await openWorkbook(bytes);
+  const { read, rels, sheets, sharedStringsPath, budget } = await openWorkbook(
+    bytes,
+    limits
+  );
   const targets =
     rels.length === 0
       ? [
@@ -353,7 +510,9 @@ export async function readXlsxSheets(
   const out: { name: string; rows: string[][] }[] = [];
   for (const t of targets) {
     const xml = await read(t.path);
-    if (xml !== null) out.push({ name: t.name, rows: sheetRows(xml, shared) });
+    if (xml !== null) {
+      out.push({ name: t.name, rows: sheetRows(xml, shared, budget) });
+    }
   }
   return out;
 }
