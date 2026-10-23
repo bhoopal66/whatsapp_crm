@@ -22,7 +22,7 @@ Paste the Client ID and Secret (and the SDK pair, if you use the
 softphone) into Settings and press **Test connection**. Secrets are
 stored encrypted and never shown again; leave a field empty to keep the
 stored value. The Client ID works the same way: only its last four
-characters are shown, and an empty field keeps it. On the Cloud edition the address must be `https://`.
+characters are shown, and an empty field keeps it. On the Cloud edition the address must be `https://`. Changing the address of a saved connection means typing the Client Secret again (and the SDK pair, if stored): a stored secret is never sent to a new host.
 
 ### Two PBX limits to respect
 

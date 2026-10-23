@@ -248,6 +248,56 @@ describe('PUT /api/pbx/connection', () => {
       status: 'unknown',
     });
   });
+
+  describe('moving the address', () => {
+    const moved = { ...VALID, baseUrl: 'https://other.example.com' };
+
+    it('refuses a moved address without the client secret, and writes nothing', async () => {
+      const res = await put(moved);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/client secret/i);
+      expect(fake.tables.pbx_connections[0].base_url).toBe(
+        'https://pbx.example.com'
+      );
+      expect(fake.tables.pbx_connection_secrets[0].token_cache_enc).toBe(
+        'cached'
+      );
+    });
+
+    it('refuses a changed apiPath without the client secret', async () => {
+      expect((await put({ ...VALID, apiPath: 'openapi/v2.0' })).status).toBe(
+        400
+      );
+    });
+
+    it('accepts a moved address with the client secret', async () => {
+      expect((await put({ ...moved, clientSecret: 'new-secret' })).status).toBe(
+        200
+      );
+      expect(fake.tables.pbx_connections[0].base_url).toBe(
+        'https://other.example.com'
+      );
+      expect(
+        decrypt(String(fake.tables.pbx_connection_secrets[0].client_secret_enc))
+      ).toBe('new-secret');
+    });
+
+    it('also needs the SDK credentials again when some are stored', async () => {
+      Object.assign(fake.tables.pbx_connection_secrets[0], {
+        sdk_access_id_enc: encrypt('sdk-id'),
+        sdk_access_key_enc: encrypt('sdk-key'),
+      });
+      const withSecret = { ...moved, clientSecret: 'new-secret' };
+      expect((await put(withSecret)).status).toBe(400);
+      expect(fake.tables.pbx_connections[0].base_url).toBe(
+        'https://pbx.example.com'
+      );
+      expect(
+        (await put({ ...withSecret, sdkAccessId: 'i', sdkAccessKey: 'k' }))
+          .status
+      ).toBe(200);
+    });
+  });
 });
 
 describe('POST /api/pbx/connection/test', () => {
