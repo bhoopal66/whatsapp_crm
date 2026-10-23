@@ -24,17 +24,35 @@ import { digitsOnly } from '@/lib/pbx/extensions';
 const MAX_NUMBERS = 1000;
 /** Numbers per DELETE … IN (…), to keep the URL short. */
 const CHUNK = 200;
+/** Rows per read: PostgREST's default `db-max-rows`. */
+const READ_PAGE = 1000;
 
 const fail = (error: string) => NextResponse.json({ error }, { status: 400 });
 
+/**
+ * Every listed number, a page at a time. Deal-room calls can list more
+ * than MAX_NUMBERS, and an unpaged read stops at PostgREST's 1,000 rows:
+ * the screen would never show (or let an admin remove) the rest, and
+ * would send back a `loaded` that omits them.
+ */
 async function read(supabase: SupabaseClient, accountId: string) {
-  const { data, error } = await supabase
-    .from('pbx_bank_numbers')
-    .select('number, bank_code')
-    .eq('account_id', accountId)
-    .order('number', { ascending: true });
-  if (error) throw new Error(`pbx_bank_numbers read failed: ${error.message}`);
-  return (data ?? []) as { number: string; bank_code: string }[];
+  const rows: { number: string; bank_code: string }[] = [];
+  for (let from = 0; ;) {
+    const { data, error } = await supabase
+      .from('pbx_bank_numbers')
+      .select('number, bank_code')
+      .eq('account_id', accountId)
+      .order('number', { ascending: true })
+      .range(from, from + READ_PAGE - 1);
+    if (error)
+      throw new Error(`pbx_bank_numbers read failed: ${error.message}`);
+    const page = (data ?? []) as { number: string; bank_code: string }[];
+    if (page.length === 0) break;
+    rows.push(...page);
+    // By what came back: a server capping below READ_PAGE still pages.
+    from += page.length;
+  }
+  return rows;
 }
 
 const reply = (rows: { number: string; bank_code: string }[]) =>
