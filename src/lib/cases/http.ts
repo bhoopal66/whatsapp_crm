@@ -32,6 +32,7 @@ import { BankDashboardRefusedError } from './dashboard';
 import { CaseInboxRefusedError, type CaseInboxFilters } from './inbox';
 import { CaseRefusedError, CaseStoreError, type CaseStore } from './store';
 import type { Case, CaseRole } from './types';
+import { inPostgresRange } from '@/lib/pg-date';
 
 export { isUuid };
 
@@ -221,8 +222,7 @@ export function optionalText(value: unknown, field: string, max: number) {
 
 export function requiredDate(value: unknown, field: string): Date {
   const d = typeof value === 'string' ? new Date(value) : null;
-  if (!d || Number.isNaN(d.getTime()))
-    throw badRequest(`${field} must be a date`);
+  if (!d || !inPostgresRange(d)) throw badRequest(`${field} must be a date`);
   return d;
 }
 

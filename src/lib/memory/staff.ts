@@ -13,6 +13,7 @@
 import { tokenizeSensitive, type TokenVault } from '@/lib/vault/tokenize';
 import {
   humanOriginFromChannel,
+  MAX_RAW_CHARS,
   type MemoryKind,
   type MemoryScope,
   type MemoryStore,
@@ -51,6 +52,16 @@ export async function addStaffMemory(
 ): Promise<StaffMemoryResult> {
   const { accountId, userId, scope } = input;
   let content = input.content;
+  // put() refuses raw content over MAX_RAW_CHARS anyway; refusing first
+  // keeps an oversized note from being scanned and vaulted (vault rows
+  // that then belong to nothing) before that refusal.
+  const raw = Array.from(content).length;
+  if (raw > MAX_RAW_CHARS)
+    return {
+      ok: false,
+      refused: 'TOO_LONG',
+      reason: `content is ${raw} chars before redaction (max ${MAX_RAW_CHARS})`,
+    };
   if (deps.vault && scope.type !== 'workspace') {
     const t = await tokenizeSensitive(
       content,

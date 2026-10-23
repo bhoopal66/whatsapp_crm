@@ -388,6 +388,8 @@ describe('parseAuditQuery', () => {
     for (const bad of [
       'source=calls',
       'from=yesterday',
+      'from=%2B010000-01-01',
+      'to=-000001-01-01',
       'from=2026-10-02T00:00:00Z&to=2026-10-01T00:00:00Z',
       'actor=bob',
       'page=0',

@@ -31,6 +31,7 @@ import { caseStore } from '@/lib/cases/server';
 import { memoryStore, staffMemoryDeps } from '@/lib/memory/server';
 import { addStaffMemory } from '@/lib/memory/staff';
 import type { MemoryKind, MemoryScope } from '@/lib/memory/store';
+import { inPostgresRange } from '@/lib/pg-date';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -65,7 +66,7 @@ export async function GET(request: Request, { params }: Params) {
     let before: Date | null = null;
     if (rawBefore !== null && rawBefore !== '') {
       before = new Date(rawBefore);
-      if (Number.isNaN(before.getTime()))
+      if (!inPostgresRange(before))
         throw badRequest('before must be an ISO time');
     }
     const items = await store.list(ctx.userId, ctx.accountId, scope, {

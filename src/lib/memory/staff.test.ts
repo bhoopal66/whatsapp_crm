@@ -99,6 +99,23 @@ describe('addStaffMemory', () => {
     expect(m.put).not.toHaveBeenCalled();
   });
 
+  it('refuses oversized content before the vault sees it', async () => {
+    const vault = new FakeVault();
+    const m = memory();
+    const r = await addStaffMemory(
+      { memory: m, vault },
+      {
+        accountId: ACCOUNT,
+        userId: USER,
+        scope: CONTACT,
+        content: `${TEXT} ${'x'.repeat(16000)}`,
+      }
+    );
+    expect(r).toMatchObject({ ok: false, refused: 'TOO_LONG' });
+    expect(vault.puts).toHaveLength(0);
+    expect(m.put).not.toHaveBeenCalled();
+  });
+
   it('with no vault, put gets the raw text (put redacts it)', async () => {
     const m = memory();
     await addStaffMemory(

@@ -1,3 +1,5 @@
+import { inPostgresRange } from '@/lib/pg-date';
+
 /**
  * Settings → Audit log: one newest-first list over the five append-only
  * audit tables of migrations 087-089 and 092. Each table's SELECT policy opens
@@ -337,7 +339,8 @@ export interface AuditQuery {
 function instant(raw: string | null): string | null | undefined {
   if (raw === null || raw.trim() === '') return null;
   const ms = Date.parse(raw);
-  return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+  if (Number.isNaN(ms) || !inPostgresRange(new Date(ms))) return undefined;
+  return new Date(ms).toISOString();
 }
 
 /** GET /api/audit's query string; a string is the 400 to answer. */

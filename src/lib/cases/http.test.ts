@@ -23,6 +23,7 @@ import {
   parseAmount,
   parseInboxQuery,
   requireCaseGroup,
+  requiredDate,
   requiredKey,
   requiredText,
 } from './http';
@@ -194,6 +195,19 @@ describe('canSeeCaseAudit', () => {
     expect(canSeeCaseAudit('super_admin')).toBe(true);
     for (const r of ['team_lead', 'coordinator', 'agent', null] as const)
       expect(canSeeCaseAudit(r)).toBe(false);
+  });
+});
+
+describe('requiredDate', () => {
+  it('is a 400 for a year Postgres cannot store, not a 500 later', () => {
+    for (const bad of ['+010000-01-01', '-000001-01-01', 'soon']) {
+      expect(() => requiredDate(bad, 'contacted_at'), bad).toThrow(
+        CaseHttpError
+      );
+    }
+    expect(requiredDate('2026-10-23T09:00:00Z', 'x').toISOString()).toBe(
+      '2026-10-23T09:00:00.000Z'
+    );
   });
 });
 
