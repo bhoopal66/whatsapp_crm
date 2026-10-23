@@ -22,6 +22,8 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { digitsOnly } from '@/lib/pbx/extensions';
 
 const MAX_NUMBERS = 1000;
+/** Numbers per DELETE … IN (…), to keep the URL short. */
+const CHUNK = 200;
 
 const fail = (error: string) => NextResponse.json({ error }, { status: 400 });
 
@@ -104,12 +106,14 @@ export async function PUT(request: Request) {
     // Only what the admin removed: a row the screen never loaded stays.
     const kept = new Set(bankNumbers.map((r) => r.number));
     const removed = loaded.filter((n) => !kept.has(n));
-    if (removed.length) {
+    // `loaded` is uncapped (see parse), so in chunks: one IN list of
+    // thousands of numbers is a URL PostgREST refuses.
+    for (let i = 0; i < removed.length; i += CHUNK) {
       const { error } = await ctx.supabase
         .from('pbx_bank_numbers')
         .delete()
         .eq('account_id', ctx.accountId)
-        .in('number', removed);
+        .in('number', removed.slice(i, i + CHUNK));
       if (error)
         throw new Error(`pbx_bank_numbers delete failed: ${error.message}`);
     }

@@ -233,6 +233,40 @@ describe('POST /api/pbx/extensions/sync', () => {
       ]);
   });
 
+  it("refreshes every known extension, past PostgREST's 1,000-row read cap", async () => {
+    const numbers = Array.from({ length: 1200 }, (_, i) => String(2000 + i));
+    fake.tables.pbx_extensions.push(
+      ...numbers.map((extension) => ({
+        id: `x${extension}`,
+        connection_id: 'c1',
+        extension,
+        account_id: A1,
+        user_id: null,
+        registration_state: 'unregistered',
+      }))
+    );
+    fake.capRows(1000);
+    const listExtensions = vi.fn(
+      async ({ page, pageSize }: { page: number; pageSize: number }) => ({
+        total: numbers.length,
+        items: numbers
+          .slice((page - 1) * pageSize, page * pageSize)
+          .map((number) => ({
+            number,
+            callerIdName: '',
+            online: { ...offline, sipPhone: true },
+          })),
+      })
+    );
+    mocks.pbxApiFor.mockResolvedValue({ api: { listExtensions } });
+    const res = await SYNC();
+    expect(res.status).toBe(200);
+    expect((await res.json()).added).toBe(0);
+    expect(
+      numbers.filter((n) => ext(n).registration_state !== 'registered')
+    ).toEqual([]);
+  });
+
   it('logs in once on a refused credential and backs every process off', async () => {
     const listExtensions = vi.fn(async () => {
       throw new YeastarError({

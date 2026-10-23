@@ -18,6 +18,8 @@ export interface FakeDb {
   objects: Record<string, { bytes: number; contentType?: string }>;
   /** The next `op` on `table` (`storage:<bucket>` for `upload` / `sign`) answers with this error. */
   fail(table: string, op: string, error: DbError): void;
+  /** As PostgREST's `db-max-rows`: no select returns more rows, whatever its range. */
+  capRows(max: number): void;
 }
 
 /** null never compares; numbers numerically, anything else as text (ISO times sort). */
@@ -48,6 +50,7 @@ export function createFakeDb(
 ): FakeDb {
   const failures = new Map<string, DbError>();
   const log: FakeDb['log'] = [];
+  let maxRows = Infinity;
 
   class Query implements PromiseLike<Result> {
     private op = 'select';
@@ -252,7 +255,7 @@ export function createFakeDb(
         const count = data.length;
         data = data.slice(
           this.offset,
-          this.max === undefined ? undefined : this.offset + this.max
+          this.offset + Math.min(this.max ?? Infinity, maxRows)
         );
         if (this.counted) {
           return { data: this.head ? null : data, error: null, count };
@@ -274,6 +277,9 @@ export function createFakeDb(
     log,
     objects,
     fail: (table, op, error) => failures.set(`${table}:${op}`, error),
+    capRows: (max) => {
+      maxRows = max;
+    },
     db: {
       from: (table: string) => new Query(table),
       rpc: async (name: string, args: Row) => {

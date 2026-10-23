@@ -253,6 +253,24 @@ describe('/api/pbx/bank-numbers', () => {
     expect(banks()).toEqual(['0501:OLD']);
   });
 
+  it('deletes a long removal list in chunks', async () => {
+    const many = Array.from({ length: 450 }, (_, i) => String(100000 + i));
+    fake.tables.pbx_bank_numbers.push(
+      ...many.map((number) => ({ account_id: A1, number, bank_code: 'A' }))
+    );
+    const res = await PUT_BANKS(
+      req({ bankNumbers: [{ number: '0501', bankCode: 'OLD' }], loaded: many })
+    );
+    expect(res.status).toBe(200);
+    expect(banks()).toEqual(['0501:OLD']);
+    // 200 numbers per IN list, so the URL stays short.
+    expect(
+      fake.log.filter(
+        (l) => l.table === 'pbx_bank_numbers' && l.op === 'delete'
+      )
+    ).toHaveLength(3);
+  });
+
   it('refuses duplicates, short numbers and empty codes', async () => {
     for (const bankNumbers of [
       [

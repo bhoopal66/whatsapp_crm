@@ -38,6 +38,8 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 200;
 /** Extension numbers per UPDATE … IN (…), to keep the URL short. */
 const CHUNK = 200;
+/** Rows per read of the known extensions; PostgREST caps a read at 1,000. */
+const READ_PAGE = 1000;
 
 async function listAll(api: YeastarApi): Promise<ExtensionSummary[]> {
   const byNumber = new Map<string, ExtensionSummary>();
@@ -118,15 +120,25 @@ export async function POST() {
       );
     }
 
-    const { data: existing, error: readError } = await db
-      .from('pbx_extensions')
-      .select('extension')
-      .eq('connection_id', conn.id);
-    if (readError)
-      throw new Error(`pbx_extensions read failed: ${readError.message}`);
-    const known = new Set(
-      ((existing ?? []) as { extension: string }[]).map((r) => r.extension)
-    );
+    // Every known extension, a page at a time: one past an unpaged read's
+    // 1,000 rows would be taken for new, skipped by the insert's ON
+    // CONFLICT DO NOTHING, and never get its registration refreshed.
+    const known = new Set<string>();
+    for (let from = 0; ;) {
+      const { data, error: readError } = await db
+        .from('pbx_extensions')
+        .select('extension')
+        .eq('connection_id', conn.id)
+        .order('extension', { ascending: true })
+        .range(from, from + READ_PAGE - 1);
+      if (readError)
+        throw new Error(`pbx_extensions read failed: ${readError.message}`);
+      const page = (data ?? []) as { extension: string }[];
+      if (page.length === 0) break;
+      for (const r of page) known.add(r.extension);
+      // By what came back: a server capping below READ_PAGE still pages.
+      from += page.length;
+    }
 
     const stamp = new Date().toISOString();
     const groups = new Map<
