@@ -94,7 +94,8 @@ export async function POST(request: Request) {
   try {
     const ctx = await requireRole('admin');
 
-    const body = await request.json().catch(() => ({}));
+    // `?? {}`: a body of `null` parses fine and then threw on `.name`.
+    const body = (await request.json().catch(() => null)) ?? {};
     const name = typeof body.name === 'string' ? body.name.trim() : '';
 
     if (!name) {

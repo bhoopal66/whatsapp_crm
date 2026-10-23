@@ -63,7 +63,11 @@ export async function POST(request: Request) {
     return json(503, MESSAGES.unavailable);
   }
 
-  const outcome = await signIn(email, password);
+  // GoTrue gets the same string the lockout keys on. It lowercases with
+  // Go's simple case mapping, JavaScript with the full one, so a raw
+  // `admİn@…` reached the user `admin@…` under a lockout key of its own
+  // and every such variant bought another set of guesses.
+  const outcome = await signIn(user, password);
   if (outcome === 'throttled') return json(429, MESSAGES.throttled, 1000);
   if (outcome === 'unavailable') return json(503, MESSAGES.unavailable);
 

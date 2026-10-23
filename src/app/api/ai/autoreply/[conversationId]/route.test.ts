@@ -84,11 +84,13 @@ function setup(opts: {
   conv?: unknown;
   lastMessage?: unknown;
   channel?: unknown;
+  updatedRows?: unknown[];
 }) {
   scoped = fakeClient({
     conversations: [
       { data: 'conv' in opts ? opts.conv : CONV_ROW, error: null },
-      { data: null, error: null }, // the update
+      // the update, which returns the rows RLS let it change
+      { data: opts.updatedRows ?? [{ id: CONV }], error: null },
     ],
   });
   admin = fakeClient({
@@ -146,6 +148,14 @@ describe('POST /api/ai/autoreply/[conversationId]', () => {
     expect(res.status).toBe(404);
     expect(updatePatch()).toBeUndefined();
     expect(admin.calls).toHaveLength(0);
+  });
+
+  it('is 403 when RLS lets the caller see but not update the chat; no reply is queued', async () => {
+    setup({ updatedRows: [], lastMessage: CUSTOMER_LAST });
+    const res = await post({ paused: false, reply_now: true });
+    expect(res.status).toBe(403);
+    expect(admin.calls).toHaveLength(0);
+    expect(mocks.afterCallbacks).toHaveLength(0);
   });
 
   it('taking over records the take_over reason and time', async () => {

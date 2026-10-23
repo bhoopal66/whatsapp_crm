@@ -24,6 +24,7 @@
 import { NextResponse } from "next/server";
 
 import { hashInviteToken } from "@/lib/auth/invitations";
+import { clientIp } from "@/lib/edge/client-ip";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -42,21 +43,16 @@ import { createClient } from "@/lib/supabase/server";
  * exist — the limit then effectively applies "globally," which
  * is fine for dev.
  */
-function getClientIp(request: Request): string {
-  const xff = request.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
-  const xri = request.headers.get("x-real-ip");
-  if (xri) return xri.trim();
-  return "unknown";
-}
-
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ token: string }> },
 ) {
   // Rate-limit by IP first. Returns 429 to a serial bruteforcer
   // before we ever touch the DB.
-  const ip = getClientIp(request);
+  // The deployment's configured client-IP header only: the leftmost
+  // x-forwarded-for entry is written by the client, so keying on it let
+  // a fresh header value per request skip the limit.
+  const ip = clientIp(request.headers) ?? "unknown";
   const limit = checkRateLimit(`peek:${ip}`, RATE_LIMITS.invitationPeek);
   if (!limit.success) return rateLimitResponse(limit);
 

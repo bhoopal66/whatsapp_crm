@@ -5,6 +5,7 @@ import { loadAiConfig } from '@/lib/ai/config'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { retrieveKnowledgeScored } from '@/lib/ai/knowledge'
 import { generateReply } from '@/lib/ai/generate'
+import { logAiUsage } from '@/lib/ai/usage'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { matchEscalationKeyword } from '@/lib/ai/escalation'
@@ -39,6 +40,14 @@ export async function POST(request: Request) {
 
     const limit = checkRateLimit(`ai-playground:${userId}`, RATE_LIMITS.aiDraft)
     if (!limit.success) return rateLimitResponse(limit)
+    // The playground spends the same shared BYO key as drafts, so it
+    // draws on the same team-wide cap; a per-person limit alone let N
+    // people spend N times it.
+    const accountLimit = checkRateLimit(
+      `ai-draft-acct:${accountId}`,
+      RATE_LIMITS.aiDraftAccount,
+    )
+    if (!accountLimit.success) return rateLimitResponse(accountLimit)
 
     const body = await request.json().catch(() => null)
     const rawMessages = Array.isArray(body?.messages) ? body.messages : null
@@ -125,7 +134,22 @@ export async function POST(request: Request) {
       strictGrounding: config.strictGrounding,
     })
 
-    const { text, handoff } = await generateReply({ config, systemPrompt, messages })
+    const { text, handoff, usage } = await generateReply({
+      config,
+      systemPrompt,
+      messages,
+    })
+    // Recorded as a draft (ai_usage_log's mode CHECK knows only
+    // auto_reply and draft): playground tokens are real spend on the
+    // account's key and used to be invisible in the usage log.
+    void logAiUsage(supabaseAdmin(), {
+      accountId,
+      conversationId: null,
+      mode: 'draft',
+      provider: config.provider,
+      model: config.model,
+      usage,
+    })
     return NextResponse.json({
       reply: text,
       handoff,

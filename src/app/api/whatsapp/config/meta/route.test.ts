@@ -21,6 +21,7 @@ interface Query {
 const db = {
   existing: null as Record<string, unknown> | null,
   claimed: null as Record<string, unknown> | null,
+  insertError: null as Record<string, unknown> | null,
   writes: [] as Query[],
 };
 
@@ -48,7 +49,7 @@ function makeSupabase() {
       };
       b.insert = async (payload: unknown) => {
         db.writes.push({ ...q, op: 'insert', payload });
-        return { error: null };
+        return { error: db.insertError };
       };
       b.maybeSingle = async () => {
         if (table === 'profiles') {
@@ -174,6 +175,7 @@ beforeEach(() => {
   requireRole.mockResolvedValue({ accountId: 'acc-1', role: 'admin' });
   db.existing = null;
   db.claimed = null;
+  db.insertError = null;
   db.writes = [];
   graph.wabaPages = [[{ id: PHONE }]];
   graph.wabaListStatus = 200;
@@ -380,5 +382,19 @@ describe('POST /api/whatsapp/config/meta — the phone number must be in the WAB
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain('another account');
     expect(subscribeCalls()).toHaveLength(0);
+  });
+
+  it('answers 409 when only the UNIQUE constraint sees the other account', async () => {
+    // RLS hides another account's row from the pre-check; the insert's
+    // UNIQUE (phone_number_id) violation is the only signal.
+    db.insertError = {
+      code: '23505',
+      message:
+        'duplicate key value violates unique constraint "whatsapp_config_phone_number_id_key"',
+      details: 'Key (phone_number_id)=(123) already exists.',
+    };
+    const res = await save({ phone_number_id: PHONE, access_token: 'tok' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('another account');
   });
 });

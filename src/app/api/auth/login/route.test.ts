@@ -157,6 +157,15 @@ describe('POST /api/auth/login', () => {
     expect((await login('alice@example.com', PASSWORD)).status).toBe(423);
   });
 
+  it('sends GoTrue the exact string the lockout keys on', async () => {
+    // JS lowercases U+0130 to "i̇" (two code points), Go to "i": a raw
+    // variant reached the same GoTrue user under a lockout key of its own.
+    await login('Admİn@Example.com', PASSWORD);
+    const sent = mocks.signIn.mock.calls.at(-1)?.[0]?.email;
+    expect(sent).toBe('Admİn@Example.com'.toLowerCase());
+    expect(store.clear).toHaveBeenCalledWith('203.0.113.7', sent);
+  });
+
   it('a success clears the pair, so earlier failures do not add up to a lock', async () => {
     for (let i = 0; i < 4; i++) await login('alice@example.com');
     expect((await login('alice@example.com', PASSWORD)).status).toBe(200);

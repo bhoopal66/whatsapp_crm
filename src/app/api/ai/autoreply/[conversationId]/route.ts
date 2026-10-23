@@ -125,16 +125,26 @@ export async function POST(request: Request, { params }: Params) {
       update.ai_pending_draft_at = null;
     }
 
-    const { error: upErr } = await supabase
+    const { data: updated, error: upErr } = await supabase
       .from('conversations')
       .update(update)
       .eq('id', conversationId)
-      .eq('account_id', accountId);
+      .eq('account_id', accountId)
+      .select('id');
     if (upErr) {
       console.error('[ai/autoreply] update error:', upErr);
       return NextResponse.json(
         { error: 'Failed to update conversation' },
         { status: 500 }
+      );
+    }
+    // Seeing a chat is not editing it (a coordinator's share reads but
+    // does not update): RLS then filters the UPDATE to zero rows with no
+    // error, and this used to answer success and even queue reply_now.
+    if (!updated || updated.length === 0) {
+      return NextResponse.json(
+        { error: 'You cannot change the AI setting of this conversation' },
+        { status: 403 }
       );
     }
 

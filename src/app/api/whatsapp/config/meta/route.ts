@@ -301,6 +301,9 @@ export async function POST(request: Request) {
     // Meta webhook routes on it, so a duplicate would deliver another
     // account's messages here. UNIQUE enforces this, but checking first
     // gives a comprehensible error instead of a constraint violation.
+    // Under the caller's RLS another account's row is invisible, so this
+    // only catches what RLS shows; the save below maps the UNIQUE
+    // violation itself to the same 409 (`claimedByAnother`).
     const { data: claimed } = await supabase
       .from('whatsapp_config')
       .select('account_id')
@@ -308,15 +311,7 @@ export async function POST(request: Request) {
       .neq('account_id', accountId)
       .maybeSingle();
 
-    if (claimed) {
-      return NextResponse.json(
-        {
-          error:
-            'That phone number id is already connected to another account.',
-        },
-        { status: 409 }
-      );
-    }
+    if (claimed) return claimedResponse();
 
     // Subscribe the WABA to this app so Meta actually delivers webhooks.
     // Best-effort: the credentials are still worth saving if it fails
@@ -411,6 +406,7 @@ export async function POST(request: Request) {
         .from('whatsapp_config')
         .update(baseRow)
         .eq('id', existing.id);
+      if (claimedByAnother(error)) return claimedResponse();
       if (error) {
         console.error('[whatsapp/config/meta] update failed:', error);
         return NextResponse.json(
@@ -434,6 +430,7 @@ export async function POST(request: Request) {
         is_primary: (siblingCount ?? 0) === 0,
         ...baseRow,
       });
+      if (claimedByAnother(error)) return claimedResponse();
       if (error) {
         console.error('[whatsapp/config/meta] insert failed:', error);
         return NextResponse.json(
@@ -529,4 +526,21 @@ export async function DELETE() {
       { status: 500 }
     );
   }
+}
+
+function claimedResponse(): NextResponse {
+  return NextResponse.json(
+    { error: 'That phone number id is already connected to another account.' },
+    { status: 409 }
+  );
+}
+
+/** The UNIQUE (phone_number_id) violation: another account holds it. */
+function claimedByAnother(
+  error: { code?: string; message?: string; details?: string } | null
+): boolean {
+  return (
+    error?.code === '23505' &&
+    /phone_number_id/.test(`${error.message ?? ''} ${error.details ?? ''}`)
+  );
 }
