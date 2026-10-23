@@ -53,11 +53,16 @@ export async function POST(
   // The deployment's configured client-IP header only: the leftmost
   // x-forwarded-for entry is written by the client, so keying on it let
   // a fresh header value per request skip the limit.
-  const ip = clientIp(request.headers) ?? "unknown";
+  // With no client IP configured, key per token instead of one shared
+  // "unknown" bucket that a single client could fill for every visitor:
+  // tokens are 256-bit, so a per-token limit gives up nothing.
+  const { token } = await params;
+  const ip =
+    clientIp(request.headers) ??
+    `unknown:${typeof token === "string" ? hashInviteToken(token) : ""}`;
   const limit = checkRateLimit(`redeem:${ip}`, RATE_LIMITS.invitationRedeem);
   if (!limit.success) return rateLimitResponse(limit);
 
-  const { token } = await params;
   if (!token || typeof token !== "string") {
     return NextResponse.json(
       { error: "Missing invitation token" },
