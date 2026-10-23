@@ -7,14 +7,20 @@
  * is, in the browser, with no spreadsheet library: an `.xlsx` is a ZIP
  * of XML parts, and a contact list needs only the cell text.
  *
- * Regex rather than DOMParser because the tests run in node. Dates are
- * Excel serial numbers and are returned as such, not converted.
+ * A hand scan rather than DOMParser because the tests run in node. Dates
+ * are Excel serial numbers and are returned as such, not converted.
  *
  * The file is untrusted (an admin's upload on the server, anyone's
  * spreadsheet in the browser), and both of its layers can claim far
  * more than it holds: a few KB of deflate can inflate to gigabytes, and
  * one `<row r="2000000000">` would otherwise be padded out row by row.
  * So every read runs on a budget (XLSX_LIMITS) and throws past it.
+ *
+ * The XML is scanned with indexOf, never with a lazy regex such as
+ * `<row\b…>([\s\S]*?)<\/row>`: on an entry of openers that are never
+ * closed each match attempt runs to the end of the text and fails, so
+ * 50 MB of `<row>` blocks the event loop for hours. Every search here
+ * starts where the previous one ended, which keeps a read linear.
  */
 
 /** Excel's own grid: columns A to XFD, rows 1 to 1,048,576. */
@@ -228,12 +234,122 @@ function decodeText(raw: string): string {
     );
 }
 
-/** An attribute's raw value from a tag's attribute text, or null. */
+const isSpace = (ch: string) => /\s/.test(ch);
+
+/** True when `ch` (undefined past the end) is not a regex word character. */
+const isBoundary = (ch: string | undefined) =>
+  ch === undefined || !/\w/.test(ch);
+
+/**
+ * An attribute's decoded value from a tag's attribute text, or null: the
+ * first `name = "…"` (or '…') that starts the text or follows whitespace.
+ */
 function attr(attrs: string, name: string): string | null {
-  const m = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(
-    attrs
-  );
-  return m ? decodeText(m[1] ?? m[2]) : null;
+  for (
+    let at = attrs.indexOf(name);
+    at !== -1;
+    at = attrs.indexOf(name, at + 1)
+  ) {
+    if (at > 0 && !isSpace(attrs[at - 1])) continue;
+    let i = at + name.length;
+    while (i < attrs.length && isSpace(attrs[i])) i++;
+    if (attrs[i] !== '=') continue;
+    i++;
+    while (i < attrs.length && isSpace(attrs[i])) i++;
+    const quote = attrs[i];
+    if (quote !== '"' && quote !== "'") continue;
+    // Only the last quote of each kind can lack a partner, so this
+    // search fails at most twice per call.
+    const end = attrs.indexOf(quote, i + 1);
+    if (end !== -1) return decodeText(attrs.slice(i + 1, end));
+  }
+  return null;
+}
+
+/**
+ * Where the next `<name` opening tag starts at or after `from`, or -1.
+ * The name must end there (`<c` is not `<col`, `<row` not `<rowBreaks`).
+ */
+function nextOpener(xml: string, name: string, from: number): number {
+  const open = `<${name}`;
+  for (let at = xml.indexOf(open, from); at !== -1;) {
+    if (isBoundary(xml[at + open.length])) return at;
+    at = xml.indexOf(open, at + open.length);
+  }
+  return -1;
+}
+
+/**
+ * The attribute text of every `<name …>` opening tag, in order. A tag
+ * with no `>` after it ends the scan: no later one has one either.
+ */
+function* openingTags(xml: string, name: string): Generator<string> {
+  for (let at = nextOpener(xml, name, 0); at !== -1;) {
+    const gt = xml.indexOf('>', at);
+    if (gt === -1) return;
+    yield xml.slice(at + name.length + 1, gt);
+    at = nextOpener(xml, name, gt + 1);
+  }
+}
+
+/**
+ * Every `<name …>…</name>` and `<name …/>` element, in order, as its
+ * attribute text and body ('' when self-closing; with `selfClosing`
+ * false, `<name/>` is an opening tag like any other). An element that is
+ * never closed is skipped, as a regex would skip it, but its search for
+ * `</name>` is not repeated: once that has run off the end, no later
+ * element can be closed either, and only self-closing ones still count.
+ */
+function* elements(
+  xml: string,
+  name: string,
+  selfClosing = true
+): Generator<{ attrs: string; body: string }> {
+  const close = `</${name}>`;
+  let closable = true;
+  for (let at = nextOpener(xml, name, 0); at !== -1;) {
+    const gt = xml.indexOf('>', at);
+    if (gt === -1) return;
+    const attrsFrom = at + name.length + 1;
+    let next = gt + 1;
+    if (selfClosing && gt > attrsFrom && xml[gt - 1] === '/') {
+      yield { attrs: xml.slice(attrsFrom, gt - 1), body: '' };
+    } else if (closable) {
+      const end = xml.indexOf(close, gt + 1);
+      if (end === -1) {
+        closable = false;
+      } else {
+        yield { attrs: xml.slice(attrsFrom, gt), body: xml.slice(gt + 1, end) };
+        next = end + close.length;
+      }
+    }
+    at = nextOpener(xml, name, next);
+  }
+}
+
+/** The first element of `elements`, or null. */
+function firstElement(xml: string, name: string, selfClosing = true) {
+  for (const el of elements(xml, name, selfClosing)) return el;
+  return null;
+}
+
+/**
+ * `xml` without its `<rPh>…</rPh>` runs. As before, a run's end is the
+ * first `</rPh>` after it, whatever lies between; with none left, the
+ * rest is kept.
+ */
+function withoutPhonetics(xml: string): string {
+  const close = '</rPh>';
+  let out = '';
+  let kept = 0;
+  for (let at = nextOpener(xml, 'rPh', 0); at !== -1;) {
+    const end = xml.indexOf(close, at + 4);
+    if (end === -1) break;
+    out += xml.slice(kept, at);
+    kept = end + close.length;
+    at = nextOpener(xml, 'rPh', kept);
+  }
+  return out + xml.slice(kept);
 }
 
 /**
@@ -242,49 +358,69 @@ function attr(attrs: string, name: string): string | null {
  * `<rPh>` phonetic guides Japanese files add above the text.
  */
 function richText(xml: string): string {
-  const visible = xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '');
   let text = '';
-  for (const m of visible.matchAll(/<t\b[^>]*?(?:\/>|>([\s\S]*?)<\/t>)/g)) {
-    text += decodeText(m[1] ?? '');
+  for (const t of elements(withoutPhonetics(xml), 't')) {
+    text += decodeText(t.body);
   }
   return text;
 }
 
 function sharedStrings(xml: string): string[] {
-  return Array.from(
-    xml.matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g),
-    (m) => richText(m[1] ?? '')
-  );
+  return Array.from(elements(xml, 'si'), (si) => richText(si.body));
+}
+
+/**
+ * The longest reference Excel writes is "$XFD$1048576". A longer one is
+ * refused rather than read, so no reference costs more than a few steps.
+ */
+const MAX_REF_LENGTH = 12;
+
+function checkRef(ref: string) {
+  if (ref.length > MAX_REF_LENGTH) {
+    throw new Error(
+      `Cell reference "${ref.slice(0, MAX_REF_LENGTH)}…" is too long`
+    );
+  }
 }
 
 /** "B3" → 1; null when the reference has no column letters. */
 function columnIndex(ref: string | null): number | null {
-  const letters = ref && /^\$?([A-Z]+)/i.exec(ref)?.[1];
-  if (!letters) return null;
+  if (!ref) return null;
+  checkRef(ref);
+  const from = ref[0] === '$' ? 1 : 0;
   let index = 0;
-  for (const ch of letters.toUpperCase()) {
-    index = index * 26 + (ch.charCodeAt(0) - 64);
+  let i = from;
+  for (; i < ref.length; i++) {
+    // ASCII letters only, either case: `| 0x20` lowers A-Z and leaves
+    // nothing else in a-z.
+    const code = ref.charCodeAt(i) | 0x20;
+    if (code < 97 || code > 122) break;
+    index = index * 26 + (code - 96);
   }
-  return index - 1;
+  return i === from ? null : index - 1;
 }
 
 /** "B3" → 2 (0-based); null when the reference has no row digits. */
 function rowIndex(ref: string | null): number | null {
-  const digits = ref && /(\d+)$/.exec(ref)?.[1];
-  return digits ? Number(digits) - 1 : null;
+  if (!ref) return null;
+  checkRef(ref);
+  let i = ref.length;
+  while (i > 0 && ref[i - 1] >= '0' && ref[i - 1] <= '9') i--;
+  return i === ref.length ? null : Number(ref.slice(i)) - 1;
 }
 
 function cellValue(type: string | null, body: string, shared: string[]) {
-  const v = /<v\b[^>]*?(?:\/>|>([\s\S]*?)<\/v>)/.exec(body);
-  const raw = v ? decodeText(v[1] ?? '') : '';
+  const v = firstElement(body, 'v');
+  const raw = v ? decodeText(v.body) : '';
   switch (type) {
     case 's':
       // An empty `<c t="s"/>` is a blank cell, not shared string 0
       // (`Number('')` is 0, which would repeat the first header).
       return raw.trim() === '' ? '' : (shared[Number(raw)] ?? '');
     case 'inlineStr': {
-      const is = /<is\b[^>]*>([\s\S]*?)<\/is>/.exec(body);
-      return is ? richText(is[1]) : '';
+      // `<is/>` was never self-closing here: it waits for an `</is>`.
+      const is = firstElement(body, 'is', false);
+      return is ? richText(is.body) : '';
     }
     case 'b':
       return raw === '1' ? 'TRUE' : raw === '0' ? 'FALSE' : raw;
@@ -309,12 +445,10 @@ function cellValue(type: string | null, body: string, shared: string[]) {
  */
 function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
   const rows: string[][] = [];
-  for (const row of xml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+  for (const row of elements(xml, 'row')) {
     const cells: string[] = [];
-    for (const c of (row[2] ?? '').matchAll(
-      /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
-    )) {
-      const ref = attr(c[1], 'r');
+    for (const c of elements(row.body, 'c')) {
+      const ref = attr(c.attrs, 'r');
       const col = columnIndex(ref) ?? cells.length;
       if (col >= XLSX_MAX_COLUMNS) {
         throw new Error(
@@ -323,9 +457,9 @@ function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
       }
       spendCells(budget, Math.max(0, col + 1 - cells.length));
       while (cells.length < col) cells.push('');
-      cells[col] = cellValue(attr(c[1], 't'), c[2] ?? '', shared);
+      cells[col] = cellValue(attr(c.attrs, 't'), c.body, shared);
     }
-    const ref = attr(row[1], 'r');
+    const ref = attr(row.attrs, 'r');
     const at = rowIndex(ref) ?? rows.length;
     if (at < 0 || at >= XLSX_MAX_ROWS) {
       throw new Error(
@@ -354,10 +488,10 @@ function resolveTarget(target: string): string {
 }
 
 function relationships(xml: string): Relationship[] {
-  return Array.from(xml.matchAll(/<Relationship\b([^>]*)>/g), (m) => ({
-    id: attr(m[1], 'Id') ?? '',
-    type: attr(m[1], 'Type') ?? '',
-    target: attr(m[1], 'Target') ?? '',
+  return Array.from(openingTags(xml, 'Relationship'), (a) => ({
+    id: attr(a, 'Id') ?? '',
+    type: attr(a, 'Type') ?? '',
+    target: attr(a, 'Target') ?? '',
   }));
 }
 
@@ -409,7 +543,7 @@ async function openWorkbook(
   ]);
   const rels = relsXml ? relationships(relsXml) : [];
   const sheets: Workbook['sheets'] = [];
-  for (const { 1: a } of workbook?.matchAll(/<sheet\b([^>]*)>/g) ?? []) {
+  for (const a of workbook ? openingTags(workbook, 'sheet') : []) {
     if (sheets.length === budget.limits.maxSheets) {
       throw new Error(
         `The workbook has more than ${budget.limits.maxSheets} sheets`

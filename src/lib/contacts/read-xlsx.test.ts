@@ -589,3 +589,74 @@ describe('limits', () => {
     );
   });
 });
+
+describe('malformed XML in linear time', () => {
+  // Openers that are never closed. A lazy regex rescans to the end of
+  // the entry for each one, so these sizes cost the old reader seconds
+  // (quadratic), and 50 MB of them blocked the event loop for hours.
+  // A linear scan reads each in milliseconds.
+  const BUDGET_MS = 500;
+  const cases: [string, () => Uint8Array][] = [
+    ['<row> with no </row>', () => simpleBook('<row>'.repeat(35_000))],
+    [
+      '<c> with no </c>',
+      () => simpleBook(`<row>${'<c>'.repeat(50_000)}</row>`),
+    ],
+    [
+      '<v> with no </v>',
+      () => simpleBook(`<row><c>${'<v>'.repeat(40_000)}</c></row>`),
+    ],
+    ['<si> with no </si>', () => simpleBook('<row/>', '<si>'.repeat(35_000))],
+    [
+      '<t> with no </t>',
+      () => simpleBook('<row/>', `<si>${'<t>'.repeat(40_000)}</si>`),
+    ],
+    [
+      '<sheet with no >',
+      () =>
+        zip([
+          {
+            name: 'xl/workbook.xml',
+            content: `<workbook>${'<sheet'.repeat(16_000)}`,
+          },
+        ]),
+    ],
+  ];
+
+  it.each(cases)(
+    'skips a %s without rescanning',
+    async (_, book) => {
+      const bytes = book();
+      const started = performance.now();
+      const sheets = await readXlsxSheets(bytes);
+      expect(performance.now() - started).toBeLessThan(BUDGET_MS);
+      // As before: an element that is never closed is not read.
+      expect(sheets.flatMap((s) => s.rows.flat()).join('')).toBe('');
+    },
+    10_000
+  );
+
+  it('refuses a reference longer than Excel writes, without scanning it', async () => {
+    // A trailing-digits regex is quadratic on a long digit run that does
+    // not end the reference.
+    const bytes = simpleBook(`<row r="${'1'.repeat(40_000)}x"/>`);
+    const started = performance.now();
+    await expect(readXlsxTable(bytes)).rejects.toThrow(
+      /Cell reference "1{12}…" is too long/
+    );
+    expect(performance.now() - started).toBeLessThan(BUDGET_MS);
+    // The longest reference Excel writes is still read.
+    const last = simpleBook(
+      '<row r="1048576"><c r="$XFD$1048576" t="str"><v>z</v></c></row>'
+    );
+    expect((await readXlsxSheets(last))[0].rows[1_048_575][16_383]).toBe('z');
+  }, 10_000);
+
+  it('does not take a longer tag for a cell, row or text run', async () => {
+    const rows =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>a</t><text>no</text>' +
+      '<tableParts>no</tableParts></is></c><col>no</col><cols/>' +
+      '<c r="B1" t="str"><v>b</v></c></row><rowBreaks><c>no</c></rowBreaks>';
+    expect(await readXlsxTable(simpleBook(rows))).toEqual([['a', 'b']]);
+  });
+});
