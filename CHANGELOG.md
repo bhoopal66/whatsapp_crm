@@ -17,6 +17,24 @@ and polish.
 - Workspaces: the workspace rail at the far left of the sidebar is gone. Switching workspace, and creating one (owners and admins), now happens in **Settings → My account → Workspaces**, which lists every workspace you belong to with your role, team-chat unread and mentions. A bank guest can open that one Settings section (from the account menu's **Workspaces** item) and nothing else of Settings. No migration.
 - Cases: a **New lead** button on the Cases page opens a lead without going through the customer page; the dialog starts with a customer search (name or phone, limited to the contacts you can see).
 
+### Security hardening (migration 135)
+
+**Migration required: 135** (`135_security_hardening.sql`). SQL only:
+- Automations, automation steps, flows, flow nodes, broadcasts and broadcast
+  recipients are now admin-only writes in the database too. Every screen and
+  route already was, but an agent could write them straight through the API
+  with their own sign-in (for example an active automation forwarding every
+  customer message to an outside webhook, or a scheduled broadcast).
+- Transferring ownership takes the per-person lock, so two concurrent
+  transfers can no longer leave two owners.
+- A team's new leader or members must be live staff: no bank guests, no
+  deactivated people. Someone already on the team stays when it is saved.
+- An invite link whose creator may no longer grant its role, or whose
+  workspace is archived, now shows as expired on the join page instead of
+  naming the workspace (redeeming it was already refused).
+- Nobody can change their own `profiles.email` directly; email changes go
+  through sign-in settings, as the app already does.
+
 ### Compass case sync (migration 134)
 
 **Migration required: 134** (`134_compass_case_sync.sql`), as a superuser or
