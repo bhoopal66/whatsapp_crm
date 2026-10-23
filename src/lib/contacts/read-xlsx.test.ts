@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 
 import { readXlsxSheets, readXlsxTable } from './read-xlsx';
@@ -22,6 +22,8 @@ interface FixtureFile {
   content: string;
   /** 0 = stored, 8 = deflate (default). */
   method?: 0 | 8;
+  /** The uncompressed size the central directory claims (default: true). */
+  declaredSize?: number;
 }
 
 /**
@@ -63,7 +65,7 @@ function zip(files: FixtureFile[]): Uint8Array {
     central.writeUInt16LE(method, 10);
     central.writeUInt32LE(crc, 16);
     central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(raw.length, 24);
+    central.writeUInt32LE(file.declaredSize ?? raw.length, 24);
     central.writeUInt16LE(name.length, 28);
     central.writeUInt32LE(offset, 42);
     centrals.push(central, Buffer.from(name));
@@ -412,5 +414,178 @@ describe('readXlsxSheets', () => {
       },
     ]);
     expect(await readXlsxSheets(bytes)).toEqual([]);
+  });
+});
+
+describe('limits', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Counts the inflaters started and the bytes they hand on, which is
+   * what an early abort keeps small.
+   */
+  function countInflation() {
+    const counts = { streams: 0, bytes: 0 };
+    const Real = globalThis.DecompressionStream;
+    class Counting extends Real {
+      constructor(format: CompressionFormat) {
+        super(format);
+        counts.streams++;
+      }
+      get readable() {
+        return super.readable.pipeThrough(
+          new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>(
+            {
+              transform(chunk, ctl) {
+                counts.bytes += chunk.length;
+                ctl.enqueue(chunk);
+              },
+            }
+          )
+        );
+      }
+    }
+    vi.stubGlobal('DecompressionStream', Counting);
+    return counts;
+  }
+
+  it("refuses a row below Excel's last row", async () => {
+    const bytes = simpleBook(
+      '<row r="1048577"><c r="A1048577"><v>1</v></c></row>'
+    );
+    await expect(readXlsxTable(bytes)).rejects.toThrow(
+      /Row 1048577 is outside Excel's rows/
+    );
+  });
+
+  it("refuses a cell right of Excel's last column", async () => {
+    const bytes = simpleBook('<row r="1"><c r="XFE1"><v>1</v></c></row>');
+    await expect(readXlsxSheets(bytes)).rejects.toThrow(
+      /Cell XFE1 is beyond Excel's last column/
+    );
+    // XFD is the last column, and is read.
+    const last = simpleBook('<row r="1"><c r="XFD1"><v>1</v></c></row>');
+    expect((await readXlsxTable(last))[0]).toHaveLength(16_384);
+  });
+
+  it('charges blank padding to the cell budget', async () => {
+    const bytes = simpleBook(
+      '<row r="200000"><c r="A200000"><v>1</v></c></row>'
+    );
+    await expect(readXlsxTable(bytes, { maxCells: 1000 })).rejects.toThrow(
+      /more than 1000 cells/
+    );
+  });
+
+  it('spends one cell budget across every sheet, a row counting as one', async () => {
+    // Each sheet: one row of three cells, four slots.
+    const row =
+      '<row r="1"><c><v>1</v></c><c><v>2</v></c><c><v>3</v></c></row>';
+    const bytes = zip([
+      ...workbook(
+        [
+          { name: 'A', rid: 'rId1' },
+          { name: 'B', rid: 'rId2' },
+        ],
+        [
+          { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
+          { id: 'rId2', type: 'worksheet', target: 'worksheets/sheet2.xml' },
+        ]
+      ),
+      { name: 'xl/worksheets/sheet1.xml', content: sheet(row) },
+      { name: 'xl/worksheets/sheet2.xml', content: sheet(row) },
+    ]);
+    expect(await readXlsxSheets(bytes, { maxCells: 8 })).toHaveLength(2);
+    await expect(readXlsxSheets(bytes, { maxCells: 7 })).rejects.toThrow(
+      /more than 7 cells/
+    );
+  });
+
+  it('refuses an entry whose declared size is over the cap, before inflating it', async () => {
+    const counts = countInflation();
+    const bytes = simpleBook('<row r="1"><c><v>1</v></c></row>');
+    await expect(readXlsxTable(bytes, { maxEntryBytes: 100 })).rejects.toThrow(
+      /xl\/workbook\.xml is too large/
+    );
+    expect(counts.streams).toBe(0);
+  });
+
+  it('caps the uncompressed bytes of the whole workbook', async () => {
+    const bytes = simpleBook('<row r="1"><c><v>1</v></c></row>');
+    expect(await readXlsxTable(bytes)).toEqual([['1']]);
+    // workbook.xml and its relationships fit; the sheet does not.
+    await expect(
+      readXlsxTable(bytes, { maxEntryBytes: 1000, maxTotalBytes: 700 })
+    ).rejects.toThrow(/too large uncompressed/);
+  });
+
+  it('stops inflating an entry as soon as it passes its declared size', async () => {
+    const counts = countInflation();
+    const bytes = zip([
+      ...workbook(
+        [{ name: 'Sheet1', rid: 'rId1' }],
+        [{ id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' }]
+      ),
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        // 4 MB of spaces deflate to a few KB and claim 1,000 bytes.
+        content: sheet('') + ' '.repeat(4 * 1024 * 1024),
+        declaredSize: 1000,
+      },
+    ]);
+    await expect(readXlsxTable(bytes)).rejects.toThrow(
+      /inflates past its declared size/
+    );
+    expect(counts.bytes).toBeLessThan(512 * 1024);
+  });
+
+  it('inflates an entry once however many sheets point at it', async () => {
+    const counts = countInflation();
+    const bytes = zip([
+      ...workbook(
+        [
+          { name: 'A', rid: 'rId1' },
+          { name: 'B', rid: 'rId2' },
+        ],
+        [
+          { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
+          {
+            id: 'rId2',
+            type: 'worksheet',
+            target: '/xl/worksheets/sheet1.xml',
+          },
+        ]
+      ),
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        content: sheet('<row r="1"><c><v>1</v></c></row>'),
+      },
+    ]);
+    const sheets = await readXlsxSheets(bytes);
+    expect(sheets.map((s) => s.rows)).toEqual([[['1']], [['1']]]);
+    // workbook.xml, its relationships and the one sheet.
+    expect(counts.streams).toBe(3);
+  });
+
+  it('refuses a workbook with more tabs than the cap', async () => {
+    const bytes = zip([
+      ...workbook(
+        [
+          { name: 'A', rid: 'rId1' },
+          { name: 'B', rid: 'rId1', state: 'hidden' },
+        ],
+        [{ id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' }]
+      ),
+      {
+        name: 'xl/worksheets/sheet1.xml',
+        content: sheet('<row r="1"><c><v>1</v></c></row>'),
+      },
+    ]);
+    expect(await readXlsxSheets(bytes, { maxSheets: 2 })).toHaveLength(1);
+    await expect(readXlsxSheets(bytes, { maxSheets: 1 })).rejects.toThrow(
+      /more than 1 sheets/
+    );
   });
 });
