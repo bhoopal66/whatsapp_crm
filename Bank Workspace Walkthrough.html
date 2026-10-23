@@ -1,0 +1,294 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Bank Workspace Walkthrough</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a fixed "screen" (the CRM window) with a caption strip and player controls beneath it, like a recorded demo. */
+:root {
+  --bg: #f3f4f1; --panel: #ffffff; --fg: #1d2420; --muted: #5f6a64; --line: #d9ddd8;
+  --accent: #0d6b5c; --accent-soft: #d9efea; --warn: #b4570d; --warn-soft: #fbe9d6; --bad: #a3322b; --bad-soft: #f8dedc;
+  --hl: #ffe9a8; --screen: #e9ece8; --font: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151916; --panel: #1f2521; --fg: #e8ece9; --muted: #9ca69f; --line: #343c37;
+  --accent: #5fc3ad; --accent-soft: #1d3b35; --warn: #f0a054; --warn-soft: #3d2a16; --bad: #ef8a83; --bad-soft: #3d1f1c;
+  --hl: #4d4322; --screen: #0f1210; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #151916; --panel: #1f2521; --fg: #e8ece9; --muted: #9ca69f; --line: #343c37;
+  --accent: #5fc3ad; --accent-soft: #1d3b35; --warn: #f0a054; --warn-soft: #3d2a16; --bad: #ef8a83; --bad-soft: #3d1f1c;
+  --hl: #4d4322; --screen: #0f1210; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 32px; }
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); }
+.player { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.screen { position: relative; background: var(--screen); aspect-ratio: 16 / 9; max-width: 100%; overflow: hidden; }
+.step { position: absolute; inset: 0; padding: 14px; display: grid; grid-template-columns: 180px 1fr; gap: 12px; opacity: 0; transition: opacity .35s; }
+.step.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .step { transition: none } .cursor { transition: none } }
+.side { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12.5px; min-width: 0; }
+.side h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.side li { padding: 5px 7px; border-radius: 5px; }
+.side li.sel { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.main { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; overflow: hidden; display: grid; gap: 8px; align-content: start; }
+.main h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.sub { color: var(--muted); font-size: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+tr.hl td { background: var(--hl); }
+.pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; white-space: nowrap; }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.post { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font-size: 12.5px; display: grid; gap: 3px; }
+.post .who { font-weight: 600; font-size: 12px; }
+.post .who span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.post.flag { border-color: var(--warn); background: var(--warn-soft); }
+.btn { display: inline-block; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.hot { outline: 3px solid var(--hl); }
+.pins { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 12px; }
+.pin { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+.pin b { display: block; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.kpi { border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+.kpi b { display: block; font-size: 11px; color: var(--muted); font-weight: 500; }
+.kpi span { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.bars { display: grid; gap: 4px; font-size: 12px; }
+.bar { display: grid; grid-template-columns: 130px 1fr 34px; gap: 8px; align-items: center; }
+.bar i { display: block; height: 10px; border-radius: 3px; background: var(--accent); }
+.bar em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.cursor { position: absolute; width: 14px; height: 14px; pointer-events: none; transition: left .6s ease, top .6s ease; z-index: 5; }
+.cursor svg { display: block; width: 14px; height: 14px; }
+.lock { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--screen) 70%, transparent); z-index: 4; }
+.lock div { background: var(--panel); border: 1px solid var(--bad); color: var(--bad); padding: 10px 14px; border-radius: 8px; font-size: 13px; max-width: 360px; text-align: center; }
+.caption { padding: 12px 14px; border-top: 1px solid var(--line); display: grid; gap: 4px; min-height: 76px; }
+.caption b { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.caption p { margin: 0; }
+.caption code { font-family: var(--mono); font-size: 12px; background: var(--accent-soft); color: var(--accent); padding: 0 5px; border-radius: 4px; }
+.controls { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.controls button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.controls button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.prog { flex: 1 1 160px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 0; }
+.prog i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.note { font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) {
+  .step { grid-template-columns: 1fr; padding: 8px; gap: 6px; }
+  .side { display: none; }
+  .screen { aspect-ratio: 4 / 3; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .main { font-size: 12px; padding: 8px 10px; }
+  .bar { grid-template-columns: 100px 1fr 30px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Bank workspace walkthrough</h1>
+    <p>Module 018c, shown on the CBD workspace. Example data.</p>
+  </header>
+
+  <div class="player">
+    <div class="screen" id="screen">
+      <div class="cursor" id="cursor" style="left:40%;top:40%"><svg viewBox="0 0 14 14"><path d="M1 1 L13 7 L7 8 L5 13 Z" fill="#111" stroke="#fff" stroke-width="1"/></svg></div>
+
+      <!-- A1 admin: banks list -->
+      <section class="step" data-cursor="78,46">
+        <div class="side"><h4>Admin</h4><ul><li>Users</li><li>Teams</li><li class="sel">Banks</li><li>Bank settings</li></ul></div>
+        <div class="main"><h3>Banks</h3><div class="sub">Signed in as Admin. Only Admin and Super Admin see the Create button; the role is read from the user table, not from the browser.</div>
+          <table><tr><th>Bank</th><th>Workspace</th><th></th></tr>
+            <tr><td>RAKBANK</td><td><span class="pill">created 12 Oct</span></td><td><span class="btn">Open</span></td></tr>
+            <tr class="hl"><td>CBD</td><td><span class="pill warn">none yet</span></td><td><span class="btn primary hot">Create workspace</span></td></tr>
+            <tr><td>Mashreq</td><td><span class="pill warn">none yet</span></td><td><span class="btn">Create workspace</span></td></tr>
+            <tr><td>ADCB</td><td><span class="pill">created 12 Oct</span></td><td><span class="btn">Open</span></td></tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- A2 admin: created -->
+      <section class="step" data-cursor="60,40">
+        <div class="side"><h4>Admin</h4><ul><li>Users</li><li>Teams</li><li class="sel">Banks</li><li>Bank settings</li></ul></div>
+        <div class="main"><h3>CBD workspace created</h3><div class="sub">One call: <span style="font-family:var(--mono);font-size:12px">bank_ws_create(admin, 'CBD')</span>. Running it again for CBD returns the same workspace.</div>
+          <div class="pins">
+            <div class="pin"><b>Workspace id</b><span style="font-family:var(--mono);font-size:12px">b7c1-...-9e</span></div>
+            <div class="pin"><b>Created by</b>Admin, 19 Oct 21:20</div>
+            <div class="pin"><b>Seeded</b>Task template "Action needed" (your tenant only)</div>
+            <div class="pin"><b>Members</b>0 added by hand. Agents, Coordinators and Team Leads join automatically through their open CBD cases.</div>
+          </div>
+          <div><span class="btn primary hot">Set up pinned info</span></div>
+        </div>
+      </section>
+
+      <!-- A3 admin: pinned info form -->
+      <section class="step" data-cursor="72,80">
+        <div class="side"><h4>CBD</h4><ul><li>Cases</li><li class="sel">Pinned info</li><li>Discussion</li><li>Dashboard</li></ul></div>
+        <div class="main"><h3>Pinned info: edit</h3><div class="sub">Five fixed kinds. Each save stores a new version; the previous one stays in history. Leave a box blank to clear it.</div>
+          <div class="pins">
+            <div class="pin"><b>bank_contacts</b>SME desk, Deira branch. Reply window: 2 working days.</div>
+            <div class="pin"><b>product_rules</b>Business account: minimum balance AED 25k, or AED 50k for free-zone entities.</div>
+            <div class="pin"><b>required_documents</b>Trade licence, MOA, 6 months statements, Emirates ID of signatories.</div>
+            <div class="pin"><b>turnaround_times</b>Account opening: 7 to 10 working days after complete file.</div>
+            <div class="pin"><b>known_pitfalls</b>Statements over 3 months old are rejected. Free-zone MOA must be attested.</div>
+            <div class="pin" style="display:grid;align-content:end"><span class="btn primary hot">Save pins</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- A4 non-admin refused -->
+      <section class="step" data-cursor="50,50">
+        <div class="side"><h4>Coordinator view</h4><ul><li>Inbox</li><li class="sel">Banks</li></ul></div>
+        <div class="main"><h3>Banks</h3><div class="sub">Signed in as Noor, Coordinator.</div>
+          <table><tr><th>Bank</th><th>Workspace</th><th></th></tr>
+            <tr><td>CBD</td><td><span class="pill">created 19 Oct</span></td><td><span class="btn">Open</span></td></tr>
+            <tr><td>Mashreq</td><td><span class="pill warn">none yet</span></td><td></td></tr>
+          </table>
+        </div>
+        <div class="lock"><div>NOT_ALLOWED. Only Admin or Super Admin can create a bank workspace. Ask your admin to create the Mashreq workspace.</div></div>
+      </section>
+
+      <!-- 1 workspace list -->
+      <section class="step" data-cursor="22,34">
+        <div class="side"><h4>Bank workspaces</h4><ul><li class="sel">CBD</li><li>RAKBANK</li><li>Mashreq</li><li>ADCB</li><li>Emirates NBD</li></ul></div>
+        <div class="main"><h3>CBD workspace</h3><div class="sub">One shared room per partner bank. Created once by an Admin from the banks list.</div>
+          <div class="pins"><div class="pin"><b>Open cases</b>14</div><div class="pin"><b>Members now</b>6 (3 agents, 2 coordinators, 1 team lead)</div><div class="pin"><b>Action needed</b><span class="pill warn">2 open</span></div><div class="pin"><b>Your role here</b>Coordinator</div></div>
+        </div>
+      </section>
+
+      <!-- 2 pinned info -->
+      <section class="step" data-cursor="60,30">
+        <div class="side"><h4>CBD</h4><ul><li>Cases</li><li class="sel">Pinned info</li><li>Discussion</li><li>Dashboard</li></ul></div>
+        <div class="main"><h3>Pinned info</h3><div class="sub">Standing reference for everyone on CBD cases. Every edit keeps the previous version.</div>
+          <div class="pins">
+            <div class="pin"><b>Bank contact</b>SME desk, Deira branch. Reply window: 2 working days.</div>
+            <div class="pin"><b>Required documents</b>Trade licence, MOA, 6 months statements, Emirates ID of signatories.</div>
+            <div class="pin"><b>Turnaround</b>Account opening: 7 to 10 working days after complete file.</div>
+            <div class="pin"><b>Known pitfalls</b>Statements over 3 months old are rejected. Free-zone MOA must be attested.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3 cases -->
+      <section class="step" data-cursor="55,52">
+        <div class="side"><h4>CBD</h4><ul><li class="sel">Cases</li><li>Pinned info</li><li>Discussion</li><li>Dashboard</li></ul></div>
+        <div class="main"><h3>Cases with CBD</h3><div class="sub">You see only the cases you are allowed to read. Sorted most overdue first.</div>
+          <table><tr><th>Case</th><th>Customer</th><th>Stage</th><th>Agent</th><th>SLA</th></tr>
+            <tr class="hl"><td>C-1042</td><td>Al Noor Trading LLC</td><td>Documents requested</td><td>Faisal</td><td><span class="pill bad">overdue 2d</span></td></tr>
+            <tr><td>C-1051</td><td>Gulf Print FZE</td><td>Under review</td><td>Mariam</td><td><span class="pill warn">due soon</span></td></tr>
+            <tr><td>C-1057</td><td>Hamriyah Steel</td><td>Bank acknowledged</td><td>Faisal</td><td><span class="pill">on track</span></td></tr>
+            <tr><td>C-1060</td><td>Desert Logistics</td><td>Submitted</td><td>Rashid</td><td><span class="pill">on track</span></td></tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- 4 discussion thread -->
+      <section class="step" data-cursor="62,62">
+        <div class="side"><h4>CBD</h4><ul><li>Cases</li><li>Pinned info</li><li class="sel">Discussion</li><li>Dashboard</li></ul></div>
+        <div class="main"><h3>Thread: C-1042 Al Noor Trading</h3><div class="sub">Linked to the case. Internal only. Posts cannot be edited; you can retract your own.</div>
+          <div class="post"><div class="who">Faisal <span>Agent, 09:40</span></div>Customer says the attested MOA is with the typing centre until Thursday.</div>
+          <div class="post"><div class="who">Noor <span>Coordinator, 10:05</span></div>CBD desk will hold the file 5 working days. We need the MOA in by Wednesday to be safe.</div>
+          <div><span class="btn">Reply</span> <span class="btn primary hot">Mark action needed</span></div>
+        </div>
+      </section>
+
+      <!-- 5 action needed -->
+      <section class="step" data-cursor="70,70">
+        <div class="side"><h4>CBD</h4><ul><li>Cases</li><li>Pinned info</li><li class="sel">Discussion</li><li>Dashboard</li></ul></div>
+        <div class="main"><h3>Thread: C-1042 Al Noor Trading</h3>
+          <div class="post flag"><div class="who">Action needed <span>set by Noor</span></div>Collect attested MOA from typing centre. Owner: Faisal. Due: Wed 22 Oct.</div>
+          <div class="sub">This created a task on case C-1042. It now shows in Faisal's inbox and counts against the SLA.</div>
+          <table><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th></tr>
+            <tr class="hl"><td>Collect attested MOA from typing centre</td><td>Faisal</td><td>22 Oct</td><td><span class="pill warn">open</span></td></tr>
+            <tr><td>Chase bank acknowledgement</td><td>Noor</td><td>17 Oct</td><td><span class="pill">done</span></td></tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- 6 dashboard -->
+      <section class="step" data-cursor="50,45">
+        <div class="side"><h4>CBD</h4><ul><li>Cases</li><li>Pinned info</li><li>Discussion</li><li class="sel">Dashboard</li></ul></div>
+        <div class="main"><h3>CBD dashboard</h3><div class="sub">Scope: your cases. Admin, Super Admin and IT see the whole bank.</div>
+          <div class="kpis"><div class="kpi"><b>Open cases</b><span>14</span></div><div class="kpi"><b>Overdue</b><span>3</span></div><div class="kpi"><b>Approval rate</b><span>71%</span></div><div class="kpi"><b>In pipeline</b><span>AED 4.2m</span></div></div>
+          <div class="bars">
+            <div class="bar">Submitted<i style="width:30%"></i><em>3</em></div>
+            <div class="bar">Documents requested<i style="width:50%"></i><em>5</em></div>
+            <div class="bar">Under review<i style="width:40%"></i><em>4</em></div>
+            <div class="bar">Query raised<i style="width:20%"></i><em>2</em></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7 access lapses -->
+      <section class="step" data-cursor="50,50">
+        <div class="side"><h4>Bank workspaces</h4><ul><li>CBD</li><li class="sel">RAKBANK</li><li>Mashreq</li></ul></div>
+        <div class="main"><h3>RAKBANK workspace</h3><div class="sub">Faisal's last RAKBANK case closed yesterday.</div></div>
+        <div class="lock"><div>No access. You have no open case with RAKBANK. Membership returns automatically with your next RAKBANK case.</div></div>
+      </section>
+
+      <!-- 8 never to customer -->
+      <section class="step" data-cursor="50,50">
+        <div class="side"><h4>CBD</h4><ul><li>Cases</li><li>Pinned info</li><li class="sel">Discussion</li><li>Dashboard</li></ul></div>
+        <div class="main"><h3>What never leaves the room</h3>
+          <div class="post">Workspace posts, pinned info and internal notes have no path to WhatsApp. A test in the package scans the send code and fails if one ever appears.</div>
+          <div class="post">Messages to the customer go only through the case tools, from the hosting number, with the sender's name prefix, and only after the opt-out and number-health checks.</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="caption"><b id="cap-k">Step 1 of 12</b><p id="cap-t"></p></div>
+    <div class="controls">
+      <button class="primary" id="play" type="button">Pause</button>
+      <button id="prev" type="button">Back</button>
+      <button id="next" type="button">Next</button>
+      <div class="prog"><i id="prog"></i></div>
+      <span class="count" id="count">1 / 12</span>
+    </div>
+  </div>
+
+  <p class="note">The screens are a mock-up of the 018c data model; the real screen is not built yet. Function names in captions are the ones in README_018c.md.</p>
+</div>
+
+<script>
+(function () {
+  var caps = [
+    "Admin setup. In the Banks list an Admin or Super Admin sees a Create button next to any bank that has no workspace yet. The role comes from the user table in Postgres.",
+    "Click Create. That runs <code>bank_ws_create(adminUserId, 'CBD')</code>. The workspace exists once per bank per tenant; a second click returns the same one. The Action needed template is seeded for your tenant.",
+    "Fill the five pinned kinds with <code>bank_ws_pin_set</code>: bank_contacts, product_rules, required_documents, turnaround_times, known_pitfalls. Every save keeps the previous version.",
+    "Anyone else who tries gets <code>NOT_ALLOWED</code>, whatever role the browser claims. A bank not on the list gets <code>BANK_NOT_FOUND</code>.",
+    "Every partner bank gets one workspace, created by an Admin with <code>bank_ws_create</code>. It holds that bank's cases, a discussion area, pinned info and a dashboard.",
+    "Pin the standing facts: contacts, required documents, turnaround, pitfalls. <code>bank_ws_pin_set</code> keeps every previous version.",
+    "The case list shows only what you may read: an Agent sees own cases, a Coordinator their cases, a Team Lead the team. Most overdue first.",
+    "Discuss a case in a thread linked to it. Posts are append-only (<code>bank_ws_post</code>); you can retract your own, and the retraction is recorded.",
+    "Mark a thread Action needed with an owner and due date (<code>bank_ws_action_mark</code>). It becomes a task on the case and runs on the SLA clock.",
+    "The dashboard (<code>bank_ws_dashboard</code>) is computed live: cases by stage, days per stage, approval rate, declined reasons, overdue, pipeline. Each person sees their own scope.",
+    "Nobody is added by hand. You are a member while you have an open case with that bank; when the last one closes, access lapses on its own. Admin, Super Admin and IT are unaffected.",
+    "Posts and notes are internal only. Customer messages go through the case tools and the send guard, never from the workspace."
+  ];
+  var steps = Array.prototype.slice.call(document.querySelectorAll(".step"));
+  var i = 0, playing = true, timer = null, DUR = 6500;
+  var cur = document.getElementById("cursor"), capT = document.getElementById("cap-t"), capK = document.getElementById("cap-k");
+  var prog = document.getElementById("prog"), count = document.getElementById("count"), play = document.getElementById("play");
+  function show(n) {
+    i = (n + steps.length) % steps.length;
+    steps.forEach(function (s, k) { s.classList.toggle("on", k === i); });
+    var c = (steps[i].getAttribute("data-cursor") || "50,50").split(",");
+    cur.style.left = c[0] + "%"; cur.style.top = c[1] + "%";
+    capK.textContent = (i < 4 ? "Admin setup. " : "Daily use. ") + "Step " + (i + 1) + " of " + steps.length;
+    capT.innerHTML = caps[i];
+    count.textContent = (i + 1) + " / " + steps.length;
+    prog.style.width = ((i + 1) / steps.length * 100) + "%";
+    arm();
+  }
+  function arm() { if (timer) clearTimeout(timer); if (playing) timer = setTimeout(function () { show(i + 1); }, DUR); }
+  play.addEventListener("click", function () { playing = !playing; play.textContent = playing ? "Pause" : "Play"; arm(); });
+  document.getElementById("next").addEventListener("click", function () { show(i + 1); });
+  document.getElementById("prev").addEventListener("click", function () { show(i - 1); });
+  show(0);
+})();
+</script>
+
+</body></html>
