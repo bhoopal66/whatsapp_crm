@@ -951,6 +951,7 @@
         "csvContactsFound": "{count} valid contact(s) found in the file.",
         "errorLoadFields": "Failed to load custom fields",
         "errorCsvParse": "Could not read the file.",
+        "errorXlsxLimit": "This workbook is too large to import: {reason}",
         "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",
         "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
         "assumeUaeNumbers": "Numbers without a country code are UAE mobiles (add +971)",

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 
-import { readXlsxSheets, readXlsxTable } from './read-xlsx';
+import { readXlsxSheets, readXlsxTable, XlsxLimitError } from './read-xlsx';
 
 // Minimal CRC-32 for the zip writer below. The reader does not check
 // it, but a real archive tool would, and the fixtures should be honest
@@ -168,7 +168,7 @@ describe('readXlsxTable', () => {
       '<row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c></row>';
     expect(await readXlsxTable(simpleBook(rows, shared))).toEqual([
       ['phone', 'Customer Name'],
-      ['山田', ''],
+      ['山田'],
     ]);
   });
 
@@ -202,9 +202,7 @@ describe('readXlsxTable', () => {
     const rows =
       '<row r="1"><c r="A1" t="b"><v>1</v></c><c r="B1" t="b"><v>0</v></c>' +
       '<c r="C1" t="e"><v>#N/A</v></c></row>';
-    expect(await readXlsxTable(simpleBook(rows))).toEqual([
-      ['TRUE', 'FALSE', ''],
-    ]);
+    expect(await readXlsxTable(simpleBook(rows))).toEqual([['TRUE', 'FALSE']]);
   });
 
   it('places sparse cells and rows by their references', async () => {
@@ -214,7 +212,7 @@ describe('readXlsxTable', () => {
       '<row><c r="AA4" t="str"><v>aa</v></c></row>';
     const table = await readXlsxTable(simpleBook(rows));
     expect(table.slice(0, 3)).toEqual([
-      ['a', '', '', 'd', ''],
+      ['a', '', '', 'd'],
       [],
       ['', 'b', 'next'],
     ]);
@@ -236,6 +234,15 @@ describe('readXlsxTable', () => {
         '<b> "x" \'y\' AB &lt;',
         'line\rtwo _x000D_',
       ],
+    ]);
+  });
+
+  it('leaves an entity named like an Object property as written', async () => {
+    const bytes = simpleBook(
+      '<row r="1"><c t="inlineStr"><is><t>a&constructor;b&toString;&amp;</t></is></c></row>'
+    );
+    expect(await readXlsxTable(bytes)).toEqual([
+      ['a&constructor;b&toString;&'],
     ]);
   });
 
@@ -326,10 +333,7 @@ describe('readXlsxTable', () => {
         '<row r="2"><c r="A2" t="s"/><c r="B2" t="s"><v/></c></row>',
       '<si><t>Customer Name</t></si><si><t>phone</t></si>'
     );
-    expect(await readXlsxTable(bytes)).toEqual([
-      ['Customer Name', 'phone'],
-      ['', ''],
-    ]);
+    expect(await readXlsxTable(bytes)).toEqual([['Customer Name', 'phone']]);
   });
 
   it('starts at the first non-blank row so the header is row 0', async () => {
@@ -477,6 +481,63 @@ describe('limits', () => {
     await expect(readXlsxTable(bytes, { maxCells: 1000 })).rejects.toThrow(
       /more than 1000 cells/
     );
+  });
+
+  it('does not charge or place empty styled rows and cells', async () => {
+    const trailing =
+      '<row r="1048576" s="1" customFormat="1"/>' +
+      '<row r="9"><c r="A9" s="1"/><c r="B9" s="1"><v></v></c></row>';
+    const table =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>name</t></is></c>' +
+      '<c r="C1" t="inlineStr"><is><t>x</t></is></c><c r="D1" s="1"/></row>' +
+      '<row r="2"><c r="A2" t="inlineStr"><is><t>ann</t></is></c></row>';
+    const book = zip([
+      ...workbook(
+        [
+          { name: 'A', rid: 'rId1' },
+          { name: 'B', rid: 'rId2' },
+        ],
+        [
+          { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
+          { id: 'rId2', type: 'worksheet', target: 'worksheets/sheet2.xml' },
+        ]
+      ),
+      { name: 'xl/worksheets/sheet1.xml', content: sheet(table + trailing) },
+      { name: 'xl/worksheets/sheet2.xml', content: sheet(table + trailing) },
+    ]);
+    // Per sheet: row 1 is 3 cells, row 2 is 1, plus 2 row slots = 6.
+    const sheets = await readXlsxSheets(book, { maxCells: 12 });
+    expect(sheets.map((s) => s.rows)).toEqual([
+      [['name', '', 'x'], ['ann']],
+      [['name', '', 'x'], ['ann']],
+    ]);
+  });
+
+  it('still materialises a value at the last row, bounded by the cap', async () => {
+    const bytes = simpleBook(
+      '<row r="1048576"><c r="A1048576"><v>1</v></c></row>'
+    );
+    await expect(readXlsxTable(bytes, { maxCells: 1000 })).rejects.toThrow(
+      XlsxLimitError
+    );
+  });
+
+  it('tags every limit refusal as an XlsxLimitError', async () => {
+    const far = simpleBook('<row r="1048577"><c><v>1</v></c></row>');
+    await expect(readXlsxTable(far)).rejects.toBeInstanceOf(XlsxLimitError);
+    const wide = simpleBook('<row r="1"><c r="XFE1"><v>1</v></c></row>');
+    await expect(readXlsxTable(wide)).rejects.toBeInstanceOf(XlsxLimitError);
+    const cells = simpleBook('<row r="1"><c><v>1</v></c></row>');
+    await expect(readXlsxTable(cells, { maxCells: 1 })).rejects.toBeInstanceOf(
+      XlsxLimitError
+    );
+    await expect(
+      readXlsxTable(cells, { maxEntryBytes: 10 })
+    ).rejects.toBeInstanceOf(XlsxLimitError);
+    // Not a limit: stays a plain Error.
+    await expect(
+      readXlsxTable(new Uint8Array([1, 2, 3]))
+    ).rejects.not.toBeInstanceOf(XlsxLimitError);
   });
 
   it('spends one cell budget across every sheet, a row counting as one', async () => {

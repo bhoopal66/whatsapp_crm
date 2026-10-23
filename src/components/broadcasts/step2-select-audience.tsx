@@ -8,7 +8,7 @@ import {
   parseContactTable,
   type ParsedContactRow,
 } from '@/lib/contacts/parse-contact-csv';
-import { readXlsxTable } from '@/lib/contacts/read-xlsx';
+import { readXlsxTable, XlsxLimitError } from '@/lib/contacts/read-xlsx';
 import {
   partitionRowsByPhone,
   summarizeRejectedPhones,
@@ -463,8 +463,12 @@ export function Step2SelectAudience({
       setCsvParsed(parsed);
       setCsvFileName(file.name);
       applyCsvRows(parsed, false);
-    } catch {
-      fail(t('selectAudience.errorCsvParse'));
+    } catch (err) {
+      fail(
+        err instanceof XlsxLimitError
+          ? t('selectAudience.errorXlsxLimit', { reason: err.message })
+          : t('selectAudience.errorCsvParse')
+      );
     }
   }
 

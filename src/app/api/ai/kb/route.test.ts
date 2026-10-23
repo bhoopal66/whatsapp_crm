@@ -21,14 +21,21 @@ vi.mock('@/lib/rate-limit', () => ({
   rateLimitResponse: vi.fn(),
   RATE_LIMITS: { adminAction: {} },
 }));
-vi.mock('@/lib/contacts/read-xlsx', () => ({
-  readXlsxSheets: mocks.readXlsxSheets,
-}));
+vi.mock('@/lib/contacts/read-xlsx', async () => {
+  const actual = await vi.importActual<
+    typeof import('@/lib/contacts/read-xlsx')
+  >('@/lib/contacts/read-xlsx');
+  return {
+    readXlsxSheets: mocks.readXlsxSheets,
+    XlsxLimitError: actual.XlsxLimitError,
+  };
+});
 
 import { ForbiddenError } from '@/lib/auth/account';
 import { GET } from './route';
 import { DELETE, PATCH } from './[id]/route';
 import { POST } from './import/route';
+import { XlsxLimitError } from '@/lib/contacts/read-xlsx';
 
 /** A chainable query builder that records its calls and resolves `result`. */
 function query(result: { data: unknown; error: unknown }) {
@@ -309,6 +316,29 @@ describe('POST /api/ai/kb/import', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('No Knowledge_Base sheet found');
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('passes a workbook limit refusal through in the 400', async () => {
+    mocks.requireRole.mockResolvedValue({
+      supabase: { rpc: vi.fn() },
+      accountId: 'a1',
+      userId: 'u1',
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.readXlsxSheets.mockRejectedValue(
+      new XlsxLimitError('The workbook has more than 50 sheets')
+    );
+    let res = await POST(upload('kb.xlsx'));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      'The workbook has more than 50 sheets'
+    );
+    // Any other read error stays generic.
+    mocks.readXlsxSheets.mockRejectedValue(new Error('Not a ZIP file'));
+    res = await POST(upload('kb.xlsx'));
+    expect((await res.json()).error).toBe(
+      'The file could not be read as an .xlsx workbook.'
+    );
   });
 
   it('refuses a non-admin', async () => {

@@ -5,7 +5,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit';
-import { readXlsxSheets } from '@/lib/contacts/read-xlsx';
+import { readXlsxSheets, XlsxLimitError } from '@/lib/contacts/read-xlsx';
 import { parseKbTable, pickKbSheet } from '@/lib/kb/import';
 import { isKbWorkbookName, MAX_KB_UPLOAD_BYTES } from '@/lib/kb/requests';
 import type { KbImportIssue } from '@/lib/kb/types';
@@ -50,7 +50,13 @@ export async function POST(request: Request) {
     } catch (err) {
       console.error('[ai/kb/import] read error:', err);
       return NextResponse.json(
-        { error: 'The file could not be read as an .xlsx workbook.' },
+        {
+          // A limit refusal says which limit; anything else stays generic.
+          error:
+            err instanceof XlsxLimitError
+              ? err.message
+              : 'The file could not be read as an .xlsx workbook.',
+        },
         { status: 400 }
       );
     }

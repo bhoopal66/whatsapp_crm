@@ -48,6 +48,14 @@ export const XLSX_LIMITS: Readonly<XlsxLimits> = {
   maxSheets: 50,
 };
 
+/** A refusal because the workbook exceeds a limit; safe to show a user. */
+export class XlsxLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'XlsxLimitError';
+  }
+}
+
 /** What one workbook read has spent so far. */
 interface Budget {
   limits: XlsxLimits;
@@ -58,7 +66,7 @@ interface Budget {
 function spendCells(budget: Budget, n: number) {
   budget.cells += n;
   if (budget.cells > budget.limits.maxCells) {
-    throw new Error(
+    throw new XlsxLimitError(
       `The workbook has more than ${budget.limits.maxCells} cells`
     );
   }
@@ -171,13 +179,13 @@ async function readEntry(
   // The declared size is charged before inflating, so reads running
   // side by side cannot each pass the total on their own.
   if (entry.size > maxEntryBytes) {
-    throw new Error(
+    throw new XlsxLimitError(
       `ZIP entry ${name} is too large (${entry.size} bytes uncompressed, limit ${maxEntryBytes})`
     );
   }
   budget.bytes += entry.size;
   if (budget.bytes > maxTotalBytes) {
-    throw new Error(
+    throw new XlsxLimitError(
       `The workbook is too large uncompressed (limit ${maxTotalBytes} bytes)`
     );
   }
@@ -222,7 +230,9 @@ const XML_ENTITIES: Record<string, string> = {
 function decodeText(raw: string): string {
   return raw
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
-      if (body[0] !== '#') return XML_ENTITIES[body] ?? whole;
+      if (body[0] !== '#') {
+        return Object.hasOwn(XML_ENTITIES, body) ? XML_ENTITIES[body] : whole;
+      }
       const code =
         body[1] === 'x' || body[1] === 'X'
           ? parseInt(body.slice(2), 16)
@@ -377,7 +387,7 @@ const MAX_REF_LENGTH = 12;
 
 function checkRef(ref: string) {
   if (ref.length > MAX_REF_LENGTH) {
-    throw new Error(
+    throw new XlsxLimitError(
       `Cell reference "${ref.slice(0, MAX_REF_LENGTH)}…" is too long`
     );
   }
@@ -439,34 +449,43 @@ function cellValue(type: string | null, body: string, shared: string[]) {
 }
 
 /**
- * Cells and rows are placed by their references, padding the gaps, so
- * a reference is held to Excel's grid and every slot it opens is
- * charged to the budget before the padding is written.
+ * Cells and rows are placed by their references, so a reference is held
+ * to Excel's grid. Only what carries a value is placed: a row or cell
+ * that is empty (a styled blank, Excel's habit of ending a sheet with
+ * `<row r="1048576" s="1"/>`) is validated but neither allocated nor
+ * charged. Padding is written lazily, up to the last non-empty row and,
+ * within a row, the last non-empty cell, and is charged when written.
  */
 function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
   const rows: string[][] = [];
   for (const row of elements(xml, 'row')) {
-    const cells: string[] = [];
+    const found: Array<[number, string]> = [];
+    let next = 0; // where a cell without a reference lands
     for (const c of elements(row.body, 'c')) {
       const ref = attr(c.attrs, 'r');
-      const col = columnIndex(ref) ?? cells.length;
+      const col = columnIndex(ref) ?? next;
       if (col >= XLSX_MAX_COLUMNS) {
-        throw new Error(
+        throw new XlsxLimitError(
           `Cell ${ref ?? `#${col + 1}`} is beyond Excel's last column (XFD)`
         );
       }
-      spendCells(budget, Math.max(0, col + 1 - cells.length));
-      while (cells.length < col) cells.push('');
-      cells[col] = cellValue(attr(c.attrs, 't'), c.body, shared);
+      next = Math.max(next, col + 1);
+      const value = cellValue(attr(c.attrs, 't'), c.body, shared);
+      if (value !== '') found.push([col, value]);
     }
     const ref = attr(row.attrs, 'r');
     const at = rowIndex(ref) ?? rows.length;
     if (at < 0 || at >= XLSX_MAX_ROWS) {
-      throw new Error(
+      throw new XlsxLimitError(
         `Row ${ref ?? at + 1} is outside Excel's rows 1 to ${XLSX_MAX_ROWS}`
       );
     }
-    spendCells(budget, Math.max(0, at + 1 - rows.length));
+    if (found.length === 0) continue;
+    let width = 0;
+    for (const [col] of found) width = Math.max(width, col + 1);
+    spendCells(budget, width + Math.max(0, at + 1 - rows.length));
+    const cells: string[] = new Array<string>(width).fill('');
+    for (const [col, value] of found) cells[col] = value;
     while (rows.length < at) rows.push([]);
     rows[at] = cells;
   }
@@ -545,7 +564,7 @@ async function openWorkbook(
   const sheets: Workbook['sheets'] = [];
   for (const a of workbook ? openingTags(workbook, 'sheet') : []) {
     if (sheets.length === budget.limits.maxSheets) {
-      throw new Error(
+      throw new XlsxLimitError(
         `The workbook has more than ${budget.limits.maxSheets} sheets`
       );
     }
