@@ -346,6 +346,13 @@ jobs:
       - name: Verify Compass case sync
         run: supabase db query --local --file supabase/ci/verify-compass-sync.sql
 
+      # Security hardening (135): agents cannot write automations, flows,
+      # broadcasts or their child rows (admins can); nobody edits their
+      # own profiles.email; peek_invitation refuses archived-workspace
+      # and orphaned-creator links; teams take live staff only.
+      - name: Verify security hardening
+        run: supabase db query --local --file supabase/ci/verify-security-hardening.sql
+
       # Bank dashboard after leads (131): pre-submission vs with-bank,
       # account openings (amount NULL / 0) counted vs financing summed,
       # lead conversion over the actor's readable cases only;
