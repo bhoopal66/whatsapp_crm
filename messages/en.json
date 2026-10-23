@@ -485,6 +485,8 @@
         "email": "Email",
         "company": "Company",
         "chatTag": "Chat tag",
+        "createdBy": "Created by",
+        "assignedTo": "Assigned to",
         "createdAt": "Created"
       },
       "loading": "Loading contacts...",
