@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 
 import { pushConfig, type PushConfig } from './config';
+import { isKnownPushEndpoint } from './endpoint';
 import { ttlFor, urgencyFor } from './kinds';
 import { buildPayload } from './payload';
 import { decideQuietHours, type QuietPrefs } from './quiet-hours';
@@ -233,6 +234,15 @@ async function deliverRow(
   let delivered = false;
   let lastError: string | null = null;
   for (const device of devices) {
+    // A stored endpoint that is not a browser push service (written before
+    // subscribe checked, or by hand) is never sent to: that POST would be a
+    // blind request to an address a staff member chose. Drop it like a dead
+    // endpoint.
+    if (!isKnownPushEndpoint(device.endpoint)) {
+      gone.add(device.id);
+      await admin.from('push_subscriptions').delete().eq('id', device.id);
+      continue;
+    }
     try {
       await webpush.sendNotification(
         {

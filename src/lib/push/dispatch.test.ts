@@ -71,7 +71,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 const sub = (id: string, failure_count = 0) => ({
   id,
   user_id: 'u1',
-  endpoint: `https://push.example/${id}`,
+  endpoint: `https://fcm.googleapis.com/fcm/send/${id}`,
   p256dh: 'p',
   auth: 'a',
   failure_count,
@@ -106,7 +106,7 @@ describe('dispatchPush', () => {
     expect(h.send).toHaveBeenCalledTimes(2);
     const [target, payload, opts] = h.send.mock.calls[0];
     expect(target).toEqual({
-      endpoint: 'https://push.example/s1',
+      endpoint: 'https://fcm.googleapis.com/fcm/send/s1',
       keys: { p256dh: 'p', auth: 'a' },
     });
     expect(JSON.parse(payload)).toMatchObject({
@@ -140,6 +140,22 @@ describe('dispatchPush', () => {
     ]);
     expect(settled(f.rpcs)).toEqual([]);
     expect(s.skipped).toBe(1);
+  });
+
+  it('never sends to a stored endpoint that is not a push service, and removes it', async () => {
+    const f = fakeDb({
+      rows: [row()],
+      subs: [{ ...sub('bad'), endpoint: 'https://10.0.0.5/x' }, sub('s1')],
+    });
+    const s = await dispatchPush(f.db);
+    expect(h.send).toHaveBeenCalledTimes(1);
+    expect(h.send.mock.calls[0][0].endpoint).toBe(
+      'https://fcm.googleapis.com/fcm/send/s1'
+    );
+    expect(
+      f.ops.filter((o) => o.op === 'delete').map((d) => d.filters)
+    ).toEqual([[['id', 'bad']]]);
+    expect(s.sent).toBe(1);
   });
 
   it('counts other failures against the device, drops it at 10, and settles failed for a retry', async () => {
