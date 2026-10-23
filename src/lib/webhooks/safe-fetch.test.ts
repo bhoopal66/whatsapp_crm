@@ -1,4 +1,5 @@
 import http from 'node:http';
+import zlib from 'node:zlib';
 import type { AddressInfo } from 'node:net';
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -141,5 +142,57 @@ describe('guardedRequest — an allowed address', () => {
       slow.closeAllConnections();
       await new Promise<void>((r) => slow.close(() => r()));
     }
+  });
+});
+
+describe('guardedRequest — Content-Encoding', () => {
+  const allowAll = { isBlocked: () => false, resolve: answers('127.0.0.1') };
+  const payload = 'compressed '.repeat(200);
+  let enc: http.Server;
+  let encPort: number;
+
+  beforeAll(async () => {
+    enc = http.createServer((req, res) => {
+      const kind = req.url?.slice(1) ?? '';
+      const encoders: Record<string, (b: Buffer) => Buffer> = {
+        gzip: zlib.gzipSync,
+        'x-gzip': zlib.gzipSync,
+        deflate: zlib.deflateSync,
+        br: zlib.brotliCompressSync,
+        weird: (b) => b,
+      };
+      const body = encoders[kind](Buffer.from(payload));
+      res.writeHead(200, {
+        'content-encoding': kind === 'x-gzip' ? 'X-GZIP' : kind,
+        'content-length': String(body.length),
+      });
+      res.end(body);
+    });
+    await new Promise<void>((r) => enc.listen(0, '127.0.0.1', r));
+    encPort = (enc.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => enc.close(() => r()));
+  });
+
+  it.each(['gzip', 'x-gzip', 'deflate', 'br'])(
+    'decodes a %s body and drops the stale headers',
+    async (kind) => {
+      const res = await guardedRequest(
+        `http://enc.test:${encPort}/${kind}`,
+        {},
+        allowAll
+      );
+      expect(res.headers.get('content-encoding')).toBeNull();
+      expect(res.headers.get('content-length')).toBeNull();
+      expect(await res.text()).toBe(payload);
+    }
+  );
+
+  it('refuses an encoding it cannot decode', async () => {
+    await expect(
+      guardedRequest(`http://enc.test:${encPort}/weird`, {}, allowAll)
+    ).rejects.toThrow(/content-encoding/i);
   });
 });

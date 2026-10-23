@@ -20,7 +20,8 @@
 //
 // Deliberate differences from fetch: redirects are never followed
 // (callers already ask for `redirect: 'manual'`), no Accept-Encoding is
-// sent so bodies arrive uncompressed, and every request gets its own
+// sent but a gzip / deflate / br body that arrives anyway is decoded
+// (fetch did; callers mirror the bytes), and every request gets its own
 // socket (`agent: false`) — a pooled keep-alive socket could have been
 // opened by code that never went through this guard.
 //
@@ -33,7 +34,8 @@ import type { LookupAddress } from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
 import { isIP } from 'node:net';
-import { Readable } from 'node:stream';
+import { Readable, type Transform } from 'node:stream';
+import zlib from 'node:zlib';
 
 /** Thrown when a URL or a resolved address fails the SSRF guard. */
 export class UnsafeUrlError extends Error {
@@ -99,6 +101,20 @@ function guardedLookup(resolve: Resolver, isBlocked: (ip: string) => boolean) {
       })
       .catch((err: NodeJS.ErrnoException) => callback(err, ''));
   };
+}
+
+/**
+ * The stream that undoes a response's Content-Encoding, null for
+ * identity. Anything else is refused: forwarding bytes we cannot read
+ * would mislabel them.
+ */
+function decoderFor(header: string | null): Transform | null {
+  const encoding = (header ?? '').trim().toLowerCase();
+  if (encoding === '' || encoding === 'identity') return null;
+  if (encoding === 'gzip' || encoding === 'x-gzip') return zlib.createGunzip();
+  if (encoding === 'deflate') return zlib.createInflate();
+  if (encoding === 'br') return zlib.createBrotliDecompress();
+  throw new Error(`Unsupported content-encoding: ${encoding}`);
 }
 
 function encodeBody(body: RequestInit['body']): Buffer | undefined {
@@ -181,9 +197,19 @@ export function guardedRequest(
           }
           const nullBody = NULL_BODY_STATUSES.has(status);
           if (nullBody) res.resume();
+          let source: Readable = res;
+          if (!nullBody) {
+            const decoder = decoderFor(resHeaders.get('content-encoding'));
+            if (decoder) {
+              source = res.pipe(decoder);
+              res.on('error', (e) => decoder.destroy(e));
+              resHeaders.delete('content-encoding');
+              resHeaders.delete('content-length');
+            }
+          }
           resolvePromise(
             new Response(
-              nullBody ? null : (Readable.toWeb(res) as ReadableStream),
+              nullBody ? null : (Readable.toWeb(source) as ReadableStream),
               { status, statusText: res.statusMessage, headers: resHeaders }
             )
           );
