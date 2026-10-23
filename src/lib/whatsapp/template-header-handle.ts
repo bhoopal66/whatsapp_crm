@@ -61,22 +61,48 @@ export async function ensureImageHeaderHandle(
     throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
   }
   if (!res.ok) {
+    await res.body?.cancel().catch(() => {})
     throw new Error(`Header image URL returned ${res.status}. It must be publicly reachable.`)
   }
 
   const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
   if (contentType && !ALLOWED_IMAGE_TYPES.includes(contentType)) {
+    await res.body?.cancel().catch(() => {})
     throw new Error(`Header image must be JPEG or PNG (got ${contentType}).`)
   }
 
-  const bytes = new Uint8Array(await res.arrayBuffer())
-  if (bytes.byteLength === 0) {
+  const tooBig = (size: number) =>
+    new Error(
+      `Header image is ${(size / 1024 / 1024).toFixed(1)} MB — Meta's limit is 5 MB.`,
+    )
+  // Refuse on the declared size, then count while reading: a host that
+  // lies about (or omits) content-length must not make us buffer it all.
+  const declared = Number(res.headers.get('content-length'))
+  if (declared > IMAGE_MAX_BYTES) {
+    await res.body?.cancel().catch(() => {})
+    throw tooBig(declared)
+  }
+  const chunks: Uint8Array[] = []
+  let total = 0
+  const reader = res.body?.getReader()
+  while (reader) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > IMAGE_MAX_BYTES) {
+      await reader.cancel().catch(() => {})
+      throw tooBig(total)
+    }
+    chunks.push(value)
+  }
+  if (total === 0) {
     throw new Error('Header image is empty.')
   }
-  if (bytes.byteLength > IMAGE_MAX_BYTES) {
-    throw new Error(
-      `Header image is ${(bytes.byteLength / 1024 / 1024).toFixed(1)} MB — Meta's limit is 5 MB.`,
-    )
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
   }
 
   const mimeType = ALLOWED_IMAGE_TYPES.includes(contentType) ? contentType : 'image/jpeg'

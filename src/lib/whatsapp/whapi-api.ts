@@ -1178,6 +1178,7 @@ export async function downloadMedia(
     throw err
   }
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {})
     throw new WhapiError(`Media download failed: ${response.status}`, response.status)
   }
 

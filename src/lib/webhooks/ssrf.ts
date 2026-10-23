@@ -279,6 +279,8 @@ export async function fetchPublicUrl(
 
     const location = res.headers?.get?.('location');
     if (!REDIRECT_STATUSES.has(res.status) || !location) return res;
+    // Release the unread redirect body before the next hop.
+    await res.body?.cancel().catch(() => {});
     if (hop >= maxRedirects) throw new UnsafeUrlError('Too many redirects');
     current = new URL(location, url).href;
   }

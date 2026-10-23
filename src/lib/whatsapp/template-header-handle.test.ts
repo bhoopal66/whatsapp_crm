@@ -31,12 +31,11 @@ function payload(over: Partial<TemplatePayload> = {}): TemplatePayload {
 }
 
 function imgResponse(type = 'image/jpeg', size = 1024, ok = true, status = 200): Response {
-  return {
-    ok,
-    status,
-    headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? type : null) },
-    arrayBuffer: async () => new ArrayBuffer(size),
-  } as unknown as Response;
+  // A real streamed Response: the helper reads `body` incrementally.
+  return new Response(new Uint8Array(size), {
+    status: ok ? status : status === 200 ? 500 : status,
+    headers: { 'content-type': type },
+  });
 }
 
 describe('ensureImageHeaderHandle', () => {
@@ -142,5 +141,46 @@ describe('ensureImageHeaderHandle', () => {
 
     const init = (fetchSpy.mock.calls[0] as unknown[])[1] as RequestInit;
     expect(init).toMatchObject({ redirect: 'manual' });
+  });
+
+  it('refuses on a declared content-length over the cap without reading the body', async () => {
+    vi.stubEnv('META_APP_ID', 'app-1');
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        c.enqueue(new Uint8Array(1024));
+      },
+    });
+    vi.mocked(safeFetch).mockResolvedValue(
+      new Response(body, {
+        headers: { 'content-type': 'image/png', 'content-length': String(6 * 1024 * 1024) },
+      }),
+    );
+    await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/5 MB/);
+    expect(pulled).toBeLessThanOrEqual(1);
+  });
+
+  it('stops reading an endless stream once it passes the cap', async () => {
+    vi.stubEnv('META_APP_ID', 'app-1');
+    let pulled = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        c.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    // No content-length: only the running count can catch it.
+    vi.mocked(safeFetch).mockResolvedValue(
+      new Response(body, { headers: { 'content-type': 'image/png' } }),
+    );
+    await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/5 MB/);
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(20);
   });
 });

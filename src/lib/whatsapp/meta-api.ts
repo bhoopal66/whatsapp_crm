@@ -1356,6 +1356,7 @@ export async function downloadMedia(
     throw err
   }
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {})
     throw new Error(`Media download failed: ${response.status}`)
   }
   const contentType =
