@@ -526,6 +526,36 @@ describe("send_webhook — SSRF guard (GHSA-8jqh-598v-rfxc)", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("sends an allowed destination through safeFetch, never the global fetch", async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.mocked(safeFetch).mockClear();
+
+    h.state.owned = { id: "c1" };
+    h.state.automations = [automationWithUpdateStep()];
+    // A public IP literal: the real guard accepts it without DNS.
+    h.state.steps = [webhookStep("http://93.184.216.34/hook")];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: {},
+    });
+
+    expect(safeFetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(safeFetch).mock.calls[0][0]).toBe(
+      "http://93.184.216.34/hook"
+    );
+    expect(vi.mocked(safeFetch).mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      redirect: "manual",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
 });
 
 function webhookStep(url: string) {
