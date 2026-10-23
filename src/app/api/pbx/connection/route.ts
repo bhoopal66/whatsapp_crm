@@ -12,7 +12,10 @@
 //         an omitted clientId (the screen shows only its last 4
 //         characters); null clears an SDK credential or the webhook
 //         secret. Changing credentials or the address empties the token
-//         caches and the backoff.
+//         caches and the backoff. Changing the address (origin or
+//         apiPath) of an existing connection requires clientSecret again
+//         (and both SDK credentials when any are stored), so a stored
+//         secret is never sent to a new host.
 //
 // Admin+. Secrets are written with the service role and never returned.
 // ============================================================
@@ -190,7 +193,9 @@ export async function PUT(request: Request) {
     const { data: stored, error: readError } = existing
       ? await db
           .from('pbx_connection_secrets')
-          .select('client_id_enc, client_secret_enc')
+          .select(
+            'client_id_enc, client_secret_enc, sdk_access_id_enc, sdk_access_key_enc'
+          )
           .eq('connection_id', existing.id)
           .maybeSingle()
       : { data: null, error: null };
@@ -212,6 +217,27 @@ export async function PUT(request: Request) {
       !existing ||
       existing.base_url !== input.baseUrl ||
       existing.api_path !== input.apiPath;
+    // The stored secrets are decrypted and posted to whatever host this
+    // row names, so moving the address must not carry them to the new host
+    // unseen: an admin who points the PBX elsewhere has to type them again.
+    if (existing && moved) {
+      if (!input.clientSecret)
+        return bad(
+          'Re-enter the client secret when you change the PBX address'
+        );
+      const storedSdk = stored as {
+        sdk_access_id_enc?: string | null;
+        sdk_access_key_enc?: string | null;
+      } | null;
+      if (
+        (storedSdk?.sdk_access_id_enc || storedSdk?.sdk_access_key_enc) &&
+        (input.sdkAccessId === undefined || input.sdkAccessKey === undefined)
+      ) {
+        return bad(
+          'Re-enter the SDK access ID and key when you change the PBX address'
+        );
+      }
+    }
     const apiChanged =
       moved || input.clientSecret !== undefined || storedClientId !== clientId;
     const sdkChanged =

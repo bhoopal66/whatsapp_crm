@@ -176,11 +176,18 @@ vi.mock("./meta-send", () => ({
   engineSendInteractive: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
 }));
 
+// The real SSRF guard decides; only the transport is watched.
+vi.mock("@/lib/webhooks/ssrf", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/webhooks/ssrf")>()),
+  safeFetch: vi.fn(async () => new Response(null, { status: 200 })),
+}));
+
 import {
   resolveConversationId,
   runAutomationsForTrigger,
   triggerMatches,
 } from "./engine";
+import { safeFetch } from "@/lib/webhooks/ssrf";
 import type { Automation, KeywordMatchTriggerConfig } from "@/types";
 
 const ACCOUNT = "acct-1";
@@ -492,8 +499,11 @@ describe("create_deal — owned like a tagged chat's deal (080)", () => {
 
 describe("send_webhook — SSRF guard (GHSA-8jqh-598v-rfxc)", () => {
   it("refuses a private / link-local destination and never calls fetch", async () => {
+    // The step sends through the guard's address-pinned safeFetch; the
+    // global fetch is watched too, so neither path may leave the box.
     const fetchSpy = vi.fn(async () => ({ ok: true, status: 200 }));
     vi.stubGlobal("fetch", fetchSpy);
+    vi.mocked(safeFetch).mockClear();
 
     h.state.owned = { id: "c1" };
     h.state.automations = [automationWithUpdateStep()];
@@ -512,6 +522,7 @@ describe("send_webhook — SSRF guard (GHSA-8jqh-598v-rfxc)", () => {
     expect(h.state.fromCalls).toContain("automation_steps");
     // ...yet the guard blocked it before any outbound request left the box.
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(safeFetch).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });

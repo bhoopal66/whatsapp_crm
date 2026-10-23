@@ -13,19 +13,21 @@ import { NextResponse } from 'next/server';
 
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { isKnownPushEndpoint } from '@/lib/push/endpoint';
 
 const MAX_ENDPOINT = 2048;
 const MAX_KEY = 256;
 const MAX_USER_AGENT = 512;
 const BASE64URL = /^[A-Za-z0-9_-]+={0,2}$/;
 
-function isHttpsUrl(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length > MAX_ENDPOINT) return false;
-  try {
-    return new URL(value).protocol === 'https:';
-  } catch {
-    return false;
-  }
+// Only a browser vendor's push service: dispatch POSTs to this URL from
+// the server, so an arbitrary https host would be a blind SSRF.
+function isPushEndpoint(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= MAX_ENDPOINT &&
+    isKnownPushEndpoint(value)
+  );
 }
 
 function isKey(value: unknown): value is string {
@@ -45,9 +47,9 @@ export async function POST(request: Request) {
       keys?: { p256dh?: unknown; auth?: unknown } | null;
       userAgent?: unknown;
     } | null;
-    if (!body || !isHttpsUrl(body.endpoint)) {
+    if (!body || !isPushEndpoint(body.endpoint)) {
       return NextResponse.json(
-        { error: 'endpoint must be an https URL' },
+        { error: 'endpoint must be a browser push service https URL' },
         { status: 400 }
       );
     }

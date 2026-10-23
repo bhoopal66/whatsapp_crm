@@ -32,7 +32,9 @@ the server delivers from the outbox.
    subscribed, and each person has to switch notifications on again.
 
 4. Each person switches notifications on for their own device in the
-   app. The site must be served over https.
+   app. The site must be served over https. Only endpoints of the
+   browsers' own push services (Google, Mozilla, Microsoft, Apple) are
+   accepted; anything else is refused when subscribing and never sent to.
 
 **iPhone and iPad** support web push only for a site added to the Home
 Screen (iOS / iPadOS 16.4 or later): open the CRM in Safari, Share →

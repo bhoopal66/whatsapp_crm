@@ -175,6 +175,10 @@ describe('POST /api/push/subscribe', () => {
 
   it.each([
     ['an http endpoint', { endpoint: 'http://push.example.com/x', keys: KEYS }],
+    [
+      'an endpoint that is not a push service',
+      { endpoint: 'https://10.0.0.5/x', keys: KEYS },
+    ],
     ['a non-URL endpoint', { endpoint: 'not a url', keys: KEYS }],
     [
       'an endpoint over 2048 chars',

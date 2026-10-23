@@ -6,13 +6,15 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   encrypt: (s: string) => s,
 }));
 
-// Control the SSRF guard per-test.
+// Control the SSRF guard per-test. Delivery goes through the guard's
+// address-pinned `safeFetch`, not the global fetch.
 vi.mock('@/lib/webhooks/ssrf', () => ({
   isDeliverableUrl: vi.fn(async () => true),
+  safeFetch: vi.fn(),
 }));
 
 import { dispatchWebhookEvent, MAX_CONSECUTIVE_FAILURES } from './deliver';
-import { isDeliverableUrl } from './ssrf';
+import { isDeliverableUrl, safeFetch } from './ssrf';
 
 interface Row {
   id: string;
@@ -59,14 +61,20 @@ const emptyCalls = (): Calls => ({ updates: [], rpcs: [] });
 
 beforeEach(() => {
   vi.mocked(isDeliverableUrl).mockResolvedValue(true);
+  vi.mocked(safeFetch).mockReset();
+  // Nothing may bypass the guard through the global fetch.
   vi.stubGlobal('fetch', vi.fn());
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  expect(fetch).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
 
 describe('dispatchWebhookEvent', () => {
   it('signs + POSTs (no redirect follow) and resets failure_count on success', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response);
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi
+      .mocked(safeFetch)
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
     const calls = emptyCalls();
 
     await dispatchWebhookEvent(
@@ -77,11 +85,16 @@ describe('dispatchWebhookEvent', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, opts] = fetchMock.mock.calls[0];
+    const [url, opts] = fetchMock.mock.calls[0] as [
+      string,
+      RequestInit & { headers: Record<string, string>; body: string },
+    ];
     expect(url).toBe('https://a.test/hook');
     expect(opts.redirect).toBe('manual');
     expect(opts.headers['X-Taamul-Event']).toBe('message.received');
-    expect(opts.headers['X-Taamul-Signature']).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+    expect(opts.headers['X-Taamul-Signature']).toMatch(
+      /^t=\d+,v1=[0-9a-f]{64}$/
+    );
     // Pre-rebrand header names still ship, carrying the identical
     // value, so receivers written against them keep verifying.
     expect(opts.headers['X-Wacrm-Event']).toBe('message.received');
@@ -90,12 +103,18 @@ describe('dispatchWebhookEvent', () => {
     );
     // Payload carries a dedupe id.
     expect(JSON.parse(opts.body).id).toMatch(/[0-9a-f-]{36}/);
-    expect(calls.updates[0]).toMatchObject({ id: 'a', payload: { failure_count: 0 } });
+    expect(calls.updates[0]).toMatchObject({
+      id: 'a',
+      payload: { failure_count: 0 },
+    });
     expect(calls.rpcs).toHaveLength(0);
   });
 
   it('records an atomic failure (RPC) when the endpoint errors', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 } as Response));
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as Response);
     const calls = emptyCalls();
 
     await dispatchWebhookEvent(
@@ -114,8 +133,7 @@ describe('dispatchWebhookEvent', () => {
 
   it('blocks a non-public target (SSRF guard) without fetching', async () => {
     vi.mocked(isDeliverableUrl).mockResolvedValue(false);
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.mocked(safeFetch);
     const calls = emptyCalls();
 
     await dispatchWebhookEvent(
@@ -130,10 +148,14 @@ describe('dispatchWebhookEvent', () => {
   });
 
   it('does nothing when no endpoints are subscribed', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = vi.mocked(safeFetch);
     const calls = emptyCalls();
-    await dispatchWebhookEvent(makeDb([], calls), 'acct-1', 'message.received', {});
+    await dispatchWebhookEvent(
+      makeDb([], calls),
+      'acct-1',
+      'message.received',
+      {}
+    );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(calls.rpcs).toHaveLength(0);
     expect(calls.updates).toHaveLength(0);

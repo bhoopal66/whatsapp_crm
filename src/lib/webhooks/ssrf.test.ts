@@ -1,4 +1,15 @@
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+
+// fetchPublicUrl sends untrusted hops through the address-pinned
+// transport and trusted ones through plain fetch; both are stubbed so
+// these tests never touch the network. The transport itself is tested
+// in safe-fetch.test.ts.
+vi.mock('./safe-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./safe-fetch')>()),
+  guardedRequest: vi.fn(),
+}));
+
+import { guardedRequest } from './safe-fetch';
 import {
   isPrivateOrReservedIp,
   isDeliverableUrl,
@@ -23,13 +34,25 @@ describe('isPrivateOrReservedIp', () => {
   });
 
   it('allows public IPv4', () => {
-    for (const ip of ['8.8.8.8', '1.1.1.1', '172.15.0.1', '172.32.0.1', '93.184.216.34']) {
+    for (const ip of [
+      '8.8.8.8',
+      '1.1.1.1',
+      '172.15.0.1',
+      '172.32.0.1',
+      '93.184.216.34',
+    ]) {
       expect(isPrivateOrReservedIp(ip)).toBe(false);
     }
   });
 
   it('flags loopback / ULA / link-local IPv6 and IPv4-mapped privates', () => {
-    for (const ip of ['::1', 'fe80::1', 'fc00::1', 'fd12::34', '::ffff:127.0.0.1']) {
+    for (const ip of [
+      '::1',
+      'fe80::1',
+      'fc00::1',
+      'fd12::34',
+      '::ffff:127.0.0.1',
+    ]) {
       expect(isPrivateOrReservedIp(ip)).toBe(true);
     }
     expect(isPrivateOrReservedIp('2606:4700:4700::1111')).toBe(false);
@@ -39,7 +62,9 @@ describe('isPrivateOrReservedIp', () => {
 describe('isDeliverableUrl', () => {
   it('rejects literal private IPs and internal names without DNS', async () => {
     expect(await isDeliverableUrl('https://127.0.0.1/hook')).toBe(false);
-    expect(await isDeliverableUrl('https://169.254.169.254/latest/meta-data')).toBe(false);
+    expect(
+      await isDeliverableUrl('https://169.254.169.254/latest/meta-data')
+    ).toBe(false);
     expect(await isDeliverableUrl('https://[::1]/hook')).toBe(false);
     expect(await isDeliverableUrl('https://localhost/hook')).toBe(false);
     expect(await isDeliverableUrl('https://foo.internal/hook')).toBe(false);
@@ -88,7 +113,12 @@ describe('isPrivateOrReservedIp — bypass spellings and missing ranges', () => 
     ]) {
       expect(isPrivateOrReservedIp(ip), ip).toBe(true);
     }
-    for (const ip of ['100.63.255.255', '100.128.0.0', '198.20.0.1', '223.255.255.255']) {
+    for (const ip of [
+      '100.63.255.255',
+      '100.128.0.0',
+      '198.20.0.1',
+      '223.255.255.255',
+    ]) {
       expect(isPrivateOrReservedIp(ip), ip).toBe(false);
     }
   });
@@ -113,7 +143,11 @@ describe('isPrivateOrReservedIp — bypass spellings and missing ranges', () => 
     ]) {
       expect(isPrivateOrReservedIp(ip), ip).toBe(true);
     }
-    for (const ip of ['2606:4700:4700::1111', '64:ff9b::808:808', '2002:808:808::1']) {
+    for (const ip of [
+      '2606:4700:4700::1111',
+      '64:ff9b::808:808',
+      '2002:808:808::1',
+    ]) {
       expect(isPrivateOrReservedIp(ip), ip).toBe(false);
     }
   });
@@ -139,7 +173,12 @@ describe('isDeliverableUrl — URL-level bypasses', () => {
   });
 
   it('rejects alternate IPv4 spellings WHATWG normalises', async () => {
-    for (const url of ['http://2130706433/', 'http://0x7f.1/', 'http://0177.0.0.1/', 'http://0/']) {
+    for (const url of [
+      'http://2130706433/',
+      'http://0x7f.1/',
+      'http://0177.0.0.1/',
+      'http://0/',
+    ]) {
       expect(await isDeliverableUrl(url), url).toBe(false);
     }
   });
@@ -158,51 +197,82 @@ describe('fetchPublicUrl', () => {
   });
 
   function stub(responses: Response[]) {
-    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const calls: Array<{
+      url: string;
+      init: RequestInit;
+      via: 'fetch' | 'guarded';
+    }> = [];
     globalThis.fetch = (async (url: string, init: RequestInit) => {
-      calls.push({ url, init });
+      calls.push({ url, init, via: 'fetch' });
       return responses.shift()!;
     }) as typeof fetch;
+    vi.mocked(guardedRequest).mockImplementation(async (url, init) => {
+      calls.push({ url, init, via: 'guarded' });
+      return responses.shift()!;
+    });
     return calls;
   }
 
   it('refuses a private URL without fetching', async () => {
     const calls = stub([]);
-    await expect(fetchPublicUrl('http://127.0.0.1/x')).rejects.toBeInstanceOf(UnsafeUrlError);
+    await expect(fetchPublicUrl('http://127.0.0.1/x')).rejects.toBeInstanceOf(
+      UnsafeUrlError
+    );
     expect(calls).toHaveLength(0);
   });
 
   it('re-checks every redirect hop and refuses one into a private range', async () => {
     const calls = stub([
-      new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } }),
+      new Response(null, {
+        status: 302,
+        headers: { location: 'http://169.254.169.254/' },
+      }),
     ]);
-    await expect(fetchPublicUrl('https://8.8.8.8/a.jpg')).rejects.toBeInstanceOf(UnsafeUrlError);
+    await expect(
+      fetchPublicUrl('https://8.8.8.8/a.jpg')
+    ).rejects.toBeInstanceOf(UnsafeUrlError);
     expect(calls).toHaveLength(1);
     expect(calls[0].init.redirect).toBe('manual');
+    // An untrusted hop is address-pinned against DNS rebinding.
+    expect(calls[0].via).toBe('guarded');
   });
 
   it('follows a public redirect and caps the hop count', async () => {
     const ok = stub([
-      new Response(null, { status: 301, headers: { location: 'https://1.1.1.1/b' } }),
+      new Response(null, {
+        status: 301,
+        headers: { location: 'https://1.1.1.1/b' },
+      }),
       new Response('bytes', { status: 200 }),
     ]);
     const res = await fetchPublicUrl('https://8.8.8.8/a');
     expect(res.status).toBe(200);
-    expect(ok.map((c) => c.url)).toEqual(['https://8.8.8.8/a', 'https://1.1.1.1/b']);
+    expect(ok.map((c) => c.url)).toEqual([
+      'https://8.8.8.8/a',
+      'https://1.1.1.1/b',
+    ]);
 
     stub(
-      Array.from({ length: 5 }, () =>
-        new Response(null, { status: 302, headers: { location: 'https://8.8.8.8/loop' } })
+      Array.from(
+        { length: 5 },
+        () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: 'https://8.8.8.8/loop' },
+          })
       )
     );
-    await expect(fetchPublicUrl('https://8.8.8.8/a', {}, { maxRedirects: 2 })).rejects.toThrow(
-      /Too many redirects/
-    );
+    await expect(
+      fetchPublicUrl('https://8.8.8.8/a', {}, { maxRedirects: 2 })
+    ).rejects.toThrow(/Too many redirects/);
   });
 
   it('sends trusted headers only to trusted hops, never onward', async () => {
     const calls = stub([
-      new Response(null, { status: 302, headers: { location: 'https://8.8.8.8/elsewhere' } }),
+      new Response(null, {
+        status: 302,
+        headers: { location: 'https://8.8.8.8/elsewhere' },
+      }),
       new Response('ok', { status: 200 }),
     ]);
     await fetchPublicUrl(
@@ -213,7 +283,11 @@ describe('fetchPublicUrl', () => {
         trustedHeaders: { Authorization: 'Bearer secret' },
       }
     );
-    expect(new Headers(calls[0].init.headers).get('authorization')).toBe('Bearer secret');
+    expect(new Headers(calls[0].init.headers).get('authorization')).toBe(
+      'Bearer secret'
+    );
     expect(new Headers(calls[1].init.headers).get('authorization')).toBeNull();
+    // The trusted gateway host may be on-prem, so only it skips the pin.
+    expect(calls.map((c) => c.via)).toEqual(['fetch', 'guarded']);
   });
 });

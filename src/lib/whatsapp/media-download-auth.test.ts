@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// Untrusted hops go through the SSRF guard's address-pinned transport,
+// trusted gateway hops through plain fetch; both are stubbed below.
+vi.mock('@/lib/webhooks/safe-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/webhooks/safe-fetch')>()),
+  guardedRequest: vi.fn(),
+}));
+
+import { guardedRequest } from '@/lib/webhooks/safe-fetch';
+
 import { downloadMedia as whapiDownload, isWhapiMediaHost } from './whapi-api';
 import { downloadMedia as metaDownload, isMetaMediaHost } from './meta-api';
 import { downloadMedia as mirrorDefaultDownload } from './mirror-inbound-media';
@@ -17,17 +26,16 @@ interface Call {
 
 function stubFetch(responses: Response[]): Call[] {
   const calls: Call[] = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({
-        url,
-        auth: new Headers(init?.headers).get('authorization'),
-        redirect: init?.redirect,
-      });
-      return responses.shift() ?? new Response('bytes', { status: 200 });
-    })
-  );
+  const record = async (url: string, init?: RequestInit) => {
+    calls.push({
+      url,
+      auth: new Headers(init?.headers).get('authorization'),
+      redirect: init?.redirect,
+    });
+    return responses.shift() ?? new Response('bytes', { status: 200 });
+  };
+  vi.stubGlobal('fetch', vi.fn(record));
+  vi.mocked(guardedRequest).mockImplementation(record);
   return calls;
 }
 

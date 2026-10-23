@@ -1,6 +1,6 @@
 import { uploadResumableMedia } from '@/lib/whatsapp/meta-api'
 import type { TemplatePayload } from '@/lib/whatsapp/template-validators'
-import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 
 /**
  * Meta requires an `example.header_handle` (from the Resumable Upload
@@ -40,6 +40,8 @@ export async function ensureImageHeaderHandle(
   // link-local / reserved address. Same guard, same message as the two
   // other outbound-fetch call sites (see lib/webhooks/ssrf.ts) — matching
   // the unreachable-host message keeps the failure from being an oracle.
+  // safeFetch below re-vets the address it connects to (DNS rebinding),
+  // and its refusal lands in the same catch, so it reads the same too.
   if (!(await isDeliverableUrl(payload.header_media_url))) {
     throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
   }
@@ -48,7 +50,7 @@ export async function ensureImageHeaderHandle(
   // and for a manually-pasted public link).
   let res: Response
   try {
-    res = await fetch(payload.header_media_url, {
+    res = await safeFetch(payload.header_media_url, {
       // Do NOT follow redirects — a public URL could 3xx-bounce to an
       // internal address, defeating the guard above. Bound the request so
       // a hung host can't tie up the template-submit handler.
