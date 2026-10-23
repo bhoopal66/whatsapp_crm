@@ -160,6 +160,31 @@ describe('parseKbTable', () => {
     ]);
   });
 
+  it('treats Object.prototype names as unknown values, not table hits', () => {
+    const { rows, issues } = parseKbTable([
+      [...HEADER, 'Constructor'],
+      r('A1', 'constructor', 'q', 'a'),
+      r('A2', 'Existing client', 'q', 'a', 'constructor'),
+    ]);
+    expect(issues).toEqual([
+      {
+        row: 2,
+        ref: 'A1',
+        message: 'Unknown audience "constructor"',
+        skipped: true,
+      },
+      {
+        row: 3,
+        ref: 'A2',
+        message: 'Unknown status "constructor"; imported as Draft',
+        skipped: false,
+      },
+    ]);
+    expect(rows).toEqual([
+      expect.objectContaining({ ref: 'A2', status: 'draft' }),
+    ]);
+  });
+
   it('keeps the first of two rows whose IDs differ only in case', () => {
     const { rows, issues } = parseKbTable([
       HEADER,

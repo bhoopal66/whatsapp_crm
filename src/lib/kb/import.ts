@@ -27,6 +27,14 @@ function key(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
+/**
+ * `table[k]` only when `k` is the table's own key: a cell reading
+ * "constructor" would otherwise find `Object.prototype.constructor`.
+ */
+function lookup<T>(table: Record<string, T>, k: string): T | undefined {
+  return Object.hasOwn(table, k) ? table[k] : undefined;
+}
+
 const HEADER_ALIASES: Record<string, Field> = {
   id: 'ref',
   ref: 'ref',
@@ -83,7 +91,7 @@ function findHeader(
   for (let index = 0; index < table.length; index++) {
     const columns: Columns = {};
     (table[index] ?? []).forEach((cell, col) => {
-      const field = HEADER_ALIASES[key(cell ?? '')];
+      const field = lookup(HEADER_ALIASES, key(cell ?? ''));
       if (field && columns[field] === undefined) columns[field] = col;
     });
     if (columns.question !== undefined && columns.answer_en !== undefined) {
@@ -169,7 +177,7 @@ export function parseKbTable(table: string[][]): {
       continue;
     }
     const audienceText = cell('audience')!;
-    const audience = AUDIENCES[key(audienceText)];
+    const audience = lookup(AUDIENCES, key(audienceText));
     if (!audience) {
       skip(
         ref,
@@ -207,7 +215,7 @@ export function parseKbTable(table: string[][]): {
 
     const statusText = cell('status');
     if (statusText !== undefined) {
-      let status = STATUSES[key(statusText)];
+      let status = lookup(STATUSES, key(statusText));
       if (!status) {
         status = 'draft';
         issues.push({
