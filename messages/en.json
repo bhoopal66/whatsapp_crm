@@ -3080,7 +3080,9 @@
           "base_url_credentials": "Leave the user name and password out of the address.",
           "client_id_required": "Enter the Client ID.",
           "client_secret_required": "Enter the Client Secret.",
+          "client_secret_moved": "Enter the Client Secret again when you change the PBX address.",
           "sdk_pair": "Enter both the AccessID and the AccessKey.",
+          "sdk_moved": "Enter the AccessID and the AccessKey again when you change the PBX address, or remove the SDK credentials.",
           "webhook_secret_length": "The webhook secret must be exactly 32 characters."
         }
       },

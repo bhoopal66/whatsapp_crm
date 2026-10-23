@@ -525,7 +525,12 @@ describe('validateConnectionForm', () => {
     clearWebhookSecret: false,
     ...over,
   });
-  const stored = { hasClientSecret: true, hasSdkCredentials: false };
+  const stored = {
+    baseUrl: 'https://acme.ras.yeastar.com',
+    apiPath: 'openapi/v1.0',
+    hasClientSecret: true,
+    hasSdkCredentials: false,
+  };
 
   it('sends the origin and omits secrets left empty', () => {
     expect(validateConnectionForm(draft({ clientSecret: '' }), stored)).toEqual(
@@ -535,6 +540,7 @@ describe('validateConnectionForm', () => {
           label: 'Head office',
           edition: 'cloud',
           baseUrl: 'https://acme.ras.yeastar.com',
+          apiPath: 'openapi/v1.0',
           clientId: 'client-1234',
         },
       }
@@ -582,6 +588,7 @@ describe('validateConnectionForm', () => {
         label: 'Head office',
         edition: 'cloud',
         baseUrl: 'https://acme.ras.yeastar.com',
+        apiPath: 'openapi/v1.0',
         clientSecret: 'shh',
       },
     });
@@ -617,6 +624,50 @@ describe('validateConnectionForm', () => {
       sdkAccessKey: null,
       webhookSecret: null,
     });
+  });
+
+  it('sends the stored apiPath back unchanged, and none for a new connection', () => {
+    const kept = validateConnectionForm(draft({ clientSecret: '' }), {
+      ...stored,
+      apiPath: 'custom/api',
+    });
+    expect(kept.ok && kept.payload.apiPath).toBe('custom/api');
+    const fresh = validateConnectionForm(draft(), null);
+    expect(fresh.ok && 'apiPath' in fresh.payload).toBe(false);
+  });
+
+  it('needs the Client Secret again when the address moves', () => {
+    const moved = { baseUrl: 'https://other.ras.yeastar.com' };
+    expect(
+      validateConnectionForm(draft({ ...moved, clientSecret: '' }), stored)
+    ).toEqual({ ok: false, issues: { clientSecret: 'client_secret_moved' } });
+    expect(validateConnectionForm(draft(moved), stored).ok).toBe(true);
+    // Same origin, different path: not a move.
+    expect(
+      validateConnectionForm(
+        draft({ baseUrl: 'https://acme.ras.yeastar.com/x', clientSecret: '' }),
+        stored
+      ).ok
+    ).toBe(true);
+  });
+
+  it('needs the SDK pair again when the address moves and one is stored', () => {
+    const withSdk = { ...stored, hasSdkCredentials: true };
+    const moved = { baseUrl: 'https://other.ras.yeastar.com' };
+    expect(
+      validateConnectionForm(draft({ ...moved, sdkAccessId: 'id' }), withSdk)
+    ).toEqual({ ok: false, issues: { sdk: 'sdk_moved' } });
+    expect(
+      validateConnectionForm(
+        draft({ ...moved, sdkAccessId: 'id', sdkAccessKey: 'k' }),
+        withSdk
+      ).ok
+    ).toBe(true);
+    expect(
+      validateConnectionForm(draft({ ...moved, clearSdk: true }), withSdk).ok
+    ).toBe(true);
+    // No SDK stored: nothing to re-enter.
+    expect(validateConnectionForm(draft(moved), stored).ok).toBe(true);
   });
 
   it('needs a label', () => {

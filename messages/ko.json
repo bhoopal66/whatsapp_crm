@@ -3080,7 +3080,9 @@
           "base_url_credentials": "주소에 사용자 이름과 비밀번호를 넣지 마세요.",
           "client_id_required": "Client ID를 입력하세요.",
           "client_secret_required": "Client Secret을 입력하세요.",
+          "client_secret_moved": "PBX 주소를 변경할 때는 Client Secret을 다시 입력하세요.",
           "sdk_pair": "AccessID와 AccessKey를 모두 입력하세요.",
+          "sdk_moved": "PBX 주소를 변경할 때는 AccessID와 AccessKey를 다시 입력하거나 SDK 자격 증명을 삭제하세요.",
           "webhook_secret_length": "웹훅 Secret은 정확히 32자여야 합니다."
         }
       },

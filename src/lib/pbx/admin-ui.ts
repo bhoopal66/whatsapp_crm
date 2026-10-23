@@ -579,13 +579,18 @@ export type ConnectionIssue =
   | 'base_url_credentials'
   | 'client_id_required'
   | 'client_secret_required'
+  | 'client_secret_moved'
   | 'sdk_pair'
+  | 'sdk_moved'
   | 'webhook_secret_length';
 
 export interface ConnectionPayload {
   label: string;
   edition: PbxEdition;
   baseUrl: string;
+  /** The stored path, sent back unchanged: the form has no field for it,
+   *  and omitting it would read as "moved" to the server. */
+  apiPath?: string;
   clientId?: string;
   clientSecret?: string;
   sdkAccessId?: string | null;
@@ -595,6 +600,14 @@ export interface ConnectionPayload {
 
 /** Yeastar's webhook push signs with a secret of exactly this length. */
 export const WEBHOOK_SECRET_LENGTH = 32;
+
+function storedOrigin(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return baseUrl;
+  }
+}
 
 /**
  * The connection form, checked as PUT /api/pbx/connection checks it,
@@ -608,7 +621,7 @@ export function validateConnectionForm(
   d: ConnectionDraft,
   stored: Pick<
     PbxConnectionView,
-    'hasClientSecret' | 'hasSdkCredentials'
+    'baseUrl' | 'apiPath' | 'hasClientSecret' | 'hasSdkCredentials'
   > | null
 ):
   | { ok: true; payload: ConnectionPayload }
@@ -641,6 +654,14 @@ export function validateConnectionForm(
   if (!d.clearSdk && !stored?.hasSdkCredentials && !sdkId !== !sdkKey)
     issues.sdk = 'sdk_pair';
 
+  // PUT refuses to carry stored secrets to a different host: moving the
+  // address means typing them again (the server's `moved` rule).
+  if (stored && origin && origin !== storedOrigin(stored.baseUrl)) {
+    if (!clientSecret) issues.clientSecret = 'client_secret_moved';
+    if (stored.hasSdkCredentials && !d.clearSdk && (!sdkId || !sdkKey))
+      issues.sdk = 'sdk_moved';
+  }
+
   const webhookSecret = d.webhookSecret.trim();
   if (
     !d.clearWebhookSecret &&
@@ -655,6 +676,7 @@ export function validateConnectionForm(
     edition: d.edition,
     baseUrl: origin,
   };
+  if (stored?.apiPath) payload.apiPath = stored.apiPath;
   if (clientId) payload.clientId = clientId;
   if (clientSecret) payload.clientSecret = clientSecret;
   if (d.clearSdk) {
