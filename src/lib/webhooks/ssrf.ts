@@ -22,17 +22,20 @@
 // its 16 bytes and un-maps each IPv4-in-IPv6 encoding (mapped,
 // compatible, NAT64, 6to4) before checking the IPv4 ranges.
 //
-// Residual risk — DNS rebinding: a host that resolves public here but
-// flips to private before connect. Closing that needs the validated IP
-// pinned into the socket (an undici `Agent` with a `connect.lookup`),
-// and undici is not a declared dependency — only a transitive one of
-// the shadcn CLI — so it is not imported here. The window is the gap
-// between our lookup and fetch's own, usually milliseconds, and the
-// attacker needs a TTL-0 record they control.
+// DNS rebinding: a host that resolves public here but private at
+// connect time (a TTL-0 record the attacker controls) used to slip
+// through, because `fetch` resolves the name again. Every guarded
+// request now goes through `safeFetch`, which vets the address the
+// socket actually connects to (`safe-fetch.ts`); `isDeliverableUrl`
+// stays as the early, user-facing check (save time, before signing).
 // ============================================================
 
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
+
+import { guardedRequest, UnsafeUrlError, type Resolver } from './safe-fetch';
+
+export { UnsafeUrlError };
 
 const BLOCKED_V4: Array<[string, number]> = [
   ['0.0.0.0', 8], // "this" network
@@ -67,8 +70,10 @@ const BLOCKED_V6: Array<[string, number]> = [
 ];
 
 const blockList = new BlockList();
-for (const [net, prefix] of BLOCKED_V4) blockList.addSubnet(net, prefix, 'ipv4');
-for (const [net, prefix] of BLOCKED_V6) blockList.addSubnet(net, prefix, 'ipv6');
+for (const [net, prefix] of BLOCKED_V4)
+  blockList.addSubnet(net, prefix, 'ipv4');
+for (const [net, prefix] of BLOCKED_V6)
+  blockList.addSubnet(net, prefix, 'ipv6');
 
 /** Expand a valid IPv6 literal into its 8 16-bit groups. */
 function ipv6Groups(ip: string): number[] | null {
@@ -109,7 +114,10 @@ function v4FromGroups(hi: number, lo: number): string {
  */
 export function isPrivateOrReservedIp(rawIp: string): boolean {
   // Brackets from a URL host, and a zone id (`fe80::1%eth0`).
-  const ip = rawIp.replace(/^\[|\]$/g, '').replace(/%.*$/, '').toLowerCase();
+  const ip = rawIp
+    .replace(/^\[|\]$/g, '')
+    .replace(/%.*$/, '')
+    .toLowerCase();
   const family = isIP(ip);
   if (family === 4) return blockList.check(ip, 'ipv4');
   if (family !== 6) return true;
@@ -187,12 +195,22 @@ export async function isDeliverableUrl(rawUrl: string): Promise<boolean> {
   }
 }
 
-/** Thrown by `fetchPublicUrl` when a hop fails the SSRF guard. */
-export class UnsafeUrlError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'UnsafeUrlError';
-  }
+/**
+ * `fetch` for a caller-influenced URL, with the SSRF guard enforced at
+ * connect time: the socket is refused if the URL's literal IP, or any
+ * address its name resolves to when the connection is made, is private
+ * or reserved. Never follows redirects. Throws `UnsafeUrlError` on a
+ * refused address. `resolve` exists for tests.
+ */
+export function safeFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  opts: { resolve?: Resolver } = {}
+): Promise<Response> {
+  return guardedRequest(rawUrl, init, {
+    isBlocked: isPrivateOrReservedIp,
+    resolve: opts.resolve,
+  });
 }
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -251,7 +269,9 @@ export async function fetchPublicUrl(
       headers.delete('authorization');
     }
 
-    const res = await fetch(url.href, {
+    // A trusted host may legitimately be on-prem, so it keeps plain
+    // fetch; every other hop is address-pinned against DNS rebinding.
+    const res = await (trusted ? fetch : safeFetch)(url.href, {
       ...init,
       headers,
       redirect: 'manual',

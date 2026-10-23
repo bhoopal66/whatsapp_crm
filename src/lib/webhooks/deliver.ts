@@ -24,7 +24,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { buildSignatureHeader } from '@/lib/webhooks/sign';
-import { isDeliverableUrl } from '@/lib/webhooks/ssrf';
+import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf';
 import type { WebhookEvent } from '@/lib/webhooks/events';
 
 /** Per-endpoint HTTP timeout. Kept short — this runs in `after()`. */
@@ -107,6 +107,8 @@ async function deliverOne(
   // SSRF guard: refuse to POST to a host that resolves to a private /
   // loopback / link-local address. Counts as a failure so a
   // misconfigured internal URL surfaces and eventually auto-disables.
+  // This is the early check; `safeFetch` below re-vets the address it
+  // connects to, so a DNS answer that flips in between is refused too.
   if (!(await isDeliverableUrl(row.url))) {
     console.warn('[webhooks] refusing non-public delivery target for', row.id);
     await recordFailure(db, row);
@@ -127,7 +129,7 @@ async function deliverOne(
   const signature = buildSignatureHeader(payload, secret, tsSeconds);
 
   try {
-    const res = await fetch(row.url, {
+    const res = await safeFetch(row.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -150,6 +152,8 @@ async function deliverOne(
       redirect: 'manual',
       signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
     });
+    // The body is never read; release the socket now.
+    void res.body?.cancel().catch(() => {});
     if (!res.ok) throw new Error(`endpoint responded ${res.status}`);
 
     // Success: clear the failure streak.
@@ -166,7 +170,10 @@ async function deliverOne(
   }
 }
 
-async function recordFailure(db: SupabaseClient, row: EndpointRow): Promise<void> {
+async function recordFailure(
+  db: SupabaseClient,
+  row: EndpointRow
+): Promise<void> {
   // Atomic increment (+ auto-disable at the threshold) via a SQL
   // function — a read-modify-write here would lose increments when two
   // deliveries to the same endpoint run concurrently (e.g.
@@ -177,6 +184,10 @@ async function recordFailure(db: SupabaseClient, row: EndpointRow): Promise<void
     max_failures: MAX_CONSECUTIVE_FAILURES,
   });
   if (error) {
-    console.error('[webhooks] record_webhook_failure failed for', row.id, error);
+    console.error(
+      '[webhooks] record_webhook_failure failed for',
+      row.id,
+      error
+    );
   }
 }

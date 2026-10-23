@@ -7,13 +7,15 @@ vi.mock('./meta-api', () => ({
 
 // The SSRF guard does a real DNS lookup, so stub it — the fixtures below use
 // a `.test` hostname that would never resolve. Each test sets the verdict.
+// The image is fetched through the guard's address-pinned `safeFetch`.
 vi.mock('@/lib/webhooks/ssrf', () => ({
   isDeliverableUrl: vi.fn(async () => true),
+  safeFetch: vi.fn(),
 }));
 
 import { ensureImageHeaderHandle } from './template-header-handle';
 import { uploadResumableMedia } from './meta-api';
-import { isDeliverableUrl } from '@/lib/webhooks/ssrf';
+import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf';
 import type { TemplatePayload } from './template-validators';
 
 function payload(over: Partial<TemplatePayload> = {}): TemplatePayload {
@@ -42,6 +44,7 @@ describe('ensureImageHeaderHandle', () => {
     vi.mocked(uploadResumableMedia).mockClear();
     vi.mocked(isDeliverableUrl).mockClear();
     vi.mocked(isDeliverableUrl).mockResolvedValue(true);
+    vi.mocked(safeFetch).mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -69,7 +72,7 @@ describe('ensureImageHeaderHandle', () => {
 
   it('derives + sets header_handle from a valid image URL', async () => {
     vi.stubEnv('META_APP_ID', 'app-1');
-    vi.stubGlobal('fetch', vi.fn(async () => imgResponse('image/jpeg', 2048)));
+    vi.mocked(safeFetch).mockImplementation(vi.fn(async () => imgResponse('image/jpeg', 2048)));
     const p = payload();
     await ensureImageHeaderHandle(p, 'tok');
     expect(uploadResumableMedia).toHaveBeenCalledOnce();
@@ -78,13 +81,13 @@ describe('ensureImageHeaderHandle', () => {
 
   it('rejects a non-image content type', async () => {
     vi.stubEnv('META_APP_ID', 'app-1');
-    vi.stubGlobal('fetch', vi.fn(async () => imgResponse('text/html')));
+    vi.mocked(safeFetch).mockImplementation(vi.fn(async () => imgResponse('text/html')));
     await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/JPEG or PNG/);
   });
 
   it('rejects an image over 5 MB', async () => {
     vi.stubEnv('META_APP_ID', 'app-1');
-    vi.stubGlobal('fetch', vi.fn(async () => imgResponse('image/png', 6 * 1024 * 1024)));
+    vi.mocked(safeFetch).mockImplementation(vi.fn(async () => imgResponse('image/png', 6 * 1024 * 1024)));
     await expect(ensureImageHeaderHandle(payload(), 'tok')).rejects.toThrow(/5 MB/);
   });
 
@@ -97,7 +100,7 @@ describe('ensureImageHeaderHandle', () => {
     vi.stubEnv('META_APP_ID', 'app-1');
     vi.mocked(isDeliverableUrl).mockResolvedValue(false);
     const fetchSpy = vi.fn(async () => imgResponse('application/json'));
-    vi.stubGlobal('fetch', fetchSpy);
+    vi.mocked(safeFetch).mockImplementation(fetchSpy);
 
     const p = payload({ header_media_url: 'http://169.254.169.254/latest/meta-data/' });
     await expect(ensureImageHeaderHandle(p, 'tok')).rejects.toThrow(/publicly reachable/);
@@ -112,14 +115,13 @@ describe('ensureImageHeaderHandle', () => {
     vi.stubEnv('META_APP_ID', 'app-1');
 
     vi.mocked(isDeliverableUrl).mockResolvedValue(false);
-    vi.stubGlobal('fetch', vi.fn(async () => imgResponse()));
+    vi.mocked(safeFetch).mockImplementation(vi.fn(async () => imgResponse()));
     const blocked = await ensureImageHeaderHandle(payload(), 'tok').catch(
       (e: Error) => e.message,
     );
 
     vi.mocked(isDeliverableUrl).mockResolvedValue(true);
-    vi.stubGlobal(
-      'fetch',
+    vi.mocked(safeFetch).mockImplementation(
       vi.fn(async () => {
         throw new Error('ECONNREFUSED');
       }),
@@ -134,7 +136,7 @@ describe('ensureImageHeaderHandle', () => {
   it('does not follow redirects, so a public URL cannot bounce to an internal one', async () => {
     vi.stubEnv('META_APP_ID', 'app-1');
     const fetchSpy = vi.fn(async () => imgResponse('image/jpeg', 1024));
-    vi.stubGlobal('fetch', fetchSpy);
+    vi.mocked(safeFetch).mockImplementation(fetchSpy);
 
     await ensureImageHeaderHandle(payload(), 'tok');
 

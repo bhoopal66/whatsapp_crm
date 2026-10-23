@@ -24,7 +24,7 @@ import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
-import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 import { isBankGuest, type AccountRole } from '@/lib/auth/roles'
 import {
   clipTeamChatBody,
@@ -644,12 +644,14 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       // SSRF guard: the URL and headers are account-controlled and the
       // server makes the request, so refuse any destination that resolves
       // to a private / loopback / link-local / reserved address. Mirrors
-      // the webhook_endpoints delivery path (see lib/webhooks/deliver.ts).
+      // the webhook_endpoints delivery path (see lib/webhooks/deliver.ts):
+      // this early check, then safeFetch re-vets the connected address so
+      // a DNS answer that flips in between (rebinding) is refused too.
       if (!(await isDeliverableUrl(cfg.url))) {
         throw new Error('send_webhook: destination not allowed')
       }
       const body = cfg.body_template ? interpolate(cfg.body_template, args) : JSON.stringify(args.context)
-      const res = await fetch(cfg.url, {
+      const res = await safeFetch(cfg.url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(cfg.headers ?? {}) },
         body,
@@ -659,6 +661,8 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         redirect: 'manual',
         signal: AbortSignal.timeout(10_000),
       })
+      // The body is never read; release the socket now.
+      void res.body?.cancel().catch(() => {})
       if (!res.ok) throw new Error(`webhook returned ${res.status}`)
       return `webhook ${res.status}`
     }
