@@ -216,6 +216,18 @@ export interface ItemRefs {
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
+/**
+ * Waiting for its WhatsApp group. A 'none' row (migration 136) is recorded
+ * without one by design and never becomes pending.
+ */
+export function isPendingCreate(group: SubmissionGroup): boolean {
+  return (
+    group.waMode !== 'none' &&
+    group.status === 'ACTIVE' &&
+    group.waGroupId === null
+  );
+}
+
 /** A list row. A deleted contact or number is null, as is one not loaded. */
 export function toListItem(group: SubmissionGroup, refs: ItemRefs) {
   return {
@@ -234,7 +246,8 @@ export function toListItem(group: SubmissionGroup, refs: ItemRefs) {
     created_at: group.createdAt.toISOString(),
     ended_at: iso(group.endedAt),
     end_reason: group.endReason,
-    pending: group.status === 'ACTIVE' && group.waGroupId === null,
+    wa_mode: group.waMode,
+    pending: isPendingCreate(group),
     archive: group.status === 'ENDED',
   };
 }

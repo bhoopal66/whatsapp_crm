@@ -10,6 +10,7 @@ import {
   groupBanners,
   listUrl,
   parseSgList,
+  waModeOf,
   sendErrorKey,
   sendStatusOf,
   sentAsPreview,
@@ -53,7 +54,10 @@ describe('parseSgList', () => {
   it('reads groups and the cursor', () => {
     expect(
       parseSgList({ groups: [item(), { nope: 1 }], next_cursor: 'abc' })
-    ).toEqual({ groups: [item()], next_cursor: 'abc' });
+    ).toEqual({
+      groups: [{ ...item(), wa_mode: 'group' }],
+      next_cursor: 'abc',
+    });
   });
 
   it('survives a malformed body', () => {
@@ -194,6 +198,30 @@ describe('groupBanners / canRetryCreate', () => {
     expect(canRetryCreate(g)).toBe(true);
     expect(canRetryCreate(group())).toBe(false);
     expect(canRetryCreate({ ...g, status: 'ENDED' })).toBe(false);
+  });
+
+  it('a none group shows only the info banner, no pending or number-removed', () => {
+    const g = group({
+      wa_mode: 'none',
+      wa_group_id: null,
+      pending: false,
+      channel: null,
+    });
+    expect(groupBanners(g)).toEqual(['noWhatsapp']);
+    expect(canRetryCreate({ ...g, wa_create_error: 'x' })).toBe(false);
+    expect(
+      groupBanners({ ...g, pending: true, wa_create_error: 'x', contact: null })
+    ).toEqual(['noWhatsapp', 'contactRemoved']);
+  });
+
+  it('parses wa_mode tolerantly: missing or unknown is group', () => {
+    expect(waModeOf({})).toBe('group');
+    expect(waModeOf({ wa_mode: 'bogus' })).toBe('group');
+    expect(waModeOf({ wa_mode: 'none' })).toBe('none');
+    const page = parseSgList({
+      groups: [item(), { ...item({ id: 'g2' }), wa_mode: 'none' }],
+    });
+    expect(page.groups.map((g) => g.wa_mode)).toEqual(['group', 'none']);
   });
 
   it('shows a close error only on an ENDED group not yet closed', () => {

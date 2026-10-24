@@ -14,6 +14,7 @@ import {
   searchFilter,
   searchTerm,
   toChannelRef,
+  toDetailGroup,
   toListItem,
 } from './views';
 
@@ -230,6 +231,20 @@ describe('toListItem', () => {
       channel: { id: 'w1', label: 'Sales' },
       ended_at: null,
     });
+  });
+
+  it('never marks a wa_mode none row pending, and exposes wa_mode', () => {
+    const none = group({ waMode: 'none', channelId: null });
+    expect(toListItem(none, refs)).toMatchObject({
+      wa_mode: 'none',
+      pending: false,
+      channel: null,
+    });
+    expect(toDetailGroup(none, refs)).toMatchObject({
+      wa_mode: 'none',
+      pending: false,
+    });
+    expect(toListItem(group(), refs)).toMatchObject({ wa_mode: 'group' });
   });
 
   it('answers a deleted contact or number as null, and an ENDED group as archive', () => {

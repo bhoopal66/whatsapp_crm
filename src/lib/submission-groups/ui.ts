@@ -17,6 +17,14 @@ export { STAFF_LABELS, type StaffLabel };
 
 export type SgStatus = 'ACTIVE' | 'ENDED';
 
+/** Migration 136: 'none' is a submission recorded without a WhatsApp group. */
+export type SgWaMode = 'group' | 'none';
+
+/** A missing or unknown value is 'group': older payloads predate 136. */
+export function waModeOf(v: { wa_mode?: unknown }): SgWaMode {
+  return v.wa_mode === 'none' ? 'none' : 'group';
+}
+
 /** One row of GET /api/submission-groups. */
 export interface SgListItem {
   id: string;
@@ -30,6 +38,8 @@ export interface SgListItem {
   created_at: string;
   ended_at: string | null;
   end_reason: string | null;
+  /** Absent on payloads from before 136; read it through `waModeOf`. */
+  wa_mode?: SgWaMode;
   pending: boolean;
   archive: boolean;
 }
@@ -95,9 +105,11 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 export function parseSgList(json: unknown): SgListPage {
   if (!isObj(json)) return { groups: [], next_cursor: null };
   const groups = Array.isArray(json.groups)
-    ? (json.groups.filter(
-        (g) => isObj(g) && typeof g.id === 'string'
-      ) as SgListItem[])
+    ? (
+        json.groups.filter(
+          (g) => isObj(g) && typeof g.id === 'string'
+        ) as SgListItem[]
+      ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
     : [];
   const next =
     typeof json.next_cursor === 'string' && json.next_cursor
@@ -233,18 +245,27 @@ export function sendErrorKey(
 }
 
 export type BannerKey =
-  'pending' | 'createError' | 'closeError' | 'numberRemoved' | 'contactRemoved';
+  | 'noWhatsapp'
+  | 'pending'
+  | 'createError'
+  | 'closeError'
+  | 'numberRemoved'
+  | 'contactRemoved';
 
 /** The notices above a group's chat, most urgent first. */
 export function groupBanners(g: SgGroup): BannerKey[] {
   const out: BannerKey[] = [];
-  if (g.status === 'ACTIVE') {
+  // 'none': no group and no hosting number by design, so neither the
+  // pending nor the number-removed notice applies.
+  const noGroup = waModeOf(g) === 'none';
+  if (noGroup) out.push('noWhatsapp');
+  if (g.status === 'ACTIVE' && !noGroup) {
     if (g.wa_create_error) out.push('createError');
     else if (g.pending || !g.wa_group_id) out.push('pending');
   }
   if (g.status === 'ENDED' && g.wa_close_error && !g.wa_closed_at)
     out.push('closeError');
-  if (!g.channel) out.push('numberRemoved');
+  if (!g.channel && !noGroup) out.push('numberRemoved');
   if (!g.contact) out.push('contactRemoved');
   return out;
 }
@@ -263,7 +284,12 @@ export function inviteNotice(
 
 /** Retry create is offered while an ACTIVE group has no WhatsApp group yet. */
 export function canRetryCreate(g: SgGroup): boolean {
-  return g.status === 'ACTIVE' && !g.wa_group_id && !!g.wa_create_error;
+  return (
+    waModeOf(g) === 'group' &&
+    g.status === 'ACTIVE' &&
+    !g.wa_group_id &&
+    !!g.wa_create_error
+  );
 }
 
 /**

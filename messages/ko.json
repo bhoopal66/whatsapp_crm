@@ -6231,6 +6231,7 @@
     "justNow": "방금",
     "endedAt": "{when} 종료",
     "pendingBadge": "생성 중",
+    "noWhatsappBadge": "WhatsApp 그룹 없음",
     "archiveBadge": "보관함",
     "contactRemoved": "고객 삭제됨",
     "numberRemoved": "번호 제거됨",
@@ -6303,6 +6304,7 @@
       "openNewCase": "케이스 만들기",
       "openNewCaseFailed": "케이스를 만들지 못했습니다. 다시 시도하세요.",
       "banners": {
+        "noWhatsapp": "이 제출 건은 WhatsApp 그룹 없이 기록되었습니다 (설정 → 케이스에서 WhatsApp 그룹이 꺼져 있습니다).",
         "pending": "WhatsApp 그룹을 만드는 중입니다. 준비되면 메시지를 보낼 수 있습니다.",
         "createError": "WhatsApp 그룹을 만들지 못했습니다.",
         "closeError": "그룹은 종료되었지만 WhatsApp에서 닫지 못했습니다.",

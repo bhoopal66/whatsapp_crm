@@ -157,6 +157,7 @@ describe('GET /api/submission-groups', () => {
       created_at: '2026-10-01T10:00:00.000Z',
       ended_at: null,
       end_reason: null,
+      wa_mode: 'group',
       pending: false,
       archive: false,
     });

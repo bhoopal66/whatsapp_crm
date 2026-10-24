@@ -14,6 +14,7 @@ import {
   listUrl,
   parseSgList,
   type SgListItem,
+  waModeOf,
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
 
@@ -222,7 +223,12 @@ function Row({ group: g, now }: { group: SgListItem; now: Date }) {
   const customer = g.contact
     ? g.contact.name || g.contact.phone || '—'
     : t('contactRemoved');
-  const number = g.channel ? (g.channel.label ?? '') : t('numberRemoved');
+  const noGroup = waModeOf(g) === 'none';
+  const number = g.channel
+    ? (g.channel.label ?? '')
+    : noGroup
+      ? ''
+      : t('numberRemoved');
 
   return (
     <li>
@@ -245,6 +251,11 @@ function Row({ group: g, now }: { group: SgListItem; now: Date }) {
             {g.subject && (
               <span className="text-muted-foreground truncate text-sm">
                 {g.subject}
+              </span>
+            )}
+            {noGroup && !ended && (
+              <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                {t('noWhatsappBadge')}
               </span>
             )}
             {g.pending && !ended && (

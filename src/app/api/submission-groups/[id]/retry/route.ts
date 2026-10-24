@@ -13,6 +13,7 @@ import {
   submissionGroupService,
   submissionGroupStore,
 } from '@/lib/submission-groups/server';
+import { isPendingCreate } from '@/lib/submission-groups/views';
 
 export const maxDuration = 60;
 
@@ -34,7 +35,7 @@ export async function POST(_request: Request, { params }: Params) {
       );
     return NextResponse.json({
       group: out.group,
-      pending: out.group.status === 'ACTIVE' && out.group.waGroupId === null,
+      pending: isPendingCreate(out.group),
     });
   } catch (err) {
     if (err instanceof SgHttpError)

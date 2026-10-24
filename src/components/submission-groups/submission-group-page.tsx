@@ -17,6 +17,7 @@ import {
   Briefcase,
   Eye,
   FolderKanban,
+  Info,
   Loader2,
   RotateCcw,
   Send,
@@ -41,6 +42,7 @@ import {
   sentAsPreview,
   type SgDetail,
   type SgMessage,
+  waModeOf,
 } from '@/lib/submission-groups/ui';
 
 import { MessageList } from './message-list';
@@ -298,6 +300,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
 
   const { group } = detail;
   const ended = group.status === 'ENDED';
+  const noGroup = waModeOf(group) === 'none';
   const banners = groupBanners(group);
   const invite = inviteNotice(group);
   const reason = endReasonView(group.end_reason);
@@ -348,7 +351,9 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
               t('customer', { name: customer }),
               group.channel
                 ? t('number', { name: group.channel.label ?? '' })
-                : t('numberRemoved'),
+                : noGroup
+                  ? null
+                  : t('numberRemoved'),
               group.submission_status
                 ? t('submissionStatus', { status: group.submission_status })
                 : null,
@@ -438,12 +443,14 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
           key={b}
           role="status"
           className={
-            b === 'pending'
+            b === 'pending' || b === 'noWhatsapp'
               ? 'bg-muted text-muted-foreground flex items-start gap-2 rounded-lg px-3 py-2 text-sm'
               : 'border-destructive/30 bg-destructive-soft text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-sm'
           }
         >
-          {b === 'pending' ? (
+          {b === 'noWhatsapp' ? (
+            <Info className="mt-0.5 size-4 shrink-0" />
+          ) : b === 'pending' ? (
             <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" />
           ) : (
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
@@ -517,7 +524,7 @@ export function SubmissionGroupPage({ groupId }: { groupId: string }) {
             )}
           </div>
 
-          {!ended && (
+          {!ended && !noGroup && (
             <div className="border-t p-2">
               {detail.can_send ? (
                 sentAs && (

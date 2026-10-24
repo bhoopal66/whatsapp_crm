@@ -64,7 +64,11 @@ checked because nothing is sent to the customer, there is no invite, and
 the answer is `201` (a repeat `200`), never `202`. With it on, a new
 submission is a `group` row. Turning the switch on or off never changes
 an existing row. The case page's Conversation tab says the case has no
-WhatsApp group instead of offering a composer.
+WhatsApp group instead of offering a composer. The internal `/submission-groups` screens do the same: a `none` row
+shows a "No WhatsApp group" badge instead of "Setting up", an info
+banner instead of the pending, create-error and number-removed notices,
+no composer and no Retry create (the views expose `wa_mode`; `pending` is
+true only for `group` rows).
 
 ## Who is in the WhatsApp group
 

@@ -6231,6 +6231,7 @@
     "justNow": "just now",
     "endedAt": "Ended {when}",
     "pendingBadge": "Setting up",
+    "noWhatsappBadge": "No WhatsApp group",
     "archiveBadge": "Archive",
     "contactRemoved": "Customer deleted",
     "numberRemoved": "Number removed",
@@ -6303,6 +6304,7 @@
       "openNewCase": "Open a case",
       "openNewCaseFailed": "Couldn't open a case. Try again.",
       "banners": {
+        "noWhatsapp": "This submission was recorded without a WhatsApp group (WhatsApp groups are off in Settings → Cases).",
         "pending": "The WhatsApp group is being created. You can send once it is ready.",
         "createError": "The WhatsApp group could not be created.",
         "closeError": "The group ended, but closing it on WhatsApp failed.",
