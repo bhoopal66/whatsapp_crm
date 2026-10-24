@@ -90,7 +90,8 @@ export function toGroup(r: Row): SubmissionGroup {
     submissionRef: String(r.submission_ref),
     contactId: str(r.contact_id),
     channelId: str(r.channel_id),
-    // A row read before 136 carries no column: it is a 'group' row.
+    // Anything but 'none' is a 'group' row. GROUP_COLUMNS selects wa_mode, so
+    // this code needs migration 136 applied first (PostgREST refuses the column).
     waMode: r.wa_mode === 'none' ? 'none' : 'group',
     subject: String(r.subject ?? ''),
     coordinatorPhone: str(r.coordinator_phone),

@@ -21,6 +21,9 @@ and polish.
 ### Cases without WhatsApp groups (migration 136)
 
 **Migration required: 136** (`136_submission_without_whatsapp.sql`, apply as a superuser or BYPASSRLS role).
+Apply it **before** deploying this version: the app now reads
+`submission_groups.wa_mode`, and without the column every submission-group
+and case conversation read fails.
 - A submission from Compass now always reaches the CRM as a case, even with
   no Whapi number connected. Whether it also gets a WhatsApp group is a new
   switch, **Settings → Cases → Open a WhatsApp group for each submission**,
