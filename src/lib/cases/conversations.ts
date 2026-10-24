@@ -32,7 +32,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { SubmissionGroupService } from '@/lib/submission-groups/service';
-import type { GroupMessage } from '@/lib/submission-groups/store';
+import type { GroupMessage, WaMode } from '@/lib/submission-groups/store';
 
 import { canWriteCase } from './access';
 import { liveGroupMessages, loadCaseGroup } from './case-group';
@@ -52,6 +52,8 @@ export type CaseConversationRead =
       groupId: string | null;
       /** true when read from 115's archive of an ENDED group. */
       archived: boolean;
+      /** 136: 'none' = a submission with no WhatsApp group (nothing to send); NULL without a group row. */
+      waMode: WaMode | null;
       messages: GroupMessage[];
     };
 
@@ -105,7 +107,13 @@ export class CaseConversations {
     if (!kase) return { allowed: false };
     const group = await loadCaseGroup(db, kase);
     if (!group)
-      return { allowed: true, groupId: null, archived: false, messages: [] };
+      return {
+        allowed: true,
+        groupId: null,
+        archived: false,
+        waMode: null,
+        messages: [],
+      };
     if (group.status === 'ENDED') {
       const r = await groups.viewArchive({ groupId: group.id, userId: actor });
       return r.allowed
@@ -113,6 +121,7 @@ export class CaseConversations {
             allowed: true,
             groupId: group.id,
             archived: true,
+            waMode: group.waMode,
             messages: r.messages,
           }
         : { allowed: false };
@@ -121,6 +130,7 @@ export class CaseConversations {
       allowed: true,
       groupId: group.id,
       archived: false,
+      waMode: group.waMode,
       messages: await liveGroupMessages(db, group.id),
     };
   }

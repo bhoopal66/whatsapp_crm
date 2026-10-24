@@ -540,9 +540,14 @@ export function serializeGroup(
     channel_id: group.channelId,
     contact_id: group.contactId,
     whatsapp: {
+      // 136: 'none' = the CRM record only, no WhatsApp group ever (never pending).
+      mode: group.waMode,
       group_id: group.waGroupId,
       invite_link: group.inviteLink,
-      pending: group.waGroupId === null && group.status === 'ACTIVE',
+      pending:
+        group.waMode === 'group' &&
+        group.waGroupId === null &&
+        group.status === 'ACTIVE',
       refused_participants: [...(extras.refusedParticipants ?? [])],
       invite_sent: extras.inviteSent ?? false,
       invite_sent_at: group.inviteSentAt

@@ -14,6 +14,17 @@
 // A customer WhatsApp refused to add is sent the invite link 1:1; the
 // outcome is recorded on the group (migration 118, invite_sent_at).
 //
+// Migration 136: WhatsApp groups are a per-account switch
+// (case_submission_whatsapp_groups, default off). Off, a NEW submission
+// opens only the CRM record (`whatsapp.mode: 'none'`): staff are still
+// resolved, but no hosting number is looked up (no no_whapi_number /
+// channel_not_allowed; a body channel_id is ignored), consent is not
+// checked (nothing is sent to the customer), there is no invite, and the
+// answer is 201 (repeat 200), never 202. A switch that cannot be read is
+// a 500, never a silently created group. On, everything above holds as
+// before. A repeat call answers the group as it stands: its mode was
+// fixed when it was created.
+//
 // The case (module 018c): every answer that returns a group (new, repeat
 // or pending) opens its case — once per group; a repeat call fills only
 // the details still empty — and returns it as `case`. The case step never
@@ -208,72 +219,117 @@ export async function POST(request: Request) {
       }
       emails = new Map(staff.staff.map((s) => [s.userId, s.email]));
       const agent = staff.staff.find((s) => s.label === 'agent')!;
+      const access = staff.staff.map((s) => ({
+        userId: s.userId,
+        label: s.label,
+      }));
 
-      // The number first: a refused call must not leave a new contact behind.
-      const channels = await loadChannels(db, ctx.accountId);
-      const whapiIds = channels
-        .filter((c) => c.provider === 'whapi')
-        .map((c) => c.id);
-      let members: ChannelMemberRow[] = [];
-      if (whapiIds.length > 0) {
-        const { data, error } = await db
-          .from('whatsapp_channel_members')
-          .select('config_id, user_id')
-          .eq('account_id', ctx.accountId)
-          .in('config_id', whapiIds);
-        if (error) {
-          console.error('[api/v1/submission-groups] allocations:', error);
-          return fail('internal', 'Failed to open the submission group', 500);
-        }
-        members = (data ?? []) as ChannelMemberRow[];
-      }
-      const hosting = chooseHostingNumber({
-        channels,
-        members,
-        agentUserId: agent.userId,
-        agentRole: agent.role,
-        requestedId: input.channelId,
-      });
-      if (!hosting.ok) {
-        return hosting.code === 'no_whapi_number'
-          ? fail(
-              'no_whapi_number',
-              'No Whapi WhatsApp number is connected to this workspace',
-              422
-            )
-          : fail(
-              'channel_not_allowed',
-              'The agent may not use this WhatsApp number',
-              422
-            );
-      }
-
-      const auditUserId = await resolveAuditUserId(db, ctx.accountId);
-      const contact = await findOrCreateContact(
-        db,
-        ctx.accountId,
-        auditUserId,
-        {
-          phone: input.customerPhone,
-          name: input.customerName ?? undefined,
-        }
+      // 136: groups off (the default) → the CRM record only. Unreadable → 500,
+      // never a group nobody asked for.
+      const { data: groupsOn, error: settingError } = await db.rpc(
+        'case_submission_whatsapp_groups',
+        { p_account: ctx.accountId }
       );
+      if (settingError) {
+        console.error(
+          '[api/v1/submission-groups] groups setting:',
+          settingError
+        );
+        return fail('internal', 'Failed to open the submission group', 500);
+      }
+      if (groupsOn !== true) {
+        const auditUserId = await resolveAuditUserId(db, ctx.accountId);
+        const contact = await findOrCreateContact(
+          db,
+          ctx.accountId,
+          auditUserId,
+          {
+            phone: input.customerPhone,
+            name: input.customerName ?? undefined,
+          }
+        );
+        // No consent refusal: nothing is sent to the customer.
+        open = {
+          accountId: ctx.accountId,
+          submissionRef: input.submissionId,
+          contactId: contact.id,
+          channelId: null,
+          waMode: 'none',
+          subject: input.subject,
+          coordinatorPhone: input.coordinatorPhone,
+          access,
+          keyId: ctx.keyId,
+        };
+      } else {
+        // The number first: a refused call must not leave a new contact behind.
+        const channels = await loadChannels(db, ctx.accountId);
+        const whapiIds = channels
+          .filter((c) => c.provider === 'whapi')
+          .map((c) => c.id);
+        let members: ChannelMemberRow[] = [];
+        if (whapiIds.length > 0) {
+          const { data, error } = await db
+            .from('whatsapp_channel_members')
+            .select('config_id, user_id')
+            .eq('account_id', ctx.accountId)
+            .in('config_id', whapiIds);
+          if (error) {
+            console.error('[api/v1/submission-groups] allocations:', error);
+            return fail('internal', 'Failed to open the submission group', 500);
+          }
+          members = (data ?? []) as ChannelMemberRow[];
+        }
+        const hosting = chooseHostingNumber({
+          channels,
+          members,
+          agentUserId: agent.userId,
+          agentRole: agent.role,
+          requestedId: input.channelId,
+        });
+        if (!hosting.ok) {
+          return hosting.code === 'no_whapi_number'
+            ? fail(
+                'no_whapi_number',
+                'No Whapi WhatsApp number is connected to this workspace',
+                422
+              )
+            : fail(
+                'channel_not_allowed',
+                'The agent may not use this WhatsApp number',
+                422
+              );
+        }
 
-      const consent = await store.contactConsent(contact.id);
-      if (consent.reason === 'opted_out' || consent.reason === 'do_not_contact')
-        return fail('consent_required', CONSENT_MESSAGE, 409);
-      customerPhone = consent.phone ?? input.customerPhone;
+        const auditUserId = await resolveAuditUserId(db, ctx.accountId);
+        const contact = await findOrCreateContact(
+          db,
+          ctx.accountId,
+          auditUserId,
+          {
+            phone: input.customerPhone,
+            name: input.customerName ?? undefined,
+          }
+        );
 
-      open = {
-        accountId: ctx.accountId,
-        submissionRef: input.submissionId,
-        contactId: contact.id,
-        channelId: hosting.channel.id,
-        subject: input.subject,
-        coordinatorPhone: input.coordinatorPhone,
-        access: staff.staff.map((s) => ({ userId: s.userId, label: s.label })),
-        keyId: ctx.keyId,
-      };
+        const consent = await store.contactConsent(contact.id);
+        if (
+          consent.reason === 'opted_out' ||
+          consent.reason === 'do_not_contact'
+        )
+          return fail('consent_required', CONSENT_MESSAGE, 409);
+        customerPhone = consent.phone ?? input.customerPhone;
+
+        open = {
+          accountId: ctx.accountId,
+          submissionRef: input.submissionId,
+          contactId: contact.id,
+          channelId: hosting.channel.id,
+          subject: input.subject,
+          coordinatorPhone: input.coordinatorPhone,
+          access,
+          keyId: ctx.keyId,
+        };
+      }
     }
 
     let result: Awaited<ReturnType<typeof service.openForSubmission>>;
@@ -284,7 +340,8 @@ export async function POST(request: Request) {
       const pending = await store
         .findByRef(ctx.accountId, open.submissionRef)
         .catch(() => null);
-      if (!pending) throw err;
+      // A 'none' row has no WhatsApp group to retry: a plain failure (the repeat call answers it).
+      if (!pending || pending.waMode === 'none') throw err;
       console.error('[api/v1/submission-groups] create pending:', err);
       await linkCompassContact(db, ctx.accountId, pending, customerPhone);
       return respond(
@@ -337,7 +394,11 @@ export async function POST(request: Request) {
       inviteSent,
       case: await openCase(ctx.accountId, group.id, input),
     };
-    if (group.waGroupId === null && group.status === 'ACTIVE')
+    if (
+      group.waMode === 'group' &&
+      group.waGroupId === null &&
+      group.status === 'ACTIVE'
+    )
       return respond(group, 202, { ...extras, error: PENDING_MESSAGE }, emails);
     return respond(group, result.created ? 201 : 200, extras, emails);
   } catch (err) {

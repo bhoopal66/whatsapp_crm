@@ -8,14 +8,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { GroupStatus, StaffLabel } from './rules';
 
+/** 136: whether a WhatsApp group exists (or will) for a submission. */
+export type WaMode = 'group' | 'none';
+
 export interface SubmissionGroup {
   id: string;
   accountId: string;
   submissionRef: string;
   /** NULL once the contact is deleted (115's ON DELETE SET NULL). */
   contactId: string | null;
-  /** The Whapi `whatsapp_config` row hosting the group; frozen, NULL once the number is removed. */
+  /** The Whapi `whatsapp_config` row hosting the group; frozen, NULL once the number is removed (always NULL for `waMode: 'none'`). */
   channelId: string | null;
+  /** 'none': the CRM record of a submission with no WhatsApp group, ever (136). Frozen. */
+  waMode: WaMode;
   subject: string;
   coordinatorPhone: string | null;
   status: GroupStatus;
@@ -67,7 +72,7 @@ export interface ConsentAnswer {
 }
 
 export const GROUP_COLUMNS =
-  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error';
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode';
 
 type Row = Record<string, unknown>;
 
@@ -85,6 +90,8 @@ export function toGroup(r: Row): SubmissionGroup {
     submissionRef: String(r.submission_ref),
     contactId: str(r.contact_id),
     channelId: str(r.channel_id),
+    // A row read before 136 carries no column: it is a 'group' row.
+    waMode: r.wa_mode === 'none' ? 'none' : 'group',
     subject: String(r.subject ?? ''),
     coordinatorPhone: str(r.coordinator_phone),
     status: r.status as GroupStatus,
@@ -154,12 +161,16 @@ export class SubmissionGroupStore {
     return data as T;
   }
 
-  /** Idempotent per (account, ref); an existing group is returned unchanged. */
+  /**
+   * Idempotent per (account, ref); an existing group is returned unchanged (its mode included). `waMode: 'none'`
+   * takes `channelId: null` (136's guard refuses a number on such a row).
+   */
   async open(input: {
     accountId: string;
     submissionRef: string;
     contactId: string;
-    channelId: string;
+    channelId: string | null;
+    waMode?: WaMode;
     subject: string;
     coordinatorPhone: string | null;
     access: readonly { userId: string; label: StaffLabel }[];
@@ -177,6 +188,7 @@ export class SubmissionGroupStore {
         label: a.label,
       })),
       p_key: input.keyId,
+      p_wa_mode: input.waMode ?? 'group',
     });
     const row = Array.isArray(data) ? data[0] : data;
     if (!row) throw new Error('sg_open returned no row');
@@ -238,6 +250,7 @@ export class SubmissionGroupStore {
       .eq('status', 'ACTIVE')
       .is('wa_group_id', null)
       .not('channel_id', 'is', null)
+      .eq('wa_mode', 'group')
       .lt('created_at', before.toISOString());
     if (opts.accountId) q = q.eq('account_id', opts.accountId);
     const { data, error } = await q
@@ -257,6 +270,7 @@ export class SubmissionGroupStore {
       .eq('status', 'ENDED')
       .not('wa_group_id', 'is', null)
       .not('channel_id', 'is', null)
+      .eq('wa_mode', 'group')
       .is('wa_closed_at', null);
     if (opts.accountId) q = q.eq('account_id', opts.accountId);
     const { data, error } = await q

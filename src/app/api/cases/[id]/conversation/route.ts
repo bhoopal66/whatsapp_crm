@@ -3,8 +3,10 @@
 //
 // GET: an audited read (view_case writes its row before any message is
 // fetched). An ENDED group is read only through 115's archive. Answers
-// `{ groupId, archived, messages }` (messages in the submission-group
-// message view shape), or 404 NOT_READABLE.
+// `{ groupId, archived, waMode, messages }` (messages in the
+// submission-group message view shape; waMode 'group' | 'none' (136: no
+// WhatsApp group, nothing can be sent) | null without a group row), or
+// 404 NOT_READABLE.
 //
 // POST `{ text }` (trimmed, 1–4096): a case writer replies through 115's
 // guarded send. Send refusals and consent blocks are 409 with a code; a
@@ -56,6 +58,7 @@ export async function GET(_request: Request, { params }: Params) {
     return NextResponse.json({
       groupId: read.groupId,
       archived: read.archived,
+      waMode: read.waMode,
       messages: read.messages.map((m) => toMessageView(m, names)),
     });
   } catch (err) {

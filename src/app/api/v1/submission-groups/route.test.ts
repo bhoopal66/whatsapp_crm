@@ -3,6 +3,11 @@ import type { SubmissionGroup } from '@/lib/submission-groups/store';
 
 const m = vi.hoisted(() => ({
   rpc: vi.fn(),
+  // case_submission_whatsapp_groups (136); the existing tests run with groups on.
+  groupsSetting: { data: true, error: null } as {
+    data: unknown;
+    error: unknown;
+  },
   members: [] as { config_id: string; user_id: string }[],
   store: {
     findByRef: vi.fn(),
@@ -78,6 +83,7 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup =>
     submissionRef: 'SUB-1',
     contactId: 'c1',
     channelId: 'w1',
+    waMode: 'group',
     subject: 'Jane · SUB-1',
     coordinatorPhone: null,
     status: 'ACTIVE',
@@ -99,7 +105,8 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup =>
 beforeEach(() => {
   vi.clearAllMocks();
   m.members = [];
-  m.rpc.mockResolvedValue({
+  m.groupsSetting = { data: true, error: null };
+  const staffRows = {
     data: [
       {
         email: 'agent@x.com',
@@ -115,7 +122,10 @@ beforeEach(() => {
       },
     ],
     error: null,
-  });
+  };
+  m.rpc.mockImplementation(async (fn: string) =>
+    fn === 'case_submission_whatsapp_groups' ? m.groupsSetting : staffRows
+  );
   m.store.findByRef.mockResolvedValue(null);
   m.store.listAccess.mockResolvedValue([
     { userId: 'u-agent', label: 'agent' },
@@ -532,5 +542,128 @@ describe('POST /api/v1/submission-groups', () => {
     const res = await post(body);
     expect(res.status).toBe(500);
     expect(await res.text()).not.toContain('detail');
+  });
+});
+
+describe('POST /api/v1/submission-groups with WhatsApp groups off (136)', () => {
+  const recordOnly = (over: Partial<SubmissionGroup> = {}) =>
+    group({
+      channelId: null,
+      waMode: 'none',
+      waGroupId: null,
+      inviteLink: null,
+      ...over,
+    });
+
+  beforeEach(() => {
+    m.groupsSetting = { data: false, error: null };
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: true,
+      group: recordOnly(),
+      inviteLink: null,
+      refusedParticipants: [],
+    });
+  });
+
+  it('opens the CRM record (201, mode none) with no Whapi number connected', async () => {
+    m.loadChannels.mockResolvedValue([
+      { id: 'm1', provider: 'meta', isPrimary: true },
+    ]);
+    const res = await post({
+      ...body,
+      channel_id: '00000000-0000-4000-8000-000000000001',
+    });
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.data.whatsapp).toMatchObject({
+      mode: 'none',
+      pending: false,
+      group_id: null,
+    });
+    expect(json.data.case).toMatchObject({ id: 'case-1' });
+    expect(m.rpc).toHaveBeenCalledWith('case_submission_whatsapp_groups', {
+      p_account: 'acct-1',
+    });
+    expect(m.loadChannels).not.toHaveBeenCalled();
+    expect(m.service.openForSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactId: 'c1',
+        channelId: null,
+        waMode: 'none',
+        access: [
+          { userId: 'u-agent', label: 'agent' },
+          { userId: 'u-coord', label: 'coordinator' },
+        ],
+      })
+    );
+    expect(m.sendInviteLink).not.toHaveBeenCalled();
+    expect(m.cases.open).toHaveBeenCalledWith('g1', expect.anything(), null);
+    expect(m.rpc).toHaveBeenCalledWith(
+      'compass_link_contact_by_phone',
+      expect.objectContaining({ p_contact: 'c1' })
+    );
+  });
+
+  it('still answers 201 for an opted-out customer: nothing is sent', async () => {
+    m.store.contactConsent.mockResolvedValue({
+      allowed: false,
+      reason: 'opted_out',
+      phone: '971501234567',
+    });
+    const res = await post(body);
+    expect(res.status).toBe(201);
+    expect(m.store.contactConsent).not.toHaveBeenCalled();
+  });
+
+  it('still refuses an unknown staff email with 422', async () => {
+    m.rpc.mockImplementation(async (fn: string) =>
+      fn === 'case_submission_whatsapp_groups'
+        ? m.groupsSetting
+        : { data: [], error: null }
+    );
+    const res = await post(body);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.code).toBe('unknown_user');
+    expect(m.service.openForSubmission).not.toHaveBeenCalled();
+  });
+
+  it('answers 500 and opens nothing when the setting cannot be read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.groupsSetting = { data: null, error: { message: 'boom' } };
+    const res = await post(body);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('internal');
+    expect(m.findOrCreateContact).not.toHaveBeenCalled();
+    expect(m.service.openForSubmission).not.toHaveBeenCalled();
+  });
+
+  it('answers a repeat call 200 as the record stands', async () => {
+    m.store.findByRef.mockResolvedValue(recordOnly());
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: false,
+      group: recordOnly(),
+      inviteLink: null,
+      refusedParticipants: [],
+    });
+    const res = await post(body);
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.whatsapp.mode).toBe('none');
+    expect(m.rpc).not.toHaveBeenCalledWith(
+      'case_submission_whatsapp_groups',
+      expect.anything()
+    );
+  });
+
+  it('with groups on, still requires a Whapi number', async () => {
+    m.groupsSetting = { data: true, error: null };
+    m.loadChannels.mockResolvedValue([
+      { id: 'm1', provider: 'meta', isPrimary: true },
+    ]);
+    const res = await post(body);
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.code).toBe('no_whapi_number');
+    expect(m.service.openForSubmission).not.toHaveBeenCalled();
   });
 });

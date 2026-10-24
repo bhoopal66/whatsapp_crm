@@ -25,6 +25,11 @@
  *   endIfDue — shouldEnd → sg_end (ENDED at once) → closeGroup, but only once
  *     the group has no pending 'out' row; otherwise closeDeferred. A deferred or
  *     failed close is retried by the next call.
+ *   A `waMode: 'none'` group (136) is the CRM record of a submission with no
+ *   WhatsApp group: opened with no number and no consent check (nothing is
+ *   sent to the customer), never created, claimed, invited or closed; a send
+ *   is refused NO_WHATSAPP_GROUP before anything is stored; sg_end still ends
+ *   it.
  *   sweepStalePending — pending 'out' rows older than olderThanMs → failed.
  *   viewArchive — sg_read_archive: the role is decided in SQL from the user id;
  *     audit row and read in one statement.
@@ -41,6 +46,7 @@ import type {
   ConsentAnswer,
   SubmissionGroup,
   SubmissionGroupStore,
+  WaMode,
 } from './store';
 
 /** Boundary to the WhatsApp Groups API (Whapi adapter in whapi-groups-api.ts). */
@@ -114,6 +120,8 @@ export const STAFF_LABEL_TEXT: Record<StaffLabel, string> = {
 export type GroupRefusal =
   | 'GROUP_NOT_FOUND'
   | 'GROUP_NOT_READY'
+  /** 136: a submission recorded without a WhatsApp group; nothing can be sent. */
+  | 'NO_WHATSAPP_GROUP'
   | 'NUMBER_REMOVED'
   | 'CONTACT_REMOVED'
   | 'SEND_NOT_ALLOWED'
@@ -206,27 +214,37 @@ export class SubmissionGroupService {
     accountId: string;
     submissionRef: string;
     contactId: string;
-    channelId: string;
+    /** NULL with `waMode: 'none'` (136): no hosting number. */
+    channelId: string | null;
+    /** 136: 'none' opens only the CRM record; default 'group'. Ignored for an existing group. */
+    waMode?: WaMode;
     subject: string;
     coordinatorPhone: string | null;
     access: readonly { userId: string; label: StaffLabel }[];
     keyId: string | null;
   }): Promise<OpenResult> {
     const { store } = this.deps;
-    // An existing group is returned as it stands (its number and list never change here).
+    // An existing group is returned as it stands (its number, mode and list never change here).
     let group = await store.findByRef(input.accountId, input.submissionRef);
     let created = false;
     if (!group) {
-      // No row for a customer we may not message.
-      if (!(await this.deps.consent(input.contactId)).allowed)
+      // No row for a customer we may not message. A 'none' row messages nobody (136).
+      if (
+        input.waMode !== 'none' &&
+        !(await this.deps.consent(input.contactId)).allowed
+      )
         return CONSENT_REQUIRED;
       const r = await store.open(input);
       created = r.created;
       group = await store.get(r.groupId);
       if (!group) throw new Error(`submission group ${r.groupId} vanished`);
     }
-    // Already complete, or ENDED before its WhatsApp group existed: nothing to create.
-    if (group.waGroupId !== null || group.status !== 'ACTIVE')
+    // Already complete, ENDED before its WhatsApp group existed, or never to have one (136): nothing to create.
+    if (
+      group.waMode === 'none' ||
+      group.waGroupId !== null ||
+      group.status !== 'ACTIVE'
+    )
       return {
         consentRequired: false,
         created,
@@ -290,7 +308,11 @@ export class SubmissionGroupService {
   async retryOne(groupId: string): Promise<OpenResult> {
     const group = await this.deps.store.get(groupId);
     if (!group) throw new Error(`submission group ${groupId} not found`);
-    if (group.waGroupId !== null || group.status !== 'ACTIVE')
+    if (
+      group.waMode === 'none' ||
+      group.waGroupId !== null ||
+      group.status !== 'ACTIVE'
+    )
       return {
         consentRequired: false,
         created: false,
@@ -464,6 +486,8 @@ export class SubmissionGroupService {
     const { store, api } = this.deps;
     const group = await store.get(input.groupId);
     if (!group) throw new SubmissionGroupSendRefusedError('GROUP_NOT_FOUND');
+    if (group.waMode === 'none')
+      throw new SubmissionGroupSendRefusedError('NO_WHATSAPP_GROUP');
     if (group.waGroupId === null)
       throw new SubmissionGroupSendRefusedError('GROUP_NOT_READY');
     // 115 detaches a group whose number or contact was deleted: no gateway to
@@ -689,7 +713,12 @@ export class SubmissionGroupService {
   ): Promise<EndResult> {
     const { store } = this.deps;
     const none = { closed: false, closeError: null, closeDeferred: false };
-    if (group.status !== 'ENDED' || group.waGroupId === null)
+    // A 'none' group (136) has no WhatsApp group to close.
+    if (
+      group.waMode === 'none' ||
+      group.status !== 'ENDED' ||
+      group.waGroupId === null
+    )
       return { ended, reason, ...none };
     if (group.waClosedAt !== null)
       return { ended, reason, ...none, closed: true };

@@ -156,16 +156,24 @@ export function formatDuration(seconds: number): string {
 export interface CaseConversation {
   groupId: string | null;
   archived: boolean;
+  /** 136: 'none' = no WhatsApp group for this submission (show no composer); NULL without a group. */
+  waMode: 'group' | 'none' | null;
   /** Oldest first, as the route answers. */
   messages: SgMessage[];
 }
 
-/** `{ groupId, archived, messages }`; messages need an id and a time. */
+/** `{ groupId, archived, waMode, messages }`; messages need an id and a time. */
 export function parseConversation(json: unknown): CaseConversation {
   const root = obj(json);
   return {
     groupId: str(root?.groupId),
     archived: root?.archived === true,
+    waMode:
+      root?.waMode === 'none'
+        ? 'none'
+        : root?.waMode === 'group'
+          ? 'group'
+          : null,
     messages: list(root?.messages).filter((v): v is SgMessage => {
       const m = obj(v);
       return !!m && !!str(m.id) && !!str(m.created_at);

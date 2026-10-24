@@ -46,6 +46,7 @@ class FakeStore implements GroupStore {
       submissionRef: i.submissionRef,
       contactId: i.contactId,
       channelId: i.channelId,
+      waMode: i.waMode ?? 'group',
       subject: i.subject,
       coordinatorPhone: i.coordinatorPhone,
       status: 'ACTIVE',

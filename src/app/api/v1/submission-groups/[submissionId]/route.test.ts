@@ -29,6 +29,7 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup => ({
   submissionRef: 'SUB-1',
   contactId: 'c1',
   channelId: 'w1',
+  waMode: 'group',
   subject: 'Jane · SUB-1',
   coordinatorPhone: null,
   status: 'ACTIVE',

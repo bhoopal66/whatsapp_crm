@@ -6,12 +6,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { GroupStatus } from '@/lib/submission-groups/rules';
-import { toMessage, type GroupMessage } from '@/lib/submission-groups/store';
+import {
+  toMessage,
+  type GroupMessage,
+  type WaMode,
+} from '@/lib/submission-groups/store';
 
 import { CaseStoreError, date, rows, str } from './store';
 import type { Case } from './types';
 
 export interface CaseGroup {
+  /** 136: 'none' = a submission with no WhatsApp group. */
+  waMode: WaMode;
   id: string;
   status: GroupStatus;
   createdAt: Date;
@@ -31,7 +37,7 @@ export async function loadCaseGroup(
   if (!kase.groupId) return null;
   const { data, error } = await db
     .from('submission_groups')
-    .select('id, status, created_at, ended_at, end_reason')
+    .select('id, status, created_at, ended_at, end_reason, wa_mode')
     .eq('id', kase.groupId)
     .eq('account_id', kase.accountId)
     .maybeSingle();
@@ -41,6 +47,7 @@ export async function loadCaseGroup(
   return {
     id: String(g.id),
     status: g.status as GroupStatus,
+    waMode: g.wa_mode === 'none' ? 'none' : 'group',
     createdAt: date(g.created_at)!,
     endedAt: date(g.ended_at),
     endReason: str(g.end_reason),
