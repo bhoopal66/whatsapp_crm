@@ -117,6 +117,40 @@ BEGIN
     failed := failed || 'a repeat sg_open changed the existing row''s mode'::text;
   END IF;
 
+  -- ---------- privileges: service_role only ----------
+  FOREACH r IN ARRAY ARRAY[
+    'public.case_settings_set_whatsapp_groups(uuid,uuid,boolean)',
+    'public.sg_open(uuid,text,uuid,uuid,text,text,jsonb,uuid,text)'] LOOP
+    n := n + 1;
+    IF has_function_privilege('authenticated', r, 'EXECUTE') THEN
+      failed := failed || format('authenticated may execute %s', r);
+    END IF;
+    n := n + 1;
+    IF has_function_privilege('anon', r, 'EXECUTE') THEN
+      failed := failed || format('anon may execute %s', r);
+    END IF;
+    n := n + 1;
+    IF NOT has_function_privilege('service_role', r, 'EXECUTE') THEN
+      failed := failed || format('service_role may not execute %s', r);
+    END IF;
+  END LOOP;
+
+  -- ---------- direct writes that would break the mode ----------
+  n := n + 1;
+  BEGIN
+    UPDATE submission_groups SET wa_mode = 'none' WHERE id = tok;
+    failed := failed || 'a ''group'' row was flipped to wa_mode ''none'' by a direct UPDATE'::text;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+  n := n + 1;
+  BEGIN
+    UPDATE submission_groups SET wa_group_id = '1203630000000001@g.us' WHERE id = g0;
+    failed := failed || 'a ''none'' row took a wa_group_id by a direct UPDATE'::text;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
   -- ---------- frozen mode, no WhatsApp group ever ----------
   n := n + 1;
   r := pg_temp.nw_try(format('UPDATE submission_groups SET wa_mode = ''group'' WHERE id = %L', g0));
