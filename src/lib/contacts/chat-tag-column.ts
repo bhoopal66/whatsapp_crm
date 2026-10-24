@@ -118,6 +118,23 @@ export function chatTagsByContact(
   return byContact;
 }
 
+/**
+ * contact id → the auth user id its chat is assigned to, for the
+ * "Assigned to" column: the first conversation (in the rows' order)
+ * that has an assignee. A contact whose chats are all unassigned is
+ * absent.
+ */
+export function assigneesByContact(
+  rows: readonly { contact_id: string; assigned_agent_id?: string | null }[]
+): Map<string, string> {
+  const byContact = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.assigned_agent_id || byContact.has(row.contact_id)) continue;
+    byContact.set(row.contact_id, row.assigned_agent_id);
+  }
+  return byContact;
+}
+
 /** What the chip shows: `"Interested customer · ADCB"` and its colour. */
 export interface ChatTagChip {
   label: string;

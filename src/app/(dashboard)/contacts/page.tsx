@@ -83,7 +83,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import {
+  assigneesByContact,
   chatTagFilterChip,
   chatTagsByContact,
   chunkIds,
@@ -112,6 +114,8 @@ interface ContactRow extends Contact {
    *  loading the tag DEFINITIONS (names/colours) does not re-run the
    *  contact query — they are resolved against the tree at render. */
   chatTags: ChatTagIds | null;
+  /** Auth user id the contact's chat is assigned to, if any. */
+  assignedTo: string | null;
 }
 
 /**
@@ -138,6 +142,9 @@ export function ContactsPageInner({
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
+  // Names for the Created by / Assigned to columns, from the members
+  // list the inbox and pipelines already cache (no extra round trip).
+  const { nameOf } = useWorkspaceMembers();
 
   const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -342,25 +349,29 @@ export function ContactsPageInner({
       return;
     }
 
-    // The chat tag on each contact's conversation, for the column. A
-    // failed read leaves the column blank rather than the page.
+    // The chat tag and assignee on each contact's conversation, for the
+    // columns. A failed read leaves them blank rather than the page.
     const { data: convRows } = await supabase
       .from('conversations')
-      .select('contact_id, chat_tag_id, chat_sub_tag_id')
+      .select('contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id')
       .in(
         'contact_id',
         contactRows.map((c) => c.id)
       )
       .order('created_at', { ascending: true });
     if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-    const tagsByContact = chatTagsByContact(
-      (convRows ?? []) as (ChatTagIds & { contact_id: string })[]
-    );
+    const convs = (convRows ?? []) as (ChatTagIds & {
+      contact_id: string;
+      assigned_agent_id: string | null;
+    })[];
+    const tagsByContact = chatTagsByContact(convs);
+    const assignees = assigneesByContact(convs);
 
     setContacts(
       contactRows.map((c) => ({
         ...c,
         chatTags: tagsByContact.get(c.id) ?? null,
+        assignedTo: assignees.get(c.id) ?? null,
       }))
     );
     setLoading(false);
@@ -759,6 +770,12 @@ export function ContactsPageInner({
                 {t('tableColumns.chatTag')}
               </TableHead>
               <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                {t('tableColumns.createdBy')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                {t('tableColumns.assignedTo')}
+              </TableHead>
+              <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
                 {t('tableColumns.createdAt')}
               </TableHead>
               <TableHead className="text-muted-foreground w-12" />
@@ -767,7 +784,7 @@ export function ContactsPageInner({
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="py-12 text-center">
+                <TableCell colSpan={10} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="text-primary size-6 animate-spin" />
                     <p className="text-muted-foreground text-sm">
@@ -778,7 +795,7 @@ export function ContactsPageInner({
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="py-12 text-center">
+                <TableCell colSpan={10} className="py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="text-muted-foreground size-8" />
                     <p className="text-muted-foreground text-sm">
@@ -865,6 +882,16 @@ export function ContactsPageInner({
                     <ChatTagChip
                       chip={contactChatTagChip(contact.chatTags, chatTagTree)}
                     />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                    {(contact.user_id && nameOf(contact.user_id)) || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground hidden max-w-40 truncate text-sm lg:table-cell">
+                    {(contact.assignedTo && nameOf(contact.assignedTo)) || (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
                     {new Date(contact.created_at).toLocaleDateString('en-US', {

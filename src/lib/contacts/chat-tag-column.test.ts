@@ -4,6 +4,7 @@ import type { ChatTag } from '@/types';
 import { buildChatTagTree } from '@/lib/chat-tags/tree';
 import {
   CONTACT_ID_CHUNK,
+  assigneesByContact,
   chatTagFilterChip,
   chatTagsByContact,
   chunkIds,
@@ -73,6 +74,20 @@ describe('chatTagsByContact', () => {
       chat_tag_id: null,
       chat_sub_tag_id: null,
     });
+    expect(map.has('c3')).toBe(false);
+  });
+});
+
+describe('assigneesByContact', () => {
+  it('keeps the first assigned conversation per contact', () => {
+    const map = assigneesByContact([
+      { contact_id: 'c1', assigned_agent_id: null },
+      { contact_id: 'c1', assigned_agent_id: 'u1' },
+      { contact_id: 'c1', assigned_agent_id: 'u2' },
+      { contact_id: 'c2', assigned_agent_id: null },
+    ]);
+    expect(map.get('c1')).toBe('u1');
+    expect(map.has('c2')).toBe(false);
     expect(map.has('c3')).toBe(false);
   });
 });

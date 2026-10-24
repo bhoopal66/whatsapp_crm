@@ -485,6 +485,8 @@
         "email": "이메일",
         "company": "회사",
         "chatTag": "채팅 태그",
+        "createdBy": "생성자",
+        "assignedTo": "담당자",
         "createdAt": "생성일"
       },
       "loading": "연락처를 불러오는 중...",
