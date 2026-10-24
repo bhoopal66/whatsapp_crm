@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Eye, Loader2, Lock, Send } from 'lucide-react';
+import { Eye, Loader2, Lock, MessageSquareOff, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { MessageList } from '@/components/submission-groups/message-list';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { CaseTabProps } from '@/lib/cases/case-page';
 import {
+  conversationView,
   parseConversation,
   sendResultMessageKey,
   shouldRestoreText,
@@ -25,7 +26,8 @@ type State = 'gated' | 'loading' | 'ok' | 'notReadable' | 'error';
 /**
  * Conversation: the case's WhatsApp group. Opening it is an audited read
  * for supervisors, so nothing is fetched until the reader asks. An ended
- * group is read-only; an active one gets a composer for case writers.
+ * group is read-only; an active one gets a composer for case writers. A
+ * submission opened without a WhatsApp group (136) gets neither.
  */
 export function ConversationTab({ caseId, detail }: CaseTabProps) {
   const t = useTranslations('CasePage');
@@ -131,9 +133,25 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
       </div>
     );
 
+  // 136: a submission opened without a WhatsApp group has nothing to show
+  // and nowhere to send; say why instead of an empty chat.
+  if (convo && conversationView(convo) === 'noWhatsappGroup')
+    return (
+      <div className="bg-card mx-auto flex max-w-md flex-col items-center gap-3 rounded-lg border p-6 text-center">
+        <MessageSquareOff
+          className="text-muted-foreground size-6"
+          aria-hidden
+        />
+        <p className="text-sm">{t('conversation.noWhatsappGroup')}</p>
+        <p className="text-muted-foreground text-xs">
+          {t('conversation.noWhatsappGroupHelp')}
+        </p>
+      </div>
+    );
+
   const messages = convo?.messages ?? [];
   const archived = convo?.archived ?? false;
-  const noGroup = !convo?.groupId;
+  const noGroup = !convo || conversationView(convo) === 'noGroup';
 
   return (
     <div className="bg-card flex h-[min(70vh,40rem)] min-h-80 flex-col rounded-lg border">

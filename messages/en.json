@@ -6912,6 +6912,7 @@
       "nothingMissing": "Nothing is missing: every required document is in.",
       "blocked": "Not sent: the customer opted out or is marked do-not-contact.",
       "refused": "Not sent: you are not on this group's list, or the group cannot take messages right now.",
+      "noWhatsappGroup": "Not sent: this case has no WhatsApp group to send the request in.",
       "rateLimited": "Too many messages to this group. Wait a minute and try again.",
       "sendFailed": "The request could not be sent. Try again later."
     },
@@ -6990,6 +6991,8 @@
       "notReadable": "This group has ended and its conversation is outside your archive window.",
       "archived": "This group has ended. The conversation is read-only.",
       "noGroup": "This case has no WhatsApp group.",
+      "noWhatsappGroup": "This case has no WhatsApp group.",
+      "noWhatsappGroupHelp": "Submissions open without one while WhatsApp groups are off in Settings → Cases.",
       "empty": "No messages yet.",
       "placeholder": "Write a message",
       "cannotSend": "Your role on this case cannot send messages.",
@@ -7001,6 +7004,7 @@
         "notOnList": "Not sent: you're not on this group's list. Ask an admin to add you.",
         "notReady": "Not sent: the group can't take messages right now. Try again shortly.",
         "noGroup": "Not sent: this case's WhatsApp group no longer exists.",
+        "noWhatsappGroup": "Not sent: this case has no WhatsApp group.",
         "numberRemoved": "Not sent: the group's WhatsApp number was removed.",
         "contactRemoved": "Not sent: the customer's contact was removed.",
         "rateLimited": "Too many messages. Wait a minute and try again.",
@@ -7380,6 +7384,14 @@
       "loadFailed": "Could not load this setting. Reload the page to try again.",
       "turnedOn": "Submitted cases are now managed in Compass.",
       "turnedOff": "Submitted cases can be changed in the CRM again."
+    },
+    "whatsappGroups": {
+      "label": "Open a WhatsApp group for each submission",
+      "help": "When off, a submission from Compass opens a case only. When on, each new submission also gets a WhatsApp group on a Whapi number. Existing cases keep what they have.",
+      "readOnly": "Only owners and admins can change this.",
+      "loadFailed": "Could not load this setting. Reload the page to try again.",
+      "turnedOn": "New submissions will get a WhatsApp group.",
+      "turnedOff": "New submissions will open a case only, without a WhatsApp group."
     },
     "title": "Cases",
     "description": "Set up the Cases module for each bank: its stages, task templates, required documents and SLA timers.",

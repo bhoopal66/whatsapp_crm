@@ -390,13 +390,29 @@ key when retrying the same status change.**
 
 ## 6. Submissions
 
-### `POST /submission-groups` — open a case's WhatsApp group
+### `POST /submission-groups` — open a submitted case
 
 Scope: `submission_groups:write`. Compass calls it when an agent submits
-a case. It creates one Whapi WhatsApp group per `submission_id`
-(idempotent per account and `submission_id`) and the case that goes with
-it, and returns the group, including `whatsapp.invite_link` when
-WhatsApp would not add the customer directly. The full request and
+a case. It opens one submission per `submission_id` (idempotent per
+account and `submission_id`) and the case that goes with it.
+
+Whether that submission also gets a Whapi WhatsApp group is a workspace
+switch, **Settings → Cases → Open a WhatsApp group for each submission**,
+off by default (migration 136):
+
+- **Off:** only the case is opened (`whatsapp.mode: "none"`). No Whapi
+  number is needed (`no_whapi_number` and `channel_not_allowed` never
+  happen and a `channel_id` in the body is ignored), nothing is sent to
+  the customer, so an opted-out customer is not refused, and the answer
+  is `201` (`200` on a repeat), never `202`.
+- **On:** one Whapi WhatsApp group per submission (`whatsapp.mode:
+  "group"`), returned with `whatsapp.invite_link` when WhatsApp would not
+  add the customer directly.
+
+A submission's mode is fixed when it is first opened: switching later
+changes only new submissions. A final status (`PATCH`, below) on a
+`"none"` submission ends it and closes the case; there is no WhatsApp
+group to close. The full request and
 answer are in [`public-api.md`](public-api.md#post-apiv1submission-groups);
 the group rules are in [`submission-groups.md`](submission-groups.md).
 If the contact has an open lead with the same bank, the submission

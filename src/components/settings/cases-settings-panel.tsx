@@ -45,12 +45,14 @@ import {
   groupByProduct,
   keyFromLabel,
   moveStage,
-  parseCaseSettings,
+  caseSwitchBody,
+  parseCaseSwitches,
   removeStage,
   slaCellLabel,
   slaRowFor,
   stagesBody,
   validateStages,
+  type CaseSwitchKey,
   type DocumentRequirement,
   type SlaConfigRow,
   type SlaTimerKey,
@@ -189,23 +191,60 @@ function useFailToast() {
 }
 
 /**
- * The Compass lock (migration 134): when on, a submitted case's stage,
- * bank, product, amount and document status are Compass's alone. Owners
- * and admins toggle it (optimistically, reverted on a refusal); anyone
- * else sees it read-only. The PUT route re-checks the role.
+ * The workspace switches, read once: the Compass lock (migration 134) —
+ * when on, a submitted case's stage, bank, product, amount and document
+ * status are Compass's alone — and (migration 136) whether a Compass
+ * submission also opens a WhatsApp group. Owners and admins toggle each
+ * (optimistically, reverted on a refusal); anyone else sees them
+ * read-only. The PUT route re-checks the role.
  */
-function CompassLockCard() {
-  const t = useTranslations('CaseSettings.compass');
-  const failToast = useFailToast();
-  const canEdit = useCan('edit-settings');
+function CaseSwitchCards() {
   const { data, failed } = useConfigRead(
     '/api/cases/config/settings',
-    parseCaseSettings
+    parseCaseSwitches
   );
+  return (
+    <>
+      <CaseSwitchCard
+        setting="managedExternally"
+        ns="compass"
+        id="cases-compass-lock"
+        loaded={data?.managedExternally ?? null}
+        failed={failed}
+      />
+      <CaseSwitchCard
+        setting="submissionWhatsappGroups"
+        ns="whatsappGroups"
+        id="cases-whatsapp-groups"
+        loaded={data?.submissionWhatsappGroups ?? null}
+        failed={failed}
+      />
+    </>
+  );
+}
+
+/** One switch; its save sends only its own key. */
+function CaseSwitchCard({
+  setting,
+  ns,
+  id,
+  loaded,
+  failed,
+}: {
+  setting: CaseSwitchKey;
+  ns: 'compass' | 'whatsappGroups';
+  id: string;
+  /** The read value; null until (or unless) it loads. */
+  loaded: boolean | null;
+  failed: boolean;
+}) {
+  const t = useTranslations(`CaseSettings.${ns}`);
+  const failToast = useFailToast();
+  const canEdit = useCan('edit-settings');
   // The value shown while (and after) a save; null follows the read.
   const [override, setOverride] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
-  const on = override ?? data?.managedExternally ?? false;
+  const on = override ?? loaded ?? false;
 
   async function change(next: boolean) {
     const before = on;
@@ -213,17 +252,17 @@ function CompassLockCard() {
     setSaving(true);
     const answer = await call('/api/cases/config/settings', {
       method: 'PUT',
-      body: JSON.stringify({ managed_externally: next }),
+      body: JSON.stringify(caseSwitchBody(setting, next)),
     });
     setSaving(false);
-    const saved = answer.ok ? parseCaseSettings(answer.body) : null;
+    const saved = answer.ok ? parseCaseSwitches(answer.body) : null;
     if (!saved) {
       setOverride(before);
       failToast(answer);
       return;
     }
-    setOverride(saved.managedExternally);
-    toast.success(saved.managedExternally ? t('turnedOn') : t('turnedOff'));
+    setOverride(saved[setting]);
+    toast.success(saved[setting] ? t('turnedOn') : t('turnedOff'));
   }
 
   return (
@@ -232,15 +271,12 @@ function CompassLockCard() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-1">
             <p
-              id="cases-compass-lock-label"
+              id={`${id}-label`}
               className="text-foreground text-sm font-medium"
             >
               {t('label')}
             </p>
-            <p
-              id="cases-compass-lock-help"
-              className="text-muted-foreground text-sm"
-            >
+            <p id={`${id}-help`} className="text-muted-foreground text-sm">
               {t('help')}
             </p>
           </div>
@@ -251,9 +287,9 @@ function CompassLockCard() {
             <Switch
               checked={on}
               onCheckedChange={(next) => void change(next)}
-              disabled={!canEdit || !data || saving}
-              aria-labelledby="cases-compass-lock-label"
-              aria-describedby="cases-compass-lock-help"
+              disabled={!canEdit || loaded === null || saving}
+              aria-labelledby={`${id}-label`}
+              aria-describedby={`${id}-help`}
             />
           </div>
         </div>
@@ -261,7 +297,7 @@ function CompassLockCard() {
           <p className="text-destructive text-sm" role="alert">
             {t('loadFailed')}
           </p>
-        ) : data && !canEdit ? (
+        ) : loaded !== null && !canEdit ? (
           <p className="text-muted-foreground text-xs">{t('readOnly')}</p>
         ) : null}
       </CardContent>
@@ -326,7 +362,7 @@ export function CasesSettingsPanel() {
         }
       />
 
-      <CompassLockCard />
+      <CaseSwitchCards />
 
       {loadFailed ? (
         <p className="text-destructive text-sm" role="alert">

@@ -18,6 +18,27 @@ and polish.
 - Cases: a **New lead** button on the Cases page opens a lead without going through the customer page; the dialog starts with a customer search (name or phone, limited to the contacts you can see).
 - Spreadsheet and PDF limits: an `.xlsx` (broadcast audiences, approved-answers import) is refused when it places a cell past Excel's own grid (column XFD, row 1,048,576), places more than 2,000,000 cells, has more than 50 tabs, or unpacks to more than 50 MB per part or 100 MB in all. A knowledge-base PDF is refused past 500 pages, past 2,000,000 characters of text (split the file; it is not cut short), or when reading it takes over 20 seconds. No migration.
 
+### Cases without WhatsApp groups (migration 136)
+
+**Migration required: 136** (`136_submission_without_whatsapp.sql`, apply as a superuser or BYPASSRLS role).
+- A submission from Compass now always reaches the CRM as a case, even with
+  no Whapi number connected. Whether it also gets a WhatsApp group is a new
+  switch, **Settings → Cases → Open a WhatsApp group for each submission**,
+  **off by default**; only owners and admins can change it.
+- Off: a new submission opens the case only. Compass gets `201` (or `200`
+  on a repeat), never `202`; it no longer needs a Whapi number, ignores a
+  `channel_id`, and does not refuse an opted-out customer, because nothing
+  is sent to them.
+- On: each new submission also gets its WhatsApp group, exactly as before.
+- A case keeps what it was opened with: turning the switch on or off only
+  changes new submissions.
+- The public API's submission group now carries `whatsapp.mode` (`"group"`
+  or `"none"`). On a `"none"` submission a final status ends it and closes
+  the case with nothing to close on WhatsApp.
+- On a case without a WhatsApp group the Conversation tab says so instead
+  of showing a composer, and a reply or documents request is refused with
+  "This case has no WhatsApp group".
+
 ### Security hardening (migration 135)
 
 **Migration required: 135** (`135_security_hardening.sql`). SQL only:

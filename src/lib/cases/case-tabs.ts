@@ -189,6 +189,7 @@ export type SendResultKey =
   | 'notOnList'
   | 'notReady'
   | 'noGroup'
+  | 'noWhatsappGroup'
   | 'numberRemoved'
   | 'contactRemoved'
   | 'rateLimited'
@@ -204,6 +205,7 @@ const SEND_CODES: Record<string, SendResultKey> = {
   UNKNOWN_USER: 'notOnList',
   GROUP_NOT_READY: 'notReady',
   GROUP_NOT_FOUND: 'noGroup',
+  NO_WHATSAPP_GROUP: 'noWhatsappGroup',
   NUMBER_REMOVED: 'numberRemoved',
   CONTACT_REMOVED: 'contactRemoved',
   SEND_RATE_LIMITED: 'rateLimited',
@@ -238,6 +240,20 @@ export function sendResultMessageKey(
  */
 export function shouldRestoreText(status: number): boolean {
   return status === 0 || (status >= 400 && status < 500);
+}
+
+/**
+ * What the Conversation tab shows once read: a lead (no group row) and a
+ * submission opened without a WhatsApp group (136, `waMode: 'none'`) get
+ * an explanation and no composer; otherwise the group's messages.
+ */
+export type ConversationView = 'noGroup' | 'noWhatsappGroup' | 'group';
+
+export function conversationView(
+  c: Pick<CaseConversation, 'groupId' | 'waMode'>
+): ConversationView {
+  if (!c.groupId) return 'noGroup';
+  return c.waMode === 'none' ? 'noWhatsappGroup' : 'group';
 }
 
 // ------------------------------------------------------------ Audit

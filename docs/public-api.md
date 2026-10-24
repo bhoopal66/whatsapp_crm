@@ -409,9 +409,23 @@ or retries the campaign from the dashboard, which moves it back to
 
 ### `POST /api/v1/submission-groups`
 
-Open the WhatsApp group of a submitted case on a Whapi number. Scope:
+Open a submitted case and, when the workspace has WhatsApp groups
+switched on, its WhatsApp group on a Whapi number. Scope:
 `submission_groups:write`. The behaviour is described in
 [submission-groups.md](submission-groups.md).
+
+**WhatsApp groups off (the default, migration 136).** The workspace
+setting **Settings → Cases → Open a WhatsApp group for each submission**
+decides what a *new* submission gets. Off, the call opens the case only
+and the group answers `whatsapp.mode: "none"`, `channel_id: null` and
+`whatsapp.pending: false`. No Whapi number is needed, so
+`no_whapi_number` and `channel_not_allowed` are never returned and a
+`channel_id` in the body is ignored; nothing is sent to the customer, so
+`consent_required` is never returned either. The answer is `201` for a
+new submission and `200` for a repeat, never `202`. Staff emails are
+checked as below. On, everything below applies and new groups answer
+`whatsapp.mode: "group"`. A submission keeps the mode it was opened
+with; changing the setting affects only later submissions.
 
 If the contact and bank already have an open **lead** (a case opened in the
 CRM before submission, see [cases.md](cases.md)), the new group attaches to
@@ -460,6 +474,7 @@ automatically.
     "channel_id": "…",
     "contact_id": "…",
     "whatsapp": {
+      "mode": "group",
       "group_id": "120363000000000000@g.us",
       "invite_link": "https://chat.whatsapp.com/…",
       "pending": false,
@@ -517,7 +532,9 @@ message names the field), `duplicate_user`, `no_whapi_number`,
 
 ### `GET /api/v1/submission-groups/{submission_id}`
 
-The case's group, in the shape above. Scope: `submission_groups:read`.
+The case's group, in the shape above (`whatsapp.mode` is `"group"` or
+`"none"`; `pending` is always `false` for `"none"`). Scope:
+`submission_groups:read`.
 `404 not_found` for an unknown submission or another account's.
 
 ### `PATCH /api/v1/submission-groups/{submission_id}`
@@ -538,6 +555,10 @@ group and closes its WhatsApp group. Response (200): the group, plus
 ```json
 { "data": { "…": "…", "ended": true, "closed": true, "close_deferred": false } }
 ```
+
+On a `whatsapp.mode: "none"` submission a final status ends it and closes
+its case, with nothing to close on WhatsApp: `closed: false`,
+`close_deferred: false`.
 
 `close_deferred: true` means a message was still being sent; the close is
 retried by the next call or the cron. On an already ENDED group nothing is

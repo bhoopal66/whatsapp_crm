@@ -264,3 +264,35 @@ export function parseCaseSettings(body: unknown): CaseAccountSettings | null {
   const value = (settings as Record<string, unknown>).managedExternally;
   return typeof value === 'boolean' ? { managedExternally: value } : null;
 }
+
+/** The two workspace switches of Settings -> Cases. */
+export interface CaseSwitches extends CaseAccountSettings {
+  /** Migration 136: each new Compass submission also opens a WhatsApp group. */
+  submissionWhatsappGroups: boolean;
+}
+
+export type CaseSwitchKey = keyof CaseSwitches;
+
+/** `GET|PUT /api/cases/config/settings` -> both switches, or null. */
+export function parseCaseSwitches(body: unknown): CaseSwitches | null {
+  const base = parseCaseSettings(body);
+  if (!base) return null;
+  const value = (body as { settings: Record<string, unknown> }).settings
+    .submissionWhatsappGroups;
+  return typeof value === 'boolean'
+    ? { ...base, submissionWhatsappGroups: value }
+    : null;
+}
+
+const SWITCH_FIELDS: Record<CaseSwitchKey, string> = {
+  managedExternally: 'managed_externally',
+  submissionWhatsappGroups: 'submission_whatsapp_groups',
+};
+
+/** The PUT body that changes one switch and leaves the other alone. */
+export function caseSwitchBody(
+  key: CaseSwitchKey,
+  value: boolean
+): Record<string, boolean> {
+  return { [SWITCH_FIELDS[key]]: value };
+}

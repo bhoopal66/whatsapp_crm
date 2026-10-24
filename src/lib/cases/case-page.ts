@@ -436,7 +436,14 @@ export const reasonErrorKey = pick(REASON_ERRORS);
 export const reassignErrorKey = pick(REASSIGN_ERRORS);
 
 /** CasePage.docs.* for a document request that was not sent. */
-export function docRequestKey(status: number, code: unknown): string {
+export function docRequestKey(
+  status: number,
+  code: unknown,
+  refusal?: unknown
+): string {
+  // 136: a submission opened without a WhatsApp group has nowhere to send.
+  if (code === 'REFUSED' && refusal === 'NO_WHATSAPP_GROUP')
+    return 'noWhatsappGroup';
   if (typeof code === 'string' && DOC_RESULTS[code]) return DOC_RESULTS[code];
   if (status === 429) return 'rateLimited';
   return 'sendFailed';

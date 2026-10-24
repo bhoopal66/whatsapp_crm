@@ -187,8 +187,8 @@ export function CasePage({ caseId }: { caseId: string }) {
       void reload();
       return;
     }
-    const code = (r.json as { code?: unknown } | null)?.code;
-    const key = docRequestKey(r.status, code);
+    const res = r.json as { code?: unknown; refusal?: unknown } | null;
+    const key = docRequestKey(r.status, res?.code, res?.refusal);
     if (key === 'nothingMissing') toast.info(t(`docs.${key}`));
     else toast.error(t(`docs.${key}`));
   };

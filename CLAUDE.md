@@ -525,7 +525,7 @@ changes one of those rules updates its verify file; a new verify file must
 be wired in there. In a plpgsql verify block, assign a writing function's
 result first and read its effect in a separate statement — a subquery in
 the same expression reads the snapshot taken before the call.
-Migrations 120–129 add nine more (134 adds `verify-compass-sync.sql`): assistant safety, vault, cases, case
+Migrations 120–129 add nine more (134 adds `verify-compass-sync.sql`, 136 `verify-submission-no-whatsapp.sql`): assistant safety, vault, cases, case
 tools, case SLA, case inbox, bank workspaces, bank dashboard and CRM
 memory (`verify-assistant-safety.sql` … `verify-crm-memory.sql`).
 
@@ -1021,6 +1021,12 @@ submission app. `docs/submission-groups.md` is the contract.
 - **Cron:** the automations cron every 2 minutes (`cron.ts`): pending
   creates, stale sends, close retries. Idle ending is off.
   `verify-submission-groups.sql` asserts the SQL.
+- **Without a group (136).** `submission_groups.wa_mode` ('group' |
+  'none') is fixed at creation; a 'none' row has no number, is never
+  claimed or sent into (`NO_WHATSAPP_GROUP`), and `sg_end` still ends it.
+  New submissions are 'none' while
+  `case_account_settings.submission_whatsapp_groups` is off (the default).
+  `verify-submission-no-whatsapp.sql`.
 
 ### Cases (`lib/cases/*`, migrations 122-130)
 

@@ -6912,6 +6912,7 @@
       "nothingMissing": "누락된 서류가 없습니다. 필수 서류를 모두 받았습니다.",
       "blocked": "전송하지 않음: 고객이 수신을 거부했거나 연락 금지로 표시되어 있습니다.",
       "refused": "전송하지 않음: 이 그룹의 명단에 없거나 지금은 그룹에 메시지를 보낼 수 없습니다.",
+      "noWhatsappGroup": "전송되지 않음: 이 케이스에는 요청을 보낼 WhatsApp 그룹이 없습니다.",
       "rateLimited": "이 그룹에 메시지를 너무 많이 보냈습니다. 1분 후 다시 시도하세요.",
       "sendFailed": "요청을 보내지 못했습니다. 잠시 후 다시 시도하세요."
     },
@@ -6990,6 +6991,8 @@
       "notReadable": "이 그룹은 종료되었으며, 대화가 열람 가능 기간을 지났습니다.",
       "archived": "이 그룹은 종료되었습니다. 대화는 읽기만 할 수 있습니다.",
       "noGroup": "이 케이스에는 WhatsApp 그룹이 없습니다.",
+      "noWhatsappGroup": "이 케이스에는 WhatsApp 그룹이 없습니다.",
+      "noWhatsappGroupHelp": "설정 → 케이스에서 WhatsApp 그룹이 꺼져 있는 동안에는 제출이 그룹 없이 열립니다.",
       "empty": "아직 메시지가 없습니다.",
       "placeholder": "메시지 입력",
       "cannotSend": "이 케이스에서 맡은 역할로는 메시지를 보낼 수 없습니다.",
@@ -7001,6 +7004,7 @@
         "notOnList": "전송 안 됨: 이 그룹의 명단에 없습니다. 관리자에게 추가를 요청하세요.",
         "notReady": "전송 안 됨: 지금은 그룹에서 메시지를 받을 수 없습니다. 잠시 후 다시 시도하세요.",
         "noGroup": "전송 안 됨: 이 케이스의 WhatsApp 그룹이 더 이상 없습니다.",
+        "noWhatsappGroup": "전송되지 않음: 이 케이스에는 WhatsApp 그룹이 없습니다.",
         "numberRemoved": "전송 안 됨: 그룹의 WhatsApp 번호가 삭제되었습니다.",
         "contactRemoved": "전송 안 됨: 고객 연락처가 삭제되었습니다.",
         "rateLimited": "메시지가 너무 많습니다. 1분 후 다시 시도하세요.",
@@ -7380,6 +7384,14 @@
       "loadFailed": "이 설정을 불러오지 못했습니다. 페이지를 새로고침한 후 다시 시도하세요.",
       "turnedOn": "이제 제출된 케이스는 Compass에서 관리됩니다.",
       "turnedOff": "제출된 케이스를 CRM에서 다시 변경할 수 있습니다."
+    },
+    "whatsappGroups": {
+      "label": "제출마다 WhatsApp 그룹 열기",
+      "help": "끄면 Compass에서 들어온 제출은 케이스만 엽니다. 켜면 새 제출마다 Whapi 번호로 WhatsApp 그룹도 만듭니다. 기존 케이스는 그대로 유지됩니다.",
+      "readOnly": "소유자와 관리자만 변경할 수 있습니다.",
+      "loadFailed": "이 설정을 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도하세요.",
+      "turnedOn": "이제 새 제출마다 WhatsApp 그룹이 만들어집니다.",
+      "turnedOff": "이제 새 제출은 WhatsApp 그룹 없이 케이스만 엽니다."
     },
     "title": "케이스",
     "description": "은행별로 케이스 모듈을 설정합니다: 단계, 작업 템플릿, 필수 서류, SLA 타이머.",

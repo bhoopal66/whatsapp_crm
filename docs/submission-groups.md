@@ -38,6 +38,34 @@ cron finishes it. Errors: `409 consent_required`, `422 unknown_user`,
 When the case reaches a final status the app reports it with `PATCH
 /api/v1/submission-groups/{submission_id}` `{ "status": "APPROVED" }`.
 
+## Without a WhatsApp group (migration 136)
+
+Opening the WhatsApp group is a per-workspace switch,
+`case_account_settings.submission_whatsapp_groups` (**Settings → Cases →
+Open a WhatsApp group for each submission**), **off by default**; only
+owners and admins change it (`case_settings_set_whatsapp_groups`).
+Each row carries `submission_groups.wa_mode`, fixed at creation:
+
+- `group` — everything on this page, as before 136 (every older row).
+- `none` — the row is only the CRM's record of the submission: `ACTIVE`,
+  with its customer contact but no hosting number (`channel_id` NULL),
+  never a `wa_group_id`, never a create claim. `sg_send_begin` refuses
+  it and nothing is stored: a case reply answers `409
+  NO_WHATSAPP_GROUP` ("This submission has no WhatsApp group"), a
+  documents request `409 REFUSED` with `refusal: "NO_WHATSAPP_GROUP"`. `sg_end` works as usual: a final status ends the
+  row and closes the case, with no WhatsApp close (`closed: false`,
+  `close_deferred: false`).
+
+With the switch off, a **new** submission is opened as `none`: staff
+emails are still resolved (`unknown_user`, `duplicate_user`), but no
+Whapi number is looked up (no `no_whapi_number` /
+`channel_not_allowed`; a body `channel_id` is ignored), consent is not
+checked because nothing is sent to the customer, there is no invite, and
+the answer is `201` (a repeat `200`), never `202`. With it on, a new
+submission is a `group` row. Turning the switch on or off never changes
+an existing row. The case page's Conversation tab says the case has no
+WhatsApp group instead of offering a composer.
+
 ## Who is in the WhatsApp group
 
 - the **hosting Whapi number**: `channel_id` if given (it must be a Whapi

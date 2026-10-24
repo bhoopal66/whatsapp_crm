@@ -326,6 +326,17 @@ from agent up may read):
 - required documents per product (key, label, position);
 - SLA timers per stage.
 
+Two workspace switches sit above the banks (`/api/cases/config/settings`;
+agents and up read, owners and admins write, each save sends only its own
+key): **Submitted cases are managed in Compass** (the lock, below) and
+**Open a WhatsApp group for each submission** (migration 136, off by
+default). Off, a submission from Compass opens a case only; on, each new
+submission also gets a WhatsApp group on a Whapi number. Existing cases
+keep what they have. A case opened without a group shows that on its
+Conversation tab, with no composer, and a reply or documents request into
+it is refused (`NO_WHATSAPP_GROUP`); see
+[submission-groups.md](submission-groups.md#without-a-whatsapp-group-migration-136).
+
 ## The cron
 
 The automations cron (`GET /api/automations/cron`) runs, each at most every
