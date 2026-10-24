@@ -126,6 +126,7 @@ describe('GET /api/cases/[id]/conversation', () => {
       allowed: true,
       groupId: 'g-1',
       archived: true,
+      waMode: 'group',
       messages: [message],
     });
     const res = await get();
@@ -133,7 +134,11 @@ describe('GET /api/cases/[id]/conversation', () => {
     const body = await res.json();
     expect(m.convAccount).toEqual(['acct-1']);
     expect(m.loadNames).toHaveBeenCalledWith(admin, 'acct-1', ['u-2']);
-    expect(body).toMatchObject({ groupId: 'g-1', archived: true });
+    expect(body).toMatchObject({
+      groupId: 'g-1',
+      archived: true,
+      waMode: 'group',
+    });
     expect(body.messages[0]).toMatchObject({
       id: 'msg-1',
       sender_name: 'Sara',
@@ -141,6 +146,23 @@ describe('GET /api/cases/[id]/conversation', () => {
       created_at: '2026-10-01T10:00:00.000Z',
     });
   });
+});
+
+describe('GET /api/cases/[id]/conversation waMode (136)', () => {
+  it.each(['none', 'group', null] as const)(
+    'passes waMode %s through',
+    async (waMode) => {
+      m.conv.read.mockResolvedValue({
+        allowed: true,
+        groupId: waMode ? 'g-1' : null,
+        archived: false,
+        waMode,
+        messages: [],
+      });
+      const body = await (await get()).json();
+      expect(body.waMode).toBe(waMode);
+    }
+  );
 });
 
 describe('POST /api/cases/[id]/conversation', () => {

@@ -188,3 +188,72 @@ describe('echo reconcile queries', () => {
     expect(rows[1]).toMatchObject({ send_status: 'pending' });
   });
 });
+
+describe('wa_mode (136)', () => {
+  it('open passes p_wa_mode, defaulting to group, and a NULL channel for none', async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const store = new SubmissionGroupStore({
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        calls.push([fn, args]);
+        return { data: [{ group_id: 'g1', created: true }], error: null };
+      },
+    } as unknown as SupabaseClient);
+    const base = {
+      accountId: 'a',
+      submissionRef: 'S',
+      contactId: 'c',
+      subject: 's',
+      coordinatorPhone: null,
+      access: [],
+      keyId: null,
+    };
+    await store.open({ ...base, channelId: 'ch' });
+    await store.open({ ...base, channelId: null, waMode: 'none' });
+    expect(calls.map(([, a]) => [a.p_wa_mode, a.p_channel])).toEqual([
+      ['group', 'ch'],
+      ['none', null],
+    ]);
+  });
+
+  it('toGroup reads wa_mode; a row without the column is a group row', () => {
+    const r = {
+      id: 'g1',
+      account_id: 'a',
+      submission_ref: 'S',
+      status: 'ACTIVE',
+      created_at: '2026-10-16T10:00:00Z',
+      last_activity_at: '2026-10-16T10:00:00Z',
+    };
+    expect(toGroup({ ...r, wa_mode: 'none' }).waMode).toBe('none');
+    expect(toGroup({ ...r, wa_mode: 'group' }).waMode).toBe('group');
+    expect(toGroup(r).waMode).toBe('group');
+  });
+
+  /** A query builder that records every filter; awaiting it answers no rows. */
+  const recording = () => {
+    const filters: [string, ...unknown[]][] = [];
+    const q: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'is', 'not', 'lt', 'order'])
+      q[m] = (...args: unknown[]) => {
+        filters.push([m, ...args]);
+        return q;
+      };
+    q.limit = async () => ({ data: [], error: null });
+    const store = new SubmissionGroupStore({
+      from: () => q,
+    } as unknown as SupabaseClient);
+    return { store, filters };
+  };
+
+  it('listPendingCreates only lists group rows', async () => {
+    const { store, filters } = recording();
+    await store.listPendingCreates(new Date());
+    expect(filters).toContainEqual(['eq', 'wa_mode', 'group']);
+  });
+
+  it('listUnclosedEnded only lists group rows', async () => {
+    const { store, filters } = recording();
+    await store.listUnclosedEnded();
+    expect(filters).toContainEqual(['eq', 'wa_mode', 'group']);
+  });
+});

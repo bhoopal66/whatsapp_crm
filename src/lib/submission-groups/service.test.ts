@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { StaffLabel } from './rules';
 import {
@@ -936,5 +936,80 @@ describe('a group detached by 115 (its number or contact was deleted)', () => {
     });
     expect(s.api.of('closeGroup')).toEqual([]);
     expect(s.store.groups.get(g.id)!.waCloseError).toBeNull();
+  });
+});
+
+describe('a submission without a WhatsApp group (136, waMode none)', () => {
+  const openNone = (s: ReturnType<typeof setup>, ref = 'S-N') =>
+    s.svc.openForSubmission({
+      accountId: ACC,
+      submissionRef: ref,
+      contactId: 'c-1',
+      channelId: null,
+      waMode: 'none',
+      subject: `Case ${ref}`,
+      coordinatorPhone: '971500000009',
+      access: ACCESS,
+      keyId: null,
+    });
+  const openedNone = async (s: ReturnType<typeof setup>) => {
+    const r = await openNone(s);
+    if (r.consentRequired) throw new Error('unexpected consentRequired');
+    return r.group;
+  };
+
+  it('opens the record only: no consent check, no gateway call, no invite', async () => {
+    const s = setup();
+    s.consent.answer = { allowed: false, phone: '1', reason: 'opted_out' };
+    const r = await openNone(s);
+    expect(r).toMatchObject({
+      consentRequired: false,
+      created: true,
+      inviteLink: null,
+      group: { waMode: 'none', channelId: null, waGroupId: null },
+    });
+    expect(r).toMatchObject({ refusedParticipants: [] });
+    expect(s.consent.asked).toBe(0);
+    expect(s.api.calls).toEqual([]);
+    expect(s.store.claims.size).toBe(0);
+    const again = await openNone(s);
+    expect(again).toMatchObject({ created: false });
+    expect(s.api.calls).toEqual([]);
+  });
+
+  it('retryOne leaves it alone', async () => {
+    const s = setup();
+    const g = await openedNone(s);
+    const r = await s.svc.retryOne(g.id);
+    expect(r).toMatchObject({ consentRequired: false, created: false });
+    expect(s.api.calls).toEqual([]);
+    expect(s.store.claims.size).toBe(0);
+  });
+
+  it('send is refused NO_WHATSAPP_GROUP before anything is stored', async () => {
+    const s = setup();
+    const g = await openedNone(s);
+    const begin = vi.spyOn(s.store, 'beginSend');
+    await expect(
+      s.svc.sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+    ).rejects.toMatchObject({ reason: 'NO_WHATSAPP_GROUP' });
+    expect(begin).not.toHaveBeenCalled();
+    expect(s.store.messages).toEqual([]);
+    expect(s.api.of('sendGroupText')).toEqual([]);
+  });
+
+  it('endIfDue ends it and never calls closeGroup', async () => {
+    const s = setup();
+    const g = await openedNone(s);
+    const r = await s.svc.endIfDue(due(g.id));
+    expect(r).toEqual({
+      ended: true,
+      reason: 'FINAL_STATUS:APPROVED',
+      closed: false,
+      closeError: null,
+      closeDeferred: false,
+    });
+    expect(s.store.groups.get(g.id)!.status).toBe('ENDED');
+    expect(s.api.of('closeGroup')).toEqual([]);
   });
 });

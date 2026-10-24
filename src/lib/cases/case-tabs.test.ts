@@ -192,8 +192,17 @@ describe('parsers', () => {
     expect(parseConversation(undefined)).toEqual({
       groupId: null,
       archived: false,
+      waMode: null,
       messages: [],
     });
+  });
+
+  it('parseConversation reads waMode: none, group, anything else null (136)', () => {
+    expect(parseConversation({ waMode: 'none' }).waMode).toBe('none');
+    expect(parseConversation({ waMode: 'group' }).waMode).toBe('group');
+    expect(parseConversation({}).waMode).toBeNull();
+    expect(parseConversation({ waMode: 'GROUP' }).waMode).toBeNull();
+    expect(parseConversation({ waMode: 1 }).waMode).toBeNull();
   });
 
   it('parseAuditRows sorts newest first and drops bad rows', () => {

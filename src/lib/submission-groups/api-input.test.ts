@@ -420,6 +420,7 @@ describe('serializeGroup', () => {
     submissionStatus: null,
     channelId: 'w1',
     contactId: 'c1',
+    waMode: 'group',
     waGroupId: null,
     inviteLink: null,
     createdAt: new Date('2026-10-16T10:00:00Z'),
@@ -436,6 +437,7 @@ describe('serializeGroup', () => {
       { error: 'later' }
     );
     expect(out.whatsapp).toEqual({
+      mode: 'group',
       group_id: null,
       invite_link: null,
       pending: true,
@@ -449,6 +451,14 @@ describe('serializeGroup', () => {
       { user_id: 'u2', label: 'coordinator' },
     ]);
     expect(out.created_at).toBe('2026-10-16T10:00:00.000Z');
+  });
+
+  it('a none group is never pending and says so (136)', () => {
+    const none = { ...group, waMode: 'none', channelId: null };
+    const out = serializeGroup(none as SubmissionGroup, []);
+    expect(out.whatsapp.mode).toBe('none');
+    expect(out.whatsapp.pending).toBe(false);
+    expect(out.whatsapp.group_id).toBeNull();
   });
 
   it('is not pending once ENDED', () => {

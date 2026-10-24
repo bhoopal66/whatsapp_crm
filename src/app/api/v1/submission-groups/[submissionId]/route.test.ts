@@ -139,6 +139,7 @@ describe('GET /api/v1/submission-groups/{submission_id}', () => {
       channel_id: 'w1',
       contact_id: 'c1',
       whatsapp: {
+        mode: 'group',
         group_id: '120363000000000001@g.us',
         invite_link: 'https://chat.whatsapp.com/CODE1',
         pending: false,
@@ -194,6 +195,45 @@ describe('PATCH /api/v1/submission-groups/{submission_id}', () => {
       closed: false,
       close_deferred: true,
     });
+  });
+
+  it('a final status on a none group ends it, with no close pending (136)', async () => {
+    m.store.findByRef.mockResolvedValue(
+      group({
+        waMode: 'none',
+        channelId: null,
+        waGroupId: null,
+        inviteLink: null,
+      })
+    );
+    m.service.endIfDue.mockResolvedValue({
+      ended: true,
+      closed: false,
+      closeDeferred: false,
+    });
+    m.store.get.mockResolvedValue(
+      group({
+        waMode: 'none',
+        channelId: null,
+        waGroupId: null,
+        inviteLink: null,
+        status: 'ENDED',
+        endedAt: new Date('2026-10-16T12:00:00Z'),
+      })
+    );
+    const res = await patch({ status: 'approved' });
+    expect(res.status).toBe(200);
+    expect(m.service.endIfDue).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: 'g1', status: 'approved' })
+    );
+    const data = (await res.json()).data;
+    expect(data).toMatchObject({
+      status: 'ENDED',
+      ended: true,
+      closed: false,
+      close_deferred: false,
+    });
+    expect(data.whatsapp).toMatchObject({ mode: 'none', pending: false });
   });
 
   it('answers 500 and ends nothing when the status note fails', async () => {

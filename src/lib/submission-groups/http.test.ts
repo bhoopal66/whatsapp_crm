@@ -120,6 +120,15 @@ describe('sendErrorFor', () => {
       sendErrorFor(new SubmissionGroupSendRefusedError(reason)).status
     ).toBe(status);
   });
+  it('maps NO_WHATSAPP_GROUP to 409 with its text (136)', () => {
+    const e = sendErrorFor(
+      new SubmissionGroupSendRefusedError('NO_WHATSAPP_GROUP')
+    );
+    expect(e.status).toBe(409);
+    expect(e.body).toMatchObject({
+      error: 'This submission has no WhatsApp group',
+    });
+  });
   it('maps a consent block to 409 with the reason', () => {
     const e = sendErrorFor(
       new SubmissionGroupSendBlockedError('do_not_contact')
