@@ -312,6 +312,14 @@ jobs:
       - name: Verify submission groups
         run: supabase db query --local --file supabase/ci/verify-submission-groups.sql
 
+      # Submissions without a WhatsApp group (136): a 'none' row has no
+      # hosting number, its mode is frozen, it is never claimed for a
+      # create or sent into, sg_end still ends it; the per-account
+      # submission_whatsapp_groups switch defaults to off and is set by
+      # an owner/admin only.
+      - name: Verify submissions without WhatsApp groups
+        run: supabase db query --local --file supabase/ci/verify-submission-no-whatsapp.sql
+
       # Cases (122): roles resolved live (owner, admin, the agent's team
       # lead, the named coordinator and agent; nobody else), reads in the
       # active workspace, writes and reassigns by role; stage lists
