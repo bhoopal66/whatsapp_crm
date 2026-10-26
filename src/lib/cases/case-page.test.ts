@@ -33,6 +33,7 @@ const detail = {
     accountId: 'a1',
     groupId: 'g1',
     submissionRef: 'SUB-1',
+    submissionStatus: 'UNDER_REVIEW',
     contactId: 'k1',
     contactName: 'Aisha',
     bankCode: 'ADCB',
@@ -116,6 +117,7 @@ describe('parseCaseDetail', () => {
     expect(d).not.toBeNull();
     expect(d!.case.priority).toBe('high');
     expect(d!.case.amount).toBe('150000.00');
+    expect(d!.case.submissionStatus).toBe('UNDER_REVIEW');
     expect(d!.role).toBe('coordinator');
     expect(d!.permissions).toEqual({
       canWrite: true,

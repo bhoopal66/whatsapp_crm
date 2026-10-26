@@ -90,6 +90,27 @@ export function stageChipClass(stage: string | null | undefined): string {
 }
 
 /**
+ * What a case shows as its status: the submission tracker's status word
+ * for word once it has sent one, else the CRM stage (a lead, or a case
+ * the tracker has not reported on yet). Nothing is translated. The chip
+ * keeps the stage's colour only while the status names that stage (137's
+ * rule: `_` read as a space, case ignored); any other status is neutral.
+ */
+export function caseStatusView(c: {
+  stage: string;
+  submissionStatus: string | null;
+}): { text: string; chipClass: string } {
+  const status = c.submissionStatus?.trim();
+  if (!status) return { text: c.stage, chipClass: stageChipClass(c.stage) };
+  const names =
+    status.replace(/_/g, ' ').toLowerCase() === c.stage.toLowerCase();
+  return {
+    text: status,
+    chipClass: names ? stageChipClass(c.stage) : STAGE_CHIP_OTHER,
+  };
+}
+
+/**
  * 130's case_presub_stages(): a lead's stages, before any submission.
  * Every stage list starts with exactly these, in this order.
  */
@@ -231,6 +252,8 @@ export interface InboxRow {
   bankCode: string | null;
   bankName: string | null;
   stage: string;
+  /** The tracker's status word for word; NULL for a lead or none sent yet. */
+  submissionStatus: string | null;
   agentId: string | null;
   coordinatorId: string | null;
   priority: CasePriority;
@@ -283,6 +306,7 @@ function parseRow(r: unknown): InboxRow | null {
     bankCode: optStr(r.bankCode),
     bankName: optStr(r.bankName),
     stage: optStr(r.stage) ?? '',
+    submissionStatus: optStr(r.submissionStatus),
     agentId: optStr(r.agentId),
     coordinatorId: optStr(r.coordinatorId),
     priority:

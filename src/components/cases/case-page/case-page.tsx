@@ -39,7 +39,7 @@ import {
   type CaseTab,
   type CaseTabProps,
 } from '@/lib/cases/case-page';
-import { formatAed, stageChipClass } from '@/lib/cases/ui';
+import { caseStatusView, formatAed } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { AuditTab } from './audit-tab';
@@ -336,10 +336,10 @@ export function CasePage({ caseId }: { caseId: string }) {
               <span
                 className={cn(
                   'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                  stageChipClass(c.stage)
+                  caseStatusView(c).chipClass
                 )}
               >
-                {c.stage}
+                {caseStatusView(c).text}
               </span>
               {closed && (
                 <Badge variant="outline">

@@ -202,10 +202,12 @@ describe('131: cases columns, summary, SLA chip', () => {
           slaState: 'due_soon',
           nextDueAt: '2026-10-21T00:00:00.000Z',
           isLead: true,
+          submissionStatus: 'BANK_QUERY',
         },
       ],
     }).cases;
     expect(c).toMatchObject({
+      submissionStatus: 'BANK_QUERY',
       contactId: 'k',
       contactName: 'Sara',
       slaState: 'due_soon',
@@ -214,7 +216,12 @@ describe('131: cases columns, summary, SLA chip', () => {
     });
     expect(
       parseBankPage({ cases: [{ caseId: 'y', isLead: 'yes' }] }).cases[0]
-    ).toMatchObject({ contactName: null, slaState: null, isLead: false });
+    ).toMatchObject({
+      contactName: null,
+      slaState: null,
+      isLead: false,
+      submissionStatus: null,
+    });
   });
 
   it('parseBankSummary: good body, defaults, unusable body', () => {

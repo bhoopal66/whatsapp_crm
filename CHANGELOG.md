@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Cases show the submission tracker's own status
+
+No migration.
+- The case page, the Cases inbox and a bank's Cases tab now show a
+  submitted case's status exactly as the submission tracker (Compass)
+  sent it, e.g. **UNDER_REVIEW**, instead of the CRM stage name. Leads,
+  and cases the tracker has not reported on yet, still show their stage.
+- The chip keeps its stage colour while the status names that stage;
+  any other status is shown in grey.
+- The stage itself is unchanged underneath: SLA timers, closing a case,
+  the stage filter, Move stage and the bank dashboard still use it.
+
 ### Deals follow the chat's tags (migration 138)
 
 **Migration required: 138** (`138_tag_deals_follow_chat.sql`).

@@ -718,7 +718,12 @@ describe('get', () => {
           },
         ],
         submission_groups: [
-          { id: GROUP, submission_ref: 'S-1', contact_id: CONTACT },
+          {
+            id: GROUP,
+            submission_ref: 'S-1',
+            contact_id: CONTACT,
+            submission_status: 'UNDER_REVIEW',
+          },
         ],
         contacts: [{ id: CONTACT, name: 'Customer' }],
         case_banks: [{ account_id: ACCOUNT, code: 'ADCB', name: 'ADCB Bank' }],
@@ -730,6 +735,7 @@ describe('get', () => {
       accountId: ACCOUNT,
       groupId: GROUP,
       submissionRef: 'S-1',
+      submissionStatus: 'UNDER_REVIEW',
       contactId: CONTACT,
       contactName: 'Customer',
       bankName: 'ADCB Bank',

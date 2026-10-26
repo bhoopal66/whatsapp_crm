@@ -4,7 +4,8 @@
 // GET: one `case_inbox` call on the service role for the caller's ACTIVE
 // account; Postgres decides which cases the caller sees. Query params
 // map onto the inbox filters (lib/cases/http.ts); a bad value is the
-// inbox's own refusal (422 with `code`).
+// inbox's own refusal (422 with `code`). Each row also carries the
+// tracker's own `submissionStatus` (lib/cases/submission-status.ts).
 //
 // POST: owner / admin only. Opens the case of a submission group of the
 // caller's account (idempotent per group): 201 when created, 200 when it
@@ -26,6 +27,7 @@ import {
 } from '@/lib/cases/http';
 import { CaseInbox } from '@/lib/cases/inbox';
 import { caseStore } from '@/lib/cases/server';
+import { submissionStatuses } from '@/lib/cases/submission-status';
 import {
   submissionGroupStore,
   supabaseAdmin,
@@ -37,13 +39,25 @@ export async function GET(request: Request) {
     const { filters, limit, after } = parseInboxQuery(
       new URL(request.url).searchParams
     );
-    const page = await new CaseInbox(supabaseAdmin()).list(
+    const db = supabaseAdmin();
+    const page = await new CaseInbox(db).list(
       ctx.userId,
       ctx.accountId,
       filters,
       { limit, after }
     );
-    return NextResponse.json(page);
+    const statuses = await submissionStatuses(
+      db,
+      ctx.accountId,
+      page.rows.map((r) => r.caseId)
+    );
+    return NextResponse.json({
+      ...page,
+      rows: page.rows.map((r) => ({
+        ...r,
+        submissionStatus: statuses.get(r.caseId) ?? null,
+      })),
+    });
   } catch (err) {
     return caseErrorResponse(err);
   }

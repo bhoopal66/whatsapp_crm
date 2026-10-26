@@ -63,6 +63,7 @@ export class FakeClient {
       select: (c: string) => ((q.columns = c), b),
       eq: (k: string, v: unknown) => (q.filters.push(['eq', k, v]), b),
       gte: (k: string, v: unknown) => (q.filters.push(['gte', k, v]), b),
+      in: (k: string, v: unknown) => (q.filters.push(['in', k, v]), b),
       order: (k: string) => (q.orders.push(k), b),
       limit: (n: number) => ((q.limit = n), b),
       maybeSingle: async () => {
@@ -96,6 +97,7 @@ export function aCase(over: Partial<Case> = {}): Case {
     groupId: GROUP_ID,
     isLead: false,
     submissionRef: 'SUB-1',
+    submissionStatus: null,
     contactId: CONTACT_ID,
     leadSource: null,
     contactName: 'Customer',

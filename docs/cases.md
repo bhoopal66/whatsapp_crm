@@ -304,6 +304,17 @@ Compass. A lead is never touched by the sync: the CRM stays its master.
 Stage moves also queue the `case.stage_changed` webhook (see
 [public-api.md](public-api.md#webhooks)).
 
+### What a case shows
+
+The case page, the Cases inbox and a bank's Cases tab show a submitted
+case's status **exactly as Compass last sent it** (the group's
+`submission_status`, e.g. `UNDER_REVIEW`), not the stage name. A lead,
+or a case Compass has sent no status for, shows its stage. The stage
+still runs underneath (SLA timers, closing, the stage filter, Move
+stage, the bank dashboard), set from the status as described above. The
+chip has the stage's colour while the status names the stage, and is
+grey otherwise.
+
 ### Managed in Compass (the lock)
 
 An owner or admin can turn on **Settings -> Cases -> Submitted cases are

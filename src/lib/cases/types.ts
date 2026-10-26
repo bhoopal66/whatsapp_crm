@@ -47,6 +47,11 @@ export interface Case {
   isLead: boolean;
   /** From the submission group (read by join, never copied); NULL for a lead. */
   submissionRef: string | null;
+  /**
+   * The submission tracker's status word for word (the group's
+   * submission_status); NULL for a lead or before the tracker sends one.
+   */
+  submissionStatus: string | null;
   /** 130's cases.contact_id; NULL once the contact is deleted. */
   contactId: string | null;
   /** 130: where the lead came from (free text, at most 200). */

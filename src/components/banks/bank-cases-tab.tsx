@@ -26,7 +26,7 @@ import {
   type BankCase,
   type SlaTone,
 } from '@/lib/banks/ui';
-import { stageChipClass } from '@/lib/cases/ui';
+import { caseStatusView } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { chip } from './banks-list';
@@ -113,10 +113,11 @@ function SlaChip({ c, nextDue }: { c: BankCase; nextDue: string | null }) {
 
 function StageChip({ c }: { c: BankCase }) {
   const t = useTranslations('Banks.cases');
+  const status = caseStatusView(c);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <span className={cn(chip, stageChipClass(c.stage))}>
-        {c.stage || t('noStage')}
+      <span className={cn(chip, status.chipClass)}>
+        {status.text || t('noStage')}
       </span>
       {c.isLead && (
         <span className={cn(chip, 'bg-primary/10 text-primary')}>
@@ -235,7 +236,7 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                         <Link
                           href={`/cases/${c.caseId}`}
                           aria-label={t('openCase', {
-                            stage: c.stage || t('noStage'),
+                            stage: caseStatusView(c).text || t('noStage'),
                           })}
                           className="after:absolute after:inset-0 after:content-[''] focus-visible:underline"
                         >
@@ -281,7 +282,7 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                     <Link
                       href={`/cases/${c.caseId}`}
                       aria-label={t('openCase', {
-                        stage: c.stage || t('noStage'),
+                        stage: caseStatusView(c).text || t('noStage'),
                       })}
                       className="after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:underline"
                     >

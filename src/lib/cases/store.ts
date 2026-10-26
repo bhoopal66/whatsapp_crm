@@ -191,9 +191,11 @@ export class CaseStore {
     const [group, bank] = await Promise.all([
       // 130: a lead has no group.
       groupId
-        ? this.select('submission_groups', 'submission_ref, contact_id', {
-            id: groupId,
-          })
+        ? this.select(
+            'submission_groups',
+            'submission_ref, contact_id, submission_status',
+            { id: groupId }
+          )
         : Promise.resolve(null),
       bankCode
         ? this.select('case_banks', 'name', {
@@ -213,6 +215,7 @@ export class CaseStore {
       groupId,
       isLead: groupId === null,
       submissionRef: str(group?.submission_ref),
+      submissionStatus: str(group?.submission_status),
       contactId,
       leadSource: str(c.lead_source),
       contactName: str(contact?.name),

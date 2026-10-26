@@ -22,6 +22,7 @@ const bankCase = (
 ): BankCase => ({
   caseId: id,
   stage: 'Submitted',
+  submissionStatus: null,
   product: null,
   agentId: null,
   coordinatorId: null,

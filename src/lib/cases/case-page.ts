@@ -17,6 +17,8 @@ export interface CaseRecord {
   groupId: string | null;
   isLead: boolean;
   submissionRef: string | null;
+  /** The tracker's status word for word; NULL for a lead or none sent yet. */
+  submissionStatus: string | null;
   contactId: string | null;
   contactName: string | null;
   leadSource: string | null;
@@ -152,6 +154,7 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
       groupId: str(c.groupId),
       isLead: !str(c.groupId),
       submissionRef: str(c.submissionRef),
+      submissionStatus: str(c.submissionStatus),
       contactId: str(c.contactId),
       contactName: str(c.contactName),
       leadSource: str(c.leadSource),

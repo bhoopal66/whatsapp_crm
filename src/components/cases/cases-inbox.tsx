@@ -56,6 +56,7 @@ import { LEAD_CHIP } from '@/lib/cases/lead-form';
 import {
   activeFilterCount,
   appendRows,
+  caseStatusView,
   EMPTY_FILTERS,
   filtersFromSearch,
   filtersToSearch,
@@ -70,7 +71,6 @@ import {
   parseInboxPage,
   PRIORITIES,
   SLA_STATES,
-  stageChipClass,
   type CaseBankOption,
   type InboxFilters,
   type InboxRow,
@@ -704,9 +704,10 @@ function useCaseRowMenu(ref: RefObject<Element | null>, row: InboxRow) {
 function Chips({ row }: { row: InboxRow }) {
   const t = useTranslations('Cases');
   const priority = PRIORITY_CHIP[row.priority];
+  const status = caseStatusView(row);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <span className={cn(chip, stageChipClass(row.stage))}>{row.stage}</span>
+      <span className={cn(chip, status.chipClass)}>{status.text}</span>
       {row.isLead && (
         <span className={cn(chip, LEAD_CHIP)}>{t('leadChip')}</span>
       )}

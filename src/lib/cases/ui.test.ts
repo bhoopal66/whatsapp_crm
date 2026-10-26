@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  caseStatusView,
   STAGE_CHIP,
   STAGE_CHIP_OTHER,
   stageChipClass,
@@ -142,6 +143,7 @@ const row = {
   lastTouchedBy: 'u2',
   openTaskOverdueCount: 1,
   submissionRef: 'SUB-1',
+  submissionStatus: 'BANK_QUERY',
   isLead: false,
   contactId: 'k1',
   contactName: 'Sara',
@@ -162,6 +164,7 @@ describe('parseInboxPage', () => {
         bankCode: 'ADCB',
         bankName: 'ADCB',
         stage: 'Submitted',
+        submissionStatus: 'BANK_QUERY',
         agentId: 'u1',
         coordinatorId: null,
         priority: 'high',
@@ -321,5 +324,46 @@ describe('stage chip colours', () => {
           `${stage}: ${r}`
         ).toBeGreaterThanOrEqual(700);
     }
+  });
+});
+
+describe('caseStatusView', () => {
+  it("shows the tracker's status word for word, never a stage name", () => {
+    expect(
+      caseStatusView({ stage: 'Submitted', submissionStatus: 'BANK_QUERY' })
+    ).toEqual({ text: 'BANK_QUERY', chipClass: STAGE_CHIP_OTHER });
+    expect(
+      caseStatusView({
+        stage: 'Under review',
+        submissionStatus: 'UNDER_REVIEW',
+      }).text
+    ).toBe('UNDER_REVIEW');
+  });
+
+  it("keeps the stage's colour only while the status names that stage", () => {
+    expect(
+      caseStatusView({
+        stage: 'Under review',
+        submissionStatus: 'UNDER_REVIEW',
+      }).chipClass
+    ).toBe(stageChipClass('Under review'));
+    expect(
+      caseStatusView({ stage: 'Approved', submissionStatus: 'approved' })
+        .chipClass
+    ).toBe(stageChipClass('Approved'));
+    expect(
+      caseStatusView({ stage: 'Submitted', submissionStatus: 'APPROVED' })
+        .chipClass
+    ).toBe(STAGE_CHIP_OTHER);
+  });
+
+  it('falls back to the CRM stage for a lead or before any status', () => {
+    for (const submissionStatus of [null, '', '  '])
+      expect(caseStatusView({ stage: 'Interested', submissionStatus })).toEqual(
+        {
+          text: 'Interested',
+          chipClass: stageChipClass('Interested'),
+        }
+      );
   });
 });

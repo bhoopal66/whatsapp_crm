@@ -47,6 +47,8 @@ export interface CreatableBank {
 export interface BankCase {
   caseId: string;
   stage: string;
+  /** The tracker's status word for word; NULL for a lead or none sent yet. */
+  submissionStatus: string | null;
   product: string | null;
   agentId: string | null;
   coordinatorId: string | null;
@@ -159,6 +161,7 @@ export function parseBankPage(json: unknown): {
       return {
         caseId,
         stage: str(r.stage) ?? '',
+        submissionStatus: str(r.submissionStatus),
         product: str(r.product),
         agentId: str(r.agentId),
         coordinatorId: str(r.coordinatorId),
