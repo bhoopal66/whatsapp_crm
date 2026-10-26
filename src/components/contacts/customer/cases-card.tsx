@@ -1,17 +1,14 @@
 'use client';
 
 // The customer page's Cases card (migration 130): the contact's cases the
-// caller may read, and "Open lead". GET/POST /api/cases/leads are agent and
-// up, so the page mounts this only for them. The dialog is shared with the
-// Cases page (components/cases/open-lead-dialog.tsx).
+// caller may read. GET /api/cases/leads is agent and up, so the page mounts
+// this only for them. Read-only: cases come only from the submission
+// tracker, so nobody opens one here.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus } from 'lucide-react';
 
-import { OpenLeadDialog } from '@/components/cases/open-lead-dialog';
-import { Button } from '@/components/ui/button';
 import {
   LEAD_CHIP,
   parseContactCases,
@@ -40,16 +37,7 @@ function useCaseBanks(): CaseBankOption[] | null {
   return banks;
 }
 
-export function CasesCard({
-  contactId,
-  opening,
-  onOpeningChange,
-}: {
-  contactId: string;
-  /** The "Open lead" dialog, held by the page so the header can open it. */
-  opening: boolean;
-  onOpeningChange: (open: boolean) => void;
-}) {
+export function CasesCard({ contactId }: { contactId: string }) {
   const t = useTranslations('CustomerCases');
   const locale = useLocale();
   const banks = useCaseBanks();
@@ -76,19 +64,7 @@ export function CasesCard({
     code ? (banks?.find((b) => b.code === code)?.name ?? code) : t('noBank');
 
   return (
-    <SideCard
-      title={t('title')}
-      action={
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() => onOpeningChange(true)}
-        >
-          <Plus className="size-3.5" />
-          {t('openLead')}
-        </Button>
-      }
-    >
+    <SideCard title={t('title')}>
       {failed ? (
         <p className="text-muted-foreground text-sm">{t('loadFailed')}</p>
       ) : cases === null ? (
@@ -137,12 +113,6 @@ export function CasesCard({
           })}
         </ul>
       )}
-      <OpenLeadDialog
-        open={opening}
-        onOpenChange={onOpeningChange}
-        contactId={contactId}
-        banks={banks}
-      />
     </SideCard>
   );
 }

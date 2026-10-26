@@ -281,7 +281,6 @@ export function CustomerPage({
   const asked = useRef(new Set<string>());
   const sentinel = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
-  const [leadOpen, setLeadOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // The chat tag and send prediction, as the side sheet reads them.
   const { tree: chatTagTree } = useChatTags();
@@ -739,8 +738,8 @@ export function CustomerPage({
   };
 
   const month = side.summary ? monthSummaryParts(side.summary) : null;
-  // Cases and leads (130): agent and up, as /api/cases/leads.
-  const canOpenLead = !!accountRole && canSendMessages(accountRole);
+  // The contact's cases (read-only): agent and up, as GET /api/cases/leads.
+  const canSeeCases = !!accountRole && canSendMessages(accountRole);
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
       <BackLink label={tl('back')} href={contactsListPath(fromTeam)} />
@@ -754,7 +753,6 @@ export function CustomerPage({
         channels={channels}
         prediction={prediction}
         onEdit={() => setEditing(true)}
-        onNewLead={canOpenLead ? () => setLeadOpen(true) : undefined}
         listPath={contactsListPath(fromTeam)}
       />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -811,13 +809,7 @@ export function CustomerPage({
         <aside className="order-1 min-w-0 space-y-4 lg:order-2">
           <DetailsCard contact={contact} canEdit={access.edit} />
           <DealsCard contactId={contactId} />
-          {canOpenLead && (
-            <CasesCard
-              contactId={contactId}
-              opening={leadOpen}
-              onOpeningChange={setLeadOpen}
-            />
-          )}
+          {canSeeCases && <CasesCard contactId={contactId} />}
           <Card title={tl('openTasks')}>
             {side.tasks.length === 0 ? (
               <p className="text-muted-foreground text-sm">

@@ -117,14 +117,11 @@ A **lead** is a case with no WhatsApp group yet: a customer who is interested
 in a bank product before anything is submitted (migration 130). It starts at
 **Interested** and moves through **Data collection** and **Review**.
 
-- **Who opens one.** The agent who will work it, an owner or admin, or that
-  agent's team leader (`POST /api/cases/leads`, agent and up; viewers and
-  bank guests are refused). The contact must be visible to the agent. The
-  person signed in is always the actor; the agent defaults to them. One open
-  lead per contact and bank (`LEAD_EXISTS`, `CASE_EXISTS`: 409); the same
-  agent opening it again gets the existing lead back.
-  Staff open a lead from the customer page or Cases -> New lead (which
-  starts with a customer search on the caller's own visibility).
+- **Nobody opens one in the CRM.** Cases come only from the submission
+  tracker (Compass). The Cases page, the customer page and its menu have
+  no New lead / Open lead action, and `POST /api/cases/leads` does not
+  exist (405). 130's `case_open_lead` stays in SQL with no caller, so leads
+  opened earlier keep working as described below.
 - **Attach on submission.** When the submission app later submits the same
   contact and bank, its new group attaches to the open lead: one case from
   lead to outcome, moved to the bank's first submission stage (**Submitted**
@@ -140,13 +137,10 @@ in a bank product before anything is submitted (migration 130). It starts at
   never ends a group.
 - **Listing.** `GET /api/cases/leads?contactId=` returns the contact's cases
   the caller may read.
-- **Where staff open one.** The customer page (`/contacts/<id>`) has a
-  **Cases** card, shown to agents and up: the customer's cases with stage,
-  bank, product, amount and a **Lead** chip, and an **Open lead** button
-  (bank and product required; amount in AED and lead source optional).
-  Team leaders, admins and owners may pick the agent; an agent opens for
-  themselves. On success the new case page opens. The Cases inbox marks
-  leads with the same chip.
+- **Where staff see them.** The customer page (`/contacts/<id>`) has a
+  read-only **Cases** card, shown to agents and up: the customer's cases
+  with stage, bank, product, amount and a **Lead** chip. The Cases inbox
+  marks leads with the same chip.
 - **What the case page shows.** A "Lead - no submission yet" banner (with
   the lead source); the Conversation tab, take-over and documents request
   stay disabled until the submission arrives, and a stage move offers only

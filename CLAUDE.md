@@ -1060,8 +1060,9 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `btrim(x) = ''`: `btrim()` strips spaces only, so a tab or newline
   passes (this bit twice; older checks still use `btrim`). Appending a
   literal to a `text[]` needs `::text` (`v || 'x'::text`).
-- **Leads (130).** A case with `group_id` NULL, opened by
-  `case_open_lead` (`POST /api/cases/leads`) at Interested; a later
+- **Leads (130).** A case with `group_id` NULL at Interested. Nobody
+  opens one any more: cases come only from the submission tracker, and
+  `POST /api/cases/leads` was removed (`case_open_lead` has no caller). A later
   submission of the same contact and bank attaches to it. Every stage list
   starts with the three pre-submission stages (`PRESUB_STAGES`, mirrored by
   `validateStages`). A lead has no group: no send, no group end

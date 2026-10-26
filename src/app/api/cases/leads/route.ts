@@ -1,76 +1,22 @@
 // ============================================================
-// /api/cases/leads — opening a lead and listing a contact's cases (130).
-//
-// A lead is a case with no submission group: the agent (or an owner /
-// admin, or the agent's team leader) opens it from a contact; a later
-// submission of the same contact and bank attaches to it.
-//
-// POST: agent and up. The actor is the signed-in user, never the body;
-// `agentId` defaults to the actor. The database decides who may open for
-// whom (case_open_lead) and answers its own refusals (LEAD_EXISTS /
-// CASE_EXISTS 409, the rest 422). 201 `{ id }`.
+// /api/cases/leads — listing a contact's cases (130).
 //
 // GET ?contactId=<uuid>: the contact's cases the caller may read.
-// TENANCY: both use the caller's ACTIVE account.
+// TENANCY: the caller's ACTIVE account.
+//
+// No POST: cases come only from the submission tracker (Compass), so
+// nobody opens a lead in the CRM. The route has no POST handler, so Next
+// answers 405. 130's case_open_lead stays in SQL with no caller.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { requireRole } from '@/lib/auth/account';
 import { canReadCase } from '@/lib/cases/access';
-import {
-  badRequest,
-  caseErrorResponse,
-  isUuid,
-  optionalText,
-  parseAmount,
-  parseText,
-  readJsonObject,
-} from '@/lib/cases/http';
+import { badRequest, caseErrorResponse, isUuid } from '@/lib/cases/http';
 import { caseStore } from '@/lib/cases/server';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
-
-export async function POST(request: Request) {
-  try {
-    const ctx = await requireRole('agent');
-    const body = await readJsonObject(request);
-    if (!body || !isUuid(body.contactId))
-      throw badRequest('contactId must be a uuid');
-    const bankCode = parseText(body.bankCode, 32);
-    if (!bankCode) throw badRequest('bankCode is required');
-    const product = parseText(body.product);
-    if (!product) throw badRequest('product is required');
-
-    let amount: string | null = null;
-    if (body.amount !== undefined && body.amount !== null) {
-      amount = parseAmount(body.amount);
-      if (amount === null) throw badRequest('amount is not valid');
-    }
-    for (const k of ['agentId', 'coordinatorId'] as const) {
-      const v = body[k];
-      if (v !== undefined && v !== null && !isUuid(v))
-        throw badRequest(`${k} must be a uuid`);
-    }
-    const leadSource = optionalText(body.leadSource, 'leadSource', 200);
-
-    const id = await caseStore(ctx.accountId).openLead({
-      actor: ctx.userId,
-      accountId: ctx.accountId,
-      contactId: body.contactId,
-      bankCode,
-      product,
-      agentId: typeof body.agentId === 'string' ? body.agentId : ctx.userId,
-      amount,
-      coordinatorId:
-        typeof body.coordinatorId === 'string' ? body.coordinatorId : null,
-      leadSource,
-    });
-    return NextResponse.json({ id }, { status: 201 });
-  } catch (err) {
-    return caseErrorResponse(err);
-  }
-}
 
 export async function GET(request: Request) {
   try {

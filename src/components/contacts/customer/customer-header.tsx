@@ -22,7 +22,6 @@ import {
   MoreHorizontal,
   Pencil,
   Phone,
-  Plus,
   Trash2,
 } from 'lucide-react';
 
@@ -78,7 +77,6 @@ export function CustomerHeader({
   channels,
   prediction,
   onEdit,
-  onNewLead,
   listPath = '/contacts',
 }: {
   contact: HeaderContact;
@@ -90,8 +88,6 @@ export function CustomerHeader({
   channels: readonly AccountNumber[] | null;
   prediction: SendChannelPrediction;
   onEdit: () => void;
-  /** Opens the Cases card's "Open lead" dialog; absent when it is not shown. */
-  onNewLead?: () => void;
   /** Where delete returns to: the list this customer was opened from. */
   listPath?: string;
 }) {
@@ -283,14 +279,6 @@ export function CustomerHeader({
         onSelect: () => router.push(`/inbox?c=${conversationId}`),
       }
     );
-    if (onNewLead) {
-      items.push({
-        id: 'newLead',
-        label: tMenu('records.newLead'),
-        icon: Plus,
-        onSelect: onNewLead,
-      });
-    }
     return items;
   });
 
