@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  STAGE_CHIP,
+  STAGE_CHIP_OTHER,
+  stageChipClass,
   activeFilterCount,
   appendRows,
   DEFAULT_STAGES,
@@ -285,5 +288,38 @@ describe('stageFilterOptions', () => {
       'Zeta',
     ]);
     expect(stageFilterOptions([], null)).toEqual([...DEFAULT_STAGES]);
+  });
+});
+
+describe('stage chip colours', () => {
+  it('colours every default stage, and an unknown one neutrally', () => {
+    for (const stage of DEFAULT_STAGES)
+      expect(stageChipClass(stage), stage).not.toBe(STAGE_CHIP_OTHER);
+    expect(stageChipClass('Sent to credit')).toBe(STAGE_CHIP_OTHER);
+    expect(stageChipClass(null)).toBe(STAGE_CHIP_OTHER);
+    expect(stageChipClass('constructor')).toBe(STAGE_CHIP_OTHER);
+  });
+
+  it('tells the outcomes and the waiting stages apart', () => {
+    const outcomes = ['Approved', 'Declined', 'Documents requested'].map(
+      stageChipClass
+    );
+    expect(new Set(outcomes).size).toBe(3);
+    expect(stageChipClass('Approved')).toContain('text-success');
+    expect(stageChipClass('Declined')).toContain('text-destructive');
+  });
+
+  it('pairs every raw hue with a dark-mode shade', () => {
+    for (const [stage, cls] of Object.entries(STAGE_CHIP)) {
+      const raw = cls.match(/(?<!:)\btext-[a-z]+-\d{3}\b/g) ?? [];
+      for (const r of raw)
+        expect(cls, `${stage}: ${r}`).toMatch(/\bdark:text-[a-z]+-\d{3}\b/);
+      // a light-mode text shade must be dark enough to read on white
+      for (const r of raw)
+        expect(
+          Number(r.split('-').pop()),
+          `${stage}: ${r}`
+        ).toBeGreaterThanOrEqual(700);
+    }
   });
 });

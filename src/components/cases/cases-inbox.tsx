@@ -70,6 +70,7 @@ import {
   parseInboxPage,
   PRIORITIES,
   SLA_STATES,
+  stageChipClass,
   type CaseBankOption,
   type InboxFilters,
   type InboxRow,
@@ -705,9 +706,7 @@ function Chips({ row }: { row: InboxRow }) {
   const priority = PRIORITY_CHIP[row.priority];
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <span className={cn(chip, 'bg-secondary text-secondary-foreground')}>
-        {row.stage}
-      </span>
+      <span className={cn(chip, stageChipClass(row.stage))}>{row.stage}</span>
       {row.isLead && (
         <span className={cn(chip, LEAD_CHIP)}>{t('leadChip')}</span>
       )}

@@ -26,6 +26,7 @@ import {
   type BankCase,
   type SlaTone,
 } from '@/lib/banks/ui';
+import { stageChipClass } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { chip } from './banks-list';
@@ -114,7 +115,7 @@ function StageChip({ c }: { c: BankCase }) {
   const t = useTranslations('Banks.cases');
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      <span className={cn(chip, 'bg-muted text-foreground')}>
+      <span className={cn(chip, stageChipClass(c.stage))}>
         {c.stage || t('noStage')}
       </span>
       {c.isLead && (

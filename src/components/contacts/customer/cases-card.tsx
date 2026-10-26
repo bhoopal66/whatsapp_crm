@@ -14,7 +14,12 @@ import {
   parseContactCases,
   type ContactCase,
 } from '@/lib/cases/lead-form';
-import { formatAed, parseBanks, type CaseBankOption } from '@/lib/cases/ui';
+import {
+  formatAed,
+  parseBanks,
+  stageChipClass,
+  type CaseBankOption,
+} from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { SideCard } from './customer-cards';
@@ -82,7 +87,7 @@ export function CasesCard({ contactId }: { contactId: string }) {
                   className="hover:bg-muted/60 -mx-2 block space-y-1 rounded-md px-2 py-1.5 text-sm transition-colors"
                 >
                   <span className="flex flex-wrap items-center gap-1.5">
-                    <span className={cn(chip, 'bg-muted text-foreground')}>
+                    <span className={cn(chip, stageChipClass(c.stage))}>
                       {c.stage}
                     </span>
                     {c.isLead && (

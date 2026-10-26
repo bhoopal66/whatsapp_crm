@@ -45,6 +45,51 @@ export const DEFAULT_STAGES: readonly string[] = [
 ];
 
 /**
+ * Each stage's chip colour, by what the stage means: sky for a lead's
+ * stages, blue/indigo once with the bank, amber while documents are
+ * awaited, teal once received, violet under review, orange for an open
+ * bank query, cyan once answered, green approved, red declined, grey
+ * finished. Full class strings (Tailwind scans for literals); each raw
+ * hue has its own dark-mode shade. A bank's own stage outside this list
+ * gets STAGE_CHIP_OTHER.
+ */
+const SKY =
+  'bg-sky-100 text-sky-800 ring-1 ring-sky-600/20 ring-inset dark:bg-sky-400/15 dark:text-sky-300 dark:ring-sky-400/30';
+export const STAGE_CHIP: Readonly<Record<string, string>> = {
+  Interested: SKY,
+  'Data collection': SKY,
+  Review: SKY,
+  Submitted: 'bg-info-soft text-info ring-1 ring-info/30 ring-inset',
+  'Bank acknowledged':
+    'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-600/20 ring-inset dark:bg-indigo-400/15 dark:text-indigo-300 dark:ring-indigo-400/30',
+  'Documents requested':
+    'bg-warning-soft text-warning ring-1 ring-warning/30 ring-inset',
+  'Documents received':
+    'bg-teal-100 text-teal-800 ring-1 ring-teal-600/20 ring-inset dark:bg-teal-400/15 dark:text-teal-300 dark:ring-teal-400/30',
+  'Under review':
+    'bg-violet-100 text-violet-800 ring-1 ring-violet-600/20 ring-inset dark:bg-violet-400/15 dark:text-violet-300 dark:ring-violet-400/30',
+  'Query raised':
+    'bg-orange-100 text-orange-800 ring-1 ring-orange-600/20 ring-inset dark:bg-orange-400/15 dark:text-orange-300 dark:ring-orange-400/30',
+  'Query answered':
+    'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-600/20 ring-inset dark:bg-cyan-400/15 dark:text-cyan-300 dark:ring-cyan-400/30',
+  Approved: 'bg-success-soft text-success ring-1 ring-success/30 ring-inset',
+  Declined:
+    'bg-destructive-soft text-destructive ring-1 ring-destructive/30 ring-inset',
+  Withdrawn: 'bg-muted text-muted-foreground ring-1 ring-border ring-inset',
+  Closed: 'bg-muted text-muted-foreground ring-1 ring-border ring-inset',
+};
+export const STAGE_CHIP_OTHER =
+  'bg-secondary text-secondary-foreground ring-1 ring-border ring-inset';
+
+/** The chip classes for a stage (any bank's own stage included). */
+export function stageChipClass(stage: string | null | undefined): string {
+  return (
+    (stage && Object.hasOwn(STAGE_CHIP, stage) && STAGE_CHIP[stage]) ||
+    STAGE_CHIP_OTHER
+  );
+}
+
+/**
  * 130's case_presub_stages(): a lead's stages, before any submission.
  * Every stage list starts with exactly these, in this order.
  */

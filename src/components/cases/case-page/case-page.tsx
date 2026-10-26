@@ -39,7 +39,8 @@ import {
   type CaseTab,
   type CaseTabProps,
 } from '@/lib/cases/case-page';
-import { formatAed } from '@/lib/cases/ui';
+import { formatAed, stageChipClass } from '@/lib/cases/ui';
+import { cn } from '@/lib/utils';
 
 import { AuditTab } from './audit-tab';
 import { BankContactsTab } from './bank-contacts-tab';
@@ -332,7 +333,14 @@ export function CasePage({ caseId }: { caseId: string }) {
                   title
                 )}
               </h1>
-              <Badge variant="secondary">{c.stage}</Badge>
+              <span
+                className={cn(
+                  'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                  stageChipClass(c.stage)
+                )}
+              >
+                {c.stage}
+              </span>
               {closed && (
                 <Badge variant="outline">
                   {c.outcome
