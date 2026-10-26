@@ -587,7 +587,7 @@ export class CaseStore {
     }));
   }
 
-  /** The submission app's final status (the group is already ended by 115). */
+  /** The submission app's status: a final one closes the case, any other moves it to the stage of that name (137). */
   async applySubmissionStatus(
     groupId: string,
     status: string

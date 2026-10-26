@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Case stages follow the submission's status (migration 137)
+
+**Migration required: 137** (`137_submission_status_stage.sql`, apply as a superuser or BYPASSRLS role).
+- A case now moves when Compass reports its submission's progress. Compass
+  sends a status such as `UNDER_REVIEW` or `DOCUMENTS_REQUESTED` and no
+  stage, so until now every open case stayed at **Submitted**. A status
+  now moves the case to the stage of the same name (Under review,
+  Documents requested, …); final statuses close the case as before. A
+  stage Compass sends explicitly still wins.
+- Applying the migration catches up once: every open case still at
+  Submitted moves to the stage its submission last reported.
+
 - Right-click menu: right-clicking anywhere in the app now opens Taamul Connect's own menu instead of the browser's: the actions of what you clicked (a chat in the Inbox list: open, open in new tab, customer page, copy phone or name; a message: reply, react, copy text, forward), then link, image and selected-text actions, then Back, Forward, Reload, Copy page link and a light/dark switch. Text fields keep the browser menu (spell check, paste), and holding **Shift** while right-clicking always gives the browser menu. A long-press on a message on a phone still pins its toolbar. No migration.
 - Right-click menu in Team chat: a message offers reply in thread, react, copy text, copy link to message, pin or unpin, save or unsave, edit, edit history and delete (with its confirmation), each only where the message's own toolbar offers it; a channel or DM in the chat sidebar adds Mark as read (when it has unread messages) and Mute or Unmute to the usual link actions. A notification offers Open and, while unread, Mark as read; a calendar entry offers Open details plus what its popover offers (Join, Open meeting and Copy link for a meeting, Open contact for a task, and Edit and Delete for an event you organise, with the same "This event / All events" question); a meeting on the Meetings list offers Join (when the list shows it), Open details and Copy link. No migration.
 - Workspaces: the workspace rail at the far left of the sidebar is gone. Switching workspace, and creating one (owners and admins), now happens in **Settings → My account → Workspaces**, which lists every workspace you belong to with your role, team-chat unread and mentions. A bank guest can open that one Settings section (from the account menu's **Workspaces** item) and nothing else of Settings. No migration.

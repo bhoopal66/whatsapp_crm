@@ -474,6 +474,25 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cs_ok(NOT b1 AND NOT b2 AND NOT case_apply_submission_status(g[3], 'APPROVED')
     AND (SELECT stage = 'Submitted' AND closed_at IS NULL AND group_ended_at IS NULL FROM cases WHERE id = k[7]),
     'a non-final status, or a group with no case, was not a no-op');
+  -- 137: a non-final status moves the case to the stage of that name.
+  b1 := case_apply_submission_status(g[7], ' under_review ');
+  n := n + 1; failed := failed || pg_temp.cs_ok(b1
+    AND (SELECT stage = 'Under review' AND outcome IS NULL AND closed_at IS NULL FROM cases WHERE id = k[7])
+    AND (SELECT from_stage = 'Submitted' AND to_stage = 'Under review' AND actor_id IS NULL AND actor_role = 'api'
+           FROM case_stage_history WHERE case_id = k[7] ORDER BY id DESC LIMIT 1),
+    'submission status UNDER_REVIEW did not move the case to Under review as the API');
+  b1 := case_apply_submission_status(g[7], 'UNDER_REVIEW');
+  b2 := case_apply_submission_status(g[7], 'REVIEW');
+  n := n + 1; failed := failed || pg_temp.cs_ok(NOT b1 AND NOT b2
+    AND (SELECT stage FROM cases WHERE id = k[7]) = 'Under review',
+    'the same status, or a pre-submission stage''s name, moved the case');
+  b1 := case_apply_submission_status(g[7], 'Documents_Requested');
+  b2 := case_apply_submission_status(g[7], 'SUBMITTED');
+  n := n + 1; failed := failed || pg_temp.cs_ok(b1 AND b2
+    AND (SELECT stage = 'Submitted' AND closed_at IS NULL FROM cases WHERE id = k[7])
+    AND (SELECT array_agg(to_stage ORDER BY id DESC) FROM (SELECT id, to_stage FROM case_stage_history
+           WHERE case_id = k[7] ORDER BY id DESC LIMIT 2) h) = ARRAY['Submitted', 'Documents requested'],
+    'submission statuses DOCUMENTS_REQUESTED then SUBMITTED did not follow Compass');
   b1 := sg_end(g[7], 'verify');
   b1 := case_apply_submission_status(g[7], ' closed ');
   n := n + 1; failed := failed || pg_temp.cs_ok(b1
@@ -483,6 +502,9 @@ BEGIN
   b1 := case_apply_submission_status(g[4], 'CLOSED');
   n := n + 1; failed := failed || pg_temp.cs_ok(NOT b1 AND (SELECT stage FROM cases WHERE id = k[4]) = 'Approved',
     'a submission status moved an already-final case');
+  b1 := case_apply_submission_status(g[4], 'UNDER_REVIEW');
+  n := n + 1; failed := failed || pg_temp.cs_ok(NOT b1 AND (SELECT stage FROM cases WHERE id = k[4]) = 'Approved',
+    'a non-final submission status reopened a final case');
   n := n + 1; failed := failed || pg_temp.cs_ok(NOT EXISTS (SELECT 1 FROM case_pending_group_end(interval '0 seconds') x
       WHERE x.case_id = k[7])
     AND (SELECT count(*) FROM case_pending_group_end(interval '0 seconds') x

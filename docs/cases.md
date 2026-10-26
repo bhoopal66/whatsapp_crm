@@ -108,8 +108,14 @@ free).
 **Status from the submission app.** A `PATCH` with a final status
 (`APPROVED`, `DECLINED`, `WITHDRAWN`, `CLOSED`) moves a case that is not
 yet final to Approved, Declined, Withdrawn or Closed, also when the group
-had already ended. A case already at a final stage is left alone; other
-statuses change nothing.
+had already ended. A case already at a final stage is left alone. Since
+migration 137 any other status moves an open case to the stage of the
+bank's list with the same name, reading `_` as a space and ignoring case
+(`UNDER_REVIEW` -> Under review, `DOCUMENTS_REQUESTED` -> Documents
+requested), as the API (history actor NULL, role `api`). It never moves
+into a pre-submission or final stage this way, nor out of a final one; a
+status that names no stage changes nothing. A `stage` sent in the same
+`PATCH` wins over a non-final status.
 
 ## Leads
 

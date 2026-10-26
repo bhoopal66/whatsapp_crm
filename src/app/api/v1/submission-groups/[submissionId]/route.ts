@@ -12,7 +12,10 @@
 // Account-scoped: a submission of another workspace → 404.
 //
 // PATCH also moves the group's case (module 018c): a final status sets
-// its stage (case_apply_submission_status), and the answer carries
+// its stage (case_apply_submission_status), and since 137 any other
+// status moves the case to the stage of the same name (UNDER_REVIEW ->
+// Under review), unless the same body carries an explicit `stage`, which
+// wins. The answer carries
 // `case: { id, stage, outcome }`. That holds on an ENDED group too (staff
 // may have ended it before the bank decided): the submission app's final
 // status is the case's outcome, and a case already at a final stage is
@@ -51,6 +54,7 @@ import {
   syncCaseFromSubmission,
   syncWire,
 } from '@/lib/submission-groups/case-sync';
+import { isFinalStatus } from '@/lib/submission-groups/rules';
 import type {
   SubmissionGroup,
   SubmissionGroupStore,
@@ -107,6 +111,14 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!parsed.ok) return fail('bad_request', parsed.message, 400);
 
     const { status, sync } = parsed.value;
+    // 137: a non-final status names a stage, but Compass's own `stage` in
+    // the same body wins, so the case then gets only a final status.
+    const caseStatus =
+      status !== null &&
+      sync?.patch.stage !== undefined &&
+      !isFinalStatus(status)
+        ? null
+        : status;
 
     const store = submissionGroupStore(ctx.supabase);
     let group = await store.findByRef(ctx.accountId, submissionId.trim());
@@ -150,7 +162,7 @@ export async function PATCH(request: Request, { params }: Params) {
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
-        case: await patchCase(ctx.accountId, group.id, status),
+        case: await patchCase(ctx.accountId, group.id, caseStatus),
         ...syncBlock,
       });
 
@@ -197,7 +209,7 @@ export async function PATCH(request: Request, { params }: Params) {
       });
     }
     group = (await store.get(group.id)) ?? group;
-    const caseWire = await patchCase(ctx.accountId, group.id, status);
+    const caseWire = await patchCase(ctx.accountId, group.id, caseStatus);
     return ok({
       ...(await wire(store, group)),
       ended: end.ended,

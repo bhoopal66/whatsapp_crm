@@ -217,9 +217,27 @@ describe('PATCH case sync (migration 134)', () => {
       TOKEN
     );
     expect(m.service.endIfDue).not.toHaveBeenCalled();
+    // 137: the explicit stage wins over a non-final status's stage.
+    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+  });
+
+  it('a final status beside an explicit stage still reaches the case (137)', async () => {
+    m.rpc.mockResolvedValueOnce(syncOk()).mockResolvedValueOnce({
+      data: null,
+      error: null,
+    });
+    await patch({ status: 'APPROVED', stage: 'Under review' });
     expect(m.cases.applySubmissionStatus).toHaveBeenCalledWith(
       'g1',
-      'BANK_REVIEW'
+      'APPROVED'
+    );
+  });
+
+  it('a non-final status with no stage reaches the case (137)', async () => {
+    await patch({ status: 'UNDER_REVIEW' });
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledWith(
+      'g1',
+      'UNDER_REVIEW'
     );
   });
 

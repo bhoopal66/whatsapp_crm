@@ -1073,8 +1073,10 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `verify-case-inbox.sql`, `verify-bank-workspaces.sql`,
   `verify-bank-dashboard.sql`.
 - **Compass sync (134).** Compass (the submission app) is the master of a
-  submitted case; a lead stays the CRM's. `case_sync_from_submission` is
-  the only API writer (actor NULL, role `api`): stale by
+  submitted case; a lead stays the CRM's. The API writers are
+  `case_sync_from_submission` and `case_apply_submission_status` (a
+  status names its stage since 137; an explicit `stage` in the same PATCH
+  wins), both actor NULL, role `api`. The sync is stale by
   `cases.external_changed_at`, stage rules as 122/130, per-item refusals
   in `rejected`. The lock is `case_account_settings.managed_externally`
   (`case_settings_set`, owner/admin) refusing people with
