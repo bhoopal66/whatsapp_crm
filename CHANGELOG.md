@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Deals follow the chat's tags (migration 138)
+
+**Migration required: 138** (`138_tag_deals_follow_chat.sql`).
+- A deal opened from a chat tag now carries the sub-tag in its title,
+  e.g. **Jane Doe · ADCB**.
+- Re-tagging a chat with another tag linked to a stage (Pipelines →
+  Manage pipeline) moves the customer's open deal to that stage instead
+  of leaving it; with no open deal, one is created as before. A tag
+  linked to no stage moves nothing.
+- Changing only the sub-tag updates the deal's title. A title someone
+  edited by hand is kept.
+
 ### Case stages follow the submission's status (migration 137)
 
 **Migration required: 137** (`137_submission_status_stage.sql`, apply as a superuser or BYPASSRLS role).

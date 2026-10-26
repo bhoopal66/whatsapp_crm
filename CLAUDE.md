@@ -606,9 +606,12 @@ insert/update). `deals.assigned_to` is a `profiles.id` but
 
 A stage linked to a main chat tag (`pipeline_stages.auto_chat_tag_id`)
 gets a deal opened by the `create_deals_for_chat_tag` trigger when a
-chat *arrives* at that tag — never on a sub-tag change, never moving an
-existing deal, skipped while the contact has an open deal in that
-pipeline, and it never blocks the tag write (failures are WARNINGs).
+chat *arrives* at that tag, or (138) the contact's open deal in that
+pipeline (this chat's first, else the newest) moved there. The title is
+`<name> · <sub-tag>`; a sub-tag change re-titles that deal but never
+opens one, and only a title still in that generated shape is rewritten.
+An unlinked tag moves nothing, and it never blocks the tag write
+(failures are WARNINGs).
 Automation/flow tagging fires it too. Links are written one stage at a
 time, clears before sets (`stage-tag-links.ts`), because a partial
 unique index allows one stage per tag per pipeline.

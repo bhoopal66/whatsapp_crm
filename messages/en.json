@@ -762,7 +762,7 @@
       "toastDeleted": "Pipeline deleted",
       "autoTagLabel": "Auto-add chats tagged",
       "autoTagNone": "None",
-      "autoTagHelp": "When a chat gets this tag, a deal is created here for the chat's agent. It is never moved automatically.",
+      "autoTagHelp": "When a chat gets this tag, the customer's open deal moves here, or a new one is created for the chat's agent. The deal title shows the sub-tag (e.g. the bank).",
       "toastTagInUse": "Another stage of this pipeline already uses that tag",
       "toastTagNotMain": "Pick a main tag from this account",
       "toastFailedTagLink": "Could not save the chat tag link"

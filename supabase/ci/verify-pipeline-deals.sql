@@ -4,8 +4,8 @@
 -- A deal is visible to its owner (the assignee, else the creator),
 -- that owner's team leader, and the account's admins. Tagging a chat
 -- with the tag an admin linked to a pipeline stage opens a deal there,
--- once per open deal, owned by the right person, and never moves an
--- existing one. The rules live in RLS and triggers, none of which
+-- once per open deal, owned by the right person; since 138 a re-tag
+-- moves the open deal and the title carries the sub-tag. The rules live in RLS and triggers, none of which
 -- `npm test` can reach.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
@@ -380,8 +380,8 @@ BEGIN
          'UPDATE conversations SET chat_tag_id = %L, chat_sub_tag_id = %L WHERE id = %L', m_int, s_fab, cv));
   n := n + 1;
   IF r <> '1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/open', st_int, u_ag1, p_ag1)
-     OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM '971500080012' THEN
-    failed := array_append(failed, ('(b) agent-started chat: not one deal owned by the agent, titled by phone: '
+     OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM '971500080012 · FAB' THEN
+    failed := array_append(failed, ('(b) agent-started chat: not one deal owned by the agent, titled by phone and sub-tag: '
       || r || ' ' || pg_temp.pd_deals(ct))::text);
   END IF;
   r := pg_temp.pd_try(u_ag1, format('SELECT count(*)::text FROM deals WHERE contact_id = %L', ct));
@@ -390,21 +390,50 @@ BEGIN
     failed := array_append(failed, ('(b) the agent cannot see the deal their tag opened: ' || r)::text);
   END IF;
 
-  -- Re-tagging never moves the deal and never duplicates an open one.
+  -- 138: an unlinked tag leaves the open deal where it is; coming back
+  -- to the linked tag moves it there (no duplicate), and the main-tag
+  -- change cleared the sub-tag, so the title drops it.
   UPDATE deals SET stage_id = st_open WHERE contact_id = ct;
   r := pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_tag_id = %L WHERE id = %L', m_not, cv));
-  r := r || ',' || pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_tag_id = %L WHERE id = %L', m_int, cv));
   n := n + 1;
-  IF r <> '1,1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/open', st_open, u_ag1, p_ag1) THEN
-    failed := array_append(failed, ('re-tag away and back with an open deal duplicated or moved it: '
+  IF r <> '1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/open', st_open, u_ag1, p_ag1)
+     OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM '971500080012 · FAB' THEN
+    failed := array_append(failed, ('a tag linked to no stage moved or re-titled the open deal: '
       || r || ' ' || pg_temp.pd_deals(ct))::text);
   END IF;
-  -- A sub-tag change alone never opens one, even with no open deal.
-  UPDATE deals SET status = 'lost' WHERE contact_id = ct;
+  r := pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_tag_id = %L WHERE id = %L', m_int, cv));
+  n := n + 1;
+  IF r <> '1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/open', st_int, u_ag1, p_ag1)
+     OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM '971500080012' THEN
+    failed := array_append(failed, ('re-tag to the linked tag did not move the one open deal there, re-titled: '
+      || r || ' ' || pg_temp.pd_deals(ct))::text);
+  END IF;
+  -- 138: a sub-tag change re-titles the open deal, without moving it.
+  UPDATE deals SET stage_id = st_open WHERE contact_id = ct;
   r := pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_sub_tag_id = %L WHERE id = %L', s_adcb, cv));
   n := n + 1;
-  IF r <> '1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/lost', st_open, u_ag1, p_ag1) THEN
-    failed := array_append(failed, ('a sub-tag change alone opened a deal: ' || r || ' ' || pg_temp.pd_deals(ct))::text);
+  IF r <> '1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/open', st_open, u_ag1, p_ag1)
+     OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM '971500080012 · ADCB' THEN
+    failed := array_append(failed, ('a sub-tag change did not re-title the open deal in place: '
+      || r || ' ' || pg_temp.pd_deals(ct) || ' '
+      || coalesce((SELECT title FROM deals WHERE contact_id = ct), 'null'))::text);
+  END IF;
+  -- 138: a title someone changed by hand is kept.
+  UPDATE deals SET title = 'Mortgage for PD b' WHERE contact_id = ct;
+  r := pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_sub_tag_id = %L WHERE id = %L', s_fab, cv));
+  n := n + 1;
+  IF r <> '1' OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM 'Mortgage for PD b' THEN
+    failed := array_append(failed, ('a sub-tag change overwrote a hand-made title: '
+      || coalesce((SELECT title FROM deals WHERE contact_id = ct), 'null'))::text);
+  END IF;
+  -- A sub-tag change alone never opens one, nor touches a lost deal.
+  UPDATE deals SET status = 'lost', title = '971500080012 · FAB' WHERE contact_id = ct;
+  r := pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_sub_tag_id = %L WHERE id = %L', s_adcb, cv));
+  n := n + 1;
+  IF r <> '1' OR pg_temp.pd_deals(ct) <> format('%s/%s/%s/lost', st_open, u_ag1, p_ag1)
+     OR (SELECT title FROM deals WHERE contact_id = ct) IS DISTINCT FROM '971500080012 · FAB' THEN
+    failed := array_append(failed, ('a sub-tag change alone opened a deal or re-titled a lost one: '
+      || r || ' ' || pg_temp.pd_deals(ct))::text);
   END IF;
   -- Once the deal is lost, coming back to the tag opens a new one.
   r := pg_temp.pd_try(u_ag1, format('UPDATE conversations SET chat_tag_id = %L WHERE id = %L', m_not, cv));

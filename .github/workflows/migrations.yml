@@ -152,6 +152,8 @@ jobs:
       # linked tag opens one deal there. The rule lives in RLS and the
       # deal comes from a conversations trigger, so only real Postgres
       # can show who sees what and that re-tagging never duplicates.
+      # Since 138 a re-tag moves the open deal and the title carries the
+      # sub-tag (a hand-made title is kept).
       - name: Verify pipeline deals
         run: supabase db query --local --file supabase/ci/verify-pipeline-deals.sql
 
