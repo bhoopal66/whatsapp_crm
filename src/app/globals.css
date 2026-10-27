@@ -57,6 +57,8 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-destructive-soft: var(--destructive-soft);
+  /* The scrim behind dialogs and sheets: bg-overlay. */
+  --color-overlay: var(--overlay);
 
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
@@ -165,6 +167,7 @@ html[data-mode='dark'],
   --warning-soft: oklch(0.82 0.14 80 / 0.14);
   --info: oklch(0.76 0.12 240);
   --info-soft: oklch(0.76 0.12 240 / 0.15);
+  --overlay: oklch(0.16 0.014 255 / 0.1);
   --border: oklch(0.31 0.018 255);
   --input: oklch(0.36 0.02 255);
   --chart-2: oklch(0.72 0.13 185);
@@ -181,48 +184,54 @@ html[data-mode='dark'],
   --sidebar-border: oklch(0.25 0.02 255);
 }
 
-/* Light: a mid blue-grey page under off-white cards, so panels separate
- * without heavy borders; borders and inputs are dark enough to see on
- * an ordinary office monitor, and secondary text is >= 5.5:1. No surface
- * is pure white: users found full-white screens too bright to work in
- * all day (2026-10-21). */
+/* Light: a cool, brand-tinted canvas (#e9eff7) under soft-white cards
+ * (#f8fafd), deep navy text and the brand blue for action. History:
+ * pure-white cards on a near-white page were too bright to work in all
+ * day (2026-10-21), and the mid-grey ramp that replaced them read as
+ * dull and unfinished (2026-10-27). So no surface is pure white, but
+ * cards sit clearly above the canvas and the canvas carries the brand's
+ * hue instead of grey. Contrast: body text 17:1, secondary text >= 5.7:1
+ * on every surface, primary text 5.8:1, status text >= 4.5:1 on its
+ * soft tint. */
 html[data-mode='light'] {
   color-scheme: light;
-  --background: oklch(0.925 0.008 250);
-  --foreground: oklch(0.22 0.028 258);
-  --card: oklch(0.963 0.005 250);
-  --card-2: oklch(0.945 0.006 250);
-  --card-foreground: oklch(0.22 0.028 258);
-  --popover: oklch(0.97 0.005 250);
-  --popover-foreground: oklch(0.22 0.028 258);
-  --secondary: oklch(0.905 0.011 250);
-  --secondary-foreground: oklch(0.27 0.03 258);
-  --muted: oklch(0.91 0.009 250);
-  --muted-foreground: oklch(0.43 0.028 258);
-  --accent: oklch(0.9 0.015 250);
-  --accent-foreground: oklch(0.24 0.03 258);
+  --background: oklch(0.95 0.012 252);
+  --foreground: oklch(0.21 0.034 260);
+  --card: oklch(0.985 0.004 250);
+  --card-2: oklch(0.968 0.007 252);
+  --card-foreground: oklch(0.21 0.034 260);
+  --popover: oklch(0.992 0.003 250);
+  --popover-foreground: oklch(0.21 0.034 260);
+  --secondary: oklch(0.935 0.014 252);
+  --secondary-foreground: oklch(0.25 0.036 260);
+  --muted: oklch(0.94 0.011 252);
+  --muted-foreground: oklch(0.47 0.03 258);
+  --accent: oklch(0.94 0.022 250);
+  --accent-foreground: oklch(0.22 0.04 258);
   --destructive: oklch(0.55 0.21 27);
-  --destructive-soft: oklch(0.55 0.21 27 / 0.09);
+  --destructive-soft: oklch(0.55 0.21 27 / 0.08);
   --success: oklch(0.5 0.13 155);
   --success-soft: oklch(0.5 0.13 155 / 0.1);
-  --warning: oklch(0.54 0.14 60);
+  --warning: oklch(0.53 0.14 60);
   --warning-soft: oklch(0.75 0.15 75 / 0.16);
-  --info: oklch(0.5 0.15 250);
-  --info-soft: oklch(0.5 0.15 250 / 0.09);
-  --border: oklch(0.83 0.012 252);
-  --input: oklch(0.78 0.016 252);
+  --info: oklch(0.5 0.15 245);
+  --info-soft: oklch(0.5 0.15 245 / 0.09);
+  --overlay: oklch(0.25 0.04 258 / 0.28);
+  --border: oklch(0.885 0.014 252);
+  --input: oklch(0.835 0.02 252);
   --chart-2: oklch(0.6 0.12 185);
   --chart-3: oklch(0.72 0.15 70);
   --chart-4: oklch(0.6 0.2 15);
   --chart-5: oklch(0.56 0.19 300);
   --radius: 0.625rem;
-  /* A brand-tinted blue-grey, darker than the page and the off-white
-   * header, so the navigation reads as its own column. */
-  --sidebar: oklch(0.895 0.022 248);
-  --sidebar-foreground: oklch(0.28 0.035 258);
-  --sidebar-accent: oklch(0.85 0.032 248);
-  --sidebar-accent-foreground: oklch(0.2 0.035 258);
-  --sidebar-border: oklch(0.81 0.024 250);
+  /* Used by the panels that sit on cards (team chat and deal room
+   * lists): the selected row takes the accent's blue tint. The main
+   * navigation is navy instead; see "NAVIGATION" below. */
+  --sidebar: oklch(0.985 0.004 250);
+  --sidebar-foreground: oklch(0.3 0.035 258);
+  --sidebar-accent: oklch(0.94 0.022 250);
+  --sidebar-accent-foreground: oklch(0.22 0.04 258);
+  --sidebar-border: oklch(0.885 0.014 252);
 }
 
 /* ---- INBOX: WhatsApp surfaces ----
@@ -281,35 +290,35 @@ html[data-mode='dark'],
 }
 
 html[data-mode='light'] {
-  --wa-panel: oklch(0.963 0.005 250);
-  --wa-panel-header: oklch(0.92 0.008 250);
-  --wa-chat: #e2dcd2;
-  --wa-chat-veil: rgb(226 220 210 / 0.55);
-  --wa-row-hover: oklch(0.935 0.007 250);
-  --wa-row-active: oklch(0.9 0.012 250);
-  --wa-divider: oklch(0.83 0.012 252);
-  --wa-search: oklch(0.91 0.009 250);
-  --wa-input: oklch(0.97 0.005 250);
-  --wa-text: #111b21;
-  --wa-text-secondary: #667781;
-  --wa-icon: #54656f;
-  --wa-icon-hover: rgb(11 20 26 / 0.06);
-  --wa-bubble-in: #f7f7f5;
+  --wa-panel: oklch(0.985 0.004 250);
+  --wa-panel-header: oklch(0.965 0.008 252);
+  --wa-chat: #e9e4db;
+  --wa-chat-veil: rgb(233 228 219 / 0.55);
+  --wa-row-hover: oklch(0.965 0.008 252);
+  --wa-row-active: oklch(0.94 0.022 250);
+  --wa-divider: oklch(0.885 0.014 252);
+  --wa-search: oklch(0.94 0.011 252);
+  --wa-input: oklch(0.992 0.003 250);
+  --wa-text: oklch(0.21 0.034 260);
+  --wa-text-secondary: oklch(0.47 0.03 258);
+  --wa-icon: oklch(0.5 0.028 255);
+  --wa-icon-hover: rgb(15 24 40 / 0.06);
+  --wa-bubble-in: #fdfdfc;
   --wa-bubble-out: #d9fdd3;
-  --wa-meta: #667781;
-  --wa-quote: rgb(11 20 26 / 0.05);
+  --wa-meta: #5f6f79;
+  --wa-quote: rgb(15 24 40 / 0.05);
   --wa-quote-bar: #06cf9c;
   --wa-tick-read: #53bdeb;
-  --wa-date-chip: #f7f7f5;
-  --wa-date-chip-fg: #54656f;
-  --wa-unread-band: rgb(247 247 245 / 0.45);
+  --wa-date-chip: #fdfdfc;
+  --wa-date-chip-fg: oklch(0.47 0.03 258);
+  --wa-unread-band: rgb(253 253 252 / 0.5);
   --wa-green: #1daa61;
   --wa-green-fg: #ffffff;
   --wa-teal: #008069;
   --wa-chip-active: #d9fdd3;
-  --wa-avatar: #dfe5e7;
-  --wa-avatar-fg: #54656f;
-  --wa-section-gap: #f0f2f5;
+  --wa-avatar: oklch(0.92 0.014 250);
+  --wa-avatar-fg: oklch(0.45 0.03 255);
+  --wa-section-gap: oklch(0.95 0.012 252);
   --wa-warning: #b45309;
 }
 
@@ -321,6 +330,18 @@ html[data-mode='light'] {
     linear-gradient(var(--wa-chat-veil), var(--wa-chat-veil)),
     url('/inbox-doodle.svg');
   background-repeat: repeat;
+}
+
+/* Sign-in, password reset and invitation pages: the canvas with a soft
+ * glow of the accent from the top, so the first screen is not a flat
+ * field. Pair with dark:bg-none — dark mode keeps its plain canvas. */
+@utility auth-backdrop {
+  background-color: var(--background);
+  background-image: radial-gradient(
+    70rem 36rem at 50% -8rem,
+    var(--primary-soft-2),
+    transparent 70%
+  );
 }
 
 /* ---- ACCENT: primary color ----
@@ -490,6 +511,30 @@ html[data-theme='rose'] [data-mode='dark'] {
   --sidebar-primary-foreground: oklch(0.17 0.03 16);
   --sidebar-ring: oklch(0.72 0.178 16);
 }
+
+/* ---- NAVIGATION: the main sidebar in light mode ----
+ *
+ * The sidebar carries data-mode="dark" so navigation stays dark next to
+ * light pages (users asked for it, 2026-10-21). In light mode it takes
+ * the brand's own navy instead of the dark theme's near-black, which
+ * read as a black slab beside the light canvas. Only the neutral tokens
+ * change, so the accent (active item, badges) still follows the theme;
+ * in dark mode this block does not apply and the sidebar is unchanged.
+ * The selector outranks the dark blocks above whatever their order. */
+html[data-mode='light'] [data-nav='primary'][data-mode='dark'] {
+  --sidebar: oklch(0.255 0.06 254);
+  --sidebar-foreground: oklch(0.88 0.025 250);
+  --sidebar-accent: oklch(0.31 0.065 254);
+  --sidebar-accent-foreground: oklch(0.98 0.005 250);
+  --sidebar-border: oklch(0.33 0.055 254);
+  --border: oklch(0.33 0.055 254);
+  --foreground: oklch(0.97 0.006 250);
+  --muted-foreground: oklch(0.72 0.045 250);
+  --muted: oklch(0.31 0.065 254);
+  /* The active item: a raised translucent pill (white text 11:1). */
+  --card: oklch(1 0 0 / 0.12);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
