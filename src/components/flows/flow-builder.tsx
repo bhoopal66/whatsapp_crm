@@ -265,7 +265,6 @@ function KeywordsInput({
         }
       }}
       placeholder={t('keywordsPlaceholder')}
-      className="bg-muted"
     />
   );
 }
@@ -306,7 +305,7 @@ function TriggerPanel({
               }))
             }
           >
-            <SelectTrigger className="bg-muted">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -395,7 +394,7 @@ function FallbackPanel({
               })
             }
           >
-            <SelectTrigger className="bg-muted">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -428,7 +427,6 @@ function FallbackPanel({
                   if (Number.isFinite(n) && n >= 0)
                     patch({ max_reprompts: Math.floor(n) });
                 }}
-                className="bg-muted"
               />
             </div>
             <div>
@@ -444,7 +442,7 @@ function FallbackPanel({
                   })
                 }
               >
-                <SelectTrigger className="bg-muted">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -690,7 +688,7 @@ function NodeConfigWithAdvanced({
                 onChange={(e) =>
                   onUpdate({ node_key: slugify(e.target.value, node.node_key) })
                 }
-                className="bg-muted font-mono text-xs"
+                className="font-mono text-xs"
               />
             </div>
             {hasReplyIds && (

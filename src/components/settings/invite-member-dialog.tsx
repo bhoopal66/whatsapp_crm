@@ -290,7 +290,7 @@ export function InviteMemberDialog({
                   value={role}
                   onValueChange={(v) => v && setRole(v as InviteRole)}
                 >
-                  <SelectTrigger className="bg-muted border-border text-foreground w-full">
+                  <SelectTrigger className="border-border text-foreground w-full">
                     <SelectValue>{tRoles(role)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -319,7 +319,7 @@ export function InviteMemberDialog({
                   {t('validForLabel')}
                 </Label>
                 <Select value={expiry} onValueChange={(v) => v && setExpiry(v)}>
-                  <SelectTrigger className="bg-muted border-border text-foreground w-full">
+                  <SelectTrigger className="border-border text-foreground w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -344,7 +344,7 @@ export function InviteMemberDialog({
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
                   maxLength={MAX_LABEL_LEN}
-                  className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                  className="border-border text-foreground placeholder:text-muted-foreground"
                 />
                 <p className="text-muted-foreground text-xs">
                   {t('labelHint')}

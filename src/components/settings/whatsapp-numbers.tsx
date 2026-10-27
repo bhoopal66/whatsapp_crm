@@ -505,7 +505,7 @@ export function WhatsAppNumbers() {
                             }
                             if (e.key === 'Escape') setRenamingId(null);
                           }}
-                          className="border-border bg-muted text-foreground h-8"
+                          className="border-border text-foreground h-8"
                         />
                         <Button
                           size="icon"
@@ -767,7 +767,7 @@ export function WhatsAppNumbers() {
             onChange={(e) => setAccessSearch(e.target.value)}
             placeholder={t('searchMembers')}
             aria-label={t('searchMembers')}
-            className="border-border bg-muted text-foreground"
+            className="border-border text-foreground"
           />
 
           <div className="border-border bg-muted/40 max-h-72 space-y-1 overflow-y-auto rounded-md border p-2">
@@ -892,7 +892,7 @@ export function WhatsAppNumbers() {
                 onChange={(e) => setAddName(e.target.value)}
                 maxLength={MAX_CHANNEL_LABEL_LEN}
                 placeholder={t('namePlaceholder')}
-                className="border-border bg-muted text-foreground"
+                className="border-border text-foreground"
               />
             </div>
             <div className="space-y-1.5">
@@ -904,7 +904,7 @@ export function WhatsAppNumbers() {
                 value={addToken}
                 onChange={(e) => setAddToken(e.target.value)}
                 placeholder={t('tokenPlaceholder')}
-                className="border-border bg-muted text-foreground font-mono"
+                className="border-border text-foreground font-mono"
               />
             </div>
             <div className="space-y-1.5">
@@ -914,7 +914,7 @@ export function WhatsAppNumbers() {
                 value={addChannelId}
                 onChange={(e) => setAddChannelId(e.target.value)}
                 placeholder={t('channelIdPlaceholder')}
-                className="border-border bg-muted text-foreground font-mono"
+                className="border-border text-foreground font-mono"
               />
               <p className="text-muted-foreground text-xs">
                 {t('channelIdHint')}

@@ -1,14 +1,17 @@
 'use client';
 
 import { UserRound } from 'lucide-react';
+import { avatarTint } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 import type { Contact } from '@/types';
 
 /**
  * A contact's round avatar, the same everywhere in the inbox: the photo
- * when the gateway gave us one, otherwise the initial on WhatsApp's
- * neutral avatar grey — or a person glyph when the name is really a
- * number ("+9715…" would otherwise put a lone "+" in the circle).
+ * when the gateway gave us one, otherwise the initial on a pastel tint
+ * keyed to the name (the same tint everywhere, so a customer is easy to
+ * spot again down the list) — or a person glyph on WhatsApp's neutral
+ * avatar grey when the name is really a number ("+9715…" would otherwise
+ * put a lone "+" in the circle).
  * `size` is the diameter in pixels.
  */
 export function ContactAvatar({
@@ -40,16 +43,18 @@ export function ContactAvatar({
     );
   }
   const initial = name.trim().charAt(0).toUpperCase();
+  const isLetter = /\p{L}/u.test(initial);
   return (
     <div
       aria-hidden="true"
       style={{ ...style, fontSize: Math.round(size * 0.4) }}
       className={cn(
-        'bg-wa-avatar text-wa-avatar-fg flex shrink-0 items-center justify-center rounded-full font-medium select-none',
+        'flex shrink-0 items-center justify-center rounded-full font-medium select-none',
+        isLetter ? avatarTint(name.trim()) : 'bg-wa-avatar text-wa-avatar-fg',
         className
       )}
     >
-      {/\p{L}/u.test(initial) ? (
+      {isLetter ? (
         initial
       ) : (
         <UserRound style={{ width: size * 0.55, height: size * 0.55 }} />

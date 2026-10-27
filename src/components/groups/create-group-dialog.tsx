@@ -295,7 +295,7 @@ export function CreateGroupDialog({
                     ) : (
                       <select
                         id="group-number"
-                        className="border-input bg-background h-9 w-full rounded-lg border px-2 text-sm"
+                        className="border-input bg-card dark:bg-background h-9 w-full rounded-lg border px-2 text-sm"
                         value={channelId ?? ''}
                         onChange={(e) => set('channelId', e.target.value)}
                       >

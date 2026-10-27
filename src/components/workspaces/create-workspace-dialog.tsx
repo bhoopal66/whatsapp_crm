@@ -318,7 +318,7 @@ export function CreateWorkspaceDialog({
                               onChange={(e) =>
                                 updateOutcome(i, { fullName: e.target.value })
                               }
-                              className="bg-background border-border"
+                              className="border-border"
                             />
                           </div>
                           <div className="space-y-1.5">
@@ -335,7 +335,7 @@ export function CreateWorkspaceDialog({
                                 onChange={(e) =>
                                   updateOutcome(i, { password: e.target.value })
                                 }
-                                className="bg-background border-border font-mono"
+                                className="border-border font-mono"
                               />
                               <Button
                                 type="button"
@@ -425,7 +425,7 @@ export function CreateWorkspaceDialog({
                       setShortName(suggestShortName(e.target.value));
                     }
                   }}
-                  className="bg-muted border-border"
+                  className="border-border"
                 />
                 {attempted && nameError ? (
                   <p className="text-destructive text-xs">
@@ -446,7 +446,7 @@ export function CreateWorkspaceDialog({
                     setShortNameEdited(true);
                     setShortName(e.target.value.toUpperCase());
                   }}
-                  className="bg-muted border-border font-semibold tracking-wider"
+                  className="border-border font-semibold tracking-wider"
                 />
                 <p
                   className={cn(
@@ -469,7 +469,7 @@ export function CreateWorkspaceDialog({
                 value={number}
                 onValueChange={(v) => v && setNumber(v as NumberChoice)}
               >
-                <SelectTrigger className="bg-muted border-border w-full">
+                <SelectTrigger className="border-border w-full">
                   <SelectValue>{t(NUMBER_LABEL_KEY[number])}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -512,7 +512,7 @@ export function CreateWorkspaceDialog({
                           onChange={(e) =>
                             updateRow(row.id, { email: e.target.value })
                           }
-                          className="bg-muted border-border min-w-0 flex-1 basis-full sm:basis-auto"
+                          className="border-border min-w-0 flex-1 basis-full sm:basis-auto"
                         />
                         <Select
                           value={row.role}
@@ -522,7 +522,7 @@ export function CreateWorkspaceDialog({
                         >
                           <SelectTrigger
                             aria-label={t('roleLabel')}
-                            className="bg-muted border-border w-36 shrink-0"
+                            className="border-border w-36 shrink-0"
                           >
                             <SelectValue>{tRoles(row.role)}</SelectValue>
                           </SelectTrigger>
@@ -543,7 +543,7 @@ export function CreateWorkspaceDialog({
                             onChange={(e) =>
                               updateRow(row.id, { bankCode: e.target.value })
                             }
-                            className="bg-muted border-border w-40 min-w-0 flex-1 sm:flex-none"
+                            className="border-border w-40 min-w-0 flex-1 sm:flex-none"
                           />
                         ) : null}
                         <Button

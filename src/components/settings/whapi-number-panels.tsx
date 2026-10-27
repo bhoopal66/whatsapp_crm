@@ -107,7 +107,7 @@ export function WhapiNumberPanels() {
       {numbers.length > 1 && (
         <Select value={selected.id} onValueChange={(v) => v && select(v)}>
           <SelectTrigger
-            className="border-border bg-muted text-foreground w-56"
+            className="border-border text-foreground w-56"
             aria-label={t('numberPicker')}
           >
             <SelectValue>{channelDisplayName(selected)}</SelectValue>

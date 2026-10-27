@@ -712,7 +712,7 @@ function GroupComposer({
               aria-label={t(
                 file ? 'composer.captionPlaceholder' : 'composer.placeholder'
               )}
-              className="bg-background block w-full resize-none rounded-md border px-2.5 py-1.5 text-sm outline-none"
+              className="bg-card dark:bg-background block w-full resize-none rounded-md border px-2.5 py-1.5 text-sm outline-none"
             />
           </div>
           <Button
@@ -732,7 +732,7 @@ function GroupComposer({
               setValues([]);
             }}
             aria-label={t('composer.templatePick')}
-            className="bg-background w-full rounded-md border px-2 py-1.5 text-sm"
+            className="bg-card dark:bg-background w-full rounded-md border px-2 py-1.5 text-sm"
           >
             <option value="">
               {templates && templates.length === 0
@@ -761,7 +761,7 @@ function GroupComposer({
                   }}
                   placeholder={t('composer.param', { n: i + 1 })}
                   aria-label={t('composer.param', { n: i + 1 })}
-                  className="bg-background w-full rounded-md border px-2.5 py-1.5 text-sm"
+                  className="bg-card dark:bg-background w-full rounded-md border px-2.5 py-1.5 text-sm"
                 />
               ))}
             </>

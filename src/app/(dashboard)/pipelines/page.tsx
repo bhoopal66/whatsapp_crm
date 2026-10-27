@@ -604,7 +604,7 @@ export default function PipelinesPage() {
               value={newPipelineName}
               onChange={(e) => setNewPipelineName(e.target.value)}
               placeholder={t('pipelineNamePlaceholder')}
-              className="bg-muted border-border text-foreground mt-2"
+              className="border-border text-foreground mt-2"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleCreatePipeline();
               }}

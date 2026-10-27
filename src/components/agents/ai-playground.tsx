@@ -202,7 +202,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
           onKeyDown={handleKeyDown}
           placeholder="Type a customer message…"
           rows={1}
-          className="flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
+          className="flex-1 resize-none rounded-xl border border-border bg-card dark:bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
         />
         <Button
           size="sm"

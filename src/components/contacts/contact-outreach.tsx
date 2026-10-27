@@ -248,7 +248,7 @@ export function useContactOutreach({
                 void handleSendMessage();
               }
             }}
-            className="bg-background border-border resize-none"
+            className="border-border resize-none"
           />
           <DialogFooter>
             <Button

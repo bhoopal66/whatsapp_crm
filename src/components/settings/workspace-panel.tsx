@@ -107,7 +107,7 @@ export function WorkspacePanel() {
                   onChange={(e) =>
                     setDraft({ ...values, name: e.target.value })
                   }
-                  className="bg-muted border-border"
+                  className="border-border"
                 />
                 {plan.nameError ? (
                   <p className={ERROR_TEXT}>
@@ -129,7 +129,7 @@ export function WorkspacePanel() {
                   onChange={(e) =>
                     setDraft({ ...values, shortName: e.target.value })
                   }
-                  className="bg-muted border-border font-semibold tracking-wider"
+                  className="border-border font-semibold tracking-wider"
                 />
                 <p
                   className={cn(

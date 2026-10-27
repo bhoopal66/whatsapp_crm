@@ -169,7 +169,7 @@ export function CreateMemberDialog({
               }}
               placeholder={t('emailPlaceholder')}
               autoFocus
-              className="bg-muted border-border text-foreground"
+              className="border-border text-foreground"
             />
           </div>
 
@@ -179,7 +179,7 @@ export function CreateMemberDialog({
               value={role}
               onValueChange={(v) => v && setRole(v as AddableRole)}
             >
-              <SelectTrigger className="bg-muted border-border text-foreground w-full">
+              <SelectTrigger className="border-border text-foreground w-full">
                 <SelectValue>{tRoles(role)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -204,7 +204,7 @@ export function CreateMemberDialog({
                 value={bankCode}
                 onChange={(e) => setBankCode(e.target.value)}
                 placeholder={t('bankCodePlaceholder')}
-                className="bg-muted border-border text-foreground"
+                className="border-border text-foreground"
               />
               {!bankCode.trim() ? (
                 <p className="text-muted-foreground text-xs">
@@ -231,7 +231,7 @@ export function CreateMemberDialog({
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder={t('namePlaceholder')}
-                  className="bg-muted border-border text-foreground"
+                  className="border-border text-foreground"
                 />
               </div>
 
@@ -243,7 +243,7 @@ export function CreateMemberDialog({
                   <Input
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="bg-muted border-border text-foreground font-mono"
+                    className="border-border text-foreground font-mono"
                   />
                   <Button
                     type="button"

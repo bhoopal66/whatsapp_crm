@@ -94,7 +94,7 @@ function LoginPageInner() {
   };
 
   return (
-    <div className="bg-background flex min-h-screen items-center justify-center px-4">
+    <div className="auth-backdrop flex min-h-screen items-center justify-center px-4 dark:bg-none">
       <Card className="border-border bg-card shadow-foreground/5 w-full max-w-md py-6 shadow-xl dark:shadow-black/40">
         <CardHeader className="items-center text-center">
           {/* CardHeader is a grid whose single column spans the full

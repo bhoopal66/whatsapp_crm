@@ -161,7 +161,7 @@ export function CallButton({
             onChange={(e) => setReason(e.target.value)}
             aria-label={t('reason')}
             placeholder={t('reason')}
-            className="border-input bg-background min-h-20 w-full rounded-lg border p-2 text-sm"
+            className="border-input bg-card dark:bg-background min-h-20 w-full rounded-lg border p-2 text-sm"
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setAsking(false)}>

@@ -153,7 +153,7 @@ export function NodeConfigForm({
                 })
               }
               placeholder={t("varKeyPlaceholder")}
-              className="bg-muted font-mono text-xs"
+              className="font-mono text-xs"
             />
             <p className="mt-1 text-[10px] text-muted-foreground">
               {t("varKeyHelp")}{" "}
@@ -303,14 +303,13 @@ function SendButtonsForm({
                     })
                   }
                   placeholder="reply_id"
-                  className="bg-muted font-mono text-xs"
+                  className="font-mono text-xs"
                 />
               )}
               <Input
                 value={b.title}
                 onChange={(e) => updateButton(i, { title: e.target.value })}
                 placeholder={t("optionTitlePlaceholder")}
-                className="bg-muted"
                 maxLength={20}
               />
               <NodeKeySelect
@@ -492,7 +491,7 @@ function SendListForm({
                   updateSection(sIdx, { title: e.target.value })
                 }
                 placeholder={t("sectionTitlePlaceholder", { count: sIdx + 1 })}
-                className="bg-muted text-xs"
+                className="text-xs"
               />
               {sections.length > 1 && (
                 <Button
@@ -528,7 +527,7 @@ function SendListForm({
                       })
                     }
                     placeholder="reply_id"
-                    className="bg-muted font-mono text-xs"
+                    className="font-mono text-xs"
                   />
                 )}
                 <Input
@@ -537,7 +536,6 @@ function SendListForm({
                     updateRow(sIdx, rIdx, { title: e.target.value })
                   }
                   placeholder={t("rowTitlePlaceholder")}
-                  className="bg-muted"
                   maxLength={24}
                 />
                 <NodeKeySelect
@@ -637,7 +635,7 @@ function ConditionForm({
               )
             }
           >
-            <SelectTrigger className="bg-muted">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -666,7 +664,7 @@ function ConditionForm({
                 t,
               )}
             >
-              <SelectTrigger className="bg-muted">
+              <SelectTrigger>
                 <SelectValue placeholder={t("pickTag")} />
               </SelectTrigger>
               <SelectContent>
@@ -688,7 +686,7 @@ function ConditionForm({
               value={cfg.subject_key ?? ""}
               onValueChange={(v) => onUpdateConfig({ subject_key: v })}
             >
-              <SelectTrigger className="bg-muted">
+              <SelectTrigger>
                 <SelectValue placeholder={t("pickField")} />
               </SelectTrigger>
               <SelectContent>
@@ -705,7 +703,7 @@ function ConditionForm({
                 onUpdateConfig({ subject_key: e.target.value })
               }
               placeholder={t("varKeyPlaceholder")}
-              className="bg-muted font-mono text-xs"
+              className="font-mono text-xs"
             />
           )}
         </div>
@@ -725,7 +723,7 @@ function ConditionForm({
               onUpdateConfig({ operator: v as ConditionCfg["operator"] })
             }
           >
-            <SelectTrigger className="bg-muted">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -746,7 +744,6 @@ function ConditionForm({
             <Input
               value={cfg.value ?? ""}
               onChange={(e) => onUpdateConfig({ value: e.target.value })}
-              className="bg-muted"
             />
           </div>
         )}
@@ -883,7 +880,7 @@ function SetTagForm({
               t("noTag"),
             )}
           >
-            <SelectTrigger className="bg-muted">
+            <SelectTrigger>
               <SelectValue placeholder={t("pickTag")} />
             </SelectTrigger>
             <SelectContent>
@@ -920,7 +917,7 @@ function SetTagForm({
                 [KEEP_SUB]: t("keepSubTag", { title: subTitle }),
               }}
             >
-              <SelectTrigger className="bg-muted">
+              <SelectTrigger>
                 <SelectValue placeholder={t("pickSubTag")} />
               </SelectTrigger>
               <SelectContent>
@@ -1052,7 +1049,7 @@ function SendMediaForm({
             });
           }}
         >
-          <SelectTrigger className="bg-muted">
+          <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1139,7 +1136,7 @@ function SendMediaForm({
             value={cfg.filename ?? ""}
             onChange={(e) => onUpdateConfig({ filename: e.target.value })}
             placeholder={t("filenamePlaceholder")}
-            className="bg-muted text-xs"
+            className="text-xs"
           />
         </div>
       )}

@@ -246,7 +246,7 @@ export function Step4ScheduleSend({
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder={t('scheduleSend.broadcastNamePlaceholder')}
-          className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+          className="border-border text-foreground placeholder:text-muted-foreground"
         />
       </div>
 
@@ -335,7 +335,7 @@ export function Step4ScheduleSend({
                 if (!Number.isNaN(d.getTime())) onScheduledAtChange(d);
               }}
               disabled={isProcessing}
-              className="border-border bg-muted text-foreground w-auto"
+              className="border-border text-foreground w-auto"
             />
           )}
         </div>
@@ -377,7 +377,7 @@ export function Step4ScheduleSend({
                   setQuiet(true, e.target.value, quietEnd);
                 }}
                 disabled={isProcessing}
-                className="border-border bg-muted text-foreground w-auto"
+                className="border-border text-foreground w-auto"
               />
               <span className="text-muted-foreground">
                 {t('scheduleSend.quietTo')}
@@ -390,7 +390,7 @@ export function Step4ScheduleSend({
                   setQuiet(true, quietStart, e.target.value);
                 }}
                 disabled={isProcessing}
-                className="border-border bg-muted text-foreground w-auto"
+                className="border-border text-foreground w-auto"
               />
             </div>
           )}
@@ -425,7 +425,7 @@ export function Step4ScheduleSend({
           }
           disabled={isProcessing}
         >
-          <SelectTrigger className="border-border bg-muted text-foreground w-full sm:max-w-sm">
+          <SelectTrigger className="border-border text-foreground w-full sm:max-w-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

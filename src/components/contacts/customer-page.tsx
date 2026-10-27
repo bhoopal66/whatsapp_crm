@@ -770,8 +770,8 @@ export function CustomerPage({
                 className={cn(
                   'rounded-full border px-3 py-1 text-sm',
                   filter === f
-                    ? 'bg-foreground text-background border-transparent'
-                    : 'border-border text-muted-foreground hover:bg-muted'
+                    ? 'bg-primary text-primary-foreground border-transparent'
+                    : 'border-border bg-card text-muted-foreground hover:bg-muted dark:bg-transparent'
                 )}
               >
                 {tl(`filters.${f}`)}

@@ -118,7 +118,7 @@ export function InteractiveBuilder({
               maxLength={INTERACTIVE_LIMITS.bodyMaxLength}
               onChange={(e) => setField({ body: e.target.value })}
               placeholder="What the customer reads above the options"
-              className="min-h-20 bg-muted text-foreground"
+              className="min-h-20 text-foreground"
             />
           </Field>
 
@@ -131,7 +131,7 @@ export function InteractiveBuilder({
                 value={value.header ?? ""}
                 maxLength={INTERACTIVE_LIMITS.headerTextMaxLength}
                 onChange={(e) => setField({ header: e.target.value })}
-                className="bg-muted text-foreground"
+                className="text-foreground"
               />
             </Field>
             <Field
@@ -142,7 +142,7 @@ export function InteractiveBuilder({
                 value={value.footer ?? ""}
                 maxLength={INTERACTIVE_LIMITS.footerMaxLength}
                 onChange={(e) => setField({ footer: e.target.value })}
-                className="bg-muted text-foreground"
+                className="text-foreground"
               />
             </Field>
           </div>
@@ -229,7 +229,7 @@ function ButtonsEditor({
                 value={b.id}
                 onChange={(e) => update(i, { id: slugify(e.target.value, `btn_${i + 1}`) })}
                 placeholder="id"
-                className="w-28 bg-muted font-mono text-xs"
+                className="w-28 font-mono text-xs"
               />
             )}
             <Input
@@ -237,7 +237,7 @@ function ButtonsEditor({
               maxLength={INTERACTIVE_LIMITS.buttonTitleMaxLength}
               onChange={(e) => update(i, { title: e.target.value })}
               placeholder="Button label"
-              className="flex-1 bg-muted"
+              className="flex-1"
             />
             <span className="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
               {b.title.length}/{INTERACTIVE_LIMITS.buttonTitleMaxLength}
@@ -334,7 +334,7 @@ function ListEditor({
           value={value.button_label}
           maxLength={INTERACTIVE_LIMITS.buttonTitleMaxLength}
           onChange={(e) => onChange({ ...value, button_label: e.target.value })}
-          className="bg-muted text-foreground"
+          className="text-foreground"
         />
       </Field>
 
@@ -349,7 +349,7 @@ function ListEditor({
               value={section.title ?? ""}
               onChange={(e) => updateSection(sIdx, { title: e.target.value })}
               placeholder="Section title (optional)"
-              className="flex-1 bg-muted text-xs"
+              className="flex-1 text-xs"
             />
             {sections.length > 1 && (
               <Button
@@ -373,7 +373,7 @@ function ListEditor({
                         updateRow(sIdx, rIdx, { id: slugify(e.target.value, `row_${rIdx + 1}`) })
                       }
                       placeholder="id"
-                      className="w-24 bg-muted font-mono text-xs"
+                      className="w-24 font-mono text-xs"
                     />
                   )}
                   <Input
@@ -381,7 +381,7 @@ function ListEditor({
                     maxLength={INTERACTIVE_LIMITS.listRowTitleMaxLength}
                     onChange={(e) => updateRow(sIdx, rIdx, { title: e.target.value })}
                     placeholder="Row title"
-                    className="flex-1 bg-muted"
+                    className="flex-1"
                   />
                   <span className="w-10 shrink-0 text-right text-[10px] text-muted-foreground">
                     {row.title.length}/{INTERACTIVE_LIMITS.listRowTitleMaxLength}
@@ -402,7 +402,7 @@ function ListEditor({
                   maxLength={INTERACTIVE_LIMITS.listRowDescriptionMaxLength}
                   onChange={(e) => updateRow(sIdx, rIdx, { description: e.target.value })}
                   placeholder="Description (optional)"
-                  className="mt-2 bg-muted text-xs"
+                  className="mt-2 text-xs"
                 />
               </div>
             ))}

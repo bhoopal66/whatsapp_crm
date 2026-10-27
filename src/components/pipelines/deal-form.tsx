@@ -275,7 +275,7 @@ export function DealForm({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={t('titlePlaceholder')}
-                className="border-border bg-muted text-foreground"
+                className="border-border text-foreground"
               />
             </div>
 
@@ -311,7 +311,7 @@ export function DealForm({
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
                     placeholder="0"
-                    className="border-border bg-muted text-foreground pl-7"
+                    className="border-border text-foreground pl-7"
                   />
                 </div>
               </div>
@@ -320,7 +320,7 @@ export function DealForm({
                 <select
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
-                  className="border-border bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
+                  className="border-border bg-card dark:bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
                 >
                   {CURRENCIES.map((c) => (
                     <option key={c.code} value={c.code}>
@@ -339,7 +339,7 @@ export function DealForm({
                 type="date"
                 value={expectedCloseDate}
                 onChange={(e) => setExpectedCloseDate(e.target.value)}
-                className="border-border bg-muted text-foreground"
+                className="border-border text-foreground"
               />
             </div>
 
@@ -348,7 +348,7 @@ export function DealForm({
               <select
                 value={stageId}
                 onChange={(e) => setStageId(e.target.value)}
-                className="border-border bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
+                className="border-border bg-card dark:bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none"
               >
                 {stages.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -367,7 +367,7 @@ export function DealForm({
                   !canWrite ||
                   (owners.length <= 1 && owners[0]?.id === assignedTo)
                 }
-                className="border-border bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none disabled:opacity-70"
+                className="border-border bg-card dark:bg-muted text-foreground focus:border-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none disabled:opacity-70"
               >
                 {/* Only a deal that already has no assignee (it belongs
                     to its creator) keeps the empty choice. */}
@@ -398,7 +398,7 @@ export function DealForm({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder={t('notesPlaceholder')}
-                className="border-border bg-muted text-foreground min-h-[100px]"
+                className="border-border text-foreground min-h-[100px]"
               />
             </div>
 

@@ -569,7 +569,7 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
                 maxLength={500}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className="bg-background min-h-16 rounded-md border px-2 py-1 text-sm"
+                className="bg-card dark:bg-background min-h-16 rounded-md border px-2 py-1 text-sm"
               />
               {closeStep && (
                 <p role="alert" className="text-destructive text-xs">

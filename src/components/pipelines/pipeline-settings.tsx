@@ -273,7 +273,7 @@ export function PipelineSettings({
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="border-border bg-muted text-foreground"
+                  className="border-border text-foreground"
                 />
               </div>
 
@@ -345,7 +345,7 @@ export function PipelineSettings({
                     value={newStageName}
                     onChange={(e) => setNewStageName(e.target.value)}
                     placeholder={t('newStageNamePlaceholder')}
-                    className="border-border bg-muted text-foreground text-sm"
+                    className="border-border text-foreground text-sm"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleAddStage();
                     }}
@@ -491,7 +491,7 @@ function SortableStageRow({
           <select
             value={stage.auto_chat_tag_id ?? ''}
             onChange={(e) => onTagChange(e.target.value || null)}
-            className="border-border bg-background text-foreground h-7 w-full rounded-md border px-2 text-xs"
+            className="border-border bg-card dark:bg-background text-foreground h-7 w-full rounded-md border px-2 text-xs"
           >
             <option value="">{t('autoTagNone')}</option>
             {mainTags.map((m) => (

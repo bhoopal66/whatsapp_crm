@@ -297,7 +297,6 @@ export default function FlowsPage() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder={t("placeholderName")}
-              className="bg-muted"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCreate();
               }}

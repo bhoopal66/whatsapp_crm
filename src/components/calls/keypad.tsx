@@ -89,7 +89,7 @@ export function Keypad() {
             autoComplete="off"
             aria-label={t('number')}
             placeholder={t('number')}
-            className="border-input bg-background h-11 min-w-0 flex-1 rounded-lg border px-3 text-lg tabular-nums"
+            className="border-input bg-card dark:bg-background h-11 min-w-0 flex-1 rounded-lg border px-3 text-lg tabular-nums"
           />
           <Button
             type="button"

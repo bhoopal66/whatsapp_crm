@@ -550,7 +550,7 @@ function Panel() {
             maxLength={4000}
             onChange={(e) => onNotes(e.target.value)}
             placeholder={t('notesPlaceholder')}
-            className="border-input bg-background mt-1 min-h-28 w-full rounded-lg border p-2 text-sm"
+            className="border-input bg-card dark:bg-background mt-1 min-h-28 w-full rounded-lg border p-2 text-sm"
           />
         </label>
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -566,7 +566,7 @@ function Panel() {
             <select
               value={channelId}
               onChange={(e) => setChannelId(e.target.value)}
-              className="border-input bg-background rounded-md border px-2 py-1"
+              className="border-input bg-card dark:bg-background rounded-md border px-2 py-1"
             >
               <option value="">#</option>
               {channels.map((c) => (

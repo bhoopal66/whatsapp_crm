@@ -145,7 +145,7 @@ export function MemberPasswordDialog({
               autoComplete="off"
               spellCheck={false}
               aria-invalid={password !== '' && problem !== null}
-              className="bg-muted border-border text-foreground font-mono"
+              className="border-border text-foreground font-mono"
             />
             <Button
               type="button"

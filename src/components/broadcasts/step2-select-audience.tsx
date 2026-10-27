@@ -706,7 +706,7 @@ export function Step2SelectAudience({
               <select
                 value={audience.customField?.fieldId ?? ''}
                 onChange={(e) => updateCustomField({ fieldId: e.target.value })}
-                className="border-border bg-muted text-foreground focus:border-primary focus:ring-primary h-9 rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
+                className="border-border bg-card dark:bg-muted text-foreground focus:border-primary focus:ring-primary h-9 rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
               >
                 <option value="">{t('selectAudience.selectField')}</option>
                 {customFields.map((f) => (
@@ -722,7 +722,7 @@ export function Step2SelectAudience({
                     operator: e.target.value as CustomFieldOperator,
                   })
                 }
-                className="border-border bg-muted text-foreground focus:border-primary focus:ring-primary h-9 rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
+                className="border-border bg-card dark:bg-muted text-foreground focus:border-primary focus:ring-primary h-9 rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
               >
                 {OPERATOR_OPTIONS.map(
                   (op: { value: CustomFieldOperator; label: string }) => (
@@ -737,7 +737,7 @@ export function Step2SelectAudience({
                 value={audience.customField?.value ?? ''}
                 onChange={(e) => updateCustomField({ value: e.target.value })}
                 placeholder={t('selectAudience.valuePlaceholder')}
-                className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-primary h-9 rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
+                className="border-border bg-card dark:bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-primary h-9 rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
               />
             </div>
           )}
@@ -835,7 +835,7 @@ export function Step2SelectAudience({
                 onChange={(e) =>
                   updateCompass({ order: e.target.value as CompassOrder })
                 }
-                className="border-border bg-muted text-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
+                className="border-border bg-card dark:bg-muted text-foreground focus:border-primary focus:ring-primary h-9 w-full rounded-lg border px-2.5 text-sm outline-none focus:ring-1"
               >
                 {COMPASS_ORDERS.map((order) => (
                   <option key={order} value={order}>
@@ -858,7 +858,7 @@ export function Step2SelectAudience({
                 value={compassStartText}
                 aria-invalid={!compassStartValid}
                 onChange={(e) => onCompassStartChange(e.target.value)}
-                className="border-border bg-muted text-foreground"
+                className="border-border text-foreground"
               />
               {!compassStartValid && (
                 <span className="text-destructive block text-xs">
@@ -877,7 +877,7 @@ export function Step2SelectAudience({
                 aria-invalid={!compassLimitValid}
                 placeholder={t('selectAudience.compassLimitAll')}
                 onChange={(e) => onCompassLimitChange(e.target.value)}
-                className="border-border bg-muted text-foreground"
+                className="border-border text-foreground"
               />
               {!compassLimitValid && (
                 <span className="text-destructive block text-xs">
@@ -978,7 +978,7 @@ export function Step2SelectAudience({
                   ),
                 })
               }
-              className="border-border bg-muted text-foreground w-20"
+              className="border-border text-foreground w-20"
             />
             <span className="text-muted-foreground text-xs">
               {t('selectAudience.frequencyCapDays')}
