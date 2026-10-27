@@ -190,9 +190,11 @@ html[data-mode='dark'],
  * day (2026-10-21), and the mid-grey ramp that replaced them read as
  * dull and unfinished (2026-10-27). So no surface is pure white, but
  * cards sit clearly above the canvas and the canvas carries the brand's
- * hue instead of grey. Contrast: body text 17:1, secondary text >= 5.7:1
- * on every surface, primary text 5.8:1, status text >= 4.5:1 on its
- * soft tint. */
+ * hue instead of grey. Measured contrast: body text >= 14.6:1 and
+ * secondary text >= 5.9:1 on every surface; the taamul primary 5:1 on
+ * cards and 4.5:1 on the canvas; status text >= 4.7:1 on cards, the
+ * canvas and its own /10 or -soft tint. Borders (1.4:1) and field edges
+ * (1.8:1 against a card) stay visible on an ordinary office monitor. */
 html[data-mode='light'] {
   color-scheme: light;
   --background: oklch(0.95 0.012 252);
@@ -205,20 +207,20 @@ html[data-mode='light'] {
   --secondary: oklch(0.935 0.014 252);
   --secondary-foreground: oklch(0.25 0.036 260);
   --muted: oklch(0.94 0.011 252);
-  --muted-foreground: oklch(0.47 0.03 258);
+  --muted-foreground: oklch(0.46 0.03 258);
   --accent: oklch(0.94 0.022 250);
   --accent-foreground: oklch(0.22 0.04 258);
-  --destructive: oklch(0.55 0.21 27);
-  --destructive-soft: oklch(0.55 0.21 27 / 0.08);
-  --success: oklch(0.5 0.13 155);
-  --success-soft: oklch(0.5 0.13 155 / 0.1);
-  --warning: oklch(0.53 0.14 60);
+  --destructive: oklch(0.5 0.19 27);
+  --destructive-soft: oklch(0.5 0.19 27 / 0.08);
+  --success: oklch(0.47 0.12 155);
+  --success-soft: oklch(0.47 0.12 155 / 0.1);
+  --warning: oklch(0.5 0.13 60);
   --warning-soft: oklch(0.75 0.15 75 / 0.16);
-  --info: oklch(0.5 0.15 245);
-  --info-soft: oklch(0.5 0.15 245 / 0.09);
+  --info: oklch(0.47 0.15 245);
+  --info-soft: oklch(0.47 0.15 245 / 0.09);
   --overlay: oklch(0.25 0.04 258 / 0.28);
-  --border: oklch(0.885 0.014 252);
-  --input: oklch(0.835 0.02 252);
+  --border: oklch(0.87 0.015 252);
+  --input: oklch(0.8 0.022 252);
   --chart-2: oklch(0.6 0.12 185);
   --chart-3: oklch(0.72 0.15 70);
   --chart-4: oklch(0.6 0.2 15);
@@ -231,7 +233,7 @@ html[data-mode='light'] {
   --sidebar-foreground: oklch(0.3 0.035 258);
   --sidebar-accent: oklch(0.94 0.022 250);
   --sidebar-accent-foreground: oklch(0.22 0.04 258);
-  --sidebar-border: oklch(0.885 0.014 252);
+  --sidebar-border: oklch(0.87 0.015 252);
 }
 
 /* ---- INBOX: WhatsApp surfaces ----
@@ -296,11 +298,11 @@ html[data-mode='light'] {
   --wa-chat-veil: rgb(233 228 219 / 0.55);
   --wa-row-hover: oklch(0.965 0.008 252);
   --wa-row-active: oklch(0.94 0.022 250);
-  --wa-divider: oklch(0.885 0.014 252);
+  --wa-divider: oklch(0.87 0.015 252);
   --wa-search: oklch(0.94 0.011 252);
   --wa-input: oklch(0.992 0.003 250);
   --wa-text: oklch(0.21 0.034 260);
-  --wa-text-secondary: oklch(0.47 0.03 258);
+  --wa-text-secondary: oklch(0.46 0.03 258);
   --wa-icon: oklch(0.5 0.028 255);
   --wa-icon-hover: rgb(15 24 40 / 0.06);
   --wa-bubble-in: #fdfdfc;
@@ -310,7 +312,7 @@ html[data-mode='light'] {
   --wa-quote-bar: #06cf9c;
   --wa-tick-read: #53bdeb;
   --wa-date-chip: #fdfdfc;
-  --wa-date-chip-fg: oklch(0.47 0.03 258);
+  --wa-date-chip-fg: oklch(0.46 0.03 258);
   --wa-unread-band: rgb(253 253 252 / 0.5);
   --wa-green: #1daa61;
   --wa-green-fg: #ffffff;
@@ -531,8 +533,12 @@ html[data-mode='light'] [data-nav='primary'][data-mode='dark'] {
   --foreground: oklch(0.97 0.006 250);
   --muted-foreground: oklch(0.72 0.045 250);
   --muted: oklch(0.31 0.065 254);
-  /* The active item: a raised translucent pill (white text 11:1). */
+  /* The active item is a raised translucent pill labelled in the accent.
+   * The dark theme's lifted accent is too dim on the navy pill (4.1 to
+   * 4.7:1 across the accents), so the navy lifts it 30% toward white
+   * (5.5 to 7:1); badges keep their dark text on it. */
   --card: oklch(1 0 0 / 0.12);
+  --primary: color-mix(in oklab, var(--sidebar-primary) 70%, white);
 }
 
 @layer base {
