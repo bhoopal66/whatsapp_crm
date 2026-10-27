@@ -1,7 +1,7 @@
 // `opus-recorder` ships no type declarations. We use a small subset of its
 // API: construct a Recorder, start()/stop(), and receive the encoded
 // Ogg/Opus file via `ondataavailable`. See https://github.com/chris-rudmin/opus-recorder
-declare module "opus-recorder" {
+declare module 'opus-recorder' {
   interface RecorderConfig {
     /** URL of the encoder worker (served from /public). */
     encoderPath?: string;
@@ -23,6 +23,10 @@ declare module "opus-recorder" {
     constructor(config?: RecorderConfig);
     /** Fired with the encoded audio bytes (full Ogg/Opus file when streamPages is false). */
     ondataavailable: ((data: Uint8Array) => void) | null;
+    /** The recorder's own graph, set once start() resolves. Read only to
+     *  tap the mic for a level meter; never close or reroute them. */
+    readonly audioContext?: AudioContext;
+    readonly sourceNode?: AudioNode;
     start(): Promise<void>;
     stop(): Promise<void>;
     /** Browser support probe exposed as a static on the class. */

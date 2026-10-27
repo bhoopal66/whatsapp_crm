@@ -104,6 +104,40 @@ chat rights**, and a team leader is the chat's "supervisor".
   deal-room functions). An owner or admin who is not in the channel
   cannot add anyone to it.
 
+## Direct message rules (migration 143)
+
+An owner or admin decides, per workspace, which roles may share a DM
+(Settings → Team chat → Direct messages). Nothing is restricted until
+someone saves rules: a workspace with no rules keeps every DM open.
+
+- **Classes.** Admin, team leader, coordinator, agent and viewer. A
+  person's classes are their account role plus *coordinator* when they
+  are a live agent or team leader holding a coordinator bank.
+- **Scopes.** Each pair of classes (agent ↔ agent, agent ↔ team leader,
+  …) is *not allowed*, *same team only* or *everyone*. *Same team*
+  means members of one team, or a team's leader and its member. A pair
+  with no saved rule is *everyone*.
+- **Most permissive wins.** Someone with two classes is reachable if
+  either class is: an agent who is also a coordinator can be messaged
+  wherever coordinators can.
+- **Owners are exempt.** An owner can always message, and be messaged
+  by, anyone.
+- **Group DMs.** Opening a DM needs every pair in it to be allowed.
+  Afterwards each member sees the DM only while they may message
+  everyone else in it.
+- **Blocked DMs are hidden, not deleted.** A DM that a rule now forbids
+  disappears for the members it forbids (list, messages, unread badges,
+  search, bells, push) and refuses new messages. Relaxing the rule shows
+  it again, and an owner or admin can still open it through the audited
+  read (see _Admin oversight_).
+- **Enforcement is in the database.** `chat_open_dm`,
+  `chat_assert_can_write` and `chat_user_can_read_channel` apply the
+  rules; the New message picker lists only the people
+  `chat_dm_peers` allows. Rules are written only by `chat_set_dm_rules`
+  (live owner or admin), which replaces the whole set and stores only
+  the restricting pairs. Changes are stamped with `updated_by` /
+  `updated_at`, not written to the chat audit log.
+
 ## Messages
 
 - **Size.** 1 to 8,000 characters. A message with files and no text

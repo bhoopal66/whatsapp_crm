@@ -564,7 +564,7 @@ describe('barrel', () => {
         'createTokenManager',
         'createYeastarApi',
         'createYeastarClient',
-        'dedupeByUid',
+        'dedupeRecords',
         'isHeartbeatReply',
         'isMissedCallEnd',
         'nextBackoffMs',

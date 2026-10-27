@@ -5,7 +5,8 @@
 // account; Postgres decides which cases the caller sees. Query params
 // map onto the inbox filters (lib/cases/http.ts); a bad value is the
 // inbox's own refusal (422 with `code`). Each row also carries the
-// tracker's own `submissionStatus` (lib/cases/submission-status.ts).
+// tracker's own `submissionStatus` (lib/cases/submission-status.ts) and
+// the linked contact's own name, `contactOwnName` (lib/cases/contact-names.ts).
 //
 // POST: owner / admin only. Opens the case of a submission group of the
 // caller's account (idempotent per group): 201 when created, 200 when it
@@ -25,6 +26,7 @@ import {
   parseText,
   readJsonObject,
 } from '@/lib/cases/http';
+import { contactNames } from '@/lib/cases/contact-names';
 import { CaseInbox } from '@/lib/cases/inbox';
 import { caseStore } from '@/lib/cases/server';
 import { submissionStatuses } from '@/lib/cases/submission-status';
@@ -46,16 +48,24 @@ export async function GET(request: Request) {
       filters,
       { limit, after }
     );
-    const statuses = await submissionStatuses(
-      db,
-      ctx.accountId,
-      page.rows.map((r) => r.caseId)
-    );
+    const [statuses, names] = await Promise.all([
+      submissionStatuses(
+        db,
+        ctx.accountId,
+        page.rows.map((r) => r.caseId)
+      ),
+      contactNames(
+        db,
+        ctx.accountId,
+        page.rows.map((r) => r.contactId)
+      ),
+    ]);
     return NextResponse.json({
       ...page,
       rows: page.rows.map((r) => ({
         ...r,
         submissionStatus: statuses.get(r.caseId) ?? null,
+        contactOwnName: r.contactId ? (names.get(r.contactId) ?? null) : null,
       })),
     });
   } catch (err) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  groupMessageSender,
   groupMessagesByDay,
   inviteMessagePreview,
   mergeMessages,
@@ -121,6 +122,52 @@ describe('statusTick', () => {
     expect(statusTick('out', 'read')).toBe('read');
     expect(statusTick('out', 'failed')).toBe('failed');
     expect(statusTick('in', 'read')).toBeNull();
+  });
+});
+
+describe('groupMessageSender', () => {
+  const row = (over: Partial<Parameters<typeof groupMessageSender>[0]>) => ({
+    direction: 'out' as const,
+    sender_name: null,
+    sender_wa_id: null,
+    sender_user_id: null,
+    ...over,
+  });
+
+  it('names the member who sent from the CRM, and marks the viewer', () => {
+    expect(
+      groupMessageSender(
+        row({ sender_name: 'Sara Ahmed', sender_user_id: 'u-2' }),
+        'u-1'
+      )
+    ).toEqual({ name: 'Sara Ahmed', isMe: false });
+    expect(
+      groupMessageSender(
+        row({ sender_name: 'Bhoopal', sender_user_id: 'u-1' }),
+        'u-1'
+      )
+    ).toEqual({ name: 'Bhoopal', isMe: true });
+  });
+
+  it('leaves an unnamed outgoing message to "Your number", never a phone', () => {
+    expect(
+      groupMessageSender(row({ sender_wa_id: '971500000000' }), 'u-1')
+    ).toEqual({ name: null, isMe: false });
+  });
+
+  it('names a participant by WhatsApp name, else number', () => {
+    expect(
+      groupMessageSender(
+        row({ direction: 'in', sender_name: 'Omar', sender_wa_id: '9715' }),
+        'u-1'
+      )
+    ).toEqual({ name: 'Omar', isMe: false });
+    expect(
+      groupMessageSender(
+        row({ direction: 'in', sender_name: ' ', sender_wa_id: '9715' }),
+        'u-1'
+      )
+    ).toEqual({ name: '9715', isMe: false });
   });
 });
 

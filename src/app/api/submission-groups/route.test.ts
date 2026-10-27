@@ -117,6 +117,8 @@ beforeEach(() => {
         group({
           id: A2,
           submission_ref: 'REF-7',
+          customer_name: 'Gulf Star Trading LLC',
+          submission_status: 'Inhouse Review',
           contact_id: 'c2',
           wa_group_id: null,
           last_activity_at: '2026-10-09T10:00:00.000Z',
@@ -149,6 +151,8 @@ describe('GET /api/submission-groups', () => {
       id: A,
       submission_ref: 'SUB-1',
       subject: 'Jane · SUB-1',
+      customer_name: null,
+      submission_status: null,
       status: 'ACTIVE',
       contact: { id: 'c1', name: 'Jane Doe', phone: '9715' },
       channel: { id: 'w1', label: '971500' },
@@ -161,7 +165,14 @@ describe('GET /api/submission-groups', () => {
       pending: false,
       archive: false,
     });
-    expect(body.groups[1]).toMatchObject({ my_label: null, pending: true });
+    expect(body.groups[1]).toMatchObject({
+      my_label: null,
+      pending: true,
+      // The tracker's company titles the group, not the contact's own name.
+      customer_name: 'Gulf Star Trading LLC',
+      contact: { id: 'c2', name: 'Omar' },
+      submission_status: 'Inhouse Review',
+    });
     expect(admin.log?.some(([t]) => t === 'submission_groups')).toBe(false);
   });
 
@@ -269,6 +280,8 @@ describe('GET /api/submission-groups', () => {
     expect(byRef.groups.map((g: { id: string }) => g.id)).toEqual([A2]);
     const byName = await (await get('?q=jane')).json();
     expect(byName.groups.map((g: { id: string }) => g.id)).toEqual([A]);
+    const byCompany = await (await get('?q=gulf%20star')).json();
+    expect(byCompany.groups.map((g: { id: string }) => g.id)).toEqual([A2]);
     // Filter syntax in the term is a one-character wildcard, not a filter.
     const odd = await (await get('?q=EF%2C7')).json();
     expect(odd.groups.map((g: { id: string }) => g.id)).toEqual([A2]);

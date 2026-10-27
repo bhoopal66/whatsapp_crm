@@ -46,6 +46,8 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { canViewAllCalls } from '@/lib/auth/roles';
+import { internalPeerExtension } from '@/lib/pbx/call-legs';
 import { UNROUTED_SUMMARY_DAYS } from '@/lib/pbx/call-ui';
 import {
   MISSED_STATUSES,
@@ -53,6 +55,7 @@ import {
   fail,
   myCallsFilter,
   parseCallListQuery,
+  peopleCallsFilter,
   unroutedNumbers,
   type UnroutedNumber,
 } from '@/lib/pbx/calls';
@@ -103,6 +106,30 @@ export async function GET(request: Request) {
     if (!canListCallScope(ctx.role, q.scope))
       return fail('Only an owner or admin can list unrouted calls', 403);
 
+    // The Calls page shows people's calls: an agent their own, a team
+    // leader their teams', an admin everyone's. RLS also lets through the
+    // calls of every contact the caller can see (113), which stays the
+    // customer page's rule, so a list for one contact is not narrowed.
+    let teamFilter: string | null = null;
+    if (
+      !q.contactId &&
+      !canViewAllCalls(ctx.role) &&
+      q.scope !== 'mine' &&
+      q.scope !== 'my_missed'
+    ) {
+      const visible = await ctx.supabase.rpc('pbx_visible_user_ids');
+      if (visible.error)
+        throw new Error(`visible people read failed: ${visible.error.message}`);
+      teamFilter = peopleCallsFilter(
+        Array.isArray(visible.data)
+          ? visible.data.filter(
+              (v: unknown): v is string => typeof v === 'string'
+            )
+          : []
+      );
+      if (!teamFilter) return NextResponse.json({ calls: [] });
+    }
+
     // The list and the unrouted numbers read the same calls.
     const scoped = (columns: string, from = q.from) => {
       let query = ctx.supabase
@@ -116,6 +143,7 @@ export async function GET(request: Request) {
         query = query.in('direction', ['inbound', 'outbound']);
       if (q.scope === 'mine' || q.scope === 'my_missed')
         query = query.or(myCallsFilter(ctx.userId));
+      if (teamFilter) query = query.or(teamFilter);
       if (q.scope === 'missed' || q.scope === 'my_missed')
         query = query
           .eq('direction', 'inbound')
@@ -172,8 +200,47 @@ export async function GET(request: Request) {
       ...new Set(rows.map((r) => r[k]).filter((v): v is string => !!v)),
     ];
     const contactIds = ids('contact_id');
+
+    // A call between colleagues is named by its two extensions, read off
+    // the PBX's records and mapped to people as the extensions are mapped
+    // now. Not by user_id / peer_user_id: a live frame could store the
+    // callee as both (2026-10-27), and a later mapping never reached them.
+    const sides = new Map(
+      rows
+        .filter((r) => r.direction === 'internal')
+        .map((r) => [
+          r.id,
+          { from: r.extension, to: internalPeerExtension(r.meta, r.extension) },
+        ])
+    );
+    const sideExts = [
+      ...new Set(
+        [...sides.values()]
+          .flatMap((s) => [s.from, s.to])
+          .filter((v): v is string => !!v)
+      ),
+    ];
+    const extPeople = new Map<string, string>();
+    if (sideExts.length) {
+      const mapped = await ctx.supabase
+        .from('pbx_extensions')
+        .select('extension, user_id')
+        .eq('account_id', ctx.accountId)
+        .in('extension', sideExts);
+      if (mapped.error)
+        throw new Error(`pbx_extensions read failed: ${mapped.error.message}`);
+      for (const e of (mapped.data ?? []) as {
+        extension: string;
+        user_id: string | null;
+      }[])
+        if (e.user_id) extPeople.set(e.extension, e.user_id);
+    }
     const userIds = [
-      ...new Set([...ids('user_id'), ...rows.flatMap((r) => rangIds(r.meta))]),
+      ...new Set([
+        ...ids('user_id'),
+        ...extPeople.values(),
+        ...rows.flatMap((r) => rangIds(r.meta)),
+      ]),
     ];
     const recorded = rows
       .filter((r) => r.recording_state === 'fetched')
@@ -247,6 +314,30 @@ export async function GET(request: Request) {
           doNotContactReason: (dncAt && contact?.do_not_contact_reason) || null,
           userId: r.user_id,
           userName: (r.user_id && userName.get(r.user_id)) || null,
+          // A call between colleagues has no customer number: its two
+          // extensions and their people name it (see `sides` above).
+          ...(sides.has(r.id) && {
+            party: (['from', 'to'] as const).reduce(
+              (out, k) => {
+                const ext = sides.get(r.id)![k];
+                const who = ext ? extPeople.get(ext) : undefined;
+                out[k] = {
+                  extension: ext,
+                  userId: who ?? null,
+                  name: (who && userName.get(who)) || null,
+                };
+                return out;
+              },
+              {} as Record<
+                'from' | 'to',
+                {
+                  extension: string | null;
+                  userId: string | null;
+                  name: string | null;
+                }
+              >
+            ),
+          }),
           rangNames: rangIds(r.meta)
             .map((u) => userName.get(u)?.trim())
             .filter((name): name is string => !!name),

@@ -4,6 +4,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSystemTask } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/whatsapp/phone-utils';
 
+import {
+  ANSWERED_STATUSES,
+  internalPeerExtension,
+  legOf,
+  legsOf,
+  mergeCallLegs,
+  withLeg,
+  type MergedCall,
+} from './call-legs';
 import { settleCallbackCall } from './callbacks';
 import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
 import { missedDraftOffer } from './timeline';
@@ -15,7 +24,7 @@ import {
 } from './phone';
 import type { CallMember } from './yeastar/api';
 import {
-  isMissedCallEnd,
+  isMissedCall,
   parseYeastarEvent,
   remoteParty,
   ringingExtensions,
@@ -57,20 +66,14 @@ type CallStatus =
   | 'failed';
 
 const LIVE: CallStatus[] = ['ringing', 'in_progress'];
-const ANSWERED = new Set(['ANSWERED', 'ANSWER']);
-const END_STATUS: Record<string, CallStatus> = {
-  ANSWERED: 'answered',
-  'NO ANSWER': 'no_answer',
-  BUSY: 'busy',
-  VOICEMAIL: 'voicemail',
-  ABANDONED: 'abandoned',
-  FAILED: 'failed',
-};
 const TASK_HOLDERS = ['owner', 'admin', 'team_leader', 'agent'];
-/** Tries at folding a repeat missed call into the open task before it opens its own. */
+/**
+ * Tries at folding a repeat missed call into the open task before it
+ * opens its own; also at a call end's compare-and-set on the calls row.
+ */
 const FOLD_ATTEMPTS = 3;
 const CALL_COLUMNS =
-  'id, account_id, direction, status, extension, user_id, peer_user_id, contact_id, conversation_id, did_number, started_at, answered_at, recording_state, meta';
+  'id, account_id, direction, status, extension, user_id, peer_user_id, contact_id, conversation_id, remote_number, did_number, started_at, answered_at, recording_state, meta, updated_at';
 
 export interface IngestInput {
   db: SupabaseClient;
@@ -85,6 +88,14 @@ export interface IngestInput {
    * which path is live now.
    */
   via?: PbxEventPath;
+  /**
+   * A past call imported from the CDR (scripts/pbx-import-cdr.ts), not a
+   * live event: only a call end is applied, and it writes the calls row
+   * as a live end would but opens, folds or closes no task, rings no
+   * bell, settles no call-back and leaves the screen pop and the
+   * connection's event clock alone. See `onCallEnd`.
+   */
+  historical?: boolean;
 }
 
 /** How events reach the app: Yeastar's push, or the WebSocket gateway. */
@@ -190,6 +201,7 @@ export async function ingestPbxEvent(
     frame,
     receivedAt,
     via: input.via,
+    historical: input.historical,
   });
 }
 
@@ -202,6 +214,7 @@ export interface StoredEventInput {
   frame: unknown;
   receivedAt: string;
   via?: PbxEventPath;
+  historical?: boolean;
 }
 
 /**
@@ -214,6 +227,7 @@ export async function processStoredPbxEvent(
   input: StoredEventInput
 ): Promise<IngestResult> {
   const { db, connectionId, rawId, frame, receivedAt, via } = input;
+  const historical = input.historical === true;
   let kind: YeastarEvent['kind'] | undefined;
   let failure: string | null = null;
   let conn: { account_id: string; status: string } | null = null;
@@ -238,6 +252,7 @@ export async function processStoredPbxEvent(
         connectionId,
         connectionAccountId: conn.account_id,
         receivedAt,
+        historical,
       };
       await dispatch(ctx, parsed.event);
     }
@@ -245,20 +260,41 @@ export async function processStoredPbxEvent(
     failure = message(err);
   }
 
-  const stamp = await db
-    .from('pbx_events_raw')
-    .update(
-      failure
-        ? { error: failure.slice(0, 2000) }
-        : { processed_at: new Date().toISOString(), error: null }
-    )
-    .eq('id', rawId);
+  // A failed historical frame must never reach the retry sweep, which
+  // runs it without the flag, as a live end: a task and a bell for a call
+  // hours old. It is removed, so a rerun of the import tries it again;
+  // should that fail, it is stamped processed (error kept) instead.
+  let dropped = false;
+  if (failure && historical) {
+    const drop = await db.from('pbx_events_raw').delete().eq('id', rawId);
+    dropped = !drop.error;
+    if (drop.error) {
+      console.error(
+        `[pbx] event ${rawId}: historical frame not removed: ${drop.error.message}`
+      );
+    }
+  }
+  const stamp = dropped
+    ? { error: null }
+    : await db
+        .from('pbx_events_raw')
+        .update(
+          failure && !historical
+            ? { error: failure.slice(0, 2000) }
+            : {
+                processed_at: new Date().toISOString(),
+                error: failure ? failure.slice(0, 2000) : null,
+              }
+        )
+        .eq('id', rawId);
   if (stamp.error) {
     console.error(`[pbx] event ${rawId}: stamp failed: ${stamp.error.message}`);
   }
   if (failure)
     console.warn(`[pbx] event ${rawId} on ${connectionId}: ${failure}`);
-  if (conn) {
+  // A historical frame says nothing about the link now (nor does the
+  // retry sweep's, which passes no `via`): the clock and status stay.
+  if (conn && !historical) {
     // A delivery proves the push works; a refused API login stays shown.
     // An older stamp (a retry, a late delivery) leaves the clock and its
     // path as they are (104's pbx_connections_event_clock trigger).
@@ -284,9 +320,13 @@ interface Ctx {
   connectionId: string;
   connectionAccountId: string;
   receivedAt: string;
+  /** IngestInput.historical: a past call end, without live side effects. */
+  historical?: boolean;
 }
 
 async function dispatch(ctx: Ctx, event: YeastarEvent): Promise<void> {
+  // Past presence, ringing or registration would overwrite the present.
+  if (ctx.historical && event.kind !== 'call_end') return;
   switch (event.kind) {
     case 'call_state':
       return onCallState(ctx, event);
@@ -554,7 +594,7 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
       (m) =>
         m.kind === 'extension' &&
         m.number &&
-        ANSWERED.has(m.status.toUpperCase())
+        ANSWERED_STATUSES.has(m.status.toUpperCase())
     )
     .map((m) => m.number as string);
   const direction =
@@ -737,38 +777,69 @@ export const MISSED_DRAFT_HINT =
 const plusSeconds = (iso: string, s: number) =>
   new Date(Date.parse(iso) + s * 1000).toISOString();
 
-/** 30012: the final calls row, the screen pop gone, a missed-call task. */
-async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
-  const existing = await readCall(ctx, ev.callId);
-  const liveRead = await ctx.db
-    .from('call_live')
-    .select('ringing_user_ids, did_number')
-    .eq('connection_id', ctx.connectionId)
-    .eq('pbx_call_id', ev.callId)
-    .maybeSingle();
-  if (liveRead.error) fail('call_live read', liveRead.error);
-  const liveRow = liveRead.data as {
-    ringing_user_ids?: string[];
-    did_number?: string | null;
-  } | null;
+/** One leg folded into the row, and what the rest of the end needs. */
+interface CallEndWrite {
+  callRowId: string;
+  ws: Workspace;
+  match: ContactMatch;
+  remote: RemoteNumber | null;
+  merged: MergedCall;
+  rang: string[];
+  settings: Settings;
+}
 
-  const direction: CallDirection =
-    ev.direction ??
-    (str(existing?.direction) as CallDirection | null) ??
-    'inbound';
-  const ourRaw = direction === 'inbound' ? ev.to : ev.from;
-  const otherRaw = direction === 'inbound' ? ev.from : ev.to;
+/**
+ * One try at folding this leg into the calls row: read it, merge every
+ * leg (call-legs.ts), write with a compare-and-set on updated_at
+ * (calls_guard stamps it on every write). Two legs of one call arrive as
+ * separate POSTs; without it the slower write dropped the other's leg.
+ * Null when another writer got there first: the caller reads again.
+ */
+async function writeCallEnd(
+  ctx: Ctx,
+  ev: CallEndEvent,
+  liveRow: { ringing_user_ids?: string[]; did_number?: string | null } | null
+): Promise<CallEndWrite | null> {
+  const existing = await readCall(ctx, ev.callId);
+  const rowDirection =
+    (str(existing?.direction) as CallDirection | null) ?? 'inbound';
+  const legDirection = ev.direction ?? rowDirection;
+  const { legs, added } = withLeg(
+    legsOf(existing?.meta),
+    legOf(ev, rowDirection)
+  );
+  const otherRaw = legDirection === 'inbound' ? ev.from : ev.to;
   const exts = await extensionsOf(ctx, [
-    ourRaw,
-    direction === 'internal' ? otherRaw : null,
+    ...legs.flatMap((l) => [l.extension, l.peer]),
+    otherRaw,
     str(existing?.extension),
   ]);
-  // A ring group's number is no one's: keep the extension that answered.
-  const extension = exts.has(ourRaw)
-    ? ourRaw
-    : (str(existing?.extension) ?? (ourRaw || null));
+  const merged = mergeCallLegs(legs, {
+    extensions: exts,
+    existingExtension: str(existing?.extension),
+  });
+  // The stored row votes too: a 30011 frame made it inbound, and a
+  // transfer's internal leg arriving first would otherwise make it
+  // internal and clear its customer.
+  const rowSays = str(existing?.direction);
+  const direction: CallDirection =
+    merged.direction === 'internal' &&
+    (rowSays === 'inbound' || rowSays === 'outbound')
+      ? rowSays
+      : (merged.direction ?? rowDirection);
+  const extension = merged.extension;
+  // Between colleagues both people come from the two extensions alone. A
+  // live frame stores whichever extension it saw answered first, often
+  // the callee; falling back to it put the callee on both sides when the
+  // caller's extension had no person (2026-10-27).
+  const peerExt =
+    direction === 'internal'
+      ? internalPeerExtension({ cdr_legs: legs }, extension)
+      : null;
   const userId =
-    (extension ? exts.get(extension)?.user_id : null) ?? str(existing?.user_id);
+    direction === 'internal' && extension
+      ? (exts.get(extension)?.user_id ?? null)
+      : (merged.userId ?? str(existing?.user_id));
   const ws: Workspace = existing
     ? {
         accountId: String(existing.account_id),
@@ -781,8 +852,17 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
         ev.didNumber ?? liveRow?.did_number,
         [extension ? exts.get(extension)?.account_id : undefined]
       );
+  // Only a leg of the call's own direction names the customer: a
+  // transfer's internal leg of an inbound call has two extensions.
+  const ownLeg = legDirection === direction;
+  const stored = str(existing?.remote_number);
   const remote =
-    direction === 'internal' ? null : normalizeRemoteNumber(otherRaw);
+    direction === 'internal'
+      ? null
+      : ((ownLeg ? normalizeRemoteNumber(otherRaw) : null) ??
+        // Stored numbers are international digits already.
+        (stored ? normalizeRemoteNumber(`+${stored}`) : null));
+  const remoteRaw = ownLeg ? otherRaw : (stored ?? '');
   const match: ContactMatch =
     direction === 'internal'
       ? NO_MATCH
@@ -794,24 +874,39 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
           }
         : await matchContact(ctx, ws.accountId, remote);
 
-  const status = END_STATUS[ev.status] ?? 'failed';
-  const talk = Math.round(ev.talkSeconds);
-  const ring = Math.max(0, Math.round(ev.callSeconds) - talk);
   const startedAt =
-    ev.startedAt ??
+    merged.startedAt ??
     str(existing?.started_at) ??
     plusSeconds(ctx.receivedAt, -ev.callSeconds);
   const settings = await settingsOf(ctx, ws.accountId);
   // Everyone it rang: the frames' list, the last frame's ringing (when
-  // its live row is still here) and a direct-dialled extension's person.
+  // its live row is still here), and each inbound leg's person (a ring
+  // group's extensions, a direct-dialled one).
   const rang =
     direction === 'inbound'
       ? unique([
           ...rangOf(existing?.meta),
           ...(liveRow?.ringing_user_ids ?? []),
+          ...legs
+            .filter((l) => (l.direction ?? direction) === 'inbound')
+            .map((l) => (l.extension ? exts.get(l.extension)?.user_id : null)),
           extension ? exts.get(extension)?.user_id : null,
         ])
       : [];
+
+  // A redelivered leg (an identical record on the row) writes nothing; the
+  // rest of the end still runs, for a retry after a later step failed.
+  if (existing && !added) {
+    return {
+      callRowId: String(existing.id),
+      ws,
+      match,
+      remote,
+      merged,
+      rang,
+      settings,
+    };
+  }
 
   let recording: Row = {};
   if (
@@ -820,7 +915,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   ) {
     let held = false;
     const numbers = settings.exclude_bank_numbers
-      ? bankCandidates(remote, otherRaw)
+      ? bankCandidates(remote, remoteRaw)
       : [];
     if (numbers.length) {
       const bank = await ctx.db
@@ -844,58 +939,182 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     };
   }
 
-  const written = await ctx.db
+  const fields: Row = {
+    pbx_uid: merged.uid,
+    direction,
+    remote_number: direction === 'internal' ? null : (remote?.number ?? null),
+    extension,
+    user_id: userId,
+    peer_user_id:
+      direction === 'internal'
+        ? peerExt
+          ? (exts.get(peerExt)?.user_id ?? null)
+          : str(existing?.peer_user_id)
+        : (str(existing?.peer_user_id) ?? null),
+    contact_id: match.contactId,
+    conversation_id: match.contactId ? match.conversationId : null,
+    did_number: ws.didNumber,
+    status: merged.status,
+    started_at: startedAt,
+    // The legs' own clock when an answered leg has a time, so answered_at,
+    // started_at and ring_seconds agree; a 30011 frame's receive time
+    // only when none has.
+    answered_at: merged.answered
+      ? (merged.answeredAt ??
+        str(existing?.answered_at) ??
+        plusSeconds(startedAt, merged.ringSeconds))
+      : (str(existing?.answered_at) ?? null),
+    ended_at: merged.endedAt ?? ctx.receivedAt,
+    ring_seconds: merged.ringSeconds,
+    talk_seconds: merged.talkSeconds,
+    meta: {
+      ...withRang(callMeta(existing, ws, match), rang),
+      cdr_legs: legs,
+    },
+    ...recording,
+  };
+  let callRowId: string;
+  if (!existing) {
+    const ins = await ctx.db
+      .from('calls')
+      .upsert(
+        {
+          account_id: ws.accountId,
+          connection_id: ctx.connectionId,
+          pbx_call_id: ev.callId,
+          ...fields,
+        },
+        { onConflict: 'connection_id,pbx_call_id', ignoreDuplicates: true }
+      )
+      .select('id');
+    if (ins.error) fail('calls insert', ins.error);
+    const id = ((ins.data ?? []) as { id: unknown }[])[0]?.id;
+    // Another leg or a ring frame inserted first: merge into that row.
+    if (id === undefined) return null;
+    callRowId = String(id);
+  } else {
+    const upd = await ctx.db
+      .from('calls')
+      .update(fields)
+      .eq('id', String(existing.id))
+      .eq('updated_at', existing.updated_at)
+      .select('id');
+    if (upd.error) fail('calls update', upd.error);
+    if (!((upd.data ?? []) as unknown[]).length) return null;
+    callRowId = String(existing.id);
+  }
+  return { callRowId, ws, match, remote, merged, rang, settings };
+}
+
+/**
+ * A call no longer missed (an ANSWERED leg arrived after a NO ANSWER leg
+ * had opened its task) closes the task that holds only this call. A task
+ * other calls were folded into stays open: they are still missed, and
+ * its count keeps this one (nothing unfolds a call). Compare-and-set on
+ * updated_at, so a repeat call folding in meanwhile is read again.
+ */
+async function closeOwnMissedTask(
+  ctx: Ctx,
+  accountId: string,
+  callRowId: string
+): Promise<void> {
+  for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
+    const open = await ctx.db
+      .from('tasks')
+      .select('id, meta, updated_at')
+      .eq('account_id', accountId)
+      .eq('source', 'pbx')
+      .eq('kind', 'missed_call')
+      .eq('source_ref', `call:${callRowId}`)
+      .eq('status', 'open')
+      .limit(1);
+    if (open.error) fail('tasks read', open.error);
+    const task = ((open.data ?? []) as Row[])[0];
+    if (!task) return;
+    const ids = foldedCallIds(task.meta);
+    if (ids.length !== 1 || ids[0] !== callRowId) return;
+    const closed = await ctx.db
+      .from('tasks')
+      .update({ status: 'done' })
+      .eq('account_id', accountId)
+      .eq('id', String(task.id))
+      .eq('status', 'open')
+      .eq('updated_at', task.updated_at)
+      .select('id');
+    if (closed.error) fail('tasks update', closed.error);
+    if (((closed.data ?? []) as unknown[]).length) return;
+  }
+}
+
+/**
+ * Whether the call, as stored now, is still missed. An ANSWERED leg
+ * written while this end opened its task ran closeOwnMissedTask before
+ * the task existed; reading after the task is there means one of the
+ * two sees the other.
+ */
+async function stillMissed(
+  ctx: Ctx,
+  accountId: string,
+  callRowId: string
+): Promise<boolean> {
+  const { data, error } = await ctx.db
     .from('calls')
-    .upsert(
-      {
-        account_id: ws.accountId,
-        connection_id: ctx.connectionId,
-        pbx_call_id: ev.callId,
-        pbx_uid: ev.uid,
-        direction,
-        remote_number:
-          direction === 'internal' ? null : (remote?.number ?? null),
-        extension,
-        user_id: userId,
-        peer_user_id:
-          direction === 'internal'
-            ? (exts.get(otherRaw)?.user_id ?? str(existing?.peer_user_id))
-            : (str(existing?.peer_user_id) ?? null),
-        contact_id: match.contactId,
-        conversation_id: match.contactId ? match.conversationId : null,
-        did_number: ws.didNumber,
-        status,
-        started_at: startedAt,
-        answered_at:
-          status === 'answered'
-            ? (str(existing?.answered_at) ?? plusSeconds(startedAt, ring))
-            : (str(existing?.answered_at) ?? null),
-        ended_at: ev.startedAt
-          ? plusSeconds(startedAt, ev.callSeconds)
-          : ctx.receivedAt,
-        ring_seconds: ring,
-        talk_seconds: talk,
-        meta: withRang(callMeta(existing, ws, match), rang),
-        ...recording,
-      },
-      { onConflict: 'connection_id,pbx_call_id' }
-    )
-    .select('id');
-  if (written.error) fail('calls upsert', written.error);
-  const callRowId = String(
-    ((written.data ?? []) as { id: unknown }[])[0]?.id ?? existing?.id
-  );
+    .select('meta')
+    .eq('account_id', accountId)
+    .eq('id', callRowId)
+    .maybeSingle();
+  if (error) fail('calls read', error);
+  const legs = legsOf((data as Row | null)?.meta);
+  if (!legs.length) return true;
+  const now = mergeCallLegs(legs);
+  return isMissedCall(now.direction, now.pbxStatus);
+}
+
+/** 30012: the final calls row, the screen pop gone, a missed-call task. */
+async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
+  // A historical end ended before the live feed was there: no screen pop
+  // to read (or, below, to clear).
+  let liveRow: {
+    ringing_user_ids?: string[];
+    did_number?: string | null;
+  } | null = null;
+  if (!ctx.historical) {
+    const liveRead = await ctx.db
+      .from('call_live')
+      .select('ringing_user_ids, did_number')
+      .eq('connection_id', ctx.connectionId)
+      .eq('pbx_call_id', ev.callId)
+      .maybeSingle();
+    if (liveRead.error) fail('call_live read', liveRead.error);
+    liveRow = liveRead.data as typeof liveRow;
+  }
+
+  let written: CallEndWrite | null = null;
+  for (let attempt = 0; attempt < FOLD_ATTEMPTS && !written; attempt++) {
+    written = await writeCallEnd(ctx, ev, liveRow);
+  }
+  // Stamped on the raw row, so the retry sweep runs the leg again.
+  if (!written) throw new Error(`calls write lost ${FOLD_ATTEMPTS} races`);
+  const { callRowId, ws, match, remote, merged, rang, settings } = written;
+  // Historical: the calls row (legs, contact, routing, recording state,
+  // user) is all of it. No call-back to settle, no task to open, fold or
+  // close, no bell: the call is hours old and was handled without the CRM.
+  if (ctx.historical) return;
   await deleteLive(ctx, ev.callId);
   // A call the cron placed for a call-back settles its request.
   await settleCallbackCall(ctx.db, {
     accountId: ws.accountId,
     pbxCallId: ev.callId,
-    answered: ANSWERED.has(ev.status),
-    status: ev.status,
+    answered: merged.answered,
+    status: merged.pbxStatus,
   });
 
-  // Only here: a ring-group call a colleague answered is not missed.
-  if (!isMissedCallEnd(ev)) return;
+  // On the merged call: a ring-group call a colleague answered is not
+  // missed, whichever leg came last.
+  if (!isMissedCall(merged.direction, merged.pbxStatus)) {
+    await closeOwnMissedTask(ctx, ws.accountId, callRowId);
+    return;
+  }
   const conversationId = match.contactId ? match.conversationId : null;
   let contact: Row | null = null;
   if (match.contactId) {
@@ -965,7 +1184,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   const noteFor = (count: number) =>
     missedCallNote({
       count,
-      status: ev.status,
+      status: merged.pbxStatus,
       didNumber: ws.didNumber,
       hint: draftHint ? MISSED_DRAFT_HINT : null,
     });
@@ -1062,6 +1281,13 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
       remote_number: remoteNumber,
     },
   });
+  // Read again now the task exists, which is also right before the
+  // bell: an answered call rings nobody. A fold above skips this, as
+  // closeOwnMissedTask never closes a task other calls share.
+  if (!(await stillMissed(ctx, ws.accountId, callRowId))) {
+    await closeOwnMissedTask(ctx, ws.accountId, callRowId);
+    return;
+  }
   if (!task.created || !owner) return;
   const bell = await ctx.db.from('notifications').insert({
     account_id: ws.accountId,

@@ -18,8 +18,8 @@ import {
   Video,
   FileText,
   Mic,
-  Square,
   X,
+  Trash2,
   Loader2,
   Sparkles,
   Plus,
@@ -67,6 +67,8 @@ import {
   MEDIA_MAX_BYTES_BY_KIND,
 } from '@/lib/storage/upload-media';
 import { ReplyQuote } from './reply-quote';
+import { VoiceNotePlayer } from './voice-note-player';
+import { VoiceRecordingBar } from './voice-recording-bar';
 import { useTranslations } from 'next-intl';
 import {
   InteractiveBuilder,
@@ -166,12 +168,6 @@ const TOOL_BUTTON =
 /** The round green send button. */
 const SEND_BUTTON =
   'h-10 w-10 shrink-0 rounded-full bg-wa-green p-0 text-wa-green-fg hover:bg-wa-green/90 disabled:opacity-40';
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 /** Worker that encodes mic input to Ogg/Opus entirely in the browser
  *  (vendored from opus-recorder into /public). Recording client-side in a
@@ -650,6 +646,9 @@ export function MessageComposer({
     }
   }, [inputsDisabled, busy, recording, finalizeRecording]);
 
+  // The live meter taps the recorder's own graph.
+  const getLevelSource = useCallback(() => recorderRef.current, []);
+
   const stopRecording = useCallback(() => {
     clearTimer();
     setRecording(false);
@@ -758,30 +757,14 @@ export function MessageComposer({
         />
       ) : recording ? (
         // Recording bar — replaces the composer while the mic is live.
-        <div className="bg-wa-input flex items-center gap-3 rounded-lg px-4 py-1.5">
-          <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-destructive" />
-          <span className="text-wa-text flex-1 text-sm">
-            {t('recording', {
-              current: formatDuration(recordSeconds),
-              max: formatDuration(MAX_RECORDING_SECONDS),
-            })}
-          </span>
-          <button
-            type="button"
-            onClick={cancelRecording}
-            className="text-wa-text-secondary hover:bg-wa-icon-hover hover:text-wa-text rounded-full px-3 py-1 text-xs"
-          >
-            {t('cancel')}
-          </button>
-          <Button
-            size="sm"
-            onClick={stopRecording}
-            className={SEND_BUTTON}
-            title={t('stopAndAttach')}
-          >
-            <Square className="h-4 w-4" />
-          </Button>
-        </div>
+        <VoiceRecordingBar
+          seconds={recordSeconds}
+          maxSeconds={MAX_RECORDING_SECONDS}
+          getLevelSource={getLevelSource}
+          onCancel={cancelRecording}
+          onStop={stopRecording}
+          stopClassName={SEND_BUTTON}
+        />
       ) : (
         <div className="flex items-end gap-1">
           {/* Attach menu — photo / video / document / voice. */}
@@ -987,6 +970,40 @@ function MediaDraftPreview({
   onSend: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
+  // A voice note is one row, like the recording bar it replaces:
+  // discard, the player (to listen back before sending), send.
+  if (draft.kind === 'audio') {
+    return (
+      <div className="bg-wa-input flex h-[64px] items-center gap-2 rounded-lg pr-1.5 pl-1">
+        <button
+          type="button"
+          onClick={onDiscard}
+          aria-label={t('removeAttachment')}
+          title={t('removeAttachment')}
+          className="text-wa-icon hover:bg-destructive-soft hover:text-destructive focus-visible:ring-destructive/50 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors outline-none focus-visible:ring-2"
+        >
+          <Trash2 className="h-5 w-5" />
+        </button>
+        <VoiceNotePlayer
+          src={draft.mediaUrl}
+          seed={draft.path ?? draft.filename}
+          tone="in"
+          className="w-auto min-w-0 flex-1"
+        />
+        <GatedButton
+          size="sm"
+          canAct={!readOnly}
+          gateReason="send messages"
+          disabled={busy}
+          onClick={onSend}
+          className={SEND_BUTTON}
+        >
+          <Send className="h-[18px] w-[18px]" />
+        </GatedButton>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-wa-input rounded-lg p-3">
       <div className="flex items-start gap-3">
@@ -1006,9 +1023,6 @@ function MediaDraftPreview({
               className="max-h-40 rounded-lg"
             />
           )}
-          {draft.kind === 'audio' && (
-            <audio src={draft.mediaUrl} controls className="w-full" />
-          )}
           {draft.kind === 'document' && (
             <div className="text-wa-text flex items-center gap-2 text-sm">
               <FileText className="text-wa-icon h-5 w-5 shrink-0" />
@@ -1027,28 +1041,26 @@ function MediaDraftPreview({
       </div>
 
       <div className="mt-2 flex items-end gap-2">
-        {draft.kind !== 'audio' && (
-          <input
-            value={draft.caption}
-            maxLength={MEDIA_CAPTION_MAX}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
-            placeholder={t('addCaption')}
-            className="bg-wa-panel-header text-wa-text placeholder:text-wa-text-secondary flex-1 rounded-lg border-0 px-3 py-2.5 text-[15px] outline-none"
-          />
-        )}
+        <input
+          value={draft.caption}
+          maxLength={MEDIA_CAPTION_MAX}
+          onChange={(e) => onCaptionChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder={t('addCaption')}
+          className="bg-wa-panel-header text-wa-text placeholder:text-wa-text-secondary flex-1 rounded-lg border-0 px-3 py-2.5 text-[15px] outline-none"
+        />
         <GatedButton
           size="sm"
           canAct={!readOnly}
           gateReason="send messages"
           disabled={busy}
           onClick={onSend}
-          className={cn(SEND_BUTTON, draft.kind === 'audio' && 'ml-auto')}
+          className={SEND_BUTTON}
         >
           <Send className="h-[18px] w-[18px]" />
         </GatedButton>

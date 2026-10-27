@@ -40,6 +40,8 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { useTranslations } from 'next-intl';
 import { MediaLightbox } from './media-lightbox';
 import { ThreadMessageRow } from './thread-message-row';
+import { useSenderLabels } from './sender-label';
+import { memberNames } from '@/lib/inbox/sender';
 import { ThreadPresenceScope } from './thread-presence';
 import { ThreadHeader } from './thread-header';
 import type { ChatTagsPatch } from './thread-tag-bar';
@@ -256,7 +258,7 @@ export function MessageThread({
   const tQuote = useTranslations('Inbox.replyQuote');
   const tFailedSend = useTranslations('Inbox.failedSend');
 
-  const { user, profileLoading, accountRole, accountId } = useAuth();
+  const { user, profile, profileLoading, accountRole, accountId } = useAuth();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Older-page state. The thread opens on its latest page; scrolling to
@@ -278,6 +280,9 @@ export function MessageThread({
   const prependAnchorRef = useRef<{ height: number; top: number } | null>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  // Until then a bubble from someone else waits for their name rather
+  // than call them unknown (lib/inbox/sender.ts).
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   /** Users this person leads — empty unless they lead a team. */
   const [leadableUserIds, setLeadableUserIds] = useState<Set<string>>(
     new Set()
@@ -392,14 +397,20 @@ export function MessageThread({
             .order('full_name');
           if (error) {
             console.error('Failed to fetch profiles:', error);
-            return [] as Profile[];
+            // Thrown, not answered with [], so the cache drops it and the
+            // next thread opened asks again: a cached empty list called
+            // every colleague's message "Unknown agent" for the whole TTL.
+            throw error;
           }
           return ((data as Profile[] | null) ?? []).filter(
             (p) => !isBankGuest(p.account_role)
           );
         }
       ).catch(() => [] as Profile[]);
-      if (!cancelled) setProfiles(data);
+      if (!cancelled) {
+        setProfiles(data);
+        setProfilesLoaded(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -1302,14 +1313,35 @@ export function MessageThread({
 
   const contactDisplayName = contact?.name || contact?.phone || 'Customer';
 
-  // Author label for a quoted message: "You" when we sent the parent,
-  // contact name when the customer sent it.
+  // Who sent each message: the line on its bubble, the author of a quote
+  // of it, the Forward preview and the media viewer's title. The user's
+  // own name comes from their profile, so their bubbles never wait for
+  // the member list.
+  const senderNames = useMemo(
+    () =>
+      memberNames(
+        user?.id && profile
+          ? [
+              {
+                user_id: user.id,
+                full_name: profile.full_name,
+                email: profile.email,
+              },
+              ...profiles,
+            ]
+          : profiles
+      ),
+    [profiles, user?.id, profile]
+  );
+  const senderLabel = useSenderLabels({
+    contactName: contactDisplayName,
+    currentUserId: user?.id ?? null,
+    names: senderNames,
+    namesLoaded: profilesLoaded,
+  });
   const authorLabelFor = useCallback(
-    (m: Message): string => {
-      const isAgentMsg = m.sender_type === 'agent' || m.sender_type === 'bot';
-      return isAgentMsg ? 'You' : contactDisplayName;
-    },
-    [contactDisplayName]
+    (m: Message): string => senderLabel(m).text,
+    [senderLabel]
   );
 
   // Forward is a send, so it follows the composer's role gate (the
@@ -1489,7 +1521,6 @@ export function MessageThread({
     unreadMarker?.conversationId === conversation.id && unreadMarker.messageId
       ? { messageId: unreadMarker.messageId, count: unreadMarker.count }
       : null;
-  const quoteContactLabel = contact.name || contact.phone || 'Unknown';
   const assignedAgentId = conversation.assigned_agent_id ?? null;
 
   // Handing a conversation to someone ELSE is an admin power — it
@@ -1705,7 +1736,7 @@ export function MessageThread({
                               : undefined
                           }
                           parentMayBeOlder={hasOlder}
-                          contactLabel={quoteContactLabel}
+                          senderLabel={senderLabel}
                           reactions={reactionsByMessageId.get(msg.id)}
                           currentUserId={user?.id}
                           onReply={handleStartReply}
@@ -1729,7 +1760,7 @@ export function MessageThread({
                           ? messagesById.get(f.message.reply_to_message_id)
                           : undefined
                       }
-                      contactLabel={quoteContactLabel}
+                      senderLabel={senderLabel}
                       onRetry={handleRetry}
                       onDiscard={handleDiscard}
                     />
@@ -1762,7 +1793,7 @@ export function MessageThread({
         {disconnectedNumber && (
           <div
             role="status"
-            className="bg-wa-panel-header text-wa-warning flex items-start gap-2 border-t border-warning/40 px-3 py-2 text-xs sm:px-4"
+            className="bg-wa-panel-header text-wa-warning border-warning/40 flex items-start gap-2 border-t px-3 py-2 text-xs sm:px-4"
           >
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
@@ -1815,7 +1846,7 @@ export function MessageThread({
           items={mediaGallery}
           activeId={mediaMessageId}
           onActiveIdChange={handleMediaChange}
-          contactLabel={contactDisplayName}
+          senderLabel={authorLabelFor}
         />
       </div>
     </ThreadPresenceScope>

@@ -15,9 +15,9 @@ import {
   type ContactCase,
 } from '@/lib/cases/lead-form';
 import {
+  caseStatusView,
   formatAed,
   parseBanks,
-  stageChipClass,
   type CaseBankOption,
 } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
@@ -80,6 +80,7 @@ export function CasesCard({ contactId }: { contactId: string }) {
         <ul className="space-y-2">
           {cases.map((c) => {
             const amount = formatAed(c.amount, locale);
+            const status = caseStatusView(c);
             return (
               <li key={c.id}>
                 <Link
@@ -87,8 +88,8 @@ export function CasesCard({ contactId }: { contactId: string }) {
                   className="hover:bg-muted/60 -mx-2 block space-y-1 rounded-md px-2 py-1.5 text-sm transition-colors"
                 >
                   <span className="flex flex-wrap items-center gap-1.5">
-                    <span className={cn(chip, stageChipClass(c.stage))}>
-                      {c.stage}
+                    <span className={cn(chip, status.chipClass)}>
+                      {status.text}
                     </span>
                     {c.isLead && (
                       <span className={cn(chip, LEAD_CHIP)}>

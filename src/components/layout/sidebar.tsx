@@ -9,7 +9,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTotalUnread } from '@/hooks/use-total-unread';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
-import { useUnreadNotifications } from '@/hooks/use-unread-notifications';
 import {
   ArrowLeftRight,
   Crown,
@@ -114,7 +113,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // Prefix for the group headings' ids, which label their lists.
   const groupIdPrefix = useId();
 
-  const unreadNotifications = useUnreadNotifications();
   const chatUnread = useChatUnreadTotal();
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
@@ -161,12 +159,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     const showUnreadDot =
       item.href === '/inbox' && totalUnread > 0 && !isActive;
 
-    // Unlike the inbox dot, the notifications count stays visible
-    // even while the page is active — it reflects unread state
-    // (cleared by marking notifications read), not "currently
-    // viewing this section".
-    const showNotificationBadge =
-      item.href === '/notifications' && unreadNotifications > 0;
     const showChatBadge = item.href === '/chat' && chatUnread > 0;
     // Open missed-call tasks assigned to them, as the chat sidebar shows.
     const showCallsBadge = item.href === '/calls' && callsNav.missed > 0;
@@ -201,16 +193,6 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             >
               <span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
               <span className="bg-primary relative inline-flex h-2 w-2 rounded-full" />
-            </span>
-          )}
-          {showNotificationBadge && (
-            <span
-              aria-label={t('unreadNotifications', {
-                count: unreadNotifications,
-              })}
-              className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
-            >
-              {unreadNotifications > 9 ? '9+' : unreadNotifications}
             </span>
           )}
           {showChatBadge && (
@@ -438,7 +420,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     <DropdownMenuItem
                       render={
                         <Link
-                          href="/settings?tab=whatsapp"
+                          href="/settings"
                           onClick={onClose}
                           className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                         />

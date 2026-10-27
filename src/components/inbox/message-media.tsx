@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Download,
   FileText,
@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
 import { downloadMediaMessage } from '@/lib/media/download';
 import { useMediaBlobUrl } from '@/hooks/use-media-blob-url';
+import { useNearViewport } from '@/hooks/use-near-viewport';
+import { VoiceNotePlayer } from './voice-note-player';
 
 /**
  * The media renderers behind `<MessageBubble>`'s image / video / audio /
@@ -118,44 +120,6 @@ function MediaPlaceholder({
       {children}
     </div>
   );
-}
-
-/**
- * Latches true once the element comes within `rootMargin` of the thread's
- * visible area, and stays true.
- *
- * Every image bubble used to fetch its bytes the moment it rendered — up
- * to 5 MB each, through the tunnel, for a whole thread history the reader
- * mostly never scrolls to. Now a bubble loads when it's about to be seen.
- * The observer is rooted on the thread's scroller (marked
- * `data-inbox-scroll-root`) because a margin on the document root can't
- * reach past that scroller's clipping. Without IntersectionObserver
- * (very old browsers) it loads straight away, as before.
- */
-function useNearViewport(rootMargin = '600px 0px') {
-  const ref = useRef<HTMLDivElement>(null);
-  const [near, setNear] = useState(
-    () => typeof IntersectionObserver === 'undefined'
-  );
-
-  useEffect(() => {
-    if (near) return;
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setNear(true);
-          observer.disconnect();
-        }
-      },
-      { root: el.closest('[data-inbox-scroll-root]'), rootMargin }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [near, rootMargin]);
-
-  return { ref, near };
 }
 
 export function MediaImageBubble({
@@ -287,17 +251,17 @@ export function MediaAudioBubble({
   t: Translator;
 }) {
   const { downloading, download } = useMediaDownload(message, t);
+  const outbound =
+    message.sender_type === 'agent' || message.sender_type === 'bot';
 
   return (
-    <div className="flex items-center gap-2">
-      <audio src={message.media_url} controls className="max-w-60" />
-      <MediaActionButton
-        icon={Download}
-        label={t('download')}
-        onClick={download}
-        busy={downloading}
-      />
-    </div>
+    <VoiceNotePlayer
+      src={message.media_url ?? ''}
+      seed={message.id}
+      tone={outbound ? 'out' : 'in'}
+      onDownload={download}
+      downloading={downloading}
+    />
   );
 }
 

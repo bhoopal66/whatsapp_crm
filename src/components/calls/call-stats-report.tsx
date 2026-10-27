@@ -15,6 +15,7 @@ import {
   PhoneIncoming,
   PhoneMissed,
   PhoneOutgoing,
+  RefreshCw,
 } from 'lucide-react';
 
 import { Skeleton } from '@/components/dashboard/skeleton';
@@ -89,6 +90,8 @@ interface Range {
 }
 interface Loaded {
   key: string;
+  /** When this load landed (ms), for the "Updated" stamp. */
+  at: number;
   stats?: CallStats;
   range?: Range;
   error?: 'forbidden' | 'migration' | 'failed';
@@ -181,6 +184,10 @@ export function CallStatsReport() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   // The person picker's names: the people of the last load for everyone.
   const [people, setPeople] = useState<CallStatsPerson[]>([]);
+  // Refresh re-runs the same query: the figures shown stay up until the
+  // new ones land, since the page does not poll.
+  const [reload, setReload] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!query) return;
@@ -199,24 +206,32 @@ export function CallStatsReport() {
       })
       .then((body: { stats: CallStats; range: Range }) => {
         if (cancelled) return;
-        setLoaded({ key: query, stats: body.stats, range: body.range });
+        setLoaded({
+          key: query,
+          at: Date.now(),
+          stats: body.stats,
+          range: body.range,
+        });
+        setRefreshing(false);
         if (body.stats.people)
           setPeople(body.stats.people.filter((p) => p.kind === 'person'));
       })
       .catch((err: Error) => {
-        if (!cancelled)
-          setLoaded({
-            key: query,
-            error:
-              err.message === 'forbidden' || err.message === 'migration'
-                ? err.message
-                : 'failed',
-          });
+        if (cancelled) return;
+        setRefreshing(false);
+        setLoaded({
+          key: query,
+          at: Date.now(),
+          error:
+            err.message === 'forbidden' || err.message === 'migration'
+              ? err.message
+              : 'failed',
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, reload]);
 
   // The "Showing" picker's people, for a leader: one load for everyone
   // (today, the cheapest), since the default view of me has no people.
@@ -306,7 +321,7 @@ export function CallStatsReport() {
   };
   useEffect(() => {
     if (listKey) loadCalls(listKey, null, []);
-  }, [listKey]);
+  }, [listKey, reload]);
   // No key: nothing to list (a team with nobody on it), not a pending load.
   const noCalls = !!stats && !!range && !listKey;
   const shownList = list?.key === listKey ? list : null;
@@ -477,15 +492,42 @@ export function CallStatsReport() {
             <p className="text-muted-foreground text-sm">{subtitle}</p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={exportCsv}
-          disabled={!stats}
-          className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm disabled:opacity-50"
-        >
-          <Download className="size-4" aria-hidden />
-          {t('exportCsv')}
-        </button>
+        <div className="flex flex-wrap items-center gap-1">
+          {current && (
+            <span className="text-muted-foreground px-1 text-xs">
+              {t('updatedAt', {
+                time: new Intl.DateTimeFormat(locale, {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }).format(new Date(current.at)),
+              })}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setRefreshing(true);
+              setReload((n) => n + 1);
+            }}
+            disabled={!query || refreshing}
+            className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm disabled:opacity-50"
+          >
+            <RefreshCw
+              className={cn('size-4', refreshing && 'animate-spin')}
+              aria-hidden
+            />
+            {refreshing ? t('refreshing') : t('refresh')}
+          </button>
+          <button
+            type="button"
+            onClick={exportCsv}
+            disabled={!stats}
+            className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm disabled:opacity-50"
+          >
+            <Download className="size-4" aria-hidden />
+            {t('exportCsv')}
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {periodButtons(params.period).map((p) => (

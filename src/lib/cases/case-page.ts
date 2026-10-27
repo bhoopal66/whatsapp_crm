@@ -21,6 +21,8 @@ export interface CaseRecord {
   submissionStatus: string | null;
   contactId: string | null;
   contactName: string | null;
+  /** The linked CRM contact's own name. */
+  contactOwnName: string | null;
   leadSource: string | null;
   bankCode: string | null;
   bankName: string | null;
@@ -157,6 +159,7 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
       submissionStatus: str(c.submissionStatus),
       contactId: str(c.contactId),
       contactName: str(c.contactName),
+      contactOwnName: str(c.contactOwnName),
       leadSource: str(c.leadSource),
       bankCode: str(c.bankCode),
       bankName: str(c.bankName),

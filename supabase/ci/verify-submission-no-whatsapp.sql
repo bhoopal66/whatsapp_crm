@@ -120,7 +120,8 @@ BEGIN
   -- ---------- privileges: service_role only ----------
   FOREACH r IN ARRAY ARRAY[
     'public.case_settings_set_whatsapp_groups(uuid,uuid,boolean)',
-    'public.sg_open(uuid,text,uuid,uuid,text,text,jsonb,uuid,text)'] LOOP
+    -- 141 added p_customer_name, 142 p_coordinator_phones
+    'public.sg_open(uuid,text,uuid,uuid,text,text,jsonb,uuid,text,text,text[])'] LOOP
     n := n + 1;
     IF has_function_privilege('authenticated', r, 'EXECUTE') THEN
       failed := failed || format('authenticated may execute %s', r);

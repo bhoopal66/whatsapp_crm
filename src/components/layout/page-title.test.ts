@@ -33,6 +33,7 @@ describe('pageTitleKey', () => {
     ['/automations/1/edit', 'automations'],
     ['/flows/1/runs', 'flows'],
     ['/compass', 'compass'],
+    ['/opendesk', 'opendesk'],
     ['/team-activity', 'teamActivity'],
     ['/settings', 'settings'],
     ['/agents', 'settings'],

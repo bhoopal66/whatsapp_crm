@@ -322,6 +322,11 @@ jobs:
       - name: Verify submissions without WhatsApp groups
         run: supabase db query --local --file supabase/ci/verify-submission-no-whatsapp.sql
 
+      # Submission customer name (141): sg_open stores customer.name on
+      # the group; case_inbox names that customer, else the contact.
+      - name: Verify the submission's customer name
+        run: supabase db query --local --file supabase/ci/verify-submission-customer-name.sql
+
       # Cases (122): roles resolved live (owner, admin, the agent's team
       # lead, the named coordinator and agent; nobody else), reads in the
       # active workspace, writes and reassigns by role; stage lists
@@ -474,6 +479,13 @@ jobs:
       # unrelated agent), on losing the bank and on deactivation.
       - name: Verify coordinators
         run: supabase db query --local --file supabase/ci/verify-coordinators.sql
+      # Migration 142's coordinator WhatsApp numbers: only an owner / admin
+      # sets one, only for a live agent / team leader of their active
+      # account, only 5-25 digits (RPC and CHECK); blank or NULL clears;
+      # owners and admins read the table, agents and other workspaces
+      # don't, and nobody writes it directly.
+      - name: Verify coordinator phones
+        run: supabase db query --local --file supabase/ci/verify-coordinator-phones.sql
       # Migration 120's assistant guard: a pending action is born only
       # through assist_pending_request (20-hex nonce stored as sha256,
       # 300 s life, 5 open per user across accounts); confirm needs the
@@ -486,3 +498,30 @@ jobs:
       # service_role's; service_role executes exactly seven functions.
       - name: Verify assistant safety
         run: supabase db query --local --file supabase/ci/verify-assistant-safety.sql
+
+      # Taamul sales-app / OpenDesk webhook (139): an event id is recorded
+      # once, every event counts but only a newer one rewrites the
+      # snapshot, the CRM's contacts are never written, admins read and
+      # agents and other workspaces don't, no session writes.
+      - name: Verify Taamul sales webhook
+        run: supabase db query --local --file supabase/ci/verify-taamul-sales.sql
+
+      # Migration 140's member password change: only a live owner / admin
+      # of the active workspace, never for themselves, for someone they
+      # strictly outrank there (deactivated or not) and in every other
+      # workspace the person belongs to, where the caller needs a live
+      # owner / admin row that outranks them (one login opens them all);
+      # the check writes nothing; the audit function writes one
+      # password_changed row and is service_role's alone.
+      - name: Verify member password change
+        run: supabase db query --local --file supabase/ci/verify-member-password.sql
+
+      # Migration 143's team chat DM rules: no rules means every DM is
+      # open; only a live owner / admin replaces the rule set; a 'none'
+      # pair refuses opening (new and reopen) and posting and hides the
+      # DM behind the read gate (RLS, unread) without deleting it; 'team'
+      # admits one's own leader only; the coordinator class and the most
+      # permissive class pair win; owners are always reachable;
+      # chat_dm_peers lists exactly whom the caller may DM.
+      - name: Verify chat DM rules
+        run: supabase db query --local --file supabase/ci/verify-chat-dm-rules.sql

@@ -37,6 +37,7 @@ const ROUTE_TITLES: ReadonlyArray<readonly [string, string]> = [
   ['/automations', 'automations'],
   ['/flows', 'flows'],
   ['/compass', 'compass'],
+  ['/opendesk', 'opendesk'],
   ['/settings', 'settings'],
   // AI agents moved into Settings; /agents only redirects there.
   ['/agents', 'settings'],

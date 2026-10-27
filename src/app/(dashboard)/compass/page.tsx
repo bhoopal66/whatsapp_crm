@@ -16,6 +16,8 @@ import { Building2, Loader2, Search } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { caseStatusView } from '@/lib/cases/ui';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -373,6 +375,8 @@ function NotificationsTab({ accountId }: { accountId: string }) {
 interface Submission {
   submissionRef: string;
   status: string;
+  /** The status Compass last sent, word for word; null before the first. */
+  submissionStatus: string | null;
   createdAt: string;
   endedAt: string | null;
   customer: string | null;
@@ -382,13 +386,34 @@ interface Submission {
   externalChangedAt: string | null;
 }
 
+// Compass's status word for word in its colour (lib/cases/ui.ts), else
+// the case stage; a dash when there is neither.
+function StatusChip({ row }: { row: Submission }) {
+  const view = caseStatusView({
+    stage: row.stage ?? '',
+    submissionStatus: row.submissionStatus,
+  });
+  if (!view.text) return <>—</>;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+        view.chipClass
+      )}
+    >
+      {view.text}
+    </span>
+  );
+}
+
 interface WebhookCount {
   event: string;
   delivered: number;
   pending: number;
 }
 
-// Submission groups with their case (stage, bank, last Compass sync),
+// Submission groups with their case (Compass's own status, else the
+// case stage; bank, last Compass sync),
 // and the webhook outbox over 7 days. Server-side (GET
 // /api/compass/submissions): the outbox is service-role only.
 function SubmissionsTab() {
@@ -450,7 +475,7 @@ function SubmissionsTab() {
                   <TableHead>{t('submissions.table.submission')}</TableHead>
                   <TableHead>{t('submissions.table.customer')}</TableHead>
                   <TableHead>{t('submissions.table.bank')}</TableHead>
-                  <TableHead>{t('submissions.table.stage')}</TableHead>
+                  <TableHead>{t('submissions.table.status')}</TableHead>
                   <TableHead>{t('submissions.table.group')}</TableHead>
                   <TableHead>{t('submissions.table.synced')}</TableHead>
                   <TableHead>{t('submissions.table.case')}</TableHead>
@@ -469,7 +494,7 @@ function SubmissionsTab() {
                       {row.bankCode ?? '—'}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {row.stage ?? '—'}
+                      <StatusChip row={row} />
                     </TableCell>
                     <TableCell>
                       <Badge

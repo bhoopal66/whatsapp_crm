@@ -5,10 +5,12 @@
 //
 // Two stacked sections:
 //   1. Roster   — every member of the account. Admin+ can change a
-//                 teammate's role inline, deactivate / reactivate
-//                 them (migration 069), and remove them. Owner row
-//                 is non-editable everywhere (transfer is its own
-//                 separate flow, deferred to a later PR).
+//                 teammate's role inline, set the password of someone
+//                 below them (migration 140, `canChangePasswordOf`),
+//                 deactivate / reactivate them (migration 069), and
+//                 remove them. Owner row is non-editable everywhere
+//                 (transfer is its own separate flow, deferred to a
+//                 later PR).
 //   2. Pending  — outstanding invite links. Admin+ can revoke. The
 //                 plaintext URL is gone after the create dialog
 //                 closes, so we surface a "revoke + new link" hint
@@ -32,6 +34,7 @@ import { toast } from 'sonner';
 import { MEMBERS_CACHE_KEY, invalidateCached } from '@/lib/client-cache';
 import {
   AlertTriangle,
+  KeyRound,
   Loader2,
   Landmark,
   Mail,
@@ -77,6 +80,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
 import {
   ASSIGNABLE_ROLES,
+  canChangePasswordOf,
   canManageMembers,
   type AccountRole,
   type AssignableRole,
@@ -86,10 +90,15 @@ import {
   PRESENCE_DOT_CLASS,
   PresenceDot,
 } from '@/components/presence/presence-dot';
-import { canHoldCoordinatorBanks, banksByUser } from '@/lib/coordinators/ui';
+import {
+  canHoldCoordinatorBanks,
+  banksByUser,
+  phonesByUser,
+} from '@/lib/coordinators/ui';
 import { CoordinatorBanksDialog } from './coordinator-banks-dialog';
 import { CreateMemberDialog } from './create-member-dialog';
 import { InviteMemberDialog } from './invite-member-dialog';
+import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
 
@@ -162,7 +171,11 @@ export function MembersTab() {
   const [coordBanks, setCoordBanks] = useState<Map<string, string[]>>(
     new Map()
   );
+  const [coordPhones, setCoordPhones] = useState<Map<string, string>>(
+    new Map()
+  );
   const [editingBanks, setEditingBanks] = useState<Member | null>(null);
+  const [passwordMember, setPasswordMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null
   );
@@ -194,6 +207,7 @@ export function MembersTab() {
             coordinators: Parameters<typeof banksByUser>[0];
           };
           setCoordBanks(banksByUser(cdata.coordinators));
+          setCoordPhones(phonesByUser(cdata.coordinators));
         }
       }
 
@@ -609,6 +623,32 @@ export function MembersTab() {
                         </Tooltip>
                       )}
 
+                      {/* Set their password: someone below you in this
+                        workspace. The database also checks every other
+                        workspace their login opens (migration 140). */}
+                      {!isSelf &&
+                        !!accountRole &&
+                        canChangePasswordOf(accountRole, member.role) && (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label={t('password.button')}
+                                  onClick={() => setPasswordMember(member)}
+                                  disabled={isBusy}
+                                >
+                                  <KeyRound className="size-4" />
+                                </Button>
+                              }
+                            />
+                            <TooltipContent>
+                              {t('password.button')}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+
                       {/* Deactivate / reactivate. Same gate as Remove: the
                         owner can't be deactivated (someone must be able
                         to turn people back on) and neither can you. */}
@@ -772,6 +812,21 @@ export function MembersTab() {
         onCreated={loadEverything}
       />
 
+      <MemberPasswordDialog
+        member={
+          passwordMember
+            ? {
+                user_id: passwordMember.user_id,
+                name:
+                  passwordMember.full_name ||
+                  passwordMember.email ||
+                  t('unnamed'),
+              }
+            : null
+        }
+        onClose={() => setPasswordMember(null)}
+      />
+
       <CoordinatorBanksDialog
         member={
           editingBanks
@@ -782,17 +837,26 @@ export function MembersTab() {
             : null
         }
         saved={editingBanks ? (coordBanks.get(editingBanks.user_id) ?? []) : []}
+        savedPhone={
+          editingBanks ? (coordPhones.get(editingBanks.user_id) ?? null) : null
+        }
         onOpenChange={(open) => {
           if (!open) setEditingBanks(null);
         }}
-        onSaved={(userId, banks) =>
+        onSaved={(userId, banks, phone) => {
           setCoordBanks((prev) => {
             const next = new Map(prev);
             if (banks.length > 0) next.set(userId, banks);
             else next.delete(userId);
             return next;
-          })
-        }
+          });
+          setCoordPhones((prev) => {
+            const next = new Map(prev);
+            if (phone) next.set(userId, phone);
+            else next.delete(userId);
+            return next;
+          });
+        }}
       />
 
       <Dialog

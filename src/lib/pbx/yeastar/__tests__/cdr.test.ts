@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cdrRecordToCallEnd, dedupeByUid } from '../cdr';
+import { cdrRecordToCallEnd, dedupeRecords } from '../cdr';
 import { parseYeastarEvent } from '../events';
 import { CDR_SEARCH_OK } from './fixtures';
 
@@ -94,18 +94,38 @@ describe('cdrRecordToCallEnd', () => {
   });
 });
 
-describe('dedupeByUid', () => {
-  it('keeps the first row per uid, in order, and rows without one', () => {
+describe('dedupeRecords', () => {
+  it('drops an identical repeat (overlapping pages), in order', () => {
     const rows = [
       ...CDR_SEARCH_OK.data,
-      CDR_SEARCH_OK.data[0],
+      { ...CDR_SEARCH_OK.data[0] },
       { uid: '' },
       { uid: '' },
     ];
-    expect(dedupeByUid(rows)).toEqual([
-      ...CDR_SEARCH_OK.data,
-      { uid: '' },
-      { uid: '' },
+    expect(dedupeRecords(rows)).toEqual([...CDR_SEARCH_OK.data, { uid: '' }]);
+  });
+
+  it('a key order of its own is still the same record', () => {
+    const reordered = Object.fromEntries(
+      Object.entries(internal).reverse()
+    ) as typeof internal;
+    expect(dedupeRecords([internal, reordered])).toEqual([internal]);
+  });
+
+  it('keeps same-uid rows that differ: they are legs of one call (live)', () => {
+    const noAnswer = {
+      ...internal,
+      disposition: 'NO ANSWER',
+      talk_duration: 0,
+    };
+    const voicemail = {
+      ...internal,
+      disposition: 'VOICEMAIL',
+      timestamp: Number(internal.timestamp) + 24,
+    };
+    expect(dedupeRecords([noAnswer, voicemail, noAnswer])).toEqual([
+      noAnswer,
+      voicemail,
     ]);
   });
 });

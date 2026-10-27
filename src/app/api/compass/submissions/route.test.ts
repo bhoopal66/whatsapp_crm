@@ -73,6 +73,7 @@ beforeEach(() => {
           id: 'g-1',
           submission_ref: 'SUB-1',
           status: 'ACTIVE',
+          submission_status: 'Pending With Bank - Credit Review',
           created_at: '2026-10-20T08:00:00Z',
           ended_at: null,
           contact_id: 'c-1',
@@ -81,6 +82,7 @@ beforeEach(() => {
           id: 'g-2',
           submission_ref: 'SUB-2',
           status: 'ENDED',
+          submission_status: null,
           created_at: '2026-10-19T08:00:00Z',
           ended_at: '2026-10-20T09:00:00Z',
           contact_id: null,
@@ -137,6 +139,7 @@ describe('GET /api/compass/submissions', () => {
       {
         submissionRef: 'SUB-1',
         status: 'ACTIVE',
+        submissionStatus: 'Pending With Bank - Credit Review',
         createdAt: '2026-10-20T08:00:00Z',
         endedAt: null,
         customer: 'Sara',
@@ -148,6 +151,7 @@ describe('GET /api/compass/submissions', () => {
       {
         submissionRef: 'SUB-2',
         status: 'ENDED',
+        submissionStatus: null,
         createdAt: '2026-10-19T08:00:00Z',
         endedAt: '2026-10-20T09:00:00Z',
         customer: null,

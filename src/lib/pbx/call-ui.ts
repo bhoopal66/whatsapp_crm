@@ -907,6 +907,17 @@ export const CALLS_TABS = [
 ] as const;
 export type CallsTab = (typeof CALLS_TABS)[number];
 
+/**
+ * Tabs taken off the Calls screen at the workspace's request
+ * (2026-10-27): Colleagues, Unrouted, and Groups & queues. Their views
+ * and routes stay; a link to one opens My calls.
+ */
+export const REMOVED_CALLS_TABS: readonly CallsTab[] = [
+  'colleagues',
+  'unrouted',
+  'groups',
+];
+
 /** `?tab=` as the page reads it: anything else is My calls. */
 export const callsTab = (tab: string | undefined): CallsTab =>
   (CALLS_TABS as readonly (string | undefined)[]).includes(tab)
@@ -929,7 +940,10 @@ export function callsReach(role: AccountRole | null): CallsReach {
 }
 
 /** The CallsPage.tabs key a tab is worded by: the supervisor tab by reach. */
-export function callsTabLabel(tab: CallsTab, role: AccountRole | null): Exclude<CallsTab, 'log'> | 'team' | 'all' {
+export function callsTabLabel(
+  tab: CallsTab,
+  role: AccountRole | null
+): Exclude<CallsTab, 'log'> | 'team' | 'all' {
   return tab === 'log' ? (callsReach(role) === 'all' ? 'all' : 'team') : tab;
 }
 
@@ -954,22 +968,24 @@ export function visibleCallTabs(
   outbound = outboundCallsEnabled()
 ): CallsTab[] {
   return CALLS_TABS.filter((k) =>
-    k === 'keypad' || k === 'colleagues' || k === 'voicemail'
-      ? (k !== 'keypad' || outbound) &&
-        hasPhone &&
-        role !== null &&
-        hasMinRole(role, 'agent')
-      : k === 'groups'
-        ? role !== null &&
-          (hasMinRole(role, 'team_leader') ||
-            (hasPhone && hasMinRole(role, 'agent')))
-        : k === 'people'
-          ? role !== null && hasMinRole(role, 'team_leader')
-          : k === 'log'
-            ? callsReach(role) !== 'mine'
-            : k === 'unrouted'
-              ? role !== null && canViewUnroutedCalls(role)
-              : true
+    REMOVED_CALLS_TABS.includes(k)
+      ? false
+      : k === 'keypad' || k === 'colleagues' || k === 'voicemail'
+        ? (k !== 'keypad' || outbound) &&
+          hasPhone &&
+          role !== null &&
+          hasMinRole(role, 'agent')
+        : k === 'groups'
+          ? role !== null &&
+            (hasMinRole(role, 'team_leader') ||
+              (hasPhone && hasMinRole(role, 'agent')))
+          : k === 'people'
+            ? role !== null && hasMinRole(role, 'team_leader')
+            : k === 'log'
+              ? callsReach(role) !== 'mine'
+              : k === 'unrouted'
+                ? role !== null && canViewUnroutedCalls(role)
+                : true
   );
 }
 
@@ -986,6 +1002,7 @@ export function shownCallsTab(
   role: AccountRole | null,
   outbound = outboundCallsEnabled()
 ): CallsTab {
+  if (REMOVED_CALLS_TABS.includes(tab)) return 'mine';
   if (tab === 'keypad' && !outbound) return 'mine';
   if (
     tab === 'keypad' ||
@@ -1053,3 +1070,49 @@ export function callsListReady(
  * route and the tab's own wording both read it.
  */
 export const UNROUTED_SUMMARY_DAYS = 30;
+
+/** One side of a call between colleagues: a person's name, else the extension. */
+export type InternalSide = { name: string } | { extension: string };
+export type InternalParty =
+  | { kind: 'one'; who: InternalSide }
+  | { kind: 'pair'; from: InternalSide; to: InternalSide };
+
+/** A call between colleagues' two extensions and their people (GET /api/pbx/calls). */
+export interface CallSides {
+  from: {
+    extension: string | null;
+    userId: string | null;
+    name: string | null;
+  };
+  to: { extension: string | null; userId: string | null; name: string | null };
+}
+
+/**
+ * Who a call between colleagues was with, from the viewer's side: the
+ * other end when the viewer is on one end, both ends when a leader or
+ * admin looks at two others' call. Never the viewer themself: that is
+ * what the stored user/peer ids showed (2026-10-27). Null when neither
+ * end is known, so the row keeps "Unknown caller".
+ */
+export function internalCallParty(
+  party: CallSides | null | undefined,
+  me: string | null
+): InternalParty | null {
+  if (!party) return null;
+  const side = (s: CallSides['from']): InternalSide | null =>
+    s.name?.trim()
+      ? { name: s.name.trim() }
+      : s.extension
+        ? { extension: s.extension }
+        : null;
+  const from = side(party.from);
+  const to = side(party.to);
+  const mine = (s: CallSides['from']) => !!me && s.userId === me;
+  if (mine(party.from) && !mine(party.to))
+    return to && { kind: 'one', who: to };
+  if (mine(party.to) && !mine(party.from))
+    return from && { kind: 'one', who: from };
+  if (from && to) return { kind: 'pair', from, to };
+  const either = from ?? to;
+  return either && { kind: 'one', who: either };
+}

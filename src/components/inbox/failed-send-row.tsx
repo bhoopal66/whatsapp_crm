@@ -8,13 +8,14 @@ import type { Message } from '@/types';
 import type { FailedSend } from '@/lib/inbox/failed-send';
 import { MessageBubble } from './message-bubble';
 import { buildReplyPreview } from './reply-quote';
+import type { SenderLabel } from './sender-label';
 
 interface FailedSendRowProps {
   failed: FailedSend;
   /** The message it quotes, when that is loaded. */
   parent: Message | undefined;
-  /** Author label for a quote of a customer message. */
-  contactLabel: string;
+  /** Who sent a message: the unsent one's line and its quote's author. */
+  senderLabel: (message: Message) => SenderLabel;
   onRetry: (failed: FailedSend) => void;
   onDiscard: (failed: FailedSend) => void;
 }
@@ -32,30 +33,20 @@ interface FailedSendRowProps {
 export function FailedSendRow({
   failed,
   parent,
-  contactLabel,
+  senderLabel,
   onRetry,
   onDiscard,
 }: FailedSendRowProps) {
   const t = useTranslations('Inbox.failedSend');
-  const tThread = useTranslations('Inbox.messageThread');
   const tQuote = useTranslations('Inbox.replyQuote');
 
   const reply = useMemo(() => {
     if (!failed.message.reply_to_message_id || !parent) return null;
     return {
-      authorLabel:
-        parent.sender_type === 'agent' || parent.sender_type === 'bot'
-          ? tThread('me')
-          : contactLabel,
+      authorLabel: senderLabel(parent).text,
       preview: buildReplyPreview(parent, tQuote),
     };
-  }, [
-    failed.message.reply_to_message_id,
-    parent,
-    contactLabel,
-    tThread,
-    tQuote,
-  ]);
+  }, [failed.message.reply_to_message_id, parent, senderLabel, tQuote]);
 
   return (
     <div
@@ -65,16 +56,18 @@ export function FailedSendRow({
     >
       {/* Same width cap and `min-w-0` as <MessageActions> (issue #165). */}
       <div className="flex max-w-[75%] min-w-0 flex-col items-end gap-1">
-        <MessageBubble message={failed.message} reply={reply} />
+        <MessageBubble
+          message={failed.message}
+          sender={senderLabel(failed.message)}
+          reply={reply}
+        />
         {/* The toast with the reason is gone in seconds, so the reason
             stays here too. */}
         <p
           className="line-clamp-2 max-w-full text-right text-[11px] break-words"
           title={failed.reason}
         >
-          <span className="text-destructive font-medium">
-            {t('notSent')}
-          </span>
+          <span className="text-destructive font-medium">{t('notSent')}</span>
           <span className="text-muted-foreground"> · {failed.reason}</span>
         </p>
         <div className="flex items-center gap-2 text-[11px]">

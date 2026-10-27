@@ -60,10 +60,11 @@ describe('CallsView', () => {
   });
 
   it('shows the tab asked for to a role that is offered it', () => {
+    // Unrouted is off the screen (2026-10-27): an admin's link opens My calls.
     for (const role of ['admin', 'owner'] as const) {
       const html = render('unrouted', role);
-      expect(html).toContain(unroutedHint);
-      expect(html).not.toContain(missedHint);
+      expect(html).not.toContain(unroutedHint);
+      expect(html).toContain(mineHint);
     }
     expect(render('people', 'team_leader')).toContain('by-person-report');
     expect(render('missed', 'agent')).toContain(missedHint);

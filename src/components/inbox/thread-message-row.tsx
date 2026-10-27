@@ -6,6 +6,7 @@ import type { Message, MessageReaction } from '@/types';
 import { MessageActions } from './message-actions';
 import { MessageBubble } from './message-bubble';
 import { buildReplyPreview } from './reply-quote';
+import type { SenderLabel } from './sender-label';
 
 interface ThreadMessageRowProps {
   message: Message;
@@ -22,8 +23,8 @@ interface ThreadMessageRowProps {
   parent: Message | undefined;
   /** The thread has older pages, so a missing parent may just be unloaded. */
   parentMayBeOlder: boolean;
-  /** Author label for a quote of a customer message. */
-  contactLabel: string;
+  /** Who sent a message: this one's line and its quote's author. */
+  senderLabel: (message: Message) => SenderLabel;
   reactions: MessageReaction[] | undefined;
   currentUserId: string | undefined;
   onReply: (message: Message) => void;
@@ -48,7 +49,7 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
   runStart,
   parent,
   parentMayBeOlder,
-  contactLabel,
+  senderLabel,
   reactions,
   currentUserId,
   onReply,
@@ -56,18 +57,16 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
   onSetReaction,
   onOpenMedia,
 }: ThreadMessageRowProps) {
-  const t = useTranslations('Inbox.messageThread');
   const tQuote = useTranslations('Inbox.replyQuote');
+
+  const sender = useMemo(() => senderLabel(message), [senderLabel, message]);
 
   const hasQuote = !!message.reply_to_message_id;
   const reply = useMemo(() => {
     if (!hasQuote) return null;
     if (parent) {
       return {
-        authorLabel:
-          parent.sender_type === 'agent' || parent.sender_type === 'bot'
-            ? t('me')
-            : contactLabel,
+        authorLabel: senderLabel(parent).text,
         preview: buildReplyPreview(parent, tQuote),
       };
     }
@@ -77,7 +76,7 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
     return parentMayBeOlder
       ? { authorLabel: '', preview: tQuote('message') }
       : null;
-  }, [hasQuote, parent, parentMayBeOlder, contactLabel, t, tQuote]);
+  }, [hasQuote, parent, parentMayBeOlder, senderLabel, tQuote]);
 
   // Toggle semantic for a pill click: same emoji again removes it.
   const handleToggleReaction = useCallback(
@@ -114,6 +113,7 @@ export const ThreadMessageRow = memo(function ThreadMessageRow({
     >
       <MessageBubble
         message={message}
+        sender={sender}
         tail={runStart}
         reply={reply}
         reactions={reactions}

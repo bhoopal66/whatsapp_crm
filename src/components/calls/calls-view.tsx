@@ -26,7 +26,10 @@ import {
   shownCallsTab,
   visibleCallTabs,
   callsListReady,
+  internalCallParty,
   type CallsTab,
+  type CallSides,
+  type InternalSide,
 } from '@/lib/pbx/call-ui';
 import type { UnroutedNumber } from '@/lib/pbx/calls';
 import {
@@ -49,6 +52,8 @@ type CallRow = TimelineCall & {
   doNotContactReason: string | null;
   /** The number the customer dialled (calls.did_number). */
   didNumber?: string | null;
+  /** Internal calls only: both extensions and their people. */
+  party?: CallSides;
 };
 interface Loaded {
   tab: CallsTab;
@@ -71,7 +76,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const t = useTranslations('CallsPage');
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
-  const { accountRole } = useAuth();
+  const { accountRole, user } = useAuth();
   const hasPhone = Boolean(useCalls()?.me);
   // A direct link to a tab this role is not offered (the API would
   // refuse it, or it is not theirs) shows My calls, as an unknown ?tab=
@@ -144,7 +149,25 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
       tab === 'missed' ? missedTaskFor(c.id, current?.tasks ?? []) : null;
     const missed = callTone(c) === 'missed';
     const Icon = missed ? PhoneMissed : Phone;
-    const who = c.contactName || c.remoteNumber || t('unknownCaller');
+    const internal =
+      c.direction === 'internal'
+        ? internalCallParty(c.party, user?.id ?? null)
+        : null;
+    const sideText = (s: InternalSide) =>
+      'name' in s
+        ? s.name
+        : t('colleagueExtension', { extension: s.extension });
+    const who =
+      c.contactName ||
+      c.remoteNumber ||
+      (internal &&
+        (internal.kind === 'one'
+          ? sideText(internal.who)
+          : t('colleaguePair', {
+              from: sideText(internal.from),
+              to: sideText(internal.to),
+            }))) ||
+      t('unknownCaller');
     const back = missed ? callBackFor(c, accountRole) : null;
     const details = [say(h.label), ...h.details.map(say)];
     // An erased call keeps the number dialled, not the caller's.

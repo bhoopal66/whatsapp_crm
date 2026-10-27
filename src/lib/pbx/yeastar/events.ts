@@ -485,5 +485,13 @@ export function remoteParty(call: CallStateEvent): string | null {
 const MISSED = new Set(['NO ANSWER', 'BUSY', 'ABANDONED', 'VOICEMAIL']);
 
 export function isMissedCallEnd(event: CallEndEvent): boolean {
-  return event.direction === 'inbound' && MISSED.has(event.status);
+  return isMissedCall(event.direction, event.status);
+}
+
+/** The same test over a call merged from its legs (call-legs.ts). */
+export function isMissedCall(
+  direction: CallDirection | null,
+  status: string
+): boolean {
+  return direction === 'inbound' && MISSED.has(status);
 }

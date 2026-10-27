@@ -101,6 +101,7 @@ export function aCase(over: Partial<Case> = {}): Case {
     contactId: CONTACT_ID,
     leadSource: null,
     contactName: 'Customer',
+    contactOwnName: 'Customer',
     bankCode: 'ADCB',
     bankName: 'ADCB',
     product: 'loan',

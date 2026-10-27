@@ -24,6 +24,14 @@ leader and up). The submission group's **Coordinator** label
 coordinator ([cases.md](cases.md)) are unchanged and independent of the
 bank list.
 
+## WhatsApp number
+
+Owners and admins can save a WhatsApp number for each coordinator in
+Settings -> Members, in the coordinator-banks dialog (migration 142). When a
+submission's WhatsApp group is opened, every coordinator of the case's bank
+who has a number is added to it. Clearing the number is allowed for anyone
+in the account; setting it is owner and admin only.
+
 ## Sharing a chat
 
 An agent (or anyone of agent rank and up who can see the chat) opens the
@@ -62,13 +70,14 @@ working in another workspace; giving the bank back restores it.
 
 Internal routes (`{ error }` on failure):
 
-| Route                                                                                  | Who          | Does                         |
-| -------------------------------------------------------------------------------------- | ------------ | ---------------------------- |
-| `GET /api/coordinators[?bank=CODE]`                                                    | agent and up | coordinators and their banks |
-| `PUT /api/account/members/[userId]/coordinator-banks` `{ bank_codes }`                 | owner, admin | replaces a person's banks    |
-| `GET /api/conversations/[id]/coordinator-shares`                                       | agent and up | the chat's open shares       |
-| `POST /api/conversations/[id]/coordinator-shares` `{ coordinator_user_id, bank_code }` | agent and up | shares; `{ id }`             |
-| `DELETE /api/conversations/[id]/coordinator-shares/[shareId]`                          | see above    | revokes; `{ revoked }`       |
+| Route                                                                                  | Who          | Does                               |
+| -------------------------------------------------------------------------------------- | ------------ | ---------------------------------- |
+| `GET /api/coordinators[?bank=CODE]`                                                    | agent and up | coordinators and their banks       |
+| `PUT /api/account/members/[userId]/coordinator-banks` `{ bank_codes }`                 | owner, admin | replaces a person's banks          |
+| `PUT /api/account/members/[userId]/coordinator-phone` `{ phone }`                      | owner, admin | sets or clears the person's number |
+| `GET /api/conversations/[id]/coordinator-shares`                                       | agent and up | the chat's open shares             |
+| `POST /api/conversations/[id]/coordinator-shares` `{ coordinator_user_id, bank_code }` | agent and up | shares; `{ id }`                   |
+| `DELETE /api/conversations/[id]/coordinator-shares/[shareId]`                          | see above    | revokes; `{ revoked }`             |
 
 Nothing is exposed through the public API (`/api/v1`).
 
@@ -86,3 +95,7 @@ reads a shared chat's reactions and events but cannot write reactions, and
 never reads the contact's TypeSafe decision rows (`ts_log_read` and
 `message_reactions_modify` state the normal visibility rule explicitly).
 `supabase/ci/verify-coordinators.sql` asserts the rules.
+
+Migration 142 adds `coordinator_phones`, written only through
+`set_coordinator_phone`; `supabase/ci/verify-coordinator-phones.sql` asserts
+it.

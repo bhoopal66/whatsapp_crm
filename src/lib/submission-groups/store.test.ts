@@ -206,6 +206,7 @@ describe('wa_mode (136)', () => {
       coordinatorPhone: null,
       access: [],
       keyId: null,
+      customerName: null,
     };
     await store.open({ ...base, channelId: 'ch' });
     await store.open({ ...base, channelId: null, waMode: 'none' });
@@ -213,6 +214,73 @@ describe('wa_mode (136)', () => {
       ['group', 'ch'],
       ['none', null],
     ]);
+  });
+
+  it('open passes the customer name to sg_open as p_customer_name (141)', async () => {
+    const calls: Record<string, unknown>[] = [];
+    const store = new SubmissionGroupStore({
+      rpc: async (_fn: string, args: Record<string, unknown>) => {
+        calls.push(args);
+        return { data: [{ group_id: 'g1', created: true }], error: null };
+      },
+    } as unknown as SupabaseClient);
+    const base = {
+      accountId: 'a',
+      submissionRef: 'S',
+      contactId: 'c',
+      channelId: null,
+      waMode: 'none' as const,
+      subject: 's',
+      coordinatorPhone: null,
+      access: [],
+      keyId: null,
+    };
+    await store.open({ ...base, customerName: 'CANTUS - F.Z.E' });
+    await store.open({ ...base, customerName: null });
+    expect(calls.map((a) => a.p_customer_name)).toEqual([
+      'CANTUS - F.Z.E',
+      null,
+    ]);
+  });
+
+  it('open passes p_coordinator_phones and toGroup maps coordinator_phones (142)', async () => {
+    const calls: Record<string, unknown>[] = [];
+    const store = new SubmissionGroupStore({
+      rpc: async (_fn: string, args: Record<string, unknown>) => {
+        calls.push(args);
+        return { data: [{ group_id: 'g1', created: true }], error: null };
+      },
+    } as unknown as SupabaseClient);
+    const base = {
+      accountId: 'a',
+      submissionRef: 'S',
+      contactId: 'c',
+      channelId: 'ch',
+      subject: 's',
+      coordinatorPhone: null,
+      access: [],
+      keyId: null,
+      customerName: null,
+    };
+    await store.open({ ...base, coordinatorPhones: ['971500000002'] });
+    await store.open(base);
+    expect(calls.map((a) => a.p_coordinator_phones)).toEqual([
+      ['971500000002'],
+      [],
+    ]);
+    const r = {
+      id: 'g1',
+      account_id: 'a',
+      submission_ref: 'S',
+      status: 'ACTIVE',
+      created_at: '2026-10-16T10:00:00Z',
+      last_activity_at: '2026-10-16T10:00:00Z',
+    };
+    expect(
+      toGroup({ ...r, coordinator_phones: ['971500000002', '971500000003'] })
+        .coordinatorPhones
+    ).toEqual(['971500000002', '971500000003']);
+    expect(toGroup(r).coordinatorPhones).toEqual([]);
   });
 
   it('toGroup reads wa_mode; a row without the column is a group row', () => {

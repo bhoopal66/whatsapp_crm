@@ -119,11 +119,16 @@ export function parseListQuery(params: URLSearchParams): ListQuery {
 }
 
 /**
- * The PostgREST `or()` filter for a search: the submission ref contains the
- * term, or the group's contact is one whose name matched it.
+ * The PostgREST `or()` filter for a search: the submission ref or the
+ * tracker's customer name (141) contains the term, or the group's contact
+ * is one whose name matched it. The term is `searchTerm`'s output, so it
+ * carries no `,`, `.`, `(`, `%` or `*`.
  */
 export function searchFilter(term: string, contactIds: readonly string[]) {
-  const parts = [`submission_ref.ilike.*${term}*`];
+  const parts = [
+    `submission_ref.ilike.*${term}*`,
+    `customer_name.ilike.*${term}*`,
+  ];
   if (contactIds.length) parts.push(`contact_id.in.(${contactIds.join(',')})`);
   return parts.join(',');
 }
@@ -234,6 +239,10 @@ export function toListItem(group: SubmissionGroup, refs: ItemRefs) {
     id: group.id,
     submission_ref: group.submissionRef,
     subject: group.subject,
+    /** 141: the company the tracker sent; the screens title a group with it. */
+    customer_name: group.customerName ?? null,
+    /** The tracker's own status word, untranslated. */
+    submission_status: group.submissionStatus,
     status: group.status,
     contact: group.contactId
       ? (refs.contacts.get(group.contactId) ?? null)
@@ -258,8 +267,15 @@ export type ListItem = ReturnType<typeof toListItem>;
 export function toDetailGroup(group: SubmissionGroup, refs: ItemRefs) {
   return {
     ...toListItem(group, refs),
-    submission_status: group.submissionStatus,
     coordinator_phone: group.coordinatorPhone,
+    // 142: every coordinator number in the group, the request's first, each once.
+    coordinator_phones: [
+      ...new Set(
+        [group.coordinatorPhone, ...(group.coordinatorPhones ?? [])].filter(
+          (p): p is string => !!p
+        )
+      ),
+    ],
     invite_link: group.inviteLink,
     wa_group_id: group.waGroupId,
     wa_create_error: group.waCreateError,

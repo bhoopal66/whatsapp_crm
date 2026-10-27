@@ -53,7 +53,7 @@ import type {
 export interface GroupsApi {
   /**
    * `participants` are phone digits (customer first, then the optional
-   * coordinator phone). `idempotencyKey` is the submission group row id.
+   * coordinator phone and the bank's coordinators' numbers). `idempotencyKey` is the submission group row id.
    */
   createGroup(
     channelId: string,
@@ -220,8 +220,12 @@ export class SubmissionGroupService {
     waMode?: WaMode;
     subject: string;
     coordinatorPhone: string | null;
+    /** 142: the bank's coordinators' numbers (digits), added to the WhatsApp group too. */
+    coordinatorPhones?: readonly string[];
     access: readonly { userId: string; label: StaffLabel }[];
     keyId: string | null;
+    /** 141: stored on a new group as its customer name. Ignored for an existing group. */
+    customerName: string | null;
   }): Promise<OpenResult> {
     const { store } = this.deps;
     // An existing group is returned as it stands (its number, mode and list never change here).
@@ -366,8 +370,19 @@ export class SubmissionGroupService {
         await this.releaseClaimQuietly(group.id, token, null);
         return { consentRequired: true };
       }
+      // The customer, then the coordinator numbers. A 142 row's list is already deduped, capped and holds the
+      // request's number; only an older row falls back to its single coordinator_phone. Compared as digits.
       const participants = [consent.phone];
-      if (group.coordinatorPhone) participants.push(group.coordinatorPhone);
+      const seen = [consent.phone.replace(/\D/g, '')];
+      const coordinators = group.coordinatorPhones?.length
+        ? group.coordinatorPhones
+        : [group.coordinatorPhone];
+      for (const p of coordinators) {
+        const d = (p ?? '').replace(/\D/g, '');
+        if (d === '' || seen.includes(d)) continue;
+        seen.push(d);
+        participants.push(p!);
+      }
       made = await api.createGroup(
         channelId,
         participants,

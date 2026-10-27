@@ -49,6 +49,7 @@ class FakeStore implements GroupStore {
       waMode: i.waMode ?? 'group',
       subject: i.subject,
       coordinatorPhone: i.coordinatorPhone,
+      coordinatorPhones: [...(i.coordinatorPhones ?? [])],
       status: 'ACTIVE',
       waGroupId: null,
       inviteLink: null,
@@ -299,7 +300,11 @@ function setup(o: { now?: () => Date; store?: FakeStore; api?: FakeApi } = {}) {
     logger: { warn: () => {} },
     ...(o.now ? { now: o.now } : {}),
   });
-  const open = (ref = 'S-1', coordinatorPhone: string | null = null) =>
+  const open = (
+    ref = 'S-1',
+    coordinatorPhone: string | null = null,
+    coordinatorPhones?: string[]
+  ) =>
     svc.openForSubmission({
       accountId: ACC,
       submissionRef: ref,
@@ -307,8 +312,10 @@ function setup(o: { now?: () => Date; store?: FakeStore; api?: FakeApi } = {}) {
       channelId: CH,
       subject: `Case ${ref}`,
       coordinatorPhone,
+      coordinatorPhones,
       access: ACCESS,
       keyId: null,
+      customerName: null,
     });
   return { store, api, svc, consent, open };
 }
@@ -344,6 +351,44 @@ describe('SubmissionGroupService.openForSubmission', () => {
     expect(again).toMatchObject({ created: false, group: { id: g!.id } });
     expect(s.api.of('createGroup')).toHaveLength(1);
     expect(s.store.groups.size).toBe(1);
+  });
+
+  it("adds the row's coordinator numbers after the customer, in the stored order (142)", async () => {
+    const s = setup();
+    const r = await s.open('S-1', '971500000009', [
+      '971500000009',
+      '971500000007',
+      '971500000008',
+    ]);
+    const g = r.consentRequired ? null : r.group;
+    expect(s.api.of('createGroup')).toEqual([
+      {
+        method: 'createGroup',
+        args: [
+          CH,
+          ['971500000001', '971500000009', '971500000007', '971500000008'],
+          'Case S-1',
+          g!.id,
+        ],
+      },
+    ]);
+  });
+
+  it('never re-adds coordinator_phone beside a full 142 list, nor the customer in + form (142)', async () => {
+    const s = setup();
+    s.consent.answer = { allowed: true, phone: '+971500000001' };
+    const five = [2, 3, 4, 5, 6].map((n) => `97150000000${n}`);
+    const r = await s.open('S-1', '971500000009', five);
+    const g = r.consentRequired ? null : r.group;
+    expect(s.api.of('createGroup')[0].args[1]).toEqual([
+      '+971500000001',
+      ...five,
+    ]);
+    expect(g).toBeTruthy();
+    const old = setup();
+    old.consent.answer = { allowed: true, phone: '+971500000001' };
+    await old.open('S-2', '971500000001');
+    expect(old.api.of('createGroup')[0].args[1]).toEqual(['+971500000001']);
   });
 
   it('consent refused: no row and no gateway call', async () => {
@@ -951,6 +996,7 @@ describe('a submission without a WhatsApp group (136, waMode none)', () => {
       coordinatorPhone: '971500000009',
       access: ACCESS,
       keyId: null,
+      customerName: null,
     });
   const openedNone = async (s: ReturnType<typeof setup>) => {
     const r = await openNone(s);

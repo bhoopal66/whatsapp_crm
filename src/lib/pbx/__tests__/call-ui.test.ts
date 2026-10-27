@@ -48,6 +48,7 @@ import {
   readRecentDials,
   RECENT_DIALS_MAX,
 } from '../call-ui';
+import { internalCallParty } from '../call-ui';
 import { ACCOUNT_ROLES } from '@/lib/auth/roles';
 
 const ME = 'u-me';
@@ -581,14 +582,14 @@ describe('callBackFor', () => {
 });
 
 describe('the Calls screen tabs', () => {
-  it('offers My calls first to everyone, Team / All calls to leaders and up, By person to leaders and up, Unrouted to owners and admins', () => {
+  it('offers My calls first to everyone, Team / All calls and By person to leaders and up', () => {
     const tabs = Object.fromEntries(
       ACCOUNT_ROLES.map((r) => [r, visibleCallTabs(r).join(',')])
     );
     expect(tabs).toEqual({
-      owner: 'mine,missed,log,people,unrouted,groups',
-      admin: 'mine,missed,log,people,unrouted,groups',
-      team_leader: 'mine,missed,log,people,groups',
+      owner: 'mine,missed,log,people',
+      admin: 'mine,missed,log,people',
+      team_leader: 'mine,missed,log,people',
       agent: 'mine,missed',
       viewer: 'mine,missed',
       bank_guest: 'mine,missed',
@@ -613,14 +614,13 @@ describe('the Calls screen tabs', () => {
   it('offers no keypad while calling from the CRM is off', () => {
     for (const r of [...ACCOUNT_ROLES, null])
       expect(visibleCallTabs(r, true, false)).not.toContain('keypad');
-    expect(visibleCallTabs('agent', true, false).slice(0, 3)).toEqual([
+    expect(visibleCallTabs('agent', true, false)).toEqual([
       'mine',
-      'colleagues',
       'missed',
+      'voicemail',
     ]);
     expect(shownCallsTab('keypad', 'owner', false)).toBe('mine');
     expect(shownCallsTab('keypad', null, false)).toBe('mine');
-    expect(shownCallsTab('colleagues', 'agent', false)).toBe('colleagues');
     expect(shownCallsTab('voicemail', 'agent', false)).toBe('voicemail');
   });
 
@@ -637,25 +637,23 @@ describe('the Calls screen tabs', () => {
     }
   });
 
-  it('offers Colleagues after the keypad, on the same terms', () => {
-    expect(visibleCallTabs('agent', true, true).slice(0, 4)).toEqual([
+  it('no longer offers Colleagues, Unrouted, or Groups & queues (2026-10-27)', () => {
+    for (const r of [...ACCOUNT_ROLES, null])
+      for (const phone of [true, false])
+        for (const k of ['colleagues', 'unrouted', 'groups'] as const)
+          expect(visibleCallTabs(r, phone, true)).not.toContain(k);
+    // An old link opens My calls, whatever the role, known or not.
+    for (const k of ['colleagues', 'unrouted', 'groups'] as const) {
+      expect(callsTab(k)).toBe(k);
+      for (const r of ['owner', 'team_leader', 'agent', null] as const)
+        expect(shownCallsTab(k, r)).toBe('mine');
+    }
+    expect(visibleCallTabs('agent', true, true)).toEqual([
       'mine',
       'keypad',
-      'colleagues',
       'missed',
+      'voicemail',
     ]);
-    expect(visibleCallTabs('owner', true)).toContain('colleagues');
-    expect(visibleCallTabs('viewer', true)).not.toContain('colleagues');
-    expect(visibleCallTabs('bank_guest', true)).not.toContain('colleagues');
-    expect(visibleCallTabs(null, true)).not.toContain('colleagues');
-    expect(visibleCallTabs('agent', false)).not.toContain('colleagues');
-    expect(callsTab('colleagues')).toBe('colleagues');
-    expect(callsListReady('colleagues', 'agent')).toBe(false);
-    expect(callsListReady('colleagues', null)).toBe(false);
-    expect(shownCallsTab('colleagues', 'agent')).toBe('colleagues');
-    expect(shownCallsTab('colleagues', 'viewer')).toBe('mine');
-    expect(shownCallsTab('colleagues', 'bank_guest')).toBe('mine');
-    expect(shownCallsTab('colleagues', null)).toBe('colleagues');
   });
 
   it('offers Voicemail to agents with an extension, last but one', () => {
@@ -668,22 +666,6 @@ describe('the Calls screen tabs', () => {
     expect(shownCallsTab('voicemail', 'agent')).toBe('voicemail');
     expect(shownCallsTab('voicemail', 'viewer')).toBe('mine');
     expect(shownCallsTab('voicemail', null)).toBe('voicemail');
-  });
-
-  it('offers Groups to agents with an extension and leaders without', () => {
-    expect(visibleCallTabs('agent', true).slice(-2)).toEqual([
-      'voicemail',
-      'groups',
-    ]);
-    expect(visibleCallTabs('agent', false)).not.toContain('groups');
-    expect(visibleCallTabs('team_leader', false)).toContain('groups');
-    expect(visibleCallTabs('admin', false)).toContain('groups');
-    expect(visibleCallTabs('viewer', true)).not.toContain('groups');
-    expect(visibleCallTabs('bank_guest', true)).not.toContain('groups');
-    expect(visibleCallTabs(null, true)).not.toContain('groups');
-    expect(callsListReady('groups', 'team_leader')).toBe(false);
-    expect(shownCallsTab('groups', 'agent')).toBe('groups');
-    expect(shownCallsTab('groups', 'viewer')).toBe('mine');
   });
 
   it('reads ?tab=, anything else being My calls', () => {
@@ -705,23 +687,18 @@ describe('the Calls screen tabs', () => {
   });
 
   it('shows My calls when a link names a tab the role is not offered', () => {
-    expect(shownCallsTab('unrouted', 'team_leader')).toBe('mine');
-    expect(shownCallsTab('unrouted', 'agent')).toBe('mine');
-    expect(shownCallsTab('unrouted', 'viewer')).toBe('mine');
     expect(shownCallsTab('people', 'agent')).toBe('mine');
     expect(shownCallsTab('people', 'viewer')).toBe('mine');
     expect(shownCallsTab('log', 'agent')).toBe('mine');
     expect(shownCallsTab('log', 'viewer')).toBe('mine');
     expect(shownCallsTab('log', 'bank_guest')).toBe('mine');
     // The tabs a role is offered stand.
-    expect(shownCallsTab('unrouted', 'admin')).toBe('unrouted');
-    expect(shownCallsTab('unrouted', 'owner')).toBe('unrouted');
     expect(shownCallsTab('people', 'team_leader')).toBe('people');
     expect(shownCallsTab('log', 'team_leader')).toBe('log');
     expect(shownCallsTab('log', 'admin')).toBe('log');
     expect(shownCallsTab('missed', 'agent')).toBe('missed');
     // Before the role is known the request stands (the API decides).
-    expect(shownCallsTab('unrouted', null)).toBe('unrouted');
+    expect(shownCallsTab('log', null)).toBe('log');
   });
 
   it('reaches past My calls by role, and words the supervisor tab by it', () => {
@@ -809,5 +786,46 @@ describe('dialling from the app', () => {
       '201',
       '+97150',
     ]);
+  });
+});
+
+describe('internalCallParty: who a call between colleagues was with', () => {
+  const sara = { extension: '2122', userId: 'u-sara', name: 'Sara' };
+  const ali = { extension: '2100', userId: 'u-ali', name: 'Ali' };
+  const party = { from: sara, to: ali };
+
+  it('names the other end to the person on either end', () => {
+    expect(internalCallParty(party, 'u-sara')).toEqual({
+      kind: 'one',
+      who: { name: 'Ali' },
+    });
+    // The case reported on live: someone else's extension calling me
+    // showed my own name.
+    expect(internalCallParty(party, 'u-ali')).toEqual({
+      kind: 'one',
+      who: { name: 'Sara' },
+    });
+  });
+
+  it('names an unmapped caller by extension, never the viewer', () => {
+    const unmapped = { extension: '2122', userId: null, name: null };
+    expect(internalCallParty({ from: unmapped, to: ali }, 'u-ali')).toEqual({
+      kind: 'one',
+      who: { extension: '2122' },
+    });
+  });
+
+  it("shows both ends to a leader looking at two others' call", () => {
+    expect(internalCallParty(party, 'u-lead')).toEqual({
+      kind: 'pair',
+      from: { name: 'Sara' },
+      to: { name: 'Ali' },
+    });
+  });
+
+  it('gives nothing when neither end is known', () => {
+    const none = { extension: null, userId: null, name: null };
+    expect(internalCallParty({ from: none, to: none }, 'u-sara')).toBeNull();
+    expect(internalCallParty(undefined, 'u-sara')).toBeNull();
   });
 });

@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Search, X } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -14,8 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { openDm, type ChatPerson } from '@/lib/chat';
+import { dmPeers, openDm, type ChatPerson } from '@/lib/chat';
 import {
+  allowedDmCandidates,
   dmCandidates,
   DM_MAX_OTHERS,
   filterPeople,
@@ -157,9 +158,26 @@ function DmPickerBody({ onDone }: { onDone: () => void }) {
   const ws = useChatWorkspaceContext();
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const candidates = useMemo(
-    () => dmCandidates(ws.people, ws.userId),
-    [ws.people, ws.userId]
+  // Whom the workspace's DM rules (143) let the caller message. null
+  // until loaded, and on failure: then everyone is listed and the
+  // server refuses what the rules do not allow.
+  const [peers, setPeers] = useState<string[] | null>(null);
+  const [peersSettled, setPeersSettled] = useState(false);
+  useEffect(() => {
+    if (!ws.accountId) return;
+    let off = false;
+    dmPeers(ws.sb, ws.accountId)
+      .then((ids) => !off && setPeers(ids))
+      .catch(() => {})
+      .finally(() => !off && setPeersSettled(true));
+    return () => {
+      off = true;
+    };
+  }, [ws.sb, ws.accountId]);
+  const peersLoading = !!ws.accountId && !peersSettled;
+  const { people: candidates, hidden } = useMemo(
+    () => allowedDmCandidates(dmCandidates(ws.people, ws.userId), peers),
+    [ws.people, ws.userId, peers]
   );
 
   const open = async () => {
@@ -187,13 +205,26 @@ function DmPickerBody({ onDone }: { onDone: () => void }) {
           {t('subtitle', { max: DM_MAX_OTHERS })}
         </DialogDescription>
       </DialogHeader>
-      <PeoplePicker
-        candidates={candidates}
-        picked={picked}
-        onChange={setPicked}
-        max={DM_MAX_OTHERS}
-        autoFocus
-      />
+      {peersLoading ? (
+        <p
+          className="text-muted-foreground flex items-center gap-2 py-6 text-sm"
+          role="status"
+        >
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          {t('peersLoading')}
+        </p>
+      ) : (
+        <PeoplePicker
+          candidates={candidates}
+          picked={picked}
+          onChange={setPicked}
+          max={DM_MAX_OTHERS}
+          autoFocus
+        />
+      )}
+      {hidden > 0 && (
+        <p className="text-muted-foreground text-xs">{t('hiddenByRules')}</p>
+      )}
       <DialogFooter>
         <Button variant="outline" onClick={onDone}>
           {t('cancel')}

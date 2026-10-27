@@ -32,7 +32,6 @@
     "settings": "Settings",
     "beta": "Beta",
     "unreadConversations": "{count} unread {count, plural, =1 {conversation} other {conversations}}",
-    "unreadNotifications": "{count} unread {count, plural, =1 {notification} other {notifications}}",
     "roleOwner": "Owner",
     "roleAdmin": "Admin",
     "roleAgent": "Agent",
@@ -69,7 +68,8 @@
     "whatsappGroups": "WhatsApp groups",
     "submissionGroups": "Submission groups",
     "cases": "Cases",
-    "banks": "Banks"
+    "banks": "Banks",
+    "opendesk": "OpenDesk"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -104,7 +104,23 @@
     "submissionGroup": "Submission group",
     "cases": "Cases",
     "banks": "Banks",
-    "bank": "Bank"
+    "bank": "Bank",
+    "opendesk": "OpenDesk"
+  },
+  "Notifications": {
+    "title": "Notifications",
+    "description": "Conversations other teammates assign to you show up here, and for admins, alerts when a WhatsApp number goes offline.",
+    "bellLabel": "Notifications, {count, plural, =0 {none unread} =1 {1 unread} other {# unread}}",
+    "markAllRead": "Mark all as read",
+    "markReadFailed": "Failed to mark notification as read",
+    "markAllReadFailed": "Failed to mark all as read",
+    "emptyTitle": "No notifications yet",
+    "emptyBody": "You'll see an alert here when someone assigns you a conversation.",
+    "loading": "Loading notifications",
+    "loadFailed": "Couldn't load notifications.",
+    "retry": "Retry",
+    "unread": "Unread",
+    "viewAll": "View all"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -318,6 +334,29 @@
       "contactShared": "Contact shared",
       "forwarded": "Forwarded"
     },
+    "voice": {
+      "play": "Play voice message",
+      "pause": "Pause voice message",
+      "seek": "Voice message position",
+      "speed": "Playback speed {rate}",
+      "voiceMessage": "Voice message",
+      "cannotPlay": "Can't play this voice message",
+      "recordingLabel": "Recording",
+      "discardRecording": "Discard recording",
+      "sendVoice": "Send voice message",
+      "limit": "{max} max",
+      "download": "Download"
+    },
+    "sender": {
+      "me": "{name} (you)",
+      "unknown": "Unknown agent",
+      "ai": "AI assistant",
+      "aiTitle": "Sent automatically by the AI assistant",
+      "bot": "Bot",
+      "botTitle": "Sent by a flow, an automation or the journey bot",
+      "team": "Team",
+      "teamTitle": "No person is recorded for this message: a Compass notification, a public API send, or a reply from before replies were credited to a person"
+    },
     "mediaViewer": {
       "counter": "{index} of {total}",
       "previous": "Previous",
@@ -328,8 +367,7 @@
       "download": "Download",
       "downloadFailed": "Couldn't download the attachment",
       "failed": "This attachment is no longer available",
-      "imageAlt": "Shared image",
-      "you": "You"
+      "imageAlt": "Shared image"
     },
     "actions": {
       "reply": "Reply",
@@ -1538,7 +1576,7 @@
   },
   "Settings": {
     "pageTitle": "Settings",
-    "pageDesc": "Everything in one place — your account and your workspace. Pick a section to manage it.",
+    "pageDesc": "Your account and your workspace, in one place. Pick a section from the menu, or search for a setting.",
     "leaveGuard": {
       "title": "Leave without saving?",
       "body": "You have unsaved changes in AI Agents. They will be lost.",
@@ -1560,10 +1598,12 @@
       "loading": "Loading…",
       "aiOff": "Assistant off",
       "aiOn": "Assistant on · auto-reply off",
-      "aiAutoReply": "Assistant on · auto-reply on"
+      "aiAutoReply": "Assistant on · auto-reply on",
+      "editProfile": "Edit profile",
+      "changePassword": "Change password"
     },
     "workspace": {
-      "title": "Workspace",
+      "title": "General",
       "description": "This workspace's name, and the short name on its tile in Settings → Workspaces. Everyone in the workspace sees the change.",
       "nameLabel": "Workspace name",
       "shortNameLabel": "Short name",
@@ -1583,7 +1623,7 @@
         "description": "Close this workspace without deleting anything. Nobody can open it until an owner restores it.",
         "open": "Archive workspace…",
         "dialogTitle": "Archive {name}?",
-        "dialogDescription": "Nothing is deleted. An owner can restore it later from Settings → Workspace in another workspace.",
+        "dialogDescription": "Nothing is deleted. An owner can restore it later from Settings → Workspace → General in another workspace.",
         "happensTitle": "What happens",
         "happens": {
           "moved": "Everyone working here, you included, is moved to another of their workspaces.",
@@ -1660,7 +1700,24 @@
       "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. Their role, assigned chats and history stay as they are.",
       "deactivating": "Deactivating...",
       "deactivateBtn": "Deactivate",
-      "bankCode": "Bank: {code}"
+      "bankCode": "Bank: {code}",
+      "password": {
+        "button": "Change password",
+        "title": "Change {name}'s password",
+        "description": "They sign in with this password from now on. Pass it on to them; they can change it later in Settings → Login & security.",
+        "label": "New password",
+        "regenerate": "Suggest another",
+        "hint": "At least {min} characters. It is shown so you can pass it on.",
+        "problem": {
+          "required": "Enter a password.",
+          "tooShort": "Use at least {min} characters.",
+          "tooLong": "That is too long: at most 72 bytes, so fewer characters with accents or emoji."
+        },
+        "cancel": "Cancel",
+        "save": "Change password",
+        "done": "Password changed for {name}.",
+        "failed": "Could not change the password. Try again."
+      }
     },
     "invite": {
       "inviteCreated": "Invite created",
@@ -2128,7 +2185,7 @@
       "chat-tags": "Chat tags",
       "quick-replies": "Quick replies",
       "fields": "Custom fields",
-      "workspace": "Workspace",
+      "workspace": "General",
       "members": "Members",
       "teams": "Teams",
       "ai": "AI Agents",
@@ -2146,11 +2203,91 @@
     "categories": {
       "overview": "Overview",
       "account": "My account",
+      "workspace": "Workspace",
       "whatsapp": "WhatsApp",
-      "inbox": "Inbox",
-      "team": "Team",
-      "ai": "AI Agents",
+      "inbox": "Inbox & CRM",
+      "automation": "AI & automation",
+      "collaboration": "Cases & collaboration",
+      "compliance": "Privacy & compliance",
       "integrations": "Integrations"
+    },
+    "categoryHints": {
+      "overview": "Status at a glance, and a map of every setting.",
+      "account": "Your own profile, sign-in and preferences.",
+      "workspace": "The workspace and the people in it.",
+      "whatsapp": "Your numbers and what goes out on them.",
+      "inbox": "How chats, contacts and deals are organised.",
+      "automation": "The AI assistant and the journey bot.",
+      "collaboration": "Bank cases, deal rooms and team chat.",
+      "compliance": "Sensitive data, consent and the audit trail.",
+      "integrations": "Outside systems: the phone system and the API."
+    },
+    "hints": {
+      "overview": "Status at a glance, and a map of every setting.",
+      "profile": "Your name, photo and how teammates see you.",
+      "security": "Change your password and sign out of your devices.",
+      "notifications": "Push notifications on this device, and which ones you get.",
+      "appearance": "Light or dark mode and the accent colour, on this device.",
+      "workspaces": "The workspaces you belong to, and switching between them.",
+      "workspace": "This workspace's name and short name, and archiving it.",
+      "members": "Invite people and manage who has access.",
+      "teams": "Group people under a leader and give teams their numbers.",
+      "whatsapp": "Connect your Whapi numbers and the Meta Cloud API number.",
+      "numbers": "Name each number, pick the default and choose who works it.",
+      "routing": "Which number sends broadcasts, automations and flows.",
+      "templates": "Message templates and their Meta approval status.",
+      "costs": "What the Meta number costs per delivered message.",
+      "chat-tags": "Colour-coded tags and sub-tags for chats.",
+      "quick-replies": "Saved replies agents insert from the composer.",
+      "fields": "Extra fields on every contact, such as lead source.",
+      "deals": "The currency of deals and of pipeline totals.",
+      "ai": "The AI assistant, auto-reply, knowledge and safety checks.",
+      "journey-bot": "The Welcome to Close bot: its templates and messages.",
+      "cases": "Banks, stages, task templates, documents and SLA timers.",
+      "deal-rooms": "The template that invites people to a deal room.",
+      "team-chat": "Turn team chat on or off, who may message whom, audited reads and erasure.",
+      "vault": "Sensitive customer numbers and who may reveal them.",
+      "consent-retention": "Bank guests and call recording per bank, and retention.",
+      "audit-log": "Who did what: access, reads, erasures and changes.",
+      "phone-system": "The Yeastar PBX: extensions, recording and call outcomes.",
+      "api": "Keys for the public REST API and your own integrations."
+    },
+    "keywords": {
+      "overview": "home dashboard status summary start",
+      "profile": "name photo avatar picture display name email",
+      "security": "password sign in login log out logout sessions devices sign out everywhere",
+      "notifications": "push alerts browser bell sound quiet hours mobile phone",
+      "appearance": "theme dark mode light mode colour color accent look",
+      "workspaces": "switch account organisation organization create workspace",
+      "workspace": "workspace name rename short name tile archive restore general",
+      "members": "users people staff invite invitation link login role admin agent viewer team leader deactivate remove",
+      "teams": "team leader group allocate numbers",
+      "whatsapp": "whapi meta cloud api connect token qr webhook channel number phone connection media",
+      "numbers": "phone numbers default primary access allocation who can send label",
+      "routing": "route broadcast automation flow which number sends",
+      "templates": "message template meta approval approved pending sync marketing utility",
+      "costs": "billing spend price cost pricing meta invoice money",
+      "chat-tags": "tags labels status interested sub-tag colour color",
+      "quick-replies": "canned responses snippets saved replies shortcuts macros",
+      "fields": "custom fields contact properties attributes data",
+      "deals": "currency aed usd pipelines money totals",
+      "ai": "artificial intelligence bot chatbot assistant auto reply knowledge base openai anthropic model gpt claude safety typesafe guardrail playground usage approved answers",
+      "journey-bot": "journey bot welcome to close workflow automation",
+      "cases": "bank banks stages sla documents tasks submissions applications coordinators",
+      "deal-rooms": "deal room group invite whatsapp group bank officers",
+      "team-chat": "internal chat channels messages erase audit private direct messages dm who can message rules agents team leader",
+      "vault": "sensitive data emirates id card iban encryption reveal secure",
+      "consent-retention": "consent privacy retention recordings erase gdpr bank guests delete",
+      "audit-log": "audit history log activity who did what compliance",
+      "phone-system": "pbx yeastar calls telephone extensions recordings softphone call outcomes",
+      "api": "api keys developer rest integration token bearer automation webhooks"
+    },
+    "nav": {
+      "label": "Settings menu",
+      "search": "Search settings",
+      "results": "Matching settings",
+      "noResults": "No settings match your search.",
+      "allSettings": "All settings"
     },
     "profile": {
       "title": "Your profile",
@@ -2875,6 +3012,35 @@
         "turnedOn": "Team chat is on.",
         "turnedOff": "Team chat is off. History stays readable for owners and admins."
       },
+      "dm": {
+        "title": "Direct messages",
+        "description": "Choose who may start or keep a direct message with whom, by role. A rule works both ways: changing Agents → Team leaders also changes Team leaders → Agents.",
+        "ownerNote": "Owners can always message everyone. A DM that a rule now blocks is hidden from its members and can't be written in, but it isn't deleted: relaxing the rule shows it again.",
+        "canMessage": "Can message:",
+        "classes": {
+          "admin": "Admins",
+          "team_leader": "Team leaders",
+          "coordinator": "Coordinators",
+          "agent": "Agents",
+          "viewer": "Viewers"
+        },
+        "scopes": {
+          "none": "Not allowed",
+          "team": "Same team only",
+          "all": "Everyone"
+        },
+        "scopeLabel": "{from} → {to}",
+        "recommended": "Use recommended",
+        "recommendedHint": "Recommended: agents and viewers message only their own team leader, admins and coordinators, not each other.",
+        "allowAll": "Allow everyone",
+        "save": "Save",
+        "saved": "Direct message rules saved.",
+        "saveFailed": "Couldn't save the direct message rules.",
+        "unsaved": "Unsaved changes",
+        "loading": "Loading rules…",
+        "loadFailed": "Couldn't load the direct message rules.",
+        "retry": "Try again"
+      },
       "read": {
         "title": "Read a private channel (audited)",
         "description": "Private channels, DMs and deal rooms you are not in are hidden from you. An owner or admin can read one with a reason.",
@@ -3282,7 +3448,8 @@
           "team_chat_enabled": "Turned team chat on",
           "team_chat_disabled": "Turned team chat off",
           "workspace_archived": "Archived the workspace",
-          "workspace_restored": "Restored the workspace"
+          "workspace_restored": "Restored the workspace",
+          "password_changed": "Changed a password"
         },
         "team_chat": {
           "admin_read_private": "Read a private channel",
@@ -3371,7 +3538,7 @@
         "submission": "Submission ID",
         "customer": "Customer",
         "bank": "Bank",
-        "stage": "Stage",
+        "status": "Status",
         "group": "Group",
         "synced": "Last synced from Compass",
         "case": "Case"
@@ -3427,6 +3594,46 @@
       "delivered": "Delivered",
       "read": "Read",
       "failed": "Not delivered"
+    }
+  },
+  "OpenDesk": {
+    "title": "OpenDesk",
+    "subtitle": "Contacts the Taamul sales app (OpenDesk) marked as Interested, with the agent, the call and the lead. Read-only — OpenDesk is the system of record, and each new mark updates the row. Kept apart from your CRM contacts.",
+    "searchPlaceholder": "Search by name, company, phone, licence or agent",
+    "totalContacts": "{count, plural, one {# contact} other {# contacts}}",
+    "noContacts": "No contacts yet. They arrive when an agent marks a contact Interested in OpenDesk — see docs/taamul-sales.md.",
+    "noMatches": "No contacts match this search.",
+    "loadFailed": "Could not load OpenDesk contacts. Reload the page to try again.",
+    "loadMore": "Load more",
+    "noLead": "No lead",
+    "morePhones": "{count, plural, one {+# more} other {+# more}}",
+    "times": "{count, plural, one {# time} other {# times}}",
+    "interestedSince": "{count, plural, one {# time} other {# times}}, first on {since}",
+    "yes": "Yes",
+    "no": "No",
+    "table": {
+      "customer": "Customer",
+      "phone": "Phone",
+      "tradeLicense": "Trade licence",
+      "agent": "Agent",
+      "notes": "Call notes",
+      "lead": "Lead",
+      "interested": "Marked interested"
+    },
+    "details": {
+      "company": "Company",
+      "phones": "Phones",
+      "tradeLicense": "Trade licence",
+      "industry": "Industry",
+      "location": "Area / city",
+      "existingCustomer": "Existing customer",
+      "agent": "Agent",
+      "team": "Team",
+      "calledAt": "Called",
+      "lead": "Lead",
+      "interested": "Marked interested",
+      "openDeskId": "OpenDesk ID",
+      "notes": "Call notes"
     }
   },
   "TeamActivity": {
@@ -4087,7 +4294,8 @@
       "nameLength": "A channel name is 1 to 80 characters.",
       "topicLength": "A topic can be at most 250 characters.",
       "removeSelf": "To leave a channel yourself, use Leave channel.",
-      "notManageable": "Direct messages and deal rooms can't be managed here."
+      "notManageable": "Direct messages and deal rooms can't be managed here.",
+      "dmNotAllowed": "Direct messages between these people are turned off in this workspace."
     },
     "composer": {
       "helperChannel": "Message #{name} — internal only. Type @ to mention someone.",
@@ -4212,7 +4420,9 @@
       "title": "New message",
       "subtitle": "Choose up to {max} people. Internal only.",
       "open": "Open",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "hiddenByRules": "Some people aren't shown because of your workspace's message rules.",
+      "peersLoading": "Checking who you can message…"
     },
     "newChannel": {
       "title": "New channel or group",
@@ -4577,7 +4787,7 @@
       "mentions": "{count, plural, one {# mention} other {# mentions}}",
       "unread": "Unread messages",
       "archived": "Archived",
-      "archivedHint": "Nobody can enter it until it is restored in Settings → Workspace."
+      "archivedHint": "Nobody can enter it until it is restored in Settings → Workspace → General."
     },
     "bell": {
       "unknown": "Another workspace",
@@ -5004,6 +5214,8 @@
     "emptyMyMissed": "No missed calls of yours in the last 7 days",
     "emptyLog": "No calls yet",
     "unknownCaller": "Unknown caller",
+    "colleagueExtension": "Ext {extension}",
+    "colleaguePair": "{from} → {to}",
     "taskOpen": "Task open",
     "taskDone": "Task done",
     "loadFailed": "Couldn't load calls",
@@ -6060,6 +6272,8 @@
         "empty": "No messages yet.",
         "loadOlder": "Load older messages",
         "someone": "Someone",
+        "me": "{name} (you)",
+        "yourNumber": "Your number",
         "attachment": "Attachment",
         "placeholder": "Write a message",
         "send": "Send"
@@ -6211,8 +6425,49 @@
         "save": "Save managers",
         "saved": "Managers updated.",
         "loadFailed": "Couldn't load the managers."
-      }
-    }
+      },
+      "info": "Group info",
+      "closeInfo": "Close group info",
+      "number": "Number",
+      "createdAt": "Created",
+      "syncedAt": "Last synced",
+      "lastMessageAt": "Last message",
+      "leftAt": "Left the group",
+      "never": "Never",
+      "sections": {
+        "members": "Members",
+        "invite": "Invite link",
+        "requests": "Join requests",
+        "settings": "Group settings",
+        "managers": "Managers"
+      },
+      "leaveHint": "Your number leaves the WhatsApp group. Messages already here stay.",
+      "deleteFromCrm": "Delete from CRM",
+      "deleteHint": "You left this group. Deleting removes it and its saved messages from the CRM; WhatsApp is not affected.",
+      "deleteTitle": "Delete this group from the CRM?",
+      "deleteBody": "\"{name}\" and its saved messages are removed from the CRM. WhatsApp is not affected. This cannot be undone.",
+      "deleted": "Group deleted from the CRM",
+      "deleteFailed": "Couldn't delete the group: {reason}"
+    },
+    "listCount": "{count, plural, =1 {# group} other {# groups}}",
+    "filters": {
+      "label": "Filter groups",
+      "all": "All",
+      "admin": "I'm admin",
+      "left": "Left",
+      "number": "Filter by number",
+      "allNumbers": "All numbers"
+    },
+    "noFilterMatches": "No groups match these filters.",
+    "selectTitle": "Select a group",
+    "selectBody": "Pick a group on the left to read its chat, see its members and manage it.",
+    "deleteLeft": "Delete all left groups ({count})",
+    "deletingLeft": "Deleting…",
+    "deleteLeftTitle": "Delete {count, plural, =1 {# left group} other {# left groups}}?",
+    "deleteLeftBody": "Your number has left {count, plural, =1 {this group} other {these # groups}}. Deleting removes {count, plural, =1 {it} other {them}} and the saved messages from the CRM; WhatsApp is not affected. This cannot be undone.",
+    "deleteLeftConfirm": "Delete from CRM",
+    "deleteLeftDone": "Deleted {count, plural, =1 {# group} other {# groups}}",
+    "deleteLeftFailed": "Couldn't delete the groups: {reason}"
   },
   "SubmissionGroups": {
     "title": "Submission groups",
@@ -6349,7 +6604,58 @@
       "retryBody": "We will ask WhatsApp to create the group again.",
       "retryDone": "Asked WhatsApp to create the group again.",
       "retryFailed": "Could not retry.",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "backToList": "Back to submission groups",
+      "untitled": "Untitled submission",
+      "contactLine": "Contact: <link>{name}</link>",
+      "contactDeleted": "Contact deleted",
+      "refLabel": "Ref",
+      "copyRef": "Copy the full reference",
+      "refCopied": "Reference copied",
+      "copyFailed": "Could not copy",
+      "openedOn": "Opened {when}",
+      "lastActivity": "Last activity {when}",
+      "justNow": "just now",
+      "moreActions": "More actions",
+      "showDetails": "Details",
+      "chatRegion": "Group chat",
+      "noGroupTitle": "No WhatsApp group for this submission",
+      "noGroupBody": "It is tracked here without a group. Talk to the customer from their chat.",
+      "openCustomer": "Open customer"
+    },
+    "list": {
+      "navLabel": "Submissions",
+      "search": "Search company, contact or reference",
+      "count": "{count, plural, one {# submission} other {# submissions}}",
+      "countMore": "{count, plural, one {#+ submission} other {#+ submissions}}",
+      "myGroups": "My groups",
+      "myGroupsHint": "Show only the submissions you are on",
+      "contactLine": "Contact: {name}",
+      "untitled": "Unnamed submission",
+      "emptyMineTitle": "None of these are yours",
+      "emptyMineBody": "You are not on any of the submissions loaded so far. Turn off My groups to see them all.",
+      "selectTitle": "Select a submission",
+      "selectBody": "Choose one from the list to see its details, people and messages."
+    },
+    "details": {
+      "title": "Details",
+      "reference": "Reference",
+      "subject": "Subject",
+      "trackerStatus": "Tracker status",
+      "groupStatus": "Group status",
+      "whatsapp": "WhatsApp group",
+      "whatsappNone": "None — tracked without a group",
+      "whatsappReady": "Created",
+      "whatsappPending": "Being created",
+      "whatsappFailed": "Could not be created",
+      "opened": "Opened",
+      "lastActivity": "Last activity",
+      "ended": "Ended",
+      "endReason": "Reason",
+      "coordinatorPhone": "Coordinator phone",
+      "number": "WhatsApp number",
+      "invite": "Invite link",
+      "notSet": "—"
     }
   },
   "CallStatsPage": {
@@ -6528,7 +6834,10 @@
       "show": "More details",
       "hide": "Fewer details"
     },
-    "exportCsv": "Export (CSV)"
+    "exportCsv": "Export (CSV)",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "updatedAt": "Updated {time}"
   },
   "Cases": {
     "title": "Cases",
@@ -6586,6 +6895,7 @@
       "overdueTasks": "{count, plural, =1 {1 overdue task} other {# overdue tasks}}"
     },
     "noCustomer": "No customer",
+    "contactPerson": "Contact: {name}",
     "noBank": "No bank",
     "unassigned": "Unassigned",
     "noCoordinator": "No coordinator",
@@ -6653,6 +6963,7 @@
     "loadFailed": "The case could not be loaded.",
     "retry": "Try again",
     "untitled": "Case",
+    "contactPerson": "Contact: {name}",
     "ref": "Ref {ref}",
     "due": "Due {when}",
     "people": "Agent: {agent} · Coordinator: {coordinator}",
@@ -7703,7 +8014,11 @@
       "saving": "Saving…",
       "cancel": "Cancel",
       "saved": "Coordinator banks saved.",
-      "saveError": "Could not save coordinator banks."
+      "saveError": "Could not save coordinator banks.",
+      "phoneLabel": "WhatsApp number",
+      "phoneHelp": "Added to the WhatsApp group of every submission for this person's banks.",
+      "phoneInvalid": "Enter a valid phone number with country code, e.g. +971 50 123 4567.",
+      "phonePlaceholder": "+971 50 123 4567"
     }
   },
   "ContextMenu": {

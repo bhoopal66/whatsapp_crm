@@ -22,7 +22,11 @@ export interface SubmissionGroup {
   /** 'none': the CRM record of a submission with no WhatsApp group, ever (136). Frozen. */
   waMode: WaMode;
   subject: string;
+  /** 141: the company the submission tracker sent as customer.name; display only, NULL = not sent. Optional so fixtures predating 141 still type-check; toGroup always sets it. */
+  customerName?: string | null;
   coordinatorPhone: string | null;
+  /** 142: the bank's coordinators' WhatsApp numbers (digits) added at creation, with the request's coordinator_phone. Optional so older fixtures still type-check; toGroup always sets it. */
+  coordinatorPhones?: string[];
   status: GroupStatus;
   waGroupId: string | null;
   inviteLink: string | null;
@@ -72,7 +76,7 @@ export interface ConsentAnswer {
 }
 
 export const GROUP_COLUMNS =
-  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode';
+  'id, account_id, submission_ref, contact_id, channel_id, subject, coordinator_phone, status, wa_group_id, invite_link, submission_status, created_at, last_activity_at, ended_at, end_reason, wa_create_error, wa_closed_at, wa_close_error, invite_sent_at, invite_send_error, wa_mode, customer_name, coordinator_phones';
 
 type Row = Record<string, unknown>;
 
@@ -94,7 +98,11 @@ export function toGroup(r: Row): SubmissionGroup {
     // this code needs migration 136 applied first (PostgREST refuses the column).
     waMode: r.wa_mode === 'none' ? 'none' : 'group',
     subject: String(r.subject ?? ''),
+    customerName: str(r.customer_name)?.trim() || null,
     coordinatorPhone: str(r.coordinator_phone),
+    coordinatorPhones: Array.isArray(r.coordinator_phones)
+      ? r.coordinator_phones.map(String)
+      : [],
     status: r.status as GroupStatus,
     waGroupId: str(r.wa_group_id),
     inviteLink: str(r.invite_link),
@@ -174,8 +182,12 @@ export class SubmissionGroupStore {
     waMode?: WaMode;
     subject: string;
     coordinatorPhone: string | null;
+    /** 142: every coordinator number (digits) to add to the WhatsApp group; default none. */
+    coordinatorPhones?: readonly string[];
     access: readonly { userId: string; label: StaffLabel }[];
     keyId: string | null;
+    /** 141: the request's customer.name, kept on the group for display; the contact is not renamed. */
+    customerName: string | null;
   }): Promise<{ groupId: string; created: boolean }> {
     const data = await this.rpc<Row[] | Row>('sg_open', {
       p_account: input.accountId,
@@ -190,6 +202,8 @@ export class SubmissionGroupStore {
       })),
       p_key: input.keyId,
       p_wa_mode: input.waMode ?? 'group',
+      p_customer_name: input.customerName,
+      p_coordinator_phones: [...(input.coordinatorPhones ?? [])],
     });
     const row = Array.isArray(data) ? data[0] : data;
     if (!row) throw new Error('sg_open returned no row');

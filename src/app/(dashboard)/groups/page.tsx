@@ -1,6 +1,6 @@
-import { GroupsList } from '@/components/groups/groups-list';
+import { NoGroupSelected } from '@/components/groups/groups-workspace';
 
-/** /groups — the account's WhatsApp groups on its Whapi numbers (114). */
+/** /groups: the list (in the layout) with no group open yet. */
 export default function GroupsPage() {
-  return <GroupsList />;
+  return <NoGroupSelected />;
 }

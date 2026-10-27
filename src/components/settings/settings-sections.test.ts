@@ -19,8 +19,9 @@ import {
 } from './settings-sections';
 
 // `canOpenSection` is the single gate behind every way into a settings
-// section — the tab rows, the `?tab=` panel switch, and the Overview
-// tiles. If it drifts, one surface shows a section the others hide.
+// section — the menu and its search, the `?tab=` panel switch, and the
+// Overview cards. If it drifts, one surface shows a section the others
+// hide.
 
 const ADMIN_ONLY: SettingsSection[] = [
   'whatsapp',
@@ -117,41 +118,38 @@ describe('canOpenSection', () => {
   });
 });
 
+const ACCOUNT_SECTIONS: SettingsSection[] = [
+  'profile',
+  'security',
+  'notifications',
+  'appearance',
+  'workspaces',
+];
+
 describe('categories', () => {
-  it('puts every section in exactly the category the IA names', () => {
+  it('puts every section in exactly the group the IA names, in order', () => {
     expect(
       Object.fromEntries(SETTINGS_CATEGORIES.map((c) => [c, sectionsOf(c)]))
     ).toEqual({
       overview: ['overview'],
-      account: [
-        'profile',
-        'workspaces',
-        'security',
-        'appearance',
-        'notifications',
-      ],
-      whatsapp: [
-        'whatsapp',
-        'numbers',
-        'routing',
-        'templates',
-        'deal-rooms',
-        'costs',
-      ],
-      inbox: ['chat-tags', 'quick-replies', 'fields', 'journey-bot'],
-      team: [
-        'workspace',
-        'members',
-        'teams',
-        'team-chat',
-        'cases',
-        'vault',
-        'consent-retention',
-        'audit-log',
-      ],
-      ai: ['ai'],
-      integrations: ['api', 'deals', 'phone-system'],
+      account: ACCOUNT_SECTIONS,
+      workspace: ['workspace', 'members', 'teams'],
+      whatsapp: ['whatsapp', 'numbers', 'routing', 'templates', 'costs'],
+      inbox: ['chat-tags', 'quick-replies', 'fields', 'deals'],
+      automation: ['ai', 'journey-bot'],
+      collaboration: ['cases', 'deal-rooms', 'team-chat'],
+      compliance: ['vault', 'consent-retention', 'audit-log'],
+      integrations: ['phone-system', 'api'],
     });
+  });
+
+  it('keeps each group together in the display order', () => {
+    // The menu lists groups in SETTINGS_CATEGORIES order and each
+    // group's sections in SETTINGS_SECTIONS order; the two must agree,
+    // or the search's tie order would not be the menu's order.
+    expect(SETTINGS_CATEGORIES.flatMap((c) => sectionsOf(c))).toEqual([
+      ...SETTINGS_SECTIONS,
+    ]);
   });
 
   it.each(['owner', 'admin'] as const)('shows %s every category', (role) => {
@@ -163,17 +161,8 @@ describe('categories', () => {
   it('shows a leader Members, the phone system and the personal sections', () => {
     expect(visibleCategories('team_leader')).toEqual([
       { id: 'overview', sections: ['overview'] },
-      {
-        id: 'account',
-        sections: [
-          'profile',
-          'workspaces',
-          'security',
-          'appearance',
-          'notifications',
-        ],
-      },
-      { id: 'team', sections: ['members'] },
+      { id: 'account', sections: ACCOUNT_SECTIONS },
+      { id: 'workspace', sections: ['members'] },
       { id: 'integrations', sections: ['phone-system'] },
     ]);
   });
@@ -183,16 +172,7 @@ describe('categories', () => {
     (role) => {
       expect(visibleCategories(role)).toEqual([
         { id: 'overview', sections: ['overview'] },
-        {
-        id: 'account',
-        sections: [
-          'profile',
-          'workspaces',
-          'security',
-          'appearance',
-          'notifications',
-        ],
-      },
+        { id: 'account', sections: ACCOUNT_SECTIONS },
       ]);
     }
   );
@@ -298,7 +278,7 @@ describe('resolveSettingsLocation', () => {
     expect(resolveSettingsLocation(params('ai-safety'), 'owner')).toEqual({
       section: 'ai',
       agentTab: 'safety',
-      category: 'ai',
+      category: 'automation',
     });
   });
 
@@ -387,6 +367,48 @@ describe('tab labels', () => {
         categories[category],
         `missing Settings.categories.${category}`
       ).toBeTruthy();
+    }
+  });
+
+  // The menu searches each section's hint and keywords, and the
+  // Overview shows the hints and each group's own line.
+  it.each(LOCALES)(
+    '%s.json gives every section a hint and keywords',
+    (locale) => {
+      const catalogue = settingsCatalogue(locale);
+      for (const section of SETTINGS_SECTIONS) {
+        expect(
+          catalogue.hints?.[section],
+          `missing Settings.hints.${section}`
+        ).toBeTruthy();
+        expect(
+          catalogue.keywords?.[section],
+          `missing Settings.keywords.${section}`
+        ).toBeTruthy();
+      }
+    }
+  );
+
+  it.each(LOCALES)('%s.json describes every group', (locale) => {
+    const hints = settingsCatalogue(locale).categoryHints ?? {};
+    for (const category of SETTINGS_CATEGORIES) {
+      expect(
+        hints[category],
+        `missing Settings.categoryHints.${category}`
+      ).toBeTruthy();
+    }
+  });
+
+  it.each(LOCALES)('%s.json words the menu', (locale) => {
+    const nav = settingsCatalogue(locale).nav ?? {};
+    for (const key of [
+      'label',
+      'search',
+      'results',
+      'noResults',
+      'allSettings',
+    ]) {
+      expect(nav[key], `missing Settings.nav.${key}`).toBeTruthy();
     }
   });
 });

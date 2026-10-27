@@ -45,6 +45,7 @@ import {
   type WorkspaceBadge,
 } from './types';
 import { summarizeReplies } from './message-list';
+import { rulesFromRows, rowsToSave, type DmMatrix } from './dm-rules';
 
 type Row = Record<string, unknown>;
 
@@ -387,6 +388,30 @@ export async function channelsWithGuests(
   );
 }
 
+/**
+ * Replaces the workspace's DM rules (migration 143; owner/admin). The
+ * whole set is sent: a pair left out reverts to 'all'.
+ */
+export const setDmRules = (
+  sb: SupabaseClient,
+  i: { accountId: string; rules: DmMatrix }
+): Promise<void> =>
+  rpc(sb, 'chat_set_dm_rules', {
+    p_ws: i.accountId,
+    p_rules: rowsToSave(i.rules),
+  });
+
+/** Whom the caller may open a DM with under the workspace's rules (143). */
+export const dmPeers = async (
+  sb: SupabaseClient,
+  accountId: string
+): Promise<string[]> => {
+  const data = await rpc<unknown>(sb, 'chat_dm_peers', { p_ws: accountId });
+  return Array.isArray(data)
+    ? data.filter((v): v is string => typeof v === 'string')
+    : [];
+};
+
 // ---------- table reads (RLS decides what comes back) ----------
 
 /**
@@ -610,4 +635,24 @@ export async function channelMembers(
         .order('joined_at')
     )
   ).map(toChannelMember);
+}
+
+/** The workspace's DM rules as the full matrix; owner/admin read them (143's RLS). */
+export async function getDmRules(
+  sb: SupabaseClient,
+  accountId: string
+): Promise<DmMatrix> {
+  const data = await rows(
+    sb
+      .from('chat_dm_rules')
+      .select('class_a,class_b,scope')
+      .eq('account_id', accountId)
+  );
+  return rulesFromRows(
+    data.map((r) => ({
+      class_a: String(r.class_a),
+      class_b: String(r.class_b),
+      scope: String(r.scope),
+    }))
+  );
 }

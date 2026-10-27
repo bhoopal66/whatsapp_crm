@@ -128,6 +128,15 @@ sign-in bounces back to `/login`.
   token issued before it, and the profile guard trigger stops a
   deactivated admin's RPCs. `supabase/ci/verify-member-deactivation.sql`
   asserts this.
+- **Setting a member's password (migration 140)** is POST
+  `/api/account/members/[id]/password`: `authorize_member_password_change`
+  decides as the caller, then GoTrue changes it, then
+  `log_member_password_change` (service role) writes an audit row in
+  every workspace the person belongs to. The
+  caller must strictly outrank the person in the active workspace **and
+  in every other workspace the person belongs to**: one login opens them
+  all. `canChangePasswordOf` mirrors only the first half (the roster
+  cannot see other workspaces). `verify-member-password.sql`.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.
 
@@ -798,6 +807,14 @@ WhatsApp number, hence `chat_channels` / `chat_channel_members`. Kinds are
 `team`, `private`, `dm` (2–8 people, `chat_open_dm`) and `deal_room` (088
 only). `docs/internal-chat.md` is the contract.
 
+- **DM rules (143).** `chat_dm_rules` holds per-workspace restrictions
+  on which role classes (admin, team_leader, coordinator, agent, viewer)
+  may share a DM: `none` / `team` / missing = `all`, most permissive
+  class pair wins, owners exempt. `chat_open_dm`, `chat_assert_can_write`
+  and `chat_user_can_read_channel` enforce it (a blocked DM is hidden,
+  not deleted); the refusal phrase "direct messages between these
+  people are turned off" is what `lib/chat/errors.ts` keys on.
+  `verify-chat-dm-rules.sql`.
 - **Writes are RPCs.** The tables are RLS-forced and grant SELECT only, even
   to the service role; every write is a SECURITY DEFINER `chat_*` function the
   browser calls directly (`lib/chat/api.ts`). The exceptions: a file upload is
@@ -987,6 +1004,8 @@ Groups on a Whapi number, at `/groups`. `docs/whatsapp-groups.md` is the contrac
 - **Access lives twice:** the SQL predicates and `lib/groups/access.ts`;
   change one, change both. `verify-whatsapp-groups.sql` asserts the SQL.
 - **Inbound** (webhook events, join requests, bells) is `lib/groups/inbound.ts`.
+- **Delete** (`POST /api/whatsapp/groups/delete`, owner/admin) removes
+  only groups whose `our_role` is `left`; children cascade.
 - **Pacing** is anti-ban: 5 adds per call, 3 s apart, 50 per operation,
   invite-link fallback; opted-out contacts are skipped; 20 sends/min/group.
 
@@ -1030,6 +1049,10 @@ submission app. `docs/submission-groups.md` is the contract.
   New submissions are 'none' while
   `case_account_settings.submission_whatsapp_groups` is off (the default).
   `verify-submission-no-whatsapp.sql`.
+- **Customer name (141).** `submission_groups.customer_name` is the
+  request's `customer.name`, set by `sg_open` at creation only; the case
+  screens show it, else the contact's name (contacts are never renamed).
+  `verify-submission-customer-name.sql`.
 
 ### Cases (`lib/cases/*`, migrations 122-130)
 
@@ -1086,6 +1109,27 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `MANAGED_EXTERNALLY`, mirrored in TS by `isManagedExternally`; the API
   path is never locked. `docs/compass.md` is the contract;
   `verify-compass-sync.sql`.
+
+### OpenDesk / Taamul sales app (`lib/taamul-sales/*`, migration 139)
+
+"Contact marked as interested" webhooks from the sales app
+(opendesk.taamul.ae) at `POST /api/taamul-sales/webhook`, shown to
+admins at `/opendesk` (sidebar Integrations, after Compass).
+`docs/taamul-sales.md` is the contract.
+
+- **Auth** is `TAAMUL_WEBHOOK_SECRET`: HMAC over `"<timestamp>.<raw
+  bytes>"`, verified before parsing, 5-minute skew, fail closed. The
+  workspace is `TAAMUL_WEBHOOK_ACCOUNT_ID`; nothing in the payload picks it.
+- **Kept apart from `contacts`**, like `compass_contacts`: nothing here
+  writes a CRM contact. One row per sales-app contact in
+  `taamul_sales_contacts`, every event in `taamul_sales_events`.
+- **Synchronous on purpose.** The work runs before the 200, not in
+  `after()`: failure answers 503 so the sales app redelivers.
+  `taamul_sales_record_interested` claims the `event_id` and writes the
+  snapshot in one transaction, so a failed event is never marked seen;
+  only an event at least as new rewrites the snapshot.
+- **Who reads:** admin+ by RLS (056's rule); only the service role
+  writes. Never log a payload. `verify-taamul-sales.sql`.
 
 ### Coordinators (`lib/coordinators/*`, migration 133)
 
@@ -1529,6 +1573,6 @@ fails if one is wired to plain `t()`.
   `cases.md`, `memory-and-vault.md`, `assistant-safety.md`,
   `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
-  `push.md`.
+  `push.md`, `taamul-sales.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.

@@ -62,6 +62,22 @@ export function dmCandidates(
   );
 }
 
+/**
+ * The DM candidates the workspace's message rules allow (143's
+ * chat_dm_peers). `peers` null (not loaded, or the RPC failed) leaves
+ * the list as it is: the server still refuses a DM it does not allow.
+ * `hidden` counts the candidates the rules left out.
+ */
+export function allowedDmCandidates(
+  candidates: readonly ChatPerson[],
+  peers: readonly string[] | null
+): { people: ChatPerson[]; hidden: number } {
+  if (!peers) return { people: [...candidates], hidden: 0 };
+  const ok = new Set(peers.map((id) => id.toLowerCase()));
+  const people = candidates.filter((p) => ok.has(p.userId.toLowerCase()));
+  return { people, hidden: candidates.length - people.length };
+}
+
 /** Case- and accent-insensitive name filter for the pickers. */
 export function filterPeople(
   people: readonly ChatPerson[],

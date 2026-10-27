@@ -9,6 +9,11 @@ const m = vi.hoisted(() => ({
     error: unknown;
   },
   members: [] as { config_id: string; user_id: string }[],
+  // sg_bank_coordinators (142).
+  bankCoordinators: { data: [], error: null } as {
+    data: unknown;
+    error: unknown;
+  },
   store: {
     findByRef: vi.fn(),
     listAccess: vi.fn(),
@@ -106,6 +111,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.members = [];
   m.groupsSetting = { data: true, error: null };
+  m.bankCoordinators = { data: [], error: null };
   const staffRows = {
     data: [
       {
@@ -124,7 +130,11 @@ beforeEach(() => {
     error: null,
   };
   m.rpc.mockImplementation(async (fn: string) =>
-    fn === 'case_submission_whatsapp_groups' ? m.groupsSetting : staffRows
+    fn === 'case_submission_whatsapp_groups'
+      ? m.groupsSetting
+      : fn === 'sg_bank_coordinators'
+        ? m.bankCoordinators
+        : staffRows
   );
   m.store.findByRef.mockResolvedValue(null);
   m.store.listAccess.mockResolvedValue([
@@ -174,13 +184,16 @@ describe('POST /api/v1/submission-groups', () => {
       submissionRef: 'SUB-1',
       contactId: 'c1',
       channelId: 'w1',
-      subject: 'Jane · SUB-1',
+      subject: 'Jane x Taamul Credit',
       coordinatorPhone: null,
+      coordinatorPhones: [],
       access: [
         { userId: 'u-agent', label: 'agent' },
         { userId: 'u-coord', label: 'coordinator' },
       ],
       keyId: 'key-1',
+      // 141: the request's customer.name, kept on the group.
+      customerName: 'Jane',
     });
     const { data } = await res.json();
     expect(data).toMatchObject({
@@ -545,6 +558,103 @@ describe('POST /api/v1/submission-groups', () => {
   });
 });
 
+describe("POST /api/v1/submission-groups adds the bank's coordinators (142)", () => {
+  const withBank = { ...body, bank: 'MASHREQ' };
+  const openInput = () => m.service.openForSubmission.mock.calls[0][0];
+
+  it('adds them to access (a named coordinator once) and their numbers to the group', async () => {
+    m.bankCoordinators = {
+      data: [
+        { user_id: 'u-coord', phone: '971550000001' },
+        { user_id: 'u-bank', phone: '971550000002' },
+        { user_id: 'u-nophone', phone: null },
+      ],
+      error: null,
+    };
+    const res = await post(withBank);
+    expect(res.status).toBe(201);
+    expect(m.rpc).toHaveBeenCalledWith('sg_bank_coordinators', {
+      p_account: 'acct-1',
+      p_bank: 'MASHREQ',
+    });
+    expect(openInput().access).toEqual([
+      { userId: 'u-agent', label: 'agent' },
+      { userId: 'u-coord', label: 'coordinator' },
+      { userId: 'u-bank', label: 'coordinator' },
+      { userId: 'u-nophone', label: 'coordinator' },
+    ]);
+    expect(openInput().coordinatorPhones).toEqual([
+      '971550000001',
+      '971550000002',
+    ]);
+  });
+
+  it("dedupes the request's coordinator_phone against them and never adds the customer", async () => {
+    m.bankCoordinators = {
+      data: [
+        { user_id: 'u-bank', phone: '971550000002' },
+        { user_id: 'u-cust', phone: '971501234567' },
+      ],
+      error: null,
+    };
+    await post({ ...withBank, coordinator_phone: '+971 55 000 0002' });
+    expect(openInput().coordinatorPhone).toBe('971550000002');
+    expect(openInput().coordinatorPhones).toEqual(['971550000002']);
+  });
+
+  it('keeps at most 5 numbers, the request number first so the cap never cuts it', async () => {
+    m.bankCoordinators = {
+      data: [1, 2, 3, 4, 5, 6].map((n) => ({
+        user_id: `u-${n}`,
+        phone: `97155000000${n}`,
+      })),
+      error: null,
+    };
+    await post({ ...withBank, coordinator_phone: '+971 55 000 0009' });
+    expect(openInput().coordinatorPhones).toEqual([
+      '971550000009',
+      '971550000001',
+      '971550000002',
+      '971550000003',
+      '971550000004',
+    ]);
+  });
+
+  it('looks nothing up without a bank', async () => {
+    await post(body);
+    expect(m.rpc).not.toHaveBeenCalledWith(
+      'sg_bank_coordinators',
+      expect.anything()
+    );
+  });
+
+  it('answers 500 and creates no contact when the lookup fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.bankCoordinators = { data: null, error: { message: 'boom' } };
+    const res = await post(withBank);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('internal');
+    expect(m.loadChannels).not.toHaveBeenCalled();
+    expect(m.findOrCreateContact).not.toHaveBeenCalled();
+    expect(m.service.openForSubmission).not.toHaveBeenCalled();
+  });
+
+  it('looks nothing up with WhatsApp groups off', async () => {
+    m.groupsSetting = { data: false, error: null };
+    m.bankCoordinators = {
+      data: [{ user_id: 'u-bank', phone: '971550000002' }],
+      error: null,
+    };
+    await post(withBank);
+    expect(m.rpc).not.toHaveBeenCalledWith(
+      'sg_bank_coordinators',
+      expect.anything()
+    );
+    expect(openInput()).toMatchObject({ waMode: 'none' });
+    expect(openInput().coordinatorPhones).toBeUndefined();
+  });
+});
+
 describe('POST /api/v1/submission-groups with WhatsApp groups off (136)', () => {
   const recordOnly = (over: Partial<SubmissionGroup> = {}) =>
     group({
@@ -595,6 +705,7 @@ describe('POST /api/v1/submission-groups with WhatsApp groups off (136)', () => 
           { userId: 'u-agent', label: 'agent' },
           { userId: 'u-coord', label: 'coordinator' },
         ],
+        customerName: 'Jane',
       })
     );
     expect(m.sendInviteLink).not.toHaveBeenCalled();

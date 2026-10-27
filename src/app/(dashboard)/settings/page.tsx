@@ -1,12 +1,15 @@
 'use client';
 
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import dynamic from 'next/dynamic';
 
 import { useAuth } from '@/hooks/use-auth';
-import { SettingsTabs } from '@/components/settings/settings-tabs';
+import {
+  SettingsMenuButton,
+  SettingsNav,
+} from '@/components/settings/settings-nav';
 import { SettingsOverview } from '@/components/settings/settings-overview';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import {
@@ -16,7 +19,6 @@ import {
   resolveSettingsLocation,
   settingsParamsFor,
   visibleCategories,
-  type SettingsCategory,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
 import { canEditSettings } from '@/lib/auth/roles';
@@ -217,7 +219,7 @@ const AiAgentsArea = dynamic(
 // the "missing Suspense with CSR bailout" error and the whole page bails
 // to client-side rendering — shipping a settings screen whose rail never
 // wires up its click handlers. You land on the section the URL carried
-// (the account-menu Settings link points at `?tab=whatsapp`) and can't
+// (the account menu's Profile link points at `?tab=profile`) and can't
 // navigate away. Mirror the login/signup split: a thin wrapper supplies
 // the boundary; the inner component reads the query string.
 export default function SettingsPage() {
@@ -233,15 +235,18 @@ function SettingsPageInner() {
   const { profileLoading, accountRole } = useAuth();
   const t = useTranslations('Settings');
 
-  // The URL (`?tab=<sub-tab>`) is the single source of truth: the
-  // category is derived from it, legacy ids resolve onto their new home,
-  // and a sub-tab above the caller's role lands on the Overview.
+  // The URL (`?tab=<section>`) is the single source of truth: the group
+  // is derived from it, legacy ids resolve onto their new home, and a
+  // section above the caller's role lands on the Overview.
   const role = profileLoading ? null : accountRole;
-  const { category, section, agentTab } = resolveSettingsLocation(
-    searchParams,
-    role
-  );
-  const categories = visibleCategories(role);
+  const { section, agentTab } = resolveSettingsLocation(searchParams, role);
+  const groups = visibleCategories(role);
+  // A bank guest has one section (Workspaces): no menu to show. Nor
+  // while the role loads: with no role yet, every personal section
+  // looks openable, so a guest would see a menu and Overview flash by
+  // and an admin's menu would grow under their pointer.
+  const showMenu =
+    !profileLoading && groups.flatMap((g) => g.sections).length > 1;
 
   // Switch tabs with the native History API, not `router.replace`.
   // Every panel is a client component that fetches its own data, so a
@@ -255,6 +260,27 @@ function SettingsPageInner() {
     const params = settingsParamsFor(searchParams.toString(), nextTab);
     window.history.replaceState(null, '', `/settings?${params.toString()}`);
   };
+
+  // A new section starts at its top. The shell scrolls <main>, not the
+  // window, and the menu stays put (sticky), so without this a section
+  // opened from deep in a long one would open part-way down. Only when
+  // the page is scrolled past its title: a banner above it (the push
+  // offer) stays where it is.
+  const topRef = useRef<HTMLDivElement>(null);
+  const shownSection = useRef(section);
+  useEffect(() => {
+    if (shownSection.current === section) return;
+    shownSection.current = section;
+    const top = topRef.current;
+    const scroller = top?.closest('main');
+    if (
+      top &&
+      scroller &&
+      top.getBoundingClientRect().top < scroller.getBoundingClientRect().top
+    ) {
+      top.scrollIntoView({ block: 'start' });
+    }
+  }, [section]);
 
   // Unsaved AI edits live in the AI Agents area and die with it, and an
   // in-app move (a tab here, a sidebar link) fires no beforeunload. So
@@ -272,10 +298,6 @@ function SettingsPageInner() {
     }
     switchTab(nextTab);
   };
-  const goCategory = (next: SettingsCategory) => {
-    const first = categories.find((c) => c.id === next)?.sections[0];
-    if (first) go(first);
-  };
   const confirmLeave = () => {
     const target = leaving;
     setLeaving(null);
@@ -287,6 +309,8 @@ function SettingsPageInner() {
   // Links anywhere on the page (sidebar, header, account menu). Capture
   // phase on the document runs before React's root listener, and Next's
   // <Link> skips navigating a click that is already defaultPrevented.
+  // The Settings menu's own links (`data-settings-nav`) go through `go`,
+  // which asks by itself.
   useEffect(() => {
     if (!aiDirty) return;
     const onClick = (e: MouseEvent) => {
@@ -295,6 +319,7 @@ function SettingsPageInner() {
       const anchor =
         e.target instanceof Element ? e.target.closest('a[href]') : null;
       if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.hasAttribute('data-settings-nav')) return;
       if (anchor.hasAttribute('download')) return;
       const target = anchor.getAttribute('target');
       if (target && target !== '_self') return;
@@ -311,7 +336,7 @@ function SettingsPageInner() {
   }, [aiDirty]);
 
   const panel: Record<SettingsSection, ReactNode> = {
-    overview: <SettingsOverview onSelect={go} />,
+    overview: <SettingsOverview groups={groups} onSelect={go} />,
     profile: <ProfileForm />,
     workspaces: <WorkspacesPanel />,
     security: <SecurityPanel />,
@@ -360,30 +385,53 @@ function SettingsPageInner() {
   };
 
   return (
-    <div>
+    <div ref={topRef} className="scroll-mt-6">
       <div>
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           {t('pageTitle')}
         </h1>
-        <p className="text-muted-foreground mt-1 text-sm">{t('pageDesc')}</p>
+        {/* It points at the menu, which a bank guest does not get. */}
+        {showMenu ? (
+          <p className="text-muted-foreground mt-1 text-sm">{t('pageDesc')}</p>
+        ) : null}
       </div>
 
-      <div className="mt-5">
-        <SettingsTabs
-          categories={categories.map((c) => c.id)}
-          category={category}
-          section={section}
-          // AI Agents brings its own tab bar as the sub-tab row.
-          subTabs={
-            category === 'ai'
-              ? null
-              : (categories.find((c) => c.id === category)?.sections ?? null)
-          }
-          onCategory={goCategory}
-          onSection={go}
-        />
+      {/* Wide screens: the menu in a column of its own, sticky while the
+          section scrolls (and scrolling itself when taller than the
+          screen). Narrower: a bar naming the section opens it in a
+          sheet. */}
+      <div
+        className={
+          showMenu
+            ? 'mt-6 xl:grid xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start xl:gap-8'
+            : 'mt-6'
+        }
+      >
+        {showMenu ? (
+          <aside
+            data-settings-scroll=""
+            className="hidden xl:sticky xl:top-6 xl:block xl:max-h-[calc(100dvh-6.5rem)] xl:overflow-y-auto xl:pr-1 xl:pb-2"
+          >
+            <SettingsNav
+              groups={groups}
+              section={section}
+              searchClassName="bg-background"
+              onSelect={go}
+            />
+          </aside>
+        ) : null}
+        <div className="min-w-0">
+          {showMenu ? (
+            <SettingsMenuButton
+              groups={groups}
+              section={section}
+              onSelect={go}
+              className="mb-5 xl:hidden"
+            />
+          ) : null}
+          {profileLoading ? <PanelLoading /> : panel[section]}
+        </div>
       </div>
-      <div className="mt-5 min-w-0">{panel[section]}</div>
 
       <ConfirmDialog
         open={leaving !== null}

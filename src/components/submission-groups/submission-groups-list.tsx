@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
-import { Archive, FolderKanban, Loader2, Search } from 'lucide-react';
+import {
+  Archive,
+  FolderKanban,
+  Loader2,
+  MessageSquareOff,
+  Search,
+  UserRound,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,16 +18,27 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { relativeActivity } from '@/lib/groups/ui';
 import {
   appendPage,
+  avatarTone,
+  groupContactName,
+  groupTitle,
+  initialsOf,
   listUrl,
+  onlyMine,
   parseSgList,
+  shortRef,
+  trackerStatusChip,
   type SgListItem,
   waModeOf,
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
 
+import { useSubmissionGroupsList } from './list-context';
+
 type Tab = 'active' | 'ended';
 
 const SEARCH_DEBOUNCE_MS = 300;
+/** Focus returns in bursts (alt-tab, devtools): one re-read per burst. */
+const FOCUS_REFRESH_MS = 1000;
 
 interface Loaded {
   groups: SgListItem[];
@@ -28,15 +46,27 @@ interface Loaded {
   failed: boolean;
 }
 
-/** /submission-groups — Active and Ended tabs, searched server-side. */
-export function SubmissionGroupsList() {
+/**
+ * The left pane of /submission-groups: Active and Ended, searched
+ * server-side; "My groups" narrows the loaded rows client-side.
+ */
+export function SubmissionGroupsList({
+  selectedId,
+}: {
+  selectedId: string | null;
+}) {
   const t = useTranslations('SubmissionGroups');
+  const tl = useTranslations('SubmissionGroups.list');
   const [tab, setTab] = useState<Tab>('active');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [mineOnly, setMineOnly] = useState(false);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const seq = useRef(0);
+  const { registerRefresh } = useSubmissionGroupsList();
+  const current = useRef({ tab, q: debounced });
+  current.current = { tab, q: debounced };
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query), SEARCH_DEBOUNCE_MS);
@@ -66,6 +96,44 @@ export function SubmissionGroupsList() {
     void load(tab, debounced);
   }, [load, tab, debounced]);
 
+  // Re-read the current view from the first page without blanking the
+  // rows; a failed refresh keeps what is listed. The selection is a prop
+  // (the route), so it is untouched.
+  const refresh = useCallback(async () => {
+    const mine = ++seq.current;
+    const { tab: status, q } = current.current;
+    try {
+      const res = await fetch(listUrl(status, q, null), { cache: 'no-store' });
+      if (!res.ok) throw new Error(String(res.status));
+      const page = parseSgList(await res.json());
+      if (mine === seq.current)
+        setLoaded({
+          groups: page.groups,
+          next: page.next_cursor,
+          failed: false,
+        });
+    } catch {
+      // Keep the current rows.
+    }
+  }, []);
+
+  useEffect(
+    () => registerRefresh(() => void refresh()),
+    [registerRefresh, refresh]
+  );
+
+  useEffect(() => {
+    let last = 0;
+    const onFocus = () => {
+      const at = Date.now();
+      if (at - last < FOCUS_REFRESH_MS) return;
+      last = at;
+      void refresh();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refresh]);
+
   const loadMore = async () => {
     if (!loaded?.next) return;
     const mine = seq.current;
@@ -94,23 +162,24 @@ export function SubmissionGroupsList() {
   };
 
   const searching = debounced.trim() !== '';
+  const shown = loaded && !loaded.failed ? loaded.groups : null;
+  const rows = shown ? (mineOnly ? onlyMine(shown) : shown) : null;
   const now = new Date();
 
   return (
-    <div className="w-full space-y-4">
-      <div className="min-w-0">
-        <h1 className="text-xl font-bold">{t('title')}</h1>
-        <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-          <TabsList>
-            <TabsTrigger value="active">{t('tabs.active')}</TabsTrigger>
-            <TabsTrigger value="ended">{t('tabs.ended')}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="relative w-full sm:w-72">
+    <div className="bg-card flex h-full min-h-0 w-full flex-col">
+      <div className="border-border shrink-0 space-y-2 border-b px-3 pt-3 pb-2.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <h1 className="truncate text-base font-semibold">{t('title')}</h1>
+          {rows && (
+            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+              {loaded?.next && !mineOnly
+                ? tl('countMore', { count: rows.length })
+                : tl('count', { count: rows.length })}
+            </span>
+          )}
+        </div>
+        <div className="relative">
           <Search
             className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
             aria-hidden
@@ -119,91 +188,146 @@ export function SubmissionGroupsList() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('search')}
-            aria-label={t('search')}
-            className="pl-8"
+            placeholder={tl('search')}
+            aria-label={tl('search')}
+            className="h-8 pl-8 text-sm"
           />
+        </div>
+        <div className="flex items-center gap-2">
+          <Tabs
+            value={tab}
+            onValueChange={(v) => setTab(v as Tab)}
+            className="min-w-0 flex-1"
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="active" className="flex-1">
+                {t('tabs.active')}
+              </TabsTrigger>
+              <TabsTrigger value="ended" className="flex-1">
+                {t('tabs.ended')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button
+            variant={mineOnly ? 'secondary' : 'outline'}
+            size="sm"
+            aria-pressed={mineOnly}
+            title={tl('myGroupsHint')}
+            onClick={() => setMineOnly((v) => !v)}
+            className={cn('shrink-0', mineOnly && 'ring-ring/40 ring-1')}
+          >
+            <UserRound className="size-3.5" aria-hidden />
+            {tl('myGroups')}
+          </Button>
         </div>
       </div>
 
-      {!loaded ? (
-        <ul className="space-y-2" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <li
-              key={i}
-              className="border-border bg-card flex items-center gap-3 rounded-xl border p-4"
-            >
-              <span className="bg-muted size-10 shrink-0 animate-pulse rounded-full" />
-              <span className="flex-1 space-y-2">
-                <span className="bg-muted block h-4 w-1/3 animate-pulse rounded" />
-                <span className="bg-muted block h-3 w-1/2 animate-pulse rounded" />
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : loaded.failed ? (
-        <div className="flex items-center gap-3">
-          <p className="text-destructive text-sm">{t('loadFailed')}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void load(tab, debounced)}
-          >
-            {t('retry')}
-          </Button>
-        </div>
-      ) : loaded.groups.length === 0 ? (
-        searching ? (
-          <p className="text-muted-foreground text-sm">
-            {t('noMatches', { query: debounced.trim() })}
-          </p>
-        ) : (
-          <div className="border-border flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-12 text-center">
-            <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
-              <FolderKanban className="size-5" aria-hidden />
-            </span>
-            <p className="font-semibold">
-              {tab === 'active' ? t('emptyActiveTitle') : t('emptyEndedTitle')}
-            </p>
-            <p className="text-muted-foreground max-w-md text-sm">
-              {tab === 'active' ? t('emptyActiveBody') : t('emptyEndedBody')}
-            </p>
-          </div>
-        )
-      ) : (
-        <>
-          <ul className="space-y-2">
-            {loaded.groups.map((g) => (
-              <Row key={g.id} group={g} now={now} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!loaded ? (
+          <ul aria-hidden>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <li
+                key={i}
+                className="border-border/60 flex items-center gap-3 border-b px-3 py-3"
+              >
+                <span className="bg-muted size-10 shrink-0 animate-pulse rounded-full" />
+                <span className="flex-1 space-y-2">
+                  <span className="bg-muted block h-3.5 w-2/3 animate-pulse rounded" />
+                  <span className="bg-muted block h-3 w-1/2 animate-pulse rounded" />
+                </span>
+              </li>
             ))}
           </ul>
-          {loaded.next && (
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-              >
-                {loadingMore && (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                )}
-                {t('loadMore')}
-              </Button>
+        ) : loaded.failed ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+            <p className="text-destructive text-sm">{t('loadFailed')}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void load(tab, debounced)}
+            >
+              {t('retry')}
+            </Button>
+          </div>
+        ) : rows && rows.length === 0 ? (
+          searching && !mineOnly ? (
+            <p className="text-muted-foreground px-4 py-10 text-center text-sm">
+              {t('noMatches', { query: debounced.trim() })}
+            </p>
+          ) : (
+            <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+              <span className="bg-muted text-muted-foreground flex size-12 items-center justify-center rounded-full">
+                <FolderKanban className="size-5" aria-hidden />
+              </span>
+              <p className="font-semibold">
+                {mineOnly
+                  ? tl('emptyMineTitle')
+                  : tab === 'active'
+                    ? t('emptyActiveTitle')
+                    : t('emptyEndedTitle')}
+              </p>
+              <p className="text-muted-foreground max-w-xs text-sm">
+                {mineOnly
+                  ? tl('emptyMineBody')
+                  : tab === 'active'
+                    ? t('emptyActiveBody')
+                    : t('emptyEndedBody')}
+              </p>
             </div>
-          )}
-        </>
-      )}
+          )
+        ) : (
+          <nav aria-label={tl('navLabel')}>
+            <ul>
+              {rows?.map((g) => (
+                <Row
+                  key={g.id}
+                  group={g}
+                  now={now}
+                  selected={g.id === selectedId}
+                />
+              ))}
+            </ul>
+          </nav>
+        )}
+        {loaded && !loaded.failed && loaded.next && (
+          <div className="flex justify-center px-3 py-3">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loadingMore}
+              onClick={() => void loadMore()}
+            >
+              {loadingMore && (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              )}
+              {t('loadMore')}
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function Row({ group: g, now }: { group: SgListItem; now: Date }) {
+const BADGE = 'shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium';
+
+function Row({
+  group: g,
+  now,
+  selected,
+}: {
+  group: SgListItem;
+  now: Date;
+  selected: boolean;
+}) {
   const t = useTranslations('SubmissionGroups');
+  const tl = useTranslations('SubmissionGroups.list');
   const locale = useLocale();
   const ended = g.status === 'ENDED';
-  const at = ended ? g.ended_at : g.last_activity_at;
-  const activity = relativeActivity(at, now);
+  const activity = relativeActivity(
+    ended ? g.ended_at : g.last_activity_at,
+    now
+  );
   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   const when =
     activity.unit === 'none'
@@ -220,70 +344,109 @@ function Row({ group: g, now }: { group: SgListItem; now: Date }) {
                   : 'numeric',
             })
           : rtf.format(-activity.value, activity.unit);
-  const customer = g.contact
-    ? g.contact.name || g.contact.phone || '—'
-    : t('contactRemoved');
+  const named = groupTitle(g);
+  const title = named ?? (g.contact ? tl('untitled') : t('contactRemoved'));
+  const contactName = groupContactName(g);
+  const chip = trackerStatusChip(g.submission_status);
   const noGroup = waModeOf(g) === 'none';
-  const number = g.channel
-    ? (g.channel.label ?? '')
-    : noGroup
-      ? ''
-      : t('numberRemoved');
+  const pending = g.pending && !ended && !noGroup;
+  const archived = ended && g.archive;
+  const noGroupBadge = noGroup && !ended;
 
   return (
     <li>
       <Link
         href={`/submission-groups/${g.id}`}
+        aria-current={selected ? 'page' : undefined}
         className={cn(
-          'border-border bg-card hover:bg-accent flex items-center gap-3 rounded-xl border p-3 transition-colors sm:p-4',
-          ended && 'opacity-80'
+          'border-border/60 focus-visible:ring-ring flex gap-3 border-b px-3 py-2.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset',
+          selected ? 'bg-accent' : 'hover:bg-accent/50'
         )}
       >
         <span
-          className="bg-wa-green/15 text-wa-green flex size-10 shrink-0 items-center justify-center rounded-full"
+          className={cn(
+            'flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
+            avatarTone(title),
+            ended && 'opacity-70'
+          )}
           aria-hidden
         >
-          <FolderKanban className="size-4" />
+          {initialsOf(title)}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="truncate font-semibold">{g.submission_ref}</span>
-            {g.subject && (
-              <span className="text-muted-foreground truncate text-sm">
-                {g.subject}
+        <span className="min-w-0 flex-1 space-y-0.5">
+          <span
+            className={cn(
+              'block truncate text-sm font-medium',
+              !named && 'text-muted-foreground italic'
+            )}
+            title={title}
+          >
+            {title}
+          </span>
+          {contactName && (
+            <span
+              className="text-muted-foreground block truncate text-xs"
+              title={contactName}
+            >
+              {tl('contactLine', { name: contactName })}
+            </span>
+          )}
+          <span className="flex min-w-0 items-center gap-1.5 text-xs">
+            <span
+              className="text-muted-foreground shrink-0 font-mono text-[11px]"
+              title={g.submission_ref}
+            >
+              {shortRef(g.submission_ref)}
+            </span>
+            {chip && (
+              <span
+                className={cn(
+                  'min-w-0 truncate rounded-full px-1.5 py-px text-[10px] font-medium',
+                  chip.chipClass
+                )}
+                title={chip.text}
+              >
+                {chip.text}
               </span>
             )}
-            {noGroup && !ended && (
-              <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                {t('noWhatsappBadge')}
-              </span>
-            )}
-            {g.pending && !ended && (
-              <span className="bg-warning-soft text-warning shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                {t('pendingBadge')}
-              </span>
-            )}
-            {ended && g.archive && (
-              <span className="bg-muted text-muted-foreground inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                <Archive className="size-3" aria-hidden />
-                {t('archiveBadge')}
-              </span>
-            )}
-            {g.my_label && (
-              <span className="bg-success-soft text-success shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                {t(`labels.${g.my_label}`)}
+            {when && (
+              <span className="text-muted-foreground ml-auto shrink-0 pl-1 text-[11px] whitespace-nowrap">
+                {ended ? t('endedAt', { when }) : when}
               </span>
             )}
           </span>
-          <span className="text-muted-foreground block truncate text-xs sm:text-sm">
-            {[customer, number].filter(Boolean).join(' · ')}
-          </span>
+          {(noGroupBadge || pending || archived || g.my_label) && (
+            <span className="flex flex-wrap items-center gap-1 pt-0.5">
+              {g.my_label && (
+                <span className={cn(BADGE, 'bg-success-soft text-success')}>
+                  {t(`labels.${g.my_label}`)}
+                </span>
+              )}
+              {pending && (
+                <span className={cn(BADGE, 'bg-warning-soft text-warning')}>
+                  {t('pendingBadge')}
+                </span>
+              )}
+              {archived && (
+                <span
+                  className={cn(
+                    BADGE,
+                    'bg-muted text-muted-foreground inline-flex items-center gap-1'
+                  )}
+                >
+                  <Archive className="size-2.5" aria-hidden />
+                  {t('archiveBadge')}
+                </span>
+              )}
+              {noGroupBadge && (
+                <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-[10px]">
+                  <MessageSquareOff className="size-3" aria-hidden />
+                  {t('noWhatsappBadge')}
+                </span>
+              )}
+            </span>
+          )}
         </span>
-        {when && (
-          <span className="text-muted-foreground hidden shrink-0 text-xs sm:block">
-            {ended ? t('endedAt', { when }) : when}
-          </span>
-        )}
       </Link>
     </li>
   );

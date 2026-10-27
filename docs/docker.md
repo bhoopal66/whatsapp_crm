@@ -59,7 +59,7 @@ docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 taamul-connect
 ## Notes
 
 - **Disable public signup in Supabase Auth.** This CRM has no signup
-  screen — admins provision logins from Settings → Team → Members, through the
+  screen — admins provision logins from Settings → Workspace → Members, through the
   service role — but GoTrue's own `POST /auth/v1/signup` is open by
   default and reachable with the public anon key that ships in the
   browser bundle. Left open, anyone can mint a session (as owner of a
@@ -78,7 +78,7 @@ docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 taamul-connect
   to sign up" under Authentication → Providers. Check with
   `curl <supabase-url>/auth/v1/settings -H "apikey: <anon key>"`:
   `disable_signup` must be `true`.
-- **Deactivating a member** (Settings → Team → Members, migration 069)
+- **Deactivating a member** (Settings → Workspace → Members, migration 069)
   bans their login through the GoTrue admin API, so it needs
   `SUPABASE_SERVICE_ROLE_KEY` like creating one does. A ban refuses
   sign-in and token refresh but cannot revoke an access token already

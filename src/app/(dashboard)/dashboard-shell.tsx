@@ -15,6 +15,7 @@ import { IncomingCallCard } from "@/components/pbx/incoming-call-card";
 import { InCallPanel } from "@/components/pbx/in-call-panel";
 import { SoftphoneMount } from "@/components/pbx/softphone-mount";
 import { AppContextMenu } from "@/components/context-menu/app-context-menu";
+import { NotificationsProvider } from "@/components/notifications/notifications-provider";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -68,6 +69,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
     // The call screens (module 015): one incoming-call card and one
     // in-call panel for the whole app, over whatever page is open.
     <CallProvider>
+      {/* The bell: one list, count and realtime subscription for the
+          top bar's dropdown and the /notifications page. */}
+      <NotificationsProvider>
       <div className="flex h-screen overflow-hidden bg-background">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
@@ -98,6 +102,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       {/* The app's own right-click menu, for every screen of the shell. */}
       <AppContextMenu />
       </div>
+      </NotificationsProvider>
     </CallProvider>
   );
 }

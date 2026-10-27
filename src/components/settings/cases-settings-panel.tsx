@@ -61,7 +61,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { SettingsPanelHead } from './settings-panel-head';
-import { TABS_TRIGGER_DARK } from './settings-tabs';
+import { TABS_TRIGGER_DARK } from './tab-styles';
 
 const WARN = 'border-warning/30 bg-warning-soft text-warning';
 

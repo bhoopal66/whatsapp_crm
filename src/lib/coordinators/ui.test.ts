@@ -8,6 +8,10 @@ import {
   coordinatorChoices,
   isShareOnlyViewer,
   isSharedChatNumberRefusal,
+  phoneChanged,
+  phoneDraftFrom,
+  phoneDraftValid,
+  phonesByUser,
   receivesShares,
   sharedBankByConversation,
   toggleBank,
@@ -124,5 +128,41 @@ describe('banksChanged', () => {
     expect(banksChanged(['ADCB'], [])).toBe(true);
     expect(banksChanged(['ADCB'], ['ADCB', 'FAB'])).toBe(true);
     expect(banksChanged(['ADCB'], ['FAB'])).toBe(true);
+  });
+});
+
+describe('coordinator WhatsApp number (142)', () => {
+  it('maps saved numbers by person, leaving out people without one', () => {
+    const map = phonesByUser([
+      { user_id: 'u1', name: 'A', banks: ['ADCB'], whatsapp_phone: '97150' },
+      { user_id: 'u2', name: 'B', banks: ['FAB'], whatsapp_phone: null },
+      { user_id: 'u3', name: 'C', banks: ['FAB'] },
+    ]);
+    expect([...map]).toEqual([['u1', '97150']]);
+  });
+
+  it('shows a saved number with a plus, and nothing when unset', () => {
+    expect(phoneDraftFrom('971501234567')).toBe('+971501234567');
+    expect(phoneDraftFrom(null)).toBe('');
+    expect(phoneDraftFrom(undefined)).toBe('');
+  });
+
+  it('accepts blank or 5-25 digits in phone characters only', () => {
+    expect(phoneDraftValid('')).toBe(true);
+    expect(phoneDraftValid('   ')).toBe(true);
+    expect(phoneDraftValid('+971 (50) 123-4567')).toBe(true);
+    expect(phoneDraftValid('12345')).toBe(true);
+    expect(phoneDraftValid('1234')).toBe(false);
+    expect(phoneDraftValid('1'.repeat(26))).toBe(false);
+    expect(phoneDraftValid('971x501234567')).toBe(false);
+  });
+
+  it('compares digits only against the saved number', () => {
+    expect(phoneChanged('971501234567', '+971 50 123 4567')).toBe(false);
+    expect(phoneChanged('971501234567', '+971 50 123 4568')).toBe(true);
+    expect(phoneChanged(null, '')).toBe(false);
+    expect(phoneChanged(null, ' ')).toBe(false);
+    expect(phoneChanged('971501234567', '')).toBe(true);
+    expect(phoneChanged(undefined, '+97150')).toBe(true);
   });
 });

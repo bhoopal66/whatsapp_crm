@@ -28,6 +28,10 @@ in [public-api.md](public-api.md).
 }
 ```
 
+`customer.name` (Compass sends the company) is stored on the group
+(`submission_groups.customer_name`, migration 141) and shown as the case's
+customer; the CRM contact found or created by phone keeps its own name.
+
 Only `submission_id`, `customer.phone` and `agent_email` are required. The
 call is idempotent per `submission_id`: a repeat returns the existing group
 (`200`). A new group answers `201`. If WhatsApp could not create the
@@ -76,7 +80,21 @@ true only for `group` rows).
   number the agent may use), else the agent's own number as a new chat
   would pick it (allocation rules of migration 060);
 - the **customer**, found or created as a contact by phone;
+- every **coordinator of the case's bank** (`bank`) who has a saved
+  WhatsApp number (Settings → Members, migration 142): live agents and
+  team leaders set up as coordinators of that bank;
 - optionally the **coordinator's own phone** (`coordinator_phone`).
+
+The coordinator numbers are the bank's first, then `coordinator_phone`,
+each once, never the customer's own number, at most 5 in all. They are
+fixed when the group is created (`submission_groups.coordinator_phones`):
+a coordinator added to the bank later does not join an existing group,
+and a message from any of these numbers is logged as the coordinator's.
+Groups-off submissions (`wa_mode 'none'`) look nothing up.
+
+The group's name is `subject` when Compass sends one; otherwise it
+defaults to `<company> x Taamul Credit`, the company being
+`customer.name` (the customer's phone when no name is sent).
 
 If WhatsApp refuses to add the customer (privacy settings), the group
 still exists and the group's invite link is sent to them 1:1 from the
@@ -94,6 +112,11 @@ admin or owner of the workspace (never a viewer or bank guest), and one
 person holds one label per group. The label (Agent, Coordinator, Team
 Lead) belongs to the group, not to the person's account role. Owners and
 admins can change the list on an ACTIVE group.
+
+When a WhatsApp group is opened for a submission with a `bank`, every
+coordinator of that bank is added to the list as a Coordinator too
+(142), whether or not they have a saved number; someone the request
+already names keeps the label the request gave them.
 
 ## The prefix
 

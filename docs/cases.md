@@ -24,7 +24,9 @@ known one, else the code; admins can rename it). The case's agent is the
 group's open **Agent** entry and its coordinator the open **Coordinator**
 entry (none if the group has none); a group with no agent cannot open a
 case. Customer, submission id and number are read from the group, never
-copied.
+copied. The customer shown is the name the submission tracker sent as
+`customer.name` (kept on the group since migration 141), else the CRM
+contact's name; the contact itself is never renamed.
 
 Every change of bank, product, amount, priority or due date is kept in an
 append-only log. Changing the bank is refused when the case's current stage
@@ -311,9 +313,28 @@ case's status **exactly as Compass last sent it** (the group's
 `submission_status`, e.g. `UNDER_REVIEW`), not the stage name. A lead,
 or a case Compass has sent no status for, shows its stage. The stage
 still runs underneath (SLA timers, closing, the stage filter, Move
-stage, the bank dashboard), set from the status as described above. The
-chip has the stage's colour while the status names the stage, and is
-grey otherwise.
+stage, the bank dashboard), set from the status as described above.
+
+The chip colour follows Compass's own status names (`TRACKER_STATUS_CHIP`
+in `lib/cases/ui.ts`; `_` reads as a space, case and extra blanks are
+ignored):
+
+| Compass status | Colour |
+|---|---|
+| To Submit | sky |
+| Inhouse Review | indigo |
+| Submitted | blue |
+| Bank Review | violet |
+| Awaiting Customer Response | amber |
+| Returned to RO | orange |
+| Awaiting Fulfillment | teal |
+| Approved / Declined | green / red |
+| Withdrawn / Closed | grey |
+
+A status not in that list takes the colour of the stage it names
+(`QUERY_ANSWERED` -> Query answered's cyan), else the colour of the
+case's current stage, so no chip is left uncoloured. A new Compass
+status name gets its own colour by adding it to that map.
 
 ### Managed in Compass (the lock)
 

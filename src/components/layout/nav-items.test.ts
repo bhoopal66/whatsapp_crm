@@ -22,7 +22,6 @@ function layout(groups: NavGroup[]): Record<string, string[]> {
 
 const EVERYONE = [
   '/dashboard',
-  '/notifications',
   '/inbox',
   '/groups',
   '/chat',
@@ -34,11 +33,11 @@ const EVERYONE = [
 
 /** The opening group for an agent and up: Journeys (module 016) is agent+. */
 const STAFF = [
-  ...EVERYONE.slice(0, 4),
+  ...EVERYONE.slice(0, 3),
   '/submission-groups',
   '/cases',
   '/banks',
-  ...EVERYONE.slice(4),
+  ...EVERYONE.slice(3),
   '/journeys',
 ];
 
@@ -71,7 +70,7 @@ describe('visibleNavGroups', () => {
       team: ['/team-inbox', '/team-contacts', '/team-activity'],
       sales: ['/broadcasts'],
       automation: ['/automations', '/flows'],
-      integrations: ['/compass'],
+      integrations: ['/compass', '/opendesk'],
     });
   });
 
@@ -82,9 +81,9 @@ describe('visibleNavGroups', () => {
 
   it('adds Calls after the inbox for staff once the phone system is in use', () => {
     const withCalls = (main: string[]) => [
-      ...main.slice(0, 3),
+      ...main.slice(0, 2),
       '/calls',
-      ...main.slice(3),
+      ...main.slice(2),
     ];
     expect(layout(visibleNavGroups('viewer', { pbx: true })).main).toEqual(
       withCalls(EVERYONE)

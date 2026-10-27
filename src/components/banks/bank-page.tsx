@@ -55,6 +55,7 @@ import {
   type BankThread,
   type PinKind,
 } from '@/lib/banks/ui';
+import { caseStatusView } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { BankCasesTab } from './bank-cases-tab';
@@ -311,7 +312,8 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
 
 function caseLabel(c: BankCase) {
   return (
-    [c.stage, c.product].filter(Boolean).join(' · ') || c.caseId.slice(0, 8)
+    [caseStatusView(c).text, c.product].filter(Boolean).join(' · ') ||
+    c.caseId.slice(0, 8)
   );
 }
 

@@ -193,6 +193,17 @@ connection with no secret stored refuses every push. Optionally set
   call stops moving has been fixed, sinks down the list and drops off
   it after 30 days. An erased call keeps the flag and the dialled
   number, but not the caller's.
+- **Several records for one call.** The PBX may send more than one
+  end-of-call record for a call (a transfer, a ring group, a no answer
+  followed by voicemail or a failed record). The CRM keeps them all and
+  combines them: the call is answered if any record is answered; talk
+  time is the longest answered record; the start is the earliest; a
+  trailing failed record never hides a no answer; and the answering
+  extension gets the call. A missed-call task opened by an early no
+  answer record is closed when an answered record follows, unless other
+  calls were folded into it. Calls stored before this release can be
+  repaired with `npx tsx scripts/pbx-repair-call-legs.ts` (a dry run
+  that lists what would change), then `--apply`.
 - **Customer.** The caller is matched only among that workspace's
   contacts. Several matches link none; the candidates are kept on the
   call for the person to pick.
@@ -306,7 +317,35 @@ Run one gateway per PBX.
 After a reconnect the gateway asks for the gap's call records
 (`POST /api/pbx/gateway/backfill`, the last 24 hours at most), and each
 is stored as the Call End event it would have been. The Events card
-shows the latest backfill.
+shows the latest backfill. Identical records (overlapping pages) are
+read once; records that differ but share a uid are separate legs of
+one call and are all kept.
+
+### Importing past calls
+
+Calls made before the webhook or gateway was connected are not in the
+CRM. Import them from the PBX's call records with
+
+```bash
+npx tsx scripts/pbx-import-cdr.ts --from 2026-10-27T00:00:00Z --to 2026-10-27T10:48:00Z
+npx tsx scripts/pbx-import-cdr.ts --from … --to … --apply
+```
+
+run from the app's directory (it reads `.env.local`: the Supabase URL,
+the service-role key and `ENCRYPTION_KEY`). `--connection <id>` picks
+the connection when there are several. The window is at most 24 hours
+and may not end in the future. The first run is a dry run: totals, the
+calls already in the CRM (always skipped, because the live feed owns
+them) and per extension the calls, answered calls and talk minutes.
+`--apply` stores each record as its Call End event, deduped like any
+other, and writes the calls row as a live call end would: legs
+combined, contact, workspace routing, extension owner and recording
+state (so the recordings cron fetches the audio, bank numbers held as
+usual). It never opens or closes a missed-call task, rings a bell,
+settles a call-back, touches a screen pop or moves the Events card's
+last-event clock. The run shows on the Events card as the latest
+backfill. A record that fails is removed again, so the next run
+retries it.
 
 ## 8. Recordings
 
@@ -479,13 +518,14 @@ section describes the behaviour once it is on.
   | ---------------------- | -------------------------------------------------------------------------- |
   | My calls               | Everyone who can open the screen; the tab it opens on                      |
   | Keypad                 | Agents and above who have an extension                                     |
-  | Colleagues             | Agents and above who have an extension                                     |
   | Missed calls           | Everyone who can open the screen                                           |
   | Team calls / All calls | Team leaders (Team calls); owners and admins (All calls)                   |
   | By person              | Team leaders, admins and owners                                            |
-  | Unrouted               | Owners and admins                                                          |
   | Voicemail              | Agents and above who have an extension                                     |
-  | Groups & queues        | Agents and above who have an extension; team leaders and above without one |
+
+  Colleagues, Unrouted and Groups & queues were taken off the screen on
+  2026-10-27; a link to one opens My calls. Unrouted calls still count in
+  the Call report, under calls with no person.
 
   _My calls_ lists the calls you placed, took or were the other party
   to, and the ones that rang your phone. _Missed calls_ shows your own
@@ -494,6 +534,12 @@ section describes the behaviour once it is on.
   _All_ (every missed call and task they can see). _Team calls_
   / _All calls_ is every call you can see. A link to a tab you are not
   offered opens My calls.
+
+  The lists hold people's calls: an agent sees only their own, a team
+  leader their own and those of the teams they lead (calls they took,
+  were the other party to, or that rang them), and an owner or admin
+  everyone's. A colleague's call with a customer you can see is not on
+  your Calls screen; it stays on that customer's page.
 
 - **By person** (the Calls screen's _By person_ tab: team leaders, admins and
   owners). For today, this week (from Monday), this month or up to 92

@@ -91,6 +91,7 @@ export async function middleware(request: NextRequest) {
     '/flows',
     '/agents',
     '/compass',
+    '/opendesk',
     '/notifications',
     '/settings',
     '/chat',

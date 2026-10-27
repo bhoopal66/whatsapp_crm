@@ -56,7 +56,10 @@ export interface Case {
   contactId: string | null;
   /** 130: where the lead came from (free text, at most 200). */
   leadSource: string | null;
+  /** 141: the customer the submission tracker sent, else the contact's name. */
   contactName: string | null;
+  /** The linked CRM contact's own name. */
+  contactOwnName: string | null;
   bankCode: string | null;
   bankName: string | null;
   product: string | null;

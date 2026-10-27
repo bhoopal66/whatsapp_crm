@@ -66,16 +66,42 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const absent = (v: unknown) => v === undefined || v === null;
 
-/** "<customer name or phone> · <submission id>", cut to the subject limit. */
+export const SUBJECT_SUFFIX = ' x Taamul Credit';
+
+/** 142: the most coordinator numbers a group stores (SQL CHECK). */
+export const MAX_COORDINATOR_PHONES = 5;
+
+/**
+ * 142: the coordinator numbers to add to a new WhatsApp group, as digits:
+ * the bank's coordinators first, then the request's coordinator_phone, each
+ * once, never the customer's own number, at most MAX_COORDINATOR_PHONES.
+ */
+export function coordinatorPhoneList(
+  bankPhones: readonly (string | null)[],
+  requestPhone: string | null,
+  customerPhone: string
+): string[] {
+  const customer = customerPhone.replace(/\D/g, '');
+  const out: string[] = [];
+  // The request's number first: Compass chose it, so the cap never cuts it.
+  for (const raw of [requestPhone, ...bankPhones]) {
+    const d = (raw ?? '').replace(/\D/g, '');
+    if (d === '' || d === customer || out.includes(d)) continue;
+    out.push(d);
+    if (out.length === MAX_COORDINATOR_PHONES) break;
+  }
+  return out;
+}
+
+/** "<customer name or phone> x Taamul Credit"; a long name is cut, never the suffix. */
 export function defaultSubject(
   customerName: string | null,
-  customerPhone: string,
-  submissionId: string
+  customerPhone: string
 ): string {
-  return `${customerName ?? customerPhone} · ${submissionId}`.slice(
-    0,
-    SUBJECT_MAX
-  );
+  const name = (customerName ?? customerPhone)
+    .slice(0, SUBJECT_MAX - SUBJECT_SUFFIX.length)
+    .trimEnd();
+  return `${name}${SUBJECT_SUFFIX}`;
 }
 
 function parseEmail(v: unknown, field: string): Parsed<string> {
@@ -167,7 +193,7 @@ export function parseCreateInput(body: unknown): Parsed<CreateInput> {
     coordinatorPhone = checked.normalized.replace(/\D/g, '');
   }
 
-  let subject = defaultSubject(customerName, phone.normalized, submissionId);
+  let subject = defaultSubject(customerName, phone.normalized);
   if (!absent(body.subject)) {
     if (typeof body.subject !== 'string')
       return bad("'subject' must be a string");

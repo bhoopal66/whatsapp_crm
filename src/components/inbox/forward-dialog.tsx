@@ -28,7 +28,7 @@ import { ReplyQuote, buildReplyPreview } from './reply-quote';
 interface ForwardDialogProps {
   /** The message being forwarded; the dialog is closed when null. */
   message: Message | null;
-  /** Sender label for the preview chip ("You" / the contact's name). */
+  /** Who sent it, for the preview chip, as its bubble names them. */
   authorLabel: string;
   /** The thread the message lives in — not offered as a destination. */
   sourceConversationId: string;

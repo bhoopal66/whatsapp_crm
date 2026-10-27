@@ -12,6 +12,214 @@ and polish.
 
 ## [Unreleased]
 
+### Notifications move to a bell in the top bar
+
+No migration.
+- A bell next to the light/dark switch shows how many notifications
+  are unread. Clicking it opens a dropdown with the latest
+  notifications, "Mark all as read", and a "View all" link.
+- The Notifications item is gone from the sidebar. The page still
+  exists at `/notifications` (push notifications and "View all" open it).
+
+### Team chat: choose who may message whom (migration 143)
+
+**Migration required: 143** (`143_chat_dm_rules.sql`, apply as a
+superuser or a BYPASSRLS role; apply it before
+deploying, since the settings screen and the New message picker call
+its functions).
+- Settings → Team chat gains a Direct messages section: for each pair
+  of roles (admin, team leader, coordinator, agent, viewer) an owner or
+  admin picks *not allowed*, *same team only* or *everyone*. Owners can
+  always message everyone.
+- A pair that is not allowed cannot open a DM, and existing DMs between
+  them are hidden from those people (not deleted; relaxing the rule
+  shows them again). Admins can still open any DM through the audited
+  read.
+- Nothing changes until rules are saved. "Use recommended" fills in:
+  agents and viewers may message their own team leader, admins and
+  coordinators, not each other.
+
+### Bank coordinators join their submission groups (migration 142)
+
+**Migration required: 142** (`142_coordinator_whatsapp_numbers.sql`,
+apply as a superuser or a BYPASSRLS role; the TS reads the new column
+and passes the new `sg_open` parameter, so apply it before deploying).
+- Settings → Members gains a WhatsApp number for each coordinator, the
+  number they are added to their banks' submission groups with.
+- When the submission tracker opens a WhatsApp group for a case with a
+  bank, every coordinator of that bank who has a saved number is added
+  to the group (up to 5 coordinator numbers, the request's
+  `coordinator_phone` included), and each coordinator of the bank joins
+  the group's access list as Coordinator. Their messages in the group
+  are logged as the coordinator's. Submissions without a WhatsApp group
+  are unchanged.
+- A group's name defaults to `<company> x Taamul Credit`; a `subject`
+  sent by Compass still wins.
+
+### Calls screen shows people's calls by role
+
+No migration.
+- An agent's Calls screen lists only their own calls, a team leader's
+  their own and their teams', an admin's everyone's. Team calls and the
+  team's Missed calls no longer include other people's calls on
+  customers the leader can see; those stay on the customer's page.
+- A call between colleagues shows the other person (or "Ext 2122" when
+  their extension is not mapped) instead of "Unknown caller"; a leader
+  or admin looking at two others' call sees both sides.
+- The Colleagues, Unrouted, and Groups & queues tabs are gone from the
+  Calls screen; an old link to one opens My calls.
+
+### Phone calls with several PBX records are combined
+
+No migration.
+- When the PBX sent several end-of-call records for one call (a ring
+  group, a transfer, a no answer followed by voicemail or a failed
+  record), the CRM kept only the last one, so a call could show the
+  wrong status, talk time, start time and person. All records are now
+  kept and combined: answered if any is answered, talk time of the
+  longest answered one, the earliest start, and the answering person.
+- A missed-call task opened by an early no-answer record is closed when
+  an answered record follows.
+- Calls stored earlier can be repaired with
+  `npx tsx scripts/pbx-repair-call-legs.ts` (dry run), then `--apply`.
+  It leaves tasks and recordings alone.
+- The gateway's call-record backfill no longer drops every record of a
+  call after the first (they all share one PBX id).
+- Calls made before the PBX's live feed was connected can be imported
+  from its call records with
+  `npx tsx scripts/pbx-import-cdr.ts --from <ISO> --to <ISO>` (dry run,
+  at most 24 hours), then `--apply`. It skips calls already in the CRM
+  and never opens tasks, rings bells or settles call-backs; recordings
+  are fetched by the cron as usual.
+
+### WhatsApp groups and Submission groups redesigned as split views
+
+- Both pages are now an Inbox-style split view: the list stays on the
+  left, the selected group opens on the right (one pane at a time on a
+  phone).
+- WhatsApp groups: the chat sits in the middle and a "Group info" panel
+  (members, invite link, join requests, settings, managers, leave)
+  docks on the right on wide screens, or opens from the Info button.
+  Old `?tab=` links open the matching section.
+- Submission groups: rows and the header show the company the tracker
+  sent instead of the raw submission id and the contact's WhatsApp
+  name; the contact appears as "Contact: <name>" when it differs. The
+  reference is shortened (copy for the full one), the tracker status is
+  coloured, search matches the company, and a "My groups" filter was
+  added. A submission without a WhatsApp group shows its details and
+  people instead of an empty chat.
+- The cases list and the case page show the linked contact's own name
+  under the company ("Contact: <name>").
+
+### Delete WhatsApp groups you left
+
+- Owners and admins can delete a WhatsApp group your number has left
+  from the CRM: "Delete from CRM" in the group's info panel or ⋮ menu,
+  or "Delete all left groups" above the list under the Left filter.
+  It removes the group and its saved messages from the CRM only;
+  WhatsApp is not affected. Groups the number is still in can't be
+  deleted. No migration.
+
+### Cases show the company the submission tracker sent (migration 141)
+
+**Migration required: 141** (`141_submission_customer_name.sql`, apply as
+a superuser or a BYPASSRLS owner of `submission_groups`; the TS reads the
+new column, so apply it before deploying).
+- `POST /api/v1/submission-groups` now keeps the request's
+  `customer.name` on the submission group. It used to be used only when
+  the phone matched no contact, so most cases showed the contact's own
+  name (often a person's WhatsApp name, or blank) instead of the
+  company.
+- The Cases inbox, the case page and the bank workspace case list show
+  that name as the customer, falling back to the contact's name. CRM
+  contacts are not renamed.
+- Existing groups are backfilled from their subject: Compass titles a
+  group `<company> - <ref>`, so the trailing ` - <ref>` (or our own
+  ` · <submission id>`) is dropped; a subject that is only a phone
+  number gives no name.
+
+### Voice notes look and play like WhatsApp
+
+No migration.
+- A voice note in the inbox and team inbox is now a round play button,
+  the clip's own waveform (click or drag it to jump), a running clock
+  and a 1× / 1.5× / 2× speed pill, instead of the browser's audio bar.
+  Starting one pauses any other that is playing; download stays.
+- Browser-recorded notes now show their real length (Chrome used to
+  show none) and can be seeked.
+- Recording shows a live meter of your microphone, the clock (red in
+  the last 30 seconds) and the 5:00 limit; the take can be played back
+  before it is sent.
+
+### Admins can set a member's password (migration 140)
+
+**Migration required: 140** (`140_member_password_change.sql`, applied
+as a superuser or BYPASSRLS role, like 092).
+- Settings → Members has a key button on each row an owner or admin may
+  change: it sets that person's password, shown in plain text and
+  starting as a suggestion so it can be passed on, as in Add person.
+- An admin can set the password of team leaders, agents, viewers and
+  bank guests; the owner can set anyone's. Nobody sets their own here:
+  that stays in Settings → Login & security.
+- One login opens every workspace it belongs to, so the change is
+  refused when the person also belongs to a workspace you do not
+  administer above them.
+- Each change is recorded as **Changed a password** in Settings →
+  Privacy & compliance → Audit log, in every workspace the person
+  belongs to.
+
+### Settings: a side menu, search and a map of every section
+
+No migration.
+- Settings now has a menu down the left (on narrower screens, behind the
+  bar at the top), grouping its sections as **My account**, **Workspace**,
+  **WhatsApp**, **Inbox & CRM**, **AI & automation**, **Cases &
+  collaboration**, **Privacy & compliance** and **Integrations**. It
+  replaces the two rows of tabs.
+- Moved: Members and Teams to Workspace; Cases, Deal rooms and Team chat
+  to Cases & collaboration; Vault, Consent and retention and the Audit
+  log to Privacy & compliance; Deals & currency to Inbox & CRM; the
+  Journey bot beside AI Agents. The workspace's name and archiving are
+  now **Workspace → General**.
+- **Search settings** at the top of the menu finds a section by its name
+  or what it is for (try "password", "currency" or "QR").
+- The Overview lists every section you can open, each with a one-line
+  explanation, or its live status: WhatsApp connection, members and
+  pending invites, templates awaiting Meta, custom fields, the AI
+  assistant.
+- The account menu's **Settings** now opens the Overview rather than the
+  WhatsApp connection.
+- Links to a section (`/settings?tab=…`) are unchanged.
+
+### Every chat message names its sender
+
+No migration.
+- In the Inbox, the Team inbox and the Campaign inbox, every message
+  has a small line at the top of its bubble saying who sent it: the
+  customer's name, the team member who replied (your own read
+  "Name (you)"), **AI assistant**, **Bot** (flows, automations, the
+  journey bot) or **Team** when no person was recorded (Compass
+  notifications, the public API, and replies from before the CRM
+  recorded who sent them). Hover the last three for what they mean.
+- A quote of a message, the Forward preview and the photo viewer name
+  the same sender. They used to say "You" for everything the business
+  sent, whoever sent it.
+- In a WhatsApp group's chat, outgoing messages are named too: the team
+  member who sent it from the CRM, or **Your number** for one sent from
+  the phone.
+
+### OpenDesk: interested contacts from the Taamul sales app (migration 139)
+
+**Migration required: 139** (`139_taamul_sales_interested.sql`).
+- New endpoint `POST /api/taamul-sales/webhook` receives the sales app's
+  signed "contact marked as interested" events.
+- They are stored in a separate OpenDesk list, not in the CRM's
+  contacts, and shown to admins under **Integrations → OpenDesk** next
+  to Compass: customer, company, phones, trade licence, agent, call
+  notes and lead, with search and a details view per contact.
+- Set `TAAMUL_WEBHOOK_SECRET` and `TAAMUL_WEBHOOK_ACCOUNT_ID`; see
+  `docs/taamul-sales.md`.
+
 ### Cases show the submission tracker's own status
 
 No migration.
@@ -19,8 +227,16 @@ No migration.
   submitted case's status exactly as the submission tracker (Compass)
   sent it, e.g. **UNDER_REVIEW**, instead of the CRM stage name. Leads,
   and cases the tracker has not reported on yet, still show their stage.
-- The chip keeps its stage colour while the status names that stage;
-  any other status is shown in grey.
+- The same goes for the customer page's Cases card, the case picker on a
+  bank's page, and the Submissions table under Integrations → Compass
+  (its column is now **Status**). Whatever name Compass sends is shown
+  as sent; nothing is translated, re-cased or mapped.
+- Each of Compass's status names has its own colour: To Submit sky,
+  Inhouse Review indigo, Submitted blue, Bank Review violet, Awaiting
+  Customer Response amber, Returned to RO orange, Awaiting Fulfillment
+  teal, Approved green, Declined red. Any other status takes the colour
+  of the stage it names, else of the case's stage. The Compass
+  Submissions table shows the same coloured chip.
 - The stage itself is unchanged underneath: SLA timers, closing a case,
   the stage filter, Move stage and the bank dashboard still use it.
 

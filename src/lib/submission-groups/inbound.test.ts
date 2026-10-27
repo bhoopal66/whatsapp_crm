@@ -61,6 +61,30 @@ describe('senderKindOf', () => {
       'coordinator'
     );
   });
+  it("matches any of the bank's coordinator numbers (142)", () => {
+    expect(
+      senderKindOf('971550000003', '971501234567', null, [
+        '971550000004',
+        '9710550000003',
+      ])
+    ).toBe('coordinator');
+  });
+  it("records a bank coordinator's message as the coordinator (142)", async () => {
+    const recordInbound = vi.fn<InboundStore['recordInbound']>(
+      async () => true
+    );
+    const store = fakeStore({
+      findByWaGroupId: vi.fn(async () => ({
+        ...group,
+        coordinatorPhones: ['971550000003'],
+      })),
+      recordInbound,
+    });
+    await recordSubmissionGroupInbound(store, channel, [
+      msg({ senderWaId: '971550000003' }),
+    ]);
+    expect(recordInbound.mock.calls[0][0].senderKind).toBe('coordinator');
+  });
   it('is other for anyone else or a hidden number', () => {
     expect(senderKindOf('971509999999', '971501234567', null)).toBe('other');
     expect(senderKindOf('123456789@lid', '971501234567', null)).toBe('other');

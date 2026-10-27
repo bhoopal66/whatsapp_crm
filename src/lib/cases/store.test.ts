@@ -746,6 +746,44 @@ describe('get', () => {
     });
     expect(await new CaseStore(db.client).get('nope')).toBeNull();
   });
+
+  it("names the submission's customer when the tracker sent one (141), else the contact", async () => {
+    const caseRow = {
+      id: CASE,
+      account_id: ACCOUNT,
+      group_id: GROUP,
+      contact_id: CONTACT,
+      bank_code: null,
+      agent_id: ACTOR,
+      stage: 'Submitted',
+      priority: 'normal',
+      opened_at: '2026-10-19T08:00:00+00:00',
+    };
+    const group = { id: GROUP, submission_ref: 'S-1', contact_id: CONTACT };
+    const contacts = [{ id: CONTACT, name: 'Nasrullah' }];
+    const named = new FakeDb(
+      {},
+      {
+        cases: [caseRow],
+        submission_groups: [{ ...group, customer_name: 'CANTUS - F.Z.E' }],
+        contacts,
+      }
+    );
+    const got = await new CaseStore(named.client).get(CASE);
+    expect(got?.contactName).toBe('CANTUS - F.Z.E');
+    expect(got?.contactOwnName).toBe('Nasrullah');
+    const unnamed = new FakeDb(
+      {},
+      {
+        cases: [caseRow],
+        submission_groups: [{ ...group, customer_name: null }],
+        contacts,
+      }
+    );
+    expect((await new CaseStore(unnamed.client).get(CASE))?.contactName).toBe(
+      'Nasrullah'
+    );
+  });
 });
 
 describe('sweepCaseGroupEnds', () => {

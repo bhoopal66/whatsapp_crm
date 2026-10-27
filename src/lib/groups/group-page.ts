@@ -133,6 +133,54 @@ export function resolveTab(
   return visible.includes(tab) ? tab : 'chat';
 }
 
+// ------------------------------------------------------------
+// The info panel
+// ------------------------------------------------------------
+
+/** The group-info panel's sections, top to bottom (Leave sits below). */
+export const INFO_SECTIONS = [
+  'members',
+  'invite',
+  'requests',
+  'settings',
+  'managers',
+] as const;
+export type InfoSection = (typeof INFO_SECTIONS)[number];
+
+/**
+ * The sections a person sees: the tabs `visibleTabs` allows, in panel
+ * order, with Settings left out when both of its halves (name and
+ * picture, the four policies) are blocked, so there is nothing to edit.
+ */
+export function infoSections(
+  visible: readonly GroupTab[],
+  blocks: Pick<GroupBlocks, 'edit_info' | 'settings'>
+): InfoSection[] {
+  return INFO_SECTIONS.filter(
+    (s) =>
+      visible.includes(s) &&
+      !(
+        s === 'settings' &&
+        blocks.edit_info !== null &&
+        blocks.settings !== null
+      )
+  );
+}
+
+/**
+ * The section an old `?tab=` link opens (`?tab=requests` from the
+ * bell, `?tab=members` …), or null for Chat, an unknown tab, or one
+ * this person does not see.
+ */
+export function infoSectionFromTab(
+  raw: string | null | undefined,
+  sections: readonly InfoSection[]
+): InfoSection | null {
+  return (sections as readonly string[]).includes(raw ?? '')
+    ? (raw as InfoSection)
+    : null;
+}
+
 /**
  * Whether a `DELETE …/participants` answer says WhatsApp refused anyone.
  * The route answers 200 `{removed, failed, resynced}` even then.
@@ -222,6 +270,29 @@ export function statusTick(
     default:
       return 'clock';
   }
+}
+
+/**
+ * Who sent a bubble in the chat log. Incoming: the participant, by the
+ * name WhatsApp gave, else their number. Outgoing: the member the send
+ * route recorded (`sender_user_id`, with their name then), else the
+ * name our number carries on a message sent from the phone. A null
+ * `name` reads as "Someone" / "Your number".
+ */
+export function groupMessageSender(
+  m: {
+    direction: 'in' | 'out';
+    sender_name: string | null;
+    sender_wa_id: string | null;
+    sender_user_id?: string | null;
+  },
+  currentUserId: string | null
+): { name: string | null; isMe: boolean } {
+  const out = m.direction === 'out';
+  return {
+    name: m.sender_name?.trim() || (out ? null : m.sender_wa_id) || null,
+    isMe: out && !!currentUserId && m.sender_user_id === currentUserId,
+  };
 }
 
 /** Composer key handling: Enter sends, Shift+Enter (or IME input) does not. */

@@ -72,14 +72,17 @@ function forms(phone: string | null | undefined): string[] {
 export function senderKindOf(
   senderWaId: string | null,
   customerPhone: string | null,
-  coordinatorPhone: string | null
+  coordinatorPhone: string | null,
+  /** 142: the bank's coordinators' numbers on the group. */
+  coordinatorPhones: readonly string[] = []
 ): SenderKind {
   if (!senderWaId || senderWaId.includes('@')) return 'other';
   const sender = new Set(forms(senderWaId));
   const matches = (phone: string | null) =>
     forms(phone).some((f) => sender.has(f));
   if (matches(customerPhone)) return 'customer';
-  if (matches(coordinatorPhone)) return 'coordinator';
+  if ([coordinatorPhone, ...coordinatorPhones].some(matches))
+    return 'coordinator';
   return 'other';
 }
 
@@ -131,7 +134,8 @@ export async function recordSubmissionGroupInbound(
       const senderKind = senderKindOf(
         m.senderWaId,
         (await phone) ?? null,
-        group.coordinatorPhone
+        group.coordinatorPhone,
+        group.coordinatorPhones
       );
       const recorded = await store.recordInbound({
         groupId: group.id,

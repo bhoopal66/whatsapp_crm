@@ -582,3 +582,64 @@ export function pickableManagers(
     )
     .map((p) => ({ id: p.user_id, name: p.full_name || p.email || '' }));
 }
+
+// ------------------------------------------------------------
+// The list pane: filter chips, the number filter, avatar colours
+// ------------------------------------------------------------
+
+export const GROUP_LIST_CHIPS = ['all', 'admin', 'left'] as const;
+export type GroupListChip = (typeof GROUP_LIST_CHIPS)[number];
+
+/**
+ * The list pane's chips and number filter, applied after the search.
+ * "I'm admin" is our number being a group admin; "Left" the groups it
+ * left. A null `channelId` means every number.
+ */
+export function applyGroupFilter<T extends GroupListItem>(
+  groups: readonly T[],
+  filter: { chip: GroupListChip; channelId: string | null }
+): T[] {
+  return groups.filter(
+    (g) =>
+      (filter.chip === 'all' || g.our_role === filter.chip) &&
+      (filter.channelId === null || g.channel_id === filter.channelId)
+  );
+}
+
+/**
+ * The numbers the listed groups sit on, one entry each, by label. A
+ * group whose number was removed has no entry: the filter can only
+ * name a number that still exists.
+ */
+export function groupNumbers(
+  groups: readonly GroupListItem[]
+): Array<{ id: string; label: string }> {
+  const byId = new Map<string, string>();
+  for (const g of groups) {
+    if (g.channel && !byId.has(g.channel.id)) {
+      byId.set(g.channel.id, g.channel.name ?? g.channel.phone ?? g.channel.id);
+    }
+  }
+  return [...byId.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+}
+
+/**
+ * A stable colour slot (0 … `slots`-1) for an avatar with no picture,
+ * from the group's id, so a group keeps its colour across reloads.
+ */
+export function avatarToneIndex(seed: string, slots: number): number {
+  if (slots <= 0) return 0;
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+  return h % slots;
+}
+
+/**
+ * A side panel (group info, submission details) docks beside the chat
+ * from here up, else it is a sheet. 1440px, not 1280: the app sidebar
+ * (240px) and the 352px list leave the chat too narrow with a panel
+ * docked any earlier.
+ */
+export const DOCK_QUERY = '(min-width: 1440px)';

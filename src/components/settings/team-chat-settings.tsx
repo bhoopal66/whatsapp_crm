@@ -3,12 +3,31 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import { Eraser, Eye, Info, Loader2, MessagesSquare } from 'lucide-react';
+import {
+  Eraser,
+  Eye,
+  Info,
+  Loader2,
+  MessagesSquare,
+  UserRoundCheck,
+} from 'lucide-react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
 import { invalidateCached } from '@/lib/client-cache';
-import { adminReadPrivate } from '@/lib/chat/api';
+import { adminReadPrivate, getDmRules, setDmRules } from '@/lib/chat/api';
+import {
+  DM_CLASSES,
+  DM_SCOPES,
+  openMatrix,
+  RECOMMENDED_DM_RULES,
+  sameRules,
+  scopeOf,
+  withScope,
+  type DmClass,
+  type DmMatrix,
+  type DmScope,
+} from '@/lib/chat/dm-rules';
 import { ChatError } from '@/lib/chat/errors';
 import { mentionSegments } from '@/lib/chat/mentions';
 import type { ChatMessage } from '@/lib/chat/types';
@@ -59,7 +78,8 @@ const SELECT =
   'h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-60';
 
 /**
- * Settings → Team chat (admin+): the workspace switch, the audited read
+ * Settings → Team chat (admin+): the workspace switch, who may DM whom
+ * (migration 143), the audited read
  * of a private channel or DM, and (owner only) a person's erasure. The
  * RPCs enforce every rule; this form keeps the requests honest.
  */
@@ -96,6 +116,7 @@ export function TeamChatSettings() {
     <section className="animate-in fade-in-50 max-w-3xl space-y-6 duration-200">
       <SettingsPanelHead title={t('title')} description={t('description')} />
       <ChatSwitchCard supabase={supabase} accountId={accountId} />
+      <DmRulesCard supabase={supabase} accountId={accountId} />
       <PrivateReadCard supabase={supabase} people={people ?? []} />
       {isOwner && <EraseCard people={people} peopleFailed={peopleFailed} />}
       <div className="border-border bg-muted/40 text-muted-foreground flex gap-2 rounded-xl border p-4 text-sm">
@@ -191,6 +212,191 @@ function ChatSwitchCard({
             aria-describedby="team-chat-switch-desc"
           />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Who may direct-message whom (143), one block per class. A rule is one
+ * pair, so a change shows in both classes' blocks. Edits stay local
+ * until Save, which replaces the workspace's whole rule set.
+ */
+function DmRulesCard({
+  supabase,
+  accountId,
+}: {
+  supabase: Supabase;
+  accountId: string | null;
+}) {
+  const t = useTranslations('Settings.teamChat.dm');
+  const tErrors = useTranslations('Chat.errors');
+  const [saved, setSaved] = useState<DmMatrix | null>(null);
+  const [draft, setDraft] = useState<DmMatrix | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let off = false;
+    getDmRules(supabase, accountId)
+      .then((m) => {
+        if (off) return;
+        setSaved(m);
+        setDraft(m);
+      })
+      .catch(() => {
+        if (!off) setLoadFailed(true);
+      });
+    return () => {
+      off = true;
+    };
+  }, [supabase, accountId, attempt]);
+
+  const dirty = !!saved && !!draft && !sameRules(saved, draft);
+
+  async function save() {
+    if (!accountId || !draft || !dirty) return;
+    setSaving(true);
+    try {
+      await setDmRules(supabase, { accountId, rules: draft });
+      setSaved(draft);
+      toast.success(t('saved'));
+    } catch (err) {
+      toast.error(
+        err instanceof ChatError && err.key !== 'unknown'
+          ? tErrors(err.key)
+          : t('saveFailed')
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const set = (a: DmClass, b: DmClass, scope: DmScope) =>
+    setDraft((d) => (d ? withScope(d, a, b, scope) : d));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-foreground flex items-center gap-2">
+          <UserRoundCheck className="text-primary size-4" />
+          {t('title')}
+        </CardTitle>
+        <CardDescription className="text-muted-foreground">
+          {t('description')}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loadFailed ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-destructive text-sm">{t('loadFailed')}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setLoadFailed(false);
+                setAttempt((n) => n + 1);
+              }}
+            >
+              {t('retry')}
+            </Button>
+          </div>
+        ) : !draft ? (
+          <p className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" /> {t('loading')}
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {DM_CLASSES.map((from) => (
+                <fieldset
+                  key={from}
+                  className="border-border min-w-0 rounded-lg border p-3"
+                  disabled={saving}
+                >
+                  <legend className="text-foreground px-1 text-sm font-semibold">
+                    {t(`classes.${from}`)}
+                  </legend>
+                  <p className="text-muted-foreground mb-2 text-xs">
+                    {t('canMessage')}
+                  </p>
+                  <ul className="space-y-2">
+                    {DM_CLASSES.map((to) => {
+                      const id = `team-chat-dm-${from}-${to}`;
+                      return (
+                        <li
+                          key={to}
+                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,9.5rem)] items-center gap-2"
+                        >
+                          <label
+                            htmlFor={id}
+                            className="text-foreground truncate text-sm"
+                          >
+                            {t(`classes.${to}`)}
+                          </label>
+                          <select
+                            id={id}
+                            value={scopeOf(draft, from, to)}
+                            onChange={(e) =>
+                              set(from, to, e.target.value as DmScope)
+                            }
+                            aria-label={t('scopeLabel', {
+                              from: t(`classes.${from}`),
+                              to: t(`classes.${to}`),
+                            })}
+                            className={SELECT}
+                          >
+                            {DM_SCOPES.map((s) => (
+                              <option key={s} value={s}>
+                                {t(`scopes.${s}`)}
+                              </option>
+                            ))}
+                          </select>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </fieldset>
+              ))}
+            </div>
+
+            <div className="border-border bg-muted/40 text-muted-foreground flex gap-2 rounded-lg border p-3 text-sm">
+              <Info className="mt-0.5 size-4 shrink-0" />
+              <p>{t('ownerNote')}</p>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              {t('recommendedHint')}
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setDraft(RECOMMENDED_DM_RULES)}
+                disabled={saving}
+              >
+                {t('recommended')}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setDraft(openMatrix())}
+                disabled={saving}
+              >
+                {t('allowAll')}
+              </Button>
+              <Button onClick={() => void save()} disabled={!dirty || saving}>
+                {saving && <Loader2 className="size-4 animate-spin" />}
+                {t('save')}
+              </Button>
+              {dirty && (
+                <span className="text-muted-foreground text-xs" role="status">
+                  {t('unsaved')}
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

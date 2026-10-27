@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   caseStatusView,
+  contactPersonLine,
   STAGE_CHIP,
   STAGE_CHIP_OTHER,
   stageChipClass,
@@ -147,6 +148,7 @@ const row = {
   isLead: false,
   contactId: 'k1',
   contactName: 'Sara',
+  contactOwnName: 'Sara K',
   product: 'Home loan',
   amount: 1250000.5,
   openedAt: '2026-10-01T00:00:00.000Z',
@@ -180,6 +182,7 @@ describe('parseInboxPage', () => {
         isLead: false,
         contactId: 'k1',
         contactName: 'Sara',
+        contactOwnName: 'Sara K',
         product: 'Home loan',
         amount: 1250000.5,
         openedAt: '2026-10-01T00:00:00.000Z',
@@ -331,7 +334,7 @@ describe('caseStatusView', () => {
   it("shows the tracker's status word for word, never a stage name", () => {
     expect(
       caseStatusView({ stage: 'Submitted', submissionStatus: 'BANK_QUERY' })
-    ).toEqual({ text: 'BANK_QUERY', chipClass: STAGE_CHIP_OTHER });
+    ).toEqual({ text: 'BANK_QUERY', chipClass: stageChipClass('Submitted') });
     expect(
       caseStatusView({
         stage: 'Under review',
@@ -340,21 +343,48 @@ describe('caseStatusView', () => {
     ).toBe('UNDER_REVIEW');
   });
 
-  it("keeps the stage's colour only while the status names that stage", () => {
+  it("colours each of Compass's own status names by its meaning", () => {
+    const colour = (submissionStatus: string, stage = 'Submitted') =>
+      caseStatusView({ stage, submissionStatus }).chipClass;
+    expect(colour('To Submit')).toContain('bg-sky-100');
+    expect(colour('Inhouse Review')).toContain('bg-indigo-100');
+    expect(colour('Submitted')).toBe(stageChipClass('Submitted'));
+    expect(colour('Bank Review')).toBe(stageChipClass('Under review'));
+    expect(colour('Awaiting Customer Response')).toBe(
+      stageChipClass('Documents requested')
+    );
+    expect(colour('Returned to RO')).toContain('bg-orange-100');
+    expect(colour('Awaiting Fulfillment')).toContain('bg-teal-100');
+    expect(colour('  awaiting   customer_response ')).toBe(
+      colour('Awaiting Customer Response')
+    );
+    expect(colour('APPROVED')).toBe(stageChipClass('Approved'));
+    expect(colour('DECLINED')).toBe(stageChipClass('Declined'));
+  });
+
+  it('else takes the colour of the stage the status names', () => {
     expect(
       caseStatusView({
-        stage: 'Under review',
-        submissionStatus: 'UNDER_REVIEW',
+        stage: 'Submitted',
+        submissionStatus: 'QUERY_ANSWERED',
       }).chipClass
-    ).toBe(stageChipClass('Under review'));
+    ).toBe(stageChipClass('Query answered'));
+  });
+
+  it("else takes the case's stage colour, never left grey", () => {
+    const view = caseStatusView({
+      stage: 'Under review',
+      submissionStatus: 'Sent to credit',
+    });
+    expect(view).toEqual({
+      text: 'Sent to credit',
+      chipClass: stageChipClass('Under review'),
+    });
+    expect(view.chipClass).not.toBe(STAGE_CHIP_OTHER);
     expect(
-      caseStatusView({ stage: 'Approved', submissionStatus: 'approved' })
+      caseStatusView({ stage: 'Submitted', submissionStatus: 'constructor' })
         .chipClass
-    ).toBe(stageChipClass('Approved'));
-    expect(
-      caseStatusView({ stage: 'Submitted', submissionStatus: 'APPROVED' })
-        .chipClass
-    ).toBe(STAGE_CHIP_OTHER);
+    ).toBe(stageChipClass('Submitted'));
   });
 
   it('falls back to the CRM stage for a lead or before any status', () => {
@@ -365,5 +395,20 @@ describe('caseStatusView', () => {
           chipClass: stageChipClass('Interested'),
         }
       );
+  });
+});
+
+describe('contactPersonLine', () => {
+  it("shows the contact's own name when it differs from the customer", () => {
+    expect(
+      contactPersonLine('ALA DIN GENTS SALOON L.L.C', 'Nasrullah')
+    ).toBe('Nasrullah');
+    expect(contactPersonLine(null, ' Nasrullah ')).toBe('Nasrullah');
+  });
+
+  it('shows nothing when it adds nothing', () => {
+    expect(contactPersonLine('Acme  LLC', 'acme llc')).toBeNull();
+    expect(contactPersonLine('Acme LLC', '  ')).toBeNull();
+    expect(contactPersonLine('Acme LLC', null)).toBeNull();
   });
 });

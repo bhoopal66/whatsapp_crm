@@ -634,6 +634,509 @@ describe('ingestPbxEvent', () => {
     });
   });
 
+  describe('a call sent as several PBX records', () => {
+    // One 30012 per leg, each its own POST and hash. Arrival order on
+    // live (2026-10-27) decided the row: the last leg overwrote it.
+    const leg = (
+      callId: string,
+      uid: string,
+      status: string,
+      o: {
+        to?: string;
+        from?: string;
+        type?: string;
+        start?: string;
+        dur?: number;
+        talk?: number;
+      } = {}
+    ) => ({
+      type: 30012,
+      sn: `SN-${uid}`,
+      msg: {
+        call_id: callId,
+        uid,
+        type: o.type ?? 'Inbound',
+        call_from: o.from ?? '0501234567',
+        call_to: o.to ?? '6300',
+        time_start: o.start ?? '2026-10-12 14:00:00',
+        call_duration: o.dur ?? 30,
+        talk_duration: o.talk ?? 0,
+        status,
+        did_number: '043334444',
+      },
+    });
+    const pick = (r: Row) => ({
+      status: r.status,
+      talk_seconds: r.talk_seconds,
+      ring_seconds: r.ring_seconds,
+      started_at: r.started_at,
+      ended_at: r.ended_at,
+      answered_at: r.answered_at,
+      extension: r.extension,
+      user_id: r.user_id,
+      pbx_uid: r.pbx_uid,
+      direction: r.direction,
+      remote_number: r.remote_number,
+      cdr_legs: (r.meta as Row).cdr_legs,
+    });
+    const callRow = (callId: string) =>
+      (fake.tables.calls as Row[]).find((c) => c.pbx_call_id === callId)!;
+    const ringGroup = (callId: string) => [
+      leg(callId, `${callId}-a`, 'ANSWERED', { to: '1002', talk: 20 }),
+      leg(callId, `${callId}-b`, 'NO ANSWER', {
+        to: '1001',
+        start: '2026-10-12 14:00:05',
+        dur: 12,
+      }),
+    ];
+
+    it('gives the same row whichever leg arrives first', async () => {
+      const [a, b] = ringGroup('call-1');
+      await ingest(a);
+      await ingest(b);
+      const [c, d] = ringGroup('call-2');
+      await ingest(d);
+      await ingest(c);
+      const one = pick(callRow('call-1'));
+      const two = pick(callRow('call-2'));
+      expect(one).toMatchObject({
+        status: 'answered',
+        talk_seconds: 20,
+        ring_seconds: 10,
+        started_at: '2026-10-12T10:00:00.000Z',
+        ended_at: '2026-10-12T10:00:30.000Z',
+        answered_at: '2026-10-12T10:00:10.000Z',
+        extension: '1002',
+        user_id: 'u2',
+        pbx_uid: 'call-1-a',
+        direction: 'inbound',
+        remote_number: '971501234567',
+      });
+      expect(one.cdr_legs).toHaveLength(2);
+      const uidless = (r: typeof one) => ({
+        ...r,
+        pbx_uid: null,
+        cdr_legs: (r.cdr_legs as Row[]).map((l) => ({ ...l, uid: null })),
+      });
+      expect(uidless(two)).toEqual(uidless(one));
+      // Neither was ever missed for good: no task left open, one row each.
+      expect(fake.tables.calls).toHaveLength(2);
+      expect(
+        (fake.tables.tasks ?? []).filter((t) => t.status === 'open')
+      ).toHaveLength(0);
+    });
+
+    it('a redelivered leg changes nothing', async () => {
+      const [a, b] = ringGroup('call-1');
+      await ingest(a);
+      await ingest(b);
+      const before = { ...callRow('call-1') };
+      const writes = () =>
+        fake.log.filter((e) => e.table === 'calls' && e.op !== 'select').length;
+      const n = writes();
+      // The same leg under another hash.
+      await ingest({ ...a, sn: 'SN-again' });
+      expect(writes()).toBe(n);
+      expect(callRow('call-1')).toEqual(before);
+    });
+
+    it('keeps every leg when they share one uid, as Yeastar sends them (live)', async () => {
+      // On live every leg of a call carried the call's uid; keying on it
+      // dropped every leg after the first.
+      const shared = (status: string, o: Parameters<typeof leg>[3]) =>
+        leg('call-1', 'uid-shared', status, o);
+      await ingest(shared('NO ANSWER', { to: '1001', dur: 12 }));
+      await ingest(
+        shared('ANSWERED', {
+          to: '1002',
+          talk: 20,
+          start: '2026-10-12 14:00:05',
+        })
+      );
+      expect(callRow('call-1')).toMatchObject({
+        status: 'answered',
+        talk_seconds: 20,
+        user_id: 'u2',
+      });
+      expect((callRow('call-1').meta as Row).cdr_legs).toHaveLength(2);
+      // The identical record again is still a redelivery.
+      await ingest({
+        ...shared('ANSWERED', {
+          to: '1002',
+          talk: 20,
+          start: '2026-10-12 14:00:05',
+        }),
+        sn: 'SN-again',
+      });
+      expect((callRow('call-1').meta as Row).cdr_legs).toHaveLength(2);
+    });
+
+    it('NO ANSWER then ANSWERED closes the task and is not missed', async () => {
+      const [answered, missed] = ringGroup('call-1');
+      await ingest(missed);
+      expect(callRow('call-1').status).toBe('no_answer');
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0]).toMatchObject({
+        status: 'open',
+        assigned_to: 'u1',
+      });
+      expect(fake.tables.notifications).toHaveLength(1);
+      await ingest(answered);
+      expect(callRow('call-1')).toMatchObject({
+        status: 'answered',
+        user_id: 'u2',
+      });
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0].status).toBe('done');
+      // No second bell; the first one cannot be taken back.
+      expect(fake.tables.notifications).toHaveLength(1);
+      // A later missed call from the same caller opens a task of its own.
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks).toHaveLength(2);
+      expect(fake.tables.tasks[1].meta).toMatchObject({ missed_count: 1 });
+    });
+
+    it('leaves a task other calls were folded into open', async () => {
+      await ingest(leg('call-1', 'c1-a', 'NO ANSWER', { to: '1001' }));
+      await ingest(end('call-2', 'NO ANSWER'));
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0].meta).toMatchObject({ missed_count: 2 });
+      await ingest(leg('call-1', 'c1-b', 'ANSWERED', { to: '1002', talk: 9 }));
+      expect(callRow('call-1').status).toBe('answered');
+      expect(fake.tables.tasks[0]).toMatchObject({
+        status: 'open',
+        meta: { missed_count: 2 },
+      });
+    });
+
+    it('NO ANSWER then FAILED stays no answer, ringing 55 s (live)', async () => {
+      const out = (uid: string, status: string, dur: number) =>
+        leg('call-1', uid, status, {
+          type: 'Outbound',
+          from: '1001',
+          to: '0501234567',
+          dur,
+        });
+      await ingest(out('o-a', 'NO ANSWER', 55));
+      await ingest(out('o-b', 'FAILED', 0));
+      expect(callRow('call-1')).toMatchObject({
+        direction: 'outbound',
+        status: 'no_answer',
+        ring_seconds: 55,
+        talk_seconds: 0,
+        extension: '1001',
+        user_id: 'u1',
+        remote_number: '971501234567',
+      });
+    });
+
+    it('a voicemail leg keeps the first ring as the start (live)', async () => {
+      await ingest(
+        leg('call-1', 'v-a', 'NO ANSWER', {
+          to: '2000',
+          start: '2026-10-27 14:47:26',
+          dur: 24,
+        })
+      );
+      await ingest(
+        leg('call-1', 'v-b', 'VOICEMAIL', {
+          to: '2000',
+          start: '2026-10-27 14:47:50',
+          dur: 27,
+          talk: 27,
+        })
+      );
+      expect(callRow('call-1')).toMatchObject({
+        status: 'voicemail',
+        started_at: '2026-10-27T10:47:26.000Z',
+        ended_at: '2026-10-27T10:48:17.000Z',
+        talk_seconds: 27,
+        ring_seconds: 24,
+      });
+      // Missed either way: the first leg's task, counted once.
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0].status).toBe('open');
+    });
+
+    it('a write that loses a race reads again and keeps every leg', async () => {
+      const [, b] = ringGroup('call-1');
+      await ingest(b);
+      const row = callRow('call-1');
+      row.updated_at = 't0';
+      // Another delivery writes its own leg between our read and our write.
+      const from = fake.db.from.bind(fake.db);
+      let raced = false;
+      (fake.db as unknown as { from: typeof from }).from = (table: string) => {
+        const q = from(table);
+        if (table !== 'calls' || raced) return q;
+        const update = q.update.bind(q);
+        q.update = ((values: Row) => {
+          raced = true;
+          const meta = row.meta as Row;
+          row.meta = {
+            ...meta,
+            cdr_legs: [
+              ...(meta.cdr_legs as Row[]),
+              {
+                uid: 'call-1-a',
+                status: 'ANSWERED',
+                started_at: '2026-10-12T10:00:00.000Z',
+                call_seconds: 30,
+                talk_seconds: 20,
+                extension: '1002',
+                direction: 'inbound',
+              },
+            ],
+          };
+          row.updated_at = 't1';
+          return update(values);
+        }) as typeof q.update;
+        return q;
+      };
+      await ingest(leg('call-1', 'call-1-c', 'NO ANSWER', { to: '1003' }));
+      expect(raced).toBe(true);
+      const legs = (callRow('call-1').meta as Row).cdr_legs as Row[];
+      expect(legs.map((l) => l.uid).sort()).toEqual([
+        'call-1-a',
+        'call-1-b',
+        'call-1-c',
+      ]);
+      // The rival's ANSWERED leg decides the merged row.
+      expect(callRow('call-1')).toMatchObject({
+        status: 'answered',
+        user_id: 'u2',
+        talk_seconds: 20,
+      });
+    });
+
+    // B is ingested whole just before the first query on a table `at`
+    // picks, while A (the NO ANSWER leg) is part way through its end.
+    const interleave = (b: unknown, at: (table: string) => boolean) => {
+      const from = fake.db.from.bind(fake.db);
+      let raced = false;
+      (fake.db as unknown as { from: typeof from }).from = (table: string) => {
+        const q = from(table);
+        if (raced || !at(table)) return q;
+        raced = true;
+        // The fake's query is itself the thenable the code awaits.
+        const p = q as unknown as PromiseLike<unknown>;
+        const then = p.then.bind(p);
+        p.then = ((ok, ko) =>
+          ingest(b).then(() => then(ok, ko))) as typeof p.then;
+        return q;
+      };
+      return () => raced;
+    };
+
+    it.each([
+      ['before A opens its task', (t: string) => t === 'profiles'],
+      [
+        'after A opened its task',
+        (t: string) =>
+          (t === 'calls' || t === 'notifications') &&
+          (fake.tables.tasks ?? []).length > 0,
+      ],
+    ])(
+      'an ANSWERED leg racing a NO ANSWER leg %s leaves no task or bell',
+      async (_when, at) => {
+        const [answered, missed] = ringGroup('call-1');
+        const raced = interleave(answered, at);
+        await ingest(missed);
+        expect(raced()).toBe(true);
+        expect(callRow('call-1')).toMatchObject({
+          status: 'answered',
+          user_id: 'u2',
+        });
+        expect(
+          (fake.tables.tasks ?? []).filter((t) => t.status === 'open')
+        ).toHaveLength(0);
+        expect(fake.tables.notifications ?? []).toHaveLength(0);
+      }
+    );
+
+    it.each([
+      ['the transfer leg first', true],
+      ['the customer leg first', false],
+    ])(
+      'an inbound call keeps its customer with %s',
+      async (_order, transferFirst) => {
+        await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+        expect(callRow('call-1')).toMatchObject({
+          direction: 'inbound',
+          contact_id: 'k1',
+        });
+        const transfer = leg('call-1', 'call-1-t', 'ANSWERED', {
+          type: 'Internal',
+          from: '1001',
+          to: '1002',
+          start: '2026-10-12 14:00:20',
+          dur: 40,
+          talk: 38,
+        });
+        const customer = leg('call-1', 'call-1-c', 'ANSWERED', {
+          to: '1001',
+          dur: 25,
+          talk: 20,
+        });
+        const kept = {
+          direction: 'inbound',
+          contact_id: 'k1',
+          conversation_id: 'cv1',
+          remote_number: '971501234567',
+        };
+        await ingest(transferFirst ? transfer : customer);
+        // In between too: a transfer leg alone must not clear the customer.
+        expect(callRow('call-1')).toMatchObject(kept);
+        await ingest(transferFirst ? customer : transfer);
+        expect(callRow('call-1')).toMatchObject({
+          ...kept,
+          status: 'answered',
+        });
+        expect((callRow('call-1').meta as Row).cdr_legs).toHaveLength(2);
+      }
+    );
+
+    it('a call from an unmapped extension never puts the callee on both sides (live)', async () => {
+      // The live frame sees both extensions answered and keeps the first,
+      // here the callee's; the end then names the caller's extension,
+      // synced from the PBX but mapped to nobody (2122 on live).
+      fake.tables.pbx_extensions.push({
+        connection_id: 'c1',
+        extension: '2122',
+        account_id: A2,
+        user_id: null,
+      });
+      await ingest(
+        ring('call-9', [ext('1002', 'ANSWERED'), ext('2122', 'ANSWERED')])
+      );
+      expect(callRow('call-9')).toMatchObject({ user_id: 'u2' });
+      await ingest(
+        leg('call-9', 'uid-9', 'ANSWERED', {
+          type: 'Internal',
+          from: '2122',
+          to: '1002',
+          talk: 20,
+        })
+      );
+      expect(callRow('call-9')).toMatchObject({
+        direction: 'internal',
+        extension: '2122',
+        user_id: null,
+        peer_user_id: 'u2',
+      });
+    });
+
+    it('an insert that loses a race merges into the winner', async () => {
+      const [a, b] = ringGroup('call-1');
+      // Our read finds no row; the other leg inserts before our insert.
+      const from = fake.db.from.bind(fake.db);
+      let raced = false;
+      (fake.db as unknown as { from: typeof from }).from = (table: string) => {
+        const q = from(table);
+        if (table !== 'calls' || raced) return q;
+        const upsert = q.upsert.bind(q);
+        q.upsert = ((values: Row, o: never) => {
+          raced = true;
+          (fake.db as unknown as { from: typeof from }).from = from;
+          return {
+            select: async (cols: string) => {
+              await ingest(a);
+              return upsert(values, o).select(cols);
+            },
+          };
+        }) as unknown as typeof q.upsert;
+        return q;
+      };
+      await ingest(b);
+      expect(raced).toBe(true);
+      expect(fake.tables.calls).toHaveLength(1);
+      expect((callRow('call-1').meta as Row).cdr_legs).toHaveLength(2);
+      expect(callRow('call-1')).toMatchObject({
+        status: 'answered',
+        user_id: 'u2',
+      });
+    });
+  });
+
+  describe('historical (an import of past calls from the CDR)', () => {
+    const past = (payload: unknown, historical = true) =>
+      ingestPbxEvent({
+        db: fake.db,
+        connectionId: 'c1',
+        payload,
+        receivedAt: NOW,
+        historical,
+      });
+    const missed = (callId: string) =>
+      end(callId, 'NO ANSWER', { call_to: '1001', recording: 'rec.wav' });
+
+    it('writes a missed call as a live end would, with no task and no bell', async () => {
+      expect(await past(missed('call-1'))).toEqual({
+        duplicate: false,
+        kind: 'call_end',
+      });
+      expect(fake.tables.calls).toHaveLength(1);
+      expect(fake.tables.calls[0]).toMatchObject({
+        account_id: A2,
+        status: 'no_answer',
+        direction: 'inbound',
+        extension: '1001',
+        user_id: 'u1',
+        contact_id: 'k1',
+        conversation_id: 'cv1',
+        recording_state: 'pending',
+      });
+      expect(fake.tables.tasks ?? []).toHaveLength(0);
+      expect(fake.tables.notifications ?? []).toHaveLength(0);
+      // Nor does it move the link clock: it says nothing about now.
+      expect(fake.tables.pbx_connections[0].last_event_at).toBeUndefined();
+      expect(fake.tables.pbx_events_raw[0].processed_at).toBeTruthy();
+
+      // The same end, live, opens both.
+      await past(missed('call-2'), false);
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.notifications).toHaveLength(1);
+    });
+
+    it('settles no call-back', async () => {
+      const dialing = (id: string, callId: string) => ({
+        id,
+        account_id: A2,
+        pbx_call_id: callId,
+        status: 'dialing',
+        attempts: 1,
+        task_id: null,
+      });
+      fake.tables.callback_requests = [
+        dialing('r1', 'call-1'),
+        dialing('r2', 'call-2'),
+      ];
+      await past(missed('call-1'));
+      expect(fake.tables.callback_requests[0].status).toBe('dialing');
+      await past(missed('call-2'), false);
+      expect(fake.tables.callback_requests[1].status).toBe('pending');
+    });
+
+    it('a failed frame is removed, never left for the retry sweep to run live', async () => {
+      fake.fail('calls', 'upsert', { message: 'boom' });
+      const out = await past(missed('call-1'));
+      expect(out.error).toMatch(/boom/);
+      expect(fake.tables.pbx_events_raw ?? []).toHaveLength(0);
+      // A rerun of the import is not a duplicate: it tries again.
+      expect(await past(missed('call-1'))).toEqual({
+        duplicate: false,
+        kind: 'call_end',
+      });
+      expect(fake.tables.calls).toHaveLength(1);
+    });
+
+    it('applies only call ends: past presence would overwrite the present', async () => {
+      await past(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+      expect(fake.tables.calls ?? []).toHaveLength(0);
+      expect(fake.tables.call_live ?? []).toHaveLength(0);
+    });
+  });
+
   it('keeps a bank number unrecorded while the workspace excludes them', async () => {
     fake.tables.pbx_bank_numbers = [
       { account_id: A2, number: '0501234567', bank_code: 'ADCB' },

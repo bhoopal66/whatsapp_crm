@@ -207,6 +207,65 @@ describe('RPC wrappers', () => {
   });
 });
 
+describe('DM rules (143)', () => {
+  const WS = 'a0000000-0000-4000-8000-000000000001';
+
+  it('getDmRules reads the workspace rows into the full matrix', async () => {
+    const { sb, calls } = fakeSb(
+      ok([{ class_a: 'agent', class_b: 'agent', scope: 'none' }])
+    );
+    const m = await api.getDmRules(sb, WS);
+    expect(m['agent:agent']).toBe('none');
+    expect(m['admin:agent']).toBe('all');
+    expect(calls[0]).toEqual([
+      { op: 'from', args: ['chat_dm_rules'] },
+      { op: 'select', args: ['class_a,class_b,scope'] },
+      { op: 'eq', args: ['account_id', WS] },
+    ]);
+  });
+
+  it('setDmRules sends the restricting rows; dmPeers keeps only ids', async () => {
+    const { sb, calls } = fakeSb(ok(null), ok(['u1', null, 'u2']));
+    await api.setDmRules(sb, {
+      accountId: WS,
+      rules: { 'agent:team_leader': 'team', 'admin:agent': 'all' },
+    });
+    expect(await api.dmPeers(sb, WS)).toEqual(['u1', 'u2']);
+    expect(calls).toEqual([
+      [
+        {
+          op: 'rpc',
+          args: [
+            'chat_set_dm_rules',
+            {
+              p_ws: WS,
+              p_rules: [
+                { class_a: 'agent', class_b: 'team_leader', scope: 'team' },
+              ],
+            },
+          ],
+        },
+      ],
+      [{ op: 'rpc', args: ['chat_dm_peers', { p_ws: WS }] }],
+    ]);
+  });
+
+  it('maps a refused DM to dmNotAllowed', async () => {
+    const { sb } = fakeSb({
+      data: null,
+      error: {
+        code: '42501',
+        message:
+          'chat_open_dm: direct messages between these people are turned off',
+      },
+    });
+    const err = await api
+      .openDm(sb, { accountId: WS, memberIds: ['u1'] })
+      .catch((e) => e);
+    expect(err).toMatchObject({ code: 'FORBIDDEN', key: 'dmNotAllowed' });
+  });
+});
+
 describe('table reads', () => {
   it('listMessages: top-level newest page, oldest first, with hasMore and a compound cursor', async () => {
     const row = (id: string, min: number) => ({
@@ -425,6 +484,24 @@ describe('toChatError', () => {
       'permission denied for function chat_erase_person',
       'FORBIDDEN',
       'forbidden',
+    ],
+    [
+      '42501',
+      'chat_open_dm: direct messages between these people are turned off',
+      'FORBIDDEN',
+      'dmNotAllowed',
+    ],
+    [
+      '42501',
+      'chat: direct messages between these people are turned off',
+      'FORBIDDEN',
+      'dmNotAllowed',
+    ],
+    [
+      '42501',
+      'chat_set_dm_rules: owner or admin role required',
+      'FORBIDDEN',
+      'adminRequired',
     ],
     ['PGRST202', 'Could not find the function', 'UNKNOWN', 'unknown'],
   ])('%s %s → %s/%s', (code, message, expCode, expKey) => {

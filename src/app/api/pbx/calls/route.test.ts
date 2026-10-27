@@ -21,6 +21,7 @@ const A = '00000000-0000-4000-8000-00000000000a';
 const C1 = '00000000-0000-4000-8000-000000000001';
 const C2 = '00000000-0000-4000-8000-000000000002';
 let rls: FakeDb;
+let visible: string[] = ['me'];
 
 function as(role: AccountRole) {
   mocks.requireRole.mockImplementation(async (min: AccountRole) => {
@@ -53,11 +54,16 @@ const call = (p: Row): Row => ({
 beforeEach(() => {
   vi.clearAllMocks();
   n = 0;
-  rls = createFakeDb({
-    calls: [],
-    contacts: [{ id: C1, name: 'Ahmed Ali' }],
-    profiles: [{ user_id: 'me', account_id: A, full_name: 'Sara' }],
-  });
+  visible = ['me'];
+  rls = createFakeDb(
+    {
+      calls: [],
+      contacts: [{ id: C1, name: 'Ahmed Ali' }],
+      profiles: [{ user_id: 'me', account_id: A, full_name: 'Sara' }],
+    },
+    // pbx_visible_user_ids(): the caller, plus a leader's team.
+    { pbx_visible_user_ids: async () => ({ data: visible, error: null }) }
+  );
   as('viewer');
 });
 afterEach(() => vi.useRealTimers());
@@ -93,6 +99,8 @@ function watchCallReads() {
 
 describe('GET /api/pbx/calls', () => {
   it('lists visible calls newest first, with names and the outcome', async () => {
+    // An admin's lists hold everyone's calls (see 'whose calls' below).
+    as('admin');
     rls.tables.calls.push(
       call({ started_at: '2026-10-11T08:00:00.000Z', notes: 'Wants a card' }),
       call({ contact_id: C2, user_id: 'other', disposition: 'call_back' }),
@@ -249,6 +257,8 @@ describe('GET /api/pbx/calls', () => {
   });
 
   it('filters by scope, contact, dates and limit', async () => {
+    // An admin's lists hold everyone's calls (see 'whose calls' below).
+    as('admin');
     rls.tables.calls.push(
       call({
         user_id: 'other',
@@ -273,6 +283,8 @@ describe('GET /api/pbx/calls', () => {
   });
 
   it('narrows to one person with userId, within the scope, and refuses a bad id', async () => {
+    // An admin's lists hold everyone's calls (see 'whose calls' below).
+    as('admin');
     const U = '00000000-0000-4000-8000-0000000000bb';
     rls.tables.calls.push(
       call({ user_id: U }),
@@ -290,6 +302,8 @@ describe('GET /api/pbx/calls', () => {
   });
 
   it('narrows to external calls and to a list of people, and refuses bad ones', async () => {
+    // An admin's lists hold everyone's calls (see 'whose calls' below).
+    as('admin');
     const U = '00000000-0000-4000-8000-0000000000bb';
     const V = '00000000-0000-4000-8000-0000000000cc';
     rls.tables.calls.push(
@@ -349,9 +363,127 @@ describe('GET /api/pbx/calls', () => {
       'user_id.eq.me,peer_user_id.eq.me,meta->rang_user_ids.cs.["me"]',
     ]);
     expect(await ids('scope=my_missed')).toEqual(['call-2']);
-    expect(await ids('scope=missed')).toEqual(['call-2', 'call-3', 'call-4']);
+    // Below admin the wider lists are people's calls too: here only mine.
+    expect(await ids('scope=missed')).toEqual(['call-2']);
     expect(await ids('')).toEqual(['call-1', 'call-2']);
+    expect(await ids('scope=all')).toEqual(['call-1', 'call-2']);
+    as('admin');
+    expect(await ids('scope=missed')).toEqual(['call-2', 'call-3', 'call-4']);
     expect(await ids('scope=all')).toHaveLength(4);
+  });
+
+  it('names both extensions of a call between colleagues, by the mapping now', async () => {
+    as('agent');
+    rls.tables.profiles.push({
+      user_id: 'ali',
+      account_id: A,
+      full_name: 'Ali',
+    });
+    rls.tables.pbx_extensions = [
+      { account_id: A, extension: '2100', user_id: 'ali' },
+      { account_id: A, extension: '2122', user_id: null },
+      { account_id: 'elsewhere', extension: '2122', user_id: 'x' },
+    ];
+    rls.tables.calls.push(
+      // Stored as on live: the callee as both user and peer.
+      call({
+        direction: 'internal',
+        remote_number: null,
+        contact_id: null,
+        extension: '2122',
+        user_id: 'me',
+        peer_user_id: 'me',
+        meta: {
+          cdr_legs: [
+            {
+              uid: 'u',
+              status: 'ANSWERED',
+              started_at: null,
+              call_seconds: 9,
+              talk_seconds: 5,
+              extension: '2122',
+              peer: '2100',
+              direction: 'internal',
+            },
+          ],
+        },
+      }),
+      call({ direction: 'outbound' })
+    );
+    const { body } = await get('scope=mine');
+    const by = (d: string) =>
+      (body.calls as { direction: string }[]).find((c) => c.direction === d);
+    expect(by('internal')).toMatchObject({
+      party: {
+        from: { extension: '2122', userId: null, name: null },
+        to: { extension: '2100', userId: 'ali', name: 'Ali' },
+      },
+    });
+    // Customer calls carry no sides.
+    expect(by('outbound')).not.toHaveProperty('party');
+  });
+
+  describe('whose calls the Calls page lists', () => {
+    const T1 = '00000000-0000-4000-8000-0000000000d1';
+    const OUT = '00000000-0000-4000-8000-0000000000d9';
+    beforeEach(() => {
+      rls.tables.calls.push(
+        call({ user_id: 'me' }),
+        call({ user_id: T1 }),
+        call({ user_id: null, peer_user_id: T1, direction: 'internal' }),
+        call({
+          user_id: null,
+          status: 'no_answer',
+          meta: { rang_user_ids: [T1] },
+        }),
+        // Someone outside the team, on a customer RLS lets the caller
+        // see (113): the customer page's rule, not the Calls page's.
+        call({ user_id: OUT, contact_id: C2 }),
+        call({ user_id: null, status: 'no_answer', contact_id: C2 })
+      );
+    });
+
+    it('an agent: only their own, on every list', async () => {
+      as('agent');
+      expect(await ids('scope=all')).toEqual(['call-1']);
+      expect(await ids('scope=missed')).toEqual([]);
+      expect(await ids('scope=mine')).toEqual(['call-1']);
+    });
+
+    it("a team leader: their own and their team's, never the rest", async () => {
+      as('team_leader');
+      visible = ['me', T1];
+      expect(await ids('scope=all')).toEqual([
+        'call-1',
+        'call-2',
+        'call-3',
+        'call-4',
+      ]);
+      expect(await ids('scope=missed')).toEqual(['call-4']);
+    });
+
+    it('an admin: everyone, without asking who is visible', async () => {
+      as('admin');
+      const asked = () =>
+        rls.log.filter((e) => e.table === 'rpc:pbx_visible_user_ids').length;
+      expect(await ids('scope=all')).toHaveLength(6);
+      expect(await ids('scope=missed')).toEqual(['call-4', 'call-6']);
+      expect(asked()).toBe(0);
+    });
+
+    it('a customer’s calls are not narrowed (the customer page)', async () => {
+      as('agent');
+      expect(await ids(`contactId=${C2}&scope=all`)).toEqual([
+        'call-5',
+        'call-6',
+      ]);
+    });
+
+    it('lists nothing when the database names nobody', async () => {
+      as('team_leader');
+      visible = [];
+      expect((await get('scope=all')).body).toEqual({ calls: [] });
+    });
   });
 
   it('refuses a bank guest', async () => {

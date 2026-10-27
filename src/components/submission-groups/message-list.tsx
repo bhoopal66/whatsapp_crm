@@ -9,6 +9,7 @@ import {
   sendStatusOf,
   staffSenderLine,
   type SgMessage,
+  waIdPhone,
 } from '@/lib/submission-groups/ui';
 import { cn } from '@/lib/utils';
 
@@ -33,7 +34,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
       {groupMessagesByDay(messages).map((g) => (
         <div key={g.day || 'unknown'} className="space-y-1.5">
           <div className="flex justify-center">
-            <span className="bg-muted text-muted-foreground rounded-full px-3 py-0.5 text-xs">
+            <span className="bg-wa-date-chip text-wa-date-chip-fg rounded-lg px-3 py-1 text-xs shadow-sm">
               {dayLabel(g.day)}
             </span>
           </div>
@@ -43,7 +44,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
             const out = kind === 'staff';
             const sender = out
               ? staffSenderLine(m)
-              : m.sender_name || m.sender_wa_id || null;
+              : m.sender_name || waIdPhone(m.sender_wa_id);
             return (
               <div
                 key={m.id}
@@ -51,12 +52,12 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
               >
                 <div
                   className={cn(
-                    'max-w-[85%] rounded-lg px-3 py-1.5 text-sm shadow-sm sm:max-w-[70%]',
-                    out && 'bg-wa-bubble-out text-foreground',
-                    kind === 'customer' && 'bg-wa-bubble-in text-foreground',
+                    'text-foreground max-w-[85%] rounded-xl px-3 py-1.5 text-sm shadow-sm sm:max-w-[70%]',
+                    out ? 'bg-wa-bubble-out rounded-tr-sm' : 'rounded-tl-sm',
+                    kind === 'customer' && 'bg-wa-bubble-in',
                     kind === 'coordinator' &&
-                      'text-foreground border-info/30 bg-info-soft border',
-                    kind === 'other' && 'bg-muted text-foreground'
+                      'bg-wa-bubble-in border-info border-l-2',
+                    kind === 'other' && 'bg-wa-bubble-in'
                   )}
                 >
                   <p
@@ -65,7 +66,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       kind === 'coordinator' ? 'text-info' : 'text-primary'
                     )}
                   >
-                    <span>{sender ?? t('someone')}</span>
+                    <span dir="auto">{sender ?? t('someone')}</span>
                     {!out && (
                       <span className="text-muted-foreground font-normal">
                         {t(`kind.${kind}`)}
@@ -84,7 +85,7 @@ export function MessageList({ messages }: { messages: readonly SgMessage[] }) {
                       </span>
                     )}
                   </p>
-                  <p className="text-muted-foreground mt-0.5 flex items-center justify-end gap-1 text-[11px]">
+                  <p className="text-wa-meta mt-0.5 flex items-center justify-end gap-1 text-[11px]">
                     {timeLabel(m.created_at)}
                     {status && (
                       <span

@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
+import { caseStatusView } from '@/lib/cases/ui';
+
 import {
+  AVATAR_TONES,
+  avatarTone,
+  groupContactName,
+  groupTitle,
+  initialsOf,
+  onlyMine,
+  shortRef,
+  trackerStatusChip,
+  waIdPhone,
   inviteNotice,
+  coordinatorPhonesOf,
   addableStaff,
   appendPage,
   bubbleKind,
@@ -280,6 +292,23 @@ describe('addableStaff', () => {
   });
 });
 
+describe('coordinatorPhonesOf', () => {
+  it('lists the request number then the bank numbers, each once (142)', () => {
+    expect(
+      coordinatorPhonesOf({
+        coordinator_phone: '971500000001',
+        coordinator_phones: ['971500000002', '971500000001'],
+      })
+    ).toEqual(['971500000001', '971500000002']);
+    expect(coordinatorPhonesOf({ coordinator_phone: '971500000001' })).toEqual([
+      '971500000001',
+    ]);
+    expect(
+      coordinatorPhonesOf({ coordinator_phone: null, coordinator_phones: [] })
+    ).toEqual([]);
+  });
+});
+
 describe('inviteNotice', () => {
   it('is nothing when no invite was attempted', () => {
     expect(inviteNotice(group())).toBeNull();
@@ -298,5 +327,88 @@ describe('inviteNotice', () => {
     expect(inviteNotice(group({ invite_send_error: 'gateway down' }))).toEqual({
       key: 'failed',
     });
+  });
+});
+
+describe('group display (141)', () => {
+  const contact = (name: string | null, phone: string | null = '9715') => ({
+    id: 'c1',
+    name,
+    phone,
+  });
+
+  it('titles a group by the company, then the contact name, then the phone', () => {
+    expect(
+      groupTitle({ customer_name: 'Acme LLC', contact: contact('Nasrullah') })
+    ).toBe('Acme LLC');
+    expect(
+      groupTitle({ customer_name: '  ', contact: contact('Nasrullah') })
+    ).toBe('Nasrullah');
+    expect(groupTitle({ contact: contact(null, '97150') })).toBe('97150');
+    expect(groupTitle({ customer_name: null, contact: null })).toBeNull();
+  });
+
+  it('names the contact person only when it differs from the title', () => {
+    expect(
+      groupContactName({
+        customer_name: 'Acme LLC',
+        contact: contact('Nasrullah'),
+      })
+    ).toBe('Nasrullah');
+    expect(
+      groupContactName({
+        customer_name: ' acme  llc ',
+        contact: contact('ACME LLC'),
+      })
+    ).toBeNull();
+    expect(
+      groupContactName({ customer_name: null, contact: contact('Omar') })
+    ).toBeNull();
+    expect(groupContactName({ customer_name: 'Acme', contact: null })).toBe(
+      null
+    );
+  });
+
+  it('shortens a UUID ref to 8 characters and keeps any other ref', () => {
+    expect(shortRef('c62f0c36-2afb-4184-9d7b-251143ef8a5b')).toBe('c62f0c36');
+    expect(shortRef('SUB-2026-00042')).toBe('SUB-2026-00042');
+  });
+
+  it('takes up to two initials', () => {
+    expect(initialsOf('Gulf Star Trading LLC')).toBe('GS');
+    expect(initialsOf('acme')).toBe('A');
+    expect(initialsOf('  (Al-Noor) & co ')).toBe('AC');
+    expect(initialsOf('')).toBe('?');
+    expect(initialsOf(null)).toBe('?');
+  });
+
+  it('gives a name the same avatar tone every time, case-blind', () => {
+    expect(avatarTone('Acme LLC')).toBe(avatarTone(' acme llc '));
+    expect(AVATAR_TONES).toContain(avatarTone('Acme LLC'));
+    for (const tone of AVATAR_TONES) expect(tone).toMatch(/dark:text-/);
+  });
+
+  it('colours the tracker status as the case screens do', () => {
+    expect(trackerStatusChip('Inhouse Review')).toEqual(
+      caseStatusView({ stage: 'Submitted', submissionStatus: 'Inhouse Review' })
+    );
+    expect(trackerStatusChip('Something New')?.text).toBe('Something New');
+    expect(trackerStatusChip(null)).toBeNull();
+    expect(trackerStatusChip(' ')).toBeNull();
+  });
+
+  it('reads a WhatsApp id as a phone', () => {
+    expect(waIdPhone('971501234567@c.us')).toBe('+971501234567');
+    expect(waIdPhone('971501234567')).toBe('+971501234567');
+    expect(waIdPhone(null)).toBeNull();
+    expect(waIdPhone('@c.us')).toBeNull();
+  });
+
+  it('keeps only the groups the caller holds a label on', () => {
+    const row = (id: string, my_label: 'agent' | null) =>
+      ({ id, my_label }) as SgListItem;
+    expect(
+      onlyMine([row('a', 'agent'), row('b', null)]).map((g) => g.id)
+    ).toEqual(['a']);
   });
 });

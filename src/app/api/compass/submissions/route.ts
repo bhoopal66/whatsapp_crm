@@ -1,6 +1,7 @@
 // ============================================================
 // GET /api/compass/submissions — Integrations -> Compass, Submissions
-// tab (admin+): the latest 100 submission groups with their case, and
+// tab (admin+): the latest 100 submission groups with their case and
+// the status Compass last sent (`submissionStatus`, word for word), and
 // how many webhook outbox events (migration 134) were delivered or are
 // still pending over the last 7 days. The outbox has no client policy
 // (service role only), so every read is on supabaseAdmin() and filtered
@@ -19,6 +20,7 @@ interface GroupRow {
   id: string;
   submission_ref: string;
   status: string;
+  submission_status: string | null;
   created_at: string;
   ended_at: string | null;
   contact_id: string | null;
@@ -43,7 +45,9 @@ export async function GET() {
 
     const groups = await db
       .from('submission_groups')
-      .select('id, submission_ref, status, created_at, ended_at, contact_id')
+      .select(
+        'id, submission_ref, status, submission_status, created_at, ended_at, contact_id'
+      )
       .eq('account_id', accountId)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -112,6 +116,7 @@ export async function GET() {
         return {
           submissionRef: g.submission_ref,
           status: g.status,
+          submissionStatus: g.submission_status,
           createdAt: g.created_at,
           endedAt: g.ended_at,
           customer: g.contact_id ? (nameById.get(g.contact_id) ?? null) : null,

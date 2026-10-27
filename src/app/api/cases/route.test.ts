@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   groupGet: vi.fn(),
   rpcResult: { data: null, error: null } as { data: unknown; error: unknown },
   statuses: vi.fn(),
+  names: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -25,6 +26,9 @@ vi.mock('@/lib/cases/server', () => ({
 }));
 vi.mock('@/lib/cases/submission-status', () => ({
   submissionStatuses: m.statuses,
+}));
+vi.mock('@/lib/cases/contact-names', () => ({
+  contactNames: m.names,
 }));
 // The real inbox (its filter check is the one validator) over a fake rpc.
 vi.mock('@/lib/cases/inbox', async (importOriginal) => {
@@ -53,6 +57,7 @@ beforeEach(() => {
   m.requireRole.mockResolvedValue(ctx);
   m.rpcResult = { data: [], error: null };
   m.statuses.mockResolvedValue(new Map());
+  m.names.mockResolvedValue(new Map());
 });
 
 const get = (qs: string) => GET(new Request(`http://x/api/cases?${qs}`));
@@ -67,10 +72,13 @@ const post = (body: unknown) =>
 describe('GET /api/cases', () => {
   it('lists for the caller and the active account with parsed filters', async () => {
     m.statuses.mockResolvedValue(new Map([['c1', 'UNDER_REVIEW']]));
+    m.names.mockResolvedValue(new Map([['k1', 'Nasrullah']]));
     m.rpcResult = {
       data: [
         {
           case_id: 'c1',
+          contact_id: 'k1',
+          contact_name: 'ALA DIN GENTS SALOON L.L.C',
           stage: 'New',
           agent_id: A,
           priority: 'high',
@@ -98,10 +106,13 @@ describe('GET /api/cases', () => {
       agentId: A,
       overdueRank: { slaOverdueMinutes: 5, overdueTasks: 1 },
       submissionStatus: 'UNDER_REVIEW',
+      contactName: 'ALA DIN GENTS SALOON L.L.C',
+      contactOwnName: 'Nasrullah',
     });
     expect(m.statuses).toHaveBeenCalledWith(expect.anything(), 'acct-1', [
       'c1',
     ]);
+    expect(m.names).toHaveBeenCalledWith(expect.anything(), 'acct-1', ['k1']);
   });
 
   it.each([

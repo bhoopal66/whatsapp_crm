@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ModeToggle } from '@/components/layout/mode-toggle';
+import { NotificationBell } from '@/components/notifications/notification-bell';
 import { pageTitleKey } from '@/components/layout/page-title';
 
 interface HeaderProps {
@@ -52,6 +53,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        <NotificationBell />
         <ModeToggle />
 
         <DropdownMenu>
@@ -102,7 +104,7 @@ export function Header({ onOpenSidebar }: HeaderProps) {
             <DropdownMenuItem
               render={
                 <Link
-                  href="/settings?tab=whatsapp"
+                  href="/settings"
                   className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                 />
               }

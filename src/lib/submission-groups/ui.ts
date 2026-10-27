@@ -4,6 +4,7 @@
  * only the pure rules, never the store or the gateway.
  */
 import { canSendMessages, isAccountRole } from '@/lib/auth/roles';
+import { caseStatusView, contactPersonLine } from '@/lib/cases/ui';
 
 import {
   prefixMessage,
@@ -30,6 +31,10 @@ export interface SgListItem {
   id: string;
   submission_ref: string;
   subject: string | null;
+  /** 141: the company the tracker sent; absent on older payloads. */
+  customer_name?: string | null;
+  /** The tracker's own status word, untranslated. */
+  submission_status?: string | null;
   status: SgStatus;
   contact: { id: string; name: string | null; phone: string | null } | null;
   channel: { id: string; label: string | null } | null;
@@ -45,8 +50,9 @@ export interface SgListItem {
 }
 
 export interface SgGroup extends SgListItem {
-  submission_status: string | null;
   coordinator_phone: string | null;
+  /** 142: every coordinator number in the group (the request's and the bank's), deduped. */
+  coordinator_phones?: string[];
   invite_link: string | null;
   wa_group_id: string | null;
   wa_create_error: string | null;
@@ -274,6 +280,16 @@ export function groupBanners(g: SgGroup): BannerKey[] {
  * The 1:1 invite link's outcome (migration 118). A send that went out is
  * shown even if a later attempt failed: the customer has the link.
  */
+/** 142: the coordinator numbers to show, the request's first, each once (older payloads carry only coordinator_phone). */
+export function coordinatorPhonesOf(
+  g: Pick<SgGroup, 'coordinator_phone' | 'coordinator_phones'>
+): string[] {
+  const out: string[] = [];
+  for (const p of [g.coordinator_phone, ...(g.coordinator_phones ?? [])])
+    if (p && !out.includes(p)) out.push(p);
+  return out;
+}
+
 export function inviteNotice(
   g: SgGroup
 ): { key: 'sent'; at: string } | { key: 'failed' } | null {
@@ -324,3 +340,88 @@ export function addableStaff(
 
 /** Upper bound of a staff message, as the API enforces it. */
 export const SEND_TEXT_MAX = 4096;
+
+type Named = Pick<SgListItem, 'customer_name' | 'contact'>;
+
+/**
+ * What a group is called on screen: the company the tracker sent (141),
+ * else the CRM contact's name, else its phone. Null when none is known.
+ */
+export function groupTitle(g: Named): string | null {
+  return (
+    g.customer_name?.trim() ||
+    g.contact?.name?.trim() ||
+    g.contact?.phone?.trim() ||
+    null
+  );
+}
+
+/** The contact person under the title, or null when it adds nothing. */
+export function groupContactName(g: Named): string | null {
+  return contactPersonLine(groupTitle(g), g.contact?.name ?? null);
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A submission ref as a short code: a UUID's first 8 characters, else the ref. */
+export function shortRef(ref: string): string {
+  const r = ref.trim();
+  return UUID_RE.test(r) ? r.slice(0, 8) : r;
+}
+
+/** Up to two initials of a name (letters or digits), for an avatar. */
+export function initialsOf(name: string | null | undefined): string {
+  const words = (name ?? '')
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ''))
+    .filter(Boolean);
+  if (!words.length) return '?';
+  const pick = words.length === 1 ? [words[0]] : [words[0], words[1]];
+  return pick
+    .map((w) => [...w][0])
+    .join('')
+    .toLocaleUpperCase();
+}
+
+/** Avatar colours, each with its dark-mode pair. */
+export const AVATAR_TONES: readonly string[] = [
+  'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200',
+  'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200',
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200',
+  'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200',
+  'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200',
+  'bg-teal-100 text-teal-800 dark:bg-teal-900/50 dark:text-teal-200',
+  'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200',
+  'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200',
+];
+
+/** The same name always gets the same avatar colour. */
+export function avatarTone(name: string | null | undefined): string {
+  const key = (name ?? '').trim().toLocaleLowerCase();
+  let h = 0;
+  for (const ch of key) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+  return AVATAR_TONES[h % AVATAR_TONES.length];
+}
+
+/**
+ * The tracker status chip: the status word for word, coloured as the
+ * case screens colour it (`caseStatusView`). Null when none was sent.
+ */
+export function trackerStatusChip(
+  status: string | null | undefined
+): { text: string; chipClass: string } | null {
+  if (!status?.trim()) return null;
+  return caseStatusView({ stage: '', submissionStatus: status });
+}
+
+/** An inbound sender's WhatsApp id (`9715…@c.us`) as a phone, `+9715…`. */
+export function waIdPhone(id: string | null | undefined): string | null {
+  const digits = (id ?? '').split('@')[0].replace(/\D/g, '');
+  return digits ? `+${digits}` : null;
+}
+
+/** "My groups": the rows the caller holds a label on. */
+export function onlyMine(groups: readonly SgListItem[]): SgListItem[] {
+  return groups.filter((g) => g.my_label !== null);
+}

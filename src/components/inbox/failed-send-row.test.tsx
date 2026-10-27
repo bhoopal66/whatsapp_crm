@@ -8,6 +8,13 @@ import ko from '../../../messages/ko.json';
 import type { Message } from '@/types';
 import type { FailedSend } from '@/lib/inbox/failed-send';
 import { FailedSendRow } from './failed-send-row';
+import type { SenderLabel } from './sender-label';
+
+// What the thread's useSenderLabels hands the row.
+const senderLabel = (m: Message): SenderLabel =>
+  m.sender_type === 'customer'
+    ? { kind: 'customer', text: 'Aisha' }
+    : { kind: 'person', text: 'Bhoopal (you)' };
 
 // The node test environment cannot click, so this pins what the agent
 // sees: the words they wrote, that it was not sent, why, and the two
@@ -44,7 +51,7 @@ function render(
       <FailedSendRow
         failed={failed}
         parent={undefined}
-        contactLabel="Customer"
+        senderLabel={senderLabel}
         onRetry={vi.fn()}
         onDiscard={vi.fn()}
         {...props}
@@ -54,8 +61,9 @@ function render(
 }
 
 describe('FailedSendRow', () => {
-  it('shows the unsent words, the reason and both actions', () => {
+  it('shows who wrote it, the unsent words, the reason and both actions', () => {
     const html = render(en, 'en');
+    expect(html).toContain('Bhoopal (you)');
     expect(html).toContain('Your application was approved');
     expect(html).toContain('Not sent');
     expect(html).toContain('waiting for a QR scan');
@@ -86,7 +94,6 @@ describe('FailedSendRow', () => {
         message: { ...failed.message, reply_to_message_id: 'm-9' },
       },
       parent,
-      contactLabel: 'Aisha',
     });
     expect(html).toContain('Any news on my application?');
     expect(html).toContain('Aisha');

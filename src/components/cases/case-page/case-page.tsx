@@ -39,7 +39,11 @@ import {
   type CaseTab,
   type CaseTabProps,
 } from '@/lib/cases/case-page';
-import { caseStatusView, formatAed } from '@/lib/cases/ui';
+import {
+  caseStatusView,
+  contactPersonLine,
+  formatAed,
+} from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { AuditTab } from './audit-tab';
@@ -284,6 +288,7 @@ export function CasePage({ caseId }: { caseId: string }) {
     onChanged: () => void reload(),
   };
   const title = c.contactName || c.submissionRef || t('untitled');
+  const contactPerson = contactPersonLine(c.contactName, c.contactOwnName);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
@@ -358,6 +363,11 @@ export function CasePage({ caseId }: { caseId: string }) {
                 {t(`priority.${c.priority}`)}
               </Badge>
             </div>
+            {contactPerson && (
+              <p className="mt-0.5 text-sm">
+                {t('contactPerson', { name: contactPerson })}
+              </p>
+            )}
             <p className="text-muted-foreground mt-0.5 text-xs">
               {[
                 c.submissionRef ? t('ref', { ref: c.submissionRef }) : null,

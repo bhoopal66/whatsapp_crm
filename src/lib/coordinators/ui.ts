@@ -17,6 +17,8 @@ export interface CoordinatorRow {
   name: string;
   email?: string | null;
   banks: string[];
+  /** Migration 142's number, digits only; null when unset or not an admin. */
+  whatsapp_phone?: string | null;
 }
 
 /** An open share as `GET /api/conversations/[id]/coordinator-shares` lists it. */
@@ -141,4 +143,44 @@ export function banksChanged(
   if (a.size !== b.size) return true;
   for (const c of a) if (!b.has(c)) return true;
   return false;
+}
+
+/** Saved WhatsApp numbers (142) by person, from the coordinator list. */
+export function phonesByUser(
+  coordinators: readonly CoordinatorRow[]
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of coordinators) {
+    if (c.whatsapp_phone) out.set(c.user_id, c.whatsapp_phone);
+  }
+  return out;
+}
+
+/** A saved number as the dialog's input shows it ("+971…"). */
+export function phoneDraftFrom(saved: string | null | undefined): string {
+  return saved ? `+${saved}` : '';
+}
+
+/** Characters a typed number may carry, as `validateContactPhone` accepts. */
+const PHONE_CHARS = /^[+0-9\s().\-/]+$/;
+
+/**
+ * Whether the number input may be saved: blank (clears), or only phone
+ * characters with 5-25 digits (142's CHECK). The route validates
+ * again, country code included.
+ */
+export function phoneDraftValid(draft: string): boolean {
+  const typed = draft.trim();
+  if (typed === '') return true;
+  if (!PHONE_CHARS.test(typed)) return false;
+  const digits = typed.replace(/\D/g, '').length;
+  return digits >= 5 && digits <= 25;
+}
+
+/** Whether the number input differs from the saved number, digit for digit. */
+export function phoneChanged(
+  saved: string | null | undefined,
+  draft: string
+): boolean {
+  return draft.replace(/\D/g, '') !== (saved ?? '');
 }

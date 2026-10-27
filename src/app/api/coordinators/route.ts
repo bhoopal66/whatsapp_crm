@@ -4,6 +4,8 @@
 // team leaders holding at least one bank. Agent and up. Reads run on the
 // caller's RLS client; the profile lookup is scoped to the active
 // account because one login can hold a profile in several workspaces.
+// Each row carries `whatsapp_phone` (migration 142), null unless the
+// caller is an owner or admin.
 
 import { NextResponse } from 'next/server';
 
@@ -60,6 +62,20 @@ export async function GET(request: Request) {
       );
     }
 
+    // 142's numbers, through the caller's RLS client: only owners and
+    // admins read the table, so everyone else gets null. A failure only
+    // costs the numbers.
+    const phones = new Map<string, string>();
+    const { data: phoneRows, error: phErr } = await supabase
+      .from('coordinator_phones')
+      .select('user_id, phone')
+      .eq('account_id', accountId)
+      .in('user_id', userIds);
+    if (phErr) console.error('[GET /api/coordinators] phones:', phErr);
+    for (const r of phoneRows ?? []) {
+      phones.set(r.user_id as string, r.phone as string);
+    }
+
     const showEmail = canManageMembers(role);
     // Holding a bank row is not enough: a person since promoted to admin
     // or demoted to viewer keeps the row but is no coordinator (133).
@@ -70,6 +86,7 @@ export async function GET(request: Request) {
         name: (p.full_name as string | null) ?? '',
         ...(showEmail ? { email: (p.email as string | null) ?? null } : {}),
         banks: byUser.get(p.user_id as string) ?? [],
+        whatsapp_phone: phones.get(p.user_id as string) ?? null,
       }));
     return NextResponse.json({ coordinators });
   } catch (err) {

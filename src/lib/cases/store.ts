@@ -193,7 +193,7 @@ export class CaseStore {
       groupId
         ? this.select(
             'submission_groups',
-            'submission_ref, contact_id, submission_status',
+            'submission_ref, contact_id, submission_status, customer_name',
             { id: groupId }
           )
         : Promise.resolve(null),
@@ -218,7 +218,9 @@ export class CaseStore {
       submissionStatus: str(group?.submission_status),
       contactId,
       leadSource: str(c.lead_source),
-      contactName: str(contact?.name),
+      // 141: the submission's customer name, else the contact's.
+      contactName: str(group?.customer_name) ?? str(contact?.name),
+      contactOwnName: str(contact?.name),
       bankCode,
       bankName: str(bank?.name),
       product: str(c.product),

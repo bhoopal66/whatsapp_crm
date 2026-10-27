@@ -27,10 +27,13 @@ import {
 } from './message-media';
 import { InteractivePreview } from '@/components/interactive/interactive-preview';
 import { ContactCardMessage } from './contact-card-message';
+import { SenderLine, type SenderLabel } from './sender-label';
 import { useTranslations } from 'next-intl';
 
 interface MessageBubbleProps {
   message: Message;
+  /** Who sent it, named at the top of the bubble. Omitted → no line. */
+  sender?: SenderLabel | null;
   /**
    * First bubble of a run from one side: WhatsApp's little tail on the
    * top corner, pointing at the sender's edge of the thread.
@@ -326,6 +329,7 @@ function BubbleTail({ side }: { side: 'in' | 'out' }) {
 
 export function MessageBubble({
   message,
+  sender,
   tail = false,
   reply,
   reactions,
@@ -339,6 +343,9 @@ export function MessageBubble({
     message.sender_type === 'agent' || message.sender_type === 'bot';
   const time = format(new Date(message.created_at), 'HH:mm');
   const inlineMeta = endsInText(message);
+  // A voice note has a clock row of its own; the time and ticks sit at
+  // its far end, as on WhatsApp, rather than on a line below.
+  const metaOverlay = inlineMeta || message.content_type === 'audio';
 
   // Time, ticks, and the AI badge on replies the auto-reply bot wrote
   // (always outbound) so agents tell them from their own at a glance.
@@ -370,6 +377,7 @@ export function MessageBubble({
         )}
       >
         {tail && <BubbleTail side={isAgent ? 'out' : 'in'} />}
+        {sender && <SenderLine sender={sender} />}
         {message.is_forwarded && (
           <div className="text-wa-meta mb-0.5 flex items-center gap-1 text-[12px] italic">
             <Forward className="h-3 w-3" />
@@ -401,7 +409,7 @@ export function MessageBubble({
         <div
           className={cn(
             'text-wa-meta flex items-center gap-1 text-[11px] leading-[15px]',
-            inlineMeta ? 'absolute right-2 bottom-1' : 'mt-1 justify-end'
+            metaOverlay ? 'absolute right-2 bottom-1' : 'mt-1 justify-end'
           )}
         >
           {meta}

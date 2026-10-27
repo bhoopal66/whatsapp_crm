@@ -140,10 +140,38 @@ membership and leaves the person's others alone.
 - The login itself is banned (sign-in and token refresh refused) only
   when no active membership remains; then the app signs them out.
 
+## Setting a member's password
+
+An owner or admin sets another member's password from Settings →
+Members (the key button on their row). The new password is shown in
+plain text and starts as a suggestion, as in Add person, so it can be
+passed on. `POST /api/account/members/[userId]/password` asks
+`authorize_member_password_change()` (migration 140) first, as the
+caller, and calls GoTrue only once it agrees:
+
+- The caller is a live owner or admin of their active workspace, and it
+  is not their own password (theirs is Settings → Login & security).
+- The person has a membership there, deactivated or not, and the caller
+  strictly outranks them: an admin sets a team leader's, agent's,
+  viewer's or bank guest's password, never another admin's or the
+  owner's; the owner sets anyone's.
+- **Every other workspace counts too.** One login opens every workspace
+  it belongs to, so a password set from one workspace would open the
+  others. In each other workspace where the person has a membership
+  (live or deactivated, archived or not), the caller needs a live owner
+  or admin membership that outranks them there. Otherwise the change is
+  refused and the person changes it themselves.
+- A password is 8 characters to 72 bytes (bcrypt's limit). GoTrue may
+  still refuse one it finds weak.
+- The change is recorded as `password_changed` (below) in the audit log
+  of every workspace the person belongs to. Whether sessions the person
+  already has survive depends on the GoTrue version; to cut someone off
+  at once, deactivate them.
+
 ## Renaming
 
-An owner or admin renames their active workspace in Settings → Team →
-Workspace, which sends `PATCH /api/account` `{ name?, short_name? }`
+An owner or admin renames their active workspace in Settings → Workspace →
+General, which sends `PATCH /api/account` `{ name?, short_name? }`
 with only the fields that changed: the name, and the short name of 1–4
 letters or digits shown on its tile in Settings → Workspaces.
 The write runs as the caller, so the `accounts_update` policy holds it
@@ -169,17 +197,24 @@ service role, a hand-run UPDATE. One row per change:
 | `workspace_renamed` / `short_name_changed`  | the name or short name changes                                 | `from`, `to`                         |
 | `ownership_transferred`                     | `transfer_account_ownership()`; the target is the new owner    | `from_user_id`                       |
 | `team_chat_enabled` / `team_chat_disabled`  | Team chat is switched on or off                                | —                                    |
+| `password_changed`                          | an owner or admin set the person's password (see below)        | `name`                               |
 
 - **Actor** is the signed-in caller (`auth.uid()`), or empty for the
   server: the service role, which also provisions new logins
   (`provision_account_member`), and anything run without a session.
+- **`password_changed`** is the one row no trigger writes: the password
+  lives in `auth.users`. The route records it through
+  `log_member_password_change()` (service role only) once GoTrue has
+  accepted the change, with the admin as the actor, so a refused or
+  failed change is never logged. It writes one row in every workspace
+  the person belongs to, since the login opens them all.
 - **Not recorded:** workspace switches (`is_active`), name, email and
   avatar edits, and a membership that disappears with its deleted
   account. A move between accounts (removal from someone's only
   workspace, an invitation redeemed by a new login) records both sides;
   when the new login's empty personal account is then deleted, only the
   joining side remains.
-- **Where:** Settings → Team → Audit log, source _Workspace_, merged
+- **Where:** Settings → Privacy & compliance → Audit log, source _Workspace_, merged
   with the team chat, recording, phone and deal room logs. An empty
   actor shows as _System_; a person who has since left the workspace
   is named by the `name` the row recorded.
@@ -208,7 +243,13 @@ service role, a hand-run UPDATE. One row per change:
   users (the policy still limits the write to admins). Like 087 and 088
   it must be applied as a superuser or BYPASSRLS role.
 
-Apply 082, then 083, each in its own run. All three are re-runnable.
+- `140_member_password_change.sql` adds
+  `authorize_member_password_change()` (signed-in callers),
+  `log_member_password_change()` (service role only) and the
+  `password_changed` audit action. Like 092 it must be applied as a
+  superuser or BYPASSRLS role. `verify-member-password.sql` asserts it.
+
+Apply 082, then 083, each in its own run. All of them are re-runnable.
 
 ## Archiving a workspace (migration 105)
 

@@ -51,7 +51,9 @@ export type ChatErrorKey =
   | 'nameLength'
   | 'topicLength'
   | 'removeSelf'
-  | 'notManageable';
+  | 'notManageable'
+  // 143's DM rules
+  | 'dmNotAllowed';
 
 export class ChatError extends Error {
   override readonly name = 'ChatError';
@@ -93,6 +95,7 @@ const COARSE_KEY: Record<ChatErrorCode, ChatErrorKey> = {
 /** Message wording → finer key, checked in order within the code. */
 const FINE_KEYS: Partial<Record<ChatErrorCode, [RegExp, ChatErrorKey][]>> = {
   FORBIDDEN: [
+    [/direct messages between these people are turned off/i, 'dmNotAllowed'],
     [/channel is archived/i, 'archived'],
     [/not a member of this channel/i, 'notChannelMember'],
     [

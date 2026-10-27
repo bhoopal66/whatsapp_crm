@@ -452,10 +452,15 @@ Required: `submission_id` (1 to 128 characters), `customer.phone` (same
 rule as `phone` on `POST /api/v1/contacts`) and `agent_email`. Optional:
 `customer.name` (up to 200), `coordinator_email`, `team_lead_email`,
 `coordinator_phone` (the extra WhatsApp participant), `subject` (up to
-100; default `<name or phone> · <submission_id>`) and `channel_id` (a
+100; default `<name or phone> x Taamul Credit`) and `channel_id` (a
 Whapi number the agent may use; default: the agent's own number). Each
 email must belong to a live agent, team leader, admin or owner of the
-key's workspace, and no person may fill two fields.
+key's workspace, and no person may fill two fields. When a WhatsApp
+group is opened and `bank` is given, the bank's coordinators who have a
+saved WhatsApp number are added to the group automatically, and every
+coordinator of the bank joins the access list with the `coordinator`
+label: up to 5 coordinator numbers in all, `coordinator_phone`
+included.
 
 The call is idempotent per `submission_id`: a repeat returns the existing
 group unchanged (`200`), finishing its WhatsApp group if still pending

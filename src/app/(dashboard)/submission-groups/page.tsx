@@ -1,6 +1,9 @@
-import { SubmissionGroupsList } from '@/components/submission-groups/submission-groups-list';
+import { SubmissionGroupsPlaceholder } from '@/components/submission-groups/submission-groups-workspace';
 
-/** /submission-groups — one WhatsApp group per submitted case (018a). */
+/**
+ * /submission-groups — the list is the layout's (it stays mounted while
+ * a submission is opened); this is the empty right pane.
+ */
 export default function SubmissionGroupsPage() {
-  return <SubmissionGroupsList />;
+  return <SubmissionGroupsPlaceholder />;
 }

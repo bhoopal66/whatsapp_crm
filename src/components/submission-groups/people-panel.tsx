@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,13 +10,16 @@ import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
   addableStaff,
+  avatarTone,
+  initialsOf,
   STAFF_LABELS,
   type SgAccess,
   type StaffLabel,
 } from '@/lib/submission-groups/ui';
+import { cn } from '@/lib/utils';
 
 const selectClass =
-  'border-border bg-background text-foreground h-8 rounded-md border px-2 text-sm';
+  'border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring/50 h-8 rounded-md border px-2 text-sm outline-none focus-visible:ring-3';
 
 /** The group's access list; an admin adds, relabels and removes while it is ACTIVE. */
 export function PeoplePanel({
@@ -39,6 +42,7 @@ export function PeoplePanel({
   const [removing, setRemoving] = useState<SgAccess | null>(null);
 
   const candidates = addableStaff(members, access);
+  const titleId = useId();
 
   const put = async (userId: string, label: StaffLabel) => {
     setBusy(userId);
@@ -86,9 +90,14 @@ export function PeoplePanel({
   };
 
   return (
-    <section className="bg-card space-y-3 rounded-lg border p-3">
+    <section
+      aria-labelledby={titleId}
+      className="bg-card space-y-3 rounded-xl border p-4"
+    >
       <div>
-        <h2 className="text-sm font-semibold">{t('title')}</h2>
+        <h2 id={titleId} className="text-sm font-semibold">
+          {t('title')}
+        </h2>
         <p className="text-muted-foreground text-xs">{t('hint')}</p>
       </div>
       {access.length === 0 ? (
@@ -97,6 +106,15 @@ export function PeoplePanel({
         <ul className="divide-border divide-y">
           {access.map((a) => (
             <li key={a.user_id} className="flex items-center gap-2 py-2">
+              <span
+                aria-hidden
+                className={cn(
+                  'flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                  avatarTone(a.name)
+                )}
+              >
+                {initialsOf(a.name)}
+              </span>
               <span className="min-w-0 flex-1 truncate text-sm">
                 {a.name || t('unknown')}
               </span>

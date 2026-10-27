@@ -46,6 +46,7 @@ import {
 } from '@/lib/submission-groups/server';
 import {
   chooseHostingNumber,
+  coordinatorPhoneList,
   inviteCodeOf,
   parseCreateInput,
   phoneWasRefused,
@@ -190,6 +191,7 @@ export async function POST(request: Request) {
         coordinatorPhone: existing.coordinatorPhone,
         access: [],
         keyId: ctx.keyId,
+        customerName: input.customerName,
       };
     } else {
       const { data: staffRows, error: staffError } = await db.rpc(
@@ -259,8 +261,35 @@ export async function POST(request: Request) {
           coordinatorPhone: input.coordinatorPhone,
           access,
           keyId: ctx.keyId,
+          customerName: input.customerName,
         };
       } else {
+        // 142: the bank's coordinators join the group too. Looked up before
+        // anything is written, so an error answers 500 with no contact made.
+        let bankPhones: (string | null)[] = [];
+        if (input.bankCode) {
+          const { data: coordRows, error: coordError } = await db.rpc(
+            'sg_bank_coordinators',
+            { p_account: ctx.accountId, p_bank: input.bankCode }
+          );
+          if (coordError) {
+            console.error(
+              '[api/v1/submission-groups] bank coordinators:',
+              coordError
+            );
+            return fail('internal', 'Failed to open the submission group', 500);
+          }
+          const rows = (coordRows ?? []) as {
+            user_id: string;
+            phone: string | null;
+          }[];
+          for (const r of rows) {
+            if (!access.some((a) => a.userId === r.user_id))
+              access.push({ userId: r.user_id, label: 'coordinator' });
+          }
+          bankPhones = rows.map((r) => r.phone);
+        }
+
         // The number first: a refused call must not leave a new contact behind.
         const channels = await loadChannels(db, ctx.accountId);
         const whapiIds = channels
@@ -326,8 +355,14 @@ export async function POST(request: Request) {
           channelId: hosting.channel.id,
           subject: input.subject,
           coordinatorPhone: input.coordinatorPhone,
+          coordinatorPhones: coordinatorPhoneList(
+            bankPhones,
+            input.coordinatorPhone,
+            customerPhone
+          ),
           access,
           keyId: ctx.keyId,
+          customerName: input.customerName,
         };
       }
     }

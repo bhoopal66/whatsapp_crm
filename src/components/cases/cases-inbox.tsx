@@ -57,6 +57,7 @@ import {
   activeFilterCount,
   appendRows,
   caseStatusView,
+  contactPersonLine,
   EMPTY_FILTERS,
   filtersFromSearch,
   filtersToSearch,
@@ -631,6 +632,7 @@ function useRowView(row: InboxRow, now: Date, nameOf: NameOf) {
   const due = row.dueAt ? new Date(row.dueAt) : null;
   return {
     customer: row.contactName ?? t('noCustomer'),
+    person: contactPersonLine(row.contactName, row.contactOwnName),
     bank: row.bankName ?? row.bankCode ?? t('noBank'),
     product: [row.product, formatAed(row.amount, locale)]
       .filter(Boolean)
@@ -838,6 +840,11 @@ function TableRowView({
         >
           {v.customer}
         </Link>
+        {v.person && (
+          <span className="block text-xs">
+            {t('contactPerson', { name: v.person })}
+          </span>
+        )}
         {row.submissionRef && (
           <span className="text-muted-foreground block text-xs">
             {row.submissionRef}
@@ -894,6 +901,11 @@ function CaseCard({
         <span className="flex items-start justify-between gap-2">
           <span className="min-w-0">
             <span className="block truncate font-semibold">{v.customer}</span>
+            {v.person && (
+              <span className="block truncate text-xs">
+                {t('contactPerson', { name: v.person })}
+              </span>
+            )}
             {row.submissionRef && (
               <span className="text-muted-foreground block truncate text-xs">
                 {row.submissionRef}

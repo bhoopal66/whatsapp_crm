@@ -49,19 +49,32 @@ export function cdrRecordToCallEnd(
   );
 }
 
+/** JSON with object keys sorted, so key order never splits a duplicate. */
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`;
+  if (typeof v === 'object' && v !== null) {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableJson(o[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'null';
+}
+
 /**
- * First occurrence per `uid`, order kept. Overlapping backfill windows
- * and pages return the same row twice; a row without a uid is kept (the
- * mapper rejects it with a reason).
+ * First occurrence per whole record, order kept. Overlapping backfill
+ * windows and pages return the same row twice. Not per `uid`: Yeastar
+ * gives every leg of a call the same uid (call-legs.ts `legKey`), so
+ * same-uid rows that differ are distinct legs and all of them are kept.
  */
-export function dedupeByUid<T extends { uid?: unknown }>(
-  records: readonly T[]
-): T[] {
+export function dedupeRecords<T>(records: readonly T[]): T[] {
   const seen = new Set<string>();
   return records.filter((r) => {
-    if (typeof r.uid !== 'string' || r.uid === '') return true;
-    if (seen.has(r.uid)) return false;
-    seen.add(r.uid);
+    const key = stableJson(r);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

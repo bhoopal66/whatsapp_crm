@@ -113,6 +113,8 @@ export function createdLeadId(json: unknown): string | null {
 export interface ContactCase {
   id: string;
   stage: string;
+  /** The tracker's status word for word; NULL for a lead or none sent yet. */
+  submissionStatus: string | null;
   bankCode: string | null;
   product: string | null;
   /** AED as a decimal string. */
@@ -137,6 +139,7 @@ export function parseContactCases(json: unknown): ContactCase[] {
     out.push({
       id: c.id,
       stage: optStr(c.stage) ?? '',
+      submissionStatus: optStr(c.submissionStatus),
       bankCode: optStr(c.bankCode),
       product: optStr(c.product),
       // Exact decimal strings only: a JSON number may already have lost digits.

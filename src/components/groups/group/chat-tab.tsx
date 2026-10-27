@@ -13,7 +13,9 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/use-auth';
 import {
+  groupMessageSender,
   groupMessagesByDay,
   mergeMessages,
   reasonKey,
@@ -45,6 +47,7 @@ const PAGE = 50;
 export function ChatTab({ groupId, detail }: GroupTabProps) {
   const t = useTranslations('Groups.page');
   const locale = useLocale();
+  const { user, profile } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -161,7 +164,9 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
       id: tempId,
       direction: 'out',
       sender_wa_id: null,
-      sender_name: null,
+      // What the send route will record, so the bubble is named at once.
+      sender_name: profile?.full_name?.trim() || null,
+      sender_user_id: user?.id ?? null,
       type: 'text',
       body,
       status: 'pending',
@@ -229,11 +234,11 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
     );
 
   return (
-    <div className="bg-card flex h-[calc(100dvh-16rem)] min-h-80 flex-col overflow-hidden rounded-lg border">
+    <div className="bg-background flex min-h-0 flex-1 flex-col overflow-hidden">
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="flex-1 space-y-3 overflow-y-auto p-3"
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:px-6"
       >
         {loading && (
           <p className="text-muted-foreground py-8 text-center text-sm">
@@ -272,6 +277,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
             {g.messages.map((m) => {
               const out = m.direction === 'out';
               const tick = statusTick(m.direction, m.status);
+              const sender = groupMessageSender(m, user?.id ?? null);
               return (
                 <div
                   key={m.id}
@@ -285,11 +291,20 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
                         : 'bg-wa-bubble-in text-foreground'
                     )}
                   >
-                    {!out && (
-                      <p className="text-primary text-xs font-medium">
-                        {m.sender_name || m.sender_wa_id || t('chat.someone')}
-                      </p>
-                    )}
+                    <p
+                      className={cn(
+                        'truncate text-xs font-medium',
+                        out
+                          ? 'text-emerald-800 dark:text-emerald-200'
+                          : 'text-primary'
+                      )}
+                    >
+                      {sender.name
+                        ? sender.isMe
+                          ? t('chat.me', { name: sender.name })
+                          : sender.name
+                        : t(out ? 'chat.yourNumber' : 'chat.someone')}
+                    </p>
                     <p className="break-words whitespace-pre-wrap">
                       {m.body || (
                         <span className="text-muted-foreground italic">
@@ -317,9 +332,9 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         ))}
       </div>
 
-      <div className="border-t p-2">
+      <div className="bg-wa-panel-header border-wa-divider shrink-0 border-t p-2">
         {sendBlock && (
-          <p className="text-muted-foreground px-1 pb-2 text-xs">
+          <p role="status" className="text-muted-foreground px-1 pb-2 text-xs">
             {t(`reasons.${sendBlock}`)}
           </p>
         )}

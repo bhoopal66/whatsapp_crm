@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { pbxApiFor, PbxConnectionError, type PbxHandle } from './connection';
 import { ingestPbxEvent } from './process';
 import { CDR_MAX_PAGE_SIZE, type CdrRecord } from './yeastar/api';
-import { dedupeByUid } from './yeastar/cdr';
+import { dedupeRecords } from './yeastar/cdr';
 import { YEASTAR_EVENT } from './yeastar/events';
 import { YeastarError } from './yeastar/errors';
 import { DEFAULT_TOPICS, wsUrl } from './yeastar/ws';
@@ -188,7 +188,7 @@ export async function backfillCdr(input: {
     all.push(...records);
     if (records.length < pageSize || all.length >= total) break;
   }
-  const records = dedupeByUid(all);
+  const records = dedupeRecords(all);
   result.records = records.length;
   for (const record of records) {
     const res = await ingestPbxEvent({

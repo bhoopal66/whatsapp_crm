@@ -34,6 +34,17 @@ requests. **Refresh** re-reads the group from WhatsApp.
   admin approval. Each new request rings a bell for the group's managers
   and admins; the bell opens the tab.
 
+### Deleting a group you left
+
+Once your number has left a group (Leave, or a Sync that no longer
+finds it), an owner or admin can delete it from the CRM: **Delete from
+CRM** at the bottom of the group's info panel or in its ⋮ menu, or
+**Delete all left groups** above the list while the Left filter is on.
+Only groups the number has left can be deleted. Deleting removes the
+group, its members list, managers, invite link and saved messages from
+the CRM for good; nothing happens on WhatsApp (the number is already
+out), and a later Sync does not bring the group back.
+
 ## Anti-ban pacing
 
 WhatsApp restricts numbers that add people in bulk. Adds are therefore

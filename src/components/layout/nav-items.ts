@@ -1,9 +1,9 @@
 import {
   Activity,
-  Bell,
   Briefcase,
   Building2,
   GitBranch,
+  Headset,
   Landmark,
   LayoutDashboard,
   MessageSquare,
@@ -85,7 +85,8 @@ export const NAV_GROUPS: NavGroup[] = [
     labelKey: null,
     items: [
       { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
-      { href: '/notifications', labelKey: 'notifications', icon: Bell },
+      // Notifications are the top bar's bell (NotificationBell), not a row
+      // here; the full list page stays as its "View all".
       { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
       // Missed calls and the call log (module 015). Staff only: the
       // route's layout turns a bank guest away; which calls come back is
@@ -221,6 +222,14 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/compass',
         labelKey: 'compass',
         icon: Building2,
+        minRole: 'admin',
+      },
+      // Contacts the OpenDesk sales app marked Interested (migration
+      // 139) — sales-app PII, admin+ like its RLS.
+      {
+        href: '/opendesk',
+        labelKey: 'opendesk',
+        icon: Headset,
         minRole: 'admin',
       },
     ],

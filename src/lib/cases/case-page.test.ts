@@ -36,6 +36,7 @@ const detail = {
     submissionStatus: 'UNDER_REVIEW',
     contactId: 'k1',
     contactName: 'Aisha',
+    contactOwnName: 'Aisha K',
     bankCode: 'ADCB',
     bankName: 'ADCB',
     product: 'Personal loan',
@@ -118,6 +119,7 @@ describe('parseCaseDetail', () => {
     expect(d!.case.priority).toBe('high');
     expect(d!.case.amount).toBe('150000.00');
     expect(d!.case.submissionStatus).toBe('UNDER_REVIEW');
+    expect(d!.case.contactOwnName).toBe('Aisha K');
     expect(d!.role).toBe('coordinator');
     expect(d!.permissions).toEqual({
       canWrite: true,

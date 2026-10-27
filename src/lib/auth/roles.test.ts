@@ -18,9 +18,11 @@ import {
   canUseMeetings,
   canCreateMeetings,
   canArchiveWorkspace,
+  canChangePasswordOf,
   canViewOnly,
   canCreateGroups,
   canSyncGroups,
+  canDeleteGroups,
   canViewAllCalls,
   canViewAllGroups,
   canViewUnroutedCalls,
@@ -314,6 +316,37 @@ describe('adding people (migration 099)', () => {
   });
 });
 
+// Migration 140: authorize_member_password_change wants a live owner /
+// admin who strictly outranks the person (in this workspace and in each
+// of the person's others, which only the database can see).
+describe('canChangePasswordOf (140)', () => {
+  it('an admin: team leaders, agents, viewers and bank guests', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canChangePasswordOf('admin', r))).toEqual(
+      ['bank_guest', 'viewer', 'agent', 'team_leader']
+    );
+  });
+
+  it('the owner: everyone but another owner', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canChangePasswordOf('owner', r))).toEqual(
+      ['bank_guest', 'viewer', 'agent', 'team_leader', 'admin']
+    );
+  });
+
+  it('nobody for their own role, so never for themselves', () => {
+    for (const role of ACCOUNT_ROLES) {
+      expect(canChangePasswordOf(role, role)).toBe(false);
+    }
+  });
+
+  it('nobody below admin, even for people they outrank', () => {
+    for (const caller of ['team_leader', 'agent', 'viewer', 'bank_guest'] as const) {
+      expect(ACCOUNT_ROLES.filter((r) => canChangePasswordOf(caller, r))).toEqual(
+        []
+      );
+    }
+  });
+});
+
 describe('group capabilities (114)', () => {
   it('view-all and sync are owner and admin only', () => {
     expect(ACCOUNT_ROLES.filter((r) => canViewAllGroups(r))).toEqual([
@@ -321,6 +354,12 @@ describe('group capabilities (114)', () => {
       'owner',
     ]);
     expect(ACCOUNT_ROLES.filter((r) => canSyncGroups(r))).toEqual([
+      'admin',
+      'owner',
+    ]);
+  });
+  it('deleting a left group from the CRM is owner and admin only', () => {
+    expect(ACCOUNT_ROLES.filter((r) => canDeleteGroups(r))).toEqual([
       'admin',
       'owner',
     ]);

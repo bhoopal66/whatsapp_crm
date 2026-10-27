@@ -130,6 +130,23 @@ export function canManageMembers(role: AccountRole): boolean {
 }
 
 /**
+ * Owner / admin: set the password of someone they strictly outrank in
+ * this workspace. An admin sets a team leader's, agent's, viewer's or
+ * bank guest's password, never another admin's or the owner's; the owner
+ * anyone's; nobody their own (that is Settings → Login & security).
+ * Only the roster's button follows this: the login is shared by every
+ * workspace the person is in, so `authorize_member_password_change`
+ * (migration 140) also checks the caller outranks them in each of the
+ * others, which this screen cannot see.
+ */
+export function canChangePasswordOf(
+  caller: AccountRole,
+  target: AccountRole
+): boolean {
+  return canManageMembers(caller) && roleRank(caller) > roleRank(target);
+}
+
+/**
  * Team leader and up: add people to the workspace, by invite link or
  * by email (migration 099). Which roles is `canGrantRole`; changing a
  * role, deactivating and removing stay `canManageMembers`.
@@ -318,6 +335,14 @@ export function canCreateGroups(role: AccountRole): boolean {
 
 /** Owner / admin: pull a number's groups in from WhatsApp (sync). */
 export function canSyncGroups(role: AccountRole): boolean {
+  return hasMinRole(role, 'admin');
+}
+
+/**
+ * Owner / admin: delete from the CRM a WhatsApp group our number has
+ * left (`POST /api/whatsapp/groups/delete`). WhatsApp is not touched.
+ */
+export function canDeleteGroups(role: AccountRole): boolean {
   return hasMinRole(role, 'admin');
 }
 

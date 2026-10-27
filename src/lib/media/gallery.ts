@@ -1,4 +1,4 @@
-import type { Message } from "@/types";
+import type { Message } from '@/types';
 
 /**
  * The set of media in a thread that the lightbox can page through, built
@@ -11,7 +11,7 @@ import type { Message } from "@/types";
  * Meta has since expired, and both render as "unavailable" in the bubble.
  */
 
-export type MediaGalleryKind = "image" | "video";
+export type MediaGalleryKind = 'image' | 'video';
 
 export interface MediaGalleryItem {
   /** `messages.id` — the lightbox's identity for "which one is open". */
@@ -21,15 +21,14 @@ export interface MediaGalleryItem {
   /** Caption, when the sender attached one. */
   caption?: string;
   createdAt: string;
-  /** Drives the "You" vs contact-name label in the viewer header. */
-  fromCustomer: boolean;
-  /** The row itself, so a download can derive its filename. */
+  /** The row itself, so a download can derive its filename and the
+   *  viewer's title can name its sender. */
   message: Message;
 }
 
 function galleryKind(message: Message): MediaGalleryKind | null {
-  if (message.content_type === "image") return "image";
-  if (message.content_type === "video") return "video";
+  if (message.content_type === 'image') return 'image';
+  if (message.content_type === 'video') return 'video';
   return null;
 }
 
@@ -48,7 +47,6 @@ export function collectMediaGallery(messages: Message[]): MediaGalleryItem[] {
       kind,
       caption: message.content_text || undefined,
       createdAt: message.created_at,
-      fromCustomer: message.sender_type === "customer",
       message,
     });
   }
@@ -58,7 +56,7 @@ export function collectMediaGallery(messages: Message[]): MediaGalleryItem[] {
 /** Index of a message in the gallery, or -1 when it isn't in it. */
 export function galleryIndexOf(
   items: MediaGalleryItem[],
-  messageId: string | null,
+  messageId: string | null
 ): number {
   if (!messageId) return -1;
   return items.findIndex((item) => item.messageId === messageId);

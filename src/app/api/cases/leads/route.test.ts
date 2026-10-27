@@ -4,11 +4,18 @@ const m = vi.hoisted(() => ({
   requireRole: vi.fn(),
   listForContact: vi.fn(),
   role: vi.fn(),
+  statuses: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   requireRole: m.requireRole,
+}));
+vi.mock('@/lib/submission-groups/server', () => ({
+  supabaseAdmin: () => 'admin-db',
+}));
+vi.mock('@/lib/cases/submission-status', () => ({
+  submissionStatuses: m.statuses,
 }));
 vi.mock('@/lib/cases/server', () => ({
   caseStore: () => ({
@@ -28,6 +35,7 @@ const ctx = { userId: 'u-me', accountId: 'acct-1', role: 'agent' };
 beforeEach(() => {
   vi.clearAllMocks();
   m.requireRole.mockResolvedValue(ctx);
+  m.statuses.mockResolvedValue(new Map());
 });
 
 // Cases come only from the submission tracker: nobody opens a lead here.
@@ -74,9 +82,31 @@ describe('GET /api/cases/leads', () => {
     expect(body.cases.map((c: { id: string }) => c.id)).toEqual(['c1', 'c3']);
     expect(body.cases[0]).toMatchObject({
       stage: 'Interested',
+      submissionStatus: null,
       amount: '100.00',
       isLead: true,
       closedAt: null,
     });
+  });
+  it("adds the tracker's status word for word, for readable cases only", async () => {
+    m.listForContact.mockResolvedValue([
+      row('c1', { stage: 'Submitted', isLead: false }),
+      row('c2'),
+    ]);
+    m.role.mockImplementation(async (id: string) =>
+      id === 'c2' ? null : 'agent'
+    );
+    m.statuses.mockResolvedValue(
+      new Map([['c1', 'Pending With Bank - Credit Review']])
+    );
+    const body = await (await get(`contactId=${CONTACT}`)).json();
+    expect(m.statuses).toHaveBeenCalledWith('admin-db', 'acct-1', ['c1']);
+    expect(body.cases).toEqual([
+      expect.objectContaining({
+        id: 'c1',
+        stage: 'Submitted',
+        submissionStatus: 'Pending With Bank - Credit Review',
+      }),
+    ]);
   });
 });

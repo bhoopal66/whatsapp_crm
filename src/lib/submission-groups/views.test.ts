@@ -28,6 +28,7 @@ const group = (over: Partial<SubmissionGroup> = {}): SubmissionGroup => ({
   channelId: 'w1',
   waMode: 'group',
   subject: 'Jane · SUB-1',
+  customerName: null,
   coordinatorPhone: null,
   status: 'ACTIVE',
   waGroupId: null,
@@ -138,9 +139,11 @@ describe('searchTerm', () => {
 
 describe('searchFilter', () => {
   it('matches the ref, plus matched contacts when there are any', () => {
-    expect(searchFilter('ab', [])).toBe('submission_ref.ilike.*ab*');
+    expect(searchFilter('ab', [])).toBe(
+      'submission_ref.ilike.*ab*,customer_name.ilike.*ab*'
+    );
     expect(searchFilter('ab', ['c1', 'c2'])).toBe(
-      'submission_ref.ilike.*ab*,contact_id.in.(c1,c2)'
+      'submission_ref.ilike.*ab*,customer_name.ilike.*ab*,contact_id.in.(c1,c2)'
     );
   });
 });
@@ -231,6 +234,41 @@ describe('toListItem', () => {
       channel: { id: 'w1', label: 'Sales' },
       ended_at: null,
     });
+  });
+
+  it("carries the tracker's customer name and status word", () => {
+    const g = group({
+      customerName: 'Acme Trading LLC',
+      submissionStatus: 'Inhouse Review',
+    });
+    expect(toListItem(g, refs)).toMatchObject({
+      customer_name: 'Acme Trading LLC',
+      submission_status: 'Inhouse Review',
+      contact: { name: 'Jane' },
+    });
+    expect(toDetailGroup(g, refs)).toMatchObject({
+      customer_name: 'Acme Trading LLC',
+      submission_status: 'Inhouse Review',
+    });
+    expect(toListItem(group(), refs)).toMatchObject({
+      customer_name: null,
+      submission_status: null,
+    });
+  });
+
+  it('lists every coordinator number once, the request number first (142)', () => {
+    const g = group({
+      coordinatorPhone: '971500000001',
+      coordinatorPhones: ['971500000002', '971500000001', '971500000003'],
+    });
+    expect(toDetailGroup(g, refs).coordinator_phones).toEqual([
+      '971500000001',
+      '971500000002',
+      '971500000003',
+    ]);
+    expect(
+      toDetailGroup(group({ coordinatorPhone: null }), refs).coordinator_phones
+    ).toEqual([]);
   });
 
   it('never marks a wa_mode none row pending, and exposes wa_mode', () => {

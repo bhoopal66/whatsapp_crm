@@ -520,6 +520,7 @@ const ERROR_KEYS: Record<ChatErrorKey, true> = {
   topicLength: true,
   removeSelf: true,
   notManageable: true,
+  dmNotAllowed: true,
 };
 
 /** The ChatError keys the screen has wording for (Chat.errors.*): all of them. */

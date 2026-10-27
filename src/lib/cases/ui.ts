@@ -55,29 +55,74 @@ export const DEFAULT_STAGES: readonly string[] = [
  */
 const SKY =
   'bg-sky-100 text-sky-800 ring-1 ring-sky-600/20 ring-inset dark:bg-sky-400/15 dark:text-sky-300 dark:ring-sky-400/30';
+const BLUE = 'bg-info-soft text-info ring-1 ring-info/30 ring-inset';
+const INDIGO =
+  'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-600/20 ring-inset dark:bg-indigo-400/15 dark:text-indigo-300 dark:ring-indigo-400/30';
+const AMBER = 'bg-warning-soft text-warning ring-1 ring-warning/30 ring-inset';
+const TEAL =
+  'bg-teal-100 text-teal-800 ring-1 ring-teal-600/20 ring-inset dark:bg-teal-400/15 dark:text-teal-300 dark:ring-teal-400/30';
+const VIOLET =
+  'bg-violet-100 text-violet-800 ring-1 ring-violet-600/20 ring-inset dark:bg-violet-400/15 dark:text-violet-300 dark:ring-violet-400/30';
+const ORANGE =
+  'bg-orange-100 text-orange-800 ring-1 ring-orange-600/20 ring-inset dark:bg-orange-400/15 dark:text-orange-300 dark:ring-orange-400/30';
+const CYAN =
+  'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-600/20 ring-inset dark:bg-cyan-400/15 dark:text-cyan-300 dark:ring-cyan-400/30';
+const GREEN = 'bg-success-soft text-success ring-1 ring-success/30 ring-inset';
+const RED =
+  'bg-destructive-soft text-destructive ring-1 ring-destructive/30 ring-inset';
+const GREY = 'bg-muted text-muted-foreground ring-1 ring-border ring-inset';
+
 export const STAGE_CHIP: Readonly<Record<string, string>> = {
   Interested: SKY,
   'Data collection': SKY,
   Review: SKY,
-  Submitted: 'bg-info-soft text-info ring-1 ring-info/30 ring-inset',
-  'Bank acknowledged':
-    'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-600/20 ring-inset dark:bg-indigo-400/15 dark:text-indigo-300 dark:ring-indigo-400/30',
-  'Documents requested':
-    'bg-warning-soft text-warning ring-1 ring-warning/30 ring-inset',
-  'Documents received':
-    'bg-teal-100 text-teal-800 ring-1 ring-teal-600/20 ring-inset dark:bg-teal-400/15 dark:text-teal-300 dark:ring-teal-400/30',
-  'Under review':
-    'bg-violet-100 text-violet-800 ring-1 ring-violet-600/20 ring-inset dark:bg-violet-400/15 dark:text-violet-300 dark:ring-violet-400/30',
-  'Query raised':
-    'bg-orange-100 text-orange-800 ring-1 ring-orange-600/20 ring-inset dark:bg-orange-400/15 dark:text-orange-300 dark:ring-orange-400/30',
-  'Query answered':
-    'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-600/20 ring-inset dark:bg-cyan-400/15 dark:text-cyan-300 dark:ring-cyan-400/30',
-  Approved: 'bg-success-soft text-success ring-1 ring-success/30 ring-inset',
-  Declined:
-    'bg-destructive-soft text-destructive ring-1 ring-destructive/30 ring-inset',
-  Withdrawn: 'bg-muted text-muted-foreground ring-1 ring-border ring-inset',
-  Closed: 'bg-muted text-muted-foreground ring-1 ring-border ring-inset',
+  Submitted: BLUE,
+  'Bank acknowledged': INDIGO,
+  'Documents requested': AMBER,
+  'Documents received': TEAL,
+  'Under review': VIOLET,
+  'Query raised': ORANGE,
+  'Query answered': CYAN,
+  Approved: GREEN,
+  Declined: RED,
+  Withdrawn: GREY,
+  Closed: GREY,
 };
+
+/**
+ * The submission tracker's (Compass's) own status names, by what they
+ * mean, keyed by `statusKey`: sky while the RO is still preparing it,
+ * indigo in Taamul's own review, blue with the bank, violet under the
+ * bank's review, amber waiting on the customer, orange sent back to the
+ * RO, teal approved and awaiting fulfilment. A status not listed here
+ * takes the colour of the stage it names, else the case's stage.
+ */
+export const TRACKER_STATUS_CHIP: Readonly<Record<string, string>> = {
+  'to submit': SKY,
+  'inhouse review': INDIGO,
+  'in house review': INDIGO,
+  'in-house review': INDIGO,
+  submitted: BLUE,
+  'bank review': VIOLET,
+  'awaiting customer response': AMBER,
+  'returned to ro': ORANGE,
+  'awaiting fulfillment': TEAL,
+  'awaiting fulfilment': TEAL,
+  approved: GREEN,
+  declined: RED,
+  withdrawn: GREY,
+  closed: GREY,
+};
+
+/** A status as a lookup key: `_` read as a space, blanks collapsed, case ignored. */
+function statusKey(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+const STAGE_BY_KEY: ReadonlyMap<string, string> = new Map(
+  Object.entries(STAGE_CHIP).map(([stage, cls]) => [statusKey(stage), cls])
+);
+
 export const STAGE_CHIP_OTHER =
   'bg-secondary text-secondary-foreground ring-1 ring-border ring-inset';
 
@@ -93,8 +138,9 @@ export function stageChipClass(stage: string | null | undefined): string {
  * What a case shows as its status: the submission tracker's status word
  * for word once it has sent one, else the CRM stage (a lead, or a case
  * the tracker has not reported on yet). Nothing is translated. The chip
- * keeps the stage's colour only while the status names that stage (137's
- * rule: `_` read as a space, case ignored); any other status is neutral.
+ * colour is the tracker status's own (TRACKER_STATUS_CHIP), else that of
+ * the stage the status names (137's rule: `_` read as a space, case
+ * ignored), else the case's stage colour, so every chip is coloured.
  */
 export function caseStatusView(c: {
   stage: string;
@@ -102,11 +148,13 @@ export function caseStatusView(c: {
 }): { text: string; chipClass: string } {
   const status = c.submissionStatus?.trim();
   if (!status) return { text: c.stage, chipClass: stageChipClass(c.stage) };
-  const names =
-    status.replace(/_/g, ' ').toLowerCase() === c.stage.toLowerCase();
+  const key = statusKey(status);
   return {
     text: status,
-    chipClass: names ? stageChipClass(c.stage) : STAGE_CHIP_OTHER,
+    chipClass:
+      (Object.hasOwn(TRACKER_STATUS_CHIP, key) && TRACKER_STATUS_CHIP[key]) ||
+      STAGE_BY_KEY.get(key) ||
+      stageChipClass(c.stage),
   };
 }
 
@@ -270,7 +318,10 @@ export interface InboxRow {
   /** A lead (130): no submission yet. */
   isLead: boolean;
   contactId: string | null;
+  /** 141: the customer the submission tracker sent, else the contact's name. */
   contactName: string | null;
+  /** The linked CRM contact's own name. */
+  contactOwnName: string | null;
   product: string | null;
   /** AED. */
   amount: number | null;
@@ -327,6 +378,7 @@ function parseRow(r: unknown): InboxRow | null {
     isLead: r.isLead === true,
     contactId: optStr(r.contactId),
     contactName: optStr(r.contactName),
+    contactOwnName: optStr(r.contactOwnName),
     product: optStr(r.product),
     amount: money(r.amount),
     openedAt: optStr(r.openedAt),
@@ -401,4 +453,18 @@ export function formatAed(
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount as number | `${number}`);
+}
+
+/**
+ * The contact's own name to show under a case's customer (141), or null
+ * when it adds nothing: no name, or the same as the customer shown.
+ */
+export function contactPersonLine(
+  customer: string | null,
+  contactOwnName: string | null
+): string | null {
+  const own = contactOwnName?.trim();
+  if (!own) return null;
+  const norm = (v: string) => v.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return customer && norm(customer) === norm(own) ? null : own;
 }

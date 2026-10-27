@@ -43,6 +43,9 @@ function client(role: string) {
         account_role: 'admin',
       },
     ],
+    // RLS hands these rows to owners and admins only.
+    coordinator_phones:
+      role === 'admin' ? [{ user_id: U1, phone: '971501234567' }] : [],
   };
   mocks.requireRole.mockResolvedValue({
     supabase: {
@@ -81,6 +84,7 @@ describe('GET /api/coordinators', () => {
       user_id: U1,
       name: 'One',
       banks: ['ADCB', 'FAB'],
+      whatsapp_phone: null,
     });
   });
 
@@ -101,5 +105,17 @@ describe('GET /api/coordinators', () => {
       await GET(new Request('http://localhost/api/coordinators'))
     ).json();
     expect(coordinators[0].email).toBe('one@x.ae');
+  });
+
+  it('carries the WhatsApp number the caller may read (142)', async () => {
+    client('admin');
+    const { coordinators } = await (
+      await GET(new Request('http://localhost/api/coordinators'))
+    ).json();
+    expect(
+      coordinators.map(
+        (c: { whatsapp_phone: string | null }) => c.whatsapp_phone
+      )
+    ).toEqual(['971501234567', null]);
   });
 });

@@ -50,6 +50,12 @@ vi.mock('@/components/pbx/softphone-mount', () => ({
 vi.mock('@/components/context-menu/app-context-menu', () => ({
   AppContextMenu: () => null,
 }));
+// The bell's provider opens a Supabase client and a realtime channel,
+// a module boundary like the call layer.
+vi.mock('@/components/notifications/notifications-provider', () => ({
+  NotificationsProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+}));
 
 import { DashboardShell } from './dashboard-shell';
 

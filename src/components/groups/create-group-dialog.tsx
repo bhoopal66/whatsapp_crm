@@ -75,7 +75,8 @@ export function CreateGroupDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: () => void;
+  /** After a create (with the new group's id) or a sync (null). */
+  onCreated: (groupId: string | null) => void;
 }) {
   const t = useTranslations('Groups.create');
   const router = useRouter();
@@ -166,7 +167,7 @@ export function CreateGroupDialog({
         return;
       }
       const result = parseCreateResult(json);
-      onCreated();
+      onCreated(result.groupId);
       setPhase({
         kind: 'done',
         groupId: result.groupId,
@@ -183,7 +184,7 @@ export function CreateGroupDialog({
     try {
       const res = await fetch('/api/whatsapp/groups/sync', { method: 'POST' });
       if (!res.ok) throw new Error(String(res.status));
-      onCreated();
+      onCreated(null);
       onOpenChange(false);
     } catch {
       toast.error(t('syncNowFailed'));

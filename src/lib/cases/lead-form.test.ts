@@ -114,6 +114,7 @@ describe('parseContactCases', () => {
           {
             id: 'c1',
             stage: 'Interested',
+            submissionStatus: 'Pending With Bank',
             bankCode: 'ADCB',
             product: 'Home loan',
             amount: '1500.00',
@@ -130,6 +131,7 @@ describe('parseContactCases', () => {
       {
         id: 'c1',
         stage: 'Interested',
+        submissionStatus: 'Pending With Bank',
         bankCode: 'ADCB',
         product: 'Home loan',
         amount: '1500.00',
@@ -140,6 +142,7 @@ describe('parseContactCases', () => {
       {
         id: 'c2',
         stage: 'Submitted',
+        submissionStatus: null,
         bankCode: null,
         product: null,
         amount: null,

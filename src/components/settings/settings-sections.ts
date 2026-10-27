@@ -1,7 +1,9 @@
 import {
+  ArrowLeftRight,
   Bell,
   Blocks,
   Bot,
+  Briefcase,
   BriefcaseBusiness,
   Building2,
   CircleDollarSign,
@@ -21,14 +23,15 @@ import {
   ScrollText,
   Shield,
   ShieldCheck,
+  SlidersHorizontal,
   Smartphone,
   Tag,
   TextCursorInput,
   User,
   UsersRound,
   Vault,
+  WandSparkles,
   Workflow,
-  ArrowLeftRight,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -37,55 +40,73 @@ import { isAgentTab } from '@/lib/ai/agent-tabs';
 import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 
 /**
- * Settings information architecture: a row of category tabs, each with
- * a row of sub-tabs (sections).
+ * Settings information architecture: groups (categories) of sections,
+ * shown as a grouped side menu on wide screens and as a menu sheet on
+ * narrow ones (`settings-nav.tsx`), and as one card per group on the
+ * Overview.
  *
- * The URL key is `?tab=<section id>` — the category is derived from it,
- * so every link written before the tabs existed keeps working. The one
- * exception is AI Agents, whose own tab bar is the sub-tab row: it is
- * `?tab=ai` (the area's default landing) or `?tab=ai-<agent tab>`
- * (`?tab=ai-safety` → Safety checks), so `?tab=` stays the single key.
+ * The URL key is `?tab=<section id>` — the group is derived from it,
+ * so every link written before the groups existed keeps working, and
+ * regrouping a section never changes its URL. The one exception is AI
+ * Agents, which brings its own tab bar: it is `?tab=ai` (the area's
+ * default landing) or `?tab=ai-<agent tab>` (`?tab=ai-safety` → Safety
+ * checks), so `?tab=` stays the single key.
  */
+
+/** Every section, in display order: a group lists its sections in this
+ *  order, and the groups follow `SETTINGS_CATEGORIES`. */
 export const SETTINGS_SECTIONS = [
   'overview',
+  // My account: the person's own settings.
   'profile',
-  'workspaces',
   'security',
-  'appearance',
   'notifications',
+  'appearance',
+  'workspaces',
+  // Workspace: the workspace itself and the people in it.
+  'workspace',
+  'members',
+  'teams',
+  // WhatsApp: the numbers and what goes out on them.
   'whatsapp',
   'numbers',
   'routing',
   'templates',
-  'deal-rooms',
   'costs',
+  // Inbox & CRM: how chats and contacts are organised.
   'chat-tags',
   'quick-replies',
   'fields',
+  'deals',
+  // AI & automation.
+  'ai',
   'journey-bot',
-  'workspace',
-  'members',
-  'teams',
-  'team-chat',
+  // Cases & collaboration: bank cases and working together on them.
   'cases',
+  'deal-rooms',
+  'team-chat',
+  // Privacy & compliance: sensitive data, consent, the audit trail.
   'vault',
   'consent-retention',
   'audit-log',
-  'ai',
-  'api',
-  'deals',
+  // Integrations: outside systems wired in.
   'phone-system',
+  'api',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
+/** The groups, in display order. Overview is a group of one, shown as
+ *  the menu's first entry with no heading. */
 export const SETTINGS_CATEGORIES = [
   'overview',
   'account',
+  'workspace',
   'whatsapp',
   'inbox',
-  'team',
-  'ai',
+  'automation',
+  'collaboration',
+  'compliance',
   'integrations',
 ] as const;
 
@@ -123,10 +144,15 @@ export interface SectionMeta {
   minRole?: AccountRole;
 }
 
-/** In display order within each category. */
+/** Each section's icon, group and gate. Display order is
+ *  `SETTINGS_SECTIONS`. */
 export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   overview: { id: 'overview', icon: LayoutGrid, category: 'overview' },
   profile: { id: 'profile', icon: User, category: 'account' },
+  security: { id: 'security', icon: Shield, category: 'account' },
+  // This device's web push and the person's push preferences: their own.
+  notifications: { id: 'notifications', icon: Bell, category: 'account' },
+  appearance: { id: 'appearance', icon: Palette, category: 'account' },
   // Every workspace the person belongs to, and switching between them
   // (and creating one, owner/admin): the only place to switch. Also the
   // one section a bank guest sees (`canOpenSection`).
@@ -135,10 +161,30 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     icon: ArrowLeftRight,
     category: 'account',
   },
-  security: { id: 'security', icon: Shield, category: 'account' },
-  appearance: { id: 'appearance', icon: Palette, category: 'account' },
-  // This device's web push and the person's push preferences: their own.
-  notifications: { id: 'notifications', icon: Bell, category: 'account' },
+  // The workspace's name and its tile's short name (PATCH
+  // /api/account, admin+), and archiving it: the Workspace group's
+  // "General".
+  workspace: {
+    id: 'workspace',
+    icon: SlidersHorizontal,
+    category: 'workspace',
+    minRole: 'admin',
+  },
+  // Team leader and up (migration 099): a leader adds agents and
+  // viewers here. The roster's role changes, deactivation and removal
+  // stay admin-only inside the panel (`canManageMembers`).
+  members: {
+    id: 'members',
+    icon: UsersRound,
+    category: 'workspace',
+    minRole: 'team_leader',
+  },
+  teams: {
+    id: 'teams',
+    icon: Network,
+    category: 'workspace',
+    minRole: 'admin',
+  },
   whatsapp: {
     id: 'whatsapp',
     icon: PlugZap,
@@ -163,14 +209,6 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   templates: {
     id: 'templates',
     icon: FileText,
-    category: 'whatsapp',
-    minRole: 'admin',
-  },
-  // The group-invite template of the deal rooms (migration 088's
-  // deal_room_settings): a Meta template, so beside Templates.
-  'deal-rooms': {
-    id: 'deal-rooms',
-    icon: Handshake,
     category: 'whatsapp',
     minRole: 'admin',
   },
@@ -201,68 +239,67 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'inbox',
     minRole: 'admin',
   },
-  // The journey bot (module 016). Inbox, not AI Agents: it is a fixed
-  // workflow rather than an AI agent, it works the inbox's chats, and
-  // the AI category's sub-tab row is the AI Agents area's own tab bar.
-  'journey-bot': {
-    id: 'journey-bot',
-    icon: Workflow,
+  // The currency of deals and of pipeline and dashboard totals: CRM
+  // data, beside the contact fields, not an outside system.
+  deals: {
+    id: 'deals',
+    icon: Coins,
     category: 'inbox',
     minRole: 'admin',
   },
-  // The workspace's name and its tile's short name (PATCH
-  // /api/account, admin+), first in Team: the workspace the team is.
-  workspace: {
-    id: 'workspace',
-    icon: Building2,
-    category: 'team',
+  // The AI Agents area, admin-only like the /agents screen it replaced
+  // (and the TypeSafe API routes behind its Safety checks tab).
+  ai: { id: 'ai', icon: Bot, category: 'automation', minRole: 'admin' },
+  // The journey bot (module 016): a fixed workflow rather than an AI
+  // agent, so its own entry beside AI Agents rather than one of the AI
+  // area's tabs.
+  'journey-bot': {
+    id: 'journey-bot',
+    icon: Workflow,
+    category: 'automation',
     minRole: 'admin',
   },
-  // Team leader and up (migration 099): a leader adds agents and
-  // viewers here. The roster's role changes, deactivation and removal
-  // stay admin-only inside the panel (`canManageMembers`).
-  members: {
-    id: 'members',
-    icon: UsersRound,
-    category: 'team',
-    minRole: 'team_leader',
+  // The Cases module per bank (module 018c, migrations 122-124): the
+  // bank list, each bank's stages, task templates, required documents
+  // and SLA timers. Admin+, like the config routes' writes.
+  cases: {
+    id: 'cases',
+    icon: BriefcaseBusiness,
+    category: 'collaboration',
+    minRole: 'admin',
   },
-  teams: { id: 'teams', icon: Network, category: 'team', minRole: 'admin' },
+  // The group-invite template of the deal rooms (migration 088's
+  // deal_room_settings).
+  'deal-rooms': {
+    id: 'deal-rooms',
+    icon: Handshake,
+    category: 'collaboration',
+    minRole: 'admin',
+  },
   // Internal chat (migration 087): the workspace switch, the audited
   // private read and the owner-only erasure. Admin+, like the RPCs.
   'team-chat': {
     id: 'team-chat',
     icon: MessagesSquare,
-    category: 'team',
+    category: 'collaboration',
     minRole: 'admin',
   },
-  // The Cases module per bank (module 018c, migrations 122-124): the
-  // bank list, each bank's stages, task templates, required documents
-  // and SLA timers. Workspace-wide setup, so in Team beside Workspace's
-  // other account-wide panels; admin+, like the config routes' writes.
-  cases: {
-    id: 'cases',
-    icon: BriefcaseBusiness,
-    category: 'team',
-    minRole: 'admin',
-  },
-  // The customer-data vault (module 019c, migration 121). Admin+, and
-  // in Team beside Consent and retention and the Audit log: My account
-  // (where Login & security lives) holds only a person's own settings.
+  // The customer-data vault (module 019c, migration 121). Admin+: My
+  // account (where Login & security lives) holds only a person's own
+  // settings.
   vault: {
     id: 'vault',
     icon: Vault,
-    category: 'team',
+    category: 'compliance',
     minRole: 'admin',
   },
   // Bank guests and recording per bank (088's bank_guest_policies,
   // admin-written), the retention summary and the owner-only erasure of
-  // a customer's call recordings. Team, beside Team chat's own erasure:
-  // both answer who may see what of the people the team works with.
+  // a customer's call recordings.
   'consent-retention': {
     id: 'consent-retention',
     icon: ShieldCheck,
-    category: 'team',
+    category: 'compliance',
     minRole: 'admin',
   },
   // One newest-first list over the five audit tables of 087-089 and 092,
@@ -271,22 +308,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   'audit-log': {
     id: 'audit-log',
     icon: ScrollText,
-    category: 'team',
-    minRole: 'admin',
-  },
-  // The AI Agents area, admin-only like the /agents screen it replaced
-  // (and the TypeSafe API routes behind its Safety checks tab).
-  ai: { id: 'ai', icon: Bot, category: 'ai', minRole: 'admin' },
-  api: {
-    id: 'api',
-    icon: KeyRound,
-    category: 'integrations',
-    minRole: 'admin',
-  },
-  deals: {
-    id: 'deals',
-    icon: Coins,
-    category: 'integrations',
+    category: 'compliance',
     minRole: 'admin',
   },
   // The Yeastar PBX (migration 089): an outside system wired in, like
@@ -298,15 +320,23 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     category: 'integrations',
     minRole: 'team_leader',
   },
+  api: {
+    id: 'api',
+    icon: KeyRound,
+    category: 'integrations',
+    minRole: 'admin',
+  },
 };
 
 export const CATEGORY_ICONS: Record<SettingsCategory, LucideIcon> = {
   overview: LayoutGrid,
   account: User,
+  workspace: Building2,
   whatsapp: MessageCircle,
   inbox: Inbox,
-  team: UsersRound,
-  ai: Bot,
+  automation: WandSparkles,
+  collaboration: Briefcase,
+  compliance: ShieldCheck,
   integrations: Blocks,
 };
 
@@ -351,13 +381,14 @@ export function aiTabParam(agentTab: string): string {
 /**
  * May a caller with `role` open `section`?
  *
- * One predicate behind every way into a section — the tab rows, the
- * panel switch behind `?tab=`, and the Overview tiles — so none of them
- * can drift and leave a section reachable by a route nobody gated.
+ * One predicate behind every way into a section — the menu, the panel
+ * switch behind `?tab=`, the menu's search and the Overview cards — so
+ * none of them can drift and leave a section reachable by a route
+ * nobody gated.
  *
  * `role` is null while the profile is still loading. That answers
- * "no": showing a tab for a frame and then removing it both leaks the
- * surface and reflows the row.
+ * "no": showing an entry for a frame and then removing it both leaks
+ * the surface and reflows the menu.
  */
 export function canOpenSection(
   section: SettingsSection,

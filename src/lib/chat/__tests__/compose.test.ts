@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  allowedDmCandidates,
   channelNameProblem,
   chatHref,
   dmCandidates,
@@ -67,6 +68,22 @@ describe('pickers', () => {
       person('gus', 'bank_guest', 'Gus'),
     ];
     expect(dmCandidates(people, 'ME').map((p) => p.userId)).toEqual(['ann']);
+  });
+
+  it('allowedDmCandidates keeps only the peers the rules allow', () => {
+    const people = [
+      person('ann', 'admin', 'Ann'),
+      person('bob', 'agent', 'Bob'),
+      person('cy', 'team_leader', 'Cy'),
+    ];
+    const r = allowedDmCandidates(people, ['ANN', 'cy']);
+    expect(r.people.map((p) => p.userId)).toEqual(['ann', 'cy']);
+    expect(r.hidden).toBe(1);
+    expect(allowedDmCandidates(people, null)).toEqual({
+      people,
+      hidden: 0,
+    });
+    expect(allowedDmCandidates(people, []).hidden).toBe(3);
   });
 
   it('filterPeople ignores case and accents', () => {

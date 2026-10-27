@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   chooseHostingNumber,
+  coordinatorPhoneList,
   defaultSubject,
+  MAX_COORDINATOR_PHONES,
   inviteCodeOf,
   parseCreateInput,
   parsePatchInput,
@@ -79,7 +81,7 @@ describe('parseCreateInput', () => {
           { field: 'agent_email', email: 'agent@example.com', label: 'agent' },
         ],
         coordinatorPhone: null,
-        subject: 'Jane · SUB-1',
+        subject: 'Jane x Taamul Credit',
         channelId: null,
         bankCode: null,
         product: null,
@@ -130,9 +132,19 @@ describe('parseCreateInput', () => {
     if (!r.ok) expect(r.message).toMatch(message);
   });
 
-  it('cuts the default subject to 100 characters, phone when no name', () => {
-    expect(defaultSubject(null, '971501234567', 'S')).toBe('971501234567 · S');
-    expect(defaultSubject('n'.repeat(120), 'p', 'S')).toHaveLength(100);
+  it('names the group "<company> x Taamul Credit", phone when no name', () => {
+    expect(defaultSubject('Acme LLC', '971501234567')).toBe(
+      'Acme LLC x Taamul Credit'
+    );
+    expect(defaultSubject(null, '971501234567')).toBe(
+      '971501234567 x Taamul Credit'
+    );
+  });
+
+  it('cuts a long name to fit 100 characters and keeps the suffix', () => {
+    const subject = defaultSubject('n'.repeat(120), 'p');
+    expect(subject).toHaveLength(100);
+    expect(subject.endsWith(' x Taamul Credit')).toBe(true);
   });
 });
 
@@ -476,5 +488,38 @@ describe('serializeGroup', () => {
     const sent = { ...group, inviteSentAt: new Date('2026-10-16T10:01:00Z') };
     const out = serializeGroup(sent as SubmissionGroup, []);
     expect(out.whatsapp.invite_sent_at).toBe('2026-10-16T10:01:00.000Z');
+  });
+});
+
+describe('coordinatorPhoneList (142)', () => {
+  it('takes the request number first, then the bank numbers, as digits', () => {
+    expect(
+      coordinatorPhoneList(
+        ['+971 55 000 0001', null, '971550000002'],
+        '971550000003',
+        '+971 50 123 4567'
+      )
+    ).toEqual(['971550000003', '971550000001', '971550000002']);
+  });
+  it("drops duplicates, blanks and the customer's own number", () => {
+    expect(
+      coordinatorPhoneList(
+        ['971550000001', '971501234567', '', '971550000001'],
+        '+971 55 000 0001',
+        '+971 50 123 4567'
+      )
+    ).toEqual(['971550000001']);
+    expect(coordinatorPhoneList([], null, '971501234567')).toEqual([]);
+  });
+  it('keeps at most MAX_COORDINATOR_PHONES', () => {
+    expect(MAX_COORDINATOR_PHONES).toBe(5);
+    const bank = [1, 2, 3, 4, 5, 6].map((n) => `97155000000${n}`);
+    expect(coordinatorPhoneList(bank, '971550000009', '971501234567')).toEqual([
+      '971550000009',
+      ...bank.slice(0, 4),
+    ]);
+    expect(coordinatorPhoneList(bank, null, '971501234567')).toEqual(
+      bank.slice(0, 5)
+    );
   });
 });

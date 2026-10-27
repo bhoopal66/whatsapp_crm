@@ -29,7 +29,7 @@ export {
   type YeastarClient,
   type YeastarRequestOptions,
 } from './client';
-export { cdrRecordToCallEnd, dedupeByUid } from './cdr';
+export { cdrRecordToCallEnd, dedupeRecords } from './cdr';
 export { YeastarError } from './errors';
 export {
   DEFAULT_PBX_TIME_ZONE,

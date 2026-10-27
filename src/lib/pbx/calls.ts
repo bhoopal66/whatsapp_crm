@@ -402,6 +402,28 @@ export function myCallsFilter(userId: string): string {
   return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${JSON.stringify([userId])}`;
 }
 
+/**
+ * The Calls page's wider lists (Team calls, the team's Missed calls)
+ * below admin: the calls of `ids` (pbx_visible_user_ids(), the caller
+ * and the people of the teams they lead), as myCallsFilter reads one
+ * person. RLS alone also shows the calls of every contact the caller
+ * can see, which is the customer page's rule (113), not the Calls
+ * page's. The ids come from the database, but they land in a PostgREST
+ * filter, so anything but an id's characters is dropped. One `eq` per
+ * person rather than `in.(…)`: a team is a handful of people.
+ */
+export function peopleCallsFilter(ids: readonly string[]): string | null {
+  const ok = [...new Set(ids)].filter((id) => /^[0-9A-Za-z-]+$/.test(id));
+  if (!ok.length) return null;
+  return ok
+    .flatMap((id) => [
+      `user_id.eq.${id}`,
+      `peer_user_id.eq.${id}`,
+      `meta->rang_user_ids.cs.${JSON.stringify([id])}`,
+    ])
+    .join(',');
+}
+
 export function canListCallScope(role: AccountRole, scope: CallScope): boolean {
   return scope !== 'unrouted' || canViewUnroutedCalls(role);
 }
