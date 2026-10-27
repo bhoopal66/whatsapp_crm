@@ -1,6 +1,7 @@
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { avatarTint } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 
 export interface AvatarPerson {
@@ -34,7 +35,11 @@ export function PersonAvatar({
   return (
     <Avatar size={size} className={className}>
       {person.avatarUrl && <AvatarImage src={person.avatarUrl} alt="" />}
-      <AvatarFallback>{initials(person.name)}</AvatarFallback>
+      {/* The person's team chat tint, so a colleague looks the same in
+          both places. */}
+      <AvatarFallback className={avatarTint(person.userId)}>
+        {initials(person.name)}
+      </AvatarFallback>
     </Avatar>
   );
 }
