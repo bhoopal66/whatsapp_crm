@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### A new light theme
+
+No migration. Visual only.
+- Light mode is rebuilt around the brand: a cool blue-tinted page under
+  soft-white cards, deep navy text and the brand blue for buttons, links
+  and selection, instead of grey on grey. Still no pure-white surface.
+- The side navigation is the brand navy in light mode (it was near
+  black). Dark mode is unchanged.
+- Every form field now looks the same: soft white with a visible
+  border. Grey-filled fields remain only where a value is read-only.
+- More colour where it helps you scan: dashboard figures and shortcuts
+  have their own colour, customers without a photo get a coloured
+  initial in the inbox, and broadcast statuses are readable in light
+  mode (scheduled, sending and failed used a pale text colour).
+- Dialogs dim the page behind them in light mode, and the sign-in page
+  has a soft brand-blue glow.
+
 ### Notifications move to a bell in the top bar
 
 No migration.

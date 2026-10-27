@@ -1559,6 +1559,15 @@ fails if one is wired to plain `t()`.
   `text-*-300/400` without a light-mode pair: it vanishes on white.
   The default accent is `taamul` (brand blue); dark mode lifts every
   accent and puts dark text on it.
+- Light mode puts soft-white cards (`bg-card`) on a tinted canvas
+  (`bg-background`), and no surface is pure white (users found it too
+  bright). So `bg-background` inside a card reads as a grey hole: inner
+  surfaces use `bg-card-2`. Don't override a field's fill:
+  `Input`/`Textarea`/`SelectTrigger` own it (`bg-card`, dark
+  `bg-input/30`); a native field takes `border-input bg-card
+  dark:bg-input/30`, and only a read-only one is grey. The main nav is
+  dark in both modes (`data-mode="dark"`) and brand navy in light mode
+  (the `[data-nav]` block in `globals.css`); scrims are `bg-overlay`.
 - Prettier: single quotes, semicolons, 80 cols, `prettier-plugin-tailwindcss`.
   Most of the tree predates this — format the files you touch, not the repo.
 - `NEXT_PUBLIC_*` values are inlined at build time — changing one requires a
