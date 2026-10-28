@@ -254,6 +254,20 @@ export function playerClock(seconds: number | null | undefined): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/**
+ * A recording's play link is signed for 300 s (the recording route). One
+ * older than this is re-signed before Play rather than left to fail.
+ */
+export const RECORDING_LINK_FRESH_MS = 270_000;
+
+/** Whether Play must ask for a new link: none yet, or one near expiry. */
+export function needsRecordingLink(
+  signedAt: number | null,
+  now: number
+): boolean {
+  return signedAt === null || now - signedAt >= RECORDING_LINK_FRESH_MS;
+}
+
 /** '24 s', '6 min 18 s', '6 min'. */
 export function duration(seconds: number | null | undefined): Msg {
   const s = Math.max(0, Math.round(seconds ?? 0));

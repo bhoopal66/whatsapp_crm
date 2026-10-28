@@ -22,6 +22,7 @@ import {
   normalizeRemoteNumber,
   type RemoteNumber,
 } from './phone';
+import { withoutStaleMarkers } from './stale-markers';
 import type { CallMember } from './yeastar/api';
 import {
   isMissedCall,
@@ -968,7 +969,8 @@ async function writeCallEnd(
     ring_seconds: merged.ringSeconds,
     talk_seconds: merged.talkSeconds,
     meta: {
-      ...withRang(callMeta(existing, ws, match), rang),
+      // A real end supersedes the stale step's guess and retry state.
+      ...withoutStaleMarkers(withRang(callMeta(existing, ws, match), rang)),
       cdr_legs: legs,
     },
     ...recording,

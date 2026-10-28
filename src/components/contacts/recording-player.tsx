@@ -42,6 +42,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { canDownloadRecording, canPlaceLegalHold } from '@/lib/auth/roles';
 import { reasonOk } from '@/lib/chat/admin-tools';
 import {
+  needsRecordingLink,
   noAudioView,
   playerClock,
   recordingView,
@@ -80,7 +81,8 @@ export function RecordingPlayer({
   const autoStarted = useRef(false);
   // What a 409 said the recording is now; null: not refused.
   const [refused, setRefused] = useState<RecordingView | null>(null);
-  const [linked, setLinked] = useState(false);
+  // When the audio's current link was signed (it lasts 300 s); null: none.
+  const linkedAt = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
@@ -114,7 +116,7 @@ export function RecordingPlayer({
     if (playing) return el.pause();
     setBusy(true);
     try {
-      if (!linked) {
+      if (needsRecordingLink(linkedAt.current, Date.now())) {
         const res = await post(`/api/pbx/calls/${call.id}/recording`, {
           action: 'play',
         });
@@ -124,8 +126,11 @@ export function RecordingPlayer({
         }
         const body = res.ok ? await res.json().catch(() => null) : null;
         if (typeof body?.url !== 'string') throw new Error('no link');
+        // A re-signed link resumes where the paused audio was.
+        const resumeAt = el.currentTime;
         el.src = body.url;
-        setLinked(true);
+        if (resumeAt) el.currentTime = resumeAt;
+        linkedAt.current = Date.now();
       }
       await el.play();
     } catch (err) {
@@ -133,6 +138,10 @@ export function RecordingPlayer({
       // away (Safari, or an autoStart from the Calls list) is not a
       // failure: the link is set, so the next press plays at once.
       if (err instanceof DOMException && err.name === 'NotAllowedError') return;
+      // Anything else (an expired or broken link): the next press signs
+      // a fresh one.
+      linkedAt.current = null;
+      el.removeAttribute('src');
       toast.error(t('playFailed'));
     } finally {
       setBusy(false);
@@ -276,7 +285,9 @@ export function RecordingPlayer({
           setLength(Number.isFinite(d) ? d : null);
         }}
         // An expired link: the next Play asks for a fresh one.
-        onError={() => setLinked(false)}
+        onError={() => {
+          linkedAt.current = null;
+        }}
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-xs">

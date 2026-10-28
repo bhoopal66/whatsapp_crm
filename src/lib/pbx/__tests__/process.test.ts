@@ -374,6 +374,32 @@ describe('ingestPbxEvent', () => {
     expect(fake.tables.tasks[0]).toMatchObject({ assigned_to: 'u2' });
   });
 
+  it('a real end after the stale step gave up wins and drops its markers', async () => {
+    await ingest(
+      ring('call-1', [inbound('ANSWERED'), ext('1001', 'ANSWERED')])
+    );
+    // What stale-calls.ts leaves: a guessed status and its markers.
+    Object.assign(fake.tables.calls[0], {
+      status: 'answered',
+      meta: {
+        ...(fake.tables.calls[0].meta as Row),
+        settled_without_cdr: { at: NOW, was: 'in_progress' },
+        stale_checked_at: NOW,
+        stale_ingest_failures: 2,
+      },
+    });
+    await ingest(end('call-1', 'ANSWERED'));
+    const meta = fake.tables.calls[0].meta as Row;
+    expect(fake.tables.calls[0]).toMatchObject({
+      status: 'answered',
+      talk_seconds: 20,
+    });
+    expect(meta).not.toHaveProperty('settled_without_cdr');
+    expect(meta).not.toHaveProperty('stale_checked_at');
+    expect(meta).not.toHaveProperty('stale_ingest_failures');
+    expect(meta).toHaveProperty('cdr_legs');
+  });
+
   it('a direct-dialled missed call keeps the extension it rang', async () => {
     await ingest(end('call-1', 'NO ANSWER', { call_to: '1003' }));
     expect(fake.tables.calls[0].meta).toMatchObject({
