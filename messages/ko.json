@@ -259,7 +259,7 @@
         "answered": "응답",
         "missed": "부재중",
         "avgTalk": "평균 통화 시간",
-        "answerRate": "응답률 {rate}",
+        "answerRate": "수신 통화 {rate} 응답",
         "vsYesterdayUp": "어제보다 +{count}",
         "vsYesterdayDown": "어제보다 −{count}",
         "vsYesterdayFlat": "어제와 같음",

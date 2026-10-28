@@ -259,7 +259,7 @@
         "answered": "Answered",
         "missed": "Missed",
         "avgTalk": "Avg talk time",
-        "answerRate": "{rate} answer rate",
+        "answerRate": "{rate} of incoming answered",
         "vsYesterdayUp": "+{count} vs yesterday",
         "vsYesterdayDown": "−{count} vs yesterday",
         "vsYesterdayFlat": "Same as yesterday",

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countInboxUnread,
   formatCount,
+  inboxHrefFor,
   overdueCases,
   tileState,
 } from './attention';
@@ -57,6 +58,22 @@ describe('tileState', () => {
   it('reads zero as clear and more as alert', () => {
     expect(tileState(0, false)).toBe('clear');
     expect(tileState(1, false)).toBe('alert');
+  });
+});
+
+describe('tileState with a second set', () => {
+  it('stays an alert while the second set is non-empty', () => {
+    expect(tileState(0, false, 2)).toBe('alert');
+    expect(tileState(0, false, 0)).toBe('clear');
+    expect(tileState(null, false, 2)).toBe('loading');
+  });
+});
+
+describe('inboxHrefFor', () => {
+  it('sends a team leader to the team inbox and everyone else to theirs', () => {
+    expect(inboxHrefFor('team_leader')).toBe('/team-inbox');
+    for (const r of ['owner', 'admin', 'agent', 'viewer', null, undefined])
+      expect(inboxHrefFor(r)).toBe('/inbox');
   });
 });
 

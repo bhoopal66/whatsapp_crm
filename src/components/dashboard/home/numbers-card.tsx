@@ -15,8 +15,11 @@ import { providerLabel } from '@/lib/whatsapp/channel-management';
 import { DashboardPanel, PanelEmpty } from './panel';
 
 export interface NumbersCardProps {
-  /** The account's numbers (the page's `useAccountNumbers`); null until loaded. */
+  /** The account's numbers (the page's load); null until loaded. */
   numbers: AccountNumber[] | null;
+  /** The load failed with nothing to show. */
+  error?: boolean;
+  onRetry?: () => void;
   className?: string;
 }
 
@@ -36,7 +39,12 @@ const STATE_TEXT: Record<NumberState, string> = {
  * Is every WhatsApp number up? One summary line, then each number with
  * its provider, the primary marker and the health monitor's verdict.
  */
-export function NumbersCard({ numbers, className }: NumbersCardProps) {
+export function NumbersCard({
+  numbers,
+  error,
+  onRetry,
+  className,
+}: NumbersCardProps) {
   const t = useTranslations('Dashboard.home.numbers');
   const health = numbers ? numberHealth(numbers) : null;
 
@@ -46,7 +54,9 @@ export function NumbersCard({ numbers, className }: NumbersCardProps) {
       icon={Smartphone}
       tone="emerald"
       action={{ href: '/settings?tab=numbers', label: t('manage') }}
-      loading={health === null}
+      loading={health === null && !error}
+      error={error}
+      onRetry={onRetry}
       className={className}
     >
       {health && health.total === 0 ? (

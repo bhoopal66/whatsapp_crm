@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
@@ -54,10 +54,18 @@ export function AgendaPanel({ refreshKey, className }: AgendaPanelProps) {
     }
   );
 
-  // "Now" is taken once per refresh, as the attention strip does.
+  // "Now" is retaken on each refresh and every minute, so Join appears
+  // and "Now" clears on time between refreshes.
   const [clock, setClock] = useState({ refreshKey, now: new Date().getTime() });
   if (clock.refreshKey !== refreshKey)
     setClock({ refreshKey, now: new Date().getTime() });
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setClock((c) => ({ ...c, now: Date.now() })),
+      60_000
+    );
+    return () => window.clearInterval(timer);
+  }, []);
 
   const agenda = w.data ? agendaFor(w.data, clock.now, zone) : null;
   const timeFmt = new Intl.DateTimeFormat(locale, {
@@ -114,7 +122,7 @@ export function AgendaPanel({ refreshKey, className }: AgendaPanelProps) {
                 {t('nothingElse')}
               </p>
             )}
-            {next && (
+            {next && agenda.leftToday === 0 && (
               <div className="bg-card-2 rounded-lg px-3 py-2">
                 <p className="text-muted-foreground text-xs font-medium">
                   {t('next', { when: nextWhen })}

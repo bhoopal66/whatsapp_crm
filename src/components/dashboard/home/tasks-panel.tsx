@@ -36,6 +36,8 @@ import { useWidgetData, type WidgetData } from './use-widget-data';
 export interface TasksPanelProps {
   /** The person's open tasks; `update` patches the list after a tick. */
   tasks: WidgetData<Task[]>;
+  /** A tick started (`pending`) or was refused (`!pending`); a done id stays reported so a stale refresh cannot bring it back. */
+  onCompleting?: (id: string, pending: boolean) => void;
   className?: string;
 }
 
@@ -79,7 +81,11 @@ async function loadContactNames(ids: string[]): Promise<Map<string, string>> {
  * folded away. Ticking one completes it at once and puts it back if
  * the server refuses.
  */
-export function TasksPanel({ tasks, className }: TasksPanelProps) {
+export function TasksPanel({
+  tasks,
+  onCompleting,
+  className,
+}: TasksPanelProps) {
   const t = useTranslations('Dashboard.home.tasks');
   const [expanded, setExpanded] = useState(false);
   const [restOpen, setRestOpen] = useState(false);
@@ -98,6 +104,7 @@ export function TasksPanel({ tasks, className }: TasksPanelProps) {
   );
 
   const complete = async (task: Task) => {
+    onCompleting?.(task.id, true);
     tasks.update((l) => l.filter((x) => x.id !== task.id));
     const res = await fetch(`/api/tasks/${task.id}`, {
       method: 'PATCH',
@@ -105,6 +112,7 @@ export function TasksPanel({ tasks, className }: TasksPanelProps) {
       body: JSON.stringify({ status: 'done' }),
     }).catch(() => null);
     if (res?.ok) return;
+    onCompleting?.(task.id, false);
     tasks.update((l) => (l.some((x) => x.id === task.id) ? l : [...l, task]));
     toast.error(t('doneFailed'));
   };
@@ -271,6 +279,7 @@ function TaskRow({
       </button>
       <Icon
         className="text-muted-foreground h-4 w-4 shrink-0"
+        role="img"
         aria-label={t(`kind.${task.kind}`)}
       />
       <div className="min-w-0 flex-1 @md:flex @md:items-baseline @md:gap-2">

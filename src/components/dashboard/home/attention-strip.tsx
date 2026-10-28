@@ -18,6 +18,7 @@ import { UNREAD_ROW_COLUMNS } from '@/hooks/use-total-unread';
 import {
   countInboxUnread,
   formatCount,
+  inboxHrefFor,
   overdueCases,
   tileState,
 } from '@/lib/dashboard/home/attention';
@@ -108,6 +109,8 @@ interface TileProps {
   error: boolean;
   /** One line under the label while there is something to do. */
   hint?: string;
+  /** A second set that keeps the tile out of "All clear" (the hint names it). */
+  also?: number;
 }
 
 /**
@@ -123,7 +126,8 @@ export function AttentionStrip({
   className,
 }: AttentionStripProps) {
   const t = useTranslations('Dashboard.home.attention');
-  const { accountId } = useAuth();
+  const { accountId, accountRole } = useAuth();
+  const inboxHref = inboxHrefFor(accountRole);
   const aiLive = useAiAutoReplyLive() === true;
   const chats = useWidgetData(
     accountId ? `attention-chats:${accountId}:${refreshKey}` : null,
@@ -144,7 +148,7 @@ export function AttentionStrip({
   const tiles: (TileProps & { key: string })[] = [
     {
       key: 'unread',
-      href: '/inbox',
+      href: inboxHref,
       icon: MessageCircle,
       label: t('unread.label'),
       tone: 'info',
@@ -154,12 +158,13 @@ export function AttentionStrip({
     },
     {
       key: 'handoffs',
-      href: '/inbox',
+      href: inboxHref,
       icon: Bot,
       label: t('handoffs.label'),
       tone: 'warning',
       count: chats.data?.handoffs ?? null,
       error: chatError,
+      also: chats.data?.drafts ?? 0,
       hint:
         chats.data && chats.data.drafts > 0
           ? t('handoffs.drafts', { count: chats.data.drafts })
@@ -230,9 +235,10 @@ function Tile({
   display,
   error,
   hint,
+  also,
 }: TileProps) {
   const t = useTranslations('Dashboard.home.attention');
-  const state = tileState(count, error);
+  const state = tileState(count, error, also);
   const alert = state === 'alert' ? ALERT_TONE[tone] : null;
   const StateIcon = state === 'clear' ? CircleCheck : Icon;
   return (

@@ -27,6 +27,8 @@ export interface CampaignsCardProps {
 }
 
 interface Campaigns {
+  /** The moment the load ran; schedule labels are worded against it. */
+  now: Date;
   inFlight: CampaignRow[];
   week: WeekSummary;
 }
@@ -38,7 +40,8 @@ interface Campaigns {
  */
 async function loadCampaigns(): Promise<Campaigns> {
   const supabase = createClient();
-  const since = new Date(Date.now() - WEEK_MS).toISOString();
+  const now = new Date();
+  const since = new Date(now.getTime() - WEEK_MS).toISOString();
   const [live, sent] = await Promise.all([
     supabase
       .from('broadcasts')
@@ -52,11 +55,16 @@ async function loadCampaigns(): Promise<Campaigns> {
       .from('broadcasts')
       .select('sent_count, delivered_count, read_count')
       .eq('status', 'sent')
-      .gte('created_at', since),
+      // A scheduled campaign goes out at `scheduled_at` and `broadcasts`
+      // has no sent-at column, so that is its send day; created_at covers the rest.
+      .or(
+        `scheduled_at.gte.${since},and(scheduled_at.is.null,created_at.gte.${since})`
+      ),
   ]);
   if (live.error) throw live.error;
   if (sent.error) throw sent.error;
   return {
+    now,
     inFlight: sortInFlight((live.data ?? []) as CampaignRow[]),
     week: weekSummary((sent.data ?? []) as CampaignRow[]),
   };
@@ -93,7 +101,7 @@ export function CampaignsCard({ refreshKey, className }: CampaignsCardProps) {
           ) : (
             <ul className="space-y-1.5">
               {data.inFlight.map((row) => (
-                <CampaignLine key={row.id} row={row} />
+                <CampaignLine key={row.id} row={row} now={data.now} />
               ))}
             </ul>
           )}
@@ -104,9 +112,9 @@ export function CampaignsCard({ refreshKey, className }: CampaignsCardProps) {
   );
 }
 
-function CampaignLine({ row }: { row: CampaignRow }) {
+function CampaignLine({ row, now }: { row: CampaignRow; now: Date }) {
   const t = useTranslations('Dashboard.home.campaigns');
-  const when = useScheduleLabel();
+  const when = useScheduleLabel(now);
   const sending = row.status === 'sending';
   const progress = campaignProgress(row);
   return (
@@ -160,7 +168,7 @@ function CampaignLine({ row }: { row: CampaignRow }) {
 }
 
 /** "Today 18:00", "Tomorrow 09:00", "Thu 09:00", "4 Nov, 09:00". */
-function useScheduleLabel() {
+function useScheduleLabel(now: Date) {
   const t = useTranslations('Dashboard.home.campaigns');
   const locale = useLocale();
   return (iso: string) => {
@@ -169,7 +177,7 @@ function useScheduleLabel() {
       hour: '2-digit',
       minute: '2-digit',
     }).format(at);
-    switch (scheduleDay(at, new Date())) {
+    switch (scheduleDay(at, now)) {
       case 'past':
         return t('due', { time });
       case 'today':

@@ -44,10 +44,25 @@ export type TileState = 'loading' | 'error' | 'clear' | 'alert';
  * A count on screen wins (one kept from an earlier load stays through a
  * failed refresh); without one, an error reads "–" and anything else is
  * still loading. Zero is calm, anything more takes the tile's tone.
+ * `also` is a second, separate set the tile reports in its hint: it
+ * keeps the tile out of "All clear" without changing the figure.
  */
-export function tileState(count: number | null, error: boolean): TileState {
+export function tileState(
+  count: number | null,
+  error: boolean,
+  also = 0
+): TileState {
   if (count === null) return error ? 'error' : 'loading';
-  return count > 0 ? 'alert' : 'clear';
+  return count > 0 || also > 0 ? 'alert' : 'clear';
+}
+
+/**
+ * Where the chat tiles go. The counts come through RLS, which hands a
+ * team leader every chat of their team, but `/inbox` narrows a leader to
+ * their own threads; `/team-inbox` shows what the counts counted.
+ */
+export function inboxHrefFor(role: string | null | undefined): string {
+  return role === 'team_leader' ? '/team-inbox' : '/inbox';
 }
 
 /** A tile's figure: "12", or "12+" when the source list was cut short. */

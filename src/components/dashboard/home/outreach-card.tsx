@@ -4,7 +4,7 @@ import { MessageSquarePlus, ShieldAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
-import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import { browserTimeZone } from '@/lib/dashboard/home/calls';
 import {
   outreachBars,
@@ -22,6 +22,8 @@ import { useWidgetData } from './use-widget-data';
 
 export interface OutreachCardProps {
   refreshKey: number;
+  /** The account's numbers, for their names (the page's load). */
+  numbers?: AccountNumber[] | null;
   className?: string;
 }
 
@@ -56,7 +58,11 @@ async function loadMyDay(): Promise<MyOutreachDay> {
  * each phone number's against its own (Team activity's limits, the ones
  * the composer warns about), so they can pace their outreach.
  */
-export function OutreachCard({ refreshKey, className }: OutreachCardProps) {
+export function OutreachCard({
+  refreshKey,
+  numbers,
+  className,
+}: OutreachCardProps) {
   const t = useTranslations('Dashboard.home.outreach');
   const { user, accountId } = useAuth();
   const userId = user?.id ?? null;
@@ -66,7 +72,6 @@ export function OutreachCard({ refreshKey, className }: OutreachCardProps) {
       : null,
     loadMyDay
   );
-  const numbers = useAccountNumbers(true, refreshKey);
   const bars = w.data ? outreachBars(w.data, numbers ?? []) : null;
 
   return (

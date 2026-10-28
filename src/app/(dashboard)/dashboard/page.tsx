@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { RotateCw } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
@@ -19,7 +25,7 @@ import { TeamCard } from '@/components/dashboard/home/team-card';
 import { useWidgetData } from '@/components/dashboard/home/use-widget-data';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
-import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import { firstName, greetingKey } from '@/lib/dashboard/home/greeting';
 import { fetchMyOpenTasks, fetchOpenCases } from '@/lib/dashboard/home/sources';
 import { homeWidgets } from '@/lib/dashboard/home/widgets';
@@ -71,18 +77,49 @@ export default function DashboardPage() {
     staff && userId ? `calls-badge:${userId}:${refreshKey}` : null,
     () => loadCallsBadge(createClient(), userId ?? '')
   );
-  // Cached for a minute and shared with the inbox; also the numbers card.
-  const numbers = useAccountNumbers(staff, refreshKey);
+  // Read afresh each refresh and not cached: a failed read must show as
+  // an error, not as "no number connected".
+  const numbers = useWidgetData(
+    staff && accountId ? `numbers:${accountId}:${refreshKey}` : null,
+    async (): Promise<AccountNumber[]> => {
+      const { data, error } = await createClient()
+        .from('whatsapp_config')
+        .select(
+          'id, provider, label, waba_id, phone_number_id, is_primary, status'
+        )
+        .eq('account_id', accountId ?? '')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as AccountNumber[];
+    }
+  );
   const widgets = homeWidgets(role, {
     pbx: callsBadge.data?.hasPbx ?? false,
-    phoneNumbers: (numbers ?? []).some((n) => isLinkedDeviceNumber(n.provider)),
+    phoneNumbers: (numbers.data ?? []).some((n) =>
+      isLinkedDeviceNumber(n.provider)
+    ),
   });
   const show = widgets.has.bind(widgets);
 
+  // Tasks ticked off whose PATCH was sent: a refresh already in flight
+  // may carry the old list, so the loader leaves these out.
+  const completing = useRef(new Set<string>());
+  const onCompleting = useCallback((id: string, pending: boolean) => {
+    if (pending) completing.current.add(id);
+    else completing.current.delete(id);
+  }, []);
   const tasks = useWidgetData(
     show('tasks') && userId ? `tasks:${userId}:${refreshKey}` : null,
-    fetchMyOpenTasks
+    () =>
+      fetchMyOpenTasks().then((list) =>
+        list.filter((t) => !completing.current.has(t.id))
+      )
   );
+  // The open missed-call tasks are the badge's rule; once the list is
+  // loaded it follows a tick at once.
+  const missedCalls = tasks.data
+    ? tasks.data.filter((t) => t.kind === 'missed_call').length
+    : (callsBadge.data?.missed ?? 0);
   const cases = useWidgetData(
     show('cases') && accountId ? `cases:${accountId}:${refreshKey}` : null,
     fetchOpenCases
@@ -133,14 +170,18 @@ export default function DashboardPage() {
           refreshKey={refreshKey}
           tasks={show('tasks') ? tasks : null}
           cases={show('cases') ? cases : null}
-          missedCalls={show('calls') ? (callsBadge.data?.missed ?? 0) : null}
+          missedCalls={show('tasks') && show('calls') ? missedCalls : null}
         />
       )}
 
       {(show('tasks') || show('agenda')) && (
         <Zone title={t('sections.today')}>
           {show('tasks') && (
-            <TasksPanel tasks={tasks} className="lg:col-span-2" />
+            <TasksPanel
+              tasks={tasks}
+              onCompleting={onCompleting}
+              className="lg:col-span-2"
+            />
           )}
           {/* Without a tasks panel (a viewer) the agenda takes the row. */}
           <div
@@ -150,7 +191,9 @@ export default function DashboardPage() {
             )}
           >
             {show('agenda') && <AgendaPanel refreshKey={refreshKey} />}
-            {show('outreach') && <OutreachCard refreshKey={refreshKey} />}
+            {show('outreach') && (
+              <OutreachCard refreshKey={refreshKey} numbers={numbers.data} />
+            )}
           </div>
         </Zone>
       )}
@@ -181,7 +224,13 @@ export default function DashboardPage() {
               className={adminRow ? undefined : 'lg:col-span-3'}
             />
           )}
-          {show('numbers') && <NumbersCard numbers={numbers} />}
+          {show('numbers') && (
+            <NumbersCard
+              numbers={numbers.data}
+              error={numbers.error && !numbers.data}
+              onRetry={numbers.reload}
+            />
+          )}
           {show('campaigns') && <CampaignsCard refreshKey={refreshKey} />}
         </Zone>
       )}
