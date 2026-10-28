@@ -128,7 +128,11 @@ export function RecordingPlayer({
         setLinked(true);
       }
       await el.play();
-    } catch {
+    } catch (err) {
+      // A browser that refuses to start audio once the press is a fetch
+      // away (Safari, or an autoStart from the Calls list) is not a
+      // failure: the link is set, so the next press plays at once.
+      if (err instanceof DOMException && err.name === 'NotAllowedError') return;
       toast.error(t('playFailed'));
     } finally {
       setBusy(false);
