@@ -18,6 +18,15 @@ and polish.
 - A WhatsApp number can now be connected through OpenWA, a self-hosted
   linked-device gateway running beside the app, as well as Whapi and the
   Meta Cloud API. See `docs/openwa.md` for setting it up.
+- A phone that links just after the connect dialog gives up is kept,
+  not deleted when the dialog closes.
+- A new number's first link no longer alerts owners that it is
+  "connected again", and the Settings list no longer hides the
+  "connected again" alert for a number that came back.
+- Disconnecting while OpenWA is unreachable warns that the session may
+  still be running on the gateway.
+- Connects abandoned for 30 minutes are cleaned up on the gateway and
+  removed.
 
 ### A new light theme
 

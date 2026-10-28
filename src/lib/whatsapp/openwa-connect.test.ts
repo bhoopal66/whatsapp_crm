@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   OPENWA_GIVE_UP_MS,
   OPENWA_POLL_INTERVAL_MS,
+  cleanupPlan,
   connectReducer,
   initialConnectState,
   isKeepPollingStatus,
@@ -11,6 +12,7 @@ import {
   isPolling,
   needsCleanup,
   openwaStatusLabelKey,
+  settleUnfinishedSession,
   type ConnectEvent,
   type ConnectState,
 } from './openwa-connect';
@@ -202,5 +204,87 @@ describe('openwaStatusLabelKey', () => {
     expect(openwaStatusLabelKey('action_required')).toBe('actionRequired');
     expect(openwaStatusLabelKey('failed')).toBe('failed');
     expect(openwaStatusLabelKey('something_new')).toBe('starting');
+  });
+});
+
+describe('late link on close', () => {
+  const timedOutState = run(...created, {
+    type: 'polled',
+    status: 'qr_ready',
+    qrCode: 'q',
+    at: T0 + OPENWA_GIVE_UP_MS,
+  });
+
+  it('checks first when the dialog gave up or is closed mid-poll', () => {
+    expect(timedOutState).toMatchObject({
+      phase: 'failed',
+      failure: 'timedOut',
+    });
+    expect(cleanupPlan(timedOutState)).toBe('checkFirst');
+    const midPoll = run(...created, {
+      type: 'polled',
+      status: 'authenticating',
+      at: T0,
+    });
+    expect(cleanupPlan(midPoll)).toBe('checkFirst');
+  });
+
+  it('removes straight away when OpenWA said it will not link', () => {
+    const s = run(...created, { type: 'polled', status: 'failed', at: T0 });
+    expect(cleanupPlan(s)).toBe('remove');
+  });
+
+  it('has nothing to clean up once connected or before a session', () => {
+    expect(
+      cleanupPlan(run(...created, { type: 'polled', status: 'ready', at: T0 }))
+    ).toBe('none');
+    expect(cleanupPlan(initialConnectState)).toBe('none');
+  });
+
+  it('keeps a session that linked after the give-up, without deleting it', async () => {
+    const remove = vi.fn(async () => null);
+    const outcome = await settleUnfinishedSession(cleanupPlan(timedOutState), {
+      checkStatus: async () => ({ status: 'ready', phone: '971500000001' }),
+      remove,
+    });
+    expect(outcome).toEqual({ kind: 'kept', phone: '971500000001' });
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('deletes when the check says not linked, or does not answer', async () => {
+    for (const answer of [{ status: 'qr_ready' }, null]) {
+      const remove = vi.fn(async () => null);
+      const outcome = await settleUnfinishedSession('checkFirst', {
+        checkStatus: async () => answer,
+        remove,
+      });
+      expect(outcome).toEqual({ kind: 'removed' });
+      expect(remove).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('does not ask before a plain remove, and reports a failed one', async () => {
+    const checkStatus = vi.fn(async () => ({ status: 'ready' }));
+    const outcome = await settleUnfinishedSession('remove', {
+      checkStatus,
+      remove: async () => 'HTTP 500',
+    });
+    expect(outcome).toEqual({ kind: 'removeFailed', error: 'HTTP 500' });
+    expect(checkStatus).not.toHaveBeenCalled();
+  });
+
+  it('lateLinked turns a timed-out dialog into connected, and nothing else', () => {
+    const s = connectReducer(timedOutState, {
+      type: 'lateLinked',
+      phone: '971500000001',
+    });
+    expect(s).toMatchObject({ phase: 'connected', phone: '971500000001' });
+    expect(needsCleanup(s)).toBe(false);
+    const notLinked = run(...created, {
+      type: 'polled',
+      status: 'failed',
+      at: T0,
+    });
+    expect(connectReducer(notLinked, { type: 'lateLinked' })).toBe(notLinked);
   });
 });

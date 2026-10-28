@@ -31,7 +31,7 @@ function fakeDb() {
       let op: 'select' | 'insert' | 'update' | 'delete' = 'select';
       let payload: Record<string, unknown> = {};
       const b: Record<string, unknown> = {};
-      for (const m of ['eq', 'order', 'select']) b[m] = () => b;
+      for (const m of ['eq', 'is', 'order', 'select']) b[m] = () => b;
       b.insert = (p: Record<string, unknown>) => {
         op = 'insert';
         payload = p;
@@ -282,8 +282,34 @@ describe('GET /api/whatsapp/config/openwa/[configId]/status', () => {
     });
 
     h.updates = [];
-    h.row = { ...h.row, status: 'connected', waba_id: '971500000001' };
+    h.row = {
+      ...h.row,
+      status: 'connected',
+      waba_id: '971500000001',
+      connected_at: '2026-10-28T08:00:00Z',
+    };
     await GET(new Request('https://crm.test/x'), params);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('leaves a number that went down to the sweep, still showing it live', async () => {
+    // Linked before, marked down by the sweep since. Writing 'connected'
+    // here would swallow the sweep's "connected again" alert.
+    h.row = {
+      ...h.row,
+      status: 'disconnected',
+      waba_id: '971500000001',
+      connected_at: '2026-10-01T08:00:00Z',
+    };
+    h.gw.getSession.mockResolvedValue({
+      status: 'ready',
+      phone: '971500000001',
+    });
+    const res = await GET(new Request('https://crm.test/x'), params);
+    expect(await res.json()).toEqual({
+      status: 'ready',
+      phone: '971500000001',
+    });
     expect(h.updates).toHaveLength(0);
   });
 });
@@ -306,15 +332,45 @@ describe('DELETE /api/whatsapp/config/openwa/[configId]', () => {
     expect(h.deletes).toBe(1);
     // The remaining number becomes the primary.
     expect(h.updates).toEqual([{ is_primary: true }]);
+    expect(await res.json()).toEqual({ ok: true, gatewayCleanup: 'complete' });
   });
 
-  it('still removes the row when the gateway calls fail', async () => {
+  it('counts a never-started logout and an already-gone session as complete', async () => {
     h.row = { id: 'cfg-1', phone_number_id: 'sess-1' };
     h.gw.logoutSession.mockRejectedValue(new OpenWAError('not started', 400));
     h.gw.deleteSession.mockRejectedValue(new OpenWAError('gone', 404));
+    const res = await DELETE(new Request('https://crm.test/x'), params);
+    expect(await res.json()).toEqual({ ok: true, gatewayCleanup: 'complete' });
+  });
+
+  it('still removes the row when the gateway calls fail, and says so', async () => {
+    h.row = { id: 'cfg-1', phone_number_id: 'sess-1' };
+    h.gw.logoutSession.mockRejectedValue(new OpenWAError('down', 503));
+    h.gw.deleteSession.mockRejectedValue(new OpenWAError('down', 503));
     h.gw.findScopedKeyIds.mockRejectedValue(new OpenWAError('down', 503));
     const res = await DELETE(new Request('https://crm.test/x'), params);
     expect(res.status).toBe(200);
+    expect(h.deletes).toBe(1);
+    expect(await res.json()).toEqual({
+      ok: true,
+      gatewayCleanup: 'incomplete',
+    });
+  });
+
+  it('is incomplete when only a key revoke fails', async () => {
+    h.row = { id: 'cfg-1', phone_number_id: 'sess-1' };
+    h.gw.revokeKey.mockRejectedValue(new OpenWAError('down', 503));
+    const res = await DELETE(new Request('https://crm.test/x'), params);
+    expect((await res.json()).gatewayCleanup).toBe('incomplete');
+    expect(h.deletes).toBe(1);
+  });
+
+  it('is incomplete without an admin key, the gateway left alone', async () => {
+    vi.stubEnv('OPENWA_API_KEY', '');
+    h.row = { id: 'cfg-1', phone_number_id: 'sess-1' };
+    const res = await DELETE(new Request('https://crm.test/x'), params);
+    expect((await res.json()).gatewayCleanup).toBe('incomplete');
+    expect(h.gw.deleteSession).not.toHaveBeenCalled();
     expect(h.deletes).toBe(1);
   });
 

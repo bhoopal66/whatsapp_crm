@@ -29,6 +29,7 @@ import {
   type WhatsAppChannel,
   type WhatsAppProvider,
 } from './channels';
+import { sweepAbandonedOpenWASessions } from './openwa-cleanup';
 import { probeChannel, type ChannelProbe } from './provider';
 
 /** What one probe of a number came back with. */
@@ -477,6 +478,19 @@ export async function runChannelHealthCheck(
     );
   }
 
+  // Abandoned OpenWA connects ride on this tick so they share its
+  // throttle (both crons call it at most every 5 minutes). Each keeps a
+  // headless browser running on the gateway until it is torn down.
+  try {
+    const swept = await sweepAbandonedOpenWASessions(admin, { now });
+    if (swept.found > 0) console.log('[channel-health] openwa sweep:', swept);
+  } catch (err) {
+    console.error(
+      '[channel-health] openwa sweep failed:',
+      err instanceof Error ? err.message : err
+    );
+  }
+
   return summary;
 }
 
@@ -504,20 +518,34 @@ async function applyTransition(
   const patch: Record<string, unknown> = { status: verdict.status };
   if (verdict.status === 'connected') patch.connected_at = at.toISOString();
 
-  const { data: moved, error: updateError } = await admin
+  // An OpenWA row is inserted 'disconnected' while its QR waits, so the
+  // first `ready` would read as "connected again — messages may be
+  // missing" for a number that was never up. When this sweep sees the
+  // link before the connect dialog's poll does, it stamps the first link
+  // the way the status route would, and tells nobody.
+  const firstLink =
+    channel.provider === 'openwa' &&
+    verdict.notify === 'up' &&
+    channel.connectedAt === null;
+
+  let update = admin
     .from('whatsapp_config')
     .update(patch)
     .eq('id', channel.id)
     .eq('account_id', channel.accountId)
-    .eq('status', channel.status)
-    .select('id');
+    .eq('status', channel.status);
+  // Lost to the status route's own first-link write: nothing left to do.
+  if (firstLink) update = update.is('connected_at', null);
+  const { data: moved, error: updateError } = await update.select('id');
   if (updateError) throw new Error(updateError.message);
   if (!moved || moved.length === 0) return null;
 
   console.log(
     `[channel-health] ${channel.id} (account ${channel.accountId}): ` +
-      `${channel.status} → ${verdict.status} (${verdict.detail})`
+      `${channel.status} → ${verdict.status} (${verdict.detail})` +
+      (firstLink ? ', first link, no alert' : '')
   );
+  if (firstLink) return 0;
 
   const alert = channelHealthAlert(channel, verdict);
   if (!alert) return 0;

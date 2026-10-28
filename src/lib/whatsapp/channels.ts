@@ -92,6 +92,12 @@ export interface WhatsAppChannel {
   status: string;
   /** Connection order; the tie-breaker between several same-provider numbers. */
   createdAt?: string | null;
+  /**
+   * When the number last linked; null when it never has. Loaded only by
+   * `loadLinkedChannelsForHealth`, so that a brand-new OpenWA number's
+   * first link is not announced as "connected again".
+   */
+  connectedAt?: string | null;
 }
 
 /** Thrown when no usable channel exists. Carries an HTTP status callers can map. */
@@ -120,6 +126,7 @@ interface ChannelRow {
   mirror_inbound_media: boolean | null;
   status: string;
   created_at?: string | null;
+  connected_at?: string | null;
 }
 
 const CHANNEL_COLUMNS =
@@ -250,7 +257,7 @@ export async function loadLinkedChannelsForHealth(
 ): Promise<WhatsAppChannel[]> {
   const { data, error } = await admin
     .from('whatsapp_config')
-    .select(CHANNEL_COLUMNS)
+    .select(`${CHANNEL_COLUMNS}, connected_at`)
     .in('provider', ['whapi', 'openwa'])
     .order('created_at', { ascending: true });
 
@@ -269,7 +276,10 @@ export async function loadLinkedChannelsForHealth(
   const channels: WhatsAppChannel[] = [];
   for (const row of (data ?? []) as unknown as ChannelRow[]) {
     try {
-      channels.push(toChannel(row));
+      channels.push({
+        ...toChannel(row),
+        connectedAt: row.connected_at ?? null,
+      });
     } catch (err) {
       if (!(err instanceof ChannelError)) throw err;
       console.error(

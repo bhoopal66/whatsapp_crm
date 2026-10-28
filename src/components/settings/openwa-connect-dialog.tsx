@@ -8,7 +8,9 @@
 // reducer in lib/whatsapp/openwa-connect.ts; this file only renders it
 // and does the fetches. Closing before the phone is linked DELETEs the
 // half-made number, because an unlinked session keeps an engine and a
-// scoped key alive on the gateway.
+// scoped key alive on the gateway; when the dialog cannot know whether
+// the phone linked meanwhile (it gave up, or is closed mid-poll), it
+// asks once first and keeps a number that turns out linked.
 // ============================================================
 
 import { useEffect, useReducer, useRef, useState } from 'react';
@@ -32,24 +34,54 @@ import {
   OPENWA_POLL_INTERVAL_MS,
   connectReducer,
   initialConnectState,
+  cleanupPlan,
   isPolling,
-  needsCleanup,
   openwaStatusLabelKey,
+  settleUnfinishedSession,
 } from '@/lib/whatsapp/openwa-connect';
 
 const BASE = '/api/whatsapp/config/openwa';
 
-/** Best-effort removal of a session that never linked. */
-async function removeSession(configId: string): Promise<string | null> {
+/**
+ * Best-effort removal of a session that never linked. Returns an error
+ * text, or null; `onIncomplete` runs when the row went but the gateway
+ * could not be reached, so the session may still be running there.
+ */
+async function removeSession(
+  configId: string,
+  onIncomplete: () => void
+): Promise<string | null> {
   try {
     const res = await fetch(`${BASE}/${encodeURIComponent(configId)}`, {
       method: 'DELETE',
     });
-    if (res.ok) return null;
     const body = await res.json().catch(() => ({}));
+    if (res.ok) {
+      if (body?.gatewayCleanup === 'incomplete') onIncomplete();
+      return null;
+    }
     return typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`;
   } catch (err) {
     return err instanceof Error ? err.message : 'network error';
+  }
+}
+
+/** One status read, for the late-link check; null when it did not answer. */
+async function checkSession(
+  configId: string
+): Promise<{ status: string; phone: string | null } | null> {
+  try {
+    const res = await fetch(`${BASE}/${encodeURIComponent(configId)}/status`, {
+      cache: 'no-store',
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || typeof body?.status !== 'string') return null;
+    return {
+      status: body.status,
+      phone: typeof body.phone === 'string' ? body.phone : null,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -70,6 +102,9 @@ export function OpenWAConnectDialog({
   // Bumped on every close: a POST still in flight when the admin closes
   // the dialog sees the mismatch and removes the session it created.
   const generation = useRef(0);
+  // A retry awaits the late-link check before `start` guards re-entry;
+  // a second click meanwhile must not settle and create twice.
+  const settling = useRef(false);
   const onConnectedRef = useRef(onConnected);
   useEffect(() => {
     onConnectedRef.current = onConnected;
@@ -123,13 +158,26 @@ export function OpenWAConnectDialog({
   }, [state.phase]);
 
   async function connect() {
-    if (state.phase === 'creating' || polling) return;
+    if (state.phase === 'creating' || polling || settling.current) return;
     // A retry after a failed link starts a fresh session; the old one
     // would otherwise linger on the gateway.
-    if (needsCleanup(state) && state.configId) {
-      void removeSession(state.configId);
-    }
     const gen = generation.current;
+    const plan = cleanupPlan(state);
+    if (plan !== 'none' && state.configId) {
+      settling.current = true;
+      const outcome = await settleUnfinishedSession(
+        plan,
+        cleanupDeps(state.configId)
+      ).finally(() => {
+        settling.current = false;
+      });
+      if (gen !== generation.current) return;
+      // Scanned after the dialog gave up: that number is the one wanted.
+      if (outcome?.kind === 'kept') {
+        dispatch({ type: 'lateLinked', phone: outcome.phone });
+        return;
+      }
+    }
     setPollSeq(0);
     dispatch({ type: 'start' });
     try {
@@ -141,7 +189,7 @@ export function OpenWAConnectDialog({
       const body = await res.json().catch(() => ({}));
       if (res.ok && typeof body?.configId === 'string') {
         if (gen !== generation.current) {
-          void removeSession(body.configId);
+          void cleanupDeps(body.configId).remove();
           return;
         }
         dispatch({ type: 'created', configId: body.configId, at: Date.now() });
@@ -160,13 +208,28 @@ export function OpenWAConnectDialog({
     }
   }
 
+  function cleanupDeps(id: string) {
+    return {
+      checkStatus: () => checkSession(id),
+      remove: () =>
+        removeSession(id, () => toast.warning(t('openwa.gatewayIncomplete'))),
+    };
+  }
+
   function close() {
     generation.current += 1;
-    if (needsCleanup(state) && state.configId) {
+    const plan = cleanupPlan(state);
+    if (plan !== 'none' && state.configId) {
       const id = state.configId;
       dispatch({ type: 'cancel' });
-      void removeSession(id).then((error) => {
-        if (error) toast.error(t('openwa.cancelFailed', { error }));
+      void settleUnfinishedSession(plan, cleanupDeps(id)).then((outcome) => {
+        if (outcome?.kind === 'kept') {
+          // The status route has marked it connected; show it in the list.
+          toast.success(t('openwa.lateLinked'));
+          onConnectedRef.current();
+        } else if (outcome?.kind === 'removeFailed') {
+          toast.error(t('openwa.cancelFailed', { error: outcome.error }));
+        }
       });
     }
     dispatch({ type: 'reset' });

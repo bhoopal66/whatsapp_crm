@@ -86,7 +86,32 @@ Adding a number:
    secret;
 4. starts the session and shows its QR code until the phone is linked.
 
-Disconnecting logs the session out, deletes it and revokes its key.
+The dialog gives up after 5 minutes without a link. Closing it then (or
+closing it while it is still waiting) asks OpenWA once more first: a
+phone that linked late keeps its number, connected; otherwise the
+unfinished session is removed.
+
+The first link is not announced. A new number is stored as not
+connected while its QR waits, and its first `ready` (seen by the dialog
+or by the 5-minute health sweep, whichever comes first) only stamps it
+connected. After that, status changes, and the `channel_disconnected` /
+`channel_reconnected` alerts, come from the health sweep alone; the
+Settings list's live check no longer writes the status.
+
+Disconnecting logs the session out, deletes it and revokes its key. The
+number is removed from the CRM even when OpenWA cannot be reached (or
+`OPENWA_API_KEY` is unset), but then the session may still be running
+with a working key: Settings says so, and it has to be removed from the
+OpenWA dashboard by hand.
+
+**Abandoned connects.** A connect left unlinked (a tab closed while the
+QR was showing) would keep a headless browser running on the gateway.
+The health sweep removes OpenWA numbers that were never connected and
+were added more than 30 minutes ago: it logs the session out, deletes it
+and revokes its keys with the admin key, and deletes the row only once
+all of that succeeded, so nothing is left orphaned (otherwise the next
+sweep retries). A number that was ever connected is never touched, and
+the step is skipped while `OPENWA_API_KEY` is unset.
 
 ## How it is stored
 
