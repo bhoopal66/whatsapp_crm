@@ -5446,7 +5446,21 @@
     "roomClosed": "This deal room is closed.",
     "noNumber": "This person has no phone number to call.",
     "bankCallsRecorded": "This bank's calls may not be recorded. Ask an admin to turn on \"Don't record calls with bank numbers\" in the phone system's recording rules first.",
-    "shareCardBody": "Shared a call"
+    "shareCardBody": "Shared a call",
+    "moveWindow": "Move call window",
+    "moveRingCard": "Move incoming call card",
+    "draggable": "draggable",
+    "minimize": "Minimise",
+    "expand": "Expand",
+    "tabsLabel": "Call details",
+    "tabNotes": "Notes",
+    "tabCustomer": "Customer",
+    "customerPage": "Customer page",
+    "whatsAppChat": "WhatsApp chat",
+    "noCustomerYet": "No customer is linked to this call yet.",
+    "wrapUpShort": "Wrap-up {left}",
+    "addOutcome": "Add outcome",
+    "outcomeButton": "Outcome"
   },
   "Voicemail": {
     "title": "Voicemail",

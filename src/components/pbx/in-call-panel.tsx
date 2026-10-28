@@ -1,13 +1,21 @@
 'use client';
 
-// The in-call panel (module 015): docked right (a full-screen sheet on
-// mobile) for the call this person answered. After hang-up it is the
-// wrap-up (§7.3): two minutes, counted down, to add the outcome and a
-// note, then it closes by itself, unless outcomes are mandatory and none
-// is chosen (it stays; the PBX cron rings a reminder). A reload re-opens
+// The in-call panel (module 015): a floating window for the call this
+// person answered, bottom-right by default, that they can drag anywhere
+// by its dark header, nudge with the arrow keys, double-click back home
+// and minimise to a one-row pill (use-floating-window; the spot and the
+// minimised state are remembered as `pbx:call-window`). Below `sm` it is
+// a bottom sheet, and minimised a bar along the bottom. After hang-up it
+// is the wrap-up (§7.3): two minutes, counted down, to add the outcome
+// and a note, then it closes by itself, minimised or not, unless outcomes
+// are mandatory and none is chosen (it stays, opens itself once if
+// minimised, and the PBX cron rings a reminder). A reload re-opens
 // it (CallProvider). Outcome and notes autosave to the call (PATCH, one
 // save at a time); the optional call card goes to a team chat channel
 // when the panel closes. Nothing here is ever sent to the customer.
+//
+// It sits at z-50, under the ringing card (z-[60]): an open or queued
+// wrap-up must never cover Answer and Decline.
 
 import {
   useCallback,
@@ -16,25 +24,40 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
+  type ReactNode,
 } from 'react';
+import Link from 'next/link';
 import {
   ArrowRightLeft,
+  GripHorizontal,
   Grid3x3,
+  Maximize2,
+  MessageCircle,
   Mic,
   MicOff,
+  Minus,
   Pause,
   Phone,
+  PhoneIncoming,
+  PhoneOutgoing,
   Play,
+  UserRound,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { channelsWithGuests, listChannels, shareCall } from '@/lib/chat';
 import {
   OUTCOMES,
   canTransferToOwner,
+  consentText,
   formatTimer,
+  maskPhone,
+  messageWhen,
   needsOutcome,
+  newContactPhone,
   otherOwner,
   tryTimes,
   AUTO_SHARE_TRIES,
@@ -43,10 +66,19 @@ import {
   type Outcome,
   type WrapUpPhase,
 } from '@/lib/pbx/call-ui';
+import { CALL_WINDOW_DEFAULT } from '@/lib/pbx/call-window';
+import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { useCalls } from './call-provider';
-import { CandidatePicker, useCallFacts, useNow } from './incoming-call-card';
+import {
+  CandidatePicker,
+  useCallFacts,
+  useNow,
+  type CallFacts,
+} from './incoming-call-card';
+import { useNewCallerForm } from './new-caller-form';
+import { useFloatingWindow } from './use-floating-window';
 
 interface CallRow {
   id: string;
@@ -57,6 +89,16 @@ interface CallRow {
   answered_at: string | null;
   talk_seconds: number | null;
   recording_state: string;
+}
+
+/**
+ * One tab of the window's body. The list is built from an array in
+ * Panel, so a new tab (History) is one more entry.
+ */
+export interface CallWindowTab {
+  id: string;
+  label: string;
+  panel: ReactNode;
 }
 
 export function InCallPanel() {
@@ -86,6 +128,17 @@ function Panel() {
   const [share, setShare] = useState(false);
   const [channelId, setChannelId] = useState('');
   const [blocked, setBlocked] = useState(false);
+  // For the panel's lifetime only: each call opens on Notes.
+  const [tab, setTab] = useState('notes');
+  const canCreateContact = useCan('send-messages');
+  const { form: newCallerForm, open: openNewCaller } = useNewCallerForm();
+  const { attach, handleProps, minimized, setMinimized, mobile } =
+    useFloatingWindow({
+      storageKey: 'pbx:call-window',
+      defaultAnchor: CALL_WINDOW_DEFAULT,
+      label: t('moveWindow'),
+      roleDescription: t('draggable'),
+    });
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loaded = useRef(false);
@@ -321,277 +374,655 @@ function Panel() {
     autoClose();
   }, [phase]);
 
-  const round =
-    'flex size-14 flex-col items-center justify-center gap-0.5 rounded-full bg-white/10 text-[10px] hover:bg-white/20 disabled:opacity-40';
+  // Outcomes mandatory and the two minutes up with none chosen: a
+  // minimised window opens itself, once, on Notes.
+  const expandedForOutcome = useRef(false);
+  const expandForOutcome = useEffectEvent(() => {
+    if (!minimized) return;
+    setTab('notes');
+    setMinimized(false);
+  });
+  useEffect(() => {
+    if (phase !== 'held' || expandedForOutcome.current) return;
+    expandedForOutcome.current = true;
+    expandForOutcome();
+  }, [phase]);
+
+  const toggleMute = async () =>
+    (await act(
+      () => calls.softphone!.mute(ref, !muted),
+      muted ? 'unmute' : 'mute'
+    )) && setMuted(!muted);
+  const toggleHold = async () =>
+    (await act(
+      () => calls.softphone!.hold(ref, !held),
+      held ? 'unhold' : 'hold'
+    )) && setHeld(!held);
+  const hangUp = () => void act(() => calls.softphone!.hangup(ref), 'hangup');
+
+  const owed = needsOutcome(calls.settings.mandatoryDisposition, outcome);
+  const name =
+    [facts?.name, facts?.company].filter(Boolean).join(' · ') ||
+    t('unknownCaller');
+  const masked = maskPhone(p.remoteNumber ?? facts?.phone);
+  const contactId = row?.contact_id ?? p.contactId ?? pickedId ?? null;
+  // Whole seconds up: 0:00 only once the time is up.
+  const wrapLabel =
+    wrapLeft !== null && phase === 'counting'
+      ? formatTimer(Math.ceil(wrapLeft / 1000) * 1000)
+      : null;
+
+  const notesPanel = (
+    <div className="space-y-4">
+      <div role="radiogroup" aria-label={t('outcome')}>
+        <p className="mb-2 text-sm font-medium">{t('outcome')}</p>
+        <div className="flex flex-wrap gap-2">
+          {OUTCOMES.map((o) => (
+            <button
+              key={o}
+              type="button"
+              role="radio"
+              aria-checked={outcome === o}
+              onClick={() => {
+                const next = outcome === o ? null : o;
+                setOutcome(next);
+                setBlocked(false);
+                void patch({ disposition: next });
+              }}
+              className={cn(
+                'rounded-full border px-3 py-1 text-sm transition-colors',
+                outcome === o
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border hover:bg-muted'
+              )}
+            >
+              {t(`outcomes.${o}`)}
+            </button>
+          ))}
+        </div>
+        {blocked && (
+          <p className="text-destructive mt-2 text-xs">
+            {t('outcomeRequired')}
+          </p>
+        )}
+      </div>
+      <label className="block">
+        <span className="flex justify-between text-sm font-medium">
+          {t('notes')}
+          <span className="text-muted-foreground text-xs font-normal">
+            {save === 'saving'
+              ? t('saving')
+              : save === 'saved'
+                ? t('saved')
+                : save === 'failed'
+                  ? t('notSaved')
+                  : ''}
+          </span>
+        </span>
+        <textarea
+          value={notes}
+          maxLength={4000}
+          onChange={(e) => onNotes(e.target.value)}
+          placeholder={t('notesPlaceholder')}
+          className="border-input bg-card dark:bg-input/30 mt-1 min-h-28 w-full rounded-lg border p-2 text-sm"
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <input
+          id="pbx-share"
+          type="checkbox"
+          checked={share}
+          disabled={!channels.length}
+          onChange={(e) => setShare(e.target.checked)}
+        />
+        <label htmlFor="pbx-share">{t('shareCard')}</label>
+        {channels.length ? (
+          <select
+            value={channelId}
+            onChange={(e) => setChannelId(e.target.value)}
+            className="border-input bg-card dark:bg-input/30 rounded-md border px-2 py-1"
+          >
+            <option value="">#</option>
+            {channels.map((c) => (
+              <option key={c.id} value={c.id}>
+                #{c.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-muted-foreground text-xs">
+            {t('noChannels')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  const tabs: CallWindowTab[] = [
+    { id: 'notes', label: t('tabNotes'), panel: notesPanel },
+    {
+      id: 'customer',
+      label: t('tabCustomer'),
+      panel: (
+        <CustomerTab
+          facts={facts}
+          contactId={contactId}
+          now={now}
+          onCreate={
+            canCreateContact
+              ? () =>
+                  openNewCaller({
+                    key: p.key,
+                    connectionId: p.connectionId,
+                    pbxCallId: p.pbxCallId,
+                    phone: newContactPhone(p.remoteNumber),
+                  })
+              : null
+          }
+        />
+      ),
+    },
+  ];
+  const current = tabs.find((x) => x.id === tab) ?? tabs[0];
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = tabs.indexOf(current);
+    const n = tabs.length;
+    const next =
+      e.key === 'ArrowRight'
+        ? (i + 1) % n
+        : e.key === 'ArrowLeft'
+          ? (i - 1 + n) % n
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? n - 1
+              : null;
+    if (next === null) return;
+    e.preventDefault();
+    setTab(tabs[next].id);
+    document.getElementById(`pbx-call-tab-${tabs[next].id}`)?.focus();
+  };
+
+  const control =
+    'flex w-14 flex-col items-center gap-1 text-[10px] text-white/80 disabled:opacity-40';
+  const disc = (on: boolean) =>
+    cn(
+      'flex size-11 items-center justify-center rounded-full transition-colors',
+      on ? 'bg-white text-[#0f1b2d]' : 'bg-white/10 hover:bg-white/20'
+    );
+  const grip = !mobile && (
+    <GripHorizontal aria-hidden className="size-4 shrink-0 text-white/45" />
+  );
+  const handleRing =
+    'outline-none select-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-inset';
 
   return (
-    <aside
-      aria-label={t('onCall', { extension: me.extension, mode: '' })}
-      className="bg-card text-card-foreground fixed inset-0 z-50 flex flex-col shadow-2xl sm:inset-auto sm:top-14 sm:right-0 sm:bottom-0 sm:w-[530px] sm:border-l"
-    >
-      <div className="bg-[#0f1b2d] p-5 text-white">
-        <div className="flex items-center justify-between gap-2 text-xs text-white/70">
-          <span>
-            {t('onCall', {
-              extension: me.extension,
-              mode: calls.softphone ? t('modeBrowser') : t('modeDesk'),
-            })}
-          </span>
-          {recording && !ended && (
-            <span className="rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
-              ● {t('recording')}
-            </span>
-          )}
-        </div>
-        <p className="mt-2 truncate text-lg font-semibold">
-          {[facts?.name, facts?.company].filter(Boolean).join(' · ') ||
-            t('unknownCaller')}
-        </p>
-        <p className="mt-1 text-4xl font-semibold tabular-nums">
-          {ended ? `${t('callEnded')} · ` : ''}
-          {formatTimer(talkMs)}
-        </p>
-        {calls.settings.announcementRequired && (
-          <p className="mt-1 text-xs text-white/70">{t('noticePlayed')}</p>
+    <>
+      {newCallerForm}
+      <aside
+        ref={attach}
+        aria-label={t('onCall', { extension: me.extension, mode: '' })}
+        // Placed by useFloatingWindow (left/top); below `sm` a bottom
+        // sheet, or minimised a bar, pinned by these classes instead.
+        className={cn(
+          'fixed z-50 flex flex-col overflow-hidden shadow-2xl',
+          minimized
+            ? 'border border-white/10 bg-[#0f1b2d] text-white'
+            : 'bg-card text-card-foreground border',
+          mobile
+            ? cn(
+                'inset-x-0 bottom-0 w-full',
+                !minimized && 'max-h-[85dvh] rounded-t-2xl'
+              )
+            : cn(
+                'max-w-[calc(100vw-24px)]',
+                minimized
+                  ? 'w-[320px] rounded-full'
+                  : 'max-h-[calc(100dvh-24px)] w-[400px] rounded-2xl'
+              )
         )}
-        {wrapLeft !== null &&
-          (phase === 'counting' ||
-            needsOutcome(calls.settings.mandatoryDisposition, outcome)) && (
-            <p
-              role="status"
-              className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm tabular-nums"
-            >
-              {phase === 'counting'
-                ? t('wrapUp', {
-                    // Whole seconds up: 0:00 only once the time is up.
-                    left: formatTimer(Math.ceil(wrapLeft / 1000) * 1000),
-                  })
-                : t('wrapUpOverdue')}
-            </p>
-          )}
-        {!row?.contact_id && !p.contactId && pickedId === undefined && (
-          <CandidatePickerFor callKey={p.key} />
-        )}
-        {!ended && (
-          <>
-            <div className="mt-4 flex justify-center gap-4">
-              <button
-                type="button"
-                className={round}
-                onClick={async () =>
-                  (await act(
-                    () => calls.softphone!.mute(ref, !muted),
-                    muted ? 'unmute' : 'mute'
-                  )) && setMuted(!muted)
-                }
-              >
-                {muted ? (
-                  <MicOff className="size-5" />
-                ) : (
-                  <Mic className="size-5" />
-                )}
-                {muted ? t('unmute') : t('mute')}
-              </button>
-              <button
-                type="button"
-                className={round}
-                onClick={async () =>
-                  (await act(
-                    () => calls.softphone!.hold(ref, !held),
-                    held ? 'unhold' : 'hold'
-                  )) && setHeld(!held)
-                }
-              >
-                {held ? (
-                  <Play className="size-5" />
-                ) : (
-                  <Pause className="size-5" />
-                )}
-                {held ? t('resume') : t('hold')}
-              </button>
-              <button
-                type="button"
-                className={round}
-                onClick={() => setTransfer(transfer === null ? '' : null)}
-              >
-                <ArrowRightLeft className="size-5" />
-                {t('transfer')}
-              </button>
-              {calls.softphone && (
-                <button
-                  type="button"
-                  className={round}
-                  onClick={() => setKeypad(!keypad)}
-                >
-                  <Grid3x3 className="size-5" />
-                  {t('keypad')}
-                </button>
-              )}
-            </div>
-            {transfer !== null && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <input
-                  value={transfer}
-                  onChange={(e) => setTransfer(e.target.value)}
-                  placeholder={t('transferNumber')}
-                  aria-label={t('transferNumber')}
-                  className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/55"
-                />
-                <button
-                  type="button"
-                  disabled={!transfer.trim()}
-                  className="h-9 rounded-lg bg-white/15 px-3 text-sm disabled:opacity-40"
-                  onClick={async () =>
-                    (await calls.control(p.pbxCallId, 'transfer', {
-                      number: transfer.trim(),
-                    })) && toast.success(t('transferred'))
-                  }
-                >
-                  {t('transferTo')}
-                </button>
-                {toOwner && (
-                  <button
-                    type="button"
-                    className="h-9 rounded-lg bg-white/15 px-3 text-sm"
-                    onClick={async () =>
-                      (await calls.control(p.pbxCallId, 'transfer', {
-                        toOwner: true,
-                      })) && toast.success(t('transferred'))
-                    }
-                  >
-                    {t('transferToOwner')}
-                  </button>
-                )}
-              </div>
+      >
+        {minimized ? (
+          <div
+            {...handleProps}
+            className={cn(
+              'flex h-12 items-center gap-2 pr-1.5 pl-3',
+              handleRing
             )}
-            {keypad && calls.softphone && (
-              <div className="mx-auto mt-3 grid w-48 grid-cols-3 gap-2">
-                {[...'123456789*0#'].map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    className="h-10 rounded-lg bg-white/10 text-lg"
-                    onClick={() =>
-                      void calls.softphone?.dtmf(ref, d).catch((e) =>
-                        toast.error(
-                          t('actionFailed', {
-                            message: e instanceof Error ? e.message : String(e),
-                          })
-                        )
-                      )
-                    }
-                  >
-                    {d}
-                  </button>
-                ))}
-              </div>
+          >
+            {grip}
+            <span
+              aria-hidden
+              className={cn(
+                'size-2.5 shrink-0 rounded-full',
+                ended
+                  ? 'bg-slate-400'
+                  : held
+                    ? 'bg-amber-400'
+                    : 'bg-emerald-400'
+              )}
+            />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {name}
+            </span>
+            {!ended ? (
+              <>
+                <span className="text-sm tabular-nums">
+                  {formatTimer(talkMs)}
+                </span>
+                <button
+                  type="button"
+                  aria-pressed={muted}
+                  aria-label={muted ? t('unmute') : t('mute')}
+                  title={muted ? t('unmute') : t('mute')}
+                  onClick={() => void toggleMute()}
+                  className={cn(disc(muted), 'size-8')}
+                >
+                  {muted ? (
+                    <MicOff className="size-4" />
+                  ) : (
+                    <Mic className="size-4" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('hangUp')}
+                  title={t('hangUp')}
+                  onClick={hangUp}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-red-600 hover:bg-red-500"
+                >
+                  <Phone className="size-4 rotate-[135deg]" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span
+                  role="status"
+                  className={cn(
+                    'shrink-0 text-xs tabular-nums',
+                    owed && wrapLabel === null
+                      ? 'text-amber-200'
+                      : 'text-white/75'
+                  )}
+                >
+                  {wrapLabel !== null
+                    ? t('wrapUpShort', { left: wrapLabel })
+                    : owed
+                      ? t('addOutcome')
+                      : t('callEnded')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('notes');
+                    setMinimized(false);
+                  }}
+                  className="h-8 shrink-0 rounded-full bg-white/15 px-3 text-xs font-medium hover:bg-white/25"
+                >
+                  {t('outcomeButton')}
+                </button>
+              </>
             )}
             <button
               type="button"
-              onClick={() =>
-                void act(() => calls.softphone!.hangup(ref), 'hangup')
-              }
-              className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 font-medium hover:bg-red-500"
+              aria-label={t('expand')}
+              title={t('expand')}
+              onClick={() => setMinimized(false)}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full hover:bg-white/15"
             >
-              <Phone className="size-4 rotate-[135deg]" />
-              {t('hangUp')}
+              <Maximize2 className="size-4" />
             </button>
+          </div>
+        ) : (
+          <>
+            <div
+              {...handleProps}
+              className={cn('shrink-0 bg-[#0f1b2d] p-4 text-white', handleRing)}
+            >
+              <div className="flex items-center gap-2 text-xs text-white/70">
+                <span className="min-w-0 flex-1 truncate">
+                  {t('onCall', {
+                    extension: me.extension,
+                    mode: calls.softphone ? t('modeBrowser') : t('modeDesk'),
+                  })}
+                </span>
+                {recording && !ended && (
+                  <span className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
+                    ● {t('recording')}
+                  </span>
+                )}
+                {grip}
+                <button
+                  type="button"
+                  aria-label={t('minimize')}
+                  title={t('minimize')}
+                  onClick={() => setMinimized(true)}
+                  className="-my-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
+                >
+                  <Minus className="size-4" />
+                </button>
+              </div>
+              <p className="mt-2 truncate text-lg font-semibold">{name}</p>
+              <p className="flex items-center gap-1.5 text-sm text-white/70">
+                {p.inbound ? (
+                  <PhoneIncoming aria-hidden className="size-3.5 shrink-0" />
+                ) : (
+                  <PhoneOutgoing aria-hidden className="size-3.5 shrink-0" />
+                )}
+                <span className="truncate">
+                  {[
+                    t(p.inbound ? 'directions.inbound' : 'directions.outbound'),
+                    masked,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </p>
+              <p className="mt-1 text-3xl font-semibold tabular-nums">
+                {ended ? `${t('callEnded')} · ` : ''}
+                {formatTimer(talkMs)}
+              </p>
+              {calls.settings.announcementRequired && (
+                <p className="mt-1 text-xs text-white/70">
+                  {t('noticePlayed')}
+                </p>
+              )}
+              {wrapLeft !== null && (phase === 'counting' || owed) && (
+                <p
+                  role="status"
+                  className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm tabular-nums"
+                >
+                  {wrapLabel !== null
+                    ? t('wrapUp', { left: wrapLabel })
+                    : t('wrapUpOverdue')}
+                </p>
+              )}
+              {!row?.contact_id && !p.contactId && pickedId === undefined && (
+                <CandidatePickerFor callKey={p.key} />
+              )}
+              {!ended && (
+                <>
+                  <div className="mt-4 flex items-start justify-center gap-1">
+                    <button
+                      type="button"
+                      aria-pressed={muted}
+                      className={control}
+                      onClick={() => void toggleMute()}
+                    >
+                      <span className={disc(muted)}>
+                        {muted ? (
+                          <MicOff className="size-5" />
+                        ) : (
+                          <Mic className="size-5" />
+                        )}
+                      </span>
+                      {muted ? t('unmute') : t('mute')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={held}
+                      className={control}
+                      onClick={() => void toggleHold()}
+                    >
+                      <span className={disc(held)}>
+                        {held ? (
+                          <Play className="size-5" />
+                        ) : (
+                          <Pause className="size-5" />
+                        )}
+                      </span>
+                      {held ? t('resume') : t('hold')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-expanded={transfer !== null}
+                      className={control}
+                      onClick={() => setTransfer(transfer === null ? '' : null)}
+                    >
+                      <span className={disc(transfer !== null)}>
+                        <ArrowRightLeft className="size-5" />
+                      </span>
+                      {t('transfer')}
+                    </button>
+                    {calls.softphone && (
+                      <button
+                        type="button"
+                        aria-expanded={keypad}
+                        className={control}
+                        onClick={() => setKeypad(!keypad)}
+                      >
+                        <span className={disc(keypad)}>
+                          <Grid3x3 className="size-5" />
+                        </span>
+                        {t('keypad')}
+                      </button>
+                    )}
+                    <button type="button" className={control} onClick={hangUp}>
+                      <span className="flex size-11 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500">
+                        <Phone className="size-5 rotate-[135deg]" />
+                      </span>
+                      {t('hangUp')}
+                    </button>
+                  </div>
+                  {transfer !== null && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <input
+                        value={transfer}
+                        onChange={(e) => setTransfer(e.target.value)}
+                        placeholder={t('transferNumber')}
+                        aria-label={t('transferNumber')}
+                        className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/55"
+                      />
+                      <button
+                        type="button"
+                        disabled={!transfer.trim()}
+                        className="h-9 rounded-lg bg-white/15 px-3 text-sm disabled:opacity-40"
+                        onClick={async () =>
+                          (await calls.control(p.pbxCallId, 'transfer', {
+                            number: transfer.trim(),
+                          })) && toast.success(t('transferred'))
+                        }
+                      >
+                        {t('transferTo')}
+                      </button>
+                      {toOwner && (
+                        <button
+                          type="button"
+                          className="h-9 rounded-lg bg-white/15 px-3 text-sm"
+                          onClick={async () =>
+                            (await calls.control(p.pbxCallId, 'transfer', {
+                              toOwner: true,
+                            })) && toast.success(t('transferred'))
+                          }
+                        >
+                          {t('transferToOwner')}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {keypad && calls.softphone && (
+                    <div className="mx-auto mt-3 grid w-48 grid-cols-3 gap-2">
+                      {[...'123456789*0#'].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className="h-10 rounded-lg bg-white/10 text-lg"
+                          onClick={() =>
+                            void calls.softphone?.dtmf(ref, d).catch((e) =>
+                              toast.error(
+                                t('actionFailed', {
+                                  message:
+                                    e instanceof Error ? e.message : String(e),
+                                })
+                              )
+                            )
+                          }
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div
+              role="tablist"
+              aria-label={t('tabsLabel')}
+              onKeyDown={onTabKey}
+              className="flex shrink-0 gap-1 border-b px-3"
+            >
+              {tabs.map((x) => (
+                <button
+                  key={x.id}
+                  id={`pbx-call-tab-${x.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={x === current}
+                  aria-controls={`pbx-call-panel-${x.id}`}
+                  tabIndex={x === current ? 0 : -1}
+                  onClick={() => setTab(x.id)}
+                  className={cn(
+                    '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                    x === current
+                      ? 'border-primary text-foreground'
+                      : 'text-muted-foreground hover:text-foreground border-transparent'
+                  )}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+            <div
+              id={`pbx-call-panel-${current.id}`}
+              role="tabpanel"
+              aria-labelledby={`pbx-call-tab-${current.id}`}
+              className="min-h-0 flex-1 overflow-y-auto p-4"
+            >
+              {current.panel}
+            </div>
+            {/* A live call has no Close: it always has the panel. */}
+            {ended && (
+              <div className="shrink-0 border-t p-3">
+                <button
+                  type="button"
+                  onClick={() => void close()}
+                  className="bg-muted hover:bg-muted/80 h-10 w-full rounded-lg text-sm font-medium"
+                >
+                  {t('close')}
+                </button>
+              </div>
+            )}
           </>
         )}
+      </aside>
+    </>
+  );
+}
+
+/** The Customer tab: what useCallFacts knows, and where to go next. */
+function CustomerTab({
+  facts,
+  contactId,
+  onCreate,
+  now,
+}: {
+  facts: CallFacts | null;
+  contactId: string | null;
+  /** Create contact for an unknown caller; null without send-messages. */
+  onCreate: (() => void) | null;
+  now: number;
+}) {
+  const calls = useCalls()!;
+  const t = useTranslations('PbxCall');
+  const ownedBy = otherOwner(facts?.ownerId, calls.userId);
+  const owner = facts?.ownerId
+    ? facts.ownerId === calls.userId
+      ? t('you', { name: calls.names[facts.ownerId] ?? '' })
+      : (calls.names[facts.ownerId] ?? facts.ownerName ?? '—')
+    : t('noOwner');
+  const fact = (label: string, value: string) => (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words">{value}</dd>
+    </>
+  );
+  const link =
+    'border-border hover:bg-muted inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-medium';
+
+  if (!contactId)
+    return (
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground">{t('noCustomerYet')}</p>
+        {onCreate && (
+          <button type="button" onClick={onCreate} className={link}>
+            <UserRound className="size-4" />
+            {t('createContact')}
+          </button>
+        )}
       </div>
-      <div className="flex-1 space-y-4 overflow-y-auto p-5">
-        <div role="radiogroup" aria-label={t('outcome')}>
-          <p className="mb-2 text-sm font-medium">{t('outcome')}</p>
-          <div className="flex flex-wrap gap-2">
-            {OUTCOMES.map((o) => (
-              <button
-                key={o}
-                type="button"
-                role="radio"
-                aria-checked={outcome === o}
-                onClick={() => {
-                  const next = outcome === o ? null : o;
-                  setOutcome(next);
-                  setBlocked(false);
-                  void patch({ disposition: next });
-                }}
-                className={cn(
-                  'rounded-full border px-3 py-1 text-sm transition-colors',
-                  outcome === o
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border hover:bg-muted'
-                )}
-              >
-                {t(`outcomes.${o}`)}
-              </button>
-            ))}
-          </div>
-          {blocked && (
-            <p className="text-destructive mt-2 text-xs">
-              {t('outcomeRequired')}
+    );
+
+  return (
+    <div className="space-y-3 text-sm">
+      {ownedBy && (
+        <p className="bg-info-soft text-info rounded-lg px-3 py-2 text-xs font-medium">
+          {t('ownedBy', {
+            name: calls.names[ownedBy] ?? facts?.ownerName ?? '—',
+          })}
+        </p>
+      )}
+      {facts && (
+        <dl className="bg-card-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-lg border p-3 text-xs">
+          {fact(t('owner'), owner)}
+          {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
+          {!facts.hidden &&
+            fact(
+              t('lastWhatsApp'),
+              facts.last
+                ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
+                : t('none')
+            )}
+          {fact(
+            t('consent'),
+            consentText(facts, {
+              callsOk: t('callsOk'),
+              doNotContact: t('doNotContact'),
+              optedOut: t('optedOut'),
+              unknown: t('consentUnknown'),
+              marketingOn: t('marketingOn'),
+              marketingOff: t('marketingOff'),
+            })
+          )}
+          {facts.hidden && (
+            <p className="text-muted-foreground col-span-2 mt-1">
+              {t('detailsHidden')}
             </p>
           )}
-        </div>
-        <label className="block">
-          <span className="flex justify-between text-sm font-medium">
-            {t('notes')}
-            <span className="text-muted-foreground text-xs font-normal">
-              {save === 'saving'
-                ? t('saving')
-                : save === 'saved'
-                  ? t('saved')
-                  : save === 'failed'
-                    ? t('notSaved')
-                    : ''}
-            </span>
-          </span>
-          <textarea
-            value={notes}
-            maxLength={4000}
-            onChange={(e) => onNotes(e.target.value)}
-            placeholder={t('notesPlaceholder')}
-            className="border-input bg-card dark:bg-background mt-1 min-h-28 w-full rounded-lg border p-2 text-sm"
-          />
-        </label>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <input
-            id="pbx-share"
-            type="checkbox"
-            checked={share}
-            disabled={!channels.length}
-            onChange={(e) => setShare(e.target.checked)}
-          />
-          <label htmlFor="pbx-share">{t('shareCard')}</label>
-          {channels.length ? (
-            <select
-              value={channelId}
-              onChange={(e) => setChannelId(e.target.value)}
-              className="border-input bg-card dark:bg-background rounded-md border px-2 py-1"
-            >
-              <option value="">#</option>
-              {channels.map((c) => (
-                <option key={c.id} value={c.id}>
-                  #{c.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span className="text-muted-foreground text-xs">
-              {t('noChannels')}
-            </span>
+        </dl>
+      )}
+      {/* A contact outside the person's view gets no links, as on the card. */}
+      {facts && !facts.hidden && (
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={customerHref({
+              contactId,
+              conversationId: facts.conversationId,
+            })}
+            className={link}
+          >
+            <UserRound className="size-4" />
+            {t('customerPage')}
+          </Link>
+          {facts.conversationId && (
+            <Link href={`/inbox?c=${facts.conversationId}`} className={link}>
+              <MessageCircle className="size-4" />
+              {t('whatsAppChat')}
+            </Link>
           )}
         </div>
-      </div>
-      <div className="border-t p-4">
-        <button
-          type="button"
-          onClick={() => void close()}
-          className="bg-muted hover:bg-muted/80 h-10 w-full rounded-lg text-sm font-medium"
-        >
-          {t('close')}
-        </button>
-      </div>
-    </aside>
+      )}
+    </div>
   );
 }
 

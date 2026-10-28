@@ -1,14 +1,16 @@
 'use client';
 
 // The incoming-call card (module 015): floats top-right below the
-// header for the customer call ringing this person, without dimming the
-// page. Internal only. Desk-phone mode: the PBX rings the physical
+// header by default for the customer call ringing this person, without
+// dimming the page; the person can drag it elsewhere by its status row
+// and title (use-floating-window, remembered as `pbx:ring-card`).
+// Internal only. Desk-phone mode: the PBX rings the physical
 // phone, so Answer only says where to pick up and Decline hangs up the
 // person's own ringing leg; a registered softphone does both itself.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Circle, Phone, PhoneOff } from 'lucide-react';
+import { Circle, GripHorizontal, Phone, PhoneOff } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
@@ -31,11 +33,13 @@ import {
   parseCallFacts,
   type CallFacts,
 } from '@/lib/pbx/call-facts';
+import { RING_CARD_DEFAULT } from '@/lib/pbx/call-window';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
-import { ContactForm } from '@/components/contacts/contact-form';
 import { useCan } from '@/hooks/use-can';
 import { useCalls } from './call-provider';
+import { useNewCallerForm } from './new-caller-form';
+import { useFloatingWindow } from './use-floating-window';
 
 export type { CallFacts };
 
@@ -155,14 +159,6 @@ export function useNow(on = true): number {
   return now;
 }
 
-/** The call a "Create contact" form was opened for. */
-interface NewCaller {
-  key: string;
-  connectionId: string;
-  pbxCallId: string;
-  phone: string;
-}
-
 export function IncomingCallCard() {
   const calls = useCalls();
   const t = useTranslations('PbxCall');
@@ -170,7 +166,15 @@ export function IncomingCallCard() {
   const call = calls?.ringing ?? null;
   const key = call ? liveKey(call) : null;
   const [hint, setHint] = useState<string | null>(null);
-  const [creating, setCreating] = useState<NewCaller | null>(null);
+  // Outside the card: the call can be answered, declined or missed
+  // while the form is open, and what was typed must survive that.
+  const { form, open: openNewCaller } = useNewCallerForm();
+  const { attach, handleProps, mobile } = useFloatingWindow({
+    storageKey: 'pbx:ring-card',
+    defaultAnchor: RING_CARD_DEFAULT,
+    label: t('moveRingCard'),
+    roleDescription: t('draggable'),
+  });
   const now = useNow(Boolean(call));
   const pickedId = key ? (calls?.picks[key] ?? null) : null;
   const facts = useCallFacts(
@@ -184,45 +188,6 @@ export function IncomingCallCard() {
     [call]
   );
 
-  // The card shows the new contact, and the in-call panel links an
-  // answered call to it (picks). A call still live is matched by its
-  // number when it ends; one that ended while the form was open was
-  // matched before the contact existed, so the route links it.
-  const linkNewCaller = async (c: NewCaller, contactId: string) => {
-    calls?.pick(c.key, contactId);
-    const res = await fetch('/api/pbx/calls/link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        connectionId: c.connectionId,
-        pbxCallId: c.pbxCallId,
-        contactId,
-      }),
-    }).catch(() => null);
-    if (!res?.ok) return void toast.error(t('linkFailed'));
-    // 200 { linked: false }: not a call of mine, or it has a customer.
-    const body = (await res.json().catch(() => null)) as {
-      linked?: unknown;
-    } | null;
-    if (body?.linked !== true) toast.warning(t('linkSkipped'));
-  };
-  // Outside the card: the call can be answered, declined or missed
-  // while the form is open, and what was typed must survive that.
-  // Floating (no backdrop, non-modal, outside presses keep it open), so
-  // Answer and Decline stay clickable beside it.
-  const form = (
-    <ContactForm
-      floating
-      open={creating !== null}
-      onOpenChange={(open) => {
-        if (!open) setCreating(null);
-      }}
-      initialPhone={creating?.phone}
-      onSaved={(contactId) => {
-        if (creating && contactId) void linkNewCaller(creating, contactId);
-      }}
-    />
-  );
   if (!calls || !call || !key) return form;
 
   const ref = { pbxCallId: call.pbx_call_id, remoteNumber: call.remote_number };
@@ -281,26 +246,41 @@ export function IncomingCallCard() {
         // must never cover Answer and Decline, the only controls a
         // browser-softphone agent has for a ringing call) and above the
         // floating Create-contact form where a narrow screen overlaps them.
-        className={`fixed top-[68px] right-4 z-[60] w-[380px] max-w-[calc(100vw-2rem)] rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] dark:ring-1 dark:ring-white/10`}
+        // Placed by useFloatingWindow (left/top); below `sm` it is
+        // pinned under the header, full width.
+        ref={attach}
+        className="fixed z-[60] w-[380px] max-w-[calc(100vw-24px)] rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] max-sm:top-[68px] max-sm:right-3 max-sm:left-3 max-sm:w-auto max-sm:max-w-none dark:ring-1 dark:ring-white/10"
       >
-        <p className="flex items-center gap-2 text-xs text-white/70">
-          <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
-          {t('incoming')} · {did} ·{' '}
-          <span className="tabular-nums">
-            {formatTimer(
-              ringElapsedMs(
-                call,
-                calls.ringClock?.frame ?? null,
-                calls.ringClock?.shownAt ?? now,
-                now
-              )
+        {/* The drag handle: the status row and the title, not the buttons. */}
+        <div
+          {...handleProps}
+          className="-m-1 rounded-xl p-1 outline-none select-none focus-visible:ring-2 focus-visible:ring-white/60"
+        >
+          <p className="flex items-center gap-2 text-xs text-white/70">
+            <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
+            {t('incoming')} · {did} ·{' '}
+            <span className="tabular-nums">
+              {formatTimer(
+                ringElapsedMs(
+                  call,
+                  calls.ringClock?.frame ?? null,
+                  calls.ringClock?.shownAt ?? now,
+                  now
+                )
+              )}
+            </span>
+            {!mobile && (
+              <GripHorizontal
+                aria-hidden
+                className="ml-auto size-4 shrink-0 text-white/45"
+              />
             )}
-          </span>
-        </p>
-        <p className="mt-2 truncate text-xl font-bold">{title}</p>
-        <p className="truncate text-sm text-white/70">
-          {[person, masked].filter(Boolean).join(' · ')}
-        </p>
+          </p>
+          <p className="mt-2 truncate text-xl font-bold">{title}</p>
+          <p className="truncate text-sm text-white/70">
+            {[person, masked].filter(Boolean).join(' · ')}
+          </p>
+        </div>
         {ownedBy && (
           <p className="mt-2 rounded-xl bg-sky-400/15 px-2.5 py-1.5 text-xs font-medium text-sky-100">
             {t('ownedBy', {
@@ -388,7 +368,7 @@ export function IncomingCallCard() {
             <button
               type="button"
               onClick={() =>
-                setCreating({
+                openNewCaller({
                   key,
                   connectionId: call.connection_id,
                   pbxCallId: call.pbx_call_id,
