@@ -14,6 +14,7 @@ import {
 import {
   loadActivity,
   loadConversationsSeries,
+  fetchOpenDeals,
   loadMetrics,
   loadPipelineDonut,
   loadResponseTime,
@@ -70,7 +71,10 @@ export default function DashboardPage() {
     // Kick everything off in parallel. Each block has its own
     // setState + finally so a slow query doesn't hold up faster
     // sections — each widget shows its own skeleton independently.
-    void loadMetrics(db)
+    // One RPC feeds both the metric cards and the pipeline donut.
+    const openDeals = fetchOpenDeals(db)
+
+    void loadMetrics(db, openDeals)
       .then((m) => setMetrics(m))
       .catch((err) => console.error('[dashboard] metrics failed:', err))
       .finally(() => setMetricsLoading(false))
@@ -80,7 +84,7 @@ export default function DashboardPage() {
       .catch((err) => console.error('[dashboard] series failed:', err))
       .finally(() => setSeriesLoading(false))
 
-    void loadPipelineDonut(db)
+    void loadPipelineDonut(db, openDeals)
       .then((p) => setPipeline(p))
       .catch((err) => console.error('[dashboard] pipeline failed:', err))
       .finally(() => setPipelineLoading(false))

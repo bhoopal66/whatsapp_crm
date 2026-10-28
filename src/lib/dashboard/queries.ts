@@ -43,9 +43,26 @@ function browserTimeZone(): string {
 
 type DB = SupabaseClient
 
+/** The open-deals-by-stage RPC's settled result. */
+export type OpenDealsResult = { data: unknown; error: unknown }
+
+/**
+ * Both the metric cards and the pipeline donut need this RPC. The page
+ * fetches it once per load and hands the same settled promise to each,
+ * which keeps their error handling separate (the cards ignore an error,
+ * the donut throws). The `await` matters: a Supabase builder re-sends
+ * its request every time it is awaited.
+ */
+export async function fetchOpenDeals(db: DB): Promise<OpenDealsResult> {
+  return await db.rpc('dashboard_open_deals_by_stage')
+}
+
 // --- 1. Metric cards ---------------------------------------------------
 
-export async function loadMetrics(db: DB): Promise<MetricsBundle> {
+export async function loadMetrics(
+  db: DB,
+  openDealsPromise: Promise<OpenDealsResult> = fetchOpenDeals(db),
+): Promise<MetricsBundle> {
   const todayStart = startOfLocalDay().toISOString()
   const yesterdayStart = daysAgoStart(1).toISOString()
 
@@ -77,7 +94,7 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
       .select('id', { count: 'exact', head: true })
       .gte('created_at', yesterdayStart)
       .lt('created_at', todayStart),
-    db.rpc('dashboard_open_deals_by_stage'),
+    openDealsPromise,
     db
       .from('messages')
       .select('id', { count: 'exact', head: true })
@@ -133,10 +150,13 @@ export async function loadConversationsSeries(
 
 // --- 3. Pipeline donut -------------------------------------------------
 
-export async function loadPipelineDonut(db: DB): Promise<PipelineDonutData> {
+export async function loadPipelineDonut(
+  db: DB,
+  openDealsPromise: Promise<OpenDealsResult> = fetchOpenDeals(db),
+): Promise<PipelineDonutData> {
   const [stagesRes, dealsRes] = await Promise.all([
     db.from('pipeline_stages').select('id, name, color, pipeline_id, position').order('position'),
-    db.rpc('dashboard_open_deals_by_stage'),
+    openDealsPromise,
   ])
   if (dealsRes.error) throw dealsRes.error
 
