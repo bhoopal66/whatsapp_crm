@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { numberBar } from '@/lib/team-activity/glance';
 import {
+  hasSafetyMeter,
   numberDisplayName,
   type TeamActivityReport,
 } from '@/lib/team-activity/report';
@@ -185,7 +186,7 @@ export function NumbersPanel({
                 </ul>
               )}
 
-              {admin && phone && n.channelId && (
+              {admin && hasSafetyMeter(n) && (
                 <div className="border-border rounded-lg border p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className="text-foreground text-sm font-semibold">

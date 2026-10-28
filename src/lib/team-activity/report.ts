@@ -586,6 +586,19 @@ export function isListedSender(s: SenderActivity): boolean {
 }
 
 /** What to call a number: its label, then the number, then its id. */
+/**
+ * Whether a number's card shows the Safety Meter. The meter is Whapi's own
+ * risk rating (`getRiskOfBlocking`), and `/api/team-activity/safety` serves
+ * Whapi numbers only, so an OpenWA number — a phone number for every other
+ * Team activity rule since migration 145 — has none.
+ */
+export function hasSafetyMeter(n: {
+  provider: 'whapi' | 'meta' | 'openwa' | null;
+  channelId: string | null;
+}): boolean {
+  return n.provider === 'whapi' && !!n.channelId;
+}
+
 export function numberDisplayName(n: {
   label: string | null;
   wabaId: string | null;

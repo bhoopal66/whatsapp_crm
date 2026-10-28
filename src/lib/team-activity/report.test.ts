@@ -4,6 +4,7 @@ import { TEAM_ACTIVITY_DEFAULTS } from './limits';
 import { numberFindings } from './risk';
 import {
   isListedSender,
+  hasSafetyMeter,
   numberDisplayName,
   parseTeamActivityReport,
   replyRate,
@@ -286,6 +287,15 @@ describe('replyRate', () => {
     expect(replyRate(12, 8)).toBe(33);
     expect(replyRate(3, 0)).toBe(100);
     expect(replyRate(0, 0)).toBeNull();
+  });
+});
+
+describe('hasSafetyMeter', () => {
+  it('is Whapi only: an OpenWA phone number has no meter', () => {
+    expect(hasSafetyMeter({ provider: 'whapi', channelId: 'w' })).toBe(true);
+    expect(hasSafetyMeter({ provider: 'openwa', channelId: 'o' })).toBe(false);
+    expect(hasSafetyMeter({ provider: 'meta', channelId: 'm' })).toBe(false);
+    expect(hasSafetyMeter({ provider: 'whapi', channelId: null })).toBe(false);
   });
 });
 
