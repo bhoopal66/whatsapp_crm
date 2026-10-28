@@ -215,13 +215,54 @@
         "blocked": "New chats past the limit are refused."
       },
       "team": {
-        "title": "Team activity today"
+        "title": "Team activity today",
+        "action": "Team activity",
+        "newChats": "New chats",
+        "replyRate": "Reply rate",
+        "replyValue": "{outOfTen} in 10",
+        "replyAim": "Aim: {aim} in 10",
+        "replyTooFew": "Too few chats yet",
+        "waiting": "Customers waiting",
+        "waitingHint": "{count, plural, =0 {All assigned} other {# unassigned}}",
+        "pending": "Pending replies",
+        "pendingHint": "Chats under a day old",
+        "findings": "Warnings",
+        "wholeTeam": "Whole team",
+        "noFindings": "No warnings today",
+        "notMigrated": "Team activity is not set up yet",
+        "notMigratedHint": "Its database update has not been applied."
       },
       "numbers": {
-        "title": "WhatsApp numbers"
+        "title": "WhatsApp numbers",
+        "manage": "Manage",
+        "allConnected": "{total, plural, one {The number is connected} other {All # connected}}",
+        "someDisconnected": "{down} of {total} disconnected",
+        "partlyKnown": "{connected} of {total} connected",
+        "cloudNumber": "Cloud API number",
+        "primary": "Primary",
+        "state": {
+          "connected": "Connected",
+          "disconnected": "Disconnected",
+          "unknown": "Unknown"
+        },
+        "empty": "No number connected",
+        "connect": "Connect a number"
       },
       "campaigns": {
-        "title": "Campaigns"
+        "title": "Campaigns",
+        "action": "Broadcasts",
+        "sending": "Sending",
+        "progress": "{sent} of {total} sent",
+        "today": "Today {time}",
+        "tomorrow": "Tomorrow {time}",
+        "due": "Due {time}",
+        "scheduled": "Scheduled",
+        "failed": "{count, plural, one {# failed} other {# failed}}",
+        "week": "{count, plural, =0 {Nothing sent this week} one {# sent this week} other {# sent this week}}",
+        "delivered": "{pct}% delivered",
+        "read": "{pct}% read",
+        "empty": "Nothing sending or scheduled",
+        "newBroadcast": "New broadcast"
       }
     },
     "conversationsChart": {
