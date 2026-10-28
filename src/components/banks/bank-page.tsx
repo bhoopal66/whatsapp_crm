@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { BackLink } from '@/components/layout/back-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { ArrowLeft, Lock, MessageSquare, Plus } from 'lucide-react';
@@ -203,13 +204,11 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
   }, [loadPage, loadSummary]);
 
   const back = (
-    <Link
-      href="/banks"
+    <BackLink
+      fallbackHref="/banks"
+      fallbackLabel={t('backToBanks')}
       className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-    >
-      <ArrowLeft className="size-4" aria-hidden />
-      {t('backToBanks')}
-    </Link>
+    />
   );
   if (page === null)
     return <div className="bg-muted m-6 h-40 animate-pulse rounded-xl" />;

@@ -8,12 +8,12 @@ import {
   useState,
 } from 'react';
 import Link from 'next/link';
+import { BackLink as SharedBackLink } from '@/components/layout/back-link';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   AlertTriangle,
   Archive,
-  ArrowLeft,
   Briefcase,
   Copy,
   Eye,
@@ -83,20 +83,21 @@ type Confirm = 'end' | 'retry' | 'archive' | null;
 const chipClass =
   'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium';
 
-/** Below `lg` the list is hidden on /[id]: this is the way back to it. */
+/**
+ * Below `lg` the list is hidden on /[id]: this is the way back to it,
+ * or to wherever the group was opened from (a case, a customer).
+ */
 function BackLink({ label }: { label: string }) {
   return (
-    <Link
-      href="/submission-groups"
-      aria-label={label}
-      title={label}
+    <SharedBackLink
+      fallbackHref="/submission-groups"
+      fallbackLabel={label}
+      iconOnly
       className={cn(
         buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
         'shrink-0 lg:hidden'
       )}
-    >
-      <ArrowLeft className="size-4" aria-hidden />
-    </Link>
+    />
   );
 }
 

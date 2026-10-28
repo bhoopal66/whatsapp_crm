@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { BackLink } from '@/components/layout/back-link';
 import { useLocale, useTranslations } from 'next-intl';
 import {
-  ArrowLeft,
   CalendarPlus,
   Clock,
   Hand,
@@ -158,13 +158,11 @@ export function MeetingDetail({ meetingId }: { meetingId: string }) {
   };
 
   const back = (
-    <Link
-      href="/meetings"
+    <BackLink
+      fallbackHref="/meetings"
+      fallbackLabel={td('back')}
       className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-    >
-      <ArrowLeft className="size-4" aria-hidden />
-      {td('back')}
-    </Link>
+    />
   );
 
   if (state.kind !== 'ready') {

@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { BackLink } from '@/components/layout/back-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   ChevronDown,
   ChevronUp,
@@ -478,13 +478,7 @@ export function CallStatsReport() {
   // ---------- Pieces ----------
   const header = (
     <div className="space-y-3">
-      <Link
-        href="/calls"
-        className="text-muted-foreground inline-flex items-center gap-1 text-sm hover:underline"
-      >
-        <ArrowLeft className="size-4" aria-hidden />
-        {t('back')}
-      </Link>
+      <BackLink fallbackHref="/calls" fallbackLabel={t('back')} />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold">{title}</h1>

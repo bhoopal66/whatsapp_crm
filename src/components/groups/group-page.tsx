@@ -8,10 +8,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import Link from 'next/link';
+import { BackLink } from '@/components/layout/back-link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ArrowLeft, Info, MoreVertical, RefreshCw } from 'lucide-react';
+import { Info, MoreVertical, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
@@ -273,16 +273,15 @@ export function GroupPage({ groupId }: { groupId: string }) {
   };
 
   const back = (
-    <Link
-      href="/groups"
-      aria-label={t('back')}
+    <BackLink
+      fallbackHref="/groups"
+      fallbackLabel={t('back')}
+      iconOnly
       className={cn(
         buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
         'shrink-0 lg:hidden'
       )}
-    >
-      <ArrowLeft className="size-4" />
-    </Link>
+    />
   );
 
   if (state === 'loading') {

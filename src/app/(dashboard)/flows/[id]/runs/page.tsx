@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { BackLink } from "@/components/layout/back-link";
 import {
-  ArrowLeft,
   Loader2,
   CircleCheck,
   CircleAlert,
@@ -176,14 +176,12 @@ export default function FlowRunsPage() {
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <button
-        type="button"
-        onClick={() => router.push(`/flows/${flow.id}`)}
+      <BackLink
+        fallbackHref={`/flows/${flow.id}`}
+        fallbackLabel={flow.name}
+        iconClassName="h-3 w-3"
         className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-3 w-3" />
-        {flow.name}
-      </button>
+      />
       <h1 className="text-xl font-semibold text-foreground">{t("title")}</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         {t("description")}
