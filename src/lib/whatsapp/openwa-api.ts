@@ -179,7 +179,13 @@ interface OpenWARequestArgs {
   sessionId: string;
   /** Under `/api/sessions/{sessionId}`, starting with `/` (or empty). */
   path: string;
-  method?: 'GET' | 'POST';
+  /**
+   * A gateway-wide route (`/api/sessions`, `/api/auth/api-keys/…`) used
+   * instead of `sessionId` + `path`: provisioning calls address no
+   * session yet, or the key registry.
+   */
+  apiPath?: string;
+  method?: 'GET' | 'POST' | 'DELETE';
   body?: unknown;
   timeoutMs?: number;
   route?: 'session' | 'message';
@@ -199,11 +205,14 @@ async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
     body,
     timeoutMs,
     route = 'session',
+    apiPath,
   } = args;
 
   // Refused before any request, so a retry can never double-send.
   if (!apiKey) throw new OpenWAError('Missing OpenWA API key.', 401);
-  if (!sessionId) throw new OpenWAError('Missing OpenWA session id.', 404);
+  if (!apiPath && !sessionId) {
+    throw new OpenWAError('Missing OpenWA session id.', 404);
+  }
 
   const headers: Record<string, string> = {
     'X-API-Key': apiKey,
@@ -213,7 +222,10 @@ async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(sessionUrl(sessionId, path), {
+    const url = apiPath
+      ? `${openwaBaseUrl()}${apiPath}`
+      : sessionUrl(sessionId, path);
+    response = await fetch(url, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -774,4 +786,178 @@ export async function downloadMedia(
     contentType:
       response.headers.get('content-type') || 'application/octet-stream',
   };
+}
+
+// ============================================================
+// Provisioning (admin key only)
+//
+// Connecting a number: create a session, mint an operator key scoped to
+// it, point its webhook at the CRM, start it, then show its QR until the
+// phone links. The admin key never leaves the server and is never
+// stored; the row keeps only the scoped key.
+// ============================================================
+
+/** The scoped key's name, so a disconnect can find it again. */
+export function scopedKeyName(sessionId: string): string {
+  return `wacrm-${sessionId}`;
+}
+
+export async function createSession(args: {
+  adminKey: string;
+  name: string;
+}): Promise<{ id: string; status: string }> {
+  const data = await openwaRequest<{ id?: string; status?: string }>({
+    apiKey: args.adminKey,
+    sessionId: '',
+    path: '',
+    apiPath: '/api/sessions',
+    method: 'POST',
+    body: { name: args.name },
+  });
+  if (!data?.id) {
+    throw new OpenWAError('OpenWA created the session but sent no id.', 502);
+  }
+  return { id: data.id, status: data.status ?? 'created' };
+}
+
+export async function startSession(args: {
+  adminKey: string;
+  sessionId: string;
+}): Promise<void> {
+  await openwaRequest<unknown>({
+    apiKey: args.adminKey,
+    sessionId: args.sessionId,
+    path: '/start',
+    method: 'POST',
+    // The engine launch has its own ~30 s timeout before it answers.
+    timeoutMs: 60_000,
+  });
+}
+
+export async function getQr(args: {
+  apiKey: string;
+  sessionId: string;
+}): Promise<{ qrCode: string | null; status: string }> {
+  const data = await openwaRequest<{ qrCode?: string; status?: string }>({
+    apiKey: args.apiKey,
+    sessionId: args.sessionId,
+    path: '/qr',
+  });
+  // Only an image data URL is passed on: it goes straight into an <img>.
+  const qr = data?.qrCode ?? '';
+  return {
+    qrCode: qr.startsWith('data:image/') ? qr : null,
+    status: data?.status ?? 'unknown',
+  };
+}
+
+export async function logoutSession(args: {
+  adminKey: string;
+  sessionId: string;
+}): Promise<void> {
+  await openwaRequest<unknown>({
+    apiKey: args.adminKey,
+    sessionId: args.sessionId,
+    path: '/logout',
+    method: 'POST',
+  });
+}
+
+export async function deleteSession(args: {
+  adminKey: string;
+  sessionId: string;
+}): Promise<void> {
+  await openwaRequest<unknown>({
+    apiKey: args.adminKey,
+    sessionId: args.sessionId,
+    path: '',
+    method: 'DELETE',
+  });
+}
+
+/** An operator key that can act on this one session and nothing else. */
+export async function createScopedKey(args: {
+  adminKey: string;
+  sessionId: string;
+}): Promise<{ id: string; apiKey: string }> {
+  const data = await openwaRequest<{ id?: string; apiKey?: string }>({
+    apiKey: args.adminKey,
+    sessionId: '',
+    path: '',
+    apiPath: '/api/auth/api-keys',
+    method: 'POST',
+    body: {
+      name: scopedKeyName(args.sessionId),
+      role: 'operator',
+      allowedSessions: [args.sessionId],
+    },
+  });
+  if (!data?.id || !data.apiKey) {
+    throw new OpenWAError('OpenWA created the key but sent no key.', 502);
+  }
+  return { id: data.id, apiKey: data.apiKey };
+}
+
+export async function revokeKey(args: {
+  adminKey: string;
+  keyId: string;
+}): Promise<void> {
+  await openwaRequest<unknown>({
+    apiKey: args.adminKey,
+    sessionId: '',
+    path: '',
+    apiPath: `/api/auth/api-keys/${encodeURIComponent(args.keyId)}/revoke`,
+    method: 'POST',
+  });
+}
+
+/**
+ * Ids of the active keys minted for a session. The row has no column for
+ * the key id (144 leaves `app_secret` unused and this change adds no
+ * migration), so a disconnect finds the key again by its name.
+ */
+export async function findScopedKeyIds(args: {
+  adminKey: string;
+  sessionId: string;
+}): Promise<string[]> {
+  const data = await openwaRequest<
+    { id?: string; name?: string; isActive?: boolean }[]
+  >({
+    apiKey: args.adminKey,
+    sessionId: '',
+    path: '',
+    apiPath: '/api/auth/api-keys',
+  });
+  const name = scopedKeyName(args.sessionId);
+  return (Array.isArray(data) ? data : [])
+    .filter((k) => k.name === name && k.isActive !== false && !!k.id)
+    .map((k) => k.id as string);
+}
+
+/** The events the CRM's OpenWA webhook route consumes. */
+export const OPENWA_WEBHOOK_EVENTS = [
+  'message.received',
+  'message.ack',
+  'message.failed',
+  'session.status',
+] as const;
+
+export async function createWebhook(args: {
+  adminKey: string;
+  sessionId: string;
+  url: string;
+  secret: string;
+}): Promise<{ id: string }> {
+  const data = await openwaRequest<{ id?: string }>({
+    apiKey: args.adminKey,
+    sessionId: args.sessionId,
+    path: '/webhooks',
+    method: 'POST',
+    body: {
+      url: args.url,
+      events: [...OPENWA_WEBHOOK_EVENTS],
+      secret: args.secret,
+    },
+  });
+  return { id: data?.id ?? '' };
 }
