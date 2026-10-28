@@ -9,7 +9,8 @@ import {
   useMemo,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Pipeline, PipelineStage, Deal } from '@/types';
+import type { Pipeline, PipelineStage } from '@/types';
+import { BOARD_DEAL_SELECT, type BoardDeal } from '@/lib/pipelines/board-deal';
 import { PipelineBoard } from '@/components/pipelines/pipeline-board';
 import { PipelineSettings } from '@/components/pipelines/pipeline-settings';
 import { DealForm } from '@/components/pipelines/deal-form';
@@ -111,7 +112,7 @@ export default function PipelinesPage() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
   const [stages, setStages] = useState<PipelineStage[]>([]);
-  const [deals, setDeals] = useState<Deal[]>([]);
+  const [deals, setDeals] = useState<BoardDeal[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Dialog / sheet state
@@ -123,7 +124,7 @@ export default function PipelinesPage() {
   // Deal form state is lifted here so both the top-bar "Add Deal" and
   // the per-column "+" trigger the same Sheet.
   const [dealFormOpen, setDealFormOpen] = useState(false);
-  const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+  const [editingDeal, setEditingDeal] = useState<BoardDeal | null>(null);
   const [defaultStageId, setDefaultStageId] = useState<string>('');
 
   // Guard against double-seeding (React StrictMode double-effect in dev).
@@ -148,7 +149,7 @@ export default function PipelinesPage() {
   // owner filter (the default view); used only if that still holds.
   const prefetchedDeals = useRef<{
     id: string;
-    promise: Promise<Deal[]>;
+    promise: Promise<BoardDeal[]>;
   } | null>(null);
 
   const loadPipelines = useCallback(async (): Promise<Pipeline[]> => {
@@ -188,13 +189,11 @@ export default function PipelinesPage() {
     async (pipelineId: string, owner: string | null = null) => {
       let query = supabase
         .from('deals')
-        .select(
-          '*, contact:contacts(*), assignee:profiles!deals_assigned_to_fkey(*)'
-        )
+        .select(BOARD_DEAL_SELECT)
         .eq('pipeline_id', pipelineId);
       if (owner) query = query.or(owner);
       const { data } = await query.order('created_at', { ascending: false });
-      return (data ?? []) as Deal[];
+      return (data ?? []) as BoardDeal[];
     },
     [supabase]
   );
@@ -352,7 +351,7 @@ export default function PipelinesPage() {
     [stages]
   );
 
-  const handleEditDeal = useCallback((deal: Deal) => {
+  const handleEditDeal = useCallback((deal: BoardDeal) => {
     setEditingDeal(deal);
     setDefaultStageId(deal.stage_id);
     setDealFormOpen(true);

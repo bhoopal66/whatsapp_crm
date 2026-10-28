@@ -11,7 +11,8 @@ import { useDealPeople } from './use-deal-people';
 import { ContactPicker, type ContactOption } from './contact-picker';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
 import { prefillFromDeal } from '@/lib/deal-rooms/entry';
-import type { Conversation, Deal, DealStatus, PipelineStage } from '@/types';
+import type { Conversation, DealStatus, PipelineStage } from '@/types';
+import type { BoardDeal } from '@/lib/pipelines/board-deal';
 import {
   Sheet,
   SheetContent,
@@ -36,7 +37,7 @@ import { useTranslations } from 'next-intl';
 interface DealFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  deal?: Deal | null;
+  deal?: BoardDeal | null;
   pipelineId: string;
   stages: PipelineStage[];
   defaultStageId?: string;
@@ -500,7 +501,7 @@ export function DealForm({
             {deal &&
               canWrite &&
               (confirmDelete ? (
-                <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive-soft px-3 py-2 text-xs">
+                <div className="border-destructive/30 bg-destructive-soft mt-3 flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
                   <span className="text-destructive">{t('deletePrompt')}</span>
                   <div className="flex gap-1">
                     <button
@@ -525,7 +526,7 @@ export function DealForm({
                 <button
                   type="button"
                   onClick={() => setConfirmDelete(true)}
-                  className="mt-3 flex w-full items-center justify-center gap-1 text-xs text-destructive hover:text-destructive/80"
+                  className="text-destructive hover:text-destructive/80 mt-3 flex w-full items-center justify-center gap-1 text-xs"
                 >
                   <Trash2 className="h-3 w-3" />
                   {t('deleteDeal')}

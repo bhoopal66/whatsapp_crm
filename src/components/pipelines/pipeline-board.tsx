@@ -17,7 +17,8 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import type { Deal, PipelineStage, Profile } from '@/types';
+import type { PipelineStage, Profile } from '@/types';
+import type { BoardDeal } from '@/lib/pipelines/board-deal';
 import { DealCard } from './deal-card';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,14 +40,14 @@ import { useTranslations } from 'next-intl';
 
 interface PipelineBoardProps {
   stages: PipelineStage[];
-  deals: Deal[];
+  deals: BoardDeal[];
   /** Account members, to name each deal's owner. */
   members: Profile[];
   /** Viewers: no dragging and no "Add deal" — RLS would refuse both. */
   readOnly?: boolean;
   onDealMoved: (dealId: string, newStageId: string) => void;
   onAddDeal: (stageId: string) => void;
-  onEditDeal: (deal: Deal) => void;
+  onEditDeal: (deal: BoardDeal) => void;
 }
 
 export function PipelineBoard({
@@ -67,7 +68,7 @@ export function PipelineBoard({
   );
 
   const dealsByStage = useMemo(() => {
-    const map = new Map<string, Deal[]>();
+    const map = new Map<string, BoardDeal[]>();
     for (const stage of sortedStages) map.set(stage.id, []);
     for (const deal of deals) {
       const bucket = map.get(deal.stage_id);
@@ -206,14 +207,14 @@ function StageColumn({
   onDealMoved,
 }: {
   stage: PipelineStage;
-  deals: Deal[];
+  deals: BoardDeal[];
   totalValue: number;
   currency: string;
   members: Profile[];
   readOnly: boolean;
   stages: PipelineStage[];
   onAddDeal: (stageId: string) => void;
-  onEditDeal: (deal: Deal) => void;
+  onEditDeal: (deal: BoardDeal) => void;
   onDealMoved: (dealId: string, newStageId: string) => void;
 }) {
   const t = useTranslations('Pipelines.board');
@@ -309,12 +310,12 @@ function DraggableDealCard({
   onEdit,
   onMove,
 }: {
-  deal: Deal;
+  deal: BoardDeal;
   stage: PipelineStage;
   members: Profile[];
   disabled: boolean;
   stages: PipelineStage[];
-  onEdit: (deal: Deal) => void;
+  onEdit: (deal: BoardDeal) => void;
   onMove: (dealId: string, newStageId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
