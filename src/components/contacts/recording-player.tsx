@@ -129,7 +129,18 @@ export function RecordingPlayer({
         // A re-signed link resumes where the paused audio was.
         const resumeAt = el.currentTime;
         el.src = body.url;
-        if (resumeAt) el.currentTime = resumeAt;
+        // A position set before the new source's metadata loads is
+        // ignored by some browsers (Safari), which would restart a
+        // re-signed recording from 0; seek once it is known.
+        if (resumeAt) {
+          el.addEventListener(
+            'loadedmetadata',
+            () => {
+              el.currentTime = resumeAt;
+            },
+            { once: true }
+          );
+        }
         linkedAt.current = Date.now();
       }
       await el.play();
