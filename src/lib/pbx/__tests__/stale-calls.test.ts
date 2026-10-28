@@ -29,6 +29,7 @@ import {
   onceEvery,
   settleStaleCalls,
   STALE_CALL_BATCH,
+  STALE_MAX_PAGES,
   UNSETTLED_META_KEY,
 } from '../stale-calls';
 
@@ -48,7 +49,22 @@ interface Row {
 function fakeDb(rows: Row[]) {
   const reads: Record<string, unknown>[] = [];
   const updates: { id: string; patch: Row }[] = [];
+  const orders: unknown[][] = [];
+  const liveDeletes: string[] = [];
   const from = (table: string) => {
+    if (table === 'call_live') {
+      const f: Record<string, string> = {};
+      const d = {
+        delete: () => d,
+        eq: (col: string, v: string) => ((f[col] = v), d),
+        then: (resolve: (v: unknown) => void) => {
+          expect(f.connection_id).toBe('conn-1');
+          liveDeletes.push(f.pbx_call_id);
+          resolve({ error: null });
+        },
+      };
+      return d;
+    }
     expect(table).toBe('calls');
     const f: Record<string, unknown> = {};
     let patch: Partial<Row> | null = null;
@@ -57,7 +73,7 @@ function fakeDb(rows: Row[]) {
       in: (col: string, vals: string[]) => ((f[`in:${col}`] = vals), q),
       lt: (col: string, v: string) => ((f[`lt:${col}`] = v), q),
       eq: (col: string, v: string) => ((f[`eq:${col}`] = v), q),
-      order: () => q,
+      order: (...args: unknown[]) => (orders.push(args), q),
       update: (p: Partial<Row>) => ((patch = p), q),
       limit: (n: number) => ((f.limit = n), q),
       then: (resolve: (v: unknown) => void) => {
@@ -84,18 +100,50 @@ function fakeDb(rows: Row[]) {
     };
     return q;
   };
-  return { db: { from } as unknown as SupabaseClient, reads, updates };
+  return {
+    db: { from } as unknown as SupabaseClient,
+    reads,
+    updates,
+    orders,
+    liveDeletes,
+  };
 }
 
-function fakeOpen(records: Record<string, unknown>[], fail?: string) {
-  const searches: { startTime: Date; endTime: Date }[] = [];
+interface Search {
+  startTime: Date;
+  endTime: Date;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * The PBX's CDR search: `records` as one page by default. `fullPages`
+ * answers every page with a full page of unrelated records (a busy PBX)
+ * and `total` overrides the count the PBX reports.
+ */
+function fakeOpen(
+  records: Record<string, unknown>[],
+  fail?: string,
+  opts: {
+    fullPages?: boolean;
+    total?: number;
+    onSearch?: (s: Search) => void;
+  } = {}
+) {
+  const searches: Search[] = [];
   const open = vi.fn(async () => {
     if (fail) throw new Error(fail);
     return {
       api: {
-        searchCdr: vi.fn(async (input: { startTime: Date; endTime: Date }) => {
+        searchCdr: vi.fn(async (input: Search) => {
           searches.push(input);
-          return { total: records.length, records };
+          opts.onSearch?.(input);
+          const page = opts.fullPages
+            ? Array.from({ length: input.pageSize }, (_, i) =>
+                cdr(`other-${input.page}-${i}`)
+              )
+            : records;
+          return { total: opts.total ?? records.length, records: page };
         }),
       },
     } as unknown as PbxHandle;
@@ -189,15 +237,23 @@ describe('settleStaleCalls', () => {
     expect(rows[2].status).toBe('in_progress');
   });
 
-  it('leaves a call with no CDR yet alone while it is younger than a day', async () => {
+  it('leaves a call with no CDR yet live while it is younger than a day, stamped checked', async () => {
     rows = [row({ started_at: hoursAgo(5) })];
-    const { db, updates } = fakeDb(rows);
+    const { db, liveDeletes } = fakeDb(rows);
     const summary = await settleStaleCalls({
       db,
       now: () => NOW,
       open: fakeOpen([]).open,
     });
-    expect(updates).toEqual([]);
+    expect(rows[0]).toMatchObject({
+      status: 'in_progress',
+      meta: {
+        rang_user_ids: ['u'],
+        stale_checked_at: new Date(NOW).toISOString(),
+      },
+    });
+    expect(rows[0].meta).not.toHaveProperty(UNSETTLED_META_KEY);
+    expect(liveDeletes).toEqual([]);
     expect(summary).toMatchObject({ found: 1, settled: 0, givenUp: 0 });
   });
 
@@ -237,15 +293,130 @@ describe('settleStaleCalls', () => {
       row({ id: 'r-2', pbx_call_id: 'c-2', started_at: hoursAgo(30) }),
     ];
     ingest.fail.add('c-2');
-    const { db, updates } = fakeDb(rows);
+    const { db, liveDeletes } = fakeDb(rows);
     const summary = await settleStaleCalls({
       db,
       now: () => NOW,
       open: fakeOpen([cdr('c-1'), cdr('c-2')]).open,
     });
-    expect(updates).toEqual([]);
     expect(rows.map((r) => r.status)).toEqual(['answered', 'in_progress']);
+    expect(rows[1].meta).toMatchObject({ stale_ingest_failures: 1 });
+    expect(rows[1].meta).not.toHaveProperty(UNSETTLED_META_KEY);
     expect(summary).toMatchObject({ settled: 1, failed: 1, givenUp: 0 });
+    // The settled call's screen pop goes; the live one's stays.
+    expect(liveDeletes).toEqual(['c-1']);
+  });
+
+  it('clears the screen pop of a call it gave up on, and of no other', async () => {
+    rows = [
+      row({ started_at: hoursAgo(30) }),
+      row({ id: 'r-2', pbx_call_id: 'c-2', started_at: hoursAgo(5) }),
+    ];
+    const { db, liveDeletes } = fakeDb(rows);
+    const summary = await settleStaleCalls({
+      db,
+      now: () => NOW,
+      open: fakeOpen([]).open,
+    });
+    expect(summary.givenUp).toBe(1);
+    expect(liveDeletes).toEqual(['c-1']);
+  });
+
+  it('gives nothing up when the budget runs out mid-paging', async () => {
+    rows = [row({ started_at: hoursAgo(30) })];
+    const { db, liveDeletes } = fakeDb(rows);
+    let t = NOW;
+    const { open, searches } = fakeOpen([], undefined, {
+      fullPages: true,
+      total: 5_000,
+      // The first page eats the rest of the budget.
+      onSearch: () => (t = NOW + 1_000),
+    });
+    const summary = await settleStaleCalls({
+      db,
+      now: () => t,
+      deadline: NOW + 1_000,
+      open,
+    });
+    expect(searches).toHaveLength(1);
+    expect(rows[0].status).toBe('in_progress');
+    expect(summary.givenUp).toBe(0);
+    expect(liveDeletes).toEqual([]);
+  });
+
+  it('gives nothing up when paging stops at the page cap', async () => {
+    rows = [row({ started_at: hoursAgo(30) })];
+    const { db } = fakeDb(rows);
+    const { open, searches } = fakeOpen([], undefined, {
+      fullPages: true,
+      total: 50_000,
+    });
+    const summary = await settleStaleCalls({ db, now: () => NOW, open });
+    expect(searches.map((s) => s.page)).toEqual(
+      Array.from({ length: STALE_MAX_PAGES }, (_, i) => i + 1)
+    );
+    expect(rows[0].status).toBe('in_progress');
+    expect(rows[0].meta).toHaveProperty('stale_checked_at');
+    expect(summary.givenUp).toBe(0);
+  });
+
+  it('gives nothing up when the PBX reports more records than it returned', async () => {
+    rows = [row({ started_at: hoursAgo(30) })];
+    const { db } = fakeDb(rows);
+    const summary = await settleStaleCalls({
+      db,
+      now: () => NOW,
+      open: fakeOpen([cdr('other')], undefined, { total: 3 }).open,
+    });
+    expect(rows[0].status).toBe('in_progress');
+    expect(summary.givenUp).toBe(0);
+  });
+
+  it('puts calls checked before at the back of the batch', async () => {
+    rows = [];
+    const { db, orders } = fakeDb(rows);
+    await settleStaleCalls({ db, now: () => NOW, open: fakeOpen([]).open });
+    expect(orders).toEqual([
+      ['meta->>stale_checked_at', { ascending: true, nullsFirst: true }],
+      ['started_at', { ascending: true }],
+    ]);
+  });
+
+  it('gives up a day-old call whose ingest keeps failing, once the failures reach the cap', async () => {
+    rows = [
+      row({
+        started_at: hoursAgo(30),
+        meta: { stale_ingest_failures: 4, stale_checked_at: hoursAgo(1) },
+      }),
+      row({
+        id: 'r-2',
+        pbx_call_id: 'c-2',
+        started_at: hoursAgo(30),
+        meta: { stale_ingest_failures: 1 },
+      }),
+    ];
+    ingest.fail.add('c-1');
+    ingest.fail.add('c-2');
+    const { db, liveDeletes } = fakeDb(rows);
+    const summary = await settleStaleCalls({
+      db,
+      now: () => NOW,
+      open: fakeOpen([cdr('c-1'), cdr('c-2')]).open,
+    });
+    expect(summary).toMatchObject({ failed: 2, givenUp: 1 });
+    expect(rows[0]).toMatchObject({
+      status: 'answered',
+      meta: {
+        [UNSETTLED_META_KEY]: { was: 'in_progress', ingest_failures: 5 },
+      },
+    });
+    expect(rows[0].meta).not.toHaveProperty('stale_ingest_failures');
+    expect(rows[0].meta).not.toHaveProperty('stale_checked_at');
+    expect(rows[1]).toMatchObject({
+      status: 'in_progress',
+      meta: { stale_ingest_failures: 2 },
+    });
+    expect(liveDeletes).toEqual(['c-1']);
   });
 
   it('gives up on nothing when the PBX cannot be read', async () => {

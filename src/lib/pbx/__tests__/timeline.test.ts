@@ -14,6 +14,8 @@ import {
   groupByDay,
   maskPhone,
   mergeTimeline,
+  needsRecordingLink,
+  RECORDING_LINK_FRESH_MS,
   recordingView,
   refusalView,
   missedDraftOffer,
@@ -473,6 +475,17 @@ describe('refusalView', () => {
     expect(refusalView('held')).toBe('held');
     expect(refusalView(undefined)).toBe('held');
     expect(refusalView('constructor')).toBe('held');
+  });
+});
+
+describe('needsRecordingLink', () => {
+  it('signs a link before the first play and once one nears its 300 s expiry', () => {
+    const t = 1_000_000;
+    expect(needsRecordingLink(null, t)).toBe(true);
+    expect(needsRecordingLink(t, t)).toBe(false);
+    expect(needsRecordingLink(t, t + RECORDING_LINK_FRESH_MS - 1)).toBe(false);
+    expect(needsRecordingLink(t, t + RECORDING_LINK_FRESH_MS)).toBe(true);
+    expect(RECORDING_LINK_FRESH_MS).toBeLessThan(300_000);
   });
 });
 
