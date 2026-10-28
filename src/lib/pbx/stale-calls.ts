@@ -99,6 +99,8 @@ interface StaleRow {
   pbx_call_id: string;
   status: string;
   started_at: string;
+  /** For compare-and-set: an event or a fetch may write meta meanwhile. */
+  updated_at: string;
   meta: Record<string, unknown> | null;
 }
 
@@ -124,7 +126,9 @@ export async function settleStaleCalls(input: {
   };
   const { data, error } = await db
     .from('calls')
-    .select('id, connection_id, pbx_call_id, status, started_at, meta')
+    .select(
+      'id, connection_id, pbx_call_id, status, started_at, updated_at, meta'
+    )
     .in('status', ['ringing', 'in_progress'])
     .lt('started_at', new Date(startedAt - STALE_CALL_AFTER_MS).toISOString())
     // Checked and left live: to the back. PostgREST orders by a json
@@ -198,6 +202,27 @@ export async function settleStaleCalls(input: {
         `[pbx-stale] ${connectionId}: CDR read failed:`,
         message(err)
       );
+      // Still to the back of the next batch: a connection whose read
+      // keeps failing (revoked credentials, a PBX gone offline) must not
+      // hold the front of every batch and starve the other connections.
+      const at = new Date(now()).toISOString();
+      for (const row of calls) {
+        if (out()) break;
+        const stamp = await db
+          .from('calls')
+          .update({
+            meta: { ...(row.meta ?? {}), [STALE_CHECKED_META_KEY]: at },
+          })
+          .eq('id', row.id)
+          .eq('status', row.status)
+          .eq('updated_at', row.updated_at);
+        if (stamp.error) {
+          console.error(
+            `[pbx-stale] ${connectionId}: could not requeue call ${row.pbx_call_id}:`,
+            stamp.error.message
+          );
+        }
+      }
       continue;
     }
 
@@ -264,9 +289,12 @@ export async function settleStaleCalls(input: {
         startedAt - Date.parse(row.started_at) >= STALE_GIVE_UP_AFTER_MS &&
         (!failedCalls.has(id) || failures >= STALE_MAX_INGEST_FAILURES);
       const at = new Date(now()).toISOString();
-      // Compare-and-set on the status read: a row the ingest above (or a
-      // late live end) settled is left as written. Nothing here rings,
-      // opens a task or settles a call-back.
+      // Compare-and-set on the status and updated_at read: a row the
+      // ingest above (or a late live end) settled is left as written, and
+      // a meta write meanwhile (ring/answer events, the recording fetch)
+      // is never overwritten with the copy read for this batch; such a
+      // row is simply looked at again next run. Nothing here rings, opens
+      // a task or settles a call-back.
       const upd = await db
         .from('calls')
         .update(
@@ -293,6 +321,7 @@ export async function settleStaleCalls(input: {
         )
         .eq('id', row.id)
         .eq('status', row.status)
+        .eq('updated_at', row.updated_at)
         .select('id');
       if (upd.error) {
         summary.errors[connectionId] =

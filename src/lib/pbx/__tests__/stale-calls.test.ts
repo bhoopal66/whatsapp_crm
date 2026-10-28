@@ -32,6 +32,7 @@ import {
   STALE_MAX_PAGES,
   UNSETTLED_META_KEY,
 } from '../stale-calls';
+import { STALE_CHECKED_META_KEY } from '../stale-markers';
 
 const NOW = Date.parse('2026-10-28T12:00:00Z');
 const hoursAgo = (h: number) => new Date(NOW - h * 3600_000).toISOString();
@@ -42,6 +43,7 @@ interface Row {
   pbx_call_id: string;
   status: string;
   started_at: string;
+  updated_at?: string;
   meta: Record<string, unknown> | null;
 }
 
@@ -419,7 +421,7 @@ describe('settleStaleCalls', () => {
     expect(liveDeletes).toEqual(['c-1']);
   });
 
-  it('gives up on nothing when the PBX cannot be read', async () => {
+  it('gives up on nothing when the PBX cannot be read, but requeues it', async () => {
     rows = [row({ started_at: hoursAgo(30) })];
     const { db, updates } = fakeDb(rows);
     const summary = await settleStaleCalls({
@@ -427,8 +429,33 @@ describe('settleStaleCalls', () => {
       now: () => NOW,
       open: fakeOpen([], 'PBX unreachable').open,
     });
-    expect(updates).toEqual([]);
+    // Status untouched, no give-up marker: only the requeue stamp, so a
+    // connection whose read keeps failing can't hold the batch's front.
+    expect(updates).toHaveLength(1);
+    expect(updates[0].patch.status).toBe('in_progress');
+    expect(updates[0].patch.meta).toEqual({
+      rang_user_ids: ['u'],
+      [STALE_CHECKED_META_KEY]: new Date(NOW).toISOString(),
+    });
+    expect(summary.givenUp).toBe(0);
     expect(summary.errors).toEqual({ 'conn-1': 'PBX unreachable' });
+  });
+
+  it('never overwrites meta written after the batch was read', async () => {
+    // A ring/answer event (or the recording fetch) writes meta between
+    // the batch read and this step's update: updated_at moves, so the
+    // compare-and-set skips the row instead of restoring the old copy.
+    rows = [row({ started_at: hoursAgo(3), updated_at: 't0' })];
+    const { db, updates } = fakeDb(rows);
+    const { open } = fakeOpen([], undefined, {
+      onSearch: () => {
+        rows[0].updated_at = 't1';
+        rows[0].meta = { rang_user_ids: ['u', 'v'] };
+      },
+    });
+    await settleStaleCalls({ db, now: () => NOW, open });
+    expect(updates).toEqual([]);
+    expect(rows[0].meta).toEqual({ rang_user_ids: ['u', 'v'] });
   });
 
   it('starts nothing once the deadline has passed', async () => {
