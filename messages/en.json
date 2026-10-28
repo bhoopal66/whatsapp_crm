@@ -203,7 +203,8 @@
       "noOpenDealsHint": "Create deals in Pipelines to see stage breakdowns here.",
       "dealCount": "{count} {count, plural, =1 {deal} other {deals}}",
       "total": "Total",
-      "ariaLabel": "Pipeline value by stage"
+      "ariaLabel": "Pipeline value by stage",
+      "viewPipelines": "View pipelines"
     },
     "responseTimeChart": {
       "title": "Average First Response Time",
