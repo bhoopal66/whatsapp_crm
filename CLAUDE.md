@@ -140,7 +140,7 @@ sign-in bounces back to `/login`.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.
 
-### WhatsApp connection (two providers, side by side)
+### WhatsApp connection (three providers, side by side)
 
 An account can connect Whapi channels (any number of them since
 migration 060) and one Meta Cloud API number (migration 046), and an
@@ -437,6 +437,22 @@ row in the current format after a successful decrypt.
 `docs/whapi.md` and `docs/meta-cloud-api.md` are the operator-facing
 contract for all of the above — a behaviour change here ships with a doc
 change.
+
+**OpenWA, a third provider (migration 144, `docs/openwa.md`).**
+`provider = 'openwa'` is a self-hosted linked-device gateway run beside
+the app (never inside it). An openwa row stores the OpenWA session id in
+`phone_number_id`, a session-scoped operator key in `access_token`, the
+webhook secret in `verify_token` and the phone in `waba_id`;
+`OPENWA_API_KEY` (admin) is used only to add and remove numbers.
+`isLinkedDeviceProvider` (whapi | openwa) is the test for "not the Cloud
+API"; `=== 'whapi'` stays where code means Whapi's own API (Safety Meter,
+groups, submission groups, Compass). Every provider switch is exhaustive
+with a `never` default, because `=== 'meta'` else-Whapi silently sent
+openwa through the Whapi client and typecheck did not notice. Its webhook
+authenticates like Meta's: `sessionId` selects the row, the
+`X-OpenWA-Signature` HMAC over the raw body proves it, fail closed. No
+buttons or lists (numbered text instead). Team activity still counts
+Whapi numbers only.
 
 ### Taamul Compass (`lib/compass/*`, migration 056)
 
@@ -1582,6 +1598,6 @@ fails if one is wired to plain `t()`.
   `cases.md`, `memory-and-vault.md`, `assistant-safety.md`,
   `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
-  `push.md`, `taamul-sales.md`.
+  `push.md`, `taamul-sales.md`, `openwa.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
