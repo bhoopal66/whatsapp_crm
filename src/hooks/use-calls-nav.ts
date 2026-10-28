@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 
 import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
-import { callsSidebar, openMissedTasks } from '@/lib/pbx/timeline';
+import { loadCallsBadge } from '@/lib/pbx/calls-badge';
+import { callsSidebar } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
 
 interface Loaded {
@@ -30,21 +31,9 @@ export function useCallsNav(): { visible: boolean; missed: number } {
     if (profileLoading || isBankGuest || !userId) return;
     let cancelled = false;
     (async () => {
-      const exts = await createClient()
-        .from('pbx_extensions')
-        .select('id', { count: 'exact', head: true });
-      const hasPbx = !exts.error && (exts.count ?? 0) > 0;
-      const tasks = hasPbx
-        ? await fetch('/api/tasks?scope=mine&status=open&limit=200')
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null)
-        : null;
+      const { hasPbx, missed } = await loadCallsBadge(createClient(), userId);
       if (!cancelled)
-        setLoaded({
-          workspace: activeWorkspaceId,
-          hasPbx,
-          missed: openMissedTasks(tasks?.tasks ?? [], userId),
-        });
+        setLoaded({ workspace: activeWorkspaceId, hasPbx, missed });
     })().catch(() => {});
     return () => {
       cancelled = true;

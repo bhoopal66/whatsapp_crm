@@ -7,13 +7,9 @@ import { PhoneCall, PhoneMissed } from 'lucide-react';
 
 import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
+import { loadCallsBadge } from '@/lib/pbx/calls-badge';
 import { createClient } from '@/lib/supabase/client';
-import {
-  callsSidebar,
-  openMissedTasks,
-  startOfDay,
-  type MyPhone,
-} from '@/lib/pbx/timeline';
+import { callsSidebar, startOfDay, type MyPhone } from '@/lib/pbx/timeline';
 import { cn } from '@/lib/utils';
 
 interface CallsState {
@@ -51,20 +47,19 @@ export function CallsSection({
     (async () => {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const from = encodeURIComponent(startOfDay(Date.now(), tz));
-      const [me, exts, tasks, calls] = await Promise.all([
+      const [me, badge, calls] = await Promise.all([
         getJson('/api/pbx/me'),
-        createClient()
-          .from('pbx_extensions')
-          .select('id', { count: 'exact', head: true }),
-        getJson('/api/tasks?scope=mine&status=open&limit=200'),
+        userId
+          ? loadCallsBadge(createClient(), userId)
+          : Promise.resolve({ hasPbx: false, missed: 0 }),
         // Today's count is the person's own calls, as /calls opens on.
         getJson(`/api/pbx/calls?scope=mine&from=${from}&limit=200`),
       ]);
       if (cancelled) return;
       setState({
         me: me as MyPhone | null,
-        hasPbx: (exts.count ?? 0) > 0,
-        missed: openMissedTasks(tasks?.tasks ?? [], userId),
+        hasPbx: badge.hasPbx,
+        missed: badge.missed,
         today: Array.isArray(calls?.calls) ? calls.calls.length : 0,
       });
     })();
