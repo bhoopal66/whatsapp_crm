@@ -731,7 +731,7 @@ describe('OpenWA numbers', () => {
       expect(rows[0].type).toBe('channel_reconnected');
     });
 
-    it('a first link (never connected) is stamped but not announced', async () => {
+    it('a first link (never connected) is stamped with its number but not announced', async () => {
       h.channels = [{ ...openwaRow('disconnected'), connectedAt: null }];
       const { db, calls } = fakeAdmin({});
       const summary = await runChannelHealthCheck(db, {
@@ -744,8 +744,16 @@ describe('OpenWA numbers', () => {
         notified: 0,
         failed: 0,
       });
+      // The number too: once connected_at is set the status route no
+      // longer writes the first link, so this is its only chance.
       expect(calls('whatsapp_config', 'update')).toEqual([
-        [{ status: 'connected', connected_at: NOW.toISOString() }],
+        [
+          {
+            status: 'connected',
+            connected_at: NOW.toISOString(),
+            waba_id: '971509999999',
+          },
+        ],
       ]);
       // Only while still unstamped: the status route may have won.
       expect(calls('whatsapp_config', 'is')).toEqual([['connected_at', null]]);

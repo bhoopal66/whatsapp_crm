@@ -462,7 +462,8 @@ export async function runChannelHealthCheck(
             admin,
             channel,
             verdict,
-            now()
+            now(),
+            outcome.ok ? outcome.phone : null
           );
           if (notified === null) return;
           summary.changed++;
@@ -513,7 +514,8 @@ async function applyTransition(
   admin: SupabaseClient,
   channel: WhatsAppChannel,
   verdict: HealthVerdict,
-  at: Date
+  at: Date,
+  livePhone: string | null | undefined = null
 ): Promise<number | null> {
   const patch: Record<string, unknown> = { status: verdict.status };
   if (verdict.status === 'connected') patch.connected_at = at.toISOString();
@@ -522,11 +524,15 @@ async function applyTransition(
   // first `ready` would read as "connected again — messages may be
   // missing" for a number that was never up. When this sweep sees the
   // link before the connect dialog's poll does, it stamps the first link
-  // the way the status route would, and tells nobody.
+  // the way the status route would, number included, and tells nobody.
+  // Without the number here `waba_id` stayed NULL, because the status
+  // route writes status only on a first link it still sees unstamped.
   const firstLink =
     channel.provider === 'openwa' &&
     verdict.notify === 'up' &&
     channel.connectedAt === null;
+  const phone = livePhone?.replace(/\D/g, '') ?? '';
+  if (firstLink && phone) patch.waba_id = phone;
 
   let update = admin
     .from('whatsapp_config')

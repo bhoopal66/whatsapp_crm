@@ -47,15 +47,17 @@ export async function DELETE(
 
   const sessionId = row.phone_number_id as string;
   const adminKey = openwaAdminApiKey();
-  const gatewayCleanup =
-    adminKey && sessionId
-      ? (await teardownOpenWASession({
+  // No session id means nothing was ever created on the gateway (the
+  // create failed before it stored one): there is nothing to finish.
+  const gatewayCleanup = !sessionId
+    ? 'complete'
+    : adminKey &&
+        (await teardownOpenWASession({
           adminKey,
           sessionId,
           logPrefix: '[openwa disconnect]',
         }))
-        ? 'complete'
-        : 'incomplete'
+      ? 'complete'
       : 'incomplete';
 
   const { error: deleteError } = await supabase

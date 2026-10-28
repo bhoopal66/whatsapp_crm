@@ -6,6 +6,7 @@ const gw = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   findScopedKeyIds: vi.fn(),
   revokeKey: vi.fn(),
+  getSession: vi.fn(),
 }));
 
 // Real OpenWAError and env reader; gateway calls stubbed.
@@ -82,6 +83,7 @@ describe('sweepAbandonedOpenWASessions', () => {
     gw.deleteSession.mockResolvedValue(undefined);
     gw.findScopedKeyIds.mockResolvedValue(['key-1']);
     gw.revokeKey.mockResolvedValue(undefined);
+    gw.getSession.mockResolvedValue({ status: 'qr_ready', phone: null });
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -114,7 +116,13 @@ describe('sweepAbandonedOpenWASessions', () => {
   it('tears the session down with the admin key, then deletes the row', async () => {
     const { db, ofKind } = fakeAdmin({ abandoned: [row] });
     const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
-    expect(summary).toEqual({ found: 1, removed: 1, failed: 0 });
+    expect(summary).toEqual({
+      found: 1,
+      removed: 1,
+      failed: 0,
+      linked: 0,
+      kept: 0,
+    });
     const target = { adminKey: 'admin-key', sessionId: 'sess-1' };
     expect(gw.logoutSession).toHaveBeenCalledWith(target);
     expect(gw.deleteSession).toHaveBeenCalledWith(target);
@@ -138,7 +146,7 @@ describe('sweepAbandonedOpenWASessions', () => {
     gw.deleteSession.mockRejectedValue(new OpenWAError('down', 503));
     const { db, ofKind } = fakeAdmin({ abandoned: [row] });
     const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
-    expect(summary).toEqual({ found: 1, removed: 0, failed: 1 });
+    expect(summary).toMatchObject({ found: 1, removed: 0, failed: 1 });
     expect(ofKind('delete')).toEqual([]);
   });
 
@@ -173,11 +181,95 @@ describe('sweepAbandonedOpenWASessions', () => {
     );
   });
 
+  it('stamps a phone that linked after all instead of logging it out', async () => {
+    gw.getSession.mockResolvedValue({ status: 'ready', phone: '971500000001' });
+    const { db, ofKind } = fakeAdmin({ abandoned: [row] });
+    const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
+    expect(summary).toMatchObject({ found: 1, linked: 1, removed: 0 });
+    expect(gw.getSession).toHaveBeenCalledWith({
+      apiKey: 'admin-key',
+      sessionId: 'sess-1',
+    });
+    expect(gw.logoutSession).not.toHaveBeenCalled();
+    expect(gw.deleteSession).not.toHaveBeenCalled();
+    expect(ofKind('delete')).toEqual([]);
+    const [stamp] = ofKind('update');
+    expect(stamp).toEqual(
+      expect.arrayContaining([
+        [
+          'update',
+          [
+            {
+              status: 'connected',
+              connected_at: NOW.toISOString(),
+              waba_id: '971500000001',
+            },
+          ],
+        ],
+        ['eq', ['id', 'cfg-1']],
+        ['is', ['connected_at', null]],
+      ])
+    );
+  });
+
+  it('leaves a session mid-link, or one the gateway cannot report on, for the next sweep', async () => {
+    for (const answer of [
+      () => gw.getSession.mockResolvedValue({ status: 'authenticating' }),
+      () => gw.getSession.mockRejectedValue(new OpenWAError('down', 503)),
+    ]) {
+      answer();
+      gw.logoutSession.mockClear();
+      gw.deleteSession.mockClear();
+      const { db, ofKind } = fakeAdmin({ abandoned: [row] });
+      const summary = await sweepAbandonedOpenWASessions(db, {
+        now: () => NOW,
+      });
+      expect(summary).toMatchObject({ found: 1, kept: 1, removed: 0 });
+      expect(gw.logoutSession).not.toHaveBeenCalled();
+      expect(gw.deleteSession).not.toHaveBeenCalled();
+      expect(ofKind('delete')).toEqual([]);
+    }
+  });
+
+  it('tears down a session the gateway no longer has (its key may remain)', async () => {
+    gw.getSession.mockRejectedValue(
+      new OpenWAError('gone', 404, { route: 'session' })
+    );
+    const { db } = fakeAdmin({ abandoned: [row] });
+    const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
+    expect(summary.removed).toBe(1);
+    expect(gw.revokeKey).toHaveBeenCalled();
+  });
+
+  it('takes least recently touched rows first, and requeues one it keeps', async () => {
+    gw.deleteSession.mockRejectedValue(new OpenWAError('down', 503));
+    const { db, ofKind } = fakeAdmin({ abandoned: [row] });
+    await sweepAbandonedOpenWASessions(db, { now: () => NOW });
+    const [list] = ofKind('lt');
+    const orders = list.filter(([m]) => m === 'order').map(([, a]) => a[0]);
+    expect(orders).toEqual(['updated_at', 'created_at']);
+    const [requeue] = ofKind('update');
+    expect(requeue).toEqual(
+      expect.arrayContaining([
+        ['eq', ['id', 'cfg-1']],
+        ['is', ['connected_at', null]],
+      ])
+    );
+    expect(requeue[0][0]).toBe('update');
+    expect(Object.keys(requeue[0][1][0] as object)).toEqual(['updated_at']);
+  });
+
   it('does nothing without the admin key', async () => {
     vi.stubEnv('OPENWA_API_KEY', '');
     const { db, queries } = fakeAdmin({ abandoned: [row] });
     const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
-    expect(summary).toEqual({ found: 0, removed: 0, failed: 0 });
+    expect(summary).toEqual({
+      found: 0,
+      removed: 0,
+      failed: 0,
+      linked: 0,
+      kept: 0,
+    });
     expect(queries).toEqual([]);
     expect(gw.deleteSession).not.toHaveBeenCalled();
   });
