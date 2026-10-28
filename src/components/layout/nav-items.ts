@@ -29,14 +29,14 @@ import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 /**
  * The sidebar's information architecture.
  *
- * Grouped by area of work, under small headings, in the order the work
- * flows: the customer conversations, the customers and their deals, the
- * cases submitted to banks, then the staff's own tools for working
- * together. After those come the higher roles' extra views: Team for a
- * team leader, then the admins' campaign, automation and integration
- * screens. Only Dashboard, the home row, sits above the headings. A
- * group is dropped when the role may open nothing in it, so no role is
- * shown a heading over nothing.
+ * Grouped by area of work, under small headings: first the staff's own
+ * tools for working together, then the customer work in the order it
+ * flows: the conversations, the customers and their deals, the cases
+ * submitted to banks. After those come the higher roles' extra views:
+ * Team for a team leader, then the admins' campaign, automation and
+ * integration screens. Only Dashboard, the home row, sits above the
+ * headings. A group is dropped when the role may open nothing in it, so
+ * no role is shown a heading over nothing.
  */
 export interface NavItem {
   href: string;
@@ -103,6 +103,24 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'collaboration',
+    labelKey: 'groups.collaboration',
+    items: [
+      // Team chat (migration 087): the one row a bank guest sees too.
+      {
+        href: '/chat',
+        labelKey: 'chat',
+        icon: MessagesSquare,
+        guestVisible: true,
+      },
+      // Video meetings (migration 106): every staff role, never a bank
+      // guest; the route's layout turns a guest away on the server, and
+      // which meetings come back is RLS's call (`meeting_can_view`).
+      { href: '/meetings', labelKey: 'meetings', icon: Video },
+      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays },
+    ],
+  },
+  {
     id: 'conversations',
     labelKey: 'groups.conversations',
     items: [
@@ -166,24 +184,6 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Landmark,
         minRole: 'agent',
       },
-    ],
-  },
-  {
-    id: 'collaboration',
-    labelKey: 'groups.collaboration',
-    items: [
-      // Team chat (migration 087): the one row a bank guest sees too.
-      {
-        href: '/chat',
-        labelKey: 'chat',
-        icon: MessagesSquare,
-        guestVisible: true,
-      },
-      // Video meetings (migration 106): every staff role, never a bank
-      // guest; the route's layout turns a guest away on the server, and
-      // which meetings come back is RLS's call (`meeting_can_view`).
-      { href: '/meetings', labelKey: 'meetings', icon: Video },
-      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays },
     ],
   },
   {

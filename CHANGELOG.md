@@ -17,10 +17,10 @@ and polish.
 No migration.
 - The long list at the top of the sidebar is now split under headings
   by area of work, with Dashboard on its own above them:
-  **Conversations** (WhatsApp inbox, Calls, WhatsApp groups),
-  **Customers** (Contacts, Pipelines, Journeys), **Bank submissions**
-  (Cases, Submission groups, Banks) and **Collaboration** (Team chat,
-  Meetings, Calendar). Team leaders also get **Team** (Team inbox, Team
+  **Collaboration** (Team chat, Meetings, Calendar), **Conversations**
+  (WhatsApp inbox, Calls, WhatsApp groups), **Customers** (Contacts,
+  Pipelines, Journeys) and **Bank submissions** (Cases, Submission
+  groups, Banks). Team leaders also get **Team** (Team inbox, Team
   contacts, Team activity). Admins also get **Campaigns & automation**
   (Broadcasts, Automations, Flows), which replaces the one-row "Sales &
   marketing" and the "AI & automation" headings, and **Integrations**

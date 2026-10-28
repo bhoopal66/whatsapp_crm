@@ -70,10 +70,10 @@ describe('visibleNavGroups', () => {
   it("orders the groups by area, the higher roles' views last", () => {
     expect(visibleNavGroups('owner').map((g) => g.id)).toEqual([
       'main',
+      'collaboration',
       'conversations',
       'customers',
       'submissions',
-      'collaboration',
       'team',
       'automation',
       'integrations',
