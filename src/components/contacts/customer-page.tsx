@@ -6,12 +6,10 @@
 // or the viewer's API routes), so it shows only what they may see.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
-  ArrowLeft,
   Hash,
   MessageCircle,
   Phone,
@@ -27,6 +25,7 @@ import { useContactOutreach } from '@/components/contacts/contact-outreach';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { CallButton } from '@/components/pbx/call-button';
+import { BackLink } from '@/components/layout/back-link';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -328,7 +327,7 @@ export function CustomerPage({
   if (load.state !== 'ready')
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-        <BackLink label={tl('back')} href={contactsListPath(fromTeam)} />
+        <BackLink fallbackHref={contactsListPath(fromTeam)} />
         {load.state === 'loading' ? (
           <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
         ) : (
@@ -527,7 +526,7 @@ export function CustomerPage({
   const canSeeCases = !!accountRole && canSendMessages(accountRole);
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
-      <BackLink label={tl('back')} href={contactsListPath(fromTeam)} />
+      <BackLink fallbackHref={contactsListPath(fromTeam)} />
       <CustomerHeader
         contact={contact}
         ownerName={ownerName}
@@ -704,17 +703,5 @@ function ConsentTitle({
       <Icon className="text-muted-foreground size-3.5" />
       {children}
     </h2>
-  );
-}
-
-function BackLink({ label, href }: { label: string; href: string }) {
-  return (
-    <Link
-      href={href}
-      className="text-muted-foreground inline-flex items-center gap-1 text-sm hover:underline"
-    >
-      <ArrowLeft className="size-4" />
-      {label}
-    </Link>
   );
 }

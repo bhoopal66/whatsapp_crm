@@ -2,8 +2,8 @@
 
 import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { BackLink } from "@/components/layout/back-link"
 import {
-  ArrowLeft,
   Check,
   Loader2,
   X,
@@ -86,14 +86,13 @@ export default function AutomationLogsPage({
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => router.push("/automations")}
+        <BackLink
+          fallbackHref="/automations"
+          fallbackLabel={t("backAria")}
+          iconOnly
+          iconClassName="h-4 w-4"
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label={t("backAria")}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
+        />
         <div>
           <h1 className="text-2xl font-bold text-foreground">{automation.name}</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">{t("title")}</p>

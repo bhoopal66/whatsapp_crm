@@ -16,6 +16,7 @@ import { InCallPanel } from "@/components/pbx/in-call-panel";
 import { SoftphoneMount } from "@/components/pbx/softphone-mount";
 import { AppContextMenu } from "@/components/context-menu/app-context-menu";
 import { NotificationsProvider } from "@/components/notifications/notifications-provider";
+import { BackNavTracker } from "@/components/layout/back-nav-tracker";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -110,6 +111,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
+      {/* Outside the auth gate so the first page this tab shows is
+          recorded too: in-page Back links return to where you came from. */}
+      <BackNavTracker />
       <DashboardShellInner>{children}</DashboardShellInner>
     </AuthProvider>
   );

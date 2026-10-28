@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { BackLink } from '@/components/layout/back-link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
-  ArrowLeft,
   ArrowRightLeft,
   Briefcase,
   ExternalLink,
@@ -39,11 +39,7 @@ import {
   type CaseTab,
   type CaseTabProps,
 } from '@/lib/cases/case-page';
-import {
-  caseStatusView,
-  contactPersonLine,
-  formatAed,
-} from '@/lib/cases/ui';
+import { caseStatusView, contactPersonLine, formatAed } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 
 import { AuditTab } from './audit-tab';
@@ -215,13 +211,12 @@ export function CasePage({ caseId }: { caseId: string }) {
   };
 
   const back = (
-    <Link
-      href="/cases"
-      aria-label={t('back')}
+    <BackLink
+      fallbackHref="/cases"
+      fallbackLabel={t('back')}
+      iconOnly
       className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-    >
-      <ArrowLeft className="size-4" />
-    </Link>
+    />
   );
 
   if (state === 'loading') {
@@ -236,13 +231,11 @@ export function CasePage({ caseId }: { caseId: string }) {
   if (state !== 'ok' || !detail) {
     return (
       <div className="flex flex-col items-start gap-3 p-4">
-        <Link
-          href="/cases"
+        <BackLink
+          fallbackHref="/cases"
+          fallbackLabel={t('back')}
           className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-        >
-          <ArrowLeft className="size-4" />
-          {t('back')}
-        </Link>
+        />
         <p className="text-muted-foreground text-sm">
           {state === 'gone'
             ? t('notFound')

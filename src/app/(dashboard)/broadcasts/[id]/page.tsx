@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { BackLink } from '@/components/layout/back-link';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Broadcast, BroadcastRecipient, RecipientStatus } from '@/types';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -21,7 +23,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  ArrowLeft,
   Loader2,
   Users,
   Send,
@@ -495,14 +496,15 @@ export default function BroadcastDetailPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-4">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => router.push('/broadcasts')}
-            className="border-border"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
+          <BackLink
+            fallbackHref="/broadcasts"
+            iconOnly
+            iconClassName="h-4 w-4"
+            className={cn(
+              buttonVariants({ variant: 'outline', size: 'icon' }),
+              'border-border'
+            )}
+          />
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-foreground text-2xl font-bold">

@@ -57,6 +57,11 @@ vi.mock('@/components/notifications/notifications-provider', () => ({
     children,
 }));
 
+// Reads search params, which this mock of next/navigation has none of.
+vi.mock('@/components/layout/back-nav-tracker', () => ({
+  BackNavTracker: () => null,
+}));
+
 import { DashboardShell } from './dashboard-shell';
 
 function render(role: string | null, pathname: string, profileLoading = false) {
