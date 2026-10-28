@@ -12,6 +12,32 @@ and polish.
 
 ## [Unreleased]
 
+### Dashboard: a home screen for today's work
+
+No migration.
+- The dashboard was still the WhatsApp-CRM page (open chats, new
+  contacts, messages sent, quick actions, an activity feed). It is now a
+  home screen that follows your role. At the top, **Needs your
+  attention** counts what is waiting for you, each count opening the
+  list it counts: unread chats, chats the AI handed to a person (and
+  drafts to approve), overdue tasks, missed calls to return, and cases
+  past their SLA.
+- **Today** lists your open tasks (overdue, today, the next 7 days),
+  which you can tick off here, your agenda (events and meetings, with
+  Join when a meeting is about to start), and how many new chats you
+  have started today against the limits that protect the WhatsApp
+  numbers.
+- **Your work** shows your cases (an agent's own, a team leader's
+  team, everything for admins: SLA, customers waiting, documents
+  missing, bank queries, the most urgent cases and, for leaders, cases
+  by stage) and today's calls with their outcomes.
+- Team leaders also get **Team activity today** (new chats, reply rate,
+  customers waiting and the top warnings); admins also see the health
+  of every WhatsApp number and the campaigns sending or scheduled.
+- **Trends** keeps the message volume, pipeline value and response-time
+  charts. The page refreshes itself every five minutes while open, and
+  when you come back to it.
+
 ### Calls: a movable call window with the customer's history
 
 No migration.
