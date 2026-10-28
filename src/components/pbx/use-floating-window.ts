@@ -20,6 +20,7 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -88,6 +89,8 @@ interface Drag {
   top: number;
   moving: boolean;
   frame: number | null;
+  /** body user-select before the drag took it; null until moving. */
+  userSelect: string | null;
   at: { left: number; top: number };
 }
 
@@ -194,11 +197,11 @@ export function useFloatingWindow({
     const d = drag.current;
     if (!d || d.pointerId !== e.pointerId) return;
     drag.current = null;
-    if (!d.moving) return;
-    if (d.frame !== null) cancelAnimationFrame(d.frame);
     if (e.currentTarget.hasPointerCapture(e.pointerId))
       e.currentTarget.releasePointerCapture(e.pointerId);
-    document.body.style.userSelect = '';
+    if (!d.moving) return;
+    if (d.frame !== null) cancelAnimationFrame(d.frame);
+    document.body.style.userSelect = d.userSelect ?? '';
     setDragging(false);
     const el = ref.current;
     if (!el) return;
@@ -207,6 +210,19 @@ export function useFloatingWindow({
     if (keep) settle(anchorOf({ ...d.at, ...size }, vp));
     else apply();
   };
+
+  // The node going away mid-drag (the ringing card on hang-up) or the
+  // hook unmounting: leave no session, frame or app-wide user-select.
+  useEffect(() => {
+    return () => {
+      const d = drag.current;
+      if (!d) return;
+      drag.current = null;
+      if (d.frame !== null) cancelAnimationFrame(d.frame);
+      if (d.userSelect !== null) document.body.style.userSelect = d.userSelect;
+      setDragging(false);
+    };
+  }, [node]);
 
   const handleProps = {
     role: 'group',
@@ -232,19 +248,28 @@ export function useFloatingWindow({
         top: r.top,
         moving: false,
         frame: null,
+        userSelect: null,
         at: { left: r.left, top: r.top },
       };
+      // From the press, so a fast flick off the band still reports here.
+      e.currentTarget.setPointerCapture(e.pointerId);
     },
     onPointerMove: (e: PointerEvent<HTMLElement>) => {
       const d = drag.current;
       const el = ref.current;
       if (!d || !el || d.pointerId !== e.pointerId) return;
+      // A release this element never heard (outside the window): no
+      // button is down, so the session is over.
+      if (e.pointerType === 'mouse' && e.buttons === 0) {
+        endDrag(e, d.moving);
+        return;
+      }
       const mx = e.clientX - d.startX;
       const my = e.clientY - d.startY;
       if (!d.moving) {
         if (Math.hypot(mx, my) < DRAG_THRESHOLD_PX) return;
         d.moving = true;
-        e.currentTarget.setPointerCapture(e.pointerId);
+        d.userSelect = document.body.style.userSelect;
         document.body.style.userSelect = 'none';
         setDragging(true);
       }

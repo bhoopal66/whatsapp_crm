@@ -616,7 +616,7 @@ section describes the behaviour once it is on.
   countdown (or "Add outcome") after it, and Expand. A minimised
   wrap-up still closes by itself; where outcomes are mandatory and one
   is still owed when the two minutes run out, the window expands on its
-  own. It remembers its corner, distance from the edges and size in
+  own. It remembers where you left it and whether it was minimised, in
   this browser only (a new browser starts bottom-right), keeps to its
   corner when the browser window is resized, and never leaves the
   screen. On a phone it is a bottom sheet, minimised to a bar at the

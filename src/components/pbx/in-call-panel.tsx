@@ -150,10 +150,14 @@ function Panel() {
   // Ticks after hang-up too: the wrap-up's countdown.
   const now = useNow(true);
   const wrapLeft = p.endedAt === null ? null : wrapUpLeftMs(p.endedAt, now);
-  const facts = useCallFacts(row?.contact_id ?? p.contactId, {
-    connectionId: p.connectionId,
-    pbxCallId: p.pbxCallId,
-  });
+  const pickedId = calls.picks[p.key];
+  const facts = useCallFacts(
+    row?.contact_id ?? p.contactId ?? pickedId ?? null,
+    {
+      connectionId: p.connectionId,
+      pbxCallId: p.pbxCallId,
+    }
+  );
   const ref = { pbxCallId: p.pbxCallId, remoteNumber: p.remoteNumber };
   const owner = otherOwner(facts?.ownerId, calls.userId);
   const [ownerExt, setOwnerExt] = useState<{
@@ -250,7 +254,6 @@ function Panel() {
   }, [sb, accountId, calls.userId]);
 
   // A customer picked on the card is linked once the call row exists.
-  const pickedId = calls.picks[p.key];
   useEffect(() => {
     if (!row || row.contact_id || !pickedId) return;
     void fetch(`/api/pbx/calls/${row.id}/link`, {
@@ -412,7 +415,7 @@ function Panel() {
   const contactId = row?.contact_id ?? p.contactId ?? pickedId ?? null;
   // A contact the person cannot see gets no history, tasks or reminder,
   // as it gets no links (CustomerTab).
-  const visibleId = facts?.hidden ? null : contactId;
+  const visibleId = facts && !facts.hidden ? contactId : null;
   const history = useCallHistory(visibleId, p.pbxCallId);
   // Whole seconds up: 0:00 only once the time is up.
   const wrapLabel =
@@ -606,7 +609,7 @@ function Panel() {
               )
         )}
       >
-        {minimized ? (
+        {minimized && (
           <div
             {...handleProps}
             className={cn(
@@ -697,248 +700,251 @@ function Panel() {
               <Maximize2 className="size-4" />
             </button>
           </div>
-        ) : (
-          <>
-            <div
-              {...handleProps}
-              className={cn('shrink-0 bg-[#0f1b2d] p-4 text-white', handleRing)}
-            >
-              <div className="flex items-center gap-2 text-xs text-white/70">
-                <span className="min-w-0 flex-1 truncate">
-                  {t('onCall', {
-                    extension: me.extension,
-                    mode: calls.softphone ? t('modeBrowser') : t('modeDesk'),
-                  })}
+        )}
+        {/* Kept mounted while minimised (hidden, not unmounted) so the
+            reminder, notes and tab reads survive Minimise / Expand. */}
+        <div hidden={minimized} className="flex min-h-0 flex-1 flex-col">
+          <div
+            {...handleProps}
+            className={cn('shrink-0 bg-[#0f1b2d] p-4 text-white', handleRing)}
+          >
+            <div className="flex items-center gap-2 text-xs text-white/70">
+              <span className="min-w-0 flex-1 truncate">
+                {t('onCall', {
+                  extension: me.extension,
+                  mode: calls.softphone ? t('modeBrowser') : t('modeDesk'),
+                })}
+              </span>
+              {recording && !ended && (
+                <span className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
+                  ● {t('recording')}
                 </span>
-                {recording && !ended && (
-                  <span className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
-                    ● {t('recording')}
-                  </span>
-                )}
-                {grip}
-                <button
-                  type="button"
-                  aria-label={t('minimize')}
-                  title={t('minimize')}
-                  onClick={() => setMinimized(true)}
-                  className="-my-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
-                >
-                  <Minus className="size-4" />
-                </button>
-              </div>
-              <p className="mt-2 truncate text-lg font-semibold">{name}</p>
-              <p className="flex items-center gap-1.5 text-sm text-white/70">
-                {p.inbound ? (
-                  <PhoneIncoming aria-hidden className="size-3.5 shrink-0" />
-                ) : (
-                  <PhoneOutgoing aria-hidden className="size-3.5 shrink-0" />
-                )}
-                <span className="truncate">
-                  {[
-                    t(p.inbound ? 'directions.inbound' : 'directions.outbound'),
-                    masked,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
+              )}
+              {grip}
+              <button
+                type="button"
+                aria-label={t('minimize')}
+                title={t('minimize')}
+                onClick={() => setMinimized(true)}
+                className="-my-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-full text-white/80 hover:bg-white/15"
+              >
+                <Minus className="size-4" />
+              </button>
+            </div>
+            <p className="mt-2 truncate text-lg font-semibold">{name}</p>
+            <p className="flex items-center gap-1.5 text-sm text-white/70">
+              {p.inbound ? (
+                <PhoneIncoming aria-hidden className="size-3.5 shrink-0" />
+              ) : (
+                <PhoneOutgoing aria-hidden className="size-3.5 shrink-0" />
+              )}
+              <span className="truncate">
+                {[
+                  t(p.inbound ? 'directions.inbound' : 'directions.outbound'),
+                  masked,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </p>
+            <p className="mt-1 text-3xl font-semibold tabular-nums">
+              {ended ? `${t('callEnded')} · ` : ''}
+              {formatTimer(talkMs)}
+            </p>
+            {calls.settings.announcementRequired && (
+              <p className="mt-1 text-xs text-white/70">{t('noticePlayed')}</p>
+            )}
+            {wrapLeft !== null && (phase === 'counting' || owed) && (
+              <p
+                role="status"
+                className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm tabular-nums"
+              >
+                {wrapLabel !== null
+                  ? t('wrapUp', { left: wrapLabel })
+                  : t('wrapUpOverdue')}
               </p>
-              <p className="mt-1 text-3xl font-semibold tabular-nums">
-                {ended ? `${t('callEnded')} · ` : ''}
-                {formatTimer(talkMs)}
-              </p>
-              {calls.settings.announcementRequired && (
-                <p className="mt-1 text-xs text-white/70">
-                  {t('noticePlayed')}
-                </p>
-              )}
-              {wrapLeft !== null && (phase === 'counting' || owed) && (
-                <p
-                  role="status"
-                  className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm tabular-nums"
-                >
-                  {wrapLabel !== null
-                    ? t('wrapUp', { left: wrapLabel })
-                    : t('wrapUpOverdue')}
-                </p>
-              )}
-              {!row?.contact_id && !p.contactId && pickedId === undefined && (
-                <CandidatePickerFor callKey={p.key} />
-              )}
-              {!ended && (
-                <>
-                  <div className="mt-4 flex items-start justify-center gap-1">
+            )}
+            {!row?.contact_id && !p.contactId && pickedId === undefined && (
+              <CandidatePickerFor callKey={p.key} />
+            )}
+            {!ended && (
+              <>
+                <div className="mt-4 flex items-start justify-center gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={muted}
+                    className={control}
+                    onClick={() => void toggleMute()}
+                  >
+                    <span className={disc(muted)}>
+                      {muted ? (
+                        <MicOff className="size-5" />
+                      ) : (
+                        <Mic className="size-5" />
+                      )}
+                    </span>
+                    {muted ? t('unmute') : t('mute')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={held}
+                    className={control}
+                    onClick={() => void toggleHold()}
+                  >
+                    <span className={disc(held)}>
+                      {held ? (
+                        <Play className="size-5" />
+                      ) : (
+                        <Pause className="size-5" />
+                      )}
+                    </span>
+                    {held ? t('resume') : t('hold')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-expanded={transfer !== null}
+                    className={control}
+                    onClick={() => setTransfer(transfer === null ? '' : null)}
+                  >
+                    <span className={disc(transfer !== null)}>
+                      <ArrowRightLeft className="size-5" />
+                    </span>
+                    {t('transfer')}
+                  </button>
+                  {calls.softphone && (
                     <button
                       type="button"
-                      aria-pressed={muted}
+                      aria-expanded={keypad}
                       className={control}
-                      onClick={() => void toggleMute()}
+                      onClick={() => setKeypad(!keypad)}
                     >
-                      <span className={disc(muted)}>
-                        {muted ? (
-                          <MicOff className="size-5" />
-                        ) : (
-                          <Mic className="size-5" />
-                        )}
+                      <span className={disc(keypad)}>
+                        <Grid3x3 className="size-5" />
                       </span>
-                      {muted ? t('unmute') : t('mute')}
+                      {t('keypad')}
                     </button>
+                  )}
+                  <button type="button" className={control} onClick={hangUp}>
+                    <span className="flex size-11 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500">
+                      <Phone className="size-5 rotate-[135deg]" />
+                    </span>
+                    {t('hangUp')}
+                  </button>
+                </div>
+                {transfer !== null && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <input
+                      value={transfer}
+                      onChange={(e) => setTransfer(e.target.value)}
+                      placeholder={t('transferNumber')}
+                      aria-label={t('transferNumber')}
+                      className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/55"
+                    />
                     <button
                       type="button"
-                      aria-pressed={held}
-                      className={control}
-                      onClick={() => void toggleHold()}
+                      disabled={!transfer.trim()}
+                      className="h-9 rounded-lg bg-white/15 px-3 text-sm disabled:opacity-40"
+                      onClick={async () =>
+                        (await calls.control(p.pbxCallId, 'transfer', {
+                          number: transfer.trim(),
+                        })) && toast.success(t('transferred'))
+                      }
                     >
-                      <span className={disc(held)}>
-                        {held ? (
-                          <Play className="size-5" />
-                        ) : (
-                          <Pause className="size-5" />
-                        )}
-                      </span>
-                      {held ? t('resume') : t('hold')}
+                      {t('transferTo')}
                     </button>
-                    <button
-                      type="button"
-                      aria-expanded={transfer !== null}
-                      className={control}
-                      onClick={() => setTransfer(transfer === null ? '' : null)}
-                    >
-                      <span className={disc(transfer !== null)}>
-                        <ArrowRightLeft className="size-5" />
-                      </span>
-                      {t('transfer')}
-                    </button>
-                    {calls.softphone && (
+                    {toOwner && (
                       <button
                         type="button"
-                        aria-expanded={keypad}
-                        className={control}
-                        onClick={() => setKeypad(!keypad)}
-                      >
-                        <span className={disc(keypad)}>
-                          <Grid3x3 className="size-5" />
-                        </span>
-                        {t('keypad')}
-                      </button>
-                    )}
-                    <button type="button" className={control} onClick={hangUp}>
-                      <span className="flex size-11 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500">
-                        <Phone className="size-5 rotate-[135deg]" />
-                      </span>
-                      {t('hangUp')}
-                    </button>
-                  </div>
-                  {transfer !== null && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <input
-                        value={transfer}
-                        onChange={(e) => setTransfer(e.target.value)}
-                        placeholder={t('transferNumber')}
-                        aria-label={t('transferNumber')}
-                        className="h-9 min-w-0 flex-1 rounded-lg bg-white/10 px-3 text-sm placeholder:text-white/55"
-                      />
-                      <button
-                        type="button"
-                        disabled={!transfer.trim()}
-                        className="h-9 rounded-lg bg-white/15 px-3 text-sm disabled:opacity-40"
+                        className="h-9 rounded-lg bg-white/15 px-3 text-sm"
                         onClick={async () =>
                           (await calls.control(p.pbxCallId, 'transfer', {
-                            number: transfer.trim(),
+                            toOwner: true,
                           })) && toast.success(t('transferred'))
                         }
                       >
-                        {t('transferTo')}
+                        {t('transferToOwner')}
                       </button>
-                      {toOwner && (
-                        <button
-                          type="button"
-                          className="h-9 rounded-lg bg-white/15 px-3 text-sm"
-                          onClick={async () =>
-                            (await calls.control(p.pbxCallId, 'transfer', {
-                              toOwner: true,
-                            })) && toast.success(t('transferred'))
-                          }
-                        >
-                          {t('transferToOwner')}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {keypad && calls.softphone && (
-                    <div className="mx-auto mt-3 grid w-48 grid-cols-3 gap-2">
-                      {[...'123456789*0#'].map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          className="h-10 rounded-lg bg-white/10 text-lg"
-                          onClick={() =>
-                            void calls.softphone?.dtmf(ref, d).catch((e) =>
-                              toast.error(
-                                t('actionFailed', {
-                                  message:
-                                    e instanceof Error ? e.message : String(e),
-                                })
-                              )
+                    )}
+                  </div>
+                )}
+                {keypad && calls.softphone && (
+                  <div className="mx-auto mt-3 grid w-48 grid-cols-3 gap-2">
+                    {[...'123456789*0#'].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className="h-10 rounded-lg bg-white/10 text-lg"
+                        onClick={() =>
+                          void calls.softphone?.dtmf(ref, d).catch((e) =>
+                            toast.error(
+                              t('actionFailed', {
+                                message:
+                                  e instanceof Error ? e.message : String(e),
+                              })
                             )
-                          }
-                        >
-                          {d}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                          )
+                        }
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div
+            role="tablist"
+            aria-label={t('tabsLabel')}
+            onKeyDown={onTabKey}
+            className="flex shrink-0 gap-1 border-b px-3"
+          >
+            {tabs.map((x) => (
+              <button
+                key={x.id}
+                id={`pbx-call-tab-${x.id}`}
+                type="button"
+                role="tab"
+                aria-selected={x === current}
+                aria-controls={`pbx-call-panel-${x.id}`}
+                tabIndex={x === current ? 0 : -1}
+                onClick={() => setTab(x.id)}
+                className={cn(
+                  '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                  x === current
+                    ? 'border-primary text-foreground'
+                    : 'text-muted-foreground hover:text-foreground border-transparent'
+                )}
+              >
+                {x.label}
+              </button>
+            ))}
+          </div>
+          {tabs.map((x) => (
             <div
-              role="tablist"
-              aria-label={t('tabsLabel')}
-              onKeyDown={onTabKey}
-              className="flex shrink-0 gap-1 border-b px-3"
-            >
-              {tabs.map((x) => (
-                <button
-                  key={x.id}
-                  id={`pbx-call-tab-${x.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={x === current}
-                  aria-controls={`pbx-call-panel-${x.id}`}
-                  tabIndex={x === current ? 0 : -1}
-                  onClick={() => setTab(x.id)}
-                  className={cn(
-                    '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
-                    x === current
-                      ? 'border-primary text-foreground'
-                      : 'text-muted-foreground hover:text-foreground border-transparent'
-                  )}
-                >
-                  {x.label}
-                </button>
-              ))}
-            </div>
-            <div
-              id={`pbx-call-panel-${current.id}`}
+              key={x.id}
+              id={`pbx-call-panel-${x.id}`}
               role="tabpanel"
-              aria-labelledby={`pbx-call-tab-${current.id}`}
+              aria-labelledby={`pbx-call-tab-${x.id}`}
+              hidden={x !== current}
               className="min-h-0 flex-1 overflow-y-auto p-4"
             >
-              {current.panel}
+              {x.panel}
             </div>
-            {/* A live call has no Close: it always has the panel. */}
-            {ended && (
-              <div className="shrink-0 border-t p-3">
-                <button
-                  type="button"
-                  onClick={() => void close()}
-                  className="bg-muted hover:bg-muted/80 h-10 w-full rounded-lg text-sm font-medium"
-                >
-                  {t('close')}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+          ))}
+          {/* A live call has no Close: it always has the panel. */}
+          {ended && (
+            <div className="shrink-0 border-t p-3">
+              <button
+                type="button"
+                onClick={() => void close()}
+                className="bg-muted hover:bg-muted/80 h-10 w-full rounded-lg text-sm font-medium"
+              >
+                {t('close')}
+              </button>
+            </div>
+          )}
+        </div>
       </aside>
     </>
   );
