@@ -1,0 +1,212 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { ConversationListItem } from '@/lib/inbox/conversations';
+import type { Contact, Conversation } from '@/types';
+import {
+  applyActiveAvatars,
+  applyFullRow,
+  openConversation,
+  patchActiveChat,
+  type ActiveChat,
+} from './open-conversation';
+
+function listRow(id: string): ConversationListItem {
+  return {
+    id,
+    user_id: 'u1',
+    assigned_agent_id: undefined,
+    last_message_text: 'hi',
+    last_message_at: '2026-10-28T10:00:00Z',
+    unread_count: 2,
+    updated_at: '2026-10-28T10:00:00Z',
+    channel_id: null,
+    send_channel_id: null,
+    chat_tag_id: null,
+    chat_sub_tag_id: null,
+    campaign_broadcast_id: null,
+    human_engaged_at: null,
+    ai_autoreply_disabled: false,
+    ai_reply_count: 0,
+    ai_attention_at: null,
+    contact: {
+      id: `contact-${id}`,
+      name: 'Amal',
+      phone: '971500000000',
+      company: undefined,
+      avatar_url: undefined,
+    },
+  } as ConversationListItem;
+}
+
+function fullRow(id: string, extra: Partial<Conversation> = {}): Conversation {
+  return {
+    ...listRow(id),
+    contact_id: `contact-${id}`,
+    status: 'open',
+    created_at: '2026-10-01T00:00:00Z',
+    ai_pending_draft: 'Held draft',
+    contact: {
+      ...listRow(id).contact,
+      user_id: 'u1',
+      account_id: 'a1',
+      created_at: '2026-10-01T00:00:00Z',
+      updated_at: '2026-10-01T00:00:00Z',
+      do_not_contact_at: '2026-10-02T00:00:00Z',
+    } as Contact,
+    ...extra,
+  } as Conversation;
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** The page's state, driven through the same updaters it uses. */
+function harness() {
+  let active: ActiveChat | null = null;
+  const pending = new Map<
+    string,
+    ReturnType<typeof deferred<Conversation | null>>
+  >();
+  const shows: ActiveChat[] = [];
+  const deps = {
+    latest: { current: null as string | null },
+    show: (chat: ActiveChat) => {
+      shows.push(chat);
+      active = chat;
+    },
+    upgrade: (full: Conversation) => {
+      active = applyFullRow(active, full);
+    },
+    fetchFull: vi.fn((id: string) => {
+      const d = deferred<Conversation | null>();
+      pending.set(id, d);
+      return d.promise;
+    }),
+  };
+  return {
+    deps,
+    shows,
+    pending,
+    get active() {
+      return active;
+    },
+  };
+}
+
+describe('openConversation', () => {
+  it('shows the list row at once and reads the full row in parallel', () => {
+    const h = harness();
+    const row = listRow('a');
+    // Not awaited: the full row is still in flight.
+    void openConversation('a', row, h.deps);
+    // The thread is already open on the list row, so its own messages
+    // read can start now, and the full-row read has been asked for in
+    // the same tick rather than ahead of the thread.
+    expect(h.active).toEqual({ full: false, row });
+    expect(h.deps.fetchFull).toHaveBeenCalledWith('a');
+  });
+
+  it('replaces the list row with the full row when it lands', async () => {
+    const h = harness();
+    const open = openConversation('a', listRow('a'), h.deps);
+    const full = fullRow('a');
+    h.pending.get('a')!.resolve(full);
+    await open;
+    expect(h.active).toEqual({ full: true, row: full });
+    // One show: the upgrade is not a new open (messages are not cleared).
+    expect(h.shows).toHaveLength(1);
+  });
+
+  it('never lets a slow full row land on a chat picked since', async () => {
+    const h = harness();
+    const openA = openConversation('a', listRow('a'), h.deps);
+    const openB = openConversation('b', listRow('b'), h.deps);
+    h.pending.get('a')!.resolve(fullRow('a'));
+    await openA;
+    expect(h.active).toEqual({ full: false, row: listRow('b') });
+    const fullB = fullRow('b');
+    h.pending.get('b')!.resolve(fullB);
+    await openB;
+    expect(h.active).toEqual({ full: true, row: fullB });
+  });
+
+  it('without a list row opens on the full row once read', async () => {
+    const h = harness();
+    const open = openConversation('a', undefined, h.deps);
+    expect(h.active).toBeNull();
+    const full = fullRow('a');
+    h.pending.get('a')!.resolve(full);
+    await open;
+    expect(h.active).toEqual({ full: true, row: full });
+  });
+
+  it('without a list row does not open over a later pick', async () => {
+    const h = harness();
+    const openA = openConversation('a', undefined, h.deps);
+    void openConversation('b', listRow('b'), h.deps);
+    h.pending.get('a')!.resolve(fullRow('a'));
+    await openA;
+    expect(h.active).toEqual({ full: false, row: listRow('b') });
+  });
+
+  it('keeps the list row open when the full read finds nothing', async () => {
+    const h = harness();
+    const open = openConversation('a', listRow('a'), h.deps);
+    h.pending.get('a')!.resolve(null);
+    await open;
+    expect(h.active).toEqual({ full: false, row: listRow('a') });
+  });
+});
+
+describe('applyFullRow', () => {
+  it('upgrades the same chat and leaves any other untouched', () => {
+    const prev: ActiveChat = { full: false, row: listRow('a') };
+    expect(applyFullRow(prev, fullRow('a'))).toEqual({
+      full: true,
+      row: fullRow('a'),
+    });
+    expect(applyFullRow(prev, fullRow('b'))).toBe(prev);
+    expect(applyFullRow(null, fullRow('a'))).toBeNull();
+  });
+});
+
+describe('patchActiveChat', () => {
+  it('keeps a full row full and its full contact', () => {
+    const full = fullRow('a');
+    const prev: ActiveChat = { full: true, row: full };
+    const next = patchActiveChat(prev, 'a', {
+      unread_count: 0,
+      // A list row's narrow contact must not replace the full one.
+      contact: listRow('a').contact as Contact,
+    });
+    expect(next?.full).toBe(true);
+    expect(next?.row.unread_count).toBe(0);
+    expect(next?.row.contact).toBe(full.contact);
+    expect((next?.row as Conversation).ai_pending_draft).toBe('Held draft');
+  });
+
+  it('does not upgrade a list row', () => {
+    const prev: ActiveChat = { full: false, row: listRow('a') };
+    const next = patchActiveChat(prev, 'a', { ai_pending_draft: 'x' });
+    expect(next?.full).toBe(false);
+  });
+
+  it('leaves another chat as the same reference', () => {
+    const prev: ActiveChat = { full: true, row: fullRow('a') };
+    expect(patchActiveChat(prev, 'b', { unread_count: 0 })).toBe(prev);
+  });
+});
+
+describe('applyActiveAvatars', () => {
+  it('sets the picture and keeps `full`', () => {
+    const prev: ActiveChat = { full: true, row: fullRow('a') };
+    const next = applyActiveAvatars(prev, { 'contact-a': 'https://x/p.jpg' });
+    expect(next?.full).toBe(true);
+    expect(next?.row.contact?.avatar_url).toBe('https://x/p.jpg');
+    expect(applyActiveAvatars(prev, { other: 'y' })).toBe(prev);
+  });
+});

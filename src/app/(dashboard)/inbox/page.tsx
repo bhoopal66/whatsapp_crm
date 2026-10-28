@@ -25,9 +25,15 @@ import {
   type ConversationCursor,
 } from '@/lib/inbox/pagination';
 import { applyAvatars, avatarRequestBatches } from '@/lib/inbox/avatars';
-import { conversationPatcher } from '@/lib/inbox/patch-active';
+import {
+  applyActiveAvatars,
+  applyFullRow,
+  openConversation,
+  patchActiveChat,
+  type ActiveChat,
+} from '@/lib/inbox/open-conversation';
 import type { ConversationListLoad } from '@/components/inbox/conversation-list';
-import type { Conversation, Message, Contact } from '@/types';
+import type { Conversation, Message } from '@/types';
 import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
@@ -157,9 +163,11 @@ export function InboxPageInner({
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     []
   );
-  const [activeConversation, setActiveConversation] =
-    useState<Conversation | null>(null);
-  const [activeContact, setActiveContact] = useState<Contact | null>(null);
+  // The open chat: its list row at first, then its full row once read
+  // (lib/inbox/open-conversation.ts).
+  const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
+  const activeConversation = activeChat?.row ?? null;
+  const fullConversation = activeChat?.full ? activeChat.row : null;
   const [messages, setMessages] = useState<Message[]>([]);
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
@@ -301,11 +309,7 @@ export function InboxPageInner({
             };
             if (!avatars || Object.keys(avatars).length === 0) continue;
             setConversations((prev) => applyAvatars(prev, avatars));
-            setActiveContact((prev) =>
-              prev && prev.id in avatars
-                ? { ...prev, avatar_url: avatars[prev.id] ?? undefined }
-                : prev
-            );
+            setActiveChat((prev) => applyActiveAvatars(prev, avatars));
           } catch (err) {
             console.warn('[inbox] could not load profile pictures:', err);
           }
@@ -542,8 +546,10 @@ export function InboxPageInner({
         }
 
         // Update active conversation if it changed
+        // Merged, never replaced: the payload has no contact join, and
+        // the open chat may already hold its full row.
         if (activeConversation && conv.id === activeConversation.id) {
-          setActiveConversation((prev) => (prev ? { ...prev, ...conv } : prev));
+          setActiveChat((prev) => patchActiveChat(prev, conv.id, conv));
         }
       }
     },
@@ -662,43 +668,44 @@ export function InboxPageInner({
    * no, `data` comes back null and nothing opens, which is correct.
    */
   //
-  // It is also how every chat opens, clicked in the list or not: list
-  // rows carry only the list's columns (CONVERSATION_LIST_SELECT), and
-  // the thread needs the full row (the held AI draft, the hand-off
-  // summary, the whole contact). Opening on the full row, rather than
-  // opening on the list row and filling it in, is what keeps those from
-  // popping in a moment after the chat appears. `openingIdRef` is the
-  // chat asked for last: a slower answer for a chat the agent has since
-  // left must not open over the one they picked.
+  // It is also the second half of every open: a chat clicked in the list
+  // opens on its list row at once (so the thread starts reading its
+  // messages straight away) while the full row is read alongside, and
+  // the full row replaces the list row when it lands if that chat is
+  // still open (lib/inbox/open-conversation.ts). Without a list row
+  // (this ?c= case) the chat opens on the full row, unless another chat
+  // was asked for in the meantime (`openingIdRef`).
   const openingIdRef = useRef<string | null>(null);
-  const [openingId, setOpeningId] = useState<string | null>(null);
-  const openConversationById = useCallback(async (convId: string) => {
-    openingIdRef.current = convId;
-    setOpeningId(convId);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('conversations')
-      .select(CONVERSATION_SELECT)
-      .eq('id', convId)
-      .maybeSingle();
-    if (openingIdRef.current !== convId) return;
-    openingIdRef.current = null;
-    setOpeningId(null);
-    if (error) {
-      console.error('Failed to open conversation:', {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code,
-      });
-      return;
-    }
-    if (!data) return;
-    const conv = normalizeConversation(data);
-    setActiveConversation(conv);
-    setActiveContact(conv.contact ?? null);
-    setMessages([]);
-  }, []);
+  const openConversationById = useCallback(
+    (convId: string, listRow?: ConversationListItem) =>
+      openConversation(convId, listRow, {
+        latest: openingIdRef,
+        show: (chat) => {
+          setActiveChat(chat);
+          setMessages([]);
+        },
+        upgrade: (full) => setActiveChat((prev) => applyFullRow(prev, full)),
+        fetchFull: async (id) => {
+          const supabase = createClient();
+          const { data, error } = await supabase
+            .from('conversations')
+            .select(CONVERSATION_SELECT)
+            .eq('id', id)
+            .maybeSingle();
+          if (error) {
+            console.error('Failed to open conversation:', {
+              message: error.message,
+              details: error.details,
+              hint: error.hint,
+              code: error.code,
+            });
+            return null;
+          }
+          return data ? normalizeConversation(data) : null;
+        },
+      }),
+    []
+  );
 
   const handleConversationsLoaded = useCallback(
     (
@@ -744,9 +751,10 @@ export function InboxPageInner({
         // refetch. The thread would read "No messages yet" until a
         // full page reload rehydrated state from scratch.
         if (activeConversation?.id === deepLinkConvId) return;
-        // Opened on its full row either way (see openConversationById).
-        void openConversationById(deepLinkConvId);
+        // Opens on the list row when the list has it, and is filled in
+        // with the full row either way (see openConversationById).
         const match = loaded.find((c) => c.id === deepLinkConvId);
+        void openConversationById(deepLinkConvId, match);
         if (!match) return;
         // Mirror the optimistic unread reset that handleSelectConversation
         // does — the user just deep-linked into this conv, treat that the
@@ -769,10 +777,9 @@ export function InboxPageInner({
       // when conversationId changes — so messages would stay empty until
       // the user navigated away and back. Bail out early instead.
       if (activeConversation?.id === conv.id) return;
-      if (openingIdRef.current === conv.id) return;
-      // The list row is not the full row the thread reads: open on that
-      // (openConversationById), which also clears the messages.
-      void openConversationById(conv.id);
+      // Shows the list row now and reads the full row alongside
+      // (openConversationById); clears the messages.
+      void openConversationById(conv.id, conv);
       // Optimistically clear the unread badge for this conv. The
       // server-side reset is fired by the unread-reset effect inside
       // MessageThread (which reads activeConversation.unread_count, not
@@ -816,9 +823,7 @@ export function InboxPageInner({
   // instead of re-opening the thread the user just backed out of.
   const handleCloseConversation = useCallback(() => {
     openingIdRef.current = null;
-    setOpeningId(null);
-    setActiveConversation(null);
-    setActiveContact(null);
+    setActiveChat(null);
     setMessages([]);
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits ?c=<same-id> again — desirable UX.
@@ -855,12 +860,15 @@ export function InboxPageInner({
   // is still the chat it was saved for — checked when the save lands,
   // not against the chat this callback captured: through the tunnel the
   // agent has often moved on (lib/inbox/patch-active.ts).
-  const patchConversation = useMemo(
-    () =>
-      conversationPatcher<ConversationListItem, Conversation>(
-        setConversations,
-        setActiveConversation
-      ),
+  // The open chat is patched with patchActiveChat, which keeps a full
+  // row full and never lets a patch's contact replace the full contact.
+  const patchConversation = useCallback(
+    (conversationId: string, patch: Partial<Conversation>) => {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))
+      );
+      setActiveChat((prev) => patchActiveChat(prev, conversationId, patch));
+    },
     []
   );
 
@@ -927,7 +935,7 @@ export function InboxPageInner({
           <ConversationList
             initialAssignee={initialFilters.assignee}
             initialChatTagIds={initialFilters.chatTagIds}
-            activeConversationId={openingId ?? activeConversation?.id ?? null}
+            activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
@@ -981,7 +989,8 @@ export function InboxPageInner({
         >
           <MessageThread
             conversation={activeConversation}
-            contact={activeContact}
+            fullConversation={fullConversation}
+            contact={activeConversation?.contact ?? null}
             sharedBank={
               activeConversation
                 ? (sharedBanks?.get(activeConversation.id) ?? null)
@@ -1009,7 +1018,17 @@ export function InboxPageInner({
             toggle — which is itself desktop-only — never affects it. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            <ContactSidebar contact={activeContact} />
+            {/* The panel reads the whole contact: it waits for the full
+                row rather than show "select a conversation" or a
+                half-empty card for an open chat. */}
+            {activeConversation && !fullConversation ? (
+              <div
+                aria-busy="true"
+                className="border-wa-divider bg-wa-panel h-full w-70 border-l"
+              />
+            ) : (
+              <ContactSidebar contact={fullConversation?.contact ?? null} />
+            )}
           </div>
         )}
       </div>

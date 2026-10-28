@@ -34,7 +34,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { ConversationHandler } from '@/lib/inbox/handler';
 import { cn } from '@/lib/utils';
-import type { Contact, Conversation, Profile } from '@/types';
+import type { Contact, Profile } from '@/types';
+import type {
+  ConversationListContact,
+  ConversationListItem,
+} from '@/lib/inbox/conversations';
 
 import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
@@ -54,8 +58,15 @@ const HEADER_ICON_BUTTON =
 const MENU_HEADING = 'text-muted-foreground px-2 py-1.5 text-xs';
 
 export interface ThreadHeaderProps {
-  conversation: Conversation;
-  contact: Contact;
+  /** The open chat; its list row is enough for everything here. */
+  conversation: ConversationListItem;
+  contact: ConversationListContact;
+  /**
+   * The whole contact, once the chat's full row has been read. The Call
+   * button waits for it: its do-not-contact check reads columns the
+   * list row does not carry, so it must not be offered before then.
+   */
+  fullContact: Contact | null;
   /** The contact's name, else their number. */
   displayName: string;
   /** Mobile back-to-list; rendered below lg only. */
@@ -86,6 +97,7 @@ export interface ThreadHeaderProps {
 export function ThreadHeader({
   conversation,
   contact,
+  fullContact,
   displayName,
   onBack,
   onChannelSwitched,
@@ -278,7 +290,12 @@ export function ThreadHeader({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <CallButton contact={contact} conversationId={conversation.id} />
+          {fullContact && (
+            <CallButton
+              contact={fullContact}
+              conversationId={conversation.id}
+            />
+          )}
           <ShareToChatButton conversationId={conversation.id} />
           {!shareOnly && (
             <CoordinatorShareButton

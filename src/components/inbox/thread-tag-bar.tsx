@@ -48,7 +48,8 @@ import {
   PillDot,
 } from '@/components/inbox/chat-tag-pill';
 import { cn } from '@/lib/utils';
-import type { ChatTag, ChatTagsPatch, Conversation } from '@/types';
+import type { ChatTag, ChatTagsPatch } from '@/types';
+import type { ConversationListItem } from '@/lib/inbox/conversations';
 
 export type { ChatTagsPatch } from '@/types';
 
@@ -83,7 +84,7 @@ export function ThreadTagBar({
   conversation,
   onChatTagsChange,
 }: {
-  conversation: Conversation;
+  conversation: ConversationListItem;
   onChatTagsChange: (conversationId: string, patch: ChatTagsPatch) => void;
 }) {
   const t = useTranslations('Inbox.chatTags');
