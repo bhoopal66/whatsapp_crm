@@ -10,12 +10,13 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { isBankGuest } from '@/lib/auth/roles';
 import {
-  CONVERSATION_SELECT,
+  CONVERSATION_LIST_SELECT,
   UNASSIGNED,
   matchesAssignee,
   matchesContactFilters,
   normalizeConversations,
   type AssigneeFilter,
+  type ConversationListItem,
 } from '@/lib/inbox/conversations';
 import {
   CAMPAIGN_INBOX_FILTER,
@@ -53,7 +54,7 @@ import { chatTagColor } from '@/lib/chat-tags/style';
 import { ChatTagPill } from '@/components/inbox/chat-tag-pill';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { cn } from '@/lib/utils';
-import type { Conversation, Profile } from '@/types';
+import type { Profile } from '@/types';
 import {
   Search,
   ChevronDown,
@@ -102,10 +103,10 @@ export type ConversationListLoad =
 
 interface ConversationListProps {
   activeConversationId: string | null;
-  onSelect: (conversation: Conversation) => void;
-  conversations: Conversation[];
+  onSelect: (conversation: ConversationListItem) => void;
+  conversations: ConversationListItem[];
   onConversationsLoaded: (
-    conversations: Conversation[],
+    conversations: ConversationListItem[],
     load: ConversationListLoad
   ) => void;
   /**
@@ -248,7 +249,7 @@ function conversationsQuery(
   }
 ) {
   const supabase = createClient();
-  let query = supabase.from('conversations').select(CONVERSATION_SELECT);
+  let query = supabase.from('conversations').select(CONVERSATION_LIST_SELECT);
   const groups: (string | null)[] = [];
 
   if (p.restrictToUserId) {
@@ -819,7 +820,7 @@ export function ConversationList({
   useEffect(() => {
     onSelectRef.current = onSelect;
   });
-  const handleSelect = useCallback((conv: Conversation) => {
+  const handleSelect = useCallback((conv: ConversationListItem) => {
     onSelectRef.current(conv);
   }, []);
 
@@ -1276,9 +1277,9 @@ const ACTIVE_FILTER_CHIP =
   'bg-wa-search text-wa-text hover:bg-wa-row-active inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]';
 
 interface ConversationItemProps {
-  conversation: Conversation;
+  conversation: ConversationListItem;
   isActive: boolean;
-  onSelect: (conversation: Conversation) => void;
+  onSelect: (conversation: ConversationListItem) => void;
   t: ReturnType<typeof useTranslations>;
   /** Local midnight of the current day; the row's timestamp counts from it. */
   today: number;

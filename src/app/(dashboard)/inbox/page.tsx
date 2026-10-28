@@ -15,6 +15,7 @@ import { cachedQuery } from '@/lib/client-cache';
 import {
   CONVERSATION_SELECT,
   normalizeConversation,
+  type ConversationListItem,
 } from '@/lib/inbox/conversations';
 import {
   appendConversationPage,
@@ -151,7 +152,11 @@ export function InboxPageInner({
     parseInboxFilterParams(searchParams, user?.id ?? null)
   );
 
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  // List rows hold only the list's columns (CONVERSATION_LIST_SELECT);
+  // the open chat is always a full row, read when it is opened.
+  const [conversations, setConversations] = useState<ConversationListItem[]>(
+    []
+  );
   const [activeConversation, setActiveConversation] =
     useState<Conversation | null>(null);
   const [activeContact, setActiveContact] = useState<Contact | null>(null);
@@ -257,7 +262,7 @@ export function InboxPageInner({
   const knownConvIdsRef = useRef<Set<string>>(new Set());
   // Same mirror, whole rows — the delta resync anchors its watermark on
   // the newest `updated_at` we hold.
-  const conversationsRef = useRef<Conversation[]>([]);
+  const conversationsRef = useRef<ConversationListItem[]>([]);
   useEffect(() => {
     const next = new Set<string>();
     for (const c of conversations) next.add(c.id);
@@ -656,15 +661,31 @@ export function InboxPageInner({
    * the thread. Read the row directly and let RLS answer — if it says
    * no, `data` comes back null and nothing opens, which is correct.
    */
+  //
+  // It is also how every chat opens, clicked in the list or not: list
+  // rows carry only the list's columns (CONVERSATION_LIST_SELECT), and
+  // the thread needs the full row (the held AI draft, the hand-off
+  // summary, the whole contact). Opening on the full row, rather than
+  // opening on the list row and filling it in, is what keeps those from
+  // popping in a moment after the chat appears. `openingIdRef` is the
+  // chat asked for last: a slower answer for a chat the agent has since
+  // left must not open over the one they picked.
+  const openingIdRef = useRef<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const openConversationById = useCallback(async (convId: string) => {
+    openingIdRef.current = convId;
+    setOpeningId(convId);
     const supabase = createClient();
     const { data, error } = await supabase
       .from('conversations')
       .select(CONVERSATION_SELECT)
       .eq('id', convId)
       .maybeSingle();
+    if (openingIdRef.current !== convId) return;
+    openingIdRef.current = null;
+    setOpeningId(null);
     if (error) {
-      console.error('Failed to open deep-linked conversation:', {
+      console.error('Failed to open conversation:', {
         message: error.message,
         details: error.details,
         hint: error.hint,
@@ -681,7 +702,7 @@ export function InboxPageInner({
 
   const handleConversationsLoaded = useCallback(
     (
-      loaded: Conversation[],
+      loaded: ConversationListItem[],
       load: ConversationListLoad = { mode: 'replace', cursor: null }
     ) => {
       // A further page, or a delta resync: fold into what's there. The
@@ -723,14 +744,10 @@ export function InboxPageInner({
         // refetch. The thread would read "No messages yet" until a
         // full page reload rehydrated state from scratch.
         if (activeConversation?.id === deepLinkConvId) return;
+        // Opened on its full row either way (see openConversationById).
+        void openConversationById(deepLinkConvId);
         const match = loaded.find((c) => c.id === deepLinkConvId);
-        if (!match) {
-          void openConversationById(deepLinkConvId);
-          return;
-        }
-        setActiveConversation(match);
-        setActiveContact(match.contact ?? null);
-        setMessages([]);
+        if (!match) return;
         // Mirror the optimistic unread reset that handleSelectConversation
         // does — the user just deep-linked into this conv, treat that the
         // same as a click. Leaves activeConversation.unread_count alone so
@@ -746,15 +763,16 @@ export function InboxPageInner({
   );
 
   const handleSelectConversation = useCallback(
-    (conv: Conversation) => {
+    (conv: ConversationListItem) => {
       // Re-clicking the already-active conversation would clear the
       // messages array, but the fetch effect in MessageThread only re-runs
       // when conversationId changes — so messages would stay empty until
       // the user navigated away and back. Bail out early instead.
       if (activeConversation?.id === conv.id) return;
-      setActiveConversation(conv);
-      setActiveContact(conv.contact ?? null);
-      setMessages([]);
+      if (openingIdRef.current === conv.id) return;
+      // The list row is not the full row the thread reads: open on that
+      // (openConversationById), which also clears the messages.
+      void openConversationById(conv.id);
       // Optimistically clear the unread badge for this conv. The
       // server-side reset is fired by the unread-reset effect inside
       // MessageThread (which reads activeConversation.unread_count, not
@@ -790,13 +808,15 @@ export function InboxPageInner({
       // reads back on reload and on back/forward.
       window.history.replaceState(null, '', `${basePath}?c=${conv.id}`);
     },
-    [activeConversation?.id, basePath]
+    [activeConversation?.id, basePath, openConversationById]
   );
 
   // Mobile "back" — deselect the conversation so the list pane comes
   // back. Also clears the ?c= param so a refresh lands on the list
   // instead of re-opening the thread the user just backed out of.
   const handleCloseConversation = useCallback(() => {
+    openingIdRef.current = null;
+    setOpeningId(null);
     setActiveConversation(null);
     setActiveContact(null);
     setMessages([]);
@@ -837,7 +857,7 @@ export function InboxPageInner({
   // agent has often moved on (lib/inbox/patch-active.ts).
   const patchConversation = useMemo(
     () =>
-      conversationPatcher<Conversation>(
+      conversationPatcher<ConversationListItem, Conversation>(
         setConversations,
         setActiveConversation
       ),
@@ -907,7 +927,7 @@ export function InboxPageInner({
           <ConversationList
             initialAssignee={initialFilters.assignee}
             initialChatTagIds={initialFilters.chatTagIds}
-            activeConversationId={activeConversation?.id ?? null}
+            activeConversationId={openingId ?? activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}

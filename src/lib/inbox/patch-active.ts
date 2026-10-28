@@ -31,10 +31,13 @@ export function patchIfSameConversation<T extends { id: string }>(
  * build it once — a handler that read the open chat from its closure
  * is exactly what patched the wrong chat.
  */
-export function conversationPatcher<T extends { id: string }>(
-  setList: (update: (prev: T[]) => T[]) => void,
-  setActive: (update: (prev: T | null) => T | null) => void
-): (conversationId: string, patch: Partial<T>) => void {
+export function conversationPatcher<
+  L extends { id: string },
+  A extends { id: string } = L,
+>(
+  setList: (update: (prev: L[]) => L[]) => void,
+  setActive: (update: (prev: A | null) => A | null) => void
+): (conversationId: string, patch: Partial<L> & Partial<A>) => void {
   return (conversationId, patch) => {
     setList((prev) =>
       prev.map((c) => (c.id === conversationId ? { ...c, ...patch } : c))

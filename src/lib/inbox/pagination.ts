@@ -198,10 +198,10 @@ export function sortByRecency<
 }
 
 /** Append a further page, skipping rows already held (realtime may have added them). */
-export function appendConversationPage(
-  existing: Conversation[],
-  page: Conversation[]
-): Conversation[] {
+export function appendConversationPage<T extends Pick<Conversation, 'id'>>(
+  existing: T[],
+  page: T[]
+): T[] {
   if (page.length === 0) return existing;
   const known = new Set(existing.map((c) => c.id));
   const fresh = page.filter((c) => !known.has(c.id));
@@ -216,11 +216,11 @@ export function appendConversationPage(
  * they belong inside the loaded window; anything older will arrive with
  * its page.
  */
-export function mergeConversationDelta(
-  existing: Conversation[],
-  fetched: Conversation[],
-  cursor: ConversationCursor | null
-): Conversation[] {
+export function mergeConversationDelta<
+  T extends Pick<Conversation, 'id' | 'last_message_at' | 'ai_attention_at'> & {
+    contact?: unknown;
+  },
+>(existing: T[], fetched: T[], cursor: ConversationCursor | null): T[] {
   if (fetched.length === 0) return existing;
   const byId = new Map(fetched.map((c) => [c.id, c]));
   let changed = false;

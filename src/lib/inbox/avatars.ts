@@ -8,7 +8,7 @@
 // Pure, so the batching rules are testable without a DOM.
 // ============================================================
 
-import type { Conversation } from '@/types';
+import type { Contact } from '@/types';
 
 /** Matches the route's per-request cap. */
 export const AVATAR_REQUEST_BATCH = 50;
@@ -42,10 +42,9 @@ export function avatarRequestBatches(
  * (the contact removed it). Returns the same array when nothing
  * changed, so a no-op answer costs no re-render.
  */
-export function applyAvatars(
-  conversations: Conversation[],
-  avatars: Record<string, string | null>
-): Conversation[] {
+export function applyAvatars<
+  T extends { contact?: Pick<Contact, 'id' | 'avatar_url'> | null },
+>(conversations: T[], avatars: Record<string, string | null>): T[] {
   let changed = false;
   const next = conversations.map((c) => {
     const id = c.contact?.id;
