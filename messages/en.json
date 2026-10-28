@@ -5252,6 +5252,8 @@
     "taskOpen": "Task open",
     "taskDone": "Task done",
     "loadFailed": "Couldn't load calls",
+    "playRecording": "Play recording",
+    "hideRecording": "Hide recording",
     "unrouted": {
       "hint": "Calls to a number with no route, filed under this workspace, newest first",
       "empty": "No calls to a number without a route",

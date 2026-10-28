@@ -6,6 +6,10 @@ import { useLocale, useTranslations } from 'next-intl';
 import { BarChart3, Phone, PhoneMissed } from 'lucide-react';
 
 import { CallReport } from '@/components/calls/call-report';
+import {
+  CallRecordingPanel,
+  CallRecordingToggle,
+} from '@/components/calls/call-recording';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { Colleagues } from '@/components/calls/colleagues';
 import { Keypad } from '@/components/calls/keypad';
@@ -32,6 +36,7 @@ import {
   type InternalSide,
 } from '@/lib/pbx/call-ui';
 import type { UnroutedNumber } from '@/lib/pbx/calls';
+import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
 import {
   callHeading,
   callTone,
@@ -92,6 +97,8 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     []
   );
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // The one row whose recording player is open (lib/pbx/list-player).
+  const [openPlayer, setOpenPlayer] = useState<string | null>(null);
 
   const listReady = callsListReady(tab, accountRole);
   useEffect(() => {
@@ -173,57 +180,66 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     // An erased call keeps the number dialled, not the caller's.
     if (tab === 'unrouted' && c.didNumber)
       details.push(t('unrouted.dialled', { number: c.didNumber }));
+    const playerOpen = openPlayer === c.id && listPlayerOffered(c);
     return (
       <li
         key={c.id}
-        className="border-border flex items-center gap-3 border-b px-4 py-3 last:border-b-0"
+        className="border-border border-b px-4 py-3 last:border-b-0"
       >
-        <span
-          className={cn(
-            'flex size-9 shrink-0 items-center justify-center rounded-xl',
-            missed
-              ? 'bg-destructive-soft text-destructive'
-              : 'bg-success-soft text-success'
-          )}
-        >
-          <Icon className="size-4" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          {c.contactId ? (
-            <Link
-              href={`/contacts/${c.contactId}`}
-              className="font-semibold hover:underline"
-            >
-              {who}
-            </Link>
-          ) : (
-            <span className="font-semibold">{who}</span>
-          )}
-          <p className="text-muted-foreground truncate text-sm">
-            {details.join(' · ')}
-          </p>
-        </div>
-        {task && (
+        <div className="flex items-center gap-3">
           <span
             className={cn(
-              'rounded-full px-2 py-0.5 text-xs',
-              task.status === 'open'
-                ? 'bg-warning-soft text-warning font-medium'
-                : 'bg-muted text-muted-foreground'
+              'flex size-9 shrink-0 items-center justify-center rounded-xl',
+              missed
+                ? 'bg-destructive-soft text-destructive'
+                : 'bg-success-soft text-success'
             )}
           >
-            {task.status === 'open' ? t('taskOpen') : t('taskDone')}
+            <Icon className="size-4" aria-hidden />
           </span>
-        )}
-        {back && (
-          <CallButton
-            {...(back.kind === 'contact'
-              ? { contact: back.contact }
-              : { number: back.number })}
-            label={tl('callBack')}
+          <div className="min-w-0 flex-1">
+            {c.contactId ? (
+              <Link
+                href={`/contacts/${c.contactId}`}
+                className="font-semibold hover:underline"
+              >
+                {who}
+              </Link>
+            ) : (
+              <span className="font-semibold">{who}</span>
+            )}
+            <p className="text-muted-foreground truncate text-sm">
+              {details.join(' · ')}
+            </p>
+          </div>
+          {task && (
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-xs',
+                task.status === 'open'
+                  ? 'bg-warning-soft text-warning font-medium'
+                  : 'bg-muted text-muted-foreground'
+              )}
+            >
+              {task.status === 'open' ? t('taskOpen') : t('taskDone')}
+            </span>
+          )}
+          {back && (
+            <CallButton
+              {...(back.kind === 'contact'
+                ? { contact: back.contact }
+                : { number: back.number })}
+              label={tl('callBack')}
+            />
+          )}
+          <CallRecordingToggle
+            call={c}
+            open={playerOpen}
+            onToggle={() => setOpenPlayer((o) => nextOpenPlayer(o, c.id))}
           />
-        )}
-        <ShareCallButton callId={c.id} recordingState={c.recordingState} />
+          <ShareCallButton callId={c.id} recordingState={c.recordingState} />
+        </div>
+        {playerOpen && <CallRecordingPanel call={c} />}
       </li>
     );
   };

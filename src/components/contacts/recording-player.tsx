@@ -17,6 +17,11 @@
 // of a recording already past the period deletes it on the next cron
 // run: the route refuses that (409 past_retention) until the warning
 // shown here is confirmed (confirmDelete).
+//
+// The Calls list mounts this when its row's Play is pressed, with
+// `autoStart`: that press is the Play, so the player asks for its link
+// once, as soon as its audio element exists. The customer page leaves
+// it off, so nothing is fetched there until this player's own Play.
 
 import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -63,12 +68,16 @@ const post = (url: string, body: unknown) =>
 export function RecordingPlayer({
   call,
   dealId,
+  autoStart = false,
 }: {
   call: TimelineCall;
   dealId: string | null;
+  /** Start playing on mount: the press that mounted it was the Play. */
+  autoStart?: boolean;
 }) {
   const t = useTranslations('CustomerTimeline');
-  const audio = useRef<HTMLAudioElement>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const autoStarted = useRef(false);
   // What a 409 said the recording is now; null: not refused.
   const [refused, setRefused] = useState<RecordingView | null>(null);
   const [linked, setLinked] = useState(false);
@@ -245,7 +254,13 @@ export function RecordingPlayer({
       )}
       {/* The src is set by Play, never rendered: the link is signed per play. */}
       <audio
-        ref={audio}
+        ref={(el) => {
+          audio.current = el;
+          if (el && autoStart && !autoStarted.current) {
+            autoStarted.current = true;
+            void toggle();
+          }
+        }}
         preload="none"
         className="hidden"
         onPlay={() => setPlaying(true)}
@@ -263,7 +278,7 @@ export function RecordingPlayer({
         <p className="text-muted-foreground text-xs">
           {!held && t('noticePlayed')}
           {hold && (
-            <span className="ml-2 bg-warning-soft text-warning rounded-md px-1.5 py-0.5 font-medium">
+            <span className="bg-warning-soft text-warning ml-2 rounded-md px-1.5 py-0.5 font-medium">
               {t('legalHold')}
             </span>
           )}
