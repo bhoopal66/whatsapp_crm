@@ -21,7 +21,6 @@ import {
   openwaAdminApiKey,
   revokeKey,
 } from './openwa-api';
-import { mayBeLinkedStatus } from './openwa-connect';
 
 /**
  * A connect left unlinked this long is abandoned. Well past the dialog's
@@ -29,6 +28,23 @@ import { mayBeLinkedStatus } from './openwa-connect';
  * on close) is never raced.
  */
 export const OPENWA_ABANDONED_AFTER_MS = 30 * 60_000;
+
+/**
+ * How long a never-connected session may sit in a state that does not
+ * say whether a phone is linked (`created`, `initializing`,
+ * `authenticating`, `disconnected`, or a word this build doesn't know)
+ * before the sweep stops waiting for it. A gateway restoring a saved
+ * login after a restart reports `initializing`, and a linked phone
+ * reconnecting reports `disconnected`, so those are never torn down on
+ * one look. A real link is seen as `ready` by some probe within a day
+ * (the health sweep looks every 5 minutes), so a session still unsure
+ * after that is an abandoned one whose browser would otherwise run
+ * for ever.
+ */
+export const OPENWA_UNSURE_GIVE_UP_MS = 24 * 60 * 60_000;
+
+/** Statuses that say for certain no phone is linked to the session. */
+const DEFINITELY_UNLINKED = new Set(['qr_ready', 'failed', 'action_required']);
 
 /**
  * At most this many rows per sweep: a teardown is three or more gateway
@@ -109,10 +125,13 @@ export interface AbandonedSweepSummary {
  * The gateway is asked first, because a teardown logs the phone out: a
  * phone that did link while nobody stamped it (the status route's write
  * failed, the health probes were inconclusive) is stamped connected
- * here, number and all, with no alert, exactly as a first link. One
- * mid-link (`authenticating`), or a session the gateway could not
- * report on, is left for the next sweep. Only a definite not-linked
- * answer, or a session the gateway no longer has (404), is torn down.
+ * here, number and all, with no alert, exactly as a first link. A
+ * session in a state that does not rule a link out (mid-link, starting
+ * or restoring after a gateway restart, reconnecting), or one the
+ * gateway could not report on, is left for the next sweep, for up to a
+ * day. Only a definite not-linked answer (`qr_ready`, `failed`,
+ * `action_required`), or a session the gateway no longer has (404), is
+ * torn down.
  *
  * Service-role client (it reads every account). Skipped when
  * OPENWA_API_KEY is unset: without the admin key nothing can be torn
@@ -138,7 +157,7 @@ export async function sweepAbandonedOpenWASessions(
   ).toISOString();
   const { data, error } = await admin
     .from('whatsapp_config')
-    .select('id, account_id, phone_number_id')
+    .select('id, account_id, phone_number_id, created_at')
     .eq('provider', 'openwa')
     .is('connected_at', null)
     .lt('created_at', cutoff)
@@ -154,12 +173,15 @@ export async function sweepAbandonedOpenWASessions(
     id: string;
     account_id: string;
     phone_number_id: string | null;
+    created_at?: string | null;
   }>) {
     summary.found++;
     const tag = `[openwa sweep] ${row.id} (account ${row.account_id})`;
     if (row.phone_number_id) {
       const sessionId = row.phone_number_id;
-      const check = await checkSession(adminKey, sessionId, tag);
+      const created = row.created_at ? Date.parse(row.created_at) : NaN;
+      const ageMs = Number.isFinite(created) ? now.getTime() - created : null;
+      const check = await checkSession(adminKey, sessionId, tag, ageMs);
       if (check.kind === 'linked') {
         if (await stampFirstLink(admin, row, check.phone, now, tag)) {
           summary.linked++;
@@ -214,22 +236,32 @@ type SessionCheck =
   | { kind: 'unlinked' }
   | { kind: 'unsure' };
 
-/** Ask the gateway (admin key) whether the session linked after all. */
+/**
+ * Ask the gateway (admin key) whether the session linked after all.
+ * `ageMs` is the row's age (null when unknown): it decides only when an
+ * unsure state has lasted long enough to give up on (see
+ * OPENWA_UNSURE_GIVE_UP_MS).
+ */
 async function checkSession(
   adminKey: string,
   sessionId: string,
-  tag: string
+  tag: string,
+  ageMs: number | null
 ): Promise<SessionCheck> {
   try {
     const session = await getSession({ apiKey: adminKey, sessionId });
     if (session.status === 'ready') {
       return { kind: 'linked', phone: session.phone };
     }
-    if (mayBeLinkedStatus(session.status)) {
-      console.log(`${tag}: phone mid-link (${session.status}); kept`);
-      return { kind: 'unsure' };
+    if (DEFINITELY_UNLINKED.has(session.status)) return { kind: 'unlinked' };
+    if (ageMs !== null && ageMs >= OPENWA_UNSURE_GIVE_UP_MS) {
+      console.log(
+        `${tag}: still ${session.status} a day after connecting; removed`
+      );
+      return { kind: 'unlinked' };
     }
-    return { kind: 'unlinked' };
+    console.log(`${tag}: ${session.status}, not known to be unlinked; kept`);
+    return { kind: 'unsure' };
   } catch (e) {
     // The session is gone from the gateway: nothing can be linked, but
     // its scoped key may remain, so the teardown still runs.

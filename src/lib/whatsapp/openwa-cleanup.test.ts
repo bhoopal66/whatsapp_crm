@@ -231,6 +231,54 @@ describe('sweepAbandonedOpenWASessions', () => {
     }
   });
 
+  it('never tears down a session whose state does not rule a link out', async () => {
+    // A gateway restoring a saved login after a restart says
+    // `initializing`; a linked phone reconnecting says `disconnected`.
+    const young = { ...row, created_at: '2026-10-28T11:00:00Z' };
+    for (const status of [
+      'created',
+      'initializing',
+      'disconnected',
+      'something_new',
+    ]) {
+      gw.getSession.mockResolvedValue({ status, phone: null });
+      gw.logoutSession.mockClear();
+      gw.deleteSession.mockClear();
+      const { db, ofKind } = fakeAdmin({ abandoned: [young] });
+      const summary = await sweepAbandonedOpenWASessions(db, {
+        now: () => NOW,
+      });
+      expect(summary).toMatchObject({ found: 1, kept: 1, removed: 0 });
+      expect(gw.logoutSession).not.toHaveBeenCalled();
+      expect(gw.deleteSession).not.toHaveBeenCalled();
+      expect(ofKind('delete')).toEqual([]);
+    }
+  });
+
+  it('gives up on a session still unsure a day after connecting', async () => {
+    gw.getSession.mockResolvedValue({ status: 'initializing', phone: null });
+    const old = { ...row, created_at: '2026-10-27T11:00:00Z' };
+    const { db, ofKind } = fakeAdmin({ abandoned: [old] });
+    const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
+    expect(summary).toMatchObject({ found: 1, removed: 1 });
+    expect(gw.deleteSession).toHaveBeenCalled();
+    expect(ofKind('delete')).toHaveLength(1);
+  });
+
+  it('tears down a definite not-linked session after 30 minutes', async () => {
+    for (const status of ['qr_ready', 'failed', 'action_required']) {
+      gw.getSession.mockResolvedValue({ status, phone: null });
+      gw.deleteSession.mockClear();
+      const young = { ...row, created_at: '2026-10-28T11:00:00Z' };
+      const { db } = fakeAdmin({ abandoned: [young] });
+      const summary = await sweepAbandonedOpenWASessions(db, {
+        now: () => NOW,
+      });
+      expect(summary).toMatchObject({ found: 1, removed: 1 });
+      expect(gw.deleteSession).toHaveBeenCalled();
+    }
+  });
+
   it('tears down a session the gateway no longer has (its key may remain)', async () => {
     gw.getSession.mockRejectedValue(
       new OpenWAError('gone', 404, { route: 'session' })
