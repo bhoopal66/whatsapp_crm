@@ -41,6 +41,7 @@ import type {
 import { MessageSquare, AlertTriangle } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { useTranslations } from 'next-intl';
+import { FullRowRetry } from '@/components/inbox/full-row-retry';
 import { MediaLightbox } from './media-lightbox';
 import { ThreadMessageRow } from './thread-message-row';
 import { useSenderLabels } from './sender-label';
@@ -129,6 +130,12 @@ interface MessageThreadProps {
    * hand-off summary, last outcome) wait for it.
    */
   fullConversation?: Conversation | null;
+  /**
+   * Every retry of the full-row read missed: the place the AI banner
+   * would take offers `onRetryFullRow` instead.
+   */
+  fullRowFailed?: boolean;
+  onRetryFullRow?: () => void;
   contact: ConversationListContact | null;
   messages: Message[];
   /**
@@ -254,6 +261,8 @@ function messagesPageQuery(conversationId: string) {
 export function MessageThread({
   conversation,
   fullConversation = null,
+  fullRowFailed = false,
+  onRetryFullRow,
   contact,
   messages,
   onMessagesLoaded,
@@ -1806,6 +1815,14 @@ export function MessageThread({
             lastMessageFromCustomer={lastMessageFromCustomer}
             currentUserId={user?.id}
             onChange={(patch) => onAiChange(conversation.id, patch)}
+          />
+        )}
+        {/* The full row never arrived: the AI banner and the Call button
+          cannot show, so say so once, quietly, with a Retry. */}
+        {!fullConversation && fullRowFailed && onRetryFullRow && (
+          <FullRowRetry
+            onRetry={onRetryFullRow}
+            className="bg-wa-panel px-4 py-1.5"
           />
         )}
 
