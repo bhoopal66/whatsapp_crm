@@ -230,7 +230,9 @@ export function useFloatingWindow({
     else apply();
   };
 
-  // The node going away mid-drag (the ringing card on hang-up) or the
+  // The node going away mid-drag (the ringing card on hang-up), the
+  // handle being swapped (a held wrap-up expands its pill while it is
+  // being dragged: the removed pill never gets lostpointercapture) or the
   // hook unmounting: leave no session, frame or app-wide user-select.
   useEffect(() => {
     return () => {
@@ -241,7 +243,7 @@ export function useFloatingWindow({
       if (d.userSelect !== null) document.body.style.userSelect = d.userSelect;
       setDragging(false);
     };
-  }, [node]);
+  }, [node, minimized]);
 
   const handleProps = {
     role: 'group',

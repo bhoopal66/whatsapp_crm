@@ -621,9 +621,9 @@ section describes the behaviour once it is on.
   corner when the browser window is resized, and never leaves the
   screen. On a phone it is a bottom sheet, minimised to a bar at the
   bottom. The incoming-call card can be dragged the same way,
-  remembers its own place, and always stays above the call window, but
-  is never placed over it: where its spot would cover the window, the
-  card moves beside it (to the left, else above, below or right). During
+  remembers its own place, and always stays above the call window.
+  Where its spot would cover the window, the card moves beside it (to
+  the left, else above, below or right) when there is room. During
   the wrap-up the band reads "Wrap-up" instead of "On a call".
   The window has three tabs:
   - _Notes_: the outcome, the notes and the call card, as above, plus
