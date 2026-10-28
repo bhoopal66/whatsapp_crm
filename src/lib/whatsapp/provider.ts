@@ -1,12 +1,18 @@
 // ============================================================
 // Provider-neutral send layer.
 //
-// Two gateways, one shape. Everything that sends a WhatsApp message
+// Three gateways, one shape. Everything that sends a WhatsApp message
 // goes through here with a `WhatsAppChannel` (from `channels.ts`) and
 // never learns which upstream it is talking to:
 //
-//   whapi -> lib/whatsapp/whapi-api.ts   (linked-device channel)
-//   meta  -> lib/whatsapp/meta-api.ts    (Cloud API number)
+//   whapi  -> lib/whatsapp/whapi-api.ts   (linked-device channel)
+//   meta   -> lib/whatsapp/meta-api.ts    (Cloud API number)
+//   openwa -> lib/whatsapp/openwa-api.ts  (self-hosted linked device)
+//
+// Every function switches on `channel.provider` with a `never` default,
+// so a fourth provider fails typecheck here instead of silently falling
+// into another gateway's client (an `else` branch once sent every
+// OpenWA row to Whapi with the session key as a channel token).
 //
 // This is the same containment `whapi-webhook.ts` provides on the way
 // IN — normalise at the boundary so the CRM logic in the middle stays
@@ -17,7 +23,9 @@
 // ─── What genuinely differs, and how it is handled ────────────────
 //
 //   * Credentials. Whapi: one channel token. Meta: (phone number id,
-//     access token). Absorbed by taking a channel, not raw strings.
+//     access token). OpenWA: (session id, session-scoped key), stored
+//     in `phone_number_id` / `access_token`. Absorbed by taking a
+//     channel, not raw strings.
 //   * Quoting. Whapi calls it `quotedMessageId`, Meta `contextMessageId`.
 //     Same concept, renamed at the boundary.
 //   * Media kinds. Whapi has `voice` and `sticker`; the Cloud API
@@ -26,7 +34,7 @@
 //   * Templates. On Whapi a template is a local definition rendered at
 //     send time. On Meta it must already exist in the WABA's registry,
 //     approved, and is addressed by (name, language). Both are driven
-//     from the same `message_templates` row.
+//     from the same `message_templates` row. OpenWA is Whapi's case.
 // ============================================================
 
 import type { MessageTemplate } from '@/types';
@@ -37,6 +45,7 @@ import {
   type WhatsAppProvider,
 } from './channels';
 import * as meta from './meta-api';
+import * as openwa from './openwa-api';
 import * as whapi from './whapi-api';
 
 export interface ProviderSendResult {
@@ -46,7 +55,7 @@ export interface ProviderSendResult {
   provider: WhatsAppProvider;
 }
 
-/** The union of both gateways' media kinds. */
+/** The union of the gateways' media kinds (Whapi's and OpenWA's agree). */
 export type ProviderMediaKind =
   'image' | 'video' | 'document' | 'audio' | 'voice' | 'sticker';
 
@@ -68,6 +77,27 @@ function toMetaMediaKind(kind: ProviderMediaKind): meta.MediaKind {
   return kind;
 }
 
+/**
+ * An OpenWA row keeps its session id in `phone_number_id` and its
+ * session-scoped key in `access_token` (`wabaId` is only the display
+ * number), so the pair is read from there.
+ */
+function openwaCredentials(channel: WhatsAppChannel): {
+  apiKey: string;
+  sessionId: string;
+} {
+  return { apiKey: channel.accessToken, sessionId: channel.phoneNumberId };
+}
+
+/**
+ * The `default` of every provider switch. Typed `never` so that adding a
+ * provider to the union fails typecheck at each switch; at run time it
+ * catches a row whose `provider` column holds something unexpected.
+ */
+function unknownProvider(provider: never): never {
+  throw new Error(`Unknown WhatsApp provider: ${String(provider)}`);
+}
+
 export interface SendTextArgs {
   channel: WhatsAppChannel;
   to: string;
@@ -80,24 +110,38 @@ export async function sendText(
 ): Promise<ProviderSendResult> {
   const { channel, to, text, quotedMessageId } = args;
 
-  if (channel.provider === 'meta') {
-    const res = await meta.sendTextMessage({
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      to,
-      text,
-      contextMessageId: quotedMessageId ?? undefined,
-    });
-    return { messageId: res.messageId, provider: 'meta' };
+  switch (channel.provider) {
+    case 'whapi': {
+      const res = await whapi.sendTextMessage({
+        token: channel.accessToken,
+        to,
+        text,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'whapi' };
+    }
+    case 'meta': {
+      const res = await meta.sendTextMessage({
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+        to,
+        text,
+        contextMessageId: quotedMessageId ?? undefined,
+      });
+      return { messageId: res.messageId, provider: 'meta' };
+    }
+    case 'openwa': {
+      const res = await openwa.sendTextMessage({
+        ...openwaCredentials(channel),
+        to,
+        text,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'openwa' };
+    }
+    default:
+      return unknownProvider(channel.provider);
   }
-
-  const res = await whapi.sendTextMessage({
-    token: channel.accessToken,
-    to,
-    text,
-    quotedMessageId,
-  });
-  return { messageId: res.messageId, provider: 'whapi' };
 }
 
 export interface SendMediaArgs {
@@ -116,30 +160,48 @@ export async function sendMedia(
 ): Promise<ProviderSendResult> {
   const { channel, to, kind, link, caption, filename, quotedMessageId } = args;
 
-  if (channel.provider === 'meta') {
-    const res = await meta.sendMediaMessage({
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      to,
-      kind: toMetaMediaKind(kind),
-      link,
-      caption,
-      filename,
-      contextMessageId: quotedMessageId ?? undefined,
-    });
-    return { messageId: res.messageId, provider: 'meta' };
+  switch (channel.provider) {
+    case 'whapi': {
+      const res = await whapi.sendMediaMessage({
+        token: channel.accessToken,
+        to,
+        kind,
+        link,
+        caption,
+        filename,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'whapi' };
+    }
+    case 'meta': {
+      const res = await meta.sendMediaMessage({
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+        to,
+        kind: toMetaMediaKind(kind),
+        link,
+        caption,
+        filename,
+        contextMessageId: quotedMessageId ?? undefined,
+      });
+      return { messageId: res.messageId, provider: 'meta' };
+    }
+    case 'openwa': {
+      // Same six kinds as Whapi, voice notes and stickers included.
+      const res = await openwa.sendMediaMessage({
+        ...openwaCredentials(channel),
+        to,
+        kind,
+        link,
+        caption,
+        filename,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'openwa' };
+    }
+    default:
+      return unknownProvider(channel.provider);
   }
-
-  const res = await whapi.sendMediaMessage({
-    token: channel.accessToken,
-    to,
-    kind,
-    link,
-    caption,
-    filename,
-    quotedMessageId,
-  });
-  return { messageId: res.messageId, provider: 'whapi' };
 }
 
 export interface SendTemplateArgs {
@@ -179,45 +241,63 @@ export async function sendTemplate(
     quotedMessageId,
   } = args;
 
-  if (channel.provider === 'meta') {
-    // The per-send media override is a top-level arg here because it is
-    // the one structured value both providers honour; Meta wants it
-    // inside `messageParams`, so fold it in. Every caller (broadcast
-    // route, broadcast-core, send-message, automations) passes
-    // `headerMediaUrl` and nobody passes `messageParams`, so leaving it
-    // out silently dropped the URL the admin chose in the wizard and
-    // every recipient of a video/image template synced from Meta (no
-    // `header_media_url` on the row) failed with "requires a media link".
-    const metaParams: meta.SendTemplateMessageArgs['messageParams'] = {
-      ...((messageParams as meta.SendTemplateMessageArgs['messageParams']) ??
-        {}),
-    };
-    if (headerMediaUrl && !metaParams.headerMediaUrl) {
-      metaParams.headerMediaUrl = headerMediaUrl;
+  switch (channel.provider) {
+    case 'whapi': {
+      const res = await whapi.sendTemplateMessage({
+        token: channel.accessToken,
+        to,
+        template,
+        bodyParams,
+        headerMediaUrl,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'whapi' };
     }
-    const res = await meta.sendTemplateMessage({
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      to,
-      templateName: template.name,
-      language: template.language,
-      params: bodyParams,
-      template,
-      messageParams: metaParams,
-      contextMessageId: quotedMessageId ?? undefined,
-    });
-    return { messageId: res.messageId, provider: 'meta' };
+    case 'meta': {
+      // The per-send media override is a top-level arg here because it is
+      // the one structured value both providers honour; Meta wants it
+      // inside `messageParams`, so fold it in. Every caller (broadcast
+      // route, broadcast-core, send-message, automations) passes
+      // `headerMediaUrl` and nobody passes `messageParams`, so leaving it
+      // out silently dropped the URL the admin chose in the wizard and
+      // every recipient of a video/image template synced from Meta (no
+      // `header_media_url` on the row) failed with "requires a media link".
+      const metaParams: meta.SendTemplateMessageArgs['messageParams'] = {
+        ...((messageParams as meta.SendTemplateMessageArgs['messageParams']) ??
+          {}),
+      };
+      if (headerMediaUrl && !metaParams.headerMediaUrl) {
+        metaParams.headerMediaUrl = headerMediaUrl;
+      }
+      const res = await meta.sendTemplateMessage({
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+        to,
+        templateName: template.name,
+        language: template.language,
+        params: bodyParams,
+        template,
+        messageParams: metaParams,
+        contextMessageId: quotedMessageId ?? undefined,
+      });
+      return { messageId: res.messageId, provider: 'meta' };
+    }
+    case 'openwa': {
+      // Rendered locally like Whapi; `messageParams` is Meta's registry
+      // shape and has nothing to address here.
+      const res = await openwa.sendTemplateMessage({
+        ...openwaCredentials(channel),
+        to,
+        template,
+        bodyParams,
+        headerMediaUrl,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'openwa' };
+    }
+    default:
+      return unknownProvider(channel.provider);
   }
-
-  const res = await whapi.sendTemplateMessage({
-    token: channel.accessToken,
-    to,
-    template,
-    bodyParams,
-    headerMediaUrl,
-    quotedMessageId,
-  });
-  return { messageId: res.messageId, provider: 'whapi' };
 }
 
 export interface InteractiveButton {
@@ -259,30 +339,48 @@ export async function sendInteractiveButtons(
     quotedMessageId,
   } = args;
 
-  if (channel.provider === 'meta') {
-    const res = await meta.sendInteractiveButtons({
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      to,
-      bodyText,
-      headerText,
-      footerText,
-      buttons,
-      contextMessageId: quotedMessageId ?? undefined,
-    });
-    return { messageId: res.messageId, provider: 'meta' };
+  switch (channel.provider) {
+    case 'whapi': {
+      const res = await whapi.sendInteractiveButtons({
+        token: channel.accessToken,
+        to,
+        bodyText,
+        headerText,
+        footerText,
+        buttons,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'whapi' };
+    }
+    case 'meta': {
+      const res = await meta.sendInteractiveButtons({
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+        to,
+        bodyText,
+        headerText,
+        footerText,
+        buttons,
+        contextMessageId: quotedMessageId ?? undefined,
+      });
+      return { messageId: res.messageId, provider: 'meta' };
+    }
+    case 'openwa': {
+      // The client sends these as numbered text options.
+      const res = await openwa.sendInteractiveButtons({
+        ...openwaCredentials(channel),
+        to,
+        bodyText,
+        headerText,
+        footerText,
+        buttons,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'openwa' };
+    }
+    default:
+      return unknownProvider(channel.provider);
   }
-
-  const res = await whapi.sendInteractiveButtons({
-    token: channel.accessToken,
-    to,
-    bodyText,
-    headerText,
-    footerText,
-    buttons,
-    quotedMessageId,
-  });
-  return { messageId: res.messageId, provider: 'whapi' };
 }
 
 export interface SendInteractiveListArgs {
@@ -310,37 +408,59 @@ export async function sendInteractiveList(
     quotedMessageId,
   } = args;
 
-  if (channel.provider === 'meta') {
-    const res = await meta.sendInteractiveList({
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      to,
-      bodyText,
-      buttonLabel,
-      headerText,
-      footerText,
-      sections,
-      contextMessageId: quotedMessageId ?? undefined,
-    });
-    return { messageId: res.messageId, provider: 'meta' };
+  switch (channel.provider) {
+    case 'whapi': {
+      const res = await whapi.sendInteractiveList({
+        token: channel.accessToken,
+        to,
+        bodyText,
+        buttonLabel,
+        headerText,
+        footerText,
+        sections,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'whapi' };
+    }
+    case 'meta': {
+      const res = await meta.sendInteractiveList({
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+        to,
+        bodyText,
+        buttonLabel,
+        headerText,
+        footerText,
+        sections,
+        contextMessageId: quotedMessageId ?? undefined,
+      });
+      return { messageId: res.messageId, provider: 'meta' };
+    }
+    case 'openwa': {
+      // Numbered text options, like the buttons; `buttonLabel` is unused.
+      const res = await openwa.sendInteractiveList({
+        ...openwaCredentials(channel),
+        to,
+        bodyText,
+        buttonLabel,
+        headerText,
+        footerText,
+        sections,
+        quotedMessageId,
+      });
+      return { messageId: res.messageId, provider: 'openwa' };
+    }
+    default:
+      return unknownProvider(channel.provider);
   }
-
-  const res = await whapi.sendInteractiveList({
-    token: channel.accessToken,
-    to,
-    bodyText,
-    buttonLabel,
-    headerText,
-    footerText,
-    sections,
-    quotedMessageId,
-  });
-  return { messageId: res.messageId, provider: 'whapi' };
 }
 
 export interface SendReactionArgs {
   channel: WhatsAppChannel;
-  /** Required by Meta, ignored by Whapi (the target id identifies the chat). */
+  /**
+   * Required by Meta and OpenWA, ignored by Whapi (the target id
+   * identifies the chat).
+   */
   to: string;
   targetMessageId: string;
   /** Single emoji, or an empty string to remove an existing reaction. */
@@ -352,23 +472,37 @@ export async function sendReaction(
 ): Promise<ProviderSendResult> {
   const { channel, to, targetMessageId, emoji } = args;
 
-  if (channel.provider === 'meta') {
-    const res = await meta.sendReactionMessage({
-      phoneNumberId: channel.phoneNumberId,
-      accessToken: channel.accessToken,
-      to,
-      targetMessageId,
-      emoji,
-    });
-    return { messageId: res.messageId, provider: 'meta' };
+  switch (channel.provider) {
+    case 'whapi': {
+      const res = await whapi.sendReactionMessage({
+        token: channel.accessToken,
+        targetMessageId,
+        emoji,
+      });
+      return { messageId: res.messageId, provider: 'whapi' };
+    }
+    case 'meta': {
+      const res = await meta.sendReactionMessage({
+        phoneNumberId: channel.phoneNumberId,
+        accessToken: channel.accessToken,
+        to,
+        targetMessageId,
+        emoji,
+      });
+      return { messageId: res.messageId, provider: 'meta' };
+    }
+    case 'openwa': {
+      const res = await openwa.sendReactionMessage({
+        ...openwaCredentials(channel),
+        to,
+        targetMessageId,
+        emoji,
+      });
+      return { messageId: res.messageId, provider: 'openwa' };
+    }
+    default:
+      return unknownProvider(channel.provider);
   }
-
-  const res = await whapi.sendReactionMessage({
-    token: channel.accessToken,
-    targetMessageId,
-    emoji,
-  });
-  return { messageId: res.messageId, provider: 'whapi' };
 }
 
 // ============================================================
@@ -387,6 +521,8 @@ export async function sendReaction(
  *     this is never called.
  *   * Meta NEVER sends a link — only a media id — so every inbound
  *     attachment on the Cloud API goes through here.
+ *   * OpenWA serves stored media by (chat, message); its media id is
+ *     the pair (`toOpenWAMediaId`) and the URL is built without a call.
  *
  * Either way the resulting URL is short-lived, which is what
  * `mirrorInboundMedia` exists to fix.
@@ -397,16 +533,22 @@ export async function getMediaUrl(args: {
 }): Promise<{ url: string; mimeType: string; fileSize: number | null }> {
   const { channel, mediaId } = args;
 
-  if (channel.provider === 'meta') {
-    return meta.getMediaUrl({ mediaId, accessToken: channel.accessToken });
+  switch (channel.provider) {
+    case 'whapi':
+      return whapi.getMediaUrl({ token: channel.accessToken, mediaId });
+    case 'meta':
+      return meta.getMediaUrl({ mediaId, accessToken: channel.accessToken });
+    case 'openwa':
+      return openwa.getMediaUrl({ sessionId: channel.phoneNumberId, mediaId });
+    default:
+      return unknownProvider(channel.provider);
   }
-  return whapi.getMediaUrl({ token: channel.accessToken, mediaId });
 }
 
 /**
  * Download media bytes the gateway is hosting.
  *
- * Both gateways require the account's own bearer token on the download
+ * Every gateway requires the account's own credential on the download
  * URL, which is why this cannot be a bare `fetch` at the call site.
  */
 export async function downloadMedia(args: {
@@ -415,13 +557,22 @@ export async function downloadMedia(args: {
 }): Promise<{ buffer: Buffer; contentType: string }> {
   const { channel, downloadUrl } = args;
 
-  if (channel.provider === 'meta') {
-    return meta.downloadMedia({
-      downloadUrl,
-      accessToken: channel.accessToken,
-    });
+  switch (channel.provider) {
+    case 'whapi':
+      return whapi.downloadMedia({ downloadUrl, token: channel.accessToken });
+    case 'meta':
+      return meta.downloadMedia({
+        downloadUrl,
+        accessToken: channel.accessToken,
+      });
+    case 'openwa':
+      return openwa.downloadMedia({
+        ...openwaCredentials(channel),
+        downloadUrl,
+      });
+    default:
+      return unknownProvider(channel.provider);
   }
-  return whapi.downloadMedia({ downloadUrl, token: channel.accessToken });
 }
 
 /** A profile lookup runs per contact in the inbox; don't let one hang a batch. */
@@ -431,9 +582,10 @@ const PROFILE_TIMEOUT_MS = 10_000;
  * The URL of a contact's WhatsApp profile picture, or null when there
  * is none to show (none set, or hidden by their privacy settings).
  *
- * Whapi only: the Cloud API has no profile-picture endpoint, so a Meta
- * number always answers null. The URL is a WhatsApp CDN link that
- * expires — copy the bytes (`contact-avatars.ts`), never store it.
+ * Linked-device numbers only (Whapi, OpenWA): the Cloud API has no
+ * profile-picture endpoint, so a Meta number always answers null. The
+ * URL is a WhatsApp CDN link that expires — copy the bytes
+ * (`contact-avatars.ts`), never store it.
  *
  * Throws the gateway's error on anything but "no picture", so the
  * caller can tell a transient failure from a real absence.
@@ -442,22 +594,38 @@ export async function getContactProfilePicture(
   channel: WhatsAppChannel,
   phone: string
 ): Promise<string | null> {
-  if (channel.provider !== 'whapi') return null;
-  const profile = await whapi.getContactProfile({
-    token: channel.accessToken,
-    contactId: phone,
-    timeoutMs: PROFILE_TIMEOUT_MS,
-  });
-  return profile?.iconFull ?? profile?.icon ?? null;
+  switch (channel.provider) {
+    case 'whapi': {
+      const profile = await whapi.getContactProfile({
+        token: channel.accessToken,
+        contactId: phone,
+        timeoutMs: PROFILE_TIMEOUT_MS,
+      });
+      return profile?.iconFull ?? profile?.icon ?? null;
+    }
+    case 'meta':
+      return null;
+    case 'openwa':
+      return openwa.getContactProfilePicture({
+        ...openwaCredentials(channel),
+        contactId: phone,
+        timeoutMs: PROFILE_TIMEOUT_MS,
+      });
+    default:
+      return unknownProvider(channel.provider);
+  }
 }
 
 // ============================================================
 // Channel health
 // ============================================================
 
-/** What a probe says about a number. Whapi's own words, never mapped. */
+/** What a probe says about a number. The gateway's own words, never mapped. */
 export interface ChannelProbe {
-  /** `AUTH` means paired and able to send; see `describeChannelStatus`. */
+  /**
+   * Whapi: `AUTH` means paired and able to send; see
+   * `describeChannelStatus`. OpenWA: `ready` (`OpenWASessionStatus`).
+   */
   status: string;
   authorized: boolean;
   /** Digits of the paired number; null while nothing is paired. */
@@ -470,12 +638,13 @@ const PROBE_TIMEOUT_MS = 5_000;
 /**
  * Ask the gateway whether a number is live, without changing anything.
  *
- * Whapi only: its linked-device session can be logged out on the phone
- * while the token stays valid, so the token alone says nothing about
- * whether a send will work. `wakeup: false` because a status check must
- * never launch a channel an operator deliberately stopped. Meta has no
- * session to lose — a Cloud API number is up as long as its token is —
- * so there is nothing to probe and this returns null.
+ * Linked-device numbers only: their session can be logged out on the
+ * phone while the token stays valid, so the token alone says nothing
+ * about whether a send will work. Whapi gets `wakeup: false` because a
+ * status check must never launch a channel an operator deliberately
+ * stopped; OpenWA's session read is a plain GET that starts nothing.
+ * Meta has no session to lose — a Cloud API number is up as long as its
+ * token is — so there is nothing to probe and this returns null.
  *
  * Throws the gateway's error, so the caller can tell a refused token
  * (401/403/404) from a gateway that is merely unreachable (503).
@@ -483,25 +652,45 @@ const PROBE_TIMEOUT_MS = 5_000;
 export async function probeChannel(
   channel: WhatsAppChannel
 ): Promise<ChannelProbe | null> {
-  if (channel.provider !== 'whapi') return null;
-  const info = await whapi.getChannelInfo({
-    token: channel.accessToken,
-    wakeup: false,
-    timeoutMs: PROBE_TIMEOUT_MS,
-  });
-  return {
-    status: info.status,
-    authorized: info.authorized,
-    phone: info.phone,
-  };
+  switch (channel.provider) {
+    case 'whapi': {
+      const info = await whapi.getChannelInfo({
+        token: channel.accessToken,
+        wakeup: false,
+        timeoutMs: PROBE_TIMEOUT_MS,
+      });
+      return {
+        status: info.status,
+        authorized: info.authorized,
+        phone: info.phone,
+      };
+    }
+    case 'meta':
+      return null;
+    case 'openwa': {
+      const session = await openwa.getSession({
+        ...openwaCredentials(channel),
+        timeoutMs: PROBE_TIMEOUT_MS,
+      });
+      // Verbatim: the health check maps OpenWA's words itself.
+      return {
+        status: session.status,
+        authorized: session.status === 'ready',
+        phone: session.phone,
+      };
+    }
+    default:
+      return unknownProvider(channel.provider);
+  }
 }
 
 /**
  * Whapi's Safety Meter for a number: its own 1-3 rating of the risk of
  * WhatsApp restricting it (overall, number age, response rate, address
  * book coverage). Meta numbers have no such meter (their quality
- * rating lives in the WhatsApp Manager) and get null. `recalculate`
- * asks Whapi to compute it afresh, which it does at most once a day.
+ * rating lives in the WhatsApp Manager) and get null, as do OpenWA
+ * numbers (the gateway has no meter). `recalculate` asks Whapi to
+ * compute it afresh, which it does at most once a day.
  *
  * Throws the gateway's error; the figures never include the token the
  * meter echoes back.
@@ -510,12 +699,19 @@ export async function getNumberSafetyRating(
   channel: WhatsAppChannel,
   opts: { recalculate?: boolean; timeoutMs?: number } = {}
 ): Promise<whapi.WhapiRiskOfBlocking | null> {
-  if (channel.provider !== 'whapi') return null;
-  return whapi.getRiskOfBlocking({
-    token: channel.accessToken,
-    recalculate: opts.recalculate,
-    timeoutMs: opts.timeoutMs ?? 10_000,
-  });
+  switch (channel.provider) {
+    case 'whapi':
+      return whapi.getRiskOfBlocking({
+        token: channel.accessToken,
+        recalculate: opts.recalculate,
+        timeoutMs: opts.timeoutMs ?? 10_000,
+      });
+    case 'meta':
+    case 'openwa':
+      return null;
+    default:
+      return unknownProvider(channel.provider);
+  }
 }
 
 // ============================================================
@@ -538,6 +734,10 @@ export function isChannelLevelFailure(err: unknown): boolean {
   }
   if (err instanceof meta.MetaError) {
     return err.isAuthError;
+  }
+  if (err instanceof openwa.OpenWAError) {
+    // The pacing governor is per number, so the next send refuses too.
+    return err.isAuthError || err.isSessionNotFound || err.isPacingLimited;
   }
   return false;
 }
@@ -564,11 +764,19 @@ export function isChannelLevelFailure(err: unknown): boolean {
  *     own checks, which throw a plain Error. Those last ones are safe in
  *     fact, but nothing tells them apart from the others.
  *
+ * OpenWA follows the same rule: its 409 ("engine not ready") and 429
+ * (pacing) are refusals before anything was sent, while its synthetic
+ * 503 (network error, timeout) and 502 (no message id) are not.
+ *
  * A retry decision reads this. Read off the raw error, never the
  * `describeSendFailure` wording.
  */
 export function isDefiniteSendRefusal(err: unknown): boolean {
-  if (err instanceof whapi.WhapiError || err instanceof meta.MetaError) {
+  if (
+    err instanceof whapi.WhapiError ||
+    err instanceof meta.MetaError ||
+    err instanceof openwa.OpenWAError
+  ) {
     return err.status >= 400 && err.status < 500 && err.status !== 408;
   }
   return false;
@@ -577,7 +785,7 @@ export function isDefiniteSendRefusal(err: unknown): boolean {
 /**
  * Turn a gateway failure into something an operator can act on.
  *
- * Both error classes carry `status` and capability getters, but the
+ * Every error class carries `status` and capability getters, but the
  * *causes* differ enough that a shared translation is worth having:
  * the single most common Meta failure (a closed 24-hour window) has no
  * Whapi equivalent at all, and reads as an incomprehensible numeric
@@ -634,6 +842,35 @@ export function describeSendFailure(error: unknown): string {
     return error.message;
   }
 
+  if (error instanceof openwa.OpenWAError) {
+    if (error.isAuthError || error.isSessionNotFound) {
+      return (
+        "OpenWA no longer accepts this number's key or the session was " +
+        'deleted; reconnect it in Settings → WhatsApp.'
+      );
+    }
+    if (error.isPacingLimited) {
+      const minutes =
+        error.retryAfterSeconds && error.retryAfterSeconds > 0
+          ? Math.ceil(error.retryAfterSeconds / 60)
+          : null;
+      return (
+        "OpenWA's daily send allowance for this number is used up; " +
+        (minutes ? `retry in about ${minutes} minutes.` : 'retry later.')
+      );
+    }
+    if (error.isNotReady) {
+      return (
+        'The OpenWA number is not connected to WhatsApp right now (starting, ' +
+        'or logged out on the phone); an admin should check Settings → WhatsApp.'
+      );
+    }
+    if (error.isNotSupported) {
+      return `That is not available on OpenWA numbers: ${error.message}`;
+    }
+    return error.message;
+  }
+
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -651,26 +888,88 @@ function whapiNumber(channel: WhatsAppChannel): string | null {
 }
 
 /**
- * `describeSendFailure`, made exact for the one case where the gateway's
- * answer is ambiguous: a Whapi 401/403.
+ * `describeSendFailure`, made exact for the cases where the gateway's
+ * answer is ambiguous: a Whapi 401/403, or an OpenWA "not ready" /
+ * auth refusal.
  *
  * The same refusal means three different things with three different
  * fixes — the phone was logged out (re-scan the QR on the phone; the
  * token is fine), the channel is still starting or syncing (wait), or
  * the token really was revoked (paste the new one in Settings). One
- * short `/health` probe tells them apart. It runs only after a send has
- * already failed, never on the happy path, and a probe that errors
- * falls back to the neutral wording rather than guessing.
+ * short probe tells them apart. It runs only after a send has already
+ * failed, never on the happy path, and a probe that errors falls back
+ * to the neutral wording rather than guessing.
  */
 export async function explainSendFailure(
   error: unknown,
   channel: WhatsAppChannel
 ): Promise<string> {
+  switch (channel.provider) {
+    case 'whapi':
+      return explainWhapiFailure(error, channel);
+    case 'meta':
+      return describeSendFailure(error);
+    case 'openwa':
+      return explainOpenWAFailure(error, channel);
+    default:
+      return unknownProvider(channel.provider);
+  }
+}
+
+async function explainOpenWAFailure(
+  error: unknown,
+  channel: WhatsAppChannel
+): Promise<string> {
   if (
-    channel.provider !== 'whapi' ||
-    !(error instanceof whapi.WhapiError) ||
-    !error.isAuthError
+    !(error instanceof openwa.OpenWAError) ||
+    !(error.isNotReady || error.isAuthError || error.isSessionNotFound)
   ) {
+    return describeSendFailure(error);
+  }
+
+  let probe: ChannelProbe | null;
+  try {
+    probe = await probeChannel(channel);
+  } catch {
+    return describeSendFailure(error);
+  }
+  if (!probe) return describeSendFailure(error);
+
+  const status = probe.status as openwa.OpenWASessionStatus;
+  if (status === 'ready') {
+    return (
+      `OpenWA refused the send (HTTP ${error.status}: ${error.message}); ` +
+      'the number reports connected. Retry in a minute.'
+    );
+  }
+  if (
+    status === 'qr_ready' ||
+    status === 'disconnected' ||
+    status === 'failed'
+  ) {
+    return (
+      `This number (${describeChannel(channel)}) is logged out of WhatsApp — ` +
+      're-link it by scanning the QR in Settings → WhatsApp.'
+    );
+  }
+  if (status === 'initializing' || status === 'authenticating') {
+    return (
+      `This number (${describeChannel(channel)}) is still starting up ` +
+      `(status ${probe.status}). Retry in a minute.`
+    );
+  }
+  // `created`, `action_required` and words OpenWA may add later.
+  return (
+    `This number (${describeChannel(channel)}) is not connected to WhatsApp ` +
+    `(status ${probe.status}); an admin should check Settings → WhatsApp.`
+  );
+}
+
+async function explainWhapiFailure(
+  error: unknown,
+  channel: WhatsAppChannel
+): Promise<string> {
+  if (!(error instanceof whapi.WhapiError) || !error.isAuthError) {
     return describeSendFailure(error);
   }
 
