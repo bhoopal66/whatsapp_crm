@@ -29,7 +29,6 @@ import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { CallButton } from '@/components/pbx/call-button';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { ConsentFields } from '@/lib/pbx/call-ui';
 import {
   COMPOSER_PREFILL_EVENT,
   TIMELINE_FILTERS,
@@ -53,10 +52,8 @@ import {
   withinHorizon,
   type MonthTotals,
   type Part,
-  type TimelineCall,
   type TimelineEntry,
   type TimelineFilter,
-  type TimelinePaging,
   type TimelineSource,
   type TimelineTask,
 } from '@/lib/pbx/timeline';
@@ -78,6 +75,13 @@ import {
   type ContactThread,
 } from '@/lib/contacts/contact-thread';
 import { customerAccess } from '@/lib/contacts/customer-access';
+import {
+  getJson,
+  loadCustomer,
+  paged,
+  readPage,
+  type CustomerLoad,
+} from '@/lib/contacts/customer-load';
 import { contactsListPath } from '@/lib/contacts/customer-links';
 import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
 import type { Contact } from '@/types';
@@ -95,156 +99,11 @@ import { CasesCard } from './customer/cases-card';
 import { CustomerHeader } from './customer/customer-header';
 import { RecordingPlayer } from './recording-player';
 
-const PAGE = 50;
-type Sb = ReturnType<typeof createClient>;
-
-interface Customer extends ConsentFields {
-  id: string;
-  name: string | null;
-  company: string | null;
-  phone: string | null;
-  email: string | null;
-  created_at: string | null;
-  user_id: string | null;
-}
-interface Basics {
-  contact: Customer;
-  conversation: { id: string; assignedTo: string | null } | null;
-  deal: { id: string; title: string; stage: string | null } | null;
-  /** pbx_settings.missed_call_whatsapp_draft: missed calls offer a draft. */
-  draftOn: boolean;
-}
-interface RawMessage {
-  id: string;
-  sender_type: string;
-  sender_id: string | null;
-  content_text: string | null;
-  content_type: string;
-  created_at: string;
-}
-interface RawNote {
-  id: string;
-  note_text: string;
-  user_id: string | null;
-  created_at: string;
-}
-interface RawPost {
-  id: string;
-  channelName: string;
-  authorId: string | null;
-  body: string;
-  createdAt: string;
-}
-interface Rows {
-  calls: TimelineCall[];
-  messages: RawMessage[];
-  notes: RawNote[];
-  internal: RawPost[];
-}
-type Load =
-  | { state: 'loading' | 'failed' | 'missing' }
-  | ({ state: 'ready'; rows: Rows; paging: TimelinePaging } & Basics);
+type Load = { state: 'loading' | 'failed' } | CustomerLoad;
 interface Side {
   tasks: TimelineTask[];
   summary: MonthTotals | null;
 }
-
-const getJson = (url: string) =>
-  fetch(url).then((r) => {
-    if (!r.ok) throw new Error(String(r.status));
-    return r.json();
-  });
-const must = (r: { data: unknown; error: { message: string } | null }) => {
-  if (r.error) throw new Error(r.error.message);
-  return r.data;
-};
-const atOf: Record<TimelineSource, (row: never) => string> = {
-  calls: (r: TimelineCall) => r.startedAt,
-  messages: (r: RawMessage) => r.created_at,
-  notes: (r: RawNote) => r.created_at,
-  internal: (r: RawPost) => r.createdAt,
-};
-
-/** One page of a source, older than `before` (exclusive) when given. */
-async function readPage(
-  sb: Sb,
-  source: Exclude<TimelineSource, 'internal'>,
-  ids: { contactId: string; conversationId: string | null },
-  before: string | null
-): Promise<unknown[]> {
-  if (source === 'calls') {
-    const q = new URLSearchParams({
-      contactId: ids.contactId,
-      scope: 'all',
-      limit: String(PAGE),
-    });
-    if (before) q.set('to', before);
-    return (await getJson(`/api/pbx/calls?${q}`)).calls ?? [];
-  }
-  if (source === 'messages' && !ids.conversationId) return [];
-  let q =
-    source === 'messages'
-      ? sb
-          .from('messages')
-          .select(
-            'id, sender_type, sender_id, content_text, content_type, created_at'
-          )
-          .eq('conversation_id', ids.conversationId as string)
-      : sb
-          .from('contact_notes')
-          .select('id, note_text, user_id, created_at')
-          .eq('contact_id', ids.contactId);
-  if (before) q = q.lt('created_at', before);
-  return must(
-    await q.order('created_at', { ascending: false }).limit(PAGE)
-  ) as unknown[];
-}
-
-/** Internal-chat posts that shared this customer's chat (one read). */
-async function readShares(sb: Sb, conversationId: string): Promise<RawPost[]> {
-  const shared = must(
-    await sb
-      .from('shared_conversations')
-      .select('message_id')
-      .eq('conversation_id', conversationId)
-  ) as { message_id: string }[];
-  if (!shared.length) return [];
-  const posts = must(
-    await sb
-      .from('internal_messages')
-      .select('id, channel_id, author_id, body, created_at')
-      .in('id', [...new Set(shared.map((s) => s.message_id))])
-      .is('deleted_at', null)
-      .is('erased_at', null)
-  ) as {
-    id: string;
-    channel_id: string;
-    author_id: string | null;
-    body: string;
-    created_at: string;
-  }[];
-  const channelIds = [...new Set(posts.map((p) => p.channel_id))];
-  const channels = channelIds.length
-    ? (must(
-        await sb.from('chat_channels').select('id, name').in('id', channelIds)
-      ) as { id: string; name: string }[])
-    : [];
-  const name = new Map(channels.map((c) => [c.id, c.name]));
-  return posts
-    .filter((p) => name.has(p.channel_id))
-    .map((p) => ({
-      id: p.id,
-      channelName: name.get(p.channel_id) as string,
-      authorId: p.author_id,
-      body: p.body,
-      createdAt: p.created_at,
-    }));
-}
-
-const paged = (source: TimelineSource, rows: unknown[]) => ({
-  oldest: rows.length ? atOf[source](rows[rows.length - 1] as never) : null,
-  more: rows.length === PAGE,
-});
 
 export function CustomerPage({
   contactId,
@@ -314,80 +173,10 @@ export function CustomerPage({
 
   useEffect(() => {
     let live = true;
-    const sb = createClient();
-    void (async () => {
-      const [c, conv, deal, pbx] = await Promise.all([
-        sb
-          .from('contacts')
-          // `*`: the Edit form saves the whole row back.
-          .select('*')
-          .eq('id', contactId)
-          .maybeSingle(),
-        sb
-          .from('conversations')
-          .select('id, assigned_agent_id')
-          .eq('contact_id', contactId)
-          .limit(1),
-        sb
-          .from('deals')
-          .select('id, title, stage:pipeline_stages(name)')
-          .eq('contact_id', contactId)
-          .eq('status', 'open')
-          .order('created_at', { ascending: false })
-          .limit(1),
-        // The active workspace's row (RLS); none or unreadable: no draft.
-        sb
-          .from('pbx_settings')
-          .select('missed_call_whatsapp_draft')
-          .maybeSingle(),
-      ]);
-      const contact = must(c) as Customer | null;
-      if (!contact) return live && setLoad({ state: 'missing' });
-      const cv = (
-        must(conv) as { id: string; assigned_agent_id: string | null }[]
-      )[0];
-      const d = (
-        must(deal) as unknown as {
-          id: string;
-          title: string;
-          stage: { name: string } | null;
-        }[]
-      )[0];
-      const ids = { contactId, conversationId: cv?.id ?? null };
-      const [calls, messages, notes, internal] = await Promise.all([
-        readPage(sb, 'calls', ids, null),
-        readPage(sb, 'messages', ids, null),
-        readPage(sb, 'notes', ids, null),
-        cv ? readShares(sb, cv.id).catch(() => []) : [],
-      ]);
-      if (!live) return;
-      setLoad({
-        state: 'ready',
-        contact,
-        conversation: cv
-          ? { id: cv.id, assignedTo: cv.assigned_agent_id }
-          : null,
-        deal: d
-          ? { id: d.id, title: d.title, stage: d.stage?.name ?? null }
-          : null,
-        draftOn:
-          !pbx.error &&
-          (pbx.data as { missed_call_whatsapp_draft?: unknown } | null)
-            ?.missed_call_whatsapp_draft === true,
-        rows: {
-          calls: calls as TimelineCall[],
-          messages: messages as RawMessage[],
-          notes: notes as RawNote[],
-          internal,
-        },
-        paging: {
-          calls: paged('calls', calls),
-          messages: paged('messages', messages),
-          notes: paged('notes', notes),
-          internal: { oldest: null, more: false },
-        },
-      });
-    })().catch(() => live && setLoad({ state: 'failed' }));
+    void loadCustomer(createClient(), contactId).then(
+      (l) => live && setLoad(l),
+      () => live && setLoad({ state: 'failed' })
+    );
     return () => {
       live = false;
     };
@@ -486,16 +275,12 @@ export function CustomerPage({
     setPaging(true);
     try {
       const sb = createClient();
-      const ids = {
-        contactId,
-        conversationId: ready.conversation?.id ?? null,
-      };
       const pages = await Promise.all(
         toPage.map((s) =>
           readPage(
             sb,
             s as Exclude<TimelineSource, 'internal'>,
-            ids,
+            contactId,
             ready.paging[s]?.oldest ?? null
           )
         )
