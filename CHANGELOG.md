@@ -12,6 +12,26 @@ and polish.
 
 ## [Unreleased]
 
+### Calls: a movable call window with the customer's history
+
+No migration.
+- The call panel no longer covers the right side of the screen. It is a
+  floating window you drag anywhere by its dark top band, and it stays
+  where you leave it, also after a reload (remembered per browser). The
+  arrow keys move it too, and a double-click sends it back to the
+  corner. **Minimise** turns it into a one-line bar with the customer,
+  the timer, Mute and Hang up (or the wrap-up countdown once the call
+  ends). On a phone it is a bottom sheet. The incoming-call card can be
+  moved as well.
+- The window now has tabs. **Notes** keeps the outcome, notes and call
+  card, and adds a one-click call-back reminder (in 1 hour, 3 hours,
+  tomorrow 10:00, in 2 days, or a time you pick) that creates a
+  call-back task for you, with Undo. **Customer** shows the owner, open
+  deal, last WhatsApp message and consent, the open tasks (tick one
+  done) and cases, with links to the customer page and the WhatsApp
+  chat. **History** lists your earlier calls with this customer, with
+  their outcomes and notes. See section 11 of `docs/yeastar.md`.
+
 ### Sidebar: grouped by area of work
 
 No migration.

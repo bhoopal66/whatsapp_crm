@@ -607,6 +607,38 @@ section describes the behaviour once it is on.
   cannot be posted when the wrap-up closes by itself, it is tried three
   times, then the wrap-up closes with an error saying the card was not
   shared (the outcome and notes are saved on the call).
+- **The call window.** The in-call panel is a floating window, not a
+  column down the right of the screen. Drag it anywhere by its dark top
+  band (mouse, touch or pen); with the band focused the arrow keys move
+  it (Shift for bigger steps), and a double-click sends it back to the
+  bottom-right corner. **Minimise** shrinks it to a one-line bar: the
+  customer, the timer, Mute and Hang up during the call, the wrap-up
+  countdown (or "Add outcome") after it, and Expand. A minimised
+  wrap-up still closes by itself; where outcomes are mandatory and one
+  is still owed when the two minutes run out, the window expands on its
+  own. It remembers its corner, distance from the edges and size in
+  this browser only (a new browser starts bottom-right), keeps to its
+  corner when the browser window is resized, and never leaves the
+  screen. On a phone it is a bottom sheet, minimised to a bar at the
+  bottom. The incoming-call card can be dragged the same way,
+  remembers its own place, and always stays above the call window.
+  The window has three tabs:
+  - _Notes_: the outcome, the notes and the call card, as above, plus
+    a **call-back reminder** (agents and above): In 1 hour, In 3 hours,
+    Tomorrow 10:00, In 2 days (10:00) or a time you pick. It creates an
+    open call-back task on the customer, assigned to you, with an Undo
+    that cancels it.
+  - _Customer_: the owner, open deal, last WhatsApp message and
+    consent, links to the customer page and the WhatsApp chat, the
+    customer's open tasks (agents and above can tick one done) and
+    cases, or **Create contact** for a caller with no contact.
+  - _History_: the customer's earlier calls you can see, newest first,
+    up to ten, each with its outcome and notes; the call in progress is
+    left out.
+
+  A customer you cannot see shows none of the links, tasks, cases,
+  history or reminder. Nothing in the window is sent to the customer.
+
 - **Call cards in team chat (103).** The wrap-up's call card, and
   **Share to chat** on the Calls screen and the customer page, post a
   card of the call to a team or private channel or a deal room's Team
