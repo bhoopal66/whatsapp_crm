@@ -314,7 +314,11 @@ export function ThreadChannelSwitcher({
               <span className="flex-1">
                 {channelNameWithPhone(n)}
                 <span className="text-muted-foreground block text-xs">
-                  {n.provider === 'meta' ? t('metaHint') : t('whapiHint')}
+                  {n.provider === 'meta'
+                    ? t('metaHint')
+                    : n.provider === 'openwa'
+                      ? t('openwaHint')
+                      : t('whapiHint')}
                 </span>
               </span>
               {pin === n.id && <Check className="ml-2 h-3 w-3" />}

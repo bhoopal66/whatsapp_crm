@@ -36,6 +36,7 @@ import {
   sessionTitleLimits,
   templateChecklist,
   textLength,
+  linkedDeviceColumnKey,
   type ChecklistItem,
   type CopyForm,
   type CopyOverrides,
@@ -201,7 +202,7 @@ export function JourneyBotSettings({
         loading={rows === null || numbers === null}
         failed={rowsFailed}
         hasMeta={kinds.includes('meta')}
-        hasWhapi={kinds.includes('whapi')}
+        linkedColumn={linkedDeviceColumnKey(kinds)}
         onOpenTemplates={onOpenTemplates}
       />
       <CopyEditor
@@ -306,7 +307,7 @@ function TemplatesCard({
   loading,
   failed,
   hasMeta,
-  hasWhapi,
+  linkedColumn,
   onOpenTemplates,
 }: {
   items: ChecklistItem[];
@@ -314,10 +315,14 @@ function TemplatesCard({
   loading: boolean;
   failed: boolean;
   hasMeta: boolean;
-  hasWhapi: boolean;
+  /** Heading key of the locally-rendered column; null hides it. */
+  linkedColumn: ReturnType<typeof linkedDeviceColumnKey>;
   onOpenTemplates?: () => void;
 }) {
   const t = useTranslations('Settings.journeyBot.templates');
+  // Whapi and OpenWA both render the row locally and share one column
+  // (data key `whapi`); only the heading names which of them are here.
+  const hasWhapi = linkedColumn !== null;
   const missing = (
     <span className="text-destructive">
       {t('state.missing')} —{' '}
@@ -374,8 +379,8 @@ function TemplatesCard({
                     {hasMeta && (
                       <th className="py-1.5 pr-3 font-normal">{t('meta')}</th>
                     )}
-                    {hasWhapi && (
-                      <th className="py-1.5 font-normal">{t('whapi')}</th>
+                    {linkedColumn && (
+                      <th className="py-1.5 font-normal">{t(linkedColumn)}</th>
                     )}
                   </tr>
                 </thead>

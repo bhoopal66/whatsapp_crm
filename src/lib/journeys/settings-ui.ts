@@ -318,3 +318,21 @@ export function parseTaamulDid(
   if (!did) return { ok: true, value: null };
   return E164.test(did) ? { ok: true, value: did } : { ok: false };
 }
+
+/**
+ * Heading key (under `Settings.journeyBot.templates`) of the column for
+ * locally-rendered templates, or null when the account has no linked-
+ * device number. The column's data stays `ChecklistItem.whapi`; only the
+ * heading names the providers present, so an OpenWA-only account is not
+ * told its templates live on a Whapi number.
+ */
+export function linkedDeviceColumnKey(
+  kinds: readonly string[]
+): 'whapi' | 'openwa' | 'whapiOpenwa' | null {
+  const whapi = kinds.includes('whapi');
+  const openwa = kinds.includes('openwa');
+  if (whapi && openwa) return 'whapiOpenwa';
+  if (openwa) return 'openwa';
+  if (whapi) return 'whapi';
+  return null;
+}

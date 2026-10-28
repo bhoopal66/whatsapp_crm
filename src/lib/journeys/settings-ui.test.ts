@@ -14,6 +14,7 @@ import {
   sessionTitleLimits,
   templateChecklist,
   textLength,
+  linkedDeviceColumnKey,
   type CopyForm,
 } from './settings-ui';
 
@@ -338,5 +339,15 @@ describe('parseTaamulDid', () => {
     for (const bad of ['04 123 4567', '+0123456789', '+12345', '+9714abc4567'])
       expect(parseTaamulDid(bad)).toEqual({ ok: false });
     expect(parseTaamulDid(`+1${'2'.repeat(15)}`)).toEqual({ ok: false });
+  });
+});
+
+describe('linkedDeviceColumnKey', () => {
+  it('names the linked-device providers the account has', () => {
+    expect(linkedDeviceColumnKey(['whapi', 'meta'])).toBe('whapi');
+    expect(linkedDeviceColumnKey(['openwa'])).toBe('openwa');
+    expect(linkedDeviceColumnKey(['openwa', 'whapi'])).toBe('whapiOpenwa');
+    expect(linkedDeviceColumnKey(['meta'])).toBeNull();
+    expect(linkedDeviceColumnKey([])).toBeNull();
   });
 });

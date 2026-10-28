@@ -35,6 +35,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  QrCode,
   Settings2,
   Star,
   Trash2,
@@ -61,7 +62,11 @@ import { invalidateCached } from '@/lib/client-cache';
 import {
   MAX_CHANNEL_LABEL_LEN,
   channelDisplayName,
+  isLinkedDeviceNumber,
+  providerLabel,
 } from '@/lib/whatsapp/channel-management';
+import { isLinkedStatus } from '@/lib/whatsapp/openwa-connect';
+import { OpenWAConnectDialog } from './openwa-connect-dialog';
 import {
   effectiveAccess,
   savedAccess,
@@ -74,7 +79,7 @@ import type { AccountMember } from '@/types';
 
 interface NumberRow {
   id: string;
-  provider: 'whapi' | 'meta';
+  provider: 'whapi' | 'meta' | 'openwa';
   label: string | null;
   phone_number_id: string;
   waba_id: string | null;
@@ -138,6 +143,7 @@ export function WhatsAppNumbers() {
   const [addToken, setAddToken] = useState('');
   const [addChannelId, setAddChannelId] = useState('');
   const [adding, setAdding] = useState(false);
+  const [openwaOpen, setOpenwaOpen] = useState(false);
 
   const [removing, setRemoving] = useState<NumberRow | null>(null);
   const [health, setHealth] = useState<Record<string, NumberHealth>>({});
@@ -199,6 +205,22 @@ export function WhatsAppNumbers() {
       rows.map(async (row) => {
         let result: NumberHealth;
         try {
+          if (row.provider === 'openwa') {
+            // The Whapi health route would read an OpenWA row as a
+            // Whapi channel; its own status route asks the gateway.
+            const body = await fetch(
+              `/api/whatsapp/config/openwa/${encodeURIComponent(row.id)}/status`,
+              { cache: 'no-store' }
+            ).then((r) => r.json());
+            setHealth((prev) => ({
+              ...prev,
+              [row.id]: {
+                live: isLinkedStatus(body?.status),
+                phone: body?.phone ?? null,
+              },
+            }));
+            return;
+          }
           const url =
             row.provider === 'meta'
               ? '/api/whatsapp/config/meta'
@@ -397,7 +419,9 @@ export function WhatsAppNumbers() {
       const url =
         row.provider === 'meta'
           ? '/api/whatsapp/config/meta'
-          : `/api/whatsapp/config?config_id=${encodeURIComponent(row.id)}`;
+          : row.provider === 'openwa'
+            ? `/api/whatsapp/config/openwa/${encodeURIComponent(row.id)}`
+            : `/api/whatsapp/config?config_id=${encodeURIComponent(row.id)}`;
       const res = await fetch(url, { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -444,10 +468,16 @@ export function WhatsAppNumbers() {
         title={t('title')}
         description={t('description')}
         action={
-          <Button onClick={() => setAddOpen(true)}>
-            <Plus className="size-4" />
-            {t('addNumber')}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setOpenwaOpen(true)}>
+              <QrCode className="size-4" />
+              {t('openwa.connectButton')}
+            </Button>
+            <Button onClick={() => setAddOpen(true)}>
+              <Plus className="size-4" />
+              {t('addNumber')}
+            </Button>
+          </div>
         }
       />
 
@@ -482,6 +512,13 @@ export function WhatsAppNumbers() {
             // see from the inbox. Fixed on the WhatsApp section.
             const inboundMissing =
               row.provider === 'whapi' && !row.registered_at;
+            // OpenWA has no token panel in the WhatsApp section (that
+            // section is Whapi's), so its rows get no link there; a lost
+            // link is fixed by disconnecting and scanning again.
+            const isOpenwa = row.provider === 'openwa';
+            const shownPhone = isLinkedDeviceNumber(row.provider)
+              ? row.waba_id || rowHealth?.phone
+              : rowHealth?.phone;
             const access = savedAccess(row);
             const teamNames = row.team_ids
               .map((id) => teamById.get(id)?.name)
@@ -548,21 +585,15 @@ export function WhatsAppNumbers() {
                     )}
 
                     <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
-                      {(
-                        row.provider === 'whapi'
-                          ? row.waba_id
-                          : rowHealth?.phone
-                      ) ? (
-                        <span className="font-mono">
-                          {row.provider === 'whapi'
-                            ? row.waba_id
-                            : rowHealth?.phone}
-                        </span>
+                      {shownPhone ? (
+                        <span className="font-mono">{shownPhone}</span>
                       ) : null}
                       <Badge variant="outline">
                         {row.provider === 'meta'
                           ? t('providerMeta')
-                          : t('providerWhapi')}
+                          : row.provider === 'whapi'
+                            ? t('providerWhapi')
+                            : providerLabel(row.provider)}
                       </Badge>
                       <Badge
                         variant="outline"
@@ -619,15 +650,17 @@ export function WhatsAppNumbers() {
                         {t('makeDefault')}
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title={t('connectionSettings')}
-                      aria-label={t('connectionSettings')}
-                      onClick={() => openConnectionSettings(row)}
-                    >
-                      <Settings2 className="size-4" />
-                    </Button>
+                    {!isOpenwa && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={t('connectionSettings')}
+                        aria-label={t('connectionSettings')}
+                        onClick={() => openConnectionSettings(row)}
+                      >
+                        <Settings2 className="size-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -646,16 +679,20 @@ export function WhatsAppNumbers() {
                     <span className="min-w-0">
                       {inboundMissing
                         ? t('inboundMissing')
-                        : rowHealth?.message || t('notLive')}
+                        : isOpenwa
+                          ? t('openwa.notLive')
+                          : rowHealth?.message || t('notLive')}
                     </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7"
-                      onClick={() => openConnectionSettings(row)}
-                    >
-                      {t('fixInWhatsApp')}
-                    </Button>
+                    {!isOpenwa && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        onClick={() => openConnectionSettings(row)}
+                      >
+                        {t('fixInWhatsApp')}
+                      </Button>
+                    )}
                   </div>
                 )}
 
@@ -937,6 +974,15 @@ export function WhatsAppNumbers() {
         </DialogContent>
       </Dialog>
 
+      <OpenWAConnectDialog
+        open={openwaOpen}
+        onOpenChange={setOpenwaOpen}
+        onConnected={() => {
+          invalidateNumberCaches();
+          void load();
+        }}
+      />
+
       {/* Disconnect */}
       <Dialog
         open={removing !== null}
@@ -952,7 +998,9 @@ export function WhatsAppNumbers() {
             <DialogDescription className="text-muted-foreground">
               {removing?.provider === 'meta'
                 ? t('removeBodyMeta')
-                : t('removeBody')}
+                : removing?.provider === 'openwa'
+                  ? t('openwa.removeBody')
+                  : t('removeBody')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
