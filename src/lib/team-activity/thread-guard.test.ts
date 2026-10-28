@@ -104,6 +104,17 @@ describe('outreachNotices', () => {
     ).toEqual([]);
   });
 
+  it('warns on an OpenWA number as on a Whapi one (145)', () => {
+    expect(
+      outreachNotices({
+        ...base,
+        provider: 'openwa',
+        messages: [],
+        day: day({ started: 16 }),
+      })[0]
+    ).toMatchObject({ kind: 'limit_near', started: 16, limit: 20 });
+  });
+
   it('warns near the limit and stops at it, only for a new chat', () => {
     expect(
       outreachNotices({ ...base, messages: [], day: day({ started: 16 }) })[0]
@@ -215,6 +226,21 @@ describe('parseMyOutreachDay', () => {
 });
 
 describe('limitNotices', () => {
+  it('counts a new chat on an OpenWA number like a Whapi one (145)', () => {
+    const d = day({
+      started: 20,
+      numbers: [{ channelId: 'o1', started: 50 }],
+    });
+    expect(
+      limitNotices({
+        starting: true,
+        day: d,
+        channelId: 'o1',
+        provider: 'openwa',
+      }).map((n) => n.kind)
+    ).toEqual(['limit_reached', 'number_limit']);
+  });
+
   it('only speaks for a new chat on a Whapi number', () => {
     const d = day({ started: 30 });
     expect(

@@ -451,8 +451,9 @@ with a `never` default, because `=== 'meta'` else-Whapi silently sent
 openwa through the Whapi client and typecheck did not notice. Its webhook
 authenticates like Meta's: `sessionId` selects the row, the
 `X-OpenWA-Signature` HMAC over the raw body proves it, fail closed. No
-buttons or lists (numbered text instead). Team activity still counts
-Whapi numbers only.
+buttons or lists (numbered text instead). Team activity counts it as a
+phone number, like Whapi (migration 145); the Safety Meter stays
+Whapi-only.
 
 ### Taamul Compass (`lib/compass/*`, migration 056)
 
@@ -478,9 +479,10 @@ identical openers in first messages, failures, response times.
   24 hours, unless the customer wrote last (that is a late reply). Sends
   WhatsApp refused are ignored. A start is *replied* if the customer
   writes before the next start; younger than 24 h and unanswered it is
-  *pending*, out of reply rates on both sides. Per-person limits count
-  Whapi-number starts only, and `thread-guard.ts` mirrors the same
-  rule. Pass `p_to = 'infinity'` unless the range really ends in the
+  *pending*, out of reply rates on both sides. "Phone" numbers are
+  the linked devices, Whapi and OpenWA (145; `isLinkedDeviceNumber`).
+  Per-person limits count phone-number starts only, and
+  `thread-guard.ts` mirrors the same rule. Pass `p_to = 'infinity'` unless the range really ends in the
   past, or the next start is outside the scan and the reply window never
   closes. `docs/team-activity.md` restates these definitions; change
   both together.
@@ -494,7 +496,7 @@ identical openers in first messages, failures, response times.
 - **073 counting rules.** Runs count from the customer's last message or
   the conversation's start, not from the scan; follow-ups within 10
   minutes are one chase step (`chase_new` / `chase_existing`). Limits
-  are `>=` everywhere; number limits are Whapi-only, and
+  are `>=` everywhere; number limits are phone-number-only, and
   `team_activity_number_limit()` gives a number younger than 14 days
   `min(10, limit)`. API/bot rows get NULL replies and response times.
   Waiting is <24 h (headline) vs 24 h–7 days; older is ignored.
@@ -512,9 +514,10 @@ identical openers in first messages, failures, response times.
   route computes the range rather than the browser.
 - **Employee side.** `team_activity_my_day()` (SECURITY DEFINER, caller's
   own counts only) feeds `thread-guard.ts`, which warns above the
-  composer on Whapi numbers.
+  composer on phone (Whapi or OpenWA) numbers.
 - **The optional block.** `team_activity_start_check()` runs in
-  `send-message.ts` before the gateway, for human Whapi sends only. It
+  `send-message.ts` before the gateway, for human sends on a phone
+  number (Whapi or OpenWA) only. It
   **fails open**: any error lets the message through. Replies, owners and
   admins always pass.
 - **Bell alerts.** `team_activity_alert_sweep()` (service role, at most

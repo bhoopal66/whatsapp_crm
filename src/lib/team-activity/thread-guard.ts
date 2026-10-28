@@ -1,6 +1,7 @@
 // ============================================================
 // The composer's outreach warnings: what an employee should know
-// before the next message goes out on a Whapi number.
+// before the next message goes out on a phone number (a linked device:
+// Whapi or OpenWA, migration 145).
 //
 //   - the next message would START a chat (nothing in the thread for
 //     24 hours, and the customer did not write last) and they are at,
@@ -11,7 +12,8 @@
 // The thread's loaded messages answer the first two questions; the
 // day's counts come from team_activity_my_day (migration 068). Pure,
 // so it is tested without a DOM. Meta numbers get nothing: the
-// restriction risk this guards against is the unofficial (Whapi) one,
+// restriction risk this guards against is the unofficial (linked
+// device) one,
 // and a Meta number cannot start a chat without an approved template.
 //
 // "At the limit" is >= everywhere (D5), and a phone number younger
@@ -20,6 +22,8 @@
 // SQL sends it, else from the number's created_at, which the caller
 // passes in (`numberCreatedAt`; useAccountNumbers must select it).
 // ============================================================
+
+import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
 
 import { effectiveNumberLimit, isWarmingUp } from './limits';
 
@@ -160,7 +164,8 @@ export function wouldStartChat(
 
 /**
  * The day-limit warnings for a message that would start a chat on a
- * Whapi number: the person's own limit, then the number's. Empty for a
+ * phone (Whapi or OpenWA) number: the person's own limit, then the
+ * number's. Empty for a
  * reply, or a Meta number.
  */
 export function limitNotices(args: {
@@ -174,7 +179,9 @@ export function limitNotices(args: {
   now?: number;
 }): OutreachNotice[] {
   const { starting, day, channelId, provider, numberCreatedAt, now } = args;
-  if (provider !== 'whapi' || !starting || !day) return [];
+  if (!provider || !isLinkedDeviceNumber(provider) || !starting || !day) {
+    return [];
+  }
 
   const notices: OutreachNotice[] = [];
   const limit = day.limits.dailyNewChatsPerUser;
@@ -233,7 +240,7 @@ export function outreachNotices(args: {
   now: number;
 }): OutreachNotice[] {
   const { messages, day, channelId, provider, numberCreatedAt, now } = args;
-  if (provider !== 'whapi') return [];
+  if (!provider || !isLinkedDeviceNumber(provider)) return [];
 
   const starting = wouldStartChat(messages, now);
   const notices = limitNotices({

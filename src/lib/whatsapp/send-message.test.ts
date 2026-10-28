@@ -198,6 +198,21 @@ vi.mock('@/lib/whatsapp/whapi-api', async (importOriginal) => ({
   sendInteractiveList: vi.fn(async () => ({ messageId: 'wamid.list' })),
 }));
 
+// The other two gateways' text senders, for the new-chat limit tests
+// on an OpenWA and a Meta number (migration 145).
+const openwaSendText = vi.fn(async () => ({ messageId: 'owa.text' }));
+const metaSendText = vi.fn(async () => ({ messageId: 'wamid.meta' }));
+vi.mock('@/lib/whatsapp/openwa-api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sendTextMessage: (...args: unknown[]) =>
+    (openwaSendText as unknown as (...a: unknown[]) => unknown)(...args),
+}));
+vi.mock('@/lib/whatsapp/meta-api', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sendTextMessage: (...args: unknown[]) =>
+    (metaSendText as unknown as (...a: unknown[]) => unknown)(...args),
+}));
+
 vi.mock('@/lib/whatsapp/encryption', () => ({
   decrypt: (v: string) => v,
   encrypt: (v: string) => v,
@@ -251,6 +266,8 @@ function sendPathDb(
     conversation?: Record<string, unknown>;
     /** Rows the RLS client's conversations UPDATE … select('id') returns. */
     conversationUpdateRows?: unknown[];
+    /** The provider of the account's one number (default whapi). */
+    provider?: 'whapi' | 'meta' | 'openwa';
   } = {}
 ): SupabaseClient {
   const conversation = {
@@ -264,7 +281,7 @@ function sendPathDb(
     {
       id: 'cfg-1',
       account_id: 'acct-1',
-      provider: 'whapi',
+      provider: options.provider ?? 'whapi',
       label: 'Support',
       phone_number_id: 'pn-1',
       waba_id: null,
@@ -710,9 +727,12 @@ describe('sendMessageToConversation — whether a failure is definite', () => {
 });
 
 describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
-  function withCheck(result: unknown) {
+  function withCheck(
+    result: unknown,
+    provider: 'whapi' | 'meta' | 'openwa' = 'whapi'
+  ) {
     const captured: CapturedWrites = {};
-    const inner = sendPathDb([], captured);
+    const inner = sendPathDb([], captured, { provider });
     const rpc = vi.fn(async () => result);
     const db = {
       from: (table: string) => inner.from(table),
@@ -773,6 +793,69 @@ describe('sendMessageToConversation — new-chat limit (migration 068)', () => {
       contentText: 'Your order shipped',
     });
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses a person's new chat on an OpenWA number too (145)", async () => {
+    openwaSendText.mockClear();
+    const { db, rpc } = withCheck(
+      {
+        data: { blocked: true, reason: 'number', started: 50, limit: 50 },
+        error: null,
+      },
+      'openwa'
+    );
+    const error = await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Hello',
+      senderUserId: 'u-1',
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({ code: 'new_chat_limit', status: 429 });
+    expect(rpc).toHaveBeenCalledWith('team_activity_start_check', {
+      p_conversation_id: 'cv-1',
+      p_channel_id: 'cfg-1',
+    });
+    expect(openwaSendText).not.toHaveBeenCalled();
+  });
+
+  it('does not ask for a bot send on an OpenWA number', async () => {
+    openwaSendText.mockClear();
+    const { db, rpc } = withCheck(
+      { data: { blocked: true }, error: null },
+      'openwa'
+    );
+    await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Your order shipped',
+    });
+    expect(rpc).not.toHaveBeenCalledWith(
+      'team_activity_start_check',
+      expect.anything()
+    );
+    expect(openwaSendText).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not ask for a person's send on the Meta number", async () => {
+    metaSendText.mockClear();
+    const { db, rpc } = withCheck(
+      { data: { blocked: true }, error: null },
+      'meta'
+    );
+    await sendMessageToConversation(db, 'acct-1', {
+      conversationId: 'cv-1',
+      messageType: 'text',
+      contentText: 'Hello',
+      senderUserId: 'u-1',
+    });
+    expect(rpc).not.toHaveBeenCalledWith(
+      'team_activity_start_check',
+      expect.anything()
+    );
+    expect(metaSendText).toHaveBeenCalledTimes(1);
   });
 });
 

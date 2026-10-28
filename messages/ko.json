@@ -3762,7 +3762,6 @@
       "unnamed": "이름 없는 번호",
       "phone": "전화번호",
       "official": "공식 WhatsApp 번호",
-      "untracked": "OpenWA 번호 (아직 팀 활동에 집계되지 않음)",
       "connected": "연결됨",
       "disconnected": "연결 끊김 – 관리자에게 다시 연결해 달라고 요청하세요",
       "todayLabel": "오늘 새 대화",

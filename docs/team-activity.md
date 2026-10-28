@@ -2,17 +2,28 @@
 
 Team activity (sidebar → Team → **Team activity**, owners and admins) shows who
 starts WhatsApp chats, how many of those chats get an answer, and the
-sending habits that get a Whapi number restricted. It also drives three
+sending habits that get a phone number restricted. It also drives three
 things employees see: warnings above the composer, bell alerts, and an
 optional block on new chats.
 
 It needs migrations `068_team_activity.sql` and
-`073_team_activity_accuracy.sql`.
+`073_team_activity_accuracy.sql`, and `145_team_activity_openwa.sql` for
+OpenWA numbers.
 
-## Why it matters on Whapi
+## Phone numbers and official numbers
 
-A Whapi number is an ordinary WhatsApp account driven through a linked
-device. WhatsApp restricts or bans such numbers based on what recipients
+Team activity sorts every WhatsApp number into one of two kinds:
+
+- a **phone number**: a number paired to a phone as a linked device,
+  connected through Whapi or OpenWA (`docs/openwa.md`). Both carry the
+  same ban risk, so since migration 145 they are counted the same way
+  everywhere on this page;
+- an **official number**: the Meta Cloud API number.
+
+## Why it matters on phone numbers
+
+A phone number (Whapi or OpenWA) is an ordinary WhatsApp account driven
+through a linked device. WhatsApp restricts or bans such numbers based on what recipients
 do with their messages. Its main signals are unanswered first messages,
 blocks and spam reports. Whapi's guidance:
 
@@ -33,7 +44,7 @@ In short, the guidance is:
 
 A Meta Cloud API number cannot start a chat without an approved
 template. Meta enforces its own quality rating there, so the new-chat
-limits and composer warnings apply to Whapi numbers only. Meta numbers
+limits and composer warnings apply to phone numbers only. Meta numbers
 still appear in the report.
 
 ## How the figures are counted
@@ -56,7 +67,7 @@ These definitions live in SQL (`team_activity_starts`,
 | **Similar first message** | A first message that matches at least one other first message from the same sender in the range once names and details are taken out. Both texts are lower-cased; links, digits and punctuation are removed; every word after the first that began with a capital letter is dropped (names); spaces are collapsed and the first 60 characters compared. So "Hello Rahul, your order 1234 is ready" and "Hello Priya, your order 5678 is ready" are similar. |
 | **Response time** | Median minutes from the first message of a customer's unanswered stretch to the reply. |
 | **Customers waiting** | Open chats, assigned to the person, whose last message is the customer's. This is the state right now, not a range figure. The headline counts customers who wrote in the last 24 hours. Those who wrote between 24 hours and 7 days ago are shown separately as older. Anyone who wrote more than 7 days ago is not counted. Unassigned chats are counted the same way, on their own. |
-| **Failed** | A message WhatsApp refused (status *failed*). It reached nobody, so it counts as a failure but never as a start or part of a run. Failures are counted separately for phone (Whapi) numbers and for official (Meta) numbers. Only phone-number failures raise a finding for a person. |
+| **Failed** | A message WhatsApp refused (status *failed*). It reached nobody, so it counts as a failure but never as a start or part of a run. Failures are counted separately for phone (Whapi or OpenWA) numbers and for official (Meta) numbers. Only phone-number failures raise a finding for a person. |
 
 Sender rows:
 
@@ -72,7 +83,7 @@ are empty for them), because answering customers is not their job.
 ## Which number a message belongs to
 
 A message belongs to the number recorded on it (`messages.channel_id`).
-Whether that is a phone (Whapi) or official (Meta) number comes from
+Whether that is a phone (Whapi or OpenWA) or official (Meta) number comes from
 the number itself, or from the message's own provider when no number
 is recorded. The conversation's current number is never used for this.
 
@@ -87,9 +98,9 @@ Chats started from a message with no number are counted as
 sent them, but not in any number's row. So connecting a second number
 no longer changes how older messages are counted.
 
-The per-person limits protect the Whapi numbers. So a person's daily
+The per-person limits protect the phone numbers. So a person's daily
 count, busiest day, days over the limit, bursts and "today" include
-only chats started on Whapi numbers.
+only chats started on phone (Whapi or OpenWA) numbers.
 
 Broadcasts are counted per person from `broadcast_recipients`. They
 record no number, so a report narrowed to one number leaves them out.
@@ -108,7 +119,7 @@ first two.
 | Limit | Default | Used for |
 |---|---|---|
 | New chats per person per day | 20 | composer warning from 80%, alert when reached, the block |
-| New chats per Whapi number per day | 50 | warning from 80%, alert when reached, the block. Phone (Whapi) numbers only. A number connected less than 14 days ago is warming up and gets at most 10 a day (or the limit, if lower) |
+| New chats per phone number per day | 50 | warning from 80%, alert when reached, the block. Phone (Whapi or OpenWA) numbers only. A number connected less than 14 days ago is warming up and gets at most 10 a day (or the limit, if lower) |
 | Minimum reply rate | 30% | flags below it, or within 10 points of it. Needs 10 started chats for a person, 20 for a number |
 | Messages in a row without a reply | 3 | flags the next one |
 | New chats per person in 10 minutes | 10 | burst flag |
@@ -131,7 +142,7 @@ composer warnings, the alerts and the block all use the same day.
 ## What employees see
 
 - **Composer warnings** (inbox, and Contacts → Send message) appear only
-  when the message goes out on a Whapi number:
+  when the message goes out on a phone (Whapi or OpenWA) number:
   - at 80% of the person's daily limit;
   - at the limit itself;
   - when the number is at its limit;
@@ -144,12 +155,12 @@ composer warnings, the alerts and the block all use the same day.
   automation cron runs `team_activity_alert_sweep()` at most every 5
   minutes. When a person reaches their daily limit,
   they get a "you" notice and every owner and admin gets one naming
-  them. When a Whapi number reaches its daily limit, owners and admins
+  them. When a phone number reaches its daily limit, owners and admins
   are told. Each alert fires once per person or number per local day
   (`team_activity_alerts`, kept 90 days). Turn alerts off with **Bell
   alerts**.
 - **The block** (off by default). With it on, a person's message that
-  would start a chat on a Whapi number is refused before it reaches the
+  would start a chat on a phone (Whapi or OpenWA) number is refused before it reaches the
   gateway once they, or the number, are at today's limit. They get a
   `429` with code `new_chat_limit` and a message saying why. The inbox
   shows it and keeps the text for later.
@@ -160,6 +171,9 @@ composer warnings, the alerts and the block all use the same day.
   - Any error in the check lets the message through.
 
 ## Whapi Safety Meter
+
+The Safety Meter is Whapi's own API, so only Whapi numbers have one; an
+OpenWA number's card shows none.
 
 Each Whapi number's card shows Whapi's own rating, read with the
 number's channel token from `https://tools.whapi.cloud/services/riskOfBlocking`

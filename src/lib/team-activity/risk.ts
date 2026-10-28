@@ -434,7 +434,7 @@ export interface SafetyRating {
 
 /**
  * Everything worth flagging about one number, most urgent first. Only
- * phone (Whapi) numbers are judged (D6): an official number cannot
+ * phone (Whapi or OpenWA) numbers are judged (D6): an official number cannot
  * start a chat without an approved template, and Meta rates it itself.
  */
 export function numberFindings(

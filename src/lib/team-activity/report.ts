@@ -41,12 +41,11 @@ export type SenderKind = 'person' | 'api' | 'bot';
 /** Whose activity the report covers (migration 073, D12). */
 export type ReportScope = 'account' | 'team';
 
-/** A phone number (Whapi) or an official WhatsApp number (Meta). */
-// `untracked`: an OpenWA number. The SQL (068-074) knows only Whapi
-// ('phone') and Meta ('official') and reports an OpenWA row's kind as
-// NULL, with no number limit; reading it as 'phone' here would raise
-// limit findings the SQL alert sweep never raises.
-export type NumberKind = 'phone' | 'official' | 'untracked';
+/**
+ * A phone number (a linked device: Whapi or OpenWA, migration 145) or
+ * an official WhatsApp number (Meta).
+ */
+export type NumberKind = 'phone' | 'official';
 
 export interface SenderActivity {
   kind: SenderKind;
@@ -113,7 +112,7 @@ export interface SenderActivity {
   /** Longest unanswered stretch, messages 10 minutes apart counted once. */
   longestChase: number;
 
-  /** Failed sends on phone (Whapi) numbers (D10). */
+  /** Failed sends on phone (Whapi or OpenWA) numbers (D10). */
   failedPhone: number;
   /** Failed sends on the official (Meta) number. */
   failedOfficial: number;
@@ -147,7 +146,7 @@ export interface NumberActivity {
    */
   channelId: string | null;
   provider: 'whapi' | 'meta' | 'openwa' | null;
-  /** 'phone' for a Whapi number, 'official' for the Meta one. */
+  /** 'phone' for a Whapi or OpenWA number, 'official' for the Meta one. */
   kind: NumberKind;
   /** Whole days since the number was connected; null when unknown. */
   ageDays: number | null;
@@ -353,9 +352,7 @@ function parseNumber(
       ? o.kind
       : provider === 'meta'
         ? 'official'
-        : provider === 'openwa'
-          ? 'untracked'
-          : 'phone';
+        : 'phone';
   const createdAt = str(o.created_at);
   const phone = kind === 'phone';
   // 073 says whether the number is warming up; on 068 the age is

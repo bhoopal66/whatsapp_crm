@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Team activity: OpenWA numbers count as phone numbers
+
+**Migration required:** apply `supabase/migrations/145_team_activity_openwa.sql`.
+- An OpenWA number is paired to a phone like a Whapi number and carries
+  the same ban risk, so Team activity now treats it the same way: its
+  card shows "Phone number" with the warm-up and daily new-chat limits,
+  its failures count as phone-number failures, a person's daily count
+  includes chats started on it, the composer warns before a new chat on
+  it, the bell alerts cover it, and the optional block refuses a new
+  chat on it over the limit. The Safety Meter stays Whapi-only (it is
+  Whapi's own API). See `docs/team-activity.md`.
+
 ### Phone system: calls stuck as live are settled
 
 - A call whose end event never reached the CRM no longer stays

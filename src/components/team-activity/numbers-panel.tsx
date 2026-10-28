@@ -116,16 +116,7 @@ export function NumbersPanel({
                       {label}
                     </p>
                     <p className="text-muted-foreground text-sm break-words">
-                      {[
-                        digits,
-                        t(
-                          phone
-                            ? 'phone'
-                            : n.kind === 'untracked'
-                              ? 'untracked'
-                              : 'official'
-                        ),
-                      ]
+                      {[digits, t(phone ? 'phone' : 'official')]
                         .filter(Boolean)
                         .join(' · ')}
                     </p>

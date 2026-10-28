@@ -14,7 +14,7 @@
 export interface TeamActivityLimits {
   /** New chats one person may start in a local day. */
   dailyNewChatsPerUser: number;
-  /** New chats one Whapi number may start in a local day, everyone together. */
+  /** New chats one phone (Whapi or OpenWA) number may start in a local day, everyone together. */
   dailyNewChatsPerNumber: number;
   /** Percent of started chats that should get a reply. */
   minReplyRate: number;

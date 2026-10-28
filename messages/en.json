@@ -3762,7 +3762,6 @@
       "unnamed": "Unnamed number",
       "phone": "Phone number",
       "official": "Official WhatsApp number",
-      "untracked": "OpenWA number (not counted in Team activity yet)",
       "connected": "Connected",
       "disconnected": "Disconnected – ask an admin to reconnect",
       "todayLabel": "New chats today",
