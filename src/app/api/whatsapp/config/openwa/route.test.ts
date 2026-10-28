@@ -194,6 +194,32 @@ describe('POST /api/whatsapp/config/openwa', () => {
     expect(h.gw.deleteSession).toHaveBeenCalled();
   });
 
+  it('revokes a key whose mint answer was lost, found by its name', async () => {
+    // The mint may have succeeded at the gateway while its answer timed out.
+    h.gw.createScopedKey.mockRejectedValue(new OpenWAError('timeout', 503));
+    const res = await POST(post({ label: 'Sales' }));
+    expect(res.status).toBe(502);
+    expect(h.gw.findScopedKeyIds).toHaveBeenCalledWith({
+      adminKey: 'admin-key',
+      sessionId: 'sess-1',
+    });
+    expect(h.gw.revokeKey).toHaveBeenCalledWith({
+      adminKey: 'admin-key',
+      keyId: 'key-1',
+    });
+    expect(h.gw.deleteSession).toHaveBeenCalled();
+    expect((await res.json()).error).not.toMatch(/may be left/);
+  });
+
+  it('does not claim a clean gateway when the cleanup failed', async () => {
+    h.insertError = { code: '42501', message: 'denied' };
+    h.gw.deleteSession.mockRejectedValue(new OpenWAError('down', 503));
+    const res = await POST(post({ label: 'Sales' }));
+    const { error } = await res.json();
+    expect(error).not.toMatch(/Nothing was left/);
+    expect(error).toMatch(/may be left on the OpenWA gateway/);
+  });
+
   it('touches nothing to clean up when the session was never created', async () => {
     h.gw.createSession.mockRejectedValue(new OpenWAError('down', 503));
     const res = await POST(post({ label: 'Sales' }));

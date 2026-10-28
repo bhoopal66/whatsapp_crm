@@ -9,6 +9,7 @@ import {
   createSession,
   createWebhook,
   deleteSession,
+  findScopedKeyIds,
   openwaAdminApiKey,
   openwaWebhookBaseUrl,
   revokeKey,
@@ -122,39 +123,76 @@ export async function POST(request: Request) {
     return NextResponse.json({ configId: inserted.id as string });
   } catch (err) {
     console.error('[openwa connect] failed:', err);
-    if (sessionId) await undoGatewaySide(adminKey, sessionId, keyId);
+    const clean = sessionId
+      ? await undoGatewaySide(adminKey, sessionId, keyId)
+      : true;
     return NextResponse.json(
-      { error: explainConnectFailure(err) },
+      { error: explainConnectFailure(err, clean) },
       { status: err instanceof OpenWAError ? 502 : 500 }
     );
   }
 }
 
-/** Best effort: each step is logged and never masks the original error. */
+/**
+ * Best effort: each step is logged and never masks the original error.
+ * Returns whether everything was removed.
+ *
+ * With no key id the mint may still have succeeded (its answer lost to a
+ * timeout, or missing its id), leaving a live operator key for this
+ * session; find it by the name the mint gives it and revoke that.
+ */
 async function undoGatewaySide(
   adminKey: string,
   sessionId: string,
   keyId: string | null
-): Promise<void> {
-  if (keyId) {
-    await revokeKey({ adminKey, keyId }).catch((e) =>
-      console.error('[openwa connect] cleanup: revoke key failed:', e)
-    );
+): Promise<boolean> {
+  let clean = true;
+  let keyIds: string[] = keyId ? [keyId] : [];
+  if (!keyId) {
+    try {
+      keyIds = await findScopedKeyIds({ adminKey, sessionId });
+    } catch (e) {
+      clean = false;
+      console.error('[openwa connect] cleanup: key lookup failed:', e);
+    }
   }
-  await deleteSession({ adminKey, sessionId }).catch((e) =>
-    console.error('[openwa connect] cleanup: delete session failed:', e)
-  );
+  for (const id of keyIds) {
+    try {
+      await revokeKey({ adminKey, keyId: id });
+    } catch (e) {
+      clean = false;
+      console.error('[openwa connect] cleanup: revoke key failed:', e);
+    }
+  }
+  try {
+    await deleteSession({ adminKey, sessionId });
+  } catch (e) {
+    clean = false;
+    console.error('[openwa connect] cleanup: delete session failed:', e);
+  }
+  return clean;
 }
 
-function explainConnectFailure(err: unknown): string {
+function explainConnectFailure(err: unknown, clean: boolean): string {
+  const leftover = clean
+    ? ''
+    : ' Part of it may be left on the OpenWA gateway; an admin can remove it from the OpenWA dashboard.';
   if (err instanceof OpenWAError) {
     if (err.isAuthError) {
-      return 'The OpenWA gateway refused this server’s admin key (OPENWA_API_KEY).';
+      return (
+        'The OpenWA gateway refused this server’s admin key (OPENWA_API_KEY).' +
+        leftover
+      );
     }
     if (err.status === 503) {
-      return 'The OpenWA gateway is not reachable. Check that it is running.';
+      return (
+        'The OpenWA gateway is not reachable. Check that it is running.' +
+        leftover
+      );
     }
-    return `The OpenWA gateway refused the connection: ${err.message}`;
+    return `The OpenWA gateway refused the connection: ${err.message}.${leftover}`;
   }
-  return 'The number could not be saved. Nothing was left on the gateway.';
+  return clean
+    ? 'The number could not be saved. Nothing was left on the gateway.'
+    : 'The number could not be saved.' + leftover;
 }
