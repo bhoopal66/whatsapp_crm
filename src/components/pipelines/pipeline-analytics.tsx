@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import type { Deal, PipelineStage } from "@/types";
+import type { PipelineStage } from "@/types";
+import type { BoardDeal } from "@/lib/pipelines/board-deal";
 import {
   DollarSign,
   TrendingUp,
@@ -23,7 +24,7 @@ import { useTranslations } from "next-intl";
 
 interface PipelineAnalyticsProps {
   stages: PipelineStage[];
-  deals: Deal[];
+  deals: BoardDeal[];
 }
 
 /**
@@ -72,7 +73,7 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const thisMonth = (d: Deal) => {
+    const thisMonth = (d: BoardDeal) => {
       const ts = d.updated_at ?? d.created_at;
       return ts ? new Date(ts) >= monthStart : false;
     };

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
+import { useAuth } from '@/hooks/use-auth';
+import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 import {
   inCampaignInbox,
   type CampaignInboxFields,
@@ -32,6 +34,7 @@ const UNREAD_ROW_COLUMNS =
  */
 export function useTotalUnread(): number {
   const aiLive = useAiAutoReplyLive() === true;
+  const { accountId } = useAuth();
   // Live mirror of the unread rows, so INSERT/UPDATE/DELETE events
   // adjust it without refetching. Replaced, never mutated, so the count
   // below recomputes from state.
@@ -40,6 +43,16 @@ export function useTotalUnread(): number {
   );
 
   useEffect(() => {
+    // Scoped to the active account (RLS shows nothing else), so Realtime
+    // neither checks nor ships other workspaces' rows. Unknown account:
+    // no channel at all, never an unfiltered one. A workspace switch
+    // changes `accountId`, which tears this down and starts over.
+    const bindings = scopedChangeBindings(
+      'conversations',
+      'account_id',
+      accountId
+    );
+    if (!bindings) return;
     const supabase = createClient();
     let cancelled = false;
 
@@ -63,33 +76,32 @@ export function useTotalUnread(): number {
       setRows(map);
     })();
 
-    const channel = supabase
-      .channel('total-unread-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'conversations' },
-        (payload) => {
-          setRows((prev) => {
-            const next = new Map(prev);
-            if (payload.eventType === 'DELETE') {
-              const oldRow = payload.old as Partial<Conversation>;
-              if (oldRow.id) next.delete(oldRow.id);
-            } else {
-              const row = payload.new as UnreadRow;
-              if ((row.unread_count ?? 0) > 0) next.set(row.id, row);
-              else next.delete(row.id);
-            }
-            return next;
-          });
-        }
-      )
-      .subscribe();
+    // The topic names the account: removeChannel is async, and a re-run
+    // on the same topic would be handed the channel still leaving.
+    let channel = supabase.channel(`total-unread-realtime:${accountId}`);
+    for (const binding of bindings) {
+      channel = channel.on('postgres_changes', binding, (payload) => {
+        setRows((prev) => {
+          const next = new Map(prev);
+          if (payload.eventType === 'DELETE') {
+            const oldRow = payload.old as Partial<Conversation>;
+            if (oldRow.id) next.delete(oldRow.id);
+          } else {
+            const row = payload.new as UnreadRow;
+            if ((row.unread_count ?? 0) > 0) next.set(row.id, row);
+            else next.delete(row.id);
+          }
+          return next;
+        });
+      });
+    }
+    channel.subscribe();
 
     return () => {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [accountId]);
 
   // Recount — cheap, conversations per user stay small.
   return useMemo(() => {

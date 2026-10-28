@@ -1,17 +1,18 @@
 'use client';
 
-import type { Deal, PipelineStage, Profile } from '@/types';
+import type { PipelineStage, Profile } from '@/types';
+import type { BoardDeal } from '@/lib/pipelines/board-deal';
 import { dealOwnerProfile } from '@/lib/pipelines/owner';
 import { Calendar, Check, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/currency';
 import { useTranslations } from 'next-intl';
 
 interface DealCardProps {
-  deal: Deal;
+  deal: BoardDeal;
   stage: PipelineStage | null;
   /** Account members, to name the owner of an unassigned deal. */
   members: Profile[];
-  onEdit: (deal: Deal) => void;
+  onEdit: (deal: BoardDeal) => void;
   isOverlay?: boolean;
 }
 
@@ -77,7 +78,7 @@ export function DealCard({
           </span>
         )}
         {deal.status === 'lost' && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive-soft px-2 py-0.5 text-[10px] font-semibold text-destructive">
+          <span className="bg-destructive-soft text-destructive inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold">
             <X className="h-3 w-3" />
             {t('lost')}
           </span>
