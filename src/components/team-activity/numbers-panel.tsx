@@ -76,7 +76,9 @@ export function NumbersPanel({
           const phone = n.kind === 'phone';
           const label = numberDisplayName(n) ?? t('unnamed');
           const digits =
-            n.provider === 'whapi' && n.wabaId && n.label
+            (n.provider === 'whapi' || n.provider === 'openwa') &&
+            n.wabaId &&
+            n.label
               ? `+${n.wabaId.replace(/^\+/, '')}`
               : null;
           const bar = numberBar(
@@ -114,7 +116,16 @@ export function NumbersPanel({
                       {label}
                     </p>
                     <p className="text-muted-foreground text-sm break-words">
-                      {[digits, t(phone ? 'phone' : 'official')]
+                      {[
+                        digits,
+                        t(
+                          phone
+                            ? 'phone'
+                            : n.kind === 'untracked'
+                              ? 'untracked'
+                              : 'official'
+                        ),
+                      ]
                         .filter(Boolean)
                         .join(' · ')}
                     </p>

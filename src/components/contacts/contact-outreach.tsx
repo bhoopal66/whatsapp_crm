@@ -145,9 +145,9 @@ export function useContactOutreach({
           contact_id: contactId,
           message_type: 'text',
           content_text: text,
-          // A plain message belongs on the Whapi number — see the
-          // note at the top of this file.
-          provider: 'whapi',
+          // A plain message belongs on a linked-device number (Whapi,
+          // else OpenWA) — see the note at the top of this file.
+          provider: messageChannel?.provider === 'openwa' ? 'openwa' : 'whapi',
         }),
       });
 

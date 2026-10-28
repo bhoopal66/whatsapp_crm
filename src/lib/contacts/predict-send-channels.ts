@@ -10,7 +10,11 @@ import {
 import type { ContactThread } from './contact-thread';
 
 export interface SendChannelPrediction {
-  /** A plain message: sent with `provider: 'whapi'`. */
+  /**
+   * A plain message: sent with `provider: 'whapi'`, or `'openwa'` when
+   * the account has OpenWA numbers and no Whapi one (both are linked
+   * devices, free-form at any time; the Meta number is not).
+   */
   messageChannel: AccountNumber | null;
   /** An approved template: sent with `provider: 'meta'`. */
   templateChannel: AccountNumber | null;
@@ -33,7 +37,7 @@ export function predictSendChannels(
   const pinned = thread.pin
     ? numbers.find((c) => c.id === thread.pin)
     : undefined;
-  const pick = (provider: 'whapi' | 'meta') =>
+  const pick = (provider: 'whapi' | 'meta' | 'openwa') =>
     (pinned &&
     (pinned.provider === provider ||
       !numbers.some((c) => c.provider === provider))
@@ -42,8 +46,13 @@ export function predictSendChannels(
           thread.home,
           ...(myNumberIds ?? []),
         ])) ?? fallback;
+  const plainKind =
+    !numbers.some((c) => c.provider === 'whapi') &&
+    numbers.some((c) => c.provider === 'openwa')
+      ? 'openwa'
+      : 'whapi';
   return {
-    messageChannel: pick('whapi'),
+    messageChannel: pick(plainKind),
     templateChannel: pick('meta'),
   };
 }

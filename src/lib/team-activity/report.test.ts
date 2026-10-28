@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { TEAM_ACTIVITY_DEFAULTS } from './limits';
+import { numberFindings } from './risk';
 import {
   isListedSender,
   numberDisplayName,
@@ -210,6 +211,26 @@ describe('parseTeamActivityReport', () => {
     ]);
   });
 
+  it('keeps an OpenWA number out of the number limits, as the SQL does', () => {
+    // 074's kind CASE knows only whapi and meta, so OpenWA arrives NULL.
+    const r = parseTeamActivityReport({
+      generated_at: '2026-10-01T00:00:00Z',
+      numbers: [
+        {
+          channel_id: 'o',
+          provider: 'openwa',
+          kind: null,
+          created_at: '2026-09-30T00:00:00Z',
+          number_today_started: 60,
+        },
+      ],
+    });
+    const n = r.numbers[0];
+    expect(n.kind).toBe('untracked');
+    expect(n.warmingUp).toBe(false);
+    expect(numberFindings(n, TEAM_ACTIVITY_DEFAULTS)).toEqual([]);
+  });
+
   it('never throws on garbage', () => {
     const empty = parseTeamActivityReport('nonsense');
     expect(empty.senders).toEqual([]);
@@ -269,5 +290,13 @@ describe('numberDisplayName', () => {
         provider: 'meta',
       })
     ).toBe('1234');
+    expect(
+      numberDisplayName({
+        label: null,
+        wabaId: '971500000002',
+        phoneNumberId: 'sess-uuid',
+        provider: 'openwa',
+      })
+    ).toBe('+971500000002');
   });
 });

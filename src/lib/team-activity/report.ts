@@ -42,7 +42,11 @@ export type SenderKind = 'person' | 'api' | 'bot';
 export type ReportScope = 'account' | 'team';
 
 /** A phone number (Whapi) or an official WhatsApp number (Meta). */
-export type NumberKind = 'phone' | 'official';
+// `untracked`: an OpenWA number. The SQL (068-074) knows only Whapi
+// ('phone') and Meta ('official') and reports an OpenWA row's kind as
+// NULL, with no number limit; reading it as 'phone' here would raise
+// limit findings the SQL alert sweep never raises.
+export type NumberKind = 'phone' | 'official' | 'untracked';
 
 export interface SenderActivity {
   kind: SenderKind;
@@ -349,7 +353,9 @@ function parseNumber(
       ? o.kind
       : provider === 'meta'
         ? 'official'
-        : 'phone';
+        : provider === 'openwa'
+          ? 'untracked'
+          : 'phone';
   const createdAt = str(o.created_at);
   const phone = kind === 'phone';
   // 073 says whether the number is warming up; on 068 the age is
@@ -590,9 +596,9 @@ export function numberDisplayName(n: {
   provider: 'whapi' | 'meta' | 'openwa' | null;
 }): string | null {
   if (n.label) return n.label;
-  // Whapi keeps the connected phone in waba_id; Meta keeps its WABA id
+  // Whapi and OpenWA keep the connected phone in waba_id; Meta keeps its WABA id
   // there, which is no name for a number.
-  if (n.provider === 'whapi' && n.wabaId)
+  if ((n.provider === 'whapi' || n.provider === 'openwa') && n.wabaId)
     return `+${n.wabaId.replace(/^\+/, '')}`;
   return n.phoneNumberId;
 }

@@ -43,7 +43,7 @@ const INHERIT = '__inherit__';
 
 interface RoutingChannel {
   id: string;
-  provider: 'whapi' | 'meta';
+  provider: 'whapi' | 'meta' | 'openwa';
   label: string | null;
   phone_number_id: string;
   waba_id: string | null;

@@ -6,7 +6,7 @@ import { predictSendChannels } from './predict-send-channels';
 
 function num(
   id: string,
-  provider: 'whapi' | 'meta',
+  provider: 'whapi' | 'meta' | 'openwa',
   is_primary = false
 ): AccountNumber {
   return {
@@ -41,6 +41,26 @@ describe('predictSendChannels', () => {
     const list = [num('w1', 'whapi'), num('w2', 'whapi', true)];
     const p = predictSendChannels(list, NONE, null);
     expect(p.templateChannel?.id).toBe('w2');
+  });
+
+  it('puts a plain message on OpenWA when there is no Whapi number', () => {
+    // A Meta primary would refuse free-form text outside the 24h window.
+    const r = predictSendChannels(
+      [num('m', 'meta', true), num('o', 'openwa')],
+      NONE,
+      null
+    );
+    expect(r.messageChannel?.id).toBe('o');
+    expect(r.templateChannel?.id).toBe('m');
+  });
+
+  it('keeps a plain message on Whapi when both linked kinds exist', () => {
+    const r = predictSendChannels(
+      [num('o', 'openwa', true), num('w', 'whapi'), num('m', 'meta')],
+      NONE,
+      null
+    );
+    expect(r.messageChannel?.id).toBe('w');
   });
 
   it('falls back to the first number when none is primary', () => {
