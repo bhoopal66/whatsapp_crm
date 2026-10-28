@@ -1,7 +1,7 @@
 // ============================================================
 // The optional block on new chats (migration 068,
 // team_activity_start_check): with "Block new chats over the limit"
-// on, a person's message that would START a chat on a Whapi number is
+// on, a person's message that would START a chat on a phone (Whapi or OpenWA) number is
 // refused once they, or the number, are at the day's limit.
 //
 // A guard rail, not a reason for a message to fail: every error,

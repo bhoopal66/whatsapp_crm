@@ -574,7 +574,7 @@ export function MessageThread({
   }, [accountNumbers, conversationId, threadChannelId, threadPin]);
 
   // Team activity (migration 068): warnings before the next message on
-  // a Whapi number — today's new-chat limit, a contact who stopped
+  // a phone number (Whapi or OpenWA) — today's new-chat limit, a contact who stopped
   // answering. The day's counts are re-read after a send from here that
   // started a chat; the clock ticks each minute so "24 hours since the
   // last message" turns over without a reload.
@@ -612,7 +612,11 @@ export function MessageThread({
       day: myOutreach,
       channelId: n?.id ?? null,
       provider:
-        n?.provider === 'whapi' || n?.provider === 'meta' ? n.provider : null,
+        n?.provider === 'whapi' ||
+        n?.provider === 'meta' ||
+        n?.provider === 'openwa'
+          ? n.provider
+          : null,
       now: outreachNow,
     });
   }, [

@@ -24,7 +24,7 @@ lose, warm it up, and don't cold-message strangers in bulk.
 | Connection alerts (`channel_disconnected` / `channel_reconnected`)        | yes, from the health sweep                                                                                                   |
 | Safety Meter                                                              | no (Whapi only)                                                                                                              |
 | WhatsApp groups (`/groups`) and submission groups                         | no (Whapi only)                                                                                                              |
-| Team activity limits and the composer warning                             | not yet: they count Whapi numbers only                                                                                       |
+| Team activity limits and the composer warning                             | yes, counted like Whapi numbers (migration 145)                                                                              |
 
 ## Running OpenWA
 

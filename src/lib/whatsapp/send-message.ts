@@ -35,6 +35,7 @@ import {
   resolveSendChannel,
   ChannelError,
   describeChannel,
+  isLinkedDeviceProvider,
   type RoutingSurface,
   type WhatsAppProvider,
 } from '@/lib/whatsapp/channels';
@@ -568,12 +569,12 @@ export async function sendMessageToConversation(
   }
 
   // Team activity (migration 068): with "Block new chats over the
-  // limit" on, a person's message that would START a chat on a Whapi
-  // number is refused once they, or the number, are at the day's
+  // limit" on, a person's message that would START a chat on a phone
+  // number (a linked device: Whapi or OpenWA, migration 145) is refused once they, or the number, are at the day's
   // limit — before anything reaches the gateway. Replies, API and bot
   // sends, owners and admins are never refused, and any error in the
   // check lets the message through.
-  if (senderUserId && channel.provider === 'whapi') {
+  if (senderUserId && isLinkedDeviceProvider(channel.provider)) {
     const check = await checkNewChatAllowed(db, conversationId, channel.id);
     if (check.blocked) {
       throw new SendMessageError(

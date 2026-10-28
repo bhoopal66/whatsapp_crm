@@ -1,7 +1,7 @@
 // ============================================================
 // The Team activity alert sweep (migration 068's
 // team_activity_alert_sweep): bell alerts when a person goes past their
-// daily new-chat limit or a Whapi number reaches its own, once per
+// daily new-chat limit or a phone (Whapi or OpenWA) number reaches its own, once per
 // person or number per local day. The SQL does the counting, the
 // dedup and the notification rows in one transaction; this only calls
 // it. The automation cron runs it at most every few minutes.

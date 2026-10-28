@@ -123,7 +123,8 @@ export function useContactOutreach({
       channelId: messageChannel?.id ?? null,
       provider:
         messageChannel?.provider === 'whapi' ||
-        messageChannel?.provider === 'meta'
+        messageChannel?.provider === 'meta' ||
+        messageChannel?.provider === 'openwa'
           ? messageChannel.provider
           : null,
     });

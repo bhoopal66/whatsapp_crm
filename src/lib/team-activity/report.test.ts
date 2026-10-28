@@ -211,24 +211,49 @@ describe('parseTeamActivityReport', () => {
     ]);
   });
 
-  it('keeps an OpenWA number out of the number limits, as the SQL does', () => {
-    // 074's kind CASE knows only whapi and meta, so OpenWA arrives NULL.
+  it('reads an OpenWA number as a phone number, as 145 reports it', () => {
+    // 145: the SQL treats OpenWA like Whapi (kind 'phone', warm-up and
+    // number limits), so its limit findings match the alert sweep's.
     const r = parseTeamActivityReport({
       generated_at: '2026-10-01T00:00:00Z',
       numbers: [
         {
           channel_id: 'o',
           provider: 'openwa',
-          kind: null,
+          kind: 'phone',
           created_at: '2026-09-30T00:00:00Z',
+          warming_up: true,
+          effective_daily_limit: 10,
+          number_today_started: 12,
+        },
+      ],
+    });
+    const n = r.numbers[0];
+    expect(n.kind).toBe('phone');
+    expect(n.warmingUp).toBe(true);
+    expect(n.effectiveDailyLimit).toBe(10);
+    expect(
+      numberFindings(n, TEAM_ACTIVITY_DEFAULTS).map((f) => f.code)
+    ).toContain('number_at_limit');
+  });
+
+  it('reads an OpenWA number with no kind (the 068 shape) as a phone number', () => {
+    const r = parseTeamActivityReport({
+      generated_at: '2026-10-01T00:00:00Z',
+      numbers: [
+        {
+          channel_id: 'o',
+          provider: 'openwa',
+          created_at: '2026-09-01T00:00:00Z',
           number_today_started: 60,
         },
       ],
     });
     const n = r.numbers[0];
-    expect(n.kind).toBe('untracked');
-    expect(n.warmingUp).toBe(false);
-    expect(numberFindings(n, TEAM_ACTIVITY_DEFAULTS)).toEqual([]);
+    expect(n.kind).toBe('phone');
+    expect(
+      numberFindings(n, TEAM_ACTIVITY_DEFAULTS).map((f) => f.code)
+    ).toContain('number_at_limit');
   });
 
   it('never throws on garbage', () => {
