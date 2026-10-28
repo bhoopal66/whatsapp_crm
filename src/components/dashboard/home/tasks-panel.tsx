@@ -83,8 +83,12 @@ export function TasksPanel({ tasks, className }: TasksPanelProps) {
   const t = useTranslations('Dashboard.home.tasks');
   const [expanded, setExpanded] = useState(false);
   const [restOpen, setRestOpen] = useState(false);
-  // Grouping and due times are against the moment this list arrived.
-  const [now] = useState(() => new Date());
+  // Grouping and due times are against the moment this list arrived:
+  // the clock restarts whenever a new list replaces the old one.
+  const [clock, setClock] = useState({ list: tasks.data, now: new Date() });
+  if (clock.list !== tasks.data)
+    setClock({ list: tasks.data, now: new Date() });
+  const now = clock.now;
 
   const list = tasks.data ?? [];
   const contactIds = taskContactIds(list);
