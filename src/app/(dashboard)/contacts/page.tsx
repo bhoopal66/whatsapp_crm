@@ -83,6 +83,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
 import { chatTagChipStyle, chatTagColor } from '@/lib/chat-tags/style';
+import { recordReplace } from '@/lib/navigation/back-target';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import {
   assigneesByContact,
@@ -443,7 +444,11 @@ export function ContactsPageInner({
   useEffect(() => {
     try {
       const id = new URLSearchParams(window.location.search).get('c');
-      if (isUuid(id)) router.replace(customerPath(id, teamView));
+      if (isUuid(id)) {
+        // A cross-path replace: keep the Back stack in step with history.
+        recordReplace(customerPath(id, teamView));
+        router.replace(customerPath(id, teamView));
+      }
     } catch {
       // No window (SSR) or malformed URL — nothing to open.
     }

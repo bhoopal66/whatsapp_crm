@@ -9,6 +9,7 @@ import {
   notePopstate,
   previousLocation,
   recordNavigation,
+  recordReplace,
   resetBackTarget,
 } from './back-target';
 
@@ -174,5 +175,38 @@ describe('backLabelKey', () => {
   it('lists every key it can return', () => {
     expect(BACK_LABEL_KEYS).toContain('back');
     expect(new Set(BACK_LABEL_KEYS).size).toBe(BACK_LABEL_KEYS.length);
+  });
+});
+
+describe('recordReplace (cross-path router.replace)', () => {
+  it('fresh tab: the replaced page leaves the stack, so Back is a link', () => {
+    go('/contacts?c=1');
+    recordReplace('/contacts/1');
+    go('/contacts/1'); // the tracker's record of the landing
+    expect(backPlan('/contacts', '/contacts/1')).toEqual({
+      mode: 'link',
+      href: '/contacts',
+      label: 'contacts',
+    });
+  });
+
+  it('starts the stack when it is empty', () => {
+    recordReplace('/contacts/1');
+    go('/contacts/1');
+    expect(previousLocation()).toBeNull();
+  });
+
+  it('in-app: label and destination agree on the page before the replaced one', () => {
+    go('/calls');
+    go('/contacts?c=1');
+    recordReplace('/contacts/1');
+    go('/contacts/1');
+    expect(previousLocation()).toBe('/calls');
+    expect(backPlan('/contacts', '/contacts/1')).toEqual({
+      mode: 'history',
+      label: 'calls',
+    });
+    pop('/calls');
+    expect(previousLocation()).toBeNull();
   });
 });

@@ -4,8 +4,8 @@
 // Why the plan is shaped this way: behind the Cloudflare tunnel a
 // browser round trip is ~700 ms, so what the user waits for is the
 // number of *sequential* trips. Everything that needs only the contact
-// id starts at once; only the internal-chat shares wait, and only for
-// the conversation id (shared_conversations.conversation_id has no FK,
+// id starts at once; only the messages and the internal-chat shares
+// wait, and only for the conversation id (shared_conversations.conversation_id has no FK,
 // so it cannot be reached through an embed). Every read is the viewer's
 // own (RLS, or the viewer's API routes).
 
@@ -83,12 +83,17 @@ const atOf: Record<TimelineSource, (row: never) => string> = {
   internal: (r: RawPost) => r.createdAt,
 };
 
-/** One page of a source, older than `before` (exclusive) when given. */
+/**
+ * One page of a source, older than `before` (exclusive) when given.
+ * Messages are read by `conversationId` (the per-conversation index of
+ * migration 059 answers that directly); none: no messages.
+ */
 export async function readPage(
   sb: SupabaseClient,
   source: Exclude<TimelineSource, 'internal'>,
   contactId: string,
-  before: string | null
+  before: string | null,
+  conversationId: string | null = null
 ): Promise<unknown[]> {
   if (source === 'calls') {
     const q = new URLSearchParams({
@@ -99,19 +104,18 @@ export async function readPage(
     if (before) q.set('to', before);
     return (await getJson(`/api/pbx/calls?${q}`)).calls ?? [];
   }
-  // Messages are reached through their conversation's contact rather
-  // than the conversation id, so they need not wait for that read. The
-  // same rows: a contact has at most one conversation (036's unique
-  // index on (account_id, contact_id)), and the inner join applies the
-  // conversations policy the conversation read itself would.
+  if (source === 'messages' && !conversationId) return [];
+  // Not a `conversations!inner(contact_id)` join on the contact: its
+  // plan on a large messages table with the per-row can_view_conversation
+  // policy is unproven, so the conversation id is waited for instead.
   let q =
     source === 'messages'
       ? sb
           .from('messages')
           .select(
-            'id, sender_type, sender_id, content_text, content_type, created_at, conversations!inner(contact_id)'
+            'id, sender_type, sender_id, content_text, content_type, created_at'
           )
-          .eq('conversations.contact_id', contactId)
+          .eq('conversation_id', conversationId)
       : sb
           .from('contact_notes')
           .select('id, note_text, user_id, created_at')
@@ -206,18 +210,23 @@ export async function loadCustomer(
     // The active workspace's row (RLS); none or unreadable: no draft.
     sb.from('pbx_settings').select('missed_call_whatsapp_draft').maybeSingle(),
   ]);
+  // Second round, once the conversation id is known: the messages and
+  // the shares are issued together. A messages failure rejects (the
+  // shares never do); no conversation: no messages and no shares.
+  const second = conv.then((cv) =>
+    Promise.all([
+      readPage(sb, 'messages', contactId, null, cv?.id ?? null),
+      cv ? readShares(sb, cv.id).catch((): RawPost[] => []) : ([] as RawPost[]),
+    ])
+  );
   const timeline = Promise.all([
     readPage(sb, 'calls', contactId, null),
     readPage(sb, 'notes', contactId, null),
-    conv
-      .then((cv) => (cv ? readShares(sb, cv.id) : []))
-      .catch((): RawPost[] => []),
+    second,
   ]);
-  const messages = readPage(sb, 'messages', contactId, null);
   // Awaited only after the basics: until then a rejection is not
   // unhandled, and it is ignored if the contact turns out missing.
   timeline.catch(() => {});
-  messages.catch(() => {});
 
   const [c, cv, deal, pbx] = await basics;
   const contact = must(c) as Customer | null;
@@ -229,10 +238,7 @@ export async function loadCustomer(
       stage: { name: string } | null;
     }[]
   )[0];
-  const [calls, notes, internal] = await timeline;
-  // No conversation the viewer can read: no messages, as when they were
-  // read by its id, and whatever the messages read did is moot.
-  const msgs = cv ? await messages : [];
+  const [calls, notes, [msgs, internal]] = await timeline;
   return {
     state: 'ready',
     contact,

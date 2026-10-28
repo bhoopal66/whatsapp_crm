@@ -18,11 +18,11 @@
  * It is never written on the server (only the tracker's effects and
  * listeners write it), so a server render always plans a link.
  *
- * Known limit: a cross-path `router.replace` is recorded as a push, so
- * the label may name the replaced page while `router.back()` goes one
- * further. A same-path change (filters, tabs in the query) replaces the
- * top entry instead, because those are usually `router.replace` and
- * the place is the same either way.
+ * A same-path change (filters, tabs in the query) replaces the top
+ * entry, because those are usually `router.replace` and the place is
+ * the same either way. A cross-path `router.replace` is invisible to
+ * the tracker (it would record a push), so the call site says so with
+ * `recordReplace(target)` right before replacing.
  */
 
 /** Keys in the `BackNav` message namespace. */
@@ -155,6 +155,16 @@ export function recordNavigation(
   { popstate = false }: { popstate?: boolean } = {}
 ): void {
   stack = applied(stack, location, popstate);
+}
+
+/**
+ * Record a cross-path `router.replace(location)`: the top entry becomes
+ * `location` (the replaced page leaves the real history, so it leaves
+ * the stack), or starts the stack when it is empty. Call it just before
+ * the replace; the tracker then finds `location` already on top.
+ */
+export function recordReplace(location: string): void {
+  stack = stack.length ? [...stack.slice(0, -1), location] : [location];
 }
 
 /**

@@ -280,7 +280,8 @@ export function CustomerPage({
             sb,
             s as Exclude<TimelineSource, 'internal'>,
             contactId,
-            ready.paging[s]?.oldest ?? null
+            ready.paging[s]?.oldest ?? null,
+            ready.conversation?.id ?? null
           )
         )
       );

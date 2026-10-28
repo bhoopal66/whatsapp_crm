@@ -84,7 +84,6 @@ describe('loadCustomer', () => {
         'contacts',
         'conversations',
         'deals',
-        'messages',
         'pbx_settings',
       ].sort()
     );
@@ -93,15 +92,21 @@ describe('loadCustomer', () => {
     ]);
   });
 
-  it('reads the shares as soon as the conversation is known', async () => {
+  it('reads messages by conversation id, with the shares, in the second round', async () => {
     const { sb, issued, settle } = fakeClient();
     void loadCustomer(sb, 'c1');
     await flush();
     expect(issued.some((q) => q.table === 'shared_conversations')).toBe(false);
+    expect(issued.some((q) => q.table === 'messages')).toBe(false);
     settle('conversations', { data: [{ id: 'v1', assigned_agent_id: null }] });
     await flush();
+    // Both are in flight now, neither has resolved.
     const share = issued.find((q) => q.table === 'shared_conversations');
+    const msgs = issued.find((q) => q.table === 'messages');
     expect(share?.ops).toContainEqual(['eq', ['conversation_id', 'v1']]);
+    expect(msgs?.ops).toContainEqual(['eq', ['conversation_id', 'v1']]);
+    expect(JSON.stringify(msgs?.ops)).not.toContain('conversations!inner');
+    expect(JSON.stringify(msgs?.ops)).not.toContain('conversations.contact_id');
   });
 
   async function settledLoad(opts: {
@@ -119,10 +124,12 @@ describe('loadCustomer', () => {
     settle('deals', { data: [] });
     settle('pbx_settings', { data: { missed_call_whatsapp_draft: true } });
     settle('contact_notes', { data: [] });
-    settle('messages', opts.messages);
     calls[0].resolve({ calls: [] });
     await flush();
-    if (opts.conversation) settle('shared_conversations', { data: [] });
+    if (opts.conversation) {
+      settle('messages', opts.messages);
+      settle('shared_conversations', { data: [] });
+    }
     return out;
   }
 
@@ -150,7 +157,7 @@ describe('loadCustomer', () => {
     });
   });
 
-  it('shows no messages, and ignores their read, without a conversation', async () => {
+  it('shows no messages, and issues no read, without a conversation', async () => {
     const l = await settledLoad({
       conversation: false,
       messages: { error: { message: 'boom' } },
@@ -179,24 +186,28 @@ describe('loadCustomer', () => {
 });
 
 describe('readPage', () => {
-  it('reads messages through the contact, newest first, one page', async () => {
+  it('reads messages by conversation id, newest first, one page', async () => {
     const { sb, issued, settle } = fakeClient();
-    const out = readPage(sb, 'messages', 'c1', '2026-10-01T00:00:00Z');
+    const out = readPage(sb, 'messages', 'c1', '2026-10-01T00:00:00Z', 'v1');
     await flush();
     settle('messages', { data: [] });
     await out;
     expect(issued[0].ops).toEqual([
       [
         'select',
-        [
-          'id, sender_type, sender_id, content_text, content_type, created_at, conversations!inner(contact_id)',
-        ],
+        ['id, sender_type, sender_id, content_text, content_type, created_at'],
       ],
-      ['eq', ['conversations.contact_id', 'c1']],
+      ['eq', ['conversation_id', 'v1']],
       ['lt', ['created_at', '2026-10-01T00:00:00Z']],
       ['order', ['created_at', { ascending: false }]],
       ['limit', [PAGE]],
     ]);
+  });
+
+  it('reads no messages without a conversation id', async () => {
+    const { sb, issued } = fakeClient();
+    expect(await readPage(sb, 'messages', 'c1', null, null)).toEqual([]);
+    expect(issued).toEqual([]);
   });
 });
 
