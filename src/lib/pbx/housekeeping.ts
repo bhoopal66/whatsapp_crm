@@ -8,6 +8,12 @@ import {
   RECORDING_BUCKET,
   type RecordingsSummary,
 } from './recordings';
+import {
+  onceEvery,
+  settleStaleCalls,
+  STALE_SWEEP_INTERVAL_MS,
+  type StaleCallsSummary,
+} from './stale-calls';
 
 /**
  * The phone system's periodic work (GET /api/pbx/cron, and the
@@ -220,6 +226,8 @@ export interface PbxCronSummary {
   purge?: unknown;
   retention?: RetentionSummary;
   orphans?: OrphanSweepSummary;
+  /** Live calls whose end never arrived, settled from CDR (stale-calls.ts). */
+  staleCalls?: StaleCallsSummary;
   /** Steps not started because the budget ran out. */
   outOfTime: string[];
   errors: Record<string, string>;
@@ -229,12 +237,21 @@ export interface PbxCronSummary {
  * Each step runs only while the budget lasts, and a failing step is
  * recorded without stopping the ones after it.
  */
+/**
+ * Per process, shared by both callers of runPbxCron: a CDR read is a PBX
+ * API call, not worth making every minute for calls hours old.
+ */
+const staleCallsDue = onceEvery(STALE_SWEEP_INTERVAL_MS);
+
 export async function runPbxCron(input: {
   db: SupabaseClient;
   now?: () => number;
   budgetMs?: number;
+  /** Tests: the stale-call step's gate. */
+  staleCallsDue?: (nowMs: number) => boolean;
 }): Promise<PbxCronSummary> {
   const { db, now = Date.now, budgetMs = PBX_CRON_BUDGET_MS } = input;
+  const staleDue = input.staleCallsDue ?? staleCallsDue;
   const deadline = now() + budgetMs;
   const summary: PbxCronSummary = { outOfTime: [], errors: {} };
   const steps: [string, () => Promise<void>][] = [
@@ -291,6 +308,20 @@ export async function runPbxCron(input: {
       'retries',
       async () => {
         summary.retries = await retryFailedPbxEvents({ db, now, deadline });
+      },
+    ],
+    // After the retries (a failed end there may settle a call first), and
+    // gated inside the step: one skipped for the budget is not consumed.
+    [
+      'staleCalls',
+      async () => {
+        if (!staleDue(now())) return;
+        const settled = await settleStaleCalls({ db, now, deadline });
+        summary.staleCalls = settled;
+        const failed = Object.entries(settled.errors);
+        if (failed.length) {
+          throw new Error(failed.map(([id, e]) => `${id}: ${e}`).join('; '));
+        }
       },
     ],
     [

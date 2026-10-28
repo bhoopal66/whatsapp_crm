@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system: calls stuck as live are settled
+
+- A call whose end event never reached the CRM no longer stays
+  "ringing" or "in progress" for ever. Two hours on, the phone-system
+  cron reads the PBX's call records and settles it with its real
+  outcome, talk time and recording; with no record after a day it is
+  closed as answered (was in progress) or failed (was ringing) and
+  marked `settled_without_cdr`. No tasks or bells. See section 10 of
+  `docs/yeastar.md`. No migration.
+
 ### OpenWA: a third way to connect WhatsApp numbers
 
 **Migration required:** apply `supabase/migrations/144_openwa_provider.sql`.

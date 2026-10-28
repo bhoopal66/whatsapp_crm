@@ -14,6 +14,17 @@ vi.mock('../recordings', async (importOriginal) => ({
 }));
 vi.mock('../callbacks', () => ({ dialDueCallbacks: vi.fn(async () => ({})) }));
 vi.mock('../process', () => ({ processStoredPbxEvent: vi.fn() }));
+vi.mock('../stale-calls', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../stale-calls')>()),
+  settleStaleCalls: vi.fn(async () => ({
+    found: 1,
+    ingested: 1,
+    settled: 1,
+    givenUp: 0,
+    failed: 0,
+    errors: {},
+  })),
+}));
 const silence = vi.hoisted(() => ({
   calls: [] as string[],
   run: async () => ({ alerted: 1, restored: 0 }),
@@ -25,6 +36,7 @@ vi.mock('../health', () => ({
   }),
 }));
 
+import { settleStaleCalls } from '../stale-calls';
 import {
   expireRecordings,
   ORPHAN_GRACE,
@@ -228,6 +240,35 @@ describe('runPbxCron', () => {
     expect(out.errors.orphans).toBe(
       '3 orphaned recording(s) not removed: storage unavailable'
     );
+  });
+});
+
+describe('runPbxCron stale calls', () => {
+  it('settles stale calls when the gate is open, and not otherwise', async () => {
+    const settle = vi.mocked(settleStaleCalls);
+    settle.mockClear();
+    const { db } = fakeDb([]);
+    const shut = await runPbxCron({ db, staleCallsDue: () => false });
+    expect(settle).not.toHaveBeenCalled();
+    expect(shut.staleCalls).toBeUndefined();
+    const open = await runPbxCron({ db, staleCallsDue: () => true });
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(open.staleCalls).toMatchObject({ settled: 1 });
+    expect(open.errors).toEqual({});
+  });
+
+  it('reports a connection whose CDR read failed as the step error', async () => {
+    vi.mocked(settleStaleCalls).mockResolvedValueOnce({
+      found: 1,
+      ingested: 0,
+      settled: 0,
+      givenUp: 0,
+      failed: 0,
+      errors: { 'conn-1': 'PBX unreachable' },
+    });
+    const { db } = fakeDb([]);
+    const summary = await runPbxCron({ db, staleCallsDue: () => true });
+    expect(summary.errors.staleCalls).toBe('conn-1: PBX unreachable');
   });
 });
 

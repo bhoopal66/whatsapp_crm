@@ -415,6 +415,21 @@ at most once a minute, so an install that already pings
 `/api/automations/cron` needs nothing more. A PBX connection that is
 backing off after a refused login is skipped until the backoff ends.
 
+**Calls whose end never arrived.** At most every 15 minutes the cron
+also looks for calls still shown ringing or in progress more than two
+hours after they started (50 a run, oldest first): their call-end event
+was lost, for example during a webhook backlog. It reads the PBX's call
+records (CDR) for their time window and imports the matching ones
+exactly as the CDR import below does, without tasks, bells or call-back
+results, so the call gets its real status, talk time and recording. A
+call the PBX still has no record of a day after it started is closed
+without one: _answered_ if it was in progress (someone picked up; talk
+time stays blank), _failed_ if it was still ringing (its outcome is
+unknown, and _no answer_ would count it as a missed call). Such a call
+carries `meta.settled_without_cdr` (when, and the status it had). A
+PBX that cannot be reached closes nothing; its calls wait for the next
+run.
+
 ## 11. Calling from the CRM
 
 **Off unless switched on.** The CRM places no calls unless the app was
