@@ -5455,6 +5455,7 @@
     "tabsLabel": "Call details",
     "tabNotes": "Notes",
     "tabCustomer": "Customer",
+    "tabHistory": "History",
     "customerPage": "Customer page",
     "whatsAppChat": "WhatsApp chat",
     "noCustomerYet": "No customer is linked to this call yet.",

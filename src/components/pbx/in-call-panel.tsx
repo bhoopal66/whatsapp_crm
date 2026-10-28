@@ -71,6 +71,10 @@ import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { useCalls } from './call-provider';
+import { ContactCasesMini } from './call-cases';
+import { FollowUpReminder } from './call-follow-up';
+import { CallHistoryList, useCallHistory } from './call-history';
+import { OpenTasks } from './call-tasks';
 import {
   CandidatePicker,
   useCallFacts,
@@ -406,6 +410,10 @@ function Panel() {
     t('unknownCaller');
   const masked = maskPhone(p.remoteNumber ?? facts?.phone);
   const contactId = row?.contact_id ?? p.contactId ?? pickedId ?? null;
+  // A contact the person cannot see gets no history, tasks or reminder,
+  // as it gets no links (CustomerTab).
+  const visibleId = facts?.hidden ? null : contactId;
+  const history = useCallHistory(visibleId, p.pbxCallId);
   // Whole seconds up: 0:00 only once the time is up.
   const wrapLabel =
     wrapLeft !== null && phase === 'counting'
@@ -467,6 +475,11 @@ function Panel() {
           className="border-input bg-card dark:bg-input/30 mt-1 min-h-28 w-full rounded-lg border p-2 text-sm"
         />
       </label>
+      <FollowUpReminder
+        contactId={visibleId}
+        conversationId={facts?.conversationId ?? null}
+        customerName={facts?.name ?? facts?.company ?? null}
+      />
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <input
           id="pbx-share"
@@ -522,6 +535,17 @@ function Panel() {
         />
       ),
     },
+    ...(visibleId
+      ? [
+          {
+            id: 'history',
+            label: history.calls?.length
+              ? `${t('tabHistory')} · ${history.calls.length}`
+              : t('tabHistory'),
+            panel: <CallHistoryList contactId={visibleId} history={history} />,
+          },
+        ]
+      : []),
   ];
   const current = tabs.find((x) => x.id === tab) ?? tabs[0];
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -1021,6 +1045,12 @@ function CustomerTab({
             </Link>
           )}
         </div>
+      )}
+      {facts && !facts.hidden && (
+        <>
+          <OpenTasks contactId={contactId} />
+          <ContactCasesMini contactId={contactId} />
+        </>
       )}
     </div>
   );

@@ -33,10 +33,11 @@ export interface CallHistoryState {
 /**
  * The customer's earlier calls, the call in progress left out (by the
  * PBX's call id), newest first, at most ten. `calls.length` is the tab
- * badge.
+ * badge. No contact reads nothing: the route with no contactId would
+ * list every call the person can see.
  */
 export function useCallHistory(
-  contactId: string,
+  contactId: string | null,
   currentPbxCallId?: string | null
 ): CallHistoryState {
   // Keyed by the contact it was read for, so a new contact reads as
@@ -48,6 +49,7 @@ export function useCallHistory(
   } | null>(null);
 
   useEffect(() => {
+    if (!contactId) return;
     let live = true;
     const settle = (
       state: 'ready' | 'hidden' | 'error',
@@ -74,13 +76,13 @@ export function useCallHistory(
     };
   }, [contactId]);
 
-  const mine = read?.contactId === contactId ? read : null;
+  const mine = contactId && read?.contactId === contactId ? read : null;
   return {
     calls:
       mine?.state === 'ready'
         ? earlierCalls(mine.rows, currentPbxCallId)
         : null,
-    loading: !mine,
+    loading: !!contactId && !mine,
     error: mine?.state === 'error',
   };
 }
@@ -90,16 +92,17 @@ const chip =
 
 export function CallHistoryList({
   contactId,
-  currentPbxCallId,
+  history,
 }: {
   contactId: string;
-  currentPbxCallId?: string | null;
+  /** useCallHistory's state, read once by the window for its tab badge. */
+  history: CallHistoryState;
 }) {
   const t = useTranslations('CallContext.history');
   const tc = useTranslations('PbxCall');
   const locale = useLocale();
   const names = useCalls()?.names;
-  const { calls, loading, error } = useCallHistory(contactId, currentPbxCallId);
+  const { calls, loading, error } = history;
   // Read once per render: the list is re-rendered whenever it changes.
   const [now] = useState(() => Date.now());
 
