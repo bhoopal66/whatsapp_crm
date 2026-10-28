@@ -58,3 +58,32 @@ export function verifyMetaWebhookSignature(
   if (a.length !== b.length) return false
   return crypto.timingSafeEqual(a, b)
 }
+
+/**
+ * Verify the HMAC-SHA256 signature OpenWA attaches to webhook POSTs:
+ * `X-OpenWA-Signature: sha256=<hex>` over the raw body, keyed with the
+ * webhook secret stored (encrypted) as the number's `verify_token`.
+ *
+ * Deliberately NO environment fallback, unlike Meta's: OpenWA is a
+ * per-number gateway with a per-number secret, and an install-wide key
+ * would let one tenant's gateway sign another's events. No secret, no
+ * header, or the wrong scheme → false. Fail closed.
+ */
+export function verifyOpenWAWebhookSignature(
+  rawBody: string,
+  signatureHeader: string | null,
+  secret: string | null,
+): boolean {
+  if (!secret) return false
+  if (!signatureHeader) return false
+  if (!signatureHeader.startsWith('sha256=')) return false
+
+  const expected =
+    'sha256=' +
+    crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+
+  const a = Buffer.from(signatureHeader)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
+}

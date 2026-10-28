@@ -26,7 +26,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { getMediaUrl } from '@/lib/whatsapp/provider';
+import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/provider';
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
@@ -1177,8 +1177,10 @@ async function parseMessageContent(
  * Returns null only when the bytes are genuinely unreachable — the
  * message still persists, just without an attachment, which is what the
  * inbox renders as a missing-media bubble.
+ *
+ * Exported for its tests (`inbound-pipeline.media.test.ts`).
  */
-async function resolveInboundMediaUrl(
+export async function resolveInboundMediaUrl(
   message: NormalizedInboundMessage,
   channel: WhatsAppChannel,
   mirror: { accountId: string } | null
@@ -1210,14 +1212,34 @@ async function resolveInboundMediaUrl(
     }
   }
 
-  if (mirror) {
+  // OpenWA's media URL is its own endpoint on OPENWA_URL: a loopback
+  // address that answers only with the X-API-Key. No browser can load
+  // it, so for that gateway the mirror is the ONLY way an attachment
+  // becomes viewable. It therefore mirrors even when the account opted
+  // out (migration 039 opts out of a copy, and there is no original to
+  // fall back on), and a failed mirror stores no link at all rather
+  // than one that can only ever 401 or refuse to connect.
+  const gatewayLinkViewable = channel.provider !== 'openwa';
+  const mirrorTo =
+    mirror ?? (gatewayLinkViewable ? null : { accountId: channel.accountId });
+
+  if (mirrorTo) {
     try {
       const mirrored = await mirrorInboundMedia({
         storage: supabaseAdmin().storage,
-        accountId: mirror.accountId,
+        accountId: mirrorTo.accountId,
         mediaId: media.id ?? message.id,
         downloadUrl,
         accessToken: channel.accessToken,
+        // Download through the channel's own gateway client. The
+        // mirror's default guesses the gateway from the URL and sends
+        // everything that is not a Meta host to Whapi's client, which
+        // fetches a foreign URL anonymously behind the SSRF guard: an
+        // OpenWA loopback URL was refused and never mirrored. Whapi and
+        // Meta land on the same client as before (Whapi links are on
+        // Whapi's host, Meta's on its lookaside host).
+        download: ({ downloadUrl: url }) =>
+          downloadMedia({ channel, downloadUrl: url }),
         mimeType: mimeType ?? undefined,
         fileSize,
         fileName: media.filename,
@@ -1234,9 +1256,10 @@ async function resolveInboundMediaUrl(
     }
   }
 
-  // Mirroring off or failed: fall back to Whapi's own link. It works
-  // today and expires in ~30 days, which beats an empty bubble now.
-  return downloadUrl;
+  // Mirroring off or failed: fall back to the gateway's own link. On
+  // Whapi and Meta it works today and expires in ~30 days, which beats
+  // an empty bubble now. OpenWA's never works in a browser (above).
+  return gatewayLinkViewable ? downloadUrl : null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
