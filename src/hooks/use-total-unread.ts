@@ -15,7 +15,8 @@ import type { Conversation } from '@/types';
 type UnreadRow = Pick<Conversation, 'id' | 'unread_count'> &
   CampaignInboxFields;
 
-const UNREAD_ROW_COLUMNS =
+/** The columns `UnreadRow` reads; the home dashboard's strip reuses them. */
+export const UNREAD_ROW_COLUMNS =
   'id, unread_count, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id';
 
 /**

@@ -157,13 +157,74 @@
         "retry": "다시 시도"
       },
       "attention": {
-        "title": "확인이 필요한 항목"
+        "title": "확인이 필요한 항목",
+        "unread": {
+          "label": "읽지 않은 채팅",
+          "hint": "받은편지함에서 대기 중"
+        },
+        "handoffs": {
+          "label": "AI 인계",
+          "hint": "담당자에게 넘겨짐",
+          "drafts": "{count, plural, other {승인할 초안 #개}}"
+        },
+        "overdueTasks": {
+          "label": "기한 지난 작업",
+          "hint": "{count, plural, =0 {오늘 남은 마감 없음} other {오늘 마감 #개}}"
+        },
+        "missedCalls": {
+          "label": "부재중 전화",
+          "hint": "다시 걸어야 할 전화"
+        },
+        "overdueCases": {
+          "label": "기한 지난 케이스",
+          "hint": "{count, plural, =0 {SLA 기한 초과} other {고객 대기 중 #건}}"
+        },
+        "allClear": "모두 처리됨",
+        "unavailable": "불러오지 못함"
       },
       "tasks": {
-        "title": "내 할 일"
+        "title": "내 할 일",
+        "subtitle": "기한 지남 {overdue}개 · 오늘 마감 {today}개",
+        "subtitleOpen": "{count, plural, other {열린 작업 #개}}",
+        "groups": {
+          "overdue": "기한 지남",
+          "today": "오늘",
+          "upcoming": "앞으로 7일",
+          "rest": "이후 및 마감일 없음",
+          "later": "이후",
+          "undated": "마감일 없음"
+        },
+        "overdueBy": {
+          "minute": "{count, plural, other {#분 지남}}",
+          "hour": "{count, plural, other {#시간 지남}}",
+          "day": "{count, plural, other {#일 지남}}"
+        },
+        "repeat": "×{count}",
+        "showAll": "모두 보기 ({count})",
+        "showLess": "접기",
+        "markDone": "“{title}” 완료로 표시",
+        "doneFailed": "작업을 완료하지 못했습니다. 다시 시도하세요.",
+        "emptyTitle": "모든 작업을 마쳤습니다",
+        "emptyHint": "나에게 배정된 열린 작업이 없습니다.",
+        "openChat": "채팅 열기",
+        "kind": {
+          "manual": "작업",
+          "callback": "회신 전화",
+          "missed_call": "부재중 전화",
+          "journey": "여정",
+          "follow_up": "후속 조치"
+        }
       },
       "agenda": {
-        "title": "오늘 일정"
+        "title": "오늘 일정",
+        "openCalendar": "캘린더 열기",
+        "allDay": "종일",
+        "now": "진행 중",
+        "join": "참여",
+        "nothingElse": "오늘은 더 이상 일정이 없습니다",
+        "next": "다음: {when}",
+        "emptyTitle": "캘린더에 일정이 없습니다",
+        "emptyHint": "앞으로 7일간 일정이 없습니다."
       },
       "cases": {
         "title": "케이스",

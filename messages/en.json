@@ -157,13 +157,74 @@
         "retry": "Retry"
       },
       "attention": {
-        "title": "Needs your attention"
+        "title": "Needs your attention",
+        "unread": {
+          "label": "Unread chats",
+          "hint": "Waiting in your inbox"
+        },
+        "handoffs": {
+          "label": "AI hand-offs",
+          "hint": "Handed to a person",
+          "drafts": "{count, plural, one {# draft to approve} other {# drafts to approve}}"
+        },
+        "overdueTasks": {
+          "label": "Overdue tasks",
+          "hint": "{count, plural, =0 {Nothing else due today} other {# due today}}"
+        },
+        "missedCalls": {
+          "label": "Missed calls",
+          "hint": "To call back"
+        },
+        "overdueCases": {
+          "label": "Overdue cases",
+          "hint": "{count, plural, =0 {Past their SLA} other {# with the customer waiting}}"
+        },
+        "allClear": "All clear",
+        "unavailable": "Couldn't load"
       },
       "tasks": {
-        "title": "My tasks"
+        "title": "My tasks",
+        "subtitle": "{overdue} overdue · {today} due today",
+        "subtitleOpen": "{count, plural, one {# open task} other {# open tasks}}",
+        "groups": {
+          "overdue": "Overdue",
+          "today": "Today",
+          "upcoming": "Next 7 days",
+          "rest": "Later and no due date",
+          "later": "Later",
+          "undated": "No due date"
+        },
+        "overdueBy": {
+          "minute": "{count, plural, one {# min overdue} other {# min overdue}}",
+          "hour": "{count, plural, one {# h overdue} other {# h overdue}}",
+          "day": "{count, plural, one {# day overdue} other {# days overdue}}"
+        },
+        "repeat": "×{count}",
+        "showAll": "Show all ({count})",
+        "showLess": "Show less",
+        "markDone": "Mark “{title}” done",
+        "doneFailed": "Couldn't complete the task. Try again.",
+        "emptyTitle": "You're all caught up",
+        "emptyHint": "No open tasks are assigned to you.",
+        "openChat": "Open chat",
+        "kind": {
+          "manual": "Task",
+          "callback": "Call back",
+          "missed_call": "Missed call",
+          "journey": "Journey",
+          "follow_up": "Follow-up"
+        }
       },
       "agenda": {
-        "title": "Today's agenda"
+        "title": "Today's agenda",
+        "openCalendar": "Open calendar",
+        "allDay": "All day",
+        "now": "Now",
+        "join": "Join",
+        "nothingElse": "Nothing else today",
+        "next": "Next: {when}",
+        "emptyTitle": "Nothing on your calendar",
+        "emptyHint": "Nothing in the next 7 days."
       },
       "cases": {
         "title": "Cases",
