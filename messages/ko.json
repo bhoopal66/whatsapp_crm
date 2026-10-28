@@ -49,9 +49,12 @@
     "compass": "Compass",
     "teamActivity": "팀 활동",
     "groups": {
+      "conversations": "대화",
+      "customers": "고객",
+      "submissions": "은행 제출",
+      "collaboration": "협업",
       "team": "팀",
-      "sales": "영업 및 마케팅",
-      "automation": "AI 및 자동화",
+      "automation": "캠페인 및 자동화",
       "integrations": "연동"
     },
     "roleBankGuest": "은행 게스트",

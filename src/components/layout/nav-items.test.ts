@@ -20,78 +20,85 @@ function layout(groups: NavGroup[]): Record<string, string[]> {
   );
 }
 
-const EVERYONE = [
-  '/dashboard',
-  '/inbox',
-  '/groups',
-  '/chat',
-  '/meetings',
-  '/calendar',
-  '/contacts',
-  '/pipelines',
-];
+/** Every staff role's groups: the rows no role gates. */
+const VIEWER = {
+  main: ['/dashboard'],
+  conversations: ['/inbox', '/groups'],
+  customers: ['/contacts', '/pipelines'],
+  collaboration: ['/chat', '/meetings', '/calendar'],
+};
 
-/** The opening group for an agent and up: Journeys (module 016) is agent+. */
-const STAFF = [
-  ...EVERYONE.slice(0, 3),
-  '/submission-groups',
-  '/cases',
-  '/banks',
-  ...EVERYONE.slice(3),
-  '/journeys',
-];
+/** An agent and up: Journeys (module 016) and Bank submissions are agent+. */
+const AGENT = {
+  ...VIEWER,
+  customers: [...VIEWER.customers, '/journeys'],
+  submissions: ['/cases', '/submission-groups', '/banks'],
+};
+
+const TEAM = ['/team-inbox', '/team-contacts', '/team-activity'];
 
 const ALL_ITEMS = [...NAV_GROUPS.flatMap((g) => g.items), ...BOTTOM_NAV_ITEMS];
 
 describe('visibleNavGroups', () => {
   it.each([
-    [null, EVERYONE],
-    ['viewer', EVERYONE],
-    ['agent', STAFF],
+    [null, VIEWER],
+    ['viewer', VIEWER],
+    ['agent', AGENT],
   ] as const)(
-    'gives %s only the opening group, with no heading',
-    (role, main) => {
-      const groups = visibleNavGroups(role);
-      expect(layout(groups)).toEqual({ main });
-      expect(groups.every((g) => g.labelKey === null)).toBe(true);
+    'gives %s its groups, with no team or admin views',
+    (role, groups) => {
+      expect(layout(visibleNavGroups(role))).toEqual(groups);
     }
   );
 
   it('adds the team views and Team activity for a team leader', () => {
     expect(layout(visibleNavGroups('team_leader'))).toEqual({
-      main: STAFF,
-      team: ['/team-inbox', '/team-contacts', '/team-activity'],
+      ...AGENT,
+      team: TEAM,
     });
   });
 
   it.each(['admin', 'owner'] as const)('shows %s every group', (role) => {
     expect(layout(visibleNavGroups(role))).toEqual({
-      main: STAFF,
-      team: ['/team-inbox', '/team-contacts', '/team-activity'],
-      sales: ['/broadcasts'],
-      automation: ['/automations', '/flows'],
+      ...AGENT,
+      team: TEAM,
+      automation: ['/broadcasts', '/automations', '/flows'],
       integrations: ['/compass', '/opendesk'],
     });
   });
 
+  it("orders the groups by area, the higher roles' views last", () => {
+    expect(visibleNavGroups('owner').map((g) => g.id)).toEqual([
+      'main',
+      'conversations',
+      'customers',
+      'submissions',
+      'collaboration',
+      'team',
+      'automation',
+      'integrations',
+    ]);
+  });
+
   it('shows a bank guest team chat and nothing else', () => {
-    expect(layout(visibleNavGroups('bank_guest'))).toEqual({ main: ['/chat'] });
+    expect(layout(visibleNavGroups('bank_guest'))).toEqual({
+      collaboration: ['/chat'],
+    });
     expect(visibleBottomNavItems('bank_guest')).toEqual([]);
   });
 
   it('adds Calls after the inbox for staff once the phone system is in use', () => {
-    const withCalls = (main: string[]) => [
-      ...main.slice(0, 2),
-      '/calls',
-      ...main.slice(2),
-    ];
-    expect(layout(visibleNavGroups('viewer', { pbx: true })).main).toEqual(
-      withCalls(EVERYONE)
-    );
-    for (const role of ['agent', 'team_leader', 'admin', 'owner'] as const)
-      expect(layout(visibleNavGroups(role, { pbx: true })).main, role).toEqual(
-        withCalls(STAFF)
-      );
+    for (const role of [
+      'viewer',
+      'agent',
+      'team_leader',
+      'admin',
+      'owner',
+    ] as const)
+      expect(
+        layout(visibleNavGroups(role, { pbx: true })).conversations,
+        role
+      ).toEqual(['/inbox', '/calls', '/groups']);
   });
 
   it('hides Calls with no phone system, from a bank guest, and while the role loads', () => {
@@ -101,11 +108,9 @@ describe('visibleNavGroups', () => {
         String(role)
       ).not.toContain('/calls');
     expect(layout(visibleNavGroups('bank_guest', { pbx: true }))).toEqual({
-      main: ['/chat'],
+      collaboration: ['/chat'],
     });
-    expect(layout(visibleNavGroups(null, { pbx: true })).main).toEqual(
-      EVERYONE
-    );
+    expect(layout(visibleNavGroups(null, { pbx: true }))).toEqual(VIEWER);
   });
 
   it('shows a guestVisible row to a guest and to staff alike', () => {
@@ -144,7 +149,7 @@ describe('visibleNavGroups', () => {
     }
   });
 
-  it('leaves only the opening group without a heading', () => {
+  it('heads every group but the home row', () => {
     expect(
       NAV_GROUPS.filter((g) => g.labelKey === null).map((g) => g.id)
     ).toEqual(['main']);

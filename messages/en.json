@@ -49,9 +49,12 @@
     "compass": "Compass",
     "teamActivity": "Team activity",
     "groups": {
+      "conversations": "Conversations",
+      "customers": "Customers",
+      "submissions": "Bank submissions",
+      "collaboration": "Collaboration",
       "team": "Team",
-      "sales": "Sales & marketing",
-      "automation": "AI & automation",
+      "automation": "Campaigns & automation",
       "integrations": "Integrations"
     },
     "roleBankGuest": "Bank guest",

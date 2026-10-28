@@ -12,6 +12,26 @@ and polish.
 
 ## [Unreleased]
 
+### Sidebar: grouped by area of work
+
+No migration.
+- The long list at the top of the sidebar is now split under headings
+  by area of work, with Dashboard on its own above them:
+  **Conversations** (WhatsApp inbox, Calls, WhatsApp groups),
+  **Customers** (Contacts, Pipelines, Journeys), **Bank submissions**
+  (Cases, Submission groups, Banks) and **Collaboration** (Team chat,
+  Meetings, Calendar). Team leaders also get **Team** (Team inbox, Team
+  contacts, Team activity). Admins also get **Campaigns & automation**
+  (Broadcasts, Automations, Flows), which replaces the one-row "Sales &
+  marketing" and the "AI & automation" headings, and **Integrations**
+  (Compass, OpenDesk). Settings stays at the foot. A heading shows only
+  when there is something under it the person may open.
+- Team inbox and Team contacts have icons of their own, no longer the
+  same as Team chat's and WhatsApp groups'. Rows are a little more
+  compact on desktop to make room for the headings: an agent's sidebar
+  still fits a browser window 900 px tall without scrolling, and
+  scrolls a little in a shorter one.
+
 ### Team activity: OpenWA numbers count as phone numbers
 
 **Migration required:** apply `supabase/migrations/145_team_activity_openwa.sql`.

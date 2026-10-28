@@ -169,8 +169,9 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           href={item.href}
           aria-current={isActive ? 'page' : undefined}
           className={cn(
-            // Taller on mobile so fingers can hit the row reliably (≥44px).
-            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
+            // Taller on mobile so fingers can hit the row reliably (≥44px);
+            // 32px on desktop, to make room for the group headings.
+            'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-1.5',
             isActive
               ? 'bg-card text-primary font-semibold shadow-xs'
               : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -287,7 +288,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             set apart at the foot — below everything while the groups
             fit, after them once the nav scrolls. */}
           <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
-            <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-4">
               {navGroups.map((group) => {
                 const headingId = `${groupIdPrefix}-${group.id}`;
                 return (

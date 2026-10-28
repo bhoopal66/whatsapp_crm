@@ -2,8 +2,10 @@ import {
   Activity,
   Briefcase,
   Building2,
+  ContactRound,
   GitBranch,
   Headset,
+  Inbox,
   Landmark,
   LayoutDashboard,
   MessageSquare,
@@ -27,11 +29,14 @@ import { hasMinRole, isBankGuest, type AccountRole } from '@/lib/auth/roles';
 /**
  * The sidebar's information architecture.
  *
- * Grouped by who each destination is for, which is also how the role
- * ladder gates them: the opening group is every member's daily work
- * (their chats, contacts and deals) and carries no heading, Team is a team leader's wider view, and the rest
- * configure the account and are admin+. So an agent sees one short list
- * with no headings, and no role is shown a heading over nothing.
+ * Grouped by area of work, under small headings, in the order the work
+ * flows: the customer conversations, the customers and their deals, the
+ * cases submitted to banks, then the staff's own tools for working
+ * together. After those come the higher roles' extra views: Team for a
+ * team leader, then the admins' campaign, automation and integration
+ * screens. Only Dashboard, the home row, sits above the headings. A
+ * group is dropped when the role may open nothing in it, so no role is
+ * shown a heading over nothing.
  */
 export interface NavItem {
   href: string;
@@ -73,7 +78,15 @@ export interface NavContext {
 }
 
 export interface NavGroup {
-  id: 'main' | 'team' | 'sales' | 'automation' | 'integrations';
+  id:
+    | 'main'
+    | 'conversations'
+    | 'customers'
+    | 'submissions'
+    | 'collaboration'
+    | 'team'
+    | 'automation'
+    | 'integrations';
   /** Heading key in the `Sidebar` namespace; null renders no heading. */
   labelKey: string | null;
   items: NavItem[];
@@ -84,9 +97,15 @@ export const NAV_GROUPS: NavGroup[] = [
     id: 'main',
     labelKey: null,
     items: [
-      { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
       // Notifications are the top bar's bell (NotificationBell), not a row
       // here; the full list page stays as its "View all".
+      { href: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
+    ],
+  },
+  {
+    id: 'conversations',
+    labelKey: 'groups.conversations',
+    items: [
       { href: '/inbox', labelKey: 'inbox', icon: MessageSquare },
       // Missed calls and the call log (module 015). Staff only: the
       // route's layout turns a bank guest away; which calls come back is
@@ -97,43 +116,12 @@ export const NAV_GROUPS: NavGroup[] = [
       // and which groups come back is RLS's call
       // (whatsapp_group_visible_ids).
       { href: '/groups', labelKey: 'whatsappGroups', icon: UsersRound },
-      // Submission groups (module 018a): one WhatsApp group per submitted
-      // case. Agent and up (the route's AgentOnlyLayout); which groups
-      // come back is the access list's call, server-side.
-      {
-        href: '/submission-groups',
-        labelKey: 'submissionGroups',
-        icon: FolderKanban,
-        minRole: 'agent',
-      },
-      // Cases (module 019): the coordinator inbox over submission cases.
-      // Agent and up (the route's AgentOnlyLayout); which cases come back
-      // is Postgres's call (`case_inbox`, case_role).
-      {
-        href: '/cases',
-        labelKey: 'cases',
-        icon: Briefcase,
-        minRole: 'agent',
-      },
-      // Partner banks (module 019): agent and up, like Cases.
-      {
-        href: '/banks',
-        labelKey: 'banks',
-        icon: Landmark,
-        minRole: 'agent',
-      },
-      // Team chat (migration 087): the one row a bank guest sees too.
-      {
-        href: '/chat',
-        labelKey: 'chat',
-        icon: MessagesSquare,
-        guestVisible: true,
-      },
-      // Video meetings (migration 106): every staff role, never a bank
-      // guest; the route's layout turns a guest away on the server, and
-      // which meetings come back is RLS's call (`meeting_can_view`).
-      { href: '/meetings', labelKey: 'meetings', icon: Video },
-      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays },
+    ],
+  },
+  {
+    id: 'customers',
+    labelKey: 'groups.customers',
+    items: [
       { href: '/contacts', labelKey: 'contacts', icon: Users },
       // Everyone's: each member works their own deals, a team leader
       // their team's too, an admin all of them. Which deals come back
@@ -150,22 +138,71 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'submissions',
+    labelKey: 'groups.submissions',
+    items: [
+      // Cases (module 019): the coordinator inbox over submission cases.
+      // Agent and up (the route's AgentOnlyLayout); which cases come back
+      // is Postgres's call (`case_inbox`, case_role).
+      {
+        href: '/cases',
+        labelKey: 'cases',
+        icon: Briefcase,
+        minRole: 'agent',
+      },
+      // Submission groups (module 018a): one WhatsApp group per submitted
+      // case. Agent and up (the route's AgentOnlyLayout); which groups
+      // come back is the access list's call, server-side.
+      {
+        href: '/submission-groups',
+        labelKey: 'submissionGroups',
+        icon: FolderKanban,
+        minRole: 'agent',
+      },
+      // Partner banks (module 019): agent and up, like Cases.
+      {
+        href: '/banks',
+        labelKey: 'banks',
+        icon: Landmark,
+        minRole: 'agent',
+      },
+    ],
+  },
+  {
+    id: 'collaboration',
+    labelKey: 'groups.collaboration',
+    items: [
+      // Team chat (migration 087): the one row a bank guest sees too.
+      {
+        href: '/chat',
+        labelKey: 'chat',
+        icon: MessagesSquare,
+        guestVisible: true,
+      },
+      // Video meetings (migration 106): every staff role, never a bank
+      // guest; the route's layout turns a guest away on the server, and
+      // which meetings come back is RLS's call (`meeting_can_view`).
+      { href: '/meetings', labelKey: 'meetings', icon: Video },
+      { href: '/calendar', labelKey: 'calendar', icon: CalendarDays },
+    ],
+  },
+  {
     id: 'team',
     labelKey: 'groups.team',
     items: [
-      // Team leader's wider view of the same two screens. Admins see
+      // A team leader's wider view of Inbox and Contacts. Admins see
       // them too (they outrank a leader); what each gets back is RLS's
       // call.
       {
         href: '/team-inbox',
         labelKey: 'teamInbox',
-        icon: MessagesSquare,
+        icon: Inbox,
         minRole: 'team_leader',
       },
       {
         href: '/team-contacts',
         labelKey: 'teamContacts',
-        icon: UsersRound,
+        icon: ContactRound,
         minRole: 'team_leader',
       },
       // Who starts chats and how many get an answer, against the limits
@@ -182,8 +219,8 @@ export const NAV_GROUPS: NavGroup[] = [
   // Workspace configuration from here down: these shape how the whole
   // account operates, so they are admin+ only.
   {
-    id: 'sales',
-    labelKey: 'groups.sales',
+    id: 'automation',
+    labelKey: 'groups.automation',
     items: [
       {
         href: '/broadcasts',
@@ -191,12 +228,6 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Radio,
         minRole: 'admin',
       },
-    ],
-  },
-  {
-    id: 'automation',
-    labelKey: 'groups.automation',
-    items: [
       {
         href: '/automations',
         labelKey: 'automations',
