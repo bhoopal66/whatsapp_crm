@@ -2187,6 +2187,8 @@
         "notLinked": "The phone wasn't linked ({status}). Try again for a fresh code.",
         "timedOut": "No phone was linked within 5 minutes. Try again for a fresh code.",
         "cancelFailed": "Couldn't remove the unfinished OpenWA session: {error}",
+        "gatewayIncomplete": "Removed from the CRM, but OpenWA could not be reached; the session may still be running — remove it from the OpenWA dashboard.",
+        "lateLinked": "The phone linked after all. The number is connected.",
         "notLive": "This number is not linked right now. Disconnect it, then connect it again with OpenWA and scan a new code.",
         "removeBody": "This logs the phone out of OpenWA, deletes its session on the server and revokes its key. Messages stop sending and arriving on this number. Chat history is kept, and its access list is removed. To use it again, connect it with OpenWA and scan a new code.",
         "status": {

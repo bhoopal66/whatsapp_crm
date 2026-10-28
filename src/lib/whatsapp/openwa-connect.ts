@@ -106,6 +106,8 @@ export type ConnectEvent =
   /** A poll that did not answer. Transient: only the clock can fail it. */
   | { type: 'pollFailed'; at: number }
   | { type: 'cancel' }
+  /** The give-up check found the phone linked after all. */
+  | { type: 'lateLinked'; phone?: string | null }
   | { type: 'reset' };
 
 export const initialConnectState: ConnectState = {
@@ -203,6 +205,17 @@ export function connectReducer(
     case 'cancel':
       if (state.phase === 'connected') return state;
       return { ...state, phase: 'cancelled' };
+    case 'lateLinked':
+      if (state.phase !== 'failed' || state.failure !== 'timedOut') {
+        return state;
+      }
+      return {
+        ...state,
+        phase: 'connected',
+        failure: null,
+        lastStatus: 'ready',
+        phone: event.phone ?? null,
+      };
   }
 }
 
@@ -213,6 +226,62 @@ export function connectReducer(
  */
 export function needsCleanup(state: ConnectState): boolean {
   return state.configId !== null && state.phase !== 'connected';
+}
+
+/**
+ * What closing (or retrying) must do with the half-made number.
+ *
+ * - `none`: nothing on the gateway, or it linked.
+ * - `remove`: OpenWA itself said it will not link (failed,
+ *   action_required, disconnected): DELETE straight away.
+ * - `checkFirst`: the dialog does not know. It gave up on the clock, or
+ *   it is closed mid-poll, and a phone can link at any moment in
+ *   between: a scan seconds after the 5-minute mark used to be deleted
+ *   on close, unlinking a number that had just connected.
+ */
+export type CleanupPlan = 'none' | 'remove' | 'checkFirst';
+
+export function cleanupPlan(state: ConnectState): CleanupPlan {
+  if (!needsCleanup(state)) return 'none';
+  if (isPolling(state)) return 'checkFirst';
+  if (state.phase === 'failed' && state.failure === 'timedOut') {
+    return 'checkFirst';
+  }
+  return 'remove';
+}
+
+export type CleanupOutcome =
+  /** The phone is linked: the number stays, as connected. */
+  | { kind: 'kept'; phone: string | null }
+  | { kind: 'removed' }
+  | { kind: 'removeFailed'; error: string };
+
+/**
+ * Carry out a cleanup plan. `checkStatus` asks the status route once
+ * (null when it did not answer); `remove` DELETEs the number and
+ * returns an error text or null. Only `ready` keeps it: anything else,
+ * an unanswered check included, removes it, because an unlinked session
+ * keeps a browser running on the gateway.
+ */
+export async function settleUnfinishedSession(
+  plan: CleanupPlan,
+  deps: {
+    checkStatus: () => Promise<{
+      status: string;
+      phone?: string | null;
+    } | null>;
+    remove: () => Promise<string | null>;
+  }
+): Promise<CleanupOutcome | null> {
+  if (plan === 'none') return null;
+  if (plan === 'checkFirst') {
+    const answer = await deps.checkStatus().catch(() => null);
+    if (answer && isLinkedStatus(answer.status)) {
+      return { kind: 'kept', phone: answer.phone ?? null };
+    }
+  }
+  const error = await deps.remove();
+  return error ? { kind: 'removeFailed', error } : { kind: 'removed' };
 }
 
 export type OpenWAStatusLabelKey =

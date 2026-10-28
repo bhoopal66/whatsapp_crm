@@ -428,7 +428,13 @@ export function WhatsAppNumbers() {
         toast.error(body?.error || t('removeFailed'));
         return;
       }
-      toast.success(t('removed', { name: channelDisplayName(row) }));
+      if (row.provider === 'openwa' && body?.gatewayCleanup === 'incomplete') {
+        // The row is gone, but the session may still run a browser and
+        // hold a working key on the gateway; only the admin can end it.
+        toast.warning(t('openwa.gatewayIncomplete'));
+      } else {
+        toast.success(t('removed', { name: channelDisplayName(row) }));
+      }
       setRemoving(null);
       invalidateNumberCaches();
       await load();

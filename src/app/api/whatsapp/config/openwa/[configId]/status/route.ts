@@ -10,8 +10,15 @@ import { OpenWAError, getQr, getSession } from '@/lib/whatsapp/openwa-api';
  *
  * Answers `{ status, qrCode?, phone? }` in OpenWA's own words. Uses the
  * row's scoped key, never the admin key, so a row can only ever ask
- * about its own session. On `ready` the number and `connected` are
- * written once; later polls see the row already connected and skip it.
+ * about its own session.
+ *
+ * On `ready` it writes `connected`, the number and `connected_at` for
+ * the FIRST link only (`connected_at IS NULL`). After that the row's
+ * status belongs to the health sweep alone: the Settings list calls this
+ * route to show live state, and a write here would flip a number that
+ * went down back to 'connected' silently, so the sweep would never see
+ * the transition and owners would never get the "connected again" alert.
+ * The answer still carries the live state either way.
  */
 export async function GET(
   _request: Request,
@@ -28,7 +35,7 @@ export async function GET(
 
   const { data: row } = await supabase
     .from('whatsapp_config')
-    .select('id, phone_number_id, access_token, waba_id, status')
+    .select('id, phone_number_id, access_token, waba_id, status, connected_at')
     .eq('account_id', accountId)
     .eq('provider', 'openwa')
     .eq('id', configId)
@@ -65,7 +72,7 @@ export async function GET(
       });
     }
     if (session.status === 'ready') {
-      if (row.status !== 'connected' || row.waba_id !== session.phone) {
+      if (row.connected_at == null) {
         const { error } = await supabase
           .from('whatsapp_config')
           .update({
@@ -74,7 +81,9 @@ export async function GET(
             connected_at: new Date().toISOString(),
           })
           .eq('account_id', accountId)
-          .eq('id', row.id);
+          .eq('id', row.id)
+          // The sweep may have stamped the first link a moment ago.
+          .is('connected_at', null);
         if (error) console.error('[openwa status] update failed:', error);
       }
       return NextResponse.json({

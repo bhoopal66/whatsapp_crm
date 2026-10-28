@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import {
-  deleteSession,
-  findScopedKeyIds,
-  logoutSession,
-  openwaAdminApiKey,
-  revokeKey,
-} from '@/lib/whatsapp/openwa-api';
+import { openwaAdminApiKey } from '@/lib/whatsapp/openwa-api';
+import { teardownOpenWASession } from '@/lib/whatsapp/openwa-cleanup';
 
 /**
  * DELETE /api/whatsapp/config/openwa/[configId] — disconnect an OpenWA
@@ -21,6 +16,12 @@ import {
  *
  * Without OPENWA_API_KEY the row is still removed, so an install that
  * dropped OpenWA can clean up; the gateway side is then left alone.
+ *
+ * Answers `{ ok: true, gatewayCleanup }`. The row goes either way, but
+ * when the gateway could not be reached (or there is no admin key) the
+ * session may still be running a browser with a working key, and only
+ * the admin can finish the job in the OpenWA dashboard: 'incomplete'
+ * is how the Settings list knows to tell them.
  */
 export async function DELETE(
   _request: Request,
@@ -42,31 +43,20 @@ export async function DELETE(
     .eq('provider', 'openwa')
     .eq('id', configId)
     .maybeSingle();
-  if (!row) return NextResponse.json({ success: true });
+  if (!row) return NextResponse.json({ ok: true, gatewayCleanup: 'complete' });
 
   const sessionId = row.phone_number_id as string;
   const adminKey = openwaAdminApiKey();
-  if (adminKey && sessionId) {
-    // Logout first: deleting a linked session leaves the "linked device"
-    // on the phone. A session that never started answers 400; fine.
-    await logoutSession({ adminKey, sessionId }).catch((e) =>
-      console.warn('[openwa disconnect] logout failed:', e)
-    );
-    await deleteSession({ adminKey, sessionId }).catch((e) =>
-      console.error('[openwa disconnect] delete session failed:', e)
-    );
-    const keyIds = await findScopedKeyIds({ adminKey, sessionId }).catch(
-      (e) => {
-        console.error('[openwa disconnect] key lookup failed:', e);
-        return [] as string[];
-      }
-    );
-    for (const keyId of keyIds) {
-      await revokeKey({ adminKey, keyId }).catch((e) =>
-        console.error('[openwa disconnect] revoke key failed:', e)
-      );
-    }
-  }
+  const gatewayCleanup =
+    adminKey && sessionId
+      ? (await teardownOpenWASession({
+          adminKey,
+          sessionId,
+          logPrefix: '[openwa disconnect]',
+        }))
+        ? 'complete'
+        : 'incomplete'
+      : 'incomplete';
 
   const { error: deleteError } = await supabase
     .from('whatsapp_config')
@@ -96,5 +86,5 @@ export async function DELETE(
       .eq('account_id', accountId);
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ ok: true, gatewayCleanup });
 }

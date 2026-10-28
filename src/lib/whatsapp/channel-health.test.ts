@@ -731,6 +731,40 @@ describe('OpenWA numbers', () => {
       expect(rows[0].type).toBe('channel_reconnected');
     });
 
+    it('a first link (never connected) is stamped but not announced', async () => {
+      h.channels = [{ ...openwaRow('disconnected'), connectedAt: null }];
+      const { db, calls } = fakeAdmin({});
+      const summary = await runChannelHealthCheck(db, {
+        probe: readyProbe,
+        now: () => NOW,
+      });
+      expect(summary).toEqual({
+        checked: 1,
+        changed: 1,
+        notified: 0,
+        failed: 0,
+      });
+      expect(calls('whatsapp_config', 'update')).toEqual([
+        [{ status: 'connected', connected_at: NOW.toISOString() }],
+      ]);
+      // Only while still unstamped: the status route may have won.
+      expect(calls('whatsapp_config', 'is')).toEqual([['connected_at', null]]);
+      expect(calls('notifications', 'insert')).toEqual([]);
+    });
+
+    it('a number connected before still announces coming back', async () => {
+      h.channels = [
+        { ...openwaRow('disconnected'), connectedAt: '2026-09-01T00:00:00Z' },
+      ];
+      const { db, calls } = fakeAdmin({});
+      await runChannelHealthCheck(db, { probe: readyProbe, now: () => NOW });
+      expect(calls('whatsapp_config', 'is')).toEqual([]);
+      const [[rows]] = calls('notifications', 'insert') as [
+        [Array<Record<string, unknown>>],
+      ];
+      expect(rows[0].type).toBe('channel_reconnected');
+    });
+
     it('already connected → no write, no alert', async () => {
       h.channels = [openwaRow('connected')];
       const { db, calls } = fakeAdmin({});
