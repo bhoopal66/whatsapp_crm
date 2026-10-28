@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 import type { Notification } from '@/types';
 import type { NotificationRowPlan } from '@/lib/notifications/target';
 import {
@@ -64,7 +65,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const tSidebar = useTranslations('Sidebar');
   const t = useTranslations('Notifications');
-  const { switchWorkspace } = useAuth();
+  const { switchWorkspace, user } = useAuth();
+  const userId = user?.id ?? null;
   const [state, dispatch] = useReducer(
     notificationsReducer,
     INITIAL_NOTIFICATIONS_STATE
@@ -133,32 +135,39 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Realtime — new notifications appear and count without a refresh, and
   // a "mark all read" fired from another tab/device stays in sync here.
   // The one subscription for the bell and the page alike.
+  //
+  // Filtered on the recipient (`user_id` is the auth user id, migration
+  // 027), which RLS requires anyway, so Realtime neither checks nor ships
+  // anyone else's bells. Deliberately NOT on the account: the bell covers
+  // every workspace the person is live in (`my_live_account_ids`, 083),
+  // so a workspace switch does not re-subscribe. No user yet: no channel.
   useEffect(() => {
+    const bindings = scopedChangeBindings('notifications', 'user_id', userId);
+    if (!bindings) return;
     const supabase = createClient();
-    const channel = supabase
-      .channel('notifications-bell')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            dispatch({ type: 'insert', row: payload.new as Notification });
-          } else if (payload.eventType === 'UPDATE') {
-            dispatch({ type: 'update', row: payload.new as Notification });
-          } else if (payload.eventType === 'DELETE') {
-            dispatch({
-              type: 'delete',
-              row: payload.old as Partial<Notification>,
-            });
-          }
+    // The topic names the user: removeChannel is async, and a re-run on
+    // the same topic would be handed the channel still leaving.
+    let channel = supabase.channel(`notifications-bell:${userId}`);
+    for (const binding of bindings) {
+      channel = channel.on('postgres_changes', binding, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          dispatch({ type: 'insert', row: payload.new as Notification });
+        } else if (payload.eventType === 'UPDATE') {
+          dispatch({ type: 'update', row: payload.new as Notification });
+        } else if (payload.eventType === 'DELETE') {
+          dispatch({
+            type: 'delete',
+            row: payload.old as Partial<Notification>,
+          });
         }
-      )
-      .subscribe();
+      });
+    }
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [userId]);
 
   const markRead = useCallback(
     async (id: string) => {

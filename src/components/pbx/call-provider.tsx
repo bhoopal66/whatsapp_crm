@@ -44,6 +44,7 @@ import {
 import { SOFTPHONE_OFF, type SoftphoneState } from '@/lib/pbx/linkus-state';
 import type { SoftphoneAdapter } from '@/lib/pbx/softphone';
 import { createClient } from '@/lib/supabase/client';
+import { scopedChangeBindings } from '@/lib/realtime/scoped-changes';
 
 export interface PbxMe {
   extension: string;
@@ -220,36 +221,36 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [supabase]);
 
   useEffect(() => {
-    if (!me || !accountId) return;
-    const ch = supabase
-      .channel(`call-live-${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'call_live' },
-        (p) => {
-          if (p.eventType === 'DELETE') {
-            const k = liveKey(p.old as CallLiveRow);
-            apply(
-              rowsRef.current.filter((r) => liveKey(r) !== k),
-              true
-            );
-            return;
-          }
-          const row = p.new as CallLiveRow;
+    // Scoped to the active account (RLS shows nothing else), so Realtime
+    // neither checks nor ships other workspaces' calls. DELETE stays
+    // unfiltered: call_live keeps the default replica identity, so a
+    // filtered DELETE would never arrive and an ended call keep ringing.
+    const bindings = scopedChangeBindings('call_live', 'account_id', accountId);
+    if (!me || !accountId || !bindings) return;
+    // The topic names the account: removeChannel is async, and a re-run
+    // on the same topic would be handed the channel still leaving.
+    let ch = supabase.channel(`call-live-${userId}:${accountId}`);
+    for (const binding of bindings) {
+      ch = ch.on('postgres_changes', binding, (p) => {
+        if (p.eventType === 'DELETE') {
+          const k = liveKey(p.old as CallLiveRow);
           apply(
-            [
-              ...rowsRef.current.filter((r) => liveKey(r) !== liveKey(row)),
-              row,
-            ],
+            rowsRef.current.filter((r) => liveKey(r) !== k),
             true
           );
+          return;
         }
-      )
-      .subscribe((status) => {
-        // The first load waits for the channel, so no change falls between.
-        if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR')
-          void reload();
+        const row = p.new as CallLiveRow;
+        apply(
+          [...rowsRef.current.filter((r) => liveKey(r) !== liveKey(row)), row],
+          true
+        );
       });
+    }
+    ch.subscribe((status) => {
+      // The first load waits for the channel, so no change falls between.
+      if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR') void reload();
+    });
     void loadPbxNames(supabase, accountId).then(setNames);
     void cachedQuery(`pbx-dids:${accountId}`, 300_000, async () => {
       const { data } = await supabase
