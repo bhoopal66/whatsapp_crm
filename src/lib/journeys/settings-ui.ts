@@ -4,6 +4,8 @@
  * saves, WhatsApp's title limits) and the Call-button number. No I/O,
  * so the panel stays a thin client and these are unit-tested.
  */
+import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
+
 import type { WorkflowDef } from './schema';
 import {
   LIST_BUTTON_LABEL_MAX,
@@ -25,7 +27,10 @@ import {
  */
 export type MetaTemplateState =
   'approved' | 'pending' | 'notApproved' | 'missing';
-/** On a Whapi number any row is rendered locally, whatever its status. */
+/**
+ * On a linked-device number (Whapi, OpenWA) any row is rendered
+ * locally, whatever its status.
+ */
 export type WhapiTemplateState = 'present' | 'missing';
 
 export interface TemplateRowLite {
@@ -45,7 +50,7 @@ export interface ChecklistItem {
   meta?: MetaTemplateState;
   /** The status of the row a send would use (upper case), when there is one. */
   metaStatus?: string;
-  /** Only when the account has a Whapi number. */
+  /** Only when the account has a linked-device number (Whapi, OpenWA). */
   whapi?: WhapiTemplateState;
 }
 
@@ -82,7 +87,9 @@ export function templateChecklist(
   const byName = new Map<string, TemplateRowLite[]>();
   for (const r of rows) byName.set(r.name, [...(byName.get(r.name) ?? []), r]);
   const hasMeta = kinds.includes('meta');
-  const hasWhapi = kinds.includes('whapi');
+  // OpenWA renders templates locally as Whapi does, so it shares the
+  // "present / missing" state rather than reading as Meta's review.
+  const hasWhapi = kinds.some(isLinkedDeviceNumber);
 
   const items: ChecklistItem[] = [];
   for (const [name, t] of Object.entries(def.templates)) {

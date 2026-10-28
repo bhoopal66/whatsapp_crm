@@ -6,7 +6,36 @@
 // and so the route reads as "validate, then write".
 // ============================================================
 
+import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
+
 export const MAX_CHANNEL_LABEL_LEN = 60;
+
+/**
+ * Browser-safe mirror of `isLinkedDeviceProvider` (channels.ts): Whapi
+ * and OpenWA, a number paired to a phone rather than the Cloud API.
+ * Client components cannot import channels.ts, which loads encryption.ts
+ * (it reads ENCRYPTION_KEY at module load). Takes a plain string because
+ * the browser's number rows are typed loosely; channel-management.test.ts
+ * keeps the two in step.
+ */
+export function isLinkedDeviceNumber(provider: string): boolean {
+  return provider === 'whapi' || provider === 'openwa';
+}
+
+const PROVIDER_LABELS: Record<WhatsAppProvider, string> = {
+  whapi: 'Whapi',
+  meta: 'Cloud API',
+  openwa: 'OpenWA',
+};
+
+/**
+ * The provider's name as `describeChannel` (channels.ts) prints it,
+ * for the browser. An unknown value reads as itself rather than as
+ * another provider's name.
+ */
+export function providerLabel(provider: string): string {
+  return PROVIDER_LABELS[provider as WhatsAppProvider] ?? provider;
+}
 
 export type LabelResult =
   { ok: true; label: string } | { ok: false; error: string };
@@ -82,9 +111,10 @@ export function channelDisplayName(c: {
 
 /**
  * The name plus the phone it sends from — `Support · +971558233531` —
- * so a picker shows which handset a reply really leaves on. Whapi only:
- * its `waba_id` is the paired number (kept current by the health
- * sweep), while a Meta row's is the WABA id, not a phone. A name that
+ * so a picker shows which handset a reply really leaves on. Linked
+ * devices only (Whapi, OpenWA): their `waba_id` is the paired number
+ * (migrations 040 and 144), while a Meta row's is the WABA id, not a
+ * phone. A name that
  * already is the number is not repeated.
  */
 export function channelNameWithPhone(c: {
@@ -94,8 +124,9 @@ export function channelNameWithPhone(c: {
   phone_number_id: string;
 }): string {
   const name = channelDisplayName(c);
-  const digits =
-    c.provider === 'whapi' ? (c.waba_id ?? '').replace(/\D/g, '') : '';
+  const digits = isLinkedDeviceNumber(c.provider)
+    ? (c.waba_id ?? '').replace(/\D/g, '')
+    : '';
   if (!digits || name.replace(/\D/g, '') === digits) return name;
   return `${name} · +${digits}`;
 }

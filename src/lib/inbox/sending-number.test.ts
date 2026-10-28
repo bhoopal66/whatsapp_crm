@@ -4,7 +4,7 @@ import { predictSendingNumber } from './sending-number';
 
 const n = (
   id: string,
-  provider: 'whapi' | 'meta',
+  provider: 'whapi' | 'meta' | 'openwa',
   is_primary = false,
   status = 'connected'
 ) => ({ id, provider, is_primary, status });
@@ -65,5 +65,17 @@ describe('predictSendingNumber', () => {
     expect(
       predictSendingNumber(numbers, { channel_id: 'whapi-b' })?.status
     ).toBe('disconnected');
+  });
+});
+
+describe('predictSendingNumber — OpenWA (migration 144)', () => {
+  const openwa = n('openwa', 'openwa');
+
+  it('falls back to a linked device before the Meta number, like primaryChannel', () => {
+    expect(predictSendingNumber([meta, openwa], {})).toBe(openwa);
+  });
+
+  it('still prefers a Whapi number over OpenWA, as before 144', () => {
+    expect(predictSendingNumber([meta, openwa, whapiA], {})).toBe(whapiA);
   });
 });

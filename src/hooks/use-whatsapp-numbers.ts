@@ -16,12 +16,13 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { cachedQuery } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
+import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
 
 export interface AccountNumber {
   id: string;
-  provider: 'whapi' | 'meta';
+  provider: WhatsAppProvider;
   label: string | null;
-  /** Whapi: the connected phone number. Meta: the WABA id. */
+  /** Whapi and OpenWA: the connected phone number. Meta: the WABA id. */
   waba_id: string | null;
   phone_number_id: string;
   is_primary: boolean;
@@ -113,7 +114,7 @@ export function useMyNumberIds(): string[] | null {
  */
 export function predictNumber(
   numbers: AccountNumber[],
-  provider: 'whapi' | 'meta',
+  provider: WhatsAppProvider,
   preferIds: ReadonlyArray<string | null | undefined>
 ): AccountNumber | null {
   const candidates = numbers.filter((n) => n.provider === provider);

@@ -52,11 +52,12 @@ import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import type { ContactThread } from '@/lib/contacts/contact-thread';
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
 import { limitNotices } from '@/lib/team-activity/thread-guard';
+import { providerLabel } from '@/lib/whatsapp/channel-management';
 import type { MessageTemplate } from '@/types';
 
 export function channelName(c: AccountNumber): string {
   const name = c.label || c.waba_id || c.phone_number_id;
-  return `${name} (${c.provider === 'meta' ? 'Cloud API' : 'Whapi'})`;
+  return `${name} (${providerLabel(c.provider)})`;
 }
 
 export interface ContactOutreachProps {
