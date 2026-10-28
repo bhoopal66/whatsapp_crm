@@ -85,6 +85,48 @@ export function placeOf(
   return clampPlace({ left, top }, size, viewport);
 }
 
+const intersects = (a: Rect, b: Rect): boolean =>
+  a.left < b.left + b.width &&
+  b.left < a.left + a.width &&
+  a.top < b.top + b.height &&
+  b.top < a.top + a.height;
+
+const inside = (r: Rect, viewport: Size): boolean =>
+  r.left >= WINDOW_MARGIN &&
+  r.top >= WINDOW_MARGIN &&
+  r.left + r.width <= viewport.width - WINDOW_MARGIN &&
+  r.top + r.height <= viewport.height - WINDOW_MARGIN;
+
+/**
+ * Where `card` goes so it does not cover `obstacle` (the ringing card
+ * and the live call window: the card stays above it in z-order, so
+ * placed on its header it hides Hang up). Unchanged when they do not
+ * overlap. Otherwise the first side that fits inside the viewport, in
+ * this order: left of the obstacle, above, below, right, `gap` px
+ * clear of it and keeping the card's other coordinate. When no side
+ * fits the card keeps its spot, on top.
+ */
+export function clearOf(
+  card: Rect,
+  obstacle: Rect,
+  viewport: Size,
+  gap = WINDOW_MARGIN
+): { left: number; top: number } {
+  const own = { left: card.left, top: card.top };
+  if (!intersects(card, obstacle)) return own;
+  const sides = [
+    { left: obstacle.left - gap - card.width, top: card.top },
+    { left: card.left, top: obstacle.top - gap - card.height },
+    { left: card.left, top: obstacle.top + obstacle.height + gap },
+    { left: obstacle.left + obstacle.width + gap, top: card.top },
+  ];
+  return (
+    sides.find((at) =>
+      inside({ ...at, width: card.width, height: card.height }, viewport)
+    ) ?? own
+  );
+}
+
 /** The nearest-corner anchor of a window at `rect`. */
 export function anchorOf(rect: Rect, viewport: Size): Anchor {
   const h = rect.left + rect.width / 2 < viewport.width / 2 ? 'left' : 'right';

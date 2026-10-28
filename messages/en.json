@@ -5384,6 +5384,7 @@
     "whichCustomer": "Which customer?",
     "unnamed": "Unnamed contact",
     "onCall": "On a call · ext {extension} · {mode}",
+    "wrapUpLine": "Wrap-up · ext {extension}",
     "modeBrowser": "browser",
     "modeDesk": "desk phone",
     "recording": "Recording",
@@ -5411,6 +5412,7 @@
     "notSaved": "Not saved yet",
     "shareCard": "Share a call card to",
     "noChannels": "You are in no team channels",
+    "chooseChannel": "Choose a channel",
     "close": "Close",
     "outcomeRequired": "Choose an outcome before closing.",
     "wrapUp": "Add the outcome: {left} left",
@@ -5460,8 +5462,7 @@
     "whatsAppChat": "WhatsApp chat",
     "noCustomerYet": "No customer is linked to this call yet.",
     "wrapUpShort": "Wrap-up {left}",
-    "addOutcome": "Add outcome",
-    "outcomeButton": "Outcome"
+    "addOutcome": "Add outcome"
   },
   "Voicemail": {
     "title": "Voicemail",

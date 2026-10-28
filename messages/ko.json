@@ -5384,6 +5384,7 @@
     "whichCustomer": "어느 고객인가요?",
     "unnamed": "이름 없는 연락처",
     "onCall": "통화 중 · 내선 {extension} · {mode}",
+    "wrapUpLine": "마무리 · 내선 {extension}",
     "modeBrowser": "브라우저",
     "modeDesk": "책상 전화",
     "recording": "녹음 중",
@@ -5411,6 +5412,7 @@
     "notSaved": "아직 저장되지 않음",
     "shareCard": "통화 카드 공유 채널",
     "noChannels": "참여한 팀 채널이 없습니다",
+    "chooseChannel": "채널 선택",
     "close": "닫기",
     "outcomeRequired": "닫기 전에 결과를 선택하세요.",
     "wrapUp": "통화 결과를 입력하세요: {left} 남음",
@@ -5460,8 +5462,7 @@
     "whatsAppChat": "WhatsApp 채팅",
     "noCustomerYet": "이 통화에 연결된 고객이 아직 없습니다.",
     "wrapUpShort": "마무리 {left}",
-    "addOutcome": "결과 추가",
-    "outcomeButton": "결과"
+    "addOutcome": "결과 추가"
   },
   "Voicemail": {
     "title": "음성 메일",

@@ -15,6 +15,10 @@
 // - The spot and the minimised state persist on drag end, nudge, reset
 //   and minimise toggle, not on every move. Storage may be blocked
 //   (private windows): every access falls back to the defaults.
+// - With `avoid`, each placement (not a drag) then steps clear of that
+//   rect (`clearOf`): the ringing card never lands on the live call
+//   window's header. The stored anchor is untouched; only a drag, a
+//   nudge or a reset changes it.
 // - Below the `sm` breakpoint there is no free dragging: the component
 //   lays itself out as a bottom sheet / bar instead (`mobile`).
 
@@ -32,12 +36,14 @@ import {
 import {
   anchorOf,
   clampPlace,
+  clearOf,
   isNudgeKey,
   nudge,
   placeOf,
   readWindowPrefs,
   writeWindowPrefs,
   type Anchor,
+  type Rect,
   type WindowPrefs,
 } from '@/lib/pbx/call-window';
 
@@ -102,6 +108,8 @@ export interface FloatingWindowOptions {
   label: string;
   /** Translated aria-roledescription of the handle ("draggable"). */
   roleDescription: string;
+  /** A rect to keep clear of when placing (null: nothing on screen). */
+  avoid?: () => Rect | null;
 }
 
 export function useFloatingWindow({
@@ -109,6 +117,7 @@ export function useFloatingWindow({
   defaultAnchor,
   label,
   roleDescription,
+  avoid,
 }: FloatingWindowOptions) {
   const ref = useRef<HTMLDivElement | null>(null);
   // Held in state too: the ringing card's element comes and goes with
@@ -132,9 +141,9 @@ export function useFloatingWindow({
   const mobile = useSyncExternalStore(subscribeMobile, mobileNow, () => false);
   const drag = useRef<Drag | null>(null);
   // The latest values, for the observers and handlers.
-  const state = useRef({ anchor, minimized, mobile });
+  const state = useRef({ anchor, minimized, mobile, avoid });
   useLayoutEffect(() => {
-    state.current = { anchor, minimized, mobile };
+    state.current = { anchor, minimized, mobile, avoid };
   });
 
   const apply = useCallback(() => {
@@ -145,7 +154,11 @@ export function useFloatingWindow({
       el.style.top = '';
       return;
     }
-    const at = placeOf(state.current.anchor, sizeOf(el), viewport());
+    const size = sizeOf(el);
+    const vp = viewport();
+    let at = placeOf(state.current.anchor, size, vp);
+    const obstacle = state.current.avoid?.();
+    if (obstacle) at = clearOf({ ...at, ...size }, obstacle, vp);
     el.style.left = `${at.left}px`;
     el.style.top = `${at.top}px`;
   }, []);
@@ -153,6 +166,12 @@ export function useFloatingWindow({
   // Before paint, on every render: a new anchor, minimised, the
   // breakpoint, and content that changed the window's size.
   useLayoutEffect(apply);
+  // Once more after the commit when avoiding: the other window places
+  // itself in its own layout effect, which may run after this one (the
+  // ringing card is mounted before the call window).
+  useEffect(() => {
+    if (state.current.avoid) apply();
+  });
 
   useLayoutEffect(() => {
     if (!node) return;

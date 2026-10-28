@@ -5,6 +5,7 @@ import {
   WINDOW_MARGIN,
   anchorOf,
   clampAnchor,
+  clearOf,
   nudge,
   placeOf,
   readWindowPrefs,
@@ -195,5 +196,78 @@ describe('readWindowPrefs / writeWindowPrefs', () => {
       anchor: null,
       minimized: true,
     });
+  });
+});
+
+describe('clearOf', () => {
+  // The live call window bottom-right at 1440x900, 400x600.
+  const win = { left: 1024, top: 284, width: 400, height: 600 };
+  const card = { width: 380, height: 300 };
+  const fits = (at: { left: number; top: number }, w: number, h: number) =>
+    at.left >= WINDOW_MARGIN &&
+    at.top >= WINDOW_MARGIN &&
+    at.left + w <= vp.width - WINDOW_MARGIN &&
+    at.top + h <= vp.height - WINDOW_MARGIN;
+
+  it('leaves a card that does not overlap where it is', () => {
+    const at = { left: 1044, top: 68 };
+    expect(clearOf({ ...at, ...card }, { ...win, top: 400 }, vp)).toEqual(at);
+  });
+
+  it('treats touching edges as clear', () => {
+    const at = { left: 1044, top: win.top - card.height };
+    expect(clearOf({ ...at, ...card }, win, vp)).toEqual(at);
+  });
+
+  it('moves an overlapping card gap px left of the window, same top', () => {
+    expect(clearOf({ left: 1044, top: 68, ...card }, win, vp)).toEqual({
+      left: win.left - 12 - card.width,
+      top: 68,
+    });
+    expect(clearOf({ left: 1044, top: 68, ...card }, win, vp, 20)).toEqual({
+      left: win.left - 20 - card.width,
+      top: 68,
+    });
+  });
+
+  it('goes above when there is no room on the left', () => {
+    const wide = { left: 300, top: 400, width: 1128, height: 480 };
+    expect(clearOf({ left: 1044, top: 300, ...card }, wide, vp)).toEqual({
+      left: 1044,
+      top: 400 - 12 - card.height,
+    });
+  });
+
+  it('goes below when there is no room left or above', () => {
+    const band = { left: 200, top: 40, width: 1228, height: 300 };
+    expect(clearOf({ left: 1044, top: 68, ...card }, band, vp)).toEqual({
+      left: 1044,
+      top: 40 + 300 + 12,
+    });
+  });
+
+  it('goes right when only the right side fits', () => {
+    const tall = { left: 12, top: 12, width: 600, height: 876 };
+    expect(clearOf({ left: 100, top: 68, ...card }, tall, vp)).toEqual({
+      left: 12 + 600 + 12,
+      top: 68,
+    });
+  });
+
+  it('keeps its spot when no side fits', () => {
+    const full = { left: 12, top: 12, width: 1416, height: 876 };
+    const at = { left: 1044, top: 68 };
+    expect(clearOf({ ...at, ...card }, full, vp)).toEqual(at);
+  });
+
+  it('always lands inside the viewport when it moves', () => {
+    for (let left = 0; left <= 1440; left += 120)
+      for (let top = 0; top <= 900; top += 100) {
+        const obstacle = { left, top, width: 400, height: 300 };
+        const from = { left: 1044, top: 68 };
+        const at = clearOf({ ...from, ...card }, obstacle, vp);
+        if (at.left !== from.left || at.top !== from.top)
+          expect(fits(at, card.width, card.height)).toBe(true);
+      }
   });
 });

@@ -475,7 +475,7 @@ function Panel() {
           maxLength={4000}
           onChange={(e) => onNotes(e.target.value)}
           placeholder={t('notesPlaceholder')}
-          className="border-input bg-card dark:bg-input/30 mt-1 min-h-28 w-full rounded-lg border p-2 text-sm"
+          className="border-input bg-card dark:bg-input/30 mt-1 min-h-20 w-full rounded-lg border p-2 text-sm"
         />
       </label>
       <FollowUpReminder
@@ -498,7 +498,7 @@ function Panel() {
             onChange={(e) => setChannelId(e.target.value)}
             className="border-input bg-card dark:bg-input/30 rounded-md border px-2 py-1"
           >
-            <option value="">#</option>
+            <option value="">{t('chooseChannel')}</option>
             {channels.map((c) => (
               <option key={c.id} value={c.id}>
                 #{c.name}
@@ -588,6 +588,8 @@ function Panel() {
       {newCallerForm}
       <aside
         ref={attach}
+        // The ringing card keeps clear of this (incoming-call-card.tsx).
+        data-call-window
         aria-label={t('onCall', { extension: me.extension, mode: '' })}
         // Placed by useFloatingWindow (left/top); below `sm` a bottom
         // sheet, or minimised a bar, pinned by these classes instead.
@@ -678,16 +680,6 @@ function Panel() {
                       ? t('addOutcome')
                       : t('callEnded')}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTab('notes');
-                    setMinimized(false);
-                  }}
-                  className="h-8 shrink-0 rounded-full bg-white/15 px-3 text-xs font-medium hover:bg-white/25"
-                >
-                  {t('outcomeButton')}
-                </button>
               </>
             )}
             <button
@@ -710,10 +702,12 @@ function Panel() {
           >
             <div className="flex items-center gap-2 text-xs text-white/70">
               <span className="min-w-0 flex-1 truncate">
-                {t('onCall', {
-                  extension: me.extension,
-                  mode: calls.softphone ? t('modeBrowser') : t('modeDesk'),
-                })}
+                {ended
+                  ? t('wrapUpLine', { extension: me.extension })
+                  : t('onCall', {
+                      extension: me.extension,
+                      mode: calls.softphone ? t('modeBrowser') : t('modeDesk'),
+                    })}
               </span>
               {recording && !ended && (
                 <span className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 font-medium text-white">
@@ -927,7 +921,10 @@ function Panel() {
               role="tabpanel"
               aria-labelledby={`pbx-call-tab-${x.id}`}
               hidden={x !== current}
-              className="min-h-0 flex-1 overflow-y-auto p-4"
+              // One height for every tab on desktop, so the window's
+              // top (and the tab bar) stays put on a switch; it still
+              // shrinks inside the window's max-height on a short screen.
+              className="min-h-0 flex-1 overflow-y-auto p-4 sm:h-[400px] sm:flex-initial"
             >
               {x.panel}
             </div>

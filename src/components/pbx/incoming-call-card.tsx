@@ -33,7 +33,7 @@ import {
   parseCallFacts,
   type CallFacts,
 } from '@/lib/pbx/call-facts';
-import { RING_CARD_DEFAULT } from '@/lib/pbx/call-window';
+import { RING_CARD_DEFAULT, type Rect } from '@/lib/pbx/call-window';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
 import { useCan } from '@/hooks/use-can';
@@ -159,6 +159,19 @@ export function useNow(on = true): number {
   return now;
 }
 
+// The live call window, which this card must not be placed over: it
+// stays above it, so on its header it would hide Hang up. Re-measured
+// on every placement, so the window appearing or going (a context
+// change) and moving (the card's one-second clock) are both followed.
+const callWindowRect = (): Rect | null => {
+  const r = document
+    .querySelector('[data-call-window]')
+    ?.getBoundingClientRect();
+  return r
+    ? { left: r.left, top: r.top, width: r.width, height: r.height }
+    : null;
+};
+
 export function IncomingCallCard() {
   const calls = useCalls();
   const t = useTranslations('PbxCall');
@@ -174,6 +187,7 @@ export function IncomingCallCard() {
     defaultAnchor: RING_CARD_DEFAULT,
     label: t('moveRingCard'),
     roleDescription: t('draggable'),
+    avoid: callWindowRect,
   });
   const now = useNow(Boolean(call));
   const pickedId = key ? (calls?.picks[key] ?? null) : null;
