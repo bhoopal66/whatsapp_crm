@@ -1,13 +1,16 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
 //   ?contactId=&userId=&userIds=&direction=external&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
-//   → { calls: [{ id, direction, status, startedAt, answeredAt, endedAt,
-//       ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
+//   → { calls: [{ id, pbxCallId, direction, status, startedAt,
+//       answeredAt, endedAt, ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
 //       userId, userName, rangNames, disposition, notes, recordingState,
 //       recordingDeleted, legalHold }],
 //       numbers?: [{ didNumber, calls, lastAt }] }
 // didNumber: the number the customer dialled (calls.did_number).
+// pbxCallId: the PBX's own id (calls.pbx_call_id), the one a live call
+// is known by, so the in-call window can leave the call in progress
+// out of the customer's earlier calls.
 // unrouted (owner/admin only, canListCallScope; 403 below): inbound
 // calls to a dialled number with no route, which the PBX processor
 // files under the connection's own workspace with calls.meta.unrouted
@@ -75,6 +78,7 @@ interface ContactRow {
 
 interface CallRow {
   id: string;
+  pbx_call_id: string;
   direction: string;
   status: string;
   started_at: string;
@@ -155,7 +159,7 @@ export async function GET(request: Request) {
       return query;
     };
     const { data, error } = await scoped(
-      'id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, did_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
+      'id, pbx_call_id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, did_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
     )
       .order('started_at', { ascending: false })
       .limit(q.limit);
@@ -298,6 +302,7 @@ export async function GET(request: Request) {
         const dncAt = contact?.do_not_contact_at ?? null;
         return {
           id: r.id,
+          pbxCallId: r.pbx_call_id,
           direction: r.direction,
           status: r.status,
           startedAt: r.started_at,
