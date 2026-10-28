@@ -4,7 +4,11 @@ import { Phone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
-import { browserTimeZone, callsToday } from '@/lib/dashboard/home/calls';
+import {
+  browserTimeZone,
+  callOutcomes,
+  callsToday,
+} from '@/lib/dashboard/home/calls';
 import type { CallStats } from '@/lib/pbx/call-stats';
 import { DashboardPanel } from './panel';
 import { Stat } from './stat';
@@ -85,11 +89,53 @@ export function CallsCard({ refreshKey, className }: CallsCardProps) {
             />
             <Stat label={t('avgTalk')} value={today.avgTalk} />
           </div>
-          {today.calls === 0 && (
+          {today.calls === 0 ? (
             <p className="text-muted-foreground text-xs">{t('noCalls')}</p>
+          ) : (
+            <Outcomes outcomes={w.data?.outcomes} />
           )}
         </div>
       )}
     </DashboardPanel>
+  );
+}
+
+/** What today's calls came to, one bar per outcome the caller logged. */
+function Outcomes({
+  outcomes,
+}: {
+  outcomes: CallStats['outcomes'] | undefined;
+}) {
+  const t = useTranslations('Dashboard.home.calls');
+  const label = useTranslations('PbxCall.outcomes');
+  const bars = outcomes ? callOutcomes(outcomes) : [];
+  return (
+    <div>
+      <p className="text-muted-foreground mb-2 text-xs font-medium">
+        {t('outcomes')}
+      </p>
+      {bars.length === 0 ? (
+        <p className="text-muted-foreground text-xs">{t('noOutcomes')}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {bars.map((b) => (
+            <li key={b.outcome} className="flex items-center gap-2 text-xs">
+              <span className="text-foreground w-28 shrink-0 truncate">
+                {label(b.outcome)}
+              </span>
+              <span className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
+                <span
+                  className="bg-primary block h-full rounded-full"
+                  style={{ width: `${b.percent}%` }}
+                />
+              </span>
+              <span className="text-muted-foreground w-6 shrink-0 text-right tabular-nums">
+                {b.count}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CallStatsSummary } from '@/lib/pbx/call-stats';
-import { callsToday } from './calls';
+import { callOutcomes, callsToday } from './calls';
 
 function summary(over: Partial<CallStatsSummary> = {}): CallStatsSummary {
   return {
@@ -58,5 +58,31 @@ describe('callsToday', () => {
       avgTalk: '—',
     });
     expect(t.callsDelta?.direction).toBe('flat');
+  });
+});
+
+describe('callOutcomes', () => {
+  const none = {
+    interested: 0,
+    docs_requested: 0,
+    call_back: 0,
+    not_eligible: 0,
+    wrong_number: 0,
+    none: 9,
+  };
+
+  it('is empty until a call has an outcome, whatever `none` says', () => {
+    expect(callOutcomes(none)).toEqual([]);
+  });
+
+  it('scales each bar to the most common outcome, in a fixed order', () => {
+    const bars = callOutcomes({ ...none, interested: 4, call_back: 2 });
+    expect(bars.map((b) => [b.outcome, b.count, b.percent])).toEqual([
+      ['interested', 4, 100],
+      ['docs_requested', 0, 0],
+      ['call_back', 2, 50],
+      ['not_eligible', 0, 0],
+      ['wrong_number', 0, 0],
+    ]);
   });
 });

@@ -263,7 +263,9 @@
         "vsYesterdayUp": "+{count} vs yesterday",
         "vsYesterdayDown": "−{count} vs yesterday",
         "vsYesterdayFlat": "Same as yesterday",
-        "noCalls": "No calls yet today."
+        "noCalls": "No calls yet today.",
+        "outcomes": "Call outcomes",
+        "noOutcomes": "No call outcomes logged yet today."
       },
       "outreach": {
         "title": "New chats today",

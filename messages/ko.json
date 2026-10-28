@@ -263,7 +263,9 @@
         "vsYesterdayUp": "어제보다 +{count}",
         "vsYesterdayDown": "어제보다 −{count}",
         "vsYesterdayFlat": "어제와 같음",
-        "noCalls": "오늘은 아직 통화가 없습니다."
+        "noCalls": "오늘은 아직 통화가 없습니다.",
+        "outcomes": "통화 결과",
+        "noOutcomes": "오늘 기록된 통화 결과가 아직 없습니다."
       },
       "outreach": {
         "title": "오늘 시작한 대화",

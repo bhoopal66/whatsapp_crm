@@ -105,7 +105,10 @@ export function ResponseTimeCard({
             valueFormatter={(value) => `${value.toFixed(1)}m`}
             showLegend={false}
             yAxisWidth={48}
-            className="h-[260px]"
+            // Recharts gives each tick label its own fill and font size, so
+            // the axis's own classes never reach them: the labels came out
+            // dark on the dark card and big enough to clip "12.0m".
+            className="[&_.recharts-cartesian-axis-tick-value]:fill-muted-foreground h-[260px] [&_.recharts-cartesian-axis-tick-value]:text-xs"
           />
         ))}
     </DashboardPanel>

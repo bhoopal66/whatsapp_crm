@@ -142,10 +142,11 @@ export default function DashboardPage() {
           {show('tasks') && (
             <TasksPanel tasks={tasks} className="lg:col-span-2" />
           )}
+          {/* Without a tasks panel (a viewer) the agenda takes the row. */}
           <div
             className={cn(
               'grid min-w-0 content-start gap-4',
-              !show('tasks') && 'lg:col-span-3 lg:grid-cols-2'
+              !show('tasks') && 'lg:col-span-3'
             )}
           >
             {show('agenda') && <AgendaPanel refreshKey={refreshKey} />}
