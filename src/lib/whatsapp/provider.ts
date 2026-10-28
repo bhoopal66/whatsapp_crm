@@ -854,8 +854,11 @@ export function describeSendFailure(error: unknown): string {
         error.retryAfterSeconds && error.retryAfterSeconds > 0
           ? Math.ceil(error.retryAfterSeconds / 60)
           : null;
+      // One refusal covers three limits (the daily allowance, the cap on
+      // first messages to new chats, and the repeated-failure breaker),
+      // so name none of them in particular.
       return (
-        "OpenWA's daily send allowance for this number is used up; " +
+        "OpenWA's sending limits for this number have been reached; " +
         (minutes ? `retry in about ${minutes} minutes.` : 'retry later.')
       );
     }

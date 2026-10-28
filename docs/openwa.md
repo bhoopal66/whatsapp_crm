@@ -50,7 +50,7 @@ setup (Docker):
 - Optional but recommended: `SEND_PACING_ENABLED=true`, a per-number daily
   allowance that grows with the number's age in OpenWA, plus a cap on
   first messages to new chats. A refused send shows in the CRM as
-  "OpenWA's daily send allowance for this number is used up". The
+  "OpenWA's sending limits for this number have been reached". The
   allowance counts from when the number was linked to OpenWA, not from the
   number's real age, so an established number may want a more generous
   `SEND_PACING_WARMUP_SCHEDULE`.

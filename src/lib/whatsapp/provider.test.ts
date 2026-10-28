@@ -853,10 +853,10 @@ describe('OpenWA failure interpretation', () => {
       describeSendFailure(notReady)
     );
     expect(describeSendFailure(paced)).toBe(
-      "OpenWA's daily send allowance for this number is used up; retry in about 30 minutes."
+      "OpenWA's sending limits for this number have been reached; retry in about 30 minutes."
     );
     expect(describeSendFailure(pacedNoHint)).toBe(
-      "OpenWA's daily send allowance for this number is used up; retry later."
+      "OpenWA's sending limits for this number have been reached; retry later."
     );
     expect(describeSendFailure(notSupported)).toMatch(
       /not available on OpenWA numbers: Polls are not supported/
