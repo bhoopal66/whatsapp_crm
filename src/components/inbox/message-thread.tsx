@@ -30,11 +30,14 @@ import type {
   Conversation,
   Message,
   MessageReaction,
-  Contact,
   MessageTemplate,
   Profile,
   InteractiveMessagePayload,
 } from '@/types';
+import type {
+  ConversationListContact,
+  ConversationListItem,
+} from '@/lib/inbox/conversations';
 import { MessageSquare, AlertTriangle } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { useTranslations } from 'next-intl';
@@ -113,8 +116,20 @@ interface ReplyDraft {
 }
 
 interface MessageThreadProps {
-  conversation: Conversation | null;
-  contact: Contact | null;
+  /**
+   * The open chat as soon as it is picked: its list row at first, which
+   * is enough for the messages read, the header and the composer. Every
+   * load here keys on its `id`, so the full row replacing it does not
+   * reload anything.
+   */
+  conversation: ConversationListItem | null;
+  /**
+   * The same chat's full row once it has been read, else null. The
+   * sections that read a full-only field (the AI banner: held draft,
+   * hand-off summary, last outcome) wait for it.
+   */
+  fullConversation?: Conversation | null;
+  contact: ConversationListContact | null;
   messages: Message[];
   /**
    * Hands the parent the thread's messages. An updater form is used for
@@ -238,6 +253,7 @@ function messagesPageQuery(conversationId: string) {
 
 export function MessageThread({
   conversation,
+  fullConversation = null,
   contact,
   messages,
   onMessagesLoaded,
@@ -1606,6 +1622,7 @@ export function MessageThread({
         <ThreadHeader
           conversation={conversation}
           contact={contact}
+          fullContact={fullConversation?.contact ?? null}
           displayName={displayName}
           onBack={onBack}
           onChannelSwitched={reloadThreadEvents}
@@ -1627,10 +1644,13 @@ export function MessageThread({
         {/* A chat the AI handed to a person (migration 078): its banner
           moves up here, with the red Important label, until someone
           acts — then it goes back above the composer. */}
-        {aiAttention && (
+        {/* Both AI banners wait for the full row: the held draft, the
+          hand-off summary and the last outcome are not on the list row,
+          and rendering on it would show "no draft" and then flip. */}
+        {aiAttention && fullConversation && (
           <AiThreadBanner
             placement="top"
-            conversation={conversation}
+            conversation={fullConversation}
             lastAiReplyAt={lastAiReplyAt}
             lastMessageFromCustomer={lastMessageFromCustomer}
             currentUserId={user?.id}
@@ -1779,9 +1799,9 @@ export function MessageThread({
           edit or discard; why the bot is paused, with Resume; take over
           an active bot, and why it left the last message unanswered.
           Renders nothing unless the account has auto-reply configured. */}
-        {!aiAttention && (
+        {!aiAttention && fullConversation && (
           <AiThreadBanner
-            conversation={conversation}
+            conversation={fullConversation}
             lastAiReplyAt={lastAiReplyAt}
             lastMessageFromCustomer={lastMessageFromCustomer}
             currentUserId={user?.id}

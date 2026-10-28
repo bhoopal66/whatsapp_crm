@@ -1,11 +1,89 @@
 import { resolveListHandler } from '@/lib/inbox/handler';
-import type { Conversation } from '@/types';
+import type { Contact, Conversation } from '@/types';
 
 /**
  * Conversation select that embeds the contact. Contact tags are retired
  * (chat tags are the only tag system), so no tag join rides along.
+ *
+ * The full row: for the conversation that is *open* (the thread, its
+ * header, the AI banner's held draft and hand-off summary, the contact
+ * panel). The list reads {@link CONVERSATION_LIST_SELECT} instead.
  */
 export const CONVERSATION_SELECT = '*, contact:contacts(*)';
+
+/**
+ * The conversation columns the Inbox list reads: the row (preview,
+ * time, unread badge, number and campaign labels, tag pill, Important
+ * pin, handler), the filters it re-applies client-side (chat tag,
+ * by-agent, Campaign inbox), the sort and the keyset cursor, and the
+ * delta-resync watermark (`updated_at`).
+ *
+ * Everything else stays off the list on purpose: behind the tunnel a
+ * page of 50 rows is one slow response, and the wide AI columns
+ * (`ai_pending_draft`, `ai_handoff_summary`, `ai_last_outcome_detail`)
+ * are only read by the open thread, which loads the full row
+ * ({@link CONVERSATION_SELECT}) when a chat is opened. A column added
+ * here must be read by something on the list; one read there but not
+ * listed here is a type error, because the list holds
+ * {@link ConversationListItem}s.
+ */
+export const CONVERSATION_LIST_COLUMNS = [
+  'id',
+  'user_id',
+  'assigned_agent_id',
+  'last_message_text',
+  'last_message_at',
+  'unread_count',
+  'updated_at',
+  'channel_id',
+  'send_channel_id',
+  'chat_tag_id',
+  'chat_sub_tag_id',
+  'campaign_broadcast_id',
+  'human_engaged_at',
+  'ai_autoreply_disabled',
+  'ai_reply_count',
+  'ai_attention_at',
+] as const satisfies readonly (keyof Conversation)[];
+
+/**
+ * The contact columns a list row reads: its name, number and photo, the
+ * company filter, and the id (the avatar lookup, "Open customer").
+ */
+export const CONTACT_LIST_COLUMNS = [
+  'id',
+  'name',
+  'phone',
+  'company',
+  'avatar_url',
+] as const satisfies readonly (keyof Contact)[];
+
+/**
+ * The Inbox list's select: {@link CONVERSATION_LIST_COLUMNS} plus a
+ * narrow contact embed. Spelled out rather than joined from the arrays
+ * because supabase-js parses a select string at the type level and a
+ * computed `string` comes back typed as an error; `conversations.test.ts`
+ * pins it to the two lists.
+ */
+export const CONVERSATION_LIST_SELECT =
+  'id,user_id,assigned_agent_id,last_message_text,last_message_at,unread_count,updated_at,channel_id,send_channel_id,chat_tag_id,chat_sub_tag_id,campaign_broadcast_id,human_engaged_at,ai_autoreply_disabled,ai_reply_count,ai_attention_at,contact:contacts(id,name,phone,company,avatar_url)';
+
+export type ConversationListContact = Pick<
+  Contact,
+  (typeof CONTACT_LIST_COLUMNS)[number]
+>;
+
+/**
+ * A row as the Inbox list holds it. A full {@link Conversation} (a
+ * realtime payload, a hydrated row) is assignable to it; the reverse is
+ * not, so the open thread cannot be handed a list row by mistake.
+ */
+export type ConversationListItem = Pick<
+  Conversation,
+  (typeof CONVERSATION_LIST_COLUMNS)[number]
+> & {
+  contact?: ConversationListContact | null;
+};
 
 /**
  * Kept so every caller of {@link CONVERSATION_SELECT} compiles unchanged:
@@ -16,8 +94,24 @@ export function normalizeConversation(raw: Conversation): Conversation {
   return raw;
 }
 
-export function normalizeConversations(rows: Conversation[]): Conversation[] {
-  return rows.map(normalizeConversation);
+/**
+ * A list row as supabase-js types it from {@link CONVERSATION_LIST_SELECT}.
+ * Without generated schema types it cannot know `contact` is a
+ * many-to-one embed, so it types it as an array; PostgREST sends the
+ * object (or null).
+ */
+type RawConversationListItem = Omit<ConversationListItem, 'contact'> & {
+  contact?: ConversationListContact | ConversationListContact[] | null;
+};
+
+/** A page of list rows as the list query returns them. */
+export function normalizeConversations(
+  rows: RawConversationListItem[]
+): ConversationListItem[] {
+  return rows.map(({ contact, ...row }) => ({
+    ...row,
+    contact: Array.isArray(contact) ? (contact[0] ?? null) : contact,
+  }));
 }
 
 export interface ContactFilters {
@@ -31,7 +125,7 @@ export interface ContactFilters {
  * matches.
  */
 export function matchesContactFilters(
-  conversation: Conversation,
+  conversation: { contact?: Pick<Contact, 'company'> | null },
   { company }: ContactFilters
 ): boolean {
   if (company !== null && conversation.contact?.company?.trim() !== company) {
@@ -75,7 +169,9 @@ export type AssigneeFilter = string | typeof UNASSIGNED | null;
  * every row.
  */
 export function matchesAssignee(
-  conversation: Conversation,
+  conversation: Pick<Conversation, 'user_id'> & {
+    assigned_agent_id?: string | null;
+  },
   filter: AssigneeFilter
 ): boolean {
   if (filter === null) return true;

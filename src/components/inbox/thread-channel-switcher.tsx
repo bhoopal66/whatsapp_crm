@@ -51,7 +51,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import type { Conversation, ConversationEvent } from '@/types';
+import type { ConversationEvent } from '@/types';
+import type { ConversationListItem } from '@/lib/inbox/conversations';
 
 /**
  * The chat's timeline notes, loaded once per conversation and kept
@@ -143,7 +144,8 @@ export function useConversationEvents(conversationId: string | null) {
 }
 
 interface SwitcherProps {
-  conversation: Conversation;
+  /** A list row is enough: the switcher reads only the number columns. */
+  conversation: ConversationListItem;
   /** Called after a successful switch, to refresh the timeline notes. */
   onSwitched?: () => void;
   /** The viewer sees this chat only through a coordinator share (133). */
