@@ -136,35 +136,53 @@
     "retry": "다시 시도"
   },
   "Dashboard": {
-    "page": {
-      "title": "대시보드",
-      "description": "대화, 연락처, 딜, 브로드캐스트, 자동화 전반의 실시간 분석입니다.",
-      "activeConversations": "진행 중인 대화",
-      "newContactsToday": "오늘의 신규 연락처",
-      "openDealsValue": "진행 중인 딜 금액",
-      "messagesSentToday": "오늘 보낸 메시지",
-      "newTodayVsYesterday": "어제 대비 신규",
-      "vsYesterday": "어제 대비",
-      "openDeals": "진행 중인 딜 {count}건",
-      "noChange": "변동 없음 {suffix}"
-    },
-    "quickActions": {
-      "newContact": "새 연락처",
-      "newDeal": "새 딜",
-      "newBroadcast": "새 브로드캐스트",
-      "newAutomation": "새 자동화"
-    },
-    "activityFeed": {
-      "title": "최근 활동",
-      "viewAll": "전체 보기 →",
-      "noActivity": "아직 활동이 없습니다",
-      "noActivityHint": "메시지, 딜, 브로드캐스트, 자동화 관련 활동이 여기에 표시됩니다.",
-      "showingOf": "{totalLoaded}개 중 {visible}개 표시{plus}",
-      "show": "표시",
-      "timeS": "{sec}초 전",
-      "timeM": "{min}분 전",
-      "timeH": "{hr}시간 전",
-      "timeD": "{day}일 전"
+    "home": {
+      "greeting": {
+        "morning": "좋은 아침입니다",
+        "afternoon": "안녕하세요",
+        "evening": "좋은 저녁입니다",
+        "withName": "{name}님, {greeting}"
+      },
+      "subtitle": "{date} · {workspace}",
+      "updated": "{time} 업데이트",
+      "refresh": "새로고침",
+      "sections": {
+        "today": "오늘",
+        "work": "내 업무",
+        "team": "팀 및 운영",
+        "trends": "추이"
+      },
+      "panel": {
+        "loadFailed": "불러오지 못했습니다.",
+        "retry": "다시 시도"
+      },
+      "attention": {
+        "title": "확인이 필요한 항목"
+      },
+      "tasks": {
+        "title": "내 할 일"
+      },
+      "agenda": {
+        "title": "오늘 일정"
+      },
+      "cases": {
+        "title": "케이스"
+      },
+      "calls": {
+        "title": "오늘 통화"
+      },
+      "outreach": {
+        "title": "오늘 시작한 대화"
+      },
+      "team": {
+        "title": "오늘 팀 활동"
+      },
+      "numbers": {
+        "title": "WhatsApp 번호"
+      },
+      "campaigns": {
+        "title": "캠페인"
+      }
     },
     "conversationsChart": {
       "title": "기간별 대화 추이",

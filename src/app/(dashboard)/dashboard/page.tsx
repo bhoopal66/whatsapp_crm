@@ -1,241 +1,231 @@
-"use client"
+'use client';
 
-import { useCallback, useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useAuth } from '@/hooks/use-auth'
-import { formatCurrency } from '@/lib/currency'
-import {
-  MessageSquare,
-  UserPlus,
-  DollarSign,
-  Send,
-} from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { RotateCw } from 'lucide-react';
+import { useLocale, useTranslations } from 'next-intl';
 
-import {
-  loadActivity,
-  loadConversationsSeries,
-  fetchOpenDeals,
-  loadMetrics,
-  loadPipelineDonut,
-  loadResponseTime,
-} from '@/lib/dashboard/queries'
-import type {
-  ActivityItem,
-  ConversationsSeriesPoint,
-  MetricsBundle,
-  PipelineDonutData,
-  ResponseTimeSummary,
-} from '@/lib/dashboard/types'
+import { AgendaPanel } from '@/components/dashboard/home/agenda-panel';
+import { AttentionStrip } from '@/components/dashboard/home/attention-strip';
+import { CallsCard } from '@/components/dashboard/home/calls-card';
+import { CampaignsCard } from '@/components/dashboard/home/campaigns-card';
+import { CasesCard } from '@/components/dashboard/home/cases-card';
+import { MessagesCard } from '@/components/dashboard/home/messages-card';
+import { NumbersCard } from '@/components/dashboard/home/numbers-card';
+import { OutreachCard } from '@/components/dashboard/home/outreach-card';
+import { PipelineCard } from '@/components/dashboard/home/pipeline-card';
+import { ResponseTimeCard } from '@/components/dashboard/home/response-time-card';
+import { TasksPanel } from '@/components/dashboard/home/tasks-panel';
+import { TeamCard } from '@/components/dashboard/home/team-card';
+import { useWidgetData } from '@/components/dashboard/home/use-widget-data';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/use-auth';
+import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import { firstName, greetingKey } from '@/lib/dashboard/home/greeting';
+import { fetchMyOpenTasks, fetchOpenCases } from '@/lib/dashboard/home/sources';
+import { homeWidgets } from '@/lib/dashboard/home/widgets';
+import { loadCallsBadge } from '@/lib/pbx/calls-badge';
+import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
+import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
 
-import { MetricCard } from '@/components/dashboard/metric-card'
-import { SkeletonCard } from '@/components/dashboard/skeleton'
-import { QuickActions } from '@/components/dashboard/quick-actions'
-import { ConversationsChart } from '@/components/dashboard/conversations-chart'
-import { PipelineDonut } from '@/components/dashboard/pipeline-donut'
-import { ResponseTimeChart } from '@/components/dashboard/response-time-chart'
-import { ActivityFeed } from '@/components/dashboard/activity-feed'
+/** A visible tab refreshes itself this often. */
+const AUTO_REFRESH_MS = 5 * 60_000;
+/** Coming back to the tab refreshes once the figures are this old. */
+const STALE_ON_RETURN_MS = 2 * 60_000;
 
-import { useTranslations } from 'next-intl'
-
-type RangeDays = 7 | 30 | 90
-
+/**
+ * The home screen: what needs this person now, their day, their work,
+ * and — for leaders and admins — the team and the workspace's health.
+ * Which panels appear is `homeWidgets` (role, phone system, phone
+ * numbers); every panel loads on its own, so a slow one never holds up
+ * the rest. The two lists more than one panel reads (open tasks, open
+ * cases) are loaded here once and handed to each.
+ */
 export default function DashboardPage() {
-  const t = useTranslations('Dashboard.page')
-  const { defaultCurrency } = useAuth()
-  const [metrics, setMetrics] = useState<MetricsBundle | null>(null)
-  const [metricsLoading, setMetricsLoading] = useState(true)
+  const t = useTranslations('Dashboard.home');
+  const locale = useLocale();
+  const {
+    user,
+    profile,
+    account,
+    accountId,
+    accountRole,
+    profileLoading,
+    isBankGuest,
+  } = useAuth();
+  const userId = user?.id ?? null;
+  const role = profileLoading ? null : accountRole;
+  const staff = !!role && !isBankGuest;
 
-  const [range, setRange] = useState<RangeDays>(30)
-  // Keep a cache per range so switching tabs doesn't re-fetch what we
-  // already have. Ranges the user hasn't opened yet stay null and
-  // trigger a fetch on first view.
-  const [series, setSeries] = useState<Record<RangeDays, ConversationsSeriesPoint[] | null>>({
-    7: null,
-    30: null,
-    90: null,
-  })
-  const [seriesLoading, setSeriesLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshedAt, setRefreshedAt] = useState(() => new Date());
+  const refresh = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+    setRefreshedAt(new Date());
+  }, []);
+  useAutoRefresh(refreshedAt, refresh);
 
-  const [pipeline, setPipeline] = useState<PipelineDonutData | null>(null)
-  const [pipelineLoading, setPipelineLoading] = useState(true)
+  // Whether the phone system is in use, and this person's open missed
+  // calls: the same two head counts as the sidebar's Calls row.
+  const callsBadge = useWidgetData(
+    staff && userId ? `calls-badge:${userId}:${refreshKey}` : null,
+    () => loadCallsBadge(createClient(), userId ?? '')
+  );
+  // Cached for a minute and shared with the inbox; also the numbers card.
+  const numbers = useAccountNumbers(staff, refreshKey);
+  const widgets = homeWidgets(role, {
+    pbx: callsBadge.data?.hasPbx ?? false,
+    phoneNumbers: (numbers ?? []).some((n) => isLinkedDeviceNumber(n.provider)),
+  });
+  const show = widgets.has.bind(widgets);
 
-  const [responseTime, setResponseTime] = useState<ResponseTimeSummary | null>(null)
-  const [responseTimeLoading, setResponseTimeLoading] = useState(true)
+  const tasks = useWidgetData(
+    show('tasks') && userId ? `tasks:${userId}:${refreshKey}` : null,
+    fetchMyOpenTasks
+  );
+  const cases = useWidgetData(
+    show('cases') && accountId ? `cases:${accountId}:${refreshKey}` : null,
+    fetchOpenCases
+  );
 
-  const [activity, setActivity] = useState<ActivityItem[] | null>(null)
-  const [activityLoading, setActivityLoading] = useState(true)
+  const name = firstName(profile?.full_name, profile?.email ?? user?.email);
+  const greeting = t(`greeting.${greetingKey(refreshedAt.getHours())}`);
+  const date = new Intl.DateTimeFormat(locale, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(refreshedAt);
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(refreshedAt);
 
-  const loadAll = useCallback(() => {
-    const db = createClient()
-
-    // Kick everything off in parallel. Each block has its own
-    // setState + finally so a slow query doesn't hold up faster
-    // sections — each widget shows its own skeleton independently.
-    // One RPC feeds both the metric cards and the pipeline donut.
-    const openDeals = fetchOpenDeals(db)
-
-    void loadMetrics(db, openDeals)
-      .then((m) => setMetrics(m))
-      .catch((err) => console.error('[dashboard] metrics failed:', err))
-      .finally(() => setMetricsLoading(false))
-
-    void loadConversationsSeries(db, 30)
-      .then((s) => setSeries((prev) => ({ ...prev, 30: s })))
-      .catch((err) => console.error('[dashboard] series failed:', err))
-      .finally(() => setSeriesLoading(false))
-
-    void loadPipelineDonut(db, openDeals)
-      .then((p) => setPipeline(p))
-      .catch((err) => console.error('[dashboard] pipeline failed:', err))
-      .finally(() => setPipelineLoading(false))
-
-    void loadResponseTime(db)
-      .then((r) => setResponseTime(r))
-      .catch((err) => console.error('[dashboard] response time failed:', err))
-      .finally(() => setResponseTimeLoading(false))
-
-    // Fetch up to 50 so the biggest page-size option in the feed
-    // (50 rows) is already in memory — switching sizes then becomes
-    // a pure client-side slice with no extra round trip.
-    void loadActivity(db, 50)
-      .then((a) => setActivity(a))
-      .catch((err) => console.error('[dashboard] activity failed:', err))
-      .finally(() => setActivityLoading(false))
-  }, [])
-
-  useEffect(() => {
-    loadAll()
-  }, [loadAll])
-
-  // Range switch handler — kept in an event callback (not an effect)
-  // so the setState calls stay out of the react-hooks/set-state-in-effect
-  // rule's way. The cached bucket check means switching back to a
-  // previously-viewed range is instant and doesn't re-fetch.
-  const handleRangeChange = useCallback(
-    (r: RangeDays) => {
-      setRange(r)
-      if (series[r] !== null) return
-      setSeriesLoading(true)
-      const db = createClient()
-      loadConversationsSeries(db, r)
-        .then((s) => setSeries((prev) => ({ ...prev, [r]: s })))
-        .catch((err) => console.error('[dashboard] series failed:', err))
-        .finally(() => setSeriesLoading(false))
-    },
-    [series],
-  )
+  const hasWork = show('cases') || show('calls');
+  const hasTeam = show('team') || show('numbers') || show('campaigns');
+  const adminRow = show('numbers') || show('campaigns');
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('description')}
-        </p>
-      </div>
-
-      {/* Metric cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metricsLoading || !metrics ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-        ) : (
-          <>
-            <MetricCard
-              title={t('activeConversations')}
-              value={metrics.activeConversations.current.toLocaleString()}
-              icon={MessageSquare}
-              delta={{
-                sign: metrics.activeConversations.previous,
-                label: deltaLabel(
-                  metrics.activeConversations.previous, 
-                  t('newTodayVsYesterday'), 
-                  t('noChange', { suffix: t('newTodayVsYesterday') })
-                ),
-              }}
-            />
-            <MetricCard
-              title={t('newContactsToday')}
-              value={metrics.newContactsToday.current.toLocaleString()}
-              icon={UserPlus}
-              tone="violet"
-              delta={{
-                sign:
-                  metrics.newContactsToday.current - metrics.newContactsToday.previous,
-                label: deltaLabel(
-                  metrics.newContactsToday.current - metrics.newContactsToday.previous,
-                  t('vsYesterday'),
-                  t('noChange', { suffix: t('vsYesterday') })
-                ),
-              }}
-            />
-            <MetricCard
-              title={t('openDealsValue')}
-              value={formatCurrency(metrics.openDealsValue, defaultCurrency)}
-              icon={DollarSign}
-              tone="emerald"
-              subtitle={t('openDeals', { count: metrics.openDealsCount })}
-            />
-            <MetricCard
-              title={t('messagesSentToday')}
-              value={metrics.messagesSentToday.current.toLocaleString()}
-              icon={Send}
-              tone="amber"
-              delta={{
-                sign:
-                  metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                label: deltaLabel(
-                  metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                  t('vsYesterday'),
-                  t('noChange', { suffix: t('vsYesterday') })
-                ),
-              }}
-            />
-          </>
-        )}
-      </div>
-
-      {/* Quick actions */}
-      <QuickActions />
-
-      {/* Charts row */}
-      {/* items-stretch (the grid default) stretches the two columns to
-          match the tallest sibling; adding h-full on each wrapper and
-          on the inner panels makes both cards actually fill that
-          stretched height so their rounded borders line up. Without
-          this, the pipeline card rendered at its natural (shorter)
-          height while the line chart drove the row height. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <div className="h-full lg:col-span-3">
-          <ConversationsChart
-            series={series}
-            loading={seriesLoading}
-            range={range}
-            onRangeChange={handleRangeChange}
-          />
+    <div className="mx-auto w-full max-w-screen-2xl space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-foreground truncate text-2xl font-bold">
+            {name ? t('greeting.withName', { greeting, name }) : greeting}
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {account?.name
+              ? t('subtitle', { date, workspace: account.name })
+              : date}
+          </p>
         </div>
-        <div className="h-full lg:col-span-2">
-          <PipelineDonut
-            data={pipeline}
-            loading={pipelineLoading}
-            currency={defaultCurrency}
-          />
+        <div className="flex items-center gap-3">
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {t('updated', { time })}
+          </span>
+          <Button variant="outline" size="sm" onClick={refresh}>
+            <RotateCw className="h-3.5 w-3.5" aria-hidden />
+            {t('refresh')}
+          </Button>
         </div>
-      </div>
+      </header>
 
-      {/* Response time */}
-      <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />
+      {show('attention') && (
+        <AttentionStrip
+          refreshKey={refreshKey}
+          tasks={show('tasks') ? tasks : null}
+          cases={show('cases') ? cases : null}
+          missedCalls={show('calls') ? (callsBadge.data?.missed ?? 0) : null}
+        />
+      )}
 
-      {/* Activity feed */}
-      <ActivityFeed items={activity} loading={activityLoading} />
+      {(show('tasks') || show('agenda')) && (
+        <Zone title={t('sections.today')}>
+          {show('tasks') && (
+            <TasksPanel tasks={tasks} className="lg:col-span-2" />
+          )}
+          <div
+            className={cn(
+              'grid min-w-0 content-start gap-4',
+              !show('tasks') && 'lg:col-span-3 lg:grid-cols-2'
+            )}
+          >
+            {show('agenda') && <AgendaPanel refreshKey={refreshKey} />}
+            {show('outreach') && <OutreachCard refreshKey={refreshKey} />}
+          </div>
+        </Zone>
+      )}
+
+      {hasWork && (
+        <Zone title={t('sections.work')}>
+          {show('cases') && role && (
+            <CasesCard
+              cases={cases}
+              role={role}
+              className={show('calls') ? 'lg:col-span-2' : 'lg:col-span-3'}
+            />
+          )}
+          {show('calls') && (
+            <CallsCard
+              refreshKey={refreshKey}
+              className={show('cases') ? undefined : 'lg:col-span-3'}
+            />
+          )}
+        </Zone>
+      )}
+
+      {hasTeam && (
+        <Zone title={t('sections.team')}>
+          {show('team') && (
+            <TeamCard
+              refreshKey={refreshKey}
+              className={adminRow ? undefined : 'lg:col-span-3'}
+            />
+          )}
+          {show('numbers') && <NumbersCard numbers={numbers} />}
+          {show('campaigns') && <CampaignsCard refreshKey={refreshKey} />}
+        </Zone>
+      )}
+
+      {show('trends') && (
+        <Zone title={t('sections.trends')}>
+          <MessagesCard refreshKey={refreshKey} className="lg:col-span-2" />
+          <PipelineCard refreshKey={refreshKey} />
+          <ResponseTimeCard refreshKey={refreshKey} className="lg:col-span-3" />
+        </Zone>
+      )}
     </div>
-  )
+  );
 }
 
-// ------------------------------------------------------------
+/** A titled band of panels: three columns on a wide screen, one on a phone. */
+function Zone({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+        {title}
+      </h2>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">{children}</div>
+    </section>
+  );
+}
 
-function deltaLabel(delta: number, suffix: string, noChangeLabel: string): string {
-  if (delta === 0) return noChangeLabel
-  const sign = delta > 0 ? '+' : ''
-  return `${sign}${delta.toLocaleString()} ${suffix}`
+/**
+ * Refresh every few minutes while the tab is visible, and on coming back
+ * to it once the figures have gone stale. A hidden tab never asks.
+ */
+function useAutoRefresh(refreshedAt: Date, refresh: () => void) {
+  useEffect(() => {
+    const age = () => Date.now() - refreshedAt.getTime();
+    const visible = () => document.visibilityState === 'visible';
+    const timer = window.setInterval(() => {
+      if (visible() && age() >= AUTO_REFRESH_MS) refresh();
+    }, 30_000);
+    const onVisibility = () => {
+      if (visible() && age() >= STALE_ON_RETURN_MS) refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [refreshedAt, refresh]);
 }

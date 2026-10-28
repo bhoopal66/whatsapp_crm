@@ -136,35 +136,53 @@
     "retry": "Retry"
   },
   "Dashboard": {
-    "page": {
-      "title": "Dashboard",
-      "description": "Live analytics across conversations, contacts, deals, broadcasts, and automations.",
-      "activeConversations": "Active Conversations",
-      "newContactsToday": "New Contacts Today",
-      "openDealsValue": "Open Deals Value",
-      "messagesSentToday": "Messages Sent Today",
-      "newTodayVsYesterday": "new today vs yesterday",
-      "vsYesterday": "vs yesterday",
-      "openDeals": "{count} open {count, plural, =1 {deal} other {deals}}",
-      "noChange": "No change {suffix}"
-    },
-    "quickActions": {
-      "newContact": "New Contact",
-      "newDeal": "New Deal",
-      "newBroadcast": "New Broadcast",
-      "newAutomation": "New Automation"
-    },
-    "activityFeed": {
-      "title": "Recent Activity",
-      "viewAll": "View all →",
-      "noActivity": "No activity yet",
-      "noActivityHint": "Activity from messages, deals, broadcasts, and automations will appear here.",
-      "showingOf": "Showing {visible} of {totalLoaded}{plus}",
-      "show": "Show",
-      "timeS": "{sec}s ago",
-      "timeM": "{min}m ago",
-      "timeH": "{hr}h ago",
-      "timeD": "{day}d ago"
+    "home": {
+      "greeting": {
+        "morning": "Good morning",
+        "afternoon": "Good afternoon",
+        "evening": "Good evening",
+        "withName": "{greeting}, {name}"
+      },
+      "subtitle": "{date} · {workspace}",
+      "updated": "Updated {time}",
+      "refresh": "Refresh",
+      "sections": {
+        "today": "Today",
+        "work": "Your work",
+        "team": "Team & operations",
+        "trends": "Trends"
+      },
+      "panel": {
+        "loadFailed": "Couldn't load this.",
+        "retry": "Retry"
+      },
+      "attention": {
+        "title": "Needs your attention"
+      },
+      "tasks": {
+        "title": "My tasks"
+      },
+      "agenda": {
+        "title": "Today's agenda"
+      },
+      "cases": {
+        "title": "Cases"
+      },
+      "calls": {
+        "title": "Calls today"
+      },
+      "outreach": {
+        "title": "New chats today"
+      },
+      "team": {
+        "title": "Team activity today"
+      },
+      "numbers": {
+        "title": "WhatsApp numbers"
+      },
+      "campaigns": {
+        "title": "Campaigns"
+      }
     },
     "conversationsChart": {
       "title": "Conversations Over Time",
