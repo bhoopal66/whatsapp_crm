@@ -20,7 +20,9 @@
 -- Account A covers the 068 rules; account C the 073 ones (number
 -- attribution and backfill, runs from their real start, pending
 -- starts, limits at >=, warm-up, grouped follow-ups, similar first
--- messages, failures by kind of number, waiting split).
+-- messages, failures by kind of number, waiting split); account D the
+-- 145 one (an OpenWA number is a phone number, like Whapi; Meta stays
+-- official).
 
 DO $verify$
 DECLARE
@@ -79,6 +81,15 @@ DECLARE
   cfrom    TIMESTAMPTZ;
   cto      TIMESTAMPTZ;
   nb       JSONB;
+  -- Account D (145).
+  u_d0     UUID := '00000000-0000-4000-8000-0000000fd000';
+  u_d1     UUID := '00000000-0000-4000-8000-0000000fd001';
+  u_d2     UUID := '00000000-0000-4000-8000-0000000fd002';
+  u_d3     UUID := '00000000-0000-4000-8000-0000000fd003';
+  d_acct   UUID;
+  wo       UUID;
+  wy       UUID;
+  md       UUID;
 BEGIN
   -- Everything below is undone by the sentinel at the end of this block.
   BEGIN
@@ -1070,6 +1081,175 @@ BEGIN
      OR (SELECT count(*) FROM notifications
           WHERE account_id = c_acct AND type = 'team_activity_alert' AND user_id = u_c0) <> 2 THEN
     failed := array_append(failed, 'D5/D6 alert notifications'::text);
+  END IF;
+
+  -- ===============================================================
+  -- Account D: the 145 rule. An OpenWA number is a phone number, like
+  -- Whapi; Meta stays official. Owner d0, agents d1..d3, zone UTC, 2
+  -- new chats a person and 3 a number a day, block on. Numbers: wo
+  -- (OpenWA, 40 days old), wy (OpenWA, 3 days old: warming up), md
+  -- (Meta, 40 days). Today: d1 starts 2 chats on wo (the person
+  -- limit), d2 one more (wo's limit) plus a refused send on wo and on
+  -- md, d3 3 chats on md (outside every phone limit).
+  -- ===============================================================
+  INSERT INTO auth.users (id, email) VALUES
+    (u_d0, 'td-owner@example.invalid'), (u_d1, 'td-1@example.invalid'),
+    (u_d2, 'td-2@example.invalid'), (u_d3, 'td-3@example.invalid')
+  ON CONFLICT DO NOTHING;
+  SELECT account_id INTO d_acct FROM profiles WHERE user_id = u_d0;
+  IF d_acct IS NULL OR d_acct IN (a_acct, b_acct, c_acct) THEN
+    RAISE EXCEPTION 'fixture: account D was not provisioned';
+  END IF;
+  UPDATE profiles
+     SET account_id = d_acct, account_role = 'agent', full_name = 'D agent ' || right(user_id::text, 1)
+   WHERE user_id IN (u_d1, u_d2, u_d3);
+
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary, created_at)
+  VALUES (u_d0, d_acct, 'openwa', 'TD-OPENWA-O', 'x', '971500000301', 'connected', true, now() - interval '40 days')
+  RETURNING id INTO wo;
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary, created_at)
+  VALUES (u_d0, d_acct, 'openwa', 'TD-OPENWA-Y', 'x', '971500000302', 'connected', false, now() - interval '3 days')
+  RETURNING id INTO wy;
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary, created_at)
+  VALUES (u_d0, d_acct, 'meta', 'TD-META', 'x', 'TD-WABA', 'connected', false, now() - interval '40 days')
+  RETURNING id INTO md;
+  INSERT INTO team_activity_settings
+    (account_id, timezone, daily_new_chats_per_user, daily_new_chats_per_number,
+     max_unanswered_in_row, block_over_limit)
+  VALUES (d_acct, 'UTC', 2, 3, 3, true);
+
+  tstep := (now() - today0) / 20;
+  FOR i IN 1..2 LOOP
+    cv := pg_temp.ta_conv(d_acct, u_d0, wo, 'D d1 ' || i);
+    PERFORM pg_temp.ta_msg(cv, 'agent', u_d1, 'Hello from D agent one', today0 + i * tstep, wo, 'openwa');
+  END LOOP;
+  cv := pg_temp.ta_conv(d_acct, u_d0, wo, 'D d2');
+  PERFORM pg_temp.ta_msg(cv, 'agent', u_d2, 'Hello from D agent two', today0 + 3 * tstep, wo, 'openwa');
+  cv := pg_temp.ta_conv(d_acct, u_d0, wo, 'D d2 phone failed');
+  PERFORM pg_temp.ta_msg(cv, 'agent', u_d2, 'Hello, this did not arrive', today0 + 4 * tstep, wo, 'openwa', 'failed');
+  cv := pg_temp.ta_conv(d_acct, u_d0, md, 'D d2 official failed');
+  PERFORM pg_temp.ta_msg(cv, 'agent', u_d2, 'Hello, this did not arrive either', today0 + 4 * tstep, md, 'meta', 'failed');
+  FOR i IN 1..3 LOOP
+    cv := pg_temp.ta_conv(d_acct, u_d0, md, 'D d3 ' || i);
+    PERFORM pg_temp.ta_msg(cv, 'agent', u_d3, 'Hello from D agent three', today0 + (4 + i) * tstep, md, 'meta');
+  END LOOP;
+
+  r := pg_temp.ta_val('authenticated', u_d0,
+         format('SELECT team_activity_report(%L, %L, %L, NULL)::text',
+                today0 - interval '1 day', today0 + interval '1 day', 'UTC'));
+  IF r LIKE 'ERROR:%' THEN
+    RAISE EXCEPTION 'account D report failed: %', r;
+  END IF;
+  rep := r::jsonb;
+
+  -- E1: an OpenWA number is a phone number with a limit and a warm-up.
+  nb := (SELECT e FROM jsonb_array_elements(rep -> 'numbers') e WHERE e ->> 'channel_id' = wo::text);
+  n := n + 1;
+  IF (nb ->> 'kind') IS DISTINCT FROM 'phone'
+     OR (nb ->> 'warming_up')::boolean IS DISTINCT FROM false
+     OR (nb ->> 'effective_daily_limit')::int IS DISTINCT FROM 3
+     OR (nb ->> 'peak_day')::int IS DISTINCT FROM 3
+     OR (nb ->> 'days_at_limit')::int IS DISTINCT FROM 1
+     OR (nb ->> 'today_started')::int IS DISTINCT FROM 3 THEN
+    failed := array_append(failed, ('E1 OpenWA number wo: ' || coalesce(nb::text, 'null'))::text);
+  END IF;
+  nb := (SELECT e FROM jsonb_array_elements(rep -> 'numbers') e WHERE e ->> 'channel_id' = wy::text);
+  n := n + 1;
+  IF (nb ->> 'kind') IS DISTINCT FROM 'phone'
+     OR (nb ->> 'warming_up')::boolean IS DISTINCT FROM true
+     OR (nb ->> 'effective_daily_limit')::int IS DISTINCT FROM 3 THEN
+    failed := array_append(failed, ('E1 young OpenWA number wy: ' || coalesce(nb::text, 'null'))::text);
+  END IF;
+  -- E2: a Meta number is still official, with no new-chat limit.
+  nb := (SELECT e FROM jsonb_array_elements(rep -> 'numbers') e WHERE e ->> 'channel_id' = md::text);
+  n := n + 1;
+  IF (nb ->> 'kind') IS DISTINCT FROM 'official'
+     OR (nb ->> 'warming_up')::boolean IS DISTINCT FROM false
+     OR jsonb_typeof(nb -> 'effective_daily_limit') <> 'null'
+     OR jsonb_typeof(nb -> 'days_at_limit') <> 'null' THEN
+    failed := array_append(failed, ('E2 Meta number md: ' || coalesce(nb::text, 'null'))::text);
+  END IF;
+
+  -- E3: starts on an OpenWA number count towards the person's limit;
+  -- starts on a Meta number do not.
+  s1 := pg_temp.ta_sender(rep, 'person', u_d1);
+  n := n + 1;
+  IF (s1 ->> 'today_starts')::int IS DISTINCT FROM 2
+     OR (s1 ->> 'peak_day')::int IS DISTINCT FROM 2
+     OR (s1 ->> 'days_at_limit')::int IS DISTINCT FROM 1 THEN
+    failed := array_append(failed, ('E3 d1 OpenWA starts: ' || coalesce(s1::text, 'null'))::text);
+  END IF;
+  s1 := pg_temp.ta_sender(rep, 'person', u_d3);
+  n := n + 1;
+  IF (s1 ->> 'chats_started')::int IS DISTINCT FROM 3
+     OR (s1 ->> 'today_starts')::int IS DISTINCT FROM 0
+     OR (s1 ->> 'peak_day')::int IS DISTINCT FROM 0 THEN
+    failed := array_append(failed, ('E3 d3 Meta starts: ' || coalesce(s1::text, 'null'))::text);
+  END IF;
+  -- E4: a refused send on an OpenWA number is a phone failure.
+  s1 := pg_temp.ta_sender(rep, 'person', u_d2);
+  n := n + 1;
+  IF (s1 ->> 'failed')::int IS DISTINCT FROM 2
+     OR (s1 ->> 'failed_phone')::int IS DISTINCT FROM 1
+     OR (s1 ->> 'failed_official')::int IS DISTINCT FROM 1 THEN
+    failed := array_append(failed, ('E4 d2 failed split: ' || coalesce(s1::text, 'null'))::text);
+  END IF;
+
+  -- E5: the employee's own day counts OpenWA starts, not Meta ones.
+  r := pg_temp.ta_val('authenticated', u_d1, 'SELECT team_activity_my_day(NULL)::text');
+  s1 := CASE WHEN r LIKE 'ERROR:%' THEN NULL ELSE r::jsonb END;
+  nb := (SELECT e FROM jsonb_array_elements(s1 -> 'numbers') e WHERE e ->> 'channel_id' = wo::text);
+  n := n + 1;
+  IF (s1 ->> 'started')::int IS DISTINCT FROM 2
+     OR (nb ->> 'warming_up')::boolean IS DISTINCT FROM false
+     OR (nb ->> 'effective_daily_limit')::int IS DISTINCT FROM 3 THEN
+    failed := array_append(failed, ('E5 d1 my day: ' || coalesce(r, 'null'))::text);
+  END IF;
+  r := pg_temp.ta_val('authenticated', u_d3, 'SELECT team_activity_my_day(NULL)::text');
+  s1 := CASE WHEN r LIKE 'ERROR:%' THEN NULL ELSE r::jsonb END;
+  nb := (SELECT e FROM jsonb_array_elements(s1 -> 'numbers') e WHERE e ->> 'channel_id' = md::text);
+  n := n + 1;
+  IF (s1 ->> 'started')::int IS DISTINCT FROM 0
+     OR nb IS NULL OR jsonb_typeof(nb -> 'effective_daily_limit') <> 'null' THEN
+    failed := array_append(failed, ('E5 d3 my day: ' || coalesce(r, 'null'))::text);
+  END IF;
+
+  -- E6: the block applies on an OpenWA number, never on a Meta one.
+  cv := pg_temp.ta_conv(d_acct, u_d0, NULL, 'D check');
+  r := pg_temp.ta_val('authenticated', u_d1,
+         format('SELECT team_activity_start_check(%L, %L)::text', cv, wo));
+  n := n + 1;
+  IF r NOT LIKE '%"blocked": true%' OR r NOT LIKE '%"reason": "user"%' THEN
+    failed := array_append(failed, ('E6 d1 at the person limit on OpenWA not blocked: ' || r)::text);
+  END IF;
+  r := pg_temp.ta_val('authenticated', u_d3,
+         format('SELECT team_activity_start_check(%L, %L)::text', cv, wo));
+  n := n + 1;
+  IF r NOT LIKE '%"blocked": true%' OR r NOT LIKE '%"reason": "number"%' OR r NOT LIKE '%"limit": 3%' THEN
+    failed := array_append(failed, ('E6 OpenWA number at its limit not blocked: ' || r)::text);
+  END IF;
+  r := pg_temp.ta_val('authenticated', u_d3,
+         format('SELECT team_activity_start_check(%L, %L)::text', cv, md));
+  n := n + 1;
+  IF r NOT LIKE '%"blocked": false%' THEN
+    failed := array_append(failed, ('E6 Meta number blocked: ' || r)::text);
+  END IF;
+
+  -- E7: bell alerts for the person and the OpenWA number; none for the
+  -- Meta number or the person who only used it.
+  r := pg_temp.ta_val('service_role', NULL, 'SELECT team_activity_alert_sweep()::text');
+  n := n + 1;
+  IF r LIKE 'ERROR:%'
+     OR (SELECT count(*) FROM team_activity_alerts WHERE account_id = d_acct) <> 2
+     OR NOT EXISTS (SELECT 1 FROM team_activity_alerts
+                     WHERE account_id = d_acct AND kind = 'user_daily_limit'
+                       AND subject_id = u_d1 AND value = 2 AND threshold = 2)
+     OR NOT EXISTS (SELECT 1 FROM team_activity_alerts
+                     WHERE account_id = d_acct AND kind = 'number_daily_limit'
+                       AND subject_id = wo AND value = 3 AND threshold = 3) THEN
+    failed := array_append(failed, ('E7 sweep alerts: ' || coalesce((
+      SELECT string_agg(kind || '/' || value || '/' || threshold, ',')
+      FROM team_activity_alerts WHERE account_id = d_acct), 'none'))::text);
   END IF;
 
     RAISE EXCEPTION USING ERRCODE = 'TA999';
