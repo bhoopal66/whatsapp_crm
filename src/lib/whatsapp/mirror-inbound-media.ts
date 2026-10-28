@@ -69,7 +69,11 @@ export interface MirrorInboundMediaArgs {
   fileName?: string | null;
   /** Message timestamp (epoch SECONDS) — keeps download names distinct. */
   messageTimestamp?: string | number | null;
-  /** Injected in tests. */
+  /**
+   * The pipeline injects the channel's own gateway client (provider.ts),
+   * which is the only way an OpenWA URL gets its API key; tests inject
+   * fakes. The default below guesses the gateway from the URL.
+   */
   download?: typeof downloadMedia;
 }
 
