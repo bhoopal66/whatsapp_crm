@@ -27,7 +27,25 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { decrypt } from '@/lib/whatsapp/encryption';
 
-export type WhatsAppProvider = 'whapi' | 'meta';
+export type WhatsAppProvider = 'whapi' | 'meta' | 'openwa';
+
+/**
+ * A number paired to a phone (linked device), as opposed to the Cloud
+ * API: Whapi and OpenWA. Such a number has no 24-hour window, renders
+ * templates locally, and can be restricted by WhatsApp for automation.
+ * Use this where code means "not the Cloud API"; keep
+ * `provider === 'whapi'` where it means Whapi's own API (Safety Meter,
+ * Whapi groups, panel.whapi.cloud wording, Compass's Whapi-only rule).
+ */
+export function isLinkedDeviceProvider(provider: WhatsAppProvider): boolean {
+  return provider === 'whapi' || provider === 'openwa';
+}
+
+const PROVIDER_LABELS: Record<WhatsAppProvider, string> = {
+  whapi: 'Whapi',
+  meta: 'Cloud API',
+  openwa: 'OpenWA',
+};
 
 /**
  * The surfaces an admin can route independently. Mirrors the CHECK
@@ -273,9 +291,11 @@ export function primaryChannel(
   // configured". To a Whapi number first: the list is sorted by
   // provider, so a bare `channels[0]` is the Meta number, where every
   // free-form fallback send would be refused outside the 24h window.
+  // Whapi before OpenWA keeps a pre-OpenWA install's fallback unchanged.
   return (
     channels.find((c) => c.isPrimary) ??
     channels.find((c) => c.provider === 'whapi') ??
+    channels.find((c) => isLinkedDeviceProvider(c.provider)) ??
     channels[0]
   );
 }
@@ -533,7 +553,8 @@ async function replyFrom(
     .limit(1)
     .maybeSingle();
 
-  const exactId = (lastInbound?.channel_id as string | null | undefined) ?? null;
+  const exactId =
+    (lastInbound?.channel_id as string | null | undefined) ?? null;
   const exact = exactId ? channels.find((c) => c.id === exactId) : undefined;
   if (exact) return exact;
 
@@ -786,11 +807,11 @@ export async function resolveChannelByProvider(
 }
 
 export function isWhatsAppProvider(value: unknown): value is WhatsAppProvider {
-  return value === 'whapi' || value === 'meta';
+  return value === 'whapi' || value === 'meta' || value === 'openwa';
 }
 
 /** Human-readable name for logs, errors, and the routing selector. */
 export function describeChannel(channel: WhatsAppChannel): string {
   const name = channel.label || channel.wabaId || channel.phoneNumberId;
-  return `${name} (${channel.provider === 'meta' ? 'Cloud API' : 'Whapi'})`;
+  return `${name} (${PROVIDER_LABELS[channel.provider]})`;
 }

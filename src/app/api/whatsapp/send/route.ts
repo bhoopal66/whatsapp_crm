@@ -84,7 +84,7 @@ export async function POST(request: Request) {
 
     if (provider != null && !isWhatsAppProvider(provider)) {
       return NextResponse.json(
-        { error: "provider must be 'whapi' or 'meta'" },
+        { error: "provider must be 'whapi', 'meta' or 'openwa'" },
         { status: 400 }
       );
     }

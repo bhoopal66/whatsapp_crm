@@ -308,6 +308,16 @@ BEGIN
     RAISE EXCEPTION 'a foreign key 117 defers is missing or still checked immediately — migration 117 did not apply';
   END IF;
 
+  -- 144: OpenWA is a third provider a whatsapp_config row may carry.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'whatsapp_config_provider_check'
+      AND conrelid = 'public.whatsapp_config'::regclass
+      AND pg_get_constraintdef(oid) LIKE '%openwa%'
+  ) THEN
+    RAISE EXCEPTION 'whatsapp_config cannot hold an OpenWA number — migration 144 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

@@ -297,6 +297,21 @@ describe('primaryChannel', () => {
     ).toBe('whapi');
   });
 
+  it('prefers a Whapi number, then an OpenWA one, over the Meta number', () => {
+    // Sorted by provider, Meta comes first; a free-form fallback send
+    // from it is refused outside the 24h window.
+    expect(
+      primaryChannel([mk('meta', false), mk('openwa', false)])?.provider
+    ).toBe('openwa');
+    expect(
+      primaryChannel([
+        mk('meta', false),
+        mk('openwa', false),
+        mk('whapi', false),
+      ])?.provider
+    ).toBe('whapi');
+  });
+
   it('is null only when nothing is connected', () => {
     expect(primaryChannel([])).toBeNull();
   });
@@ -442,6 +457,7 @@ describe('resolveSendChannel — provider pin', () => {
   it('isWhatsAppProvider guards an API body value', () => {
     expect(isWhatsAppProvider('whapi')).toBe(true);
     expect(isWhatsAppProvider('meta')).toBe(true);
+    expect(isWhatsAppProvider('openwa')).toBe(true);
     expect(isWhatsAppProvider('twilio')).toBe(false);
     expect(isWhatsAppProvider(undefined)).toBe(false);
   });
@@ -497,9 +513,17 @@ describe('several Whapi numbers (migration 060)', () => {
   });
 
   it("starts a new chat from the sender's allocated number", async () => {
-    const db = makeDb({ configs: [SALES, SUPPORT], allocations: ['cfg-support'] });
+    const db = makeDb({
+      configs: [SALES, SUPPORT],
+      allocations: ['cfg-support'],
+    });
     const ch = await resolveSendChannel(
-      db, 'acct-1', 'inbox', 'conv-1', null, 'user-1'
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      null,
+      'user-1'
     );
     expect(ch.id).toBe('cfg-support');
   });
@@ -507,7 +531,12 @@ describe('several Whapi numbers (migration 060)', () => {
   it('starts from the route for a sender on no number — the pre-060 behaviour', async () => {
     const db = makeDb({ configs: [SALES, SUPPORT], allocations: [] });
     const ch = await resolveSendChannel(
-      db, 'acct-1', 'inbox', 'conv-1', null, 'user-1'
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      null,
+      'user-1'
     );
     expect(ch.id).toBe('cfg-sales');
   });
@@ -516,9 +545,15 @@ describe('several Whapi numbers (migration 060)', () => {
     const pinned = (script: Script) =>
       resolveSendChannel(
         makeDb({ configs: [SALES, SUPPORT, META], ...script }),
-        'acct-1', 'inbox', 'conv-1', 'whapi', 'user-1'
+        'acct-1',
+        'inbox',
+        'conv-1',
+        'whapi',
+        'user-1'
       ).then((c) => c.id);
-    expect(await pinned({ threadChannelId: 'cfg-support' })).toBe('cfg-support');
+    expect(await pinned({ threadChannelId: 'cfg-support' })).toBe(
+      'cfg-support'
+    );
     expect(await pinned({ allocations: ['cfg-support'] })).toBe('cfg-support');
     expect(await pinned({})).toBe('cfg-sales');
     // A thread on the Meta number does not drag a Whapi pin onto it.
@@ -546,14 +581,19 @@ describe('several Whapi numbers (migration 060)', () => {
   });
 
   it('a bot with no conversation uses the route', async () => {
-    const db = makeDb({ configs: [SALES, SUPPORT], route: { config_id: 'cfg-support' } });
+    const db = makeDb({
+      configs: [SALES, SUPPORT],
+      route: { config_id: 'cfg-support' },
+    });
     const ch = await resolveBotChannel(db, 'acct-1', 'automation', null);
     expect(ch.id).toBe('cfg-support');
   });
 
   it('resolveChannelByProvider picks the primary among several', async () => {
     const db = makeDb({ configs: [SUPPORT, SALES] });
-    expect((await resolveChannelByProvider(db, 'acct-1', 'whapi'))?.id).toBe('cfg-sales');
+    expect((await resolveChannelByProvider(db, 'acct-1', 'whapi'))?.id).toBe(
+      'cfg-sales'
+    );
   });
 
   it('loadChannels orders same-provider numbers oldest first', async () => {
@@ -585,7 +625,16 @@ describe('a chat pinned to a number (migration 061)', () => {
       pinnedChannelId: 'cfg-support',
     });
     expect(
-      (await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', null, 'user-1')).id
+      (
+        await resolveSendChannel(
+          db,
+          'acct-1',
+          'inbox',
+          'conv-1',
+          null,
+          'user-1'
+        )
+      ).id
     ).toBe('cfg-support');
   });
 
@@ -606,7 +655,13 @@ describe('a chat pinned to a number (migration 061)', () => {
       configs: [SALES, META],
       pinnedChannelId: 'cfg-meta',
     });
-    const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', 'whapi');
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      'whapi'
+    );
     expect(ch.id).toBe('cfg-sales');
   });
 
@@ -615,7 +670,13 @@ describe('a chat pinned to a number (migration 061)', () => {
       configs: [SALES, SUPPORT],
       pinnedChannelId: 'cfg-support',
     });
-    const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', 'whapi');
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      'whapi'
+    );
     expect(ch.id).toBe('cfg-support');
   });
 
@@ -637,7 +698,14 @@ describe('review fixes (migration 062)', () => {
       configs: [SALES, SUPPORT],
       otherAllocations: [{ config_id: 'cfg-sales', user_id: 'someone-else' }],
     });
-    const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', null, 'user-1');
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      null,
+      'user-1'
+    );
     // Sales (the default) belongs to someone else; Support is shared.
     expect(ch.id).toBe('cfg-support');
   });
@@ -648,7 +716,14 @@ describe('review fixes (migration 062)', () => {
       otherAllocations: [{ config_id: 'cfg-sales', user_id: 'someone-else' }],
       senderRole: 'admin',
     });
-    const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', null, 'user-1');
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      null,
+      'user-1'
+    );
     expect(ch.id).toBe('cfg-sales');
   });
 
@@ -656,27 +731,51 @@ describe('review fixes (migration 062)', () => {
     const db = makeDb({
       configs: [SALES, { ...SUPPORT, access_token: 'garbage:not:ciphertext' }],
     });
-    expect((await loadChannels(db, 'acct-1')).map((c) => c.id)).toEqual(['cfg-sales']);
+    expect((await loadChannels(db, 'acct-1')).map((c) => c.id)).toEqual([
+      'cfg-sales',
+    ]);
   });
 
   it('falls back to a Whapi number, not Meta, when no default is flagged', () => {
-    const meta = { id: 'm', provider: 'meta', isPrimary: false } as WhatsAppChannel;
-    const whapi = { id: 'w', provider: 'whapi', isPrimary: false } as WhatsAppChannel;
+    const meta = {
+      id: 'm',
+      provider: 'meta',
+      isPrimary: false,
+    } as WhatsAppChannel;
+    const whapi = {
+      id: 'w',
+      provider: 'whapi',
+      isPrimary: false,
+    } as WhatsAppChannel;
     expect(primaryChannel([meta, whapi])?.id).toBe('w');
   });
 
   it('keeps a Meta pin for a Whapi-preferred send when no Whapi number exists', async () => {
     const db = makeDb({ configs: [META], pinnedChannelId: 'cfg-meta' });
-    const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', 'whapi');
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      'whapi'
+    );
     expect(ch.id).toBe('cfg-meta');
   });
 
   it('uses the caller-supplied conversation numbers instead of re-reading them', async () => {
     const db = makeDb({ configs: [SALES, SUPPORT], pinnedChannelId: null });
-    const ch = await resolveSendChannel(db, 'acct-1', 'inbox', 'conv-1', null, null, {
-      channelId: null,
-      sendChannelId: 'cfg-support',
-    });
+    const ch = await resolveSendChannel(
+      db,
+      'acct-1',
+      'inbox',
+      'conv-1',
+      null,
+      null,
+      {
+        channelId: null,
+        sendChannelId: 'cfg-support',
+      }
+    );
     expect(ch.id).toBe('cfg-support');
   });
 
@@ -686,12 +785,19 @@ describe('review fixes (migration 062)', () => {
       route: { config_id: 'cfg-sales' },
       threadChannelId: 'cfg-support',
     });
-    expect((await resolveAiReplyChannel(db, 'acct-1', 'conv-1')).id).toBe('cfg-sales');
+    expect((await resolveAiReplyChannel(db, 'acct-1', 'conv-1')).id).toBe(
+      'cfg-sales'
+    );
   });
 
   it('the AI stays on the thread number when no ai_reply route is set', async () => {
-    const db = makeDb({ configs: [SALES, SUPPORT], threadChannelId: 'cfg-support' });
-    expect((await resolveAiReplyChannel(db, 'acct-1', 'conv-1')).id).toBe('cfg-support');
+    const db = makeDb({
+      configs: [SALES, SUPPORT],
+      threadChannelId: 'cfg-support',
+    });
+    expect((await resolveAiReplyChannel(db, 'acct-1', 'conv-1')).id).toBe(
+      'cfg-support'
+    );
   });
 
   it('the AI follows a pin', async () => {
@@ -700,7 +806,9 @@ describe('review fixes (migration 062)', () => {
       route: { config_id: 'cfg-sales' },
       pinnedChannelId: 'cfg-meta',
     });
-    expect((await resolveAiReplyChannel(db, 'acct-1', 'conv-1')).id).toBe('cfg-meta');
+    expect((await resolveAiReplyChannel(db, 'acct-1', 'conv-1')).id).toBe(
+      'cfg-meta'
+    );
   });
 });
 
@@ -757,6 +865,14 @@ describe('describeChannel', () => {
         mk({ label: 'Marketing', provider: 'meta', phoneNumberId: 'p' })
       )
     ).toBe('Marketing (Cloud API)');
+  });
+
+  it('names an OpenWA number as such, not as Whapi', () => {
+    expect(
+      describeChannel(
+        mk({ label: 'Support', provider: 'openwa', phoneNumberId: 'sess-1' })
+      )
+    ).toBe('Support (OpenWA)');
   });
 
   it('falls back to the number, then the gateway id', () => {

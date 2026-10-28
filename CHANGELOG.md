@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### OpenWA: a third way to connect WhatsApp numbers
+
+**Migration required:** apply `supabase/migrations/144_openwa_provider.sql`.
+- A WhatsApp number can now be connected through OpenWA, a self-hosted
+  linked-device gateway running beside the app, as well as Whapi and the
+  Meta Cloud API. See `docs/openwa.md` for setting it up.
+
 ### A new light theme
 
 No migration. Visual only.
