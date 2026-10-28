@@ -47,6 +47,17 @@ export function isLinkedStatus(status: string): boolean {
 }
 
 /**
+ * Linked, or a phone in the middle of linking: a session in either state
+ * must never be torn down on a guess. Everything else (a QR still
+ * waiting, a failed or dropped pairing, an unknown word) is a definite
+ * "not linked". The connect dialog's close-check and the abandoned-
+ * connect sweep both decide with this.
+ */
+export function mayBeLinkedStatus(status: string): boolean {
+  return status === 'ready' || status === 'authenticating';
+}
+
+/**
  * Will not become linked without the admin starting over. `disconnected`
  * belongs here too: during linking it means the phone refused or dropped
  * the pairing, and a session in that state shows no new QR.
@@ -254,14 +265,22 @@ export type CleanupOutcome =
   /** The phone is linked: the number stays, as connected. */
   | { kind: 'kept'; phone: string | null }
   | { kind: 'removed' }
-  | { kind: 'removeFailed'; error: string };
+  | { kind: 'removeFailed'; error: string }
+  /**
+   * The check could not tell (no answer, or a phone mid-link): nothing
+   * was deleted, and the 30-minute abandoned-connect sweep, which asks
+   * the gateway again first, settles the row.
+   */
+  | { kind: 'leftForSweep' };
 
 /**
  * Carry out a cleanup plan. `checkStatus` asks the status route once
  * (null when it did not answer); `remove` DELETEs the number and
- * returns an error text or null. Only `ready` keeps it: anything else,
- * an unanswered check included, removes it, because an unlinked session
- * keeps a browser running on the gateway.
+ * returns an error text or null. `ready` keeps it; a definite not-linked
+ * answer removes it, because an unlinked session keeps a browser running
+ * on the gateway. No answer, or `authenticating`, deletes nothing: a
+ * DELETE logs the phone out, and a gateway blip at the moment of the
+ * check used to unlink a phone that had just scanned.
  */
 export async function settleUnfinishedSession(
   plan: CleanupPlan,
@@ -278,6 +297,9 @@ export async function settleUnfinishedSession(
     const answer = await deps.checkStatus().catch(() => null);
     if (answer && isLinkedStatus(answer.status)) {
       return { kind: 'kept', phone: answer.phone ?? null };
+    }
+    if (!answer || mayBeLinkedStatus(answer.status)) {
+      return { kind: 'leftForSweep' };
     }
   }
   const error = await deps.remove();

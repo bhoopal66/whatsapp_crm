@@ -312,6 +312,27 @@ describe('GET /api/whatsapp/config/openwa/[configId]/status', () => {
     });
     expect(h.updates).toHaveLength(0);
   });
+
+  it('stores the phone alone after the first link when the session reports a different one', async () => {
+    // A first link the health sweep stamped without a number, then a
+    // re-link to another handset: both keep the number following the
+    // phone, and neither touches the sweep-owned status.
+    for (const waba_id of [null, '971500000001']) {
+      h.updates = [];
+      h.row = {
+        ...h.row,
+        status: 'connected',
+        waba_id,
+        connected_at: '2026-10-01T08:00:00Z',
+      };
+      h.gw.getSession.mockResolvedValue({
+        status: 'ready',
+        phone: '971500000002',
+      });
+      await GET(new Request('https://crm.test/x'), params);
+      expect(h.updates).toEqual([{ waba_id: '971500000002' }]);
+    }
+  });
 });
 
 describe('DELETE /api/whatsapp/config/openwa/[configId]', () => {
@@ -372,6 +393,21 @@ describe('DELETE /api/whatsapp/config/openwa/[configId]', () => {
     expect((await res.json()).gatewayCleanup).toBe('incomplete');
     expect(h.gw.deleteSession).not.toHaveBeenCalled();
     expect(h.deletes).toBe(1);
+  });
+
+  it('is complete for a row that never had a session, the gateway left alone', async () => {
+    for (const phone_number_id of ['', null]) {
+      h.deletes = 0;
+      h.row = { id: 'cfg-1', phone_number_id };
+      const res = await DELETE(new Request('https://crm.test/x'), params);
+      expect(await res.json()).toEqual({
+        ok: true,
+        gatewayCleanup: 'complete',
+      });
+      expect(h.gw.logoutSession).not.toHaveBeenCalled();
+      expect(h.gw.deleteSession).not.toHaveBeenCalled();
+      expect(h.deletes).toBe(1);
+    }
   });
 
   it('is a no-op for a row it cannot see', async () => {

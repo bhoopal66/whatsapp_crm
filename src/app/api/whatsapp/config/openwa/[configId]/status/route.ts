@@ -19,6 +19,12 @@ import { OpenWAError, getQr, getSession } from '@/lib/whatsapp/openwa-api';
  * went down back to 'connected' silently, so the sweep would never see
  * the transition and owners would never get the "connected again" alert.
  * The answer still carries the live state either way.
+ *
+ * The number (`waba_id`) is not status, so it follows the phone after
+ * the first link too: written alone, never with `status`, whenever the
+ * session reports a different phone. A first link the health sweep
+ * stamped without a phone, or a re-link to another handset, would
+ * otherwise show the old number (or none) forever.
  */
 export async function GET(
   _request: Request,
@@ -85,6 +91,23 @@ export async function GET(
           // The sweep may have stamped the first link a moment ago.
           .is('connected_at', null);
         if (error) console.error('[openwa status] update failed:', error);
+      } else if (
+        session.phone &&
+        session.phone !==
+          ((row.waba_id as string | null) ?? '').replace(/\D/g, '')
+      ) {
+        let update = supabase
+          .from('whatsapp_config')
+          .update({ waba_id: session.phone })
+          .eq('account_id', accountId)
+          .eq('id', row.id);
+        // Conditional on the number it replaces, so a concurrent write wins.
+        update = row.waba_id
+          ? update.eq('waba_id', row.waba_id)
+          : update.is('waba_id', null);
+        const { error } = await update;
+        if (error)
+          console.error('[openwa status] number update failed:', error);
       }
       return NextResponse.json({
         status: session.status,

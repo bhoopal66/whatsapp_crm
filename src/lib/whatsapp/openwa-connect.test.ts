@@ -251,8 +251,30 @@ describe('late link on close', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  it('deletes when the check says not linked, or does not answer', async () => {
-    for (const answer of [{ status: 'qr_ready' }, null]) {
+  it('leaves the row for the sweep when the check does not answer, or the phone is mid-link', async () => {
+    for (const checkStatus of [
+      async () => null,
+      async () => {
+        throw new Error('network error');
+      },
+      async () => ({ status: 'authenticating' }),
+    ]) {
+      const remove = vi.fn(async () => null);
+      const outcome = await settleUnfinishedSession('checkFirst', {
+        checkStatus,
+        remove,
+      });
+      expect(outcome).toEqual({ kind: 'leftForSweep' });
+      expect(remove).not.toHaveBeenCalled();
+    }
+  });
+
+  it('deletes when the check says not linked', async () => {
+    for (const answer of [
+      { status: 'qr_ready' },
+      { status: 'failed' },
+      { status: 'disconnected' },
+    ]) {
       const remove = vi.fn(async () => null);
       const outcome = await settleUnfinishedSession('checkFirst', {
         checkStatus: async () => answer,
