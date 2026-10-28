@@ -30,7 +30,10 @@ import {
   applyFullRow,
   openConversation,
   patchActiveChat,
+  rereadFullRow,
   type ActiveChat,
+  type OpenConversationDeps,
+  type OpenTicket,
 } from '@/lib/inbox/open-conversation';
 import type { ConversationListLoad } from '@/components/inbox/conversation-list';
 import type { Conversation, Message } from '@/types';
@@ -42,6 +45,7 @@ import { MessageThread } from '@/components/inbox/message-thread';
 import type { AiBannerPatch } from '@/components/inbox/ai-thread-banner';
 import { needsAttention } from '@/lib/inbox/attention';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
+import { FullRowRetry } from '@/components/inbox/full-row-retry';
 import { BroadcastsTabs } from '@/components/broadcasts/broadcasts-tabs';
 import { toast } from 'sonner';
 import { WifiOff } from 'lucide-react';
@@ -168,6 +172,12 @@ export function InboxPageInner({
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   const activeConversation = activeChat?.row ?? null;
   const fullConversation = activeChat?.full ? activeChat.row : null;
+  const activeIsFull = activeChat?.full ?? false;
+  // The chat whose full row could not be read after every retry: the
+  // sections waiting for it offer a Retry instead of staying busy.
+  const [fullRowFailedId, setFullRowFailedId] = useState<string | null>(null);
+  const fullRowFailed =
+    !!activeChat && !activeChat.full && fullRowFailedId === activeChat.row.id;
   const [messages, setMessages] = useState<Message[]>([]);
   const [whatsappConnected, setWhatsappConnected] = useState<boolean | null>(
     null
@@ -675,35 +685,57 @@ export function InboxPageInner({
   // still open (lib/inbox/open-conversation.ts). Without a list row
   // (this ?c= case) the chat opens on the full row, unless another chat
   // was asked for in the meantime (`openingIdRef`).
-  const openingIdRef = useRef<string | null>(null);
+  const openingIdRef = useRef<OpenTicket | null>(null);
+  const openDeps = useMemo<OpenConversationDeps>(
+    () => ({
+      latest: openingIdRef,
+      show: (chat) => {
+        setActiveChat(chat);
+        setMessages([]);
+        setFullRowFailedId(null);
+      },
+      upgrade: (full) => setActiveChat((prev) => applyFullRow(prev, full)),
+      fetchFull: async (id) => {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from('conversations')
+          .select(CONVERSATION_SELECT)
+          .eq('id', id)
+          .maybeSingle();
+        if (error) {
+          console.error('Failed to open conversation:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code,
+          });
+          return null;
+        }
+        return data ? normalizeConversation(data) : null;
+      },
+      failed: (id) => setFullRowFailedId(id),
+    }),
+    []
+  );
   const openConversationById = useCallback(
     (convId: string, listRow?: ConversationListItem) =>
-      openConversation(convId, listRow, {
-        latest: openingIdRef,
-        show: (chat) => {
-          setActiveChat(chat);
-          setMessages([]);
-        },
-        upgrade: (full) => setActiveChat((prev) => applyFullRow(prev, full)),
-        fetchFull: async (id) => {
-          const supabase = createClient();
-          const { data, error } = await supabase
-            .from('conversations')
-            .select(CONVERSATION_SELECT)
-            .eq('id', id)
-            .maybeSingle();
-          if (error) {
-            console.error('Failed to open conversation:', {
-              message: error.message,
-              details: error.details,
-              hint: error.hint,
-              code: error.code,
-            });
-            return null;
-          }
-          return data ? normalizeConversation(data) : null;
-        },
-      }),
+      openConversation(convId, listRow, openDeps),
+    [openDeps]
+  );
+  // A re-click of a chat still on its list row, or the Retry the waiting
+  // sections offer once the retries have given up: read it again now.
+  const retryFullRow = useCallback(
+    (convId: string) => {
+      setFullRowFailedId(null);
+      return rereadFullRow(convId, openDeps);
+    },
+    [openDeps]
+  );
+  // Leaving the Inbox stops any retry still waiting.
+  useEffect(
+    () => () => {
+      openingIdRef.current = null;
+    },
     []
   );
 
@@ -775,8 +807,13 @@ export function InboxPageInner({
       // Re-clicking the already-active conversation would clear the
       // messages array, but the fetch effect in MessageThread only re-runs
       // when conversationId changes — so messages would stay empty until
-      // the user navigated away and back. Bail out early instead.
-      if (activeConversation?.id === conv.id) return;
+      // the user navigated away and back. Bail out early instead, but
+      // re-read the full row if it never arrived (the click is the
+      // agent asking for the rest of the chat).
+      if (activeConversation?.id === conv.id) {
+        if (!activeIsFull) void retryFullRow(conv.id);
+        return;
+      }
       // Shows the list row now and reads the full row alongside
       // (openConversationById); clears the messages.
       void openConversationById(conv.id, conv);
@@ -815,7 +852,13 @@ export function InboxPageInner({
       // reads back on reload and on back/forward.
       window.history.replaceState(null, '', `${basePath}?c=${conv.id}`);
     },
-    [activeConversation?.id, basePath, openConversationById]
+    [
+      activeConversation?.id,
+      activeIsFull,
+      basePath,
+      openConversationById,
+      retryFullRow,
+    ]
   );
 
   // Mobile "back" — deselect the conversation so the list pane comes
@@ -871,6 +914,10 @@ export function InboxPageInner({
     },
     []
   );
+
+  const handleRetryFullRow = useCallback(() => {
+    if (activeConversation) void retryFullRow(activeConversation.id);
+  }, [activeConversation, retryFullRow]);
 
   const handleChatTagsChange = useCallback(
     (conversationId: string, patch: ChatTagsPatch) =>
@@ -990,6 +1037,8 @@ export function InboxPageInner({
           <MessageThread
             conversation={activeConversation}
             fullConversation={fullConversation}
+            fullRowFailed={fullRowFailed}
+            onRetryFullRow={handleRetryFullRow}
             contact={activeConversation?.contact ?? null}
             sharedBank={
               activeConversation
@@ -1023,9 +1072,13 @@ export function InboxPageInner({
                 half-empty card for an open chat. */}
             {activeConversation && !fullConversation ? (
               <div
-                aria-busy="true"
+                aria-busy={!fullRowFailed}
                 className="border-wa-divider bg-wa-panel h-full w-70 border-l"
-              />
+              >
+                {fullRowFailed && (
+                  <FullRowRetry onRetry={handleRetryFullRow} className="p-4" />
+                )}
+              </div>
             ) : (
               <ContactSidebar contact={fullConversation?.contact ?? null} />
             )}

@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConversationListItem } from '@/lib/inbox/conversations';
 import type { Contact, Conversation } from '@/types';
 import {
   applyActiveAvatars,
   applyFullRow,
+  FULL_ROW_RETRY_DELAYS_MS,
   openConversation,
   patchActiveChat,
+  rereadFullRow,
   type ActiveChat,
+  type OpenTicket,
 } from './open-conversation';
 
 function listRow(id: string): ConversationListItem {
@@ -72,8 +75,9 @@ function harness() {
     ReturnType<typeof deferred<Conversation | null>>
   >();
   const shows: ActiveChat[] = [];
+  const failures: string[] = [];
   const deps = {
-    latest: { current: null as string | null },
+    latest: { current: null as OpenTicket | null },
     show: (chat: ActiveChat) => {
       shows.push(chat);
       active = chat;
@@ -86,10 +90,14 @@ function harness() {
       pending.set(id, d);
       return d.promise;
     }),
+    failed: (id: string) => {
+      failures.push(id);
+    },
   };
   return {
     deps,
     shows,
+    failures,
     pending,
     get active() {
       return active;
@@ -152,13 +160,117 @@ describe('openConversation', () => {
     await openA;
     expect(h.active).toEqual({ full: false, row: listRow('b') });
   });
+});
 
-  it('keeps the list row open when the full read finds nothing', async () => {
+describe('openConversation retries a missed full row', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Resolves the read in flight for `id` and lets the loop move on. */
+  async function miss(h: ReturnType<typeof harness>, id: string) {
+    h.pending.get(id)!.resolve(null);
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  it('retries after each backoff, then reports failed and stops', async () => {
+    vi.useFakeTimers();
     const h = harness();
     const open = openConversation('a', listRow('a'), h.deps);
-    h.pending.get('a')!.resolve(null);
-    await open;
+    await miss(h, 'a');
+    // The list row stays open meanwhile.
     expect(h.active).toEqual({ full: false, row: listRow('a') });
+    for (const [i, delay] of FULL_ROW_RETRY_DELAYS_MS.entries()) {
+      expect(h.deps.fetchFull).toHaveBeenCalledTimes(i + 1);
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(h.deps.fetchFull).toHaveBeenCalledTimes(i + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(h.deps.fetchFull).toHaveBeenCalledTimes(i + 2);
+      expect(h.failures).toEqual([]);
+      await miss(h, 'a');
+    }
+    await open;
+    expect(h.failures).toEqual(['a']);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.deps.fetchFull).toHaveBeenCalledTimes(
+      FULL_ROW_RETRY_DELAYS_MS.length + 1
+    );
+  });
+
+  it('a retry that reads the row upgrades the chat', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const open = openConversation('a', listRow('a'), h.deps);
+    await miss(h, 'a');
+    await vi.advanceTimersByTimeAsync(FULL_ROW_RETRY_DELAYS_MS[0]);
+    const full = fullRow('a');
+    h.pending.get('a')!.resolve(full);
+    await open;
+    expect(h.active).toEqual({ full: true, row: full });
+    expect(h.failures).toEqual([]);
+  });
+
+  it('stops retrying once another chat is opened', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    void openConversation('a', listRow('a'), h.deps);
+    await miss(h, 'a');
+    void openConversation('b', listRow('b'), h.deps);
+    h.pending.get('b')!.resolve(fullRow('b'));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.deps.fetchFull.mock.calls).toEqual([['a'], ['b']]);
+    expect(h.failures).toEqual([]);
+  });
+
+  it('stops retrying once the chat is closed', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    void openConversation('a', listRow('a'), h.deps);
+    await miss(h, 'a');
+    // handleCloseConversation clears the ticket.
+    h.deps.latest.current = null;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.deps.fetchFull).toHaveBeenCalledTimes(1);
+    expect(h.failures).toEqual([]);
+  });
+
+  it('a re-read of the open list row reads now and supersedes the old retries', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    void openConversation('a', listRow('a'), h.deps);
+    await miss(h, 'a');
+    // The agent re-clicks before the first backoff has run out.
+    void rereadFullRow('a', h.deps);
+    expect(h.deps.fetchFull).toHaveBeenCalledTimes(2);
+    expect(h.shows).toHaveLength(1);
+    await miss(h, 'a');
+    // One loop left: its first backoff, not two loops' worth of reads.
+    await vi.advanceTimersByTimeAsync(FULL_ROW_RETRY_DELAYS_MS[0]);
+    expect(h.deps.fetchFull).toHaveBeenCalledTimes(3);
+    const full = fullRow('a');
+    h.pending.get('a')!.resolve(full);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.active).toEqual({ full: true, row: full });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.deps.fetchFull).toHaveBeenCalledTimes(3);
+  });
+
+  it('a re-read after giving up reads again', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const open = openConversation('a', listRow('a'), h.deps);
+    await miss(h, 'a');
+    for (const delay of FULL_ROW_RETRY_DELAYS_MS) {
+      await vi.advanceTimersByTimeAsync(delay);
+      await miss(h, 'a');
+    }
+    await open;
+    expect(h.failures).toEqual(['a']);
+    const reread = rereadFullRow('a', h.deps);
+    const full = fullRow('a');
+    h.pending.get('a')!.resolve(full);
+    await reread;
+    expect(h.active).toEqual({ full: true, row: full });
   });
 });
 
@@ -171,6 +283,56 @@ describe('applyFullRow', () => {
     });
     expect(applyFullRow(prev, fullRow('b'))).toBe(prev);
     expect(applyFullRow(null, fullRow('a'))).toBeNull();
+  });
+});
+
+describe('a late full row and newer patches', () => {
+  it('keeps fields patched after the open over an older full row', () => {
+    // Opened on the list row; the full-row snapshot is taken now.
+    const snapshot = fullRow('a', {
+      ai_pending_draft: 'Held draft',
+      ai_handoff_summary: 'Asked for a person',
+    });
+    let active: ActiveChat | null = { full: false, row: listRow('a') };
+    // A realtime UPDATE lands before the full row does.
+    active = patchActiveChat(active, 'a', {
+      channel_id: 'ch-2',
+      unread_count: 5,
+      last_message_text: 'newer',
+      last_message_at: '2026-10-28T10:05:00Z',
+      updated_at: '2026-10-28T10:05:00Z',
+    });
+    // A save's result, which carries no updated_at.
+    active = patchActiveChat(active, 'a', { chat_tag_id: 'tag-1' });
+    active = applyFullRow(active, snapshot);
+    expect(active?.full).toBe(true);
+    const row = active!.row as Conversation;
+    expect(row.channel_id).toBe('ch-2');
+    expect(row.unread_count).toBe(5);
+    expect(row.last_message_text).toBe('newer');
+    expect(row.chat_tag_id).toBe('tag-1');
+    expect(row.updated_at).toBe('2026-10-28T10:05:00Z');
+    // The full-only fields still arrive from the full row.
+    expect(row.ai_pending_draft).toBe('Held draft');
+    expect(row.ai_handoff_summary).toBe('Asked for a person');
+    expect(row.contact).toBe(snapshot.contact);
+    expect(row.status).toBe('open');
+  });
+
+  it('later patches win over earlier ones', () => {
+    let active: ActiveChat | null = { full: false, row: listRow('a') };
+    active = patchActiveChat(active, 'a', { unread_count: 5 });
+    active = patchActiveChat(active, 'a', { unread_count: 0 });
+    active = applyFullRow(active, fullRow('a', { unread_count: 3 }));
+    expect(active?.row.unread_count).toBe(0);
+  });
+
+  it('keeps the patches across a profile-picture update', () => {
+    let active: ActiveChat | null = { full: false, row: listRow('a') };
+    active = patchActiveChat(active, 'a', { channel_id: 'ch-2' });
+    active = applyActiveAvatars(active, { 'contact-a': 'https://x/p.jpg' });
+    active = applyFullRow(active, fullRow('a'));
+    expect(active?.row.channel_id).toBe('ch-2');
   });
 });
 

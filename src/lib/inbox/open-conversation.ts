@@ -13,30 +13,52 @@ import type { Conversation } from '@/types';
 // full row is read in parallel, and it replaces the row when it lands,
 // provided that chat is still the one open. Sections that read a
 // full-only field (the AI banner's held draft and hand-off summary, the
-// contact panel) wait for `full`.
+// Call button's do-not-contact check, the contact panel) wait for `full`.
+//
+// A full-row read that misses is retried (FULL_ROW_RETRY_DELAYS_MS)
+// while that chat is still the one asked for; a dropped read once left
+// the chat half-loaded for good, with no way back but a page reload.
 // ============================================================
 
 /**
  * The open chat. `full: false` is a list row, shown while the full row
  * is in flight; `full: true` is the full row, after which nothing
  * downgrades it back to a list row.
+ *
+ * `patched` (list row only) is every field patch applied since the chat
+ * opened, merged in arrival order. The full row is a snapshot that may
+ * predate them, so they are re-applied on top of it (`applyFullRow`).
  */
 export type ActiveChat =
   | { full: true; row: Conversation }
-  | { full: false; row: ConversationListItem };
+  | {
+      full: false;
+      row: ConversationListItem;
+      patched?: Partial<Conversation>;
+    };
 
 /**
- * The full row's answer applied to the chat open *now*: it replaces the
- * row (the full row wins for every field) only if it is the same chat;
- * otherwise `prev` itself, so a slow answer for a chat the agent has
- * left never lands on the one they picked.
+ * The full row's answer applied to the chat open *now*: only if it is
+ * the same chat, otherwise `prev` itself, so a slow answer for a chat
+ * the agent has left never lands on the one they picked.
+ *
+ * The full row supplies every full-only field (held draft, hand-off
+ * summary, the whole contact), but the patches applied to the list row
+ * while it was in flight win over it: PostgREST may have taken its
+ * snapshot before a realtime UPDATE or a save that has already landed
+ * here, and the older snapshot would roll back `channel_id`,
+ * `unread_count`, `last_message_*` and the like. Re-applying patches
+ * rather than comparing `updated_at` because a save's patch carries no
+ * `updated_at`. A patch older than the snapshot can only be undone by
+ * the newer change's own realtime event, which arrives after it.
  */
 export function applyFullRow(
   prev: ActiveChat | null,
   full: Conversation
 ): ActiveChat | null {
   if (!prev || prev.row.id !== full.id) return prev;
-  return { full: true, row: full };
+  if (prev.full || !prev.patched) return { full: true, row: full };
+  return { full: true, row: { ...full, ...prev.patched } };
 }
 
 /**
@@ -46,6 +68,7 @@ export function applyFullRow(
  * carry the full-only fields that matter) and never downgrades a full
  * row. `contact` is ignored: realtime payloads carry no join, and a
  * list row's five-column contact must not replace the full contact.
+ * On a list row the patch is also kept in `patched`, for the full row.
  */
 export function patchActiveChat(
   prev: ActiveChat | null,
@@ -57,7 +80,11 @@ export function patchActiveChat(
   delete fields.contact;
   return prev.full
     ? { full: true, row: { ...prev.row, ...fields } }
-    : { full: false, row: { ...prev.row, ...fields } };
+    : {
+        full: false,
+        row: { ...prev.row, ...fields },
+        patched: { ...prev.patched, ...fields },
+      };
 }
 
 /**
@@ -74,22 +101,43 @@ export function applyActiveAvatars(
     return row === prev.row ? prev : { full: true, row };
   }
   const [row] = applyAvatars([prev.row], avatars);
-  return row === prev.row ? prev : { full: false, row };
+  return row === prev.row ? prev : { ...prev, row };
+}
+
+/**
+ * Waits before each retry of a missed full-row read: four reads in all,
+ * over about 14 s, then `failed`.
+ */
+export const FULL_ROW_RETRY_DELAYS_MS: readonly number[] = [1000, 3000, 10000];
+
+/**
+ * One request for a chat's full row. Compared by identity, so a re-read
+ * of the same chat supersedes the earlier one's retries.
+ */
+export interface OpenTicket {
+  readonly id: string;
 }
 
 export interface OpenConversationDeps {
   /**
-   * The id asked for last, shared across calls: a later open rewrites
-   * it, which is how an earlier call whose read is still in flight
-   * learns it has been overtaken.
+   * The request made last, shared across calls: a later open or re-read
+   * rewrites it, and closing the chat clears it, which is how an earlier
+   * call whose read is still in flight (or waiting to retry) learns it
+   * has been overtaken.
    */
-  latest: { current: string | null };
+  latest: { current: OpenTicket | null };
   /** Show `chat` as the open chat (a new open: the thread starts over). */
   show: (chat: ActiveChat) => void;
   /** Merge a full row into whatever is open when it lands. */
   upgrade: (full: Conversation) => void;
-  /** Read the full row; null when RLS says no or the read failed. */
+  /**
+   * Read the full row; null when RLS says no or the read failed. Both
+   * are retried: the list row shows the caller could see it a moment
+   * ago, so a miss is far likelier transient than final.
+   */
   fetchFull: (id: string) => Promise<Conversation | null>;
+  /** Every retry missed for chat `id`, still the one asked for. */
+  failed: (id: string) => void;
 }
 
 /**
@@ -103,16 +151,49 @@ export interface OpenConversationDeps {
 export async function openConversation(
   id: string,
   listRow: ConversationListItem | undefined,
-  { latest, show, upgrade, fetchFull }: OpenConversationDeps
+  deps: OpenConversationDeps
 ): Promise<void> {
-  latest.current = id;
-  if (listRow) show({ full: false, row: listRow });
-  const full = await fetchFull(id);
-  if (!full) return;
-  if (listRow) {
-    upgrade(full);
-    return;
+  const ticket: OpenTicket = { id };
+  deps.latest.current = ticket;
+  if (listRow) deps.show({ full: false, row: listRow });
+  await readFullRow(ticket, Boolean(listRow), deps);
+}
+
+/**
+ * Read the full row again, now, for chat `id` already open on its list
+ * row: the agent re-clicked it, or pressed Retry after `failed`. Any
+ * retries still pending from the earlier read stop.
+ */
+export async function rereadFullRow(
+  id: string,
+  deps: OpenConversationDeps
+): Promise<void> {
+  const ticket: OpenTicket = { id };
+  deps.latest.current = ticket;
+  await readFullRow(ticket, true, deps);
+}
+
+async function readFullRow(
+  ticket: OpenTicket,
+  shown: boolean,
+  { latest, show, upgrade, fetchFull, failed }: OpenConversationDeps
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    const full = await fetchFull(ticket.id);
+    if (full) {
+      // With the chat shown, `upgrade` (applyFullRow) checks the chat
+      // open now, so a superseded read of the same chat still lands.
+      if (shown) upgrade(full);
+      else if (latest.current === ticket) show({ full: true, row: full });
+      return;
+    }
+    if (latest.current !== ticket) return;
+    const delay = FULL_ROW_RETRY_DELAYS_MS[attempt];
+    if (delay === undefined) {
+      failed(ticket.id);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    if (latest.current !== ticket) return;
   }
-  if (latest.current !== id) return;
-  show({ full: true, row: full });
 }
