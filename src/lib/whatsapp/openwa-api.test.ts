@@ -2,6 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   OpenWAError,
+  createScopedKey,
+  createSession,
+  createWebhook,
+  deleteSession,
+  findScopedKeyIds,
+  getQr,
+  logoutSession,
+  revokeKey,
+  startSession,
   downloadMedia,
   getContactProfilePicture,
   getMediaUrl,
@@ -328,5 +337,128 @@ describe('interactive fallback', () => {
     const { body } = lastCall();
     expect(body.text).toBe('Menu\n\n*A*\n1. One — d\n*B*\n2. Two');
     expect(body).not.toHaveProperty('buttonLabel');
+  });
+});
+
+describe('provisioning', () => {
+  it('creates a session on the gateway-wide route with the admin key', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(201, { id: 'sess-9', status: 'created' })
+    );
+    await expect(
+      createSession({ adminKey: 'admin-1', name: 'wacrm-abc' })
+    ).resolves.toEqual({ id: 'sess-9', status: 'created' });
+    const call = lastCall();
+    expect(call.url).toBe('http://openwa.test:2785/api/sessions');
+    expect(call.init.method).toBe('POST');
+    expect(call.headers['X-API-Key']).toBe('admin-1');
+    expect(call.body).toEqual({ name: 'wacrm-abc' });
+  });
+
+  it('surfaces a taken name as a 409 OpenWAError', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(409, { statusCode: 409, message: 'Session name taken' })
+    );
+    const err = await createSession({ adminKey: 'a', name: 'dup' }).then(
+      unexpected,
+      asOpenWAError
+    );
+    expect(err.status).toBe(409);
+    expect(err.message).toBe('Session name taken');
+  });
+
+  it('mints an operator key scoped to the one session', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(201, { id: 'key-7', apiKey: 'owa_secret' })
+    );
+    await expect(
+      createScopedKey({ adminKey: 'admin-1', sessionId: 'sess-9' })
+    ).resolves.toEqual({ id: 'key-7', apiKey: 'owa_secret' });
+    const call = lastCall();
+    expect(call.url).toBe('http://openwa.test:2785/api/auth/api-keys');
+    expect(call.body).toEqual({
+      name: 'wacrm-sess-9',
+      role: 'operator',
+      allowedSessions: ['sess-9'],
+    });
+  });
+
+  it('refuses a key response without the key itself', async () => {
+    fetchMock.mockImplementation(async () => json(201, { id: 'key-7' }));
+    const err = await createScopedKey({ adminKey: 'a', sessionId: 's' }).then(
+      unexpected,
+      asOpenWAError
+    );
+    expect(err.status).toBe(502);
+  });
+
+  it('registers the webhook with the four events and the secret', async () => {
+    fetchMock.mockImplementation(async () => json(201, { id: 'wh-1' }));
+    const url = 'http://host.docker.internal:3000/api/whatsapp/openwa/webhook';
+    await createWebhook({
+      adminKey: 'admin-1',
+      sessionId: 'sess-9',
+      url,
+      secret: 'f'.repeat(64),
+    });
+    const call = lastCall();
+    expect(call.url).toBe(
+      'http://openwa.test:2785/api/sessions/sess-9/webhooks'
+    );
+    expect(call.body).toEqual({
+      url,
+      events: [
+        'message.received',
+        'message.ack',
+        'message.failed',
+        'session.status',
+      ],
+      secret: 'f'.repeat(64),
+    });
+  });
+
+  it('starts, logs out, deletes and revokes on the right routes', async () => {
+    fetchMock.mockImplementation(
+      async () => new Response(null, { status: 204 })
+    );
+    const base = 'http://openwa.test:2785/api';
+    await startSession({ adminKey: 'a', sessionId: 'sess-9' });
+    expect(lastCall().url).toBe(`${base}/sessions/sess-9/start`);
+    await logoutSession({ adminKey: 'a', sessionId: 'sess-9' });
+    expect(lastCall().url).toBe(`${base}/sessions/sess-9/logout`);
+    await deleteSession({ adminKey: 'a', sessionId: 'sess-9' });
+    expect(lastCall().init.method).toBe('DELETE');
+    expect(lastCall().url).toBe(`${base}/sessions/sess-9`);
+    await revokeKey({ adminKey: 'a', keyId: 'key-7' });
+    expect(lastCall().url).toBe(`${base}/auth/api-keys/key-7/revoke`);
+    expect(lastCall().init.method).toBe('POST');
+  });
+
+  it('passes on only an image data URL as the QR', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(200, { qrCode: 'data:image/png;base64,AAA', status: 'qr_ready' })
+    );
+    await expect(getQr(creds)).resolves.toEqual({
+      qrCode: 'data:image/png;base64,AAA',
+      status: 'qr_ready',
+    });
+    expect(lastCall().headers['X-API-Key']).toBe('key-1');
+    fetchMock.mockImplementation(async () =>
+      json(200, { qrCode: 'javascript:alert(1)', status: 'qr_ready' })
+    );
+    await expect(getQr(creds)).resolves.toMatchObject({ qrCode: null });
+  });
+
+  it('finds the active keys minted for a session by name', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(200, [
+        { id: 'k1', name: 'wacrm-sess-9', isActive: true },
+        { id: 'k2', name: 'wacrm-sess-9', isActive: false },
+        { id: 'k3', name: 'wacrm-sess-1', isActive: true },
+      ])
+    );
+    await expect(
+      findScopedKeyIds({ adminKey: 'a', sessionId: 'sess-9' })
+    ).resolves.toEqual(['k1']);
   });
 });
