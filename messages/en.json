@@ -491,6 +491,7 @@
       "pinnedTitle": "Pinned: every message in this chat goes out from this number until someone changes it.",
       "metaHint": "Cloud API: free-form replies only within 24h of the customer's last message to this number; otherwise send a template.",
       "whapiHint": "Whapi: free-form messages any time.",
+      "openwaHint": "OpenWA: free-form messages any time.",
       "noNumbers": "You don't have access to any other number.",
       "switchedTo": "This chat now sends from {name}",
       "switchedAuto": "This chat is back to automatic",
@@ -2168,7 +2169,36 @@
       "notLive": "This number is not connected right now.",
       "fixInWhatsApp": "Fix in WhatsApp settings",
       "membersUnavailable": "The member list couldn't be loaded. Reload the page to manage access.",
-      "removeBodyMeta": "Messages stop sending and arriving on this Meta number, and any task routed to it falls back to your default number. Chat history is kept, and its access list is removed. You can reconnect it later in the WhatsApp section."
+      "removeBodyMeta": "Messages stop sending and arriving on this Meta number, and any task routed to it falls back to your default number. Chat history is kept, and its access list is removed. You can reconnect it later in the WhatsApp section.",
+      "openwa": {
+        "connectButton": "Connect with OpenWA",
+        "title": "Connect a number with OpenWA",
+        "desc": "OpenWA runs on your own server and links to WhatsApp on a phone as a linked device, like WhatsApp Web. Name the number, connect, then scan the code with that phone.",
+        "connect": "Connect",
+        "retry": "Try again",
+        "close": "Close",
+        "creating": "Starting a session on the OpenWA server…",
+        "steps": "Open WhatsApp on the phone → Linked devices → Link a device, then scan this code.",
+        "qrAlt": "QR code to link this number to WhatsApp",
+        "connected": "Connected: +{phone}",
+        "connectedNoPhone": "Connected",
+        "notConfigured": "OpenWA isn't set up on this server. An admin must set OPENWA_API_KEY in the server environment and restart the app.",
+        "createFailed": "Couldn't start an OpenWA session.",
+        "notLinked": "The phone wasn't linked ({status}). Try again for a fresh code.",
+        "timedOut": "No phone was linked within 5 minutes. Try again for a fresh code.",
+        "cancelFailed": "Couldn't remove the unfinished OpenWA session: {error}",
+        "notLive": "This number is not linked right now. Disconnect it, then connect it again with OpenWA and scan a new code.",
+        "removeBody": "This logs the phone out of OpenWA, deletes its session on the server and revokes its key. Messages stop sending and arriving on this number. Chat history is kept, and its access list is removed. To use it again, connect it with OpenWA and scan a new code.",
+        "status": {
+          "starting": "Starting…",
+          "scan": "Waiting for the scan",
+          "linking": "Linking the phone…",
+          "ready": "Linked",
+          "disconnected": "Disconnected",
+          "actionRequired": "Needs attention on the phone",
+          "failed": "Failed"
+        }
+      }
     },
     "sections": {
       "overview": "Overview",
@@ -3121,6 +3151,8 @@
         "buttons": "Buttons",
         "meta": "Meta number",
         "whapi": "Whapi number",
+        "openwa": "OpenWA number",
+        "whapiOpenwa": "Whapi / OpenWA number",
         "callButton": "Call Taamul",
         "categories": {
           "MARKETING": "Marketing",
