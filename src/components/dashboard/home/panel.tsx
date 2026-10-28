@@ -86,8 +86,10 @@ export function DashboardPanel({
         className
       )}
     >
-      <header className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+      {/* Wraps rather than squeezing the title: on a phone a range switch
+          or a pair of averages would otherwise cut it to a few letters. */}
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 basis-44 items-center gap-3">
           <div
             className={cn(
               'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',

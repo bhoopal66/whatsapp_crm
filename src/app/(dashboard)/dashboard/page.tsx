@@ -27,7 +27,11 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import { firstName, greetingKey } from '@/lib/dashboard/home/greeting';
-import { fetchMyOpenTasks, fetchOpenCases } from '@/lib/dashboard/home/sources';
+import {
+  fetchMyOpenTasks,
+  fetchOpenCases,
+  HOME_LIST_LIMIT,
+} from '@/lib/dashboard/home/sources';
 import { homeWidgets } from '@/lib/dashboard/home/widgets';
 import { loadCallsBadge } from '@/lib/pbx/calls-badge';
 import { createClient } from '@/lib/supabase/client';
@@ -117,9 +121,19 @@ export default function DashboardPage() {
   );
   // The open missed-call tasks are the badge's rule; once the list is
   // loaded it follows a tick at once.
-  const missedCalls = tasks.data
-    ? tasks.data.filter((t) => t.kind === 'missed_call').length
-    : (callsBadge.data?.missed ?? 0);
+  // From the shared list, so ticking one off moves the tile at once. A
+  // full list may have been cut at the cap: then the badge's exact head
+  // count is the floor.
+  const listedMissed = tasks.data?.filter(
+    (t) => t.kind === 'missed_call'
+  ).length;
+  const badgeMissed = callsBadge.data?.missed ?? 0;
+  const missedCalls =
+    listedMissed === undefined
+      ? badgeMissed
+      : (tasks.data?.length ?? 0) >= HOME_LIST_LIMIT
+        ? Math.max(listedMissed, badgeMissed)
+        : listedMissed;
   const cases = useWidgetData(
     show('cases') && accountId ? `cases:${accountId}:${refreshKey}` : null,
     fetchOpenCases

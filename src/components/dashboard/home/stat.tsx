@@ -49,7 +49,9 @@ export function Stat({
         {value}
       </p>
       {hint && (
-        <p className="text-muted-foreground mt-1.5 truncate text-xs">{hint}</p>
+        <p className="text-muted-foreground mt-1.5 line-clamp-2 text-xs">
+          {hint}
+        </p>
       )}
     </>
   );

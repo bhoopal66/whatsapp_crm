@@ -32,10 +32,14 @@ const OUTGOING_COLOR = 'var(--chart-1)';
 export function MessagesCard({ refreshKey, className }: MessagesCardProps) {
   const t = useTranslations('Dashboard.conversationsChart');
   const [range, setRange] = useState<RangeDays>(30);
-  const w = useWidgetData(`messages:${range}:${refreshKey}`, () =>
-    loadConversationsSeries(createClient(), range)
-  );
-  const data = w.data;
+  const w = useWidgetData(`messages:${range}:${refreshKey}`, async () => ({
+    range,
+    series: await loadConversationsSeries(createClient(), range),
+  }));
+  // Another range's series is not stale data for this one: after a switch
+  // the chart shows a skeleton (or the error) until this range answers,
+  // never the old range's line under the new button.
+  const data = w.data && w.data.range === range ? w.data.series : null;
 
   // Memoise the max so per-day hover math doesn't recompute it.
   const { maxY, niceTicks } = useMemo(() => {
@@ -55,8 +59,8 @@ export function MessagesCard({ refreshKey, className }: MessagesCardProps) {
       subtitle={t('description')}
       icon={MessageSquare}
       className={className}
-      loading={w.loading && !w.data}
-      error={w.error && !w.data}
+      loading={w.loading && !data}
+      error={w.error && !data}
       onRetry={w.reload}
       aside={
         <div className="bg-muted/60 flex items-center gap-1 rounded-lg p-1">
