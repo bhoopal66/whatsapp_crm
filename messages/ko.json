@@ -166,13 +166,53 @@
         "title": "오늘 일정"
       },
       "cases": {
-        "title": "케이스"
+        "title": "케이스",
+        "titleMine": "내 케이스",
+        "titleTeam": "우리 팀 케이스",
+        "titleAll": "진행 중인 전체 케이스",
+        "action": "케이스 열기",
+        "open": "진행 중",
+        "leads": "{count, plural, other {리드 {shown}건}}",
+        "overdue": "SLA 기한 초과",
+        "dueSoon": "기한 임박",
+        "customerWaiting": "고객 대기 중",
+        "documentsMissing": "서류 누락",
+        "bankQueries": "은행 문의",
+        "urgent": "가장 급한 케이스",
+        "byStage": "단계별",
+        "noCustomer": "고객 이름 없음",
+        "noBank": "은행 없음",
+        "empty": "진행 중인 케이스가 없습니다",
+        "emptyHint": "제출 트래커에서 들어오는 새 케이스가 여기에 표시됩니다."
       },
       "calls": {
-        "title": "오늘 통화"
+        "title": "오늘 통화",
+        "action": "통화 보고서",
+        "scope": {
+          "self": "내 통화",
+          "person": "내 통화",
+          "team": "우리 팀 통화",
+          "workspace": "워크스페이스 전체"
+        },
+        "calls": "통화",
+        "answered": "응답",
+        "missed": "부재중",
+        "avgTalk": "평균 통화 시간",
+        "answerRate": "응답률 {rate}",
+        "vsYesterdayUp": "어제보다 +{count}",
+        "vsYesterdayDown": "어제보다 −{count}",
+        "vsYesterdayFlat": "어제와 같음",
+        "noCalls": "오늘은 아직 통화가 없습니다."
       },
       "outreach": {
-        "title": "오늘 시작한 대화"
+        "title": "오늘 시작한 대화",
+        "you": "나",
+        "ofLimit": "새 대화 {started} / {limit}",
+        "noLimit": "{started, plural, other {새 대화 #건}}",
+        "perNumber": "번호별",
+        "warmingUp": "워밍업 중",
+        "unnamed": "전화번호",
+        "blocked": "한도를 넘는 새 대화는 차단됩니다."
       },
       "team": {
         "title": "오늘 팀 활동"

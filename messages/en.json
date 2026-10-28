@@ -166,13 +166,53 @@
         "title": "Today's agenda"
       },
       "cases": {
-        "title": "Cases"
+        "title": "Cases",
+        "titleMine": "My cases",
+        "titleTeam": "My team's cases",
+        "titleAll": "All open cases",
+        "action": "Open cases",
+        "open": "Open",
+        "leads": "{count, plural, one {{shown} lead} other {{shown} leads}}",
+        "overdue": "SLA overdue",
+        "dueSoon": "Due soon",
+        "customerWaiting": "Customer waiting",
+        "documentsMissing": "Documents missing",
+        "bankQueries": "Bank queries",
+        "urgent": "Most urgent",
+        "byStage": "By stage",
+        "noCustomer": "No customer name",
+        "noBank": "No bank",
+        "empty": "No open cases",
+        "emptyHint": "New cases from the submission tracker will show here."
       },
       "calls": {
-        "title": "Calls today"
+        "title": "Calls today",
+        "action": "Call report",
+        "scope": {
+          "self": "Your calls",
+          "person": "Your calls",
+          "team": "Your team's calls",
+          "workspace": "Whole workspace"
+        },
+        "calls": "Calls",
+        "answered": "Answered",
+        "missed": "Missed",
+        "avgTalk": "Avg talk time",
+        "answerRate": "{rate} answer rate",
+        "vsYesterdayUp": "+{count} vs yesterday",
+        "vsYesterdayDown": "−{count} vs yesterday",
+        "vsYesterdayFlat": "Same as yesterday",
+        "noCalls": "No calls yet today."
       },
       "outreach": {
-        "title": "New chats today"
+        "title": "New chats today",
+        "you": "You",
+        "ofLimit": "{started} of {limit} new chats",
+        "noLimit": "{started, plural, one {# new chat} other {# new chats}}",
+        "perNumber": "Per number",
+        "warmingUp": "Warming up",
+        "unnamed": "Phone number",
+        "blocked": "New chats past the limit are refused."
       },
       "team": {
         "title": "Team activity today"
