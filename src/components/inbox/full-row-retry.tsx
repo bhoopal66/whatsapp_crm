@@ -12,13 +12,19 @@ import { cn } from '@/lib/utils';
 export function FullRowRetry({
   onRetry,
   className,
+  announce = true,
 }: {
   onRetry: () => void;
   className?: string;
+  /** False for a second copy on screen, so screen readers hear it once. */
+  announce?: boolean;
 }) {
   const t = useTranslations('Inbox.fullRow');
   return (
-    <p role="status" className={cn('text-muted-foreground text-xs', className)}>
+    <p
+      role={announce ? 'status' : undefined}
+      className={cn('text-muted-foreground text-xs', className)}
+    >
       {t('failed')}{' '}
       <button
         type="button"

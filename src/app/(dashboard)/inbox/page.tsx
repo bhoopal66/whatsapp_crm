@@ -172,7 +172,6 @@ export function InboxPageInner({
   const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   const activeConversation = activeChat?.row ?? null;
   const fullConversation = activeChat?.full ? activeChat.row : null;
-  const activeIsFull = activeChat?.full ?? false;
   // The chat whose full row could not be read after every retry: the
   // sections waiting for it offer a Retry instead of staying busy.
   const [fullRowFailedId, setFullRowFailedId] = useState<string | null>(null);
@@ -811,7 +810,9 @@ export function InboxPageInner({
       // re-read the full row if it never arrived (the click is the
       // agent asking for the rest of the chat).
       if (activeConversation?.id === conv.id) {
-        if (!activeIsFull) void retryFullRow(conv.id);
+        // Only after the retries gave up: while a read is still in
+        // flight, a second click (a double-click) would just race it.
+        if (fullRowFailed) void retryFullRow(conv.id);
         return;
       }
       // Shows the list row now and reads the full row alongside
@@ -854,7 +855,7 @@ export function InboxPageInner({
     },
     [
       activeConversation?.id,
-      activeIsFull,
+      fullRowFailed,
       basePath,
       openConversationById,
       retryFullRow,
@@ -1076,7 +1077,11 @@ export function InboxPageInner({
                 className="border-wa-divider bg-wa-panel h-full w-70 border-l"
               >
                 {fullRowFailed && (
-                  <FullRowRetry onRetry={handleRetryFullRow} className="p-4" />
+                  <FullRowRetry
+                    onRetry={handleRetryFullRow}
+                    className="p-4"
+                    announce={false}
+                  />
                 )}
               </div>
             ) : (

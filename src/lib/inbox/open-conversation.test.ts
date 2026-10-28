@@ -274,7 +274,42 @@ describe('openConversation retries a missed full row', () => {
   });
 });
 
+describe('a duplicate read of one chat', () => {
+  it('drops the older read even when it lands last, after a patch', async () => {
+    const h = harness();
+    void openConversation('a', listRow('a'), h.deps);
+    const read1 = h.pending.get('a')!;
+    // A second read of the same chat (re-read) while the first is out.
+    void rereadFullRow('a', h.deps);
+    const read2 = h.pending.get('a')!;
+    expect(read2).not.toBe(read1);
+    const newer = fullRow('a', { last_message_text: 'second' });
+    read2.resolve(newer);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.active).toEqual({ full: true, row: newer });
+    // Realtime moves the chat on; then the older snapshot finally lands.
+    const patched = patchActiveChat(h.active, 'a', {
+      channel_id: 'ch-2',
+      unread_count: 3,
+    });
+    h.deps.show(patched!);
+    read1.resolve(fullRow('a', { last_message_text: 'first' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.active).toEqual(patched);
+  });
+});
+
 describe('applyFullRow', () => {
+  it('never replaces a chat that already has its full row', () => {
+    const prev: ActiveChat = {
+      full: true,
+      row: fullRow('a', { channel_id: 'ch-2' }),
+    };
+    expect(applyFullRow(prev, fullRow('a', { channel_id: 'ch-1' }))).toBe(prev);
+  });
+
   it('upgrades the same chat and leaves any other untouched', () => {
     const prev: ActiveChat = { full: false, row: listRow('a') };
     expect(applyFullRow(prev, fullRow('a'))).toEqual({

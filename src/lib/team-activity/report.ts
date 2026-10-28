@@ -585,7 +585,6 @@ export function isListedSender(s: SenderActivity): boolean {
   return s.messagesSent > 0 || s.chatsStarted > 0;
 }
 
-/** What to call a number: its label, then the number, then its id. */
 /**
  * Whether a number's card shows the Safety Meter. The meter is Whapi's own
  * risk rating (`getRiskOfBlocking`), and `/api/team-activity/safety` serves
@@ -599,6 +598,7 @@ export function hasSafetyMeter(n: {
   return n.provider === 'whapi' && !!n.channelId;
 }
 
+/** What to call a number: its label, then the number, then its id. */
 export function numberDisplayName(n: {
   label: string | null;
   wabaId: string | null;

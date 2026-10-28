@@ -51,13 +51,20 @@ export type ActiveChat =
  * rather than comparing `updated_at` because a save's patch carries no
  * `updated_at`. A patch older than the snapshot can only be undone by
  * the newer change's own realtime event, which arrives after it.
+ * Patches merge in arrival order, not server order: a save's own result
+ * that lands after a newer realtime change of the same field shows until
+ * the next event for that chat.
  */
 export function applyFullRow(
   prev: ActiveChat | null,
   full: Conversation
 ): ActiveChat | null {
   if (!prev || prev.row.id !== full.id) return prev;
-  if (prev.full || !prev.patched) return { full: true, row: full };
+  // Already full: the first answer won. A second read of the same chat
+  // (a re-click, or away and back) holds an older-or-equal snapshot of
+  // fields realtime has patched since, so it never replaces a full row.
+  if (prev.full) return prev;
+  if (!prev.patched) return { full: true, row: full };
   return { full: true, row: { ...full, ...prev.patched } };
 }
 
@@ -181,10 +188,12 @@ async function readFullRow(
   for (let attempt = 0; ; attempt++) {
     const full = await fetchFull(ticket.id);
     if (full) {
-      // With the chat shown, `upgrade` (applyFullRow) checks the chat
-      // open now, so a superseded read of the same chat still lands.
+      // Only the latest read lands: a superseded one (the agent re-read,
+      // or left and came back) may hold an older snapshot than the read
+      // that replaced it.
+      if (latest.current !== ticket) return;
       if (shown) upgrade(full);
-      else if (latest.current === ticket) show({ full: true, row: full });
+      else show({ full: true, row: full });
       return;
     }
     if (latest.current !== ticket) return;
