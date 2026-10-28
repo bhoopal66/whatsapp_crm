@@ -167,7 +167,7 @@ export function limitNotices(args: {
   starting: boolean;
   day: MyOutreachDay | null;
   channelId: string | null;
-  provider: 'whapi' | 'meta' | null;
+  provider: 'whapi' | 'meta' | 'openwa' | null;
   /** The sending number's whatsapp_config.created_at, for warm-up. */
   numberCreatedAt?: string | null;
   /** Needed with numberCreatedAt (ms). */
@@ -227,7 +227,7 @@ export function outreachNotices(args: {
   day: MyOutreachDay | null;
   /** The number the reply will go out on. */
   channelId: string | null;
-  provider: 'whapi' | 'meta' | null;
+  provider: 'whapi' | 'meta' | 'openwa' | null;
   /** The sending number's created_at, for the warm-up limit (D6). */
   numberCreatedAt?: string | null;
   now: number;

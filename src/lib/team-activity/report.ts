@@ -142,7 +142,7 @@ export interface NumberActivity {
    * they are counted in the report's `unattributedStarts`.
    */
   channelId: string | null;
-  provider: 'whapi' | 'meta' | null;
+  provider: 'whapi' | 'meta' | 'openwa' | null;
   /** 'phone' for a Whapi number, 'official' for the Meta one. */
   kind: NumberKind;
   /** Whole days since the number was connected; null when unknown. */
@@ -341,7 +341,9 @@ function parseNumber(
   now: number | null
 ): NumberActivity {
   const provider =
-    o.provider === 'whapi' || o.provider === 'meta' ? o.provider : null;
+    o.provider === 'whapi' || o.provider === 'meta' || o.provider === 'openwa'
+      ? o.provider
+      : null;
   const kind: NumberKind =
     o.kind === 'official' || o.kind === 'phone'
       ? o.kind
@@ -585,7 +587,7 @@ export function numberDisplayName(n: {
   label: string | null;
   wabaId: string | null;
   phoneNumberId: string | null;
-  provider: 'whapi' | 'meta' | null;
+  provider: 'whapi' | 'meta' | 'openwa' | null;
 }): string | null {
   if (n.label) return n.label;
   // Whapi keeps the connected phone in waba_id; Meta keeps its WABA id

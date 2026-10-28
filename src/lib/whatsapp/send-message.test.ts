@@ -481,6 +481,22 @@ describe('sendMessageToConversation — provider pin', () => {
     expect(captured.message).toBeUndefined();
   });
 
+  it('names OpenWA, not Meta, when a required OpenWA number is missing', async () => {
+    const captured: CapturedWrites = {};
+    await expect(
+      sendMessageToConversation(sendPathDb([], captured), 'acct-1', {
+        conversationId: 'cv-1',
+        messageType: 'text',
+        contentText: 'hi',
+        provider: 'openwa',
+        requireProvider: true,
+      })
+    ).rejects.toMatchObject({
+      code: 'openwa_not_connected',
+      message: 'No OpenWA channel is connected on this account.',
+    });
+  });
+
   it('never writes conversation ownership', async () => {
     const captured: CapturedWrites = {};
     await sendMessageToConversation(sendPathDb([], captured), 'acct-1', {

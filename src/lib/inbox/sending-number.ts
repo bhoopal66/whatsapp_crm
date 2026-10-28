@@ -1,3 +1,5 @@
+import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
+
 /**
  * The number a reply typed in the inbox will go out on, as far as the
  * browser can tell. It is used to warn the agent before they write a
@@ -11,7 +13,8 @@
  *      number the customer last wrote to, which is the number the
  *      server's follow-the-customer rule picks;
  *   3. the account's fallback, like `primaryChannel`: the default
- *      number, then a Whapi one, then the oldest.
+ *      number, then a Whapi one, then any linked device (OpenWA), then
+ *      the oldest.
  *
  * Step 3 is a guess. The server's real answer there also weighs the
  * inbox route and the sender's allocations, which the browser does not
@@ -36,6 +39,7 @@ export function predictSendingNumber<
     byId(conversation.channel_id) ??
     numbers.find((n) => n.is_primary) ??
     numbers.find((n) => n.provider === 'whapi') ??
+    numbers.find((n) => isLinkedDeviceNumber(n.provider)) ??
     numbers[0]
   );
 }

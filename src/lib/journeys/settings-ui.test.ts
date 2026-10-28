@@ -33,6 +33,12 @@ describe('templateChecklist', () => {
       expect(items.some((i) => i.name === name)).toBe(false);
   });
 
+  it('gives an OpenWA number the locally-rendered state, not a Meta review', () => {
+    const items = templateChecklist(DEF, [], ['openwa']);
+    expect(item(items, 'pos_intro_offer').whapi).toBe('missing');
+    expect(item(items, 'pos_intro_offer').meta).toBeUndefined();
+  });
+
   it('carries the category, the buttons and the phone button', () => {
     const items = templateChecklist(DEF, [], ['whapi']);
     expect(item(items, 'pos_intro_offer')).toMatchObject({

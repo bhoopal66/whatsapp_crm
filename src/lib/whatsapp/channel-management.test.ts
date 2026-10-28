@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { isLinkedDeviceProvider } from './channels';
 import {
   MAX_CHANNEL_LABEL_LEN,
   channelDisplayName,
   channelNameWithPhone,
+  isLinkedDeviceNumber,
   normalizeChannelLabel,
+  providerLabel,
   usableNumbers,
   validateIdList,
   validateMemberIds,
@@ -121,6 +124,12 @@ describe('channelNameWithPhone', () => {
     expect(channelNameWithPhone({ ...whapi, waba_id: null })).toBe('whapi 1');
   });
 
+  it('adds the paired phone to an OpenWA number (waba_id is its phone, 144)', () => {
+    expect(channelNameWithPhone({ ...whapi, provider: 'openwa' })).toBe(
+      'whapi 1 · +971558233531'
+    );
+  });
+
   it('never shows a Meta WABA id as a phone', () => {
     expect(
       channelNameWithPhone({
@@ -148,5 +157,19 @@ describe('validateIdList', () => {
     });
     expect(validateIdList(['t1', 2], 'channel_ids').ok).toBe(false);
     expect(validateIdList(null, 'channel_ids').ok).toBe(false);
+  });
+});
+
+describe('browser-safe provider mirrors', () => {
+  it('isLinkedDeviceNumber agrees with isLinkedDeviceProvider', () => {
+    for (const p of ['whapi', 'meta', 'openwa'] as const)
+      expect(isLinkedDeviceNumber(p)).toBe(isLinkedDeviceProvider(p));
+    expect(isLinkedDeviceNumber('something-else')).toBe(false);
+  });
+
+  it('providerLabel names each provider as describeChannel does', () => {
+    expect(providerLabel('whapi')).toBe('Whapi');
+    expect(providerLabel('meta')).toBe('Cloud API');
+    expect(providerLabel('openwa')).toBe('OpenWA');
   });
 });

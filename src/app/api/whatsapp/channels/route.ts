@@ -19,10 +19,11 @@ import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { isBankGuest } from '@/lib/auth/roles';
+import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
 
 interface ChannelListRow {
   id: string;
-  provider: 'whapi' | 'meta';
+  provider: WhatsAppProvider;
   label: string | null;
   phone_number_id: string;
   waba_id: string | null;

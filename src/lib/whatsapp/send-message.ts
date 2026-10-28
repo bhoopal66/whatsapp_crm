@@ -67,6 +67,14 @@ import {
 } from '@/lib/whatsapp/send-origin';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
+
+// The `requireProvider` refusal names the kind the caller asked for. A
+// two-way ternary once called every non-Whapi kind "Meta Cloud API".
+const REQUIRED_PROVIDER_NAMES: Record<WhatsAppProvider, string> = {
+  whapi: 'Whapi',
+  meta: 'Meta Cloud API',
+  openwa: 'OpenWA',
+};
 export const VALID_MESSAGE_TYPES = [
   'text',
   'template',
@@ -525,7 +533,7 @@ export async function sendMessageToConversation(
   ) {
     throw new SendMessageError(
       `${preferredProvider}_not_connected`,
-      `No ${preferredProvider === 'whapi' ? 'Whapi' : 'Meta Cloud API'} channel is connected on this account.`,
+      `No ${REQUIRED_PROVIDER_NAMES[preferredProvider]} channel is connected on this account.`,
       409
     );
   }
