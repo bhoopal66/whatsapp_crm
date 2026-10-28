@@ -145,6 +145,14 @@ describe('GET /api/pbx/calls', () => {
     ]);
   });
 
+  it("carries the PBX's own call id, so a live call can be told apart", async () => {
+    rls.tables.calls.push(call({ pbx_call_id: '1730100000.42' }));
+    const { body } = await get('scope=all');
+    expect(body.calls).toEqual([
+      expect.objectContaining({ id: 'call-1', pbxCallId: '1730100000.42' }),
+    ]);
+  });
+
   it('names everyone a missed call rang, as profiled in this workspace', async () => {
     rls.tables.profiles.push(
       { user_id: 'faisal', account_id: A, full_name: 'Faisal' },

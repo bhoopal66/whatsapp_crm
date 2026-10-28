@@ -8143,5 +8143,64 @@
     "compass": "Compass로 돌아가기",
     "opendesk": "OpenDesk로 돌아가기",
     "settings": "설정으로 돌아가기"
+  },
+  "CallContext": {
+    "history": {
+      "empty": "이 고객과의 이전 통화가 없습니다",
+      "failed": "이전 통화를 불러오지 못했습니다",
+      "allCalls": "고객 페이지에서 모든 통화 보기",
+      "inbound": "수신 통화",
+      "outbound": "발신 통화",
+      "internal": "내부 통화",
+      "answered": "응답함",
+      "missed": "부재중",
+      "notAnswered": "응답 없음",
+      "talk": "통화 {time}"
+    },
+    "tasks": {
+      "title": "진행 중인 작업",
+      "empty": "진행 중인 작업이 없습니다",
+      "failed": "작업을 불러오지 못했습니다",
+      "due": "마감 {when}",
+      "overdue": "기한 지남 · {when}",
+      "noDue": "마감일 없음",
+      "unassigned": "담당자 없음",
+      "markDone": "“{title}” 완료로 표시",
+      "done": "작업을 완료로 표시했습니다",
+      "doneFailed": "작업을 완료로 표시하지 못했습니다",
+      "kinds": {
+        "manual": "작업",
+        "callback": "다시 전화",
+        "missed_call": "부재중 전화",
+        "journey": "여정",
+        "follow_up": "후속 조치"
+      }
+    },
+    "cases": {
+      "title": "케이스",
+      "lead": "리드",
+      "closed": "종료됨",
+      "noBank": "은행 없음"
+    },
+    "followUp": {
+      "title": "후속 연락 알림 설정",
+      "titleLabel": "알림 제목",
+      "titleNamed": "{name}님께 다시 전화",
+      "titleBare": "다시 전화",
+      "in1h": "1시간 후",
+      "in3h": "3시간 후",
+      "tomorrow10": "내일 10:00",
+      "in2days10": "2일 후",
+      "pick": "시간 선택",
+      "pickLabel": "알림 날짜와 시간",
+      "set": "설정",
+      "pickInvalid": "날짜와 시간을 선택하세요",
+      "pickPast": "미래의 시간을 선택하세요",
+      "saved": "{when}에 알림이 설정되었습니다",
+      "undo": "실행 취소",
+      "undone": "알림이 취소되었습니다",
+      "failed": "알림을 설정하지 못했습니다",
+      "undoFailed": "알림을 취소하지 못했습니다"
+    }
   }
 }

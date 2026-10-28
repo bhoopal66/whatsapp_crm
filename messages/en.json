@@ -8143,5 +8143,64 @@
     "compass": "Back to Compass",
     "opendesk": "Back to OpenDesk",
     "settings": "Back to Settings"
+  },
+  "CallContext": {
+    "history": {
+      "empty": "No earlier calls with this customer",
+      "failed": "Couldn't load earlier calls",
+      "allCalls": "All calls on the customer page",
+      "inbound": "Incoming call",
+      "outbound": "Outgoing call",
+      "internal": "Internal call",
+      "answered": "Answered",
+      "missed": "Missed",
+      "notAnswered": "Not answered",
+      "talk": "Talked {time}"
+    },
+    "tasks": {
+      "title": "Open tasks",
+      "empty": "No open tasks",
+      "failed": "Couldn't load tasks",
+      "due": "Due {when}",
+      "overdue": "Overdue · {when}",
+      "noDue": "No due date",
+      "unassigned": "Unassigned",
+      "markDone": "Mark “{title}” done",
+      "done": "Task marked done",
+      "doneFailed": "Couldn't mark the task done",
+      "kinds": {
+        "manual": "Task",
+        "callback": "Call back",
+        "missed_call": "Missed call",
+        "journey": "Journey",
+        "follow_up": "Follow-up"
+      }
+    },
+    "cases": {
+      "title": "Cases",
+      "lead": "Lead",
+      "closed": "Closed",
+      "noBank": "No bank"
+    },
+    "followUp": {
+      "title": "Remind me to follow up",
+      "titleLabel": "Reminder title",
+      "titleNamed": "Call back {name}",
+      "titleBare": "Call back",
+      "in1h": "In 1 hour",
+      "in3h": "In 3 hours",
+      "tomorrow10": "Tomorrow 10:00",
+      "in2days10": "In 2 days",
+      "pick": "Pick a time",
+      "pickLabel": "Reminder date and time",
+      "set": "Set",
+      "pickInvalid": "Pick a date and time",
+      "pickPast": "Pick a time in the future",
+      "saved": "Reminder set for {when}",
+      "undo": "Undo",
+      "undone": "Reminder cancelled",
+      "failed": "Couldn't set the reminder",
+      "undoFailed": "Couldn't cancel the reminder"
+    }
   }
 }
