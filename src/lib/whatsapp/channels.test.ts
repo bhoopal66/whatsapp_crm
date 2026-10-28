@@ -6,7 +6,7 @@ import {
   describeChannel,
   isRoutingSurface,
   loadChannels,
-  loadWhapiChannelsForHealth,
+  loadLinkedChannelsForHealth,
   pickByProvider,
   pickChannelForUser,
   primaryChannel,
@@ -211,12 +211,12 @@ describe('loadChannels', () => {
   });
 });
 
-describe('loadWhapiChannelsForHealth', () => {
+describe('loadLinkedChannelsForHealth', () => {
   function adminDb(rows: unknown[], error: { message: string } | null = null) {
     const filters: Array<[string, unknown]> = [];
     const builder: Record<string, unknown> = {
       select: () => builder,
-      eq: (col: string, value: unknown) => {
+      in: (col: string, value: unknown) => {
         filters.push([col, value]);
         return builder;
       },
@@ -228,21 +228,22 @@ describe('loadWhapiChannelsForHealth', () => {
     };
   }
 
-  it('reads Whapi rows across every account, decrypted', async () => {
+  it('reads Whapi and OpenWA rows across every account, decrypted', async () => {
     const { db, filters } = adminDb([
       row({ id: 'w1', provider: 'whapi', is_primary: true }),
       {
-        ...row({ id: 'w2', provider: 'whapi', is_primary: false }),
+        ...row({ id: 'w2', provider: 'openwa', is_primary: false }),
         account_id: 'acct-2',
       },
     ]);
-    const channels = await loadWhapiChannelsForHealth(db);
+    const channels = await loadLinkedChannelsForHealth(db);
     expect(channels.map((c) => [c.id, c.accountId, c.accessToken])).toEqual([
       ['w1', 'acct-1', 'token-w1'],
       ['w2', 'acct-2', 'token-w2'],
     ]);
-    // Only Whapi, and no account filter — the monitor sweeps the install.
-    expect(filters).toEqual([['provider', 'whapi']]);
+    // Linked devices only (never Meta), and no account filter — the
+    // monitor sweeps the install.
+    expect(filters).toEqual([['provider', ['whapi', 'openwa']]]);
   });
 
   it('skips an undecryptable row instead of failing the sweep', async () => {
@@ -255,7 +256,7 @@ describe('loadWhapiChannelsForHealth', () => {
       }),
       row({ id: 'w2', provider: 'whapi', is_primary: false }),
     ]);
-    const channels = await loadWhapiChannelsForHealth(db);
+    const channels = await loadLinkedChannelsForHealth(db);
     expect(channels.map((c) => c.id)).toEqual(['w2']);
   });
 
@@ -268,12 +269,12 @@ describe('loadWhapiChannelsForHealth', () => {
         access_token: 'garbage',
       }),
     ]);
-    expect(await loadWhapiChannelsForHealth(db)).toEqual([]);
+    expect(await loadLinkedChannelsForHealth(db)).toEqual([]);
   });
 
   it('surfaces a query failure as a typed error', async () => {
     const { db } = adminDb([], { message: 'connection reset' });
-    const err = await loadWhapiChannelsForHealth(db).catch((e) => e);
+    const err = await loadLinkedChannelsForHealth(db).catch((e) => e);
     expect(err).toBeInstanceOf(ChannelError);
     expect(err.message).not.toMatch(/connection reset/);
   });

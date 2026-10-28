@@ -6,7 +6,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('./channels', () => ({
-  loadWhapiChannelsForHealth: async () => h.channels,
+  loadLinkedChannelsForHealth: async () => h.channels,
 }));
 
 import {
@@ -616,5 +616,136 @@ describe('everyInterval', () => {
     // Slack is 5 s at most.
     expect(due(1_000_000 + 59_970 + 54_999)).toBe(false);
     expect(due(1_000_000 + 59_970 + 55_000)).toBe(true);
+  });
+});
+
+describe('OpenWA numbers', () => {
+  const owa = (status: string) => ({ ok: true as const, status });
+  const wa = 'openwa' as const;
+
+  it.each([
+    ['ready', 'disconnected', 'connected', 'up'],
+    ['qr_ready', 'connected', 'disconnected', 'down'],
+    ['disconnected', 'connected', 'disconnected', 'down'],
+    ['failed', 'connected', 'disconnected', 'down'],
+    ['action_required', 'connected', 'disconnected', 'down'],
+  ])('%s from %s moves to %s', (word, prev, next, notify) => {
+    expect(nextHealth(prev, owa(word), wa)).toMatchObject({
+      status: next,
+      notify,
+    });
+  });
+
+  it.each(['created', 'initializing', 'authenticating', 'AUTH', 'QR', 'weird'])(
+    '%s changes nothing',
+    (word) => {
+      for (const prev of ['connected', 'disconnected']) {
+        expect(nextHealth(prev, owa(word), wa)).toMatchObject({
+          status: prev,
+          notify: null,
+          reason: 'inconclusive',
+        });
+      }
+    }
+  );
+
+  it.each([401, 403, 404])('HTTP %i marks it disconnected', (code) => {
+    expect(nextHealth('connected', refused(code), wa)).toMatchObject({
+      status: 'disconnected',
+      notify: 'down',
+      reason: 'token_refused',
+    });
+  });
+
+  it.each([402, 409, 500, 503, null])('HTTP %s changes nothing', (code) => {
+    expect(nextHealth('connected', refused(code), wa)).toMatchObject({
+      status: 'connected',
+      notify: null,
+    });
+  });
+
+  it('keeps Whapi mapping unchanged and separate', () => {
+    expect(nextHealth('connected', up('ready'))).toMatchObject({
+      notify: null,
+    });
+    expect(nextHealth('connected', up('QR'))).toMatchObject({ notify: 'down' });
+    expect(nextHealth('connected', refused(402))).toMatchObject({
+      reason: 'billing',
+    });
+  });
+
+  it('words alerts for OpenWA without Whapi', () => {
+    const ch = { label: null, wabaId: '971581842504', phoneNumberId: 's1' };
+    for (const v of [
+      nextHealth('connected', up('qr_ready'), wa),
+      nextHealth('connected', up('failed'), wa),
+      nextHealth('connected', refused(404), wa),
+      nextHealth('disconnected', up('ready'), wa),
+    ]) {
+      const alert = channelHealthAlert({ ...ch, provider: wa }, v)!;
+      expect(alert.body).not.toMatch(/whapi/i);
+      if (v.notify === 'down') {
+        expect(alert.body).toContain('Settings → WhatsApp by scanning the QR');
+      }
+    }
+  });
+
+  describe('sweep', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const openwaRow = (status: string): WhatsAppChannel => ({
+      ...whapi('o1', status),
+      provider: 'openwa',
+    });
+    const readyProbe = async (): Promise<ChannelProbe> => ({
+      status: 'ready',
+      authorized: true,
+      phone: '971509999999',
+    });
+
+    it('disconnected → connected alerts once and leaves waba_id alone', async () => {
+      h.channels = [openwaRow('disconnected')];
+      const { db, calls } = fakeAdmin({});
+      const summary = await runChannelHealthCheck(db, {
+        probe: readyProbe,
+        now: () => NOW,
+      });
+      expect(summary).toEqual({
+        checked: 1,
+        changed: 1,
+        notified: 1,
+        failed: 0,
+      });
+      expect(calls('whatsapp_config', 'update')).toEqual([
+        [{ status: 'connected', connected_at: NOW.toISOString() }],
+      ]);
+      const [[rows]] = calls('notifications', 'insert') as [
+        [Array<Record<string, unknown>>],
+      ];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].type).toBe('channel_reconnected');
+    });
+
+    it('already connected → no write, no alert', async () => {
+      h.channels = [openwaRow('connected')];
+      const { db, calls } = fakeAdmin({});
+      const summary = await runChannelHealthCheck(db, {
+        probe: readyProbe,
+        now: () => NOW,
+      });
+      expect(summary).toEqual({
+        checked: 1,
+        changed: 0,
+        notified: 0,
+        failed: 0,
+      });
+      expect(calls('whatsapp_config', 'update')).toEqual([]);
+      expect(calls('notifications', 'insert')).toEqual([]);
+    });
   });
 });

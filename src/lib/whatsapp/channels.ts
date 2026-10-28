@@ -235,28 +235,28 @@ export async function loadChannels(
 }
 
 /**
- * Every Whapi number on the install, across all accounts, for the
- * channel health monitor — the one caller with no account to scope to.
+ * Every linked-device number (Whapi and OpenWA) on the install, across
+ * all accounts, for the channel health monitor — the one caller with no account to scope to.
  * Pass the service-role client; under RLS this would see one account.
  *
- * Only Whapi: its linked-device session can be logged out on the phone
- * while the token stays valid, which is exactly what nothing else
- * notices. An undecryptable row is skipped, never fatal — unlike
+ * Only linked-device providers: their session can be logged out on the
+ * phone while the token stays valid, which is exactly what nothing else
+ * notices. Meta has no session to lose, so its row is left out. An undecryptable row is skipped, never fatal — unlike
  * `loadChannels` there is no "every row unreadable" error to surface,
  * because nobody is waiting on this list to send.
  */
-export async function loadWhapiChannelsForHealth(
+export async function loadLinkedChannelsForHealth(
   admin: SupabaseClient
 ): Promise<WhatsAppChannel[]> {
   const { data, error } = await admin
     .from('whatsapp_config')
     .select(CHANNEL_COLUMNS)
-    .eq('provider', 'whapi')
+    .in('provider', ['whapi', 'openwa'])
     .order('created_at', { ascending: true });
 
   if (error) {
     console.error(
-      '[channels] could not load Whapi channels for health:',
+      '[channels] could not load linked channels for health:',
       error
     );
     throw new ChannelError(

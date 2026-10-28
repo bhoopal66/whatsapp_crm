@@ -1,5 +1,5 @@
 // ============================================================
-// Channel health monitor — is each Whapi number still on WhatsApp?
+// Channel health monitor — is each linked number still on WhatsApp?
 //
 // A Whapi channel is a linked device. The phone behind it can drop that
 // link (a logout, a reinstall, "log out from all devices") while the
@@ -15,13 +15,20 @@
 // admin who can *see* "Waiting for QR scan" in Settings still does not
 // know the phone's holder has to act.
 //
+// OpenWA numbers (a self-hosted linked-device gateway) are swept the
+// same way, with their own status words.
+//
 // Meta numbers are not probed: a Cloud API number has no session to
 // lose, and its failures (token, window) surface on the send itself.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { loadWhapiChannelsForHealth, type WhatsAppChannel } from './channels';
+import {
+  loadLinkedChannelsForHealth,
+  type WhatsAppChannel,
+  type WhatsAppProvider,
+} from './channels';
 import { probeChannel, type ChannelProbe } from './provider';
 
 /** What one probe of a number came back with. */
@@ -62,13 +69,46 @@ export interface HealthVerdict {
  */
 export function nextHealth(
   prevStatus: string,
-  probe: ProbeOutcome
+  probe: ProbeOutcome,
+  provider: WhatsAppProvider = 'whapi'
 ): HealthVerdict {
   let status = prevStatus;
   let reason: HealthReason = 'inconclusive';
   let detail: string;
 
-  if (probe.ok) {
+  if (provider === 'openwa') {
+    // OpenWA speaks its own words (ready, qr_ready, …), and a 402 means
+    // nothing there: never let one provider's vocabulary reach the
+    // other's mapping. created / initializing / authenticating, unknown
+    // words and any other failure (5xx, 409, timeouts) change nothing.
+    if (probe.ok) {
+      detail = probe.status;
+      if (probe.status === 'ready') {
+        status = 'connected';
+        reason = 'paired';
+      } else if (
+        probe.status === 'qr_ready' ||
+        probe.status === 'disconnected'
+      ) {
+        status = 'disconnected';
+        reason = 'logged_out';
+      } else if (
+        probe.status === 'failed' ||
+        probe.status === 'action_required'
+      ) {
+        status = 'disconnected';
+        reason = 'error_state';
+      }
+    } else {
+      const code = probe.httpStatus;
+      detail = code === null ? probe.message : `HTTP ${code}`;
+      // 401/403: the API key is refused; 404: the session is gone.
+      if (code === 401 || code === 403 || code === 404) {
+        status = 'disconnected';
+        reason = 'token_refused';
+      }
+    }
+  } else if (probe.ok) {
     detail = probe.status;
     if (probe.status === 'AUTH') {
       status = 'connected';
@@ -92,6 +132,15 @@ export function nextHealth(
     }
   }
 
+  return verdictFor(prevStatus, status, reason, detail);
+}
+
+function verdictFor(
+  prevStatus: string,
+  status: string,
+  reason: HealthReason,
+  detail: string
+): HealthVerdict {
   const notify =
     status === prevStatus
       ? null
@@ -111,7 +160,10 @@ export interface ChannelAlert {
   body: string;
 }
 
-type AlertChannel = Pick<WhatsAppChannel, 'label' | 'wabaId' | 'phoneNumberId'>;
+type AlertChannel = Pick<
+  WhatsAppChannel,
+  'label' | 'wabaId' | 'phoneNumberId'
+> & { provider?: WhatsAppProvider };
 
 /** `Support (…2504)`. `waba_id` holds the display number on a Whapi row. */
 function shortName(channel: AlertChannel): string {
@@ -145,6 +197,8 @@ export function channelHealthAlert(
   verdict: HealthVerdict
 ): ChannelAlert | null {
   const name = shortName(channel);
+
+  if (channel.provider === 'openwa') return openwaAlert(name, verdict);
 
   if (verdict.notify === 'up') {
     return {
@@ -203,6 +257,49 @@ export function channelHealthAlert(
           `WhatsApp. ${until}`,
       };
   }
+}
+
+/** OpenWA's wording: no panel.whapi.cloud, the fix is the QR in Settings. */
+function openwaAlert(
+  name: string,
+  verdict: HealthVerdict
+): ChannelAlert | null {
+  if (verdict.notify === 'up') {
+    return {
+      type: 'channel_reconnected',
+      title: `WhatsApp number ${name} is connected again`,
+      body:
+        'The OpenWA gateway reports it linked and able to send. Messages ' +
+        'customers sent while it was down may be missing from the inbox — ' +
+        'check the phone’s WhatsApp for chats since it dropped, and re-send ' +
+        'any replies that failed (failed replies were not saved).',
+    };
+  }
+  if (verdict.notify !== 'down') return null;
+  const until =
+    'Until then no messages arrive from customers and every reply from this ' +
+    'number fails.';
+  if (verdict.reason === 'token_refused') {
+    return {
+      type: 'channel_disconnected',
+      title: `WhatsApp number ${name} is disconnected`,
+      body:
+        `The OpenWA gateway no longer accepts this number (${verdict.detail}): ` +
+        'its session was deleted or the API key changed. An admin must ' +
+        're-link it in Settings → WhatsApp by scanning the QR. ' +
+        until,
+    };
+  }
+  return {
+    type: 'channel_disconnected',
+    title: `WhatsApp number ${name} is ${
+      verdict.reason === 'logged_out' ? 'logged out' : 'disconnected'
+    }`,
+    body:
+      `The OpenWA gateway reports this number as ${verdict.detail}. An ` +
+      'admin must re-link it in Settings → WhatsApp by scanning the QR, ' +
+      `and whoever holds the phone scans it from WhatsApp → Linked devices. ${until}`,
+  };
 }
 
 /**
@@ -329,7 +426,7 @@ export async function runChannelHealthCheck(
 ): Promise<ChannelHealthSummary> {
   const probe = deps.probe ?? probeChannel;
   const now = deps.now ?? (() => new Date());
-  const channels = await loadWhapiChannelsForHealth(admin);
+  const channels = await loadLinkedChannelsForHealth(admin);
   const summary: ChannelHealthSummary = {
     checked: 0,
     changed: 0,
@@ -347,10 +444,11 @@ export async function runChannelHealthCheck(
           if (!outcome) return;
           summary.checked++;
           // Before any alert, so it names the number now paired.
-          if (outcome.ok) {
+          // Whapi only: its sync write is scoped to provider = 'whapi'.
+          if (outcome.ok && channel.provider === 'whapi') {
             channel = await syncPairedNumber(admin, channel, outcome.phone);
           }
-          const verdict = nextHealth(channel.status, outcome);
+          const verdict = nextHealth(channel.status, outcome, channel.provider);
           if (!verdict.notify) {
             if (verdict.reason === 'inconclusive') {
               console.warn(
