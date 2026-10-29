@@ -592,3 +592,14 @@ jobs:
       # trigger_type CHECK after the swap.
       - name: Verify meaning triggers
         run: supabase db query --local --file supabase/ci/verify-meaning-triggers.sql
+
+      # Migration 153's Customer insights 2.0: agents cannot write the six
+      # new conversations columns and the service role can; closing a
+      # chat, a person's reply and acknowledge_insight_attention() each
+      # clear the attention pin with an insight_attention_cleared note
+      # (closed / reply / handled) while bot and customer messages do
+      # not; the per-message history is read by whoever can see the chat
+      # and written only by the service role; the CHECKs refuse bad
+      # values; the attention switches default to on.
+      - name: Verify insights v2
+        run: supabase db query --local --file supabase/ci/verify-insights-v2.sql
