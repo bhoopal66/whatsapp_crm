@@ -560,8 +560,11 @@ jobs:
       # reopen only through kb_gap_topic_set_status (admin+ of the active
       # account), never a direct write; kb_gap_topics_replace is the
       # service role's alone, swaps an account's topics in one call, and
-      # another account's gap or answer id fails it whole; a deleted gap
-      # drops its member rows, a deleted answer nulls the coverage link.
+      # another account's gap or answer id fails it whole; a p_expected
+      # that no longer matches the topics' statuses (a dismissal made
+      # during a recompute) is refused as STALE and changes nothing; a
+      # deleted gap drops its member rows, a deleted answer nulls the
+      # coverage link.
       - name: Verify knowledge-gap topics
         run: supabase db query --local --file supabase/ci/verify-kb-gap-topics.sql
 
