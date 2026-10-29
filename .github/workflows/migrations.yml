@@ -302,6 +302,13 @@ jobs:
       - name: Verify WhatsApp groups
         run: supabase db query --local --file supabase/ci/verify-whatsapp-groups.sql
 
+      # Group read markers (146): the unread count goes 1 -> 0 on
+      # mark_read; outbound, a left group and another person's marker
+      # never count; mark_read refuses a group the caller cannot see and
+      # never moves back; clients write no marker directly.
+      - name: Verify WhatsApp group reads
+        run: supabase db query --local --file supabase/ci/verify-whatsapp-group-reads.sql
+
       # Submission groups (115): identity frozen, wa_group_id once under a
       # claim, ENDED frozen but for the close bookkeeping; out rows born
       # pending and settled once, post_end set by the trigger; the

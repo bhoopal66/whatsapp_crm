@@ -22,6 +22,7 @@ import {
   shouldSendOnKey,
   statusTick,
 } from '@/lib/groups/group-page';
+import { markGroupRead } from '@/lib/groups/mark-read';
 import type { WhatsappGroupMessageRow } from '@/lib/groups/types';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -82,13 +83,16 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
         if (!live) return;
         setMessages((m) => mergeMessages(m, r.messages));
         setHasMore(r.hasMore);
+        // Opening the group reads it (migration 146): the sidebar's
+        // Groups count drops it.
+        void markGroupRead(groupId);
       })
       .catch(() => live && setFailed(true))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [load]);
+  }, [load, groupId]);
 
   // Realtime: new and updated rows of this group (RLS applies per user).
   useEffect(() => {
@@ -109,6 +113,10 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
           if (payload.eventType === 'DELETE') return;
           const row = payload.new as Msg;
           if (row?.id) setMessages((m) => mergeMessages(m, [row]));
+          // Seen as it arrives, so it does not count as unread.
+          if (payload.eventType === 'INSERT' && row?.direction === 'in') {
+            void markGroupRead(groupId);
+          }
         }
       )
       .subscribe();

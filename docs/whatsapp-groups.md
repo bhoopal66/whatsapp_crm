@@ -45,6 +45,21 @@ group, its members list, managers, invite link and saved messages from
 the CRM for good; nothing happens on WhatsApp (the number is already
 out), and a later Sync does not bring the group back.
 
+## Unread groups
+
+The sidebar's **Groups** item shows how many groups have something new
+for you (migration 146). Each person has their own read marker per
+group; opening a group moves yours to now, and so does a message that
+arrives while you have it open. Someone else reading a group does not
+clear it for you.
+
+The count is the groups you can see in the active workspace, minus
+groups the number has left, that hold an **inbound** message newer than
+your marker. Our own sends never count. A group you have never opened
+counts only for an inbound message from the **last 7 days**, so older
+history does not light up the day this ships or the day you join. The
+count refreshes every minute, and at once when you open a group.
+
 ## Anti-ban pacing
 
 WhatsApp restricts numbers that add people in bulk. Adds are therefore
