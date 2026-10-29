@@ -25,6 +25,7 @@
 
 import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/interactive-limits";
 import { planSetChatTag } from "./chat-tags";
+import { validateIntentTriggerConfig } from "@/lib/insights/meaning-config";
 
 export interface ValidationIssue {
   severity: "error" | "warning";
@@ -38,7 +39,7 @@ export interface ValidationIssue {
 
 interface FlowInput {
   name: string;
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
+  trigger_type: "keyword" | "first_inbound_message" | "manual" | "intent";
   trigger_config: Record<string, unknown>;
   entry_node_id: string | null;
 }
@@ -172,6 +173,16 @@ function validateTrigger(
           message: `${blanks} keyword${blanks === 1 ? " is" : "s are"} blank — they won't match anything.`,
         });
       }
+    }
+  }
+  if (trigger_type === "intent") {
+    for (const i of validateIntentTriggerConfig(trigger_config)) {
+      issues.push({
+        severity: "error",
+        scope: "trigger",
+        field: `trigger_config.${i.field}`,
+        message: i.message,
+      });
     }
   }
   // first_inbound_message / manual have no config; nothing to validate.

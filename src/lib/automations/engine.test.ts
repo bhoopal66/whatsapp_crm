@@ -182,6 +182,13 @@ vi.mock("@/lib/webhooks/ssrf", async (importOriginal) => ({
   safeFetch: vi.fn(async () => new Response(null, { status: 200 })),
 }));
 
+const judge = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/insights/meaning", () => ({
+  judgeMeanings: (...a: unknown[]) =>
+    (judge as unknown as (...x: unknown[]) => unknown)(...a),
+  loadMeaningTurns: async () => [],
+}));
+
 import {
   resolveConversationId,
   runAutomationsForTrigger,
@@ -246,6 +253,60 @@ describe("resolveConversationId — context.conversation_id is not trusted", () 
         context: { conversation_id: "conv-other-contact" },
       })
     ).rejects.toThrow(/no existing conversation/);
+  });
+});
+
+describe("runAutomationsForTrigger — intent_match", () => {
+  const intentAutomation = (id: string, sensitivity?: string) => ({
+    ...automationWithUpdateStep(),
+    id,
+    trigger_type: "intent_match",
+    trigger_config: { description: `Customer means ${id}`, sensitivity },
+  });
+  const run = (context: Record<string, unknown>) =>
+    runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "intent_match",
+      contactId: "c1",
+      context,
+    });
+
+  beforeEach(() => {
+    judge.mockReset();
+    h.state.owned = { id: "c1" };
+    h.state.steps = [updateStep()];
+  });
+
+  it("runs the automations the text means, judged under the message's memo key", async () => {
+    h.state.automations = [intentAutomation("a1", "loose")];
+    judge.mockResolvedValue(new Map([["automation:a1", 0.7]]));
+    await run({ message_text: "can I borrow", message_id: "wamid.1", conversation_id: "cv-1" });
+
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judge.mock.calls[0]![0]).toMatchObject({
+      accountId: ACCOUNT,
+      messageKey: "wamid.1",
+      text: "can I borrow",
+      candidates: [
+        { key: "automation:a1", description: "Customer means a1", threshold: 0.65 },
+      ],
+    });
+    expect(h.state.updateCalls).toHaveLength(1);
+  });
+
+  it("runs nothing the judge did not match", async () => {
+    h.state.automations = [intentAutomation("a1")];
+    judge.mockResolvedValue(new Map());
+    await run({ message_text: "hello", message_id: "wamid.1" });
+    expect(h.state.updateCalls).toHaveLength(0);
+  });
+
+  it("asks nothing without text or a message id", async () => {
+    h.state.automations = [intentAutomation("a1")];
+    await run({ message_text: "hello" });
+    await run({ message_text: "  ", message_id: "wamid.1" });
+    expect(judge).not.toHaveBeenCalled();
+    expect(h.state.updateCalls).toHaveLength(0);
   });
 });
 

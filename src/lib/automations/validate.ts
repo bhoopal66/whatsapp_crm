@@ -2,6 +2,7 @@ import type { AutomationTriggerType } from '@/types'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { TRIGGER_META } from './trigger-meta'
 import { TEAM_CHAT_BODY_MAX } from './team-chat-post'
+import { validateIntentTriggerConfig } from '@/lib/insights/meaning-config'
 
 // ------------------------------------------------------------
 // Pre-flight config validation for automations about to be activated.
@@ -225,6 +226,10 @@ export function validateTriggerForActivation(
         path: 'trigger.match_type',
         message: 'match type must be "exact", "contains" or "word"',
       })
+    }
+  } else if (triggerType === 'intent_match') {
+    for (const i of validateIntentTriggerConfig(cfg)) {
+      issues.push({ path: `trigger.${i.field}`, message: i.message })
     }
   } else if (triggerType === 'time_based') {
     if (!nonEmpty(cfg.schedule)) {

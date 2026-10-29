@@ -48,6 +48,11 @@ import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { ChatTagsPatch } from '@/types';
 import { chatHasChatTag, planSetChatTag } from './chat-tags';
+import { judgeMeanings, loadMeaningTurns } from '@/lib/insights/meaning';
+import {
+  meaningThreshold,
+  type IntentTriggerConfig,
+} from '@/lib/insights/meaning-config';
 import {
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
@@ -385,7 +390,8 @@ async function findEntryFlow(
   db: AdminClient,
   accountId: string,
   message: ParsedInbound,
-  isFirstInbound: boolean
+  isFirstInbound: boolean,
+  conversationId: string
 ): Promise<FlowRow | null> {
   // A tap used to be rejected outright here, on the reasoning that
   // interactive replies are responses to existing prompts. That holds
@@ -429,7 +435,58 @@ async function findEntryFlow(
     }
     // 'manual' triggers do not auto-start from inbound messages.
   }
-  return null;
+
+  // Meaning triggers come last: only when nothing above matched, and
+  // only for typed text (a tap already says what it means, by id).
+  if (message.kind !== 'text' || !message.text.trim()) return null;
+  const intentFlows = typed.filter(
+    (f) => f.trigger_type === 'intent' && f.entry_node_id
+  );
+  if (intentFlows.length === 0) return null;
+  const matched = await judgeMeanings({
+    accountId,
+    messageKey: message.meta_message_id,
+    text: message.text,
+    recentTurns: () => loadMeaningTurns(conversationId, message.text),
+    candidates: intentFlows.map((f) => {
+      const cfg = f.trigger_config as IntentTriggerConfig;
+      return {
+        key: `flow:${f.id}`,
+        description: cfg.description ?? '',
+        examples: cfg.examples,
+        threshold: meaningThreshold(cfg.sensitivity),
+      };
+    }),
+  });
+  return pickIntentFlow(intentFlows, matched);
+}
+
+/**
+ * The intent flow to start: the highest p among those that cleared their
+ * threshold (`matched`, keyed `flow:<id>`); a tie goes to the most
+ * recently updated flow, then the larger id, so the choice never depends
+ * on row order.
+ */
+export function pickIntentFlow(
+  flows: FlowRow[],
+  matched: Map<string, number>
+): FlowRow | null {
+  let best: FlowRow | null = null;
+  let bestP = -1;
+  for (const f of flows) {
+    const p = matched.get(`flow:${f.id}`);
+    if (p === undefined) continue;
+    const newer =
+      best !== null &&
+      p === bestP &&
+      (f.updated_at > best.updated_at ||
+        (f.updated_at === best.updated_at && f.id > best.id));
+    if (p > bestP || newer) {
+      best = f;
+      bestP = p;
+    }
+  }
+  return best;
 }
 
 // ============================================================
@@ -1049,7 +1106,8 @@ export async function dispatchInboundToFlows(
       db,
       input.accountId,
       input.message,
-      input.isFirstInboundMessage
+      input.isFirstInboundMessage,
+      input.conversationId
     );
     if (!flow || !flow.entry_node_id) {
       return { consumed: false, outcome: 'no_match' };

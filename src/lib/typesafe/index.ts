@@ -33,6 +33,7 @@ import { runKbSelect, type KbSelectInput } from './checks/kb-select';
 import { runInsights, type InsightsInput } from './checks/insights';
 import { runReplyClass, type ReplyClassInput } from './checks/reply-class';
 import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
+import { runIntentMatch, type IntentMatchInput } from './checks/intent-match';
 import {
   runComposeCheck,
   type ComposeCheckInput,
@@ -221,6 +222,13 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      */
     composeCheck: (input: ComposeCheckInput) =>
       runComposeCheck({ config, gateway }, input),
+    /**
+     * Meaning triggers (lib/insights/meaning.ts): P(the customer means
+     * each described intent). Not a safety check: no account switch,
+     * policy or log row. Never throws.
+     */
+    intentMatch: (input: IntentMatchInput) =>
+      runIntentMatch({ config, gateway }, input),
   };
 }
 

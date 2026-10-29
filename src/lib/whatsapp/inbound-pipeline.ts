@@ -991,11 +991,15 @@ export async function processMessage(
     | 'new_message_received'
     | 'keyword_match'
     | 'interactive_reply'
+    | 'intent_match'
   )[] = [];
   // Content-level triggers are suppressed when a flow (or a journey)
-  // consumed the message — see the comment block above.
+  // consumed the message — see the comment block above. intent_match
+  // (meaning triggers) is content-level too, and only for typed text: a
+  // tap already says what it means, by id.
   if (!botConsumed) {
     automationTriggers.push('new_message_received', 'keyword_match');
+    if (!interactiveReplyId) automationTriggers.push('intent_match');
     // Interactive tap → fire the interactive_reply trigger too (only
     // meaningful when a button/list reply actually arrived). Enables
     // automation-only chained menus; when a Flow owns the menu it will
@@ -1030,6 +1034,8 @@ export async function processMessage(
       context: {
         message_text: inboundText,
         conversation_id: conversation.id,
+        // intent_match's memo key, shared with the Flows engine.
+        message_id: message.id,
         // Only set on interactive taps; drives the interactive_reply
         // trigger's exact-id match.
         interactive_reply_id: interactiveReplyId ?? undefined,

@@ -66,7 +66,7 @@ import { NODE_META, slugify, type BuilderNode, type NodeType } from "./shared";
 export interface BuilderState {
   name: string;
   description: string;
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
+  trigger_type: "keyword" | "first_inbound_message" | "manual" | "intent";
   trigger_config: Record<string, unknown>;
   entry_node_id: string | null;
   /** What the runner does with an off-script reply (see fallback.ts). */

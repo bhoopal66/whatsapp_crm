@@ -20,6 +20,8 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
+import { judgeMeanings, loadMeaningTurns } from '@/lib/insights/meaning'
+import { meaningThreshold, type IntentTriggerConfig } from '@/lib/insights/meaning-config'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
@@ -49,6 +51,9 @@ export interface AutomationContext {
   agent_id?: string
   /** Button / list-row id the customer tapped, for interactive_reply. */
   interactive_reply_id?: string
+  /** The inbound's gateway message id, for intent_match: the memo key
+   *  that lets Flows and automations share one Jev request. */
+  message_id?: string
   /** The chat's main tag after the change, for chat_tag_set. */
   chat_tag_id?: string | null
   /** The chat's sub-tag after the change, for chat_tag_set. */
@@ -120,8 +125,13 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
     }
     if (!automations || automations.length === 0) return
 
+    const meant =
+      input.triggerType === 'intent_match'
+        ? await judgeIntentAutomations(input, automations as Automation[])
+        : null
+
     for (const automation of automations as Automation[]) {
-      if (!triggerMatches(automation, input.context)) continue
+      if (meant ? !meant.has(`automation:${automation.id}`) : !triggerMatches(automation, input.context)) continue
       try {
         await executeAutomation(automation, input)
       } catch (err) {
@@ -870,6 +880,38 @@ export function matchesWholeWord(
     caseSensitive ? 'u' : 'iu',
   )
   return pattern.test(text)
+}
+
+/**
+ * intent_match: which of these automations the inbound text means
+ * (keys `automation:<id>`, each at or above its own threshold). Shares
+ * the per-message memo with the Flows engine, so one Jev request covers
+ * both. Needs the text and the gateway message id; empty otherwise.
+ */
+async function judgeIntentAutomations(
+  input: DispatchInput,
+  automations: Automation[],
+): Promise<Set<string>> {
+  const text = (input.context?.message_text ?? '').toString()
+  const messageKey = input.context?.message_id
+  const conversationId = input.context?.conversation_id
+  if (!text.trim() || !messageKey) return new Set()
+  const matched = await judgeMeanings({
+    accountId: input.accountId,
+    messageKey,
+    text,
+    recentTurns: conversationId ? () => loadMeaningTurns(conversationId, text) : [],
+    candidates: automations.map((a) => {
+      const cfg = (a.trigger_config ?? {}) as Partial<IntentTriggerConfig>
+      return {
+        key: `automation:${a.id}`,
+        description: typeof cfg.description === 'string' ? cfg.description : '',
+        examples: Array.isArray(cfg.examples) ? cfg.examples : undefined,
+        threshold: meaningThreshold(cfg.sensitivity),
+      }
+    }),
+  })
+  return new Set(matched.keys())
 }
 
 export function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {

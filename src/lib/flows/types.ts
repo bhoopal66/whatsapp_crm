@@ -1,4 +1,7 @@
 import type { WhatsAppProvider } from "@/lib/whatsapp/channels";
+import type { IntentTriggerConfig } from "@/lib/insights/meaning-config";
+
+export type { IntentTriggerConfig };
 
 /**
  * Type definitions for the Flows runtime.
@@ -226,7 +229,11 @@ export type FirstInboundTriggerConfig = Record<string, never>;
 export type FlowTriggerConfig =
   | { trigger_type: "keyword"; config: KeywordTriggerConfig }
   | { trigger_type: "first_inbound_message"; config: FirstInboundTriggerConfig }
-  | { trigger_type: "manual"; config: Record<string, never> };
+  | { trigger_type: "manual"; config: Record<string, never> }
+  /** Starts when Jev judges the customer means `description` (Smart
+   *  insights' meaning triggers); tried only when no keyword or
+   *  first-inbound flow matched. */
+  | { trigger_type: "intent"; config: IntentTriggerConfig };
 
 // ============================================================
 // DB-row shapes (read by the engine via supabaseAdmin)
@@ -243,9 +250,12 @@ export interface FlowRow {
   name: string;
   description: string | null;
   status: "draft" | "active" | "archived";
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
+  trigger_type: "keyword" | "first_inbound_message" | "manual" | "intent";
   trigger_config:
-    KeywordTriggerConfig | FirstInboundTriggerConfig | Record<string, unknown>;
+    | KeywordTriggerConfig
+    | FirstInboundTriggerConfig
+    | IntentTriggerConfig
+    | Record<string, unknown>;
   entry_node_id: string | null;
   fallback_policy: FlowFallbackPolicy;
   execution_count: number;

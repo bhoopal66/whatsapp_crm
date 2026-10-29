@@ -39,6 +39,10 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     label: 'Button / List Reply',
     pillClass: 'border-pink-500/30 bg-pink-500/10 text-pink-700 dark:text-pink-300',
   },
+  intent_match: {
+    label: 'Customer Means',
+    pillClass: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
+  },
 }
 
 export function triggerMeta(t: AutomationTriggerType | string): TriggerMeta {

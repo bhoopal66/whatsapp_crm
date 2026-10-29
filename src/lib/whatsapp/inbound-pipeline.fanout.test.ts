@@ -288,8 +288,22 @@ describe('processMessage — journey bot', () => {
       conversationId: 'conv-1',
       message: { id: 'wamid.over-limit' },
     });
-    expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
+    expect(triggers()).toEqual([
+      'new_message_received',
+      'keyword_match',
+      'intent_match',
+    ]);
     expect(h.ai).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands intent_match the gateway message id as its memo key', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    const call = h.automations.mock.calls.find(
+      (c) => (c[0] as { triggerType: string }).triggerType === 'intent_match'
+    );
+    expect(call?.[0]).toMatchObject({
+      context: { message_id: 'wamid.over-limit', conversation_id: 'conv-1' },
+    });
   });
 
   it('a journey that consumes suppresses content automations and the AI reply', async () => {
@@ -321,7 +335,11 @@ describe('processMessage — journey bot', () => {
     h.journey.mockRejectedValue(new Error('boom'));
     await processMessage(message, 'acct-1', 'owner-1', channel);
 
-    expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
+    expect(triggers()).toEqual([
+      'new_message_received',
+      'keyword_match',
+      'intent_match',
+    ]);
     expect(h.ai).toHaveBeenCalledTimes(1);
     expect(h.webhook).toHaveBeenCalled();
   });

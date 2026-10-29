@@ -726,7 +726,11 @@ export type AutomationTriggerType =
   | 'time_based'
   /** Customer tapped a reply button / list row whose id matches; lets
    *  multi-step menus be chained across automations. */
-  | 'interactive_reply';
+  | 'interactive_reply'
+  /** Jev judges the customer's text means the configured description
+   *  (meaning triggers, `IntentTriggerConfig`); content-level, so it is
+   *  suppressed with `keyword_match` when a Flow consumed the message. */
+  | 'intent_match';
 
 export type AutomationStepType =
   | 'send_message'
