@@ -582,3 +582,10 @@ jobs:
       # conversation_id while the row stays.
       - name: Verify compose check events
         run: supabase db query --local --file supabase/ci/verify-compose-check-events.sql
+
+      # Migration 150's meaning triggers: flows.trigger_type accepts
+      # 'intent' as well as keyword, first_inbound_message and manual,
+      # still refuses an unknown type, and flows carries exactly one
+      # trigger_type CHECK after the swap.
+      - name: Verify meaning triggers
+        run: supabase db query --local --file supabase/ci/verify-meaning-triggers.sql
