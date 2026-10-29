@@ -43,6 +43,7 @@ import {
   type GapTopic,
   type PreviousTopic,
 } from './gap-topics';
+import { getInsightSettings } from '@/lib/insights/settings';
 import { shortlistApprovedAnswers } from './shortlist';
 
 /** At most this many topics (the largest) are judged per run. */
@@ -245,6 +246,9 @@ async function judgeTopics(
   deadlineAt: number
 ): Promise<Judged[]> {
   const out: Judged[] = topics.map(() => UNJUDGED);
+  // Smart insights are opt-in: no customer text goes to Jev unless an
+  // admin switched this on (getInsightSettings never throws).
+  if (!(await getInsightSettings(accountId)).kbGapJudgeEnabled) return out;
   const ts = getDecisionLayer();
   if (!ts || !ts.gateway.hasKey() || !accountEnabled(ts.config, accountId))
     return out;

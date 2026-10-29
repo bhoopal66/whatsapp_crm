@@ -8429,6 +8429,10 @@
       "meaning": {
         "title": "Flows and automations that understand meaning",
         "description": "Let flow and automation triggers match what the customer means, not just exact keywords, and understand typed answers to buttons."
+      },
+      "kbGap": {
+        "title": "Knowledge-gap topics",
+        "description": "Let Jev label recurring unanswered questions and check whether an approved answer already covers them (Settings → AI → Knowledge gaps). Topics still form without it."
       }
     }
   },

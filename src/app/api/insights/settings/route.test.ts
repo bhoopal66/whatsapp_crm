@@ -32,6 +32,7 @@ const row = (extra: Record<string, unknown> = {}) => ({
   reply_interested_tag_id: null,
   compose_check_mode: 'off',
   meaning_triggers_enabled: false,
+  kb_gap_judge_enabled: false,
   updated_at: SAVED_AT,
   updated_by: null,
   ...extra,
@@ -94,6 +95,7 @@ const values = {
   replyInterestedTagId: TAG,
   composeCheckMode: 'warn',
   meaningTriggersEnabled: true,
+  kbGapJudgeEnabled: true,
 };
 
 function put(body: unknown) {

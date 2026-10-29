@@ -25,6 +25,7 @@ const body = (extra: Record<string, unknown> = {}) => ({
   replyInterestedTagId: TAG,
   composeCheckMode: 'warn',
   meaningTriggersEnabled: false,
+  kbGapJudgeEnabled: false,
   expectedUpdatedAt: null,
   ...extra,
 });
@@ -50,6 +51,7 @@ describe('settingsFromRow', () => {
         reply_interested_tag_id: TAG,
         compose_check_mode: 'warn',
         meaning_triggers_enabled: true,
+        kb_gap_judge_enabled: true,
         updated_at: 'v1',
       })
     ).toEqual({
@@ -60,6 +62,7 @@ describe('settingsFromRow', () => {
       replyInterestedTagId: TAG,
       composeCheckMode: 'warn',
       meaningTriggersEnabled: true,
+      kbGapJudgeEnabled: true,
       updatedAt: 'v1',
     });
   });
@@ -111,6 +114,7 @@ describe('rowFromValues', () => {
       reply_interested_tag_id: TAG,
       compose_check_mode: 'warn',
       meaning_triggers_enabled: false,
+      kb_gap_judge_enabled: false,
       updated_by: 'user',
     });
     const values = parsed.value;

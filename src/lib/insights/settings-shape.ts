@@ -30,6 +30,7 @@ export interface InsightSettings {
   replyInterestedTagId: string | null;
   composeCheckMode: ComposeCheckMode;
   meaningTriggersEnabled: boolean;
+  kbGapJudgeEnabled: boolean;
   /** The saved row's version; null when nothing was ever saved. */
   updatedAt: string | null;
 }
@@ -43,6 +44,7 @@ export const INSIGHT_SETTINGS_OFF: InsightSettings = Object.freeze({
   replyInterestedTagId: null,
   composeCheckMode: 'off',
   meaningTriggersEnabled: false,
+  kbGapJudgeEnabled: false,
   updatedAt: null,
 }) as InsightSettings;
 
@@ -56,12 +58,13 @@ export interface InsightSettingsRow {
   reply_interested_tag_id: string | null;
   compose_check_mode: string;
   meaning_triggers_enabled: boolean;
+  kb_gap_judge_enabled: boolean;
   updated_at: string;
   updated_by: string | null;
 }
 
 export const INSIGHT_SETTINGS_COLUMNS =
-  'account_id, signals_enabled, tag_suggest_mode, tag_auto_min_p, reply_class_enabled, reply_interested_tag_id, compose_check_mode, meaning_triggers_enabled, updated_at, updated_by';
+  'account_id, signals_enabled, tag_suggest_mode, tag_auto_min_p, reply_class_enabled, reply_interested_tag_id, compose_check_mode, meaning_triggers_enabled, kb_gap_judge_enabled, updated_at, updated_by';
 
 const isTagSuggestMode = (v: unknown): v is TagSuggestMode =>
   typeof v === 'string' && (TAG_SUGGEST_MODES as string[]).includes(v);
@@ -98,6 +101,7 @@ export function settingsFromRow(
       ? row.compose_check_mode
       : 'off',
     meaningTriggersEnabled: row.meaning_triggers_enabled === true,
+    kbGapJudgeEnabled: row.kb_gap_judge_enabled === true,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
   };
 }
@@ -125,6 +129,7 @@ export function rowFromValues(
     reply_interested_tag_id: v.replyInterestedTagId,
     compose_check_mode: v.composeCheckMode,
     meaning_triggers_enabled: v.meaningTriggersEnabled,
+    kb_gap_judge_enabled: v.kbGapJudgeEnabled,
     updated_by: userId,
   };
 }
@@ -146,6 +151,7 @@ export function parseInsightSettingsPut(
     'signalsEnabled',
     'replyClassEnabled',
     'meaningTriggersEnabled',
+    'kbGapJudgeEnabled',
   ] as const) {
     if (typeof b[key] !== 'boolean')
       return { ok: false, error: `${key} must be true or false` };
@@ -184,6 +190,7 @@ export function parseInsightSettingsPut(
       replyInterestedTagId: tag as string | null,
       composeCheckMode: b.composeCheckMode,
       meaningTriggersEnabled: b.meaningTriggersEnabled as boolean,
+      kbGapJudgeEnabled: b.kbGapJudgeEnabled as boolean,
       expectedUpdatedAt: expected as string | null,
     },
   };
@@ -209,6 +216,7 @@ export function settingsDiffer(
     a.replyClassEnabled !== b.replyClassEnabled ||
     a.replyInterestedTagId !== b.replyInterestedTagId ||
     a.composeCheckMode !== b.composeCheckMode ||
-    a.meaningTriggersEnabled !== b.meaningTriggersEnabled
+    a.meaningTriggersEnabled !== b.meaningTriggersEnabled ||
+    a.kbGapJudgeEnabled !== b.kbGapJudgeEnabled
   );
 }

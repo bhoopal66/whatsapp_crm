@@ -43,6 +43,7 @@ function valuesOf(v: InsightSettingsValues): InsightSettingsValues {
     replyInterestedTagId: v.replyInterestedTagId,
     composeCheckMode: v.composeCheckMode,
     meaningTriggersEnabled: v.meaningTriggersEnabled,
+    kbGapJudgeEnabled: v.kbGapJudgeEnabled,
   };
 }
 
@@ -269,6 +270,20 @@ export function InsightsPanel() {
             onCheckedChange={(v) => set('meaningTriggersEnabled', v)}
             disabled={disabled}
             aria-labelledby="insights-meaning-label"
+          />
+        }
+      />
+
+      <FeatureCard
+        id="insights-kbgap"
+        title={t('kbGap.title')}
+        description={t('kbGap.description')}
+        control={
+          <Switch
+            checked={draft.kbGapJudgeEnabled}
+            onCheckedChange={(v) => set('kbGapJudgeEnabled', v)}
+            disabled={disabled}
+            aria-labelledby="insights-kbgap-label"
           />
         }
       />

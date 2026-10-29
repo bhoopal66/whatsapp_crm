@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS public.ai_insight_settings (
     CONSTRAINT ai_insight_settings_compose_check_mode_check
     CHECK (compose_check_mode IN ('off', 'warn')),
   meaning_triggers_enabled boolean NOT NULL DEFAULT false,
+  kb_gap_judge_enabled     boolean NOT NULL DEFAULT false,
   updated_at               timestamptz NOT NULL DEFAULT now(),
   updated_by               uuid NULL
 );
@@ -94,6 +95,8 @@ COMMENT ON TABLE public.ai_insight_settings IS
   'Smart insights switches, one row per account (migration 147). No row = every feature off. Members read, admins write.';
 COMMENT ON COLUMN public.ai_insight_settings.tag_auto_min_p IS
   'Auto-apply a suggested chat tag only when Jev''s probability is at least this (0.6–0.99), and only on a chat with no tag.';
+COMMENT ON COLUMN public.ai_insight_settings.kb_gap_judge_enabled IS
+  'Jev labels the intent of knowledge-gap topics and checks whether an approved answer covers them; off = topics still form, with no intent and coverage unknown.';
 COMMENT ON COLUMN public.ai_insight_settings.reply_interested_tag_id IS
   'Main chat tag given to a campaign reply Jev sorts as interested; NULL = sort without tagging.';
 

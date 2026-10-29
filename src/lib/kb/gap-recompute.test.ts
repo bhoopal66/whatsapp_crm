@@ -6,10 +6,14 @@ const h = vi.hoisted(() => ({
   layer: null as unknown,
   loadAiConfig: vi.fn(),
   embedTexts: vi.fn(),
+  judgeEnabled: true,
 }));
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => h.db }));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig: h.loadAiConfig }));
 vi.mock('@/lib/ai/embeddings', () => ({ embedTexts: h.embedTexts }));
+vi.mock('@/lib/insights/settings', () => ({
+  getInsightSettings: async () => ({ kbGapJudgeEnabled: h.judgeEnabled }),
+}));
 vi.mock('@/lib/typesafe', async (orig) => ({
   ...(await orig<typeof import('@/lib/typesafe')>()),
   getDecisionLayer: () => h.layer,
@@ -139,6 +143,7 @@ function jev() {
 beforeEach(() => {
   vi.useRealTimers();
   h.layer = null;
+  h.judgeEnabled = true;
   h.loadAiConfig.mockReset().mockResolvedValue(null);
   h.embedTexts.mockReset();
 });
@@ -200,6 +205,18 @@ describe('recomputeKbGapTopics', () => {
         covered_by_entry_id: null,
       });
     expect(rpc.mock.calls.some((c) => c[0] === 'kb_shortlist')).toBe(false);
+  });
+
+  it('asks Jev nothing while the Knowledge-gap switch is off', async () => {
+    const rpc = fakeDb();
+    const sim = jev();
+    h.judgeEnabled = false;
+    const r = await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW });
+    expect(r).toMatchObject({ ok: true, topics: 3, judged: 0 });
+    expect(sim.calls).toHaveLength(0);
+    expect(rpc.mock.calls.some((c) => c[0] === 'kb_shortlist')).toBe(false);
+    for (const t of replaceArgs(rpc).p_topics)
+      expect(t).toMatchObject({ coverage: 'unknown', intent: null });
   });
 
   it('stores coverage unknown when a Jev request fails', async () => {

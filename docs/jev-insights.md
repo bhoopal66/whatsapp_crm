@@ -41,6 +41,7 @@ overwriting their change.
 | Chat tag suggestions                          | **Off**, **Suggest** (a one-click suggestion in the chat header) or **Auto** (also tags untagged chats on its own when Jev is at least the chosen percentage sure). Auto never changes a tag a person set.                                |
 | Campaign reply sorting                        | Sorts replies to a broadcast into interested, question, not now, not interested, wrong person, stop and other; optionally tags interested replies with a chosen main tag.                                                                 |
 | Message check before sending                  | **Off** or **Warn**: agents see a warning before sending a message that promises an approval, quotes an unconfirmed rate, names a bank you don't work with, asks for card details or OTPs, or reads like spam. It never blocks a message. |
+| Knowledge-gap topics                          | Lets Jev label the intent of recurring unanswered questions and check whether an approved answer already covers them. Topics still form without it.                                                                                       |
 | Flows and automations that understand meaning | Lets flow and automation triggers match what the customer means, not only exact keywords, and lets flows understand typed answers to buttons and lists.                                                                                   |
 
 When Jev isn't available for the workspace (no `TYPESAFE_API_KEY`, or
@@ -185,8 +186,8 @@ same name.
   the whole workspace, so offering it again would silently re-target it). Each row shows how many open
   cases hold it, Jev's suggestion ("Under review · 87%", or "No stage change"
   when Jev thinks the status names no stage), **Accept** (saves Jev's stage,
-  recorded as *Suggested by Jev* with its probability), a stage picker with
-  **Save** (recorded as *Set by admin*), and **Leave**, which hides the row
+  recorded as _Suggested by Jev_ with its probability), a stage picker with
+  **Save** (recorded as _Set by admin_), and **Leave**, which hides the row
   until the page is reloaded and saves nothing. "No stage change" has no
   Accept: it is not a mapping, so the status simply stays unmapped.
 - **How suggestions work.** The table paints first; Jev is asked in the
@@ -247,7 +248,8 @@ before) and **Topics**, the default once any topic exists.
   topic's question and opens it in the Answers tab's editor. It only
   goes live once it is approved; closing the editor without saving
   deletes the draft.
-- **Without Jev** topics still form, but carry no coverage badge and no
+- **The Jev labels and coverage need the Knowledge-gap topics switch** in Settings → Smart insights; it is off until an admin turns it on.
+- **Without Jev** (or with the switch off) topics still form, but carry no coverage badge and no
   intent.
 
 ## Privacy

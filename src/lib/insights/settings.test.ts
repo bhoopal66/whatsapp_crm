@@ -29,6 +29,7 @@ const row = (extra: Partial<InsightSettingsRow> = {}): InsightSettingsRow => ({
   reply_interested_tag_id: null,
   compose_check_mode: 'off',
   meaning_triggers_enabled: false,
+  kb_gap_judge_enabled: false,
   updated_at: 'v1',
   updated_by: null,
   ...extra,
