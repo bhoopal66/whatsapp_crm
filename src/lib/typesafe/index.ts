@@ -30,6 +30,7 @@ import { runPassageFilter, type RetrievedPassage } from './checks/passages';
 import { runTriage, type TriageInput } from './checks/triage';
 import { runRoute, type RouteInput } from './checks/route';
 import { runKbSelect, type KbSelectInput } from './checks/kb-select';
+import { runInsights, type InsightsInput } from './checks/insights';
 import type { CheckDeps, Ref } from './checks/common';
 
 export interface DecisionLayerOptions {
@@ -177,6 +178,12 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      * account switch, no policy, no log row. Never throws.
      */
     kbSelect: (input: KbSelectInput) => runKbSelect({ config, gateway }, input),
+    /**
+     * Smart insights (docs/jev-insights.md): customer signals and a
+     * chat-tag suggestion in one request. Not a safety check: no account
+     * switch, policy or log row. Never throws.
+     */
+    insights: (input: InsightsInput) => runInsights({ config, gateway }, input),
   };
 }
 
@@ -244,6 +251,18 @@ export { ROUTE_QS_VERSION, type RouteKind } from './questions/route';
 export type { RouteInput, RouteJudgment } from './checks/route';
 export { KB_SELECT_QS_VERSION } from './questions/kb-select';
 export type { KbSelectInput, KbSelectJudgment } from './checks/kb-select';
+export {
+  INSIGHTS_QS_VERSION,
+  type TagCatalogue,
+  type TagCatalogueMain,
+  type TagCatalogueSub,
+} from './questions/insights';
+export type {
+  InsightsInput,
+  InsightsJudgment,
+  InsightsSignals,
+  TagSuggestion,
+} from './checks/insights';
 export type { TriageDecision, TriageInput } from './checks/triage';
 export type { GuardrailDecision, GuardrailInput } from './checks/guardrail';
 export type { PassageDecision, RetrievedPassage } from './checks/passages';
