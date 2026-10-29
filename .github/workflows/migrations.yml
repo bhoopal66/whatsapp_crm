@@ -564,3 +564,12 @@ jobs:
       # drops its member rows, a deleted answer nulls the coverage link.
       - name: Verify knowledge-gap topics
         run: supabase db query --local --file supabase/ci/verify-kb-gap-topics.sql
+
+      # Migration 148's campaign reply classes: the column-scoped
+      # broadcast_recipients_reply_class_guard keeps reply_class,
+      # reply_class_p and reply_classified_at service-role-only (an
+      # admin can neither insert nor update them) while an admin's
+      # ordinary recipient inserts and status updates still work; the
+      # CHECKs refuse an unknown class or a probability outside 0..1.
+      - name: Verify campaign reply classes
+        run: supabase db query --local --file supabase/ci/verify-campaign-reply-classes.sql
