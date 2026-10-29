@@ -249,8 +249,9 @@ recorded as `replied`, "Sensitive-data warning sent".
 
 ## Translate (migration 154)
 
-Two inbox buttons use the same AI key as the bot and **Draft with AI**,
-and work only while AI is switched on in Settings → AI Agents.
+Two inbox buttons use the same AI key as the bot and **Draft with AI**.
+A new translation needs AI switched on in Settings → AI Agents; a saved
+one (below) still shows while it is off, since it spends nothing.
 
 - **Translate** shows under a customer's text message, or photo or video
   caption, written in Arabic: at least two Arabic letters, making up at

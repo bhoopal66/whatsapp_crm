@@ -25,9 +25,9 @@ is not logged.
 - **Translate to Arabic** in the composer, next to the attachment and
   template buttons, turns what you typed into Arabic in the input box,
   ready to edit and send, with **Undo**.
-- Both use the workspace's own AI key (Settings → AI Agents) and work
-  only while AI is switched on there. Token use shows as **Translations**
-  in AI usage. See `docs/ai-agent.md`.
+- Both use the workspace's own AI key (Settings → AI Agents); a new
+  translation needs AI switched on there. Token use shows as
+  **Translations** in AI usage. See `docs/ai-agent.md`.
 
 ### Customer insights 2.0: colour codes and chats pinned until someone acts
 
