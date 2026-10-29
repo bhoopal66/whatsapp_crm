@@ -54,11 +54,20 @@ arrives while you have it open. Someone else reading a group does not
 clear it for you.
 
 The count is the groups you can see in the active workspace, minus
-groups the number has left, that hold an **inbound** message newer than
-your marker. Our own sends never count. A group you have never opened
-counts only for an inbound message from the **last 7 days**, so older
-history does not light up the day this ships or the day you join. The
-count refreshes every minute, and at once when you open a group.
+groups the number has left, that hold an **inbound** message that
+arrived after your marker. Our own sends never count. A group you have
+never opened counts only for an inbound message that arrived in the
+**last 7 days**, so older history does not light up the day this ships
+or the day you join. The count refreshes every minute, and at once when
+you open a group.
+
+"Arrived" is when the CRM received the message
+(`whatsapp_group_messages.received_at`), not the time WhatsApp says it
+was sent (`created_at`, which the chat shows). A message sent before you
+opened the group but delivered after it (the phone was offline, the
+gateway was catching up) still counts, and a sender whose clock runs
+ahead does not re-light a group you just opened. Messages stored before
+migration 146 count as arriving when they were sent.
 
 ## Anti-ban pacing
 

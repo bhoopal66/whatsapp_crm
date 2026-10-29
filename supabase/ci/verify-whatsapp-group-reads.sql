@@ -2,15 +2,19 @@
 --
 -- whatsapp_group_unread_count() counts the groups of the active
 -- workspace the caller sees (114's whatsapp_group_visible_ids), not
--- left, holding an inbound message newer than the caller's marker; a
--- group with no marker reads as read up to 7 days ago.
--- whatsapp_group_mark_read() moves the caller's marker forward and
+-- left, holding an inbound message that arrived (received_at) after the
+-- caller's marker; a group with no marker reads as read up to 7 days
+-- ago. whatsapp_group_mark_read() moves the caller's marker forward and
 -- refuses a group they cannot see. This asserts: the count goes 1 -> 0
--- on mark_read and back to 1 on a newer inbound; an outbound message,
+-- on mark_read and back to 1 on a later inbound; an outbound message,
 -- a left group and an inbound older than 7 days with no marker never
 -- count; another person's marker does not clear mine; mark_read refuses
 -- a group the caller cannot see and never moves a marker back; clients
--- read only their own markers and write none; grants and forced RLS.
+-- read only their own markers and write none; the count compares the
+-- arrival time, not WhatsApp's send time (created_at), both ways; a
+-- team leader counts their team's groups and not another team's; a
+-- live row in a workspace the person is not active in counts nothing
+-- and cannot be marked; grants and forced RLS.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -20,15 +24,29 @@
 -- every write while the collected results (plpgsql variables) survive.
 --
 -- now() is frozen for the whole transaction, so mark_read stamps the
--- same instant every time here; messages "after" a read are inserted
--- with created_at in the future.
+-- same instant every time here, and a message inserted afterwards gets
+-- that same received_at. To have a message arrive after a read, the
+-- marker is first moved one second back (the open happened a moment
+-- earlier). Fixture messages meant to be old carry received_at =
+-- created_at, as 146's backfill gives existing rows.
 
 DO $verify$
 DECLARE
   u_owner UUID := '00000000-0000-4000-8000-000000146001';
   u_admin UUID := '00000000-0000-4000-8000-000000146002';
-  u_maker UUID := '00000000-0000-4000-8000-000000146003';  -- agent, creates every group
+  u_maker UUID := '00000000-0000-4000-8000-000000146003';  -- agent, creates g1..go
   u_out   UUID := '00000000-0000-4000-8000-000000146004';  -- agent, sees no group
+  u_ab    UUID := '00000000-0000-4000-8000-000000146005';  -- agent, creates ga (check a)
+  u_ab2   UUID := '00000000-0000-4000-8000-000000146009';  -- agent, creates gb (check b)
+  u_lead  UUID := '00000000-0000-4000-8000-000000146006';  -- leads u_maker's team
+  u_other UUID := '00000000-0000-4000-8000-000000146007';  -- agent in another team
+  u_multi UUID := '00000000-0000-4000-8000-000000146008';  -- admin row in A, active in B
+  b_acct  UUID;
+  t1      UUID;
+  t2      UUID;
+  ga      UUID;  -- sent an hour before the open, arrives after it
+  gb      UUID;  -- sender clock an hour ahead, arrives before the open
+  gx      UUID;  -- another team's group
   a_acct  UUID;
   w1      UUID;
   g1      UUID;  -- inbound an hour ago: unread
@@ -100,6 +118,8 @@ BEGIN
     (a_acct, g2, 'wr-m2', 'out', 'two', now() - interval '1 hour'),
     (a_acct, gl, 'wr-m3', 'in', 'left', now() - interval '1 hour'),
     (a_acct, go, 'wr-m4', 'in', 'old', now() - interval '10 days');
+  UPDATE whatsapp_group_messages SET received_at = created_at
+   WHERE wa_message_id IN ('wr-m1', 'wr-m2', 'wr-m3', 'wr-m4');
 
   -- ---------- the count before anyone reads ----------
   -- Only g1: g2 is outbound, gl is left, go is older than 7 days.
@@ -136,13 +156,15 @@ BEGIN
   IF r <> '1' THEN failed := array_append(failed, ('the creator''s read cleared the admin''s count: ' || r)::text); END IF;
 
   -- ---------- after the read: outbound never counts, inbound does ----------
-  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body, created_at)
-  VALUES (a_acct, g1, 'wr-m5', 'out', 'our reply', now() + interval '1 minute');
+  UPDATE whatsapp_group_reads SET last_read_at = now() - interval '1 second'
+   WHERE group_id = g1 AND user_id = u_maker;
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body)
+  VALUES (a_acct, g1, 'wr-m5', 'out', 'our reply');
   r := pg_temp.wr_try(u_maker, 'SELECT whatsapp_group_unread_count()::text');
   n := n + 1;
   IF r <> '0' THEN failed := array_append(failed, ('an outbound message after the read counted: ' || r)::text); END IF;
-  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body, created_at)
-  VALUES (a_acct, g1, 'wr-m6', 'in', 'their reply', now() + interval '2 minutes');
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body)
+  VALUES (a_acct, g1, 'wr-m6', 'in', 'their reply');
   r := pg_temp.wr_try(u_maker, 'SELECT whatsapp_group_unread_count()::text');
   n := n + 1;
   IF r <> '1' THEN failed := array_append(failed, ('an inbound message after the read did not count: ' || r)::text); END IF;
@@ -174,6 +196,94 @@ BEGIN
   r := pg_temp.wr_try(u_maker, format('DELETE FROM whatsapp_group_reads WHERE group_id = %L', g1));
   n := n + 1;
   IF r NOT LIKE 'ERROR 42501%' THEN failed := array_append(failed, ('a client deleted a marker: ' || r)::text); END IF;
+
+  -- ---------- arrival time, not WhatsApp's send time ----------
+  INSERT INTO auth.users (id, email) VALUES
+    (u_ab,    'wr-ab@example.invalid'),
+    (u_ab2,   'wr-ab2@example.invalid'),
+    (u_lead,  'wr-lead@example.invalid'),
+    (u_other, 'wr-other@example.invalid'),
+    (u_multi, 'wr-multi@example.invalid')
+  ON CONFLICT DO NOTHING;
+  UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_ab, u_ab2, u_other);
+  UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id = u_lead;
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role)
+  VALUES (a_acct, w1, '120363000000146005@g.us', 'WR late', u_ab, 'admin') RETURNING id INTO ga;
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role)
+  VALUES (a_acct, w1, '120363000000146006@g.us', 'WR ahead', u_ab2, 'admin') RETURNING id INTO gb;
+  -- One creator per group, so each count below is about one group.
+
+  -- (b) A sender clock an hour ahead: the message arrives, then the
+  -- group is opened. It counts until the open and not after.
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body, created_at)
+  VALUES (a_acct, gb, 'wr-m7', 'in', 'from the future', now() + interval '1 hour');
+  r := pg_temp.wr_try(u_ab2, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('(b) a message sent "ahead" did not count before the read: ' || r)::text); END IF;
+  r := pg_temp.wr_try(u_ab2, format('SELECT whatsapp_group_mark_read(%L)::text', gb));
+  r := pg_temp.wr_try(u_ab2, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('(b) a message sent "ahead" still counts after the read: ' || r)::text); END IF;
+
+  -- (a) Sent an hour before the open, arriving after it (phone offline,
+  -- gateway backlog): received_at takes its default and it counts.
+  r := pg_temp.wr_try(u_ab, format('SELECT whatsapp_group_mark_read(%L)::text', ga));
+  UPDATE whatsapp_group_reads SET last_read_at = now() - interval '1 second'
+   WHERE group_id = ga AND user_id = u_ab;
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body, created_at)
+  VALUES (a_acct, ga, 'wr-m8', 'in', 'late arrival', now() - interval '1 hour');
+  n := n + 1;
+  IF (SELECT received_at FROM whatsapp_group_messages WHERE wa_message_id = 'wr-m8') IS DISTINCT FROM now() THEN
+    failed := array_append(failed, '(a) received_at did not default to now()'::text);
+  END IF;
+  r := pg_temp.wr_try(u_ab, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('(a) a message sent before the read but arriving after it did not count: ' || r)::text); END IF;
+
+  -- ---------- (c) a team leader: their team's groups, not another team's ----------
+  INSERT INTO teams (account_id, name, leader_user_id) VALUES (a_acct, 'WR team', u_lead) RETURNING id INTO t1;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (t1, u_maker, a_acct);
+  INSERT INTO teams (account_id, name) VALUES (a_acct, 'WR other team') RETURNING id INTO t2;
+  INSERT INTO team_members (team_id, user_id, account_id) VALUES (t2, u_other, a_acct);
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role)
+  VALUES (a_acct, w1, '120363000000146007@g.us', 'WR other', u_other, 'admin') RETURNING id INTO gx;
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, body)
+  VALUES (a_acct, gx, 'wr-m9', 'in', 'other team');
+  r := pg_temp.wr_try(u_other, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('(c) the other team''s creator does not count their group: ' || r)::text); END IF;
+  -- g1 (u_maker's; wr-m6 is unread for the leader) and nothing of gx.
+  r := pg_temp.wr_try(u_lead, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '1' THEN failed := array_append(failed, ('(c) the leader''s count is not 1 (their member''s group): ' || r)::text); END IF;
+  r := pg_temp.wr_try(u_lead, format('SELECT whatsapp_group_mark_read(%L)::text', g1));
+  n := n + 1;
+  IF r <> 'ok' THEN failed := array_append(failed, ('(c) the leader could not mark their member''s group read: ' || r)::text); END IF;
+  r := pg_temp.wr_try(u_lead, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('(c) another team''s group counts for the leader: ' || r)::text); END IF;
+  r := pg_temp.wr_try(u_lead, format('SELECT whatsapp_group_mark_read(%L)::text', gx));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := array_append(failed, ('(c) the leader marked another team''s group read: ' || r)::text); END IF;
+
+  -- ---------- (d) a live row in A while active in B ----------
+  -- u_multi's own account (B) stays active; the A row is an inactive admin.
+  SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_multi;
+  IF b_acct IS NULL OR b_acct = a_acct THEN
+    RAISE EXCEPTION 'fixture: auth.users trigger did not provision a second account';
+  END IF;
+  INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
+  VALUES (u_multi, '', 'wr-multi@example.invalid', a_acct, 'admin', false);
+  r := pg_temp.wr_try(u_multi, 'SELECT whatsapp_group_unread_count()::text');
+  n := n + 1;
+  IF r <> '0' THEN failed := array_append(failed, ('(d) groups of a workspace the person is not active in count: ' || r)::text); END IF;
+  r := pg_temp.wr_try(u_multi, format('SELECT whatsapp_group_mark_read(%L)::text', g1));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501%' THEN failed := array_append(failed, ('(d) mark_read accepted a group of a workspace the person is not active in: ' || r)::text); END IF;
+  n := n + 1;
+  IF EXISTS (SELECT 1 FROM whatsapp_group_reads WHERE user_id = u_multi) THEN
+    failed := array_append(failed, '(d) a refused mark_read left a marker'::text);
+  END IF;
 
   -- ---------- grants and forced RLS ----------
   n := n + 1;
