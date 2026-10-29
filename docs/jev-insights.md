@@ -144,7 +144,31 @@ match no stage, so those cases stopped moving. The card lets an admin say
 
 ## Knowledge gaps
 
-<!-- section: I -->
+Settings → AI Agents → Knowledge → **Unanswered questions** has two
+views: **All questions** (every question the bot could not answer, as
+before) and **Topics**, the default once any topic exists.
+
+- **A topic** is a group of similar unanswered questions, shown by one
+  representative question with how many questions it holds, when it was
+  last asked, and up to three other ways it was asked. Grouping is by
+  meaning when the account has an embeddings key, else by word overlap.
+- **Coverage** says whether an approved answer already covers the
+  topic: _No answer yet_, _Partly answered by …_ or _Answered by …_.
+  An answered topic can still be handed off: the answer may not be
+  approved yet, or may score below the approved-answer floor for a
+  given wording. Jev also labels the topic's intent (POS machine,
+  business loan, …).
+- **Dismiss** hides a topic you do not mean to answer; **Reopen** brings
+  it back. A dismissed topic stays dismissed when the questions are
+  regrouped, unless 5 or more new questions arrive in it.
+- Topics are **recomputed daily**. **Refresh** recomputes now, at most
+  once every 10 minutes per workspace.
+- **Write an approved answer** creates a draft approved answer with the
+  topic's question and opens it in the Answers tab's editor. It only
+  goes live once it is approved; closing the editor without saving
+  deletes the draft.
+- **Without Jev** topics still form, but carry no coverage badge and no
+  intent.
 
 ## Privacy
 

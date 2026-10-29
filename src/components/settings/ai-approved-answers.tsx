@@ -62,6 +62,11 @@ import {
   type KbStatusTone,
 } from '@/lib/kb/panel';
 import {
+  draftToDiscard,
+  withRequestedEntry,
+  type GapAnswerRequest,
+} from '@/lib/kb/gap-answer-request';
+import {
   clientReadiness,
   isKbWorkbookName,
   kbEntryMatches,
@@ -106,11 +111,19 @@ function StatusPill({ status }: { status: KbStatus }) {
 export function AiApprovedAnswers({
   accountId,
   canEdit,
+  answerRequest,
+  onAnswerRequestHandled,
 }: {
   accountId: string | null;
   canEdit: boolean;
+  /** A draft the knowledge-gap Topics view just created: open the
+   *  editor on it. Cleared by the host through the callback, so coming
+   *  back to this tab later does not reopen it. */
+  answerRequest?: GapAnswerRequest<KbEntry> | null;
+  onAnswerRequestHandled?: () => void;
 }) {
   const t = useTranslations('AiApprovedAnswers');
+  const tk = useTranslations('KnowledgeGaps');
   const [entries, setEntries] = useState<KbEntry[]>([]);
   const [imports, setImports] = useState<KbImportRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,6 +137,10 @@ export function AiApprovedAnswers({
   const [editing, setEditing] = useState<KbEntry | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
+  // The draft the Topics hand-off created, while its dialog is open and
+  // nothing has been saved: closing the dialog deletes it.
+  const pendingDraftRef = useRef<string | null>(null);
+  const handledNonceRef = useRef<number | null>(null);
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
@@ -149,6 +166,19 @@ export function AiApprovedAnswers({
     setLastImport(null);
     void fetchEntries();
   }, [accountId, fetchEntries]);
+
+  useEffect(() => {
+    if (!answerRequest || handledNonceRef.current === answerRequest.nonce) {
+      return;
+    }
+    handledNonceRef.current = answerRequest.nonce;
+    const { entry } = answerRequest;
+    // The list may have loaded before the row existed.
+    setEntries((list) => withRequestedEntry(list, entry));
+    pendingDraftRef.current = entry.id;
+    setEditing(entry);
+    onAnswerRequestHandled?.();
+  }, [answerRequest, onAnswerRequestHandled]);
 
   // Counted from the list rather than the GET's `summary`, so an edit
   // or delete updates the strip without a reload.
@@ -185,17 +215,44 @@ export function AiApprovedAnswers({
     }
   };
 
+  const discardDraft = async (id: string) => {
+    try {
+      const res = await fetch(`/api/ai/kb/${id}`, { method: 'DELETE' });
+      if (res.ok || res.status === 404) {
+        setEntries((list) => list.filter((e) => e.id !== id));
+        return;
+      }
+    } catch {
+      // fall through to the toast
+    }
+    toast.error(tk('draftDiscardFailed'));
+  };
+
+  // Closed without a save (cancel, Esc, or Save with nothing changed):
+  // a hand-off draft is deleted, so cancelling leaves no empty row.
+  const closeEditing = () => {
+    const discard = draftToDiscard(
+      pendingDraftRef.current,
+      editing?.id ?? null
+    );
+    pendingDraftRef.current = null;
+    setEditing(null);
+    if (discard) void discardDraft(discard);
+  };
   const onSaved = (entry: KbEntry) => {
+    pendingDraftRef.current = null;
     setEntries((list) => list.map((e) => (e.id === entry.id ? entry : e)));
     setEditing(null);
   };
   const onDeleted = (id: string) => {
+    pendingDraftRef.current = null;
     setEntries((list) => list.filter((e) => e.id !== id));
     setEditing(null);
   };
   // The row changed since the dialog opened (a 409): close it and load
   // the current rows, so nobody approves text they have not seen.
   const onStale = () => {
+    pendingDraftRef.current = null;
     setEditing(null);
     void fetchEntries();
   };
@@ -415,7 +472,7 @@ export function AiApprovedAnswers({
           key={editing.id}
           entry={editing}
           canEdit={canEdit}
-          onClose={() => setEditing(null)}
+          onClose={closeEditing}
           onSaved={onSaved}
           onDeleted={onDeleted}
           onStale={onStale}

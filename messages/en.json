@@ -8489,7 +8489,51 @@
     }
   },
   "KnowledgeGaps": {
-    "_": ""
+    "viewLabel": "Show",
+    "viewTopics": "Topics",
+    "viewQuestions": "All questions",
+    "loading": "Loading topics…",
+    "loadFailed": "Failed to load topics",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…",
+    "refreshRecently": "Refreshed recently — try again in a few minutes",
+    "refreshFailed": "Failed to refresh topics",
+    "updated": "Updated {when}",
+    "neverUpdated": "Not grouped yet",
+    "empty": "No recurring questions yet",
+    "emptyHint": "Similar unanswered questions are grouped into topics once a day. Refresh groups them now.",
+    "allDismissed": "Every topic is dismissed.",
+    "questionCount": "{count, plural, one {# question} other {# questions}}",
+    "lastSeen": "last seen {when}",
+    "examples": "{count, plural, one {Also asked # other way} other {Also asked # other ways}}",
+    "coverage": {
+      "none": "No answer yet",
+      "partial": "Partly answered by {entry}",
+      "partialUnknown": "Partly answered",
+      "full": "Answered by {entry}",
+      "fullUnknown": "Answered",
+      "fullHint": "The bot may still hand this off if the answer isn't approved or scores below the floor"
+    },
+    "write": "Write an approved answer",
+    "writeFailed": "Couldn't start an answer",
+    "dismiss": "Dismiss",
+    "reopen": "Reopen",
+    "updateFailed": "Failed to update topic",
+    "changed": "That topic has changed — reloaded",
+    "dismissedGroup": "Dismissed ({count})",
+    "draftDiscardFailed": "Couldn't remove the unsaved draft — delete it from the list",
+    "intent": {
+      "account_opening": "Business bank account",
+      "pos_terminal": "POS machine",
+      "business_loan": "Business loan",
+      "trade_working_capital": "Trade / working capital",
+      "application_status": "Application status",
+      "other_banking": "Other banking",
+      "complaint": "Complaint",
+      "smalltalk": "Small talk",
+      "unclear": "Unclear",
+      "other_request": "Other request"
+    }
   },
   "LeadScore": {
     "_": ""

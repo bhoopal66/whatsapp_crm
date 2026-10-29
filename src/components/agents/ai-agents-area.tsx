@@ -27,6 +27,11 @@ import { ScrollFadeRow } from '@/components/ui-ext/scroll-fade-row';
 import { AiActivityCard } from '@/components/settings/ai-activity';
 import { AiApprovedAnswers } from '@/components/settings/ai-approved-answers';
 import {
+  nextGapAnswerRequest,
+  type GapAnswerRequest,
+} from '@/lib/kb/gap-answer-request';
+import type { KbEntry } from '@/lib/kb/types';
+import {
   AiSafetyPanel,
   effectiveState,
 } from '@/components/settings/ai-safety-panel';
@@ -112,6 +117,18 @@ export function AiAgentsArea({
   const role = profileLoading ? null : accountRole;
   const canViewUsage = role ? canEditSettings(role) : false;
   const canViewSafety = canOpenSection('ai', role);
+  // "Write an approved answer" on a knowledge-gap topic (Knowledge tab)
+  // opens the Answers tab's editor on the draft it created.
+  const [answerRequest, setAnswerRequest] =
+    useState<GapAnswerRequest<KbEntry> | null>(null);
+  const writeAnswer = useCallback(
+    (entry: KbEntry) => {
+      setAnswerRequest((prev) => nextGapAnswerRequest(prev, entry));
+      onTabChange('answers');
+    },
+    [onTabChange]
+  );
+  const clearAnswerRequest = useCallback(() => setAnswerRequest(null), []);
 
   // The safety settings: loaded here for the Overview and the tab dot,
   // then kept current by the panel's own loads and saves.
@@ -266,11 +283,16 @@ export function AiAgentsArea({
       </TabsContent>
       <TabsContent value="knowledge" className="mt-4">
         <FormTab form={form}>
-          <KnowledgeSection form={form} />
+          <KnowledgeSection form={form} onWriteAnswer={writeAnswer} />
         </FormTab>
       </TabsContent>
       <TabsContent value="answers" className="mt-4">
-        <AiApprovedAnswers accountId={form.accountId} canEdit={form.canEdit} />
+        <AiApprovedAnswers
+          accountId={form.accountId}
+          canEdit={form.canEdit}
+          answerRequest={answerRequest}
+          onAnswerRequestHandled={clearAnswerRequest}
+        />
       </TabsContent>
       <TabsContent value="safety" className="mt-4">
         <AiSafetyPanel

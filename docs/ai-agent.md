@@ -191,6 +191,13 @@ For each message the bot is allowed to answer, in order:
 The guardrail does not run on approved answers: it screens text a model
 wrote, and these were approved word for word.
 
+**Knowledge gaps become topics.** The questions logged as gaps are
+grouped into topics (Knowledge tab → Unanswered questions → Topics),
+each marked with whether an approved answer covers it. **Write an
+approved answer** on a topic starts a draft in the Answers tab's
+editor; it is sent only once approved. See `docs/jev-insights.md`,
+Knowledge gaps.
+
 Every doubt ends with a person, with the configured hand-off message:
 
 | Situation                                                   | Hand-off reason |

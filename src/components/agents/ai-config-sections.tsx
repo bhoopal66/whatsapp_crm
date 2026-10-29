@@ -39,6 +39,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { AiKnowledgeCard } from '@/components/settings/ai-knowledge';
 import { AiKnowledgeGapsCard } from '@/components/settings/ai-knowledge-gaps';
+import type { KbEntry } from '@/lib/kb/types';
 import {
   AI_PROVIDER_DEFAULT_MODEL,
   AI_TIER_DEFAULT_MODELS,
@@ -730,7 +731,14 @@ export function AutoReplySection({ form }: { form: AiConfigForm }) {
 // Knowledge
 // ------------------------------------------------------------------
 
-export function KnowledgeSection({ form }: { form: AiConfigForm }) {
+export function KnowledgeSection({
+  form,
+  onWriteAnswer,
+}: {
+  form: AiConfigForm;
+  /** Opens the Answers tab's editor on a draft made from a gap topic. */
+  onWriteAnswer?: (entry: KbEntry) => void;
+}) {
   const t = useTranslations('Settings.aiConfig');
   const ta = useTranslations('AiAgents');
   const [confirmRemoveKey, setConfirmRemoveKey] = useState(false);
@@ -844,7 +852,11 @@ export function KnowledgeSection({ form }: { form: AiConfigForm }) {
         </CardContent>
       </Card>
 
-      <AiKnowledgeGapsCard accountId={form.accountId} canEdit={form.canEdit} />
+      <AiKnowledgeGapsCard
+        accountId={form.accountId}
+        canEdit={form.canEdit}
+        onWriteAnswer={onWriteAnswer}
+      />
     </div>
   );
 }
