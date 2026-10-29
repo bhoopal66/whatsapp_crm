@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   composeFlow,
   initialComposeFlow,
+  parkDraft,
   takeParkedDraft,
   type ComposeFlowEffect,
   type ComposeFlowEvent,
@@ -15,24 +16,34 @@ import {
 
 type Reply = { id: string };
 type P = { label: string };
+type Att = { filename: string; caption: string };
 
 function harness() {
-  let state: ComposeFlowState<P, Reply> = initialComposeFlow();
+  let state: ComposeFlowState<P, Reply, Att> = initialComposeFlow();
   const sent: string[] = [];
-  const effects: ComposeFlowEffect<P, Reply>[] = [];
-  const stash: ParkedDrafts<Reply> = new Map();
+  const effects: ComposeFlowEffect<P, Reply, Att>[] = [];
+  const stash: ParkedDrafts<Reply, Att> = new Map();
   const box = { text: '' };
-  const dispatch = (event: ComposeFlowEvent<P, Reply>) => {
+  const composer: { staged: Att | null } = { staged: null };
+  const dispatch = (event: ComposeFlowEvent<P, Reply, Att>) => {
     const step = composeFlow(state, event);
     state = step.state;
     effects.push(...step.effects);
     for (const e of step.effects) {
       if (e.type === 'send') sent.push(e.payload.label);
-      if (e.type === 'park') stash.set(e.conversationId, e.draft);
+      if (e.type === 'park') parkDraft(stash, e.conversationId, e.draft);
       if (e.type === 'clearBox') box.text = '';
+      if (e.type === 'clearAttachment') composer.staged = null;
     }
     return step;
   };
+  const switchTo = (to: string | null) =>
+    dispatch({
+      type: 'switch',
+      to,
+      boxText: box.text,
+      staged: composer.staged,
+    });
   const submit = (
     text: string,
     opts: {
@@ -44,6 +55,7 @@ function harness() {
   ) => {
     const focus = opts.focus ?? 'text';
     if (focus === 'text') box.text = text;
+    else composer.staged = { filename: 'offer.pdf', caption: text };
     return dispatch({
       type: 'submit',
       mode: opts.mode ?? 'warn',
@@ -53,8 +65,13 @@ function harness() {
       payload: { label: text },
       park:
         focus === 'text'
-          ? { text, reply: opts.reply ?? null, origin: null }
-          : null,
+          ? { text, reply: opts.reply ?? null, origin: null, attachment: null }
+          : {
+              text: '',
+              reply: opts.reply ?? null,
+              origin: null,
+              attachment: composer.staged,
+            },
       contactName: 'Aisha',
     });
   };
@@ -68,8 +85,10 @@ function harness() {
     lastToken,
     sent,
     effects,
+    switchTo,
     stash,
     box,
+    composer,
     state: () => state,
   };
 }
@@ -157,17 +176,19 @@ describe('compose check flow: switching chats', () => {
     const reply = { id: 'msg-9' };
     h.submit(LONG, { reply });
     const token = h.lastToken();
-    h.dispatch({ type: 'switch', to: 'chat-b', boxText: h.box.text });
+    h.switchTo('chat-b');
     expect(h.effects).toContainEqual({ type: 'abort' });
     expect(h.stash.get('chat-a')).toEqual({
       text: LONG,
       reply,
       origin: null,
+      attachment: null,
     });
     expect(h.box.text).toBe('');
     expect(h.effects).toContainEqual({
       type: 'notifyParked',
       contactName: 'Aisha',
+      what: 'text',
     });
     // The aborted check's late answer sends nothing, anywhere.
     h.dispatch({ type: 'answer', token, decision: { kind: 'send' } });
@@ -177,7 +198,7 @@ describe('compose check flow: switching chats', () => {
   it('puts the parked text back when the chat is shown again', () => {
     const h = harness();
     h.submit(LONG);
-    h.dispatch({ type: 'switch', to: 'chat-b', boxText: h.box.text });
+    h.switchTo('chat-b');
     expect(takeParkedDraft(h.stash, 'chat-b', '')).toBeNull();
     const back = takeParkedDraft(h.stash, 'chat-a', '');
     expect(back?.text).toBe(LONG);
@@ -185,11 +206,12 @@ describe('compose check flow: switching chats', () => {
   });
 
   it('keeps a parked draft while the box holds other text', () => {
-    const stash: ParkedDrafts<Reply> = new Map();
-    const parked: ParkedDraft<Reply> = {
+    const stash: ParkedDrafts<Reply, Att> = new Map();
+    const parked: ParkedDraft<Reply, Att> = {
       text: LONG,
       reply: null,
       origin: null,
+      attachment: null,
     };
     stash.set('chat-a', parked);
     expect(takeParkedDraft(stash, 'chat-a', 'typed meanwhile')).toBeNull();
@@ -204,7 +226,7 @@ describe('compose check flow: switching chats', () => {
       token: h.lastToken(),
       decision: { kind: 'review', warnings: ['terms'], eventId: 'ev-3' },
     });
-    h.dispatch({ type: 'switch', to: 'chat-b', boxText: h.box.text });
+    h.switchTo('chat-b');
     expect(h.state().phase).toBe('idle');
     expect(h.effects).toContainEqual({
       type: 'report',
@@ -219,20 +241,117 @@ describe('compose check flow: switching chats', () => {
 
   it('does nothing on a switch with no check open, or to the same chat', () => {
     const h = harness();
-    h.dispatch({ type: 'switch', to: 'chat-b', boxText: 'typed' });
+    h.dispatch({
+      type: 'switch',
+      to: 'chat-b',
+      boxText: 'typed',
+      staged: null,
+    });
     h.submit(LONG);
-    h.dispatch({ type: 'switch', to: 'chat-a', boxText: LONG });
+    h.switchTo('chat-a');
     expect(h.state().phase).toBe('checking');
     expect(h.stash.size).toBe(0);
   });
 
-  it('a caption check parks nothing: the attachment stays staged', () => {
+  it('a caption check parks the staged attachment and unstages it', () => {
+    const h = harness();
+    const reply = { id: 'msg-4' };
+    const caption = 'Here is the form you need';
+    h.submit(caption, { focus: 'caption', reply });
+    const token = h.lastToken();
+    h.switchTo('chat-b');
+    expect(h.effects).toContainEqual({ type: 'abort' });
+    // Nothing of chat A's is left staged in chat B's composer.
+    expect(h.composer.staged).toBeNull();
+    expect(h.stash.get('chat-a')).toEqual({
+      text: '',
+      reply,
+      origin: null,
+      attachment: { filename: 'offer.pdf', caption },
+    });
+    expect(h.effects).toContainEqual({
+      type: 'notifyParked',
+      contactName: 'Aisha',
+      what: 'attachment',
+    });
+    // The box is not the caption's: it is left alone.
+    expect(h.effects.some((e) => e.type === 'clearBox')).toBe(false);
+    h.dispatch({ type: 'answer', token, decision: { kind: 'send' } });
+    expect(h.sent).toEqual([]);
+  });
+
+  it('parks the attachment as it is under the dialog', () => {
     const h = harness();
     h.submit('Here is the form you need', { focus: 'caption' });
-    h.dispatch({ type: 'switch', to: 'chat-b', boxText: '' });
-    expect(h.effects).toContainEqual({ type: 'abort' });
-    expect(h.stash.size).toBe(0);
-    expect(h.effects.some((e) => e.type === 'notifyParked')).toBe(false);
-    expect(h.sent).toEqual([]);
+    h.dispatch({
+      type: 'answer',
+      token: h.lastToken(),
+      decision: { kind: 'review', warnings: ['promise'], eventId: 'ev-5' },
+    });
+    h.composer.staged = { filename: 'offer.pdf', caption: 'Edited caption' };
+    h.switchTo('chat-b');
+    expect(h.stash.get('chat-a')?.attachment?.caption).toBe('Edited caption');
+    expect(h.composer.staged).toBeNull();
+    expect(h.effects).toContainEqual({
+      type: 'report',
+      eventId: 'ev-5',
+      outcome: 'edited',
+    });
+  });
+
+  it('unstages a parked attachment when the composer goes away too', () => {
+    const h = harness();
+    h.submit('Here is the form you need', { focus: 'caption' });
+    h.switchTo(null);
+    expect(h.composer.staged).toBeNull();
+    expect(h.stash.get('chat-a')?.attachment?.filename).toBe('offer.pdf');
+  });
+
+  it('puts a parked attachment back only where nothing is staged', () => {
+    const h = harness();
+    h.submit('Here is the form you need', { focus: 'caption' });
+    h.switchTo('chat-b');
+    expect(takeParkedDraft(h.stash, 'chat-b', '', false)).toBeNull();
+    // Something else staged in chat A: the parked one waits.
+    expect(takeParkedDraft(h.stash, 'chat-a', '', true)).toBeNull();
+    expect(h.stash.has('chat-a')).toBe(true);
+    const back = takeParkedDraft(h.stash, 'chat-a', 'typed', false);
+    expect(back?.attachment?.filename).toBe('offer.pdf');
+    expect(back?.text).toBe('');
+    expect(h.stash.has('chat-a')).toBe(false);
+  });
+
+  it('keeps a parked text and a parked attachment side by side', () => {
+    const stash: ParkedDrafts<Reply, Att> = new Map();
+    const att = { filename: 'offer.pdf', caption: 'Here is the form' };
+    parkDraft(stash, 'chat-a', {
+      text: LONG,
+      reply: null,
+      origin: 'missed_call_draft',
+      attachment: null,
+    });
+    parkDraft(stash, 'chat-a', {
+      text: '',
+      reply: null,
+      origin: null,
+      attachment: att,
+    });
+    expect(stash.get('chat-a')).toEqual({
+      text: LONG,
+      reply: null,
+      origin: 'missed_call_draft',
+      attachment: att,
+    });
+    // The box holds text: only the attachment goes back.
+    const first = takeParkedDraft(stash, 'chat-a', 'typed', false);
+    expect(first).toMatchObject({ text: '', attachment: att });
+    expect(stash.get('chat-a')).toMatchObject({
+      text: LONG,
+      origin: 'missed_call_draft',
+      attachment: null,
+    });
+    const second = takeParkedDraft(stash, 'chat-a', '', true);
+    expect(second).toMatchObject({ text: LONG, attachment: null });
+    expect(stash.has('chat-a')).toBe(false);
   });
 });

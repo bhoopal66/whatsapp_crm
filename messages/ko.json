@@ -8552,6 +8552,8 @@
     "checking": "메시지를 확인하는 중",
     "parked": "{name}님에게 보낼 메시지는 전송되지 않았습니다. 해당 채팅에 남아 있습니다.",
     "parkedNoName": "메시지가 전송되지 않았습니다. 작성한 채팅에 남아 있습니다.",
+    "parkedAttachment": "{name}님에게 보낼 첨부 파일은 전송되지 않았습니다. 해당 채팅에 남아 있습니다.",
+    "parkedAttachmentNoName": "첨부 파일이 전송되지 않았습니다. 첨부한 채팅에 남아 있습니다.",
     "stats": {
       "title": "최근 7일",
       "summary": "경고 {total}건, 그대로 보냄 {sentAnyway}건, 수정함 {edited}건",

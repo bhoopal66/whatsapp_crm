@@ -17,6 +17,7 @@ import {
   resolveReplyChannel,
   resolveSendChannel,
   isWhatsAppProvider,
+  newChatProvider,
   ROUTING_SURFACES,
   type WhatsAppChannel,
 } from './channels';
@@ -897,5 +898,64 @@ describe('describeChannel', () => {
         })
       )
     ).toBe('CHAN-1 (Whapi)');
+  });
+});
+
+describe('newChatProvider', () => {
+  const OPENWA: ConfigRow = {
+    id: 'cfg-openwa',
+    provider: 'openwa',
+    is_primary: false,
+  };
+
+  it('starts from the primary number when nobody is allocated', async () => {
+    const db = makeDb({ configs: [WHAPI, META] });
+    await expect(
+      newChatProvider(db, 'acct-1', 'inbox', 'user-1')
+    ).resolves.toBe('whapi');
+  });
+
+  it("starts from the sender's allocated number", async () => {
+    const db = makeDb({ configs: [WHAPI, META], allocations: ['cfg-meta'] });
+    await expect(
+      newChatProvider(db, 'acct-1', 'inbox', 'user-1', 'conv-1')
+    ).resolves.toBe('meta');
+  });
+
+  it("follows the customer's last inbound number in a chat with history", async () => {
+    const exact = makeDb({
+      configs: [WHAPI, META, OPENWA],
+      lastInboundChannelId: 'cfg-openwa',
+      lastInboundProvider: 'openwa',
+    });
+    await expect(
+      newChatProvider(exact, 'acct-1', 'inbox', 'user-1', 'conv-1')
+    ).resolves.toBe('openwa');
+    // An older row names only its provider.
+    const byProvider = makeDb({
+      configs: [WHAPI, META],
+      lastInboundProvider: 'meta',
+    });
+    await expect(
+      newChatProvider(byProvider, 'acct-1', 'inbox', 'user-1', 'conv-1')
+    ).resolves.toBe('meta');
+    // Without the conversation the history is not consulted.
+    await expect(
+      newChatProvider(byProvider, 'acct-1', 'inbox', 'user-1')
+    ).resolves.toBe('whapi');
+  });
+
+  it('is null with nothing connected or a failed read', async () => {
+    await expect(
+      newChatProvider(makeDb({ configs: [] }), 'acct-1', 'inbox', 'user-1')
+    ).resolves.toBeNull();
+    await expect(
+      newChatProvider(
+        makeDb({ configError: { message: 'boom' } }),
+        'acct-1',
+        'inbox',
+        'user-1'
+      )
+    ).resolves.toBeNull();
   });
 });

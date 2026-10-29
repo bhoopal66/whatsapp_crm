@@ -549,18 +549,23 @@ async function startFor(
 }
 
 /**
- * The provider a person's NEW chat would start from (`startFor`), read
+ * The provider the first send of a chat with no number would use, read
  * without decrypting any token: for a caller that only needs the kind
  * of number, such as the message check's "starts a chat" (a chat opened
  * from Contacts has no `channel_id` until its first send stamps one).
- * Null when nothing is connected or a read fails. Unlike `loadChannels`
- * it cannot skip an undecryptable row, since it decrypts nothing.
+ * With `conversationId`, a chat the customer has written in follows
+ * their last inbound message, as the real send does (`replyFrom`);
+ * otherwise, or with no such message, the person's NEW chat number
+ * (`startFor`). Null when nothing is connected or a read fails. Unlike
+ * `loadChannels` it cannot skip an undecryptable row, since it decrypts
+ * nothing.
  */
 export async function newChatProvider(
   db: SupabaseClient,
   accountId: string,
   surface: RoutingSurface,
-  senderUserId: string
+  senderUserId: string,
+  conversationId?: string
 ): Promise<WhatsAppProvider | null> {
   try {
     const { data, error } = await db
@@ -596,13 +601,17 @@ export async function newChatProvider(
         }))
     );
     if (channels.length === 0) return null;
-    const start = await startFor(
-      db,
-      accountId,
-      surface,
-      senderUserId,
-      channels
-    );
+    const start = conversationId
+      ? await replyFrom(
+          db,
+          accountId,
+          conversationId,
+          surface,
+          senderUserId,
+          channels,
+          { channelId: null, sendChannelId: null }
+        )
+      : await startFor(db, accountId, surface, senderUserId, channels);
     return start.provider;
   } catch {
     return null;

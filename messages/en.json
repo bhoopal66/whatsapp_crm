@@ -8552,6 +8552,8 @@
     "checking": "Checking the message",
     "parked": "Your message to {name} wasn't sent. It's waiting in that chat.",
     "parkedNoName": "Your message wasn't sent. It's waiting in the chat you wrote it in.",
+    "parkedAttachment": "Your attachment to {name} wasn't sent. It's waiting in that chat.",
+    "parkedAttachmentNoName": "Your attachment wasn't sent. It's waiting in the chat you attached it in.",
     "stats": {
       "title": "Last 7 days",
       "summary": "{total, plural, one {# warning} other {# warnings}}, {sentAnyway} sent anyway, {edited} edited",

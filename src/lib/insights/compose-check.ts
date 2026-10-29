@@ -135,11 +135,18 @@ async function loadContext(
   } | null;
   const channelId = row?.send_channel_id ?? row?.channel_id ?? null;
   if (!channelId) {
-    // No number yet: the one a new chat of this person's starts from.
+    // No number yet: the one its first send uses (the customer's last
+    // inbound number, else a new chat of this person's).
     // A failed conversations read is not "no number": unknown.
     const provider =
       row && !conv.error
-        ? await newChatProvider(db, args.accountId, 'inbox', args.userId)
+        ? await newChatProvider(
+            db,
+            args.accountId,
+            'inbox',
+            args.userId,
+            args.conversationId
+          )
         : null;
     return { messages, messagesRead, provider };
   }

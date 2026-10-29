@@ -58,6 +58,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import {
@@ -67,7 +68,9 @@ import {
 import {
   composeFlow,
   initialComposeFlow,
+  parkDraft,
   takeParkedDraft,
+  type ComposeFlowEffect,
   type ComposeFlowEvent,
   type ComposeFlowState,
   type ParkedDrafts,
@@ -185,11 +188,14 @@ interface HeldSend {
 }
 
 /**
- * Drafts parked by a chat switch during a check, by conversation id.
- * Module-level so they survive the composer re-rendering or remounting
- * (leaving the inbox and coming back) for the life of the tab.
+ * Drafts (typed text, or a staged attachment and its caption) parked by
+ * a chat switch during a check, by conversation id. Module-level so they
+ * survive the composer re-rendering or remounting (leaving the inbox and
+ * coming back) for the life of the tab, but never across logins:
+ * `parkedFor` is whose they are, and another signed-in user empties it.
  */
-const parkedDrafts: ParkedDrafts<ReplyDraft> = new Map();
+const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
+let parkedFor: string | null = null;
 
 /** The composer's round toolbar buttons, in WhatsApp's icon grey. */
 const TOOL_BUTTON =
@@ -305,12 +311,27 @@ export function MessageComposer({
   // message. The decisions are lib/insights/compose-check-flow.ts; this
   // runs its effects. A chat switch during a check or with the dialog
   // open sends nothing: the composer outlives the switch, so the text
-  // is parked for its own chat (and put back on return), the box is
-  // emptied and a notice says where the message is waiting.
+  // (or the staged attachment of a caption check) is parked for its own
+  // chat and put back on return, the box is emptied (the attachment
+  // unstaged) and a notice says where the message is waiting.
   const { settings: insightSettings } = useInsightSettings();
   const composeCheckMode = insightSettings.composeCheckMode;
+
+  // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
+  // attachment; `busy` covers the upload/transcode window.
+  const [draft, setDraft] = useState<MediaDraft | null>(null);
+  // Mirror of `draft` for the unmount cleanup, which can't read render
+  // state. Kept in sync below so navigating away with a staged-but-unsent
+  // attachment GCs the orphaned object.
+  const draftRef = useRef<MediaDraft | null>(null);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
   const [flow, setFlow] =
-    useState<ComposeFlowState<HeldSend, ReplyDraft>>(initialComposeFlow);
+    useState<ComposeFlowState<HeldSend, ReplyDraft, MediaDraft>>(
+      initialComposeFlow
+    );
   const flowRef = useRef(flow);
   const checkAbortRef = useRef<AbortController | null>(null);
   const captionRef = useRef<HTMLInputElement>(null);
@@ -325,8 +346,8 @@ export function MessageComposer({
   }, [tCheck]);
 
   const dispatchCheck = useCallback(function dispatch(
-    event: ComposeFlowEvent<HeldSend, ReplyDraft>
-  ) {
+    event: ComposeFlowEvent<HeldSend, ReplyDraft, MediaDraft>
+  ): ComposeFlowEffect<HeldSend, ReplyDraft, MediaDraft>[] {
     const step = composeFlow(flowRef.current, event);
     flowRef.current = step.state;
     setFlow(step.state);
@@ -357,20 +378,33 @@ export function MessageComposer({
           reportComposeCheckOutcome(effect.eventId, effect.outcome);
           break;
         case 'park':
-          parkedDrafts.set(effect.conversationId, effect.draft);
+          parkDraft(parkedDrafts, effect.conversationId, effect.draft);
           break;
         case 'clearBox':
           setBox(EMPTY_COMPOSER_BOX);
           break;
-        case 'notifyParked':
+        case 'clearAttachment':
+          // Unstaged, not deleted: the parked draft owns the object now,
+          // so the unmount cleanup must not see it either.
+          draftRef.current = null;
+          setDraft(null);
+          break;
+        case 'notifyParked': {
+          const attachment = effect.what === 'attachment';
           toast.warning(
             effect.contactName
-              ? tCheckRef.current('parked', { name: effect.contactName })
-              : tCheckRef.current('parkedNoName')
+              ? tCheckRef.current(attachment ? 'parkedAttachment' : 'parked', {
+                  name: effect.contactName,
+                })
+              : tCheckRef.current(
+                  attachment ? 'parkedAttachmentNoName' : 'parkedNoName'
+                )
           );
           break;
+        }
       }
     }
+    return step.effects;
   }, []);
 
   // The box's text as of the last render, for the switch below.
@@ -383,34 +417,55 @@ export function MessageComposer({
     restoreReplyRef.current = onRestoreReply;
   }, [onRestoreReply]);
 
-  // On a chat switch: settle a check or dialog of the chat just left
-  // (park, empty the box), then put back a draft parked for this one.
+  // Parked drafts belong to the login that wrote them: another user
+  // signed in to this tab finds the stash empty. Declared before the
+  // switch below, so it runs first.
+  const userId = useAuth().user?.id ?? null;
   useEffect(() => {
-    const before = flowRef.current;
-    dispatchCheck({
+    if (!userId || parkedFor === userId) return;
+    parkedDrafts.clear();
+    parkedFor = userId;
+  }, [userId]);
+
+  // On a chat switch: settle a check or dialog of the chat just left
+  // (park, empty the box or unstage the attachment), then put back what
+  // is parked for this one.
+  useEffect(() => {
+    const effects = dispatchCheck({
       type: 'switch',
       to: conversationId,
       boxText: boxTextRef.current,
+      staged: draftRef.current,
     });
-    const cleared =
-      before.phase !== 'idle' &&
-      before.conversationId !== conversationId &&
-      before.park !== null;
+    const boxCleared = effects.some((e) => e.type === 'clearBox');
+    const unstaged = effects.some((e) => e.type === 'clearAttachment');
     const parked = takeParkedDraft(
       parkedDrafts,
       conversationId,
-      cleared ? '' : boxTextRef.current
+      boxCleared ? '' : boxTextRef.current,
+      !unstaged && draftRef.current !== null
     );
     if (!parked) return;
-    setBox((b) =>
-      restoreBox(b, parked.text, parked.origin as SendOrigin | null)
-    );
+    if (parked.text.trim())
+      setBox((b) =>
+        restoreBox(b, parked.text, parked.origin as SendOrigin | null)
+      );
+    if (parked.attachment) {
+      draftRef.current = parked.attachment;
+      setDraft(parked.attachment);
+    }
     if (parked.reply) restoreReplyRef.current?.(parked.reply);
   }, [conversationId, dispatchCheck]);
   // Leaving the inbox mid-check parks the draft the same way.
   useEffect(
-    () => () =>
-      dispatchCheck({ type: 'switch', to: null, boxText: boxTextRef.current }),
+    () => () => {
+      dispatchCheck({
+        type: 'switch',
+        to: null,
+        boxText: boxTextRef.current,
+        staged: draftRef.current,
+      });
+    },
     [dispatchCheck]
   );
 
@@ -430,20 +485,10 @@ export function MessageComposer({
   const [savingQuickReply, setSavingQuickReply] = useState(false);
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
-  // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
-  // attachment; `busy` covers the upload/transcode window.
-  const [draft, setDraft] = useState<MediaDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
-  // Mirror of `draft` for the unmount cleanup, which can't read render
-  // state. Kept in sync below so navigating away with a staged-but-unsent
-  // attachment GCs the orphaned object.
-  const draftRef = useRef<MediaDraft | null>(null);
-  useEffect(() => {
-    draftRef.current = draft;
-  }, [draft]);
 
   // Best-effort GC of a staged object the user never sent. Fire-and-forget.
   const removeStaged = useCallback((path: string | undefined) => {
@@ -539,7 +584,12 @@ export function MessageComposer({
           }
         },
       },
-      park: { text: typed, reply: replyTo ?? null, origin: box.origin },
+      park: {
+        text: typed,
+        reply: replyTo ?? null,
+        origin: box.origin,
+        attachment: null,
+      },
       contactName: contactName ?? null,
     });
   }, [
@@ -864,8 +914,9 @@ export function MessageComposer({
     // like typed text; a bare attachment never is.
     const caption =
       staged.kind === 'audio' ? undefined : staged.caption.trim() || undefined;
-    // A switch leaves the staged attachment where it is, as with the
-    // check off, so a caption check parks nothing (park: null).
+    // A switch during the check parks the staged attachment, caption
+    // and reply quote with this chat and unstages it, so it can never
+    // be sent into the next chat.
     dispatchCheck({
       type: 'submit',
       mode: composeCheckMode,
@@ -889,14 +940,19 @@ export function MessageComposer({
           onClearReply?.();
         },
       },
-      park: null,
+      park: {
+        text: '',
+        reply: replyTo ?? null,
+        origin: null,
+        attachment: staged,
+      },
       contactName: contactName ?? null,
     });
   }, [
     draft,
     busy,
     onSendMedia,
-    replyTo?.id,
+    replyTo,
     onClearReply,
     dispatchCheck,
     composeCheckMode,

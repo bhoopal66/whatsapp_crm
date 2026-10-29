@@ -266,7 +266,8 @@ describe('checkDraft isStart', () => {
       expect.anything(),
       'acc-1',
       'inbox',
-      'user-1'
+      'user-1',
+      expect.any(String)
     );
     h.composeCheck.mockClear();
     h.newChatProvider.mockResolvedValue('meta');
