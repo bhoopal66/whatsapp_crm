@@ -432,7 +432,44 @@ same name.
 
 ## Lead score
 
-<!-- section: H -->
+Pipelines deal cards carry a **lead score** while Customer insights
+(Smart insights signals) are on: a 0 to 100 figure such as "84 · Hot" on
+every open deal. With signals off, nothing is read and nothing is shown.
+Won and lost deals get no score.
+
+What goes into it, in points out of 100 when every figure is known:
+
+| Factor | Weight | From |
+|---|---|---|
+| Lead temperature | 40 | Jev's lead temperature for the customer's chat (0..3) |
+| Recent activity | 20 | the chat's last message, fading to nothing over 14 days |
+| Urgency | 15 | Jev's urgency for the chat (0..2) |
+| Stage progress | 15 | how far along the pipeline's stages (by their order) the deal is |
+| Waiting on us | 10 | the chat has unread customer messages |
+
+- **Bands.** Hot at 70 or more, Warm at 40 or more, Cold below.
+- **At risk.** A small warning dot marks a deal whose customer seems
+  upset (Jev's dissatisfaction band), or whose chat has had no message
+  for 14 days or more. Silence counts from the later of the last message
+  and the deal's creation, so a deal opened yesterday is not at risk.
+  "Last message" is the chat's latest in either direction: conversations
+  keep no separate customer-only time.
+- **Reasons.** The tooltip lists up to three reasons in plain words, risks
+  first ("Customer seems upset", "No message for 2 weeks"), then what
+  brought the most points ("Ready to apply", "Customer is waiting on a
+  reply", "Late in the pipeline"…).
+- **Activity only.** A chat Jev has never judged has no temperature or
+  urgency; the score is then worked out over activity, waiting and stage
+  alone (rescaled to 100) and the tooltip says "Based on activity only".
+  A deal with no contact, or whose chat the viewer cannot see, is scored
+  on its stage alone.
+- **Sorting.** The board's **Sort** menu (shown with the score) offers
+  **Sort by lead score**: highest first within each stage column, deals
+  without a score last. The default order (newest first) is unchanged.
+- **A guide.** The weights and bands are uncalibrated first judgments,
+  not fitted to won and lost deals. Use the score to decide where to look
+  first, not as a forecast. It is computed in the browser from figures
+  the viewer may already read; who sees a deal is unchanged.
 
 ## Knowledge gaps
 

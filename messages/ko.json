@@ -8717,6 +8717,29 @@
     }
   },
   "LeadScore": {
-    "_": ""
+    "badge": "{score} · {band}",
+    "aria": "리드 점수 {score}, {band}",
+    "title": "리드 점수",
+    "band": {
+      "hot": "뜨거움",
+      "warm": "따뜻함",
+      "cold": "차가움"
+    },
+    "reason": {
+      "upset": "고객이 불만스러워 보입니다",
+      "quiet_14d": "2주 동안 메시지 없음",
+      "ready_to_apply": "신청 준비 완료",
+      "hot_lead": "유망 리드",
+      "urgent": "긴급 요청",
+      "soon": "빠른 진행을 원함",
+      "active_recently": "지난주에 활동함",
+      "waiting_on_us": "고객이 답장을 기다리는 중",
+      "late_stage": "파이프라인 후반 단계"
+    },
+    "activityOnly": "활동만을 기준으로 함",
+    "guide": "예측이 아닌 참고용입니다",
+    "sortLabel": "정렬",
+    "sortDefault": "최신순",
+    "sortByScore": "리드 점수순 정렬"
   }
 }

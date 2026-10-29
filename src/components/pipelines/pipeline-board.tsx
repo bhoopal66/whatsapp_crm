@@ -19,6 +19,7 @@ import {
 } from '@dnd-kit/core';
 import type { PipelineStage, Profile } from '@/types';
 import type { BoardDeal } from '@/lib/pipelines/board-deal';
+import { sortByLeadScore, type LeadScore } from '@/lib/pipelines/lead-score';
 import { DealCard } from './deal-card';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,6 +49,10 @@ interface PipelineBoardProps {
   onDealMoved: (dealId: string, newStageId: string) => void;
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: BoardDeal) => void;
+  /** Lead scores by deal id; null while Customer insights are off. */
+  scores?: ReadonlyMap<string, LeadScore | null> | null;
+  /** Highest lead score first within each column (needs `scores`). */
+  sortByScore?: boolean;
 }
 
 export function PipelineBoard({
@@ -58,6 +63,8 @@ export function PipelineBoard({
   onDealMoved,
   onAddDeal,
   onEditDeal,
+  scores = null,
+  sortByScore = false,
 }: PipelineBoardProps) {
   const { defaultCurrency } = useAuth();
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
@@ -74,8 +81,12 @@ export function PipelineBoard({
       const bucket = map.get(deal.stage_id);
       if (bucket) bucket.push(deal);
     }
+    if (sortByScore && scores) {
+      for (const [id, bucket] of map)
+        map.set(id, sortByLeadScore(bucket, scores));
+    }
     return map;
-  }, [sortedStages, deals]);
+  }, [sortedStages, deals, sortByScore, scores]);
 
   const sensors = useSensors(
     // 5px activation distance avoids clicks being interpreted as drags.
@@ -142,6 +153,7 @@ export function PipelineBoard({
               members={members}
               readOnly={readOnly}
               stages={sortedStages}
+              scores={scores}
               onAddDeal={onAddDeal}
               onEditDeal={onEditDeal}
               onDealMoved={onDealMoved}
@@ -166,6 +178,7 @@ export function PipelineBoard({
               members={members}
               onEdit={() => {}}
               isOverlay
+              score={scores?.get(activeDeal.id) ?? null}
             />
           </div>
         ) : null}
@@ -202,6 +215,7 @@ function StageColumn({
   members,
   readOnly,
   stages,
+  scores,
   onAddDeal,
   onEditDeal,
   onDealMoved,
@@ -213,6 +227,7 @@ function StageColumn({
   members: Profile[];
   readOnly: boolean;
   stages: PipelineStage[];
+  scores: ReadonlyMap<string, LeadScore | null> | null;
   onAddDeal: (stageId: string) => void;
   onEditDeal: (deal: BoardDeal) => void;
   onDealMoved: (dealId: string, newStageId: string) => void;
@@ -279,6 +294,7 @@ function StageColumn({
               members={members}
               disabled={readOnly}
               stages={stages}
+              score={scores?.get(deal.id) ?? null}
               onEdit={onEditDeal}
               onMove={onDealMoved}
             />
@@ -307,6 +323,7 @@ function DraggableDealCard({
   members,
   disabled,
   stages,
+  score,
   onEdit,
   onMove,
 }: {
@@ -315,6 +332,7 @@ function DraggableDealCard({
   members: Profile[];
   disabled: boolean;
   stages: PipelineStage[];
+  score: LeadScore | null;
   onEdit: (deal: BoardDeal) => void;
   onMove: (dealId: string, newStageId: string) => void;
 }) {
@@ -387,7 +405,13 @@ function DraggableDealCard({
       {...attributes}
       style={{ opacity: isDragging ? 0.3 : 1, touchAction: 'none' }}
     >
-      <DealCard deal={deal} stage={stage} members={members} onEdit={onEdit} />
+      <DealCard
+        deal={deal}
+        stage={stage}
+        members={members}
+        onEdit={onEdit}
+        score={score}
+      />
     </div>
   );
 }

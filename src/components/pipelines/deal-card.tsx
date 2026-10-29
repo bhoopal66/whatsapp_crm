@@ -5,7 +5,9 @@ import type { BoardDeal } from '@/lib/pipelines/board-deal';
 import { dealOwnerProfile } from '@/lib/pipelines/owner';
 import { Calendar, Check, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/currency';
+import type { LeadScore } from '@/lib/pipelines/lead-score';
 import { useTranslations } from 'next-intl';
+import { LeadScoreBadge } from './lead-score-badge';
 
 interface DealCardProps {
   deal: BoardDeal;
@@ -14,6 +16,8 @@ interface DealCardProps {
   members: Profile[];
   onEdit: (deal: BoardDeal) => void;
   isOverlay?: boolean;
+  /** The lead score; null/absent when off or for a closed deal. */
+  score?: LeadScore | null;
 }
 
 function formatDate(dateStr: string) {
@@ -36,6 +40,7 @@ export function DealCard({
   members,
   onEdit,
   isOverlay,
+  score,
 }: DealCardProps) {
   const t = useTranslations('Pipelines.card');
   const contactLabel =
@@ -71,6 +76,7 @@ export function DealCard({
         <h4 className="text-foreground flex-1 text-sm leading-snug font-semibold break-words">
           {deal.title}
         </h4>
+        {score && <LeadScoreBadge score={score} />}
         {deal.status === 'won' && (
           <span className="bg-primary/15 text-primary inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold">
             <Check className="h-3 w-3" />

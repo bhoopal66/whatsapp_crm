@@ -32,7 +32,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { GitBranch, Plus, ChevronDown, Settings, Users } from 'lucide-react';
+import {
+  ArrowDownWideNarrow,
+  GitBranch,
+  Plus,
+  ChevronDown,
+  Settings,
+  Users,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@/hooks/use-can';
 import { useAuth } from '@/hooks/use-auth';
@@ -40,6 +47,13 @@ import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
 import { useDealPeople } from '@/components/pipelines/use-deal-people';
 import { dealOwnerOrFilter, ownerFilterOptions } from '@/lib/pipelines/owner';
+import { useDealSignals } from '@/components/pipelines/use-deal-signals';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
+import {
+  leadScore,
+  stageProgress,
+  type LeadScore,
+} from '@/lib/pipelines/lead-score';
 
 // Pipeline creation is admin-class (settings-tier write under
 // the new RLS); deal creation is operational and only requires
@@ -126,6 +140,37 @@ export default function PipelinesPage() {
   const [dealFormOpen, setDealFormOpen] = useState(false);
   const [editingDeal, setEditingDeal] = useState<BoardDeal | null>(null);
   const [defaultStageId, setDefaultStageId] = useState<string>('');
+
+  // Lead scores (docs/jev-insights.md): only while Customer insights
+  // are on, from one batched read of the deals' conversations.
+  const tScore = useTranslations('LeadScore');
+  const { settings: insightSettings } = useInsightSettings();
+  const signalsOn = insightSettings?.signalsEnabled === true;
+  const [sortByScore, setSortByScore] = useState(false);
+  const dealContactIds = useMemo(
+    () => deals.flatMap((d) => (d.contact_id ? [d.contact_id] : [])),
+    [deals]
+  );
+  const signals = useDealSignals(dealContactIds, signalsOn);
+  const scores = useMemo(() => {
+    if (!signals) return null;
+    const map = new Map<string, LeadScore | null>();
+    for (const d of deals) {
+      map.set(
+        d.id,
+        leadScore({
+          status: d.status,
+          dealCreatedAt: d.created_at,
+          stageProgress: stageProgress(d.stage_id, stages),
+          conversation: d.contact_id
+            ? (signals.byContact.get(d.contact_id) ?? null)
+            : null,
+          now: signals.at,
+        })
+      );
+    }
+    return map;
+  }, [signals, deals, stages]);
 
   // Guard against double-seeding (React StrictMode double-effect in dev).
   const seedAttempted = useRef(false);
@@ -531,6 +576,41 @@ export default function PipelinesPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {scores && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label={tScore('sortLabel')}
+                className="border-border bg-card text-foreground hover:bg-muted data-[popup-open]:bg-muted inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
+              >
+                <ArrowDownWideNarrow className="text-muted-foreground h-4 w-4" />
+                <span className="font-medium">
+                  {sortByScore ? tScore('sortByScore') : tScore('sortDefault')}
+                </span>
+                <ChevronDown className="text-muted-foreground h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="border-border bg-popover text-popover-foreground w-56"
+              >
+                <DropdownMenuItem
+                  onClick={() => setSortByScore(false)}
+                  className={
+                    !sortByScore ? 'text-primary' : 'text-popover-foreground'
+                  }
+                >
+                  {tScore('sortDefault')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setSortByScore(true)}
+                  className={
+                    sortByScore ? 'text-primary' : 'text-popover-foreground'
+                  }
+                >
+                  {tScore('sortByScore')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <GatedButton
             variant="outline"
             canAct={canEditSettings}
@@ -585,6 +665,8 @@ export default function PipelinesPage() {
             onDealMoved={handleDealMoved}
             onAddDeal={handleAddDeal}
             onEditDeal={handleEditDeal}
+            scores={scores}
+            sortByScore={sortByScore}
           />
         </>
       )}

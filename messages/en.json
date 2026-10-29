@@ -8717,6 +8717,29 @@
     }
   },
   "LeadScore": {
-    "_": ""
+    "badge": "{score} · {band}",
+    "aria": "Lead score {score}, {band}",
+    "title": "Lead score",
+    "band": {
+      "hot": "Hot",
+      "warm": "Warm",
+      "cold": "Cold"
+    },
+    "reason": {
+      "upset": "Customer seems upset",
+      "quiet_14d": "No message for 2 weeks",
+      "ready_to_apply": "Ready to apply",
+      "hot_lead": "Hot lead",
+      "urgent": "Urgent request",
+      "soon": "Wants progress soon",
+      "active_recently": "Active in the last week",
+      "waiting_on_us": "Customer is waiting on a reply",
+      "late_stage": "Late in the pipeline"
+    },
+    "activityOnly": "Based on activity only",
+    "guide": "A guide, not a forecast",
+    "sortLabel": "Sort",
+    "sortDefault": "Newest first",
+    "sortByScore": "Sort by lead score"
   }
 }
