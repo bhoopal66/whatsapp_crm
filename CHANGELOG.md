@@ -12,6 +12,67 @@ and polish.
 
 ## [Unreleased]
 
+### Smart insights: Jev across the CRM
+
+**Migration required: 147_smart_insights.sql, 148_campaign_reply_classes.sql,
+149_compose_check_events.sql, 150_meaning_triggers.sql,
+151_case_status_stage_map.sql, 152_kb_gap_topics.sql**, in order, **before
+the new build goes live**: the inbox list and the customer page read the new
+conversation columns whether or not a feature is switched on. Apply 151 as
+a superuser or BYPASSRLS role, like 122–137. Every feature is **off** until
+an admin switches it on in **Settings → Smart insights**, and needs
+`TYPESAFE_API_KEY` plus the workspace in `TS_ACCOUNT_IDS`. Operator docs:
+`docs/jev-insights.md`.
+- **Customer insights.** Every customer message is judged once, after the
+  opt-out watch and off the reply path: what they want, how close they are
+  to applying, urgency, and whether they are upset or want a person. The
+  inbox shows one badge per chat (Urgent, Upset, Wants a person, Hot lead /
+  Ready to apply) with filters for each and an Urgent pin under the
+  Important pins; the customer panel and page get an insights card; the
+  home page gets "Hot leads waiting" and "Upset customers waiting". The
+  figures reuse the safety watch's answers when it already judged the
+  message, so most messages cost one Jev request.
+- **Chat tag suggestions.** Jev suggests a main tag and sub-tag from your
+  own tags (an optional **AI hint** per tag in Settings → Chat tags helps
+  it). **Suggest** mode shows a chip in the chat header (Apply / Dismiss;
+  a dismissed tag isn't suggested again for that chat), and **Suggest a
+  tag** asks on demand. **Auto** mode also tags untagged chats on its own
+  at or above a confidence you choose, never over a tag a person set,
+  running the same automations and deal creation as a manual tag and
+  leaving a "Tagged automatically" note in the chat.
+- **Campaign reply sorting.** The first reply to a broadcast is sorted into
+  interested, question, not now, not interested, wrong person, asked to
+  stop or other, before the follow-up flow starts, so flows can branch on
+  `campaign_reply_class`. Interested replies can be tagged with a chosen
+  tag; the broadcast page shows the breakdown, filters recipients by it,
+  and sorts past replies on request. Placeholders are sent blank, so no
+  customer name reaches Jev.
+- **Message check before sending.** Agents see a warning before sending a
+  message that promises an approval, quotes an unconfirmed rate, names a
+  bank you don't work with, claims Central Bank licensing, asks for card
+  details or OTPs, sounds rude, or (when it starts a chat on a Whapi or
+  OpenWA number) reads like a marketing blast. It never blocks: any error
+  or a 2.5 s timeout sends at once. Switching chats mid-check keeps the
+  message (and any attachment) waiting in its own chat. Admins see 7-day
+  counts in Settings.
+- **Flows and automations that understand meaning.** A new "Customer
+  means…" trigger for flows and automations matches what the customer
+  means, in any wording or language, with a Test-a-message box. Keyword
+  triggers still win; at most one meaning automation runs per message;
+  one Jev request per message serves both engines. Flows also understand
+  typed answers to buttons and lists ("2", the option's label, "the
+  second one").
+- **Compass status → case stage.** Settings → Cases maps each Compass
+  status name to a case stage, with Jev suggesting the stage. Final
+  statuses can't be remapped, a suggestion is never applied without an
+  admin, and "Move N open cases now" only ever moves a case forward.
+- **Lead score.** Deal cards show a 0–100 score with reasons and an
+  at-risk flag, and the board can sort by it.
+- **Knowledge-gap topics.** Questions the bot couldn't answer are grouped
+  into topics, with Jev labelling them and checking whether an approved
+  answer already covers them (behind its own switch); "Write an approved
+  answer" opens the editor on a draft, recomputed daily and on Refresh.
+
 ### Sidebar: counts instead of a dot
 
 **Migration required: 146_whatsapp_group_reads.sql** (apply as a

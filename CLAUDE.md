@@ -1308,6 +1308,57 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   `pg_dump` restore. The migration explains why no other FK was
   changed. Add one only with a reproduction.
 
+### Smart insights (`lib/insights/*`, migrations 147–152)
+
+Jev (TypeSafe) beyond the bot's safety checks: customer signals, chat-tag
+suggestions and auto-tagging, campaign reply sorting, the pre-send
+message check, meaning triggers, Compass status mapping, lead score and
+knowledge-gap topics. `docs/jev-insights.md` is the contract.
+
+- **Selection judgments.** Each feature is a `SELECTION_CALLERS` entry in
+  `typesafe/client.ts` (own breaker), with `questions/` + `checks/` like
+  `route.ts`: no account switch in `ts_account_settings`, no policy, no
+  decision-log row, never throws. Ordinal option keys only; every text
+  (admin hints and descriptions included) through `redactClipped`; model
+  mismatch = failure. Campaign text goes with placeholders blanked: names
+  are not redacted, so recipient values must never reach Jev.
+- **Off until switched on.** `ai_insight_settings` (no row = all off) plus
+  `insightsAvailable()` (key + `TS_ACCOUNT_IDS`) gate everything; off means
+  today's behaviour exactly. Knowledge-gap judging has its own switch.
+- **One request per inbound.** `runInboundInsights` runs after the opt-out
+  watch (chained, awaited in `after()`) and reuses the watch/bot triage
+  row for the same message hash. Meaning triggers share one memoised
+  request across Flows and Automations (`loadMeaningCandidates`); a failed
+  request is "no match" for both.
+- **Writes are compare-and-set.** Insight and suggestion columns are
+  service-role-only (`conversations_insight_guard`); signals are
+  forward-only on `insight_at`; a suggestion is written only if the chat's
+  tags, dismissed tag and `suggestion_basis_at` (server time of the read)
+  are unchanged. Auto-tag uses `writeConversationChatTags` with
+  `onlyIfUntagged` + `requireDismissedId` + `requireBasisAtMost`: a person
+  always wins. Its timeline note is a `conversation_events` row of kind
+  `chat_tag_auto` (`details` jsonb); the timeline renders only known kinds.
+- **The message check never blocks.** Errors and a 2.5 s timeout send at
+  once; a chat switch mid-check parks the text/attachment for its own chat
+  (`compose-check-flow.ts`). Only warning codes are logged.
+- **Precedence.** Active run › campaign follow-up flow › keyword / first
+  inbound › meaning triggers; at most one `intent_match` automation per
+  message, none when a `keyword_match` automation ran; `intent_match` is
+  content-level (suppressed with `keyword_match`).
+- **Case status map (151).** Consulted before 137's name rule, only for a
+  stage in the case's own bank list; final statuses unmappable;
+  `case_status_map_apply` is forward-only and re-reads each case under its
+  lock. `verify-case-status-map.sql`.
+- **Gap topics (152).** `kb_gap_topics_replace(account, topics,
+  p_expected)` refuses as STALE when a dismissal raced the recompute;
+  recomputes honour a deadline (cron 45 s / account 40 s / Refresh 25 s).
+- **Client copies.** Constants a client component needs (warning codes,
+  reply classes, intent keys) live in dependency-free modules pinned to
+  the server's list by a test that reads the server file as text.
+- Verify files: `verify-smart-insights.sql`, `verify-campaign-reply-classes.sql`,
+  `verify-compose-check-events.sql`, `verify-meaning-triggers.sql`,
+  `verify-case-status-map.sql`, `verify-kb-gap-topics.sql`.
+
 ### Flows vs Automations
 
 Two independent engines, deliberately kept apart:
@@ -1336,7 +1387,7 @@ Cron / GitHub Actions / any pinger):
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders and the assist pending sweep (1 min),
-  assist rate prune (1 h) and memory expiry (24 h). An install that pings
+  assist rate prune (1 h), memory expiry and knowledge-gap topics (24 h). An install that pings
   only this one is covered. A new background job joins this list.
 - `GET /api/flows/cron` — sweeps abandoned runs.
 - `GET /api/whatsapp/broadcast/cron` (migration 053) — delivers
@@ -1601,6 +1652,6 @@ fails if one is wired to plain `t()`.
   `cases.md`, `memory-and-vault.md`, `assistant-safety.md`,
   `coordinators.md`, `workspaces.md`, `security.md`, `tasks.md`,
   `journey-bot.md`, `internal-chat.md`, `yeastar.md`, `calendar.md`,
-  `push.md`, `taamul-sales.md`, `openwa.md`.
+  `push.md`, `taamul-sales.md`, `openwa.md`, `jev-insights.md`.
 - Comments here carry the history of a bug — when a comment explains why code is
   shaped oddly, treat it as a constraint, not noise.
