@@ -8391,6 +8391,15 @@
   },
   "Insights": {
     "settings": {
+      "pin": {
+        "heading": "Pin to the top until someone acts when the customer…",
+        "urgent": "is under time pressure (urgent)",
+        "wantsPerson": "asks for a person",
+        "upset": "is upset",
+        "callback": "asks for a call back",
+        "help": "A pinned chat stays at the top of the inbox until someone replies, clicks Handled, or closes it.",
+        "notify": "Notify the assigned person when a chat is pinned"
+      },
       "title": "Smart insights",
       "description": "Features powered by Jev, which reads chats and answers narrow questions about them. It never writes messages. Each feature is off until you switch it on here.",
       "unavailable": "Jev isn't available for this workspace. It needs TYPESAFE_API_KEY on the server and this workspace listed in TS_ACCOUNT_IDS.",

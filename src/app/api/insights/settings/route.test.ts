@@ -96,6 +96,11 @@ const values = {
   composeCheckMode: 'warn',
   meaningTriggersEnabled: true,
   kbGapJudgeEnabled: true,
+  attentionPinUrgent: true,
+  attentionPinUpset: false,
+  attentionPinWantsPerson: true,
+  attentionPinCallback: false,
+  attentionNotify: false,
 };
 
 function put(body: unknown) {
@@ -173,6 +178,8 @@ describe('PUT /api/insights/settings', () => {
     expect(db.writes[0].values).toMatchObject({
       tag_suggest_mode: 'auto',
       reply_interested_tag_id: TAG,
+      attention_pin_upset: false,
+      attention_notify: false,
       updated_by: 'user-1',
     });
     expect(db.filters).toContainEqual(['updated_at', SAVED_AT]);

@@ -27,6 +27,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Switch } from '@/components/ui/switch';
 
 import { ComposeCheckStatsCard } from './compose-check-stats';
@@ -45,8 +46,20 @@ function valuesOf(v: InsightSettingsValues): InsightSettingsValues {
     composeCheckMode: v.composeCheckMode,
     meaningTriggersEnabled: v.meaningTriggersEnabled,
     kbGapJudgeEnabled: v.kbGapJudgeEnabled,
+    attentionPinUrgent: v.attentionPinUrgent,
+    attentionPinUpset: v.attentionPinUpset,
+    attentionPinWantsPerson: v.attentionPinWantsPerson,
+    attentionPinCallback: v.attentionPinCallback,
+    attentionNotify: v.attentionNotify,
   };
 }
+
+const PIN_RULES = [
+  ['attentionPinUrgent', 'urgent'],
+  ['attentionPinWantsPerson', 'wantsPerson'],
+  ['attentionPinUpset', 'upset'],
+  ['attentionPinCallback', 'callback'],
+] as const;
 
 export function InsightsPanel() {
   const t = useTranslations('Insights.settings');
@@ -143,7 +156,45 @@ export function InsightsPanel() {
             aria-labelledby="insights-signals-label"
           />
         }
-      />
+      >
+        {draft.signalsEnabled && (
+          <div className="bg-card-2 space-y-3 rounded-md p-3">
+            <p className="text-foreground text-sm font-medium">
+              {t('pin.heading')}
+            </p>
+            <div className="space-y-2">
+              {PIN_RULES.map(([key, label]) => (
+                <label
+                  key={key}
+                  className="text-foreground flex items-center gap-2 text-sm"
+                >
+                  <Checkbox
+                    checked={draft[key]}
+                    onCheckedChange={(v) => set(key, v === true)}
+                    disabled={disabled}
+                  />
+                  {t(`pin.${label}`)}
+                </label>
+              ))}
+            </div>
+            <p className="text-muted-foreground text-xs">{t('pin.help')}</p>
+            <div className="flex items-center justify-between gap-3">
+              <label
+                id="insights-pin-notify-label"
+                className="text-foreground text-sm"
+              >
+                {t('pin.notify')}
+              </label>
+              <Switch
+                checked={draft.attentionNotify}
+                onCheckedChange={(v) => set('attentionNotify', v)}
+                disabled={disabled}
+                aria-labelledby="insights-pin-notify-label"
+              />
+            </div>
+          </div>
+        )}
+      </FeatureCard>
 
       <FeatureCard
         id="insights-tags"

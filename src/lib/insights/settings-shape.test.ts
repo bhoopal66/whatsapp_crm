@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COMPOSE_CHECK_MODES,
   INSIGHT_SETTINGS_OFF,
+  attentionRulesFrom,
   TAG_AUTO_MIN_P_DEFAULT,
   TAG_AUTO_MIN_P_MAX,
   TAG_AUTO_MIN_P_MIN,
@@ -26,6 +27,11 @@ const body = (extra: Record<string, unknown> = {}) => ({
   composeCheckMode: 'warn',
   meaningTriggersEnabled: false,
   kbGapJudgeEnabled: false,
+  attentionPinUrgent: true,
+  attentionPinUpset: false,
+  attentionPinWantsPerson: true,
+  attentionPinCallback: false,
+  attentionNotify: false,
   expectedUpdatedAt: null,
   ...extra,
 });
@@ -38,6 +44,14 @@ describe('settingsFromRow', () => {
       tagSuggestMode: 'off',
       composeCheckMode: 'off',
       updatedAt: null,
+    });
+    // The pin rules default on, also with no row (153's defaults).
+    expect(INSIGHT_SETTINGS_OFF).toMatchObject({
+      attentionPinUrgent: true,
+      attentionPinUpset: true,
+      attentionPinWantsPerson: true,
+      attentionPinCallback: true,
+      attentionNotify: true,
     });
   });
 
@@ -52,6 +66,11 @@ describe('settingsFromRow', () => {
         compose_check_mode: 'warn',
         meaning_triggers_enabled: true,
         kb_gap_judge_enabled: true,
+        attention_pin_urgent: true,
+        attention_pin_upset: false,
+        attention_pin_wants_person: true,
+        attention_pin_callback: false,
+        attention_notify: false,
         updated_at: 'v1',
       })
     ).toEqual({
@@ -63,6 +82,11 @@ describe('settingsFromRow', () => {
       composeCheckMode: 'warn',
       meaningTriggersEnabled: true,
       kbGapJudgeEnabled: true,
+      attentionPinUrgent: true,
+      attentionPinUpset: false,
+      attentionPinWantsPerson: true,
+      attentionPinCallback: false,
+      attentionNotify: false,
       updatedAt: 'v1',
     });
   });
@@ -93,9 +117,40 @@ describe('parseInsightSettingsPut', () => {
     ['a probability below the floor', body({ tagAutoMinP: 0.5 })],
     ['a probability above the ceiling', body({ tagAutoMinP: 1 })],
     ['a non-uuid tag', body({ replyInterestedTagId: 'interested' })],
+    ['a missing pin rule', body({ attentionPinUpset: undefined })],
+    ['a non-boolean notify', body({ attentionNotify: 'yes' })],
     ['a numeric version', body({ expectedUpdatedAt: 3 })],
   ])('refuses %s', (_label, input) => {
     expect(parseInsightSettingsPut(input).ok).toBe(false);
+  });
+});
+
+describe('attentionRulesFrom', () => {
+  it('maps the four pin switches to the rule names', () => {
+    expect(attentionRulesFrom(INSIGHT_SETTINGS_OFF)).toEqual({
+      urgent: true,
+      upset: true,
+      wantsPerson: true,
+      callback: true,
+    });
+    expect(
+      attentionRulesFrom({
+        ...INSIGHT_SETTINGS_OFF,
+        attentionPinUrgent: false,
+        attentionPinCallback: false,
+      })
+    ).toEqual({
+      urgent: false,
+      upset: true,
+      wantsPerson: true,
+      callback: false,
+    });
+  });
+
+  it('reads a row missing the columns as on', () => {
+    expect(settingsFromRow({ signals_enabled: true }).attentionPinUpset).toBe(
+      true
+    );
   });
 });
 
@@ -115,6 +170,11 @@ describe('rowFromValues', () => {
       compose_check_mode: 'warn',
       meaning_triggers_enabled: false,
       kb_gap_judge_enabled: false,
+      attention_pin_urgent: true,
+      attention_pin_upset: false,
+      attention_pin_wants_person: true,
+      attention_pin_callback: false,
+      attention_notify: false,
       updated_by: 'user',
     });
     const values = parsed.value;

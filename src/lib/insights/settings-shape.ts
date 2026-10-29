@@ -7,6 +7,8 @@
 // server module breaks the production build.
 // ============================================================
 
+import type { AttentionRules } from './bands';
+
 export type TagSuggestMode = 'off' | 'suggest' | 'auto';
 export type ComposeCheckMode = 'off' | 'warn';
 
@@ -31,6 +33,13 @@ export interface InsightSettings {
   composeCheckMode: ComposeCheckMode;
   meaningTriggersEnabled: boolean;
   kbGapJudgeEnabled: boolean;
+  /** Pin a chat until someone acts (migration 153), per cause. */
+  attentionPinUrgent: boolean;
+  attentionPinUpset: boolean;
+  attentionPinWantsPerson: boolean;
+  attentionPinCallback: boolean;
+  /** Notify the assigned person when a chat is pinned. */
+  attentionNotify: boolean;
   /** The saved row's version; null when nothing was ever saved. */
   updatedAt: string | null;
 }
@@ -45,6 +54,11 @@ export const INSIGHT_SETTINGS_OFF: InsightSettings = Object.freeze({
   composeCheckMode: 'off',
   meaningTriggersEnabled: false,
   kbGapJudgeEnabled: false,
+  attentionPinUrgent: true,
+  attentionPinUpset: true,
+  attentionPinWantsPerson: true,
+  attentionPinCallback: true,
+  attentionNotify: true,
   updatedAt: null,
 }) as InsightSettings;
 
@@ -59,12 +73,17 @@ export interface InsightSettingsRow {
   compose_check_mode: string;
   meaning_triggers_enabled: boolean;
   kb_gap_judge_enabled: boolean;
+  attention_pin_urgent: boolean;
+  attention_pin_upset: boolean;
+  attention_pin_wants_person: boolean;
+  attention_pin_callback: boolean;
+  attention_notify: boolean;
   updated_at: string;
   updated_by: string | null;
 }
 
 export const INSIGHT_SETTINGS_COLUMNS =
-  'account_id, signals_enabled, tag_suggest_mode, tag_auto_min_p, reply_class_enabled, reply_interested_tag_id, compose_check_mode, meaning_triggers_enabled, kb_gap_judge_enabled, updated_at, updated_by';
+  'account_id, signals_enabled, tag_suggest_mode, tag_auto_min_p, reply_class_enabled, reply_interested_tag_id, compose_check_mode, meaning_triggers_enabled, kb_gap_judge_enabled, attention_pin_urgent, attention_pin_upset, attention_pin_wants_person, attention_pin_callback, attention_notify, updated_at, updated_by';
 
 const isTagSuggestMode = (v: unknown): v is TagSuggestMode =>
   typeof v === 'string' && (TAG_SUGGEST_MODES as string[]).includes(v);
@@ -102,6 +121,12 @@ export function settingsFromRow(
       : 'off',
     meaningTriggersEnabled: row.meaning_triggers_enabled === true,
     kbGapJudgeEnabled: row.kb_gap_judge_enabled === true,
+    // On unless saved off (153's default), so a short row never unpins.
+    attentionPinUrgent: row.attention_pin_urgent !== false,
+    attentionPinUpset: row.attention_pin_upset !== false,
+    attentionPinWantsPerson: row.attention_pin_wants_person !== false,
+    attentionPinCallback: row.attention_pin_callback !== false,
+    attentionNotify: row.attention_notify !== false,
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
   };
 }
@@ -130,6 +155,11 @@ export function rowFromValues(
     compose_check_mode: v.composeCheckMode,
     meaning_triggers_enabled: v.meaningTriggersEnabled,
     kb_gap_judge_enabled: v.kbGapJudgeEnabled,
+    attention_pin_urgent: v.attentionPinUrgent,
+    attention_pin_upset: v.attentionPinUpset,
+    attention_pin_wants_person: v.attentionPinWantsPerson,
+    attention_pin_callback: v.attentionPinCallback,
+    attention_notify: v.attentionNotify,
     updated_by: userId,
   };
 }
@@ -152,6 +182,11 @@ export function parseInsightSettingsPut(
     'replyClassEnabled',
     'meaningTriggersEnabled',
     'kbGapJudgeEnabled',
+    'attentionPinUrgent',
+    'attentionPinUpset',
+    'attentionPinWantsPerson',
+    'attentionPinCallback',
+    'attentionNotify',
   ] as const) {
     if (typeof b[key] !== 'boolean')
       return { ok: false, error: `${key} must be true or false` };
@@ -191,6 +226,11 @@ export function parseInsightSettingsPut(
       composeCheckMode: b.composeCheckMode,
       meaningTriggersEnabled: b.meaningTriggersEnabled as boolean,
       kbGapJudgeEnabled: b.kbGapJudgeEnabled as boolean,
+      attentionPinUrgent: b.attentionPinUrgent as boolean,
+      attentionPinUpset: b.attentionPinUpset as boolean,
+      attentionPinWantsPerson: b.attentionPinWantsPerson as boolean,
+      attentionPinCallback: b.attentionPinCallback as boolean,
+      attentionNotify: b.attentionNotify as boolean,
       expectedUpdatedAt: expected as string | null,
     },
   };
@@ -217,6 +257,29 @@ export function settingsDiffer(
     a.replyInterestedTagId !== b.replyInterestedTagId ||
     a.composeCheckMode !== b.composeCheckMode ||
     a.meaningTriggersEnabled !== b.meaningTriggersEnabled ||
-    a.kbGapJudgeEnabled !== b.kbGapJudgeEnabled
+    a.kbGapJudgeEnabled !== b.kbGapJudgeEnabled ||
+    a.attentionPinUrgent !== b.attentionPinUrgent ||
+    a.attentionPinUpset !== b.attentionPinUpset ||
+    a.attentionPinWantsPerson !== b.attentionPinWantsPerson ||
+    a.attentionPinCallback !== b.attentionPinCallback ||
+    a.attentionNotify !== b.attentionNotify
   );
+}
+
+/** Which causes pin a chat, as the pin decision takes them. */
+export function attentionRulesFrom(
+  s: Pick<
+    InsightSettings,
+    | 'attentionPinUrgent'
+    | 'attentionPinUpset'
+    | 'attentionPinWantsPerson'
+    | 'attentionPinCallback'
+  >
+): AttentionRules {
+  return {
+    urgent: s.attentionPinUrgent,
+    upset: s.attentionPinUpset,
+    wantsPerson: s.attentionPinWantsPerson,
+    callback: s.attentionPinCallback,
+  };
 }

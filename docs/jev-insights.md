@@ -35,14 +35,15 @@ only admins and owners can change them. A save is version-checked: if
 someone else saved in between, the screen asks you to reload instead of
 overwriting their change.
 
-| Setting                                       | What it does                                                                                                                                                                                                                              |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Customer insights                             | Shows what each customer wants, how close they are to applying, and who is upset or urgent: in the inbox, on the customer page, on deals and on the home page.                                                                            |
-| Chat tag suggestions                          | **Off**, **Suggest** (a one-click suggestion in the chat header) or **Auto** (also tags untagged chats on its own when Jev is at least the chosen percentage sure). Auto never changes a tag a person set.                                |
-| Campaign reply sorting                        | Sorts replies to a broadcast into interested, question, not now, not interested, wrong person, stop and other; optionally tags interested replies with a chosen main tag.                                                                 |
-| Message check before sending                  | **Off** or **Warn**: agents see a warning before sending a message that promises an approval, quotes an unconfirmed rate, names a bank you don't work with, asks for card details or OTPs, or reads like spam. It never blocks a message. |
-| Knowledge-gap topics                          | Lets Jev label the intent of recurring unanswered questions and check whether an approved answer already covers them. Topics still form without it.                                                                                       |
-| Flows and automations that understand meaning | Lets flow and automation triggers match what the customer means, not only exact keywords, and lets flows understand typed answers to buttons and lists.                                                                                   |
+| Setting                                       | What it does                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customer insights                             | Shows what each customer wants, how close they are to applying, and who is upset or urgent: in the inbox, on the customer page, on deals and on the home page.                                                                                                                                                             |
+| Pin until someone acts                        | Under Customer insights: four boxes (time pressure, asks for a person, upset, asks for a call back) choose which causes pin a chat to the top of the inbox. A pinned chat stays there until someone replies, clicks Handled, or closes it. A switch notifies the assigned person when a chat is pinned. All on by default. |
+| Chat tag suggestions                          | **Off**, **Suggest** (a one-click suggestion in the chat header) or **Auto** (also tags untagged chats on its own when Jev is at least the chosen percentage sure). Auto never changes a tag a person set.                                                                                                                 |
+| Campaign reply sorting                        | Sorts replies to a broadcast into interested, question, not now, not interested, wrong person, stop and other; optionally tags interested replies with a chosen main tag.                                                                                                                                                  |
+| Message check before sending                  | **Off** or **Warn**: agents see a warning before sending a message that promises an approval, quotes an unconfirmed rate, names a bank you don't work with, asks for card details or OTPs, or reads like spam. It never blocks a message.                                                                                  |
+| Knowledge-gap topics                          | Lets Jev label the intent of recurring unanswered questions and check whether an approved answer already covers them. Topics still form without it.                                                                                                                                                                        |
+| Flows and automations that understand meaning | Lets flow and automation triggers match what the customer means, not only exact keywords, and lets flows understand typed answers to buttons and lists.                                                                                                                                                                    |
 
 When Jev isn't available for the workspace (no `TYPESAFE_API_KEY`, or
 the workspace isn't in `TS_ACCOUNT_IDS`), the screen says so and the
@@ -325,8 +326,8 @@ builder: pick **Customer means…** as the trigger and fill in three things.
 
 - **What the customer means** (10–300 characters). Describe the
   customer's goal in plain words, as you would brief a new colleague:
-  *wants a card machine for their shop*, *asks to cancel their
-  application*. Name one need per trigger. Don't list keywords, and don't
+  _wants a card machine for their shop_, _asks to cancel their
+  application_. Name one need per trigger. Don't list keywords, and don't
   describe your reply ("send the pricing sheet"); describe what the
   customer wants.
 - **Example messages** (optional, up to 5, 120 characters each). Real
@@ -339,7 +340,7 @@ builder: pick **Customer means…** as the trigger and fill in three things.
   yet been calibrated against real traffic.
 
 **Test a message** under the fields: type a message a customer might
-send and see *Matches (82%)* or *Doesn't match (31%)* against the chosen
+send and see _Matches (82%)_ or _Doesn't match (31%)_ against the chosen
 sensitivity. It needs the setting on and Jev available, is limited to 20
 tests a minute per person, and stores nothing. Use it with a few
 messages that should match and a few that shouldn't before switching a
@@ -458,13 +459,13 @@ Won and lost deals get no score.
 
 What goes into it, in points out of 100 when every figure is known:
 
-| Factor | Weight | From |
-|---|---|---|
-| Lead temperature | 40 | Jev's lead temperature for the customer's chat (0..3) |
-| Recent activity | 20 | the chat's last message, fading to nothing over 14 days |
-| Urgency | 15 | Jev's urgency for the chat (0..2) |
-| Stage progress | 15 | how far along the pipeline's stages (by their order) the deal is |
-| Waiting on us | 10 | the chat has unread customer messages |
+| Factor           | Weight | From                                                             |
+| ---------------- | ------ | ---------------------------------------------------------------- |
+| Lead temperature | 40     | Jev's lead temperature for the customer's chat (0..3)            |
+| Recent activity  | 20     | the chat's last message, fading to nothing over 14 days          |
+| Urgency          | 15     | Jev's urgency for the chat (0..2)                                |
+| Stage progress   | 15     | how far along the pipeline's stages (by their order) the deal is |
+| Waiting on us    | 10     | the chat has unread customer messages                            |
 
 - **Bands.** Hot at 70 or more, Warm at 40 or more, Cold below.
 - **At risk.** A small warning dot marks a deal whose customer seems
