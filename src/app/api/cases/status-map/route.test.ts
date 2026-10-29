@@ -60,6 +60,7 @@ let result: Record<string, { data?: unknown; error?: unknown }>;
 const as = (role: string) => {
   m.ctx = { userId: 'u-1', accountId: 'acct-1', role, supabase: null };
 };
+const get = (q = '') => GET(new Request(`http://x/api/cases/status-map${q}`));
 const put = (body: unknown) =>
   PUT(new Request('http://x', { method: 'PUT', body: JSON.stringify(body) }));
 const del = (q: string) =>
@@ -97,7 +98,7 @@ beforeEach(() => {
 
 describe('GET status map', () => {
   it('answers the overview, suggestions and availability', async () => {
-    const res = await GET();
+    const res = await get();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       ...overviewRow,
@@ -113,9 +114,22 @@ describe('GET status map', () => {
     );
   });
 
+  it('skips Jev with ?suggestions=0 but still answers availability', async () => {
+    vi.mocked(suggestStages).mockClear();
+    m.available = false;
+    const res = await get('?suggestions=0');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ...overviewRow,
+      suggestions: {},
+      available: false,
+    });
+    expect(vi.mocked(suggestStages)).not.toHaveBeenCalled();
+  });
+
   it('answers 403 to a team leader', async () => {
     as('team_leader');
-    expect((await GET()).status).toBe(403);
+    expect((await get()).status).toBe(403);
     expect(admin.rpcs).toEqual([]);
   });
 
@@ -123,7 +137,7 @@ describe('GET status map', () => {
     result.case_status_map_overview = {
       error: { hint: 'NOT_ALLOWED', code: '42501' },
     };
-    expect((await GET()).status).toBe(403);
+    expect((await get()).status).toBe(403);
   });
 });
 

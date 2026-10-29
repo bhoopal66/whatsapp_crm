@@ -6,6 +6,9 @@
 // case_status_map_overview, plus Jev's suggestion per unmapped status
 // (keyed by status_key; `{ stage | null, p, runnerUp }`, null = the status
 // names no stage) and whether Jev is usable for this account at all.
+// `?suggestions=0` skips Jev (`suggestions: {}`, the real `available`):
+// the Settings card paints the table from it, then asks again for the
+// suggestions, which can take 5-15 s on a cold cache.
 // PUT `{ status, stage, source: 'admin' | 'suggestion', suggestedP? }`:
 // `{ mapping }` (case_status_map_set). DELETE `?status=`: `{ deleted }`.
 //
@@ -32,11 +35,14 @@ import {
 } from '@/lib/cases/status-map';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const ctx = await requireRole('admin');
     const overview = await loadStatusMapOverview(supabaseAdmin(), ctx.userId);
-    const suggestions = await suggestStages(ctx.accountId, overview);
+    const suggestions =
+      queryParam(request, 'suggestions') === '0'
+        ? {}
+        : await suggestStages(ctx.accountId, overview);
     return NextResponse.json({
       ...overview,
       suggestions,

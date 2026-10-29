@@ -543,6 +543,14 @@ gives `applied: false, reason: "no_case"`.
 A 422 never partly applies: fix the data and resend. A retry of a
 timed-out call is safe because the same values change nothing.
 
+**Status names that match no stage (migration 151).** The CRM keeps a
+per-workspace status map that its admins edit: a status Compass sends
+(for example `Bank Review`) can be mapped to a stage of the bank list. On
+a `PATCH`, the map is consulted before the name rule; a mapped stage that
+is in the case's bank list moves the case there under the same rules. The
+four final statuses cannot be mapped. Nothing changes for Compass: keep
+sending `status` as today.
+
 ## 8. Stage and document lists
 
 Both need `submission_groups:read`. Use them to validate Compass's

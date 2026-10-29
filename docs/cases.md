@@ -119,6 +119,16 @@ into a pre-submission or final stage this way, nor out of a final one; a
 status that names no stage changes nothing. A `stage` sent in the same
 `PATCH` wins over a non-final status.
 
+**Status mapping (migration 151).** Before the name rule, the account's
+status map is consulted: owners and admins map a Compass status name that
+matches no stage to a stage in Settings → Cases → Compass status mapping,
+optionally from a Jev suggestion. A mapped stage is used when it is in the
+case's bank list (the same rules as above: never a pre-submission or final
+stage, never out of a final one); otherwise the name rule applies. Final
+statuses cannot be mapped. A new mapping acts on the next update; **Move N
+open cases now** re-applies it to open cases already holding the status
+through the same path. See `docs/jev-insights.md`.
+
 ## Leads
 
 A **lead** is a case with no WhatsApp group yet: a customer who is interested

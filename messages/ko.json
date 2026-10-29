@@ -8448,7 +8448,45 @@
     "_": ""
   },
   "StatusMap": {
-    "_": ""
+    "title": "Compass 상태 매핑",
+    "explainer": "Compass는 각 신청의 상태를 보고합니다. 상태 이름이 어떤 단계와도 일치하지 않으면 여기에서 해당 단계를 지정하세요. 그 상태의 케이스가 그 단계로 이동합니다.",
+    "finalNote": "최종 상태(Approved, Declined, Withdrawn, Closed)는 항상 케이스를 종료하며 매핑할 수 없습니다. 제출 전 단계와 최종 단계는 대상으로 제공되지 않습니다.",
+    "needsJev": "제안을 받으려면 Jev가 필요합니다(설정 → 스마트 인사이트).",
+    "unmappedHeading": "매핑되지 않은 상태",
+    "mappedHeading": "매핑된 상태",
+    "allLeft": "매핑되지 않은 상태를 모두 보류했습니다. 페이지를 새로 고치면 다시 나타납니다.",
+    "openCases": "{count, plural, =0 {진행 중인 케이스 없음} other {진행 중인 케이스 #건}}",
+    "chip": "{stage} · {pct}%",
+    "chipNone": "단계 변경 없음 · {pct}%",
+    "suggesting": "Jev에게 제안을 요청하는 중",
+    "accept": "수락",
+    "pickLabel": "{status}의 단계",
+    "pickPlaceholder": "단계 선택",
+    "save": "저장",
+    "leave": "보류",
+    "saved": "이제 {status} 상태의 케이스는 {stage}(으)로 이동합니다.",
+    "moveNow": "{count, plural, other {진행 중인 케이스 #건 지금 이동}}",
+    "applied": "{moved}건 이동, {unchanged}건은 이미 해당 단계",
+    "byJev": "Jev 제안",
+    "byJevPct": "Jev 제안 · {pct}%",
+    "byAdmin": "관리자 지정",
+    "stageUnknown": "이 단계는 일부 은행의 단계 목록에 없습니다. 해당 케이스는 이동하지 않습니다.",
+    "removeLabel": "{status} 매핑 삭제",
+    "removeTitle": "이 매핑을 삭제할까요?",
+    "removeBody": "{status} 상태의 케이스는 더 이상 이 매핑으로 이동하지 않습니다. 이미 이동한 케이스는 그대로 유지됩니다.",
+    "remove": "삭제",
+    "cancel": "취소",
+    "removed": "{status} 매핑을 삭제했습니다.",
+    "empty": "아직 매핑할 Compass 상태가 없습니다. Compass가 어떤 단계와도 일치하지 않는 상태를 보내면 여기에 표시됩니다.",
+    "loadFailed": "상태 매핑을 불러오지 못했습니다.",
+    "retry": "다시 시도",
+    "errors": {
+      "statusFinal": "최종 상태입니다. 항상 케이스를 종료하며 매핑할 수 없습니다.",
+      "stageNotAllowed": "이 단계는 대상이 될 수 없습니다. 제출 전 단계와 최종 단계는 허용되지 않습니다.",
+      "stageNotConfigured": "이 단계는 어떤 은행의 단계 목록에도 없습니다.",
+      "notAllowed": "소유자와 관리자만 상태 매핑을 변경할 수 있습니다.",
+      "generic": "저장하지 못했습니다: {error}"
+    }
   },
   "KnowledgeGaps": {
     "_": ""

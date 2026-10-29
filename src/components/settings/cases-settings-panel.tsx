@@ -60,6 +60,7 @@ import {
 } from '@/lib/cases/settings-ui';
 import { cn } from '@/lib/utils';
 
+import { CaseStatusMapCard } from './case-status-map-card';
 import { SettingsPanelHead } from './settings-panel-head';
 import { TABS_TRIGGER_DARK } from './tab-styles';
 
@@ -363,6 +364,8 @@ export function CasesSettingsPanel() {
       />
 
       <CaseSwitchCards />
+
+      <CaseStatusMapCard />
 
       {loadFailed ? (
         <p className="text-destructive text-sm" role="alert">

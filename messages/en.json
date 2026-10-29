@@ -8448,7 +8448,45 @@
     "_": ""
   },
   "StatusMap": {
-    "_": ""
+    "title": "Compass status mapping",
+    "explainer": "Compass reports each application's status. When a status name matches no stage, say here which stage it means, and cases with that status move there.",
+    "finalNote": "Final statuses (Approved, Declined, Withdrawn, Closed) always close the case and cannot be mapped. Pre-submission and final stages are not offered as targets.",
+    "needsJev": "Suggestions need Jev (Settings → Smart insights).",
+    "unmappedHeading": "Unmapped statuses",
+    "mappedHeading": "Mapped statuses",
+    "allLeft": "You left every unmapped status for now. They come back when you reload the page.",
+    "openCases": "{count, plural, =0 {No open cases} one {# open case} other {# open cases}}",
+    "chip": "{stage} · {pct}%",
+    "chipNone": "No stage change · {pct}%",
+    "suggesting": "Asking Jev for a suggestion",
+    "accept": "Accept",
+    "pickLabel": "Stage for {status}",
+    "pickPlaceholder": "Choose a stage",
+    "save": "Save",
+    "leave": "Leave",
+    "saved": "{status} now moves cases to {stage}.",
+    "moveNow": "{count, plural, one {Move # open case now} other {Move # open cases now}}",
+    "applied": "Moved {moved}, {unchanged} already there",
+    "byJev": "Suggested by Jev",
+    "byJevPct": "Suggested by Jev · {pct}%",
+    "byAdmin": "Set by admin",
+    "stageUnknown": "This stage is missing from some banks' lists; those cases won't move.",
+    "removeLabel": "Remove the mapping for {status}",
+    "removeTitle": "Remove this mapping?",
+    "removeBody": "Cases with the status {status} will no longer move by this mapping. Cases already moved stay where they are.",
+    "remove": "Remove",
+    "cancel": "Cancel",
+    "removed": "Mapping for {status} removed.",
+    "empty": "No Compass statuses to map yet. Statuses appear here once Compass sends one that names no stage.",
+    "loadFailed": "Could not load the status mapping.",
+    "retry": "Retry",
+    "errors": {
+      "statusFinal": "That is a final status: it always closes the case and cannot be mapped.",
+      "stageNotAllowed": "That stage cannot be a target. Pre-submission and final stages are not allowed.",
+      "stageNotConfigured": "That stage is not in any bank's stage list.",
+      "notAllowed": "Only owners and admins can change the status mapping.",
+      "generic": "Could not save: {error}"
+    }
   },
   "KnowledgeGaps": {
     "_": ""
