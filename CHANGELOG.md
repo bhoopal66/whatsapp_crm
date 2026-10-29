@@ -12,6 +12,37 @@ and polish.
 
 ## [Unreleased]
 
+### Customer insights 2.0: colour codes and chats pinned until someone acts
+
+**Migration required: 153_insights_v2.sql**, applied **before the new build
+goes live** (the inbox, the customer card and the writer read its columns).
+Additive and re-runnable on top of 147–152. Everything stays inside the
+existing Customer insights switch (Settings → Smart insights).
+- **Pinned until someone acts.** A chat whose customer is under time
+  pressure, asks for a person, is upset or asks for a call back is pinned to
+  the top of the inbox with a coloured reason label, and stays there until a
+  person replies, clicks **Handled**, or closes the chat. Bot and automation
+  replies don't count; a new message that needs it pins the chat again.
+  Admins choose which reasons pin, and the assigned person (else the chat's
+  owner) gets a bell. Pins and un-pins show as notes in the chat timeline,
+  with who handled it. A "Pinned chats" home tile and a Pinned filter open
+  the list.
+- **Colour codes.** One colour system for every insight: lead temperature
+  (cold → ready), mood (very negative → very positive), each pin reason,
+  each product, each objection. Inbox rows get a coloured edge and small
+  coloured chips; a "What do the colours mean?" legend explains them; deal
+  scores use the same colours.
+- **Deeper understanding.** Jev now also judges the customer's mood on a
+  five-step scale, what holds them back (rate or fees, documents, doubts
+  about qualifying, trust, timing, comparing other offers), whether they
+  expect a reply and whether they asked for a call. Every judgment is kept
+  per chat, so the card shows whether they are warming up or cooling off and
+  whether their mood is improving.
+- **Customer card 2.0.** A pinned banner with **Mark handled**, colour-coded
+  sections, the objections, up to two **next best actions** ("Call them
+  back — they asked", "Acknowledge the problem first", "Send the documents
+  checklist"…) and small trend lines for mood and lead temperature.
+
 ### Smart insights: Jev across the CRM
 
 **Migration required: 147_smart_insights.sql, 148_campaign_reply_classes.sql,

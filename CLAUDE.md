@@ -1355,7 +1355,22 @@ knowledge-gap topics. `docs/jev-insights.md` is the contract.
 - **Client copies.** Constants a client component needs (warning codes,
   reply classes, intent keys) live in dependency-free modules pinned to
   the server's list by a test that reads the server file as text.
-- Verify files: `verify-smart-insights.sql`, `verify-campaign-reply-classes.sql`,
+- **Pins (153).** `insight_attention_at`/`reason` (urgent = time pressure
+  alone, wants_person, upset, callback) are set only by
+  `insight_pin_attention` (service role; locks the chat row, then answers
+  'answered' if a person replied — or any `insight_attention_cleared` was
+  recorded — at/after the message, so a late judgment never re-pins) and
+  cleared only by a person's reply (trigger, takes the same row lock),
+  `acknowledge_insight_attention` (Handled, agents+) or closing. Bot and
+  automation messages never clear. The precedence lives in
+  `ATTENTION_REASONS` and the RPC's `c_order` (`attention-order.test.ts`
+  pins them); the bell type `insight_attention` lives in 153 §9
+  (`notifications_type_check`, `push_bell_url`), `hrefFor`, `PUSH_KINDS`
+  and `kindGroup` — change them together.
+- **Colours** come only from `src/lib/insights/palette.ts`: complete literal
+  class strings with a `dark:` pair (Tailwind can't see composed names).
+  Inbox chips sit on the meta line and never replace the message preview.
+- Verify files: `verify-smart-insights.sql`, `verify-insights-v2.sql`, `verify-campaign-reply-classes.sql`,
   `verify-compose-check-events.sql`, `verify-meaning-triggers.sql`,
   `verify-case-status-map.sql`, `verify-kb-gap-topics.sql`.
 
