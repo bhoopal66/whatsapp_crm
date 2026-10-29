@@ -59,17 +59,41 @@ customer, the bot and the next message never wait for it.
 
 - **What is judged.** With Customer insights on: what the customer
   wants (intent), urgency, lead temperature, whether they are upset and
-  whether they ask for a person. With Chat tag suggestions on: which of
+  whether they ask for a person, plus the deep figures: their mood
+  (sentiment, very negative to very positive), the objections they
+  raise (price, documents, eligibility, trust, timing, comparing; each
+  shown at 60% or more), whether the message waits for a reply, and
+  whether they ask to be called back. With Chat tag suggestions on: which of
   the workspace's main tags (and sub-tag) fits, over the tags' names and
   their "when does this tag apply" hints, in display order.
 - **One request.** When the bot's triage or the opt-out watch already
-  judged this exact message with the pinned Jev model, its figures are
-  reused from that log row and Jev is asked only about tags, so one
-  request covers both; with tag suggestions off, no request is made at
-  all.
-- **Forward only.** The figures are stamped with the message's own time
-  (`insight_at`). A judgment of an older message that finishes after a
-  newer one's does not overwrite it.
+  judged this exact message with the pinned Jev model, its five signals
+  are reused from that log row and Jev is asked only the deep figures
+  (and the tags, when suggestions are on): still one request per
+  message.
+- **Forward only.** The figures, deep ones included, are stamped with
+  the message's own time (`insight_at`) in one update. A judgment of an
+  older message that finishes after a newer one's does not overwrite it.
+- **History.** Every judged message also leaves one row of figures
+  (numbers and codes, never text) in `conversation_insight_events`; each
+  chat keeps its newest 30. A failure there is logged and changes
+  nothing else.
+- **Pinned until someone acts.** A message that is urgent, asks for a
+  person (85% or more), is upset (85% or more) or asks for a call back
+  (75% or more) pins the chat, for the reasons switched on in Settings
+  (all on by default), with the highest of them as its label: Urgent ›
+  Wants a person › Upset › Asked for a call back. The pin carries the
+  message's time. It is not set on a closed chat, nor when a person has
+  already replied at or after that message (a judgment that lands after
+  the answer). A chat already pinned keeps its time; a more important
+  reason replaces the label. Only a person clears a pin: their reply,
+  closing the chat, or **Handled**. Each pin, raise and clear is noted
+  in the chat's events.
+- **The bell.** A new pin (not a raised one) rings the bell once, when
+  the workspace's "notify" switch is on, for the chat's assigned agent,
+  else its owner, whichever is live staff in the workspace; nobody when
+  neither is. The bell names the customer from the contact's name; that
+  name never goes to Jev.
 - **Suggestions.** A tag is suggested when Jev is at least 55% sure, no
   one dismissed that tag in this chat, and it would change the chat's
   tags; a sub-tag is included only when Jev is at least 55% sure of it
@@ -80,8 +104,9 @@ customer, the bot and the next message never wait for it.
 - **Rate limit.** At most 120 judgments per workspace per minute; above
   that, messages are simply not judged.
 
-The figures are display signals (badges, sorting, priority), never
-actions: nothing here sends, tags, assigns or opts anyone out.
+The figures are display signals (badges, sorting, priority), and the
+pin and its bell only ask for a person; neither is an action: nothing
+here sends, tags, assigns or opts anyone out.
 
 ## What agents see in the Inbox
 

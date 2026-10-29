@@ -10,11 +10,15 @@
 //     wants a person) are lifted from the triage row the bot or the watch
 //     already logged for this exact message when one exists for the
 //     pinned model, and asked for only otherwise;
+//   * with Customer insights on, the deep figures (sentiment, objections,
+//     needs a reply, asks for a call back) are always asked;
 //   * the chat-tag suggestion is asked over the workspace's own tags.
 //
-// What is stored is display data only (the insight_* and suggested_*
-// columns of migration 147, service role only). Nothing here sends,
-// tags, assigns or opts anyone out. Never throws.
+// What is stored is display data (the insight_* and suggested_* columns
+// of migrations 147 and 153, and one conversation_insight_events row per
+// judged message, service role only), plus the attention pin and its
+// bell (./attention.ts). Nothing here sends, tags, assigns or opts
+// anyone out. Never throws.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -24,21 +28,35 @@ import { turnsBefore } from '@/lib/ai/typesafe-gates';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
   getDecisionLayer,
+  type InsightsDeep,
   type InsightsJudgment,
   type InsightsSignals,
   type TagCatalogue,
   type TagSuggestion,
 } from '@/lib/typesafe';
 import { messageHash } from '@/lib/typesafe/log';
-import { INSIGHT_INTENT_KEYS, priorityOf, TAG_SUGGEST_MIN_P } from './bands';
+import { applyInsightAttention, type AttentionOutcome } from './attention';
+import {
+  attentionReason,
+  INSIGHT_INTENT_KEYS,
+  objectionsFrom,
+  priorityOf,
+  TAG_SUGGEST_MIN_P,
+} from './bands';
 import {
   getInsightSettings,
   insightsAvailable,
   type InsightSettings,
 } from './settings';
+import { attentionRulesFrom } from './settings-shape';
 
 /** Earlier turns sent with the message, as the watch sends them. */
 const RECENT_TURNS = 6;
+
+/** Judged messages kept per chat in conversation_insight_events. */
+export const INSIGHT_HISTORY_KEEP = 30;
+/** At most this many older history rows are trimmed per judgment. */
+const HISTORY_TRIM_BATCH = 100;
 
 /** The chat's tags as they stood when the suggestion was decided. */
 export interface ChatTagState {
@@ -65,6 +83,8 @@ export interface InboundInsightsOutcome {
   reusedTriage: boolean;
   /** The figures stored, from whichever source; null when none. */
   signals: InsightsSignals | null;
+  /** The deep figures stored with them; null when not asked or none. */
+  deep: InsightsDeep | null;
   /** The Jev judgment; null when none was requested. */
   judgment: InsightsJudgment | null;
   /** The judgment's tag answer (null when tags were off, the workspace has
@@ -78,6 +98,11 @@ export interface InboundInsightsOutcome {
    *  when the tags were not read. */
   basisAt: string | null;
   signalsWritten: boolean;
+  /** The per-message history row: stored, failed (logged), or null when
+   *  no figures were judged. */
+  history: 'stored' | 'failed' | null;
+  /** The attention pin for this judgment; null when no reason held. */
+  attention: AttentionOutcome | null;
   /** What happened to the suggestion columns. `superseded`: the
    *  compare-and-set found the chat moved on (tagged, dismissed, or a
    *  decision made after this run read the chat) and wrote nothing. */
@@ -266,11 +291,14 @@ export async function runInboundInsights(
     settings: null,
     reusedTriage: false,
     signals: null,
+    deep: null,
     judgment: null,
     tag: null,
     chat: null,
     basisAt: null,
     signalsWritten: false,
+    history: null,
+    attention: null,
     suggestion: 'untouched',
     stored: null,
   };
@@ -318,7 +346,10 @@ export async function runInboundInsights(
       catalogue && chat && catalogue.mains.length > 0 ? catalogue : null;
 
     let signals = triage;
-    if (askSignals || tags) {
+    let deep: InsightsDeep | null = null;
+    // Customer insights always ask the deep figures, so with them on there
+    // is one request per message even when triage supplied the signals.
+    if (signalsOn || tags) {
       const context = await buildConversationContext(db, conversationId);
       const judgment = await ts.insights({
         accountId,
@@ -331,7 +362,7 @@ export async function runInboundInsights(
           })),
         journeyStage: 'open_conversation',
         askSignals,
-        askDeep: false,
+        askDeep: signalsOn,
         tags,
       });
       out.judgment = judgment;
@@ -339,19 +370,65 @@ export async function runInboundInsights(
       // badges keep what the last good judgment said.
       if (!judgment.ok) return out;
       if (askSignals) signals = judgment.signals;
+      if (signalsOn) deep = judgment.deep ?? null;
       out.tag = judgment.tag;
     }
     out.signals = signals;
+    out.deep = deep;
 
     const writes: Promise<void>[] = [];
     if (signalsOn && signals) {
       writes.push(
-        writeSignals(db, accountId, conversationId, signals, messageAt).then(
-          () => {
-            out.signalsWritten = true;
-          }
-        )
+        writeSignals(
+          db,
+          accountId,
+          conversationId,
+          signals,
+          deep,
+          messageAt
+        ).then(() => {
+          out.signalsWritten = true;
+        })
       );
+      writes.push(
+        recordHistory(
+          db,
+          accountId,
+          conversationId,
+          signals,
+          deep,
+          messageAt
+        ).then((ok) => {
+          out.history = ok ? 'stored' : 'failed';
+        })
+      );
+      // The pin is decided per message, not forward-only: an urgent
+      // message judged after a calmer newer one still asked for someone.
+      // What stops a stale pin is the "a person already replied" check.
+      const reason = attentionReason(
+        {
+          urgency: signals.urgency,
+          upset: signals.upset,
+          wantsHuman: signals.wantsHuman,
+          leadTemp: signals.leadTemp,
+          callback: deep?.callback,
+        },
+        attentionRulesFrom(settings)
+      );
+      if (reason) {
+        writes.push(
+          applyInsightAttention(db, {
+            accountId,
+            conversationId,
+            contactId: args.contactId,
+            messageAt,
+            reason,
+            notify: settings.attentionNotify,
+          }).then((a) => {
+            out.attention = a;
+          })
+        );
+      }
     }
     if (tagsOn && chat && out.tag) {
       const next = suggestionFor(out.tag, chat);
@@ -389,11 +466,13 @@ async function writeSignals(
   accountId: string,
   conversationId: string,
   s: InsightsSignals,
+  deep: InsightsDeep | null,
   messageAt: string
 ): Promise<void> {
   const { error } = await db
     .from('conversations')
     .update({
+      ...(deep ? deepColumns(deep) : {}),
       insight_intent: s.intent.key,
       insight_intent_p: s.intent.p,
       insight_urgency: s.urgency,
@@ -414,6 +493,86 @@ async function writeSignals(
     // newer one's must not put its figures back.
     .or(`insight_at.is.null,insight_at.lte.${messageAt}`);
   if (error) throw new Error(error.message);
+}
+
+const deepColumns = (d: InsightsDeep) => ({
+  insight_sentiment: d.sentiment,
+  insight_objections: objectionsFrom(d.objections),
+  insight_needs_reply: d.needsReply,
+  insight_callback: d.callback,
+});
+
+/**
+ * One conversation_insight_events row for this judged message (numbers
+ * and codes only, never text), then the chat trimmed to its newest
+ * INSIGHT_HISTORY_KEEP rows. History is display data: a failure is
+ * logged, returns false and changes nothing else.
+ */
+async function recordHistory(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+  s: InsightsSignals,
+  deep: InsightsDeep | null,
+  messageAt: string
+): Promise<boolean> {
+  try {
+    const { error } = await db.from('conversation_insight_events').insert({
+      account_id: accountId,
+      conversation_id: conversationId,
+      message_at: messageAt,
+      figures: {
+        intent: s.intent.key,
+        urgency: s.urgency,
+        leadTemp: s.leadTemp,
+        upset: s.upset,
+        wantsHuman: s.wantsHuman,
+        sentiment: deep?.sentiment ?? null,
+        objections: deep ? objectionsFrom(deep.objections) : null,
+        needsReply: deep?.needsReply ?? null,
+        callback: deep?.callback ?? null,
+        priority: priorityOf({
+          urgency: s.urgency,
+          upset: s.upset,
+          wantsHuman: s.wantsHuman,
+          leadTemp: s.leadTemp,
+        }),
+      },
+    });
+    if (error) throw new Error(error.message);
+
+    // The rows past the newest KEEP (by message time), at most a batch:
+    // normally just the one this insert pushed out.
+    const { data: old, error: oldErr } = await db
+      .from('conversation_insight_events')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('account_id', accountId)
+      .order('message_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(
+        INSIGHT_HISTORY_KEEP,
+        INSIGHT_HISTORY_KEEP + HISTORY_TRIM_BATCH - 1
+      );
+    if (oldErr) throw new Error(oldErr.message);
+    const ids = ((old ?? []) as { id: string }[]).map((r) => r.id);
+    if (ids.length > 0) {
+      const { error: delErr } = await db
+        .from('conversation_insight_events')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('account_id', accountId)
+        .in('id', ids);
+      if (delErr) throw new Error(delErr.message);
+    }
+    return true;
+  } catch (err) {
+    console.error(
+      `[insights] conversation ${conversationId}: history not saved:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return false;
+  }
 }
 
 /**

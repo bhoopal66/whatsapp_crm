@@ -10,7 +10,7 @@ import { INSIGHT_SETTINGS_OFF, type InsightSettings } from './settings-shape';
 
 interface Call {
   table: string;
-  op: 'select' | 'update';
+  op: 'select' | 'update' | 'insert' | 'delete';
   payload?: unknown;
   filters: [string, ...unknown[]][];
 }
@@ -80,7 +80,28 @@ vi.mock('@/lib/ai/admin-client', () => ({
         call.payload = payload;
         return b;
       };
-      for (const name of ['select', 'eq', 'or', 'order', 'limit', 'is']) {
+      b.insert = (payload: unknown) => {
+        call.op = 'insert';
+        call.payload = payload;
+        return b;
+      };
+      b.delete = () => {
+        call.op = 'delete';
+        return b;
+      };
+      for (const name of [
+        'select',
+        'eq',
+        'or',
+        'order',
+        'limit',
+        'is',
+        'neq',
+        'not',
+        'gte',
+        'in',
+        'range',
+      ]) {
         b[name] = (...args: unknown[]) => {
           call.filters.push([name, ...args]);
           return b;
@@ -278,7 +299,7 @@ describe('runInboundInsights — gating', () => {
 });
 
 describe('runInboundInsights — triage reuse', () => {
-  it('a triage row for the pinned model supplies the signals; nothing else to ask means no request', async () => {
+  it('a triage row for the pinned model supplies the signals; the one request asks only the deep figures', async () => {
     h.settings = settings({ signalsEnabled: true });
     h.responses['ts_decision_log:select'] = {
       data: [{ answers: TRIAGE_ANSWERS, model_id: MODEL }],
@@ -294,7 +315,12 @@ describe('runInboundInsights — triage reuse', () => {
     ]);
     expect(read.filters).toContainEqual(['eq', 'check_name', 'triage']);
     expect(read.filters).toContainEqual(['eq', 'account_id', 'acct-1']);
-    expect(h.insights).not.toHaveBeenCalled();
+    expect(h.insights).toHaveBeenCalledTimes(1);
+    expect(h.insights.mock.calls[0][0]).toMatchObject({
+      askSignals: false,
+      askDeep: true,
+      tags: null,
+    });
     expect(out.reusedTriage).toBe(true);
     expect(signalUpdate()!.payload).toEqual({
       insight_intent: 'pos_terminal',
@@ -373,6 +399,199 @@ describe('runInboundInsights — forward-only signals', () => {
       'or',
       `insight_at.is.null,insight_at.lte.${MESSAGE_AT}`,
     ]);
+  });
+});
+
+const DEEP = {
+  sentiment: 0.8,
+  objections: {
+    price: 0.9,
+    documents: 0.2,
+    eligibility: 0.65,
+    trust: 0.1,
+    timing: 0.59,
+    comparing: 0,
+  },
+  needsReply: 0.8,
+  callback: 0.9,
+};
+
+const inserts = (table: string) =>
+  h.calls.filter((c) => c.table === table && c.op === 'insert');
+
+describe('runInboundInsights — Customer insights 2.0', () => {
+  beforeEach(() => {
+    h.settings = settings({ signalsEnabled: true });
+    h.insights.mockResolvedValue({
+      ok: true,
+      signals: JEV_SIGNALS,
+      deep: DEEP,
+      tag: null,
+      latencyMs: 5,
+    });
+  });
+
+  it('asks the deep figures and writes them in the same forward-only update', async () => {
+    const out = await run();
+    expect(h.insights.mock.calls[0][0]).toMatchObject({
+      askSignals: true,
+      askDeep: true,
+    });
+    expect(out.deep).toEqual(DEEP);
+    const u = signalUpdate()!;
+    expect(u.payload).toMatchObject({
+      insight_intent: 'business_loan',
+      insight_sentiment: 0.8,
+      insight_objections: ['price', 'eligibility'],
+      insight_needs_reply: 0.8,
+      insight_callback: 0.9,
+      insight_at: MESSAGE_AT,
+    });
+    expect(u.filters).toContainEqual([
+      'or',
+      `insight_at.is.null,insight_at.lte.${MESSAGE_AT}`,
+    ]);
+  });
+
+  it('a newer message already judged keeps its figures, deep ones included', async () => {
+    h.row = {
+      id: 'conv-1',
+      account_id: 'acct-1',
+      status: 'open',
+      insight_at: '2026-10-29T08:00:05.000Z',
+      insight_sentiment: 3,
+      insight_attention_at: null,
+      insight_attention_reason: null,
+    };
+    await run();
+    expect(h.row).toMatchObject({
+      insight_at: '2026-10-29T08:00:05.000Z',
+      insight_sentiment: 3,
+    });
+  });
+
+  it('with Customer insights off, tag suggestions ask no deep figures', async () => {
+    h.settings = settings({ tagSuggestMode: 'suggest' });
+    h.insights.mockResolvedValue(tagJudgment({}));
+    const out = await run();
+    expect(h.insights.mock.calls[0][0]).toMatchObject({
+      askSignals: false,
+      askDeep: false,
+    });
+    expect(signalUpdate()).toBeUndefined();
+    expect(inserts('conversation_insight_events')).toEqual([]);
+    expect(out.history).toBeNull();
+  });
+
+  it('records one history row per judged message, then trims the chat to its newest 30', async () => {
+    h.responses['conversation_insight_events:select'] = {
+      data: [{ id: 'old-1' }, { id: 'old-2' }],
+      error: null,
+    };
+    const out = await run();
+    expect(out.history).toBe('stored');
+    expect(
+      inserts('conversation_insight_events').map((c) => c.payload)
+    ).toEqual([
+      {
+        account_id: 'acct-1',
+        conversation_id: 'conv-1',
+        message_at: MESSAGE_AT,
+        figures: {
+          intent: 'business_loan',
+          urgency: 0.2,
+          leadTemp: 1.0,
+          upset: 0.75,
+          wantsHuman: 0.1,
+          sentiment: 0.8,
+          objections: ['price', 'eligibility'],
+          needsReply: 0.8,
+          callback: 0.9,
+          priority: 1,
+        },
+      },
+    ]);
+    const read = h.calls.find(
+      (c) => c.table === 'conversation_insight_events' && c.op === 'select'
+    )!;
+    expect(read.filters).toContainEqual(['eq', 'conversation_id', 'conv-1']);
+    expect(read.filters).toContainEqual([
+      'order',
+      'message_at',
+      { ascending: false },
+    ]);
+    const [, from, to] = read.filters.find((f) => f[0] === 'range')!;
+    expect(from).toBe(30);
+    expect(to as number).toBeGreaterThan(30);
+    const del = h.calls.find(
+      (c) => c.table === 'conversation_insight_events' && c.op === 'delete'
+    )!;
+    expect(del.filters).toContainEqual(['eq', 'conversation_id', 'conv-1']);
+    expect(del.filters).toContainEqual(['eq', 'account_id', 'acct-1']);
+    expect(del.filters).toContainEqual(['in', 'id', ['old-1', 'old-2']]);
+  });
+
+  it('nothing past the newest 30: no delete', async () => {
+    h.responses['conversation_insight_events:select'] = {
+      data: [],
+      error: null,
+    };
+    await run();
+    expect(
+      h.calls.some(
+        (c) => c.table === 'conversation_insight_events' && c.op === 'delete'
+      )
+    ).toBe(false);
+  });
+
+  it('a failed history insert is logged and changes nothing else', async () => {
+    h.responses['conversation_insight_events:insert'] = {
+      data: null,
+      error: { message: 'down' },
+    };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const out = await run();
+    expect(out.history).toBe('failed');
+    expect(out.skipped).toBeNull();
+    expect(out.signalsWritten).toBe(true);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('a callback request pins the chat with the workspace’s rules', async () => {
+    h.row = {
+      id: 'conv-1',
+      account_id: 'acct-1',
+      status: 'open',
+      insight_at: null,
+      insight_attention_at: null,
+      insight_attention_reason: null,
+      assigned_agent_id: null,
+      user_id: null,
+    };
+    const out = await run();
+    expect(out.attention).toEqual({ result: 'pinned', notified: false });
+    expect(h.row).toMatchObject({
+      insight_attention_at: MESSAGE_AT,
+      insight_attention_reason: 'callback',
+    });
+    expect(
+      inserts('conversation_events').map(
+        (c) => (c.payload as { details: unknown }).details
+      )
+    ).toEqual([{ reason: 'callback' }]);
+  });
+
+  it('no pin when the matching rule is off', async () => {
+    h.settings = settings({
+      signalsEnabled: true,
+      attentionPinCallback: false,
+    });
+    const out = await run();
+    expect(out.attention).toBeNull();
+    expect(
+      updates().some((c) => 'insight_attention_at' in (c.payload as object))
+    ).toBe(false);
   });
 });
 
