@@ -17,8 +17,9 @@
 -- kb_gap_topics_replace() (service role only), in one transaction under
 -- a per-account advisory lock: a failed insert leaves the previous
 -- topics in place, and two recomputes never interleave. The recompute
--- passes the statuses it read before working (p_expected); if a person
--- dismissed or reopened a topic meanwhile, or the set changed, the call
+-- passes the statuses and dismissal times it read before working
+-- (p_expected); if a person dismissed or reopened a topic meanwhile
+-- (a reopen then re-dismiss included), or the set changed, the call
 -- refuses (40001, HINT STALE) and the recompute carries the new
 -- statuses over and tries again. The one thing a
 -- person changes is a topic's status (dismiss / reopen), through
@@ -241,18 +242,23 @@ DROP FUNCTION IF EXISTS public.kb_gap_topics_replace(uuid, jsonb);
 -- coverage defaults to 'unknown' and status to 'open' when absent;
 -- every other rule is the tables' CHECKs and FKs. A covered_by_entry_id
 -- naming an answer that no longer exists anywhere (deleted while the
--- recompute ran) is stored as NULL; one that exists in another account
--- still fails the FK. Every row is written
+-- recompute ran) is stored as NULL with coverage 'unknown' and no
+-- coverage_p, since the judgment was about that answer; one that exists
+-- is locked FOR KEY SHARE until commit, so a concurrent delete waits
+-- for the replace rather than failing it; one that exists in another
+-- account still fails the FK. Every row is written
 -- with account_id = p_account, so the composite FKs refuse a gap or an
 -- answer of another account (23503). One function call is one
 -- transaction: any failure undoes the DELETE as well. Returns the number
 -- of topics inserted. Topic ids are new on every call.
 --
 -- p_expected is the account's topics as the caller read them, a JSON
--- object { "<topic id>": "<status>" } ('{}' for none). Under the lock,
--- if the stored set differs (a topic's status changed, or a topic was
--- added or removed) the call raises 40001 with HINT 'STALE' and changes
--- nothing: a dismissal made while a recompute was working is never lost.
+-- object { "<topic id>": { "status": ..., "dismissed_at": ... } } ('{}'
+-- for none). Under the lock, if the stored set differs (a topic's status
+-- or dismissed_at changed, or a topic was added or removed) the call
+-- raises 40001 with HINT 'STALE' and changes nothing: a dismissal made
+-- while a recompute was working is never lost, even one that reopened
+-- and re-dismissed a topic (same status, a newer dismissed_at).
 CREATE OR REPLACE FUNCTION public.kb_gap_topics_replace(
   p_account  uuid,
   p_topics   jsonb,
@@ -264,10 +270,12 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_elem  jsonb;
-  v_topic uuid;
-  v_count integer := 0;
-  v_entry uuid;
+  v_elem       jsonb;
+  v_topic      uuid;
+  v_count      integer := 0;
+  v_entry      uuid;
+  v_coverage   text;
+  v_coverage_p real;
 BEGIN
   IF p_account IS NULL THEN
     RAISE EXCEPTION 'p_account is required' USING ERRCODE = '22023';
@@ -281,8 +289,18 @@ BEGIN
 
   PERFORM pg_advisory_xact_lock(hashtext('kb_gap_topics:' || p_account));
 
-  IF (SELECT coalesce(jsonb_object_agg(id::text, status), '{}'::jsonb)
-      FROM kb_gap_topics WHERE account_id = p_account) IS DISTINCT FROM p_expected THEN
+  -- Same keys (equal counts, every stored id present) and, per topic,
+  -- the same status and dismissed_at (compared as timestamptz, so the
+  -- text format of the caller's copy does not matter).
+  IF (SELECT count(*) FROM kb_gap_topics WHERE account_id = p_account)
+       <> (SELECT count(*) FROM jsonb_object_keys(p_expected))
+     OR EXISTS (
+       SELECT 1 FROM kb_gap_topics t
+       WHERE t.account_id = p_account
+         AND (jsonb_typeof(p_expected->(t.id::text)) IS DISTINCT FROM 'object'
+              OR (p_expected->(t.id::text)->>'status') IS DISTINCT FROM t.status
+              OR (p_expected->(t.id::text)->>'dismissed_at')::timestamptz
+                   IS DISTINCT FROM t.dismissed_at)) THEN
     RAISE EXCEPTION 'the account''s topics changed since they were read'
       USING ERRCODE = '40001', HINT = 'STALE';
   END IF;
@@ -298,8 +316,17 @@ BEGIN
     END IF;
 
     v_entry := (v_elem->>'covered_by_entry_id')::uuid;
-    IF v_entry IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = v_entry) THEN
-      v_entry := NULL;
+    v_coverage := coalesce(v_elem->>'coverage', 'unknown');
+    v_coverage_p := (v_elem->>'coverage_p')::real;
+    IF v_entry IS NOT NULL THEN
+      -- FOR KEY SHARE holds the answer until commit: a delete racing
+      -- this replace waits instead of failing the FK insert below.
+      PERFORM 1 FROM kb_entries WHERE id = v_entry FOR KEY SHARE;
+      IF NOT FOUND THEN
+        v_entry := NULL;
+        v_coverage := 'unknown';
+        v_coverage_p := NULL;
+      END IF;
     END IF;
 
     INSERT INTO kb_gap_topics (
@@ -312,9 +339,9 @@ BEGIN
       (v_elem->>'question_count')::integer,
       (v_elem->>'first_seen_at')::timestamptz,
       (v_elem->>'last_seen_at')::timestamptz,
-      coalesce(v_elem->>'coverage', 'unknown'),
+      v_coverage,
       v_entry,
-      (v_elem->>'coverage_p')::real,
+      v_coverage_p,
       coalesce(v_elem->>'status', 'open'),
       (v_elem->>'dismissed_at')::timestamptz
     )
@@ -334,7 +361,7 @@ END
 $$;
 
 COMMENT ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb, jsonb) IS
-  'Replace an account''s knowledge-gap topics in one transaction (152). Service role only; 40001 HINT STALE when the stored statuses differ from p_expected; same-account composite FKs refuse foreign gap or answer ids.';
+  'Replace an account''s knowledge-gap topics in one transaction (152). Service role only; 40001 HINT STALE when the stored statuses or dismissed_at differ from p_expected; same-account composite FKs refuse foreign gap or answer ids.';
 
 REVOKE ALL ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb, jsonb) TO service_role;

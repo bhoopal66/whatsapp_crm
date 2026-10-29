@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { embedTexts, toVectorLiteral } from './embeddings';
+import {
+  EMBED_BATCH_MIN_MS,
+  EmbeddingsDeadlineError,
+  embedTexts,
+  toVectorLiteral,
+} from './embeddings';
+import { aiRequestTimeoutMs } from './defaults';
 import { AiError } from './types';
 
 function okEmbeddings(count: number, shuffle = false): Response {
@@ -118,5 +124,57 @@ describe('embedTexts', () => {
     await expect(embedTexts('sk-x', ['a', 'b'])).rejects.toBeInstanceOf(
       AiError
     );
+  });
+
+  describe('with a deadline', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    // A slow provider: each batch takes 1.5 s of (faked) clock time.
+    function slowFetch() {
+      return vi.fn(async (_url: string, opts: { body: string }) => {
+        vi.setSystemTime(Date.now() + 1_500);
+        return okEmbeddings(JSON.parse(opts.body).input.length);
+      });
+    }
+
+    it('starts no batch with too little left and throws EmbeddingsDeadlineError', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
+      const fetchMock = slowFetch();
+      vi.stubGlobal('fetch', fetchMock);
+      const inputs = Array.from({ length: 300 }, (_, i) => `t${i}`); // 4 batches
+      const deadlineAt = Date.now() + EMBED_BATCH_MIN_MS + 1_000;
+      const err = await embedTexts('sk-x', inputs, { deadlineAt }).catch(
+        (e: unknown) => e
+      );
+      expect(err).toBeInstanceOf(EmbeddingsDeadlineError);
+      expect(err).toBeInstanceOf(AiError);
+      expect((err as AiError).code).toBe('embeddings_deadline');
+      // Batch 1 started with 3 s left; batch 2 would have had 1.5 s.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("cuts each batch's timeout to the time left", async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
+      vi.stubGlobal('fetch', slowFetch());
+      const timeout = vi.spyOn(AbortSignal, 'timeout');
+      const inputs = Array.from({ length: 150 }, (_, i) => `t${i}`); // 2 batches
+      const out = await embedTexts('sk-x', inputs, {
+        deadlineAt: Date.now() + 5_000,
+      });
+      expect(out).toHaveLength(150);
+      expect(timeout.mock.calls.map((c) => c[0])).toEqual([5_000, 3_500]);
+    });
+
+    it('keeps the usual timeout without a deadline', async () => {
+      vi.stubGlobal('fetch', slowFetch());
+      const timeout = vi.spyOn(AbortSignal, 'timeout');
+      await embedTexts('sk-x', ['a']);
+      expect(timeout).toHaveBeenCalledWith(aiRequestTimeoutMs());
+    });
   });
 });

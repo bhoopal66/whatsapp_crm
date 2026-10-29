@@ -10,7 +10,10 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => h.db }));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig: h.loadAiConfig }));
-vi.mock('@/lib/ai/embeddings', () => ({ embedTexts: h.embedTexts }));
+vi.mock('@/lib/ai/embeddings', async (orig) => ({
+  ...(await orig<typeof import('@/lib/ai/embeddings')>()),
+  embedTexts: h.embedTexts,
+}));
 vi.mock('@/lib/insights/settings', () => ({
   getInsightSettings: async () => ({ kbGapJudgeEnabled: h.judgeEnabled }),
 }));
@@ -19,10 +22,16 @@ vi.mock('@/lib/typesafe', async (orig) => ({
   getDecisionLayer: () => h.layer,
 }));
 
+import { EmbeddingsDeadlineError } from '@/lib/ai/embeddings';
+import {
+  KB_GAP_DEADLINE_MS,
+  type KbGapInput,
+} from '@/lib/typesafe/checks/kb-gap';
 import {
   accountsDueForGapRecompute,
   clearKbGapTopics,
   coverageFor,
+  JUDGE_MIN_BUDGET_MS,
   recomputeKbGapTopics,
   runKbGapRecomputePass,
 } from './gap-recompute';
@@ -112,7 +121,7 @@ function fakeDb(
 type ReplaceArgs = {
   p_account: string;
   p_topics: Record<string, unknown>[];
-  p_expected: Record<string, string>;
+  p_expected: Record<string, { status: string; dismissed_at: string | null }>;
 };
 const allReplaceArgs = (rpc: ReturnType<typeof fakeDb>) =>
   rpc.mock.calls
@@ -264,7 +273,8 @@ describe('recomputeKbGapTopics', () => {
     });
     expect(h.embedTexts).toHaveBeenCalledWith(
       'sk-e',
-      GAPS.map((g) => g.question).reverse()
+      GAPS.map((g) => g.question).reverse(),
+      { deadlineAt: Number.POSITIVE_INFINITY }
     );
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -296,27 +306,84 @@ describe('recomputeKbGapTopics', () => {
     expect(long[kept.length]).toBe(' '); // cut between words
   });
 
-  it('starts no judgment and skips embedding when the budget is nearly spent', async () => {
+  it('starts no topic (shortlist or judgment) and skips embedding when the budget is nearly spent', async () => {
     const rpc = fakeDb();
     const sim = jev();
     h.loadAiConfig.mockResolvedValue({ embeddingsApiKey: 'sk-e' });
     const r = await recomputeKbGapTopics(TEST_ACCOUNT, {
       now: NOW,
-      deadlineAt: Date.now() + 50, // under one Jev request's timeout (80 ms here)
+      // Under JUDGE_MIN_BUDGET_MS, though far over one Jev attempt's
+      // timeout (80 ms here): a guard on that would still start.
+      deadlineAt: Date.now() + JUDGE_MIN_BUDGET_MS - 500,
     });
     expect(r).toEqual({ ok: true, topics: 3, mode: 'lexical', judged: 0 });
     expect(sim.calls).toHaveLength(0);
+    expect(rpc.mock.calls.some((c) => c[0] === 'kb_shortlist')).toBe(false);
     expect(h.embedTexts).not.toHaveBeenCalled();
     for (const t of replaceArgs(rpc).p_topics)
       expect(t).toMatchObject({ coverage: 'unknown', intent: null });
   });
 
-  it('sends the statuses it read as p_expected', async () => {
+  it('judges inside a budget shorter than a judgment and cuts its deadline to it', async () => {
+    fakeDb();
+    const sim = jev();
+    const layer = h.layer as { kbGap: (i: KbGapInput) => Promise<unknown> };
+    const real = layer.kbGap;
+    const deadlines: (number | undefined)[] = [];
+    layer.kbGap = (input) => {
+      deadlines.push(input.deadlineMs);
+      return real(input);
+    };
+    const budget = 3_000;
+    expect(budget).toBeLessThan(KB_GAP_DEADLINE_MS);
+    expect(budget).toBeGreaterThan(JUDGE_MIN_BUDGET_MS);
+    const start = Date.now();
+    const r = await recomputeKbGapTopics(TEST_ACCOUNT, {
+      now: NOW,
+      deadlineAt: start + budget,
+    });
+    // A guard reserving KB_GAP_DEADLINE_MS would judge nothing here.
+    expect(r).toMatchObject({ ok: true, judged: 3 });
+    expect(sim.calls).toHaveLength(3);
+    expect(deadlines).toHaveLength(3);
+    for (const d of deadlines) {
+      // Never the full 8 s, and never past the account's deadline.
+      expect(d).toBeGreaterThan(0);
+      expect(d).toBeLessThanOrEqual(budget);
+    }
+  });
+
+  it('falls back to lexical grouping when embedding runs out of time', async () => {
+    fakeDb();
+    h.loadAiConfig.mockResolvedValue({ embeddingsApiKey: 'sk-e' });
+    h.embedTexts.mockRejectedValue(new EmbeddingsDeadlineError());
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const deadlineAt = Date.now() + 20_000;
+    expect(
+      await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW, deadlineAt })
+    ).toMatchObject({ ok: true, mode: 'lexical', topics: 3 });
+    expect(h.embedTexts).toHaveBeenCalledWith('sk-e', expect.any(Array), {
+      deadlineAt,
+    });
+    warn.mockRestore();
+  });
+
+  it('sends the statuses and dismissal times it read as p_expected', async () => {
     const rpc = fakeDb({
-      topics: [{ id: 'old', status: 'open', dismissed_at: null }],
+      topics: [
+        { id: 'old', status: 'open', dismissed_at: null },
+        {
+          id: 'gone',
+          status: 'dismissed',
+          dismissed_at: '2026-10-23T00:00:00+00:00',
+        },
+      ],
     });
     await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW });
-    expect(replaceArgs(rpc).p_expected).toEqual({ old: 'open' });
+    expect(replaceArgs(rpc).p_expected).toEqual({
+      old: { status: 'open', dismissed_at: null },
+      gone: { status: 'dismissed', dismissed_at: '2026-10-23T00:00:00+00:00' },
+    });
   });
 
   it('on STALE carries the new dismissal over without asking Jev again', async () => {
@@ -344,8 +411,12 @@ describe('recomputeKbGapTopics', () => {
     expect(r).toMatchObject({ ok: true, topics: 3, judged: 3 });
     expect(sim.calls).toHaveLength(3); // one judgment per topic, not two
     const [first, second] = allReplaceArgs(rpc);
-    expect(first!.p_expected).toEqual({ old: 'open' });
-    expect(second!.p_expected).toEqual({ old: 'dismissed' });
+    expect(first!.p_expected).toEqual({
+      old: { status: 'open', dismissed_at: null },
+    });
+    expect(second!.p_expected).toEqual({
+      old: { status: 'dismissed', dismissed_at: '2026-10-23T00:00:00Z' },
+    });
     expect(second!.p_topics.find((t) => t.question_count === 3)).toMatchObject({
       status: 'dismissed',
       dismissed_at: '2026-10-23T00:00:00Z',
@@ -420,7 +491,7 @@ describe('clearKbGapTopics', () => {
     expect(replaceArgs(rpc)).toEqual({
       p_account: TEST_ACCOUNT,
       p_topics: [],
-      p_expected: { t1: 'dismissed' },
+      p_expected: { t1: { status: 'dismissed', dismissed_at: null } },
     });
   });
 });

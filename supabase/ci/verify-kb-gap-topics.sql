@@ -7,13 +7,14 @@
 -- account's owner and an unknown status are refused; that a direct
 -- write by an admin changes nothing; that kb_gap_topics_replace is the
 -- service role's alone, refuses (40001) a p_expected that no longer
--- matches the stored statuses or set and changes nothing, swaps an
+-- matches the stored statuses, dismissal times or set (a changed
+-- dismissed_at alone included) and changes nothing, swaps an
 -- account's topics in one call and
 -- returns the count, and that another account's gap or answer id fails
 -- the whole call and leaves the previous topics in place; that deleting
 -- a gap drops its member rows and deleting an answer nulls
 -- covered_by_entry_id only, and a replace naming a deleted answer
--- stores NULL.
+-- stores NULL with coverage 'unknown' and no coverage_p.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -82,11 +83,14 @@ BEGIN
       END;
     END $body$
   $fn$;
-  -- The account's topics as a replace's p_expected: { "<id>": "<status>" }.
+  -- The account's topics as a replace's p_expected:
+  -- { "<id>": { "status": ..., "dismissed_at": ... } }.
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.kg_cur(p_account uuid)
     RETURNS jsonb LANGUAGE sql AS $body$
-      SELECT coalesce(jsonb_object_agg(id::text, status), '{}'::jsonb)
+      SELECT coalesce(jsonb_object_agg(id::text,
+               jsonb_build_object('status', status, 'dismissed_at', dismissed_at)),
+             '{}'::jsonb)
       FROM public.kb_gap_topics WHERE account_id = p_account
     $body$
   $fn$;
@@ -341,12 +345,24 @@ BEGIN
   -- A status changed since the read (t1 is dismissed, the caller read it open).
   r := pg_temp.kg_try('service_role', NULL,
     format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb, %L::jsonb)$q$,
-      a_acct, pg_temp.kg_cur(a_acct) || jsonb_build_object(t1::text, 'open')));
+      a_acct, pg_temp.kg_cur(a_acct) || jsonb_build_object(t1::text,
+        jsonb_build_object('status', 'open', 'dismissed_at', NULL))));
   n := n + 1;
   IF r NOT LIKE 'ERROR: 40001%'
      OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 3
      OR (SELECT status FROM kb_gap_topics WHERE id = t1) IS DISTINCT FROM 'dismissed' THEN
     failed := array_append(failed, format('a replace with a stale status was not refused 40001: %s', r));
+  END IF;
+  -- Only dismissed_at changed since the read (reopened, then dismissed
+  -- again): the same status is still stale.
+  r := pg_temp.kg_try('service_role', NULL,
+    format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb, %L::jsonb)$q$,
+      a_acct, pg_temp.kg_cur(a_acct) || jsonb_build_object(t1::text,
+        jsonb_build_object('status', 'dismissed', 'dismissed_at', '2020-01-01T00:00:00Z'))));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR: 40001%'
+     OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 3 THEN
+    failed := array_append(failed, format('a replace with a stale dismissed_at was not refused 40001: %s', r));
   END IF;
   -- The set changed since the read (the caller never saw t1).
   r := pg_temp.kg_try('service_role', NULL,
@@ -380,7 +396,8 @@ BEGIN
     failed := array_append(failed, 'deleting an answer did not null covered_by_entry_id only'::text);
   END IF;
 
-  -- ---------- an answer deleted during a recompute is stored as NULL ----------
+  -- ---------- an answer deleted during a recompute is stored as NULL, ----------
+  -- ---------- its coverage as 'unknown' ----------
   -- (and a matching p_expected is accepted)
   js := jsonb_build_array(
     jsonb_build_object('label', 'POS licence', 'question_count', 1,
@@ -391,9 +408,9 @@ BEGIN
     format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r IS DISTINCT FROM '1'
-     OR (SELECT covered_by_entry_id IS NULL AND coverage = 'full'
+     OR (SELECT covered_by_entry_id IS NULL AND coverage = 'unknown' AND coverage_p IS NULL
            FROM kb_gap_topics WHERE account_id = a_acct) IS DISTINCT FROM true THEN
-    failed := array_append(failed, format('a deleted answer id was not stored as NULL: %s', r));
+    failed := array_append(failed, format('a deleted answer id was not stored as NULL with coverage unknown: %s', r));
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

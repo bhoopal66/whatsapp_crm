@@ -9,10 +9,12 @@
  * once a day per process and only logs a failure. A failed replace
  * leaves the previous topics in place (the RPC is atomic).
  *
- * Time-boxed. A caller passes `deadlineAt`: no Jev judgment starts once
- * less than one request's timeout remains (the rest stay 'unknown'), and
- * grouping goes lexical rather than embed when the budget is nearly
- * spent. A dismissal made while a run was working is never lost: the
+ * Time-boxed. A caller passes `deadlineAt` and no step starts work that
+ * cannot finish before it: no topic is judged (shortlist + Jev) with
+ * less than JUDGE_MIN_BUDGET_MS left, and each judgment's own deadline
+ * is cut to what remains (the rest stay 'unknown'); embedding is skipped
+ * with less than EMBED_MIN_BUDGET_MS left, and embedTexts itself stops
+ * at the deadline, so grouping goes lexical. A dismissal made while a run was working is never lost: the
  * replace refuses a stale read (40001 STALE) and the run carries the new
  * statuses over and tries again, without asking Jev again.
  *
@@ -24,11 +26,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { loadAiConfig } from '@/lib/ai/config';
-import { embedTexts } from '@/lib/ai/embeddings';
+import { EmbeddingsDeadlineError, embedTexts } from '@/lib/ai/embeddings';
 import { getDecisionLayer } from '@/lib/typesafe';
 import { accountEnabled } from '@/lib/typesafe/config';
 import { mapLimit } from '@/lib/typesafe/checks/common';
-import { KB_GAP_MAX_ANSWERS } from '@/lib/typesafe/checks/kb-gap';
+import {
+  KB_GAP_DEADLINE_MS,
+  KB_GAP_MAX_ANSWERS,
+} from '@/lib/typesafe/checks/kb-gap';
 import type { Intent } from '@/lib/typesafe/questions/triage';
 
 import {
@@ -65,6 +70,9 @@ export const MAX_ACCOUNTS_PER_PASS = 50;
 export const PASS_BUDGET_MS = 45_000;
 /** One account's share of the pass, at most. */
 export const ACCOUNT_BUDGET_MS = 40_000;
+/** No topic is judged (its shortlist read and its Jev request) with less
+ *  than this left; the judgment's own deadline is cut to what remains. */
+export const JUDGE_MIN_BUDGET_MS = 1_500;
 /** Embedding is skipped (lexical grouping) with less than this left. */
 export const EMBED_MIN_BUDGET_MS = 10_000;
 /** A replace refused as STALE is retried at most this many times. */
@@ -159,11 +167,19 @@ async function loadGaps(
   );
 }
 
+/** One stored topic's state as read: the replace refuses to run if
+ *  either has changed since (a reopen-then-re-dismiss keeps the status
+ *  but moves dismissed_at). */
+interface ExpectedTopicState {
+  status: string;
+  dismissed_at: string | null;
+}
+
 /** The stored topics as carryOverStatus reads them, plus the replace's
- *  p_expected: each topic id → its status as read. */
+ *  p_expected: each topic id → its status and dismissed_at as read. */
 interface PreviousState {
   topics: PreviousTopic[];
-  expected: Record<string, string>;
+  expected: Record<string, ExpectedTopicState>;
 }
 
 async function loadPrevious(
@@ -202,7 +218,12 @@ async function loadPrevious(
       status: t.status === 'dismissed' ? 'dismissed' : 'open',
       dismissedAt: t.dismissed_at,
     })),
-    expected: Object.fromEntries(rows.map((t) => [t.id, t.status])),
+    expected: Object.fromEntries(
+      rows.map((t) => [
+        t.id,
+        { status: t.status, dismissed_at: t.dismissed_at },
+      ])
+    ),
   };
 }
 
@@ -219,7 +240,8 @@ function isStale(
 async function withEmbeddings(
   db: SupabaseClient,
   accountId: string,
-  rows: GapRow[]
+  rows: GapRow[],
+  deadlineAt: number
 ): Promise<GapRow[]> {
   if (rows.length === 0) return rows;
   try {
@@ -227,13 +249,16 @@ async function withEmbeddings(
     if (!config?.embeddingsApiKey) return rows;
     const vectors = await embedTexts(
       config.embeddingsApiKey,
-      rows.map((r) => r.question)
+      rows.map((r) => r.question),
+      { deadlineAt }
     );
     if (vectors.length !== rows.length) return rows;
     return rows.map((r, i) => ({ ...r, embedding: vectors[i] }));
   } catch (err) {
     console.warn(
-      `[kb-gap] embeddings failed for account ${accountId}; grouping lexically: ${message(err)}`
+      err instanceof EmbeddingsDeadlineError
+        ? `[kb-gap] out of time embedding for account ${accountId}; grouping lexically`
+        : `[kb-gap] embeddings failed for account ${accountId}; grouping lexically: ${message(err)}`
     );
     return rows;
   }
@@ -257,11 +282,12 @@ async function judgeTopics(
     .map((t, i) => ({ i, count: t.count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, MAX_JUDGED_TOPICS);
-  // One judgment can take up to a request's timeout; none starts that
-  // cannot finish inside the budget, so the rest stay unjudged.
-  const callMs = ts.config.timeoutMs;
+  // A topic is a shortlist read and a Jev judgment (KB_GAP_DEADLINE_MS,
+  // retries included). None starts with less than JUDGE_MIN_BUDGET_MS
+  // left, and the judgment's deadline is cut to the budget that remains,
+  // so it can never outlive it; the rest stay unjudged.
   await mapLimit(order, JUDGE_CONCURRENCY, async ({ i }) => {
-    if (Date.now() + callMs > deadlineAt) return;
+    if (deadlineAt - Date.now() < JUDGE_MIN_BUDGET_MS) return;
     const topic = topics[i]!;
     try {
       const shortlist = (
@@ -272,10 +298,13 @@ async function judgeTopics(
           KB_GAP_MAX_ANSWERS
         )
       ).slice(0, KB_GAP_MAX_ANSWERS);
+      const remaining = deadlineAt - Date.now();
+      if (remaining <= 0) return;
       const res = await ts.kbGap({
         accountId,
         question: topic.label,
         answers: shortlist.map((c) => c.answer_en),
+        deadlineMs: Math.min(KB_GAP_DEADLINE_MS, remaining),
       });
       if (!res.ok) return;
       const coverage = coverageFor(res.coverage.level);
@@ -318,7 +347,7 @@ export async function recomputeKbGapTopics(
     const rows =
       Date.now() + EMBED_MIN_BUDGET_MS > deadlineAt
         ? gaps
-        : await withEmbeddings(db, accountId, gaps);
+        : await withEmbeddings(db, accountId, gaps, deadlineAt);
     const mode = clusterMode(rows);
     const topics = clusterGaps(rows);
     const judged = await judgeTopics(db, accountId, topics, deadlineAt);

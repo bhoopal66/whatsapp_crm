@@ -22,6 +22,21 @@ export const EMBEDDING_DIMENSIONS = 1536;
 // stays under request-size limits and partial failures are cheap.
 const BATCH_SIZE = 96;
 
+/** With a deadline, no batch starts with less than this left. */
+export const EMBED_BATCH_MIN_MS = 2_000;
+
+/** embedTexts stopped before a batch because its deadline was too close.
+ *  A caller with a time box (the knowledge-gap recompute) degrades on
+ *  it; nothing past the deadline was started. */
+export class EmbeddingsDeadlineError extends AiError {
+  constructor() {
+    super('Embeddings stopped: the deadline is too close for another batch.', {
+      code: 'embeddings_deadline',
+    });
+    this.name = 'EmbeddingsDeadlineError';
+  }
+}
+
 interface EmbeddingResponse {
   data?: { embedding?: number[]; index?: number }[];
 }
@@ -37,10 +52,16 @@ export function toVectorLiteral(embedding: number[]): string {
  * Embed a list of strings, preserving input order. Batched; throws
  * `AiError` on provider/network failure so callers can decide whether
  * to degrade (retrieval) or surface (ingest).
+ *
+ * `deadlineAt` (epoch ms) time-boxes the whole call: no batch starts
+ * with less than EMBED_BATCH_MIN_MS left (`EmbeddingsDeadlineError`),
+ * and each batch's timeout is cut to what remains. Without it every
+ * batch gets the usual request timeout.
  */
 export async function embedTexts(
   apiKey: string,
-  inputs: string[]
+  inputs: string[],
+  opts: { deadlineAt?: number } = {}
 ): Promise<number[][]> {
   if (inputs.length === 0) return [];
   const timeoutMs = aiRequestTimeoutMs();
@@ -48,6 +69,12 @@ export async function embedTexts(
 
   for (let start = 0; start < inputs.length; start += BATCH_SIZE) {
     const batch = inputs.slice(start, start + BATCH_SIZE);
+    let batchTimeoutMs = timeoutMs;
+    if (opts.deadlineAt !== undefined) {
+      const remaining = opts.deadlineAt - Date.now();
+      if (remaining < EMBED_BATCH_MIN_MS) throw new EmbeddingsDeadlineError();
+      batchTimeoutMs = Math.min(timeoutMs, remaining);
+    }
 
     let res: Response;
     try {
@@ -58,7 +85,7 @@ export async function embedTexts(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(batchTimeoutMs),
       });
     } catch (err) {
       throw toNetworkError(err);
