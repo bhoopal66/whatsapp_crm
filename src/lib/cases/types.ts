@@ -181,6 +181,9 @@ export const CASE_REFUSALS = [
   // 134 (Compass sync): the lock and the setting.
   'MANAGED_EXTERNALLY',
   'SETTING_INVALID',
+  // 151 (Compass status -> stage map).
+  'STATUS_FINAL',
+  'STAGE_NOT_ALLOWED',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 

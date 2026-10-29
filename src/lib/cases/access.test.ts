@@ -101,8 +101,15 @@ describe('case access mirrors match migration 122', () => {
       'utf8'
     );
     for (const h of ours134) expect(sql134).toContain(`HINT = '${h}'`);
+    // 151 adds the status map's own refusals; its other HINTs are reused.
+    const ours151 = ['STATUS_FINAL', 'STAGE_NOT_ALLOWED'];
+    const sql151 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/151_case_status_stage_map.sql'),
+      'utf8'
+    );
+    for (const h of ours151) expect(sql151).toContain(`HINT = '${h}'`);
     expect(new Set(CASE_REFUSALS)).toEqual(
-      new Set([...hints, ...hints130, ...ours134])
+      new Set([...hints, ...hints130, ...ours134, ...ours151])
     );
   });
 });

@@ -543,3 +543,14 @@ jobs:
       # FKs are same-account; conversation_events accepts chat_tag_auto.
       - name: Verify Smart insights
         run: supabase db query --local --file supabase/ci/verify-smart-insights.sql
+
+      # Migration 151's Compass status -> case stage map: the map is
+      # consulted before 137's name rule and only for a stage in the
+      # case's own bank list (otherwise 137 unchanged); a final status is
+      # never mappable and a pre-submission or final stage never a
+      # target; apply moves only the account's open cases holding the
+      # status, as the API; the overview counts unresolved statuses per
+      # open case; only a live owner / admin of their active account
+      # reaches the RPCs, and only that account's map.
+      - name: Verify case status map
+        run: supabase db query --local --file supabase/ci/verify-case-status-map.sql
