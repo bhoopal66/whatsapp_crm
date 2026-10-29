@@ -21,7 +21,7 @@ const h = vi.hoisted(() => ({
   settings: null as unknown,
   insights: vi.fn(),
   responses: {} as Record<string, Result>,
-  context: [] as { role: 'user' | 'assistant'; content: string }[],
+  context: [] as { role: 'user' | 'assistant'; content: string; at?: string }[],
 }));
 
 vi.mock('@/lib/ai/admin-client', () => ({
@@ -40,7 +40,7 @@ vi.mock('@/lib/ai/admin-client', () => ({
         call.payload = payload;
         return b;
       };
-      for (const name of ['select', 'eq', 'order', 'limit']) {
+      for (const name of ['select', 'eq', 'order', 'limit', 'is', 'or']) {
         b[name] = (...args: unknown[]) => {
           call.filters.push([name, ...args]);
           return b;
@@ -105,6 +105,7 @@ const judged = (tag: Record<string, unknown>) => ({
   latencyMs: 5,
 });
 
+const BASIS = '2026-10-29T08:00:00.000Z';
 const suggest = () => suggestTagForConversation('acct-1', 'conv-1');
 const update = () => h.calls.find((c) => c.op === 'update');
 
@@ -116,11 +117,12 @@ beforeEach(() => {
   h.responses = {
     'chat_tags:select': { data: TAG_ROWS, error: null },
     'conversations:select': chatRow(),
+    'conversations:update': { data: [{ id: 'conv-1' }], error: null },
   };
   h.context = [
-    { role: 'user', content: 'hi' },
+    { role: 'user', content: 'hi', at: '2026-10-29T07:00:00.000Z' },
     { role: 'assistant', content: 'Hello, how can we help?' },
-    { role: 'user', content: 'I want a loan from ADCB' },
+    { role: 'user', content: 'I want a loan from ADCB', at: BASIS },
     { role: 'assistant', content: 'Sure, one moment' },
   ];
   h.insights.mockReset().mockResolvedValue(judged({}));
@@ -150,10 +152,34 @@ describe('suggestTagForConversation', () => {
       suggested_chat_tag_id: 'tag-a',
       suggested_chat_sub_tag_id: 'sub-a1',
       suggested_tag_p: 0.9,
+      suggestion_basis_at: BASIS,
     });
+    // A compare-and-set on what the decision read, based on the latest
+    // customer message.
     expect(update()!.filters).toEqual([
       ['eq', 'id', 'conv-1'],
       ['eq', 'account_id', 'acct-1'],
+      ['is', 'chat_tag_id', null],
+      ['is', 'chat_sub_tag_id', null],
+      ['is', 'tag_suggestion_dismissed_id', null],
+      ['or', `suggestion_basis_at.is.null,suggestion_basis_at.lte.${BASIS}`],
+      ['select', 'id'],
+    ]);
+  });
+
+  it('superseded: the chat moved on while Jev was asked, nothing reported', async () => {
+    h.responses['conversations:select'] = chatRow({
+      chat_tag_id: 'tag-b',
+      tag_suggestion_dismissed_id: 'tag-c',
+    });
+    h.responses['conversations:update'] = { data: [], error: null };
+    const r = await suggest();
+    expect(r).toEqual({ ok: true, suggestion: null, reason: 'superseded' });
+    expect(update()!.filters).toContainEqual(['eq', 'chat_tag_id', 'tag-b']);
+    expect(update()!.filters).toContainEqual([
+      'eq',
+      'tag_suggestion_dismissed_id',
+      'tag-c',
     ]);
   });
 
@@ -183,6 +209,7 @@ describe('suggestTagForConversation', () => {
       suggested_chat_sub_tag_id: null,
       suggested_tag_p: null,
       suggested_tag_at: null,
+      suggestion_basis_at: BASIS,
     });
   });
 

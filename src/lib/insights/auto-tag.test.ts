@@ -155,6 +155,8 @@ describe('autoTagFromInsights — when it applies', () => {
       conversationId: 'conv-1',
       next: { chat_tag_id: 'tag-a', chat_sub_tag_id: 'sub-a1' },
       onlyIfUntagged: true,
+      // The dismissal the decision read: one made meanwhile wins.
+      requireDismissedId: null,
     });
     const note = h.calls.find((c) => c.table === 'conversation_events')!;
     expect(note.payload).toEqual({
@@ -183,9 +185,11 @@ describe('autoTagFromInsights — when it applies', () => {
       suggested_tag_p: null,
       suggested_tag_at: null,
     });
+    // Only the suggestion this tag fulfils is cleared.
     expect(clear.filters).toEqual([
       ['eq', 'id', 'conv-1'],
       ['eq', 'account_id', 'acct-1'],
+      ['eq', 'suggested_chat_tag_id', 'tag-a'],
     ]);
     expect(h.dispatch).toHaveBeenCalledWith({
       accountId: 'acct-1',

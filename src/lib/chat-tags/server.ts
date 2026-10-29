@@ -75,12 +75,14 @@ export type WriteChatTagsResult =
   | { ok: false; reason: 'not_found' | 'invalid' | 'error'; message?: string };
 
 const COLUMNS = 'id, contact_id, chat_tag_id, chat_sub_tag_id';
+const COLUMNS_WITH_DISMISSED = `${COLUMNS}, tag_suggestion_dismissed_id`;
 
 interface ChatTagRow {
   id: string;
   contact_id: string;
   chat_tag_id: string | null;
   chat_sub_tag_id: string | null;
+  tag_suggestion_dismissed_id?: string | null;
 }
 
 function toPatch(row: ChatTagRow): ChatTagsPatch {
@@ -123,6 +125,14 @@ export async function writeConversationChatTags(
      * wins over the automatic one.
      */
     onlyIfUntagged?: boolean;
+    /**
+     * With `onlyIfUntagged`: write only while the chat's
+     * `tag_suggestion_dismissed_id` is still this value (null = none).
+     * Automatic tagging decides from a dismissal it read before a Jev
+     * call of seconds; a person dismissing the tag meanwhile must win.
+     * A mismatch is reported like a tagged chat: ok, nothing changed.
+     */
+    requireDismissedId?: string | null;
   }
 ): Promise<WriteChatTagsResult> {
   try {
@@ -134,9 +144,16 @@ export async function writeConversationChatTags(
       };
     }
 
+    const checkDismissed =
+      args.onlyIfUntagged === true && args.requireDismissedId !== undefined;
+    const columns: string = checkDismissed ? COLUMNS_WITH_DISMISSED : COLUMNS;
+    const dismissedMoved = (r: ChatTagRow) =>
+      checkDismissed &&
+      (r.tag_suggestion_dismissed_id ?? null) !== args.requireDismissedId;
+
     let read = db
       .from('conversations')
-      .select(COLUMNS)
+      .select(columns)
       .eq('account_id', args.accountId);
     read = args.conversationId
       ? read.eq('id', args.conversationId)
@@ -149,14 +166,18 @@ export async function writeConversationChatTags(
     const { data: current, error: readError } = await read.maybeSingle();
     if (readError) return failure(readError);
     if (!current) return { ok: false, reason: 'not_found' };
-    let row = current as ChatTagRow;
+    let row = current as unknown as ChatTagRow; // dynamic select list: untyped
 
     // At most two compare-and-set attempts: the read above, then one
     // fresh read if another writer moved the tags in between.
     for (let attempt = 0; attempt < 2; attempt++) {
       const previous = toPatch(row);
-      // The compare-and-set below then requires chat_tag_id IS NULL.
-      if (args.onlyIfUntagged && previous.chat_tag_id !== null) {
+      // The compare-and-set below then requires chat_tag_id IS NULL (and
+      // the dismissal still as required).
+      if (
+        args.onlyIfUntagged &&
+        (previous.chat_tag_id !== null || dismissedMoved(row))
+      ) {
         return {
           ok: true,
           conversationId: row.id,
@@ -179,6 +200,15 @@ export async function writeConversationChatTags(
         previous.chat_sub_tag_id === null
           ? update.is('chat_sub_tag_id', null)
           : update.eq('chat_sub_tag_id', previous.chat_sub_tag_id);
+      if (checkDismissed) {
+        update =
+          args.requireDismissedId === null
+            ? update.is('tag_suggestion_dismissed_id', null)
+            : update.eq(
+                'tag_suggestion_dismissed_id',
+                args.requireDismissedId as string
+              );
+      }
       const { data: written, error: writeError } = await update
         .select(COLUMNS)
         .maybeSingle();
@@ -198,14 +228,20 @@ export async function writeConversationChatTags(
       // tags changed since the read. Read again to tell which.
       const { data: fresh, error: freshError } = await db
         .from('conversations')
-        .select(COLUMNS)
+        .select(columns)
         .eq('account_id', args.accountId)
         .eq('id', row.id)
         .maybeSingle();
       if (freshError) return failure(freshError);
       if (!fresh) return { ok: false, reason: 'not_found' };
-      const freshRow = fresh as ChatTagRow;
+      const freshRow = fresh as unknown as ChatTagRow;
       const freshTags = toPatch(freshRow);
+      // A dismissal landed meanwhile: the automatic write stands down
+      // (the next attempt returns "nothing changed").
+      if (dismissedMoved(freshRow)) {
+        row = freshRow;
+        continue;
+      }
       // Same tags as before: the condition held, so RLS refused it.
       if (samePatch(freshTags, previous)) {
         return { ok: false, reason: 'not_found' };

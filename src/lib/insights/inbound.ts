@@ -73,8 +73,10 @@ export interface InboundInsightsOutcome {
   /** The chat's tags, read only when tag suggestions are on. */
   chat: ChatTagState | null;
   signalsWritten: boolean;
-  /** What happened to the suggestion columns. */
-  suggestion: 'stored' | 'cleared' | 'untouched';
+  /** What happened to the suggestion columns. `superseded`: the
+   *  compare-and-set found the chat moved on (tagged, dismissed, or a
+   *  newer message's decision) and wrote nothing. */
+  suggestion: 'stored' | 'cleared' | 'superseded' | 'untouched';
   stored: StoredSuggestion | null;
 }
 
@@ -86,7 +88,8 @@ export interface InboundInsightsArgs {
   messageId: string;
   /** The inbound's text (a media caption included). */
   text: string;
-  /** created_at of the persisted inbound message: insight_at's value. */
+  /** created_at of the persisted inbound message: insight_at's and
+   *  suggestion_basis_at's value. */
   messageAt: string;
 }
 
@@ -343,8 +346,19 @@ export async function runInboundInsights(
       const next = suggestionFor(out.tag, chat);
       out.stored = next;
       writes.push(
-        writeSuggestion(db, accountId, conversationId, next).then(() => {
-          out.suggestion = next ? 'stored' : 'cleared';
+        writeSuggestionIfCurrent(
+          db,
+          accountId,
+          conversationId,
+          next,
+          chat,
+          messageAt
+        ).then((written) => {
+          out.suggestion = !written
+            ? 'superseded'
+            : next
+              ? 'stored'
+              : 'cleared';
         })
       );
     }
@@ -391,13 +405,28 @@ async function writeSignals(
   if (error) throw new Error(error.message);
 }
 
-async function writeSuggestion(
+/**
+ * Store (or, with `next` null, clear) the chat's tag suggestion, as a
+ * compare-and-set on what the decision was made from. The decision reads
+ * the chat's tags, then waits up to seconds for Jev; meanwhile a person
+ * may tag the chat or dismiss the suggestion, or a newer message's
+ * judgment may land. So the write requires the tags and the dismissal to
+ * be still what was read, and `suggestion_basis_at` (the created_at of the
+ * customer message the last decision was based on) to be no newer than
+ * this decision's `basisAt`; it then moves that column to `basisAt`.
+ * Returns false when no row matched: someone moved on, and nothing else
+ * is written. The PUT chat-tags route stamps the column with now() when a
+ * person changes the tags, so an older judgment cannot re-store either.
+ */
+export async function writeSuggestionIfCurrent(
   db: SupabaseClient,
   accountId: string,
   conversationId: string,
-  next: StoredSuggestion | null
-): Promise<void> {
-  const { error } = await db
+  next: StoredSuggestion | null,
+  chat: ChatTagState,
+  basisAt: string
+): Promise<boolean> {
+  let update = db
     .from('conversations')
     .update(
       next
@@ -406,15 +435,27 @@ async function writeSuggestion(
             suggested_chat_sub_tag_id: next.subId,
             suggested_tag_p: next.p,
             suggested_tag_at: new Date().toISOString(),
+            suggestion_basis_at: basisAt,
           }
         : {
             suggested_chat_tag_id: null,
             suggested_chat_sub_tag_id: null,
             suggested_tag_p: null,
             suggested_tag_at: null,
+            suggestion_basis_at: basisAt,
           }
     )
     .eq('id', conversationId)
     .eq('account_id', accountId);
+  const same = (col: string, v: string | null) => {
+    update = v === null ? update.is(col, null) : update.eq(col, v);
+  };
+  same('chat_tag_id', chat.chatTagId);
+  same('chat_sub_tag_id', chat.chatSubTagId);
+  same('tag_suggestion_dismissed_id', chat.dismissedId);
+  const { data, error } = await update
+    .or(`suggestion_basis_at.is.null,suggestion_basis_at.lte.${basisAt}`)
+    .select('id');
   if (error) throw new Error(error.message);
+  return Array.isArray(data) && data.length > 0;
 }

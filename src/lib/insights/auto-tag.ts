@@ -15,8 +15,10 @@
 // on the UPDATE itself — and leaves a `chat_tag_auto` note in the
 // thread: the tag's name as it reads now in `to_label` (so the note
 // survives a rename or delete) and ids + probability in `details`,
-// never customer text. The
-// suggestion columns are cleared: the chat now carries the tag.
+// never customer text. The suggestion columns are cleared when they
+// still suggest the applied tag: the chat now carries it. Like the
+// suggestion writes, the tag write is a compare-and-set on what the
+// decision read: still untagged, and still the same dismissal.
 //
 // Never throws; a failure is logged with `[insights]`.
 // ============================================================
@@ -117,6 +119,8 @@ export async function autoTagFromInsights(
       conversationId: args.conversationId,
       next: { chat_tag_id: tag.mainId, chat_sub_tag_id: subId },
       onlyIfUntagged: true,
+      // A dismissal made while Jev was asked wins over this tag.
+      requireDismissedId: chat.dismissedId,
     });
     if (!result.ok) {
       logError('automatic tag write failed', result.message ?? result.reason);
@@ -156,7 +160,10 @@ export async function autoTagFromInsights(
           suggested_tag_at: null,
         })
         .eq('id', result.conversationId)
-        .eq('account_id', args.accountId),
+        .eq('account_id', args.accountId)
+        // Only the suggestion this tag fulfils: one a newer judgment
+        // stored meanwhile for another tag stays.
+        .eq('suggested_chat_tag_id', saved.chat_tag_id ?? tag.mainId),
     ]);
     if (noteRes.error)
       logError('automatic tag note failed', noteRes.error.message);

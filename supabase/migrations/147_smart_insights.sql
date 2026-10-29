@@ -168,7 +168,8 @@ ALTER TABLE public.conversations
   ADD COLUMN IF NOT EXISTS suggested_chat_sub_tag_id  uuid,
   ADD COLUMN IF NOT EXISTS tag_suggestion_dismissed_id uuid,
   ADD COLUMN IF NOT EXISTS suggested_tag_p            real,
-  ADD COLUMN IF NOT EXISTS suggested_tag_at           timestamptz;
+  ADD COLUMN IF NOT EXISTS suggested_tag_at           timestamptz,
+  ADD COLUMN IF NOT EXISTS suggestion_basis_at        timestamptz NULL;
 
 DO $$
 DECLARE
@@ -231,6 +232,12 @@ COMMENT ON COLUMN public.conversations.suggested_chat_tag_id IS
   'Main chat tag Jev suggests for this chat (migration 147); cleared by dismiss_tag_suggestion().';
 COMMENT ON COLUMN public.conversations.tag_suggestion_dismissed_id IS
   'The last suggested tag a person dismissed, so the same suggestion is not made again.';
+-- The suggestion is decided from the chat's tags read before a Jev call
+-- of seconds; every suggestion write is a compare-and-set on those tags,
+-- the dismissal and this column, so a dismissal, a manual tag or a newer
+-- message's judgment made meanwhile is never undone.
+COMMENT ON COLUMN public.conversations.suggestion_basis_at IS
+  'created_at of the customer message the latest tag-suggestion decision (store or clear) was based on; now() when a person changes the tags. Writers move it forward only (migration 147). Service-role writes only.';
 
 -- ---------- 3. The guard ----------
 
@@ -255,6 +262,7 @@ BEGIN
     AND new.insight_at          IS NOT DISTINCT FROM old.insight_at
     AND new.suggested_tag_p     IS NOT DISTINCT FROM old.suggested_tag_p
     AND new.suggested_tag_at    IS NOT DISTINCT FROM old.suggested_tag_at
+    AND new.suggestion_basis_at IS NOT DISTINCT FROM old.suggestion_basis_at
     -- A tag column going to NULL because its tag was deleted (the FK's
     -- ON DELETE SET NULL, run as the deleting admin) is not a forgery.
     AND (new.suggested_chat_tag_id IS NOT DISTINCT FROM old.suggested_chat_tag_id
@@ -281,7 +289,8 @@ BEGIN
     AND new.suggested_chat_sub_tag_id IS NULL
     AND new.tag_suggestion_dismissed_id IS NULL
     AND new.suggested_tag_p IS NULL
-    AND new.suggested_tag_at IS NULL THEN
+    AND new.suggested_tag_at IS NULL
+    AND new.suggestion_basis_at IS NULL THEN
     RETURN new;
   END IF;
 
@@ -307,7 +316,8 @@ CREATE TRIGGER conversations_insight_guard
     insight_intent, insight_intent_p, insight_urgency, insight_lead_temp,
     insight_upset, insight_wants_human, insight_priority, insight_at,
     suggested_chat_tag_id, suggested_chat_sub_tag_id,
-    tag_suggestion_dismissed_id, suggested_tag_p, suggested_tag_at
+    tag_suggestion_dismissed_id, suggested_tag_p, suggested_tag_at,
+    suggestion_basis_at
   ON public.conversations
   FOR EACH ROW EXECUTE FUNCTION public.conversations_insight_guard();
 

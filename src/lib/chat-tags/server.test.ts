@@ -367,6 +367,82 @@ describe('writeConversationChatTags', () => {
         queries.filter((q) => q.some(([m]) => m === 'update'))
       ).toHaveLength(1);
     });
+
+    describe('requireDismissedId', () => {
+      const D = 'tag_suggestion_dismissed_id';
+
+      it('adds the dismissal to the compare-and-set, NULL-safe', async () => {
+        const { db, queries } = fakeDb({
+          read: { data: { ...UNTAGGED, [D]: null }, error: null },
+          write: { data: { ...ROW, ...NEXT }, error: null },
+        });
+        const res = await writeConversationChatTags(db, {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          next: NEXT,
+          onlyIfUntagged: true,
+          requireDismissedId: null,
+        });
+        expect(res.ok && res.saved).toEqual(NEXT);
+        expect(queries[1]).toContainEqual(['is', D, null]);
+      });
+
+      it('a dismissal already there: no write, nothing changed', async () => {
+        const { db, queries } = fakeDb({
+          read: { data: { ...UNTAGGED, [D]: 'interested' }, error: null },
+        });
+        const res = await writeConversationChatTags(db, {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          next: NEXT,
+          onlyIfUntagged: true,
+          requireDismissedId: null,
+        });
+        const tags = { chat_tag_id: null, chat_sub_tag_id: null };
+        expect(res).toMatchObject({ ok: true, previous: tags, saved: tags });
+        expect(queries).toHaveLength(1);
+      });
+
+      it('a dismissal landing before the write: the tag is not applied', async () => {
+        const { db, queries } = fakeDb({
+          reads: [
+            { data: { ...UNTAGGED, [D]: null }, error: null },
+            { data: { ...UNTAGGED, [D]: 'interested' }, error: null },
+          ],
+          writes: [
+            { data: null, error: null },
+            { data: { ...ROW, ...NEXT }, error: null },
+          ],
+        });
+        const res = await writeConversationChatTags(db, {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          next: NEXT,
+          onlyIfUntagged: true,
+          requireDismissedId: null,
+        });
+        const tags = { chat_tag_id: null, chat_sub_tag_id: null };
+        expect(res).toMatchObject({ ok: true, previous: tags, saved: tags });
+        expect(
+          queries.filter((q) => q.some(([m]) => m === 'update'))
+        ).toHaveLength(1);
+      });
+
+      it('matches a remembered dismissal with eq', async () => {
+        const { db, queries } = fakeDb({
+          read: { data: { ...UNTAGGED, [D]: 'lead' }, error: null },
+          write: { data: { ...ROW, ...NEXT }, error: null },
+        });
+        await writeConversationChatTags(db, {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          next: NEXT,
+          onlyIfUntagged: true,
+          requireDismissedId: 'lead',
+        });
+        expect(queries[1]).toContainEqual(['eq', D, 'lead']);
+      });
+    });
   });
 
   describe('a write that names no sub-tag', () => {

@@ -20,6 +20,7 @@ import { TAG_SUGGEST_MIN_P } from './bands';
 import {
   loadTagCatalogue,
   suggestionFor,
+  writeSuggestionIfCurrent,
   type ChatTagState,
   type StoredSuggestion,
 } from './inbound';
@@ -38,7 +39,8 @@ export type SuggestTagResult =
         | 'no_message'
         | 'not_confident'
         | 'same_as_current'
-        | 'dismissed';
+        | 'dismissed'
+        | 'superseded';
     }
   | { ok: false; reason: 'unavailable' | 'off' | 'error' };
 
@@ -108,26 +110,22 @@ export async function suggestTagForConversation(
     const tag = judgment.tag;
 
     const next = suggestionFor(tag, chat);
-    const { error } = await db
-      .from('conversations')
-      .update(
-        next
-          ? {
-              suggested_chat_tag_id: next.mainId,
-              suggested_chat_sub_tag_id: next.subId,
-              suggested_tag_p: next.p,
-              suggested_tag_at: new Date().toISOString(),
-            }
-          : {
-              suggested_chat_tag_id: null,
-              suggested_chat_sub_tag_id: null,
-              suggested_tag_p: null,
-              suggested_tag_at: null,
-            }
-      )
-      .eq('id', conversationId)
-      .eq('account_id', accountId);
-    if (error) throw new Error(error.message);
+    // The decision rests on the tags read above and the latest customer
+    // message; the write is a compare-and-set on both, as the inbound run's.
+    const basisAt = context[last]!.at;
+    if (!basisAt) throw new Error('customer message without created_at');
+    const written = await writeSuggestionIfCurrent(
+      db,
+      accountId,
+      conversationId,
+      next,
+      chat,
+      basisAt
+    );
+    // The chat moved on while Jev was asked (a person tagged it or
+    // dismissed the suggestion, or a newer message was judged): what was
+    // decided here no longer applies, and nothing was written.
+    if (!written) return { ok: true, suggestion: null, reason: 'superseded' };
 
     if (next) return { ok: true, suggestion: next };
     // Why suggestionFor said no, in its own order.

@@ -114,6 +114,14 @@ a tag without one is judged on its name. Jev can also answer "none of
 these", and then nothing is suggested. A workspace with no main tags
 gets no suggestions.
 
+A suggestion is saved only if, when Jev answers, the chat's tags and
+dismissal are still what they were when it asked and no newer message
+has been judged since (`conversations.suggestion_basis_at`, the time of
+the customer message the latest suggestion was based on, which a
+person's tag change moves to now), so a tag you set or a suggestion you
+dismissed while Jev was thinking is never undone; Auto mode's tagging
+checks the same.
+
 ### Suggest mode
 
 When Jev is reasonably sure of a main tag (at least 55%) that would

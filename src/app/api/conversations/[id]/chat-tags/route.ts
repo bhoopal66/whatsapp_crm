@@ -130,7 +130,13 @@ export async function PUT(
   }
 }
 
-/** Clears a stored tag suggestion; logs and carries on on failure. */
+/**
+ * Clears a stored tag suggestion and stamps suggestion_basis_at with now:
+ * a Jev judgment of an older message still in flight then finds its basis
+ * outdated and cannot store a suggestion over the person's choice. Always
+ * written (not only when a suggestion is stored) for that reason. Logs and
+ * carries on on failure.
+ */
 async function clearTagSuggestion(
   accountId: string,
   conversationId: string
@@ -143,12 +149,10 @@ async function clearTagSuggestion(
         suggested_chat_sub_tag_id: null,
         suggested_tag_p: null,
         suggested_tag_at: null,
+        suggestion_basis_at: new Date().toISOString(),
       })
       .eq('id', conversationId)
-      .eq('account_id', accountId)
-      // Most chats carry none: skip the no-op write (and its realtime
-      // event).
-      .not('suggested_tag_at', 'is', null);
+      .eq('account_id', accountId);
     if (error) throw new Error(error.message);
   } catch (err) {
     console.error(

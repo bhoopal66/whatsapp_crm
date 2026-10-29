@@ -233,8 +233,9 @@ describe('PUT /api/conversations/[id]/chat-tags', () => {
       saved: { chat_tag_id: MAIN, chat_sub_tag_id: SUB },
     };
 
-    it('clears the four suggestion columns on the service role, in the account, keeping the dismissal', async () => {
+    it('clears the four suggestion columns and stamps the basis on the service role, in the account, keeping the dismissal', async () => {
       mocks.write.mockResolvedValue(changed);
+      const before = Date.now();
       const res = await put({ chat_tag_id: MAIN, chat_sub_tag_id: SUB });
       expect(res.status).toBe(200);
       expect(mocks.adminCalls).toEqual([
@@ -246,12 +247,17 @@ describe('PUT /api/conversations/[id]/chat-tags', () => {
             suggested_chat_sub_tag_id: null,
             suggested_tag_p: null,
             suggested_tag_at: null,
+            suggestion_basis_at: expect.any(String),
           },
         ],
         ['eq', 'id', CONV],
         ['eq', 'account_id', 'account-1'],
-        ['not', 'suggested_tag_at', 'is', null],
       ]);
+      // now(): an in-flight judgment of an older message cannot re-store.
+      const payload = mocks.adminCalls[1][1] as { suggestion_basis_at: string };
+      expect(Date.parse(payload.suggestion_basis_at)).toBeGreaterThanOrEqual(
+        before - 1000
+      );
     });
 
     it('clears nothing when the tags did not change', async () => {

@@ -209,6 +209,14 @@ BEGIN
   IF r NOT LIKE 'ERROR 42501%' OR (SELECT suggested_chat_tag_id FROM conversations WHERE id = cv_a) IS NOT NULL THEN
     failed := array_append(failed, ('an agent set suggested_chat_tag_id: ' || r)::text);
   END IF;
+  -- The suggestion compare-and-set trusts this column: a client that
+  -- could push it into the future would freeze the chat's suggestion.
+  r := pg_temp.si_try('authenticated', u_agent, format(
+         'UPDATE conversations SET suggestion_basis_at = now() + interval ''1 year'' WHERE id = %L', cv_a));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501%' OR (SELECT suggestion_basis_at FROM conversations WHERE id = cv_a) IS NOT NULL THEN
+    failed := array_append(failed, ('an agent set suggestion_basis_at: ' || r)::text);
+  END IF;
   r := pg_temp.si_try('authenticated', u_admin, format(
          'INSERT INTO conversations (account_id, user_id, contact_id, insight_priority) SELECT account_id, user_id, contact_id, 2 FROM conversations WHERE id = %L', cv_a));
   n := n + 1;

@@ -27,9 +27,42 @@ const h = vi.hoisted(() => ({
   layer: true,
   responses: {} as Record<string, Result>,
   context: [] as { role: 'user' | 'assistant'; content: string }[],
+  /** When set, `conversations` behaves like one real row: reads return
+   *  it, updates apply their filters to it and change it. */
+  row: null as Record<string, unknown> | null,
 }));
 
+/** PostgREST filters over one row: eq / is, and an or() of
+ *  `col.is.null` / `col.lte.<timestamp>` terms. */
+function matches(row: Record<string, unknown>, filters: Call['filters']) {
+  for (const [op, col, v] of filters) {
+    if ((op === 'eq' || op === 'is') && row[col as string] !== v) return false;
+    if (op === 'or') {
+      const ok = String(col)
+        .split(',')
+        .some((term) => {
+          const [c, o, ...rest] = term.split('.');
+          const cur = row[c!] as string | null;
+          if (o === 'is') return cur === null;
+          if (o === 'lte')
+            return (
+              cur !== null && Date.parse(cur) <= Date.parse(rest.join('.'))
+            );
+          return false;
+        });
+      if (!ok) return false;
+    }
+  }
+  return true;
+}
+
 function respond(call: Call): Result {
+  if (h.row && call.table === 'conversations') {
+    if (call.op === 'select') return { data: { ...h.row }, error: null };
+    if (!matches(h.row, call.filters)) return { data: [], error: null };
+    Object.assign(h.row, call.payload);
+    return { data: [{ id: h.row.id }], error: null };
+  }
   return h.responses[`${call.table}:${call.op}`] ?? { data: null, error: null };
 }
 
@@ -179,19 +212,19 @@ beforeEach(() => {
     'chat_tags:select': { data: TAG_ROWS, error: null },
     'conversations:select': chatRow(),
     'ts_decision_log:select': { data: [], error: null },
+    'conversations:update': { data: [{ id: 'conv-1' }], error: null },
   };
+  h.row = null;
   h.context = [
     { role: 'assistant', content: 'Hello, how can we help?' },
     { role: 'user', content: 'I need a POS terminal today, please call me' },
   ];
-  h.insights
-    .mockReset()
-    .mockResolvedValue({
-      ok: true,
-      signals: JEV_SIGNALS,
-      tag: null,
-      latencyMs: 5,
-    });
+  h.insights.mockReset().mockResolvedValue({
+    ok: true,
+    signals: JEV_SIGNALS,
+    tag: null,
+    latencyMs: 5,
+  });
   vi.mocked(getInsightSettings).mockClear();
 });
 
@@ -409,6 +442,8 @@ describe('runInboundInsights — tag suggestions', () => {
     suggested_chat_sub_tag_id: null,
     suggested_tag_p: null,
     suggested_tag_at: null,
+    // A clear is a decision too: it moves the basis forward.
+    suggestion_basis_at: MESSAGE_AT,
   };
 
   it('clears a stale suggestion when Jev is not sure enough', async () => {
@@ -513,5 +548,114 @@ describe('runInboundInsights — failures', () => {
     expect(out.skipped).toBe('error');
     expect(out.signalsWritten).toBe(false);
     err.mockRestore();
+  });
+});
+
+describe('runInboundInsights — the suggestion write is a compare-and-set', () => {
+  const T1 = '2026-10-29T08:00:00.000Z';
+  const T2 = '2026-10-29T08:00:05.000Z';
+  const runAt = (messageAt: string, messageId: string) =>
+    runInboundInsights({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      messageId,
+      text: 'I want to apply',
+      messageAt,
+    });
+
+  beforeEach(() => {
+    h.settings = settings({ tagSuggestMode: 'suggest' });
+    h.row = {
+      id: 'conv-1',
+      account_id: 'acct-1',
+      chat_tag_id: null,
+      chat_sub_tag_id: null,
+      tag_suggestion_dismissed_id: null,
+      suggested_chat_tag_id: null,
+      suggested_chat_sub_tag_id: null,
+      suggested_tag_p: null,
+      suggested_tag_at: null,
+      suggestion_basis_at: null,
+    };
+  });
+
+  it('stores, and moves the basis to the message judged, when nothing changed', async () => {
+    h.insights.mockResolvedValue(tagJudgment({ mainId: 'tag-a', mainP: 0.8 }));
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('stored');
+    expect(h.row).toMatchObject({
+      suggested_chat_tag_id: 'tag-a',
+      suggestion_basis_at: T1,
+    });
+  });
+
+  it('a dismissal during the Jev call is not undone', async () => {
+    h.insights.mockImplementation(async () => {
+      h.row!.tag_suggestion_dismissed_id = 'tag-b';
+      return tagJudgment({ mainId: 'tag-a', mainP: 0.8 });
+    });
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('superseded');
+    expect(h.row!.suggested_chat_tag_id).toBeNull();
+    expect(h.row!.suggestion_basis_at).toBeNull();
+  });
+
+  it('a chat a person tagged during the Jev call gets no stale suggestion', async () => {
+    h.insights.mockImplementation(async () => {
+      // What the PUT route does: the tag, then the clear stamping now.
+      h.row!.chat_tag_id = 'tag-b';
+      h.row!.suggestion_basis_at = T2;
+      return tagJudgment({ mainId: 'tag-a', mainP: 0.8 });
+    });
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('superseded');
+    expect(h.row!.suggested_chat_tag_id).toBeNull();
+  });
+
+  it('the older of two concurrent messages does not overwrite the newer', async () => {
+    let releaseOlder!: () => void;
+    const olderHeld = new Promise<void>((r) => (releaseOlder = r));
+    h.insights.mockImplementation(async (input: { message: string }) => {
+      if (input.message === 'older') {
+        await olderHeld;
+        return tagJudgment({ mainId: 'tag-a', mainP: 0.8 });
+      }
+      return tagJudgment({ mainId: 'tag-b', mainP: 0.9 });
+    });
+    const older = runInboundInsights({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      messageId: 'wamid.1',
+      text: 'older',
+      messageAt: T1,
+    });
+    // Let the older run read the chat and reach Jev first.
+    await vi.waitFor(() => expect(h.insights).toHaveBeenCalledTimes(1));
+    const newer = await runInboundInsights({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      messageId: 'wamid.2',
+      text: 'newer',
+      messageAt: T2,
+    });
+    expect(newer.suggestion).toBe('stored');
+    releaseOlder();
+    expect((await older).suggestion).toBe('superseded');
+    expect(h.row).toMatchObject({
+      suggested_chat_tag_id: 'tag-b',
+      suggestion_basis_at: T2,
+    });
+  });
+
+  it("an older message cannot clear the newer message's suggestion either", async () => {
+    h.row!.suggested_chat_tag_id = 'tag-b';
+    h.row!.suggestion_basis_at = T2;
+    h.insights.mockResolvedValue(tagJudgment({ mainId: 'tag-a', mainP: 0.3 }));
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('superseded');
+    expect(h.row!.suggested_chat_tag_id).toBe('tag-b');
   });
 });
