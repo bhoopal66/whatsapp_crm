@@ -164,7 +164,59 @@ off.
 
 ## Message check before sending
 
-<!-- section: E -->
+**Settings → Smart insights → Message check before sending** (off by
+default; owners and admins switch it to **Warn**). When it is on, the
+inbox composer checks a message before it goes out:
+
+- **What is checked:** free text an agent (or anyone above) types and
+  sends, including the caption of a photo, video or document, once it is
+  at least 12 characters long (spaces at either end don't count).
+  Templates, interactive messages, voice notes and attachments without a
+  caption are never checked.
+- **What happens:** if nothing is found the message goes straight out.
+  If something is, a **Check this message before sending** box lists
+  each warning in plain words. **Edit message** closes it with the text
+  still in the box, ready to change (closing the box any other way does
+  the same); **Send anyway** sends it exactly as written, with the same
+  reply quote, number and attachment.
+- **It never blocks.** The check waits about 2.5 seconds at most. If it
+  fails, is rate-limited or takes longer, the message is sent as if the
+  check were off. While it runs the send button shows a spinner, so a
+  second press does not send twice. Switching to another chat while it
+  runs (or while the box is open) cancels the send; the text stays in
+  the box.
+
+What each warning means:
+
+| Warning | Meaning |
+|---|---|
+| Asks for secrets | It asks for card numbers, CVV, PIN, OTP or passwords. Never ask for these in chat. |
+| Promise | It sounds like it promises an approval or a timeline. Only the bank can decide. |
+| Rates and amounts | It quotes a rate, fee or amount. Make sure the bank has confirmed it. |
+| Regulator claim | It says the company is licensed or regulated by the Central Bank. |
+| Bank you don't work with | It names a bank outside the account's partner-bank list. |
+| Cold pitch | The message would start a new chat and reads like a marketing blast, which can get the WhatsApp number restricted. |
+| Tone | It may come across as rude or dismissive. |
+
+The box lists them most serious first, in that order. Some are fixed
+rules (secrets, partner banks, regulator wording) and some are Jev
+judgments; without Jev only the rules run.
+
+The cold-pitch warning applies only to a message that would **start** a
+chat on a phone number (Whapi or OpenWA), using the Team activity
+definition: no message in the conversation for 24 hours, unless the
+customer wrote last (then it is a late reply, not a start). Replies and
+Meta Cloud API numbers never get it.
+
+**What is stored:** for a message that got warnings, the warning codes,
+who sent it, the chat, and the agent's choice (sent anyway, edited, or
+still pending if the page was closed). The message text is never
+stored.
+
+**Stats:** under the setting, owners and admins see a **Last 7 days**
+line: how many warnings were shown, how many were sent anyway and how
+many edited, and the three most common warnings. It is hidden when there
+were none.
 
 ## Flows and automations that understand meaning
 

@@ -8496,7 +8496,34 @@
     "_": ""
   },
   "ComposeCheck": {
-    "_": ""
+    "title": "Check this message before sending",
+    "description": "Nothing has been sent yet.",
+    "warning": {
+      "promise": "It sounds like it promises an approval or a timeline. Only the bank can decide.",
+      "terms": "It quotes a rate, fee or amount. Make sure the bank has confirmed it.",
+      "non_partner_bank": "It names a bank you don't work with.",
+      "regulator_claim": "It says the company is licensed or regulated by the Central Bank.",
+      "secrets": "It asks for card numbers, CVV, PIN, OTP or passwords. Never ask for these in chat.",
+      "tone": "It may come across as rude or dismissive.",
+      "cold_pitch": "This starts a new chat and reads like a marketing blast. That can get the WhatsApp number restricted."
+    },
+    "edit": "Edit message",
+    "sendAnyway": "Send anyway",
+    "checking": "Checking the message",
+    "stats": {
+      "title": "Last 7 days",
+      "summary": "{total, plural, one {# warning} other {# warnings}}, {sentAnyway} sent anyway, {edited} edited",
+      "top": "Most common: {list}",
+      "code": {
+        "promise": "Promises an approval or timeline",
+        "terms": "Quotes a rate, fee or amount",
+        "non_partner_bank": "Names a bank you don't work with",
+        "regulator_claim": "Licensing claim",
+        "secrets": "Asks for card details or passwords",
+        "tone": "Tone",
+        "cold_pitch": "Marketing-style new chat"
+      }
+    }
   },
   "MeaningTriggers": {
     "_": ""

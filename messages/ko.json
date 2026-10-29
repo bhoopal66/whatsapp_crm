@@ -8496,7 +8496,34 @@
     "_": ""
   },
   "ComposeCheck": {
-    "_": ""
+    "title": "보내기 전에 이 메시지를 확인하세요",
+    "description": "아직 아무것도 보내지 않았습니다.",
+    "warning": {
+      "promise": "승인이나 처리 기간을 약속하는 것처럼 들립니다. 결정은 은행만 할 수 있습니다.",
+      "terms": "금리, 수수료 또는 금액을 언급합니다. 은행이 확인한 내용인지 확인하세요.",
+      "non_partner_bank": "거래하지 않는 은행을 언급합니다.",
+      "regulator_claim": "회사가 중앙은행의 인가나 규제를 받는다고 말합니다.",
+      "secrets": "카드 번호, CVV, PIN, OTP 또는 비밀번호를 요청합니다. 채팅에서 절대 요청하지 마세요.",
+      "tone": "무례하거나 무시하는 것처럼 들릴 수 있습니다.",
+      "cold_pitch": "새 채팅을 시작하며 마케팅 대량 발송처럼 읽힙니다. WhatsApp 번호가 제한될 수 있습니다."
+    },
+    "edit": "메시지 수정",
+    "sendAnyway": "그래도 보내기",
+    "checking": "메시지를 확인하는 중",
+    "stats": {
+      "title": "최근 7일",
+      "summary": "경고 {total}건, 그대로 보냄 {sentAnyway}건, 수정함 {edited}건",
+      "top": "가장 많은 경고: {list}",
+      "code": {
+        "promise": "승인 또는 기간 약속",
+        "terms": "금리, 수수료 또는 금액 언급",
+        "non_partner_bank": "거래하지 않는 은행 언급",
+        "regulator_claim": "인가 관련 주장",
+        "secrets": "카드 정보 또는 비밀번호 요청",
+        "tone": "어조",
+        "cold_pitch": "마케팅 같은 새 채팅"
+      }
+    }
   },
   "MeaningTriggers": {
     "_": ""

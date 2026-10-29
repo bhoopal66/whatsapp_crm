@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 
+import { ComposeCheckStatsCard } from './compose-check-stats';
 import { SettingsPanelHead } from './settings-panel-head';
 
 const NATIVE_FIELD =
@@ -259,6 +260,8 @@ export function InsightsPanel() {
           </select>
         }
       />
+
+      {canEdit && <ComposeCheckStatsCard />}
 
       <FeatureCard
         id="insights-meaning"

@@ -59,6 +59,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useCan } from '@/hooks/use-can';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
+import {
+  reportComposeCheckOutcome,
+  requestComposeCheck,
+  shouldCheckDraft,
+  type ComposeCheckCode,
+} from '@/lib/insights/compose-check-view';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -77,6 +84,7 @@ import {
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive';
 import type { InteractiveMessagePayload, QuickReply } from '@/types';
 import { QuickReplyPicker } from './quick-reply-picker';
+import { ComposeCheckDialog } from './compose-check-dialog';
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = 'image' | 'video' | 'document' | 'audio';
@@ -210,6 +218,7 @@ export function MessageComposer({
   textControl,
 }: MessageComposerProps) {
   const t = useTranslations('Inbox.composer');
+  const tCheck = useTranslations('ComposeCheck');
 
   // The box's text, and whether it began as the missed-call draft
   // (ComposerBox): a send of that text carries its origin.
@@ -264,6 +273,81 @@ export function MessageComposer({
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // "Check before sending" (migration 149). With the mode off (the
+  // default) every send goes straight out, exactly as before. With it
+  // on, a free-text send or a caption of 12+ characters is checked
+  // first; an error, a 429 or no answer within 2.5 s sends anyway
+  // (requestComposeCheck fails open), so the check never stops a
+  // message. A chat switch abandons the check and closes the dialog:
+  // the composer outlives the switch, and the send would otherwise
+  // land in the chat now open.
+  const { settings: insightSettings } = useInsightSettings();
+  const composeCheckMode = insightSettings.composeCheckMode;
+  const [checking, setChecking] = useState(false);
+  const checkingRef = useRef(false);
+  const checkAbortRef = useRef<AbortController | null>(null);
+  const captionRef = useRef<HTMLInputElement>(null);
+  const [review, setReview] = useState<{
+    conversationId: string;
+    warnings: ComposeCheckCode[];
+    eventId: string | null;
+    send: () => void;
+    focus: 'text' | 'caption';
+  } | null>(null);
+  const activeReview =
+    review && review.conversationId === conversationId ? review : null;
+  useEffect(() => () => checkAbortRef.current?.abort(), [conversationId]);
+
+  /** Run `send` now, or after the check if it applies and finds nothing. */
+  const checkThenSend = useCallback(
+    async (draftText: string, send: () => void, focus: 'text' | 'caption') => {
+      if (!shouldCheckDraft(composeCheckMode, draftText)) {
+        send();
+        return;
+      }
+      if (checkingRef.current) return;
+      checkingRef.current = true;
+      setChecking(true);
+      const controller = new AbortController();
+      checkAbortRef.current = controller;
+      try {
+        const decision = await requestComposeCheck({
+          conversationId,
+          text: draftText.trim(),
+          signal: controller.signal,
+        });
+        if (decision.kind === 'cancelled' || controller.signal.aborted) return;
+        if (decision.kind === 'send') send();
+        else
+          setReview({
+            conversationId,
+            warnings: decision.warnings,
+            eventId: decision.eventId,
+            send,
+            focus,
+          });
+      } finally {
+        if (checkAbortRef.current === controller) checkAbortRef.current = null;
+        checkingRef.current = false;
+        setChecking(false);
+      }
+    },
+    [composeCheckMode, conversationId]
+  );
+
+  const reviewSendAnyway = useCallback(() => {
+    if (!activeReview) return;
+    setReview(null);
+    activeReview.send();
+    reportComposeCheckOutcome(activeReview.eventId, 'sent_anyway');
+  }, [activeReview]);
+
+  const reviewEdit = useCallback(() => {
+    if (!activeReview) return;
+    setReview(null);
+    reportComposeCheckOutcome(activeReview.eventId, 'edited');
+  }, [activeReview]);
 
   // Interactive-message builder dialog + quick-reply picker.
   const [interactiveOpen, setInteractiveOpen] = useState(false);
@@ -359,17 +443,28 @@ export function MessageComposer({
     const trimmed = text.trim();
     if (!trimmed || sending) return;
 
+    const typed = text;
+    const replyToId = replyTo?.id;
+    const origin = box.origin ?? undefined;
     setSending(true);
     try {
-      onSend(trimmed, replyTo?.id, box.origin ?? undefined);
-      setText('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+      await checkThenSend(
+        trimmed,
+        () => {
+          onSend(trimmed, replyToId, origin);
+          // Unchanged when there was no check. After one, a restore
+          // that landed meanwhile (a failed send's text) must stay.
+          setText((prev) => (prev === typed ? '' : prev));
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+          }
+        },
+        'text'
+      );
     } finally {
       setSending(false);
     }
-  }, [text, box.origin, sending, onSend, replyTo?.id, setText]);
+  }, [text, box.origin, sending, onSend, replyTo?.id, setText, checkThenSend]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -674,21 +769,33 @@ export function MessageComposer({
 
   const sendDraft = useCallback(() => {
     if (!draft || busy) return;
-    onSendMedia({
-      kind: draft.kind,
-      mediaUrl: draft.mediaUrl,
-      path: draft.path,
-      // Audio takes no caption (Meta rejects it). Everything else: the
-      // trimmed caption, or undefined when blank.
-      caption:
-        draft.kind === 'audio' ? undefined : draft.caption.trim() || undefined,
-      filename: draft.kind === 'document' ? draft.filename : undefined,
-      replyToId: replyTo?.id,
-    });
-    // The object is now owned by the sent message — clear without GC.
-    setDraft(null);
-    onClearReply?.();
-  }, [draft, busy, onSendMedia, replyTo?.id, onClearReply]);
+    const staged = draft;
+    const replyToId = replyTo?.id;
+    // Audio takes no caption (Meta rejects it). Everything else: the
+    // trimmed caption, or undefined when blank. A caption is checked
+    // like typed text; a bare attachment never is.
+    const caption =
+      staged.kind === 'audio' ? undefined : staged.caption.trim() || undefined;
+    void checkThenSend(
+      caption ?? '',
+      () => {
+        // Discarded or replaced while the check ran: nothing to send.
+        if (draftRef.current !== staged) return;
+        onSendMedia({
+          kind: staged.kind,
+          mediaUrl: staged.mediaUrl,
+          path: staged.path,
+          caption,
+          filename: staged.kind === 'document' ? staged.filename : undefined,
+          replyToId,
+        });
+        // The object is now owned by the sent message — clear without GC.
+        setDraft(null);
+        onClearReply?.();
+      },
+      'caption'
+    );
+  }, [draft, busy, onSendMedia, replyTo?.id, onClearReply, checkThenSend]);
 
   // Discard GCs the staged object — it was uploaded but never sent.
   const discardDraft = useCallback(() => {
@@ -750,6 +857,8 @@ export function MessageComposer({
           draft={draft}
           busy={busy}
           readOnly={readOnly}
+          checking={checking}
+          captionRef={captionRef}
           onCaptionChange={setCaption}
           onDiscard={discardDraft}
           onSend={sendDraft}
@@ -880,6 +989,7 @@ export function MessageComposer({
               readOnly ? t('readOnlyPlaceholder') : t('typeMessagePlaceholder')
             }
             disabled={readOnly}
+            readOnly={checking}
             rows={1}
             // Textarea keeps its own inline title — the GatedButton
             // wrapping pattern doesn't apply to non-button inputs.
@@ -898,11 +1008,28 @@ export function MessageComposer({
             disabled={!text.trim() || sending}
             onClick={handleSend}
             className={SEND_BUTTON}
+            aria-busy={checking || undefined}
           >
-            <Send className="h-[18px] w-[18px]" />
+            {checking ? (
+              <Loader2
+                className="h-[18px] w-[18px] animate-spin"
+                aria-label={tCheck('checking')}
+              />
+            ) : (
+              <Send className="h-[18px] w-[18px]" />
+            )}
           </GatedButton>
         </div>
       )}
+
+      <ComposeCheckDialog
+        warnings={activeReview?.warnings ?? null}
+        onEdit={reviewEdit}
+        onSendAnyway={reviewSendAnyway}
+        focusOnClose={
+          activeReview?.focus === 'caption' ? captionRef : textareaRef
+        }
+      />
 
       {/* Interactive-message builder dialog. */}
       <Dialog open={interactiveOpen} onOpenChange={setInteractiveOpen}>
@@ -956,6 +1083,8 @@ export function MessageComposer({
 function MediaDraftPreview({
   draft,
   busy,
+  checking,
+  captionRef,
   readOnly,
   onCaptionChange,
   onDiscard,
@@ -964,6 +1093,9 @@ function MediaDraftPreview({
 }: {
   draft: MediaDraft;
   busy: boolean;
+  /** The caption is being checked before sending (send shows busy). */
+  checking: boolean;
+  captionRef: Ref<HTMLInputElement>;
   readOnly: boolean;
   onCaptionChange: (caption: string) => void;
   onDiscard: () => void;
@@ -1042,7 +1174,9 @@ function MediaDraftPreview({
 
       <div className="mt-2 flex items-end gap-2">
         <input
+          ref={captionRef}
           value={draft.caption}
+          readOnly={checking}
           maxLength={MEDIA_CAPTION_MAX}
           onChange={(e) => onCaptionChange(e.target.value)}
           onKeyDown={(e) => {
@@ -1058,11 +1192,16 @@ function MediaDraftPreview({
           size="sm"
           canAct={!readOnly}
           gateReason="send messages"
-          disabled={busy}
+          disabled={busy || checking}
           onClick={onSend}
           className={SEND_BUTTON}
+          aria-busy={checking || undefined}
         >
-          <Send className="h-[18px] w-[18px]" />
+          {checking ? (
+            <Loader2 className="h-[18px] w-[18px] animate-spin" />
+          ) : (
+            <Send className="h-[18px] w-[18px]" />
+          )}
         </GatedButton>
       </div>
     </div>
