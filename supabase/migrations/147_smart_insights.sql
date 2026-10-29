@@ -234,10 +234,10 @@ COMMENT ON COLUMN public.conversations.tag_suggestion_dismissed_id IS
   'The last suggested tag a person dismissed, so the same suggestion is not made again.';
 -- The suggestion is decided from the chat's tags read before a Jev call
 -- of seconds; every suggestion write is a compare-and-set on those tags,
--- the dismissal and this column, so a dismissal, a manual tag or a newer
--- message's judgment made meanwhile is never undone.
+-- the dismissal and this column, so a dismissal, a manual tag (even one
+-- removed again) or another judgment made meanwhile is never undone.
 COMMENT ON COLUMN public.conversations.suggestion_basis_at IS
-  'created_at of the customer message the latest tag-suggestion decision (store or clear) was based on; now() when a person changes the tags. Writers move it forward only (migration 147). Service-role writes only.';
+  'Server time (app clock, ms) at which the latest tag decision read the chat: a suggestion store or clear, or an automatic tag; now() when a person changes the tags. A decision writes only while this is NULL or no later than its own read time, then stamps that time, so nothing decided after it looked is undone (migration 147). Service-role writes only.';
 
 -- ---------- 3. The guard ----------
 

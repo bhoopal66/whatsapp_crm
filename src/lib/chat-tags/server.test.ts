@@ -30,7 +30,15 @@ function fakeDb(opts: {
       const calls: Call[] = [['from', table]];
       queries.push(calls);
       const builder: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'is', 'order', 'limit', 'update']) {
+      for (const m of [
+        'select',
+        'eq',
+        'is',
+        'or',
+        'order',
+        'limit',
+        'update',
+      ]) {
         builder[m] = (...a: unknown[]) => {
           calls.push([m, ...a]);
           return builder;
@@ -441,6 +449,102 @@ describe('writeConversationChatTags', () => {
           requireDismissedId: 'lead',
         });
         expect(queries[1]).toContainEqual(['eq', D, 'lead']);
+      });
+    });
+
+    describe('requireBasisAtMost', () => {
+      const B = 'suggestion_basis_at';
+      const READ_AT = '2026-10-29T08:00:03.250Z';
+      const write = (db: SupabaseClient) =>
+        writeConversationChatTags(db, {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          next: NEXT,
+          onlyIfUntagged: true,
+          requireBasisAtMost: READ_AT,
+        });
+      const tags = { chat_tag_id: null, chat_sub_tag_id: null };
+
+      it('requires a NULL or no later basis, and stamps the read time', async () => {
+        const { db, queries } = fakeDb({
+          read: { data: { ...UNTAGGED, [B]: null }, error: null },
+          write: { data: { ...ROW, ...NEXT }, error: null },
+        });
+        const res = await write(db);
+        expect(res.ok && res.saved).toEqual(NEXT);
+        expect(queries[0]).toContainEqual([
+          'select',
+          'id, contact_id, chat_tag_id, chat_sub_tag_id, suggestion_basis_at',
+        ]);
+        expect(queries[1]).toContainEqual([
+          'update',
+          { ...NEXT, [B]: READ_AT },
+        ]);
+        expect(queries[1]).toContainEqual([
+          'or',
+          `${B}.is.null,${B}.lte.${READ_AT}`,
+        ]);
+      });
+
+      it('an earlier basis (another offset) still writes', async () => {
+        const { db, queries } = fakeDb({
+          read: {
+            data: { ...UNTAGGED, [B]: '2026-10-29T12:00:03.250+04:00' },
+            error: null,
+          },
+          write: { data: { ...ROW, ...NEXT }, error: null },
+        });
+        const res = await write(db);
+        expect(res.ok && res.saved).toEqual(NEXT);
+        expect(queries).toHaveLength(2);
+      });
+
+      it('a decision after the read (a later instant, though it sorts first): no write', async () => {
+        const { db, queries } = fakeDb({
+          read: {
+            data: { ...UNTAGGED, [B]: '2026-10-29T04:00:03.251-04:00' },
+            error: null,
+          },
+        });
+        const res = await write(db);
+        expect(res).toMatchObject({ ok: true, previous: tags, saved: tags });
+        expect(queries).toHaveLength(1);
+      });
+
+      it('a decision landing before the write: the tag is not applied', async () => {
+        const { db, queries } = fakeDb({
+          reads: [
+            { data: { ...UNTAGGED, [B]: null }, error: null },
+            {
+              data: { ...UNTAGGED, [B]: '2026-10-29T08:00:04.000+00:00' },
+              error: null,
+            },
+          ],
+          writes: [
+            { data: null, error: null },
+            { data: { ...ROW, ...NEXT }, error: null },
+          ],
+        });
+        const res = await write(db);
+        expect(res).toMatchObject({ ok: true, previous: tags, saved: tags });
+        expect(
+          queries.filter((q) => q.some(([m]) => m === 'update'))
+        ).toHaveLength(1);
+      });
+
+      it('is ignored without onlyIfUntagged', async () => {
+        const { db, queries } = fakeDb({
+          read: { data: UNTAGGED, error: null },
+          write: { data: { ...ROW, ...NEXT }, error: null },
+        });
+        await writeConversationChatTags(db, {
+          accountId: 'acc-1',
+          conversationId: 'conv-1',
+          next: NEXT,
+          requireBasisAtMost: READ_AT,
+        });
+        expect(queries[1]).toContainEqual(['update', NEXT]);
+        expect(queries[1].some(([m]) => m === 'or')).toBe(false);
       });
     });
   });

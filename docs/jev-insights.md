@@ -129,12 +129,13 @@ these", and then nothing is suggested. A workspace with no main tags
 gets no suggestions.
 
 A suggestion is saved only if, when Jev answers, the chat's tags and
-dismissal are still what they were when it asked and no newer message
-has been judged since (`conversations.suggestion_basis_at`, the time of
-the customer message the latest suggestion was based on, which a
-person's tag change moves to now), so a tag you set or a suggestion you
-dismissed while Jev was thinking is never undone; Auto mode's tagging
-checks the same.
+dismissal are still what they were when it asked and nothing has been
+decided since it read the chat (`conversations.suggestion_basis_at`: the
+server time at which the latest decision read the chat, which a
+person's tag change moves to now), so a tag you set (even one you then
+removed again) or a suggestion you dismissed while Jev was thinking is
+never undone; Auto mode's tagging checks the same and does nothing when
+the suggestion was refused.
 
 ### Suggest mode
 

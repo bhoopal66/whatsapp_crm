@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { messageHash } from '@/lib/typesafe/log';
 import { INSIGHT_SETTINGS_OFF, type InsightSettings } from './settings-shape';
 
@@ -118,6 +118,10 @@ import { getInsightSettings } from './settings';
 import { runInboundInsights } from './inbound';
 
 const MESSAGE_AT = '2026-10-29T08:00:00.000Z';
+/** The server clock when a run reads the chat (Date is faked). */
+const READ_AT = '2026-10-29T08:00:03.250Z';
+/** Timestamps compared as instants: PostgREST answers `+00:00`. */
+const instant = (v: unknown) => Date.parse(v as string);
 
 const run = (text = 'I need a POS terminal today, please call me') =>
   runInboundInsights({
@@ -226,6 +230,12 @@ beforeEach(() => {
     latencyMs: 5,
   });
   vi.mocked(getInsightSettings).mockClear();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(READ_AT));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('runInboundInsights — gating', () => {
@@ -442,8 +452,8 @@ describe('runInboundInsights — tag suggestions', () => {
     suggested_chat_sub_tag_id: null,
     suggested_tag_p: null,
     suggested_tag_at: null,
-    // A clear is a decision too: it moves the basis forward.
-    suggestion_basis_at: MESSAGE_AT,
+    // A clear is a decision too: it moves the basis to when it read.
+    suggestion_basis_at: READ_AT,
   };
 
   it('clears a stale suggestion when Jev is not sure enough', async () => {
@@ -580,14 +590,37 @@ describe('runInboundInsights — the suggestion write is a compare-and-set', () 
     };
   });
 
-  it('stores, and moves the basis to the message judged, when nothing changed', async () => {
+  it('stores, and moves the basis to when it read the chat, when nothing changed', async () => {
+    h.insights.mockImplementation(async () => {
+      vi.setSystemTime(new Date(Date.now() + 4000)); // Jev takes seconds
+      return tagJudgment({ mainId: 'tag-a', mainP: 0.8 });
+    });
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('stored');
+    expect(out.basisAt).toBe(READ_AT);
+    expect(h.row!.suggested_chat_tag_id).toBe('tag-a');
+    expect(instant(h.row!.suggestion_basis_at)).toBe(instant(READ_AT));
+  });
+
+  it('a delayed message judged after a person changed the tags still gets a suggestion', async () => {
+    // The person's save (stamped then, in PostgREST's offset form) came
+    // before this run read the chat, though after the message was sent.
+    h.row!.chat_tag_id = 'tag-b';
+    h.row!.suggestion_basis_at = '2026-10-29T08:00:02.000+00:00';
     h.insights.mockResolvedValue(tagJudgment({ mainId: 'tag-a', mainP: 0.8 }));
     const out = await runAt(T1, 'wamid.1');
     expect(out.suggestion).toBe('stored');
-    expect(h.row).toMatchObject({
-      suggested_chat_tag_id: 'tag-a',
-      suggestion_basis_at: T1,
-    });
+    expect(instant(h.row!.suggestion_basis_at)).toBe(instant(READ_AT));
+  });
+
+  it('a basis later by the instant, not by the string, refuses the write', async () => {
+    // 04:00:03.251-04:00 is 08:00:03.251Z: 1 ms after this run read the
+    // chat, though it sorts before READ_AT as text.
+    h.row!.suggestion_basis_at = '2026-10-29T04:00:03.251-04:00';
+    h.insights.mockResolvedValue(tagJudgment({ mainId: 'tag-a', mainP: 0.8 }));
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('superseded');
+    expect(h.row!.suggested_chat_tag_id).toBeNull();
   });
 
   it('a dismissal during the Jev call is not undone', async () => {
@@ -604,8 +637,9 @@ describe('runInboundInsights — the suggestion write is a compare-and-set', () 
   it('a chat a person tagged during the Jev call gets no stale suggestion', async () => {
     h.insights.mockImplementation(async () => {
       // What the PUT route does: the tag, then the clear stamping now.
+      vi.setSystemTime(new Date(Date.now() + 1000));
       h.row!.chat_tag_id = 'tag-b';
-      h.row!.suggestion_basis_at = T2;
+      h.row!.suggestion_basis_at = new Date().toISOString();
       return tagJudgment({ mainId: 'tag-a', mainP: 0.8 });
     });
     const out = await runAt(T1, 'wamid.1');
@@ -613,7 +647,24 @@ describe('runInboundInsights — the suggestion write is a compare-and-set', () 
     expect(h.row!.suggested_chat_tag_id).toBeNull();
   });
 
-  it('the older of two concurrent messages does not overwrite the newer', async () => {
+  it('a chat a person tagged and untagged during the Jev call is not overruled', async () => {
+    h.insights.mockImplementation(async () => {
+      // Two saves through the PUT route: the tags read the same again,
+      // the basis does not.
+      vi.setSystemTime(new Date(Date.now() + 1000));
+      h.row!.chat_tag_id = 'tag-b';
+      h.row!.suggestion_basis_at = new Date().toISOString();
+      vi.setSystemTime(new Date(Date.now() + 1000));
+      h.row!.chat_tag_id = null;
+      h.row!.suggestion_basis_at = new Date().toISOString();
+      return tagJudgment({ mainId: 'tag-a', mainP: 0.9 });
+    });
+    const out = await runAt(T1, 'wamid.1');
+    expect(out.suggestion).toBe('superseded');
+    expect(h.row!.suggested_chat_tag_id).toBeNull();
+  });
+
+  it('of two messages sent in the same second, the one judged from an older read does not overwrite the other', async () => {
     let releaseOlder!: () => void;
     const olderHeld = new Promise<void>((r) => (releaseOlder = r));
     h.insights.mockImplementation(async (input: { message: string }) => {
@@ -633,24 +684,24 @@ describe('runInboundInsights — the suggestion write is a compare-and-set', () 
     });
     // Let the older run read the chat and reach Jev first.
     await vi.waitFor(() => expect(h.insights).toHaveBeenCalledTimes(1));
+    const newerRead = Date.now() + 1; // read 1 ms after the older run's
+    vi.setSystemTime(new Date(newerRead));
     const newer = await runInboundInsights({
       accountId: 'acct-1',
       conversationId: 'conv-1',
       contactId: 'contact-1',
       messageId: 'wamid.2',
       text: 'newer',
-      messageAt: T2,
+      messageAt: T1, // the same whole second as the older one
     });
     expect(newer.suggestion).toBe('stored');
     releaseOlder();
     expect((await older).suggestion).toBe('superseded');
-    expect(h.row).toMatchObject({
-      suggested_chat_tag_id: 'tag-b',
-      suggestion_basis_at: T2,
-    });
+    expect(h.row!.suggested_chat_tag_id).toBe('tag-b');
+    expect(instant(h.row!.suggestion_basis_at)).toBe(newerRead);
   });
 
-  it("an older message cannot clear the newer message's suggestion either", async () => {
+  it("an older read cannot clear a later decision's suggestion either", async () => {
     h.row!.suggested_chat_tag_id = 'tag-b';
     h.row!.suggestion_basis_at = T2;
     h.insights.mockResolvedValue(tagJudgment({ mainId: 'tag-a', mainP: 0.3 }));

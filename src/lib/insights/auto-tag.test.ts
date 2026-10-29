@@ -94,6 +94,8 @@ const ARGS = {
   contactId: 'contact-1',
 };
 const UNTAGGED = { chat_tag_id: null, chat_sub_tag_id: null };
+/** When the insights run read the chat (its outcome's basisAt). */
+const READ_AT = '2026-10-29T08:00:03.250Z';
 
 const settings = (s: Partial<InsightSettings> = {}): InsightSettings => ({
   ...INSIGHT_SETTINGS_OFF,
@@ -112,6 +114,7 @@ const outcome = (
   judgment: null,
   tag: { mainId: 'tag-a', mainP: 0.9, subId: 'sub-a1', subP: 0.9 },
   chat: { chatTagId: null, chatSubTagId: null, dismissedId: null },
+  basisAt: READ_AT,
   signalsWritten: false,
   suggestion: 'stored',
   stored: null,
@@ -157,6 +160,7 @@ describe('autoTagFromInsights — when it applies', () => {
       onlyIfUntagged: true,
       // The dismissal the decision read: one made meanwhile wins.
       requireDismissedId: null,
+      requireBasisAtMost: READ_AT,
     });
     const note = h.calls.find((c) => c.table === 'conversation_events')!;
     expect(note.payload).toEqual({
@@ -352,6 +356,42 @@ describe('autoTagFromInsights — when it does nothing', () => {
     const r = await autoTagFromInsights(ARGS, outcome());
     expect(r).toBe('unchanged');
     expect(h.write.mock.calls[0][1].onlyIfUntagged).toBe(true);
+    expect(h.calls).toEqual([]);
+    expect(h.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('a refused suggestion write (superseded) stops it: no write at all', async () => {
+    const r = await autoTagFromInsights(
+      ARGS,
+      outcome({ suggestion: 'superseded' })
+    );
+    expect(r).toBe('superseded');
+    nothing();
+  });
+
+  it('the tag write requires that nothing was decided since the read', async () => {
+    // The writer as the database answers it: a chat whose basis moved past
+    // the read (a person tagged and untagged it meanwhile) is left alone.
+    const rowBasis = '2026-10-29T08:00:04.000+00:00';
+    h.write.mockImplementation(
+      async (
+        _db: unknown,
+        a: {
+          next: Record<string, string | null>;
+          requireBasisAtMost?: string;
+        }
+      ) =>
+        a.requireBasisAtMost !== undefined &&
+        Date.parse(rowBasis) > Date.parse(a.requireBasisAtMost)
+          ? written(UNTAGGED, UNTAGGED)
+          : written(a.next)
+    );
+    const r = await autoTagFromInsights(ARGS, outcome());
+    expect(r).toBe('unchanged');
+    expect(h.write.mock.calls[0][1]).toMatchObject({
+      onlyIfUntagged: true,
+      requireBasisAtMost: READ_AT,
+    });
     expect(h.calls).toEqual([]);
     expect(h.dispatch).not.toHaveBeenCalled();
   });

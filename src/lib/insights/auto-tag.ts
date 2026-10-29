@@ -18,7 +18,12 @@
 // never customer text. The suggestion columns are cleared when they
 // still suggest the applied tag: the chat now carries it. Like the
 // suggestion writes, the tag write is a compare-and-set on what the
-// decision read: still untagged, and still the same dismissal.
+// decision read: still untagged, still the same dismissal, and nothing
+// decided since the judgment read the chat (`suggestion_basis_at` no later
+// than the outcome's `basisAt`). A person who tags and then untags the
+// chat while Jev is asked leaves the tags as read, but their save moves
+// the basis past it: the suggestion write comes back `superseded`, and
+// this stops there too.
 //
 // Never throws; a failure is logged with `[insights]`.
 // ============================================================
@@ -38,6 +43,10 @@ export type AutoTagResult =
   | 'already_tagged'
   /** A person dismissed this tag for this chat. */
   | 'dismissed'
+  /** Something was decided after the judgment read the chat (a person's
+   *  tag change, a dismissal, another judgment): the suggestion write
+   *  lost its compare-and-set, and nothing is tagged. */
+  | 'superseded'
   | 'applied'
   /** The write found the chat tagged meanwhile (or already there). */
   | 'unchanged'
@@ -101,9 +110,11 @@ export async function autoTagFromInsights(
       outcome.skipped !== null ||
       !settings ||
       settings.tagSuggestMode !== 'auto' ||
-      !chat
+      !chat ||
+      !outcome.basisAt
     )
       return 'not_auto';
+    if (outcome.suggestion === 'superseded') return 'superseded';
     const min = settings.tagAutoMinP;
     if (!tag || !tag.mainId || !(tag.mainP >= min)) return 'not_confident';
     if (chat.chatTagId !== null) return 'already_tagged';
@@ -121,6 +132,8 @@ export async function autoTagFromInsights(
       onlyIfUntagged: true,
       // A dismissal made while Jev was asked wins over this tag.
       requireDismissedId: chat.dismissedId,
+      // So does any decision made after the judgment read the chat.
+      requireBasisAtMost: outcome.basisAt,
     });
     if (!result.ok) {
       logError('automatic tag write failed', result.message ?? result.reason);

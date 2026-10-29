@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INSIGHT_SETTINGS_OFF, type InsightSettings } from './settings-shape';
 
 // ============================================================
@@ -105,7 +105,10 @@ const judged = (tag: Record<string, unknown>) => ({
   latencyMs: 5,
 });
 
-const BASIS = '2026-10-29T08:00:00.000Z';
+/** Created_at of the latest customer message: not the basis. */
+const MESSAGE_AT = '2026-10-29T08:00:00.000Z';
+/** The server clock when the chat is read (Date is faked): the basis. */
+const BASIS = '2026-10-29T08:00:07.125Z';
 const suggest = () => suggestTagForConversation('acct-1', 'conv-1');
 const update = () => h.calls.find((c) => c.op === 'update');
 
@@ -122,11 +125,17 @@ beforeEach(() => {
   h.context = [
     { role: 'user', content: 'hi', at: '2026-10-29T07:00:00.000Z' },
     { role: 'assistant', content: 'Hello, how can we help?' },
-    { role: 'user', content: 'I want a loan from ADCB', at: BASIS },
+    { role: 'user', content: 'I want a loan from ADCB', at: MESSAGE_AT },
     { role: 'assistant', content: 'Sure, one moment' },
   ];
   h.insights.mockReset().mockResolvedValue(judged({}));
   vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(BASIS));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('suggestTagForConversation', () => {
@@ -154,8 +163,8 @@ describe('suggestTagForConversation', () => {
       suggested_tag_p: 0.9,
       suggestion_basis_at: BASIS,
     });
-    // A compare-and-set on what the decision read, based on the latest
-    // customer message.
+    // A compare-and-set on what the decision read, based on when it read
+    // the chat (not on the message's own timestamp).
     expect(update()!.filters).toEqual([
       ['eq', 'id', 'conv-1'],
       ['eq', 'account_id', 'acct-1'],

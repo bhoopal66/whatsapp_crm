@@ -75,7 +75,8 @@ export type WriteChatTagsResult =
   | { ok: false; reason: 'not_found' | 'invalid' | 'error'; message?: string };
 
 const COLUMNS = 'id, contact_id, chat_tag_id, chat_sub_tag_id';
-const COLUMNS_WITH_DISMISSED = `${COLUMNS}, tag_suggestion_dismissed_id`;
+const DISMISSED_COLUMN = 'tag_suggestion_dismissed_id';
+const BASIS_COLUMN = 'suggestion_basis_at';
 
 interface ChatTagRow {
   id: string;
@@ -83,6 +84,7 @@ interface ChatTagRow {
   chat_tag_id: string | null;
   chat_sub_tag_id: string | null;
   tag_suggestion_dismissed_id?: string | null;
+  suggestion_basis_at?: string | null;
 }
 
 function toPatch(row: ChatTagRow): ChatTagsPatch {
@@ -133,6 +135,16 @@ export async function writeConversationChatTags(
      * A mismatch is reported like a tagged chat: ok, nothing changed.
      */
     requireDismissedId?: string | null;
+    /**
+     * With `onlyIfUntagged`: write only while the chat's
+     * `suggestion_basis_at` is NULL or no later than this ISO time (when
+     * the automatic decision read the chat), and stamp it with this time.
+     * A person who tags and then untags the chat meanwhile leaves the
+     * tags as read but moves the basis to their own now(): their decision
+     * wins. A later basis is reported like a tagged chat: ok, nothing
+     * changed.
+     */
+    requireBasisAtMost?: string;
   }
 ): Promise<WriteChatTagsResult> {
   try {
@@ -146,10 +158,22 @@ export async function writeConversationChatTags(
 
     const checkDismissed =
       args.onlyIfUntagged === true && args.requireDismissedId !== undefined;
-    const columns: string = checkDismissed ? COLUMNS_WITH_DISMISSED : COLUMNS;
+    const basisMax =
+      args.onlyIfUntagged === true ? args.requireBasisAtMost : undefined;
+    const columns = [
+      COLUMNS,
+      ...(checkDismissed ? [DISMISSED_COLUMN] : []),
+      ...(basisMax !== undefined ? [BASIS_COLUMN] : []),
+    ].join(', ');
     const dismissedMoved = (r: ChatTagRow) =>
       checkDismissed &&
       (r.tag_suggestion_dismissed_id ?? null) !== args.requireDismissedId;
+    // Compared as instants: PostgREST answers `+00:00`, the app writes `Z`.
+    const basisMoved = (r: ChatTagRow) =>
+      basisMax !== undefined &&
+      r.suggestion_basis_at != null &&
+      Date.parse(r.suggestion_basis_at) > Date.parse(basisMax);
+    const decisionMoved = (r: ChatTagRow) => dismissedMoved(r) || basisMoved(r);
 
     let read = db
       .from('conversations')
@@ -173,10 +197,10 @@ export async function writeConversationChatTags(
     for (let attempt = 0; attempt < 2; attempt++) {
       const previous = toPatch(row);
       // The compare-and-set below then requires chat_tag_id IS NULL (and
-      // the dismissal still as required).
+      // the dismissal and the basis still as required).
       if (
         args.onlyIfUntagged &&
-        (previous.chat_tag_id !== null || dismissedMoved(row))
+        (previous.chat_tag_id !== null || decisionMoved(row))
       ) {
         return {
           ok: true,
@@ -189,7 +213,11 @@ export async function writeConversationChatTags(
       const target = resolveChatTagsWrite(previous, args.next);
       let update = db
         .from('conversations')
-        .update(target)
+        .update(
+          basisMax !== undefined
+            ? { ...target, [BASIS_COLUMN]: basisMax }
+            : target
+        )
         .eq('id', row.id)
         .eq('account_id', args.accountId);
       update =
@@ -208,6 +236,11 @@ export async function writeConversationChatTags(
                 'tag_suggestion_dismissed_id',
                 args.requireDismissedId as string
               );
+      }
+      if (basisMax !== undefined) {
+        update = update.or(
+          `${BASIS_COLUMN}.is.null,${BASIS_COLUMN}.lte.${basisMax}`
+        );
       }
       const { data: written, error: writeError } = await update
         .select(COLUMNS)
@@ -236,9 +269,9 @@ export async function writeConversationChatTags(
       if (!fresh) return { ok: false, reason: 'not_found' };
       const freshRow = fresh as unknown as ChatTagRow;
       const freshTags = toPatch(freshRow);
-      // A dismissal landed meanwhile: the automatic write stands down
-      // (the next attempt returns "nothing changed").
-      if (dismissedMoved(freshRow)) {
+      // A dismissal or a newer decision landed meanwhile: the automatic
+      // write stands down (the next attempt returns "nothing changed").
+      if (decisionMoved(freshRow)) {
         row = freshRow;
         continue;
       }

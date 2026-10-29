@@ -72,10 +72,15 @@ export interface InboundInsightsOutcome {
   tag: TagSuggestion | null;
   /** The chat's tags, read only when tag suggestions are on. */
   chat: ChatTagState | null;
+  /** Server time (ISO, ms) taken just before the chat's tags were read:
+   *  the basis of the suggestion write and of automatic tagging. A write
+   *  lands only if no decision moved `suggestion_basis_at` past it. Null
+   *  when the tags were not read. */
+  basisAt: string | null;
   signalsWritten: boolean;
   /** What happened to the suggestion columns. `superseded`: the
    *  compare-and-set found the chat moved on (tagged, dismissed, or a
-   *  newer message's decision) and wrote nothing. */
+   *  decision made after this run read the chat) and wrote nothing. */
   suggestion: 'stored' | 'cleared' | 'superseded' | 'untouched';
   stored: StoredSuggestion | null;
 }
@@ -88,8 +93,7 @@ export interface InboundInsightsArgs {
   messageId: string;
   /** The inbound's text (a media caption included). */
   text: string;
-  /** created_at of the persisted inbound message: insight_at's and
-   *  suggestion_basis_at's value. */
+  /** created_at of the persisted inbound message: insight_at's value. */
   messageAt: string;
 }
 
@@ -265,6 +269,7 @@ export async function runInboundInsights(
     judgment: null,
     tag: null,
     chat: null,
+    basisAt: null,
     signalsWritten: false,
     suggestion: 'untouched',
     stored: null,
@@ -287,6 +292,10 @@ export async function runInboundInsights(
       return { ...out, skipped: 'rate_limited' };
 
     const db = supabaseAdmin();
+    // Taken before the read: a change landing after this instant (a
+    // person's tag, a dismissal, another judgment) stamps a later basis
+    // and so wins over this run's writes.
+    const readAt = new Date().toISOString();
     const [triage, catalogue, chat] = await Promise.all([
       signalsOn
         ? readTriageSignals(
@@ -301,6 +310,7 @@ export async function runInboundInsights(
       tagsOn ? readChatTags(db, accountId, conversationId) : null,
     ]);
     out.chat = chat;
+    out.basisAt = chat ? readAt : null;
     out.reusedTriage = triage !== null;
     const askSignals = signalsOn && triage === null;
     // A chat that vanished meanwhile gets no tag question.
@@ -352,7 +362,7 @@ export async function runInboundInsights(
           conversationId,
           next,
           chat,
-          messageAt
+          readAt
         ).then((written) => {
           out.suggestion = !written
             ? 'superseded'
@@ -411,12 +421,14 @@ async function writeSignals(
  * the chat's tags, then waits up to seconds for Jev; meanwhile a person
  * may tag the chat or dismiss the suggestion, or a newer message's
  * judgment may land. So the write requires the tags and the dismissal to
- * be still what was read, and `suggestion_basis_at` (the created_at of the
- * customer message the last decision was based on) to be no newer than
- * this decision's `basisAt`; it then moves that column to `basisAt`.
- * Returns false when no row matched: someone moved on, and nothing else
- * is written. The PUT chat-tags route stamps the column with now() when a
- * person changes the tags, so an older judgment cannot re-store either.
+ * be still what was read, and `suggestion_basis_at` to be NULL or no later
+ * than `basisAt`, the server time this decision read the chat (nothing
+ * was decided since it looked); it then moves that column to `basisAt`.
+ * Both sides are the app's clock at ms precision: the PUT chat-tags route
+ * stamps now() when a person changes the tags, so a judgment that read
+ * the chat before that change cannot store over it, even when the tags
+ * read the same again (tagged, then untagged). Returns false when no row
+ * matched: someone moved on, and nothing else is written.
  */
 export async function writeSuggestionIfCurrent(
   db: SupabaseClient,

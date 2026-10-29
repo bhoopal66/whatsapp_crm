@@ -57,6 +57,9 @@ export async function suggestTagForConversation(
     if (settings.tagSuggestMode === 'off') return { ok: false, reason: 'off' };
 
     const db = supabaseAdmin();
+    // The basis: the server time this decision read the chat, taken
+    // before the read, as the inbound run's.
+    const basisAt = new Date().toISOString();
     const [catalogue, chatRes] = await Promise.all([
       loadTagCatalogue(db, accountId),
       db
@@ -110,10 +113,9 @@ export async function suggestTagForConversation(
     const tag = judgment.tag;
 
     const next = suggestionFor(tag, chat);
-    // The decision rests on the tags read above and the latest customer
-    // message; the write is a compare-and-set on both, as the inbound run's.
-    const basisAt = context[last]!.at;
-    if (!basisAt) throw new Error('customer message without created_at');
+    // The decision rests on the tags read above; the write is a
+    // compare-and-set on them and on nothing decided since basisAt, as the
+    // inbound run's.
     const written = await writeSuggestionIfCurrent(
       db,
       accountId,
@@ -123,7 +125,7 @@ export async function suggestTagForConversation(
       basisAt
     );
     // The chat moved on while Jev was asked (a person tagged it or
-    // dismissed the suggestion, or a newer message was judged): what was
+    // dismissed the suggestion, or another judgment landed): what was
     // decided here no longer applies, and nothing was written.
     if (!written) return { ok: true, suggestion: null, reason: 'superseded' };
 
