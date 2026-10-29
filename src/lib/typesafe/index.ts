@@ -34,6 +34,7 @@ import { runInsights, type InsightsInput } from './checks/insights';
 import { runReplyClass, type ReplyClassInput } from './checks/reply-class';
 import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
 import { runIntentMatch, type IntentMatchInput } from './checks/intent-match';
+import { runReplyOption, type ReplyOptionInput } from './checks/reply-option';
 import {
   runComposeCheck,
   type ComposeCheckInput,
@@ -229,6 +230,13 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      */
     intentMatch: (input: IntentMatchInput) =>
       runIntentMatch({ config, gateway }, input),
+    /**
+     * Typed answers to buttons and lists (lib/flows/typed-reply-judge.ts):
+     * which offered option a typed reply chooses. Not a safety check: no
+     * account switch, policy or log row. Never throws.
+     */
+    replyOption: (input: ReplyOptionInput) =>
+      runReplyOption({ config, gateway }, input),
   };
 }
 

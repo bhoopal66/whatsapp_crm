@@ -49,6 +49,7 @@ import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { ChatTagsPatch } from '@/types';
 import { chatHasChatTag, planSetChatTag } from './chat-tags';
 import { judgeMeanings, loadMeaningTurns } from '@/lib/insights/meaning';
+import { resolveTypedReply } from './typed-reply-judge';
 import {
   meaningThreshold,
   type IntentTriggerConfig,
@@ -1195,9 +1196,10 @@ async function handleReplyForActiveRun(
     return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
   }
 
-  // Two ways a reply can advance:
+  // Three ways a reply can advance:
   //   1. Interactive button/list tap on a send_buttons/send_list node.
-  //   2. Text reply on a collect_input node — capture into vars.
+  //   2. Typed text on such a node that names an option (typed-reply.ts).
+  //   3. Text reply on a collect_input node — capture into vars.
   //
   // Everything else falls through to the fallback policy below.
   let matched: string | null = null;
@@ -1207,6 +1209,30 @@ async function handleReplyForActiveRun(
       currentNode.node_type === 'send_list')
   ) {
     matched = matchReplyId(currentNode, message.reply_id);
+  } else if (
+    message.kind === 'text' &&
+    (currentNode.node_type === 'send_buttons' ||
+      currentNode.node_type === 'send_list')
+  ) {
+    // A typed answer instead of a tap ("2", the option's label, "yes
+    // the second one"), behind the meaning-triggers switch. A match
+    // advances exactly as the tap would; no match falls through to the
+    // fallback policy as before.
+    const typed = await resolveTypedReply({
+      accountId: run.account_id,
+      node: currentNode,
+      prompt:
+        flowContextForNode(currentNode, run.vars, undefined)?.promptText ?? '',
+      text: message.text,
+    });
+    if (typed) {
+      matched = typed.option.next_node_key;
+      await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
+        reply_id: typed.option.reply_id,
+        matched_by: typed.by,
+        ...(typed.by === 'meaning' ? { p: typed.p } : {}),
+      });
+    }
   } else if (
     message.kind === 'text' &&
     currentNode.node_type === 'collect_input'

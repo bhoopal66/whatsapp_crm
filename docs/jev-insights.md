@@ -364,8 +364,21 @@ typed text is judged.
 automation's `intent_match` is not run when a flow (or the journey bot)
 consumed the message.
 
-Coming in a later release: flows will also understand typed answers to
-buttons and lists.
+**Typed answers to buttons and lists.** With the same setting on and Jev
+available, a flow waiting on buttons or a list also accepts a typed
+answer. In order: the option's **label** (case, Arabic diacritics and
+tatweel, emoji, spacing and surrounding punctuation are ignored; a text
+that names two options matches neither), its **number** in the order
+shown (`2`, `2.`, `#2`, `option 2`, `٢`; a list counts rows across its
+sections, as the numbered menu on an OpenWA number prints them; skipped
+when an option's own label is a number), and then its **meaning**: one
+Jev request, 2-second deadline, accepted when Jev picks an option rather
+than "none of these" and is at least 75% sure (not yet calibrated
+against real traffic). A match moves the flow on exactly as a tap would,
+and the run's history records how it matched (`matched_by`: `label`,
+`number` or `meaning` with its probability). When nothing matches, or
+the setting is off, the flow's fallback (reprompt, hand off, end, ignore
+or AI) runs as before.
 
 ## Compass status to case stage
 
