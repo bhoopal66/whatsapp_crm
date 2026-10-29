@@ -2,8 +2,10 @@
 -- 153): the guard on the six new conversations columns, the attention
 -- pin and its three ways of clearing (closing the chat, a person's
 -- reply, acknowledge_insight_attention) with their
--- insight_attention_cleared notes, who reads the per-message history,
--- the new CHECKs, the attention switches' defaults and the
+-- insight_attention_cleared notes, the server's pin
+-- (insight_pin_attention: closed, answered, pinned, raised), who reads
+-- the per-message history, the new CHECKs, the attention switches'
+-- defaults and the
 -- insight_attention bell (its CHECK entry and push_bell_url).
 --
 -- ONE statement on purpose (the pinned CLI rejects several). Failing
@@ -26,6 +28,8 @@ DECLARE
   cv_c     UUID;
   cv_svc   UUID;
   s        TEXT;
+  t_reply  TIMESTAMPTZ;
+  n_set    INT;
   r        TEXT;
   n        INT := 0;
   failed   TEXT[] := '{}';
@@ -445,6 +449,99 @@ BEGIN
    LIMIT 1;
   IF r IS DISTINCT FROM '/inbox?c=' || cv_c THEN
     failed := array_append(failed, ('push_bell_url does not open the chat for insight_attention: ' || coalesce(r, 'null'))::text);
+  END IF;
+
+  -- ---------- the server's pin: insight_pin_attention ----------
+  -- (cv_c: cv_a was deleted above.)
+  PERFORM pg_temp.iv_do(format(
+    'UPDATE conversations SET status = %L, insight_attention_at = NULL, insight_attention_reason = NULL WHERE id = %L',
+    'open', cv_c));
+  -- After every other message in the chat (their created_at is now()).
+  t_reply := now() + interval '1 hour';
+  r := pg_temp.iv_do(format(
+    'INSERT INTO messages (conversation_id, sender_type, sender_id, content_text, created_at) VALUES (%L, %L, %L, %L, %L)',
+    cv_c, 'agent', u_agent, 'answered', t_reply));
+  n := n + 1;
+  IF r <> 'ok' THEN
+    failed := array_append(failed, ('pin fixture: the person''s reply was not inserted: ' || r)::text);
+  END IF;
+  SELECT count(*) INTO n_set FROM conversation_events
+   WHERE conversation_id = cv_c AND kind = 'insight_attention_set';
+
+  -- A person's reply at the message time: already answered.
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply, 'upset'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'answered'
+     OR (SELECT insight_attention_at FROM conversations WHERE id = cv_c) IS NOT NULL
+     OR (SELECT count(*) FROM conversation_events
+          WHERE conversation_id = cv_c AND kind = 'insight_attention_set') <> n_set THEN
+    failed := array_append(failed, ('a pin landed on a chat a person had answered: ' || r)::text);
+  END IF;
+
+  -- Another account's id: nothing to pin.
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', b_acct, cv_c, t_reply + interval '1 minute', 'upset'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'closed'
+     OR (SELECT insight_attention_at FROM conversations WHERE id = cv_c) IS NOT NULL THEN
+    failed := array_append(failed, ('insight_pin_attention pinned across accounts: ' || r)::text);
+  END IF;
+
+  -- No reply since: pinned at the message time, with a note.
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '1 minute', 'upset'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'pinned'
+     OR (SELECT insight_attention_at FROM conversations WHERE id = cv_c) IS DISTINCT FROM t_reply + interval '1 minute'
+     OR (SELECT insight_attention_reason FROM conversations WHERE id = cv_c) IS DISTINCT FROM 'upset'
+     OR NOT EXISTS (SELECT 1 FROM conversation_events
+                     WHERE conversation_id = cv_c AND kind = 'insight_attention_set'
+                       AND details = jsonb_build_object('reason', 'upset')) THEN
+    failed := array_append(failed, ('insight_pin_attention did not pin with a note: ' || r)::text);
+  END IF;
+
+  -- A lower reason changes nothing.
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '2 minutes', 'callback'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'superseded'
+     OR (SELECT insight_attention_reason FROM conversations WHERE id = cv_c) IS DISTINCT FROM 'upset' THEN
+    failed := array_append(failed, ('a lower reason was not superseded: ' || r)::text);
+  END IF;
+
+  -- A higher reason is raised in place: the time is kept.
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '3 minutes', 'urgent'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'raised'
+     OR (SELECT insight_attention_at FROM conversations WHERE id = cv_c) IS DISTINCT FROM t_reply + interval '1 minute'
+     OR (SELECT insight_attention_reason FROM conversations WHERE id = cv_c) IS DISTINCT FROM 'urgent'
+     OR NOT EXISTS (SELECT 1 FROM conversation_events
+                     WHERE conversation_id = cv_c AND kind = 'insight_attention_set'
+                       AND details = jsonb_build_object('reason', 'urgent', 'raisedFrom', 'upset')) THEN
+    failed := array_append(failed, ('a higher reason was not raised in place: ' || r)::text);
+  END IF;
+
+  -- A closed chat is never pinned.
+  PERFORM pg_temp.iv_do(format('UPDATE conversations SET status = %L WHERE id = %L', 'closed', cv_c));
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '4 minutes', 'urgent'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'closed'
+     OR (SELECT insight_attention_at FROM conversations WHERE id = cv_c) IS NOT NULL THEN
+    failed := array_append(failed, ('a closed chat was pinned: ' || r)::text);
+  END IF;
+
+  -- Service role only.
+  r := pg_temp.iv_try('authenticated', u_owner, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '5 minutes', 'urgent'));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 42501%'
+     OR has_function_privilege('authenticated', 'public.insight_pin_attention(uuid, uuid, timestamptz, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.insight_pin_attention(uuid, uuid, timestamptz, text)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.insight_pin_attention(uuid, uuid, timestamptz, text)', 'EXECUTE') THEN
+    failed := array_append(failed, ('insight_pin_attention is executable beyond the service role: ' || r)::text);
   END IF;
 
   n := n + 1;

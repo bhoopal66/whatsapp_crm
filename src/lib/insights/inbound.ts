@@ -450,8 +450,22 @@ export async function runInboundInsights(
         })
       );
     }
-    await Promise.all(writes);
-    return out;
+    // allSettled, not all: one failed write must not return while the
+    // others (the pin, its bell, the history) are still running. This
+    // runs inside after(), and work left unawaited there is killed
+    // mid-flight (issues #301, #409). Each write reports its own outcome
+    // on `out`; any failure still marks the run as an error.
+    const settled = await Promise.allSettled(writes);
+    const failures = settled.filter(
+      (s): s is PromiseRejectedResult => s.status === 'rejected'
+    );
+    if (failures.length === 0) return out;
+    for (const f of failures)
+      console.error(
+        '[insights] inbound write failed:',
+        f.reason instanceof Error ? f.reason.message : String(f.reason)
+      );
+    return { ...out, skipped: 'error' };
   } catch (err) {
     console.error(
       '[insights] inbound judgment failed:',

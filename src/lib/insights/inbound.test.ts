@@ -10,7 +10,7 @@ import { INSIGHT_SETTINGS_OFF, type InsightSettings } from './settings-shape';
 
 interface Call {
   table: string;
-  op: 'select' | 'update' | 'insert' | 'delete';
+  op: 'select' | 'update' | 'insert' | 'delete' | 'rpc';
   payload?: unknown;
   filters: [string, ...unknown[]][];
 }
@@ -30,6 +30,8 @@ const h = vi.hoisted(() => ({
   /** When set, `conversations` behaves like one real row: reads return
    *  it, updates apply their filters to it and change it. */
   row: null as Record<string, unknown> | null,
+  /** Answers to rpc(fn): a Result, or a function producing one later. */
+  rpc: {} as Record<string, Result | (() => Promise<Result>)>,
 }));
 
 /** PostgREST filters over one row: eq / is, and an or() of
@@ -68,6 +70,11 @@ function respond(call: Call): Result {
 
 vi.mock('@/lib/ai/admin-client', () => ({
   supabaseAdmin: () => ({
+    rpc(fn: string, payload: unknown) {
+      h.calls.push({ table: `rpc:${fn}`, op: 'rpc', payload, filters: [] });
+      const answer = h.rpc[fn] ?? { data: null, error: null };
+      return typeof answer === 'function' ? answer() : Promise.resolve(answer);
+    },
     from(table: string) {
       const call: Call = { table, op: 'select', filters: [] };
       const run = () => {
@@ -240,6 +247,7 @@ beforeEach(() => {
     'conversations:update': { data: [{ id: 'conv-1' }], error: null },
   };
   h.row = null;
+  h.rpc = {};
   h.context = [
     { role: 'assistant', content: 'Hello, how can we help?' },
     { role: 'user', content: 'I need a POS terminal today, please call me' },
@@ -559,27 +567,22 @@ describe('runInboundInsights — Customer insights 2.0', () => {
   });
 
   it('a callback request pins the chat with the workspace’s rules', async () => {
-    h.row = {
-      id: 'conv-1',
-      account_id: 'acct-1',
-      status: 'open',
-      insight_at: null,
-      insight_attention_at: null,
-      insight_attention_reason: null,
-      assigned_agent_id: null,
-      user_id: null,
-    };
+    h.rpc.insight_pin_attention = { data: 'pinned', error: null };
     const out = await run();
     expect(out.attention).toEqual({ result: 'pinned', notified: false });
-    expect(h.row).toMatchObject({
-      insight_attention_at: MESSAGE_AT,
-      insight_attention_reason: 'callback',
-    });
     expect(
-      inserts('conversation_events').map(
-        (c) => (c.payload as { details: unknown }).details
-      )
-    ).toEqual([{ reason: 'callback' }]);
+      h.calls.filter((c) => c.op === 'rpc').map((c) => [c.table, c.payload])
+    ).toEqual([
+      [
+        'rpc:insight_pin_attention',
+        {
+          p_account: 'acct-1',
+          p_conv: 'conv-1',
+          p_message_at: MESSAGE_AT,
+          p_reason: 'callback',
+        },
+      ],
+    ]);
   });
 
   it('no pin when the matching rule is off', async () => {
@@ -589,9 +592,7 @@ describe('runInboundInsights — Customer insights 2.0', () => {
     });
     const out = await run();
     expect(out.attention).toBeNull();
-    expect(
-      updates().some((c) => 'insight_attention_at' in (c.payload as object))
-    ).toBe(false);
+    expect(h.calls.some((c) => c.op === 'rpc')).toBe(false);
   });
 });
 
@@ -776,6 +777,40 @@ describe('runInboundInsights — failures', () => {
     const out = await run();
     expect(out.skipped).toBe('error');
     expect(out.signalsWritten).toBe(false);
+    err.mockRestore();
+  });
+
+  it('a failed signals write still waits for the pin, and reports both', async () => {
+    h.settings = settings({ signalsEnabled: true });
+    // DEEP asks for a call back: the workspace's rules pin on it.
+    h.insights.mockResolvedValue({
+      ok: true,
+      signals: JEV_SIGNALS,
+      deep: DEEP,
+      tag: null,
+      latencyMs: 5,
+    });
+    h.responses['conversations:update'] = {
+      data: null,
+      error: { message: 'check violated' },
+    };
+    let pinFinished = false;
+    h.rpc.insight_pin_attention = async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      pinFinished = true;
+      return { data: 'pinned', error: null };
+    };
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const out = await run();
+    expect(pinFinished).toBe(true);
+    expect(out.skipped).toBe('error');
+    expect(out.signalsWritten).toBe(false);
+    expect(out.history).toBe('stored');
+    expect(out.attention).toEqual({ result: 'pinned', notified: false });
+    expect(err).toHaveBeenCalledWith(
+      '[insights] inbound write failed:',
+      'check violated'
+    );
     err.mockRestore();
   });
 });

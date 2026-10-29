@@ -3,8 +3,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ============================================================
 // applyInsightAttention: a recording fake stands in for PostgREST, with
-// the conversation as one real row (updates apply their filters to it)
-// and a list of messages the "person replied" read filters.
+// the conversation as one real row and a list of messages. The
+// insight_pin_attention RPC is modelled on 153's function: one atomic
+// step (verify-insights-v2.sql asserts the SQL itself). Plain table
+// reads and updates are kept so the older two-request path still runs
+// against this fake.
 // ============================================================
 
 const h = vi.hoisted(() => ({
@@ -19,7 +22,7 @@ import { applyInsightAttention, type AttentionArgs } from './attention';
 type Filter = [string, ...unknown[]];
 interface Call {
   table: string;
-  op: 'select' | 'update' | 'insert';
+  op: 'select' | 'update' | 'insert' | 'rpc';
   payload?: unknown;
   filters: Filter[];
 }
@@ -34,8 +37,19 @@ let conv: Record<string, unknown> | null;
 let messages: Record<string, unknown>[];
 let liveUsers: string[];
 let fail: Partial<Record<string, string>>;
-/** Runs just before the pin's update lands (a race). */
+/** Runs just before the pin lands (a race): before the RPC's atomic
+ *  step, or before a plain conversations update. */
 let beforeUpdate: (() => void) | null;
+/** insight_attention_set notes the RPC wrote (their details). */
+let events: Record<string, unknown>[];
+/** Overrides what the RPC answers. */
+let rpcAnswer: unknown;
+
+const ORDER = ['urgent', 'wants_person', 'upset', 'callback'];
+const rank = (r: unknown) => {
+  const i = ORDER.indexOf(String(r));
+  return i < 0 ? ORDER.length : i;
+};
 
 const ms = (v: unknown) => Date.parse(String(v));
 
@@ -84,7 +98,52 @@ function respond(call: Call): Result {
   return { data: null, error: null };
 }
 
+/** 153's insight_pin_attention, as one atomic step. */
+function pinRpc(p: Record<string, unknown>): string {
+  beforeUpdate?.();
+  if (!conv || conv.account_id !== p.p_account || conv.status === 'closed')
+    return 'closed';
+  const answered = messages.some(
+    (m) =>
+      m.conversation_id === p.p_conv &&
+      m.sender_type === 'agent' &&
+      m.sender_id != null &&
+      ms(m.created_at) >= ms(p.p_message_at)
+  );
+  if (answered) return 'answered';
+  if (conv.insight_attention_at != null) {
+    const from = conv.insight_attention_reason;
+    if (rank(p.p_reason) >= rank(from)) return 'superseded';
+    conv.insight_attention_reason = p.p_reason;
+    events.push({ reason: p.p_reason, raisedFrom: from });
+    return 'raised';
+  }
+  conv.insight_attention_at = p.p_message_at;
+  conv.insight_attention_reason = p.p_reason;
+  events.push({ reason: p.p_reason });
+  return 'pinned';
+}
+
 const db = {
+  rpc(fn: string, params: Record<string, unknown>) {
+    const call: Call = {
+      table: `rpc:${fn}`,
+      op: 'rpc',
+      payload: params,
+      filters: [],
+    };
+    calls.push(call);
+    if (fail[call.table])
+      return Promise.resolve({
+        data: null,
+        error: { message: fail[call.table]! },
+      });
+    const data = pinRpc(params);
+    return Promise.resolve({
+      data: rpcAnswer === undefined ? data : rpcAnswer,
+      error: null,
+    });
+  },
   from(table: string) {
     const call: Call = { table, op: 'select', filters: [] };
     const run = () => {
@@ -137,9 +196,6 @@ const args = (over: Partial<AttentionArgs> = {}): AttentionArgs => ({
   ...over,
 });
 
-const notes = () =>
-  calls.filter((c) => c.table === 'conversation_events' && c.op === 'insert');
-
 beforeEach(() => {
   calls = [];
   conv = {
@@ -155,32 +211,39 @@ beforeEach(() => {
   liveUsers = [AGENT, OWNER];
   fail = {};
   beforeUpdate = null;
+  events = [];
+  rpcAnswer = undefined;
   h.notify.mockReset().mockResolvedValue(true);
 });
 
+const PERSON_REPLY = {
+  conversation_id: 'conv-1',
+  sender_type: 'agent',
+  sender_id: AGENT,
+  created_at: '2026-10-29T08:00:02.000Z',
+};
+
 describe('applyInsightAttention — pinning', () => {
-  it('pins an open, unpinned chat at the message time, notes it and rings the assignee', async () => {
+  it('pins an open, unpinned chat in one RPC call, and rings the assignee', async () => {
     const out = await applyInsightAttention(db, args());
     expect(out).toEqual({ result: 'pinned', notified: true });
-    expect(conv).toMatchObject({
-      insight_attention_at: MESSAGE_AT,
-      insight_attention_reason: 'upset',
-    });
-    const pin = calls.find(
-      (c) => c.table === 'conversations' && c.op === 'update'
-    )!;
-    expect(pin.filters).toContainEqual(['eq', 'account_id', 'acct-1']);
-    expect(pin.filters).toContainEqual(['is', 'insight_attention_at', null]);
-    expect(pin.filters).toContainEqual(['neq', 'status', 'closed']);
-    expect(notes().map((c) => c.payload)).toEqual([
-      {
-        account_id: 'acct-1',
-        conversation_id: 'conv-1',
-        kind: 'insight_attention_set',
-        actor_user_id: null,
-        details: { reason: 'upset' },
-      },
+    const rpcs = calls.filter((c) => c.op === 'rpc');
+    expect(rpcs.map((c) => [c.table, c.payload])).toEqual([
+      [
+        'rpc:insight_pin_attention',
+        {
+          p_account: 'acct-1',
+          p_conv: 'conv-1',
+          p_message_at: MESSAGE_AT,
+          p_reason: 'upset',
+        },
+      ],
     ]);
+    // The pin and its note are the RPC's; nothing else writes them.
+    expect(calls.filter((c) => c.op === 'update' || c.op === 'insert')).toEqual(
+      []
+    );
+    expect(events).toEqual([{ reason: 'upset' }]);
     expect(h.notify).toHaveBeenCalledWith(db, {
       accountId: 'acct-1',
       conversationId: 'conv-1',
@@ -191,47 +254,23 @@ describe('applyInsightAttention — pinning', () => {
   });
 
   it('a person reply before the message does not stop the pin', async () => {
-    messages = [
-      {
-        conversation_id: 'conv-1',
-        sender_type: 'agent',
-        sender_id: AGENT,
-        created_at: '2026-10-29T07:59:59.000Z',
-      },
-    ];
+    messages = [{ ...PERSON_REPLY, created_at: '2026-10-29T07:59:59.000Z' }];
     expect((await applyInsightAttention(db, args())).result).toBe('pinned');
   });
 
-  it('is not re-pinned when a person replied at or after the message', async () => {
-    messages = [
-      {
-        conversation_id: 'conv-1',
-        sender_type: 'agent',
-        sender_id: AGENT,
-        created_at: '2026-10-29T08:00:02.000Z',
-      },
-    ];
+  it('is not pinned when a person replied at or after the message', async () => {
+    messages = [PERSON_REPLY];
     const out = await applyInsightAttention(db, args());
-    expect(out.result).toBe('answered');
+    expect(out).toEqual({ result: 'answered', notified: false });
     expect(conv!.insight_attention_at).toBeNull();
-    expect(notes()).toEqual([]);
+    expect(events).toEqual([]);
     expect(h.notify).not.toHaveBeenCalled();
   });
 
   it('a bot or system message after the message does not count as a reply', async () => {
     messages = [
-      {
-        conversation_id: 'conv-1',
-        sender_type: 'agent',
-        sender_id: null,
-        created_at: '2026-10-29T08:00:02.000Z',
-      },
-      {
-        conversation_id: 'conv-1',
-        sender_type: 'bot',
-        sender_id: null,
-        created_at: '2026-10-29T08:00:02.000Z',
-      },
+      { ...PERSON_REPLY, sender_id: null },
+      { ...PERSON_REPLY, sender_type: 'bot', sender_id: null },
     ];
     expect((await applyInsightAttention(db, args())).result).toBe('pinned');
   });
@@ -239,19 +278,48 @@ describe('applyInsightAttention — pinning', () => {
   it('a closed chat is not pinned', async () => {
     conv!.status = 'closed';
     const out = await applyInsightAttention(db, args());
+    expect(out).toEqual({ result: 'closed', notified: false });
+    expect(conv!.insight_attention_at).toBeNull();
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it('another account’s chat is not pinned', async () => {
+    const out = await applyInsightAttention(db, args({ accountId: 'acct-2' }));
+    expect(out.result).toBe('closed');
+    expect(conv!.insight_attention_at).toBeNull();
+  });
+});
+
+describe('applyInsightAttention — races are settled under the row lock', () => {
+  it('a person reply committed just before the pin wins: answered, no pin, no bell', async () => {
+    beforeUpdate = () => {
+      messages.push(PERSON_REPLY);
+    };
+    const out = await applyInsightAttention(db, args());
+    expect(out).toEqual({ result: 'answered', notified: false });
+    expect(conv!.insight_attention_at).toBeNull();
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it('a chat closed just before the pin is not pinned', async () => {
+    beforeUpdate = () => {
+      conv!.status = 'closed';
+    };
+    const out = await applyInsightAttention(db, args());
     expect(out.result).toBe('closed');
     expect(conv!.insight_attention_at).toBeNull();
     expect(h.notify).not.toHaveBeenCalled();
   });
 
-  it('a chat closed during the run is not pinned (compare-and-set)', async () => {
+  it('a pin set by another judgment first wins: no note, no bell', async () => {
     beforeUpdate = () => {
-      conv!.status = 'closed';
+      conv!.insight_attention_at = '2026-10-29T08:00:01.000Z';
+      conv!.insight_attention_reason = 'urgent';
     };
     const out = await applyInsightAttention(db, args());
     expect(out.result).toBe('superseded');
-    expect(conv!.insight_attention_at).toBeNull();
-    expect(notes()).toEqual([]);
+    expect(conv!.insight_attention_reason).toBe('urgent');
+    expect(events).toEqual([]);
     expect(h.notify).not.toHaveBeenCalled();
   });
 });
@@ -270,46 +338,21 @@ describe('applyInsightAttention — an existing pin', () => {
       insight_attention_at: PINNED_AT,
       insight_attention_reason: 'urgent',
     });
-    expect(
-      notes().map((c) => (c.payload as { details: unknown }).details)
-    ).toEqual([{ reason: 'urgent', raisedFrom: 'callback' }]);
+    expect(events).toEqual([{ reason: 'urgent', raisedFrom: 'callback' }]);
     expect(h.notify).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.table === 'profiles')).toBe(false);
   });
 
-  it('the same or a lower reason changes nothing', async () => {
+  it('the same or a lower reason is superseded and changes nothing', async () => {
     conv!.insight_attention_reason = 'wants_person';
     for (const reason of ['wants_person', 'upset', 'callback'] as const) {
-      expect((await applyInsightAttention(db, args({ reason }))).result).toBe(
-        'kept'
-      );
+      expect(await applyInsightAttention(db, args({ reason }))).toEqual({
+        result: 'superseded',
+        notified: false,
+      });
     }
     expect(conv!.insight_attention_reason).toBe('wants_person');
-    expect(calls.filter((c) => c.op !== 'select')).toEqual([]);
-  });
-
-  it('a pin a person cleared meanwhile is not raised back: no note, no bell', async () => {
-    beforeUpdate = () => {
-      conv!.insight_attention_at = null;
-      conv!.insight_attention_reason = null;
-    };
-    const out = await applyInsightAttention(db, args({ reason: 'urgent' }));
-    expect(out.result).toBe('superseded');
-    expect(conv!.insight_attention_at).toBeNull();
-    expect(notes()).toEqual([]);
-    expect(h.notify).not.toHaveBeenCalled();
-  });
-});
-
-describe('applyInsightAttention — the compare-and-set on a new pin', () => {
-  it('a pin set by another judgment meanwhile wins: no note, no bell', async () => {
-    beforeUpdate = () => {
-      conv!.insight_attention_at = '2026-10-29T08:00:01.000Z';
-      conv!.insight_attention_reason = 'urgent';
-    };
-    const out = await applyInsightAttention(db, args());
-    expect(out.result).toBe('superseded');
-    expect(conv!.insight_attention_reason).toBe('urgent');
-    expect(notes()).toEqual([]);
+    expect(events).toEqual([]);
     expect(h.notify).not.toHaveBeenCalled();
   });
 });
@@ -343,37 +386,35 @@ describe('applyInsightAttention — the bell', () => {
 });
 
 describe('applyInsightAttention — failures never throw', () => {
-  for (const key of [
-    'conversations:select',
-    'messages:select',
-    'conversations:update',
-  ]) {
-    it(`${key} failing is logged and reported as error`, async () => {
-      fail[key] = 'down';
-      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const out = await applyInsightAttention(db, args());
-      expect(out.result).toBe('error');
-      expect(err).toHaveBeenCalled();
-      err.mockRestore();
-    });
-  }
-
-  it('a failed recipient read keeps the pin and rings nobody', async () => {
-    fail['profiles:select'] = 'down';
+  it('a failed RPC is logged and reported as error', async () => {
+    fail['rpc:insight_pin_attention'] = 'down';
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const out = await applyInsightAttention(db, args());
-    expect(out).toEqual({ result: 'pinned', notified: false });
-    expect(conv!.insight_attention_reason).toBe('upset');
+    expect(out).toEqual({ result: 'error', notified: false });
     expect(h.notify).not.toHaveBeenCalled();
     expect(err).toHaveBeenCalled();
     err.mockRestore();
   });
 
-  it('a failed note keeps the pin and still rings', async () => {
-    fail['conversation_events:insert'] = 'down';
+  it('an answer the RPC never gives is reported as error, no bell', async () => {
+    rpcAnswer = 'kept';
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const out = await applyInsightAttention(db, args());
-    expect(out).toEqual({ result: 'pinned', notified: true });
+    expect(out).toEqual({ result: 'error', notified: false });
+    expect(h.notify).not.toHaveBeenCalled();
     err.mockRestore();
   });
+
+  for (const key of ['conversations:select', 'profiles:select']) {
+    it(`${key} failing keeps the pin and rings nobody`, async () => {
+      fail[key] = 'down';
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const out = await applyInsightAttention(db, args());
+      expect(out).toEqual({ result: 'pinned', notified: false });
+      expect(conv!.insight_attention_reason).toBe('upset');
+      expect(h.notify).not.toHaveBeenCalled();
+      expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+  }
 });

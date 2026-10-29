@@ -29,8 +29,8 @@
 --        block so it can never fail the message insert (078's shape);
 --      - acknowledge_insight_attention() (how 'handled'): an agent's
 --        "dealt with", with dismiss_tag_suggestion's access rule.
---    The service-role writer that raises a pin records
---    insight_attention_set itself.
+--    insight_pin_attention() (service role) is the one writer of a
+--    pin, and records insight_attention_set itself.
 --
 --  * conversation_insight_events: one row per judged message (the
 --    figures as jsonb), for the chat's mood/priority history. Readers
@@ -297,6 +297,14 @@ REVOKE ALL ON FUNCTION public.conversations_attention_close_note() FROM PUBLIC, 
 -- 078's shape: everything inside an EXCEPTION block, so a failure is a
 -- WARNING and the message insert always succeeds (a lost message costs
 -- the conversation). The flag is raised around this UPDATE only.
+--
+-- The row lock is taken whether or not the chat is pinned. It is what
+-- orders this reply against insight_pin_attention(), which takes the
+-- same lock before it looks for a reply: either the pin is in place
+-- when this lock is granted (and is cleared here), or the reply is
+-- committed when the pin's lock is granted (and the pin is refused).
+-- NO KEY UPDATE, not UPDATE: the message insert's own FK check holds a
+-- KEY SHARE lock on the same row, which UPDATE would conflict with.
 CREATE OR REPLACE FUNCTION public.messages_clear_insight_attention()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -305,15 +313,16 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_account uuid;
+  v_at      timestamptz;
   v_reason  text;
 BEGIN
   BEGIN
-    SELECT account_id, insight_attention_reason INTO v_account, v_reason
+    SELECT account_id, insight_attention_at, insight_attention_reason
+      INTO v_account, v_at, v_reason
       FROM conversations
      WHERE id = new.conversation_id
-       AND insight_attention_at IS NOT NULL
-     FOR UPDATE;
-    IF FOUND THEN
+     FOR NO KEY UPDATE;
+    IF FOUND AND v_at IS NOT NULL THEN
       PERFORM set_config('app.insight_write', 'on', TRUE);
       UPDATE conversations
          SET insight_attention_at = NULL,
@@ -350,7 +359,7 @@ CREATE OR REPLACE FUNCTION public.acknowledge_insight_attention(p_conversation_i
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_conv conversations%ROWTYPE;
@@ -392,6 +401,94 @@ GRANT EXECUTE ON FUNCTION public.acknowledge_insight_attention(uuid) TO authenti
 
 COMMENT ON FUNCTION public.acknowledge_insight_attention(uuid) IS
   'An agent''s "dealt with": clears the chat''s attention pin and notes it (how = handled). Agent and up, on a chat they can see (migration 153).';
+
+-- ---------- 6b. The server's pin ----------
+
+-- The one writer of a pin (src/lib/insights/attention.ts, service role).
+-- The chat is locked before the reply check, and the check is its own
+-- statement, so under READ COMMITTED it reads a snapshot taken after
+-- the lock: a person's reply that committed first is seen ('answered'),
+-- and one still in flight waits on the lock and then clears the pin
+-- (messages_clear_insight_attention). Two requests (a read, then the
+-- pin) let a reply land in between and leave a chat pinned that a
+-- person had already answered.
+--
+-- Returns 'closed' (closed or not in this account), 'answered', 'raised'
+-- (already pinned, reason raised, time kept), 'superseded' (already
+-- pinned for this reason or a higher one) or 'pinned'. The caller rings
+-- the bell for 'pinned' only. The guard admits this UPDATE because the
+-- caller is the service role (auth.role() reads the request's claims,
+-- which SECURITY DEFINER does not change), so no flag is raised.
+CREATE OR REPLACE FUNCTION public.insight_pin_attention(
+  p_account uuid, p_conv uuid, p_message_at timestamptz, p_reason text)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  -- Precedence, most important first (ATTENTION_REASONS in
+  -- src/lib/insights/bands.ts; change one, change both).
+  c_order CONSTANT text[] := ARRAY['urgent', 'wants_person', 'upset', 'callback'];
+  v_status text;
+  v_at     timestamptz;
+  v_reason text;
+BEGIN
+  IF p_message_at IS NULL OR p_reason IS NULL
+     OR array_position(c_order, p_reason) IS NULL THEN
+    RAISE EXCEPTION 'insight_pin_attention: bad arguments' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT status, insight_attention_at, insight_attention_reason
+    INTO v_status, v_at, v_reason
+    FROM conversations
+   WHERE id = p_conv AND account_id = p_account
+   FOR NO KEY UPDATE;
+  IF NOT FOUND OR v_status = 'closed' THEN
+    RETURN 'closed';
+  END IF;
+
+  -- A separate statement: a fresh READ COMMITTED snapshot, taken after
+  -- the lock. 077/078's test for "a person wrote".
+  IF EXISTS (SELECT 1 FROM messages
+              WHERE conversation_id = p_conv
+                AND sender_type = 'agent'
+                AND sender_id IS NOT NULL
+                AND created_at >= p_message_at) THEN
+    RETURN 'answered';
+  END IF;
+
+  IF v_at IS NOT NULL THEN
+    -- An unknown stored reason ranks last.
+    IF array_position(c_order, p_reason)
+       < COALESCE(array_position(c_order, v_reason), cardinality(c_order) + 1) THEN
+      UPDATE conversations
+         SET insight_attention_reason = p_reason
+       WHERE id = p_conv;
+      INSERT INTO conversation_events (account_id, conversation_id, kind, actor_user_id, details)
+      VALUES (p_account, p_conv, 'insight_attention_set', NULL,
+              jsonb_build_object('reason', p_reason, 'raisedFrom', v_reason));
+      RETURN 'raised';
+    END IF;
+    RETURN 'superseded';
+  END IF;
+
+  UPDATE conversations
+     SET insight_attention_at = p_message_at,
+         insight_attention_reason = p_reason
+   WHERE id = p_conv;
+  INSERT INTO conversation_events (account_id, conversation_id, kind, actor_user_id, details)
+  VALUES (p_account, p_conv, 'insight_attention_set', NULL,
+          jsonb_build_object('reason', p_reason));
+  RETURN 'pinned';
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.insight_pin_attention(uuid, uuid, timestamptz, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.insight_pin_attention(uuid, uuid, timestamptz, text) TO service_role;
+
+COMMENT ON FUNCTION public.insight_pin_attention(uuid, uuid, timestamptz, text) IS
+  'The server''s attention pin: locks the chat, refuses a closed or already-answered chat, raises a lower reason, else pins at the message time and notes insight_attention_set. Service role only (migration 153).';
 
 -- ---------- 7. Per-message history ----------
 
