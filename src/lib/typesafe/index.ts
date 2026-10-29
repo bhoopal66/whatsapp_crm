@@ -33,6 +33,10 @@ import { runKbSelect, type KbSelectInput } from './checks/kb-select';
 import { runInsights, type InsightsInput } from './checks/insights';
 import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
 import {
+  runComposeCheck,
+  type ComposeCheckInput,
+} from './checks/compose-check';
+import {
   runStatusMapSuggestion,
   type StatusMapInput,
 } from './checks/status-map';
@@ -202,6 +206,13 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      */
     statusMap: (input: StatusMapInput) =>
       runStatusMapSuggestion({ config, gateway }, input),
+    /**
+     * Message check before sending (lib/insights/compose-check.ts): an
+     * agent's draft judged for warnings. Not a safety check: no account
+     * switch, policy or log row. Never throws.
+     */
+    composeCheck: (input: ComposeCheckInput) =>
+      runComposeCheck({ config, gateway }, input),
   };
 }
 
@@ -284,6 +295,16 @@ export type {
 export { KB_GAP_QS_VERSION } from './questions/kb-gap';
 export type { KbGapInput, KbGapJudgment } from './checks/kb-gap';
 export { STATUS_MAP_QS_VERSION } from './questions/status-map';
+export { COMPOSE_CHECK_QS_VERSION } from './questions/compose-check';
+export {
+  COMPOSE_CHECK_THRESHOLDS,
+  composeCheckWarnings,
+} from './checks/compose-check';
+export type {
+  ComposeCheckFigures,
+  ComposeCheckInput,
+  ComposeCheckJudgment,
+} from './checks/compose-check';
 export type { StatusMapInput, StatusMapJudgment } from './checks/status-map';
 export type { TriageDecision, TriageInput } from './checks/triage';
 export type { GuardrailDecision, GuardrailInput } from './checks/guardrail';
