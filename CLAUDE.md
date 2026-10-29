@@ -1485,6 +1485,25 @@ edit. `sensitive_data_reply` (`lib/kb/sensitive.ts` — Emirates ID,
 Luhn-checked card, checksummed IBAN) applies in **both** modes and
 short-circuits model and TypeSafe.
 
+**Translate (migration 154, `lib/translate/*`, `lib/ai/translate.ts`).**
+`POST /api/ai/translate/message` (viewer and up) turns a message into
+English and `POST /api/ai/translate` (agent and up) turns a composer
+draft into Arabic. Both use the draft route's key and switch
+(`loadAiConfig`, default `requireActive`). English uses `model_small`,
+else `model`; Arabic, which the customer reads, uses `model`. Drafts are
+never stored. The message route checks visibility through the caller's
+RLS client, then reads and writes `message_translations` on the service
+role. That table is service-role only (RLS, no policy, no grants). A
+trigger derives its account and conversation from the message. It is
+re-translated when `source_hash` (sha256 of the text) differs.
+`verify-message-translations.sql`. `ai_usage_log.mode` (154),
+`LogAiUsageArgs.mode` and the usage route's `byMode` change together:
+the route indexes `byMode[r.mode]`, so an unlisted mode crashes the
+panel. The bubble text never gets `dir="auto"`, because the time overlay
+reserves room at the end of the last line; the composer textarea does
+get it. Anything under a bubble goes after the reactions chip, which
+overlaps the bubble (`-mt-1.5`).
+
 ### TypeSafe decision layer (`lib/typesafe/*`, migrations 063–064)
 
 Module 013: TypeSafe (Jev) judgments around the auto-reply bot, hooked

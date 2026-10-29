@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Translate Arabic messages in the inbox
+
+**Migration required: 154_message_translations.sql**, applied with 153,
+before the new build goes live. Additive and re-runnable. Without it the
+buttons still work, but translations are not saved and their token use
+is not logged.
+- **Translate** under an Arabic customer message shows it in English in
+  the same bubble, with **Show original** to switch back. The
+  translation is saved, so the next click, by anyone, is instant and
+  free.
+- **Translate to Arabic** in the composer, next to the attachment and
+  template buttons, turns what you typed into Arabic in the input box,
+  ready to edit and send, with **Undo**.
+- Both use the workspace's own AI key (Settings → AI Agents) and work
+  only while AI is switched on there. Token use shows as **Translations**
+  in AI usage. See `docs/ai-agent.md`.
+
 ### Customer insights 2.0: colour codes and chats pinned until someone acts
 
 **Migration required: 153_insights_v2.sql**, applied **before the new build

@@ -247,6 +247,36 @@ replaced the identifier.
 It counts against the reply cap. Empty means off. The outcome is
 recorded as `replied`, "Sensitive-data warning sent".
 
+## Translate (migration 154)
+
+Two inbox buttons use the same AI key as the bot and **Draft with AI**,
+and work only while AI is switched on in Settings → AI Agents.
+
+- **Translate** shows under a customer's text message, or photo or video
+  caption, written in Arabic: at least two Arabic letters, making up at
+  least 30% of the letters, so a mixed Arabic and English message
+  qualifies. Clicking it shows the English in the same bubble, and
+  **Show original** switches back. Anyone who can read the chat may use
+  it, viewers included. The English comes from the small model when one
+  is set (`model_small`), else the standard model. Each translation is
+  saved in `message_translations`, one per message, so the next click,
+  by anyone, is answered from the saved copy and spends nothing. A
+  message whose text has changed is translated again. Deleting the
+  chat or the contact deletes its saved translations.
+- **Translate to Arabic** shows in the composer, next to the template and
+  AI-draft buttons, once you type something that is not already Arabic.
+  It replaces your text with Modern Standard Arabic from the standard
+  model. Edit it, send it, or click **Undo** to get your text back. Nothing
+  is sent until you press Send, and the draft is not stored. Agents and
+  up.
+
+Both keep numbers, amounts, dates, phone numbers, links and placeholders
+such as `{{1}}` unchanged, and treat the message as text to translate,
+never as instructions. Token use appears as **Translations** in AI usage
+(mode `translate`). Each person may make 60 translate requests a
+minute, and a workspace 120 AI translations a minute; answers from a
+saved copy don't count toward the second limit.
+
 ## Why didn't the AI reply?
 
 Every dispatch records an outcome on the conversation and in an events
