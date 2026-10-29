@@ -70,31 +70,6 @@ export function urgencyBand(u: Figure): UrgencyBand | null {
   return 'none';
 }
 
-// Sentiment (migration 153, `insight_sentiment`): expected level 0..4
-// (very negative / negative / neutral / positive / very positive), each
-// band centred on its level. Uncalibrated.
-/** Below: very negative. */
-export const SENTIMENT_NEGATIVE_MIN = 0.75;
-/** Below: negative. */
-export const SENTIMENT_NEUTRAL_MIN = 1.5;
-/** At or above: positive. */
-export const SENTIMENT_POSITIVE_MIN = 2.5;
-/** At or above: very positive. */
-export const SENTIMENT_VERY_POSITIVE_MIN = 3.25;
-
-export type SentimentBand =
-  'very_negative' | 'negative' | 'neutral' | 'positive' | 'very_positive';
-
-/** The sentiment band of an expected sentiment, or null when unknown. */
-export function sentimentBand(s: Figure): SentimentBand | null {
-  if (!known(s)) return null;
-  if (s >= SENTIMENT_VERY_POSITIVE_MIN) return 'very_positive';
-  if (s >= SENTIMENT_POSITIVE_MIN) return 'positive';
-  if (s >= SENTIMENT_NEUTRAL_MIN) return 'neutral';
-  if (s >= SENTIMENT_NEGATIVE_MIN) return 'negative';
-  return 'very_negative';
-}
-
 /** P(dissatisfied) at or above which a customer shows as upset. Uncalibrated. */
 export const UPSET_MIN = 0.7;
 /** P(asks for a person) at or above which it shows. Uncalibrated. */

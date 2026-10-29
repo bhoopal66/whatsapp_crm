@@ -21,30 +21,9 @@ import {
   PRIORITY_NONE,
   PRIORITY_URGENT,
   priorityOf,
-  sentimentBand,
   urgencyBand,
   wantsPerson,
 } from './bands';
-
-describe('sentimentBand', () => {
-  it('splits the 0..4 scale into five bands around each level', () => {
-    expect(sentimentBand(0)).toBe('very_negative');
-    expect(sentimentBand(0.74)).toBe('very_negative');
-    expect(sentimentBand(0.75)).toBe('negative');
-    expect(sentimentBand(1.49)).toBe('negative');
-    expect(sentimentBand(1.5)).toBe('neutral');
-    expect(sentimentBand(2.49)).toBe('neutral');
-    expect(sentimentBand(2.5)).toBe('positive');
-    expect(sentimentBand(3.24)).toBe('positive');
-    expect(sentimentBand(3.25)).toBe('very_positive');
-    expect(sentimentBand(4)).toBe('very_positive');
-  });
-  it('is null when unknown', () => {
-    expect(sentimentBand(null)).toBeNull();
-    expect(sentimentBand(undefined)).toBeNull();
-    expect(sentimentBand(Number.NaN)).toBeNull();
-  });
-});
 
 describe('insight bands', () => {
   it('lists the triage intent keys, in order', () => {
