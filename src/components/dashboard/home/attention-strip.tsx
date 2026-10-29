@@ -6,6 +6,8 @@ import {
   Bot,
   BriefcaseBusiness,
   CircleCheck,
+  Flame,
+  Frown,
   ListTodo,
   MessageCircle,
   PhoneMissed,
@@ -14,6 +16,7 @@ import { useTranslations } from 'next-intl';
 
 import { useAiAutoReplyLive } from '@/hooks/use-ai-auto-reply-live';
 import { useAuth } from '@/hooks/use-auth';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { UNREAD_ROW_COLUMNS } from '@/hooks/use-total-unread';
 import {
   countInboxUnread,
@@ -22,9 +25,16 @@ import {
   overdueCases,
   tileState,
 } from '@/lib/dashboard/home/attention';
+import { zoneDayStart } from '@/lib/dashboard/home/agenda';
+import { browserTimeZone } from '@/lib/dashboard/home/calls';
 import type { OpenCases } from '@/lib/dashboard/home/sources';
 import { taskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
+import {
+  HOT_LEADS_WAITING,
+  insightTileHref,
+  upsetTodayBounds,
+} from '@/lib/insights/customer-view';
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
@@ -77,7 +87,37 @@ async function loadChatCounts(): Promise<ChatCounts> {
   };
 }
 
-type Tone = 'destructive' | 'warning' | 'info';
+interface InsightCounts {
+  hotWaiting: number;
+  upsetToday: number;
+}
+
+/**
+ * The Smart insights tiles' reads (RLS-scoped head counts): hot leads
+ * still unread, and customers judged upset on a message since midnight
+ * in the viewer's time zone.
+ */
+async function loadInsightCounts(): Promise<InsightCounts> {
+  const supabase = createClient();
+  const upset = upsetTodayBounds(zoneDayStart(Date.now(), browserTimeZone()));
+  const [hot, upsetToday] = await Promise.all([
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .gte('insight_lead_temp', HOT_LEADS_WAITING.leadTempMin)
+      .gt('unread_count', HOT_LEADS_WAITING.unreadAbove),
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .gte('insight_upset', upset.upsetMin)
+      .gte('insight_at', upset.atFromIso),
+  ]);
+  if (hot.error) throw hot.error;
+  if (upsetToday.error) throw upsetToday.error;
+  return { hotWaiting: hot.count ?? 0, upsetToday: upsetToday.count ?? 0 };
+}
+
+type Tone = 'destructive' | 'warning' | 'info' | 'success';
 
 const ALERT_TONE: Record<Tone, { tile: string; icon: string; value: string }> =
   {
@@ -95,6 +135,11 @@ const ALERT_TONE: Record<Tone, { tile: string; icon: string; value: string }> =
       tile: 'border-info/30',
       icon: 'bg-info-soft text-info',
       value: 'text-info',
+    },
+    success: {
+      tile: 'border-success/30',
+      icon: 'bg-success-soft text-success',
+      value: 'text-success',
     },
   };
 
@@ -126,12 +171,20 @@ export function AttentionStrip({
   className,
 }: AttentionStripProps) {
   const t = useTranslations('Dashboard.home.attention');
+  const ti = useTranslations('InsightsUi.home');
   const { accountId, accountRole } = useAuth();
   const inboxHref = inboxHrefFor(accountRole);
   const aiLive = useAiAutoReplyLive() === true;
   const chats = useWidgetData(
     accountId ? `attention-chats:${accountId}:${refreshKey}` : null,
     loadChatCounts
+  );
+  const signalsOn = useInsightSettings().settings.signalsEnabled;
+  const insights = useWidgetData(
+    signalsOn && accountId
+      ? `attention-insights:${accountId}:${refreshKey}`
+      : null,
+    loadInsightCounts
   );
   // "Now" for the overdue split, taken once per refresh.
   const [clock, setClock] = useState({ refreshKey, now: new Date() });
@@ -171,6 +224,31 @@ export function AttentionStrip({
           : t('handoffs.hint'),
     },
   ];
+  if (signalsOn) {
+    const insightError = insights.error && !insights.data;
+    tiles.push(
+      {
+        key: 'hot-leads',
+        href: insightTileHref(inboxHref, 'hot'),
+        icon: Flame,
+        label: ti('hot.label'),
+        tone: 'success',
+        count: insights.data?.hotWaiting ?? null,
+        error: insightError,
+        hint: ti('hot.hint'),
+      },
+      {
+        key: 'upset',
+        href: insightTileHref(inboxHref, 'upset'),
+        icon: Frown,
+        label: ti('upset.label'),
+        tone: 'warning',
+        count: insights.data?.upsetToday ?? null,
+        error: insightError,
+        hint: ti('upset.hint'),
+      }
+    );
+  }
   if (tasks) {
     tiles.push({
       key: 'tasks',

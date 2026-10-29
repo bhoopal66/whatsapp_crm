@@ -13,6 +13,7 @@ import {
   StickyNote,
   Plus,
   Handshake,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -21,12 +22,19 @@ import { useTranslations } from 'next-intl';
 import { ContactAvatar } from './contact-avatar';
 import { ContactJourneySections } from '@/components/journeys/contact-journey';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
+import { CustomerInsightsCard } from '@/components/insights/customer-insights-card';
+import type { CustomerInsightFigures } from '@/lib/insights/customer-view';
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  /** The open chat's full row: its Smart insights figures, kept live. */
+  conversation?: CustomerInsightFigures | null;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({
+  contact,
+  conversation = null,
+}: ContactSidebarProps) {
   const tSidebar = useTranslations('Inbox.sidebar');
   const tThread = useTranslations('Inbox.messageThread');
 
@@ -212,6 +220,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </div>
           </section>
+
+          {/* Smart insights (docs/jev-insights.md) */}
+          <CustomerInsightsCard
+            conversation={conversation}
+            tone="wa"
+            frame={(title, body) => (
+              <section className="bg-wa-panel px-5 py-4">
+                <SectionTitle icon={Sparkles}>{title}</SectionTitle>
+                <div className="mt-2.5">{body}</div>
+              </section>
+            )}
+          />
 
           {/* Deal rooms (module 014c) */}
           <DealRoomLinks

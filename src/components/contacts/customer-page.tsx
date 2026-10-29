@@ -20,6 +20,7 @@ import {
 
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
+import { CustomerInsightsCard } from '@/components/insights/customer-insights-card';
 import { MemoryPanel } from '@/components/memory/memory-panel';
 import { useContactOutreach } from '@/components/contacts/contact-outreach';
 import { ContactForm } from '@/components/contacts/contact-form';
@@ -593,6 +594,10 @@ export function CustomerPage({
 
         <aside className="order-1 min-w-0 space-y-4 lg:order-2">
           <DetailsCard contact={contact} canEdit={access.edit} />
+          <CustomerInsightsCard
+            conversation={load.insights}
+            frame={(title, body) => <Card title={title}>{body}</Card>}
+          />
           <DealsCard contactId={contactId} />
           {canSeeCases && <CasesCard contactId={contactId} />}
           <Card title={tl('openTasks')}>

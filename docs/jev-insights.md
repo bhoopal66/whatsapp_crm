@@ -101,6 +101,20 @@ off the Inbox and Team inbox fetch and look exactly as before.
   first, until someone reads it. An Important chat stays with the
   Important ones.
 
+**The Customer insights card** sits in the Inbox's contact panel (kept
+live as new judgments arrive) and on the customer page (read when the
+page opens). It shows what the customer wants and how sure Jev is, a
+four-step lead meter (Just curious, Comparing options, Hot lead, Ready
+to apply), urgency, mood (Upset and/or Wants a person; Calm only once
+the upset figure has been judged) and when the judged message arrived.
+A chat never judged says so instead. **Two home tiles** join "Needs
+your attention": **Hot leads waiting** (lead temperature at least hot
+and still unread, since conversations do not record who wrote last)
+and **Upset customers today** (judged upset on a message that arrived
+since midnight in the viewer's own time zone). Each opens the Inbox
+(the Team inbox for team leaders) with the matching filter. Card and
+tiles appear only while signals are on.
+
 ## Chat tag suggestions
 
 With **Chat tag suggestions** on, Jev reads each new customer message

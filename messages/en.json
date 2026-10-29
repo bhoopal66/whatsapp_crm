@@ -8489,6 +8489,27 @@
         "calm": "Calm",
         "updated": "Updated {when}"
       }
+    },
+    "card": {
+      "title": "Customer insights",
+      "empty": "No insights yet — they appear after the customer's next message",
+      "wants": "What they want",
+      "sure": "{percent}% sure",
+      "lead": "Lead",
+      "urgency": "Urgency",
+      "mood": "Mood",
+      "calm": "Calm",
+      "basedOn": "Based on their last message · {when}"
+    },
+    "home": {
+      "hot": {
+        "label": "Hot leads waiting",
+        "hint": "Hot leads with unread messages"
+      },
+      "upset": {
+        "label": "Upset customers today",
+        "hint": "Upset since midnight"
+      }
     }
   },
   "TagSuggest": {

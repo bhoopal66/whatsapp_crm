@@ -113,13 +113,16 @@ describe('loadCustomer', () => {
     conversation: boolean;
     messages: { data?: unknown; error?: { message: string } };
     contactRow?: unknown;
+    conversationExtra?: Record<string, unknown>;
   }) {
     const { sb, settle } = fakeClient();
     const out = loadCustomer(sb, 'c1');
     await flush();
     settle('contacts', { data: opts.contactRow ?? contact });
     settle('conversations', {
-      data: opts.conversation ? [{ id: 'v1', assigned_agent_id: 'a1' }] : [],
+      data: opts.conversation
+        ? [{ id: 'v1', assigned_agent_id: 'a1', ...opts.conversationExtra }]
+        : [],
     });
     settle('deals', { data: [] });
     settle('pbx_settings', { data: { missed_call_whatsapp_draft: true } });
@@ -155,6 +158,45 @@ describe('loadCustomer', () => {
       oldest: '2026-10-01T00:00:00Z',
       more: false,
     });
+  });
+
+  it('returns the Smart insights figures beside the conversation', async () => {
+    const l = await settledLoad({
+      conversation: true,
+      messages: { data: [] },
+      conversationExtra: {
+        insight_intent: 'business_loan',
+        insight_intent_p: 0.82,
+        insight_lead_temp: 1.6,
+        insight_upset: 0.1,
+        insight_at: '2026-10-29T08:00:00Z',
+      },
+    });
+    if (l.state !== 'ready') throw new Error(l.state);
+    expect(l.insights).toEqual({
+      insight_intent: 'business_loan',
+      insight_intent_p: 0.82,
+      insight_urgency: null,
+      insight_lead_temp: 1.6,
+      insight_upset: 0.1,
+      insight_wants_human: null,
+      insight_at: '2026-10-29T08:00:00Z',
+    });
+  });
+
+  it('has no insights without a conversation', async () => {
+    const l = await settledLoad({ conversation: false, messages: {} });
+    if (l.state !== 'ready') throw new Error(l.state);
+    expect(l.insights).toBeNull();
+  });
+
+  it('selects the insight columns with the conversation id', async () => {
+    const { sb, issued } = fakeClient();
+    void loadCustomer(sb, 'c1');
+    await flush();
+    const conv = issued.find((q) => q.table === 'conversations');
+    expect(JSON.stringify(conv?.ops)).toContain('insight_lead_temp');
+    expect(JSON.stringify(conv?.ops)).toContain('insight_at');
   });
 
   it('shows no messages, and issues no read, without a conversation', async () => {

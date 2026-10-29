@@ -1086,7 +1086,10 @@ export function InboxPageInner({
                 )}
               </div>
             ) : (
-              <ContactSidebar contact={fullConversation?.contact ?? null} />
+              <ContactSidebar
+                contact={fullConversation?.contact ?? null}
+                conversation={fullConversation}
+              />
             )}
           </div>
         )}

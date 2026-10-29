@@ -11,6 +11,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import {
+  CUSTOMER_INSIGHT_COLUMNS,
+  type CustomerInsightFigures,
+} from '@/lib/insights/customer-view';
 import type { ConsentFields } from '@/lib/pbx/call-ui';
 import type {
   TimelineCall,
@@ -32,6 +36,8 @@ export interface Customer extends ConsentFields {
 export interface Basics {
   contact: Customer;
   conversation: { id: string; assignedTo: string | null } | null;
+  /** The conversation's Smart insights figures; null without one. */
+  insights: CustomerInsightFigures | null;
   deal: { id: string; title: string; stage: string | null } | null;
   /** pbx_settings.missed_call_whatsapp_draft: missed calls offer a draft. */
   draftOn: boolean;
@@ -185,12 +191,17 @@ export async function loadCustomer(
   const conv = Promise.resolve(
     sb
       .from('conversations')
-      .select('id, assigned_agent_id')
+      .select(`id, assigned_agent_id, ${CUSTOMER_INSIGHT_COLUMNS}`)
       .eq('contact_id', contactId)
       .limit(1)
   ).then(
     (r) =>
-      (must(r) as { id: string; assigned_agent_id: string | null }[])[0] ?? null
+      (
+        must(r) as ({
+          id: string;
+          assigned_agent_id: string | null;
+        } & CustomerInsightFigures)[]
+      )[0] ?? null
   );
   const basics = Promise.all([
     sb
@@ -243,6 +254,17 @@ export async function loadCustomer(
     state: 'ready',
     contact,
     conversation: cv ? { id: cv.id, assignedTo: cv.assigned_agent_id } : null,
+    insights: cv
+      ? {
+          insight_intent: cv.insight_intent ?? null,
+          insight_intent_p: cv.insight_intent_p ?? null,
+          insight_urgency: cv.insight_urgency ?? null,
+          insight_lead_temp: cv.insight_lead_temp ?? null,
+          insight_upset: cv.insight_upset ?? null,
+          insight_wants_human: cv.insight_wants_human ?? null,
+          insight_at: cv.insight_at ?? null,
+        }
+      : null,
     deal: d ? { id: d.id, title: d.title, stage: d.stage?.name ?? null } : null,
     draftOn:
       !pbx.error &&

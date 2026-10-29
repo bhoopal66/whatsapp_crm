@@ -8489,6 +8489,27 @@
         "calm": "차분함",
         "updated": "{when} 업데이트"
       }
+    },
+    "card": {
+      "title": "고객 인사이트",
+      "empty": "아직 인사이트가 없습니다 — 고객의 다음 메시지 후에 표시됩니다",
+      "wants": "원하는 것",
+      "sure": "확신도 {percent}%",
+      "lead": "리드",
+      "urgency": "긴급도",
+      "mood": "기분",
+      "calm": "차분함",
+      "basedOn": "마지막 메시지 기준 · {when}"
+    },
+    "home": {
+      "hot": {
+        "label": "대기 중인 핫 리드",
+        "hint": "읽지 않은 메시지가 있는 핫 리드"
+      },
+      "upset": {
+        "label": "오늘 불만 고객",
+        "hint": "자정 이후 불만"
+      }
     }
   },
   "TagSuggest": {
