@@ -983,6 +983,7 @@ export function InboxPageInner({
           <ConversationList
             initialAssignee={initialFilters.assignee}
             initialChatTagIds={initialFilters.chatTagIds}
+            initialInsightFilters={initialFilters.insightFilters}
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}

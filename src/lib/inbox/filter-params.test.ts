@@ -10,20 +10,32 @@ describe('parseInboxFilterParams', () => {
     expect(parseInboxFilterParams(p('assignee=unassigned'), U)).toEqual({
       assignee: 'unassigned',
       chatTagIds: [],
+      insightFilters: [],
     });
     expect(parseInboxFilterParams(p(`assignee=me&tag=${U}`), 'me-id')).toEqual({
       assignee: 'me-id',
       chatTagIds: [U],
+      insightFilters: [],
     });
     expect(
       parseInboxFilterParams(p(`assignee=${U.toUpperCase()}`), null).assignee
     ).toBe(U);
+  });
+  it('reads the Smart insights filters', () => {
+    expect(
+      parseInboxFilterParams(p('insight=upset,HOT,nope,hot'), null)
+        .insightFilters
+    ).toEqual(['hot', 'upset']);
+    expect(
+      parseInboxFilterParams(p('insight=attention'), null).insightFilters
+    ).toEqual(['attention']);
   });
   it('ignores anything else', () => {
     expect(parseInboxFilterParams(p('assignee=me'), null).assignee).toBeNull();
     expect(parseInboxFilterParams(p('assignee=x&tag=nope'), U)).toEqual({
       assignee: null,
       chatTagIds: [],
+      insightFilters: [],
     });
   });
 });

@@ -39,9 +39,20 @@ import {
   ATTENTION_LIMIT,
   countNeedingAttention,
   needsAttention,
-  sortForInbox,
 } from '@/lib/inbox/attention';
+import {
+  INSIGHT_FILTERS,
+  PRIORITY_URGENT,
+  URGENT_PIN_LIMIT,
+  insightFilterBounds,
+  isUrgentPin,
+  matchesInsightFilters,
+  sortForInboxWithInsights,
+  type InsightFilter,
+} from '@/lib/inbox/insights';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ImportantBadge } from './important-badge';
+import { InsightBadge } from './insight-badge';
 import { formatListTimestamp } from '@/lib/inbox/list-time';
 import {
   chatTagFilterOrGroup,
@@ -188,6 +199,11 @@ interface ConversationListProps {
    */
   initialAssignee?: AssigneeFilter;
   initialChatTagIds?: readonly string[];
+  /**
+   * Seeds the Smart insights filters (`?insight=`); ignored while the
+   * workspace has signals off.
+   */
+  initialInsightFilters?: readonly InsightFilter[];
 }
 
 /** Just enough of a broadcast to label and filter by. */
@@ -216,6 +232,13 @@ interface ListQueryParams {
   chatTagIds: readonly string[];
   assignee: AssigneeFilter;
   campaignId: string | null;
+  /** Smart insights filters; always empty while signals are off. */
+  insightFilters: readonly InsightFilter[];
+  /**
+   * Read the Urgent pins beside the first page. False while signals
+   * are off, so such a workspace fetches exactly as before.
+   */
+  urgentPins: boolean;
 }
 
 /**
@@ -246,6 +269,11 @@ function conversationsQuery(
      * would make it skip rows.
      */
     attention?: boolean;
+    /**
+     * The Urgent pins (Smart insights): urgent and unread, under the
+     * same filters, read beside the first page like `attention`.
+     */
+    urgent?: boolean;
   }
 ) {
   const supabase = createClient();
@@ -285,6 +313,10 @@ function conversationsQuery(
       groups.push(assigneeGroup(p.assignee));
     }
     if (p.campaignId) query = query.eq('campaign_broadcast_id', p.campaignId);
+    // Smart insights filters, one `column >= min` each (insights.ts).
+    for (const { column, min } of insightFilterBounds(p.insightFilters)) {
+      query = query.gte(column, min);
+    }
     // Which of the two lists (lib/inbox/campaign-inbox.ts): the chats
     // the bot is answering, or every other one. Not on a delta: a chat
     // that moved between them while we weren't listening has to come
@@ -309,6 +341,14 @@ function conversationsQuery(
       .order('id', { ascending: false })
       .limit(ATTENTION_LIMIT);
   }
+  if (opts.urgent) {
+    return query
+      .eq('insight_priority', PRIORITY_URGENT)
+      .gt('unread_count', 0)
+      .order('last_message_at', { ascending: false, nullsFirst: true })
+      .order('id', { ascending: false })
+      .limit(URGENT_PIN_LIMIT);
+  }
   return query
     .order('last_message_at', { ascending: false, nullsFirst: true })
     .order('id', { ascending: false })
@@ -331,6 +371,7 @@ function logFetchError(
 /** Stable default, so an omitted prop does not refire the fetch. */
 const NO_CHANNELS: readonly string[] = [];
 const NO_CHAT_TAGS: readonly string[] = [];
+const NO_INSIGHT_FILTERS: readonly InsightFilter[] = [];
 
 export function ConversationList({
   activeConversationId,
@@ -350,8 +391,10 @@ export function ConversationList({
   aiLive = false,
   initialAssignee = null,
   initialChatTagIds,
+  initialInsightFilters,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
+  const tInsights = useTranslations('InsightsUi.list');
   const locale = useLocale();
 
   // The rows' timestamps ("14:05", "Yesterday", "Monday") only depend
@@ -406,6 +449,34 @@ export function ConversationList({
   const [selectedChatTagIds, setSelectedChatTagIds] = useState<string[]>(() => [
     ...(initialChatTagIds ?? []),
   ]);
+  // Smart insights (docs/jev-insights.md): the badge, the three filters
+  // and the Urgent pin exist only while the workspace has signals on.
+  // Off, the filters read as empty and no Urgent query is made, so the
+  // list fetches and renders exactly as it did before.
+  const { settings: insightSettings } = useInsightSettings();
+  const signalsOn = !!insightSettings?.signalsEnabled;
+  const [selectedInsightFilters, setSelectedInsightFilters] = useState<
+    InsightFilter[]
+  >(() => [...(initialInsightFilters ?? [])]);
+  // Keyed on the joined names (in INSIGHT_FILTERS order) so toggling
+  // back to the same set does not refetch.
+  const insightFilterKey = signalsOn
+    ? INSIGHT_FILTERS.filter((f) => selectedInsightFilters.includes(f)).join(
+        ','
+      )
+    : '';
+  const insightFilters = useMemo<readonly InsightFilter[]>(
+    () =>
+      insightFilterKey
+        ? (insightFilterKey.split(',') as InsightFilter[])
+        : NO_INSIGHT_FILTERS,
+    [insightFilterKey]
+  );
+  const toggleInsightFilter = useCallback((f: InsightFilter) => {
+    setSelectedInsightFilters((prev) =>
+      prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
+    );
+  }, []);
   // Rows tagged with ids the loaded list doesn't have: an admin probably
   // added the tag since the list was cached (up to five minutes ago).
   // Read the list again, once per id, as the chat header does; until
@@ -477,6 +548,8 @@ export function ConversationList({
       chatTagIds: chatTagFilterIds,
       assignee: assigneeFilter,
       campaignId: campaignOnly ? selectedCampaignId : null,
+      insightFilters,
+      urgentPins: signalsOn,
     }),
     [
       restrictToUserId,
@@ -488,6 +561,8 @@ export function ConversationList({
       chatTagFilterIds,
       assigneeFilter,
       selectedCampaignId,
+      insightFilters,
+      signalsOn,
     ]
   );
   // Read by loadMore / the delta resync, which must not refire when the
@@ -518,9 +593,14 @@ export function ConversationList({
     const generation = ++generationRef.current;
 
     (async () => {
-      const [{ data, error }, attention] = await Promise.all([
+      const [{ data, error }, attention, urgent] = await Promise.all([
         conversationsQuery(listParams, {}),
         conversationsQuery(listParams, { attention: true }),
+        // Only with signals on: off, the first page is the two reads
+        // it always was.
+        listParams.urgentPins
+          ? conversationsQuery(listParams, { urgent: true })
+          : null,
       ]);
 
       if (cancelled || generation !== generationRef.current) return;
@@ -540,10 +620,19 @@ export function ConversationList({
           attention.error
         );
       }
-      const rows = appendConversationPage(
+      if (urgent?.error) {
+        logFetchError('Failed to fetch urgent chats:', urgent.error);
+      }
+      let rows = appendConversationPage(
         page,
         normalizeConversations(attention.data ?? [])
       );
+      if (urgent) {
+        rows = appendConversationPage(
+          rows,
+          normalizeConversations(urgent.data ?? [])
+        );
+      }
       cursorRef.current = cursor;
       setHasMore(cursor !== null);
       setPageCount((n) => n + 1);
@@ -749,7 +838,14 @@ export function ConversationList({
       });
     }
 
-    return sortForInbox(result);
+    // Smart insights filters (empty while signals are off): realtime
+    // patches rows the query picked, so re-check them here.
+    if (insightFilters.length > 0) {
+      result = result.filter((c) => matchesInsightFilters(c, insightFilters));
+    }
+
+    // Off, this is exactly sortForInbox's order.
+    return sortForInboxWithInsights(result, signalsOn);
   }, [
     conversations,
     filter,
@@ -760,6 +856,8 @@ export function ConversationList({
     campaignOnly,
     aiLive,
     selectedCampaignId,
+    insightFilters,
+    signalsOn,
   ]);
 
   // Pinned chats the AI handed over, among those the filters show.
@@ -911,6 +1009,35 @@ export function ConversationList({
             >
               {t('importantCount', { count: importantCount })}
             </button>
+          )}
+          {/* Smart insights filters: they narrow together, like the
+              facets below. Only while the workspace has signals on. */}
+          {signalsOn && (
+            <div
+              role="group"
+              aria-label={tInsights('filtersLabel')}
+              className="flex gap-1"
+            >
+              {INSIGHT_FILTERS.map((f) => {
+                const active = insightFilters.includes(f);
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggleInsightFilter(f)}
+                    className={cn(
+                      'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] whitespace-nowrap transition-colors',
+                      active
+                        ? 'bg-wa-chip-active text-wa-teal font-medium'
+                        : 'bg-wa-search text-wa-text-secondary hover:text-wa-text'
+                    )}
+                  >
+                    {tInsights(INSIGHT_FILTER_LABEL[f])}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
@@ -1216,6 +1343,8 @@ export function ConversationList({
                 showAssignee={showAssignee}
                 memberName={memberName}
                 chatTagTree={chatTagTree}
+                insights={signalsOn}
+                urgentLabel={tInsights('urgentPin')}
                 sharedBank={sharedBanks?.get(conv.id) ?? null}
                 numberName={
                   // The number the chat sends from: a person's pin
@@ -1251,6 +1380,15 @@ export function ConversationList({
     </div>
   );
 }
+
+const INSIGHT_FILTER_LABEL: Record<
+  InsightFilter,
+  'filterHot' | 'filterUpset' | 'filterAttention'
+> = {
+  hot: 'filterHot',
+  upset: 'filterUpset',
+  attention: 'filterAttention',
+};
 
 /** A chat tag in the filter menu: its colour dot and its name. */
 function ChatTagOption({ color, name }: { color: string; name: string }) {
@@ -1297,6 +1435,10 @@ interface ConversationItemProps {
   numberName?: string | null;
   /** The bank this chat was shared with the viewer under (migration 133). */
   sharedBank?: string | null;
+  /** Smart insights on: show the badge and the Urgent pin label. */
+  insights?: boolean;
+  /** The Urgent pin's label (stable: a translation). */
+  urgentLabel?: string;
 }
 
 // Memoised: a realtime patch to one conversation re-renders that row,
@@ -1316,6 +1458,8 @@ const ConversationItem = memo(function ConversationItem({
   campaignName = null,
   numberName = null,
   sharedBank = null,
+  insights = false,
+  urgentLabel = '',
 }: ConversationItemProps) {
   const contact = conversation.contact;
   // Who answers for this chat: the assignee, or the owner when nobody
@@ -1333,6 +1477,9 @@ const ConversationItem = memo(function ConversationItem({
   // The AI handed this chat to a person (migration 078): pinned on top
   // with a red label and a red edge until someone acts.
   const important = needsAttention(conversation);
+  // Smart insights: urgent and unread, pinned under the Important chats
+  // with a label of the same kind (which then stands for the badge).
+  const urgentPin = insights && !important && isUrgentPin(conversation);
   const chatTag = resolveConversationChatTags(conversation, chatTagTree);
   const chatTagText = chatTagLabel(chatTag.main, chatTag.sub);
 
@@ -1442,6 +1589,10 @@ const ConversationItem = memo(function ConversationItem({
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
             {important && <ImportantBadge label={t('important')} />}
+            {urgentPin && <ImportantBadge label={urgentLabel} />}
+            {insights && !urgentPin && (
+              <InsightBadge conversation={conversation} />
+            )}
             <span
               className={cn(
                 'text-xs',

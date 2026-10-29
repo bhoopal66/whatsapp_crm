@@ -8433,7 +8433,57 @@
     }
   },
   "InsightsUi": {
-    "_": ""
+    "bands": {
+      "lead": {
+        "cold": "Just curious",
+        "warm": "Comparing options",
+        "hot": "Hot lead",
+        "ready": "Ready to apply"
+      },
+      "urgency": {
+        "none": "No rush",
+        "soon": "Soon",
+        "urgent": "Urgent"
+      },
+      "mood": {
+        "upset": "Upset",
+        "wantsPerson": "Wants a person"
+      }
+    },
+    "intents": {
+      "account_opening": "Business bank account",
+      "pos_terminal": "POS machine",
+      "business_loan": "Business loan",
+      "trade_working_capital": "Trade / working capital",
+      "application_status": "Application status",
+      "other_banking": "Other banking",
+      "complaint": "Complaint",
+      "smalltalk": "Small talk",
+      "unclear": "Unclear",
+      "other_request": "Other request"
+    },
+    "list": {
+      "badge": {
+        "urgent": "Urgent",
+        "upset": "Upset",
+        "wants_person": "Wants a person",
+        "ready": "Ready to apply",
+        "hot": "Hot lead"
+      },
+      "filtersLabel": "Smart insights filters",
+      "filterHot": "Hot leads",
+      "filterUpset": "Upset",
+      "filterAttention": "Needs attention",
+      "urgentPin": "Urgent",
+      "tooltip": {
+        "lead": "Lead: {value}",
+        "intent": "Wants: {value}",
+        "urgency": "Urgency: {value}",
+        "mood": "Mood: {value}",
+        "calm": "Calm",
+        "updated": "Updated {when}"
+      }
+    }
   },
   "TagSuggest": {
     "_": ""

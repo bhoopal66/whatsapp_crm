@@ -8433,7 +8433,57 @@
     }
   },
   "InsightsUi": {
-    "_": ""
+    "bands": {
+      "lead": {
+        "cold": "단순 문의",
+        "warm": "비교 중",
+        "hot": "유망 리드",
+        "ready": "신청 준비됨"
+      },
+      "urgency": {
+        "none": "급하지 않음",
+        "soon": "곧",
+        "urgent": "긴급"
+      },
+      "mood": {
+        "upset": "불만",
+        "wantsPerson": "상담원 요청"
+      }
+    },
+    "intents": {
+      "account_opening": "법인 은행 계좌",
+      "pos_terminal": "POS 단말기",
+      "business_loan": "사업자 대출",
+      "trade_working_capital": "무역 / 운전자금",
+      "application_status": "신청 현황",
+      "other_banking": "기타 은행 업무",
+      "complaint": "불만 제기",
+      "smalltalk": "잡담",
+      "unclear": "불분명",
+      "other_request": "기타 요청"
+    },
+    "list": {
+      "badge": {
+        "urgent": "긴급",
+        "upset": "불만",
+        "wants_person": "상담원 요청",
+        "ready": "신청 준비됨",
+        "hot": "유망 리드"
+      },
+      "filtersLabel": "스마트 인사이트 필터",
+      "filterHot": "유망 리드",
+      "filterUpset": "불만",
+      "filterAttention": "확인 필요",
+      "urgentPin": "긴급",
+      "tooltip": {
+        "lead": "리드: {value}",
+        "intent": "문의: {value}",
+        "urgency": "긴급도: {value}",
+        "mood": "기분: {value}",
+        "calm": "차분함",
+        "updated": "{when} 업데이트"
+      }
+    }
   },
   "TagSuggest": {
     "_": ""

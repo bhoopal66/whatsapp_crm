@@ -81,7 +81,24 @@ customer, the bot and the next message never wait for it.
 The figures are display signals (badges, sorting, priority), never
 actions: nothing here sends, tags, assigns or opts anyone out.
 
-<!-- section: B -->
+## What agents see in the Inbox
+
+Only while Smart insights signals are on for the workspace; with them
+off the Inbox and Team inbox fetch and look exactly as before.
+
+- **One badge per chat**, in the row's top line, by precedence:
+  **Urgent** › **Upset** › **Wants a person** › **Ready to apply** ›
+  **Hot lead** (the loudest wins; a chat with none of these shows
+  nothing). Hovering it lists what Jev last judged: lead band, what the
+  customer wants, urgency, mood, and when it was updated.
+- **Three filter chips** beside All / Unread: **Hot leads** (lead
+  temperature at least hot), **Upset**, and **Needs attention**
+  (priority 1 or 2). They narrow together and also work as a deep link,
+  `?insight=hot,upset,attention`.
+- **The Urgent pin.** An urgent chat (priority 2) that is still unread
+  is pinned under the Important chats with a red **Urgent** label, newest
+  first, until someone reads it. An Important chat stays with the
+  Important ones.
 
 ## Chat tag suggestions
 
