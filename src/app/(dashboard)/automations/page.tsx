@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/dialog"
 import { AUTOMATION_TEMPLATES, type TemplateSlug } from "@/lib/automations/templates"
 import { triggerMeta, formatRelative } from "@/lib/automations/trigger-meta"
+import { meaningTriggerSummary } from "@/lib/insights/meaning-config"
 import { cn } from "@/lib/utils"
 
 const TEMPLATE_ORDER: TemplateSlug[] = [
@@ -279,6 +280,12 @@ function AutomationCard({
   t: ReturnType<typeof useTranslations>
 }) {
   const meta = triggerMeta(automation.trigger_type)
+  const tm = useTranslations("MeaningTriggers")
+  const meaning =
+    automation.trigger_type === "intent_match"
+      ? meaningTriggerSummary(automation.trigger_config)
+      : null
+  const PillIcon = meta.icon
   return (
     <li className="rounded-xl border border-border bg-card transition-colors hover:border-border">
       <div className="flex items-center gap-4 p-4">
@@ -314,8 +321,14 @@ function AutomationCard({
                 "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
                 meta.pillClass,
               )}
+              title={meta.description}
             >
-              {meta.label}
+              {PillIcon && <PillIcon className="mr-1 h-3 w-3" aria-hidden />}
+              {meaning === null
+                ? meta.label
+                : meaning
+                  ? tm("listSummary", { description: meaning })
+                  : tm("listSummaryEmpty")}
             </span>
             <span className="tabular-nums">
               {automation.execution_count === 1

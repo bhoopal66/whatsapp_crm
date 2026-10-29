@@ -70,6 +70,7 @@ import {
 import { NodeConfigForm } from './forms/node-config-form';
 import { NodeKeySelect } from './forms/fields';
 import { IssueLine } from './validation-panel';
+import { MeaningTriggerFields } from '@/components/insights/meaning-trigger-fields';
 import { useFlowEditor, type BuilderState } from './flow-editor-state';
 
 // ============================================================
@@ -284,6 +285,13 @@ function TriggerPanel({
   triggerIssues: ValidationIssue[];
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tm = useTranslations('MeaningTriggers');
+  // The meaning form shows its own field errors inline; listing the same
+  // validator messages again under it would say everything twice.
+  const shownIssues =
+    state.trigger_type === 'intent'
+      ? triggerIssues.filter((i) => !i.field?.startsWith('trigger_config.'))
+      : triggerIssues;
   return (
     <section className="border-border bg-card rounded-lg border p-4">
       <h2 className="text-foreground mb-3 text-sm font-semibold">
@@ -301,7 +309,15 @@ function TriggerPanel({
                 ...s,
                 trigger_type: v as BuilderState['trigger_type'],
                 trigger_config:
-                  v === 'keyword' ? { keywords: [] } : v === 'manual' ? {} : {},
+                  v === 'keyword'
+                    ? { keywords: [] }
+                    : v === 'intent'
+                      ? {
+                          description: '',
+                          examples: [],
+                          sensitivity: 'balanced',
+                        }
+                      : {},
               }))
             }
           >
@@ -315,6 +331,7 @@ function TriggerPanel({
               <SelectItem value="first_inbound_message">
                 {t('triggerFirstInboundTitle')}
               </SelectItem>
+              <SelectItem value="intent">{tm('triggerLabel')}</SelectItem>
               <SelectItem value="manual">{t('triggerManualTitle')}</SelectItem>
             </SelectContent>
           </Select>
@@ -340,10 +357,23 @@ function TriggerPanel({
             />
           </div>
         )}
+        {state.trigger_type === 'intent' && (
+          <div className="md:col-span-2">
+            <p className="text-muted-foreground mb-2 text-xs">
+              {tm('triggerHint')}
+            </p>
+            <MeaningTriggerFields
+              config={state.trigger_config}
+              onChange={(trigger_config) =>
+                setState((s) => ({ ...s, trigger_config }))
+              }
+            />
+          </div>
+        )}
       </div>
-      {triggerIssues.length > 0 && (
+      {shownIssues.length > 0 && (
         <div className="mt-3 flex flex-col gap-1">
-          {triggerIssues.map((i, ix) => (
+          {shownIssues.map((i, ix) => (
             <IssueLine key={ix} issue={i} />
           ))}
         </div>

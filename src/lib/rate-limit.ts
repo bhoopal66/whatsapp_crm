@@ -204,6 +204,10 @@ export const RATE_LIMITS = {
    *  per user: one Jev request per click. 20/min is far above a person
    *  working chats and bounds a held-down button or a script. */
   tagSuggestUser: { limit: 20, windowMs: 60_000 },
+  /** "Test a message" in the Flow / Automation builders' meaning
+   *  trigger (POST /api/insights/meaning-test), per user: one Jev
+   *  request per click, so the same budget as a tag suggestion. */
+  meaningTestUser: { limit: 20, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

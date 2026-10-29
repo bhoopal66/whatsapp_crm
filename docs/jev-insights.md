@@ -299,7 +299,59 @@ were none.
 
 ## Flows and automations that understand meaning
 
-<!-- section: F -->
+A keyword trigger misses every customer who says the same thing in other
+words or another language. With **Flows and automations that understand
+meaning** on, a flow can start on a **Customer means…** trigger and an
+automation can fire on one (`intent` on a flow, `intent_match` on an
+automation). Owners and admins set it up in the Flow or Automation
+builder: pick **Customer means…** as the trigger and fill in three things.
+
+- **What the customer means** (10–300 characters). Describe the
+  customer's goal in plain words, as you would brief a new colleague:
+  *wants a card machine for their shop*, *asks to cancel their
+  application*. Name one need per trigger. Don't list keywords, and don't
+  describe your reply ("send the pricing sheet"); describe what the
+  customer wants.
+- **Example messages** (optional, up to 5, 120 characters each). Real
+  wordings customers use, ideally varied: a short one, a long one, one in
+  Arabic or with typos. Examples sharpen the description; they are not
+  matched word for word.
+- **Sensitivity**: **Strict** fires only on clear matches (85% or more),
+  **Balanced** (the default) at 75%, **Loose** at 65%, catching more
+  rewordings at the cost of more false starts. The percentages have not
+  yet been calibrated against real traffic.
+
+**Test a message** under the fields: type a message a customer might
+send and see *Matches (82%)* or *Doesn't match (31%)* against the chosen
+sensitivity. It needs the setting on and Jev available, is limited to 20
+tests a minute per person, and stores nothing. Use it with a few
+messages that should match and a few that shouldn't before switching a
+flow or automation on.
+
+The trigger saves whatever the setting says, but while the setting is
+off (or Jev is unavailable) the builder shows a warning and the trigger
+never fires.
+
+**Which trigger wins.** An inbound message is offered to, in order: a
+flow run already active for the customer, the campaign follow-up flow
+(the first reply to a broadcast that has one), keyword and first-message
+triggers, and only then meaning triggers. So a meaning trigger never
+takes a message a keyword would have caught. Among meaning-triggered
+flows, the one Jev is most sure of (at or above its own sensitivity)
+starts; a tie goes to the most recently edited flow.
+
+**One request per message.** Flows and automations share a single Jev
+request per inbound message, which judges every candidate trigger at
+once, with a 2-second deadline. When it fails or times out, no meaning
+trigger fires for that message; keyword triggers are unaffected. Only
+typed text is judged.
+
+**Automations step aside for flows.** Like `keyword_match`, an
+automation's `intent_match` is not run when a flow (or the journey bot)
+consumed the message.
+
+Coming in a later release: flows will also understand typed answers to
+buttons and lists.
 
 ## Compass status to case stage
 

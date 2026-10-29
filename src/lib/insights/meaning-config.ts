@@ -97,3 +97,18 @@ export function validateIntentTriggerConfig(
   }
   return issues;
 }
+
+const SUMMARY_MAX_CHARS = 60;
+
+/** The description as the flows/automations lists show it: trimmed,
+ *  whitespace collapsed, clipped with an ellipsis. Empty when unset. */
+export function meaningTriggerSummary(raw: unknown): string {
+  const cfg = (raw ?? {}) as Record<string, unknown>;
+  const d =
+    typeof cfg.description === 'string'
+      ? cfg.description.replace(/\s+/g, ' ').trim()
+      : '';
+  return d.length > SUMMARY_MAX_CHARS
+    ? `${d.slice(0, SUMMARY_MAX_CHARS - 1).trimEnd()}…`
+    : d;
+}

@@ -8571,7 +8571,41 @@
     }
   },
   "MeaningTriggers": {
-    "_": ""
+    "triggerLabel": "Customer means…",
+    "triggerHint": "Runs when Jev judges that the customer's message means what you describe, in any wording or language. Keyword and first-message triggers are tried first.",
+    "descriptionLabel": "What the customer means",
+    "descriptionPlaceholder": "Describe what the customer means, e.g. 'wants a card machine for their shop'",
+    "descriptionError": "Describe what the customer means in {min}–{max} characters.",
+    "examplesLabel": "Example messages (optional)",
+    "examplePlaceholder": "e.g. do you have POS machines?",
+    "addExample": "Add example",
+    "removeExample": "Remove example",
+    "examplesError": "At most {max} examples.",
+    "exampleError": "Each example needs 1–{max} characters.",
+    "sensitivityLabel": "Sensitivity",
+    "sensitivity": {
+      "strict": "Strict",
+      "balanced": "Balanced",
+      "loose": "Loose"
+    },
+    "sensitivityHint": {
+      "strict": "Fires only on clear matches. Fewer false starts, more misses.",
+      "balanced": "The default: clear matches and most rewordings.",
+      "loose": "Also fires on looser matches. Catches more, with more false starts."
+    },
+    "offWarning": "This trigger only works when 'Flows and automations that understand meaning' is on in Settings → Smart insights.",
+    "testTitle": "Test a message",
+    "testPlaceholder": "Type a message a customer might send",
+    "testButton": "Test",
+    "testMatches": "Matches ({percent}%)",
+    "testNoMatch": "Doesn't match ({percent}%)",
+    "testOff": "Meaning triggers are off in Settings → Smart insights.",
+    "testUnavailable": "Jev is not available for this workspace.",
+    "testRateLimited": "Too many tests. Wait a minute and try again.",
+    "testFailed": "Could not test the message. Try again.",
+    "testFixConfig": "Fix the description and examples to test a message.",
+    "listSummary": "Customer means: {description}",
+    "listSummaryEmpty": "Customer means (not described yet)"
   },
   "StatusMap": {
     "title": "Compass status mapping",

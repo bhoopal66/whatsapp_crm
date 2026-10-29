@@ -1,9 +1,17 @@
+import type { LucideIcon } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
+
 import type { AutomationTriggerType } from '@/types'
 
 export interface TriggerMeta {
   label: string
   /** Tailwind classes for the Badge pill on the list row. */
   pillClass: string
+  /** One line on what fires it, for triggers whose label alone is not
+   *  self-explanatory. */
+  description?: string
+  /** Shown in the list pill when set. */
+  icon?: LucideIcon
 }
 
 export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
@@ -40,7 +48,10 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     pillClass: 'border-pink-500/30 bg-pink-500/10 text-pink-700 dark:text-pink-300',
   },
   intent_match: {
-    label: 'Customer Means',
+    label: 'Customer means',
+    description:
+      "Jev judges the customer's message means what you described, in any wording or language",
+    icon: Sparkles,
     pillClass: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
   },
 }

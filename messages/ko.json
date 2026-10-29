@@ -8571,7 +8571,41 @@
     }
   },
   "MeaningTriggers": {
-    "_": ""
+    "triggerLabel": "고객의 의도…",
+    "triggerHint": "고객 메시지가 설명한 의도와 같다고 Jev가 판단하면 실행됩니다. 표현이나 언어는 상관없습니다. 키워드 및 첫 메시지 트리거가 먼저 적용됩니다.",
+    "descriptionLabel": "고객이 의미하는 것",
+    "descriptionPlaceholder": "고객이 의미하는 것을 설명하세요. 예: '가게에서 쓸 카드 단말기를 원함'",
+    "descriptionError": "고객이 의미하는 것을 {min}–{max}자로 설명하세요.",
+    "examplesLabel": "예시 메시지 (선택)",
+    "examplePlaceholder": "예: POS 단말기 있나요?",
+    "addExample": "예시 추가",
+    "removeExample": "예시 삭제",
+    "examplesError": "예시는 최대 {max}개입니다.",
+    "exampleError": "각 예시는 1–{max}자여야 합니다.",
+    "sensitivityLabel": "민감도",
+    "sensitivity": {
+      "strict": "엄격",
+      "balanced": "균형",
+      "loose": "느슨"
+    },
+    "sensitivityHint": {
+      "strict": "분명한 경우에만 실행됩니다. 오작동은 적지만 놓치는 경우가 많습니다.",
+      "balanced": "기본값: 분명한 경우와 대부분의 다른 표현에 실행됩니다.",
+      "loose": "느슨한 경우에도 실행됩니다. 더 많이 잡지만 오작동도 늘어납니다."
+    },
+    "offWarning": "이 트리거는 설정 → 스마트 인사이트에서 '의미를 이해하는 플로우와 자동화'가 켜져 있을 때만 작동합니다.",
+    "testTitle": "메시지 테스트",
+    "testPlaceholder": "고객이 보낼 법한 메시지를 입력하세요",
+    "testButton": "테스트",
+    "testMatches": "일치 ({percent}%)",
+    "testNoMatch": "불일치 ({percent}%)",
+    "testOff": "설정 → 스마트 인사이트에서 의미 트리거가 꺼져 있습니다.",
+    "testUnavailable": "이 워크스페이스에서는 Jev를 사용할 수 없습니다.",
+    "testRateLimited": "테스트가 너무 많습니다. 1분 후 다시 시도하세요.",
+    "testFailed": "메시지를 테스트하지 못했습니다. 다시 시도하세요.",
+    "testFixConfig": "메시지를 테스트하려면 설명과 예시를 수정하세요.",
+    "listSummary": "고객의 의도: {description}",
+    "listSummaryEmpty": "고객의 의도 (아직 설명 없음)"
   },
   "StatusMap": {
     "title": "Compass 상태 매핑",

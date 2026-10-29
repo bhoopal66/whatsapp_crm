@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { validateIntentTriggerConfig } from './meaning-config';
+import {
+  meaningTriggerSummary,
+  validateIntentTriggerConfig,
+} from './meaning-config';
 import { validateTriggerForActivation } from '@/lib/automations/validate';
 import { validateFlowForActivation } from '@/lib/flows/validate';
 
@@ -72,5 +75,24 @@ describe('intent triggers in the activation validators', () => {
         field: 'trigger_config.sensitivity',
       }),
     ]);
+  });
+});
+
+describe('meaningTriggerSummary', () => {
+  it('collapses whitespace and trims', () => {
+    expect(
+      meaningTriggerSummary({ description: '  wants a\n card   machine ' })
+    ).toBe('wants a card machine');
+  });
+
+  it('clips a long description with an ellipsis', () => {
+    const out = meaningTriggerSummary({ description: 'x'.repeat(200) });
+    expect(out).toHaveLength(60);
+    expect(out.endsWith('…')).toBe(true);
+  });
+
+  it('is empty for a missing or non-string description', () => {
+    expect(meaningTriggerSummary(null)).toBe('');
+    expect(meaningTriggerSummary({ description: 5 })).toBe('');
   });
 });

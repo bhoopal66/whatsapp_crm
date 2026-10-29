@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { MeaningTriggerFields } from "@/components/insights/meaning-trigger-fields"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -145,6 +146,7 @@ const TRIGGER_OPTIONS: { value: AutomationTriggerType }[] = [
   { value: "new_message_received" },
   { value: "first_inbound_message" },
   { value: "keyword_match" },
+  { value: "intent_match" },
   { value: "interactive_reply" },
   { value: "new_contact_created" },
   { value: "conversation_assigned" },
@@ -1052,6 +1054,11 @@ function TriggerCard({
   t: ReturnType<typeof useTranslations>
 }) {
   const [open, setOpen] = useState(false)
+  // intent_match's wording lives in the MeaningTriggers namespace with
+  // the rest of the meaning-trigger form.
+  const tm = useTranslations("MeaningTriggers")
+  const label = (v: AutomationTriggerType) =>
+    v === "intent_match" ? tm("triggerLabel") : t(`triggers.${v}.label`)
   return (
     // Card width: full on mobile, fixed 320px on sm+. The canvas wrapper
     // (max-w-2xl + px-4) keeps this tidy on tablet/desktop.
@@ -1068,7 +1075,7 @@ function TriggerCard({
           <div className="min-w-0 flex-1">
             <div className="text-[11px] uppercase tracking-wide text-blue-700 dark:text-blue-300">{t("trigger")}</div>
             <div className="truncate text-sm font-medium text-foreground">
-              {t(`triggers.${type}.label`)}
+              {label(type)}
             </div>
           </div>
           <ChevronDown
@@ -1088,14 +1095,19 @@ function TriggerCard({
               >
                 {TRIGGER_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
-                    {t(`triggers.${o.value}.label`)}
+                    {label(o.value)}
                   </option>
                 ))}
               </select>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {t(`triggers.${type}.hint`)}
+                {type === "intent_match"
+                  ? tm("triggerHint")
+                  : t(`triggers.${type}.hint`)}
               </p>
             </div>
+            {type === "intent_match" && (
+              <MeaningTriggerFields config={config} onChange={onConfigChange} />
+            )}
             {type === "keyword_match" && (
               <KeywordMatchConfig
                 config={config as unknown as KeywordMatchTriggerConfig}

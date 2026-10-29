@@ -33,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { meaningTriggerSummary } from "@/lib/insights/meaning-config";
 
 /**
  * Flows list page.
@@ -47,7 +48,7 @@ interface FlowRow {
   name: string;
   description: string | null;
   status: "draft" | "active" | "archived";
-  trigger_type: "keyword" | "first_inbound_message" | "manual";
+  trigger_type: "keyword" | "first_inbound_message" | "manual" | "intent";
   trigger_config: { keywords?: string[] } | Record<string, unknown>;
   execution_count: number;
   last_executed_at: string | null;
@@ -366,7 +367,8 @@ function FlowCard({
   onDelete: () => void;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const triggerSummary = describeTrigger(flow, t);
+  const tm = useTranslations("MeaningTriggers");
+  const triggerSummary = describeTrigger(flow, t, tm);
   const StatusIcon =
     flow.status === "active"
       ? PlayCircle
@@ -424,7 +426,11 @@ function FlowCard({
   );
 }
 
-function describeTrigger(flow: FlowRow, t: ReturnType<typeof useTranslations>): string {
+function describeTrigger(
+  flow: FlowRow,
+  t: ReturnType<typeof useTranslations>,
+  tm: ReturnType<typeof useTranslations>,
+): string {
   if (flow.trigger_type === "keyword") {
     const keywords = Array.isArray(flow.trigger_config.keywords)
       ? (flow.trigger_config.keywords as string[])
@@ -434,6 +440,12 @@ function describeTrigger(flow: FlowRow, t: ReturnType<typeof useTranslations>): 
   }
   if (flow.trigger_type === "first_inbound_message") {
     return t("triggerFirstInbound");
+  }
+  if (flow.trigger_type === "intent") {
+    const description = meaningTriggerSummary(flow.trigger_config);
+    return description
+      ? tm("listSummary", { description })
+      : tm("listSummaryEmpty");
   }
   return t("triggerManual");
 }
