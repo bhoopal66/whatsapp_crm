@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   caseSla: vi.fn(),
   caseSweep: vi.fn(),
   memoryExpire: vi.fn(),
+  kbGap: vi.fn(),
   outboxDrain: vi.fn(),
   outboxPurge: vi.fn(),
   pbx: vi.fn(),
@@ -89,6 +90,9 @@ vi.mock('@/lib/cases/server', () => ({
 vi.mock('@/lib/memory/server', () => ({
   memoryStore: () => ({ expireDue: h.memoryExpire }),
 }));
+vi.mock('@/lib/kb/gap-recompute', () => ({
+  runKbGapRecomputePass: h.kbGap,
+}));
 vi.mock('@/lib/webhooks/outbox', () => ({
   drainWebhookOutbox: h.outboxDrain,
   purgeWebhookOutbox: h.outboxPurge,
@@ -146,6 +150,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ attempted: 0, results: [], stopped: false });
   h.memoryExpire.mockReset().mockResolvedValue(0);
+  h.kbGap.mockReset().mockResolvedValue({ accounts: 0, failed: 0 });
   h.outboxDrain.mockReset().mockResolvedValue({ claimed: 0, delivered: 0 });
   h.outboxPurge.mockReset().mockResolvedValue(0);
   h.chatFiles
@@ -569,6 +574,34 @@ describe('GET /api/automations/cron — cases and memory', () => {
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] memory expiry failed:',
       'mem boom'
+    );
+    log.mockRestore();
+  });
+
+  it('recomputes knowledge-gap topics once a day per process, and survives a throw', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-19T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    await runAfter();
+    expect(h.kbGap).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-20T08:59:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.kbGap).toHaveBeenCalledTimes(1);
+
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.kbGap.mockRejectedValueOnce(new Error('gap boom'));
+    vi.setSystemTime(new Date('2026-10-20T09:00:00Z'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.kbGap).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] knowledge-gap recompute failed:',
+      'gap boom'
     );
     log.mockRestore();
   });

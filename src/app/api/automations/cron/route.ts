@@ -14,6 +14,7 @@ import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
 import { evaluateCaseSla, sweepCaseGroupEnds } from '@/lib/cases/cron'
 import { caseSlaStore, caseStore } from '@/lib/cases/server'
 import { memoryStore } from '@/lib/memory/server'
+import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
@@ -347,6 +348,34 @@ function scheduleMemoryExpiry() {
 }
 
 /**
+ * Knowledge-gap topics (migration 152): every account with enough
+ * unanswered bot questions has its topics regrouped and re-judged once
+ * a day per process, inside after(). A failure is only logged.
+ */
+const kbGapRecomputeDue = everyInterval(24 * 60 * 60_000)
+
+function scheduleKbGapRecompute() {
+  try {
+    if (!kbGapRecomputeDue()) return
+    after(async () => {
+      try {
+        await runKbGapRecomputePass()
+      } catch (err) {
+        console.error(
+          '[automations-cron] knowledge-gap recompute failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the knowledge-gap recompute:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Outbound webhook outbox (migration 134): the events SQL enqueued
  * (case.stage_changed, submission_group.*, …) are claimed and sent at
  * most once a minute per process, and delivered rows older than 7 days
@@ -581,6 +610,7 @@ export async function GET(request: Request) {
     scheduleCaseSla()
     scheduleCaseGroupEnds()
     scheduleMemoryExpiry()
+    scheduleKbGapRecompute()
     scheduleWebhookOutbox()
     schedulePbxCron()
     schedulePushDispatch()

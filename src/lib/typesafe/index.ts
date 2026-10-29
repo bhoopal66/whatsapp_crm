@@ -31,6 +31,7 @@ import { runTriage, type TriageInput } from './checks/triage';
 import { runRoute, type RouteInput } from './checks/route';
 import { runKbSelect, type KbSelectInput } from './checks/kb-select';
 import { runInsights, type InsightsInput } from './checks/insights';
+import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
 import type { CheckDeps, Ref } from './checks/common';
 
 export interface DecisionLayerOptions {
@@ -184,6 +185,12 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      * switch, policy or log row. Never throws.
      */
     insights: (input: InsightsInput) => runInsights({ config, gateway }, input),
+    /**
+     * Knowledge-gap topic intent and coverage (lib/kb/gap-recompute.ts).
+     * Not a safety check: no account switch, policy or log row. Never
+     * throws.
+     */
+    kbGap: (input: KbGapInput) => runKbGapJudgment({ config, gateway }, input),
   };
 }
 
@@ -263,6 +270,8 @@ export type {
   InsightsSignals,
   TagSuggestion,
 } from './checks/insights';
+export { KB_GAP_QS_VERSION } from './questions/kb-gap';
+export type { KbGapInput, KbGapJudgment } from './checks/kb-gap';
 export type { TriageDecision, TriageInput } from './checks/triage';
 export type { GuardrailDecision, GuardrailInput } from './checks/guardrail';
 export type { PassageDecision, RetrievedPassage } from './checks/passages';
