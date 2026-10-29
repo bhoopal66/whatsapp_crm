@@ -48,7 +48,7 @@ import { useSenderLabels } from './sender-label';
 import { memberNames } from '@/lib/inbox/sender';
 import { ThreadPresenceScope } from './thread-presence';
 import { ThreadHeader } from './thread-header';
-import type { ChatTagsPatch } from './thread-tag-bar';
+import type { ChatTagRowPatch } from './thread-tag-bar';
 import { collectMediaGallery } from '@/lib/media/gallery';
 import {
   MessageComposer,
@@ -152,7 +152,7 @@ interface MessageThreadProps {
    * After a chat tag pick saved (migration 075), with the values the
    * server returned: its trigger may have cleared the sub-tag.
    */
-  onChatTagsChange: (conversationId: string, patch: ChatTagsPatch) => void;
+  onChatTagsChange: (conversationId: string, patch: ChatTagRowPatch) => void;
   onAssignChange: (
     conversationId: string,
     assignedAgentId: string | null

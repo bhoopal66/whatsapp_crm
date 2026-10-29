@@ -14,11 +14,26 @@
 //
 // Mounted with `key={conversation.id}`: an in-flight save must never
 // land on the next chat opened.
+//
+// Beside the tags sits Jev's suggestion (migration 147,
+// docs/jev-insights.md): a chip with Apply and Dismiss, or a "Suggest a
+// tag" button when no chip shows. Apply goes through the same `save()`
+// as a pick, so automations, deal creation and the chain depth behave
+// exactly as for a manual tag. Nothing shows while suggestions are off,
+// and a viewer, who cannot tag, never sees either.
 // ============================================================
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, Plus, Settings2 } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Loader2,
+  Plus,
+  Settings2,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -31,6 +46,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/use-auth';
 import { useChatTags } from '@/hooks/use-chat-tags';
+import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { hasMinRole } from '@/lib/auth/roles';
 import {
   resolveConversationChatTags,
@@ -47,11 +63,22 @@ import {
   PILL_SUB_TEXT,
   PillDot,
 } from '@/components/inbox/chat-tag-pill';
+import {
+  canAskForSuggestion,
+  shownSuggestion,
+  suggestOutcome,
+  suggestionKey,
+  suggestionPercent,
+  suggestionTagText,
+  type ShownSuggestion,
+  type TagSuggestionRow,
+} from '@/lib/insights/suggestion-view';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
-import type { ChatTag, ChatTagsPatch } from '@/types';
+import type { ChatTag, ChatTagRowPatch, ChatTagsPatch } from '@/types';
 import type { ConversationListItem } from '@/lib/inbox/conversations';
 
-export type { ChatTagsPatch } from '@/types';
+export type { ChatTagRowPatch, ChatTagsPatch } from '@/types';
 
 export const CHAT_TAGS_SETTINGS_HREF = '/settings?tab=chat-tags';
 
@@ -69,6 +96,18 @@ const CHIP_DASHED =
 /** The chip whose pick is being saved. */
 const CHIP_BUSY = 'cursor-wait opacity-60';
 const MENU_HEADING = 'text-muted-foreground px-2 py-1.5 text-xs';
+/** Jev's suggestion: the info tone, so it reads as advice, not a tag. */
+const SUGGESTION_CHIP =
+  'border-info/30 bg-info-soft text-info inline-flex h-7 max-w-full min-w-0 items-center gap-1 rounded-full border pr-1 pl-2.5 text-xs font-medium';
+const SUGGESTION_BUTTON =
+  'hover:bg-info/15 inline-flex h-5 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60';
+/** The suggestion columns a successful Apply or Dismiss leaves empty. */
+const NO_SUGGESTION: ChatTagRowPatch = {
+  suggested_chat_tag_id: null,
+  suggested_chat_sub_tag_id: null,
+  suggested_tag_p: null,
+  suggested_tag_at: null,
+};
 
 function Dot({ color }: { color: string }) {
   return (
@@ -84,12 +123,20 @@ export function ThreadTagBar({
   conversation,
   onChatTagsChange,
 }: {
-  conversation: ConversationListItem;
-  onChatTagsChange: (conversationId: string, patch: ChatTagsPatch) => void;
+  /** A list row has no suggestion columns; the full row does. */
+  conversation: ConversationListItem & TagSuggestionRow;
+  onChatTagsChange: (conversationId: string, patch: ChatTagRowPatch) => void;
 }) {
   const t = useTranslations('Inbox.chatTags');
+  const ts = useTranslations('TagSuggest');
   const { accountRole } = useAuth();
   const { tags, tree, reload } = useChatTags();
+  const { settings: insightSettings } = useInsightSettings();
+
+  // The suggestion whose Apply or Dismiss is in flight, hidden at once
+  // and shown again if it fails; and whether "Suggest a tag" is asking.
+  const [hiddenKey, setHiddenKey] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
 
   // The pick being saved, shown at once; the props take over again
   // when the save settles either way.
@@ -165,9 +212,13 @@ export function ThreadTagBar({
   const isAdmin = hasMinRole(accountRole, 'admin');
   const canEdit = accountRole !== 'viewer';
 
-  async function save(next: ChatTagsPatch, openSubAfter: boolean) {
+  /** Resolves true once the server kept a row (whatever it kept). */
+  async function save(
+    next: ChatTagsPatch,
+    openSubAfter: boolean
+  ): Promise<boolean> {
     // A backstop: the menus already refuse to open while saving.
-    if (savingRef.current) return;
+    if (savingRef.current) return false;
     savingRef.current = true;
     // Picks come from an open menu, which has not finished closing.
     followUp.current = {
@@ -217,7 +268,7 @@ export function ThreadTagBar({
       // the chat really carries.
       followUp.current.forTag = null;
       toast.error(refusal ?? t('saveFailed'));
-      return;
+      return false;
     }
     onChatTagsChange(conversation.id, saved);
     if (saved.chat_tag_id === next.chat_tag_id) {
@@ -226,6 +277,170 @@ export function ThreadTagBar({
     } else {
       followUp.current.forTag = null;
     }
+    return true;
+  }
+
+  // -- Jev's suggestion ---------------------------------------------
+  const mode = insightSettings.tagSuggestMode;
+  const suggestion = shownSuggestion(conversation, {
+    mode,
+    canEdit,
+    hiddenKey,
+  });
+  // Named from the loaded tags; one the list doesn't have (yet) is not
+  // shown rather than shown as an id.
+  const suggestedMain = suggestion
+    ? (tree.mains.find((m) => m.id === suggestion.mainId) ?? null)
+    : null;
+  const suggestedSub =
+    suggestion?.subId && suggestedMain
+      ? (suggestedMain.subs.find((s) => s.id === suggestion.subId) ?? null)
+      : null;
+  const chip =
+    suggestion &&
+    suggestedMain &&
+    (suggestion.subId === null || suggestedSub !== null)
+      ? suggestion
+      : null;
+  // No "Suggest a tag" either while a chip's Apply or Dismiss is in
+  // flight: it would flash in for the moment the chip is hidden.
+  const settling =
+    hiddenKey !== null && hiddenKey === suggestionKey(conversation);
+  const canAsk =
+    canAskForSuggestion({ mode, canEdit, chipShown: chip !== null }) &&
+    !saving &&
+    !settling;
+
+  function restoreChip(key: string) {
+    setHiddenKey((k) => (k === key ? null : k));
+  }
+
+  async function applySuggestion(s: ShownSuggestion) {
+    setHiddenKey(s.key);
+    const ok = await save(
+      { chat_tag_id: s.mainId, chat_sub_tag_id: s.subId ?? null },
+      false
+    );
+    // save() has already said why it failed.
+    if (!ok) return restoreChip(s.key);
+    // The route cleared the suggestion with the tag change.
+    onChatTagsChange(conversation.id, NO_SUGGESTION);
+  }
+
+  async function dismissSuggestion(s: ShownSuggestion) {
+    setHiddenKey(s.key);
+    let failed = true;
+    try {
+      const { error } = await createClient().rpc('dismiss_tag_suggestion', {
+        p_conversation_id: conversation.id,
+      });
+      if (error) console.error('[tag-suggest] dismiss failed', error);
+      else failed = false;
+    } catch (err) {
+      console.error('[tag-suggest] dismiss failed', err);
+    }
+    if (failed) {
+      restoreChip(s.key);
+      toast.error(ts('dismissFailed'));
+      return;
+    }
+    onChatTagsChange(conversation.id, {
+      ...NO_SUGGESTION,
+      tag_suggestion_dismissed_id: s.mainId,
+    });
+  }
+
+  async function askForSuggestion() {
+    if (asking) return;
+    setAsking(true);
+    let status = 0;
+    let body: unknown = null;
+    try {
+      const res = await fetch('/api/insights/tag-suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: conversation.id }),
+      });
+      status = res.status;
+      body = await res.json().catch(() => null);
+    } catch (err) {
+      console.error('[tag-suggest] ask failed', err);
+    } finally {
+      setAsking(false);
+    }
+    const outcome = suggestOutcome(status, body);
+    if (outcome.kind === 'suggestion') {
+      // The route stored it on the row too; realtime brings the exact
+      // timestamp, which only renames the chip's key.
+      onChatTagsChange(conversation.id, {
+        suggested_chat_tag_id: outcome.suggestion.mainId,
+        suggested_chat_sub_tag_id: outcome.suggestion.subId,
+        suggested_tag_p: outcome.suggestion.p,
+        suggested_tag_at: new Date().toISOString(),
+      });
+      return;
+    }
+    if (outcome.error) toast.error(ts(outcome.key));
+    else toast(ts(outcome.key));
+  }
+
+  let suggestionSlot: ReactNode = null;
+  if (chip && suggestedMain) {
+    const percent = suggestionPercent(chip.p);
+    const text = ts('chip', {
+      tags: suggestionTagText(suggestedMain.name, suggestedSub?.name),
+      percent,
+    });
+    suggestionSlot = (
+      <span className={SUGGESTION_CHIP} title={text}>
+        <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{text}</span>
+        <button
+          type="button"
+          onClick={() => void applySuggestion(chip)}
+          disabled={saving}
+          className={cn(SUGGESTION_BUTTON, 'px-2 font-semibold')}
+        >
+          {ts('apply')}
+        </button>
+        <button
+          type="button"
+          onClick={() => void dismissSuggestion(chip)}
+          disabled={saving}
+          aria-label={ts('dismiss')}
+          title={ts('dismiss')}
+          className={cn(SUGGESTION_BUTTON, 'w-5')}
+        >
+          <X aria-hidden="true" className="h-3 w-3" />
+        </button>
+      </span>
+    );
+  } else if (canAsk) {
+    suggestionSlot = (
+      <button
+        type="button"
+        onClick={() => void askForSuggestion()}
+        disabled={asking}
+        aria-busy={asking || undefined}
+        className={cn(
+          CHIP,
+          'text-wa-text-secondary hover:bg-wa-row-hover border-transparent',
+          asking && CHIP_BUSY
+        )}
+      >
+        {asking ? (
+          <Loader2
+            aria-hidden="true"
+            className="h-3.5 w-3.5 shrink-0 animate-spin"
+          />
+        ) : (
+          <Sparkles aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <span className="truncate">
+          {asking ? ts('suggesting') : ts('suggest')}
+        </span>
+      </button>
+    );
   }
 
   function pickMain(tag: ChatTagNode | null) {
@@ -455,6 +670,7 @@ export function ThreadTagBar({
           </DropdownMenu>
         )}
       </span>
+      {suggestionSlot}
     </Row>
   );
 }

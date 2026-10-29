@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   role: 'agent' as string | null,
   tags: [] as unknown[] | null,
   reload: vi.fn(async () => {}),
+  tagSuggestMode: 'off' as 'off' | 'suggest' | 'auto',
 }));
 
 vi.mock('@/hooks/use-auth', () => ({
@@ -32,6 +33,15 @@ vi.mock('@/hooks/use-chat-tags', () => ({
       reload: mocks.reload,
     };
   },
+}));
+vi.mock('@/hooks/use-insight-settings', () => ({
+  useInsightSettings: () => ({
+    settings: { tagSuggestMode: mocks.tagSuggestMode },
+    available: true,
+    canEdit: false,
+    loading: false,
+    reload: vi.fn(),
+  }),
 }));
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => {
@@ -97,7 +107,10 @@ function render(
 }
 
 describe('ThreadTagBar', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.tagSuggestMode = 'off';
+  });
 
   it('renders nothing for a viewer on an untagged chat', () => {
     expect(render('viewer', TAGS, conv(null))).toBe('');
@@ -159,5 +172,91 @@ describe('ThreadTagBar', () => {
     const html = render('agent', TAGS, conv('t-deleted-or-new'));
     expect(html).toContain('Add tag');
     expect(html).not.toContain('Interested customer');
+  });
+});
+
+describe('ThreadTagBar: Jev tag suggestion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.tagSuggestMode = 'suggest';
+  });
+
+  function suggested(
+    current: [string | null, string | null],
+    main: string,
+    sub: string | null,
+    p = 0.87
+  ): Conversation {
+    return {
+      ...conv(current[0], current[1]),
+      suggested_chat_tag_id: main,
+      suggested_chat_sub_tag_id: sub,
+      suggested_tag_p: p,
+      suggested_tag_at: '2026-10-29T08:00:00Z',
+    } as Conversation;
+  }
+
+  it('shows an agent the suggestion chip with Apply and Dismiss', () => {
+    const html = render(
+      'agent',
+      TAGS,
+      suggested([null, null], 't-int', 't-adcb')
+    );
+    expect(html).toContain('Suggested: Interested customer · ADCB · 87%');
+    expect(html).toContain('>Apply<');
+    expect(html).toContain('aria-label="Dismiss suggestion"');
+    expect(html).toContain('bg-info-soft');
+    // The chip replaces the ask button.
+    expect(html).not.toContain('Suggest a tag');
+  });
+
+  it('names the main tag alone when no sub-tag is suggested', () => {
+    const html = render(
+      'agent',
+      TAGS,
+      suggested(['t-new', null], 't-int', null)
+    );
+    expect(html).toContain('Suggested: Interested customer · 87%');
+  });
+
+  it('offers "Suggest a tag" when there is no suggestion', () => {
+    const html = render('agent', TAGS, conv('t-new'));
+    expect(html).toContain('Suggest a tag');
+    expect(html).not.toContain('Suggested:');
+  });
+
+  it('shows no chip for a suggestion the chat already carries', () => {
+    const html = render(
+      'agent',
+      TAGS,
+      suggested(['t-int', 't-adcb'], 't-int', 't-adcb')
+    );
+    expect(html).not.toContain('Suggested:');
+    expect(html).toContain('Suggest a tag');
+  });
+
+  it('shows no chip for a tag the loaded list does not have', () => {
+    const html = render('agent', TAGS, suggested([null, null], 't-gone', null));
+    expect(html).not.toContain('Suggested:');
+  });
+
+  it('shows a viewer neither the chip nor the ask button', () => {
+    const html = render(
+      'viewer',
+      TAGS,
+      suggested(['t-new', null], 't-int', 't-adcb')
+    );
+    expect(html).toContain('New customer');
+    expect(html).not.toContain('Suggested:');
+    expect(html).not.toContain('Suggest a tag');
+  });
+
+  it('leaves the header as it was while suggestions are off', () => {
+    const row = suggested(['t-new', null], 't-int', 't-adcb');
+    mocks.tagSuggestMode = 'off';
+    const off = render('agent', TAGS, row);
+    expect(off).not.toContain('Suggested:');
+    expect(off).not.toContain('Suggest a tag');
+    expect(off).not.toContain('bg-info-soft');
   });
 });

@@ -8490,7 +8490,20 @@
     }
   },
   "TagSuggest": {
-    "_": ""
+    "chip": "추천: {tags} · {percent}%",
+    "apply": "적용",
+    "dismiss": "추천 닫기",
+    "suggest": "태그 추천",
+    "suggesting": "Jev에게 묻는 중…",
+    "dismissFailed": "추천을 닫지 못했습니다",
+    "notConfident": "아직 어떤 태그가 맞는지 Jev가 확신하지 못합니다",
+    "noTags": "추천할 채팅 태그가 아직 없습니다",
+    "noMessage": "판단할 고객 메시지가 아직 없습니다",
+    "sameAsCurrent": "이미 그 태그가 지정된 채팅입니다",
+    "dismissed": "이 채팅에서 닫은 태그입니다",
+    "unavailable": "지금은 태그 추천을 사용할 수 없습니다",
+    "rateLimited": "요청이 너무 많습니다. 잠시 후 다시 시도하세요",
+    "failed": "태그 추천을 받지 못했습니다"
   },
   "ReplyClasses": {
     "_": ""

@@ -8490,7 +8490,20 @@
     }
   },
   "TagSuggest": {
-    "_": ""
+    "chip": "Suggested: {tags} · {percent}%",
+    "apply": "Apply",
+    "dismiss": "Dismiss suggestion",
+    "suggest": "Suggest a tag",
+    "suggesting": "Asking Jev…",
+    "dismissFailed": "Couldn't dismiss the suggestion",
+    "notConfident": "Jev isn't sure which tag fits yet",
+    "noTags": "There are no chat tags to suggest from yet",
+    "noMessage": "There's no customer message to judge yet",
+    "sameAsCurrent": "The chat is already tagged that way",
+    "dismissed": "You dismissed that tag for this chat",
+    "unavailable": "Tag suggestions aren't available right now",
+    "rateLimited": "Too many requests. Try again in a minute",
+    "failed": "Couldn't get a tag suggestion"
   },
   "ReplyClasses": {
     "_": ""

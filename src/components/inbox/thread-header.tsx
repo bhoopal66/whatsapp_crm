@@ -48,7 +48,7 @@ import { isShareOnlyViewer } from '@/lib/coordinators/ui';
 import { CoordinatorShareButton } from './coordinator-share-button';
 import { ThreadChannelSwitcher } from './thread-channel-switcher';
 import { MemberPresenceDot } from './thread-presence';
-import { ThreadTagBar, type ChatTagsPatch } from './thread-tag-bar';
+import { ThreadTagBar, type ChatTagRowPatch } from './thread-tag-bar';
 
 /** Round icon button in the thread header, WhatsApp-style. */
 const HEADER_ICON_BUTTON =
@@ -83,7 +83,7 @@ export interface ThreadHeaderProps {
   assignedAgentId: string | null;
   currentUserId: string | null;
   onAssign: (agentId: string | null) => void;
-  onChatTagsChange: (conversationId: string, patch: ChatTagsPatch) => void;
+  onChatTagsChange: (conversationId: string, patch: ChatTagRowPatch) => void;
   /** The refresh button renders only when this is provided. */
   onRefresh?: () => void;
   isRefreshing: boolean;

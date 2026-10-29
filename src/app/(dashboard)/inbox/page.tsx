@@ -37,7 +37,7 @@ import {
 } from '@/lib/inbox/open-conversation';
 import type { ConversationListLoad } from '@/components/inbox/conversation-list';
 import type { Conversation, Message } from '@/types';
-import type { ChatTagsPatch } from '@/components/inbox/thread-tag-bar';
+import type { ChatTagRowPatch } from '@/components/inbox/thread-tag-bar';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { parseInboxFilterParams } from '@/lib/inbox/filter-params';
@@ -921,7 +921,7 @@ export function InboxPageInner({
   }, [activeConversation, retryFullRow]);
 
   const handleChatTagsChange = useCallback(
-    (conversationId: string, patch: ChatTagsPatch) =>
+    (conversationId: string, patch: ChatTagRowPatch) =>
       patchConversation(conversationId, patch),
     [patchConversation]
   );

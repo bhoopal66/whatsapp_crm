@@ -158,6 +158,24 @@ export interface ChatTagsPatch {
   chat_sub_tag_id: string | null;
 }
 
+/**
+ * What the chat header's tag row hands back to the open chat: a tag
+ * save, or Jev's suggestion columns (migration 147) after Apply,
+ * Dismiss or "Suggest a tag". Server code keeps {@link ChatTagsPatch}.
+ */
+export type ChatTagRowPatch = Partial<
+  Pick<
+    Conversation,
+    | 'chat_tag_id'
+    | 'chat_sub_tag_id'
+    | 'suggested_chat_tag_id'
+    | 'suggested_chat_sub_tag_id'
+    | 'suggested_tag_p'
+    | 'suggested_tag_at'
+    | 'tag_suggestion_dismissed_id'
+  >
+>;
+
 export interface CustomField {
   id: string;
   user_id: string;
