@@ -10,7 +10,7 @@ import {
 
 /**
  * Unread chats the Inbox lists: the sidebar dot's rule
- * (`useTotalUnread`), without its realtime channel.
+ * (`useUnreadChats`), without its realtime channel.
  */
 export function countInboxUnread(
   rows: readonly (CampaignInboxFields & { unread_count?: number | null })[],

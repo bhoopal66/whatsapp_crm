@@ -66,6 +66,7 @@
     "journeys": "Journeys",
     "calls": "Calls",
     "missedCalls": "{count} open missed-call {count, plural, =1 {task} other {tasks}}",
+    "overdueCases": "{count} {count, plural, =1 {case} other {cases}} past their SLA",
     "meetings": "Meetings",
     "calendar": "Calendar",
     "whatsappGroups": "WhatsApp groups",

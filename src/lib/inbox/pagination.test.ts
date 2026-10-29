@@ -14,6 +14,7 @@ import {
   olderMessagesGroup,
   prependOlderMessages,
   replaceReactionsFor,
+  inRestrictedInbox,
   restrictToUserGroup,
   sortByRecency,
   splitEmbeddedReactions,
@@ -113,6 +114,38 @@ describe('conversationKeysetGroup', () => {
     expect(conversationKeysetGroup({ lastMessageAt: null, id: 'b' })).toBe(
       'and(last_message_at.is.null,id.lt.b),last_message_at.not.is.null'
     );
+  });
+});
+
+describe('inRestrictedInbox', () => {
+  const row = (extra: Record<string, string | null>) => ({ id: 'x', ...extra });
+
+  it('keeps the rows the user created or holds, by the server rule', () => {
+    expect(inRestrictedInbox(row({ user_id: 'u9' }), 'u9')).toBe(true);
+    expect(inRestrictedInbox(row({ assigned_agent_id: 'u9' }), 'u9')).toBe(
+      true
+    );
+    expect(
+      inRestrictedInbox(row({ user_id: 'u1', assigned_agent_id: 'u2' }), 'u9')
+    ).toBe(false);
+  });
+
+  it('keeps chats on or pinned to a number the user works', () => {
+    expect(inRestrictedInbox(row({ channel_id: 'c1' }), 'u9', ['c1'])).toBe(
+      true
+    );
+    expect(
+      inRestrictedInbox(row({ send_channel_id: 'c1' }), 'u9', ['c1'])
+    ).toBe(true);
+    expect(inRestrictedInbox(row({ channel_id: 'c2' }), 'u9', ['c1'])).toBe(
+      false
+    );
+  });
+
+  it('keeps shared chats, under the same cap as the filter', () => {
+    const many = Array.from({ length: 150 }, (_, i) => `k${i}`);
+    expect(inRestrictedInbox({ id: 'k5' }, 'u9', [], many)).toBe(true);
+    expect(inRestrictedInbox({ id: 'k120' }, 'u9', [], many)).toBe(false);
   });
 });
 

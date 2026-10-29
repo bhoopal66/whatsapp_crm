@@ -52,7 +52,7 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }));
 
-import { useTotalUnread } from './use-total-unread';
+import { useUnreadChats } from './use-total-unread';
 
 const A = '0b6f1c9e-2d3a-4b5c-8d7e-9f0a1b2c3d4e';
 const B = '1c7f2d0f-3e4b-4c6d-9e8f-0a1b2c3d4e5f';
@@ -65,15 +65,15 @@ afterEach(() => {
   accountId = null;
 });
 
-describe('useTotalUnread', () => {
+describe('useUnreadChats', () => {
   it('opens no channel while the account is unknown', () => {
-    useTotalUnread();
+    useUnreadChats();
     expect(topics).toEqual([]);
   });
 
   it("listens only to the active account's conversations, DELETE aside", () => {
     accountId = A;
-    useTotalUnread();
+    useUnreadChats();
     expect(bindings.map((b) => b.filter)).toEqual([
       {
         event: 'INSERT',
@@ -93,10 +93,10 @@ describe('useTotalUnread', () => {
 
   it('re-subscribes on a topic of its own after a workspace switch', () => {
     accountId = A;
-    useTotalUnread();
+    useUnreadChats();
     cleanups.splice(0).forEach((fn) => fn()); // accountId changed
     accountId = B;
-    useTotalUnread();
+    useUnreadChats();
     expect(topics).toEqual([
       `total-unread-realtime:${A}`,
       `total-unread-realtime:${B}`,

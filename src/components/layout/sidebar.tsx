@@ -6,7 +6,8 @@ import { useEffect, useId } from 'react';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
-import { useTotalUnread } from '@/hooks/use-total-unread';
+import { useUnreadChats } from '@/hooks/use-total-unread';
+import { useCasesOverdue } from '@/hooks/use-cases-overdue';
 import { useChatUnreadTotal } from '@/hooks/use-chat-unread-total';
 import { useCallsNav } from '@/hooks/use-calls-nav';
 import {
@@ -103,7 +104,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     workspaces,
     isBankGuest,
   } = useAuth();
-  const totalUnread = useTotalUnread();
+  const unreadChats = useUnreadChats();
+  const casesOverdue = useCasesOverdue();
   // Only what this role may open; null while the profile loads, so the
   // gated rows fail closed (see visibleNavGroups).
   const callsNav = useCallsNav();
@@ -153,17 +155,56 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
     };
   }, [open, onClose]);
 
+  const PRIMARY_BADGE = 'bg-primary text-primary-foreground';
+  // Amber for what is past due or missed, set apart from plain unread.
+  const DUE_BADGE = 'bg-amber-400 text-amber-950';
+
+  function navBadgeFor(
+    href: string
+  ): { count: number; label: string; className: string } | null {
+    switch (href) {
+      case '/inbox':
+        return {
+          count: unreadChats.inbox,
+          label: t('unreadConversations', { count: unreadChats.inbox }),
+          className: PRIMARY_BADGE,
+        };
+      case '/team-inbox':
+        return {
+          count: unreadChats.team,
+          label: t('unreadConversations', { count: unreadChats.team }),
+          className: PRIMARY_BADGE,
+        };
+      case '/chat':
+        return {
+          count: chatUnread,
+          label: t('unreadChat', { count: chatUnread }),
+          className: PRIMARY_BADGE,
+        };
+      case '/calls':
+        // Open missed-call tasks assigned to them, as the chat sidebar shows.
+        return {
+          count: callsNav.missed,
+          label: t('missedCalls', { count: callsNav.missed }),
+          className: DUE_BADGE,
+        };
+      case '/cases':
+        return {
+          count: casesOverdue,
+          label: t('overdueCases', { count: casesOverdue }),
+          className: DUE_BADGE,
+        };
+      default:
+        return null;
+    }
+  }
+
   function renderNavItem(item: NavItem) {
     const isActive = isNavItemActive(item.href, pathname);
 
-    // A count, like the other badges: a dot said only "something", not
-    // how much is waiting.
-    const showUnreadBadge = item.href === '/inbox' && totalUnread > 0;
-
-    const showChatBadge = item.href === '/chat' && chatUnread > 0;
-    // Open missed-call tasks assigned to them, as the chat sidebar shows.
-    const showCallsBadge = item.href === '/calls' && callsNav.missed > 0;
-
+    // What waits behind the row, as a number: a dot said only
+    // "something", not how much.
+    const badge = navBadgeFor(item.href);
     return (
       <li key={item.href}>
         <Link
@@ -188,28 +229,15 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               {t('beta')}
             </span>
           )}
-          {showUnreadBadge && (
+          {badge && badge.count > 0 && (
             <span
-              aria-label={t('unreadConversations', { count: totalUnread })}
-              className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
+              aria-label={badge.label}
+              className={cn(
+                'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold',
+                badge.className
+              )}
             >
-              {totalUnread > 99 ? '99+' : totalUnread}
-            </span>
-          )}
-          {showChatBadge && (
-            <span
-              aria-label={t('unreadChat', { count: chatUnread })}
-              className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
-            >
-              {chatUnread > 99 ? '99+' : chatUnread}
-            </span>
-          )}
-          {showCallsBadge && (
-            <span
-              aria-label={t('missedCalls', { count: callsNav.missed })}
-              className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-semibold text-amber-950"
-            >
-              {callsNav.missed > 99 ? '99+' : callsNav.missed}
+              {badge.count > 99 ? '99+' : badge.count}
             </span>
           )}
         </Link>

@@ -12,13 +12,19 @@ and polish.
 
 ## [Unreleased]
 
-### Sidebar: Inbox shows how many chats are unread
+### Sidebar: counts instead of a dot
 
 No migration.
 - The Inbox item in the sidebar showed a pulsing dot when anything was
   unread. It now shows the number of unread chats (99+ above 99), like
   Team chat and Calls already did, and keeps showing it while you are
   in the Inbox.
+- **Team inbox** shows its own unread count. For a team leader the two
+  now differ: Inbox counts only your own chats (the ones the Inbox
+  lists), Team inbox counts your team's too. Before, a leader's Inbox
+  dot also lit for teammates' chats.
+- **Cases** shows how many of your open cases are past their SLA (the
+  home screen's "Overdue cases"), refreshed every 2 minutes.
 
 ### Dashboard: a home screen for today's work
 

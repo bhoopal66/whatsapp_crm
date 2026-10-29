@@ -106,6 +106,37 @@ export function restrictToUserGroup(
   return group;
 }
 
+/** What {@link inRestrictedInbox} reads of a row. */
+export type RestrictableRow = {
+  id: string;
+  user_id?: string | null;
+  assigned_agent_id?: string | null;
+  channel_id?: string | null;
+  send_channel_id?: string | null;
+};
+
+/**
+ * Client-side form of {@link restrictToUserGroup}, for counting rows
+ * already in hand (the sidebar's Inbox count) by the same rule the list
+ * asks the server for, the shared-chat cap included.
+ */
+export function inRestrictedInbox(
+  row: RestrictableRow,
+  userId: string,
+  channelIds: readonly string[] = [],
+  sharedConversationIds: readonly string[] = []
+): boolean {
+  if (row.user_id === userId || row.assigned_agent_id === userId) return true;
+  if (
+    (row.channel_id && channelIds.includes(row.channel_id)) ||
+    (row.send_channel_id && channelIds.includes(row.send_channel_id))
+  )
+    return true;
+  return sharedConversationIds
+    .slice(0, MAX_SHARED_IDS_IN_FILTER)
+    .includes(row.id);
+}
+
 /**
  * Server-side form of {@link matchesAssignee} for a specific teammate:
  * assigned to them, or unassigned and owned by them. `null` for the
