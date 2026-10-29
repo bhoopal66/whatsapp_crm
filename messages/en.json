@@ -8383,5 +8383,32 @@
       "failed": "Couldn't set the reminder",
       "undoFailed": "Couldn't cancel the reminder"
     }
+  },
+  "Insights": {
+    "_": ""
+  },
+  "InsightsUi": {
+    "_": ""
+  },
+  "TagSuggest": {
+    "_": ""
+  },
+  "ReplyClasses": {
+    "_": ""
+  },
+  "ComposeCheck": {
+    "_": ""
+  },
+  "MeaningTriggers": {
+    "_": ""
+  },
+  "StatusMap": {
+    "_": ""
+  },
+  "KnowledgeGaps": {
+    "_": ""
+  },
+  "LeadScore": {
+    "_": ""
   }
 }

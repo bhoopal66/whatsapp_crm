@@ -68,23 +68,34 @@ export type CallResult<Q extends Questions> =
   | { ok: false; errorCode: ErrorCode; latencyMs: number; message: string };
 
 /**
- * What the gateway calls on behalf of: one of the safety checks, the
- * model-tier router (`route`, lib/ai/router.ts), or the approved-answers
- * selection (`kb_select`, checks/kb-select.ts). Those two are not safety
- * checks — no account switch, policy or decision-log row — so they are
- * not `CheckName`s; each gets its own outage breaker and content-failure
- * keys here, so its traffic can never open a check's breaker or pause a
- * check for an account.
+ * What the gateway calls on behalf of: one of the safety checks, or a
+ * selection caller — the model-tier router (`route`, lib/ai/router.ts),
+ * the approved-answers selection (`kb_select`, checks/kb-select.ts), and
+ * the Smart insights judgments (docs/jev-insights.md). Selection callers
+ * are not safety checks — no account switch, policy or decision-log row —
+ * so they are not `CheckName`s; each gets its own outage breaker and
+ * content-failure keys here, so its traffic can never open a check's
+ * breaker or pause a check for an account.
  */
-export type SelectionCaller = 'route' | 'kb_select';
+export const SELECTION_CALLERS = [
+  'route',
+  'kb_select',
+  'insights',
+  'reply_class',
+  'compose_check',
+  'intent_match',
+  'status_map',
+  'kb_gap',
+] as const;
+export type SelectionCaller = (typeof SELECTION_CALLERS)[number];
 export type GatewayCheck = CheckName | SelectionCaller;
 export const GATEWAY_CHECKS: readonly GatewayCheck[] = [
   ...CHECK_NAMES,
-  'route',
-  'kb_select',
+  ...SELECTION_CALLERS,
 ];
+const SELECTION_SET: ReadonlySet<GatewayCheck> = new Set(SELECTION_CALLERS);
 const isSelectionCaller = (c: GatewayCheck): c is SelectionCaller =>
-  c === 'route' || c === 'kb_select';
+  SELECTION_SET.has(c);
 
 export interface AlertSink {
   (event: {
@@ -178,7 +189,7 @@ function stringLeaves(value: unknown, out: string[] = []): string[] {
 export class TypeSafeGateway {
   /** Built on first use: the SDK throws without an API key, and a fully disabled layer never needs one. */
   private clientInstance: TypeSafeClient | null = null;
-  /** Outage breakers, per check (and one each for route and kb_select). */
+  /** Outage breakers, per check and per selection caller. */
   private readonly breakers: Record<GatewayCheck, CircuitBreaker>;
   /** Content-class breakers and 422 pauses, per `${check}:${accountId}`. */
   private readonly contentBreakers = new Map<string, CircuitBreaker>();
@@ -247,8 +258,8 @@ export class TypeSafeGateway {
     key: string
   ): { errorCode: ErrorCode; message: string } | null {
     const t = this.now();
-    // The router and the approved-answers selection have no TS_ENABLED_*
-    // switch: they run wherever a key is set.
+    // Selection callers have no TS_ENABLED_* switch: they run wherever a
+    // key is set (each feature gates itself per account).
     if (
       isSelectionCaller(check)
         ? !this.hasKey()

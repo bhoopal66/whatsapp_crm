@@ -8383,5 +8383,32 @@
       "failed": "알림을 설정하지 못했습니다",
       "undoFailed": "알림을 취소하지 못했습니다"
     }
+  },
+  "Insights": {
+    "_": ""
+  },
+  "InsightsUi": {
+    "_": ""
+  },
+  "TagSuggest": {
+    "_": ""
+  },
+  "ReplyClasses": {
+    "_": ""
+  },
+  "ComposeCheck": {
+    "_": ""
+  },
+  "MeaningTriggers": {
+    "_": ""
+  },
+  "StatusMap": {
+    "_": ""
+  },
+  "KnowledgeGaps": {
+    "_": ""
+  },
+  "LeadScore": {
+    "_": ""
   }
 }
