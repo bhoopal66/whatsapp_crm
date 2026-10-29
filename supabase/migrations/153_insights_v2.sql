@@ -457,6 +457,17 @@ BEGIN
                 AND created_at >= p_message_at) THEN
     RETURN 'answered';
   END IF;
+  -- A person dealt with the chat at or after this message in another way
+  -- (Handled, or a clear by reply/close already recorded): a judgment
+  -- that lands seconds later must not pin it again and ring the bell for
+  -- a message someone already acted on.
+  IF EXISTS (SELECT 1 FROM conversation_events
+              WHERE conversation_id = p_conv
+                AND account_id = p_account
+                AND kind = 'insight_attention_cleared'
+                AND created_at >= p_message_at) THEN
+    RETURN 'answered';
+  END IF;
 
   IF v_at IS NOT NULL THEN
     -- An unknown stored reason ranks last.

@@ -107,12 +107,18 @@ async function ring(db: SupabaseClient, args: AttentionArgs): Promise<boolean> {
   try {
     const { data, error } = await db
       .from('conversations')
-      .select('assigned_agent_id, user_id')
+      .select('assigned_agent_id, user_id, insight_attention_at')
       .eq('id', args.conversationId)
       .eq('account_id', args.accountId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) return false;
+    // A person's reply or Handled can land between the pin and this read:
+    // the pin is gone, so the bell would be for a chat already dealt with.
+    if (
+      !data ||
+      !(data as { insight_attention_at: string | null }).insight_attention_at
+    )
+      return false;
     const recipient = await bellRecipient(db, args.accountId, data as ConvRow);
     if (!recipient) return false;
     return await notifyInsightAttention(db, {

@@ -523,6 +523,29 @@ BEGIN
     failed := array_append(failed, ('a higher reason was not raised in place: ' || r)::text);
   END IF;
 
+  -- Handled (any recorded clear) at or after the message: already dealt with.
+  -- Unpin as the owner would via the RPC, then record the clear 10 min on.
+  PERFORM pg_temp.iv_do(format(
+    'UPDATE conversations SET insight_attention_at = NULL, insight_attention_reason = NULL WHERE id = %L', cv_c));
+  PERFORM pg_temp.iv_do(format(
+    $q$INSERT INTO conversation_events (account_id, conversation_id, kind, actor_user_id, details, created_at)
+       VALUES (%L, %L, 'insight_attention_cleared', %L, '{"how":"handled","reason":"urgent"}', %L)$q$,
+    a_acct, cv_c, u_agent, t_reply + interval '10 minutes'));
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '5 minutes', 'urgent'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'answered'
+     OR (SELECT insight_attention_at FROM conversations WHERE id = cv_c) IS NOT NULL THEN
+    failed := array_append(failed, ('a judgment re-pinned a chat someone marked handled after its message: ' || r)::text);
+  END IF;
+  -- A message after the Handled pins again.
+  r := pg_temp.iv_try('service_role', NULL, format(
+         'SELECT public.insight_pin_attention(%L, %L, %L, %L)', a_acct, cv_c, t_reply + interval '15 minutes', 'urgent'));
+  n := n + 1;
+  IF r IS DISTINCT FROM 'pinned' THEN
+    failed := array_append(failed, ('a message after Handled did not pin again: ' || r)::text);
+  END IF;
+
   -- A closed chat is never pinned.
   PERFORM pg_temp.iv_do(format('UPDATE conversations SET status = %L WHERE id = %L', 'closed', cv_c));
   r := pg_temp.iv_try('service_role', NULL, format(

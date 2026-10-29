@@ -40,6 +40,8 @@ let fail: Partial<Record<string, string>>;
 /** Runs just before the pin lands (a race): before the RPC's atomic
  *  step, or before a plain conversations update. */
 let beforeUpdate: (() => void) | null;
+/** Runs right after the RPC commits (a reply or Handled landing then). */
+let afterRpc: (() => void) | null;
 /** insight_attention_set notes the RPC wrote (their details). */
 let events: Record<string, unknown>[];
 /** Overrides what the RPC answers. */
@@ -139,6 +141,7 @@ const db = {
         error: { message: fail[call.table]! },
       });
     const data = pinRpc(params);
+    afterRpc?.();
     return Promise.resolve({
       data: rpcAnswer === undefined ? data : rpcAnswer,
       error: null,
@@ -197,6 +200,7 @@ const args = (over: Partial<AttentionArgs> = {}): AttentionArgs => ({
 });
 
 beforeEach(() => {
+  afterRpc = null;
   calls = [];
   conv = {
     id: 'conv-1',
@@ -251,6 +255,16 @@ describe('applyInsightAttention — pinning', () => {
       reason: 'upset',
       contactName: 'Fatima',
     });
+  });
+
+  it('rings nobody when a reply or Handled clears the pin before the bell', async () => {
+    afterRpc = () => {
+      conv!.insight_attention_at = null;
+      conv!.insight_attention_reason = null;
+    };
+    const out = await applyInsightAttention(db, args());
+    expect(out).toEqual({ result: 'pinned', notified: false });
+    expect(h.notify).not.toHaveBeenCalled();
   });
 
   it('a person reply before the message does not stop the pin', async () => {
