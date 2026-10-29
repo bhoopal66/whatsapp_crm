@@ -215,8 +215,11 @@ export function AiKnowledgeGapsCard({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [id] }),
       });
-      if (res.ok) setGaps((g) => g.filter((row) => row.id !== id));
-      else toast.error(t('removeFailed'));
+      if (res.ok) {
+        setGaps((g) => g.filter((row) => row.id !== id));
+        // Topic counts are live: the removed question leaves its topic.
+        void fetchTopics();
+      } else toast.error(t('removeFailed'));
     } catch {
       toast.error(t('removeFailed'));
     } finally {
@@ -235,6 +238,7 @@ export function AiKnowledgeGapsCard({
       if (res.ok) {
         setGaps([]);
         toast.success(t('cleared'));
+        void fetchTopics();
       } else toast.error(t('removeFailed'));
     } catch {
       toast.error(t('removeFailed'));

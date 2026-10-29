@@ -17,9 +17,12 @@ vi.mock('@/lib/typesafe', async (orig) => ({
 
 import {
   accountsDueForGapRecompute,
+  clearKbGapTopics,
   coverageFor,
   recomputeKbGapTopics,
+  runKbGapRecomputePass,
 } from './gap-recompute';
+import { TOPIC_LABEL_MAX } from './gap-topics';
 
 const NOW = new Date('2026-10-29T12:00:00Z');
 const E1 = '11111111-1111-4111-8111-111111111111';
@@ -47,43 +50,75 @@ const SHORTLIST = [E1, E2].map((id, i) => ({
   rank: 1 - i / 10,
 }));
 
+type RpcError = { message: string; code?: string; hint?: string };
+const STALE: RpcError = { message: 'changed', code: '40001', hint: 'STALE' };
+
 function fakeDb(
   opts: {
+    gaps?: unknown[];
     topics?: unknown[];
     members?: unknown[];
-    replaceError?: { message: string } | null;
+    replaceError?: RpcError | null;
+    /** Per replace call, in order; past the end, replaceError. */
+    replaceResults?: (RpcError | null)[];
+    /** Called on each replace, before it answers. */
+    onReplace?: (tables: Record<string, unknown[]>, call: number) => void;
+    /** What the cron's account scan (select 'account_id') reads. */
+    scanRows?: unknown[];
   } = {}
 ) {
   const tables: Record<string, unknown[]> = {
-    ai_knowledge_gaps: GAPS,
+    ai_knowledge_gaps: opts.gaps ?? GAPS,
     kb_gap_topics: opts.topics ?? [],
     kb_gap_topic_members: opts.members ?? [],
   };
+  let replaces = 0;
   const rpc = vi.fn(async (name: string) => {
     if (name === 'kb_shortlist') return { data: SHORTLIST, error: null };
-    return { data: 0, error: opts.replaceError ?? null };
+    const call = replaces++;
+    opts.onReplace?.(tables, call);
+    const error =
+      call < (opts.replaceResults?.length ?? 0)
+        ? opts.replaceResults![call]
+        : (opts.replaceError ?? null);
+    return { data: 0, error };
   });
   const from = (table: string) => {
     const b: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'gte', 'order', 'limit', 'range'])
-      b[m] = () => b;
+    let columns = '';
+    for (const m of ['eq', 'gte', 'order', 'limit', 'range']) b[m] = () => b;
+    b.select = (cols: string) => {
+      columns = cols;
+      return b;
+    };
     b.then = (ok: (v: unknown) => unknown) =>
-      Promise.resolve({ data: tables[table] ?? [], error: null }).then(ok);
+      Promise.resolve({
+        data:
+          columns === 'account_id'
+            ? (opts.scanRows ?? [])
+            : (tables[table] ?? []),
+        error: null,
+      }).then(ok);
     return b;
   };
   h.db = { from, rpc };
   return rpc;
 }
 
+type ReplaceArgs = {
+  p_account: string;
+  p_topics: Record<string, unknown>[];
+  p_expected: Record<string, string>;
+};
+const allReplaceArgs = (rpc: ReturnType<typeof fakeDb>) =>
+  rpc.mock.calls
+    .filter((c) => c[0] === 'kb_gap_topics_replace')
+    .map((c) => (c as unknown as [string, ReplaceArgs])[1]);
+
 const replaceArgs = (rpc: ReturnType<typeof fakeDb>) => {
   const calls = rpc.mock.calls.filter((c) => c[0] === 'kb_gap_topics_replace');
   expect(calls).toHaveLength(1);
-  return (
-    calls[0] as unknown as [
-      string,
-      { p_account: string; p_topics: Record<string, unknown>[] },
-    ]
-  )[1];
+  return (calls[0] as unknown as [string, ReplaceArgs])[1];
 };
 
 /** Jev answers by topic: full, partial and none coverage. */
@@ -102,6 +137,7 @@ function jev() {
 }
 
 beforeEach(() => {
+  vi.useRealTimers();
   h.layer = null;
   h.loadAiConfig.mockReset().mockResolvedValue(null);
   h.embedTexts.mockReset();
@@ -226,6 +262,89 @@ describe('recomputeKbGapTopics', () => {
     warn.mockRestore();
   });
 
+  it('clips a label over 500 characters at a word boundary', async () => {
+    const long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ');
+    expect(long.length).toBeGreaterThan(TOPIC_LABEL_MAX);
+    const rpc = fakeDb({
+      gaps: [gap('1', long, 20), gap('2', long, 21), gap('3', long, 22)],
+    });
+    expect(
+      await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW })
+    ).toMatchObject({ ok: true, topics: 1 });
+    const label = replaceArgs(rpc).p_topics[0]!.label as string;
+    expect(label.length).toBeLessThanOrEqual(TOPIC_LABEL_MAX);
+    expect(label.endsWith('…')).toBe(true);
+    const kept = label.slice(0, -1);
+    expect(long.startsWith(kept)).toBe(true);
+    expect(long[kept.length]).toBe(' '); // cut between words
+  });
+
+  it('starts no judgment and skips embedding when the budget is nearly spent', async () => {
+    const rpc = fakeDb();
+    const sim = jev();
+    h.loadAiConfig.mockResolvedValue({ embeddingsApiKey: 'sk-e' });
+    const r = await recomputeKbGapTopics(TEST_ACCOUNT, {
+      now: NOW,
+      deadlineAt: Date.now() + 50, // under one Jev request's timeout (80 ms here)
+    });
+    expect(r).toEqual({ ok: true, topics: 3, mode: 'lexical', judged: 0 });
+    expect(sim.calls).toHaveLength(0);
+    expect(h.embedTexts).not.toHaveBeenCalled();
+    for (const t of replaceArgs(rpc).p_topics)
+      expect(t).toMatchObject({ coverage: 'unknown', intent: null });
+  });
+
+  it('sends the statuses it read as p_expected', async () => {
+    const rpc = fakeDb({
+      topics: [{ id: 'old', status: 'open', dismissed_at: null }],
+    });
+    await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW });
+    expect(replaceArgs(rpc).p_expected).toEqual({ old: 'open' });
+  });
+
+  it('on STALE carries the new dismissal over without asking Jev again', async () => {
+    const rpc = fakeDb({
+      topics: [{ id: 'old', status: 'open', dismissed_at: null }],
+      replaceResults: [STALE],
+      // A person dismissed the topic while the run was working.
+      onReplace: (tables, call) => {
+        if (call !== 0) return;
+        tables.kb_gap_topics = [
+          {
+            id: 'old',
+            status: 'dismissed',
+            dismissed_at: '2026-10-23T00:00:00Z',
+          },
+        ];
+        tables.kb_gap_topic_members = GAPS.slice(0, 3).map((g) => ({
+          topic_id: 'old',
+          gap_id: g.id,
+        }));
+      },
+    });
+    const sim = jev();
+    const r = await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW });
+    expect(r).toMatchObject({ ok: true, topics: 3, judged: 3 });
+    expect(sim.calls).toHaveLength(3); // one judgment per topic, not two
+    const [first, second] = allReplaceArgs(rpc);
+    expect(first!.p_expected).toEqual({ old: 'open' });
+    expect(second!.p_expected).toEqual({ old: 'dismissed' });
+    expect(second!.p_topics.find((t) => t.question_count === 3)).toMatchObject({
+      status: 'dismissed',
+      dismissed_at: '2026-10-23T00:00:00Z',
+      coverage: 'full',
+    });
+  });
+
+  it('gives up after two STALE retries', async () => {
+    const rpc = fakeDb({ replaceError: STALE });
+    expect(await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW })).toEqual({
+      ok: false,
+      reason: 'replace: changed',
+    });
+    expect(allReplaceArgs(rpc)).toHaveLength(3);
+  });
+
   it('reports a failed replace as ok false', async () => {
     fakeDb({ replaceError: { message: 'foreign gap id' } });
     expect(await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW })).toEqual({
@@ -248,5 +367,43 @@ describe('accountsDueForGapRecompute', () => {
       Promise.resolve({ data: rows, error: null }).then(ok);
     const db = { from: () => b } as never;
     expect(await accountsDueForGapRecompute(db, NOW)).toEqual(['c', 'a']);
+  });
+});
+
+describe('runKbGapRecomputePass', () => {
+  it('starts no account after 45 s and gives each min(remaining, 40 s)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    const rpc = fakeDb({
+      scanRows: ['a', 'b', 'c'].flatMap((id) =>
+        Array(3).fill({ account_id: id })
+      ),
+      // Each account's run takes 36 s.
+      onReplace: () => vi.setSystemTime(Date.now() + 36_000),
+    });
+    h.loadAiConfig.mockResolvedValue({ embeddingsApiKey: 'sk-e' });
+    h.embedTexts.mockImplementation(async (_k: string, texts: string[]) =>
+      texts.map(() => [1, 0])
+    );
+    const r = await runKbGapRecomputePass();
+    // a at 0 s (40 s budget), b at 36 s (9 s left: too little to embed),
+    // c not started at 72 s.
+    expect(r).toEqual({ accounts: 3, failed: 0, skipped: 1 });
+    expect(allReplaceArgs(rpc).map((a) => a.p_account)).toEqual(['a', 'b']);
+    expect(h.embedTexts).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('clearKbGapTopics', () => {
+  it('replaces with no topics against the statuses it read', async () => {
+    const rpc = fakeDb({
+      topics: [{ id: 't1', status: 'dismissed', dismissed_at: null }],
+    });
+    expect(await clearKbGapTopics(TEST_ACCOUNT)).toBe(true);
+    expect(replaceArgs(rpc)).toEqual({
+      p_account: TEST_ACCOUNT,
+      p_topics: [],
+      p_expected: { t1: 'dismissed' },
+    });
   });
 });

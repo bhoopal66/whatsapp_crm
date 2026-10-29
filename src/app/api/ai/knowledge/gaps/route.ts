@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { clearKbGapTopics } from '@/lib/kb/gap-recompute';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -43,7 +44,9 @@ export async function GET() {
  * DELETE /api/ai/knowledge/gaps  (admin+)
  *
  * Body `{ ids: string[] }` removes the listed rows; `{ all: true }`
- * clears the account's log. Either way it is bookkeeping — the gaps
+ * clears the account's log and empties its topics (migration 152) on
+ * the service role (best-effort: the topics GET already hides a topic
+ * with no gaps left). Either way it is bookkeeping — the gaps
  * exist so someone can act on them, and "acted on" means delete.
  */
 export async function DELETE(request: Request) {
@@ -80,6 +83,7 @@ export async function DELETE(request: Request) {
         { status: 500 }
       );
     }
+    if (all) await clearKbGapTopics(accountId);
     return NextResponse.json({ success: true });
   } catch (err) {
     return toErrorResponse(err);

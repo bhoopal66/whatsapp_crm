@@ -3,6 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { canEditSettings } from '@/lib/auth/roles';
 import { KB_ENTRY_COLUMNS, summarizeKb } from '@/lib/kb/requests';
 import type { KbEntry } from '@/lib/kb/types';
+import { redactClipped } from '@/lib/typesafe/checks/common';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -71,7 +72,8 @@ const MAX_NEW_QUESTION = 2000;
  * edit dialog on it. The ref is generated (`GAP-XXXXXX`): workbook
  * imports upsert by ref, and the prefix keeps a created row clear of
  * the sheet's own refs. The audience is `prospective_client`, a
- * customer audience, since the question came from a customer.
+ * customer audience, since the question came from a customer. The
+ * question is redacted before it is stored.
  */
 export async function POST(request: Request) {
   try {
@@ -80,14 +82,17 @@ export async function POST(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = await request.json().catch(() => null);
-    const question =
-      typeof body?.question === 'string' ? body.question.trim() : '';
-    if (!question || question.length > MAX_NEW_QUESTION) {
+    const raw = typeof body?.question === 'string' ? body.question.trim() : '';
+    if (!raw || raw.length > MAX_NEW_QUESTION) {
       return NextResponse.json(
         { error: 'A question is required' },
         { status: 400 }
       );
     }
+    // The question is a customer's own words: identifiers (Emirates ID,
+    // card, IBAN, phone, email) are masked before it becomes library
+    // text, the same redaction the TypeSafe gateway applies.
+    const question = redactClipped(raw, MAX_NEW_QUESTION).trim();
 
     const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 6);
     const { data, error } = await supabase

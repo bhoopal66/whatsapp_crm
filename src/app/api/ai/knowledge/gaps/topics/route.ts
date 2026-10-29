@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { recomputeKbGapTopics } from '@/lib/kb/gap-recompute';
-import { MAX_GAPS_PER_RUN } from '@/lib/kb/gap-topics';
+import { MAX_GAPS_PER_RUN, clipTopicLabel } from '@/lib/kb/gap-topics';
 import {
   MAX_TOPIC_EXAMPLES,
   latestComputedAt,
@@ -24,6 +24,9 @@ interface MemberRow {
   gap: { question: string; created_at: string } | null;
 }
 
+/** The Refresh button's recompute budget. */
+const REFRESH_BUDGET_MS = 25_000;
+
 const TOPIC_COLUMNS =
   'id, label, intent, question_count, first_seen_at, last_seen_at, coverage, covered_by_entry_id, status, dismissed_at, computed_at';
 
@@ -36,6 +39,11 @@ const TOPIC_COLUMNS =
  * with the caller's RLS client: both tables are admin+ under RLS.
  * Topic ids change on every recompute, so the client re-reads after a
  * Refresh rather than patching.
+ *
+ * Counts are live: a deleted gap drops its member row (cascade), so
+ * `question_count` is the topic's remaining members, a topic with none
+ * left is not answered, and when the representative question itself was
+ * deleted the newest remaining one stands in as the label.
  */
 export async function GET() {
   try {
@@ -111,19 +119,26 @@ export async function GET() {
       titles.set(e.id, e.question);
     }
 
-    const views: GapTopicView[] = topics.map(({ computed_at, ...rest }) => {
+    const views: GapTopicView[] = [];
+    for (const { computed_at, ...rest } of topics) {
       void computed_at; // stripped: the response carries one computed_at
       const newest = (byTopic.get(rest.id) ?? [])
         .sort((a, b) => b.at - a.at)
         .map((g) => g.question);
-      return {
+      if (newest.length === 0) continue;
+      const label = newest.some((q) => clipTopicLabel(q) === rest.label)
+        ? rest.label
+        : clipTopicLabel(newest[0]!);
+      views.push({
         ...rest,
+        label,
+        question_count: newest.length,
         covered_by_title: rest.covered_by_entry_id
           ? (titles.get(rest.covered_by_entry_id) ?? null)
           : null,
-        examples: trimExamples(rest.label, newest, MAX_TOPIC_EXAMPLES),
-      };
-    });
+        examples: trimExamples(label, newest, MAX_TOPIC_EXAMPLES),
+      });
+    }
 
     return NextResponse.json({
       topics: sortTopics(views),
@@ -139,7 +154,9 @@ export async function GET() {
  *
  * Recompute the account's topics now (the daily cron does the same).
  * Once per 10 minutes per account: a run embeds every gap and asks Jev
- * about the largest topics. Answers the recompute's summary.
+ * about the largest topics. Answers the recompute's summary. The run
+ * gets REFRESH_BUDGET_MS: past it, topics are stored unjudged rather
+ * than holding the request open.
  */
 export async function POST() {
   try {
@@ -150,7 +167,9 @@ export async function POST() {
     );
     if (!limit.success) return rateLimitResponse(limit);
 
-    const result = await recomputeKbGapTopics(accountId);
+    const result = await recomputeKbGapTopics(accountId, {
+      deadlineAt: Date.now() + REFRESH_BUDGET_MS,
+    });
     if (!result.ok) {
       console.error('[ai/knowledge/gaps/topics POST] failed:', result.reason);
       return NextResponse.json(

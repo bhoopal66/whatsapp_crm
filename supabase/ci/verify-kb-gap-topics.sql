@@ -6,11 +6,14 @@
 -- follow, a re-dismissal keeps the date) and that an agent, another
 -- account's owner and an unknown status are refused; that a direct
 -- write by an admin changes nothing; that kb_gap_topics_replace is the
--- service role's alone, swaps an account's topics in one call and
+-- service role's alone, refuses (40001) a p_expected that no longer
+-- matches the stored statuses or set and changes nothing, swaps an
+-- account's topics in one call and
 -- returns the count, and that another account's gap or answer id fails
 -- the whole call and leaves the previous topics in place; that deleting
 -- a gap drops its member rows and deleting an answer nulls
--- covered_by_entry_id only.
+-- covered_by_entry_id only, and a replace naming a deleted answer
+-- stores NULL.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -79,6 +82,14 @@ BEGIN
       END;
     END $body$
   $fn$;
+  -- The account's topics as a replace's p_expected: { "<id>": "<status>" }.
+  EXECUTE $fn$
+    CREATE FUNCTION pg_temp.kg_cur(p_account uuid)
+    RETURNS jsonb LANGUAGE sql AS $body$
+      SELECT coalesce(jsonb_object_agg(id::text, status), '{}'::jsonb)
+      FROM public.kb_gap_topics WHERE account_id = p_account
+    $body$
+  $fn$;
 
   INSERT INTO auth.users (id, email) VALUES
     (u_owner,  'kg152-owner@example.invalid'),
@@ -113,7 +124,7 @@ BEGIN
       'question_count', 1, 'first_seen_at', '2026-10-03T00:00:00Z', 'last_seen_at', '2026-10-03T00:00:00Z',
       'gap_ids', jsonb_build_array(g3)));
   r := pg_temp.kg_try('service_role', NULL,
-    format('select public.kb_gap_topics_replace(%L, %L::jsonb)', a_acct, js));
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r IS DISTINCT FROM '2' THEN
     failed := array_append(failed, format('replace for A returned %s, not 2', r));
@@ -134,7 +145,7 @@ BEGIN
       'question_count', 1, 'first_seen_at', '2026-10-01T00:00:00Z', 'last_seen_at', '2026-10-01T00:00:00Z',
       'gap_ids', jsonb_build_array(gb)));
   r := pg_temp.kg_try('service_role', NULL,
-    format('select public.kb_gap_topics_replace(%L, %L::jsonb)', b_acct, js));
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', b_acct, js, pg_temp.kg_cur(b_acct)));
   SELECT id INTO tb FROM kb_gap_topics WHERE account_id = b_acct;
   n := n + 1;
   IF r IS DISTINCT FROM '1' OR tb IS NULL THEN
@@ -234,16 +245,16 @@ BEGIN
 
   -- ---------- replace is the service role's alone ----------
   n := n + 1;
-  IF has_function_privilege('authenticated', 'public.kb_gap_topics_replace(uuid, jsonb)', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.kb_gap_topics_replace(uuid, jsonb)', 'EXECUTE')
-     OR NOT has_function_privilege('service_role', 'public.kb_gap_topics_replace(uuid, jsonb)', 'EXECUTE')
+  IF has_function_privilege('authenticated', 'public.kb_gap_topics_replace(uuid, jsonb, jsonb)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.kb_gap_topics_replace(uuid, jsonb, jsonb)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_gap_topics_replace(uuid, jsonb, jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.kb_gap_topic_set_status(uuid, text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.kb_gap_topic_set_status(uuid, text)', 'EXECUTE')
   THEN
     failed := array_append(failed, 'function EXECUTE privileges are wrong'::text);
   END IF;
   r := pg_temp.kg_try('authenticated', u_admin,
-    format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb)$q$, a_acct));
+    format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb, %L::jsonb)$q$, a_acct, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r NOT LIKE 'ERROR: 42501%' OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 2 THEN
     failed := array_append(failed, format('an admin could call kb_gap_topics_replace: %s', r));
@@ -258,7 +269,7 @@ BEGIN
       'question_count', 1, 'first_seen_at', '2026-10-05T00:00:00Z', 'last_seen_at', '2026-10-05T00:00:00Z',
       'gap_ids', jsonb_build_array(gb)));
   r := pg_temp.kg_try('service_role', NULL,
-    format('select public.kb_gap_topics_replace(%L, %L::jsonb)', a_acct, js));
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r NOT LIKE 'ERROR: 23503%' THEN
     failed := array_append(failed, format('replace with another account''s gap was not refused 23503: %s', r));
@@ -274,7 +285,7 @@ BEGIN
       'question_count', 1, 'first_seen_at', '2026-10-05T00:00:00Z', 'last_seen_at', '2026-10-05T00:00:00Z',
       'covered_by_entry_id', eb, 'coverage', 'full', 'gap_ids', jsonb_build_array(g1)));
   r := pg_temp.kg_try('service_role', NULL,
-    format('select public.kb_gap_topics_replace(%L, %L::jsonb)', a_acct, js));
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r NOT LIKE 'ERROR: 23503%' OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 2 THEN
     failed := array_append(failed, format('replace with another account''s answer was not refused 23503: %s', r));
@@ -283,13 +294,13 @@ BEGIN
     jsonb_build_object('label', 'dismissed without a date', 'status', 'dismissed',
       'question_count', 1, 'first_seen_at', '2026-10-05T00:00:00Z', 'last_seen_at', '2026-10-05T00:00:00Z'));
   r := pg_temp.kg_try('service_role', NULL,
-    format('select public.kb_gap_topics_replace(%L, %L::jsonb)', a_acct, js));
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r NOT LIKE 'ERROR: 23514%' OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 2 THEN
     failed := array_append(failed, format('a dismissed topic without dismissed_at was not refused 23514: %s', r));
   END IF;
   r := pg_temp.kg_try('service_role', NULL,
-    format($q$select public.kb_gap_topics_replace(%L, '{}'::jsonb)$q$, a_acct));
+    format($q$select public.kb_gap_topics_replace(%L, '{}'::jsonb, %L::jsonb)$q$, a_acct, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r NOT LIKE 'ERROR: 22023%' THEN
     failed := array_append(failed, format('a non-array p_topics was not refused 22023: %s', r));
@@ -309,7 +320,7 @@ BEGIN
       'first_seen_at', '2026-10-03T00:00:00Z', 'last_seen_at', '2026-10-03T00:00:00Z',
       'gap_ids', '[]'::jsonb));
   r := pg_temp.kg_try('service_role', NULL,
-    format('select public.kb_gap_topics_replace(%L, %L::jsonb)', a_acct, js));
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
   n := n + 1;
   IF r IS DISTINCT FROM '3' THEN
     failed := array_append(failed, format('the swapping replace returned %s, not 3', r));
@@ -326,6 +337,34 @@ BEGIN
   END IF;
   SELECT id INTO t1 FROM kb_gap_topics WHERE account_id = a_acct AND label = 'POS licence';
 
+  -- ---------- p_expected: a stale read changes nothing ----------
+  -- A status changed since the read (t1 is dismissed, the caller read it open).
+  r := pg_temp.kg_try('service_role', NULL,
+    format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb, %L::jsonb)$q$,
+      a_acct, pg_temp.kg_cur(a_acct) || jsonb_build_object(t1::text, 'open')));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR: 40001%'
+     OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 3
+     OR (SELECT status FROM kb_gap_topics WHERE id = t1) IS DISTINCT FROM 'dismissed' THEN
+    failed := array_append(failed, format('a replace with a stale status was not refused 40001: %s', r));
+  END IF;
+  -- The set changed since the read (the caller never saw t1).
+  r := pg_temp.kg_try('service_role', NULL,
+    format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb, %L::jsonb)$q$,
+      a_acct, pg_temp.kg_cur(a_acct) - t1::text));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR: 40001%'
+     OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 3
+     OR (SELECT count(*) FROM kb_gap_topic_members WHERE account_id = a_acct) <> 3 THEN
+    failed := array_append(failed, format('a replace with a stale topic set was not refused 40001: %s', r));
+  END IF;
+  r := pg_temp.kg_try('service_role', NULL,
+    format($q$select public.kb_gap_topics_replace(%L, '[]'::jsonb, NULL)$q$, a_acct));
+  n := n + 1;
+  IF r NOT LIKE 'ERROR: 22023%' OR (SELECT count(*) FROM kb_gap_topics WHERE account_id = a_acct) <> 3 THEN
+    failed := array_append(failed, format('a NULL p_expected was not refused 22023: %s', r));
+  END IF;
+
   -- ---------- deletes ----------
   DELETE FROM ai_knowledge_gaps WHERE id = g1;
   n := n + 1;
@@ -339,6 +378,22 @@ BEGIN
   IF (SELECT covered_by_entry_id IS NULL AND account_id = a_acct AND coverage = 'full'
         FROM kb_gap_topics WHERE id = t1) IS DISTINCT FROM true THEN
     failed := array_append(failed, 'deleting an answer did not null covered_by_entry_id only'::text);
+  END IF;
+
+  -- ---------- an answer deleted during a recompute is stored as NULL ----------
+  -- (and a matching p_expected is accepted)
+  js := jsonb_build_array(
+    jsonb_build_object('label', 'POS licence', 'question_count', 1,
+      'first_seen_at', '2026-10-01T00:00:00Z', 'last_seen_at', '2026-10-06T00:00:00Z',
+      'coverage', 'full', 'covered_by_entry_id', e, 'coverage_p', 0.9,
+      'gap_ids', jsonb_build_array(g2)));
+  r := pg_temp.kg_try('service_role', NULL,
+    format('select public.kb_gap_topics_replace(%L, %L::jsonb, %L::jsonb)', a_acct, js, pg_temp.kg_cur(a_acct)));
+  n := n + 1;
+  IF r IS DISTINCT FROM '1'
+     OR (SELECT covered_by_entry_id IS NULL AND coverage = 'full'
+           FROM kb_gap_topics WHERE account_id = a_acct) IS DISTINCT FROM true THEN
+    failed := array_append(failed, format('a deleted answer id was not stored as NULL: %s', r));
   END IF;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.

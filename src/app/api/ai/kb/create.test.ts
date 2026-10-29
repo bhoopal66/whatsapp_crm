@@ -41,6 +41,26 @@ const post = (body: unknown) =>
 beforeEach(() => vi.clearAllMocks());
 
 describe('POST /api/ai/kb (start an answer from a question)', () => {
+  it('redacts identifiers in the question before storing it', async () => {
+    const c = client({ data: { id: 'e1' }, error: null });
+    mocks.requireRole.mockResolvedValue({
+      supabase: c.supabase,
+      accountId: 'acc-1',
+      userId: 'u1',
+    });
+    const res = await POST(
+      post({
+        question:
+          'My Emirates ID is 784-1990-1234567-1, mail me at a.b@example.com',
+      })
+    );
+    expect(res.status).toBe(201);
+    const { question } = c.inserted[0] as { question: string };
+    expect(question).not.toContain('1234567');
+    expect(question).not.toContain('a.b@example.com');
+    expect(question).toContain('My Emirates ID is');
+  });
+
   it('inserts a draft with a generated GAP ref in the caller account', async () => {
     const c = client({ data: { id: 'e1', question: 'Q?' }, error: null });
     mocks.requireRole.mockResolvedValue({

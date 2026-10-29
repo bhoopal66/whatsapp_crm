@@ -16,7 +16,11 @@
 -- Writers. A recompute replaces an account's whole topic set through
 -- kb_gap_topics_replace() (service role only), in one transaction under
 -- a per-account advisory lock: a failed insert leaves the previous
--- topics in place, and two recomputes never interleave. The one thing a
+-- topics in place, and two recomputes never interleave. The recompute
+-- passes the statuses it read before working (p_expected); if a person
+-- dismissed or reopened a topic meanwhile, or the set changed, the call
+-- refuses (40001, HINT STALE) and the recompute carries the new
+-- statuses over and tries again. The one thing a
 -- person changes is a topic's status (dismiss / reopen), through
 -- kb_gap_topic_set_status(); there is no client INSERT, UPDATE or
 -- DELETE policy or grant.
@@ -109,7 +113,7 @@ CREATE TABLE IF NOT EXISTS public.kb_gap_topics (
 COMMENT ON TABLE public.kb_gap_topics IS
   'Knowledge-gap topics (152): ai_knowledge_gaps grouped by src/lib/kb/gap-topics.ts. Written only by kb_gap_topics_replace() (service role) and kb_gap_topic_set_status(); admin+ read.';
 COMMENT ON COLUMN public.kb_gap_topics.label IS
-  'The representative question (the medoid), already redacted.';
+  'The representative question (the medoid), raw customer text as the gaps list shows it (not redacted), clipped to 500 characters by the recompute.';
 COMMENT ON COLUMN public.kb_gap_topics.intent IS
   'Jev''s intent judgment for the topic, NULL when not judged.';
 COMMENT ON COLUMN public.kb_gap_topics.coverage IS
@@ -226,19 +230,33 @@ GRANT EXECUTE ON FUNCTION public.kb_gap_topic_set_status(uuid, text) TO authenti
 -- ------------------------------------------------------------
 -- 6. Replace an account's topics (the recompute)
 -- ------------------------------------------------------------
+-- The signature gained p_expected while 152 was unreleased; drop the
+-- two-argument form so a re-run never leaves an unchecked overload.
+DROP FUNCTION IF EXISTS public.kb_gap_topics_replace(uuid, jsonb);
+
 -- p_topics is a JSON array of
 --   { label, intent, question_count, first_seen_at, last_seen_at,
 --     coverage, covered_by_entry_id, coverage_p, status, dismissed_at,
 --     gap_ids: [uuid] }
 -- coverage defaults to 'unknown' and status to 'open' when absent;
--- every other rule is the tables' CHECKs and FKs. Every row is written
+-- every other rule is the tables' CHECKs and FKs. A covered_by_entry_id
+-- naming an answer that no longer exists anywhere (deleted while the
+-- recompute ran) is stored as NULL; one that exists in another account
+-- still fails the FK. Every row is written
 -- with account_id = p_account, so the composite FKs refuse a gap or an
 -- answer of another account (23503). One function call is one
 -- transaction: any failure undoes the DELETE as well. Returns the number
 -- of topics inserted. Topic ids are new on every call.
+--
+-- p_expected is the account's topics as the caller read them, a JSON
+-- object { "<topic id>": "<status>" } ('{}' for none). Under the lock,
+-- if the stored set differs (a topic's status changed, or a topic was
+-- added or removed) the call raises 40001 with HINT 'STALE' and changes
+-- nothing: a dismissal made while a recompute was working is never lost.
 CREATE OR REPLACE FUNCTION public.kb_gap_topics_replace(
-  p_account uuid,
-  p_topics  jsonb
+  p_account  uuid,
+  p_topics   jsonb,
+  p_expected jsonb
 )
 RETURNS integer
 LANGUAGE plpgsql
@@ -249,6 +267,7 @@ DECLARE
   v_elem  jsonb;
   v_topic uuid;
   v_count integer := 0;
+  v_entry uuid;
 BEGIN
   IF p_account IS NULL THEN
     RAISE EXCEPTION 'p_account is required' USING ERRCODE = '22023';
@@ -256,8 +275,17 @@ BEGIN
   IF p_topics IS NULL OR jsonb_typeof(p_topics) <> 'array' THEN
     RAISE EXCEPTION 'p_topics must be a JSON array' USING ERRCODE = '22023';
   END IF;
+  IF p_expected IS NULL OR jsonb_typeof(p_expected) <> 'object' THEN
+    RAISE EXCEPTION 'p_expected must be a JSON object' USING ERRCODE = '22023';
+  END IF;
 
   PERFORM pg_advisory_xact_lock(hashtext('kb_gap_topics:' || p_account));
+
+  IF (SELECT coalesce(jsonb_object_agg(id::text, status), '{}'::jsonb)
+      FROM kb_gap_topics WHERE account_id = p_account) IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'the account''s topics changed since they were read'
+      USING ERRCODE = '40001', HINT = 'STALE';
+  END IF;
 
   DELETE FROM kb_gap_topics WHERE account_id = p_account;
 
@@ -267,6 +295,11 @@ BEGIN
        OR (v_elem ? 'gap_ids' AND jsonb_typeof(v_elem->'gap_ids') NOT IN ('array', 'null')) THEN
       RAISE EXCEPTION 'each topic must be an object whose gap_ids is an array'
         USING ERRCODE = '22023';
+    END IF;
+
+    v_entry := (v_elem->>'covered_by_entry_id')::uuid;
+    IF v_entry IS NOT NULL AND NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = v_entry) THEN
+      v_entry := NULL;
     END IF;
 
     INSERT INTO kb_gap_topics (
@@ -280,7 +313,7 @@ BEGIN
       (v_elem->>'first_seen_at')::timestamptz,
       (v_elem->>'last_seen_at')::timestamptz,
       coalesce(v_elem->>'coverage', 'unknown'),
-      (v_elem->>'covered_by_entry_id')::uuid,
+      v_entry,
       (v_elem->>'coverage_p')::real,
       coalesce(v_elem->>'status', 'open'),
       (v_elem->>'dismissed_at')::timestamptz
@@ -300,8 +333,8 @@ BEGIN
 END
 $$;
 
-COMMENT ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb) IS
-  'Replace an account''s knowledge-gap topics in one transaction (152). Service role only; same-account composite FKs refuse foreign gap or answer ids.';
+COMMENT ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb, jsonb) IS
+  'Replace an account''s knowledge-gap topics in one transaction (152). Service role only; 40001 HINT STALE when the stored statuses differ from p_expected; same-account composite FKs refuse foreign gap or answer ids.';
 
-REVOKE ALL ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_gap_topics_replace(uuid, jsonb, jsonb) TO service_role;

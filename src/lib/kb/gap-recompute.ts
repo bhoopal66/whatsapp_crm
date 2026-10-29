@@ -9,6 +9,13 @@
  * once a day per process and only logs a failure. A failed replace
  * leaves the previous topics in place (the RPC is atomic).
  *
+ * Time-boxed. A caller passes `deadlineAt`: no Jev judgment starts once
+ * less than one request's timeout remains (the rest stay 'unknown'), and
+ * grouping goes lexical rather than embed when the budget is nearly
+ * spent. A dismissal made while a run was working is never lost: the
+ * replace refuses a stale read (40001 STALE) and the run carries the new
+ * statuses over and tries again, without asking Jev again.
+ *
  * Jev is optional. Without it (layer off, no API key, account not
  * allowed, or a failed request) a topic is stored with coverage
  * 'unknown' and no intent — the grouping itself needs no Jev.
@@ -30,6 +37,7 @@ import {
   capGaps,
   carryOverStatus,
   clusterGaps,
+  clipTopicLabel,
   clusterMode,
   type GapRow,
   type GapTopic,
@@ -52,6 +60,14 @@ export const PARTIAL_COVERAGE_MIN_LEVEL = 0.8;
 export const MIN_GAPS_FOR_RECOMPUTE = 3;
 /** The cron recomputes at most this many accounts per pass. */
 export const MAX_ACCOUNTS_PER_PASS = 50;
+/** The cron pass starts no new account after this long (like runPbxCron). */
+export const PASS_BUDGET_MS = 45_000;
+/** One account's share of the pass, at most. */
+export const ACCOUNT_BUDGET_MS = 40_000;
+/** Embedding is skipped (lexical grouping) with less than this left. */
+export const EMBED_MIN_BUDGET_MS = 10_000;
+/** A replace refused as STALE is retried at most this many times. */
+export const MAX_STALE_RETRIES = 2;
 
 const DAY_MS = 86_400_000;
 /** PostgREST answers at most this many rows per request (Supabase's
@@ -142,10 +158,17 @@ async function loadGaps(
   );
 }
 
+/** The stored topics as carryOverStatus reads them, plus the replace's
+ *  p_expected: each topic id → its status as read. */
+interface PreviousState {
+  topics: PreviousTopic[];
+  expected: Record<string, string>;
+}
+
 async function loadPrevious(
   db: SupabaseClient,
   accountId: string
-): Promise<PreviousTopic[]> {
+): Promise<PreviousState> {
   const [topics, members] = await Promise.all([
     db
       .from('kb_gap_topics')
@@ -167,17 +190,26 @@ async function loadPrevious(
     list.push(m.gap_id);
     byTopic.set(m.topic_id, list);
   }
-  return (
-    (topics.data ?? []) as {
-      id: string;
-      status: string;
-      dismissed_at: string | null;
-    }[]
-  ).map((t) => ({
-    memberIds: byTopic.get(t.id) ?? [],
-    status: t.status === 'dismissed' ? 'dismissed' : 'open',
-    dismissedAt: t.dismissed_at,
-  }));
+  const rows = (topics.data ?? []) as {
+    id: string;
+    status: string;
+    dismissed_at: string | null;
+  }[];
+  return {
+    topics: rows.map((t) => ({
+      memberIds: byTopic.get(t.id) ?? [],
+      status: t.status === 'dismissed' ? 'dismissed' : 'open',
+      dismissedAt: t.dismissed_at,
+    })),
+    expected: Object.fromEntries(rows.map((t) => [t.id, t.status])),
+  };
+}
+
+/** The replace refused a stale read (migration 152: 40001, HINT STALE). */
+function isStale(
+  error: { code?: string; hint?: string | null } | null
+): boolean {
+  return error?.code === '40001' && error.hint === 'STALE';
 }
 
 /** Embeds every question when the account has an embeddings key (the
@@ -209,7 +241,8 @@ async function withEmbeddings(
 async function judgeTopics(
   db: SupabaseClient,
   accountId: string,
-  topics: GapTopic[]
+  topics: GapTopic[],
+  deadlineAt: number
 ): Promise<Judged[]> {
   const out: Judged[] = topics.map(() => UNJUDGED);
   const ts = getDecisionLayer();
@@ -220,7 +253,11 @@ async function judgeTopics(
     .map((t, i) => ({ i, count: t.count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, MAX_JUDGED_TOPICS);
+  // One judgment can take up to a request's timeout; none starts that
+  // cannot finish inside the budget, so the rest stay unjudged.
+  const callMs = ts.config.timeoutMs;
   await mapLimit(order, JUDGE_CONCURRENCY, async ({ i }) => {
+    if (Date.now() + callMs > deadlineAt) return;
     const topic = topics[i]!;
     try {
       const shortlist = (
@@ -263,42 +300,58 @@ async function judgeTopics(
  */
 export async function recomputeKbGapTopics(
   accountId: string,
-  opts: { now?: Date } = {}
+  opts: { now?: Date; deadlineAt?: number } = {}
 ): Promise<RecomputeResult> {
   const now = opts.now ?? new Date();
+  const deadlineAt = opts.deadlineAt ?? Number.POSITIVE_INFINITY;
   try {
     const db = supabaseAdmin();
-    const [gaps, previous] = await Promise.all([
+    const [gaps, firstRead] = await Promise.all([
       loadGaps(db, accountId, now),
       loadPrevious(db, accountId),
     ]);
-    const rows = await withEmbeddings(db, accountId, gaps);
+    let previous = firstRead;
+    const rows =
+      Date.now() + EMBED_MIN_BUDGET_MS > deadlineAt
+        ? gaps
+        : await withEmbeddings(db, accountId, gaps);
     const mode = clusterMode(rows);
     const topics = clusterGaps(rows);
-    const judged = await judgeTopics(db, accountId, topics);
+    const judged = await judgeTopics(db, accountId, topics, deadlineAt);
     const createdAtById = new Map(gaps.map((g) => [g.id, g.createdAt]));
-    const elements: GapTopicElement[] = topics.map((t, i) => {
-      const j = judged[i]!;
-      const carried = carryOverStatus(t, createdAtById, previous);
-      return {
-        label: t.label,
-        intent: j.intent,
-        question_count: t.count,
-        first_seen_at: t.firstSeenAt,
-        last_seen_at: t.lastSeenAt,
-        coverage: j.coverage,
-        covered_by_entry_id: j.coveredBy,
-        coverage_p: j.coverageP,
-        status: carried.status,
-        dismissed_at: carried.dismissedAt,
-        gap_ids: t.memberIds,
-      };
-    });
-    const { error } = await db.rpc('kb_gap_topics_replace', {
-      p_account: accountId,
-      p_topics: elements,
-    });
-    if (error) return { ok: false, reason: `replace: ${error.message}` };
+    const build = (prev: PreviousTopic[]): GapTopicElement[] =>
+      topics.map((t, i) => {
+        const j = judged[i]!;
+        const carried = carryOverStatus(t, createdAtById, prev);
+        return {
+          label: clipTopicLabel(t.label),
+          intent: j.intent,
+          question_count: t.count,
+          first_seen_at: t.firstSeenAt,
+          last_seen_at: t.lastSeenAt,
+          coverage: j.coverage,
+          covered_by_entry_id: j.coveredBy,
+          coverage_p: j.coverageP,
+          status: carried.status,
+          dismissed_at: carried.dismissedAt,
+          gap_ids: t.memberIds,
+        };
+      });
+    let elements = build(previous.topics);
+    for (let attempt = 0; ; attempt++) {
+      const { error } = await db.rpc('kb_gap_topics_replace', {
+        p_account: accountId,
+        p_topics: elements,
+        p_expected: previous.expected,
+      });
+      if (!error) break;
+      if (!isStale(error) || attempt >= MAX_STALE_RETRIES)
+        return { ok: false, reason: `replace: ${error.message}` };
+      // Someone dismissed or reopened a topic while this run worked:
+      // carry the statuses as they are now over the same judged topics.
+      previous = await loadPrevious(db, accountId);
+      elements = build(previous.topics);
+    }
     return {
       ok: true,
       topics: elements.length,
@@ -343,18 +396,27 @@ export async function accountsDueForGapRecompute(
 }
 
 /**
- * The automations cron's daily pass: every due account, one at a time.
- * A failed account is logged and the pass moves on; it throws only when
- * the account scan itself fails.
+ * The automations cron's daily pass: every due account, one at a time,
+ * inside `after()`. It starts no new account once PASS_BUDGET_MS has
+ * gone (those wait for the next pass) and gives each one
+ * min(remaining, ACCOUNT_BUDGET_MS). A failed account is logged and the
+ * pass moves on; it throws only when the account scan itself fails.
  */
 export async function runKbGapRecomputePass(
   opts: { now?: Date } = {}
-): Promise<{ accounts: number; failed: number }> {
+): Promise<{ accounts: number; failed: number; skipped: number }> {
+  const started = Date.now();
+  const passDeadline = started + PASS_BUDGET_MS;
   const now = opts.now ?? new Date();
   const accounts = await accountsDueForGapRecompute(supabaseAdmin(), now);
   let failed = 0;
+  let done = 0;
   for (const accountId of accounts) {
-    const res = await recomputeKbGapTopics(accountId, { now });
+    const at = Date.now();
+    if (at >= passDeadline) break;
+    done++;
+    const deadlineAt = at + Math.min(passDeadline - at, ACCOUNT_BUDGET_MS);
+    const res = await recomputeKbGapTopics(accountId, { now, deadlineAt });
     if (!res.ok) {
       failed++;
       console.error(
@@ -362,5 +424,37 @@ export async function runKbGapRecomputePass(
       );
     }
   }
-  return { accounts: accounts.length, failed };
+  const skipped = accounts.length - done;
+  if (skipped > 0)
+    console.warn(
+      `[kb-gap] pass out of time; ${skipped} account(s) wait for the next pass`
+    );
+  return { accounts: accounts.length, failed, skipped };
+}
+
+/**
+ * Empties an account's topics (the gaps' "clear all"): every member gap
+ * is gone, so nothing is left to show or carry over. Retries a STALE
+ * refusal like the recompute. Never throws; answers whether it emptied.
+ */
+export async function clearKbGapTopics(accountId: string): Promise<boolean> {
+  try {
+    const db = supabaseAdmin();
+    for (let attempt = 0; attempt <= MAX_STALE_RETRIES; attempt++) {
+      const { expected } = await loadPrevious(db, accountId);
+      const { error } = await db.rpc('kb_gap_topics_replace', {
+        p_account: accountId,
+        p_topics: [],
+        p_expected: expected,
+      });
+      if (!error) return true;
+      if (!isStale(error)) throw new Error(error.message);
+    }
+    throw new Error('topics kept changing');
+  } catch (err) {
+    console.error(
+      `[kb-gap] clearing topics failed for account ${accountId}: ${message(err)}`
+    );
+    return false;
+  }
 }

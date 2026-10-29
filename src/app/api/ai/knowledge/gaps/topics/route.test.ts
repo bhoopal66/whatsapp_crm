@@ -109,6 +109,20 @@ describe('GET /api/ai/knowledge/gaps/topics', () => {
             gap: { question: 'oldest', created_at: '2026-09-01T00:00:00Z' },
           },
           { topic_id: T1, gap: null },
+          {
+            topic_id: T1,
+            gap: {
+              question: 'How much is a POS machine?',
+              created_at: '2026-08-01T00:00:00Z',
+            },
+          },
+          {
+            topic_id: T2,
+            gap: {
+              question: 'How much is a POS machine?',
+              created_at: '2026-10-02T00:00:00Z',
+            },
+          },
         ],
         error: null,
       },
@@ -125,6 +139,8 @@ describe('GET /api/ai/knowledge/gaps/topics', () => {
     expect(body.computed_at).toBe('2026-10-04T00:00:00Z');
     expect(body.topics.map((t: { id: string }) => t.id)).toEqual([T1, T2]);
     expect(body.topics[0].examples).toEqual(['newest', 'mid', 'old']);
+    expect(body.topics[0].question_count).toBe(5);
+    expect(body.topics[1].question_count).toBe(1);
     expect(body.topics[0].covered_by_title).toBe('POS fees');
     expect(body.topics[0]).not.toHaveProperty('computed_at');
     expect(mocks.requireRole).toHaveBeenCalledWith('admin');
@@ -136,6 +152,44 @@ describe('GET /api/ai/knowledge/gaps/topics', () => {
     ]) {
       expect(c.calls).toContainEqual([table, 'eq', ['account_id', ACCOUNT]]);
     }
+  });
+
+  it('hides a topic whose gaps are all deleted and relabels one whose label was', async () => {
+    const c = client({
+      kb_gap_topics: {
+        data: [
+          topicRow({ question_count: 9 }),
+          topicRow({ id: T2, label: 'deleted question' }),
+        ],
+        error: null,
+      },
+      kb_gap_topic_members: {
+        data: [
+          {
+            topic_id: T1,
+            gap: { question: 'older one', created_at: '2026-10-01T00:00:00Z' },
+          },
+          {
+            topic_id: T1,
+            gap: { question: 'newer one', created_at: '2026-10-04T00:00:00Z' },
+          },
+        ],
+        error: null,
+      },
+    });
+    mocks.requireRole.mockResolvedValue({
+      supabase: c.supabase,
+      accountId: ACCOUNT,
+    });
+    const body = await (await GET()).json();
+    // Counts are the live members, not the stored figure (9).
+    expect(body.topics).toHaveLength(1);
+    expect(body.topics[0]).toMatchObject({
+      id: T1,
+      label: 'newer one',
+      question_count: 2,
+      examples: ['older one'],
+    });
   });
 
   it('answers an empty list without further reads', async () => {
@@ -180,7 +234,15 @@ describe('POST /api/ai/knowledge/gaps/topics', () => {
     const res = await POST();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ topics: 4, mode: 'lexical', judged: 0 });
-    expect(mocks.recompute).toHaveBeenCalledWith(ACCOUNT);
+    expect(mocks.recompute).toHaveBeenCalledWith(ACCOUNT, {
+      deadlineAt: expect.any(Number),
+    });
+    // A 25 s budget from the request.
+    const { deadlineAt } = mocks.recompute.mock.calls[0]![1] as {
+      deadlineAt: number;
+    };
+    expect(deadlineAt - Date.now()).toBeGreaterThan(24_000);
+    expect(deadlineAt - Date.now()).toBeLessThanOrEqual(25_000);
   });
 
   it('allows one run per account per 10 minutes', async () => {

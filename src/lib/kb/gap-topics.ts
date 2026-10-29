@@ -43,7 +43,26 @@ export const CARRY_OVER_MIN_OVERLAP = 0.5;
  *  dismissal. */
 export const REOPEN_AFTER_NEW_QUESTIONS = 5;
 
+/** Longest stored topic label (kb_gap_topics_label_check, migration 152). */
+export const TOPIC_LABEL_MAX = 500;
+
 const DAY_MS = 86_400_000;
+
+/**
+ * A topic label as stored: the question unchanged when it fits, else cut
+ * at the last word boundary before TOPIC_LABEL_MAX (a hard cut when the
+ * text has no space in its second half) with "…". A gap question may be
+ * 2,000 characters, and one label over the CHECK fails the whole
+ * replace. Never splits a surrogate pair: Postgres refuses a lone one.
+ */
+export function clipTopicLabel(text: string, max = TOPIC_LABEL_MAX): string {
+  if (text.length <= max) return text;
+  let head = text.slice(0, max - 1);
+  const space = Math.max(head.lastIndexOf(' '), head.lastIndexOf('\n'));
+  if (space > max / 2) head = head.slice(0, space);
+  else if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1);
+  return `${head.trimEnd()}…`;
+}
 
 /** Words that carry no topic (en + ar). Kept small on purpose. */
 const STOP_WORDS: ReadonlySet<string> = new Set([
