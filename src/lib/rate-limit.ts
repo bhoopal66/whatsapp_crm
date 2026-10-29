@@ -173,6 +173,15 @@ export const RATE_LIMITS = {
    *  key past the provider's own rate limit. 60/min ≈ three busy agents
    *  drafting flat-out. */
   aiDraftAccount: { limit: 60, windowMs: 60_000 },
+  /** Inbox Translate, per user: every request to either translate
+   *  route, cache hits included. A reading aid clicked message by
+   *  message, so looser than drafting; it still stops a script from
+   *  walking a thread's history. */
+  aiTranslate: { limit: 60, windowMs: 60_000 },
+  /** Inbox Translate, per account: checked only right before an LLM
+   *  call (a cached translation spends nothing), so it caps the whole
+   *  team's translation draws on the one shared BYO provider key. */
+  aiTranslateAccount: { limit: 120, windowMs: 60_000 },
   /** AI auto-reply generation, per account. The per-conversation cap
    *  (`auto_reply_max_per_conversation`) bounds one thread; this bounds
    *  the whole account across threads, so a burst of inbound from many

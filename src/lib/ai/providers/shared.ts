@@ -10,6 +10,9 @@ export interface ProviderArgs {
   systemPrompt: string;
   messages: ChatMessage[];
   timeoutMs: number;
+  /** Output token cap. Defaults to `MAX_OUTPUT_TOKENS`; translation asks
+   *  for more, because Arabic output is token-heavy. */
+  maxTokens?: number;
 }
 
 /**

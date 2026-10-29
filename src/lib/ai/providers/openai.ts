@@ -27,7 +27,7 @@ interface OpenAiResponse {
 export async function generateOpenAi(
   args: ProviderArgs
 ): Promise<ProviderResult> {
-  const { apiKey, model, systemPrompt, messages, timeoutMs } = args;
+  const { apiKey, model, systemPrompt, messages, timeoutMs, maxTokens } = args;
 
   let res: Response;
   try {
@@ -43,7 +43,7 @@ export async function generateOpenAi(
           { role: 'system', content: systemPrompt },
           ...mergeConsecutive(messages),
         ],
-        max_completion_tokens: MAX_OUTPUT_TOKENS,
+        max_completion_tokens: maxTokens ?? MAX_OUTPUT_TOKENS,
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });

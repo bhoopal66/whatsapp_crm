@@ -44,7 +44,7 @@ function normalizeForAnthropic(messages: ChatMessage[]): ChatMessage[] {
 export async function generateAnthropic(
   args: ProviderArgs
 ): Promise<ProviderResult> {
-  const { apiKey, model, systemPrompt, messages, timeoutMs } = args;
+  const { apiKey, model, systemPrompt, messages, timeoutMs, maxTokens } = args;
 
   let res: Response;
   try {
@@ -58,7 +58,7 @@ export async function generateAnthropic(
       body: JSON.stringify({
         model,
         system: systemPrompt,
-        max_tokens: MAX_OUTPUT_TOKENS,
+        max_tokens: maxTokens ?? MAX_OUTPUT_TOKENS,
         messages: normalizeForAnthropic(messages),
       }),
       signal: AbortSignal.timeout(timeoutMs),
