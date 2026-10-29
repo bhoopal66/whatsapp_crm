@@ -114,6 +114,15 @@ export async function writeConversationChatTags(
     conversationId?: string;
     contactId?: string;
     next: ChatTagsWrite;
+    /**
+     * Write only while the chat has no main tag (automatic tagging,
+     * docs/jev-insights.md). A chat that is tagged, at the read or by
+     * another writer before the compare-and-set lands, is left alone and
+     * reported as ok with `previous` equal to `saved` (its real tags):
+     * "nothing changed", which dispatches nothing. A person's tag always
+     * wins over the automatic one.
+     */
+    onlyIfUntagged?: boolean;
   }
 ): Promise<WriteChatTagsResult> {
   try {
@@ -146,6 +155,16 @@ export async function writeConversationChatTags(
     // fresh read if another writer moved the tags in between.
     for (let attempt = 0; attempt < 2; attempt++) {
       const previous = toPatch(row);
+      // The compare-and-set below then requires chat_tag_id IS NULL.
+      if (args.onlyIfUntagged && previous.chat_tag_id !== null) {
+        return {
+          ok: true,
+          conversationId: row.id,
+          contactId: row.contact_id,
+          previous,
+          saved: previous,
+        };
+      }
       const target = resolveChatTagsWrite(previous, args.next);
       let update = db
         .from('conversations')

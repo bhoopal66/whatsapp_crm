@@ -46,6 +46,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
+import { autoTagFromInsights } from '@/lib/insights/auto-tag';
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { dispatchInboundToJourney } from '@/lib/journeys/host/inbound';
 import { enqueueInboundPush } from '@/lib/push/inbound';
@@ -1061,17 +1062,24 @@ export async function processMessage(
   // Smart insights (docs/jev-insights.md): the customer signals and a
   // chat-tag suggestion. After the watch, so the triage row it logged for
   // this message is there to reuse; display data only, off unless the
-  // account switched it on, never throws.
-  const insights = watch.then(() =>
-    runInboundInsights({
-      accountId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      messageId: message.id,
-      text: inboundText,
-      messageAt,
-    })
-  );
+  // account switched it on, never throws. In Auto mode its tag answer
+  // then tags an untagged chat (autoTagFromInsights, never throws),
+  // awaited in the same chain so after() keeps it alive.
+  const insightsArgs = {
+    accountId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+  };
+  const insights = watch
+    .then(() =>
+      runInboundInsights({
+        ...insightsArgs,
+        messageId: message.id,
+        text: inboundText,
+        messageAt,
+      })
+    )
+    .then((outcome) => autoTagFromInsights(insightsArgs, outcome));
   if (later) later.push(insights);
   else await insights;
 }

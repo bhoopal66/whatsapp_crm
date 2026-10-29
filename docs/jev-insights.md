@@ -102,7 +102,60 @@ off the Inbox and Team inbox fetch and look exactly as before.
 
 ## Chat tag suggestions
 
-<!-- section: C -->
+With **Chat tag suggestions** on, Jev reads each new customer message
+(with the few turns before it) and judges which of your workspace's own
+chat tags fits the chat: first the main tag, then, if that main tag has
+sub-tags, which sub-tag. It chooses only from the tags in **Settings →
+Chat tags**, and it reads each tag's optional **AI hint**, a short
+plain-language "when does this tag apply" (for example "the customer
+wants to apply for a loan"). A clear hint makes the suggestions better;
+a tag without one is judged on its name. Jev can also answer "none of
+these", and then nothing is suggested. A workspace with no main tags
+gets no suggestions.
+
+### Suggest mode
+
+When Jev is reasonably sure of a main tag (at least 55%) that would
+change the chat, a suggestion chip appears in the chat header, with the
+sub-tag too when Jev is as sure of that. **Apply** tags the chat
+exactly as picking the tag yourself would. **Dismiss** removes the
+chip, and that tag is not suggested again for that chat; Jev may still
+suggest a different one. A suggestion clears itself when it goes stale:
+each new customer message is judged afresh against the chat's current
+tags, so a suggestion that no longer fits, or that the chat's tags have
+since made pointless, is replaced or cleared. Suggestions are only ever
+shown; in Suggest mode nothing is tagged without a person's click.
+
+### Auto mode
+
+Auto mode does everything Suggest mode does, and also tags a chat on
+its own when all of these hold:
+
+- the chat has **no main tag** yet. Auto mode never changes or removes
+  a tag a person (or a flow or automation) set, and if someone tags the
+  chat while Jev is still deciding, their tag wins;
+- Jev is **at least the chosen confidence** sure of the main tag (the
+  percentage set next to Auto, 60% to 99%, 85% by default);
+- you have not dismissed that tag for that chat.
+
+The sub-tag is set only when Jev is at least as sure of it; otherwise
+the chat gets the main tag alone and you can add the sub-tag yourself.
+
+An automatic tag counts exactly like a manual one: your "chat tag set"
+automations run, and a pipeline stage linked to that tag opens or moves
+the deal as it would for a person's tag. The chat shows a **Tagged
+automatically** note in the thread (never sent to the customer), and any
+suggestion chip is cleared, since the chat now carries the tag.
+
+### Suggest a tag now
+
+**Suggest a tag** in the chat header asks Jev straight away, on the
+chat's latest customer message, without waiting for a new one. It
+follows the Suggest-mode rules above (it can say "no confident
+suggestion", "already tagged that way" or "you dismissed that tag"), and
+it never tags the chat itself, in Auto mode either: applying the result
+is your click. It is available whenever Chat tag suggestions are not
+off.
 
 ## Campaign reply sorting
 

@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
   webhook: vi.fn(),
   watch: vi.fn(),
   insights: vi.fn(),
+  autoTag: vi.fn(),
   reopen: vi.fn(),
 }));
 
@@ -120,6 +121,9 @@ vi.mock('@/lib/ai/typesafe-watch', () => ({
 vi.mock('@/lib/insights/inbound', () => ({
   runInboundInsights: (...args: unknown[]) => h.insights(...args),
 }));
+vi.mock('@/lib/insights/auto-tag', () => ({
+  autoTagFromInsights: (...args: unknown[]) => h.autoTag(...args),
+}));
 vi.mock('@/lib/whatsapp/provider', () => ({ getMediaUrl: vi.fn() }));
 vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
   mirrorInboundMedia: vi.fn(),
@@ -177,6 +181,7 @@ beforeEach(() => {
   h.webhook.mockReset().mockResolvedValue(undefined);
   h.watch.mockReset().mockResolvedValue(undefined);
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
+  h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
 });
 
@@ -350,5 +355,31 @@ describe('processMessage — Smart insights', () => {
     expect(h.watch.mock.invocationCallOrder[0]).toBeLessThan(
       h.insights.mock.invocationCallOrder[0]
     );
+  });
+
+  it('hands the insights outcome to automatic tagging, in the same chain', async () => {
+    let finishAutoTag: () => void = () => {};
+    h.autoTag.mockReturnValue(
+      new Promise<string>((resolve) => {
+        finishAutoTag = () => resolve('applied');
+      })
+    );
+    const later: Promise<unknown>[] = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel, later);
+    let settled = false;
+    void Promise.all(later).then(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.autoTag).toHaveBeenCalledTimes(1);
+    expect(h.autoTag.mock.calls[0]).toEqual([
+      { accountId: 'acct-1', conversationId: 'conv-1', contactId: 'contact-1' },
+      { skipped: 'off' },
+    ]);
+    // `later` waits for the automatic tag too, so after() keeps it alive.
+    expect(settled).toBe(false);
+    finishAutoTag();
+    await Promise.all(later);
+    expect(settled).toBe(true);
   });
 });

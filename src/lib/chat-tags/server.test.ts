@@ -294,6 +294,81 @@ describe('writeConversationChatTags', () => {
     });
   });
 
+  describe('onlyIfUntagged', () => {
+    const UNTAGGED = { ...ROW, chat_tag_id: null, chat_sub_tag_id: null };
+
+    it('writes an untagged chat with the compare-and-set on chat_tag_id IS NULL', async () => {
+      const { db, queries } = fakeDb({
+        read: { data: UNTAGGED, error: null },
+        write: { data: { ...ROW, ...NEXT }, error: null },
+      });
+      const res = await writeConversationChatTags(db, {
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        next: NEXT,
+        onlyIfUntagged: true,
+      });
+      expect(res).toEqual({
+        ok: true,
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        previous: { chat_tag_id: null, chat_sub_tag_id: null },
+        saved: NEXT,
+      });
+      expect(queries[1]).toContainEqual(['is', 'chat_tag_id', null]);
+    });
+
+    it('leaves an already tagged chat alone: no write, previous === saved', async () => {
+      const { db, queries } = fakeDb({ read: { data: ROW, error: null } });
+      const res = await writeConversationChatTags(db, {
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        next: NEXT,
+        onlyIfUntagged: true,
+      });
+      const tags = { chat_tag_id: 'new', chat_sub_tag_id: null };
+      expect(res).toEqual({
+        ok: true,
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        previous: tags,
+        saved: tags,
+      });
+      expect(queries).toHaveLength(1);
+    });
+
+    it('a person tagging first wins: no retry over the fresh tags', async () => {
+      const { db, queries } = fakeDb({
+        reads: [
+          { data: UNTAGGED, error: null },
+          { data: { ...ROW, chat_tag_id: 'lead' }, error: null },
+        ],
+        writes: [
+          { data: null, error: null },
+          { data: { ...ROW, ...NEXT }, error: null },
+        ],
+      });
+      const res = await writeConversationChatTags(db, {
+        accountId: 'acc-1',
+        conversationId: 'conv-1',
+        next: NEXT,
+        onlyIfUntagged: true,
+      });
+      const tags = { chat_tag_id: 'lead', chat_sub_tag_id: null };
+      expect(res).toEqual({
+        ok: true,
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        previous: tags,
+        saved: tags,
+      });
+      // read, lost write, fresh read: never a second write.
+      expect(
+        queries.filter((q) => q.some(([m]) => m === 'update'))
+      ).toHaveLength(1);
+    });
+  });
+
   describe('a write that names no sub-tag', () => {
     const TAGGED = {
       ...ROW,
