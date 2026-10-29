@@ -189,11 +189,12 @@ describe('attentionReason', () => {
 
   it('returns the highest-precedence reason that holds', () => {
     expect(attentionReason(ALL, ALL_ON)).toBe('urgent');
+    // Without time pressure the label names the actual cause, even where
+    // priorityOf's blend would call the chat urgent.
     expect(attentionReason({ ...ALL, urgency: 0 }, ALL_ON)).toBe(
-      // 0.95 wantsHuman / upset still make priorityOf urgent
-      'urgent'
+      'wants_person'
     );
-    // upset >= 0.85 is also priorityOf urgent, so the urgent rule is off here
+    expect(attentionReason({ upset: 0.95 }, ALL_ON)).toBe('upset');
     const NO_URGENT = { ...ALL_ON, urgent: false };
     const notUrgent = { wantsHuman: 0.87, upset: 0.86, callback: 0.8 };
     expect(attentionReason(notUrgent, NO_URGENT)).toBe('wants_person');
@@ -206,9 +207,12 @@ describe('attentionReason', () => {
     expect(attentionReason({}, NO_URGENT)).toBeNull();
   });
 
-  it('counts urgent as priorityOf at PRIORITY_URGENT', () => {
+  it('counts urgent as time pressure alone', () => {
     expect(attentionReason({ urgency: 1.5 }, ALL_ON)).toBe('urgent');
     expect(attentionReason({ urgency: 1.499 }, ALL_ON)).toBeNull();
+    // priorityOf calls these urgent too; the pin names the real cause
+    expect(attentionReason({ wantsHuman: 0.95 }, ALL_ON)).toBe('wants_person');
+    expect(attentionReason({ upset: 0.9 }, ALL_ON)).toBe('upset');
     // ready to apply is only PRIORITY_HIGH: not an attention reason
     expect(attentionReason({ leadTemp: 3 }, ALL_ON)).toBeNull();
   });
@@ -216,12 +220,8 @@ describe('attentionReason', () => {
   it('holds each threshold at its edge', () => {
     expect(attentionReason({ wantsHuman: 0.85 }, ALL_ON)).toBe('wants_person');
     expect(attentionReason({ wantsHuman: 0.849 }, ALL_ON)).toBeNull();
-    expect(attentionReason({ upset: 0.85 }, { ...ALL_ON, urgent: false })).toBe(
-      'upset'
-    );
-    expect(
-      attentionReason({ upset: 0.849 }, { ...ALL_ON, urgent: false })
-    ).toBeNull();
+    expect(attentionReason({ upset: 0.85 }, ALL_ON)).toBe('upset');
+    expect(attentionReason({ upset: 0.849 }, ALL_ON)).toBeNull();
     expect(attentionReason({ callback: 0.75 }, ALL_ON)).toBe('callback');
     expect(attentionReason({ callback: 0.749 }, ALL_ON)).toBeNull();
   });

@@ -221,14 +221,19 @@ export interface AttentionFigures {
 
 /**
  * The highest-precedence {@link ATTENTION_REASONS} entry whose rule is on
- * and whose condition holds, else null. `urgent` is {@link priorityOf} at
- * {@link PRIORITY_URGENT}. A null, missing or NaN figure counts as absent.
+ * and whose condition holds, else null. Each reason names its own cause,
+ * so the pin's label says why: `urgent` is time pressure alone (urgency
+ * at {@link URGENCY_URGENT_MIN}), not {@link priorityOf}'s blend — that
+ * blend also counts an upset customer or one asking for a person as
+ * priority 2, which would label every upset customer "Urgent" and leave
+ * the `upset` reason unreachable. A null, missing or NaN figure counts as
+ * absent.
  */
 export function attentionReason(
   f: AttentionFigures,
   rules: AttentionRules
 ): AttentionReason | null {
-  if (rules.urgent && priorityOf(f) === PRIORITY_URGENT) return 'urgent';
+  if (rules.urgent && atLeast(f.urgency, URGENCY_URGENT_MIN)) return 'urgent';
   if (rules.wantsPerson && atLeast(f.wantsHuman, ATTENTION_WANTS_PERSON_P))
     return 'wants_person';
   if (rules.upset && atLeast(f.upset, ATTENTION_UPSET_P)) return 'upset';
