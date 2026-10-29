@@ -71,6 +71,16 @@ things specific to campaign Flows:
   deliberately: on the Whapi number a template button's id is the one
   saved in Settings → WhatsApp → Templates (or `btn_1`, `btn_2`, …), while on the
   Meta number it is the button's text unless a payload was set.
+- **Branch on what the reply means.** With Campaign reply sorting on
+  (Settings → Smart insights, `docs/jev-insights.md`), Jev also sorts
+  that first reply before the Flow starts, and the run gets
+  `{{vars.campaign_reply_class}}` (`interested`, `question`, `not_now`,
+  `not_interested`, `wrong_person`, `stop` or `other`) and
+  `{{vars.campaign_reply_class_p}}` (its probability, e.g. `0.86`). A
+  condition on `var campaign_reply_class equals interested` catches a
+  typed "yes please" as well as the button. Both are absent when Jev
+  did not answer within its 1.5-second budget, so keep a branch for
+  that case.
 
 ### 2. Choose how off-script replies are handled
 

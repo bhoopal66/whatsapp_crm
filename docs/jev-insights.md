@@ -160,7 +160,67 @@ and Jev is available for the workspace.
 
 ## Campaign reply sorting
 
-<!-- section: D -->
+When **Campaign reply sorting** is on, Jev reads a customer's *first*
+reply to a broadcast next to the broadcast itself (the template as that
+customer received it, with their variables filled in) and sorts the
+reply into one of seven classes:
+
+| class | the customer… |
+|---|---|
+| `interested` | wants the offer, asks to go ahead, asks how to apply, or asks to be contacted about it |
+| `question` | asks a question about the offer before deciding |
+| `not_now` | may be interested later but not now |
+| `not_interested` | declines the offer but does not ask to stop all messages |
+| `wrong_person` | was the wrong person, never asked for it, or does not know the business |
+| `stop` | asks to stop messages, unsubscribe or not be contacted again |
+| `other` | anything else: a greeting, an acknowledgement, an unrelated message |
+
+The class and Jev's probability for it are stored on the recipient and
+counted per broadcast on the broadcast's page. Only the first reply is
+sorted; a second reply to the same broadcast is not.
+
+**When it runs.** On the inbound message itself, right after the reply
+is matched to its broadcast and before the campaign's follow-up Flow
+starts, with a budget of 1.5 seconds. If Jev has not answered by then,
+the Flow starts without a class and the reply stays unclassified (the
+backfill below can sort it later). A broadcast whose template has no
+local copy in Settings → WhatsApp → Templates cannot be sorted: there is
+nothing to read the reply against.
+
+**In the follow-up Flow.** When a class came back in time, the run
+starts with two more variables next to `campaign_reply` /
+`campaign_reply_id` (see `docs/campaign-journeys.md`):
+
+| var | value |
+|---|---|
+| `{{vars.campaign_reply_class}}` | the class, e.g. `interested` |
+| `{{vars.campaign_reply_class_p}}` | Jev's probability for it, two decimals, e.g. `0.86` |
+
+Both are absent (not empty) when no class came back. A first
+**condition** node on `var campaign_reply_class equals interested` sends
+a typed "yes, how do I apply?" down the same branch as the "Interested"
+button; `var campaign_reply_class present` tells a sorted reply from one
+that was not judged in time.
+
+**Tagging interested replies.** If you pick a tag under *Tag interested replies with*
+(a main chat tag), a reply sorted `interested` with a probability of at
+least 0.7 tags the chat with it. That happens after the Flows step, so
+the follow-up Flow's first message goes out first, and only on a chat
+with no main tag: a tag a person set is never changed. The tag change
+runs your `chat_tag_set` automations and the pipeline deal trigger, as a
+manual tag does.
+
+**Backfill.** Replies that arrived before the switch was on (or that
+ran out of time) can be sorted from the broadcast's page: each press
+works through up to 500 unsorted replies, judging each recipient's first
+customer message after the broadcast was sent to them, for at most about
+25 seconds, and says how many are left. Press again until nothing more
+is sorted; a reply with no text message stays unsorted.
+
+**"stop" is display-only.** Sorting a reply as `stop` changes nothing:
+the contact is not marked opted out by this feature. Opt-outs stay with
+the opt-out watch (`docs/typesafe.md`), which reads every inbound
+message the bot did not judge and acts when it is switched on.
 
 ## Message check before sending
 
