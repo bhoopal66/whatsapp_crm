@@ -126,6 +126,7 @@ const REFUSAL_TEXT: Record<string, string> = {
   PRESUB_STAGES_REQUIRED:
     'The list must start with Interested, Data collection, Review',
   SETTING_INVALID: 'That setting is not valid',
+  STATUS_INVALID: 'That status is not valid',
   STATUS_FINAL: 'That status closes the case and cannot be mapped',
   STAGE_NOT_ALLOWED: 'A status cannot map to a pre-submission or final stage',
 };

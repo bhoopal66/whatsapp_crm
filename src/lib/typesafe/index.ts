@@ -32,6 +32,10 @@ import { runRoute, type RouteInput } from './checks/route';
 import { runKbSelect, type KbSelectInput } from './checks/kb-select';
 import { runInsights, type InsightsInput } from './checks/insights';
 import { runKbGapJudgment, type KbGapInput } from './checks/kb-gap';
+import {
+  runStatusMapSuggestion,
+  type StatusMapInput,
+} from './checks/status-map';
 import type { CheckDeps, Ref } from './checks/common';
 
 export interface DecisionLayerOptions {
@@ -191,6 +195,13 @@ export function createDecisionLayer(opts: DecisionLayerOptions = {}) {
      * throws.
      */
     kbGap: (input: KbGapInput) => runKbGapJudgment({ config, gateway }, input),
+    /**
+     * Compass status -> case stage suggestion (lib/cases/status-map.ts).
+     * Not a safety check: no account switch, policy or log row. Never
+     * throws.
+     */
+    statusMap: (input: StatusMapInput) =>
+      runStatusMapSuggestion({ config, gateway }, input),
   };
 }
 
@@ -272,6 +283,8 @@ export type {
 } from './checks/insights';
 export { KB_GAP_QS_VERSION } from './questions/kb-gap';
 export type { KbGapInput, KbGapJudgment } from './checks/kb-gap';
+export { STATUS_MAP_QS_VERSION } from './questions/status-map';
+export type { StatusMapInput, StatusMapJudgment } from './checks/status-map';
 export type { TriageDecision, TriageInput } from './checks/triage';
 export type { GuardrailDecision, GuardrailInput } from './checks/guardrail';
 export type { PassageDecision, RetrievedPassage } from './checks/passages';
