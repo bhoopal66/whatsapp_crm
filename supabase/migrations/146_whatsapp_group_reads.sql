@@ -4,7 +4,7 @@
 -- 114's groups had no read state, so the sidebar could not say which
 -- groups hold something new. A person now has one read marker per
 -- group, and the sidebar's Groups item counts the groups with an
--- inbound message newer than the caller's marker.
+-- inbound message that arrived after the caller's marker.
 --
 --  * whatsapp_group_reads: (group_id, user_id) -> last_read_at. A row
 --    is only ever moved forward (greatest of the stored and now()), so
@@ -22,6 +22,15 @@
 --    visible set itself so the plan starts from the caller's groups.
 --    A group we left (our_role = 'left') never counts: nothing new can
 --    arrive there and the list files it away.
+--  * Arrival, not send time: whatsapp_group_messages.received_at is
+--    when the row arrived here (DEFAULT now()). created_at is
+--    WhatsApp's send time (the webhook sets it from the message's
+--    timestamp), and last_read_at is our clock at the open, so
+--    comparing those two missed a message sent before an open that
+--    arrived after it (phone offline, gateway backlog), and a sender
+--    clock running ahead re-lit a group just opened. Existing rows are
+--    backfilled with their created_at, not the migration time, which
+--    would light every group under the no-marker rule below.
 --  * No marker yet: read up to 7 days ago. Without that rule every
 --    group with any inbound message would light up for every person
 --    the day this ships, and a marker cannot be backfilled per person
@@ -32,8 +41,8 @@
 -- The SECURITY DEFINER function writes an RLS-forced table, so, as in
 -- 114, this must be applied by a superuser or BYPASSRLS role.
 --
--- Re-runnable: CREATE … IF NOT EXISTS, CREATE OR REPLACE,
--- DROP … IF EXISTS.
+-- Re-runnable: CREATE … IF NOT EXISTS, ADD COLUMN IF NOT EXISTS (the
+-- backfill touches only NULLs), CREATE OR REPLACE, DROP … IF EXISTS.
 -- ============================================================
 
 SET lock_timeout = '5s';
@@ -63,13 +72,36 @@ CREATE INDEX IF NOT EXISTS whatsapp_group_reads_user_idx
 COMMENT ON TABLE public.whatsapp_group_reads IS
   'Per-person read marker of a WhatsApp group (auth.users ids). Written only by whatsapp_group_mark_read, forward-only. Migration 146; docs/whatsapp-groups.md.';
 COMMENT ON COLUMN public.whatsapp_group_reads.last_read_at IS
-  'When the person last opened the group. An inbound message newer than this makes the group unread for them (whatsapp_group_unread_count).';
+  'When the person last opened the group (our clock). An inbound message whose received_at is later makes the group unread for them (whatsapp_group_unread_count).';
 
--- "Is there an inbound message newer than T in this group?" without
--- walking past our own sends: 114's (group_id, created_at DESC) index
--- would filter direction row by row.
-CREATE INDEX IF NOT EXISTS whatsapp_group_messages_group_in_created_idx
-  ON public.whatsapp_group_messages (group_id, created_at DESC)
+-- ---------- 1b. When a message arrived here ----------
+
+-- Added without a default, backfilled from created_at, then defaulted:
+-- adding it WITH DEFAULT now() would stamp every existing row with the
+-- migration time and light every group. One block, so no insert lands
+-- between the backfill and SET NOT NULL with a NULL in it. No trigger
+-- on this table guards its columns (114 has only the AFTER INSERT
+-- bump), and the writers name their columns, so none sends this one:
+-- an insert takes the default and a redelivery (ON CONFLICT DO
+-- NOTHING) keeps the first arrival.
+DO $$
+BEGIN
+  ALTER TABLE public.whatsapp_group_messages ADD COLUMN IF NOT EXISTS received_at timestamptz;
+  UPDATE public.whatsapp_group_messages SET received_at = created_at WHERE received_at IS NULL;
+  ALTER TABLE public.whatsapp_group_messages ALTER COLUMN received_at SET DEFAULT now();
+  ALTER TABLE public.whatsapp_group_messages ALTER COLUMN received_at SET NOT NULL;
+END
+$$;
+
+COMMENT ON COLUMN public.whatsapp_group_messages.received_at IS
+  'When the row arrived here; the read markers compare against it, not WhatsApp''s send time (created_at). Existing rows were backfilled with created_at. Migration 146.';
+
+-- "Has an inbound message arrived after T in this group?" without
+-- walking past our own sends. Plain CREATE INDEX: the table is small
+-- at ship time.
+DROP INDEX IF EXISTS public.whatsapp_group_messages_group_in_created_idx;
+CREATE INDEX IF NOT EXISTS whatsapp_group_messages_group_in_received_idx
+  ON public.whatsapp_group_messages (group_id, received_at DESC)
   WHERE direction = 'in';
 
 -- ---------- 2. Row-level security and privileges ----------
@@ -137,11 +169,12 @@ AS $$
        SELECT 1 FROM whatsapp_group_messages m
         WHERE m.group_id = g.id
           AND m.direction = 'in'
-          -- No marker: read up to 7 days ago (see the header).
-          AND m.created_at > coalesce(r.last_read_at, now() - interval '7 days'))
+          -- Arrival time, not WhatsApp's send time; no marker: read
+          -- up to 7 days ago (see the header).
+          AND m.received_at > coalesce(r.last_read_at, now() - interval '7 days'))
 $$;
 COMMENT ON FUNCTION public.whatsapp_group_unread_count() IS
-  'Groups of the active workspace the caller sees (whatsapp_group_visible_ids), not left, with an inbound message newer than the caller''s marker; no marker reads as 7 days ago. SECURITY INVOKER: the policies already scope every table. The sidebar''s Groups count. Migration 146.';
+  'Groups of the active workspace the caller sees (whatsapp_group_visible_ids), not left, with an inbound message that arrived (received_at, not WhatsApp''s created_at) after the caller''s marker; no marker reads as 7 days ago. SECURITY INVOKER: the policies already scope every table. The sidebar''s Groups count. Migration 146.';
 
 REVOKE ALL ON FUNCTION public.whatsapp_group_mark_read(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.whatsapp_group_unread_count() FROM PUBLIC, anon;
