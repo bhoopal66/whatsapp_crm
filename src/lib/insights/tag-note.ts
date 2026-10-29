@@ -44,10 +44,41 @@ export function autoTagPercent(details: unknown): number | null {
 export const RENDERED_EVENT_KINDS = [
   'channel_switched',
   'chat_tag_auto',
+  'insight_attention_set',
+  'insight_attention_cleared',
 ] as const;
 
 export function isRenderedEventKind(
   kind: unknown
 ): kind is (typeof RENDERED_EVENT_KINDS)[number] {
   return (RENDERED_EVENT_KINDS as readonly unknown[]).includes(kind);
+}
+
+// ---------------------------------------------------------------------------
+// Pin notes (migration 153): `insight_attention_set` and
+// `insight_attention_cleared` rows. The reason is validated against the
+// palette so an unknown one reads without a reason, never as raw text.
+// ---------------------------------------------------------------------------
+
+const PIN_REASONS = ['urgent', 'wants_person', 'upset', 'callback'] as const;
+export type PinNoteReason = (typeof PIN_REASONS)[number];
+export type PinClearedHow = 'reply' | 'handled' | 'closed';
+
+function detailOf(details: unknown, key: string): unknown {
+  if (typeof details !== 'object' || details === null) return undefined;
+  return (details as Record<string, unknown>)[key];
+}
+
+/** The reason of a pin note, or null when missing or not one we word. */
+export function pinNoteReason(details: unknown): PinNoteReason | null {
+  const r = detailOf(details, 'reason');
+  return (PIN_REASONS as readonly unknown[]).includes(r)
+    ? (r as PinNoteReason)
+    : null;
+}
+
+/** How a pin was lifted; unknown values read as "handled". */
+export function pinClearedHow(details: unknown): PinClearedHow {
+  const h = detailOf(details, 'how');
+  return h === 'reply' || h === 'closed' ? h : 'handled';
 }

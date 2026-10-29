@@ -214,6 +214,8 @@ interface ConversationListProps {
   initialInsightFilters?: readonly InsightFilter[];
   /** Seeds the Unread filter (`?filter=unread`). */
   initialUnread?: boolean;
+  /** Seeds the Pinned chip (`?pinned=1`). */
+  initialPinned?: boolean;
 }
 
 /** Just enough of a broadcast to label and filter by. */
@@ -404,6 +406,7 @@ export function ConversationList({
   initialChatTagIds,
   initialInsightFilters,
   initialUnread = false,
+  initialPinned = false,
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const tInsights = useTranslations('InsightsUi.list');
@@ -489,7 +492,7 @@ export function ConversationList({
   );
   // The Pinned chip's filter: only pinned chats (client-side, like
   // Important; the pins are always loaded beside the first page).
-  const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [pinnedOnly, setPinnedOnly] = useState(initialPinned);
   // Handled clicks still waiting for realtime: id -> the stamp handled.
   const [handled, setHandled] = useState<ReadonlyMap<string, string>>(
     () => new Map()

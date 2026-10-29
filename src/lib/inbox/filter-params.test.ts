@@ -12,12 +12,14 @@ describe('parseInboxFilterParams', () => {
       chatTagIds: [],
       insightFilters: [],
       unread: false,
+      pinned: false,
     });
     expect(parseInboxFilterParams(p(`assignee=me&tag=${U}`), 'me-id')).toEqual({
       assignee: 'me-id',
       chatTagIds: [U],
       insightFilters: [],
       unread: false,
+      pinned: false,
     });
     expect(
       parseInboxFilterParams(p(`assignee=${U.toUpperCase()}`), null).assignee
@@ -43,6 +45,11 @@ describe('parseInboxFilterParams', () => {
       chatTagIds: [],
       insightFilters: [],
       unread: false,
+      pinned: false,
     });
+  });
+  it('reads ?pinned=1 only', () => {
+    expect(parseInboxFilterParams(p('pinned=1'), null).pinned).toBe(true);
+    expect(parseInboxFilterParams(p('pinned=yes'), null).pinned).toBe(false);
   });
 });

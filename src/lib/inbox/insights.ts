@@ -26,7 +26,7 @@ import { compareForInbox, needsAttention } from './attention';
 /**
  * Smart insights in the Inbox list (docs/jev-insights.md): the one badge
  * a row carries, the Hot leads / Upset / Needs attention filters and the
- * Urgent pin, over the `insight_*` figures Jev last judged (migration
+ * pins until handled, over the `insight_*` figures Jev last judged (migration
  * 147). Pure and client-safe — bands.ts, attention.ts and types only —
  * so the list's rules are tested without a database or a DOM. None of
  * it applies unless the workspace switched signals on; the list passes
@@ -160,19 +160,8 @@ export function parseInsightFilters(raw: string | null): InsightFilter[] {
 }
 
 // ---------------------------------------------------------------------------
-// The Urgent pin
-//
-// DEPRECATED: replaced by "pinned until handled" (isPinned / comparePinned
-// / sortWithPins below, migration 153). The Inbox list no longer calls
-// these; nothing but their tests does. Remove them in a cleanup.
+// Pinned until handled (migration 153)
 // ---------------------------------------------------------------------------
-
-/**
- * The most urgent pins the first page asks for beside the normal page,
- * as `ATTENTION_LIMIT` (attention.ts) does for Important.
- * Urgent and unread is rare; past this they arrive with their page.
- */
-export const URGENT_PIN_LIMIT = 50;
 
 /**
  * The most attention pins (migration 153) the first page asks for
@@ -208,55 +197,6 @@ export function insightListQuery(input: {
     attentionPins: true,
     bounds: insightFilterBounds(input.insightFilters),
   };
-}
-
-/**
- * Urgent (priority 2) and still unread: pinned under the Important pins.
- * @deprecated Use {@link isPinned} (migration 153's attention pin).
- */
-export function isUrgentPin(
-  row: Pick<Conversation, 'insight_priority' | 'unread_count'>
-): boolean {
-  return (row.insight_priority ?? 0) >= PRIORITY_URGENT && row.unread_count > 0;
-}
-
-type Sortable = Pick<
-  Conversation,
-  | 'id'
-  | 'last_message_at'
-  | 'ai_attention_at'
-  | 'insight_priority'
-  | 'unread_count'
->;
-
-/**
- * {@link compareForInbox} with the Urgent pin: Important chats first (as
- * before), then urgent unread chats newest message first, then the rest.
- * An Important chat that is also urgent stays with the Important ones.
- * @deprecated Use {@link comparePinned}.
- */
-export function compareWithUrgentPins(a: Sortable, b: Sortable): number {
-  if (!needsAttention(a) && !needsAttention(b)) {
-    const aU = isUrgentPin(a);
-    const bU = isUrgentPin(b);
-    if (aU !== bU) return aU ? -1 : 1;
-  }
-  return compareForInbox(a, b);
-}
-
-/**
- * The list in display order: {@link compareWithUrgentPins} when signals
- * are on, else exactly `sortForInbox`'s order
- * (attention.ts). Returns a copy.
- * @deprecated Use {@link sortWithPins}.
- */
-export function sortForInboxWithInsights<T extends Sortable>(
-  rows: readonly T[],
-  urgentPins: boolean
-): T[] {
-  return rows
-    .slice()
-    .sort(urgentPins ? compareWithUrgentPins : compareForInbox);
 }
 
 // ---------------------------------------------------------------------------

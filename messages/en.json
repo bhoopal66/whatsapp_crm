@@ -8529,6 +8529,10 @@
       "upset": {
         "label": "Upset customers waiting",
         "hint": "Upset customers with unread messages"
+      },
+      "pinned": {
+        "label": "Pinned chats",
+        "hint": "Chats held at the top until handled"
       }
     },
     "legend": {
@@ -8781,7 +8785,24 @@
     "failed": "Couldn't get a tag suggestion",
     "autoNote": "Tagged automatically: {tags}",
     "autoNoteWithPercent": "Tagged automatically: {tags} · {percent}%",
-    "autoNoteUnnamed": "Tagged automatically"
+    "autoNoteUnnamed": "Tagged automatically",
+    "pin": {
+      "set": "Pinned — {reason}",
+      "setUnnamed": "Pinned",
+      "reason": {
+        "urgent": "Urgent",
+        "wants_person": "Wants a person",
+        "upset": "Upset",
+        "callback": "Asked for a call back"
+      },
+      "cleared": {
+        "reply": "Unpinned — {who} replied",
+        "handled": "Unpinned — {who} marked it handled",
+        "closed": "Unpinned — chat closed"
+      },
+      "you": "You",
+      "someone": "someone"
+    }
   },
   "ReplyClasses": {
     "title": "Replies",

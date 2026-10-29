@@ -71,6 +71,7 @@ import {
   useConversationEvents,
 } from './thread-channel-switcher';
 import { ThreadAutoTagNote } from './thread-auto-tag-note';
+import { ThreadPinNote } from './thread-pin-note';
 import { buildTimelineGroups, startsMessageRun } from '@/lib/inbox/timeline';
 import { firstUnreadMessageId } from '@/lib/inbox/unread';
 import {
@@ -1734,6 +1735,18 @@ export function MessageThread({
                           <ThreadAutoTagNote
                             key={`event-${item.event.id}`}
                             event={item.event}
+                          />
+                        );
+                      if (
+                        item.event.kind === 'insight_attention_set' ||
+                        item.event.kind === 'insight_attention_cleared'
+                      )
+                        return (
+                          <ThreadPinNote
+                            key={`event-${item.event.id}`}
+                            event={item.event}
+                            actorName={profileName(item.event.actor_user_id)}
+                            isMe={item.event.actor_user_id === user?.id}
                           />
                         );
                       // A kind this timeline does not know is never drawn.

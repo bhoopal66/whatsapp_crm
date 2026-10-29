@@ -11,6 +11,7 @@ import {
   LEAD_METER_STEPS,
   customerInsightView,
   insightTileHref,
+  pinnedTileHref,
   leadMeter,
   countInsightTiles,
 } from './customer-view';
@@ -177,6 +178,12 @@ describe('home tiles', () => {
       hotWaiting: 1,
       upsetWaiting: 1,
     });
+  });
+
+  it('links the Pinned tile to the inbox Pinned chip', () => {
+    expect(pinnedTileHref('/team-inbox')).toBe('/team-inbox?pinned=1');
+    const q = new URL(pinnedTileHref('/inbox'), 'http://x').searchParams;
+    expect(parseInboxFilterParams(q, null).pinned).toBe(true);
   });
 
   it('link into the inbox with filters the inbox parses', () => {

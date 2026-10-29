@@ -8529,6 +8529,10 @@
       "upset": {
         "label": "답변 대기 중인 불만 고객",
         "hint": "읽지 않은 메시지가 있는 불만 고객"
+      },
+      "pinned": {
+        "label": "고정된 채팅",
+        "hint": "처리될 때까지 상단에 고정된 채팅"
       }
     },
     "legend": {
@@ -8781,7 +8785,24 @@
     "failed": "태그 추천을 받지 못했습니다",
     "autoNote": "자동으로 태그됨: {tags}",
     "autoNoteWithPercent": "자동으로 태그됨: {tags} · {percent}%",
-    "autoNoteUnnamed": "자동으로 태그됨"
+    "autoNoteUnnamed": "자동으로 태그됨",
+    "pin": {
+      "set": "고정됨 — {reason}",
+      "setUnnamed": "고정됨",
+      "reason": {
+        "urgent": "긴급",
+        "wants_person": "상담원 요청",
+        "upset": "불만",
+        "callback": "회신 전화 요청"
+      },
+      "cleared": {
+        "reply": "고정 해제 — {who}님이 답장함",
+        "handled": "고정 해제 — {who}님이 처리 완료로 표시함",
+        "closed": "고정 해제 — 채팅이 종료됨"
+      },
+      "you": "나",
+      "someone": "누군가"
+    }
   },
   "ReplyClasses": {
     "title": "답장",

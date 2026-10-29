@@ -7,6 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { paletteFor } from '@/lib/insights/palette';
 import type { LeadScore, LeadScoreBand } from '@/lib/pipelines/lead-score';
 import { cn } from '@/lib/utils';
 
@@ -17,10 +18,11 @@ import { cn } from '@/lib/utils';
  * workspace has Customer insights on.
  */
 
+// The same swatches the inbox rows and the legend wear (palette.ts).
 const TONE: Record<LeadScoreBand, string> = {
-  hot: 'bg-success-soft text-success',
-  warm: 'bg-warning-soft text-warning',
-  cold: 'bg-muted text-muted-foreground',
+  hot: paletteFor('lead', 'hot').chip,
+  warm: paletteFor('lead', 'warm').chip,
+  cold: paletteFor('lead', 'cold').chip,
 };
 
 export function LeadScoreBadge({ score }: { score: LeadScore }) {

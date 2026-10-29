@@ -215,7 +215,11 @@ export interface ConversationEvent {
   id: string;
   conversation_id: string;
   /** A row of any other kind is never rendered. */
-  kind: 'channel_switched' | 'chat_tag_auto';
+  kind:
+    | 'channel_switched'
+    | 'chat_tag_auto'
+    | 'insight_attention_set'
+    | 'insight_attention_cleared';
   actor_user_id: string | null;
   from_channel_id: string | null;
   /** null = switched back to automatic. */

@@ -174,6 +174,11 @@ export function countInsightTiles(
   return { hotWaiting, upsetWaiting };
 }
 
+/** The Pinned chats tile: the inbox with the Pinned chip on. */
+export function pinnedTileHref(inboxPath: string): string {
+  return `${inboxPath}?pinned=1`;
+}
+
 /** Where a tile goes: the inbox, Unread, with the matching Smart insights filter. */
 export function insightTileHref(
   inboxPath: string,

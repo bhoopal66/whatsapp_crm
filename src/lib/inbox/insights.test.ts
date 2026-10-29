@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { LEAD_HOT_MIN, LEAD_READY_MIN, UPSET_MIN } from '@/lib/insights/bands';
-import { sortForInbox } from './attention';
 import {
   INSIGHT_FILTER_BOUNDS,
   insightBadge,
   insightListQuery,
   insightFilterBounds,
   insightSummary,
-  isUrgentPin,
   matchesInsightFilters,
   parseInsightFilters,
-  sortForInboxWithInsights,
 } from './insights';
 import {
   PIN_LIMIT,
@@ -119,73 +116,6 @@ describe('insight filters', () => {
   it('parses ?insight=', () => {
     expect(parseInsightFilters(null)).toEqual([]);
     expect(parseInsightFilters('upset,HOT,nope,hot')).toEqual(['hot', 'upset']);
-  });
-});
-
-describe('Urgent pin', () => {
-  const row = (
-    id: string,
-    at: string,
-    extra: Partial<{
-      ai_attention_at: string | null;
-      insight_priority: number;
-      unread_count: number;
-    }> = {}
-  ) => ({
-    id,
-    last_message_at: at,
-    ai_attention_at: null,
-    insight_priority: 0,
-    unread_count: 0,
-    ...extra,
-  });
-
-  it('needs priority 2 and an unread message', () => {
-    expect(isUrgentPin({ insight_priority: 2, unread_count: 1 })).toBe(true);
-    expect(isUrgentPin({ insight_priority: 2, unread_count: 0 })).toBe(false);
-    expect(isUrgentPin({ insight_priority: 1, unread_count: 3 })).toBe(false);
-  });
-
-  it('pins urgent unread chats under the Important ones', () => {
-    const rows = [
-      row('new', '2026-10-29T10:00:00Z'),
-      row('urgOld', '2026-10-20T10:00:00Z', {
-        insight_priority: 2,
-        unread_count: 1,
-      }),
-      row('urgNew', '2026-10-28T10:00:00Z', {
-        insight_priority: 2,
-        unread_count: 2,
-      }),
-      row('urgRead', '2026-10-27T10:00:00Z', { insight_priority: 2 }),
-      row('imp', '2026-10-01T10:00:00Z', {
-        ai_attention_at: '2026-10-01T11:00:00Z',
-      }),
-      row('impUrg', '2026-10-02T10:00:00Z', {
-        ai_attention_at: '2026-10-01T09:00:00Z',
-        insight_priority: 2,
-        unread_count: 1,
-      }),
-    ];
-    expect(sortForInboxWithInsights(rows, true).map((r) => r.id)).toEqual([
-      'imp',
-      'impUrg',
-      'urgNew',
-      'urgOld',
-      'new',
-      'urgRead',
-    ]);
-  });
-
-  it('keeps the old order exactly when signals are off', () => {
-    const rows = [
-      row('a', '2026-10-20T10:00:00Z', {
-        insight_priority: 2,
-        unread_count: 1,
-      }),
-      row('b', '2026-10-29T10:00:00Z'),
-    ];
-    expect(sortForInboxWithInsights(rows, false)).toEqual(sortForInbox(rows));
   });
 });
 

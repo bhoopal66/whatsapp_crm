@@ -4,6 +4,8 @@ import {
   autoTagPercent,
   isRenderedEventKind,
   RENDERED_EVENT_KINDS,
+  pinClearedHow,
+  pinNoteReason,
 } from './tag-note';
 
 describe('autoTagLabel', () => {
@@ -45,10 +47,35 @@ describe('autoTagPercent', () => {
 
 describe('isRenderedEventKind', () => {
   it('only the kinds the timeline knows how to draw', () => {
-    expect(RENDERED_EVENT_KINDS).toEqual(['channel_switched', 'chat_tag_auto']);
+    expect(RENDERED_EVENT_KINDS).toEqual([
+      'channel_switched',
+      'chat_tag_auto',
+      'insight_attention_set',
+      'insight_attention_cleared',
+    ]);
     expect(isRenderedEventKind('channel_switched')).toBe(true);
     expect(isRenderedEventKind('chat_tag_auto')).toBe(true);
     expect(isRenderedEventKind('member_added')).toBe(false);
     expect(isRenderedEventKind(undefined)).toBe(false);
+  });
+});
+
+describe('pin notes', () => {
+  it('draws both pin kinds', () => {
+    expect(isRenderedEventKind('insight_attention_set')).toBe(true);
+    expect(isRenderedEventKind('insight_attention_cleared')).toBe(true);
+  });
+  it('reads the reason only when it is one we word', () => {
+    expect(pinNoteReason({ reason: 'wants_person' })).toBe('wants_person');
+    expect(pinNoteReason({ reason: 'ai_handoff' })).toBeNull();
+    expect(pinNoteReason(null)).toBeNull();
+    expect(pinNoteReason({ reason: 3 })).toBeNull();
+  });
+  it('reads how a pin was lifted, defaulting to handled', () => {
+    expect(pinClearedHow({ how: 'reply' })).toBe('reply');
+    expect(pinClearedHow({ how: 'closed' })).toBe('closed');
+    expect(pinClearedHow({ how: 'handled' })).toBe('handled');
+    expect(pinClearedHow({ how: 'x' })).toBe('handled');
+    expect(pinClearedHow(undefined)).toBe('handled');
   });
 });

@@ -8,6 +8,7 @@ import {
   CircleCheck,
   Flame,
   Frown,
+  Pin,
   ListTodo,
   MessageCircle,
   PhoneMissed,
@@ -33,6 +34,7 @@ import {
   INSIGHT_TILE_OR,
   countInsightTiles,
   insightTileHref,
+  pinnedTileHref,
 } from '@/lib/insights/customer-view';
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/tasks/types';
@@ -107,6 +109,30 @@ async function loadInsightRows(): Promise<InsightRow[]> {
   return (data ?? []) as unknown as InsightRow[];
 }
 
+interface PinCounts {
+  pinned: number;
+  urgent: number;
+}
+
+/** Chats pinned until handled (RLS-scoped head counts); urgent ones colour the tile. */
+async function loadPinCounts(): Promise<PinCounts> {
+  const supabase = createClient();
+  const [pinned, urgent] = await Promise.all([
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .not('insight_attention_at', 'is', null),
+    supabase
+      .from('conversations')
+      .select('id', { count: 'exact', head: true })
+      .not('insight_attention_at', 'is', null)
+      .eq('insight_attention_reason', 'urgent'),
+  ]);
+  if (pinned.error) throw pinned.error;
+  if (urgent.error) throw urgent.error;
+  return { pinned: pinned.count ?? 0, urgent: urgent.count ?? 0 };
+}
+
 type Tone = 'destructive' | 'warning' | 'info' | 'success';
 
 const ALERT_TONE: Record<Tone, { tile: string; icon: string; value: string }> =
@@ -176,6 +202,10 @@ export function AttentionStrip({
       : null,
     loadInsightRows
   );
+  const pins = useWidgetData(
+    signalsOn && accountId ? `attention-pins:${accountId}:${refreshKey}` : null,
+    loadPinCounts
+  );
   const insightCounts = insights.data
     ? countInsightTiles(insights.data, aiLive)
     : null;
@@ -239,6 +269,16 @@ export function AttentionStrip({
         count: insightCounts?.upsetWaiting ?? null,
         error: insightError,
         hint: ti('upset.hint'),
+      },
+      {
+        key: 'pinned',
+        href: pinnedTileHref(inboxHref),
+        icon: Pin,
+        label: ti('pinned.label'),
+        tone: pins.data && pins.data.urgent > 0 ? 'destructive' : 'warning',
+        count: pins.data?.pinned ?? null,
+        error: pins.error && !pins.data,
+        hint: ti('pinned.hint'),
       }
     );
   }

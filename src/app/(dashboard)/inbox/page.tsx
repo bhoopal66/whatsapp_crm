@@ -999,6 +999,7 @@ export function InboxPageInner({
             initialChatTagIds={initialFilters.chatTagIds}
             initialInsightFilters={initialFilters.insightFilters}
             initialUnread={initialFilters.unread}
+            initialPinned={initialFilters.pinned}
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
             conversations={conversations}
