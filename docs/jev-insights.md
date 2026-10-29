@@ -27,7 +27,25 @@ matching only.
 
 ## Settings
 
-<!-- section: A1 -->
+Admins and owners switch each feature on in **Settings → Smart
+insights** (`ai_insight_settings`, migration 147, one row per workspace;
+no row means everything is off). Everyone on the staff can read the
+settings, so the inbox and the composer know which features are on;
+only admins and owners can change them. A save is version-checked: if
+someone else saved in between, the screen asks you to reload instead of
+overwriting their change.
+
+| Setting                                       | What it does                                                                                                                                                                                                                              |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customer insights                             | Shows what each customer wants, how close they are to applying, and who is upset or urgent: in the inbox, on the customer page, on deals and on the home page.                                                                            |
+| Chat tag suggestions                          | **Off**, **Suggest** (a one-click suggestion in the chat header) or **Auto** (also tags untagged chats on its own when Jev is at least the chosen percentage sure). Auto never changes a tag a person set.                                |
+| Campaign reply sorting                        | Sorts replies to a broadcast into interested, question, not now, not interested, wrong person, stop and other; optionally tags interested replies with a chosen main tag.                                                                 |
+| Message check before sending                  | **Off** or **Warn**: agents see a warning before sending a message that promises an approval, quotes an unconfirmed rate, names a bank you don't work with, asks for card details or OTPs, or reads like spam. It never blocks a message. |
+| Flows and automations that understand meaning | Lets flow and automation triggers match what the customer means, not only exact keywords, and lets flows understand typed answers to buttons and lists.                                                                                   |
+
+When Jev isn't available for the workspace (no `TYPESAFE_API_KEY`, or
+the workspace isn't in `TS_ACCOUNT_IDS`), the screen says so and the
+switches are disabled.
 
 ## Customer insights
 

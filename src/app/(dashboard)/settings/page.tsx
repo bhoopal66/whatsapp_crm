@@ -135,6 +135,11 @@ const JourneyBotSettings = dynamic(
     ),
   { loading: PanelLoading }
 );
+const InsightsPanel = dynamic(
+  () =>
+    import('@/components/settings/insights-panel').then((m) => m.InsightsPanel),
+  { loading: PanelLoading }
+);
 const DealsSettings = dynamic(
   () =>
     import('@/components/settings/deals-settings').then((m) => m.DealsSettings),
@@ -364,6 +369,7 @@ function SettingsPageInner() {
     'journey-bot': (
       <JourneyBotSettings onOpenTemplates={() => go('templates')} />
     ),
+    insights: <InsightsPanel />,
     deals: <DealsSettings />,
     workspace: <WorkspacePanel />,
     members: <MembersTab />,

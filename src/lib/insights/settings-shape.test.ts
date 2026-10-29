@@ -100,8 +100,9 @@ describe('rowFromValues', () => {
   it('names every column the migration defines, except the stamp', () => {
     const parsed = parseInsightSettingsPut(body());
     if (!parsed.ok) throw new Error(parsed.error);
-    const { expectedUpdatedAt: _v, ...values } = parsed.value;
-    expect(rowFromValues('acct', 'user', values)).toEqual({
+    // The parsed body still carries expectedUpdatedAt: it must not leak
+    // into the row.
+    expect(rowFromValues('acct', 'user', parsed.value)).toEqual({
       account_id: 'acct',
       signals_enabled: true,
       tag_suggest_mode: 'auto',
@@ -112,6 +113,7 @@ describe('rowFromValues', () => {
       meaning_triggers_enabled: false,
       updated_by: 'user',
     });
+    const values = parsed.value;
     expect(settingsDiffer(values, values)).toBe(false);
     expect(settingsDiffer(values, { ...values, tagAutoMinP: 0.91 })).toBe(true);
   });
