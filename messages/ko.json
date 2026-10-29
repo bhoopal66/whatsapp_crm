@@ -8699,6 +8699,68 @@
           }
         }
       }
+    },
+    "actions": {
+      "title": "다음 추천 행동",
+      "codes": {
+        "call_back": "전화 회신하기",
+        "take_over": "채팅 넘겨받기",
+        "calm_down": "진정시키기",
+        "reply_now": "지금 답장하기",
+        "send_documents": "서류 목록 보내기",
+        "address_price": "비용 설명하기",
+        "reassure_eligibility": "자격 요건 안심시키기",
+        "build_trust": "신뢰 쌓기",
+        "schedule_follow_up": "후속 연락 일정 잡기",
+        "compare_offers": "상품 비교해 주기",
+        "move_forward": "다음 단계로 진행하기"
+      },
+      "hints": {
+        "call_back": "전화를 요청했습니다",
+        "take_over": "상담원과 이야기하고 싶어 합니다",
+        "calm_down": "먼저 문제를 인정해 주세요",
+        "reply_now": "질문을 하고 답을 기다리고 있습니다",
+        "send_documents": "보내야 할 서류를 정확히 알려 주세요",
+        "address_price": "수수료와 그 혜택을 설명해 주세요",
+        "reassure_eligibility": "누가 자격이 되는지, 무엇이 도움이 되는지 설명해 주세요",
+        "build_trust": "회사 소개와 업무 방식을 알려 주세요",
+        "schedule_follow_up": "다시 이어갈 시간을 정하세요",
+        "compare_offers": "선택지의 차이를 보여 주세요",
+        "move_forward": "다음 단계를 제안하세요: 신청"
+      },
+      "reasons": {
+        "asked_for_call": "전화 요청",
+        "asked_for_person": "상담원 요청",
+        "pinned_for_person": "고정됨: 상담원 요청",
+        "upset": "불만",
+        "very_negative": "매우 부정적인 기분",
+        "needs_reply": "답변을 기다림",
+        "waiting": "읽지 않은 메시지",
+        "ready_to_apply": "신청 준비됨",
+        "objection_price": "비용 걱정",
+        "objection_documents": "서류 문의",
+        "objection_eligibility": "자격 여부 불확실",
+        "objection_trust": "신뢰 여부 불확실",
+        "objection_timing": "지금은 때가 아님",
+        "objection_comparing": "다른 상품과 비교 중",
+        "hot_lead": "유망 리드"
+      }
+    },
+    "trends": {
+      "title": "추세",
+      "notEnough": "추세를 보여 줄 메시지가 아직 부족합니다",
+      "mood": {
+        "label": "기분",
+        "improving": "좋아지는 중",
+        "steady": "변화 없음",
+        "worsening": "나빠지는 중"
+      },
+      "lead": {
+        "label": "리드",
+        "warming": "관심 상승",
+        "steady": "변화 없음",
+        "cooling": "관심 하락"
+      }
     }
   },
   "TagSuggest": {

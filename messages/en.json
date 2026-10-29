@@ -8699,6 +8699,68 @@
           }
         }
       }
+    },
+    "actions": {
+      "title": "Next best action",
+      "codes": {
+        "call_back": "Call them back",
+        "take_over": "Take over the chat",
+        "calm_down": "Calm things down",
+        "reply_now": "Reply now",
+        "send_documents": "Send the document list",
+        "address_price": "Address the price",
+        "reassure_eligibility": "Reassure on eligibility",
+        "build_trust": "Build trust",
+        "schedule_follow_up": "Schedule a follow-up",
+        "compare_offers": "Compare the offers",
+        "move_forward": "Move forward"
+      },
+      "hints": {
+        "call_back": "They asked for a call",
+        "take_over": "They want to talk to a person",
+        "calm_down": "Acknowledge the problem first",
+        "reply_now": "They asked something and are waiting",
+        "send_documents": "Tell them exactly what to send",
+        "address_price": "Explain the fees and what they get for them",
+        "reassure_eligibility": "Explain who qualifies and what helps",
+        "build_trust": "Share who we are and how we work",
+        "schedule_follow_up": "Agree a time to pick this up again",
+        "compare_offers": "Show how the options differ",
+        "move_forward": "Suggest the next step: apply"
+      },
+      "reasons": {
+        "asked_for_call": "Asked for a call",
+        "asked_for_person": "Asked for a person",
+        "pinned_for_person": "Pinned: wants a person",
+        "upset": "Upset",
+        "very_negative": "Very negative mood",
+        "needs_reply": "Expects an answer",
+        "waiting": "Unread messages",
+        "ready_to_apply": "Ready to apply",
+        "objection_price": "Worried about price",
+        "objection_documents": "Asking about documents",
+        "objection_eligibility": "Unsure they qualify",
+        "objection_trust": "Not sure they can trust us",
+        "objection_timing": "Not the right time",
+        "objection_comparing": "Comparing other offers",
+        "hot_lead": "Hot lead"
+      }
+    },
+    "trends": {
+      "title": "Trend",
+      "notEnough": "Not enough messages yet to show a trend",
+      "mood": {
+        "label": "Mood",
+        "improving": "Improving",
+        "steady": "Steady",
+        "worsening": "Worsening"
+      },
+      "lead": {
+        "label": "Lead",
+        "warming": "Warming up",
+        "steady": "Steady",
+        "cooling": "Cooling off"
+      }
     }
   },
   "TagSuggest": {
