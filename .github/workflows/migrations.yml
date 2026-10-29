@@ -603,3 +603,10 @@ jobs:
       # values; the attention switches default to on.
       - name: Verify insights v2
         run: supabase db query --local --file supabase/ci/verify-insights-v2.sql
+
+      # Migration 154's translation cache: service role only (RLS, no
+      # policy, no anon/authenticated grant); account and conversation
+      # derived from the message; one row per (message, lang), upsert in
+      # place; ai_usage_log.mode accepts 'translate'.
+      - name: Verify message translations
+        run: supabase db query --local --file supabase/ci/verify-message-translations.sql
