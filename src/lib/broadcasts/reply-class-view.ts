@@ -163,23 +163,30 @@ export function replySortAction(
 }
 
 /**
- * The backfill loop. Calls `classifyOnce` until a call sorts nothing —
- * not until `remaining` is 0, because some replies can never be sorted
- * (no text, no local template row) and would keep it above zero
- * forever. Reports the running total after each call; stops early when
- * `shouldStop` says so (the card unmounted). A thrown error propagates.
+ * The backfill loop. Calls `classifyOnce` with the previous call's
+ * cursor until it returns `nextCursor: null`, however many a call
+ * sorted: replies that can never be sorted (no text, no local template
+ * row) are walked past, not retried. Reports the running total after
+ * each call; stops early when `shouldStop` says so (the card unmounted).
+ * A thrown error propagates and ends the loop.
  */
 export async function sortPastReplies(
-  classifyOnce: () => Promise<{ classified: number }>,
+  classifyOnce: (
+    after: string | null
+  ) => Promise<{ classified: number; nextCursor: string | null }>,
   onProgress: (sortedSoFar: number) => void,
   shouldStop: () => boolean = () => false
 ): Promise<number> {
   let sorted = 0;
+  let after: string | null = null;
   while (!shouldStop()) {
-    const { classified } = await classifyOnce();
-    if (!(classified > 0)) break;
-    sorted += classified;
-    onProgress(sorted);
+    const { classified, nextCursor } = await classifyOnce(after);
+    if (classified > 0) {
+      sorted += classified;
+      onProgress(sorted);
+    }
+    if (!nextCursor) break;
+    after = nextCursor;
   }
   return sorted;
 }

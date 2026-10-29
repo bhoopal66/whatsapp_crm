@@ -11,9 +11,16 @@
 // was switched on.
 //
 // The judgment sees what the customer was replying to: the template
-// body rendered with that recipient's frozen params (migration 038),
-// else the bare body. With no local template row there is nothing to
-// judge against, and the reply stays unclassified.
+// body with every placeholder replaced by a neutral token. Never the
+// recipient's own values (migration 038's template_params are usually
+// their name, which redaction does not remove). With no local template
+// row there is nothing to judge against, and the reply stays
+// unclassified.
+//
+// The reply judged must be the contact's first customer message since
+// the recipient's send (the backfill picks exactly that message; the
+// inbound path passes its message and is skipped otherwise), so a reply
+// to a later campaign is never judged against an older, unanswered one.
 //
 // Never throws: a failure is logged with `[reply-class]` and the reply
 // stays unclassified.
@@ -25,10 +32,7 @@ import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
 import { getDecisionLayer } from '@/lib/typesafe';
 import type { ReplyClass } from '@/lib/typesafe/questions/reply-class';
-import {
-  renderTemplateBody,
-  resolveTemplateRow,
-} from '@/lib/whatsapp/template-body';
+import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 
 export interface ClassifyCampaignReplyInput {
   accountId: string;
@@ -38,8 +42,19 @@ export interface ClassifyCampaignReplyInput {
   replyText: string;
   /** The tapped button's title, when the reply was a tap. */
   tappedButton?: string | null;
-  /** Hard deadline for the judgment. */
+  /**
+   * Budget for the whole classification, its database reads included;
+   * the Jev call gets what is left of it.
+   */
   deadlineMs?: number;
+  /**
+   * The inbound path's message (messages.id) in `conversationId`: the
+   * reply is judged only if it is the conversation's first customer
+   * message since the recipient's send. The backfill omits both, having
+   * picked that message itself.
+   */
+  inboundMessageId?: string;
+  conversationId?: string;
 }
 
 export interface CampaignReplyClass {
@@ -56,6 +71,15 @@ const logError = (what: string, err: unknown) =>
     err instanceof Error ? err.message : String(err)
   );
 
+/** Below this much budget, Jev is not asked. */
+const MIN_JUDGMENT_MS = 200;
+
+/** What stands in for every template placeholder sent to Jev. */
+export const CAMPAIGN_PLACEHOLDER = '[…]';
+
+/** `{{1}}`, `{{ name }}`: any template placeholder, numbered or named. */
+const PLACEHOLDER = /\{\{[^{}]*\}\}/g;
+
 /** Whether reply sorting runs for this account right now. Never throws. */
 export async function replyClassOn(accountId: string): Promise<boolean> {
   try {
@@ -66,14 +90,18 @@ export async function replyClassOn(accountId: string): Promise<boolean> {
   }
 }
 
-/** The broadcast's text as this recipient saw it, or null. */
-async function campaignMessageFor(
+/**
+ * The broadcast's text with neutral placeholders, and when the
+ * recipient's send happened; null when there is nothing to judge
+ * against.
+ */
+async function campaignContextFor(
   db: ReturnType<typeof supabaseAdmin>,
   input: Pick<
     ClassifyCampaignReplyInput,
     'accountId' | 'broadcastId' | 'recipientId'
   >
-): Promise<string | null> {
+): Promise<{ campaignMessage: string; since: string } | null> {
   const [bRes, rRes] = await Promise.all([
     db
       .from('broadcasts')
@@ -83,7 +111,7 @@ async function campaignMessageFor(
       .maybeSingle(),
     db
       .from('broadcast_recipients')
-      .select('id, template_params')
+      .select('id, sent_at, created_at')
       .eq('id', input.recipientId)
       .eq('broadcast_id', input.broadcastId)
       .maybeSingle(),
@@ -94,7 +122,11 @@ async function campaignMessageFor(
     template_name: string | null;
     template_language: string | null;
   } | null;
-  if (!broadcast?.template_name || !rRes.data) return null;
+  const recipient = rRes.data as {
+    sent_at: string | null;
+    created_at: string;
+  } | null;
+  if (!broadcast?.template_name || !recipient) return null;
   const { row } = await resolveTemplateRow(
     db,
     input.accountId,
@@ -102,21 +134,42 @@ async function campaignMessageFor(
     broadcast.template_language
   );
   if (!row?.body_text) return null;
-  const raw = (rRes.data as { template_params?: unknown }).template_params;
-  const params = Array.isArray(raw)
-    ? raw.filter((v): v is string => typeof v === 'string')
-    : [];
-  return renderTemplateBody(row.body_text, params);
+  return {
+    campaignMessage: row.body_text.replace(PLACEHOLDER, CAMPAIGN_PLACEHOLDER),
+    since: recipient.sent_at ?? recipient.created_at,
+  };
+}
+
+/** Is `messageId` the conversation's first customer message since `since`? */
+async function isFirstReplySince(
+  db: ReturnType<typeof supabaseAdmin>,
+  conversationId: string,
+  messageId: string,
+  since: string
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'customer')
+    .gte('created_at', since)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { id: string } | null)?.id === messageId;
 }
 
 /**
  * Judge and store the class of one recipient's reply. Returns the class
- * stored, or null (feature off, nothing to judge against, Jev failed, or
- * the write failed). Never throws.
+ * stored, or null (feature off, nothing to judge against, not the first
+ * reply since the send, out of budget, Jev failed, a class was already
+ * stored, or the write failed). Never throws.
  */
 export async function classifyCampaignReply(
   input: ClassifyCampaignReplyInput
 ): Promise<CampaignReplyClass | null> {
+  const started = Date.now();
   try {
     const reply = input.replyText.trim();
     if (!reply) return null;
@@ -125,22 +178,38 @@ export async function classifyCampaignReply(
     if (!ts) return null;
 
     const db = supabaseAdmin();
-    const campaignMessage = await campaignMessageFor(db, input);
-    if (!campaignMessage) return null;
+    const context = await campaignContextFor(db, input);
+    if (!context) return null;
+    if (
+      input.inboundMessageId &&
+      input.conversationId &&
+      !(await isFirstReplySince(
+        db,
+        input.conversationId,
+        input.inboundMessageId,
+        context.since
+      ))
+    )
+      return null;
 
+    let deadlineMs = input.deadlineMs;
+    if (deadlineMs !== undefined) {
+      deadlineMs -= Date.now() - started;
+      if (deadlineMs < MIN_JUDGMENT_MS) return null;
+    }
     const judged = await ts.replyClass({
       accountId: input.accountId,
-      campaignMessage,
+      campaignMessage: context.campaignMessage,
       reply,
       tappedButton: input.tappedButton ?? null,
-      deadlineMs: input.deadlineMs,
+      deadlineMs,
     });
     if (!judged.ok) return null;
 
     const p = Math.min(1, Math.max(0, judged.p));
     // Filtered by the broadcast, which was read inside the account; a
     // class already stored (a racing backfill) is never overwritten.
-    const { error } = await db
+    const { data: written, error } = await db
       .from('broadcast_recipients')
       .update({
         reply_class: judged.cls,
@@ -149,11 +218,13 @@ export async function classifyCampaignReply(
       })
       .eq('id', input.recipientId)
       .eq('broadcast_id', input.broadcastId)
-      .is('reply_class', null);
+      .is('reply_class', null)
+      .select('id');
     if (error) {
       logError('write failed', error.message);
       return null;
     }
+    if (!written?.length) return null;
     return { cls: judged.cls, p };
   } catch (err) {
     logError('classification failed', err);

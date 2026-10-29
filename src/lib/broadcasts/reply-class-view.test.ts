@@ -125,28 +125,25 @@ describe('replySortAction', () => {
 });
 
 describe('sortPastReplies', () => {
-  it('loops until a call sorts nothing, even with replies remaining', async () => {
+  it('follows the cursor until it is null, through calls that sort nothing', async () => {
     const calls = [
-      { classified: 500, remaining: 120 },
-      { classified: 100, remaining: 20 },
-      { classified: 0, remaining: 20 },
+      { classified: 0, nextCursor: 'r500' },
+      { classified: 100, nextCursor: 'r1000' },
+      { classified: 0, nextCursor: 'r1500' },
+      { classified: 3, nextCursor: null },
     ];
-    const once = vi.fn(async () => calls.shift()!);
+    const once = vi.fn<
+      (after: string | null) => Promise<(typeof calls)[number]>
+    >(async () => calls.shift()!);
     const progress = vi.fn();
-    await expect(sortPastReplies(once, progress)).resolves.toBe(600);
-    expect(once).toHaveBeenCalledTimes(3);
-    expect(progress.mock.calls).toEqual([[500], [600]]);
-  });
-
-  it('does not stop at remaining 0 while a call still sorts something', async () => {
-    const calls = [
-      { classified: 4, remaining: 0 },
-      { classified: 2, remaining: 0 },
-      { classified: 0, remaining: 0 },
-    ];
-    const once = vi.fn(async () => calls.shift()!);
-    await expect(sortPastReplies(once, () => {})).resolves.toBe(6);
-    expect(once).toHaveBeenCalledTimes(3);
+    await expect(sortPastReplies(once, progress)).resolves.toBe(103);
+    expect(once.mock.calls.map((c) => c[0])).toEqual([
+      null,
+      'r500',
+      'r1000',
+      'r1500',
+    ]);
+    expect(progress.mock.calls).toEqual([[100], [103]]);
   });
 
   it('propagates an error and honours shouldStop', async () => {
@@ -159,7 +156,7 @@ describe('sortPastReplies', () => {
       )
     ).rejects.toThrow('409');
 
-    const once = vi.fn(async () => ({ classified: 5 }));
+    const once = vi.fn(async () => ({ classified: 5, nextCursor: 'next' }));
     let n = 0;
     await expect(
       sortPastReplies(

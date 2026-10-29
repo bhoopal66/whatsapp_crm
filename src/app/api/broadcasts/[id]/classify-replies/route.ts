@@ -5,13 +5,18 @@
 // replied recipients that have no class yet — replies that came in
 // before the switch was on, or whose inbound judgment ran out of time.
 //
-//   -> { classified: number, remaining: number }
+//   body { after?: string }   (optional; the previous call's nextCursor)
+//   -> { classified: number, processed: number,
+//        nextCursor: string | null, remaining: number }
 //
 // The reply judged is the contact's first customer message at or after
-// the recipient's send time. At most 500 recipients per call, four at a
-// time, inside a 25 s budget; call again while `remaining` > 0 and the
-// last call classified something (a reply with no message or no local
-// template stays unclassified, so `remaining` need not reach 0).
+// the recipient's send time. Recipients are walked in id order after
+// `after`: at most 500 per call, four at a time, inside a 25 s budget.
+// Call again with `nextCursor` until it is null, however many a call
+// classified: a reply that can never be sorted (a voice note, no local
+// template) stays unclassified, and without the cursor the same oldest
+// 500 of those would be picked on every call and block every later one.
+// `classified` counts only classes actually written.
 //
 // Reads go through the caller's RLS client; the class is written by
 // classifyCampaignReply on the service role (148's guard). Admin and
@@ -47,7 +52,7 @@ interface RecipientRow {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -59,6 +64,13 @@ export async function POST(
         { error: 'Invalid broadcast id' },
         { status: 400 }
       );
+
+    const body = (await request.json().catch(() => null)) as {
+      after?: unknown;
+    } | null;
+    const after = body?.after ?? null;
+    if (after !== null && (typeof after !== 'string' || !UUID.test(after)))
+      return NextResponse.json({ error: 'Invalid cursor' }, { status: 400 });
 
     const { data: broadcast, error: bErr } = await supabase
       .from('broadcasts')
@@ -79,15 +91,18 @@ export async function POST(
         { status: 409 }
       );
 
-    const { data: rows, error: rErr } = await supabase
+    let rowsQuery = supabase
       .from('broadcast_recipients')
       .select('id, contact_id, sent_at, created_at')
       .eq('broadcast_id', id)
       .eq('status', 'replied')
-      .is('reply_class', null)
-      .order('replied_at', { ascending: true })
+      .is('reply_class', null);
+    if (after) rowsQuery = rowsQuery.gt('id', after);
+    const { data: rows, error: rErr } = await rowsQuery
+      .order('id', { ascending: true })
       .limit(BACKFILL_MAX_PER_CALL);
     if (rErr) throw new Error(rErr.message);
+    const recipients = (rows ?? []) as RecipientRow[];
 
     /** The contact's first customer message at or after `since`. */
     const firstReply = async (
@@ -121,23 +136,27 @@ export async function POST(
       return text ? { text, tapped: Boolean(m?.interactive_reply_id) } : null;
     };
 
-    const results = await mapLimit(
-      (rows ?? []) as RecipientRow[],
+    // Per row: 'classified', 'done' (looked at, nothing written: no
+    // reply text, no template, Jev declined, or an error) or 'skipped'
+    // (out of budget, so the cursor must not pass it).
+    type Outcome = 'classified' | 'done' | 'skipped';
+    const results = await mapLimit<RecipientRow, Outcome>(
+      recipients,
       CONCURRENCY,
       async (r) => {
         const left = BUDGET_MS - (Date.now() - started);
-        if (left < MIN_JUDGMENT_MS) return false;
+        if (left < MIN_JUDGMENT_MS) return 'skipped';
         try {
           const reply = await firstReply(
             r.contact_id,
             r.sent_at ?? r.created_at
           );
-          if (!reply) return false;
+          if (!reply) return 'done';
           const deadlineMs = Math.min(
             JUDGMENT_DEADLINE_MS,
             BUDGET_MS - (Date.now() - started)
           );
-          if (deadlineMs < MIN_JUDGMENT_MS) return false;
+          if (deadlineMs < MIN_JUDGMENT_MS) return 'skipped';
           const cls = await classifyCampaignReply({
             accountId,
             recipientId: r.id,
@@ -146,16 +165,28 @@ export async function POST(
             tappedButton: reply.tapped ? reply.text : null,
             deadlineMs,
           });
-          return cls !== null;
+          return cls !== null ? 'classified' : 'done';
         } catch (err) {
           console.error(
             '[reply-class] backfill item failed:',
             err instanceof Error ? err.message : String(err)
           );
-          return false;
+          return 'done';
         }
       }
     );
+
+    // The cursor advances over the leading run of rows looked at; a row
+    // skipped for budget (and everything after it) is retried next call.
+    let processed = 0;
+    while (processed < results.length && results[processed] !== 'skipped')
+      processed += 1;
+    const nextCursor =
+      processed < recipients.length
+        ? (recipients[processed - 1]?.id ?? after)
+        : recipients.length === BACKFILL_MAX_PER_CALL
+          ? recipients[recipients.length - 1]!.id
+          : null;
 
     const { count, error: nErr } = await supabase
       .from('broadcast_recipients')
@@ -166,7 +197,9 @@ export async function POST(
     if (nErr) throw new Error(nErr.message);
 
     return NextResponse.json({
-      classified: results.filter(Boolean).length,
+      classified: results.filter((o) => o === 'classified').length,
+      processed,
+      nextCursor,
       remaining: count ?? 0,
     });
   } catch (err) {

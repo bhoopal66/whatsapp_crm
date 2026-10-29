@@ -84,14 +84,24 @@ export function ReplyClassesCard({
     let sorted = 0;
     try {
       sorted = await sortPastReplies(
-        async () => {
+        async (after) => {
           const res = await fetch(
             `/api/broadcasts/${broadcastId}/classify-replies`,
-            { method: 'POST' }
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ after }),
+            }
           );
           const payload = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(payload?.error || `HTTP ${res.status}`);
-          return { classified: Number(payload?.classified) || 0 };
+          return {
+            classified: Number(payload?.classified) || 0,
+            nextCursor:
+              typeof payload?.nextCursor === 'string'
+                ? payload.nextCursor
+                : null,
+          };
         },
         (n) => {
           sorted = n;

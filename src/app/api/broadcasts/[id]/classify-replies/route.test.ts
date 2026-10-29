@@ -9,6 +9,7 @@ interface Q {
   filters: Filters;
   head: boolean;
   limit?: number;
+  order?: string;
 }
 
 const h = vi.hoisted(() => ({
@@ -42,7 +43,10 @@ function fakeSupabase() {
           q.head = Boolean(opts?.head);
           return b;
         },
-        order: () => b,
+        order: (c: string) => {
+          q.order = c;
+          return b;
+        },
         limit: (n: number) => {
           q.limit = n;
           return b;
@@ -55,7 +59,7 @@ function fakeSupabase() {
               : { data: h.recipients, error: null }
           ).then(res),
       };
-      for (const f of ['eq', 'is', 'gte'])
+      for (const f of ['eq', 'is', 'gte', 'gt'])
         b[f] = (c: string, v: unknown) => {
           q.filters.push([f, c, v]);
           return b;
@@ -79,13 +83,16 @@ vi.mock('@/lib/broadcasts/reply-class', () => ({
 import { POST } from './route';
 
 const ID = '11111111-1111-4111-8111-111111111111';
-const post = (id = ID) =>
+const post = (id = ID, body?: unknown) =>
   POST(
     new Request(`http://localhost/api/broadcasts/${id}/classify-replies`, {
       method: 'POST',
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }),
     { params: Promise.resolve({ id }) }
   );
+const rid = (n: number) =>
+  `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 beforeEach(() => {
   h.queries = [];
@@ -129,13 +136,19 @@ describe('POST /api/broadcasts/[id]/classify-replies', () => {
   it('classifies each replied recipient against its first reply', async () => {
     const res = await post();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ classified: 2, remaining: 1 });
+    expect(await res.json()).toEqual({
+      classified: 2,
+      processed: 3,
+      nextCursor: null,
+      remaining: 1,
+    });
     expect(h.requireRole).toHaveBeenCalledWith('admin');
 
     const recipientsQ = h.queries.find(
       (q) => q.table === 'broadcast_recipients' && !q.head
     )!;
     expect(recipientsQ.limit).toBe(500);
+    expect(recipientsQ.order).toBe('id');
     expect(recipientsQ.filters).toEqual([
       ['eq', 'broadcast_id', ID],
       ['eq', 'status', 'replied'],
@@ -175,6 +188,54 @@ describe('POST /api/broadcasts/[id]/classify-replies', () => {
   it('counts only replies that got a class', async () => {
     h.classify.mockResolvedValueOnce(null);
     expect(await (await post()).json()).toMatchObject({ classified: 1 });
+  });
+
+  it('walks past a full page of replies that cannot be sorted', async () => {
+    // 500 voice notes: nothing classifiable, yet the cursor moves on so
+    // the replies after them are reached on the next call.
+    h.recipients = Array.from({ length: 500 }, (_, i) => ({
+      id: rid(i + 1),
+      contact_id: `v${i}`,
+      sent_at: '2026-10-01T10:00:00Z',
+      created_at: 'x',
+    }));
+    h.messages = {};
+    const first = await (await post()).json();
+    expect(first).toMatchObject({
+      classified: 0,
+      processed: 500,
+      nextCursor: rid(500),
+    });
+
+    h.queries = [];
+    h.recipients = [
+      { id: rid(501), contact_id: 'c1', sent_at: 'x', created_at: 'x' },
+    ];
+    h.messages = {
+      'conv-c1': { content_text: 'yes please', interactive_reply_id: null },
+    };
+    const second = await (await post(ID, { after: first.nextCursor })).json();
+    expect(second).toMatchObject({
+      classified: 1,
+      processed: 1,
+      nextCursor: null,
+    });
+    const recipientsQ = h.queries.find(
+      (q) => q.table === 'broadcast_recipients' && !q.head
+    )!;
+    expect(recipientsQ.filters).toContainEqual(['gt', 'id', rid(500)]);
+  });
+
+  it('counts a reply as classified only when a class was written', async () => {
+    h.classify.mockResolvedValue(null);
+    expect(await (await post()).json()).toMatchObject({
+      classified: 0,
+      processed: 3,
+    });
+  });
+
+  it('400s a cursor that is not a recipient id', async () => {
+    expect((await post(ID, { after: 'r1; drop' })).status).toBe(400);
   });
 
   it('409s when reply sorting is off, before reading recipients', async () => {

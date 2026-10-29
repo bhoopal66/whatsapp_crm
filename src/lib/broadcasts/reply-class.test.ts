@@ -30,14 +30,28 @@ const h = vi.hoisted(() => ({
     template_name: 'card_offer',
     template_language: 'en',
   } as unknown,
-  recipient: { id: 'rec-1', template_params: ['Asha'] } as unknown,
+  recipient: {
+    id: 'rec-1',
+    template_params: ['Asha'],
+    sent_at: '2026-10-01T10:00:00Z',
+    created_at: '2026-10-01T09:00:00Z',
+  } as unknown,
+  /** The conversation's first customer message since the send. */
+  firstMessage: { id: 'msg-1' } as unknown,
   updateError: null as unknown,
+  /** Rows the conditional update matched. */
+  updateRows: [{ id: 'rec-1' }] as unknown[],
   write: vi.fn(),
   dispatch: vi.fn(),
 }));
 
 function respond(call: Call): Result {
-  if (call.op === 'update') return { data: null, error: h.updateError };
+  if (call.op === 'update')
+    return {
+      data: h.updateError ? null : h.updateRows,
+      error: h.updateError,
+    };
+  if (call.table === 'messages') return { data: h.firstMessage, error: null };
   if (call.table === 'broadcasts') return { data: h.broadcast, error: null };
   if (call.table === 'broadcast_recipients')
     return { data: h.recipient, error: null };
@@ -59,11 +73,13 @@ function fakeDb() {
           call.payload = payload;
           return b;
         },
+        order: () => b,
+        limit: () => b,
         maybeSingle: run,
         then: (res: (r: Result) => unknown, rej?: (e: unknown) => unknown) =>
           run().then(res, rej),
       };
-      for (const f of ['eq', 'is'] as const)
+      for (const f of ['eq', 'is', 'gte'] as const)
         b[f] = (col: string, v: unknown) => {
           call.filters.push([f, col, v]);
           return b;
@@ -115,8 +131,15 @@ beforeEach(() => {
   h.layer = { replyClass: h.replyClass };
   h.template = { body_text: 'Hi {{1}}, our card offer is open.' };
   h.broadcast = { template_name: 'card_offer', template_language: 'en' };
-  h.recipient = { id: 'rec-1', template_params: ['Asha'] };
+  h.recipient = {
+    id: 'rec-1',
+    template_params: ['Asha'],
+    sent_at: '2026-10-01T10:00:00Z',
+    created_at: '2026-10-01T09:00:00Z',
+  };
+  h.firstMessage = { id: 'msg-1' };
   h.updateError = null;
+  h.updateRows = [{ id: 'rec-1' }];
   h.write.mockReset();
   h.dispatch.mockReset().mockResolvedValue(undefined);
 });
@@ -124,18 +147,24 @@ beforeEach(() => {
 const updates = () => h.calls.filter((c) => c.op === 'update');
 
 describe('classifyCampaignReply', () => {
-  it('judges the rendered campaign message and stores the class', async () => {
+  it('judges the campaign message without any recipient value and stores the class', async () => {
     expect(await classifyCampaignReply(input)).toEqual({
       cls: 'interested',
       p: 0.88,
     });
     expect(h.replyClass).toHaveBeenCalledWith({
       accountId: 'acct-1',
-      campaignMessage: 'Hi Asha, our card offer is open.',
+      campaignMessage: 'Hi […], our card offer is open.',
       reply: 'yes please',
       tappedButton: null,
-      deadlineMs: 1500,
+      deadlineMs: expect.any(Number),
     });
+    // The recipient's params (their name) never reach Jev.
+    expect(JSON.stringify(h.replyClass.mock.calls)).not.toContain('Asha');
+    // The budget covers the reads too: Jev gets what is left of it.
+    const { deadlineMs } = h.replyClass.mock.calls[0]![0];
+    expect(deadlineMs).toBeLessThanOrEqual(1500);
+    expect(deadlineMs).toBeGreaterThan(1000);
     const broadcastRead = h.calls.find((c) => c.table === 'broadcasts')!;
     expect(broadcastRead.filters).toContainEqual([
       'eq',
@@ -156,12 +185,56 @@ describe('classifyCampaignReply', () => {
     ]);
   });
 
-  it('falls back to the bare body when no params were stored', async () => {
-    h.recipient = { id: 'rec-1', template_params: null };
+  it('neutralises every placeholder, numbered or named', async () => {
+    h.template = { body_text: 'Hi {{1}}, {{ city }} offer for {{2}}.' };
+    h.recipient = { ...(h.recipient as object), template_params: null };
     await classifyCampaignReply(input);
     expect(h.replyClass.mock.calls[0]![0].campaignMessage).toBe(
-      'Hi {{1}}, our card offer is open.'
+      'Hi […], […] offer for […].'
     );
+  });
+
+  it('returns null when a class was already stored (the update matched nothing)', async () => {
+    h.updateRows = [];
+    expect(await classifyCampaignReply(input)).toBeNull();
+    expect(updates()).toHaveLength(1);
+  });
+
+  describe('with an inbound message (the inbound path)', () => {
+    const inbound = {
+      ...input,
+      inboundMessageId: 'msg-1',
+      conversationId: 'conv-1',
+    };
+
+    it('classifies the first customer message since the send', async () => {
+      expect(await classifyCampaignReply(inbound)).toEqual({
+        cls: 'interested',
+        p: 0.88,
+      });
+      const read = h.calls.find((c) => c.table === 'messages')!;
+      expect(read.filters).toEqual([
+        ['eq', 'conversation_id', 'conv-1'],
+        ['eq', 'sender_type', 'customer'],
+        ['gte', 'created_at', '2026-10-01T10:00:00Z'],
+      ]);
+    });
+
+    it('skips a message that is not the first reply since that send', async () => {
+      // Campaign A went unanswered; the customer answered a later B
+      // first, so this message is not a reply to A.
+      h.firstMessage = { id: 'msg-earlier' };
+      expect(await classifyCampaignReply(inbound)).toBeNull();
+      expect(h.replyClass).not.toHaveBeenCalled();
+      expect(updates()).toHaveLength(0);
+    });
+
+    it('asks Jev nothing once the budget is spent on the reads', async () => {
+      expect(
+        await classifyCampaignReply({ ...inbound, deadlineMs: 100 })
+      ).toBeNull();
+      expect(h.replyClass).not.toHaveBeenCalled();
+    });
   });
 
   it.each([

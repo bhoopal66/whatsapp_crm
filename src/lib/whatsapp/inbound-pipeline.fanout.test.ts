@@ -454,6 +454,9 @@ describe('processMessage — campaign reply sorting', () => {
       replyText: 'hello',
       tappedButton: null,
       deadlineMs: 1500,
+      // The first-reply-since-the-send check runs on this message.
+      inboundMessageId: 'row-1',
+      conversationId: 'conv-1',
     });
     expect(h.flows.mock.calls[0]![0]).toMatchObject({
       campaign: {
@@ -497,6 +500,38 @@ describe('processMessage — campaign reply sorting', () => {
     expect(h.flows.mock.calls[0]![0]).toMatchObject({
       campaign: { followUpFlowId: 'flow-9', replyClass: null },
     });
+  });
+
+  it('without a follow-up flow, classifies alongside Flows and tags with the class', async () => {
+    h.recipientRows = [
+      {
+        id: 'rec-1',
+        status: 'read',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: 'acct-1', follow_up_flow_id: null },
+      },
+    ];
+    h.classify.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            h.order.push('classified');
+            resolve({ cls: 'interested', p: 0.91 });
+          }, 20)
+        )
+    );
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+
+    // Flows did not wait for the judgment…
+    expect(h.order.indexOf('flows')).toBeLessThan(
+      h.order.indexOf('classified')
+    );
+    expect(h.flows.mock.calls[0]![0]).toMatchObject({ campaign: null });
+    // …and the tag step did.
+    expect(h.order.indexOf('classified')).toBeLessThan(h.order.indexOf('tag'));
+    expect(h.tagInterested).toHaveBeenCalledWith(
+      expect.objectContaining({ replyClass: { cls: 'interested', p: 0.91 } })
+    );
   });
 
   it('classifies nothing when the message answers no campaign', async () => {

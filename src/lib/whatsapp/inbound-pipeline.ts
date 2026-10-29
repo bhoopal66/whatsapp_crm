@@ -426,8 +426,8 @@ async function handOffUndeliveredBotReply(
  * Runs on a best-effort basis — failures here must not break the
  * main inbound-message flow, so errors are swallowed with a log.
  */
-/** Campaign reply sorting's budget on the inbound path (it runs ahead
- *  of the follow-up flow). */
+/** Campaign reply sorting's budget on the inbound path, its reads
+ *  included (it runs ahead of a follow-up flow). */
 const CAMPAIGN_REPLY_CLASS_DEADLINE_MS = 1500;
 
 async function flagBroadcastReplyIfAny(
@@ -880,19 +880,31 @@ export async function processMessage(
 
   // Campaign reply sorting (migration 148, docs/jev-insights.md): Jev
   // sorts that first reply into a class, stored on the recipient row and
-  // seeded into the follow-up flow's vars below. Ahead of the flow so
-  // the flow can branch on it, hence the short deadline: a slow judgment
-  // costs at most 1.5 s, then the flow starts without the class. Gated
-  // on the account's switch inside; never throws.
-  const campaignReplyClass = campaignReply
-    ? await classifyCampaignReply({
+  // seeded into the follow-up flow's vars below. Only when this message
+  // is the contact's first customer message since that recipient's send
+  // (checked inside): the recipient lookup above picks the most recent
+  // UN-replied campaign, which may be an older one the customer never
+  // answered. Gated on the account's switch inside; never throws.
+  //
+  // With a follow-up flow it is awaited ahead of the flow so the flow
+  // can branch on it, hence the short budget: a slow judgment costs at
+  // most ~1.5 s, then the flow starts without the class. Without one it
+  // runs alongside the Flows step and is awaited where the interested
+  // tag is applied, still inside after().
+  const campaignReplyClassP = campaignReply
+    ? classifyCampaignReply({
         accountId,
         recipientId: campaignReply.recipientId,
         broadcastId: campaignReply.broadcastId,
         replyText: contentText ?? message.text ?? '',
         tappedButton: interactiveReplyId ? (contentText ?? null) : null,
         deadlineMs: CAMPAIGN_REPLY_CLASS_DEADLINE_MS,
+        inboundMessageId: insertedRows[0].id,
+        conversationId: conversation.id,
       })
+    : Promise.resolve(null);
+  const followUpReplyClass = campaignReply?.followUpFlowId
+    ? await campaignReplyClassP
     : null;
 
   // ============================================================
@@ -930,7 +942,7 @@ export async function processMessage(
       ? {
           broadcastId: campaignReply.broadcastId,
           followUpFlowId: campaignReply.followUpFlowId,
-          replyClass: campaignReplyClass,
+          replyClass: followUpReplyClass,
         }
       : null,
     message: interactiveReplyId
@@ -976,7 +988,7 @@ export async function processMessage(
   await tagInterestedReply({
     accountId,
     conversationId: conversation.id,
-    replyClass: campaignReplyClass,
+    replyClass: await campaignReplyClassP,
   });
 
   // Fire any automations that react to this webhook event. All dispatches
