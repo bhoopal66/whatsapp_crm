@@ -183,13 +183,16 @@ vi.mock("@/lib/webhooks/ssrf", async (importOriginal) => ({
 }));
 
 const judge = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/insights/meaning", () => ({
+vi.mock("@/lib/insights/meaning", async (importOriginal) => ({
+  meaningCandidate: (await importOriginal<typeof import("@/lib/insights/meaning")>())
+    .meaningCandidate,
   judgeMeanings: (...a: unknown[]) =>
     (judge as unknown as (...x: unknown[]) => unknown)(...a),
   loadMeaningTurns: async () => [],
 }));
 
 import {
+  pickIntentAutomations,
   resolveConversationId,
   runAutomationsForTrigger,
   triggerMatches,
@@ -292,6 +295,70 @@ describe("runAutomationsForTrigger — intent_match", () => {
       ],
     });
     expect(h.state.updateCalls).toHaveLength(1);
+  });
+
+  it("runs only ONE automation when two match: the highest p, then the newest", async () => {
+    h.state.automations = [intentAutomation("a1"), intentAutomation("a2")];
+    h.state.steps = [updateStep(), { ...updateStep(), id: "s2", automation_id: "a2" }];
+    judge.mockResolvedValue(
+      new Map([
+        ["automation:a1", 0.8],
+        ["automation:a2", 0.9],
+      ]),
+    );
+    await run({ message_text: "can I borrow", message_id: "wamid.1" });
+    expect(h.state.updateCalls).toHaveLength(1);
+
+    expect(
+      pickIntentAutomations(
+        [
+          { ...intentAutomation("a1"), updated_at: "2026-02-01T00:00:00Z" },
+          { ...intentAutomation("a2"), updated_at: "2026-01-01T00:00:00Z" },
+          { ...intentAutomation("a3"), updated_at: "2026-01-01T00:00:00Z" },
+        ] as unknown as Automation[],
+        new Map([
+          ["automation:a1", 0.9],
+          ["automation:a2", 0.9],
+          ["automation:a3", 0.95],
+        ]),
+      ).map((a) => a.id),
+    ).toEqual(["a3"]);
+    expect(
+      pickIntentAutomations(
+        [
+          { ...intentAutomation("a1"), updated_at: "2026-02-01T00:00:00Z" },
+          { ...intentAutomation("a2"), updated_at: "2026-01-01T00:00:00Z" },
+          { ...intentAutomation("a3"), updated_at: "2026-02-01T00:00:00Z" },
+        ] as unknown as Automation[],
+        new Map([
+          ["automation:a1", 0.9],
+          ["automation:a2", 0.9],
+          ["automation:a3", 0.9],
+        ]),
+      ).map((a) => a.id),
+    ).toEqual(["a3"]);
+  });
+
+  it("reports whether anything executed", async () => {
+    h.state.automations = [intentAutomation("a1")];
+    judge.mockResolvedValue(new Map([["automation:a1", 0.9]]));
+    expect(await run({ message_text: "x", message_id: "wamid.1" })).toBe(true);
+    judge.mockResolvedValue(new Map());
+    expect(await run({ message_text: "x", message_id: "wamid.2" })).toBe(false);
+  });
+
+  it("skips an automation whose stored config is invalid", async () => {
+    h.state.automations = [
+      { ...intentAutomation("a1"), trigger_config: { description: "" } },
+      intentAutomation("a2"),
+    ];
+    judge.mockResolvedValue(new Map());
+    await run({ message_text: "x", message_id: "wamid.1" });
+    expect(
+      (judge.mock.calls[0]![0] as { candidates: { key: string }[] }).candidates.map(
+        (c) => c.key,
+      ),
+    ).toEqual(["automation:a2"]);
   });
 
   it("runs nothing the judge did not match", async () => {

@@ -60,7 +60,10 @@ vi.mock('./channel-send', () => ({
 vi.mock('@/lib/ai/auto-reply', () => ({
   dispatchInboundToAiReply: vi.fn(async () => 'skipped'),
 }));
-vi.mock('@/lib/insights/meaning', () => ({
+vi.mock('@/lib/insights/meaning', async (importOriginal) => ({
+  meaningCandidate: (
+    await importOriginal<typeof import('@/lib/insights/meaning')>()
+  ).meaningCandidate,
   judgeMeanings: (...a: unknown[]) =>
     (h.judge as unknown as (...x: unknown[]) => unknown)(...a),
   loadMeaningTurns: async () => [],

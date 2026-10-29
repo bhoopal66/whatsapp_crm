@@ -6,17 +6,30 @@
 //     insights `meaningTriggersEnabled` switch on. Otherwise nothing is
 //     asked and nothing fires.
 //   * One request per inbound: the Flows engine and the automation
-//     dispatch both judge the same message, so p per candidate key is
-//     memoised per (account, gateway message id) for MEMO_TTL_MS. A later
-//     caller asks only for the keys not judged yet. A failed request is
-//     memoised too (as "no match") rather than retried on the same
-//     message, so a slow Jev costs one deadline, not one per engine.
+//     dispatch both judge the same message. Whichever asks first asks
+//     for every active meaning candidate of the account, both engines'
+//     (`loadMeaningCandidates`, cached per process for CANDIDATES_TTL_MS),
+//     plus its own; p per key is memoised per (account, gateway message
+//     id) for MEMO_TTL_MS, so the second engine finds everything judged.
+//     A failed or timed-out request is memoised for every candidate it
+//     covered (as "no match"), never retried on the same message, so a
+//     slow Jev costs one deadline, not one per engine.
+//   * At most INTENT_MAX_CANDIDATES per request: flows first, then the
+//     most recently updated. The rest match nothing, with a warning at
+//     most once per account per hour.
+//   * A candidate whose stored config is invalid is skipped.
 //   * Never throws; any failure means no trigger fires.
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { getDecisionLayer } from '@/lib/typesafe';
 import { getInsightSettings, insightsAvailable } from './settings';
+import { INTENT_MAX_CANDIDATES } from '@/lib/typesafe/questions/intent-match';
+import {
+  meaningThreshold,
+  validateIntentTriggerConfig,
+  type IntentTriggerConfig,
+} from './meaning-config';
 
 export interface MeaningTurn {
   from: 'customer' | 'business';
@@ -31,6 +44,131 @@ export interface MeaningCandidate {
   examples?: string[];
   /** P a match needs, from `meaningThreshold(sensitivity)`. */
   threshold: number;
+  /** The row's `updated_at`: over the cap, newer candidates go first. */
+  updatedAt?: string;
+}
+
+/**
+ * The candidate a stored trigger config describes, or null when the
+ * config is invalid (an API write can store an empty description on an
+ * active row): such a trigger is skipped, never sent to Jev.
+ */
+export function meaningCandidate(
+  key: string,
+  rawConfig: unknown,
+  updatedAt?: string
+): MeaningCandidate | null {
+  if (validateIntentTriggerConfig(rawConfig).length > 0) return null;
+  const cfg = rawConfig as IntentTriggerConfig;
+  return {
+    key,
+    description: cfg.description.trim(),
+    examples: Array.isArray(cfg.examples) ? cfg.examples : undefined,
+    threshold: meaningThreshold(cfg.sensitivity),
+    updatedAt,
+  };
+}
+
+export const CANDIDATES_TTL_MS = 30_000;
+
+const candidateCache = new Map<
+  string,
+  { at: number; list: Promise<MeaningCandidate[] | null> }
+>();
+
+interface TriggerRow {
+  id: string;
+  trigger_config: unknown;
+  updated_at?: string | null;
+  entry_node_id?: string | null;
+}
+
+async function queryMeaningCandidates(
+  accountId: string
+): Promise<MeaningCandidate[] | null> {
+  try {
+    const db = supabaseAdmin();
+    const [flows, automations] = await Promise.all([
+      db
+        .from('flows')
+        .select('id, trigger_config, updated_at, entry_node_id')
+        .eq('account_id', accountId)
+        .eq('status', 'active')
+        .eq('trigger_type', 'intent'),
+      db
+        .from('automations')
+        .select('id, trigger_config, updated_at')
+        .eq('account_id', accountId)
+        .eq('is_active', true)
+        .eq('trigger_type', 'intent_match'),
+    ]);
+    if (flows.error || automations.error) return null;
+    const out: MeaningCandidate[] = [];
+    for (const f of (flows.data ?? []) as TriggerRow[]) {
+      if (!f.entry_node_id) continue;
+      const c = meaningCandidate(
+        `flow:${f.id}`,
+        f.trigger_config,
+        f.updated_at ?? undefined
+      );
+      if (c) out.push(c);
+    }
+    for (const a of (automations.data ?? []) as TriggerRow[]) {
+      const c = meaningCandidate(
+        `automation:${a.id}`,
+        a.trigger_config,
+        a.updated_at ?? undefined
+      );
+      if (c) out.push(c);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every active meaning candidate of the account: intent flows with an
+ * entry node and `intent_match` automations, invalid configs skipped.
+ * Cached per process for CANDIDATES_TTL_MS; a failed read is not cached
+ * and yields []. Never throws.
+ */
+export async function loadMeaningCandidates(
+  accountId: string
+): Promise<MeaningCandidate[]> {
+  const now = Date.now();
+  const hit = candidateCache.get(accountId);
+  if (hit && now - hit.at < CANDIDATES_TTL_MS) return (await hit.list) ?? [];
+  const list = queryMeaningCandidates(accountId);
+  candidateCache.set(accountId, { at: now, list });
+  const got = await list;
+  if (got === null && candidateCache.get(accountId)?.list === list)
+    candidateCache.delete(accountId);
+  return got ?? [];
+}
+
+/** Flows first, then the most recently updated, then the larger key. */
+function rankForCap(cs: MeaningCandidate[]): MeaningCandidate[] {
+  const isFlow = (c: MeaningCandidate) => (c.key.startsWith('flow:') ? 1 : 0);
+  return [...cs].sort(
+    (a, b) =>
+      isFlow(b) - isFlow(a) ||
+      (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') ||
+      (a.key < b.key ? 1 : a.key > b.key ? -1 : 0)
+  );
+}
+
+const CAP_WARN_INTERVAL_MS = 60 * 60_000;
+const capWarnedAt = new Map<string, number>();
+
+function warnOverCap(accountId: string, count: number): void {
+  const now = Date.now();
+  const last = capWarnedAt.get(accountId);
+  if (last !== undefined && now - last < CAP_WARN_INTERVAL_MS) return;
+  capWarnedAt.set(accountId, now);
+  console.warn(
+    `[insights] meaning triggers: account ${accountId} has ${count} active candidates; only ${INTENT_MAX_CANDIDATES} are judged per message (flows first, then the most recently updated)`
+  );
 }
 
 export interface JudgeMeaningsInput {
@@ -57,6 +195,8 @@ const memo = new Map<string, MemoEntry>();
 /** Test hook. */
 export function __resetMeaningMemo(): void {
   memo.clear();
+  candidateCache.clear();
+  capWarnedAt.clear();
 }
 
 function entryFor(accountId: string, messageKey: string): MemoEntry {
@@ -117,16 +257,29 @@ export async function judgeMeanings(
     const settings = await getInsightSettings(input.accountId);
     if (!settings.meaningTriggersEnabled) return out;
 
+    // The caller's own candidates (read fresh) win over the cached
+    // account-wide set, which makes the request cover the other engine.
+    const all = new Map<string, MeaningCandidate>();
+    for (const c of await loadMeaningCandidates(input.accountId))
+      all.set(c.key, c);
+    for (const c of input.candidates) all.set(c.key, c);
+
     const entry = entryFor(input.accountId, input.messageKey);
-    const missing = input.candidates.filter((c) => !entry.p.has(c.key));
+    const missing = [...all.values()].filter((c) => !entry.p.has(c.key));
     if (missing.length > 0) {
-      const pending = ask(input, missing);
-      missing.forEach((c, i) =>
+      const ranked = rankForCap(missing);
+      const asked = ranked.slice(0, INTENT_MAX_CANDIDATES);
+      if (ranked.length > asked.length)
+        warnOverCap(input.accountId, ranked.length);
+      const pending = ask(input, asked);
+      asked.forEach((c, i) =>
         entry.p.set(
           c.key,
           pending.then((ps) => ps[i] ?? null)
         )
       );
+      for (const c of ranked.slice(asked.length))
+        entry.p.set(c.key, Promise.resolve(null));
     }
     for (const c of input.candidates) {
       const p = await entry.p.get(c.key);

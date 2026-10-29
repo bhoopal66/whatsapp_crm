@@ -357,11 +357,24 @@ takes a message a keyword would have caught. Among meaning-triggered
 flows, the one Jev is most sure of (at or above its own sensitivity)
 starts; a tie goes to the most recently edited flow.
 
+**One automation per message.** At most one `intent_match` automation
+runs for a message: the one Jev is most sure of (at or above its own
+sensitivity), a tie going to the most recently edited, as for flows. And
+none runs when a `keyword_match` automation already acted on the same
+message: a keyword wins over a meaning, for automations as for flows.
+
 **One request per message.** Flows and automations share a single Jev
-request per inbound message, which judges every candidate trigger at
-once, with a 2-second deadline. When it fails or times out, no meaning
-trigger fires for that message; keyword triggers are unaffected. Only
-typed text is judged.
+request per inbound message. Whichever engine asks first asks about
+every active meaning trigger of the workspace, flows and automations
+alike (the list is re-read at most every 30 seconds), so the other finds
+its answers already there. The request has a 2-second deadline; when it
+fails or times out, no meaning trigger fires for that message and it is
+not asked again; keyword triggers are unaffected. Only typed text is
+judged. One request judges at most 20 triggers: with more active, flows
+come first, then the most recently edited, the rest cannot fire, and the
+server log warns (at most once an hour per workspace). A trigger whose
+saved description is invalid (for instance empty after an API edit) is
+skipped.
 
 **Automations step aside for flows.** Like `keyword_match`, an
 automation's `intent_match` is not run when a flow (or the journey bot)
@@ -372,14 +385,18 @@ available, a flow waiting on buttons or a list also accepts a typed
 answer. In order: the option's **label** (case, Arabic diacritics and
 tatweel, emoji, spacing and surrounding punctuation are ignored; a text
 that names two options matches neither), its **number** in the order
-shown (`2`, `2.`, `#2`, `option 2`, `٢`; a list counts rows across its
-sections, as the numbered menu on an OpenWA number prints them; skipped
-when an option's own label is a number), and then its **meaning**: one
-Jev request, 2-second deadline, accepted when Jev picks an option rather
-than "none of these" and is at least 75% sure (not yet calibrated
-against real traffic). A match moves the flow on exactly as a tap would,
-and the run's history records how it matched (`matched_by`: `label`,
-`number` or `meaning` with its probability). When nothing matches, or
+shown (`2`, `2.`, `#2`, `option 2`, `number 2`, `٢`; not `no 2`, which
+may mean "not 2"; a list counts rows across its sections, as the
+numbered menu on an OpenWA number prints them; skipped when an option's
+own label is a number), and then its **meaning**: one Jev request with a
+1.2-second deadline, so a miss delays the fallback only briefly,
+accepted when Jev picks an option rather than "none of these" and is at
+least 75% sure (not yet calibrated against real traffic). A text over
+160 characters is a question, not an answer: it is not sent to Jev (a
+label or number still matches). A match moves the flow on exactly as a
+tap would, and once the move has gone through the run's history records
+how it matched (`matched_by`: `label`, `number` or `meaning` with its
+probability). When nothing matches, or
 the setting is off, the flow's fallback (reprompt, hand off, end, ignore
 or AI) runs as before.
 

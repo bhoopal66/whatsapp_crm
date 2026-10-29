@@ -245,6 +245,7 @@ describe('typed answers to a waiting send_buttons node', () => {
         accountId: 'acct-1',
         prompt: 'Quote or comparison?',
         message: 'yes the second one',
+        deadlineMs: 1200,
         options: [
           { title: 'Get a quote', description: undefined },
           { title: 'Compare', description: undefined },
@@ -278,6 +279,23 @@ describe('typed answers to a waiting send_buttons node', () => {
     });
     await sendText('how much is it?');
     expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
+    expect(matchEvent()).toBeUndefined();
+  });
+
+  it('does not ask Jev about a long free-form text', async () => {
+    await sendText(`${'how does the comparison work exactly '.repeat(5)}?`);
+    expectFallback();
+    expect(h.replyOption).not.toHaveBeenCalled();
+  });
+
+  it('writes no match event when the advance fails', async () => {
+    h.state.nodes = NODES.filter(
+      (n) => (n as { node_key: string }).node_key !== 'c_end'
+    );
+    await sendText('compare!');
+    expect(events()).toContainEqual(
+      expect.objectContaining({ event_type: 'error', node_key: 'c_end' })
+    );
     expect(matchEvent()).toBeUndefined();
   });
 

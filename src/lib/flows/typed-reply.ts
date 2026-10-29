@@ -100,8 +100,9 @@ function labelKey(s: string): string {
   return normaliseReplyText(s) || s.normalize('NFKC').trim();
 }
 
+// "no" is deliberately not a prefix: "no 2" may mean "not 2".
 const ORDINAL =
-  /^(?:(?:option|opt|choice|number|num|no|رقم|خيار|الخيار)\.?\s*)?#?\s*(\d{1,2})$/u;
+  /^(?:(?:option|opt|choice|number|num|رقم|خيار|الخيار)\.?\s*)?#?\s*(\d{1,2})$/u;
 
 /** The 1-based ordinal the text names, or null. Range is the caller's. */
 export function parseOrdinal(text: string): number | null {

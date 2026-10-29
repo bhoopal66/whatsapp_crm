@@ -306,6 +306,15 @@ describe('processMessage — journey bot', () => {
     });
   });
 
+  it('skips intent_match when a keyword_match automation acted', async () => {
+    h.automations.mockImplementation(
+      async (input: { triggerType: string }) =>
+        input.triggerType === 'keyword_match'
+    );
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
+  });
+
   it('a journey that consumes suppresses content automations and the AI reply', async () => {
     h.journey.mockResolvedValue({ consumed: true });
     await processMessage(message, 'acct-1', 'owner-1', channel);

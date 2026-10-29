@@ -11,6 +11,10 @@
 //   * Label, then number (typed-reply.ts, no Jev), then meaning: one Jev
 //     request accepted only when it picks an option, not `none`, with
 //     p >= TYPED_REPLY_MIN_P.
+//   * The meaning step delays the fallback, so it is bounded: a
+//     TYPED_REPLY_DEADLINE_MS deadline, and texts longer than
+//     TYPED_REPLY_MAX_JUDGED_CHARS (a free-form question, not an answer)
+//     are not sent at all.
 //   * Never throws; any failure is "no match".
 // ============================================================
 
@@ -27,6 +31,12 @@ import {
  * meaning-trigger sensitivity until real traffic says otherwise.
  */
 export const TYPED_REPLY_MIN_P = 0.75;
+
+/** Hard deadline for the meaning step, retries included. */
+export const TYPED_REPLY_DEADLINE_MS = 1200;
+
+/** Longer texts skip the meaning step (label and number still run). */
+export const TYPED_REPLY_MAX_JUDGED_CHARS = 160;
 
 export type TypedReplyResolution =
   | { option: ReplyOption; by: 'label' | 'number' }
@@ -49,10 +59,12 @@ export async function resolveTypedReply(input: {
     const quick = matchTypedReply(options, input.text);
     if (quick) return { option: quick.option, by: quick.by };
 
+    if (input.text.trim().length > TYPED_REPLY_MAX_JUDGED_CHARS) return null;
     const ts = getDecisionLayer();
     if (!ts) return null;
     const res = await ts.replyOption({
       accountId: input.accountId,
+      deadlineMs: TYPED_REPLY_DEADLINE_MS,
       prompt: input.prompt,
       message: input.text,
       options: options.map((o) => ({

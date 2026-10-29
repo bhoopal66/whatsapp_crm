@@ -20,8 +20,7 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
-import { judgeMeanings, loadMeaningTurns } from '@/lib/insights/meaning'
-import { meaningThreshold, type IntentTriggerConfig } from '@/lib/insights/meaning-config'
+import { judgeMeanings, loadMeaningTurns, meaningCandidate } from '@/lib/insights/meaning'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
@@ -84,7 +83,10 @@ export interface DispatchInput {
  * All errors are caught and logged; per-automation failures are
  * recorded into automation_logs with status='failed'.
  */
-export async function runAutomationsForTrigger(input: DispatchInput): Promise<void> {
+export async function runAutomationsForTrigger(input: DispatchInput): Promise<boolean> {
+  // Whether any automation matched and started executing: the inbound
+  // pipeline skips intent_match when a keyword_match automation acted.
+  let executed = false
   try {
     const db = supabaseAdmin()
 
@@ -104,11 +106,11 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
         .maybeSingle()
       if (ownErr) {
         console.error('[automations] contact ownership check failed:', ownErr)
-        return
+        return false
       }
       if (!owned) {
         console.warn('[automations] contact not in account, refusing dispatch', input.contactId)
-        return
+        return false
       }
     }
 
@@ -121,17 +123,22 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
 
     if (error) {
       console.error('[automations] fetch failed:', error)
-      return
+      return false
     }
-    if (!automations || automations.length === 0) return
+    if (!automations || automations.length === 0) return false
 
-    const meant =
+    // intent_match runs at most ONE automation per message: two that
+    // both "mean" the text would otherwise both act on the customer.
+    const toRun =
       input.triggerType === 'intent_match'
-        ? await judgeIntentAutomations(input, automations as Automation[])
-        : null
+        ? pickIntentAutomations(
+            automations as Automation[],
+            await judgeIntentAutomations(input, automations as Automation[]),
+          )
+        : (automations as Automation[]).filter((a) => triggerMatches(a, input.context))
 
-    for (const automation of automations as Automation[]) {
-      if (meant ? !meant.has(`automation:${automation.id}`) : !triggerMatches(automation, input.context)) continue
+    for (const automation of toRun) {
+      executed = true
       try {
         await executeAutomation(automation, input)
       } catch (err) {
@@ -141,6 +148,33 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
   } catch (err) {
     console.error('[automations] dispatch failed:', err)
   }
+  return executed
+}
+
+/**
+ * The one intent_match automation to run: the highest p among those
+ * that cleared their own threshold (`matched`, keyed `automation:<id>`);
+ * a tie goes to the most recently updated, then the larger id, as
+ * `pickIntentFlow` does for flows.
+ */
+export function pickIntentAutomations(
+  automations: Automation[],
+  matched: Map<string, number>,
+): Automation[] {
+  let best: Automation | null = null
+  let bestP = -1
+  for (const a of automations) {
+    const p = matched.get(`automation:${a.id}`)
+    if (p === undefined) continue
+    const au = a.updated_at ?? ''
+    const bu = best?.updated_at ?? ''
+    const newer = best !== null && p === bestP && (au > bu || (au === bu && a.id > best.id))
+    if (p > bestP || newer) {
+      best = a
+      bestP = p
+    }
+  }
+  return best ? [best] : []
 }
 
 /**
@@ -884,34 +918,29 @@ export function matchesWholeWord(
 
 /**
  * intent_match: which of these automations the inbound text means
- * (keys `automation:<id>`, each at or above its own threshold). Shares
- * the per-message memo with the Flows engine, so one Jev request covers
- * both. Needs the text and the gateway message id; empty otherwise.
+ * (p per key `automation:<id>`, each at or above its own threshold).
+ * Shares the per-message memo and the account's candidate set with the
+ * Flows engine, so one Jev request covers both. Needs the text and the gateway message id; empty otherwise.
  */
 async function judgeIntentAutomations(
   input: DispatchInput,
   automations: Automation[],
-): Promise<Set<string>> {
+): Promise<Map<string, number>> {
   const text = (input.context?.message_text ?? '').toString()
   const messageKey = input.context?.message_id
   const conversationId = input.context?.conversation_id
-  if (!text.trim() || !messageKey) return new Set()
-  const matched = await judgeMeanings({
+  if (!text.trim() || !messageKey) return new Map()
+  return judgeMeanings({
     accountId: input.accountId,
     messageKey,
     text,
     recentTurns: conversationId ? () => loadMeaningTurns(conversationId, text) : [],
-    candidates: automations.map((a) => {
-      const cfg = (a.trigger_config ?? {}) as Partial<IntentTriggerConfig>
-      return {
-        key: `automation:${a.id}`,
-        description: typeof cfg.description === 'string' ? cfg.description : '',
-        examples: Array.isArray(cfg.examples) ? cfg.examples : undefined,
-        threshold: meaningThreshold(cfg.sensitivity),
-      }
+    // An invalid stored config is skipped, never sent to Jev.
+    candidates: automations.flatMap((a) => {
+      const c = meaningCandidate(`automation:${a.id}`, a.trigger_config, a.updated_at)
+      return c ? [c] : []
     }),
   })
-  return new Set(matched.keys())
 }
 
 export function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {

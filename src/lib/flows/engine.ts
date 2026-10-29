@@ -48,12 +48,15 @@ import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { ChatTagsPatch } from '@/types';
 import { chatHasChatTag, planSetChatTag } from './chat-tags';
-import { judgeMeanings, loadMeaningTurns } from '@/lib/insights/meaning';
-import { resolveTypedReply } from './typed-reply-judge';
 import {
-  meaningThreshold,
-  type IntentTriggerConfig,
-} from '@/lib/insights/meaning-config';
+  judgeMeanings,
+  loadMeaningTurns,
+  meaningCandidate,
+} from '@/lib/insights/meaning';
+import {
+  resolveTypedReply,
+  type TypedReplyResolution,
+} from './typed-reply-judge';
 import {
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
@@ -449,14 +452,15 @@ async function findEntryFlow(
     messageKey: message.meta_message_id,
     text: message.text,
     recentTurns: () => loadMeaningTurns(conversationId, message.text),
-    candidates: intentFlows.map((f) => {
-      const cfg = f.trigger_config as IntentTriggerConfig;
-      return {
-        key: `flow:${f.id}`,
-        description: cfg.description ?? '',
-        examples: cfg.examples,
-        threshold: meaningThreshold(cfg.sensitivity),
-      };
+    // An invalid stored config (an API PATCH can store an empty
+    // description) is skipped, never sent to Jev.
+    candidates: intentFlows.flatMap((f) => {
+      const c = meaningCandidate(
+        `flow:${f.id}`,
+        f.trigger_config,
+        f.updated_at
+      );
+      return c ? [c] : [];
     }),
   });
   return pickIntentFlow(intentFlows, matched);
@@ -787,7 +791,11 @@ async function advanceFromNodeKey(
   run: FlowRunRow,
   startNodeKey: string,
   nodes: Map<string, FlowNodeRow>
-): Promise<{ outcome: 'advanced' | 'completed' | 'handed_off' | 'failed' }> {
+): Promise<{
+  outcome: 'advanced' | 'completed' | 'handed_off' | 'failed';
+  /** The run's optimistic node update lost to a concurrent writer. */
+  lostRace?: boolean;
+}> {
   let currentKey: string | null = startNodeKey;
   // Defensive cap — if a flow has a cycle (which the validator
   // SHOULD catch but doesn't yet in v1), we bail rather than loop.
@@ -917,7 +925,7 @@ async function advanceFromNodeKey(
           reason: 'lost_race_during_advance',
         });
       }
-      return { outcome: 'advanced' };
+      return { outcome: 'advanced', lostRace: !advanced };
     }
     if (node.node_type === 'condition') {
       const cfg = node.config as unknown as ConditionNodeConfig;
@@ -961,7 +969,7 @@ async function advanceFromNodeKey(
           reason: 'lost_race_during_advance',
         });
       }
-      return { outcome: 'advanced' };
+      return { outcome: 'advanced', lostRace: !advanced };
     }
     if (node.node_type === 'send_list') {
       await sendListAndSuspend(db, run, node);
@@ -976,7 +984,7 @@ async function advanceFromNodeKey(
           reason: 'lost_race_during_advance',
         });
       }
-      return { outcome: 'advanced' };
+      return { outcome: 'advanced', lostRace: !advanced };
     }
     if (node.node_type === 'handoff') {
       await executeHandoff(db, run, node);
@@ -1203,6 +1211,10 @@ async function handleReplyForActiveRun(
   //
   // Everything else falls through to the fallback policy below.
   let matched: string | null = null;
+  // A typed answer's match event is written only once the advance has
+  // gone through: a concurrent tap that won the optimistic update must
+  // not leave an event saying this text moved the run.
+  let typedMatch: TypedReplyResolution | null = null;
   if (
     message.kind === 'interactive_reply' &&
     (currentNode.node_type === 'send_buttons' ||
@@ -1227,11 +1239,7 @@ async function handleReplyForActiveRun(
     });
     if (typed) {
       matched = typed.option.next_node_key;
-      await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
-        reply_id: typed.option.reply_id,
-        matched_by: typed.by,
-        ...(typed.by === 'meaning' ? { p: typed.p } : {}),
-      });
+      typedMatch = typed;
     }
   } else if (
     message.kind === 'text' &&
@@ -1280,6 +1288,13 @@ async function handleReplyForActiveRun(
       if (!error) run.reprompt_count = 0;
     }
     const outcome = await advanceFromNodeKey(db, run, matched, nodes);
+    if (typedMatch && outcome.outcome !== 'failed' && !outcome.lostRace) {
+      await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
+        reply_id: typedMatch.option.reply_id,
+        matched_by: typedMatch.by,
+        ...(typedMatch.by === 'meaning' ? { p: typedMatch.p } : {}),
+      });
+    }
     return {
       consumed: outcome.outcome !== 'failed',
       flow_run_id: run.id,

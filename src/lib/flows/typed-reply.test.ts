@@ -105,7 +105,7 @@ describe('parseOrdinal', () => {
     ['(3)', 3],
     ['option 2', 2],
     ['Option #3', 3],
-    ['no. 2', 2],
+    ['number 2', 2],
     ['٢', 2],
     ['٢.', 2],
     ['رقم ٣', 3],
@@ -114,12 +114,19 @@ describe('parseOrdinal', () => {
     expect(parseOrdinal(text)).toBe(n);
   });
 
-  it.each(['0', 'two', '2 please', 'option', '123', '1.5', ''])(
-    '%s → null',
-    (text) => {
-      expect(parseOrdinal(text)).toBeNull();
-    }
-  );
+  it.each([
+    '0',
+    'two',
+    '2 please',
+    'option',
+    '123',
+    '1.5',
+    '',
+    'no 2',
+    'no. 2',
+  ])('%s → null', (text) => {
+    expect(parseOrdinal(text)).toBeNull();
+  });
 });
 
 describe('matchTypedReply', () => {

@@ -1038,8 +1038,12 @@ export async function processMessage(
   // logging zero steps. `runAutomationsForTrigger` owns its own try/catch
   // and never throws; the `.catch` is belt-and-braces so one trigger
   // type's failure can't skip the rest of the loop.
+  // A keyword_match automation that acted on this message wins: a
+  // meaning trigger would otherwise answer the same text a second time.
+  let keywordActed = false;
   for (const triggerType of automationTriggers) {
-    await runAutomationsForTrigger({
+    if (triggerType === 'intent_match' && keywordActed) continue;
+    const acted = await runAutomationsForTrigger({
       accountId,
       triggerType,
       contactId: contactRecord.id,
@@ -1052,7 +1056,11 @@ export async function processMessage(
         // trigger's exact-id match.
         interactive_reply_id: interactiveReplyId ?? undefined,
       },
-    }).catch((err) => console.error('[automations] dispatch failed:', err));
+    }).catch((err) => {
+      console.error('[automations] dispatch failed:', err);
+      return false;
+    });
+    if (triggerType === 'keyword_match' && acted) keywordActed = true;
   }
 
   // AI auto-reply. Runs for any inbound the deterministic flow runner
