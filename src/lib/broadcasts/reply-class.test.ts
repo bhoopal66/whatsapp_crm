@@ -12,6 +12,8 @@ interface Call {
   op: 'select' | 'update';
   payload?: unknown;
   filters: [string, string, unknown][];
+  /** Answered through maybeSingle() (one row) rather than as a list. */
+  single?: boolean;
 }
 
 const h = vi.hoisted(() => ({
@@ -36,8 +38,8 @@ const h = vi.hoisted(() => ({
     sent_at: '2026-10-01T10:00:00Z',
     created_at: '2026-10-01T09:00:00Z',
   } as unknown,
-  /** The conversation's first customer message since the send. */
-  firstMessage: { id: 'msg-1' } as unknown,
+  /** The `messages` table, in insertion order (no ORDER BY applied). */
+  messages: [] as MessageRow[],
   updateError: null as unknown,
   /** Rows the conditional update matched. */
   updateRows: [{ id: 'rec-1' }] as unknown[],
@@ -45,13 +47,44 @@ const h = vi.hoisted(() => ({
   dispatch: vi.fn(),
 }));
 
+interface MessageRow {
+  id: string;
+  conversation_id: string;
+  sender_type: string;
+  created_at: string;
+}
+
+/** A customer message in conv-1; created_at in PostgREST's offset form. */
+const msg = (id: string, createdAt: string): MessageRow => ({
+  id,
+  conversation_id: 'conv-1',
+  sender_type: 'customer',
+  created_at: createdAt,
+});
+
+/** eq on text; gte / lt on timestamps, compared as instants. */
+function selectMessages(call: Call): MessageRow[] {
+  return h.messages.filter((m) =>
+    call.filters.every(([op, col, v]) => {
+      const cur = m[col as keyof MessageRow];
+      if (op === 'eq') return cur === v;
+      if (op === 'gte') return Date.parse(cur) >= Date.parse(v as string);
+      if (op === 'lt') return Date.parse(cur) < Date.parse(v as string);
+      return true;
+    })
+  );
+}
+
 function respond(call: Call): Result {
   if (call.op === 'update')
     return {
       data: h.updateError ? null : h.updateRows,
       error: h.updateError,
     };
-  if (call.table === 'messages') return { data: h.firstMessage, error: null };
+  if (call.table === 'messages') {
+    const rows = selectMessages(call);
+    return { data: call.single ? (rows[0] ?? null) : rows, error: null };
+  }
   if (call.table === 'broadcasts') return { data: h.broadcast, error: null };
   if (call.table === 'broadcast_recipients')
     return { data: h.recipient, error: null };
@@ -75,11 +108,14 @@ function fakeDb() {
         },
         order: () => b,
         limit: () => b,
-        maybeSingle: run,
+        maybeSingle: () => {
+          call.single = true;
+          return run();
+        },
         then: (res: (r: Result) => unknown, rej?: (e: unknown) => unknown) =>
           run().then(res, rej),
       };
-      for (const f of ['eq', 'is', 'gte'] as const)
+      for (const f of ['eq', 'is', 'gte', 'lt'] as const)
         b[f] = (col: string, v: unknown) => {
           call.filters.push([f, col, v]);
           return b;
@@ -137,7 +173,7 @@ beforeEach(() => {
     sent_at: '2026-10-01T10:00:00Z',
     created_at: '2026-10-01T09:00:00Z',
   };
-  h.firstMessage = { id: 'msg-1' };
+  h.messages = [msg('msg-1', '2026-10-01T10:05:00+00:00')];
   h.updateError = null;
   h.updateRows = [{ id: 'rec-1' }];
   h.write.mockReset();
@@ -212,18 +248,48 @@ describe('classifyCampaignReply', () => {
         cls: 'interested',
         p: 0.88,
       });
-      const read = h.calls.find((c) => c.table === 'messages')!;
-      expect(read.filters).toEqual([
+      const [own, older] = h.calls.filter((c) => c.table === 'messages');
+      expect(own!.filters).toEqual([
+        ['eq', 'id', 'msg-1'],
+        ['eq', 'conversation_id', 'conv-1'],
+      ]);
+      // Any customer message since the send strictly older than this one.
+      expect(older!.filters).toEqual([
         ['eq', 'conversation_id', 'conv-1'],
         ['eq', 'sender_type', 'customer'],
         ['gte', 'created_at', '2026-10-01T10:00:00Z'],
+        ['lt', 'created_at', '2026-10-01T10:05:00+00:00'],
       ]);
+    });
+
+    it('two customer messages in the same second: each counts as first', async () => {
+      // created_at is whole seconds; msg-0 sorts first in the table.
+      h.messages = [
+        msg('msg-0', '2026-10-01T10:05:00+00:00'),
+        msg('msg-1', '2026-10-01T10:05:00+00:00'),
+      ];
+      expect(await classifyCampaignReply(inbound)).toEqual({
+        cls: 'interested',
+        p: 0.88,
+      });
+      expect(
+        await classifyCampaignReply({ ...inbound, inboundMessageId: 'msg-0' })
+      ).toEqual({ cls: 'interested', p: 0.88 });
+    });
+
+    it('a message from before the send is not a reply to it', async () => {
+      h.messages = [msg('msg-1', '2026-10-01T09:59:59+00:00')];
+      expect(await classifyCampaignReply(inbound)).toBeNull();
+      expect(h.replyClass).not.toHaveBeenCalled();
     });
 
     it('skips a message that is not the first reply since that send', async () => {
       // Campaign A went unanswered; the customer answered a later B
       // first, so this message is not a reply to A.
-      h.firstMessage = { id: 'msg-earlier' };
+      h.messages = [
+        msg('msg-earlier', '2026-10-01T10:04:59+00:00'),
+        msg('msg-1', '2026-10-01T10:05:00+00:00'),
+      ];
       expect(await classifyCampaignReply(inbound)).toBeNull();
       expect(h.replyClass).not.toHaveBeenCalled();
       expect(updates()).toHaveLength(0);

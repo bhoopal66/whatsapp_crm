@@ -9,7 +9,7 @@ interface Q {
   filters: Filters;
   head: boolean;
   limit?: number;
-  order?: string;
+  orders: string[];
 }
 
 const h = vi.hoisted(() => ({
@@ -27,7 +27,7 @@ const h = vi.hoisted(() => ({
 function fakeSupabase() {
   return {
     from(table: string) {
-      const q: Q = { table, filters: [], head: false };
+      const q: Q = { table, filters: [], head: false, orders: [] };
       h.queries.push(q);
       const single = async () => {
         if (table === 'broadcasts') return { data: h.broadcast, error: null };
@@ -44,7 +44,7 @@ function fakeSupabase() {
           return b;
         },
         order: (c: string) => {
-          q.order = c;
+          q.orders.push(c);
           return b;
         },
         limit: (n: number) => {
@@ -148,7 +148,7 @@ describe('POST /api/broadcasts/[id]/classify-replies', () => {
       (q) => q.table === 'broadcast_recipients' && !q.head
     )!;
     expect(recipientsQ.limit).toBe(500);
-    expect(recipientsQ.order).toBe('id');
+    expect(recipientsQ.orders).toEqual(['id']);
     expect(recipientsQ.filters).toEqual([
       ['eq', 'broadcast_id', ID],
       ['eq', 'status', 'replied'],
@@ -162,6 +162,8 @@ describe('POST /api/broadcasts/[id]/classify-replies', () => {
       ['eq', 'sender_type', 'customer'],
       ['gte', 'created_at', '2026-10-01T09:00:00Z'],
     ]);
+    // Deterministic among messages sharing a (whole-second) created_at.
+    for (const q of msgQs) expect(q.orders).toEqual(['created_at', 'id']);
     expect(h.classify).toHaveBeenCalledTimes(2);
     expect(h.classify).toHaveBeenCalledWith(
       expect.objectContaining({

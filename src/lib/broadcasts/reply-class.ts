@@ -140,24 +140,42 @@ async function campaignContextFor(
   };
 }
 
-/** Is `messageId` the conversation's first customer message since `since`? */
+/**
+ * Is `messageId` the conversation's first customer message since `since`?
+ * It is when no customer message since then is strictly older than it.
+ * created_at is whole seconds (the gateway's timestamp), so two messages
+ * can share one: picking "the earliest" by created_at alone could name
+ * the second, and the real first then counted as not first while the
+ * second found the recipient already replied, leaving the reply with no
+ * class at all. With the strict rule both count, and the conditional
+ * write lets only one store a class.
+ */
 async function isFirstReplySince(
   db: ReturnType<typeof supabaseAdmin>,
   conversationId: string,
   messageId: string,
   since: string
 ): Promise<boolean> {
+  const { data: own, error: ownError } = await db
+    .from('messages')
+    .select('created_at')
+    .eq('id', messageId)
+    .eq('conversation_id', conversationId)
+    .maybeSingle();
+  if (ownError) throw new Error(ownError.message);
+  const at = (own as { created_at: string } | null)?.created_at;
+  // Not since the send: not a reply to it (as before).
+  if (!at || Date.parse(at) < Date.parse(since)) return false;
   const { data, error } = await db
     .from('messages')
     .select('id')
     .eq('conversation_id', conversationId)
     .eq('sender_type', 'customer')
     .gte('created_at', since)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .lt('created_at', at)
+    .limit(1);
   if (error) throw new Error(error.message);
-  return (data as { id: string } | null)?.id === messageId;
+  return !Array.isArray(data) || data.length === 0;
 }
 
 /**

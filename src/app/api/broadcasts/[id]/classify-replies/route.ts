@@ -104,7 +104,9 @@ export async function POST(
     if (rErr) throw new Error(rErr.message);
     const recipients = (rows ?? []) as RecipientRow[];
 
-    /** The contact's first customer message at or after `since`. */
+    /** The contact's first customer message at or after `since`; of
+     *  messages sharing that (whole-second) created_at, the lowest id, so
+     *  a re-run picks the same one. */
     const firstReply = async (
       contactId: string,
       since: string
@@ -125,6 +127,7 @@ export async function POST(
         .eq('sender_type', 'customer')
         .gte('created_at', since)
         .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
         .limit(1)
         .maybeSingle();
       if (mErr) throw new Error(mErr.message);
